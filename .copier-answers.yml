@@ -1,0 +1,22 @@
+# Changes here will be overwritten by Copier; DO NOT MODIFY THIS FILE DIRECTLY!
+#
+# This file was generated using copier (https://copier.readthedocs.io/) with the
+# template copier-UvScaffolding (https://github.com/gt-csse/copier-UvScaffolding).
+# Additional information (including instructions on how to use this template with copier) is
+# available at https://github.com/gt-csse/copier-UvScaffolding.
+#
+
+_commit: v0.5.7
+_src_path: /Users/rbates8/src/copier-UvScaffolding
+author_email: rbates8@gatech.edu
+author_name: Georgia Tech CSSE
+coverage_badge_gist_id: ''
+github_host: https://github.com
+github_repo_name: mellea-lrc
+github_username: gt-csse
+install_ty: false
+license: MIT
+project_name: mellea-lrc
+python_package_name: mellea_lrc
+python_versions: 3.10, 3.11, 3.12, 3.13, 3.14
+sign_artifacts_question: false

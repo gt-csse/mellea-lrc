@@ -1,0 +1,95 @@
+[project]
+name = "mellea-lrc"
+version = "0.0.0" 
+#          ^^^^^
+# Wheel names will be generated according to this value. Do not manually modify this value; instead
+# update it according to committed changes by running this command from the root of the repository:
+#
+#   uv run python -m AutoGitSemVer.scripts.UpdatePythonVersion ./pyproject.toml ./src
+
+description = "Mellea contrib package to provide requirements for the legal domain"
+readme = "README.md"
+authors = [
+    { name = "Di Wu (Woody)", email = "dwu400@gatech.edu" },
+    { name = "Adrian Lozada", email = "alozada7@gatech.edu" },
+    { name = "Robert Bates", email = "rbates8@gatech.edu" },
+]
+requires-python = ">= 3.10"
+dependencies = []
+classifiers = [
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.10",
+]
+
+[project.license]
+text = "MIT"
+
+[project.urls]
+Homepage = "https://github.com/gt-csse/mellea-lrc"
+Documentation = "https://github.com/gt-csse/mellea-lrc"
+Repository = "https://github.com/gt-csse/mellea-lrc"
+
+[build-system]
+requires = ["uv_build>=0.11.16,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "autogitsemver>=0.9.13",
+    "pre-commit>=4.6.0",
+    "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.15.15",
+]
+
+[tool.pytest.ini_options]
+addopts = "--verbose -vv --capture=no --cov=mellea_lrc --cov-report html --cov-report term --cov-report xml:coverage.xml --cov-fail-under=95.0"
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+exclude = ["tests/**"]
+
+select = ["ALL"]
+
+ignore = [
+    "ANN002", # Missing type annotation for `*args`
+    "ANN003", # Missing type annotation for `**kwargs`
+    "BLE001", # Do not catch blind exception: `Exception`
+    "COM812", # Trailing comma missing
+    "D105", # Missing docstring in magic method
+    "D107", # Missing docstring in `__init__` method
+    "D202", # No blank lines allowed after function docstring
+    "E501", # Line too long
+    "FIX002", # Line contains TODO, consider resolving the issue
+    "I001", # Import block is un-sorted or un-formatted
+    "N802", # Function name `xxx` should be lowercase
+    "N999", # Invalid module name
+    "RSE102", # Unnecessary parentheses on raise exception
+    "S101", # Use of assert detected
+    "TC006", # Add quotes to type expression in `typing.cast()`
+    "TD002", # Missing author in TODO
+    "TD003", # Missing issue link for this TODO
+    "TRY002", # Create your own exception
+    "TRY300", # Consider moving this statement to an `else` block
+    "UP032", # Use f-string instead of `format` call
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.pylint]
+max-args = 10
+max-branches = 20
+max-returns = 20
+
+[tool.uv.build-backend]
+module-name = "mellea_lrc"

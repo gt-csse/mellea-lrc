@@ -1,0 +1,6 @@
+# Changes to any of these files or a file within these directories will trigger a release.
+src:
+  - 'src/**'
+  - 'pyproject.toml'
+  - 'README.md'
+  - 'uv.lock'
