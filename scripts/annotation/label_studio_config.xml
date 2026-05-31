@@ -1,0 +1,136 @@
+<View>
+  <!--
+    ECF Citation Annotation
+    ========================
+    Two-column layout: document text on the left, per-region annotation fields
+    on the right (sticky). Fields inside the panel use a 2-column grid.
+
+    Field visibility rules:
+      Plaintiff / Defendant     → FullCaseCitation, ShortCaseCitation, ReferenceCitation
+      Volume / Reporter / Page  → FullCaseCitation, FullLawCitation,
+                                   FullJournalCitation, ShortCaseCitation
+      Pin cite                  → FullCaseCitation, FullLawCitation,
+                                   FullJournalCitation, ShortCaseCitation,
+                                   SupraCitation, IdCitation
+      Extra                     → FullCaseCitation
+      Year                      → FullCaseCitation, FullLawCitation, FullJournalCitation
+      Court                     → FullCaseCitation, ShortCaseCitation
+      Notes                     → all types
+  -->
+
+  <View style="display:flex; gap:0; align-items:flex-start;">
+
+    <!-- ── Left column: document text ──────────────────────────────────── -->
+    <View style="flex:2; min-width:0; padding-right:24px;">
+
+      <Labels name="label" toName="text">
+        <Label value="FullCaseCitation"    background="#4A90D9" hotkey="c" />
+        <Label value="FullLawCitation"     background="#7B68EE" hotkey="l" />
+        <Label value="FullJournalCitation" background="#E8943A" hotkey="j" />
+        <Label value="ShortCaseCitation"   background="#20B2AA" hotkey="h" />
+        <Label value="SupraCitation"       background="#5B7FA6" hotkey="u" />
+        <Label value="IdCitation"          background="#90A4AE" hotkey="i" />
+        <Label value="ReferenceCitation"   background="#A5D6A7" hotkey="r" />
+        <Label value="UnknownCitation"     background="#CFD8DC" hotkey="?" />
+      </Labels>
+
+      <Text name="text" value="$text" granularity="word" />
+
+    </View>
+
+    <!-- ── Right column: sticky annotation panel ────────────────────────── -->
+    <View style="flex:1.5; min-width:360px; max-width:560px; padding-left:16px; border-left:2px solid #e8e8e8; position:sticky; top:0; align-self:flex-start;">
+
+      <!-- 2-column grid for bibliographic fields -->
+      <View style="display:grid; grid-template-columns:1fr 1fr; gap:4px 14px;">
+
+        <!-- Plaintiff -->
+        <View perRegion="true" visibleWhen="region-selected"
+              whenTagName="label"
+              whenLabelValue="FullCaseCitation,ShortCaseCitation,ReferenceCitation">
+          <Header value="Plaintiff" />
+          <TextArea name="plaintiff" toName="text" rows="1" editable="true" placeholder="e.g. Bush" />
+        </View>
+
+        <!-- Defendant -->
+        <View perRegion="true" visibleWhen="region-selected"
+              whenTagName="label"
+              whenLabelValue="FullCaseCitation,ShortCaseCitation,ReferenceCitation">
+          <Header value="Defendant" />
+          <TextArea name="defendant" toName="text" rows="1" editable="true" placeholder="e.g. Gore" />
+        </View>
+
+        <!-- Volume / Title -->
+        <View perRegion="true" visibleWhen="region-selected"
+              whenTagName="label"
+              whenLabelValue="FullCaseCitation,FullLawCitation,FullJournalCitation,ShortCaseCitation">
+          <Header value="Volume / Title" />
+          <TextArea name="volume" toName="text" rows="1" editable="true" placeholder="e.g. 531" />
+        </View>
+
+        <!-- Reporter / Code -->
+        <View perRegion="true" visibleWhen="region-selected"
+              whenTagName="label"
+              whenLabelValue="FullCaseCitation,FullLawCitation,FullJournalCitation,ShortCaseCitation">
+          <Header value="Reporter / Code" />
+          <TextArea name="reporter" toName="text" rows="1" editable="true" placeholder="e.g. U.S." />
+        </View>
+
+        <!-- First page / Section -->
+        <View perRegion="true" visibleWhen="region-selected"
+              whenTagName="label"
+              whenLabelValue="FullCaseCitation,FullLawCitation,FullJournalCitation,ShortCaseCitation">
+          <Header value="First page" />
+          <TextArea name="page" toName="text" rows="1" editable="true" placeholder="e.g. 98" />
+        </View>
+
+        <!-- Pin cite -->
+        <View perRegion="true" visibleWhen="region-selected"
+              whenTagName="label"
+              whenLabelValue="FullCaseCitation,FullLawCitation,FullJournalCitation,ShortCaseCitation,SupraCitation,IdCitation">
+          <Header value="Pin cite" />
+          <TextArea name="pin_cite" toName="text" rows="1" editable="true" placeholder="e.g. 99-100" />
+        </View>
+
+        <!-- Extra (FullCaseCitation only) -->
+        <View perRegion="true" visibleWhen="region-selected"
+              whenTagName="label" whenLabelValue="FullCaseCitation">
+          <Header value="Extra" />
+          <TextArea name="extra" toName="text" rows="1" editable="true" placeholder="e.g. aff'd, rev'd" />
+        </View>
+
+        <!-- Year -->
+        <View perRegion="true" visibleWhen="region-selected"
+              whenTagName="label"
+              whenLabelValue="FullCaseCitation,FullLawCitation,FullJournalCitation">
+          <Header value="Year" />
+          <TextArea name="year" toName="text" rows="1" editable="true" placeholder="e.g. 2000" />
+        </View>
+
+        <!-- Court -->
+        <View perRegion="true" visibleWhen="region-selected"
+              whenTagName="label" whenLabelValue="FullCaseCitation,ShortCaseCitation">
+          <Header value="Court" />
+          <TextArea name="court" toName="text" rows="1" editable="true" placeholder="e.g. scotus" />
+        </View>
+
+      </View>
+
+      <!-- Notes spans full width (outside the grid) -->
+      <View perRegion="true" visibleWhen="region-selected"
+            whenTagName="label"
+            whenLabelValue="FullCaseCitation,FullLawCitation,FullJournalCitation,ShortCaseCitation,SupraCitation,IdCitation,ReferenceCitation,UnknownCitation">
+        <Header value="Notes" />
+        <TextArea name="notes" toName="text" rows="2" editable="true"
+                  placeholder="e.g. direct quote, parenthetical, needs verification" />
+      </View>
+
+    </View>
+
+  </View>
+
+  <Relations>
+    <Relation value="resolves_to" />
+  </Relations>
+
+</View>
