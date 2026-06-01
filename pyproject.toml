@@ -15,7 +15,9 @@ authors = [
     { name = "Robert Bates", email = "rbates8@gatech.edu" },
 ]
 requires-python = ">= 3.10"
-dependencies = []
+dependencies = [
+    "docling>=2.96.1",
+]
 classifiers = [
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
@@ -82,6 +84,8 @@ ignore = [
     "TRY002", # Create your own exception
     "TRY300", # Consider moving this statement to an `else` block
     "UP032", # Use f-string instead of `format` call
+    "D203", # Incorrect blank lines before class
+    "D213", # Multiline line summary second line
 ]
 
 [tool.ruff.lint.mccabe]
