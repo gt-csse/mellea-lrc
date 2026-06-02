@@ -175,10 +175,13 @@ def _get_antecedent_map(
 
 
 def citations_to_prediction(text: str) -> dict:
-    """
-    Run eyecite (with resolution) and return a single LS prediction dict.
+    """Run eyecite (with resolution) and return a single LS prediction dict.
 
-    For each recognised citation:
+    Args:
+    ----
+    text: str
+
+    For each recognized citation:
     - A 'labels' result marks the span with the eyecite class name.
     - Per-region TextArea results carry bibliographic fields from eyecite metadata.
     - For reference types (ShortCaseCitation, SupraCitation, IdCitation) a
