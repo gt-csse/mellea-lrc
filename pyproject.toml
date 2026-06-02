@@ -17,6 +17,7 @@ authors = [
 requires-python = ">= 3.10"
 dependencies = [
     "docling>=2.96.1",
+    "eyecite>=2.7.6",
 ]
 classifiers = [
     "Operating System :: MacOS",
