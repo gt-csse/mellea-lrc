@@ -60,7 +60,6 @@ addopts = "--verbose -vv --capture=no --cov=mellea_lrc --cov-report html --cov-r
 
 [tool.ruff]
 line-length = 110
-exclude = ["scripts/annotation/**"]
 
 [tool.ruff.lint]
 exclude = ["tests/**"]
