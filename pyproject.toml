@@ -52,6 +52,11 @@ dev = [
     "ruff>=0.15.15",
     "typer<0.26",
 ]
+notebook = [
+    "ipykernel>=7.2.0",
+    "ipython>=8.39.0",
+    "jupyter>=1.1.1",
+]
 
 [tool.pytest.ini_options]
 addopts = "--verbose -vv --capture=no --cov=mellea_lrc --cov-report html --cov-report term --cov-report xml:coverage.xml --cov-fail-under=95.0"

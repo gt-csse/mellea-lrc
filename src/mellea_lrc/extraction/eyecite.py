@@ -3,6 +3,8 @@
 import uuid
 from typing import cast
 from collections.abc import Callable
+
+
 from eyecite import get_citations, resolve_citations
 from eyecite.models import (
     CitationBase,
