@@ -164,7 +164,7 @@ def _get_antecedent_map(
     # by resolve_citations as citations are processed in document order).
     citation_to_region: dict[int, str] = {id(c): rid for c, rid in citation_regionid}
     antecedent_map: dict[str, str] = {}
-    for _, refs in resolutions.items():
+    for refs in resolutions.values():
         # this should never fail per eyecite logic, we do not guard keyerror in case some edge cases appear
         full_region_id = citation_to_region[id(refs[0])]
         for ref in refs[1:]:
