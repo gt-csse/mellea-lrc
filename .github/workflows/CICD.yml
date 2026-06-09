@@ -20,6 +20,7 @@ jobs:
 
     permissions:
       contents: write
+      pull-requests: read  # Ceiling for the reusable workflow; release job's paths-filter needs it
 
     uses: ./.github/workflows/CICD_impl.yml
 
