@@ -240,6 +240,7 @@ jobs:
 
     permissions:
       contents: write  # To tag the repository and create the release
+      pull-requests: read  # For dorny/paths-filter to list changed files on pull_request events
 
     steps:
       - uses: actions/checkout@v6
