@@ -33,8 +33,6 @@ def _get_files() -> list[Path]:
 def main() -> None:
     """Convert PDFs into plaint-text."""
     pdf_paths = _get_files()
-    
-
 
 
 if __name__ == "__main__":
