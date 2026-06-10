@@ -139,7 +139,8 @@ def _assign_id_to_citation(citations: list[CitationBase]) -> list[tuple[Citation
         # Get the type
         cls = type(cite)
         if cls not in CITATION_TYPES:
-            raise UnknownCitationError("Ensure all citations types are")
+            message = "Ensure all citations types are"
+            raise UnknownCitationError(message)
         citations_with_id.append((cite, str(uuid.uuid4())[:8]))
     return citations_with_id
 
