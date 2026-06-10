@@ -25,6 +25,13 @@ permissions: {}
 jobs:
   analyze:
     name: Analyze
+    # Code scanning requires GitHub Advanced Security, which is free on public
+    # repos but a paid add-on on private repos. While this repo is private, set
+    # the repository variable DISABLE_CODEQL to "true" (Settings -> Secrets and
+    # variables -> Actions -> Variables) to skip this job and avoid the
+    # "Advanced Security must be enabled" error. Unset it (or leave it absent)
+    # once the repo is public to let CodeQL run.
+    if: vars.DISABLE_CODEQL != 'true'
     # Runner size impacts CodeQL analysis time. To learn more, please see:
     #   - https://gh.io/recommended-hardware-resources-for-running-codeql
     #   - https://gh.io/supported-runners-and-hardware-resources
