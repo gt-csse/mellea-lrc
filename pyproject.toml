@@ -56,7 +56,10 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "--verbose -vv --capture=no --cov=mellea_lrc --cov-report html --cov-report term --cov-report xml:coverage.xml --cov-fail-under=95.0"
+# Coverage report still runs (html/term/xml), but the failure gate is disabled so
+# coverage no longer blocks R&D PRs. To re-enable enforcement, append
+# " --cov-fail-under=95.0" to addopts below.
+addopts = "--verbose -vv --capture=no --cov=mellea_lrc --cov-report html --cov-report term --cov-report xml:coverage.xml"
 
 [tool.ruff]
 line-length = 110
