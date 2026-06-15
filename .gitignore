@@ -14,3 +14,7 @@ wheels/
 coverage.xml
 minisign_key.pri
 post_generation_instructions.html
+
+# local 
+.env
+local/

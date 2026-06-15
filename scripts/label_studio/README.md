@@ -1,0 +1,57 @@
+# Label Studio Workflow
+
+Pre-annotates legal documents with the source extraction pipeline and uploads them to Label Studio for human review.
+
+Label Studio is an annotation UI adapter. Reusable preprocessing, extraction, and neutral JSON serialization live under `src/mellea_lrc`.
+
+## Setup
+
+Install the Label Studio script dependencies:
+
+```bash
+uv sync --group label-studio
+```
+
+Copy the project-root example environment file and fill in your Label Studio credentials:
+
+```bash
+cp .env.example .env
+```
+
+Required values:
+
+```env
+LS_URL=https://your-label-studio-instance.com
+LS_EMAIL=your@email.com
+LS_PASSWORD=your_password_here
+LS_PROJECT_ID=123
+ls-test-doc=local/test_data/*.txt
+```
+
+## Workflow
+
+1. Create a new project in Label Studio and set `LS_PROJECT_ID` from the `/projects/<id>/` URL.
+2. Push the labeling schema:
+
+```bash
+uv run --group label-studio python -m scripts.label_studio.cli upload-schema
+```
+
+3. Upload documents with pre-annotations:
+
+```bash
+uv run --group label-studio python -m scripts.label_studio.cli upload-tasks path/to/document.txt
+uv run --group label-studio python -m scripts.label_studio.cli upload-tasks docs-text/*.txt
+```
+
+If no paths are passed, `upload-tasks` reads `ls-test-doc` from the project-root `.env`.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `pre_annotate.py` | Runs source extraction and adapts the result to a Label Studio prediction dict |
+| `label_studio.py` | Label Studio-specific prediction serializer |
+| `upload_tasks.py` | Uploads `.txt` files as tasks with pre-annotations |
+| `upload_schema.py` | Pushes `label_studio_config.xml` to the active project |
+| `label_studio_config.xml` | Label Studio annotation schema |

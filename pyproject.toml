@@ -41,12 +41,19 @@ requires = ["uv_build>=0.11.16,<0.12.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
-annotation = [
+preprocessing = [
+    "docling>=2.0",
+]
+extraction = [
     "eyecite>=2.6",
+]
+label-studio = [
+    { include-group = "extraction" },
     "requests>=2.32",
     "python-dotenv>=1.0",
 ]
 dev = [
+    { include-group = "extraction" },
     "autogitsemver>=0.9.13",
     "pre-commit>=4.6.0",
     "pytest>=9.0.3",
@@ -56,6 +63,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 # Coverage report still runs (html/term/xml), but the failure gate is disabled so
 # coverage no longer blocks R&D PRs. To re-enable enforcement, append
 # " --cov-fail-under=95.0" to addopts below.
