@@ -56,9 +56,30 @@ label-studio = [
     "requests>=2.32",
     "python-dotenv>=1.0",
 ]
+courtlistener = [
+    "fastapi>=0.115",
+    "python-multipart>=0.0.9",
+    "requests>=2.32",
+]
+courtlistener-r2 = [
+    { include-group = "courtlistener" },
+    "boto3>=1.34",
+]
+assessment = [
+    "mellea>=0.3.2",
+]
+modal = [
+    { include-group = "preprocessing" },
+    { include-group = "label-studio" },
+    { include-group = "courtlistener-r2" },
+    "fastapi[standard]>=0.115",
+    "modal>=1.0,<2.0",
+]
 dev = [
     { include-group = "extraction" },
+    { include-group = "courtlistener" },
     "autogitsemver>=0.9.13",
+    "httpx2>=0.28",
     "pre-commit>=4.6.0",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
@@ -81,8 +102,9 @@ testpaths = ["tests"]
 # Coverage report still runs (html/term/xml), but the failure gate is disabled so
 # coverage no longer blocks R&D PRs. To re-enable enforcement, append
 # " --cov-fail-under=95.0" to addopts below.
-addopts = "--verbose -vv --capture=no --cov=mellea_lrc --cov-report html --cov-report term --cov-report xml:coverage.xml"
+addopts = "--verbose -vv --capture=no -p no:faker --cov=mellea_lrc --cov-report html --cov-report term --cov-report xml:coverage.xml"
 markers = [
+    "heavy: opt-in local integration tests that use heavy dependencies or real document conversion",
     "remote_smoke: opt-in smoke tests that call external services",
 ]
 
