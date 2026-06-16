@@ -1,78 +1,409 @@
-"""Tests for the direct CourtListener API client."""
-
 from __future__ import annotations
 
 import json
 import unittest
 from typing import Any
 
-import requests
-
 from mellea_lrc.courtlistener.client import (
     CourtListenerClient,
     CourtListenerConfig,
     CourtListenerError,
+    CourtListenerRateLimitConfig,
+    CourtListenerRateLimiter,
 )
 
 
 class FakeResponse:
-    """Minimal response used to test client logic without live HTTP."""
+    """Minimal response object used to test client logic without live HTTP."""
 
-    def __init__(
-        self,
-        payload: Any,
-        status_code: int = 200,
-        url: str = "https://example.test/citation-lookup/",
-        *,
-        json_error: bool = False,
-    ) -> None:
+    def __init__(self, payload: Any, status_code: int = 200, url: str = "https://example.test") -> None:
         self._payload = payload
         self.status_code = status_code
         self.url = url
-        self.text = "not-json" if json_error else json.dumps(payload)
-        self._json_error = json_error
+        self.text = json.dumps(payload)
 
     def json(self) -> Any:
-        """Return the configured JSON payload or simulate invalid JSON."""
-        if self._json_error:
-            raise ValueError("invalid JSON")
         return self._payload
 
 
 class FakeSession:
-    """Record outgoing requests and return queued responses or errors."""
+    """Records outgoing requests and returns queued fake responses."""
 
-    def __init__(self, responses: list[FakeResponse | Exception]) -> None:
+    def __init__(self, responses: list[FakeResponse]) -> None:
         self.responses = responses
         self.calls: list[dict[str, Any]] = []
 
     def request(self, method: str, url: str, **kwargs: Any) -> FakeResponse:
-        """Return the next response after recording the request."""
         self.calls.append({"method": method, "url": url, **kwargs})
         if not self.responses:
             raise AssertionError("No fake response queued")
-        response = self.responses.pop(0)
-        if isinstance(response, Exception):
-            raise response
-        return response
+        return self.responses.pop(0)
 
 
-def client(session: FakeSession) -> CourtListenerClient:
-    """Construct a direct client with deterministic test configuration."""
+def client(
+    session: FakeSession,
+    rate_limiter: CourtListenerRateLimiter | None = None,
+) -> CourtListenerClient:
     return CourtListenerClient(
         config=CourtListenerConfig(
             base_url="https://www.courtlistener.com/api/rest/v4/",
-            token="token-a",
+            tokens=("token-a", "token-b"),
         ),
         session=session,
+        rate_limiter=rate_limiter,
     )
 
 
 class CourtListenerClientTests(unittest.TestCase):
-    """Regression guards for exact citation lookup and transport failures."""
+    """Regression guards for request shaping, response normalization, and token use."""
 
-    def test_lookup_uses_exact_citation_post_contract(self) -> None:
-        """The request contains only volume, reporter, and page."""
+    def test_get_returns_cache_envelope(self) -> None:
+        """GET helpers should return our stable cache envelope and browser-like headers."""
+        session = FakeSession([FakeResponse({"id": 1, "court_id": "dcd"})])
+
+        result = client(session).get_docket(1)
+
+        self.assertEqual(result["cache"], "miss")
+        self.assertEqual(result["cl_docket_id"], 1)
+        self.assertEqual(result["court_id"], "dcd")
+        self.assertEqual(result["raw"], {"id": 1, "court_id": "dcd"})
+        self.assertEqual(session.calls[0]["method"], "GET")
+        self.assertEqual(session.calls[0]["url"], "https://www.courtlistener.com/api/rest/v4/dockets/1/")
+        self.assertIn("Mozilla/5.0", session.calls[0]["headers"]["User-Agent"])
+
+    def test_resolve_docket_uses_court_and_docket_number(self) -> None:
+        """Docket resolution should use CourtListener's official docket filters."""
+        session = FakeSession(
+            [
+                FakeResponse(
+                    {
+                        "count": 1,
+                        "results": [
+                            {
+                                "id": 4214664,
+                                "court_id": "dcd",
+                                "docket_number": "1:16-cv-00745",
+                                "case_name": "Example",
+                            }
+                        ],
+                    }
+                )
+            ]
+        )
+
+        result = client(session).resolve_docket("dcd", "1:16-cv-00745")
+
+        self.assertEqual(result["candidates"][0]["cl_docket_id"], 4214664)
+        self.assertEqual(result["raw"]["count"], 1)
+        self.assertEqual(
+            session.calls[0]["params"],
+            {"court": "dcd", "docket_number": "1:16-cv-00745"},
+        )
+
+    def test_docket_entry_search_includes_nested_recap_documents(self) -> None:
+        """Entry search should expose nested RECAP documents and one availability meaning."""
+        session = FakeSession(
+            [
+                FakeResponse(
+                    {
+                        "count": 1,
+                        "results": [
+                            {
+                                "id": 77,
+                                "docket": "https://www.courtlistener.com/api/rest/v4/dockets/4214664/",
+                                "entry_number": 4,
+                                "recap_documents": [
+                                    {
+                                        "id": 88,
+                                        "docket_entry": (
+                                            "https://www.courtlistener.com/api/rest/v4/docket-entries/77/"
+                                        ),
+                                        "document_number": 4,
+                                        "filepath_local": "",
+                                        "filepath_ia": "https://archive.org/example.pdf",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                )
+            ]
+        )
+
+        result = client(session).search_docket_entries(4214664, 4)
+
+        document = result["entries"][0]["recap_documents"][0]
+        self.assertEqual(result["cl_docket_id"], 4214664)
+        self.assertEqual(result["entry_number"], "4")
+        self.assertEqual(document["recap_document_id"], 88)
+        self.assertIs(document["available"], True)
+        self.assertNotIn("local_available", document)
+        self.assertEqual(
+            session.calls[0]["params"],
+            {"docket": 4214664, "entry_number": 4},
+        )
+
+    def test_docket_entry_search_can_list_entries_without_entry_number(self) -> None:
+        """Entry listing should work when the LLM has not identified an exact ECF."""
+        session = FakeSession(
+            [
+                FakeResponse(
+                    {
+                        "count": 1,
+                        "results": [
+                            {
+                                "id": 77,
+                                "docket": "https://www.courtlistener.com/api/rest/v4/dockets/4214664/",
+                                "entry_number": 4,
+                                "description": "Motion for summary judgment",
+                            }
+                        ],
+                    }
+                )
+            ]
+        )
+
+        result = client(session).search_docket_entries(4214664)
+
+        self.assertEqual(result["cl_docket_id"], 4214664)
+        self.assertNotIn("entry_number", result)
+        self.assertEqual(result["entries"][0]["entry_number"], "4")
+        self.assertEqual(session.calls[0]["params"], {"docket": 4214664})
+        self.assertNotIn("cursor", session.calls[0]["params"])
+
+    def test_docket_entry_search_forwards_cursor_with_docket_filter(self) -> None:
+        """Cursor pagination should keep CourtListener's base docket query intact."""
+        session = FakeSession(
+            [
+                FakeResponse(
+                    {
+                        "count": 2,
+                        "next": (
+                            "https://www.courtlistener.com/api/rest/v4/docket-entries/"
+                            "?cursor=next%2Fpage%3D&docket=4214664"
+                        ),
+                        "previous": (
+                            "https://www.courtlistener.com/api/rest/v4/docket-entries/"
+                            "?cursor=previous%2Fpage%3D&docket=4214664"
+                        ),
+                        "results": [
+                            {
+                                "id": 77,
+                                "docket": "https://www.courtlistener.com/api/rest/v4/dockets/4214664/",
+                                "entry_number": 4,
+                            }
+                        ],
+                    }
+                )
+            ]
+        )
+
+        result = client(session).search_docket_entries(
+            4214664,
+            entry_number=4,
+            cursor="current/page=",
+        )
+
+        self.assertEqual(
+            session.calls[0]["params"],
+            {"docket": 4214664, "entry_number": 4, "cursor": "current/page="},
+        )
+        self.assertEqual(result["next_cursor"], "next/page=")
+        self.assertEqual(result["previous_cursor"], "previous/page=")
+
+    def test_docket_entry_search_omits_missing_cursor(self) -> None:
+        """A missing cursor should not send an empty cursor filter upstream."""
+        session = FakeSession(
+            [
+                FakeResponse(
+                    {
+                        "count": 0,
+                        "next": None,
+                        "previous": None,
+                        "results": [],
+                    }
+                )
+            ]
+        )
+
+        result = client(session).search_docket_entries(4214664, cursor=None)
+
+        self.assertEqual(session.calls[0]["params"], {"docket": 4214664})
+        self.assertIsNone(result["next_cursor"])
+        self.assertIsNone(result["previous_cursor"])
+
+    def test_recap_document_search_by_entry_id(self) -> None:
+        """RECAP document search should expose CourtListener's docket_entry filter."""
+        session = FakeSession(
+            [
+                FakeResponse(
+                    {
+                        "count": 1,
+                        "results": [
+                            {
+                                "id": 88,
+                                "docket_entry": (
+                                    "https://www.courtlistener.com/api/rest/v4/docket-entries/77/"
+                                ),
+                                "document_number": 4,
+                                "filepath_local": "recap/example.pdf",
+                                "filepath_ia": "",
+                            }
+                        ],
+                    }
+                )
+            ]
+        )
+
+        result = client(session).search_recap_documents(cl_docket_entry_id=77)
+
+        self.assertEqual(result["cl_docket_entry_id"], 77)
+        self.assertEqual(result["documents"][0]["recap_document_id"], 88)
+        self.assertIs(result["documents"][0]["available"], True)
+        self.assertEqual(session.calls[0]["params"], {"docket_entry": 77})
+
+    def test_recap_document_search_by_docket_and_entry_reuses_entry_documents(self) -> None:
+        """The workflow can resolve documents from cl_docket_id plus ECF."""
+        session = FakeSession(
+            [
+                FakeResponse(
+                    {
+                        "count": 1,
+                        "results": [
+                            {
+                                "id": 77,
+                                "docket": "https://www.courtlistener.com/api/rest/v4/dockets/4214664/",
+                                "entry_number": 4,
+                                "recap_documents": [
+                                    {
+                                        "id": 88,
+                                        "document_number": 4,
+                                        "filepath_local": "recap/example.pdf",
+                                        "filepath_ia": "",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                )
+            ]
+        )
+
+        result = client(session).search_recap_documents(cl_docket_id=4214664, entry_number=4)
+
+        self.assertEqual(result["cl_docket_id"], 4214664)
+        self.assertEqual(result["entry_number"], "4")
+        self.assertEqual(result["documents"][0]["recap_document_id"], 88)
+        self.assertEqual(
+            session.calls[0]["params"],
+            {"docket": 4214664, "entry_number": 4},
+        )
+
+    def test_get_recap_document_normalizes_availability(self) -> None:
+        """A RECAP document is available iff filepath_local or filepath_ia is present."""
+        session = FakeSession(
+            [
+                FakeResponse(
+                    {
+                        "id": 88,
+                        "document_number": "4",
+                        "filepath_local": None,
+                        "filepath_ia": "",
+                    }
+                )
+            ]
+        )
+
+        result = client(session).get_recap_document(88)
+
+        self.assertEqual(result["recap_document_id"], 88)
+        self.assertIs(result["available"], False)
+        self.assertEqual(result["raw"]["id"], 88)
+
+    def test_download_url_prefers_courtlistener_storage(self) -> None:
+        """Available local storage paths should normalize to a usable download URL."""
+        session = FakeSession(
+            [
+                FakeResponse(
+                    {
+                        "id": 88,
+                        "filepath_local": "recap/example.pdf",
+                        "filepath_ia": "",
+                    }
+                )
+            ]
+        )
+
+        result = client(session).get_recap_document_download_url(88)
+
+        self.assertIs(result["available"], True)
+        self.assertEqual(result["source"], "courtlistener_storage")
+        self.assertEqual(result["download_url"], "https://storage.courtlistener.com/recap/example.pdf")
+
+    def test_get_court_normalizes_court_metadata(self) -> None:
+        """Court metadata should be available for court-id validation."""
+        session = FakeSession(
+            [
+                FakeResponse(
+                    {
+                        "id": "dcd",
+                        "full_name": "District Court, District of Columbia",
+                        "citation_string": "D.D.C.",
+                        "jurisdiction": "FD",
+                    }
+                )
+            ]
+        )
+
+        result = client(session).get_court("dcd")
+
+        self.assertEqual(result["court_id"], "dcd")
+        self.assertEqual(result["citation_string"], "D.D.C.")
+        self.assertEqual(session.calls[0]["url"], "https://www.courtlistener.com/api/rest/v4/courts/dcd/")
+
+    def test_search_supports_official_v4_types(self) -> None:
+        """Search should preserve raw results and normalize candidate fields per type."""
+        session = FakeSession(
+            [
+                FakeResponse(
+                    {
+                        "count": 1,
+                        "results": [
+                            {
+                                "docket_id": 4214664,
+                                "court_id": "dcd",
+                                "docketNumber": "1:16-cv-00745",
+                                "caseName": "Example",
+                                "more_docs": False,
+                                "recap_documents": [
+                                    {
+                                        "id": 88,
+                                        "filepath_local": "/tmp/example.pdf",
+                                        "filepath_ia": "",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                )
+            ]
+        )
+
+        result = client(session).search("Example", "r")
+
+        self.assertEqual(result["type"], "r")
+        self.assertEqual(result["results"][0]["cl_docket_id"], 4214664)
+        self.assertEqual(result["results"][0]["recap_documents"][0]["recap_document_id"], 88)
+        self.assertIs(result["results"][0]["recap_documents"][0]["available"], True)
+        self.assertEqual(session.calls[0]["params"], {"q": "Example", "type": "r"})
+
+    def test_search_rejects_unlisted_types(self) -> None:
+        """The public search wrapper should not silently accept unsupported types."""
+        with self.assertRaises(ValueError):
+            client(FakeSession([])).search("Example", "p")
+
+    def test_citation_lookup_uses_post(self) -> None:
+        """Citation lookup must preserve CourtListener's volume/reporter/page POST shape."""
         session = FakeSession(
             [
                 FakeResponse(
@@ -89,157 +420,131 @@ class CourtListenerClientTests(unittest.TestCase):
 
         result = client(session).lookup_citation("347", "U.S.", "483")
 
-        self.assertEqual(result.status, 200)
-        self.assertEqual(result.records[0].case_name, "Brown")
+        self.assertEqual(result["cache"], "miss")
+        self.assertEqual(result["response"]["status"], 200)
         self.assertEqual(session.calls[0]["method"], "POST")
-        self.assertEqual(
-            session.calls[0]["url"],
-            "https://www.courtlistener.com/api/rest/v4/citation-lookup/",
-        )
         self.assertEqual(
             session.calls[0]["data"],
             {"volume": "347", "reporter": "U.S.", "page": "483"},
         )
-        self.assertEqual(
-            session.calls[0]["headers"]["User-Agent"],
-            "mellea-lrc (+https://github.com/gt-csse/mellea-lrc)",
-        )
 
-    def test_empty_lookup_is_not_found(self) -> None:
-        """CourtListener's explicit not-found result remains distinguishable."""
-        result = client(
-            FakeSession([FakeResponse([{"citation": "1 U.S. 9999", "status": 404, "clusters": []}])])
-        ).lookup_citation("1", "U.S.", "9999")
+    def test_empty_citation_lookup_is_not_found(self) -> None:
+        """An empty CourtListener citation response should normalize to our 404 object."""
+        result = client(FakeSession([FakeResponse([])])).lookup_citation("1", "U.S.", "9999")
 
-        self.assertEqual(result.status, 404)
-        self.assertEqual(result.citation, "1 U.S. 9999")
-        self.assertEqual(result.records, ())
+        self.assertEqual(result["cache"], "miss")
+        self.assertEqual(result["response"]["status"], 404)
+        self.assertEqual(result["response"]["citation"], "1 U.S. 9999")
 
-    def test_ambiguous_lookup_preserves_each_candidate(self) -> None:
-        """A 300 response retains every candidate returned for the locator."""
-        result = client(
-            FakeSession(
-                [
-                    FakeResponse(
-                        [
-                            {
-                                "citation": "1 F.2d 2",
-                                "status": 300,
-                                "clusters": [
-                                    {"caseName": "First", "docketId": 10},
-                                    {"caseName": "Second", "docketId": 20},
-                                ],
-                            }
-                        ]
-                    )
-                ]
-            )
-        ).lookup_citation("1", "F.2d", "2")
-
-        self.assertEqual(result.status, 300)
-        self.assertEqual([record.case_name for record in result.records], ["First", "Second"])
-        self.assertEqual([record.docket_id for record in result.records], ["10", "20"])
-
-    def test_rate_limit_is_typed_after_one_request(self) -> None:
-        """A rate-limit response raises an API-limit error after one request."""
-        session = FakeSession([FakeResponse({"detail": "rate limited"}, status_code=429)])
-
-        with self.assertRaises(CourtListenerError) as raised:
-            client(session).lookup_citation("1", "U.S.", "1")
-
-        error = raised.exception
-        self.assertEqual(error.failure_type, "api_limit")
-        self.assertEqual(error.upstream_status_code, 429)
-        self.assertIs(error.retryable, True)
-        self.assertEqual(len(session.calls), 1)
-        self.assertEqual(session.calls[0]["headers"]["Authorization"], "Token token-a")
-
-    def test_search_uses_get_with_supported_type_and_pagination(self) -> None:
-        """Search forwards the documented query parameters and exposes cursors."""
+    def test_rate_limit_rotates_token(self) -> None:
+        """A 429 should retry with the next configured API token."""
         session = FakeSession(
             [
-                FakeResponse(
-                    {
-                        "count": 1,
-                        "next": "https://example.test/search/?cursor=next-page",
-                        "previous": None,
-                        "results": [{"id": 42, "caseName": "Brown"}],
-                    },
-                    url="https://example.test/search/",
-                )
+                FakeResponse({"detail": "rate limited"}, status_code=429),
+                FakeResponse({"id": 9}),
             ]
         )
 
-        result = client(session).search("Brown", "o", cursor="current-page", semantic=True)
+        self.assertEqual(client(session).get_docket(9)["raw"], {"id": 9})
+        self.assertEqual(session.calls[0]["headers"]["Authorization"], "Token token-a")
+        self.assertEqual(session.calls[1]["headers"]["Authorization"], "Token token-b")
 
-        self.assertEqual(result.query, "Brown")
-        self.assertEqual(result.search_type, "o")
-        self.assertIs(result.semantic, True)
-        self.assertEqual(result.count, 1)
-        self.assertEqual(result.results[0]["caseName"], "Brown")
-        self.assertEqual(result.next_cursor, "next-page")
-        self.assertIsNone(result.previous_cursor)
-        self.assertEqual(session.calls[0]["method"], "GET")
-        self.assertEqual(session.calls[0]["url"], "https://www.courtlistener.com/api/rest/v4/search/")
-        self.assertEqual(
-            session.calls[0]["params"],
-            {"q": "Brown", "type": "o", "cursor": "current-page", "semantic": "true"},
+    def test_exhausted_rate_limit_surfaces_api_limit_failure(self) -> None:
+        """If every token is rate limited, callers should see the explicit API-limit type."""
+        session = FakeSession(
+            [
+                FakeResponse({"detail": "rate limited"}, status_code=429),
+                FakeResponse({"detail": "rate limited"}, status_code=429),
+            ]
         )
 
-    def test_search_rejects_unsupported_type(self) -> None:
-        """The public wrapper exposes only the CourtListener v4 search corpora."""
-        with self.assertRaises(ValueError):
-            client(FakeSession([])).search("Brown", "p")  # type: ignore[arg-type]
-
-    def test_search_invalid_response_is_typed(self) -> None:
-        """A malformed search response is rejected at the client boundary."""
         with self.assertRaises(CourtListenerError) as raised:
-            client(FakeSession([FakeResponse({"results": []})])).search("Brown", "o")
+            client(session).get_docket(9)
 
-        self.assertEqual(raised.exception.failure_type, "upstream_invalid_response")
+        error = raised.exception
+        self.assertEqual(error.failure_type, "api_limit")
+        self.assertEqual(error.status_code, 429)
+        self.assertEqual(error.upstream_status_code, 429)
+        self.assertIs(error.retryable, True)
+        self.assertEqual(error.upstream_detail, {"detail": "rate limited"})
+        self.assertEqual(error.to_public_dict()["failure_type"], "api_limit")
 
-    def test_auth_failure_is_typed(self) -> None:
-        """CourtListener authentication failures remain distinguishable."""
+    def test_upstream_forbidden_surfaces_auth_failure(self) -> None:
+        """CourtListener auth failures should be distinguishable from rate limits."""
         session = FakeSession([FakeResponse({"detail": "bad token"}, status_code=403)])
 
         with self.assertRaises(CourtListenerError) as raised:
-            client(session).lookup_citation("1", "U.S.", "1")
+            client(session).get_docket(9)
 
-        self.assertEqual(raised.exception.failure_type, "upstream_auth")
-        self.assertEqual(raised.exception.upstream_status_code, 403)
-        self.assertIs(raised.exception.retryable, False)
+        error = raised.exception
+        self.assertEqual(error.failure_type, "upstream_auth")
+        self.assertEqual(error.status_code, 502)
+        self.assertEqual(error.upstream_status_code, 403)
+        self.assertIs(error.retryable, False)
 
-    def test_invalid_json_is_typed(self) -> None:
-        """A successful non-JSON response is rejected at the HTTP boundary."""
-        session = FakeSession([FakeResponse(None, json_error=True)])
+    def test_rate_limiter_waits_before_exceeding_window(self) -> None:
+        """The client should wait locally instead of sending over-window requests."""
+        now = 0.0
+        sleeps: list[float] = []
 
+        def clock() -> float:
+            return now
+
+        def sleeper(seconds: float) -> None:
+            nonlocal now
+            sleeps.append(seconds)
+            now += seconds
+
+        limiter = CourtListenerRateLimiter(
+            CourtListenerRateLimitConfig(
+                per_minute=2,
+                per_hour=0,
+                per_day=0,
+                max_wait_seconds=60,
+            ),
+            clock=clock,
+            sleeper=sleeper,
+        )
+        session = FakeSession(
+            [
+                FakeResponse({"id": 1}),
+                FakeResponse({"id": 2}),
+                FakeResponse({"id": 3}),
+            ]
+        )
+        api = client(session, rate_limiter=limiter)
+
+        api.get_docket(1)
+        api.get_docket(2)
+        api.get_docket(3)
+
+        self.assertEqual(sleeps, [60.0])
+        self.assertEqual(len(session.calls), 3)
+
+    def test_rate_limiter_surfaces_api_limit_when_wait_exceeds_budget(self) -> None:
+        """Long local waits should return the same typed API-limit failure."""
+        limiter = CourtListenerRateLimiter(
+            CourtListenerRateLimitConfig(
+                per_minute=1,
+                per_hour=0,
+                per_day=0,
+                max_wait_seconds=5,
+            ),
+            clock=lambda: 0.0,
+            sleeper=lambda _: None,
+        )
+        session = FakeSession([FakeResponse({"id": 1}), FakeResponse({"id": 2})])
+        api = client(session, rate_limiter=limiter)
+
+        api.get_docket(1)
         with self.assertRaises(CourtListenerError) as raised:
-            client(session).lookup_citation("1", "U.S.", "1")
+            api.get_docket(2)
 
-        self.assertEqual(raised.exception.failure_type, "upstream_invalid_json")
-        self.assertEqual(raised.exception.upstream_detail, "not-json")
-
-    def test_timeout_is_typed(self) -> None:
-        """A transport timeout exposes a retryable timeout failure."""
-        session = FakeSession([requests.Timeout("slow")])
-
-        with self.assertRaises(CourtListenerError) as raised:
-            client(session).lookup_citation("1", "U.S.", "1")
-
-        self.assertEqual(raised.exception.failure_type, "upstream_timeout")
-        self.assertIsNone(raised.exception.upstream_status_code)
-        self.assertIs(raised.exception.retryable, True)
-
-    def test_invalid_response_shape_is_typed(self) -> None:
-        """A response violating the one-result contract becomes a client error."""
-        session = FakeSession([FakeResponse([])])
-
-        with self.assertRaises(CourtListenerError) as raised:
-            client(session).lookup_citation("1", "U.S.", "1")
-
-        self.assertEqual(raised.exception.failure_type, "upstream_invalid_response")
-        self.assertEqual(raised.exception.upstream_status_code, 200)
-        self.assertIs(raised.exception.retryable, False)
+        error = raised.exception
+        self.assertEqual(error.failure_type, "api_limit")
+        self.assertEqual(error.status_code, 429)
+        self.assertEqual(error.retry_after_seconds, 60.0)
+        self.assertEqual(len(session.calls), 1)
 
 
 if __name__ == "__main__":

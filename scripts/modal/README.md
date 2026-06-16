@@ -50,6 +50,14 @@ can still use `LS_EMAIL` / `LS_PASSWORD`.
 uv run --group modal modal deploy scripts/modal/app.py
 ```
 
+The CourtListener access service uses reusable code from
+`src/mellea_lrc/courtlistener` and keeps Modal-specific deployment glue in
+`scripts/modal/cl_access_app.py`:
+
+```bash
+uv run --group modal modal deploy scripts/modal/cl_access_app.py
+```
+
 ## Local Serve
 
 ```bash
