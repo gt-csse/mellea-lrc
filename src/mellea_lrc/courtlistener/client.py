@@ -11,12 +11,18 @@ from dataclasses import dataclass
 from threading import Lock
 from time import gmtime, monotonic, sleep, strftime
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 import requests
 
 from mellea_lrc.courtlistener.cache import CacheEntry, CacheStore, NullCache
+from mellea_lrc.courtlistener.lookup import (
+    normalize_citation_lookup_payload,
+)
+
+if TYPE_CHECKING:
+    from mellea_lrc.courtlistener.types import CourtListenerCitationLookup
 
 
 DEFAULT_USER_AGENT = (
@@ -353,23 +359,12 @@ class CourtListenerClient:
             "raw": raw,
         }
 
-    def lookup_citation(self, volume: str, reporter: str, page: str) -> dict[str, Any]:
+    def lookup_citation(self, volume: str, reporter: str, page: str) -> CourtListenerCitationLookup:
         result = self.post(
             "citation-lookup",
             data={"volume": volume, "reporter": reporter, "page": page},
         )
-        payload = result["response"]
-        if isinstance(payload, list) and payload:
-            return {**result, "response": payload[0]}
-        return {
-            **result,
-            "response": {
-                "citation": f"{volume} {reporter} {page}",
-                "status": 404,
-                "error_message": "Citation not found",
-                "clusters": [],
-            },
-        }
+        return normalize_citation_lookup_payload(result, volume, reporter, page)
 
     def get(self, endpoint: str, params: dict[str, Any] | None = None) -> Any:
         return self._request("GET", endpoint, params=params)

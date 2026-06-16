@@ -12,6 +12,7 @@ from mellea_lrc.courtlistener.client import (
     CourtListenerError,
     CourtListenerRateLimiter,
 )
+from mellea_lrc.courtlistener.lookup import citation_lookup_envelope_dict
 
 HTTP_NOT_FOUND = 404
 HTTP_METHOD_NOT_ALLOWED = 405
@@ -130,11 +131,12 @@ def create_api(client_factory: Callable[[], CourtListenerClient] | None = None) 
                 raise HTTPException(status_code=400, detail=f"{name} is required")
             return value.strip()
 
-        return client().lookup_citation(
+        lookup = client().lookup_citation(
             volume=require_field("volume"),
             reporter=require_field("reporter"),
             page=require_field("page"),
         )
+        return citation_lookup_envelope_dict(lookup)
 
     return api
 

@@ -1,11 +1,9 @@
 """Validation pipeline for extracted citations."""
 
 from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.courtlistener.remote import CourtListenerAccessClient
+from mellea_lrc.courtlistener.types import CitationLookupClient, CourtListenerCitationLookup
 from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
-from mellea_lrc.validation.cl_access import (
-    CourtListenerAccessClient,
-    CourtListenerCitationLookup,
-)
 from mellea_lrc.validation.types import (
     CitationValidation,
     DocumentValidation,
@@ -23,7 +21,7 @@ HTTP_TOO_MANY_REQUESTS = 429
 def validate_extraction(
     extraction: DocumentExtraction,
     *,
-    client: CourtListenerAccessClient | None = None,
+    client: CitationLookupClient | None = None,
 ) -> DocumentValidation:
     """Run first-layer existence validation for extractable full case citations."""
     lookup_client = client or CourtListenerAccessClient()
@@ -34,7 +32,7 @@ def validate_extraction(
 
 def _validate_citation(
     item: ExtractedCitation,
-    client: CourtListenerAccessClient,
+    client: CitationLookupClient,
 ) -> CitationValidation:
     citation = item.citation
     if not isinstance(citation, FullCaseCitation):
