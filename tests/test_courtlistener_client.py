@@ -420,8 +420,9 @@ class CourtListenerClientTests(unittest.TestCase):
 
         result = client(session).lookup_citation("347", "U.S.", "483")
 
-        self.assertEqual(result["cache"], "miss")
-        self.assertEqual(result["response"]["status"], 200)
+        self.assertEqual(result.cache, "miss")
+        self.assertEqual(result.status, 200)
+        self.assertEqual(result.clusters, ({"case_name": "Brown"},))
         self.assertEqual(session.calls[0]["method"], "POST")
         self.assertEqual(
             session.calls[0]["data"],
@@ -432,9 +433,9 @@ class CourtListenerClientTests(unittest.TestCase):
         """An empty CourtListener citation response should normalize to our 404 object."""
         result = client(FakeSession([FakeResponse([])])).lookup_citation("1", "U.S.", "9999")
 
-        self.assertEqual(result["cache"], "miss")
-        self.assertEqual(result["response"]["status"], 404)
-        self.assertEqual(result["response"]["citation"], "1 U.S. 9999")
+        self.assertEqual(result.cache, "miss")
+        self.assertEqual(result.status, 404)
+        self.assertEqual(result.citation, "1 U.S. 9999")
 
     def test_rate_limit_rotates_token(self) -> None:
         """A 429 should retry with the next configured API token."""
