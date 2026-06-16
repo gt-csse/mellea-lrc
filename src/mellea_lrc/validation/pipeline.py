@@ -1,16 +1,19 @@
 """Validation pipeline for extracted citations."""
 
 from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.courtlistener.client import CourtListenerClient
 from mellea_lrc.courtlistener.remote import CourtListenerAccessClient
 from mellea_lrc.courtlistener.types import CitationLookupClient, CourtListenerCitationLookup
 from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
 from mellea_lrc.validation.types import (
     CitationValidation,
     DocumentValidation,
+    ValidationClientMode,
     ValidationStatus,
 )
 
 SOURCE = "cl-access"
+DEFAULT_CLIENT_MODE: ValidationClientMode = "deployed"
 HTTP_FOUND = 200
 HTTP_MULTIPLE_CHOICES = 300
 HTTP_BAD_REQUEST = 400
@@ -21,13 +24,43 @@ HTTP_TOO_MANY_REQUESTS = 429
 def validate_extraction(
     extraction: DocumentExtraction,
     *,
+    client_mode: ValidationClientMode = DEFAULT_CLIENT_MODE,
     client: CitationLookupClient | None = None,
 ) -> DocumentValidation:
     """Run first-layer existence validation for extractable full case citations."""
-    lookup_client = client or CourtListenerAccessClient()
+    lookup_client = _lookup_client(client_mode, client)
     return DocumentValidation(
         validations=tuple(_validate_citation(item, lookup_client) for item in extraction.citations)
     )
+
+
+def _lookup_client(
+    client_mode: str,
+    client: CitationLookupClient | None,
+) -> CitationLookupClient:
+    if client_mode == "deployed":
+        _ensure_no_client_override(client_mode, client)
+        return CourtListenerAccessClient()
+    if client_mode == "sdk":
+        _ensure_no_client_override(client_mode, client)
+        return CourtListenerClient()
+    if client_mode == "custom":
+        if client is None:
+            msg = "client is required when client_mode='custom'"
+            raise ValueError(msg)
+        return client
+
+    msg = "client_mode must be one of: 'deployed', 'sdk', or 'custom'"
+    raise ValueError(msg)
+
+
+def _ensure_no_client_override(
+    client_mode: str,
+    client: CitationLookupClient | None,
+) -> None:
+    if client is not None:
+        msg = f"client must be None when client_mode='{client_mode}'; use client_mode='custom'"
+        raise ValueError(msg)
 
 
 def _validate_citation(

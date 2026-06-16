@@ -24,7 +24,15 @@ def predict_preprocessed(
 ) -> dict[str, Any]:
     """Run extraction, optional validation, and Label Studio prediction serialization."""
     extraction = run_extraction(preprocessed)
-    validation = validate_extraction(extraction, client=client) if validate else None
+    validation = (
+        validate_extraction(
+            extraction,
+            client_mode="custom" if client is not None else "deployed",
+            client=client,
+        )
+        if validate
+        else None
+    )
     prediction = to_label_studio_prediction(extraction)
     if validation is not None:
         prediction = add_validation_notes(prediction, validation)
