@@ -5,7 +5,8 @@ and validation pipeline as a Modal-hosted service. It is the replacement shape
 for the old standalone `ml_backend/modal_app.py`: Modal and Label Studio stay in
 `scripts`, while the reusable pipeline remains in `src`.
 
-Modal app name: `mellea-lrc-prototype`.
+Pipeline Modal app name: `mellea-lrc-prototype`.
+CourtListener Modal app name: `courtlistener-access`.
 
 ## Secrets
 
@@ -52,10 +53,10 @@ uv run --group modal modal deploy scripts/modal/app.py
 
 The CourtListener access service uses reusable code from
 `src/mellea_lrc/courtlistener` and keeps Modal-specific deployment glue in
-`scripts/modal/cl_access_app.py`:
+`scripts/modal/courtlistener_server.py`:
 
 ```bash
-uv run --group modal modal deploy scripts/modal/cl_access_app.py
+uv run --group modal modal deploy scripts/modal/courtlistener_server.py
 ```
 
 ## Local Serve

@@ -1,4 +1,4 @@
-"""Modal deployment wrapper for the reusable CourtListener access API."""
+"""Modal server for the reusable CourtListener access API."""
 
 from pathlib import Path
 
@@ -6,8 +6,10 @@ import modal
 
 from mellea_lrc.courtlistener.api import create_api
 
-APP_NAME = "cl-access-modal"
+APP_NAME = "courtlistener-access"
+REMOTE_ROOT = Path("/root")
 PACKAGE_DIR = Path(__file__).resolve().parents[2] / "src" / "mellea_lrc"
+REMOTE_PACKAGE_DIR = REMOTE_ROOT / "mellea_lrc"
 
 app = modal.App(APP_NAME)
 
@@ -19,7 +21,8 @@ image = (
         "python-multipart>=0.0.9",
         "requests>=2.32",
     )
-    .add_local_dir(PACKAGE_DIR, "/root/mellea_lrc", copy=True)
+    .add_local_dir(PACKAGE_DIR, REMOTE_PACKAGE_DIR, copy=True)
+    .env({"PYTHONPATH": str(REMOTE_ROOT)})
 )
 
 courtlistener_secret = modal.Secret.from_name(
