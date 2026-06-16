@@ -15,6 +15,7 @@ coverage.xml
 minisign_key.pri
 post_generation_instructions.html
 
-# Personal settings files
-.envrc
+# Local development artifacts
 .env
+.envrc
+local/
