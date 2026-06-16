@@ -5,6 +5,7 @@ from mellea_lrc.validation.pipeline import validate_extraction
 from mellea_lrc.validation.types import (
     CitationValidation,
     DocumentValidation,
+    ValidationClientMode,
     ValidationStatus,
 )
 
@@ -13,6 +14,7 @@ __all__ = [
     "CourtListenerAccessClient",
     "CourtListenerAccessConfig",
     "DocumentValidation",
+    "ValidationClientMode",
     "ValidationStatus",
     "validate_extraction",
 ]

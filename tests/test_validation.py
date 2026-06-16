@@ -1,13 +1,15 @@
 """Tests for first-layer citation validation."""
 
+import pytest
+
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
-from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.courtlistener.remote import (
     CourtListenerAccessClient,
     CourtListenerAccessConfig,
 )
+from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
+from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.validation.pipeline import validate_extraction
 from mellea_lrc.validation.types import ValidationStatus
 
@@ -34,6 +36,7 @@ def test_validate_full_case_found() -> None:
 
     result = validate_extraction(
         extraction,
+        client_mode="custom",
         client=_client(
             {
                 "cache": "miss",
@@ -66,7 +69,7 @@ def test_validate_non_case_citation_is_skipped() -> None:
         ),
     )
 
-    result = validate_extraction(extraction, client=_client({}))
+    result = validate_extraction(extraction, client_mode="custom", client=_client({}))
 
     assert result.validations[0].status == ValidationStatus.SKIPPED
 
@@ -95,7 +98,41 @@ def test_validate_missing_locator_is_invalid_without_service_call() -> None:
         post_json=post_json,
     )
 
-    result = validate_extraction(extraction, client=client)
+    result = validate_extraction(extraction, client_mode="custom", client=client)
 
     assert result.validations[0].status == ValidationStatus.INVALID
     assert calls == 0
+
+
+def test_validate_rejects_custom_mode_without_client() -> None:
+    extraction = DocumentExtraction(
+        preprocessed=preprocess_plain_text_from_string("No citations."),
+        citations=(),
+    )
+
+    with pytest.raises(ValueError, match="client is required"):
+        validate_extraction(extraction, client_mode="custom")
+
+
+def test_validate_rejects_client_override_for_managed_modes() -> None:
+    extraction = DocumentExtraction(
+        preprocessed=preprocess_plain_text_from_string("No citations."),
+        citations=(),
+    )
+    client = _client({})
+
+    with pytest.raises(ValueError, match="client must be None"):
+        validate_extraction(extraction, client_mode="deployed", client=client)
+
+    with pytest.raises(ValueError, match="client must be None"):
+        validate_extraction(extraction, client_mode="sdk", client=client)
+
+
+def test_validate_rejects_unknown_client_mode() -> None:
+    extraction = DocumentExtraction(
+        preprocessed=preprocess_plain_text_from_string("No citations."),
+        citations=(),
+    )
+
+    with pytest.raises(ValueError, match="client_mode must be one of"):
+        validate_extraction(extraction, client_mode="other")  # type: ignore[arg-type]

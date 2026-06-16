@@ -2,6 +2,9 @@
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import Literal, TypeAlias
+
+ValidationClientMode: TypeAlias = Literal["deployed", "sdk", "custom"]
 
 
 class ValidationStatus(str, Enum):
