@@ -1,12 +1,12 @@
 """Validation pipeline for extracted citations."""
 
 from mellea_lrc.core.citations import FullCaseCitation
-from mellea_lrc.extraction.result import DocumentExtraction, ExtractedCitation
+from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
 from mellea_lrc.validation.cl_access import (
     CourtListenerAccessClient,
     CourtListenerCitationLookup,
 )
-from mellea_lrc.validation.result import (
+from mellea_lrc.validation.types import (
     CitationValidation,
     DocumentValidation,
     ValidationStatus,

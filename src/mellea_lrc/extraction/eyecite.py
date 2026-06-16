@@ -31,9 +31,9 @@ from mellea_lrc.core.citations import (
     UnknownCitation,
 )
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.result import DocumentExtraction, ExtractedCitation
-from mellea_lrc.preprocessing.document import PreprocessedDocument  # noqa: TC001
+from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
 from mellea_lrc.preprocessing.plain_text import preprocess_plain_text_from_string
+from mellea_lrc.preprocessing.types import PreprocessedDocument  # noqa: TC001
 
 EYECITE_CITATION_TYPES = frozenset(
     {
@@ -214,8 +214,8 @@ def extract_baseline(preprocessed: PreprocessedDocument) -> DocumentExtraction:
 def extract(preprocessed: PreprocessedDocument) -> DocumentExtraction:
     """Extract canonical citations from a preprocessed document.
 
-    Alias for :func:`extract_baseline`. Prefer :func:`run_extraction` when
-    composing the baseline with augmenters.
+    Alias for :func:`extract_baseline`. Prefer :func:`run_extraction` for the
+    layer-level pipeline entrypoint.
     """
     return extract_baseline(preprocessed)
 

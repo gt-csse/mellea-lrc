@@ -3,7 +3,7 @@
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from mellea_lrc.preprocessing.document import (
+from mellea_lrc.preprocessing.types import (
     PreprocessedDocument,
     PreprocessedDocumentMetadata,
     PreprocessingBackend,

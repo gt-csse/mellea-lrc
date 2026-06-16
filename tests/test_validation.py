@@ -2,14 +2,14 @@
 
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.result import DocumentExtraction, ExtractedCitation
+from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
 from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.validation.cl_access import (
     CourtListenerAccessClient,
     CourtListenerAccessConfig,
 )
 from mellea_lrc.validation.pipeline import validate_extraction
-from mellea_lrc.validation.result import ValidationStatus
+from mellea_lrc.validation.types import ValidationStatus
 
 
 def _client(response: dict[str, object]) -> CourtListenerAccessClient:

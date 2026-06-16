@@ -13,7 +13,7 @@ from mellea_lrc.core.citations import (
     SupraCitation,
     UnknownCitation,
 )
-from mellea_lrc.extraction.result import DocumentExtraction, ExtractedCitation
+from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
 
 MODEL_VERSION = "eyecite-pre-annotation"
 

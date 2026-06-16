@@ -2,7 +2,7 @@
 
 from mellea_lrc.validation.cl_access import CourtListenerAccessClient, CourtListenerAccessConfig
 from mellea_lrc.validation.pipeline import validate_extraction
-from mellea_lrc.validation.result import (
+from mellea_lrc.validation.types import (
     CitationValidation,
     DocumentValidation,
     ValidationStatus,

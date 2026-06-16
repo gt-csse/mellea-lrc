@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from mellea_lrc.core.citations import CanonicalCitation, is_full_citation
 from mellea_lrc.core.spans import Span
-from mellea_lrc.preprocessing.document import PreprocessedDocument
+from mellea_lrc.preprocessing.types import PreprocessedDocument
 
 
 @dataclass(frozen=True, slots=True)

@@ -9,7 +9,7 @@ from mellea_lrc.core.citations import citation_kind
 
 if TYPE_CHECKING:
     from mellea_lrc.core.citations import CanonicalCitation
-    from mellea_lrc.extraction.result import DocumentExtraction, ExtractedCitation
+    from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
 
 JsonValue: TypeAlias = str | int | float | bool | None | dict[str, "JsonValue"] | list["JsonValue"]
 
