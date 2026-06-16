@@ -1,17 +1,17 @@
 """Formal types for Layer 2 preprocessed documents."""
 
 from dataclasses import dataclass, field
-from enum import StrEnum
+from enum import Enum
 
 
-class PreprocessingBackend(StrEnum):
+class PreprocessingBackend(str, Enum):
     """Engine that produced the preprocessed text."""
 
     DOCLING = "docling"
     PLAIN_TEXT = "plain_text"
 
 
-class SourceFormat(StrEnum):
+class SourceFormat(str, Enum):
     """Original document format before preprocessing."""
 
     PDF = "pdf"

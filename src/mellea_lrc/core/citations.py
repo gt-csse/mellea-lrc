@@ -5,11 +5,11 @@ these canonical types before downstream validation and serialization.
 """
 
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 from typing import ClassVar, TypeAlias
 
 
-class CitationKind(StrEnum):
+class CitationKind(str, Enum):
     """Canonical citation type names used in annotation and serialization."""
 
     FULL_CASE = "FullCaseCitation"
