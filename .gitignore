@@ -9,9 +9,12 @@ wheels/
 # Virtual environments
 .venv
 .coverage
+.pytest_cache/
+.ruff_cache/
 .DS_Store
 .vscode
 coverage.xml
+htmlcov/
 minisign_key.pri
 post_generation_instructions.html
 
@@ -21,12 +24,15 @@ post_generation_instructions.html
 local/
 docs/.obsidian/**
 
-# Frontend-generated files
-frontend/.env*.local
+# Frontend artifacts
 frontend/.next/
 frontend/node_modules/
+frontend/out/
+frontend/.env*.local
+frontend/.vercel/
 frontend/tsconfig.tsbuildinfo
 .claude/
-
 # notebooks
 notebooks/
+frontend/npm-debug.log*
+frontend/yarn-error.log*

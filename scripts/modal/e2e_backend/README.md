@@ -1,7 +1,8 @@
-# Label Studio Modal Backend
+# E2E Modal Backend
 
-This Modal app exposes the mellea-lrc extraction and validation pipeline as a
-Label Studio ML backend.
+This Modal app exposes the assembled mellea-lrc preprocessing, extraction,
+validation, and prediction pipeline. The backend has a direct text API and a
+Label Studio bridge for the ML-backend `/setup` and `/predict` contract.
 
 Modal app name: `mellea-lrc-prototype`.
 
@@ -18,12 +19,14 @@ LS_ACCOUNT_AUTH=<label-studio-refresh-token>
 CL_ACCESS_MODAL_URL=<courtlistener-access-service-url>
 ```
 
-`LS_ACCOUNT_AUTH` is the Label Studio refresh token used to fetch uploaded PDF
+`LS_ACCOUNT_AUTH` is only used by the Label Studio bridge to fetch uploaded PDF
 assets and patch extracted text back onto the same task. Validation uses the
 CourtListener Modal backend through `CL_ACCESS_MODAL_URL`.
 
 ## Runtime Assumptions
 
+- The assembled backend API is defined by `pipeline.E2EBackend`.
+- Label Studio-specific task bridging is isolated in `label_studio_bridge.py`.
 - Label Studio calls this service with `/setup` and `/predict`.
 - A PDF task stores an uploaded PDF path in `data.pdf`, or in another string
   field that looks like a Label Studio upload path.
@@ -37,13 +40,13 @@ CourtListener Modal backend through `CL_ACCESS_MODAL_URL`.
 ## Deploy
 
 ```bash
-uv run --group modal modal deploy scripts/modal/label_studio/server.py
+uv run --group modal modal deploy scripts/modal/e2e_backend/server.py
 ```
 
 ## Local Serve
 
 ```bash
-uv run --group modal modal serve scripts/modal/label_studio/server.py
+uv run --group modal modal serve scripts/modal/e2e_backend/server.py
 ```
 
 Useful endpoints:

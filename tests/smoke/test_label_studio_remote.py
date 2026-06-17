@@ -1,4 +1,4 @@
-"""Remote smoke tests for the deployed Label Studio Modal backend."""
+"""Remote smoke tests for deployed E2E backend Label Studio endpoints."""
 
 from __future__ import annotations
 
