@@ -6,7 +6,12 @@ from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
 from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.validation.types import CitationValidation, DocumentValidation, ValidationStatus
 from scripts.label_studio.label_studio import to_label_studio_prediction
-from scripts.modal.e2e_backend.pipeline import E2EBackend, add_validation_notes, predict_preprocessed
+from scripts.modal.e2e_backend.pipeline import (
+    E2EBackend,
+    add_validation_notes,
+    predict_preprocessed,
+    review_preprocessed,
+)
 
 
 class FakeClient:
@@ -44,6 +49,27 @@ def test_e2e_backend_predict_text_exposes_pipeline_api() -> None:
     assert output["validation"] is None
     assert output["stats"]["citation_spans"] == 1
     assert output["prediction"]["result"]
+
+
+def test_review_preprocessed_returns_frontend_span_payload() -> None:
+    output = review_preprocessed(
+        preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483."),
+        client=FakeClient(),
+    )
+
+    citation = output["citations"][0]
+    assert output["document"]["text"] == "Brown v. Board, 347 U.S. 483."
+    assert citation["start"] == 0
+    assert citation["end"] == 28
+    assert citation["matched_text"] == "347 U.S. 483"
+    assert citation["kind"] == "FullCaseCitation"
+    assert citation["fields"]["volume"] == "347"
+    assert citation["fields"]["reporter"] == "U.S."
+    assert citation["fields"]["page"] == "483"
+    assert citation["fields"]["plaintiff"] == "Brown"
+    assert citation["validation"]["status"] == "found"
+    assert citation["validation"]["case_names"] == ["Brown"]
+    assert output["stats"]["found"] == 1
 
 
 def test_add_validation_notes_skips_non_case_citations() -> None:
