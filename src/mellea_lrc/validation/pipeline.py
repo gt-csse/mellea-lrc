@@ -104,6 +104,12 @@ def _validation_from_lookup(
         source=SOURCE,
         message=_message_from_lookup(lookup, case_names),
         case_names=case_names,
+        lookup_status=lookup.status,
+        lookup_cache=lookup.cache,
+        lookup_key=lookup.key,
+        error_message=lookup.error_message,
+        limit_detail=lookup.limit_detail,
+        clusters=lookup.clusters,
     )
 
 

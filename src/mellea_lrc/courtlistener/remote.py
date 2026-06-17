@@ -79,11 +79,13 @@ def _post_json(url: str, data: Mapping[str, str]) -> object:
             return json.loads(response.read().decode("utf-8"))
     except error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
+        limit_detail = _json_detail(detail)
         return {
             "response": {
                 "citation": " ".join(data[key] for key in ("volume", "reporter", "page")),
                 "status": exc.code,
-                "error_message": detail,
+                "error_message": _error_message(limit_detail, detail),
+                "limit_detail": limit_detail,
                 "clusters": [],
             }
         }
@@ -103,3 +105,26 @@ def _validate_http_url(url: str) -> None:
     if scheme not in {"http", "https"}:
         msg = f"cl-access URL must be http(s), got: {scheme or '<empty>'}"
         raise ValueError(msg)
+
+
+def _json_detail(raw: str) -> dict[str, object] | None:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    detail = payload.get("detail", payload)
+    return detail if isinstance(detail, dict) else payload
+
+
+def _error_message(detail: dict[str, object] | None, fallback: str) -> str:
+    if detail is None:
+        return fallback
+    message = detail.get("message")
+    if isinstance(message, str) and message:
+        return message
+    failure_type = detail.get("failure_type")
+    if isinstance(failure_type, str) and failure_type:
+        return failure_type
+    return fallback

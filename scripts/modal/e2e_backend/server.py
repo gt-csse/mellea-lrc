@@ -1,7 +1,5 @@
 """Modal server for the mellea-lrc end-to-end backend."""
 
-from __future__ import annotations
-
 import logging
 import os
 from typing import Annotated
@@ -41,7 +39,8 @@ backend = E2EBackend()
     ],
     gpu="L4",
     memory=4096,
-    timeout=600,
+    timeout=1800,
+    scaledown_window=120,
     enable_memory_snapshot=True,
 )
 @modal.asgi_app()

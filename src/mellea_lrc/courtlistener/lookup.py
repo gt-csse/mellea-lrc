@@ -20,6 +20,7 @@ def normalize_citation_lookup_payload(
     status = _int_value(response.get("status")) or HTTP_NOT_FOUND
     clusters = tuple(item for item in response.get("clusters", []) if isinstance(item, dict))
     error_message = _string_value(response.get("error_message"))
+    limit_detail = _json_object(response.get("limit_detail"))
 
     return CourtListenerCitationLookup(
         citation=citation,
@@ -28,6 +29,7 @@ def normalize_citation_lookup_payload(
         cache=_string_value(envelope.get("cache")),
         key=_string_value(envelope.get("key")),
         error_message=error_message,
+        limit_detail=limit_detail,
     )
 
 
@@ -40,6 +42,8 @@ def citation_lookup_response_dict(lookup: CourtListenerCitationLookup) -> dict[s
     }
     if lookup.error_message is not None:
         response["error_message"] = lookup.error_message
+    if lookup.limit_detail is not None:
+        response["limit_detail"] = lookup.limit_detail
     return response
 
 
@@ -59,6 +63,10 @@ def _string_value(value: object) -> str | None:
 
 def _int_value(value: object) -> int | None:
     return value if isinstance(value, int) else None
+
+
+def _json_object(value: object) -> dict[str, object] | None:
+    return value if isinstance(value, dict) else None
 
 
 def _first_lookup_response(value: object) -> dict[str, object]:
