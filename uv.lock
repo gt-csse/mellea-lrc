@@ -1271,6 +1271,11 @@ dev = [
 extraction = [
     { name = "eyecite" },
 ]
+label-studio = [
+    { name = "eyecite" },
+    { name = "python-dotenv" },
+    { name = "requests" },
+]
 preprocessing = [
     { name = "docling" },
 ]
@@ -1288,6 +1293,11 @@ dev = [
     { name = "typer", specifier = "<0.26" },
 ]
 extraction = [{ name = "eyecite", specifier = ">=2.6" }]
+label-studio = [
+    { name = "eyecite", specifier = ">=2.6" },
+    { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "requests", specifier = ">=2.32" },
+]
 preprocessing = [{ name = "docling", specifier = ">=2.0" }]
 
 [[package]]

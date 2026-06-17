@@ -18,3 +18,9 @@ post_generation_instructions.html
 # Local development artifacts
 .env
 local/
+
+# Frontend-generated files
+frontend/.env*.local
+frontend/.next/
+frontend/node_modules/
+frontend/tsconfig.tsbuildinfo
