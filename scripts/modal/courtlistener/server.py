@@ -8,8 +8,18 @@ from mellea_lrc.courtlistener.api import create_api
 
 APP_NAME = "courtlistener-access"
 REMOTE_ROOT = Path("/root")
-PACKAGE_DIR = Path(__file__).resolve().parents[3] / "src" / "mellea_lrc"
 REMOTE_PACKAGE_DIR = REMOTE_ROOT / "mellea_lrc"
+LOCAL_REPO_PARENT_INDEX = 3
+
+
+def _package_dir() -> Path:
+    path = Path(__file__).resolve()
+    if len(path.parents) > LOCAL_REPO_PARENT_INDEX:
+        return path.parents[LOCAL_REPO_PARENT_INDEX] / "src" / "mellea_lrc"
+    return REMOTE_PACKAGE_DIR
+
+
+PACKAGE_DIR = _package_dir()
 
 app = modal.App(APP_NAME)
 
