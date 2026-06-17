@@ -14,6 +14,8 @@ Runtime configuration comes from named Modal secrets:
 ```env
 # Modal secret: courtlistener
 COURTLISTENER_API_TOKEN_1=<courtlistener-api-token>
+COURTLISTENER_API_TOKEN_2=<optional-second-token>
+COURTLISTENER_API_TOKEN_3=<optional-third-token>
 
 # Modal secret: courtlistener-r2-cache
 R2_BUCKET=<bucket-name>
@@ -23,7 +25,7 @@ AWS_SECRET_ACCESS_KEY=<r2-secret-key>
 ```
 
 Optional environment values supported by the reusable client include
-`COURTLISTENER_API_TOKEN_2`, `COURTLISTENER_BASE_URL`, and `R2_PREFIX`.
+`COURTLISTENER_BASE_URL` and `R2_PREFIX`.
 
 ## Runtime Assumptions
 
@@ -33,6 +35,9 @@ Optional environment values supported by the reusable client include
   `reporter`, and `page`.
 - The reusable client handles CourtListener token rotation, rate limiting, and
   cache envelopes.
+- The Modal server shuffles configured `COURTLISTENER_API_TOKEN*` values on
+  container startup so concurrent containers do not always start with the same
+  CourtListener key.
 
 ## Deploy
 
