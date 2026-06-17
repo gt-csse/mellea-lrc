@@ -6,6 +6,7 @@ from pathlib import Path
 
 import mellea
 from mellea.stdlib.components.docs.richdocument import RichDocument
+from mellea.stdlib.sampling.base import RejectionSamplingStrategy
 
 # %%
 load_dotenv()
@@ -41,11 +42,22 @@ document = RichDocument.from_document_file(file_path)
 
 # %%
 citations = m.instruct(
-    "return a list of all **case** citations in the document. keep order as they appear in the text. include short, supra, and id citations. text: {{text}}",
+    "return a list of all case law citations in the document. document: {{text}}",
     user_variables={"text": document.to_markdown()},
+    requirements=[
+        "return a list of case law citations",
+        "place each citation on a serate line",
+        "return case citations (i.e., Doe vs. Roe 452 U.S. 4722 (1978)) with original format",
+        "only include the case citations",
+        "write the names of citions exactly how exactly how they appear in the text.",
+        "keep the order of the citations as they appear on the text",
+        "include full, short, supra, and id citations",
+    ],
+    strategy=RejectionSamplingStrategy(loop_budget=4),
 )
 
 # %%
+print(file_path.name)
 print(citations)
 
 # %%
