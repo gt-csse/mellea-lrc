@@ -28,11 +28,11 @@ CourtListener Modal backend through `CL_ACCESS_MODAL_URL`.
 - The assembled backend API is defined by `pipeline.E2EBackend`.
 - Label Studio-specific task bridging is isolated in `label_studio_bridge.py`.
 - Label Studio calls this service with `/setup` and `/predict`.
-- A PDF task stores an uploaded PDF path in `data.pdf`, or in another string
-  field that looks like a Label Studio upload path.
+- A PDF task may store the upload path in `data.pdf`, or directly in `data.text`
+  when imported into a text-based Label Studio project.
 - The app fetches the PDF from `LS_URL`, extracts plain text with Docling, patches
-  that text back onto the same Label Studio task as `data.text`, then returns the
-  prediction for Label Studio to attach.
+  the same task to keep the source path in `data.pdf` and put extracted text in
+  `data.text`, then returns the prediction for Label Studio to attach.
 - Citation spans are relative to the extracted `data.text`.
 - Validation is optional for `/predict_text` via `{"validate": false}`.
 - Docling is initialized lazily on the first PDF request.

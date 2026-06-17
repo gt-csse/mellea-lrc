@@ -73,6 +73,37 @@ Downstream PDF workflows should extract text first and write tasks shaped like:
 
 Predictions should always use spans relative to `data.text`.
 
+## Task Data Shape
+
+The current labeling schema renders only `data.text`:
+
+```xml
+<Text name="text" value="$text" />
+```
+
+So Label Studio annotations and predictions are text-span annotations over:
+
+```json
+{"data": {"text": "document text"}}
+```
+
+If a PDF is imported directly into this text-based project, Label Studio may put
+the upload path in `data.text`:
+
+```json
+{"data": {"text": "/data/upload/.../document.pdf"}}
+```
+
+That path is then rendered as plain text because the XML consumes `$text`. Our
+Modal E2E backend works around this for uploaded PDFs by extracting the PDF,
+patching the task to:
+
+```json
+{"data": {"pdf": "/data/upload/.../document.pdf", "text": "extracted text"}}
+```
+
+and returning predictions whose spans are relative to `data.text`.
+
 ## Files
 
 | File | Purpose |
