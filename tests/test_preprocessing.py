@@ -2,6 +2,7 @@
 
 import sys
 import types
+from pathlib import Path
 
 import pytest
 
@@ -92,3 +93,55 @@ def test_preprocessed_document_rejects_empty_text() -> None:
             text="",
             preprocessing_metadata=PreprocessingMetadata(),
         )
+
+
+@pytest.mark.heavy
+def test_preprocess_with_real_docling_pdf_exports_plain_text(tmp_path: Path) -> None:
+    pytest.importorskip("docling", reason="Install with `uv sync --group preprocessing`.")
+    pdf_path = tmp_path / "sample.pdf"
+    pdf_path.write_bytes(_minimal_text_pdf("Brown v. Board, 347 U.S. 483."))
+
+    document = preprocess_with_docling(pdf_path)
+
+    assert "Brown v. Board" in document.text
+    assert "347 U.S. 483" in document.text
+    assert document.metadata.source_path == str(pdf_path)
+    assert document.metadata.source_format == SourceFormat.PDF
+    assert document.metadata.backend == PreprocessingBackend.DOCLING
+
+
+def _minimal_text_pdf(text: str) -> bytes:
+    escaped_text = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        f"<< /Length {len(_pdf_text_stream(escaped_text))} >>\nstream\n".encode()
+        + _pdf_text_stream(escaped_text)
+        + b"\nendstream",
+    ]
+    return _pdf_document(objects)
+
+
+def _pdf_text_stream(escaped_text: str) -> bytes:
+    return f"BT /F1 18 Tf 72 720 Td ({escaped_text}) Tj ET".encode()
+
+
+def _pdf_document(objects: list[bytes]) -> bytes:
+    chunks = [b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n"]
+    offsets = [0]
+    for index, body in enumerate(objects, start=1):
+        offsets.append(sum(len(chunk) for chunk in chunks))
+        chunks.append(f"{index} 0 obj\n".encode() + body + b"\nendobj\n")
+
+    xref_offset = sum(len(chunk) for chunk in chunks)
+    chunks.append(f"xref\n0 {len(objects) + 1}\n".encode())
+    chunks.append(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        chunks.append(f"{offset:010d} 00000 n \n".encode())
+    chunks.append(
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode()
+    )
+    return b"".join(chunks)
