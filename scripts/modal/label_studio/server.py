@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import os
 from io import BytesIO
-from pathlib import Path
 from typing import Protocol
 from urllib.parse import urlsplit
 
@@ -20,18 +19,6 @@ from mellea_lrc.preprocessing.types import (
 from scripts.modal.label_studio.pipeline import predict_preprocessed
 
 APP_NAME = "mellea-lrc-prototype"
-REMOTE_REPO_ROOT = Path("/root")
-LOCAL_REPO_PARENT_INDEX = 3
-
-
-def _source_repo_root() -> Path:
-    path = Path(__file__).resolve()
-    if len(path.parents) > LOCAL_REPO_PARENT_INDEX:
-        return path.parents[LOCAL_REPO_PARENT_INDEX]
-    return REMOTE_REPO_ROOT
-
-
-LOCAL_REPO_ROOT = _source_repo_root()
 
 logger = logging.getLogger(APP_NAME)
 logging.basicConfig(level=logging.INFO)
@@ -68,9 +55,7 @@ image = (
         "fastapi[standard]>=0.115",
         "requests>=2.32",
     )
-    .add_local_dir(LOCAL_REPO_ROOT / "src", REMOTE_REPO_ROOT / "src", copy=True)
-    .add_local_dir(LOCAL_REPO_ROOT / "scripts", REMOTE_REPO_ROOT / "scripts", copy=True)
-    .env({"PYTHONPATH": "/root/src:/root"})
+    .add_local_python_source("mellea_lrc", "scripts")
 )
 
 
