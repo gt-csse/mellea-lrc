@@ -43,7 +43,7 @@ def _shuffle_courtlistener_tokens() -> None:
     image=image,
     enable_memory_snapshot=True,
     secrets=[
-        modal.Secret.from_name("courtlistener", required_keys=["COURTLISTENER_API_TOKEN_1"]),
+        modal.Secret.from_name("courtlistener"),
         modal.Secret.from_name("courtlistener-r2-cache"),
     ],
     max_containers=1,
