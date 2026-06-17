@@ -1,4 +1,4 @@
-"""End-to-end pipeline helpers used by the Modal app."""
+"""End-to-end prediction helpers used by the Label Studio Modal app."""
 
 from __future__ import annotations
 

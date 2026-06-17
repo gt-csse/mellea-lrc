@@ -6,7 +6,7 @@ from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
 from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.validation.types import CitationValidation, DocumentValidation, ValidationStatus
 from scripts.label_studio.label_studio import to_label_studio_prediction
-from scripts.modal.pipeline import add_validation_notes, predict_preprocessed
+from scripts.modal.label_studio.pipeline import add_validation_notes, predict_preprocessed
 
 
 class FakeClient:

@@ -17,11 +17,11 @@ from mellea_lrc.preprocessing.types import (
     PreprocessingBackend,
     SourceFormat,
 )
-from scripts.modal.pipeline import predict_preprocessed
+from scripts.modal.label_studio.pipeline import predict_preprocessed
 
 APP_NAME = "mellea-lrc-prototype"
 REMOTE_REPO_ROOT = Path("/root")
-LOCAL_REPO_PARENT_INDEX = 2
+LOCAL_REPO_PARENT_INDEX = 3
 
 
 def _source_repo_root() -> Path:

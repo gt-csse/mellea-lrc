@@ -8,7 +8,7 @@ from mellea_lrc.courtlistener.api import create_api
 
 APP_NAME = "courtlistener-access"
 REMOTE_ROOT = Path("/root")
-PACKAGE_DIR = Path(__file__).resolve().parents[2] / "src" / "mellea_lrc"
+PACKAGE_DIR = Path(__file__).resolve().parents[3] / "src" / "mellea_lrc"
 REMOTE_PACKAGE_DIR = REMOTE_ROOT / "mellea_lrc"
 
 app = modal.App(APP_NAME)
