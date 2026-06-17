@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import requests
+import pytest
+
+pytestmark = pytest.mark.remote_smoke
 
 
 def test_courtlistener_health(courtlistener_url: str, remote_timeout: float) -> None:
