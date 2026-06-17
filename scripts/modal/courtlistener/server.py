@@ -25,12 +25,6 @@ image = (
     .add_local_python_source("mellea_lrc")
 )
 
-courtlistener_secret = modal.Secret.from_name(
-    "courtlistener",
-    required_keys=["COURTLISTENER_API_TOKEN_1"],
-)
-r2_secret = modal.Secret.from_name("courtlistener-r2-cache")
-
 
 def _shuffle_courtlistener_tokens() -> None:
     token_keys = sorted(
@@ -48,7 +42,10 @@ def _shuffle_courtlistener_tokens() -> None:
 @app.function(
     image=image,
     enable_memory_snapshot=True,
-    secrets=[courtlistener_secret, r2_secret],
+    secrets=[
+        modal.Secret.from_name("courtlistener", required_keys=["COURTLISTENER_API_TOKEN_1"]),
+        modal.Secret.from_name("courtlistener-r2-cache"),
+    ],
     max_containers=1,
     timeout=120,
 )
