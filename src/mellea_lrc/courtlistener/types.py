@@ -16,6 +16,7 @@ class CourtListenerCitationLookup:
     cache: str | None = None
     key: str | None = None
     error_message: str | None = None
+    limit_detail: JsonObject | None = None
 
 
 class CitationLookupClient(Protocol):

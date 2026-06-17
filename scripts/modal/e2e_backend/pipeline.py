@@ -332,6 +332,7 @@ def _validation_item_payload(item: CitationValidation) -> dict[str, Any]:
     payload = asdict(item)
     payload["status"] = item.status.value
     payload["case_names"] = list(item.case_names)
+    payload["clusters"] = list(item.clusters)
     return payload
 
 

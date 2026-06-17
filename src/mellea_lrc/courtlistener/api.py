@@ -10,6 +10,7 @@ from mellea_lrc.courtlistener.cache import R2Cache
 from mellea_lrc.courtlistener.client import (
     CourtListenerClient,
     CourtListenerError,
+    CourtListenerRateLimitConfig,
     CourtListenerRateLimiter,
 )
 from mellea_lrc.courtlistener.lookup import citation_lookup_envelope_dict
@@ -22,7 +23,11 @@ def create_api(client_factory: Callable[[], CourtListenerClient] | None = None) 
     """Create the CourtListener access API without tying it to any deployment host."""
     api = FastAPI(title="CourtListener Access", version="0.1.0")
     cache = R2Cache.from_env() if client_factory is None else None
-    rate_limiter = CourtListenerRateLimiter() if client_factory is None else None
+    rate_limiter = (
+        CourtListenerRateLimiter(CourtListenerRateLimitConfig(enabled=False))
+        if client_factory is None
+        else None
+    )
 
     def client() -> CourtListenerClient:
         if client_factory is not None:

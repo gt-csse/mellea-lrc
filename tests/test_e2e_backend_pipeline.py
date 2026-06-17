@@ -23,8 +23,17 @@ class FakeClient:
             {
                 "citation": "347 U.S. 483",
                 "status": 200,
-                "clusters": ({"case_name": "Brown"},),
+                "clusters": (
+                    {
+                        "case_name": "Brown v. Board of Education",
+                        "date_filed": "1954-05-17",
+                        "court": "scotus",
+                    },
+                ),
+                "cache": "miss",
+                "key": "lookup-key",
                 "error_message": None,
+                "limit_detail": None,
             },
         )()
 
@@ -68,7 +77,11 @@ def test_review_preprocessed_returns_frontend_span_payload() -> None:
     assert citation["fields"]["page"] == "483"
     assert citation["fields"]["plaintiff"] == "Brown"
     assert citation["validation"]["status"] == "found"
-    assert citation["validation"]["case_names"] == ["Brown"]
+    assert citation["validation"]["case_names"] == ["Brown v. Board of Education"]
+    assert citation["validation"]["lookup_status"] == 200
+    assert citation["validation"]["lookup_cache"] == "miss"
+    assert citation["validation"]["lookup_key"] == "lookup-key"
+    assert citation["validation"]["clusters"][0]["date_filed"] == "1954-05-17"
     assert output["stats"]["found"] == 1
 
 

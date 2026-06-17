@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Literal, TypeAlias
 
+from mellea_lrc.courtlistener.types import JsonObject
+
 ValidationClientMode: TypeAlias = Literal["deployed", "sdk", "custom"]
 
 
@@ -29,6 +31,12 @@ class CitationValidation:
     source: str
     message: str
     case_names: tuple[str, ...] = ()
+    lookup_status: int | None = None
+    lookup_cache: str | None = None
+    lookup_key: str | None = None
+    error_message: str | None = None
+    limit_detail: JsonObject | None = None
+    clusters: tuple[JsonObject, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
