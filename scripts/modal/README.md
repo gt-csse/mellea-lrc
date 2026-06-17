@@ -48,7 +48,7 @@ can still use `LS_EMAIL` / `LS_PASSWORD`.
 ## Deploy
 
 ```bash
-uv run --group modal modal deploy scripts/modal/app.py
+uv run --group modal modal deploy scripts/modal/label_studio_server.py
 ```
 
 The CourtListener access service uses reusable code from
@@ -62,7 +62,7 @@ uv run --group modal modal deploy scripts/modal/courtlistener_server.py
 ## Local Serve
 
 ```bash
-uv run --group modal modal serve scripts/modal/app.py
+uv run --group modal modal serve scripts/modal/label_studio_server.py
 ```
 
 Useful endpoints:
