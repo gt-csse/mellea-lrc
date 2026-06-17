@@ -1,4 +1,4 @@
-"""Modal app for the mellea-lrc extraction and validation pipeline."""
+"""Modal server for the Label Studio extraction and validation pipeline."""
 
 from __future__ import annotations
 
