@@ -2,6 +2,7 @@
 
 import {
   AlertCircle,
+  Brain,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -9,7 +10,9 @@ import {
   CheckCircle2,
   FileText,
   Loader2,
+  RotateCcw,
   Search,
+  ShieldCheck,
   Upload
 } from "lucide-react";
 import { ChangeEvent, DragEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
@@ -29,6 +32,14 @@ type ValidationPayload = {
   clusters: CourtListenerCluster[];
 };
 
+type AssessmentPayload = {
+  citation_id: string;
+  status: string;
+  extracted_case_name: string | null;
+  courtlistener_case_name: string | null;
+  message: string;
+};
+
 type CourtListenerCluster = Record<string, unknown>;
 
 type ReviewCitation = {
@@ -40,6 +51,7 @@ type ReviewCitation = {
   fields: Record<string, string | number | boolean>;
   resolves_to: string | null;
   validation: ValidationPayload | null;
+  assessment: AssessmentPayload | null;
 };
 
 type ReviewResult = {
@@ -53,6 +65,7 @@ type ReviewResult = {
   stats: Record<string, number>;
 };
 
+type WorkflowStage = "input" | "extracted" | "validated" | "assessed";
 type CitationStatus = "found" | "ambiguous" | "not_found" | "not_checked" | "other";
 type CitationFilter = "all" | "found" | "ambiguous" | "not_found" | "all_citations";
 type RenderCitation = ReviewCitation & {
@@ -72,10 +85,11 @@ const citationFilters: Array<{ label: string; value: CitationFilter }> = [
 export default function Home() {
   const [text, setText] = useState(exampleText);
   const [file, setFile] = useState<File | null>(null);
-  const [validate, setValidate] = useState(true);
   const [result, setResult] = useState<ReviewResult | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingStage, setLoadingStage] = useState<WorkflowStage | null>(null);
+  const [workflowStage, setWorkflowStage] = useState<WorkflowStage>("input");
   const [isInputCollapsed, setIsInputCollapsed] = useState(false);
   const [citationFilter, setCitationFilter] = useState<CitationFilter>("all");
   const [clusterIndexes, setClusterIndexes] = useState<Record<string, number>>({});
@@ -83,6 +97,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const documentPaneRef = useRef<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const isTaskLocked = workflowStage !== "input";
 
   const primaryCitations = useMemo(
     () =>
@@ -168,22 +183,77 @@ export default function Home() {
     });
   }, [selectedId]);
 
-  async function runReview() {
+  async function runExtraction() {
     setIsLoading(true);
+    setLoadingStage("extracted");
     setError(null);
 
     try {
-      const response = file ? await reviewDocument(file, validate) : await reviewText(text, validate);
+      const response = file ? await extractDocument(file) : await extractText(text);
       setResult(response);
       setSelectedId(response.citations[0]?.id ?? null);
       setCitationFilter("all");
       setClusterIndexes({});
+      setWorkflowStage("extracted");
       setIsInputCollapsed(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Review failed");
+      setError(err instanceof Error ? err.message : "Extraction failed");
     } finally {
       setIsLoading(false);
+      setLoadingStage(null);
     }
+  }
+
+  async function runValidation() {
+    if (!result) {
+      return;
+    }
+    setIsLoading(true);
+    setLoadingStage("validated");
+    setError(null);
+
+    try {
+      const response = await validateReview(result);
+      setResult(response);
+      setWorkflowStage("validated");
+      setCitationFilter("all");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Validation failed");
+    } finally {
+      setIsLoading(false);
+      setLoadingStage(null);
+    }
+  }
+
+  async function runAssessment() {
+    if (!result) {
+      return;
+    }
+    setIsLoading(true);
+    setLoadingStage("assessed");
+    setError(null);
+
+    try {
+      const response = await assessReview(result);
+      setResult(response);
+      setWorkflowStage("assessed");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Assessment failed");
+    } finally {
+      setIsLoading(false);
+      setLoadingStage(null);
+    }
+  }
+
+  function resetTask() {
+    setResult(null);
+    setSelectedId(null);
+    setCitationFilter("all");
+    setClusterIndexes({});
+    setWorkflowStage("input");
+    setIsInputCollapsed(false);
+    setIsDetailsExpanded(false);
+    setError(null);
   }
 
   function selectCitation(citationId: string) {
@@ -198,12 +268,18 @@ export default function Home() {
   }
 
   function onFileChange(event: ChangeEvent<HTMLInputElement>) {
+    if (isTaskLocked) {
+      return;
+    }
     setFile(event.target.files?.[0] ?? null);
     setIsInputCollapsed(false);
   }
 
   function onDrop(event: DragEvent<HTMLButtonElement>) {
     event.preventDefault();
+    if (isTaskLocked) {
+      return;
+    }
     setFile(event.dataTransfer.files?.[0] ?? null);
     setIsInputCollapsed(false);
   }
@@ -234,6 +310,7 @@ export default function Home() {
           <div>
             <p className="eyebrow">Input</p>
             <strong>{sourceLabel}</strong>
+            {isTaskLocked ? <span className="lock-note">Locked task</span> : null}
           </div>
           <button
             className="icon-action"
@@ -251,7 +328,11 @@ export default function Home() {
               <span>Plain text</span>
               <textarea
                 value={text}
+                disabled={isTaskLocked}
                 onChange={(event) => {
+                  if (isTaskLocked) {
+                    return;
+                  }
                   setText(event.target.value);
                   if (file) {
                     setFile(null);
@@ -264,6 +345,7 @@ export default function Home() {
             <button
               className={`drop-zone${file ? " has-file" : ""}`}
               type="button"
+              disabled={isTaskLocked}
               onClick={() => fileInputRef.current?.click()}
               onDragOver={(event) => event.preventDefault()}
               onDrop={onDrop}
@@ -277,23 +359,45 @@ export default function Home() {
         <input ref={fileInputRef} className="hidden-input" type="file" onChange={onFileChange} />
 
         <div className="ingest-actions">
-          <label className="validation-toggle">
-            <input
-              checked={validate}
-              onChange={(event) => setValidate(event.target.checked)}
-              type="checkbox"
-            />
-            <span>Validate</span>
-          </label>
-
           <button
             className="primary-action"
-            disabled={isLoading || (!file && !text.trim())}
-            onClick={runReview}
+            disabled={isLoading || isTaskLocked || (!file && !text.trim())}
+            onClick={runExtraction}
             type="button"
           >
-            {isLoading ? <Loader2 className="spin" size={18} /> : <Search size={18} />}
-            <span>{isLoading ? "Checking" : "Review"}</span>
+            {loadingStage === "extracted" ? <Loader2 className="spin" size={18} /> : <Search size={18} />}
+            <span>{loadingStage === "extracted" ? "Extracting" : "Extract"}</span>
+          </button>
+          <button
+            className="secondary-action"
+            disabled={isLoading || !result || workflowStage === "validated" || workflowStage === "assessed"}
+            onClick={runValidation}
+            type="button"
+          >
+            {loadingStage === "validated" ? (
+              <Loader2 className="spin" size={18} />
+            ) : (
+              <ShieldCheck size={18} />
+            )}
+            <span>{loadingStage === "validated" ? "Validating" : "Validate"}</span>
+          </button>
+          <button
+            className="secondary-action"
+            disabled={isLoading || !result || workflowStage !== "validated"}
+            onClick={runAssessment}
+            type="button"
+          >
+            {loadingStage === "assessed" ? <Loader2 className="spin" size={18} /> : <Brain size={18} />}
+            <span>{loadingStage === "assessed" ? "Assessing" : "Assess"}</span>
+          </button>
+          <button
+            className="icon-action"
+            disabled={isLoading || !isTaskLocked}
+            onClick={resetTask}
+            type="button"
+            aria-label="Reset current task"
+          >
+            <RotateCcw size={18} />
           </button>
         </div>
       </section>
@@ -319,7 +423,7 @@ export default function Home() {
           ) : (
             <div className="empty-state">
               <FileText size={28} aria-hidden="true" />
-              <span>Run a review to inspect citation spans.</span>
+              <span>Run extraction to inspect citation spans.</span>
             </div>
           )}
         </article>
@@ -366,6 +470,7 @@ export default function Home() {
                   <span className="citation-row-meta">
                     {citation.kind}
                     {citation.validation ? ` · ${citation.validation.status}` : ""}
+                    {citation.assessment ? ` · ${citation.assessment.status}` : ""}
                   </span>
                 </button>
               ))
@@ -411,6 +516,7 @@ export default function Home() {
                 onClusterChange={selectCourtListenerCandidate}
               />
               <ValidationDetails validation={selectedCitation.validation} />
+              <AssessmentDetails assessment={selectedCitation.assessment} />
             </div>
           </>
         ) : (
@@ -598,6 +704,50 @@ function ValidationDetails({ validation }: { validation: ValidationPayload | nul
         <div>
           <dt>Clusters</dt>
           <dd>{validation.clusters.length}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+function AssessmentDetails({ assessment }: { assessment: AssessmentPayload | null }) {
+  if (!assessment) {
+    return (
+      <div className="detail-group">
+        <h3>Mellea assessment</h3>
+        <dl>
+          <div>
+            <dt>Status</dt>
+            <dd>Not requested</dd>
+          </div>
+          <div>
+            <dt>Message</dt>
+            <dd>Run assessment after validation to check case-name extraction.</dd>
+          </div>
+        </dl>
+      </div>
+    );
+  }
+
+  return (
+    <div className="detail-group">
+      <h3>Mellea assessment</h3>
+      <dl>
+        <div>
+          <dt>Status</dt>
+          <dd>{assessment.status.replaceAll("_", " ")}</dd>
+        </div>
+        <div>
+          <dt>Message</dt>
+          <dd>{assessment.message}</dd>
+        </div>
+        <div>
+          <dt>Extracted</dt>
+          <dd>{formatValue(assessment.extracted_case_name)}</dd>
+        </div>
+        <div>
+          <dt>CourtListener</dt>
+          <dd>{formatValue(assessment.courtlistener_case_name)}</dd>
         </div>
       </dl>
     </div>
@@ -959,25 +1109,46 @@ function filterCount(
   return counts[filter];
 }
 
-async function reviewText(text: string, validate: boolean): Promise<ReviewResult> {
-  const response = await fetch("/api/e2e/review-text", {
+async function extractText(text: string): Promise<ReviewResult> {
+  const response = await fetch("/api/e2e/extract-text", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ text, validate })
+    body: JSON.stringify({ text })
   });
   return parseReviewResponse(response);
 }
 
-async function reviewDocument(file: File, validate: boolean): Promise<ReviewResult> {
+async function extractDocument(file: File): Promise<ReviewResult> {
   const form = new FormData();
   form.append("file", file);
-  form.append("validate", String(validate));
 
-  const response = await fetch("/api/e2e/review-document", {
+  const response = await fetch("/api/e2e/extract-document", {
     method: "POST",
     body: form
+  });
+  return parseReviewResponse(response);
+}
+
+async function validateReview(result: ReviewResult): Promise<ReviewResult> {
+  const response = await fetch("/api/e2e/validate-review", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(result)
+  });
+  return parseReviewResponse(response);
+}
+
+async function assessReview(result: ReviewResult): Promise<ReviewResult> {
+  const response = await fetch("/api/e2e/assess-review", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(result)
   });
   return parseReviewResponse(response);
 }

@@ -172,6 +172,17 @@ h3 {
   white-space: nowrap;
 }
 
+.lock-note {
+  display: inline-flex;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  padding: 3px 8px;
+  color: #075985;
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .icon-action {
   display: inline-flex;
   align-items: center;
@@ -187,6 +198,10 @@ h3 {
 
 .icon-action:hover {
   background: var(--surface-soft);
+}
+
+.icon-action:disabled {
+  opacity: 0.5;
 }
 
 .text-input {
@@ -242,6 +257,12 @@ input:focus-visible {
   background: #eff6ff;
 }
 
+.drop-zone:disabled {
+  border-color: var(--border);
+  background: #f8fafc;
+  color: var(--muted);
+}
+
 .drop-zone small {
   color: var(--muted);
   font-size: 11px;
@@ -281,6 +302,36 @@ input:focus-visible {
     transform 180ms ease;
 }
 
+.secondary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 118px;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: #334155;
+  font-weight: 800;
+  transition:
+    border-color 180ms ease,
+    background 180ms ease,
+    color 180ms ease,
+    transform 180ms ease;
+}
+
+.secondary-action:not(:disabled):hover {
+  border-color: var(--accent);
+  background: #eff6ff;
+  color: var(--accent-strong);
+  transform: translateY(-1px);
+}
+
+.secondary-action:disabled {
+  opacity: 0.56;
+}
+
 .primary-action:not(:disabled):hover {
   background: var(--accent-strong);
   transform: translateY(-1px);
@@ -296,6 +347,7 @@ input:focus-visible {
 
 .ingest-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: end;
   gap: 8px;
@@ -571,7 +623,7 @@ input:focus-visible {
 
 .details-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 0.9fr);
   gap: 12px;
   min-height: 0;
   overflow: hidden;

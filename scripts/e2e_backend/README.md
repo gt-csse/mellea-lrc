@@ -1,8 +1,8 @@
-# E2E Modal Backend
+# E2E Backend
 
-This Modal app exposes the assembled mellea-lrc preprocessing, extraction,
-validation, and prediction pipeline. The backend has a direct text API and a
-Label Studio bridge for the ML-backend `/setup` and `/predict` contract.
+This backend exposes the assembled mellea-lrc preprocessing, extraction,
+validation, assessment, and prediction pipeline. It can run locally as a
+standalone FastAPI app or be wrapped by Modal for deployment.
 
 Modal app name: `mellea-lrc-prototype`.
 
@@ -17,6 +17,13 @@ LS_ACCOUNT_AUTH=<label-studio-refresh-token>
 
 # Modal secret: cl-access-modal
 CL_ACCESS_MODAL_URL=<courtlistener-access-service-url>
+
+# Modal secret for /api/assess-review, if served remotely
+MELLEA_LRC_ASSESSMENT_BACKEND=openai
+MELLEA_LRC_ASSESSMENT_API_BASE=https://inference.do-ai.run/v1
+MELLEA_LRC_ASSESSMENT_API_KEY=<provider-key>
+MELLEA_LRC_ASSESSMENT_MODEL=<model-id>
+MELLEA_LRC_ASSESSMENT_TEMPERATURE=0
 ```
 
 `LS_ACCOUNT_AUTH` is only used by the Label Studio bridge to fetch uploaded PDF
@@ -35,6 +42,8 @@ CourtListener Modal backend through `CL_ACCESS_MODAL_URL`.
   `data.text`, then returns the prediction for Label Studio to attach.
 - Citation spans are relative to the extracted `data.text`.
 - Validation is optional for `/predict_text` via `{"validate": false}`.
+- The custom frontend uses staged review endpoints: extract first, then validate
+  the existing review payload, then assess the validated payload.
 - Docling is initialized lazily on the first PDF request.
 
 ## Deploy
@@ -49,9 +58,27 @@ uv run --group modal modal deploy scripts/modal/e2e_backend/server.py
 uv run --group modal modal serve scripts/modal/e2e_backend/server.py
 ```
 
+For local frontend E2E testing without Modal:
+
+```bash
+uv run --group modal --group assessment fastapi run \
+  scripts/e2e_backend/local_server.py \
+  --host 127.0.0.1 \
+  --port 8011
+
+cd frontend
+MELLEA_E2E_BACKEND_URL=http://127.0.0.1:8011 npm run dev -- \
+  --hostname 127.0.0.1 \
+  --port 3000
+```
+
 Useful endpoints:
 
 - `GET /health`: service probe
 - `POST /setup`: Label Studio ML backend setup acknowledgement
+- `POST /api/extract-text`: frontend text extraction stage
+- `POST /api/extract-document`: frontend document extraction stage
+- `POST /api/validate-review`: frontend validation stage for an existing review payload
+- `POST /api/assess-review`: frontend Mellea assessment stage for an existing review payload
 - `POST /predict_text`: direct text prediction and optional validation
 - `POST /predict`: Label Studio ML backend contract for uploaded PDFs
