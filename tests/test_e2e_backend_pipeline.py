@@ -1,4 +1,4 @@
-"""Tests for the E2E Modal backend pipeline helpers."""
+"""Tests for the standalone E2E backend pipeline helpers."""
 
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.spans import Span
@@ -6,11 +6,13 @@ from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
 from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.validation.types import CitationValidation, DocumentValidation, ValidationStatus
 from scripts.label_studio.label_studio import to_label_studio_prediction
-from scripts.modal.e2e_backend.pipeline import (
+from scripts.e2e_backend.pipeline import (
     E2EBackend,
     add_validation_notes,
+    assess_review_payload,
     predict_preprocessed,
     review_preprocessed,
+    validate_review_payload,
 )
 
 
@@ -83,6 +85,48 @@ def test_review_preprocessed_returns_frontend_span_payload() -> None:
     assert citation["validation"]["lookup_key"] == "lookup-key"
     assert citation["validation"]["clusters"][0]["date_filed"] == "1954-05-17"
     assert output["stats"]["found"] == 1
+
+
+def test_validate_review_payload_reuses_existing_extraction_payload() -> None:
+    extracted = review_preprocessed(
+        preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483."),
+        validate=False,
+    )
+
+    output = validate_review_payload(extracted, client=FakeClient())
+
+    citation = output["citations"][0]
+    assert citation["start"] == extracted["citations"][0]["start"]
+    assert citation["end"] == extracted["citations"][0]["end"]
+    assert citation["validation"]["status"] == "found"
+    assert output["validation"]["counts"]["found"] == 1
+
+
+def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> None:
+    extracted = review_preprocessed(
+        preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483."),
+        validate=False,
+    )
+    extracted["citations"][0]["validation"] = {
+        "citation_id": extracted["citations"][0]["id"],
+        "locator": "347 U.S. 483",
+        "status": "found",
+        "source": "test",
+        "message": "found",
+        "case_names": ["Brown v. Board"],
+        "lookup_status": 200,
+        "lookup_cache": "miss",
+        "lookup_key": "key",
+        "error_message": None,
+        "limit_detail": None,
+        "clusters": [{"case_name": "Brown v. Board"}],
+    }
+
+    output = assess_review_payload(extracted)
+
+    assessment = output["citations"][0]["assessment"]
+    assert assessment["status"] == "exact_match"
+    assert output["assessment"]["counts"]["exact_match"] == 1
 
 
 def test_add_validation_notes_skips_non_case_citations() -> None:

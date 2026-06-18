@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 if TYPE_CHECKING:
     import logging
 
-    from scripts.modal.e2e_backend.pipeline import E2EBackend
+    from scripts.e2e_backend.pipeline import E2EBackend
 
 HTTP_TOKEN_TIMEOUT_SECONDS = 30
 HTTP_ASSET_TIMEOUT_SECONDS = 120
