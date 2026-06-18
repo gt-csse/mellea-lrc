@@ -8,10 +8,12 @@ from mellea_lrc.extraction.pipeline import (
     run_extraction_from_text,
 )
 from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
+from mellea_lrc.extraction.mellea import MelleaExtractor
 
 __all__ = [
     "DocumentExtraction",
     "ExtractedCitation",
+    "MelleaExtractor",
     "extract",
     "extract_baseline",
     "extract_citations",

@@ -8,7 +8,7 @@ class BaseExtractor(abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def get_citations(cls, text: str) -> list:
+    def extract_citations(cls, text: str) -> list:
         """Identify, retrieve, and classify case law citations."""
 
     @classmethod

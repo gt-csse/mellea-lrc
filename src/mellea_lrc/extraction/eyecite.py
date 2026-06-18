@@ -231,7 +231,7 @@ class EyeciteExtractor(BaseExtractor):
     """Extractor that uses Mellea."""
 
     @classmethod
-    def get_citations(cls, text: str) -> list:
+    def extract_citations(cls, text: str) -> list:
         """Identify, retrieve, and classify case law citations.
 
         Args:
@@ -243,7 +243,7 @@ class EyeciteExtractor(BaseExtractor):
             A list of citations.
 
         """
-        return super().get_citations(text)
+        return super().extract_citations(text)
 
     @classmethod
     def resolve_citations(cls, citations: list) -> list:

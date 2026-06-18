@@ -1,6 +1,6 @@
 """Extract case citations and label them using different tools."""
 
-from .base import BaseExtractor
+from mellea_lrc.extraction.base import BaseExtractor
 
 
 class Extractor:
