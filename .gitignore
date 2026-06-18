@@ -19,3 +19,4 @@ post_generation_instructions.html
 .env
 .envrc
 local/
+docs/.obsidian/**
