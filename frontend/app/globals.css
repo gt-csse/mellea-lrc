@@ -536,7 +536,71 @@ input:focus-visible {
   font-weight: 800;
 }
 
-.citation-row-meta,
+.citation-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.citation-tags.details {
+  margin-top: 8px;
+}
+
+.citation-tag {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.citation-tag.kind {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.citation-tag.validation {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.citation-tag.validation.found {
+  background: #dcfce7;
+  color: var(--success);
+}
+
+.citation-tag.validation.ambiguous {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.citation-tag.validation.not_found,
+.citation-tag.validation.other {
+  background: #fee2e2;
+  color: var(--danger);
+}
+
+.citation-tag.assessment {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.citation-tag.assessment.exact_match,
+.citation-tag.assessment.semantic_match {
+  background: #e0f2fe;
+  color: #075985;
+}
+
+.citation-tag.assessment.extraction_error {
+  background: #fee2e2;
+  color: var(--danger);
+}
+
 .rail-empty,
 .muted,
 .details-empty {
@@ -742,14 +806,46 @@ input:focus-visible {
   font-size: 12px;
 }
 
+.comparison-row.perfect {
+  background: #ecfdf5;
+}
+
+.comparison-row.exact {
+  background: #f0fdf4;
+}
+
+.comparison-row.semantic {
+  background: #eff6ff;
+}
+
+.comparison-row.error {
+  background: #fef2f2;
+}
+
+.comparison-row.unchecked {
+  background: #ffffff;
+}
+
 .comparison-row span {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .comparison-row span:first-child {
-  color: var(--muted);
+  color: #475569;
   font-weight: 800;
+}
+
+.comparison-row.perfect span:first-child {
+  color: #047857;
+}
+
+.comparison-row.semantic span:first-child {
+  color: #1d4ed8;
+}
+
+.comparison-row.error span:first-child {
+  color: var(--danger);
 }
 
 dl {
