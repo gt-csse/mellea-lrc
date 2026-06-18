@@ -25,7 +25,7 @@ Preprocessing converts raw documents into the text that the extraction model ope
 
 A common failure mode for `eyecite` is ill-formatted text produced by PDF parsing: an extra whitespace from OCR, a broken line from a multi-column layout, or a hyphenated word across a page break can prevent a citation from being recognized at all. These are upstream failures, not extraction failures.
 
-See [Benchmark](./Benchmark.md) for the design decision that the 2nd layer benchmark is always re-derived from the current preprocessing pipeline.
+See [Benchmark](Benchmark.md) for the design decision that the 2nd layer benchmark is always re-derived from the current preprocessing pipeline.
 
 ---
 

@@ -53,7 +53,7 @@ For now, these two phases are decoupled. This fits the problem statement from IB
 
 **The 2nd layer benchmark is always the output of whatever preprocessing pipeline we apply to the 3rd layer.** This means improving the preprocessing pipeline can improve extraction performance even without any change to the extraction model itself — better preprocessing gives cleaner text, and cleaner text gives better extraction.
 
-The flip side is that **any change to the preprocessing pipeline invalidates existing span annotations**, since character offsets are tied to the exact text output. This has direct consequences for our annotation strategy — see [Extraction Model Development](./Extraction%20Model%20Development.md).
+The flip side is that **any change to the preprocessing pipeline invalidates existing span annotations**, since character offsets are tied to the exact text output. This has direct consequences for our annotation strategy — see [Extraction Model Development](Extraction%20Model%20Development.md).
 
 ---
 
