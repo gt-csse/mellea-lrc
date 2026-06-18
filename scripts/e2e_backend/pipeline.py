@@ -151,6 +151,15 @@ class E2EBackend:
         """Attach CourtListener validation to an existing frontend review payload."""
         return validate_review_payload(payload, client=client)
 
+    def validate_review_citation_payload(
+        self,
+        payload: dict[str, object],
+        *,
+        client: CourtListenerAccessClient | None = None,
+    ) -> dict[str, Any]:
+        """Validate one frontend review citation."""
+        return validate_review_citation_payload(payload, client=client)
+
     def assess_review_payload(self, payload: dict[str, object]) -> dict[str, Any]:
         """Attach Mellea-assisted assessment to an existing validated review payload."""
         return assess_review_payload(payload)
@@ -222,6 +231,36 @@ def validate_review_payload(
     output["validation"] = _validation_payload(validation)
     output["stats"] = _merge_stats(output.get("stats"), _stats(extraction, validation))
     return output
+
+
+def validate_review_citation_payload(
+    payload: dict[str, object],
+    *,
+    client: CourtListenerAccessClient | None = None,
+) -> dict[str, Any]:
+    """Validate a single frontend review citation payload."""
+    citation = payload.get("citation")
+    if not isinstance(citation, dict):
+        msg = "citation is required"
+        raise TypeError(msg)
+
+    extracted_citation = _extracted_citation_from_review_item(citation)
+    extraction = DocumentExtraction(
+        preprocessed=PreprocessedDocument(
+            text=extracted_citation.matched_text or "citation",
+            metadata=PreprocessedDocumentMetadata(
+                source_path=None,
+                source_format=SourceFormat.UNKNOWN,
+                backend=PreprocessingBackend.PLAIN_TEXT,
+            ),
+        ),
+        citations=(extracted_citation,),
+    )
+    validation = _run_validation(extraction, validate=True, client=client)
+    if validation is None or not validation.validations:
+        msg = "citation validation did not produce a result"
+        raise ValueError(msg)
+    return _validation_item_payload(validation.validations[0])
 
 
 def assess_review_payload(payload: dict[str, object]) -> dict[str, Any]:

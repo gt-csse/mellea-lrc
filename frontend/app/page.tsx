@@ -7,7 +7,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
-  CheckCircle2,
   FileText,
   Loader2,
   RotateCcw,
@@ -42,6 +41,14 @@ type AssessmentPayload = {
 
 type CourtListenerCluster = Record<string, unknown>;
 
+type ReviewValidation = {
+  validations: ValidationPayload[];
+  counts: {
+    total: number;
+    found: number;
+  };
+};
+
 type ReviewCitation = {
   id: string;
   start: number;
@@ -62,17 +69,34 @@ type ReviewResult = {
     backend: string;
   };
   citations: ReviewCitation[];
+  validation: ReviewValidation | null;
   stats: Record<string, number>;
 };
 
 type WorkflowStage = "input" | "extracted" | "validated" | "assessed";
 type CitationStatus = "found" | "ambiguous" | "not_found" | "not_checked" | "other";
-type CitationFilter = "all" | "found" | "ambiguous" | "not_found" | "all_citations";
+type AssessmentStatus = "exact_match" | "semantic_match" | "extraction_error" | "not_assessed";
+type AssessmentFilter = Exclude<AssessmentStatus, "not_assessed">;
+type CitationFilter =
+  | "all"
+  | "found"
+  | "ambiguous"
+  | "not_found"
+  | AssessmentFilter
+  | "all_citations";
+type ComparisonMatchType = "perfect" | "exact" | "semantic" | "error" | "unchecked";
+type BibliographicRow = {
+  label: string;
+  extracted: unknown;
+  courtListener: unknown;
+  matchType: ComparisonMatchType;
+};
 type RenderCitation = ReviewCitation & {
   highlightStart: number;
   highlightEnd: number;
 };
 
+const VALIDATION_REQUEST_INTERVAL_MS = 1500;
 const exampleText = "Brown v. Board, 347 U.S. 483 (1954). See also Roe v. Wade, 410 U.S. 113.";
 const citationFilters: Array<{ label: string; value: CitationFilter }> = [
   { label: "All", value: "all" },
@@ -80,6 +104,11 @@ const citationFilters: Array<{ label: string; value: CitationFilter }> = [
   { label: "Ambiguous", value: "ambiguous" },
   { label: "Not found", value: "not_found" },
   { label: "All citations", value: "all_citations" }
+];
+const assessmentFilters: Array<{ label: string; value: CitationFilter }> = [
+  { label: "Exact match", value: "exact_match" },
+  { label: "Semantic match", value: "semantic_match" },
+  { label: "Extraction error", value: "extraction_error" }
 ];
 
 export default function Home() {
@@ -89,6 +118,9 @@ export default function Home() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState<WorkflowStage | null>(null);
+  const [validationProgress, setValidationProgress] = useState<{ completed: number; total: number } | null>(
+    null
+  );
   const [workflowStage, setWorkflowStage] = useState<WorkflowStage>("input");
   const [isInputCollapsed, setIsInputCollapsed] = useState(false);
   const [citationFilter, setCitationFilter] = useState<CitationFilter>("all");
@@ -97,6 +129,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const documentPaneRef = useRef<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const validationRunIdRef = useRef(0);
   const isTaskLocked = workflowStage !== "input";
 
   const primaryCitations = useMemo(
@@ -125,6 +158,14 @@ export default function Home() {
     [allCitations, citationFilter, primaryCitations]
   );
 
+  const availableFilters = useMemo(
+    () =>
+      workflowStage === "assessed"
+        ? [...citationFilters.slice(0, -1), ...assessmentFilters, citationFilters.at(-1)!]
+        : citationFilters,
+    [workflowStage]
+  );
+
   const filteredCitations = useMemo(
     () =>
       renderCitations.filter((citation) => {
@@ -133,6 +174,9 @@ export default function Home() {
         }
         if (!isFullCaseCitation(citation)) {
           return false;
+        }
+        if (isAssessmentFilter(citationFilter)) {
+          return assessmentStatus(citation) === citationFilter;
         }
         return citationFilter === "all" || citationStatus(citation) === citationFilter;
       }),
@@ -144,6 +188,10 @@ export default function Home() {
     [primaryCitations]
   );
   const statusCounts = useMemo(() => citationStatusCounts(fullCaseCitations), [fullCaseCitations]);
+  const assessmentCounts = useMemo(
+    () => assessmentStatusCounts(fullCaseCitations),
+    [fullCaseCitations]
+  );
 
   const selectedCitation = useMemo(
     () => result?.citations.find((citation) => citation.id === selectedId) ?? null,
@@ -155,11 +203,15 @@ export default function Home() {
     if (!result) {
       return;
     }
+    if (!availableFilters.some((filter) => filter.value === citationFilter)) {
+      setCitationFilter("all");
+      return;
+    }
     if (selectedId && filteredCitations.some((citation) => citation.id === selectedId)) {
       return;
     }
     setSelectedId(filteredCitations[0]?.id ?? null);
-  }, [filteredCitations, result, selectedId]);
+  }, [availableFilters, citationFilter, filteredCitations, result, selectedId]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -184,8 +236,10 @@ export default function Home() {
   }, [selectedId]);
 
   async function runExtraction() {
+    validationRunIdRef.current += 1;
     setIsLoading(true);
     setLoadingStage("extracted");
+    setValidationProgress(null);
     setError(null);
 
     try {
@@ -208,20 +262,69 @@ export default function Home() {
     if (!result) {
       return;
     }
+    const citationsToValidate = result.citations.filter(isFullCaseCitation);
+    if (!citationsToValidate.length) {
+      setResult(withValidationStats(result));
+      setWorkflowStage("validated");
+      setCitationFilter("all");
+      return;
+    }
+
+    const runId = validationRunIdRef.current + 1;
+    validationRunIdRef.current = runId;
     setIsLoading(true);
     setLoadingStage("validated");
+    setValidationProgress({ completed: 0, total: citationsToValidate.length });
     setError(null);
 
     try {
-      const response = await validateReview(result);
-      setResult(response);
-      setWorkflowStage("validated");
+      const failures: string[] = [];
+      await Promise.all(
+        citationsToValidate.map(async (citation, index) => {
+          if (index > 0) {
+            await wait(VALIDATION_REQUEST_INTERVAL_MS * index);
+          }
+          if (validationRunIdRef.current !== runId) {
+            return;
+          }
+
+          try {
+            const validation = await validateReviewCitation(citation);
+            if (validationRunIdRef.current !== runId) {
+              return;
+            }
+            setResult((current) => (current ? mergeCitationValidation(current, validation) : current));
+          } catch (err) {
+            failures.push(err instanceof Error ? err.message : "Validation failed");
+          } finally {
+            if (validationRunIdRef.current === runId) {
+              setValidationProgress((current) =>
+                current ? { ...current, completed: Math.min(current.completed + 1, current.total) } : current
+              );
+            }
+          }
+        })
+      );
+
+      if (validationRunIdRef.current !== runId) {
+        return;
+      }
+      setResult((current) => (current ? withValidationStats(current) : current));
       setCitationFilter("all");
+      if (failures.length) {
+        setError(`Validation finished with ${failures.length} failed request${failures.length === 1 ? "" : "s"}.`);
+        setWorkflowStage("extracted");
+      } else {
+        setWorkflowStage("validated");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Validation failed");
     } finally {
-      setIsLoading(false);
-      setLoadingStage(null);
+      if (validationRunIdRef.current === runId) {
+        setIsLoading(false);
+        setLoadingStage(null);
+        setValidationProgress(null);
+      }
     }
   }
 
@@ -246,6 +349,7 @@ export default function Home() {
   }
 
   function resetTask() {
+    validationRunIdRef.current += 1;
     setResult(null);
     setSelectedId(null);
     setCitationFilter("all");
@@ -253,6 +357,7 @@ export default function Home() {
     setWorkflowStage("input");
     setIsInputCollapsed(false);
     setIsDetailsExpanded(false);
+    setValidationProgress(null);
     setError(null);
   }
 
@@ -287,6 +392,10 @@ export default function Home() {
   const citationCount = result?.stats.citation_spans ?? 0;
   const foundCount = result?.stats.found;
   const sourceLabel = file?.name ?? result?.document.source_path ?? `${text.trim().length || 0} chars`;
+  const validationLabel =
+    loadingStage === "validated" && validationProgress
+      ? `Validating ${validationProgress.completed}/${validationProgress.total}`
+      : "Validate";
 
   return (
     <main className={`app-shell${isDetailsExpanded ? " details-expanded" : ""}`}>
@@ -379,7 +488,7 @@ export default function Home() {
             ) : (
               <ShieldCheck size={18} />
             )}
-            <span>{loadingStage === "validated" ? "Validating" : "Validate"}</span>
+            <span>{validationLabel}</span>
           </button>
           <button
             className="secondary-action"
@@ -444,11 +553,12 @@ export default function Home() {
                 onChange={(event) => setCitationFilter(event.target.value as CitationFilter)}
                 aria-label="Citation scope filter"
               >
-              {citationFilters.map((filter) => (
+              {availableFilters.map((filter) => (
                 <option key={filter.value} value={filter.value}>
                   {filterLabel(
                     filter,
                     statusCounts,
+                    assessmentCounts,
                     fullCaseCitations.length,
                     allCitations.length
                   )}
@@ -467,11 +577,7 @@ export default function Home() {
                   type="button"
                 >
                   <span className="citation-row-main">{citation.matched_text}</span>
-                  <span className="citation-row-meta">
-                    {citation.kind}
-                    {citation.validation ? ` · ${citation.validation.status}` : ""}
-                    {citation.assessment ? ` · ${citation.assessment.status}` : ""}
-                  </span>
+                  <CitationTags citation={citation} />
                 </button>
               ))
             ) : (
@@ -491,9 +597,9 @@ export default function Home() {
               <div>
                 <p className="eyebrow">Selected citation</p>
                 <h2>{selectedCitation.matched_text}</h2>
+                <CitationTags citation={selectedCitation} variant="details" />
               </div>
               <div className="details-actions">
-                <StatusBadge validation={selectedCitation.validation} />
                 <button
                   className="icon-action"
                   type="button"
@@ -536,16 +642,26 @@ function Metric({ label, value }: { label: string; value: number | string }) {
   );
 }
 
-function StatusBadge({ validation }: { validation: ValidationPayload | null }) {
-  if (!validation) {
-    return <span className="status-badge neutral">Not checked</span>;
-  }
-
-  const isFound = validation.status === "found";
+function CitationTags({
+  citation,
+  variant = "rail"
+}: {
+  citation: ReviewCitation;
+  variant?: "rail" | "details";
+}) {
   return (
-    <span className={`status-badge ${isFound ? "found" : "attention"}`}>
-      {isFound ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
-      {validation.status.replaceAll("_", " ")}
+    <span className={`citation-tags ${variant}`} aria-label="Citation labels">
+      <span className="citation-tag kind">{citation.kind}</span>
+      {citation.validation ? (
+        <span className={`citation-tag validation ${citationStatus(citation)}`}>
+          {formatStatusLabel(citation.validation.status)}
+        </span>
+      ) : null}
+      {citation.assessment ? (
+        <span className={`citation-tag assessment ${assessmentStatus(citation)}`}>
+          {formatAssessmentLabel(citation.assessment.status)}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -615,7 +731,7 @@ function BibliographicComparison({
           </span>
         </div>
         {rows.map((row) => (
-          <div className="comparison-row" key={row.label} role="row">
+          <div className={`comparison-row ${row.matchType}`} key={row.label} role="row">
             <span role="cell">{row.label}</span>
             <span role="cell">{formatValue(row.extracted)}</span>
             <span role="cell">{formatValue(row.courtListener)}</span>
@@ -754,7 +870,8 @@ function AssessmentDetails({ assessment }: { assessment: AssessmentPayload | nul
   );
 }
 
-function bibliographicRows(citation: ReviewCitation, cluster: CourtListenerCluster | null) {
+function bibliographicRows(citation: ReviewCitation, cluster: CourtListenerCluster | null): BibliographicRow[] {
+  const canColorRows = Boolean(citation.assessment);
   const citationLocator = citation.validation?.locator ?? citation.matched_text;
   const extractedLocatorParts = splitLocator(citationLocator);
   const courtListenerLocator = cluster ? citation.validation?.locator : null;
@@ -778,52 +895,92 @@ function bibliographicRows(citation: ReviewCitation, cluster: CourtListenerClust
     .map(([key, value]) => ({
       label: key.replaceAll("_", " "),
       extracted: value,
-      courtListener: null
+      courtListener: null,
+      matchType: "unchecked" as const
     }));
 
   return [
     {
       label: "Case name",
       extracted: extractedCaseName,
-      courtListener: courtListenerCaseName
+      courtListener: courtListenerCaseName,
+      matchType: canColorRows
+        ? caseNameRowMatchType(citation, extractedCaseName, courtListenerCaseName)
+        : "unchecked"
     },
     {
       label: "Locator",
       extracted: citationLocator,
-      courtListener: courtListenerLocator
+      courtListener: courtListenerLocator,
+      matchType: canColorRows ? "perfect" : "unchecked"
     },
     {
       label: "Volume",
       extracted: citation.fields.volume ?? extractedLocatorParts.volume,
-      courtListener: courtListenerLocatorParts.volume
+      courtListener: courtListenerLocatorParts.volume,
+      matchType: canColorRows ? "perfect" : "unchecked"
     },
     {
       label: "Reporter",
       extracted: citation.fields.reporter ?? extractedLocatorParts.reporter,
-      courtListener: courtListenerLocatorParts.reporter
+      courtListener: courtListenerLocatorParts.reporter,
+      matchType: canColorRows ? "perfect" : "unchecked"
     },
     {
       label: "Page",
       extracted: citation.fields.page ?? extractedLocatorParts.page,
-      courtListener: courtListenerLocatorParts.page
+      courtListener: courtListenerLocatorParts.page,
+      matchType: canColorRows ? "perfect" : "unchecked"
     },
     {
       label: "Year",
       extracted: citation.fields.year,
-      courtListener: courtListenerDate?.slice(0, 4)
+      courtListener: courtListenerDate?.slice(0, 4),
+      matchType: canColorRows
+        ? directRowMatchType(citation.fields.year, courtListenerDate?.slice(0, 4))
+        : "unchecked"
     },
     {
       label: "Court",
       extracted: citation.fields.court,
-      courtListener: courtListenerCourt
+      courtListener: courtListenerCourt,
+      matchType: "unchecked"
     },
     {
       label: "URL",
       extracted: null,
-      courtListener: courtListenerUrl
+      courtListener: courtListenerUrl,
+      matchType: "unchecked"
     },
     ...extraFieldRows
   ];
+}
+
+function caseNameRowMatchType(
+  citation: ReviewCitation,
+  extractedCaseName: string | null,
+  courtListenerCaseName: string | null
+): ComparisonMatchType {
+  if (citation.assessment) {
+    const status = assessmentStatus(citation);
+    if (status === "exact_match") {
+      return "exact";
+    }
+    if (status === "semantic_match") {
+      return "semantic";
+    }
+    if (status === "extraction_error") {
+      return "error";
+    }
+  }
+  return directRowMatchType(extractedCaseName, courtListenerCaseName);
+}
+
+function directRowMatchType(extracted: unknown, courtListener: unknown): ComparisonMatchType {
+  if (!hasDisplayValue(extracted) || !hasDisplayValue(courtListener)) {
+    return "unchecked";
+  }
+  return String(extracted) === String(courtListener) ? "exact" : "error";
 }
 
 function caseNameFromFields(fields: Record<string, unknown>) {
@@ -879,6 +1036,14 @@ function formatValue(value: unknown) {
     return JSON.stringify(value);
   }
   return String(value);
+}
+
+function formatStatusLabel(value: string) {
+  return value.replaceAll("_", " ");
+}
+
+function formatAssessmentLabel(value: string) {
+  return value.replaceAll("_", " ");
 }
 
 function renderHighlightedDocument(
@@ -1053,6 +1218,27 @@ function citationStatus(citation: ReviewCitation): CitationStatus {
   return citation.validation ? citationStatusFromValidation(citation.validation) : "not_checked";
 }
 
+function assessmentStatus(citation: ReviewCitation): AssessmentStatus {
+  if (!citation.assessment) {
+    return "not_assessed";
+  }
+  const normalized = citation.assessment.status.toLowerCase().replaceAll("-", "_");
+  if (normalized === "exact_match") {
+    return "exact_match";
+  }
+  if (normalized === "semantic_match") {
+    return "semantic_match";
+  }
+  if (normalized === "extraction_error") {
+    return "extraction_error";
+  }
+  return "not_assessed";
+}
+
+function isAssessmentFilter(filter: CitationFilter): filter is AssessmentFilter {
+  return filter === "exact_match" || filter === "semantic_match" || filter === "extraction_error";
+}
+
 function isFullCaseCitation(citation: ReviewCitation) {
   return citation.kind.toLowerCase() === "fullcasecitation";
 }
@@ -1085,18 +1271,81 @@ function citationStatusCounts(citations: ReviewCitation[]) {
   );
 }
 
+function mergeCitationValidation(result: ReviewResult, validation: ValidationPayload): ReviewResult {
+  return withValidationStats({
+    ...result,
+    citations: result.citations.map((citation) =>
+      citation.id === validation.citation_id
+        ? { ...citation, validation, assessment: null }
+        : citation
+    )
+  });
+}
+
+function withValidationStats(result: ReviewResult): ReviewResult {
+  const validations = result.citations
+    .map((citation) => citation.validation)
+    .filter(isValidationPayload);
+  const validated = validations.filter((validation) => validation.status !== "skipped").length;
+  const found = validations.filter((validation) => validation.status === "found").length;
+
+  return {
+    ...result,
+    validation: {
+      validations,
+      counts: {
+        total: validations.length,
+        found
+      }
+    },
+    stats: {
+      ...result.stats,
+      validated,
+      found
+    }
+  };
+}
+
+function isValidationPayload(value: ValidationPayload | null): value is ValidationPayload {
+  return value !== null;
+}
+
+function assessmentStatusCounts(citations: ReviewCitation[]) {
+  return citations.reduce(
+    (counts, citation) => {
+      const status = assessmentStatus(citation);
+      counts[status] += 1;
+      return counts;
+    },
+    {
+      exact_match: 0,
+      semantic_match: 0,
+      extraction_error: 0,
+      not_assessed: 0
+    } satisfies Record<AssessmentStatus, number>
+  );
+}
+
 function filterLabel(
   filter: { label: string; value: CitationFilter },
   counts: Record<CitationStatus, number>,
+  assessmentCounts: Record<AssessmentStatus, number>,
   fullCaseTotal: number,
   allCitationTotal: number
 ) {
-  return `${filter.label} (${filterCount(filter.value, counts, fullCaseTotal, allCitationTotal)})`;
+  return `${filter.label} (${filterCount(
+    filter.value,
+    counts,
+    assessmentCounts,
+    fullCaseTotal,
+    allCitationTotal
+  )})`;
 }
 
 function filterCount(
   filter: CitationFilter,
   counts: Record<CitationStatus, number>,
+  assessmentCounts: Record<AssessmentStatus, number>,
   fullCaseTotal: number,
   allCitationTotal: number
 ) {
@@ -1105,6 +1354,9 @@ function filterCount(
   }
   if (filter === "all_citations") {
     return allCitationTotal;
+  }
+  if (isAssessmentFilter(filter)) {
+    return assessmentCounts[filter];
   }
   return counts[filter];
 }
@@ -1131,15 +1383,15 @@ async function extractDocument(file: File): Promise<ReviewResult> {
   return parseReviewResponse(response);
 }
 
-async function validateReview(result: ReviewResult): Promise<ReviewResult> {
-  const response = await fetch("/api/e2e/validate-review", {
+async function validateReviewCitation(citation: ReviewCitation): Promise<ValidationPayload> {
+  const response = await fetch("/api/e2e/validate-review-citation", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(result)
+    body: JSON.stringify({ citation })
   });
-  return parseReviewResponse(response);
+  return parseJsonResponse<ValidationPayload>(response);
 }
 
 async function assessReview(result: ReviewResult): Promise<ReviewResult> {
@@ -1154,8 +1406,12 @@ async function assessReview(result: ReviewResult): Promise<ReviewResult> {
 }
 
 async function parseReviewResponse(response: Response): Promise<ReviewResult> {
+  return parseJsonResponse<ReviewResult>(response);
+}
+
+async function parseJsonResponse<T>(response: Response): Promise<T> {
   if (response.ok) {
-    return (await response.json()) as ReviewResult;
+    return (await response.json()) as T;
   }
 
   let message = `Request failed with ${response.status}`;
@@ -1168,4 +1424,8 @@ async function parseReviewResponse(response: Response): Promise<ReviewResult> {
     // The status code above is enough when the backend returns non-JSON errors.
   }
   throw new Error(message);
+}
+
+function wait(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }

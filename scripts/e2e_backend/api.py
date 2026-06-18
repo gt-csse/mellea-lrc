@@ -64,6 +64,13 @@ def create_app(backend: E2EBackend | None = None) -> FastAPI:  # noqa: C901
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @web_app.post("/api/validate-review-citation")
+    async def validate_review_citation(payload: dict[str, object]) -> dict[str, Any]:
+        try:
+            return pipeline.validate_review_citation_payload(payload)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @web_app.post("/api/assess-review")
     async def assess_review(payload: dict[str, object]) -> dict[str, Any]:
         try:

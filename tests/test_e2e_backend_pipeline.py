@@ -12,6 +12,7 @@ from scripts.e2e_backend.pipeline import (
     assess_review_payload,
     predict_preprocessed,
     review_preprocessed,
+    validate_review_citation_payload,
     validate_review_payload,
 )
 
@@ -100,6 +101,22 @@ def test_validate_review_payload_reuses_existing_extraction_payload() -> None:
     assert citation["end"] == extracted["citations"][0]["end"]
     assert citation["validation"]["status"] == "found"
     assert output["validation"]["counts"]["found"] == 1
+
+
+def test_validate_review_citation_payload_returns_single_validation() -> None:
+    extracted = review_preprocessed(
+        preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483."),
+        validate=False,
+    )
+
+    validation = validate_review_citation_payload(
+        {"citation": extracted["citations"][0]},
+        client=FakeClient(),
+    )
+
+    assert validation["citation_id"] == extracted["citations"][0]["id"]
+    assert validation["status"] == "found"
+    assert validation["lookup_key"] == "lookup-key"
 
 
 def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> None:
