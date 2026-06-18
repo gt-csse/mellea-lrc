@@ -56,6 +56,8 @@ def test_validate_full_case_found() -> None:
     )
 
     validation = result.validations[0]
+    assert result.preprocessed == extraction.preprocessed
+    assert result.citations == extraction.citations
     assert validation.status == ValidationStatus.FOUND
     assert validation.locator == "347 U.S. 483"
     assert validation.case_names == ("Brown v. Board of Education",)

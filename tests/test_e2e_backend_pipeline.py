@@ -121,7 +121,7 @@ def test_validate_review_citation_payload_returns_single_validation() -> None:
 
 def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> None:
     extracted = review_preprocessed(
-        preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483."),
+        preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483 (1954)."),
         validate=False,
     )
     extracted["citations"][0]["validation"] = {
@@ -136,13 +136,17 @@ def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> 
         "lookup_key": "key",
         "error_message": None,
         "limit_detail": None,
-        "clusters": [{"case_name": "Brown v. Board"}],
+        "clusters": [{"case_name": "Brown v. Board", "date_filed": "1954-05-17"}],
     }
 
     output = assess_review_payload(extracted)
 
     assessment = output["citations"][0]["assessment"]
     assert assessment["status"] == "exact_match"
+    assert assessment["case_assess"]["status"] == "exact_match"
+    assert assessment["year_assess"]["status"] == "exact_match"
+    assert assessment["year_assess"]["extracted_year"] == "1954"
+    assert assessment["year_assess"]["courtlistener_year"] == "1954"
     assert output["assessment"]["counts"]["exact_match"] == 1
 
 
@@ -163,6 +167,8 @@ def test_add_validation_notes_skips_non_case_citations() -> None:
     enriched = add_validation_notes(
         prediction,
         DocumentValidation(
+            preprocessed=extraction.preprocessed,
+            citations=extraction.citations,
             validations=(
                 CitationValidation(
                     citation_id="law",
@@ -171,7 +177,7 @@ def test_add_validation_notes_skips_non_case_citations() -> None:
                     source="cl-access",
                     message="Only FullCaseCitation is validated.",
                 ),
-            )
+            ),
         ),
     )
 
