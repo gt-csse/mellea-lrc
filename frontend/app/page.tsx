@@ -34,8 +34,26 @@ type ValidationPayload = {
 type AssessmentPayload = {
   citation_id: string;
   status: string;
+  message: string;
+  case_assess: CaseNameAssessmentPayload | null;
+  year_assess: YearAssessmentPayload | null;
+};
+
+type CaseNameAssessmentPayload = {
+  citation_id: string;
+  status: string;
   extracted_case_name: string | null;
   courtlistener_case_name: string | null;
+  message: string;
+  modified_extracted_case_name?: string | null;
+  modified_match_status?: string | null;
+};
+
+type YearAssessmentPayload = {
+  citation_id: string;
+  status: string;
+  extracted_year: string | null;
+  courtlistener_year: string | null;
   message: string;
 };
 
@@ -830,7 +848,7 @@ function AssessmentDetails({ assessment }: { assessment: AssessmentPayload | nul
   if (!assessment) {
     return (
       <div className="detail-group">
-        <h3>Mellea assessment</h3>
+        <h3>Citation assessment</h3>
         <dl>
           <div>
             <dt>Status</dt>
@@ -847,7 +865,7 @@ function AssessmentDetails({ assessment }: { assessment: AssessmentPayload | nul
 
   return (
     <div className="detail-group">
-      <h3>Mellea assessment</h3>
+      <h3>Citation assessment</h3>
       <dl>
         <div>
           <dt>Status</dt>
@@ -857,16 +875,68 @@ function AssessmentDetails({ assessment }: { assessment: AssessmentPayload | nul
           <dt>Message</dt>
           <dd>{assessment.message}</dd>
         </div>
-        <div>
-          <dt>Extracted</dt>
-          <dd>{formatValue(assessment.extracted_case_name)}</dd>
-        </div>
-        <div>
-          <dt>CourtListener</dt>
-          <dd>{formatValue(assessment.courtlistener_case_name)}</dd>
-        </div>
+        {assessment.case_assess ? <CaseNameAssessmentDetails assessment={assessment.case_assess} /> : null}
+        {assessment.year_assess ? <YearAssessmentDetails assessment={assessment.year_assess} /> : null}
       </dl>
     </div>
+  );
+}
+
+function CaseNameAssessmentDetails({ assessment }: { assessment: CaseNameAssessmentPayload }) {
+  return (
+    <>
+      <div>
+        <dt>Case name</dt>
+        <dd>{assessment.status.replaceAll("_", " ")}</dd>
+      </div>
+      <div>
+        <dt>Case message</dt>
+        <dd>{assessment.message}</dd>
+      </div>
+      <div>
+        <dt>Extracted case</dt>
+        <dd>{formatValue(assessment.extracted_case_name)}</dd>
+      </div>
+      <div>
+        <dt>CourtListener case</dt>
+        <dd>{formatValue(assessment.courtlistener_case_name)}</dd>
+      </div>
+      {assessment.modified_extracted_case_name ? (
+        <div>
+          <dt>Modified case</dt>
+          <dd>{assessment.modified_extracted_case_name}</dd>
+        </div>
+      ) : null}
+      {assessment.modified_match_status ? (
+        <div>
+          <dt>Modified match</dt>
+          <dd>{assessment.modified_match_status.replaceAll("_", " ")}</dd>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function YearAssessmentDetails({ assessment }: { assessment: YearAssessmentPayload }) {
+  return (
+    <>
+      <div>
+        <dt>Year</dt>
+        <dd>{assessment.status.replaceAll("_", " ")}</dd>
+      </div>
+      <div>
+        <dt>Year message</dt>
+        <dd>{assessment.message}</dd>
+      </div>
+      <div>
+        <dt>Extracted year</dt>
+        <dd>{formatValue(assessment.extracted_year)}</dd>
+      </div>
+      <div>
+        <dt>CourtListener year</dt>
+        <dd>{formatValue(assessment.courtlistener_year)}</dd>
+      </div>
+    </>
   );
 }
 
@@ -937,7 +1007,7 @@ function bibliographicRows(citation: ReviewCitation, cluster: CourtListenerClust
       extracted: citation.fields.year,
       courtListener: courtListenerDate?.slice(0, 4),
       matchType: canColorRows
-        ? directRowMatchType(citation.fields.year, courtListenerDate?.slice(0, 4))
+        ? yearRowMatchType(citation.assessment?.year_assess, citation.fields.year, courtListenerDate?.slice(0, 4))
         : "unchecked"
     },
     {
@@ -961,8 +1031,8 @@ function caseNameRowMatchType(
   extractedCaseName: string | null,
   courtListenerCaseName: string | null
 ): ComparisonMatchType {
-  if (citation.assessment) {
-    const status = assessmentStatus(citation);
+  if (citation.assessment?.case_assess) {
+    const status = citation.assessment.case_assess.status.toLowerCase().replaceAll("-", "_");
     if (status === "exact_match") {
       return "exact";
     }
@@ -974,6 +1044,21 @@ function caseNameRowMatchType(
     }
   }
   return directRowMatchType(extractedCaseName, courtListenerCaseName);
+}
+
+function yearRowMatchType(
+  assessment: YearAssessmentPayload | null | undefined,
+  extracted: unknown,
+  courtListener: unknown
+): ComparisonMatchType {
+  const status = assessment?.status.toLowerCase().replaceAll("-", "_");
+  if (status === "exact_match") {
+    return "exact";
+  }
+  if (status === "mismatch" || status === "missing") {
+    return "error";
+  }
+  return directRowMatchType(extracted, courtListener);
 }
 
 function directRowMatchType(extracted: unknown, courtListener: unknown): ComparisonMatchType {

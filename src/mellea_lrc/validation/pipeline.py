@@ -30,7 +30,9 @@ def validate_extraction(
     """Run first-layer existence validation for extractable full case citations."""
     lookup_client = _lookup_client(client_mode, client)
     return DocumentValidation(
-        validations=tuple(_validate_citation(item, lookup_client) for item in extraction.citations)
+        preprocessed=extraction.preprocessed,
+        citations=extraction.citations,
+        validations=tuple(_validate_citation(item, lookup_client) for item in extraction.citations),
     )
 
 

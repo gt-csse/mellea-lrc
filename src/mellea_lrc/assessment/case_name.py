@@ -49,4 +49,3 @@ def assess_case_name_exact_match(
         courtlistener_case_name=courtlistener_case_name,
         message="Extracted case name differs from CourtListener and needs semantic assessment.",
     )
-

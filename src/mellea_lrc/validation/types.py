@@ -5,6 +5,8 @@ from enum import Enum
 from typing import Literal, TypeAlias
 
 from mellea_lrc.courtlistener.types import JsonObject
+from mellea_lrc.extraction.types import ExtractedCitation
+from mellea_lrc.preprocessing.types import PreprocessedDocument
 
 ValidationClientMode: TypeAlias = Literal["deployed", "sdk", "custom"]
 
@@ -41,9 +43,21 @@ class CitationValidation:
 
 @dataclass(frozen=True, slots=True)
 class DocumentValidation:
-    """Validation results for one extracted document."""
+    """Validated citations for one preprocessed document."""
 
+    preprocessed: PreprocessedDocument
+    citations: tuple[ExtractedCitation, ...]
     validations: tuple[CitationValidation, ...]
+
+    @property
+    def text(self) -> str:
+        """Text that was validated."""
+        return self.preprocessed.text
+
+    @property
+    def source_path(self) -> str | None:
+        """Original source path, when known."""
+        return self.preprocessed.metadata.source_path
 
     @property
     def found(self) -> tuple[CitationValidation, ...]:
