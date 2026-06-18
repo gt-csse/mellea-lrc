@@ -10,6 +10,6 @@ Mellea-LRC specific terms used throughout this guide. Terms are listed alphabeti
 ---
 # Python Library
 
-- [mellea_lrc.extraction](../Extraction/Extraction) - Case citation extraction implementation.
-- [mellea_lrc.core](../Core/Core)
+- [mellea_lrc.extraction](../Extraction/Extraction.md) - Case citation extraction implementation.
+- [mellea_lrc.core](../Core/Core.md)
 - 
