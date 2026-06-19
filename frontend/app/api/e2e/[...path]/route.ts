@@ -11,6 +11,10 @@ export async function POST(request: Request, context: RouteContext) {
   return proxyToBackend(request, context);
 }
 
+export async function GET(request: Request, context: RouteContext) {
+  return proxyToBackend(request, context);
+}
+
 async function proxyToBackend(request: Request, context: RouteContext) {
   const backendUrl = process.env.MELLEA_E2E_BACKEND_URL?.replace(/\/$/, "");
   if (!backendUrl) {
@@ -21,10 +25,11 @@ async function proxyToBackend(request: Request, context: RouteContext) {
   }
 
   const { path = [] } = await context.params;
-  const upstream = await fetch(`${backendUrl}/api/${path.join("/")}`, {
+  const search = new URL(request.url).search;
+  const upstream = await fetch(`${backendUrl}/api/${path.join("/")}${search}`, {
     method: request.method,
     headers: forwardedRequestHeaders(request.headers),
-    body: await request.arrayBuffer(),
+    body: request.method === "GET" ? undefined : await request.arrayBuffer(),
     cache: "no-store"
   });
 

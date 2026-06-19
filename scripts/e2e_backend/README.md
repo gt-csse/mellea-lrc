@@ -20,10 +20,11 @@ CL_ACCESS_MODAL_URL=<courtlistener-access-service-url>
 
 # Modal secret for /api/assess-review, if served remotely
 MELLEA_LRC_ASSESSMENT_BACKEND=openai
-MELLEA_LRC_ASSESSMENT_API_BASE=https://inference.do-ai.run/v1
-MELLEA_LRC_ASSESSMENT_API_KEY=<provider-key>
-MELLEA_LRC_ASSESSMENT_MODEL=<model-id>
+MELLEA_LRC_ASSESSMENT_API_BASE=https://openrouter.ai/api/v1
+MELLEA_LRC_ASSESSMENT_API_KEY=<openrouter-api-key>
+MELLEA_LRC_ASSESSMENT_MODEL=openai/gpt-4.1-mini
 MELLEA_LRC_ASSESSMENT_TEMPERATURE=0
+MELLEA_LRC_ASSESSMENT_REQUIRE_PARAMETERS=1
 ```
 
 `LS_ACCOUNT_AUTH` is only used by the Label Studio bridge to fetch uploaded PDF
@@ -78,7 +79,16 @@ Useful endpoints:
 - `POST /setup`: Label Studio ML backend setup acknowledgement
 - `POST /api/extract-text`: frontend text extraction stage
 - `POST /api/extract-document`: frontend document extraction stage
+- `POST /api/review-snapshot`: frontend dev loader for serialized interface artifacts
 - `POST /api/validate-review`: frontend validation stage for an existing review payload
 - `POST /api/assess-review`: frontend Mellea assessment stage for an existing review payload
 - `POST /predict_text`: direct text prediction and optional validation
 - `POST /predict`: Label Studio ML backend contract for uploaded PDFs
+
+## Snapshot Loading
+
+The frontend can load a JSON snapshot produced by the neutral serializers for:
+`PreprocessedDocument`, `DocumentExtraction`, `DocumentValidation`, or
+`DocumentAssessment`. Use the `Load snapshot` button in the input panel and choose
+the artifact JSON file. The backend deserializes the artifact and returns the same
+review payload shape used by the normal staged workflow.

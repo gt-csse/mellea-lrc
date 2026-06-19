@@ -1,16 +1,32 @@
 """Tests for the standalone E2E backend pipeline helpers."""
 
+from mellea_lrc.assessment import (
+    CaseNameAssessment,
+    CaseNameAssessmentStatus,
+    CitationAssessment,
+    DocumentAssessment,
+    YearAssessment,
+    YearAssessmentStatus,
+)
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
 from mellea_lrc.preprocessing import preprocess_plain_text_from_string
+from mellea_lrc.serialization import (
+    serialize_document_assessment,
+    serialize_document_extraction,
+    serialize_document_validation,
+    serialize_preprocessed_document,
+)
 from mellea_lrc.validation.types import CitationValidation, DocumentValidation, ValidationStatus
+from scripts.e2e_backend.api import _review_snapshot_payload
 from scripts.label_studio.label_studio import to_label_studio_prediction
 from scripts.e2e_backend.pipeline import (
     E2EBackend,
     add_validation_notes,
     assess_review_payload,
     predict_preprocessed,
+    review_document_assessment,
     review_preprocessed,
     validate_review_citation_payload,
     validate_review_payload,
@@ -148,6 +164,153 @@ def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> 
     assert assessment["year_assess"]["extracted_year"] == "1954"
     assert assessment["year_assess"]["courtlistener_year"] == "1954"
     assert output["assessment"]["counts"]["exact_match"] == 1
+
+
+def test_review_document_assessment_renders_cached_assessment_payload() -> None:
+    preprocessed = preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483 (1954).")
+    citation = ExtractedCitation(
+        citation_id="cite-1",
+        span=Span(0, 35),
+        matched_text="347 U.S. 483",
+        citation=FullCaseCitation(
+            plaintiff="Brown",
+            defendant="Board",
+            volume="347",
+            reporter="U.S.",
+            page="483",
+            year="1954",
+        ),
+    )
+    validation = CitationValidation(
+        citation_id="cite-1",
+        locator="347 U.S. 483",
+        status=ValidationStatus.FOUND,
+        source="test",
+        message="found",
+        case_names=("Brown v. Board",),
+        clusters=({"case_name": "Brown v. Board", "date_filed": "1954-05-17"},),
+    )
+    assessment = CitationAssessment(
+        citation_id="cite-1",
+        case_assess=CaseNameAssessment(
+            citation_id="cite-1",
+            status=CaseNameAssessmentStatus.EXACT_MATCH,
+            extracted_case_name="Brown v. Board",
+            courtlistener_case_name="Brown v. Board",
+            message="match",
+        ),
+        year_assess=YearAssessment(
+            citation_id="cite-1",
+            status=YearAssessmentStatus.EXACT_MATCH,
+            extracted_year="1954",
+            courtlistener_year="1954",
+            message="match",
+        ),
+    )
+
+    output = review_document_assessment(
+        DocumentAssessment(
+            preprocessed=preprocessed,
+            citations=(citation,),
+            validations=(validation,),
+            assessments=(assessment,),
+        )
+    )
+
+    assert output["document"]["text"] == preprocessed.text
+    assert output["citations"][0]["validation"]["status"] == "found"
+    assert output["citations"][0]["assessment"]["status"] == "exact_match"
+    assert output["assessment"]["counts"]["exact_match"] == 1
+    assert output["stats"]["assessed"] == 1
+
+
+def test_review_document_assessment_rejects_unresolved_semantic_handoff() -> None:
+    preprocessed = preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483 (1954).")
+    citation = ExtractedCitation(
+        citation_id="cite-1",
+        span=Span(0, 35),
+        matched_text="347 U.S. 483",
+        citation=FullCaseCitation(volume="347", reporter="U.S.", page="483"),
+    )
+
+    try:
+        review_document_assessment(
+            DocumentAssessment(
+                preprocessed=preprocessed,
+                citations=(citation,),
+                validations=(),
+                assessments=(
+                    CitationAssessment(
+                        citation_id="cite-1",
+                        case_assess=CaseNameAssessment(
+                            citation_id="cite-1",
+                            status=CaseNameAssessmentStatus.NEEDS_SEMANTIC_ASSESSMENT,
+                            extracted_case_name="Brown v. Board",
+                            courtlistener_case_name="Brown v. Board of Education",
+                            message="needs semantic assessment",
+                        ),
+                    ),
+                ),
+            )
+        )
+    except ValueError as exc:
+        assert "unresolved semantic assessment" in str(exc)
+    else:
+        raise AssertionError("Expected unresolved semantic handoff to be rejected")
+
+
+def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> None:
+    preprocessed = preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483 (1954).")
+    citation = ExtractedCitation(
+        citation_id="cite-1",
+        span=Span(0, 35),
+        matched_text="347 U.S. 483",
+        citation=FullCaseCitation(
+            plaintiff="Brown",
+            defendant="Board",
+            volume="347",
+            reporter="U.S.",
+            page="483",
+            year="1954",
+        ),
+    )
+    extraction = DocumentExtraction(preprocessed=preprocessed, citations=(citation,))
+    validation = DocumentValidation(
+        preprocessed=preprocessed,
+        citations=(citation,),
+        validations=(
+            CitationValidation(
+                citation_id="cite-1",
+                locator="347 U.S. 483",
+                status=ValidationStatus.FOUND,
+                source="test",
+                message="found",
+            ),
+        ),
+    )
+    assessment = DocumentAssessment(
+        preprocessed=preprocessed,
+        citations=(citation,),
+        validations=validation.validations,
+        assessments=(
+            CitationAssessment(
+                citation_id="cite-1",
+                case_assess=CaseNameAssessment(
+                    citation_id="cite-1",
+                    status=CaseNameAssessmentStatus.EXACT_MATCH,
+                    extracted_case_name="Brown v. Board",
+                    courtlistener_case_name="Brown v. Board",
+                    message="match",
+                ),
+            ),
+        ),
+    )
+    backend = E2EBackend()
+
+    assert _review_snapshot_payload(serialize_preprocessed_document(preprocessed), backend)["stage"] == "preprocessed"
+    assert _review_snapshot_payload(serialize_document_extraction(extraction), backend)["stage"] == "extracted"
+    assert _review_snapshot_payload(serialize_document_validation(validation), backend)["stage"] == "validated"
+    assert _review_snapshot_payload(serialize_document_assessment(assessment), backend)["stage"] == "assessed"
 
 
 def test_add_validation_notes_skips_non_case_citations() -> None:

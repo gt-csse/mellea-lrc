@@ -1,11 +1,16 @@
 """Assessment types for LLM-assisted citation checks."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
-from mellea_lrc.extraction.types import ExtractedCitation
-from mellea_lrc.preprocessing.types import PreprocessedDocument
-from mellea_lrc.validation.types import CitationValidation
+if TYPE_CHECKING:
+    from mellea_lrc.core.spans import Span
+    from mellea_lrc.extraction.types import ExtractedCitation
+    from mellea_lrc.preprocessing.types import PreprocessedDocument
+    from mellea_lrc.validation.types import CitationValidation
 
 
 class CaseNameAssessmentStatus(str, Enum):
@@ -43,8 +48,6 @@ class CaseNameAssessment:
     extracted_case_name: str | None
     courtlistener_case_name: str | None
     message: str
-    modified_extracted_case_name: str | None = None
-    modified_match_status: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +76,7 @@ class CitationAssessment:
             return CitationAssessmentStatus.EXTRACTION_ERROR
         if self.case_assess.status == CaseNameAssessmentStatus.EXTRACTION_ERROR:
             return CitationAssessmentStatus.EXTRACTION_ERROR
-        if self.year_assess is not None and self.year_assess.status != YearAssessmentStatus.EXACT_MATCH:
+        if self.year_assess is not None and self.year_assess.status == YearAssessmentStatus.MISMATCH:
             return CitationAssessmentStatus.EXTRACTION_ERROR
         if self.case_assess.status == CaseNameAssessmentStatus.SEMANTIC_MATCH:
             return CitationAssessmentStatus.SEMANTIC_MATCH
@@ -84,10 +87,10 @@ class CitationAssessment:
     @property
     def message(self) -> str:
         """Roll up a display message for this citation."""
-        if self.year_assess is not None and self.year_assess.status != YearAssessmentStatus.EXACT_MATCH:
+        if self.year_assess is not None and self.year_assess.status == YearAssessmentStatus.MISMATCH:
             return self.year_assess.message
         if self.status == CitationAssessmentStatus.EXACT_MATCH:
-            return "Assessed bibliographic fields match CourtListener."
+            return "Assessed available bibliographic fields match CourtListener."
         if self.case_assess is not None:
             return self.case_assess.message
         return "Citation assessment is missing case-name assessment."
@@ -101,6 +104,8 @@ class DocumentAssessment:
     citations: tuple[ExtractedCitation, ...]
     validations: tuple[CitationValidation, ...]
     assessments: tuple[CitationAssessment, ...]
+    modified_citations: tuple[ModifiedExtractedCitation, ...] = ()
+    reassessments: tuple[CitationAssessment, ...] = ()
 
     @property
     def text(self) -> str:
@@ -114,8 +119,8 @@ class DocumentAssessment:
 
 
 @dataclass(frozen=True, slots=True)
-class ModifiedExtractedCitation:
-    """A grounded correction to the extracted case-name fields."""
+class ModifiedExtractedCitationProposal:
+    """LLM-proposed correction to extracted case-name fields."""
 
     plaintiff: str | None = None
     defendant: str | None = None
@@ -136,6 +141,45 @@ class ModifiedExtractedCitation:
         return bool(values) and all(is_in_context(value, document_context) for value in values)
 
 
+@dataclass(frozen=True, slots=True)
+class ModifiedExtractedCitation:
+    """A grounded modified extraction bound to document-local citation identity."""
+
+    citation_id: str = ""
+    span: Span | None = None
+    matched_text: str | None = None
+    plaintiff: str | None = None
+    defendant: str | None = None
+    case_name: str | None = None
+
+    @property
+    def extracted_case_name(self) -> str | None:
+        """Return the corrected case name used for follow-up assessment."""
+        if self.case_name:
+            return self.case_name
+        if self.plaintiff and self.defendant:
+            return f"{self.plaintiff} v. {self.defendant}"
+        return self.plaintiff or self.defendant
+
+    @classmethod
+    def from_proposal(
+        cls,
+        proposal: ModifiedExtractedCitationProposal,
+        *,
+        citation_id: str,
+        span: Span | None,
+    ) -> ModifiedExtractedCitation:
+        """Bind an LLM-proposed extraction to document-local citation identity."""
+        return cls(
+            citation_id=citation_id,
+            span=span,
+            matched_text=proposal.extracted_case_name,
+            plaintiff=proposal.plaintiff,
+            defendant=proposal.defendant,
+            case_name=proposal.case_name,
+        )
+
+
 def is_in_context(value: str, document_context: str) -> bool:
     """Return whether a proposed value is grounded in the source context."""
     return _normalize_whitespace(value) in _normalize_whitespace(document_context)
@@ -143,3 +187,12 @@ def is_in_context(value: str, document_context: str) -> bool:
 
 def _normalize_whitespace(value: str) -> str:
     return " ".join(value.split())
+
+
+@dataclass(frozen=True, slots=True)
+class CaseNameAssessmentRun:
+    """Case-name assessment plus any modified extraction history it produced."""
+
+    assessment: CaseNameAssessment
+    modified_citation: ModifiedExtractedCitationProposal | None = None
+    reassessment: CaseNameAssessment | None = None
