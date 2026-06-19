@@ -45,8 +45,11 @@ type CaseNameAssessmentPayload = {
   extracted_case_name: string | null;
   courtlistener_case_name: string | null;
   message: string;
-  modified_extracted_case_name?: string | null;
-  modified_match_status?: string | null;
+};
+
+type TextSpan = {
+  start: number;
+  end: number;
 };
 
 type YearAssessmentPayload = {
@@ -65,6 +68,23 @@ type ReviewValidation = {
     total: number;
     found: number;
   };
+};
+
+type ReviewAssessment = {
+  assessments: AssessmentPayload[];
+  modified_citations: ModifiedExtractedCitationPayload[];
+  reassessments: AssessmentPayload[];
+  counts: Record<string, number>;
+};
+
+type ModifiedExtractedCitationPayload = {
+  citation_id: string;
+  span: TextSpan | null;
+  matched_text: string | null;
+  plaintiff: string | null;
+  defendant: string | null;
+  case_name: string | null;
+  extracted_case_name: string | null;
 };
 
 type ReviewCitation = {
@@ -88,10 +108,16 @@ type ReviewResult = {
   };
   citations: ReviewCitation[];
   validation: ReviewValidation | null;
+  assessment: ReviewAssessment | null;
   stats: Record<string, number>;
 };
 
-type WorkflowStage = "input" | "extracted" | "validated" | "assessed";
+type WorkflowStage = "input" | "preprocessed" | "extracted" | "validated" | "assessed";
+type LoadingStage = WorkflowStage | "snapshot";
+type SnapshotReviewResult = {
+  stage: Exclude<WorkflowStage, "input">;
+  result: ReviewResult;
+};
 type CitationStatus = "found" | "ambiguous" | "not_found" | "not_checked" | "other";
 type AssessmentStatus = "exact_match" | "semantic_match" | "extraction_error" | "not_assessed";
 type AssessmentFilter = Exclude<AssessmentStatus, "not_assessed">;
@@ -109,9 +135,25 @@ type BibliographicRow = {
   courtListener: unknown;
   matchType: ComparisonMatchType;
 };
+type ExtractedCitationAttempt = {
+  label: string;
+  fields: Record<string, unknown>;
+  locator: string | null;
+  citation: ReviewCitation;
+  reassessment: AssessmentPayload | null;
+};
 type RenderCitation = ReviewCitation & {
   highlightStart: number;
   highlightEnd: number;
+};
+type WorkflowStageControl = {
+  label: string;
+  canEditInput: boolean;
+  canLoadSnapshot: boolean;
+  canExtract: boolean;
+  canValidate: boolean;
+  canAssess: boolean;
+  canReset: boolean;
 };
 
 const VALIDATION_REQUEST_INTERVAL_MS = 1500;
@@ -128,6 +170,53 @@ const assessmentFilters: Array<{ label: string; value: CitationFilter }> = [
   { label: "Semantic match", value: "semantic_match" },
   { label: "Extraction error", value: "extraction_error" }
 ];
+const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
+  input: {
+    label: "Input",
+    canEditInput: true,
+    canLoadSnapshot: true,
+    canExtract: true,
+    canValidate: false,
+    canAssess: false,
+    canReset: false
+  },
+  preprocessed: {
+    label: "Preprocessed",
+    canEditInput: false,
+    canLoadSnapshot: false,
+    canExtract: true,
+    canValidate: false,
+    canAssess: false,
+    canReset: true
+  },
+  extracted: {
+    label: "Extracted",
+    canEditInput: false,
+    canLoadSnapshot: false,
+    canExtract: false,
+    canValidate: true,
+    canAssess: false,
+    canReset: true
+  },
+  validated: {
+    label: "Validated",
+    canEditInput: false,
+    canLoadSnapshot: false,
+    canExtract: false,
+    canValidate: false,
+    canAssess: true,
+    canReset: true
+  },
+  assessed: {
+    label: "Assessed",
+    canEditInput: false,
+    canLoadSnapshot: false,
+    canExtract: false,
+    canValidate: false,
+    canAssess: false,
+    canReset: true
+  }
+};
 
 export default function Home() {
   const [text, setText] = useState(exampleText);
@@ -135,7 +224,7 @@ export default function Home() {
   const [result, setResult] = useState<ReviewResult | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [loadingStage, setLoadingStage] = useState<WorkflowStage | null>(null);
+  const [loadingStage, setLoadingStage] = useState<LoadingStage | null>(null);
   const [validationProgress, setValidationProgress] = useState<{ completed: number; total: number } | null>(
     null
   );
@@ -143,12 +232,20 @@ export default function Home() {
   const [isInputCollapsed, setIsInputCollapsed] = useState(false);
   const [citationFilter, setCitationFilter] = useState<CitationFilter>("all");
   const [clusterIndexes, setClusterIndexes] = useState<Record<string, number>>({});
+  const [extractedAttemptIndexes, setExtractedAttemptIndexes] = useState<Record<string, number>>({});
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const documentPaneRef = useRef<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const snapshotInputRef = useRef<HTMLInputElement | null>(null);
   const validationRunIdRef = useRef(0);
-  const isTaskLocked = workflowStage !== "input";
+  const stageControl = workflowStageControls[workflowStage];
+  const isTaskLocked = !stageControl.canEditInput;
+  const hasExtractionInput =
+    workflowStage === "preprocessed"
+      ? Boolean(result?.document.text.trim())
+      : Boolean(file || text.trim());
+  const canRunExtraction = stageControl.canExtract && hasExtractionInput;
 
   const primaryCitations = useMemo(
     () =>
@@ -216,6 +313,9 @@ export default function Home() {
     [result, selectedId]
   );
   const selectedClusterIndex = selectedCitation ? clusterIndexes[selectedCitation.id] ?? 0 : 0;
+  const selectedExtractedAttemptIndex = selectedCitation
+    ? extractedAttemptIndexes[selectedCitation.id] ?? 0
+    : 0;
 
   useEffect(() => {
     if (!result) {
@@ -261,11 +361,13 @@ export default function Home() {
     setError(null);
 
     try {
-      const response = file ? await extractDocument(file) : await extractText(text);
+      const sourceText = workflowStage === "preprocessed" && result ? result.document.text : text;
+      const response = file ? await extractDocument(file) : await extractText(sourceText);
       setResult(response);
       setSelectedId(response.citations[0]?.id ?? null);
       setCitationFilter("all");
       setClusterIndexes({});
+      setExtractedAttemptIndexes({});
       setWorkflowStage("extracted");
       setIsInputCollapsed(true);
     } catch (err) {
@@ -366,12 +468,39 @@ export default function Home() {
     }
   }
 
+  async function loadSnapshot(file: File) {
+    validationRunIdRef.current += 1;
+    setIsLoading(true);
+    setLoadingStage("snapshot");
+    setValidationProgress(null);
+    setError(null);
+
+    try {
+      const response = await loadSnapshotReview(file);
+      setResult(response.result);
+      setText(response.result.document.text);
+      setFile(null);
+      setSelectedId(response.result.citations[0]?.id ?? null);
+      setCitationFilter("all");
+      setClusterIndexes({});
+      setExtractedAttemptIndexes({});
+      setWorkflowStage(response.stage);
+      setIsInputCollapsed(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Snapshot load failed");
+    } finally {
+      setIsLoading(false);
+      setLoadingStage(null);
+    }
+  }
+
   function resetTask() {
     validationRunIdRef.current += 1;
     setResult(null);
     setSelectedId(null);
     setCitationFilter("all");
     setClusterIndexes({});
+    setExtractedAttemptIndexes({});
     setWorkflowStage("input");
     setIsInputCollapsed(false);
     setIsDetailsExpanded(false);
@@ -390,12 +519,28 @@ export default function Home() {
     }));
   }
 
+  function selectExtractedAttempt(citationId: string, attemptIndex: number) {
+    setExtractedAttemptIndexes((current) => ({
+      ...current,
+      [citationId]: attemptIndex
+    }));
+  }
+
   function onFileChange(event: ChangeEvent<HTMLInputElement>) {
     if (isTaskLocked) {
       return;
     }
     setFile(event.target.files?.[0] ?? null);
     setIsInputCollapsed(false);
+  }
+
+  function onSnapshotChange(event: ChangeEvent<HTMLInputElement>) {
+    const snapshot = event.target.files?.[0];
+    event.target.value = "";
+    if (!snapshot || isTaskLocked) {
+      return;
+    }
+    void loadSnapshot(snapshot);
   }
 
   function onDrop(event: DragEvent<HTMLButtonElement>) {
@@ -426,6 +571,7 @@ export default function Home() {
           <Metric label="Citations" value={citationCount} />
           <Metric label="Found" value={foundCount ?? "-"} />
           <Metric label="Chars" value={result?.stats.chars ?? "-"} />
+          <Metric label="Boundary" value={stageControl.label} />
         </div>
       </header>
 
@@ -484,11 +630,18 @@ export default function Home() {
           </>
         )}
         <input ref={fileInputRef} className="hidden-input" type="file" onChange={onFileChange} />
+        <input
+          ref={snapshotInputRef}
+          className="hidden-input"
+          type="file"
+          accept="application/json,.json"
+          onChange={onSnapshotChange}
+        />
 
         <div className="ingest-actions">
           <button
             className="primary-action"
-            disabled={isLoading || isTaskLocked || (!file && !text.trim())}
+            disabled={isLoading || !canRunExtraction}
             onClick={runExtraction}
             type="button"
           >
@@ -497,7 +650,7 @@ export default function Home() {
           </button>
           <button
             className="secondary-action"
-            disabled={isLoading || !result || workflowStage === "validated" || workflowStage === "assessed"}
+            disabled={isLoading || !result || !stageControl.canValidate}
             onClick={runValidation}
             type="button"
           >
@@ -510,7 +663,7 @@ export default function Home() {
           </button>
           <button
             className="secondary-action"
-            disabled={isLoading || !result || workflowStage !== "validated"}
+            disabled={isLoading || !result || !stageControl.canAssess}
             onClick={runAssessment}
             type="button"
           >
@@ -518,8 +671,17 @@ export default function Home() {
             <span>{loadingStage === "assessed" ? "Assessing" : "Assess"}</span>
           </button>
           <button
+            className="secondary-action"
+            disabled={isLoading || !stageControl.canLoadSnapshot}
+            onClick={() => snapshotInputRef.current?.click()}
+            type="button"
+          >
+            {loadingStage === "snapshot" ? <Loader2 className="spin" size={18} /> : <FileText size={18} />}
+            <span>{loadingStage === "snapshot" ? "Loading" : "Load snapshot"}</span>
+          </button>
+          <button
             className="icon-action"
-            disabled={isLoading || !isTaskLocked}
+            disabled={isLoading || !stageControl.canReset}
             onClick={resetTask}
             type="button"
             aria-label="Reset current task"
@@ -636,8 +798,11 @@ export default function Home() {
             <div className="details-grid">
               <BibliographicComparison
                 citation={selectedCitation}
+                assessment={result?.assessment ?? null}
                 clusterIndex={selectedClusterIndex}
+                extractedAttemptIndex={selectedExtractedAttemptIndex}
                 onClusterChange={selectCourtListenerCandidate}
+                onExtractedAttemptChange={selectExtractedAttempt}
               />
               <ValidationDetails validation={selectedCitation.validation} />
               <AssessmentDetails assessment={selectedCitation.assessment} />
@@ -686,20 +851,32 @@ function CitationTags({
 
 function BibliographicComparison({
   citation,
+  assessment,
   clusterIndex,
-  onClusterChange
+  extractedAttemptIndex,
+  onClusterChange,
+  onExtractedAttemptChange
 }: {
   citation: ReviewCitation;
+  assessment: ReviewAssessment | null;
   clusterIndex: number;
+  extractedAttemptIndex: number;
   onClusterChange: (citationId: string, clusterIndex: number) => void;
+  onExtractedAttemptChange: (citationId: string, attemptIndex: number) => void;
 }) {
   const clusters = comparableCourtListenerClusters(citation.validation);
   const safeClusterIndex = clusters.length
     ? Math.min(Math.max(clusterIndex, 0), clusters.length - 1)
     : 0;
   const cluster = clusters[safeClusterIndex] ?? null;
-  const rows = bibliographicRows(citation, cluster);
+  const extractedAttempts = extractedCitationAttempts(citation, assessment);
+  const safeExtractedAttemptIndex = extractedAttempts.length
+    ? Math.min(Math.max(extractedAttemptIndex, 0), extractedAttempts.length - 1)
+    : 0;
+  const extractedAttempt = extractedAttempts[safeExtractedAttemptIndex] ?? extractedAttempts[0];
+  const rows = bibliographicRows(extractedAttempt, cluster);
   const hasMultipleClusters = clusters.length > 1;
+  const hasMultipleExtractedAttempts = extractedAttempts.length > 1;
 
   function changeCluster(direction: -1 | 1) {
     if (!hasMultipleClusters) {
@@ -707,6 +884,15 @@ function BibliographicComparison({
     }
     const nextIndex = (safeClusterIndex + direction + clusters.length) % clusters.length;
     onClusterChange(citation.id, nextIndex);
+  }
+
+  function changeExtractedAttempt(direction: -1 | 1) {
+    if (!hasMultipleExtractedAttempts) {
+      return;
+    }
+    const nextIndex =
+      (safeExtractedAttemptIndex + direction + extractedAttempts.length) % extractedAttempts.length;
+    onExtractedAttemptChange(citation.id, nextIndex);
   }
 
   return (
@@ -722,7 +908,30 @@ function BibliographicComparison({
       <div className="comparison-table" role="table" aria-label="Bibliographic field comparison">
         <div className="comparison-header" role="row">
           <span role="columnheader">Field</span>
-          <span role="columnheader">Extracted</span>
+          <span className="courtlistener-column-header" role="columnheader">
+            <span>{extractedAttempt?.label ?? "Extracted"}</span>
+            {hasMultipleExtractedAttempts ? (
+              <span className="case-switcher" aria-label="Extracted citation history selector">
+                <button
+                  aria-label="Show previous extracted citation"
+                  type="button"
+                  onClick={() => changeExtractedAttempt(-1)}
+                >
+                  <ChevronLeft size={14} aria-hidden="true" />
+                </button>
+                <strong>
+                  {safeExtractedAttemptIndex + 1}/{extractedAttempts.length}
+                </strong>
+                <button
+                  aria-label="Show next extracted citation"
+                  type="button"
+                  onClick={() => changeExtractedAttempt(1)}
+                >
+                  <ChevronRight size={14} aria-hidden="true" />
+                </button>
+              </span>
+            ) : null}
+          </span>
           <span className="courtlistener-column-header" role="columnheader">
             <span>CourtListener</span>
             {hasMultipleClusters ? (
@@ -901,18 +1110,6 @@ function CaseNameAssessmentDetails({ assessment }: { assessment: CaseNameAssessm
         <dt>CourtListener case</dt>
         <dd>{formatValue(assessment.courtlistener_case_name)}</dd>
       </div>
-      {assessment.modified_extracted_case_name ? (
-        <div>
-          <dt>Modified case</dt>
-          <dd>{assessment.modified_extracted_case_name}</dd>
-        </div>
-      ) : null}
-      {assessment.modified_match_status ? (
-        <div>
-          <dt>Modified match</dt>
-          <dd>{assessment.modified_match_status.replaceAll("_", " ")}</dd>
-        </div>
-      ) : null}
     </>
   );
 }
@@ -940,13 +1137,47 @@ function YearAssessmentDetails({ assessment }: { assessment: YearAssessmentPaylo
   );
 }
 
-function bibliographicRows(citation: ReviewCitation, cluster: CourtListenerCluster | null): BibliographicRow[] {
+function extractedCitationAttempts(
+  citation: ReviewCitation,
+  assessment: ReviewAssessment | null
+): ExtractedCitationAttempt[] {
+  const original: ExtractedCitationAttempt = {
+    label: "Extracted",
+    fields: citation.fields,
+    locator: citation.validation?.locator ?? citation.matched_text,
+    citation,
+    reassessment: null
+  };
+  const modified = assessment?.modified_citations
+    .filter((item) => item.citation_id === citation.id)
+    .map((item, index) => ({
+      label: `Modified ${index + 1}`,
+      fields: {
+        ...citation.fields,
+        plaintiff: item.plaintiff ?? undefined,
+        defendant: item.defendant ?? undefined,
+        case_name: item.case_name ?? item.extracted_case_name ?? undefined
+      },
+      locator: citation.validation?.locator ?? citation.matched_text,
+      citation,
+      reassessment:
+        assessment.reassessments.find((candidate) => candidate.citation_id === citation.id) ?? null
+    }));
+
+  return [original, ...(modified ?? [])];
+}
+
+function bibliographicRows(
+  extractedAttempt: ExtractedCitationAttempt,
+  cluster: CourtListenerCluster | null
+): BibliographicRow[] {
+  const { citation, fields } = extractedAttempt;
   const canColorRows = Boolean(citation.assessment);
-  const citationLocator = citation.validation?.locator ?? citation.matched_text;
+  const citationLocator = extractedAttempt.locator ?? citation.validation?.locator ?? citation.matched_text;
   const extractedLocatorParts = splitLocator(citationLocator);
   const courtListenerLocator = cluster ? citation.validation?.locator : null;
   const courtListenerLocatorParts = splitLocator(courtListenerLocator);
-  const extractedCaseName = caseNameFromFields(citation.fields) || citation.matched_text;
+  const extractedCaseName = caseNameFromFields(fields) || extractedAttempt.locator || citation.matched_text;
   const courtListenerCaseName = readString(cluster, ["case_name", "caseName"]);
   const courtListenerCourt = readString(cluster, ["court", "court_id", "courtId"]);
   const courtListenerDate = readString(cluster, ["date_filed", "dateFiled"]);
@@ -960,7 +1191,7 @@ function bibliographicRows(citation: ReviewCitation, cluster: CourtListenerClust
     "year",
     "court"
   ]);
-  const extraFieldRows = Object.entries(citation.fields)
+  const extraFieldRows = Object.entries(fields)
     .filter(([key]) => !knownFieldKeys.has(key))
     .map(([key, value]) => ({
       label: key.replaceAll("_", " "),
@@ -975,7 +1206,11 @@ function bibliographicRows(citation: ReviewCitation, cluster: CourtListenerClust
       extracted: extractedCaseName,
       courtListener: courtListenerCaseName,
       matchType: canColorRows
-        ? caseNameRowMatchType(citation, extractedCaseName, courtListenerCaseName)
+        ? caseNameRowMatchType(
+            extractedAttempt.reassessment?.case_assess ?? citation.assessment?.case_assess,
+            extractedCaseName,
+            courtListenerCaseName
+          )
         : "unchecked"
     },
     {
@@ -986,33 +1221,37 @@ function bibliographicRows(citation: ReviewCitation, cluster: CourtListenerClust
     },
     {
       label: "Volume",
-      extracted: citation.fields.volume ?? extractedLocatorParts.volume,
+      extracted: fields.volume ?? extractedLocatorParts.volume,
       courtListener: courtListenerLocatorParts.volume,
       matchType: canColorRows ? "perfect" : "unchecked"
     },
     {
       label: "Reporter",
-      extracted: citation.fields.reporter ?? extractedLocatorParts.reporter,
+      extracted: fields.reporter ?? extractedLocatorParts.reporter,
       courtListener: courtListenerLocatorParts.reporter,
       matchType: canColorRows ? "perfect" : "unchecked"
     },
     {
       label: "Page",
-      extracted: citation.fields.page ?? extractedLocatorParts.page,
+      extracted: fields.page ?? extractedLocatorParts.page,
       courtListener: courtListenerLocatorParts.page,
       matchType: canColorRows ? "perfect" : "unchecked"
     },
     {
       label: "Year",
-      extracted: citation.fields.year,
+      extracted: fields.year,
       courtListener: courtListenerDate?.slice(0, 4),
       matchType: canColorRows
-        ? yearRowMatchType(citation.assessment?.year_assess, citation.fields.year, courtListenerDate?.slice(0, 4))
+        ? yearRowMatchType(
+            extractedAttempt.reassessment?.year_assess ?? citation.assessment?.year_assess,
+            fields.year,
+            courtListenerDate?.slice(0, 4)
+          )
         : "unchecked"
     },
     {
       label: "Court",
-      extracted: citation.fields.court,
+      extracted: fields.court,
       courtListener: courtListenerCourt,
       matchType: "unchecked"
     },
@@ -1027,12 +1266,12 @@ function bibliographicRows(citation: ReviewCitation, cluster: CourtListenerClust
 }
 
 function caseNameRowMatchType(
-  citation: ReviewCitation,
+  assessment: CaseNameAssessmentPayload | null | undefined,
   extractedCaseName: string | null,
   courtListenerCaseName: string | null
 ): ComparisonMatchType {
-  if (citation.assessment?.case_assess) {
-    const status = citation.assessment.case_assess.status.toLowerCase().replaceAll("-", "_");
+  if (assessment) {
+    const status = assessment.status.toLowerCase().replaceAll("-", "_");
     if (status === "exact_match") {
       return "exact";
     }
@@ -1055,8 +1294,11 @@ function yearRowMatchType(
   if (status === "exact_match") {
     return "exact";
   }
-  if (status === "mismatch" || status === "missing") {
+  if (status === "mismatch") {
     return "error";
+  }
+  if (status === "missing") {
+    return "unchecked";
   }
   return directRowMatchType(extracted, courtListener);
 }
@@ -1069,6 +1311,10 @@ function directRowMatchType(extracted: unknown, courtListener: unknown): Compari
 }
 
 function caseNameFromFields(fields: Record<string, unknown>) {
+  const caseName = stringField(fields.case_name);
+  if (caseName) {
+    return caseName;
+  }
   const plaintiff = stringField(fields.plaintiff);
   const defendant = stringField(fields.defendant);
   if (plaintiff && defendant) {
@@ -1240,14 +1486,16 @@ function visibleCitationSpans(
 }
 
 function renderCitation(text: string, citation: ReviewCitation): RenderCitation | null {
-  if (!isValidSpan(text, citation)) {
+  const span = preferredCitationSpan(citation);
+
+  if (!isValidSpan(text, span)) {
     return null;
   }
 
   const { start: highlightStart, end: highlightEnd } = trimPaintedSpan(
     text,
-    citation.start,
-    citation.end
+    span.start,
+    span.end
   );
 
   if (highlightStart >= highlightEnd) {
@@ -1259,6 +1507,10 @@ function renderCitation(text: string, citation: ReviewCitation): RenderCitation 
     highlightStart,
     highlightEnd
   };
+}
+
+function preferredCitationSpan(citation: ReviewCitation): TextSpan {
+  return citation;
 }
 
 function trimPaintedSpan(text: string, start: number, end: number) {
@@ -1488,6 +1740,17 @@ async function assessReview(result: ReviewResult): Promise<ReviewResult> {
     body: JSON.stringify(result)
   });
   return parseReviewResponse(response);
+}
+
+async function loadSnapshotReview(file: File): Promise<SnapshotReviewResult> {
+  const form = new FormData();
+  form.append("file", file);
+
+  const response = await fetch("/api/e2e/review-snapshot", {
+    method: "POST",
+    body: form
+  });
+  return parseJsonResponse<SnapshotReviewResult>(response);
 }
 
 async function parseReviewResponse(response: Response): Promise<ReviewResult> {

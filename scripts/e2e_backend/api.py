@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Annotated, Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+from mellea_lrc.serialization import (
+    deserialize_document_assessment,
+    deserialize_document_extraction,
+    deserialize_document_validation,
+    deserialize_preprocessed_document,
+)
 from scripts.e2e_backend.pipeline import E2EBackend
 
 APP_NAME = "mellea-lrc-prototype"
 
 
-def create_app(backend: E2EBackend | None = None) -> FastAPI:  # noqa: C901
+def create_app(backend: E2EBackend | None = None) -> FastAPI:  # noqa: C901, PLR0915
     """Create the E2E backend app for Modal or local serving."""
     pipeline = backend or E2EBackend()
     web_app = FastAPI(title="Mellea LRC E2E Backend", version="0.1.0")
@@ -80,6 +87,19 @@ def create_app(backend: E2EBackend | None = None) -> FastAPI:  # noqa: C901
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    @web_app.post("/api/review-snapshot")
+    async def review_snapshot(
+        *,
+        file: Annotated[UploadFile, File()],
+    ) -> dict[str, Any]:
+        try:
+            payload = json.loads((await file.read()).decode("utf-8"))
+            return _review_snapshot_payload(payload, pipeline)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="Snapshot must be a JSON artifact.") from exc
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @web_app.post("/api/review-text")
     async def review_text(payload: dict[str, object]) -> dict[str, object]:
         text = str(payload.get("text") or "")
@@ -108,3 +128,34 @@ def _frontend_origins() -> list[str]:
     if raw_origins:
         return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
     return ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+
+def _review_snapshot_payload(payload: object, pipeline: E2EBackend) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        msg = "Snapshot must be a JSON object."
+        raise TypeError(msg)
+    if "assessments" in payload:
+        return {
+            "stage": "assessed",
+            "result": pipeline.review_document_assessment(deserialize_document_assessment(payload)),
+        }
+    if "validations" in payload:
+        return {
+            "stage": "validated",
+            "result": pipeline.review_document_validation(deserialize_document_validation(payload)),
+        }
+    if "citations" in payload:
+        return {
+            "stage": "extracted",
+            "result": pipeline.review_document_extraction(deserialize_document_extraction(payload)),
+        }
+    if "metadata" in payload and "text" in payload:
+        return {
+            "stage": "preprocessed",
+            "result": pipeline.review_preprocessed_document(deserialize_preprocessed_document(payload)),
+        }
+    msg = (
+        "Snapshot does not look like a serialized PreprocessedDocument, "
+        "DocumentExtraction, DocumentValidation, or DocumentAssessment."
+    )
+    raise ValueError(msg)

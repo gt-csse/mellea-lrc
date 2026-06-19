@@ -1,7 +1,27 @@
 """Tests for neutral and Label Studio-specific serialization."""
 
+from mellea_lrc.assessment import (
+    CaseNameAssessment,
+    CaseNameAssessmentStatus,
+    CitationAssessment,
+    DocumentAssessment,
+    ModifiedExtractedCitation,
+    YearAssessment,
+    YearAssessmentStatus,
+)
+from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import extract_citations
-from mellea_lrc.serialization import serialize_document_extraction
+from mellea_lrc.serialization import (
+    deserialize_document_assessment,
+    deserialize_document_extraction,
+    deserialize_document_validation,
+    deserialize_preprocessed_document,
+    serialize_document_assessment,
+    serialize_document_extraction,
+    serialize_document_validation,
+    serialize_preprocessed_document,
+)
+from mellea_lrc.validation.types import CitationValidation, DocumentValidation, ValidationStatus
 from scripts.label_studio.label_studio import to_label_studio_prediction
 from scripts.label_studio.pre_annotate import build_task_payload
 
@@ -29,6 +49,100 @@ def test_document_extraction_serializes_without_ui_assumptions() -> None:
     assert citation["span"]["start"] == extraction.citations[0].span.start
     assert citation["citation"]["type"] == "FullCaseCitation"
     assert "from_name" not in citation
+
+
+def test_preprocessed_document_round_trips() -> None:
+    extraction = extract_citations(SAMPLE_TEXT)
+    artifact = serialize_preprocessed_document(extraction.preprocessed)
+
+    restored = deserialize_preprocessed_document(artifact)
+
+    assert restored == extraction.preprocessed
+
+
+def test_document_extraction_round_trips() -> None:
+    extraction = extract_citations(SAMPLE_TEXT)
+    artifact = serialize_document_extraction(extraction)
+
+    restored = deserialize_document_extraction(artifact)
+
+    assert restored == extraction
+
+
+def test_document_validation_round_trips() -> None:
+    extraction = extract_citations(SAMPLE_TEXT)
+    validation = DocumentValidation(
+        preprocessed=extraction.preprocessed,
+        citations=extraction.citations,
+        validations=(
+            CitationValidation(
+                citation_id=extraction.citations[0].citation_id,
+                locator="118 U.S. 425",
+                status=ValidationStatus.FOUND,
+                source="test",
+                message="found",
+                case_names=("Norton v. Shelby County",),
+                lookup_status=200,
+                lookup_cache="miss",
+                lookup_key="118 U.S. 425",
+                clusters=({"case_name": "Norton v. Shelby County", "date_filed": "1886-01-01"},),
+            ),
+        ),
+    )
+
+    artifact = serialize_document_validation(validation)
+    restored = deserialize_document_validation(artifact)
+
+    assert restored == validation
+
+
+def test_document_assessment_round_trips() -> None:
+    extraction = extract_citations(SAMPLE_TEXT)
+    validation = CitationValidation(
+        citation_id=extraction.citations[0].citation_id,
+        locator="118 U.S. 425",
+        status=ValidationStatus.FOUND,
+        source="test",
+        message="found",
+        clusters=({"case_name": "Norton v. Shelby County", "date_filed": "1886-01-01"},),
+    )
+    assessment = CitationAssessment(
+        citation_id=extraction.citations[0].citation_id,
+        case_assess=CaseNameAssessment(
+            citation_id=extraction.citations[0].citation_id,
+            status=CaseNameAssessmentStatus.EXACT_MATCH,
+            extracted_case_name="Norton v. Shelby County",
+            courtlistener_case_name="Norton v. Shelby County",
+            message="match",
+        ),
+        year_assess=YearAssessment(
+            citation_id=extraction.citations[0].citation_id,
+            status=YearAssessmentStatus.EXACT_MATCH,
+            extracted_year="1886",
+            courtlistener_year="1886",
+            message="match",
+        ),
+    )
+    document_assessment = DocumentAssessment(
+        preprocessed=extraction.preprocessed,
+        citations=extraction.citations,
+        validations=(validation,),
+        assessments=(assessment,),
+        modified_citations=(
+            ModifiedExtractedCitation(
+                citation_id=extraction.citations[0].citation_id,
+                span=Span(start=6, end=30),
+                matched_text="Norton v. Shelby County",
+                case_name="Norton v. Shelby County",
+            ),
+        ),
+        reassessments=(assessment,),
+    )
+
+    artifact = serialize_document_assessment(document_assessment)
+    restored = deserialize_document_assessment(artifact)
+
+    assert restored == document_assessment
 
 
 def test_label_studio_prediction_shape() -> None:

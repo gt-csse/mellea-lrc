@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
@@ -11,9 +11,11 @@ from mellea_lrc.assessment import (
     CaseNameAssessmentStatus,
     CitationAssessment,
     DocumentAssessment,
+    ModifiedExtractedCitation,
     assess_case_name_exact_match,
     assess_year_exact_match,
     build_extracted_case_name,
+    find_text_span_near_full_span,
     get_extended_span_text,
 )
 from mellea_lrc.core.citations import FullCaseCitation, UnknownCitation, citation_kind
@@ -34,10 +36,23 @@ from scripts.label_studio.label_studio import to_label_studio_prediction
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from mellea_lrc.assessment.types import CaseNameAssessment, YearAssessment
+    from mellea_lrc.assessment.types import (
+        CaseNameAssessment,
+        ModifiedExtractedCitationProposal,
+        YearAssessment,
+    )
     from mellea_lrc.validation import CourtListenerAccessClient
 
 JsonDict = dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewCitationAssessmentResult:
+    """Assessment plus optional modified extraction history for one citation."""
+
+    assessment: CitationAssessment | None
+    modified_citation: ModifiedExtractedCitation | None = None
+    reassessment: CitationAssessment | None = None
 
 
 class DoclingDocument(Protocol):
@@ -78,6 +93,18 @@ class E2EBackend:
     def review_text(self, text: str, *, validate: bool = True) -> dict[str, Any]:
         """Run the frontend review API for plain text input."""
         return review_preprocessed(_text_to_preprocessed(text), validate=validate)
+
+    def review_preprocessed_document(self, preprocessed: PreprocessedDocument) -> dict[str, Any]:
+        """Serialize a preprocessed document snapshot for the frontend review UI."""
+        return review_preprocessed_document(preprocessed)
+
+    def review_document_extraction(self, extraction: DocumentExtraction) -> dict[str, Any]:
+        """Serialize an extraction snapshot for the frontend review UI."""
+        return review_document_extraction(extraction)
+
+    def review_document_validation(self, validation: DocumentValidation) -> dict[str, Any]:
+        """Serialize a validation snapshot for the frontend review UI."""
+        return review_document_validation(validation)
 
     def extract_text(self, text: str) -> dict[str, Any]:
         """Extract frontend review citations from plain text without validation."""
@@ -168,6 +195,10 @@ class E2EBackend:
         """Attach Mellea-assisted assessment to an existing validated review payload."""
         return assess_review_payload(payload)
 
+    def review_document_assessment(self, assessment: DocumentAssessment) -> dict[str, Any]:
+        """Serialize a cached assessment artifact for the frontend review UI."""
+        return review_document_assessment(assessment)
+
     def _get_converter(self) -> DoclingConverter:
         if self._converter is None:
             self._converter = self._converter_factory()
@@ -214,6 +245,62 @@ def review_preprocessed(
         },
         "citations": _citation_payloads(extraction, validation),
         "validation": _validation_payload(validation),
+        "stats": _stats(extraction, validation),
+    }
+
+
+def review_preprocessed_document(preprocessed: PreprocessedDocument) -> dict[str, Any]:
+    """Serialize a preprocessed document snapshot without running extraction."""
+    return {
+        "document": {
+            "text": preprocessed.text,
+            "source_path": preprocessed.metadata.source_path,
+            "source_format": preprocessed.metadata.source_format.value,
+            "backend": preprocessed.metadata.backend.value,
+        },
+        "citations": [],
+        "validation": None,
+        "assessment": None,
+        "stats": {
+            "chars": len(preprocessed.text),
+            "citation_spans": 0,
+            "full_citations": 0,
+        },
+    }
+
+
+def review_document_extraction(extraction: DocumentExtraction) -> dict[str, Any]:
+    """Serialize a typed extraction artifact as a frontend review payload."""
+    return {
+        "document": {
+            "text": extraction.text,
+            "source_path": extraction.source_path,
+            "source_format": extraction.preprocessed.metadata.source_format.value,
+            "backend": extraction.preprocessed.metadata.backend.value,
+        },
+        "citations": _citation_payloads(extraction, None),
+        "validation": None,
+        "assessment": None,
+        "stats": _stats(extraction, None),
+    }
+
+
+def review_document_validation(validation: DocumentValidation) -> dict[str, Any]:
+    """Serialize a typed validation artifact as a frontend review payload."""
+    extraction = DocumentExtraction(
+        preprocessed=validation.preprocessed,
+        citations=validation.citations,
+    )
+    return {
+        "document": {
+            "text": extraction.text,
+            "source_path": extraction.source_path,
+            "source_format": extraction.preprocessed.metadata.source_format.value,
+            "backend": extraction.preprocessed.metadata.backend.value,
+        },
+        "citations": _citation_payloads(extraction, validation),
+        "validation": _validation_payload(validation),
+        "assessment": None,
         "stats": _stats(extraction, validation),
     }
 
@@ -276,26 +363,39 @@ def assess_review_payload(payload: dict[str, object]) -> dict[str, Any]:
     validation = _validation_from_review_payload(output, extraction)
     session = None
     assessments: list[CitationAssessment] = []
+    modified_citations = []
+    reassessments: list[CitationAssessment] = []
 
     for citation in citations:
-        assessment = _assess_review_citation(citation, document_text, session)
-        if assessment is None:
+        result = _assess_review_citation(citation, document_text, session)
+        if result.assessment is None:
             citation["assessment"] = None
             continue
+        assessment = result.assessment
         if (
             assessment.case_assess is not None
             and assessment.case_assess.status.value == "needs_semantic_assessment"
         ):
             session = session or _start_mellea_session_from_env()
-            assessment = _assess_review_citation(citation, document_text, session)
+            result = _assess_review_citation(citation, document_text, session)
+            if result.assessment is None:
+                citation["assessment"] = None
+                continue
+            assessment = result.assessment
         citation["assessment"] = _assessment_payload(assessment)
         assessments.append(assessment)
+        if result.modified_citation is not None:
+            modified_citations.append(result.modified_citation)
+        if result.reassessment is not None:
+            reassessments.append(result.reassessment)
 
     document_assessment = DocumentAssessment(
         preprocessed=extraction.preprocessed,
         citations=extraction.citations,
         validations=validation.validations,
         assessments=tuple(assessments),
+        modified_citations=tuple(modified_citations),
+        reassessments=tuple(reassessments),
     )
     output["citations"] = citations
     output["assessment"] = _assessment_payload_document(document_assessment)
@@ -304,6 +404,43 @@ def assess_review_payload(payload: dict[str, object]) -> dict[str, Any]:
         {"assessed": len(assessments), **_assessment_counts(assessments)},
     )
     return output
+
+
+def review_document_assessment(assessment: DocumentAssessment) -> dict[str, Any]:
+    """Serialize a typed assessment artifact as a frontend review payload."""
+    _ensure_assessment_is_resolved(assessment)
+    validation = DocumentValidation(
+        preprocessed=assessment.preprocessed,
+        citations=assessment.citations,
+        validations=assessment.validations,
+    )
+    output = review_document_validation(validation)
+    output["assessment"] = _assessment_payload_document(assessment)
+    output["stats"] = _merge_stats(
+        output.get("stats"),
+        {"assessed": len(assessment.assessments), **_assessment_counts(list(assessment.assessments))},
+    )
+    assessment_by_id = {item.citation_id: _assessment_payload(item) for item in assessment.assessments}
+    citations = _review_citations(output)
+    for citation in citations:
+        citation["assessment"] = assessment_by_id.get(str(citation.get("id")))
+    output["citations"] = citations
+    return output
+
+
+def _ensure_assessment_is_resolved(assessment: DocumentAssessment) -> None:
+    pending = [
+        item.citation_id
+        for item in assessment.assessments
+        if item.case_assess is not None
+        and item.case_assess.status == CaseNameAssessmentStatus.NEEDS_SEMANTIC_ASSESSMENT
+    ]
+    if pending:
+        msg = (
+            "DocumentAssessment contains unresolved semantic assessment handoff states. "
+            f"Rerun assessment without a debug cap. Pending citation ids: {', '.join(pending[:5])}"
+        )
+        raise ValueError(msg)
 
 
 def add_validation_notes(
@@ -569,14 +706,14 @@ def _assess_review_citation(
     citation: JsonDict,
     document_text: str,
     session: object | None,
-) -> CitationAssessment | None:
+) -> ReviewCitationAssessmentResult:
     validation = citation.get("validation") if isinstance(citation.get("validation"), dict) else None
     if (
         citation.get("kind") != "FullCaseCitation"
         or validation is None
         or validation.get("status") != "found"
     ):
-        return None
+        return ReviewCitationAssessmentResult(assessment=None)
 
     citation_id = str(citation.get("id") or "")
     fields = citation.get("fields") if isinstance(citation.get("fields"), dict) else {}
@@ -594,26 +731,66 @@ def _assess_review_citation(
         courtlistener_case_name=courtlistener_case_name,
     )
     if exact.status != CaseNameAssessmentStatus.NEEDS_SEMANTIC_ASSESSMENT or session is None:
-        return CitationAssessment(
-            citation_id=citation_id,
-            case_assess=exact,
-            year_assess=year_assess,
+        return ReviewCitationAssessmentResult(
+            assessment=CitationAssessment(
+                citation_id=citation_id,
+                case_assess=exact,
+                year_assess=year_assess,
+            ),
         )
 
     from mellea_lrc.assessment.mellea import assess_case_name_with_mellea  # noqa: PLC0415
 
     span = Span(start=_int_field(citation.get("start")), end=_int_field(citation.get("end")))
-    case_name_assessment = assess_case_name_with_mellea(
+    case_name_run = assess_case_name_with_mellea(
         session,
         citation_id=citation_id,
         extracted_case_name=extracted_case_name,
         courtlistener_case_name=courtlistener_case_name,
         document_context=get_extended_span_text(document_text, span),
     )
-    return CitationAssessment(
+    reassessment = (
+        CitationAssessment(
+            citation_id=citation_id,
+            case_assess=case_name_run.reassessment,
+            year_assess=year_assess,
+        )
+        if case_name_run.reassessment is not None
+        else None
+    )
+    return ReviewCitationAssessmentResult(
+        assessment=CitationAssessment(
+            citation_id=citation_id,
+            case_assess=case_name_run.assessment,
+            year_assess=year_assess,
+        ),
+        modified_citation=_bind_modified_citation(
+            case_name_run.modified_citation,
+            document_text,
+            span,
+            citation_id,
+        ),
+        reassessment=reassessment,
+    )
+
+
+def _bind_modified_citation(
+    modified_citation: ModifiedExtractedCitationProposal | None,
+    document_text: str,
+    full_span: Span,
+    citation_id: str,
+) -> ModifiedExtractedCitation | None:
+    if modified_citation is None or not modified_citation.extracted_case_name:
+        return None
+    modified_span = find_text_span_near_full_span(
+        document_text,
+        modified_citation.extracted_case_name,
+        full_span,
+    )
+    return ModifiedExtractedCitation.from_proposal(
+        modified_citation,
         citation_id=citation_id,
-        case_assess=case_name_assessment,
-        year_assess=year_assess,
+        span=modified_span,
     )
 
 
@@ -717,8 +894,16 @@ def _year_assessment_payload(item: YearAssessment | None) -> JsonDict | None:
 def _assessment_payload_document(assessment: DocumentAssessment) -> JsonDict:
     return {
         "assessments": [_assessment_payload(item) for item in assessment.assessments],
+        "modified_citations": [_modified_citation_payload(item) for item in assessment.modified_citations],
+        "reassessments": [_assessment_payload(item) for item in assessment.reassessments],
         "counts": _assessment_counts(list(assessment.assessments)),
     }
+
+
+def _modified_citation_payload(item: ModifiedExtractedCitation) -> JsonDict:
+    payload = asdict(item)
+    payload["extracted_case_name"] = item.extracted_case_name
+    return payload
 
 
 def _assessment_counts(assessments: list[CitationAssessment]) -> dict[str, int]:

@@ -4,11 +4,12 @@ from mellea_lrc.assessment import (
     CaseNameAssessmentStatus,
     CitationAssessment,
     CitationAssessmentStatus,
-    ModifiedExtractedCitation,
+    ModifiedExtractedCitationProposal,
     YearAssessmentStatus,
     assess_case_name_exact_match,
     assess_year_exact_match,
     build_extracted_case_name,
+    find_text_span_near_full_span,
     get_extended_span_text,
 )
 from mellea_lrc.core.citations import FullCaseCitation
@@ -47,6 +48,38 @@ def test_get_extended_span_text_rejects_negative_context_windows() -> None:
 
     with pytest.raises(ValueError, match="must be non-negative"):
         get_extended_span_text(text, full_span, before_chars=-1)
+
+
+def test_find_text_span_near_full_span_disambiguates_repeated_case_name() -> None:
+    text = (
+        "Brown v. Board appears in background. "
+        "Later, See Brown v. Board, 347 U.S. 483 (1954)."
+    )
+    full_span = Span(start=text.index("Brown v. Board, 347"), end=text.index(" (1954)") + len(" (1954)"))
+
+    span = find_text_span_near_full_span(text, "Brown v. Board", full_span)
+
+    assert span == Span(start=text.index("Brown v. Board, 347"), end=text.index(", 347"))
+
+
+def test_find_text_span_near_full_span_matches_flexible_whitespace() -> None:
+    text = "See World Wide Ass'n\nof Specialty Programs v. Pure, Inc., 450 F.3d 1132."
+    full_span = Span(start=text.index("World"), end=text.index("."))
+
+    span = find_text_span_near_full_span(
+        text,
+        "World Wide Ass'n of Specialty Programs v. Pure, Inc.",
+        full_span,
+    )
+
+    assert span == Span(start=text.index("World"), end=text.index(", 450"))
+
+
+def test_find_text_span_near_full_span_returns_none_outside_local_context() -> None:
+    text = "Brown v. Board is in background. See 347 U.S. 483 (1954)."
+    full_span = Span(start=text.index("347"), end=len(text) - 1)
+
+    assert find_text_span_near_full_span(text, "Brown v. Board", full_span) is None
 
 
 def test_build_extracted_case_name_from_parties() -> None:
@@ -105,7 +138,17 @@ def test_assess_year_mismatch_is_deterministic_error() -> None:
     assert result.status == YearAssessmentStatus.MISMATCH
 
 
-def test_citation_assessment_status_is_derived_from_sub_assessments() -> None:
+def test_assess_year_missing_is_field_level_third_status() -> None:
+    result = assess_year_exact_match(
+        citation_id="cite-1",
+        extracted_year=None,
+        courtlistener_year="1954",
+    )
+
+    assert result.status == YearAssessmentStatus.MISSING
+
+
+def test_citation_assessment_status_uses_year_mismatch_in_rollup() -> None:
     case_assess = assess_case_name_exact_match(
         citation_id="cite-1",
         extracted_case_name="Brown v. Board",
@@ -127,9 +170,31 @@ def test_citation_assessment_status_is_derived_from_sub_assessments() -> None:
     assert result.message == "Extracted year does not match CourtListener."
 
 
-def test_modified_extracted_citation_valid_requires_grounded_fields() -> None:
+def test_citation_assessment_status_ignores_missing_year_in_rollup() -> None:
+    case_assess = assess_case_name_exact_match(
+        citation_id="cite-1",
+        extracted_case_name="Brown v. Board",
+        courtlistener_case_name="Brown v. Board",
+    )
+    year_assess = assess_year_exact_match(
+        citation_id="cite-1",
+        extracted_year=None,
+        courtlistener_year="1954",
+    )
+
+    result = CitationAssessment(
+        citation_id="cite-1",
+        case_assess=case_assess,
+        year_assess=year_assess,
+    )
+
+    assert result.status == CitationAssessmentStatus.EXACT_MATCH
+    assert result.message == "Assessed available bibliographic fields match CourtListener."
+
+
+def test_modified_extracted_citation_proposal_valid_requires_grounded_fields() -> None:
     context = "See World Wide Ass'n of Specialty Programs v. Pure, Inc., 450 F.3d 1132."
-    modified = ModifiedExtractedCitation(
+    modified = ModifiedExtractedCitationProposal(
         plaintiff="World Wide Ass'n of Specialty Programs",
         defendant="Pure, Inc.",
     )
@@ -138,9 +203,9 @@ def test_modified_extracted_citation_valid_requires_grounded_fields() -> None:
     assert modified.extracted_case_name == "World Wide Ass'n of Specialty Programs v. Pure, Inc."
 
 
-def test_modified_extracted_citation_valid_rejects_ungrounded_fields() -> None:
+def test_modified_extracted_citation_proposal_valid_rejects_ungrounded_fields() -> None:
     context = "See World Wide Ass'n of Specialty Programs v. Pure, Inc., 450 F.3d 1132."
-    modified = ModifiedExtractedCitation(
+    modified = ModifiedExtractedCitationProposal(
         plaintiff="World Wide Association of Specialty Programs",
         defendant="Pure, Inc.",
     )
