@@ -427,6 +427,20 @@ input:focus-visible {
   box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.26);
 }
 
+/* Re-extracted span layered over the original full-span highlight. The overlap
+   region keeps the orange background with a cyan underline; the part of the
+   re-extraction that lies outside the original gets a cyan background. */
+.citation-mark.reextracted {
+  box-shadow:
+    0 0 0 2px rgba(245, 158, 11, 0.26),
+    inset 0 -0.18em 0 0 rgba(14, 165, 233, 0.9);
+}
+
+.citation-mark.reextract-only {
+  background: #cffafe;
+  box-shadow: inset 0 -0.18em 0 0 rgba(14, 165, 233, 0.9);
+}
+
 .citation-rail {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
@@ -591,12 +605,17 @@ input:focus-visible {
 }
 
 .citation-tag.assessment.exact_match,
-.citation-tag.assessment.semantic_match {
+.citation-tag.assessment.match {
   background: #e0f2fe;
   color: #075985;
 }
 
-.citation-tag.assessment.extraction_error {
+.citation-tag.assessment.irregular_form {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.citation-tag.assessment.different_case {
   background: #fee2e2;
   color: var(--danger);
 }
@@ -818,6 +837,10 @@ input:focus-visible {
   background: #eff6ff;
 }
 
+.comparison-row.warning {
+  background: #fffbeb;
+}
+
 .comparison-row.error {
   background: #fef2f2;
 }
@@ -842,6 +865,10 @@ input:focus-visible {
 
 .comparison-row.semantic span:first-child {
   color: #1d4ed8;
+}
+
+.comparison-row.warning span:first-child {
+  color: #b45309;
 }
 
 .comparison-row.error span:first-child {

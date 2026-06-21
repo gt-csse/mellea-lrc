@@ -14,12 +14,26 @@ if TYPE_CHECKING:
 
 
 class CaseNameAssessmentStatus(str, Enum):
-    """Canonical outcomes for case-name assessment."""
+    """Canonical outcomes for case-name assessment.
+
+    ``EXACT_MATCH`` and ``NEEDS_ASSESSMENT`` are deterministic, internal states.
+    ``MATCH`` / ``DIFFERENT_CASE`` / ``IRREGULAR_FORM`` are the verdicts the model
+    returns, so their string values double as the prompt vocabulary:
+
+    - ``match`` — same case as the retrieved record; abbreviation, party
+      shortening, and omitted institutional suffixes are acceptable.
+    - ``different_case`` — the extracted name denotes a different, unrelated case
+      than the retrieved record (often a retrieval/citation problem, not the
+      extractor's fault).
+    - ``irregular_form`` — the same case, but written with unusual omission or
+      shorthand (a likely mis-extraction worth re-checking against local context).
+    """
 
     EXACT_MATCH = "exact_match"
-    SEMANTIC_MATCH = "semantic_match"
-    NEEDS_SEMANTIC_ASSESSMENT = "needs_semantic_assessment"
-    EXTRACTION_ERROR = "extraction_error"
+    MATCH = "match"
+    DIFFERENT_CASE = "different_case"
+    IRREGULAR_FORM = "irregular_form"
+    NEEDS_ASSESSMENT = "needs_assessment"
 
 
 class YearAssessmentStatus(str, Enum):
@@ -31,12 +45,18 @@ class YearAssessmentStatus(str, Enum):
 
 
 class CitationAssessmentStatus(str, Enum):
-    """Canonical roll-up outcomes for one citation assessment."""
+    """Canonical roll-up outcomes for one citation assessment.
+
+    Mirrors :class:`CaseNameAssessmentStatus`; the citation status currently rolls
+    up the case-name verdict. Year is assessed independently and surfaced on its
+    own field rather than folded into this status.
+    """
 
     EXACT_MATCH = "exact_match"
-    SEMANTIC_MATCH = "semantic_match"
-    NEEDS_SEMANTIC_ASSESSMENT = "needs_semantic_assessment"
-    EXTRACTION_ERROR = "extraction_error"
+    MATCH = "match"
+    DIFFERENT_CASE = "different_case"
+    IRREGULAR_FORM = "irregular_form"
+    NEEDS_ASSESSMENT = "needs_assessment"
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,26 +91,18 @@ class CitationAssessment:
 
     @property
     def status(self) -> CitationAssessmentStatus:
-        """Roll up specific assessment statuses for this citation."""
+        """Roll up the case-name verdict for this citation.
+
+        Year is assessed separately (see :attr:`year_assess`) and is not folded
+        into this status; a year mismatch is surfaced on the year field instead.
+        """
         if self.case_assess is None:
-            return CitationAssessmentStatus.EXTRACTION_ERROR
-        if self.case_assess.status == CaseNameAssessmentStatus.EXTRACTION_ERROR:
-            return CitationAssessmentStatus.EXTRACTION_ERROR
-        if self.year_assess is not None and self.year_assess.status == YearAssessmentStatus.MISMATCH:
-            return CitationAssessmentStatus.EXTRACTION_ERROR
-        if self.case_assess.status == CaseNameAssessmentStatus.SEMANTIC_MATCH:
-            return CitationAssessmentStatus.SEMANTIC_MATCH
-        if self.case_assess.status == CaseNameAssessmentStatus.NEEDS_SEMANTIC_ASSESSMENT:
-            return CitationAssessmentStatus.NEEDS_SEMANTIC_ASSESSMENT
-        return CitationAssessmentStatus.EXACT_MATCH
+            return CitationAssessmentStatus.NEEDS_ASSESSMENT
+        return CitationAssessmentStatus(self.case_assess.status.value)
 
     @property
     def message(self) -> str:
         """Roll up a display message for this citation."""
-        if self.year_assess is not None and self.year_assess.status == YearAssessmentStatus.MISMATCH:
-            return self.year_assess.message
-        if self.status == CitationAssessmentStatus.EXACT_MATCH:
-            return "Assessed available bibliographic fields match CourtListener."
         if self.case_assess is not None:
             return self.case_assess.message
         return "Citation assessment is missing case-name assessment."

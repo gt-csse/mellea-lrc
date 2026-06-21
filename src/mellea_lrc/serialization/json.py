@@ -261,7 +261,7 @@ def deserialize_case_name_assessment(payload: Mapping[str, object]) -> CaseNameA
         status=_enum_field(
             CaseNameAssessmentStatus,
             payload.get("status"),
-            CaseNameAssessmentStatus.EXTRACTION_ERROR,
+            CaseNameAssessmentStatus.NEEDS_ASSESSMENT,
         ),
         extracted_case_name=_optional_str(payload.get("extracted_case_name")),
         courtlistener_case_name=_optional_str(payload.get("courtlistener_case_name")),

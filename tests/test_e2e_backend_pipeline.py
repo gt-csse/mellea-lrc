@@ -224,7 +224,7 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
     assert output["stats"]["assessed"] == 1
 
 
-def test_review_document_assessment_rejects_unresolved_semantic_handoff() -> None:
+def test_review_document_assessment_rejects_unresolved_assessment_handoff() -> None:
     preprocessed = preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483 (1954).")
     citation = ExtractedCitation(
         citation_id="cite-1",
@@ -244,19 +244,19 @@ def test_review_document_assessment_rejects_unresolved_semantic_handoff() -> Non
                         citation_id="cite-1",
                         case_assess=CaseNameAssessment(
                             citation_id="cite-1",
-                            status=CaseNameAssessmentStatus.NEEDS_SEMANTIC_ASSESSMENT,
+                            status=CaseNameAssessmentStatus.NEEDS_ASSESSMENT,
                             extracted_case_name="Brown v. Board",
                             courtlistener_case_name="Brown v. Board of Education",
-                            message="needs semantic assessment",
+                            message="needs assessment",
                         ),
                     ),
                 ),
             )
         )
     except ValueError as exc:
-        assert "unresolved semantic assessment" in str(exc)
+        assert "unresolved case-name assessment" in str(exc)
     else:
-        raise AssertionError("Expected unresolved semantic handoff to be rejected")
+        raise AssertionError("Expected unresolved assessment handoff to be rejected")
 
 
 def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> None:
