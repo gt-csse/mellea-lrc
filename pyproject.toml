@@ -51,6 +51,11 @@ preprocessing = [
 extraction = [
     "eyecite>=2.6",
 ]
+label-studio = [
+    { include-group = "extraction" },
+    "requests>=2.32",
+    "python-dotenv>=1.0",
+]
 dev = [
     { include-group = "extraction" },
     "autogitsemver>=0.9.13",
@@ -77,6 +82,9 @@ testpaths = ["tests"]
 # coverage no longer blocks R&D PRs. To re-enable enforcement, append
 # " --cov-fail-under=95.0" to addopts below.
 addopts = "--verbose -vv --capture=no --cov=mellea_lrc --cov-report html --cov-report term --cov-report xml:coverage.xml"
+markers = [
+    "remote_smoke: opt-in smoke tests that call external services",
+]
 
 [tool.ruff]
 line-length = 110

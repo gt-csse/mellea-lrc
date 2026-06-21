@@ -20,3 +20,9 @@ post_generation_instructions.html
 .envrc
 local/
 docs/.obsidian/**
+
+# Frontend-generated files
+frontend/.env*.local
+frontend/.next/
+frontend/node_modules/
+frontend/tsconfig.tsbuildinfo
