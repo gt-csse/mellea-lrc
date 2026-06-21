@@ -35,7 +35,7 @@ from scripts.e2e_backend.pipeline import _start_mellea_session_from_env
 if TYPE_CHECKING:
     from mellea_lrc.extraction.types import DocumentExtraction
 
-DEFAULT_INPUT = Path("local/test_data/432895579.txt")
+DEFAULT_INPUT = Path("local/test_data/test-1.txt")
 DEFAULT_CACHE_DIR = Path("local/cache/e2e")
 
 
@@ -134,7 +134,7 @@ def _run_assessment(validation: DocumentValidation, *, max_mellea: int | None) -
             extracted_case_name=extracted_case_name,
             courtlistener_case_name=courtlistener_case_name,
         )
-        if exact.status != CaseNameAssessmentStatus.NEEDS_SEMANTIC_ASSESSMENT:
+        if exact.status != CaseNameAssessmentStatus.NEEDS_ASSESSMENT:
             assessments.append(
                 CitationAssessment(
                     citation_id=citation.citation_id,

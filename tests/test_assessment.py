@@ -98,24 +98,44 @@ def test_assess_case_name_exact_match_passes_without_semantic_check() -> None:
     assert result.status == CaseNameAssessmentStatus.EXACT_MATCH
 
 
-def test_assess_case_name_mismatch_needs_semantic_check() -> None:
+def test_assess_case_name_mismatch_needs_assessment() -> None:
     result = assess_case_name_exact_match(
         citation_id="cite-1",
         extracted_case_name="Brown v. Board",
         courtlistener_case_name="Brown v. Board of Education",
     )
 
-    assert result.status == CaseNameAssessmentStatus.NEEDS_SEMANTIC_ASSESSMENT
+    assert result.status == CaseNameAssessmentStatus.NEEDS_ASSESSMENT
 
 
-def test_assess_case_name_missing_name_is_single_extraction_error_type() -> None:
+def test_assess_case_name_missing_name_needs_assessment() -> None:
     result = assess_case_name_exact_match(
         citation_id="cite-1",
         extracted_case_name=None,
         courtlistener_case_name="Brown v. Board",
     )
 
-    assert result.status == CaseNameAssessmentStatus.EXTRACTION_ERROR
+    assert result.status == CaseNameAssessmentStatus.NEEDS_ASSESSMENT
+
+
+def test_assess_case_name_exact_match_ignores_typographic_apostrophe() -> None:
+    result = assess_case_name_exact_match(
+        citation_id="cite-1",
+        extracted_case_name="World Wide Ass’n of Specialty Programs v. Pure, Inc.",
+        courtlistener_case_name="World Wide Ass'n of Specialty Programs v. Pure, Inc.",
+    )
+
+    assert result.status == CaseNameAssessmentStatus.EXACT_MATCH
+
+
+def test_assess_case_name_exact_match_ignores_collapsible_whitespace() -> None:
+    result = assess_case_name_exact_match(
+        citation_id="cite-1",
+        extracted_case_name="Brown v.\n\n Board",
+        courtlistener_case_name="Brown v. Board",
+    )
+
+    assert result.status == CaseNameAssessmentStatus.EXACT_MATCH
 
 
 def test_assess_year_exact_match_uses_string_equality() -> None:
@@ -148,7 +168,7 @@ def test_assess_year_missing_is_field_level_third_status() -> None:
     assert result.status == YearAssessmentStatus.MISSING
 
 
-def test_citation_assessment_status_uses_year_mismatch_in_rollup() -> None:
+def test_citation_assessment_status_decouples_year_from_rollup() -> None:
     case_assess = assess_case_name_exact_match(
         citation_id="cite-1",
         extracted_case_name="Brown v. Board",
@@ -166,11 +186,15 @@ def test_citation_assessment_status_uses_year_mismatch_in_rollup() -> None:
         year_assess=year_assess,
     )
 
-    assert result.status == CitationAssessmentStatus.EXTRACTION_ERROR
-    assert result.message == "Extracted year does not match CourtListener."
+    # A year mismatch is surfaced on the year field and no longer downgrades the
+    # citation-level (case-name) roll-up.
+    assert result.status == CitationAssessmentStatus.EXACT_MATCH
+    assert result.year_assess is not None
+    assert result.year_assess.status == YearAssessmentStatus.MISMATCH
+    assert result.message == "Extracted case name exactly matches CourtListener."
 
 
-def test_citation_assessment_status_ignores_missing_year_in_rollup() -> None:
+def test_citation_assessment_status_rolls_up_case_name_verdict() -> None:
     case_assess = assess_case_name_exact_match(
         citation_id="cite-1",
         extracted_case_name="Brown v. Board",
@@ -189,7 +213,7 @@ def test_citation_assessment_status_ignores_missing_year_in_rollup() -> None:
     )
 
     assert result.status == CitationAssessmentStatus.EXACT_MATCH
-    assert result.message == "Assessed available bibliographic fields match CourtListener."
+    assert result.message == "Extracted case name exactly matches CourtListener."
 
 
 def test_modified_extracted_citation_proposal_valid_requires_grounded_fields() -> None:

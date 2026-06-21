@@ -429,15 +429,20 @@ def review_document_assessment(assessment: DocumentAssessment) -> dict[str, Any]
 
 
 def _ensure_assessment_is_resolved(assessment: DocumentAssessment) -> None:
+    # NEEDS_ASSESSMENT is a transient handoff only when both names are present and
+    # comparable; a missing extracted or CourtListener name is legitimately
+    # unassessable and is allowed to remain NEEDS_ASSESSMENT.
     pending = [
         item.citation_id
         for item in assessment.assessments
         if item.case_assess is not None
-        and item.case_assess.status == CaseNameAssessmentStatus.NEEDS_SEMANTIC_ASSESSMENT
+        and item.case_assess.status == CaseNameAssessmentStatus.NEEDS_ASSESSMENT
+        and item.case_assess.extracted_case_name
+        and item.case_assess.courtlistener_case_name
     ]
     if pending:
         msg = (
-            "DocumentAssessment contains unresolved semantic assessment handoff states. "
+            "DocumentAssessment contains unresolved case-name assessment handoff states. "
             f"Rerun assessment without a debug cap. Pending citation ids: {', '.join(pending[:5])}"
         )
         raise ValueError(msg)
@@ -730,7 +735,7 @@ def _assess_review_citation(
         extracted_case_name=extracted_case_name,
         courtlistener_case_name=courtlistener_case_name,
     )
-    if exact.status != CaseNameAssessmentStatus.NEEDS_SEMANTIC_ASSESSMENT or session is None:
+    if exact.status != CaseNameAssessmentStatus.NEEDS_ASSESSMENT or session is None:
         return ReviewCitationAssessmentResult(
             assessment=CitationAssessment(
                 citation_id=citation_id,

@@ -19,69 +19,85 @@ from mellea_lrc.assessment.types import (
     is_in_context,
 )
 
-CaseNameSemanticVerdict = Literal["semantic_match", "extraction_error"]
+CaseNameVerdict = Literal["match", "different_case", "irregular_form"]
 MODIFIED_EXTRACTION_ADAPTER = TypeAdapter(ModifiedExtractedCitationProposal)
-CASE_NAME_SEMANTIC_MAX_TOKENS = 16
+CASE_NAME_VERDICT_MAX_TOKENS = 16
 MODIFIED_EXTRACTION_MAX_TOKENS = 512
 MODIFIED_EXTRACTION_STRATEGY = RejectionSamplingStrategy(loop_budget=3)
 
 
 @generative
-def classify_case_name_semantic_match(
-    document_context: str,
+def classify_case_name(
+    local_context: str,
     extracted_case_name: str,
-    courtlistener_case_name: str,
-) -> CaseNameSemanticVerdict:
-    """Assess whether an extracted legal case name is acceptable.
+    retrieved_case_name: str,
+) -> CaseNameVerdict:
+    """Classify how an extracted legal case name relates to the retrieved record.
 
-    Return "semantic_match" when the extracted case name is a valid legal citation
-    form for the same case identified by the CourtListener case name. Treat common
-    shortening, party-name abbreviation, omitted institutional suffixes, and normal
-    legal citation style variation as acceptable when the surrounding document
-    context supports that reading.
+    You are given the case name pulled from a citation (extracted_case_name), the
+    case name of the record retrieved for that citation (retrieved_case_name), and
+    the surrounding document text (local_context). Judge ONLY the case name. Do not
+    consider volume, reporter, page, pin cite, court, or year.
 
-    Return "extraction_error" when the extracted case name identifies a different
-    case, omits a party that should have been extracted from the visible citation
-    context, includes text that is not part of the case name, or otherwise appears
-    incorrectly extracted.
-
-    Do not judge volume, reporter, page, pin cite, court, or year.
+    Return one of:
+    - "match": the two names denote the SAME case and the extracted form is a
+      normal way to cite it. Treat these as acceptable (still "match"): using only
+      party surnames and dropping given or middle names (e.g. "United States v.
+      Golden" for "United States v. Bobby Ray Golden"), abbreviation, "et al.",
+      dropped institutional suffixes (such as "Inc." or "Co."), and ordinary
+      citation style. As long as BOTH sides of the "v." are represented by a
+      recognizable party, prefer "match".
+    - "different_case": the extracted name denotes a DIFFERENT, unrelated case than
+      the retrieved record. A differing retrieved name is NOT automatically the
+      extractor's fault; report "different_case" and do not assume the extraction
+      is wrong.
+    - "irregular_form": the names denote the SAME case, but the extracted name is
+      genuinely incomplete or garbled BEYOND normal shortening — for example a
+      whole party is missing (only one side of the "v." is present), the parties
+      are in the wrong order, or the text is broken by stray characters or line
+      breaks.
     """
 
 
 @generative
-def propose_modified_extracted_citation(
-    document_context: str,
+def propose_corrected_case_name(
+    local_context: str,
     extracted_case_name: str,
-    courtlistener_case_name: str,
+    retrieved_case_name: str,
 ) -> ModifiedExtractedCitationProposal:
-    """Propose a corrected case-name extraction from the visible citation context.
+    """Re-extract a corrected case name from local_context, only when warranted.
 
-    Return corrected plaintiff and defendant strings, or a corrected case_name string,
-    only when the corrected text is visible in document_context. Copy strings exactly
-    from document_context. Do not use the CourtListener case name to invent text that
-    is not present in document_context.
+    Propose corrected plaintiff and defendant strings, or a single corrected
+    case_name string, ONLY when local_context shows a more complete or more correct
+    case name than extracted_case_name. Copy strings EXACTLY from local_context.
+    Never use retrieved_case_name to invent text that is not present in
+    local_context.
 
-    If no grounded correction is visible in document_context, return an empty
-    ModifiedExtractedCitationProposal.
+    Return an EMPTY ModifiedExtractedCitationProposal (all fields null) when the
+    current extraction is already the best reading supported by local_context —
+    including when the retrieved record simply names a different case. Do not
+    propose a change merely because extracted_case_name and retrieved_case_name
+    differ.
     """
 
 
 @generative
-def propose_modified_extracted_citation_json(
-    document_context: str,
+def propose_corrected_case_name_json(
+    local_context: str,
     extracted_case_name: str,
-    courtlistener_case_name: str,
+    retrieved_case_name: str,
 ) -> str:
-    """Propose a corrected case-name extraction as compact JSON.
+    """Re-extract a corrected case name from local_context as compact JSON.
 
     Return exactly one JSON object with these keys: plaintiff, defendant,
-    case_name. Each value must be a string copied exactly from document_context
+    case_name. Each value must be a string copied exactly from local_context
     or null. Do not add markdown, comments, or explanatory text.
 
     Use case_name when the corrected full case name appears as one visible string.
     Use plaintiff and defendant when the corrected parties appear separately.
-    If no grounded correction is visible in document_context, return:
+    Propose a correction ONLY when local_context shows a more complete or more
+    correct case name than extracted_case_name. If the current extraction is
+    already the best grounded reading, return:
     {"plaintiff": null, "defendant": null, "case_name": null}
     """
 
@@ -128,102 +144,103 @@ def _assess_case_name_with_mellea_after_exact(
     courtlistener_case_name: str,
     document_context: str,
 ) -> CaseNameAssessmentRun:
-    """Run semantic and modified-extraction case-name checks."""
+    """Classify the case name, then re-extract from local context when warranted.
+
+    Stage 1 classifies the original extraction as ``match`` / ``different_case`` /
+    ``irregular_form``. A ``match`` is final. Otherwise Stage 2 revisits the local
+    context window and only re-extracts when a more complete grounded case name is
+    available; a re-extraction emits a separate reassessment alongside the
+    first-pass verdict, while the first-pass verdict is preserved.
+    """
+    # Stage 1: classify the original extraction (when there is one to classify).
     if extracted_case_name:
-        verdict = classify_case_name_semantic_match(
+        verdict = classify_case_name(
             session,
-            document_context=document_context,
+            local_context=document_context,
             extracted_case_name=extracted_case_name,
-            courtlistener_case_name=courtlistener_case_name,
-            model_options=_structured_model_options(max_tokens=CASE_NAME_SEMANTIC_MAX_TOKENS),
+            retrieved_case_name=courtlistener_case_name,
+            model_options=_structured_model_options(max_tokens=CASE_NAME_VERDICT_MAX_TOKENS),
         )
         status = CaseNameAssessmentStatus(cast("str", verdict))
-        if status == CaseNameAssessmentStatus.SEMANTIC_MATCH:
+        if status == CaseNameAssessmentStatus.MATCH:
             return CaseNameAssessmentRun(
-                assessment=CaseNameAssessment(
-                    citation_id=citation_id,
-                    status=status,
-                    extracted_case_name=extracted_case_name,
-                    courtlistener_case_name=courtlistener_case_name,
-                    message=_message_for_semantic_status(status),
+                assessment=_case_name_assessment(
+                    citation_id, status, extracted_case_name, courtlistener_case_name
                 ),
             )
+    else:
+        # Nothing was extracted: treat the form as deficient and try to recover it.
+        status = CaseNameAssessmentStatus.IRREGULAR_FORM
 
-    modified = _propose_modified_extracted_citation(
+    # Stage 2: revisit local context and re-extract only when warranted.
+    proposal = _propose_corrected_case_name(
         session,
         document_context=document_context,
         extracted_case_name=extracted_case_name or "",
         courtlistener_case_name=courtlistener_case_name,
     )
-    if not modified.valid(document_context):
-        return CaseNameAssessmentRun(
-            assessment=CaseNameAssessment(
-                citation_id=citation_id,
-                status=CaseNameAssessmentStatus.EXTRACTION_ERROR,
-                extracted_case_name=extracted_case_name,
-                courtlistener_case_name=courtlistener_case_name,
-                message="No grounded modified extraction was found in the document context.",
-            ),
-        )
-
-    modified_case_name = modified.extracted_case_name
-    modified_exact = assess_case_name_exact_match(
-        citation_id=citation_id,
-        extracted_case_name=modified_case_name,
-        courtlistener_case_name=courtlistener_case_name,
+    first_pass = _case_name_assessment(
+        citation_id, status, extracted_case_name, courtlistener_case_name
     )
-    if modified_exact.status == CaseNameAssessmentStatus.EXACT_MATCH:
-        return _extraction_error_from_modified_match(
-            citation_id=citation_id,
-            extracted_case_name=extracted_case_name,
-            courtlistener_case_name=courtlistener_case_name,
-            modified_citation=modified,
-            reassessment=modified_exact,
-            modified_match_status=modified_exact.status,
-        )
+    if not proposal.valid(document_context):
+        # Re-extraction is not warranted; keep the first-pass verdict.
+        return CaseNameAssessmentRun(assessment=first_pass)
 
-    modified_verdict = classify_case_name_semantic_match(
+    reassessment = _assess_corrected_case_name(
         session,
-        document_context=document_context,
-        extracted_case_name=cast("str", modified_case_name),
-        courtlistener_case_name=courtlistener_case_name,
-        model_options=_structured_model_options(max_tokens=CASE_NAME_SEMANTIC_MAX_TOKENS),
-    )
-    modified_status = CaseNameAssessmentStatus(cast("str", modified_verdict))
-    if modified_status == CaseNameAssessmentStatus.SEMANTIC_MATCH:
-        reassessment = CaseNameAssessment(
-            citation_id=citation_id,
-            status=modified_status,
-            extracted_case_name=modified_case_name,
-            courtlistener_case_name=courtlistener_case_name,
-            message=_message_for_semantic_status(modified_status),
-        )
-        return _extraction_error_from_modified_match(
-            citation_id=citation_id,
-            extracted_case_name=extracted_case_name,
-            courtlistener_case_name=courtlistener_case_name,
-            modified_citation=modified,
-            reassessment=reassessment,
-            modified_match_status=modified_status,
-        )
-
-    reassessment = CaseNameAssessment(
         citation_id=citation_id,
-        status=CaseNameAssessmentStatus.EXTRACTION_ERROR,
-        extracted_case_name=modified_case_name,
+        corrected_case_name=cast("str", proposal.extracted_case_name),
         courtlistener_case_name=courtlistener_case_name,
-        message=_message_for_semantic_status(modified_status),
+        document_context=document_context,
     )
     return CaseNameAssessmentRun(
-        assessment=CaseNameAssessment(
-            citation_id=citation_id,
-            status=CaseNameAssessmentStatus.EXTRACTION_ERROR,
-            extracted_case_name=extracted_case_name,
-            courtlistener_case_name=courtlistener_case_name,
-            message="Modified extraction is grounded but still does not match CourtListener.",
-        ),
-        modified_citation=modified,
+        assessment=first_pass,
+        modified_citation=proposal,
         reassessment=reassessment,
+    )
+
+
+def _assess_corrected_case_name(
+    session: MelleaSession,
+    *,
+    citation_id: str,
+    corrected_case_name: str,
+    courtlistener_case_name: str,
+    document_context: str,
+) -> CaseNameAssessment:
+    """Assess a re-extracted case name, exact-first then model-backed."""
+    exact = assess_case_name_exact_match(
+        citation_id=citation_id,
+        extracted_case_name=corrected_case_name,
+        courtlistener_case_name=courtlistener_case_name,
+    )
+    if exact.status == CaseNameAssessmentStatus.EXACT_MATCH:
+        return exact
+    verdict = classify_case_name(
+        session,
+        local_context=document_context,
+        extracted_case_name=corrected_case_name,
+        retrieved_case_name=courtlistener_case_name,
+        model_options=_structured_model_options(max_tokens=CASE_NAME_VERDICT_MAX_TOKENS),
+    )
+    status = CaseNameAssessmentStatus(cast("str", verdict))
+    return _case_name_assessment(
+        citation_id, status, corrected_case_name, courtlistener_case_name
+    )
+
+
+def _case_name_assessment(
+    citation_id: str,
+    status: CaseNameAssessmentStatus,
+    extracted_case_name: str | None,
+    courtlistener_case_name: str | None,
+) -> CaseNameAssessment:
+    return CaseNameAssessment(
+        citation_id=citation_id,
+        status=status,
+        extracted_case_name=extracted_case_name,
+        courtlistener_case_name=courtlistener_case_name,
+        message=_message_for_status(status),
     )
 
 
@@ -247,7 +264,7 @@ def modified_extracted_citation_is_in_context_requirement(document_context: str)
     )
 
 
-def _propose_modified_extracted_citation(
+def _propose_corrected_case_name(
     session: MelleaSession,
     *,
     document_context: str,
@@ -256,21 +273,21 @@ def _propose_modified_extracted_citation(
 ) -> ModifiedExtractedCitationProposal:
     requirement = modified_extracted_citation_is_in_context_requirement(document_context)
     try:
-        return propose_modified_extracted_citation(
+        return propose_corrected_case_name(
             session,
-            document_context=document_context,
+            local_context=document_context,
             extracted_case_name=extracted_case_name,
-            courtlistener_case_name=courtlistener_case_name,
+            retrieved_case_name=courtlistener_case_name,
             requirements=[requirement],
             strategy=MODIFIED_EXTRACTION_STRATEGY,
             model_options=_structured_model_options(max_tokens=MODIFIED_EXTRACTION_MAX_TOKENS),
         )
     except Exception:
-        raw = propose_modified_extracted_citation_json(
+        raw = propose_corrected_case_name_json(
             session,
-            document_context=document_context,
+            local_context=document_context,
             extracted_case_name=extracted_case_name,
-            courtlistener_case_name=courtlistener_case_name,
+            retrieved_case_name=courtlistener_case_name,
             requirements=[requirement],
             strategy=MODIFIED_EXTRACTION_STRATEGY,
             model_options={"temperature": 0, "max_tokens": MODIFIED_EXTRACTION_MAX_TOKENS},
@@ -279,31 +296,6 @@ def _propose_modified_extracted_citation(
         if modified is not None:
             return modified
         return ModifiedExtractedCitationProposal()
-
-
-def _extraction_error_from_modified_match(
-    *,
-    citation_id: str,
-    extracted_case_name: str | None,
-    courtlistener_case_name: str,
-    modified_citation: ModifiedExtractedCitationProposal,
-    reassessment: CaseNameAssessment,
-    modified_match_status: CaseNameAssessmentStatus,
-) -> CaseNameAssessmentRun:
-    return CaseNameAssessmentRun(
-        assessment=CaseNameAssessment(
-            citation_id=citation_id,
-            status=CaseNameAssessmentStatus.EXTRACTION_ERROR,
-            extracted_case_name=extracted_case_name,
-            courtlistener_case_name=courtlistener_case_name,
-            message=(
-                "Original extraction appears to need correction; "
-                f"grounded modified extraction is {modified_match_status.value.replace('_', ' ')}."
-            ),
-        ),
-        modified_citation=modified_citation,
-        reassessment=reassessment,
-    )
 
 
 def _modified_extracted_citation_from_output(output: str) -> ModifiedExtractedCitationProposal | None:
@@ -329,7 +321,18 @@ def _structured_model_options(*, max_tokens: int) -> dict[str, object]:
     return options
 
 
-def _message_for_semantic_status(status: CaseNameAssessmentStatus) -> str:
-    if status == CaseNameAssessmentStatus.SEMANTIC_MATCH:
-        return "Extracted case name semantically matches CourtListener."
-    return "Extracted case name does not appear to match the CourtListener case."
+_STATUS_MESSAGES = {
+    CaseNameAssessmentStatus.EXACT_MATCH: "Extracted case name exactly matches CourtListener.",
+    CaseNameAssessmentStatus.MATCH: "Extracted case name matches the retrieved case.",
+    CaseNameAssessmentStatus.DIFFERENT_CASE: (
+        "Extracted case name refers to a different case than the retrieved record."
+    ),
+    CaseNameAssessmentStatus.IRREGULAR_FORM: (
+        "Extracted case name uses an unusual or incomplete form for this case."
+    ),
+    CaseNameAssessmentStatus.NEEDS_ASSESSMENT: "Case name has not been assessed.",
+}
+
+
+def _message_for_status(status: CaseNameAssessmentStatus) -> str:
+    return _STATUS_MESSAGES.get(status, "Case name has not been assessed.")

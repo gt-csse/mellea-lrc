@@ -119,7 +119,12 @@ type SnapshotReviewResult = {
   result: ReviewResult;
 };
 type CitationStatus = "found" | "ambiguous" | "not_found" | "not_checked" | "other";
-type AssessmentStatus = "exact_match" | "semantic_match" | "extraction_error" | "not_assessed";
+type AssessmentStatus =
+  | "exact_match"
+  | "match"
+  | "irregular_form"
+  | "different_case"
+  | "not_assessed";
 type AssessmentFilter = Exclude<AssessmentStatus, "not_assessed">;
 type CitationFilter =
   | "all"
@@ -127,8 +132,9 @@ type CitationFilter =
   | "ambiguous"
   | "not_found"
   | AssessmentFilter
+  | "with_history"
   | "all_citations";
-type ComparisonMatchType = "perfect" | "exact" | "semantic" | "error" | "unchecked";
+type ComparisonMatchType = "perfect" | "exact" | "semantic" | "warning" | "error" | "unchecked";
 type BibliographicRow = {
   label: string;
   extracted: unknown;
@@ -141,10 +147,22 @@ type ExtractedCitationAttempt = {
   locator: string | null;
   citation: ReviewCitation;
   reassessment: AssessmentPayload | null;
+  span: TextSpan | null;
+};
+type ReextractOverlay = {
+  citationId: string;
+  span: TextSpan;
+};
+type RenderCitationOverlay = {
+  originalStart: number;
+  originalEnd: number;
+  reextractStart: number;
+  reextractEnd: number;
 };
 type RenderCitation = ReviewCitation & {
   highlightStart: number;
   highlightEnd: number;
+  overlay?: RenderCitationOverlay;
 };
 type WorkflowStageControl = {
   label: string;
@@ -167,8 +185,10 @@ const citationFilters: Array<{ label: string; value: CitationFilter }> = [
 ];
 const assessmentFilters: Array<{ label: string; value: CitationFilter }> = [
   { label: "Exact match", value: "exact_match" },
-  { label: "Semantic match", value: "semantic_match" },
-  { label: "Extraction error", value: "extraction_error" }
+  { label: "Match", value: "match" },
+  { label: "Irregular form", value: "irregular_form" },
+  { label: "Different case", value: "different_case" },
+  { label: "With history", value: "with_history" }
 ];
 const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
   input: {
@@ -247,6 +267,34 @@ export default function Home() {
       : Boolean(file || text.trim());
   const canRunExtraction = stageControl.canExtract && hasExtractionInput;
 
+  const selectedCitation = useMemo(
+    () => result?.citations.find((citation) => citation.id === selectedId) ?? null,
+    [result, selectedId]
+  );
+
+  const selectedExtractedAttempts = useMemo(
+    () => (selectedCitation ? extractedCitationAttempts(selectedCitation, result?.assessment ?? null) : []),
+    [selectedCitation, result]
+  );
+  const defaultExtractedAttemptIndex =
+    selectedExtractedAttempts.length > 1 ? selectedExtractedAttempts.length - 1 : 0;
+  const selectedExtractedAttemptIndex = selectedCitation
+    ? extractedAttemptIndexes[selectedCitation.id] ?? defaultExtractedAttemptIndex
+    : 0;
+  const safeSelectedExtractedAttemptIndex = selectedExtractedAttempts.length
+    ? Math.min(Math.max(selectedExtractedAttemptIndex, 0), selectedExtractedAttempts.length - 1)
+    : 0;
+  const selectedExtractedAttempt = selectedExtractedAttempts[safeSelectedExtractedAttemptIndex] ?? null;
+
+  // A re-extracted attempt carries its own span; overlay it on top of the
+  // original full-span highlight (rather than replacing it) so both are visible.
+  const reextractOverlay = useMemo<ReextractOverlay | null>(() => {
+    if (!selectedCitation || !selectedExtractedAttempt?.span) {
+      return null;
+    }
+    return { citationId: selectedCitation.id, span: selectedExtractedAttempt.span };
+  }, [selectedCitation, selectedExtractedAttempt]);
+
   const primaryCitations = useMemo(
     () =>
       result
@@ -254,18 +302,25 @@ export default function Home() {
             result.document.text,
             result.citations,
             selectedId,
-            false
+            false,
+            reextractOverlay
           )
         : [],
-    [result, selectedId]
+    [result, selectedId, reextractOverlay]
   );
 
   const allCitations = useMemo(
     () =>
       result
-        ? visibleCitationSpans(result.document.text, result.citations, selectedId, true)
+        ? visibleCitationSpans(
+            result.document.text,
+            result.citations,
+            selectedId,
+            true,
+            reextractOverlay
+          )
         : [],
-    [result, selectedId]
+    [result, selectedId, reextractOverlay]
   );
 
   const renderCitations = useMemo(
@@ -290,12 +345,18 @@ export default function Home() {
         if (!isFullCaseCitation(citation)) {
           return false;
         }
+        if (citationFilter === "with_history") {
+          return citationHasHistory(citation, result?.assessment ?? null);
+        }
         if (isAssessmentFilter(citationFilter)) {
-          return assessmentStatus(citation) === citationFilter;
+          return (
+            assessmentStatusFromPayload(effectiveAssessment(citation, result?.assessment ?? null)) ===
+            citationFilter
+          );
         }
         return citationFilter === "all" || citationStatus(citation) === citationFilter;
       }),
-    [citationFilter, renderCitations]
+    [citationFilter, renderCitations, result]
   );
 
   const fullCaseCitations = useMemo(
@@ -304,18 +365,18 @@ export default function Home() {
   );
   const statusCounts = useMemo(() => citationStatusCounts(fullCaseCitations), [fullCaseCitations]);
   const assessmentCounts = useMemo(
-    () => assessmentStatusCounts(fullCaseCitations),
-    [fullCaseCitations]
+    () => assessmentStatusCounts(fullCaseCitations, result?.assessment ?? null),
+    [fullCaseCitations, result]
+  );
+  const withHistoryCount = useMemo(
+    () =>
+      fullCaseCitations.filter((citation) =>
+        citationHasHistory(citation, result?.assessment ?? null)
+      ).length,
+    [fullCaseCitations, result]
   );
 
-  const selectedCitation = useMemo(
-    () => result?.citations.find((citation) => citation.id === selectedId) ?? null,
-    [result, selectedId]
-  );
   const selectedClusterIndex = selectedCitation ? clusterIndexes[selectedCitation.id] ?? 0 : 0;
-  const selectedExtractedAttemptIndex = selectedCitation
-    ? extractedAttemptIndexes[selectedCitation.id] ?? 0
-    : 0;
 
   useEffect(() => {
     if (!result) {
@@ -740,7 +801,8 @@ export default function Home() {
                     statusCounts,
                     assessmentCounts,
                     fullCaseCitations.length,
-                    allCitations.length
+                    allCitations.length,
+                    withHistoryCount
                   )}
                 </option>
               ))}
@@ -757,7 +819,7 @@ export default function Home() {
                   type="button"
                 >
                   <span className="citation-row-main">{citation.matched_text}</span>
-                  <CitationTags citation={citation} />
+                  <CitationTags citation={citation} assessment={result?.assessment ?? null} />
                 </button>
               ))
             ) : (
@@ -777,7 +839,11 @@ export default function Home() {
               <div>
                 <p className="eyebrow">Selected citation</p>
                 <h2>{selectedCitation.matched_text}</h2>
-                <CitationTags citation={selectedCitation} variant="details" />
+                <CitationTags
+                  citation={selectedCitation}
+                  assessment={result?.assessment ?? null}
+                  variant="details"
+                />
               </div>
               <div className="details-actions">
                 <button
@@ -798,9 +864,9 @@ export default function Home() {
             <div className="details-grid">
               <BibliographicComparison
                 citation={selectedCitation}
-                assessment={result?.assessment ?? null}
-                clusterIndex={selectedClusterIndex}
+                extractedAttempts={selectedExtractedAttempts}
                 extractedAttemptIndex={selectedExtractedAttemptIndex}
+                clusterIndex={selectedClusterIndex}
                 onClusterChange={selectCourtListenerCandidate}
                 onExtractedAttemptChange={selectExtractedAttempt}
               />
@@ -827,11 +893,16 @@ function Metric({ label, value }: { label: string; value: number | string }) {
 
 function CitationTags({
   citation,
+  assessment = null,
   variant = "rail"
 }: {
   citation: ReviewCitation;
+  assessment?: ReviewAssessment | null;
   variant?: "rail" | "details";
 }) {
+  // The event-level status rolls up to the re-extraction result when one exists,
+  // so a recovered citation reads as its final (re-extracted) verdict.
+  const effective = effectiveAssessment(citation, assessment);
   return (
     <span className={`citation-tags ${variant}`} aria-label="Citation labels">
       <span className="citation-tag kind">{citation.kind}</span>
@@ -840,9 +911,9 @@ function CitationTags({
           {formatStatusLabel(citation.validation.status)}
         </span>
       ) : null}
-      {citation.assessment ? (
-        <span className={`citation-tag assessment ${assessmentStatus(citation)}`}>
-          {formatAssessmentLabel(citation.assessment.status)}
+      {effective ? (
+        <span className={`citation-tag assessment ${assessmentStatusFromPayload(effective)}`}>
+          {formatAssessmentLabel(effective.status)}
         </span>
       ) : null}
     </span>
@@ -851,14 +922,14 @@ function CitationTags({
 
 function BibliographicComparison({
   citation,
-  assessment,
+  extractedAttempts,
   clusterIndex,
   extractedAttemptIndex,
   onClusterChange,
   onExtractedAttemptChange
 }: {
   citation: ReviewCitation;
-  assessment: ReviewAssessment | null;
+  extractedAttempts: ExtractedCitationAttempt[];
   clusterIndex: number;
   extractedAttemptIndex: number;
   onClusterChange: (citationId: string, clusterIndex: number) => void;
@@ -869,7 +940,6 @@ function BibliographicComparison({
     ? Math.min(Math.max(clusterIndex, 0), clusters.length - 1)
     : 0;
   const cluster = clusters[safeClusterIndex] ?? null;
-  const extractedAttempts = extractedCitationAttempts(citation, assessment);
   const safeExtractedAttemptIndex = extractedAttempts.length
     ? Math.min(Math.max(extractedAttemptIndex, 0), extractedAttempts.length - 1)
     : 0;
@@ -1146,12 +1216,13 @@ function extractedCitationAttempts(
     fields: citation.fields,
     locator: citation.validation?.locator ?? citation.matched_text,
     citation,
-    reassessment: null
+    reassessment: null,
+    span: null
   };
   const modified = assessment?.modified_citations
     .filter((item) => item.citation_id === citation.id)
-    .map((item, index) => ({
-      label: `Modified ${index + 1}`,
+    .map((item, index, items) => ({
+      label: items.length > 1 ? `Re-extracted ${index + 1}` : "Re-extracted",
       fields: {
         ...citation.fields,
         plaintiff: item.plaintiff ?? undefined,
@@ -1161,7 +1232,8 @@ function extractedCitationAttempts(
       locator: citation.validation?.locator ?? citation.matched_text,
       citation,
       reassessment:
-        assessment.reassessments.find((candidate) => candidate.citation_id === citation.id) ?? null
+        assessment.reassessments.find((candidate) => candidate.citation_id === citation.id) ?? null,
+      span: item.span ?? null
     }));
 
   return [original, ...(modified ?? [])];
@@ -1182,25 +1254,20 @@ function bibliographicRows(
   const courtListenerCourt = readString(cluster, ["court", "court_id", "courtId"]);
   const courtListenerDate = readString(cluster, ["date_filed", "dateFiled"]);
   const courtListenerUrl = readString(cluster, ["absolute_url", "absoluteUrl", "resource_uri"]);
-  const knownFieldKeys = new Set([
-    "plaintiff",
-    "defendant",
-    "volume",
-    "reporter",
-    "page",
-    "year",
-    "court"
-  ]);
-  const extraFieldRows = Object.entries(fields)
-    .filter(([key]) => !knownFieldKeys.has(key))
-    .map(([key, value]) => ({
-      label: key.replaceAll("_", " "),
-      extracted: value,
-      courtListener: null,
-      matchType: "unchecked" as const
-    }));
 
   return [
+    {
+      label: "Plaintiff",
+      extracted: fields.plaintiff ?? null,
+      courtListener: null,
+      matchType: "unchecked"
+    },
+    {
+      label: "Defendant",
+      extracted: fields.defendant ?? null,
+      courtListener: null,
+      matchType: "unchecked"
+    },
     {
       label: "Case name",
       extracted: extractedCaseName,
@@ -1260,8 +1327,7 @@ function bibliographicRows(
       extracted: null,
       courtListener: courtListenerUrl,
       matchType: "unchecked"
-    },
-    ...extraFieldRows
+    }
   ];
 }
 
@@ -1275,10 +1341,13 @@ function caseNameRowMatchType(
     if (status === "exact_match") {
       return "exact";
     }
-    if (status === "semantic_match") {
+    if (status === "match" || status === "semantic_match") {
       return "semantic";
     }
-    if (status === "extraction_error") {
+    if (status === "irregular_form") {
+      return "warning";
+    }
+    if (status === "different_case" || status === "extraction_error") {
       return "error";
     }
   }
@@ -1418,32 +1487,112 @@ function renderHighlightedDocument(
   return nodes;
 }
 
+type AnchorClaim = { claimed: boolean };
+
 function renderCitationMark(
   citationText: string,
   citation: RenderCitation,
   isSelected: boolean,
   onSelect: (citationId: string) => void
 ) {
-  const chunks = citationText.split(/([^\S\r\n]*[\r\n]+[^\S\r\n]*)/);
-  let firstTextChunk = true;
+  const anchor: AnchorClaim = { claimed: false };
+  if (citation.overlay) {
+    return renderOverlayCitationMark(citationText, citation, citation.overlay, onSelect, anchor);
+  }
+  return renderMarkChunks(
+    citationText,
+    citation.id,
+    `citation-mark${isSelected ? " active" : ""}`,
+    onSelect,
+    "mark",
+    anchor
+  );
+}
+
+// Paint the original full-span highlight and, layered on top of it, the
+// re-extracted span in a distinct color. The two spans can overlap or extend
+// past each other, so split the union into segments classed by membership.
+function renderOverlayCitationMark(
+  citationText: string,
+  citation: RenderCitation,
+  overlay: RenderCitationOverlay,
+  onSelect: (citationId: string) => void,
+  anchor: AnchorClaim
+) {
+  const base = citation.highlightStart;
+  const { originalStart, originalEnd, reextractStart, reextractEnd } = overlay;
+  const bounds = Array.from(
+    new Set(
+      [
+        citation.highlightStart,
+        citation.highlightEnd,
+        originalStart,
+        originalEnd,
+        reextractStart,
+        reextractEnd
+      ].filter((value) => value >= citation.highlightStart && value <= citation.highlightEnd)
+    )
+  ).sort((left, right) => left - right);
+
+  const nodes: ReactNode[] = [];
+  for (let index = 0; index < bounds.length - 1; index += 1) {
+    const segStart = bounds[index];
+    const segEnd = bounds[index + 1];
+    if (segStart >= segEnd) {
+      continue;
+    }
+    const segText = citationText.slice(segStart - base, segEnd - base);
+    const mid = (segStart + segEnd) / 2;
+    const inOriginal = mid >= originalStart && mid < originalEnd;
+    const inReextract = mid >= reextractStart && mid < reextractEnd;
+    if (!inOriginal && !inReextract) {
+      nodes.push(<span key={`${citation.id}-gap-${segStart}`}>{segText}</span>);
+      continue;
+    }
+    const classes = ["citation-mark", "active"];
+    if (inReextract) {
+      classes.push("reextracted");
+    }
+    if (inReextract && !inOriginal) {
+      classes.push("reextract-only");
+    }
+    nodes.push(
+      ...renderMarkChunks(segText, citation.id, classes.join(" "), onSelect, `seg-${segStart}`, anchor)
+    );
+  }
+  return nodes;
+}
+
+function renderMarkChunks(
+  text: string,
+  citationId: string,
+  className: string,
+  onSelect: (citationId: string) => void,
+  keyPrefix: string,
+  anchor: AnchorClaim
+) {
+  const chunks = text.split(/([^\S\r\n]*[\r\n]+[^\S\r\n]*)/);
 
   return chunks.map((chunk, index) => {
     if (!chunk) {
       return null;
     }
     if (/^[^\S\r\n]*[\r\n]+[^\S\r\n]*$/.test(chunk)) {
-      return <span key={`${citation.id}-space-${index}`}>{chunk}</span>;
+      return <span key={`${citationId}-${keyPrefix}-space-${index}`}>{chunk}</span>;
     }
 
-    const id = firstTextChunk ? `citation-${citation.id}` : undefined;
-    firstTextChunk = false;
+    let id: string | undefined;
+    if (!anchor.claimed) {
+      id = `citation-${citationId}`;
+      anchor.claimed = true;
+    }
 
     return (
       <button
-        className={`citation-mark${isSelected ? " active" : ""}`}
+        className={className}
         id={id}
-        key={`${citation.id}-mark-${index}`}
-        onClick={() => onSelect(citation.id)}
+        key={`${citationId}-${keyPrefix}-mark-${index}`}
+        onClick={() => onSelect(citationId)}
         type="button"
       >
         {chunk}
@@ -1456,9 +1605,14 @@ function visibleCitationSpans(
   text: string,
   citations: ReviewCitation[],
   selectedId: string | null,
-  includeAll: boolean
+  includeAll: boolean,
+  overlay: ReextractOverlay | null = null
 ) {
-  const candidates = citations.map((citation) => renderCitation(text, citation)).filter(isRenderCitation);
+  const candidates = citations
+    .map((citation) =>
+      renderCitation(text, citation, overlay?.citationId === citation.id ? overlay : null)
+    )
+    .filter(isRenderCitation);
   if (includeAll) {
     return candidates.sort((left, right) => left.highlightStart - right.highlightStart);
   }
@@ -1485,27 +1639,46 @@ function visibleCitationSpans(
   return visible;
 }
 
-function renderCitation(text: string, citation: ReviewCitation): RenderCitation | null {
+function renderCitation(
+  text: string,
+  citation: ReviewCitation,
+  overlay: ReextractOverlay | null = null
+): RenderCitation | null {
   const span = preferredCitationSpan(citation);
 
   if (!isValidSpan(text, span)) {
     return null;
   }
 
-  const { start: highlightStart, end: highlightEnd } = trimPaintedSpan(
-    text,
-    span.start,
-    span.end
-  );
+  const original = trimPaintedSpan(text, span.start, span.end);
 
-  if (highlightStart >= highlightEnd) {
+  if (original.start >= original.end) {
     return null;
+  }
+
+  let highlightStart = original.start;
+  let highlightEnd = original.end;
+  let renderOverlay: RenderCitationOverlay | undefined;
+
+  if (overlay && isValidSpan(text, overlay.span)) {
+    const reextract = trimPaintedSpan(text, overlay.span.start, overlay.span.end);
+    if (reextract.start < reextract.end) {
+      highlightStart = Math.min(highlightStart, reextract.start);
+      highlightEnd = Math.max(highlightEnd, reextract.end);
+      renderOverlay = {
+        originalStart: original.start,
+        originalEnd: original.end,
+        reextractStart: reextract.start,
+        reextractEnd: reextract.end
+      };
+    }
   }
 
   return {
     ...citation,
     highlightStart,
-    highlightEnd
+    highlightEnd,
+    overlay: renderOverlay
   };
 }
 
@@ -1555,25 +1728,58 @@ function citationStatus(citation: ReviewCitation): CitationStatus {
   return citation.validation ? citationStatusFromValidation(citation.validation) : "not_checked";
 }
 
-function assessmentStatus(citation: ReviewCitation): AssessmentStatus {
-  if (!citation.assessment) {
+// A citation "has history" when a grounded re-extraction produced an additional
+// extracted attempt for it (the source of the extraction-history switcher).
+function citationHasHistory(
+  citation: ReviewCitation,
+  assessment: ReviewAssessment | null
+): boolean {
+  return Boolean(
+    assessment?.modified_citations.some((modified) => modified.citation_id === citation.id)
+  );
+}
+
+// The effective (event-level) assessment for a citation: the re-extraction
+// reassessment when one exists, otherwise the original first-pass assessment.
+function effectiveAssessment(
+  citation: ReviewCitation,
+  assessment: ReviewAssessment | null
+): AssessmentPayload | null {
+  const reassessment = assessment?.reassessments.find(
+    (candidate) => candidate.citation_id === citation.id
+  );
+  return reassessment ?? citation.assessment;
+}
+
+function assessmentStatusFromPayload(assessment: AssessmentPayload | null): AssessmentStatus {
+  if (!assessment) {
     return "not_assessed";
   }
-  const normalized = citation.assessment.status.toLowerCase().replaceAll("-", "_");
+  const normalized = assessment.status.toLowerCase().replaceAll("-", "_");
   if (normalized === "exact_match") {
     return "exact_match";
   }
-  if (normalized === "semantic_match") {
-    return "semantic_match";
+  // Accept the legacy "semantic_match" alias for the current "match" verdict.
+  if (normalized === "match" || normalized === "semantic_match") {
+    return "match";
   }
-  if (normalized === "extraction_error") {
-    return "extraction_error";
+  if (normalized === "irregular_form") {
+    return "irregular_form";
+  }
+  // Map the legacy catch-all "extraction_error" onto "different_case".
+  if (normalized === "different_case" || normalized === "extraction_error") {
+    return "different_case";
   }
   return "not_assessed";
 }
 
 function isAssessmentFilter(filter: CitationFilter): filter is AssessmentFilter {
-  return filter === "exact_match" || filter === "semantic_match" || filter === "extraction_error";
+  return (
+    filter === "exact_match" ||
+    filter === "match" ||
+    filter === "irregular_form" ||
+    filter === "different_case"
+  );
 }
 
 function isFullCaseCitation(citation: ReviewCitation) {
@@ -1647,17 +1853,21 @@ function isValidationPayload(value: ValidationPayload | null): value is Validati
   return value !== null;
 }
 
-function assessmentStatusCounts(citations: ReviewCitation[]) {
+function assessmentStatusCounts(
+  citations: ReviewCitation[],
+  assessment: ReviewAssessment | null
+) {
   return citations.reduce(
     (counts, citation) => {
-      const status = assessmentStatus(citation);
+      const status = assessmentStatusFromPayload(effectiveAssessment(citation, assessment));
       counts[status] += 1;
       return counts;
     },
     {
       exact_match: 0,
-      semantic_match: 0,
-      extraction_error: 0,
+      match: 0,
+      irregular_form: 0,
+      different_case: 0,
       not_assessed: 0
     } satisfies Record<AssessmentStatus, number>
   );
@@ -1668,14 +1878,16 @@ function filterLabel(
   counts: Record<CitationStatus, number>,
   assessmentCounts: Record<AssessmentStatus, number>,
   fullCaseTotal: number,
-  allCitationTotal: number
+  allCitationTotal: number,
+  withHistoryTotal: number
 ) {
   return `${filter.label} (${filterCount(
     filter.value,
     counts,
     assessmentCounts,
     fullCaseTotal,
-    allCitationTotal
+    allCitationTotal,
+    withHistoryTotal
   )})`;
 }
 
@@ -1684,13 +1896,17 @@ function filterCount(
   counts: Record<CitationStatus, number>,
   assessmentCounts: Record<AssessmentStatus, number>,
   fullCaseTotal: number,
-  allCitationTotal: number
+  allCitationTotal: number,
+  withHistoryTotal: number
 ) {
   if (filter === "all") {
     return fullCaseTotal;
   }
   if (filter === "all_citations") {
     return allCitationTotal;
+  }
+  if (filter === "with_history") {
+    return withHistoryTotal;
   }
   if (isAssessmentFilter(filter)) {
     return assessmentCounts[filter];
