@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import asdict, dataclass
 from io import BytesIO
 from pathlib import Path
@@ -34,6 +35,7 @@ from mellea_lrc.validation.types import CitationValidation, DocumentValidation, 
 from scripts.label_studio.label_studio import to_label_studio_prediction
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from collections.abc import Callable
 
     from mellea_lrc.assessment.types import (
@@ -44,6 +46,18 @@ if TYPE_CHECKING:
     from mellea_lrc.validation import CourtListenerAccessClient
 
 JsonDict = dict[str, Any]
+
+ASSESSMENT_BACKEND_ENV = "MELLEA_LRC_ASSESSMENT_BACKEND"
+ASSESSMENT_PROVIDER_ENV = "MELLEA_LRC_ASSESSMENT_PROVIDER"
+ASSESSMENT_MODEL_ENV = "MELLEA_LRC_ASSESSMENT_MODEL"
+ASSESSMENT_API_BASE_ENV = "MELLEA_LRC_ASSESSMENT_API_BASE"
+ASSESSMENT_API_KEY_ENV = "MELLEA_LRC_ASSESSMENT_API_KEY"
+ASSESSMENT_TEMPERATURE_ENV = "MELLEA_LRC_ASSESSMENT_TEMPERATURE"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api"
+DIGITALOCEAN_INFERENCE_MODEL_ENV = "DIGITALOCEAN_INFERENCE_MODEL"
+DIGITALOCEAN_INFERENCE_API_BASE_ENV = "DIGITALOCEAN_INFERENCE_API_BASE"
+DIGITALOCEAN_INFERENCE_API_KEY_ENV = "DIGITALOCEAN_INFERENCE_API_KEY"
+DIGITALOCEAN_INFERENCE_BASE_URL = "https://inference.do-ai.run"
 
 
 @dataclass(frozen=True, slots=True)
@@ -818,18 +832,30 @@ def _start_mellea_session_from_env() -> object:
         msg = "Mellea assessment dependencies are not installed. Run with: uv sync --group assessment"
         raise RuntimeError(msg) from exc
 
-    import os  # noqa: PLC0415
+    config = _assessment_provider_config_from_env(os.environ)
+    temperature = float(config["temperature"])
+    return start_session(
+        config["backend"],
+        model_id=config["model"],
+        base_url=_chat_completions_base_url(config["api_base"]),
+        api_key=config["api_key"],
+        model_options={"temperature": temperature},
+    )
 
-    backend = os.environ.get("MELLEA_LRC_ASSESSMENT_BACKEND", "openai")
-    model = os.environ.get("MELLEA_LRC_ASSESSMENT_MODEL")
-    api_base = os.environ.get("MELLEA_LRC_ASSESSMENT_API_BASE")
-    api_key = os.environ.get("MELLEA_LRC_ASSESSMENT_API_KEY")
+
+def _assessment_provider_config_from_env(environ: Mapping[str, str]) -> dict[str, str]:
+    provider = _assessment_provider_from_env(environ)
+    backend = environ.get(ASSESSMENT_BACKEND_ENV, "openai").strip()
+    model = _assessment_model_from_env(environ, provider)
+    api_base = _assessment_api_base_from_env(environ, provider)
+    api_key = _assessment_api_key_from_env(environ, provider)
+    temperature = environ.get(ASSESSMENT_TEMPERATURE_ENV, "0").strip()
     missing = [
         name
         for name, value in (
-            ("MELLEA_LRC_ASSESSMENT_MODEL", model),
-            ("MELLEA_LRC_ASSESSMENT_API_BASE", api_base),
-            ("MELLEA_LRC_ASSESSMENT_API_KEY", api_key),
+            (ASSESSMENT_MODEL_ENV, model),
+            (_api_base_env_name(provider), api_base),
+            (_api_key_env_name(provider), api_key),
         )
         if not value
     ]
@@ -837,17 +863,70 @@ def _start_mellea_session_from_env() -> object:
         msg = f"Missing Mellea assessment configuration: {', '.join(missing)}"
         raise RuntimeError(msg)
 
-    temperature = float(os.environ.get("MELLEA_LRC_ASSESSMENT_TEMPERATURE", "0"))
-    return start_session(
-        backend,
-        model_id=model,
-        base_url=_openai_compatible_base_url(str(api_base)),
-        api_key=api_key,
-        model_options={"temperature": temperature},
-    )
+    return {
+        "provider": provider or "openai-compatible",
+        "backend": backend,
+        "model": model,
+        "api_base": api_base,
+        "api_key": api_key,
+        "temperature": temperature,
+    }
 
 
-def _openai_compatible_base_url(base_url: str) -> str:
+def _assessment_provider_from_env(environ: Mapping[str, str]) -> str:
+    provider = environ.get(ASSESSMENT_PROVIDER_ENV, "").strip().lower()
+    if provider:
+        return provider
+    if "openrouter.ai" in environ.get(ASSESSMENT_API_BASE_ENV, ""):
+        return "openrouter"
+    if environ.get(DIGITALOCEAN_INFERENCE_API_KEY_ENV, "").strip():
+        return "digitalocean"
+    return "openai-compatible"
+
+
+def _assessment_api_base_from_env(environ: Mapping[str, str], provider: str) -> str:
+    if provider == "openrouter":
+        return environ.get(ASSESSMENT_API_BASE_ENV, OPENROUTER_BASE_URL).strip()
+    if provider == "digitalocean":
+        return environ.get(DIGITALOCEAN_INFERENCE_API_BASE_ENV, DIGITALOCEAN_INFERENCE_BASE_URL).strip()
+    api_base = environ.get(ASSESSMENT_API_BASE_ENV, "").strip()
+    if api_base:
+        return api_base
+    return ""
+
+
+def _assessment_model_from_env(environ: Mapping[str, str], provider: str) -> str:
+    if provider == "digitalocean":
+        return environ.get(DIGITALOCEAN_INFERENCE_MODEL_ENV, "").strip() or environ.get(
+            ASSESSMENT_MODEL_ENV, ""
+        ).strip()
+    return environ.get(ASSESSMENT_MODEL_ENV, "").strip()
+
+
+def _assessment_api_key_from_env(environ: Mapping[str, str], provider: str) -> str:
+    if provider == "openrouter":
+        return environ.get(ASSESSMENT_API_KEY_ENV, "").strip()
+    if provider == "digitalocean":
+        return environ.get(DIGITALOCEAN_INFERENCE_API_KEY_ENV, "").strip()
+    api_key = environ.get(ASSESSMENT_API_KEY_ENV, "").strip()
+    if api_key:
+        return api_key
+    return ""
+
+
+def _api_base_env_name(provider: str) -> str:
+    if provider == "digitalocean":
+        return f"{ASSESSMENT_API_BASE_ENV} or {DIGITALOCEAN_INFERENCE_API_BASE_ENV}"
+    return ASSESSMENT_API_BASE_ENV
+
+
+def _api_key_env_name(provider: str) -> str:
+    if provider == "digitalocean":
+        return f"{ASSESSMENT_API_KEY_ENV} or {DIGITALOCEAN_INFERENCE_API_KEY_ENV}"
+    return ASSESSMENT_API_KEY_ENV
+
+
+def _chat_completions_base_url(base_url: str) -> str:
     normalized = base_url.rstrip("/")
     if normalized.endswith("/v1"):
         return normalized

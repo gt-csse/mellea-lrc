@@ -23,6 +23,8 @@ from scripts.e2e_backend.api import _review_snapshot_payload
 from scripts.label_studio.label_studio import to_label_studio_prediction
 from scripts.e2e_backend.pipeline import (
     E2EBackend,
+    _assessment_provider_config_from_env,
+    _chat_completions_base_url,
     add_validation_notes,
     assess_review_payload,
     predict_preprocessed,
@@ -345,3 +347,70 @@ def test_add_validation_notes_skips_non_case_citations() -> None:
     )
 
     assert not [item for item in enriched["result"] if item.get("from_name") == "notes"]
+
+
+def test_assessment_provider_config_supports_digitalocean_inference_defaults() -> None:
+    config = _assessment_provider_config_from_env(
+        {
+            "MELLEA_LRC_ASSESSMENT_PROVIDER": "digitalocean",
+            "MELLEA_LRC_ASSESSMENT_MODEL": "openai/gpt-4.1-mini",
+            "DIGITALOCEAN_INFERENCE_MODEL": "openai-gpt-oss-20b",
+            "DIGITALOCEAN_INFERENCE_API_KEY": "do-key",
+        }
+    )
+
+    assert config["provider"] == "digitalocean"
+    assert config["backend"] == "openai"
+    assert config["model"] == "openai-gpt-oss-20b"
+    assert config["api_base"] == "https://inference.do-ai.run"
+    assert config["api_key"] == "do-key"
+    assert _chat_completions_base_url(config["api_base"]) == "https://inference.do-ai.run/v1"
+
+
+def test_assessment_provider_config_supports_openrouter_defaults() -> None:
+    config = _assessment_provider_config_from_env(
+        {
+            "MELLEA_LRC_ASSESSMENT_PROVIDER": "openrouter",
+            "MELLEA_LRC_ASSESSMENT_MODEL": "openai/gpt-4.1-mini",
+            "MELLEA_LRC_ASSESSMENT_API_KEY": "openrouter-key",
+        }
+    )
+
+    assert config["provider"] == "openrouter"
+    assert config["backend"] == "openai"
+    assert config["model"] == "openai/gpt-4.1-mini"
+    assert config["api_base"] == "https://openrouter.ai/api"
+    assert config["api_key"] == "openrouter-key"
+    assert _chat_completions_base_url(config["api_base"]) == "https://openrouter.ai/api/v1"
+
+
+def test_assessment_provider_config_infers_openrouter_from_generic_base() -> None:
+    config = _assessment_provider_config_from_env(
+        {
+            "MELLEA_LRC_ASSESSMENT_MODEL": "openai/gpt-4.1-mini",
+            "MELLEA_LRC_ASSESSMENT_API_BASE": "https://openrouter.ai/api/v1",
+            "MELLEA_LRC_ASSESSMENT_API_KEY": "openrouter-key",
+        }
+    )
+
+    assert config["provider"] == "openrouter"
+    assert config["api_base"] == "https://openrouter.ai/api/v1"
+    assert config["api_key"] == "openrouter-key"
+
+
+def test_assessment_provider_config_uses_digitalocean_hook_when_selected() -> None:
+    config = _assessment_provider_config_from_env(
+        {
+            "MELLEA_LRC_ASSESSMENT_PROVIDER": "digitalocean",
+            "MELLEA_LRC_ASSESSMENT_MODEL": "openai/gpt-4.1-mini",
+            "DIGITALOCEAN_INFERENCE_MODEL": "openai-gpt-oss-20b",
+            "MELLEA_LRC_ASSESSMENT_API_BASE": "https://openrouter.ai/api/v1",
+            "MELLEA_LRC_ASSESSMENT_API_KEY": "openrouter-key",
+            "DIGITALOCEAN_INFERENCE_API_BASE": "https://inference.do-ai.run",
+            "DIGITALOCEAN_INFERENCE_API_KEY": "do-key",
+        }
+    )
+
+    assert config["model"] == "openai-gpt-oss-20b"
+    assert config["api_base"] == "https://inference.do-ai.run"
+    assert config["api_key"] == "do-key"

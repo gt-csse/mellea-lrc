@@ -1,4 +1,4 @@
-"""Run the E2E pipeline from typed artifacts without the frontend."""
+"""Run the E2E pipeline from typed snapshots without the frontend."""
 
 from __future__ import annotations
 
@@ -36,19 +36,19 @@ if TYPE_CHECKING:
     from mellea_lrc.extraction.types import DocumentExtraction
 
 DEFAULT_INPUT = Path("local/test_data/test-1.txt")
-DEFAULT_CACHE_DIR = Path("local/cache/e2e")
+DEFAULT_SNAPSHOT_DIR = Path("local/snapshots/e2e")
 
 
 def main() -> None:
-    """Run extraction, cached validation, and optional Mellea assessment."""
+    """Run extraction, reusable validation, and optional Mellea assessment."""
     args = _parse_args()
     _load_dotenv(Path(".env"))
 
     input_path = args.input
-    cache_dir = args.cache_dir
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    validation_path = cache_dir / f"{input_path.stem}.document_validation.json"
-    assessment_path = cache_dir / f"{input_path.stem}.document_assessment.json"
+    snapshot_dir = args.snapshot_dir
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+    validation_path = snapshot_dir / f"{input_path.stem}.document_validation.json"
+    assessment_path = snapshot_dir / f"{input_path.stem}.document_assessment.json"
 
     extraction = run_extraction(preprocess_plain_text(input_path))
     validation = _load_or_create_validation(
@@ -60,8 +60,8 @@ def main() -> None:
     _emit_json(
         {
             "input": str(input_path),
-            "validation_cache": str(validation_path),
-            "assessment_cache": str(assessment_path),
+            "validation_snapshot": str(validation_path),
+            "assessment_snapshot": str(assessment_path),
             "citations": len(extraction.citations),
             "validations": _validation_counts(validation),
         }
@@ -75,13 +75,13 @@ def main() -> None:
         json.dumps(serialize_document_assessment(assessment), indent=2),
         encoding="utf-8",
     )
-    _emit(f"wrote assessment cache: {assessment_path}")
+    _emit(f"wrote assessment snapshot: {assessment_path}")
 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
-    parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIR)
+    parser.add_argument("--snapshot-dir", type=Path, default=DEFAULT_SNAPSHOT_DIR)
     parser.add_argument("--refresh-validation", action="store_true")
     parser.add_argument("--assess-mellea", action="store_true")
     parser.add_argument("--max-mellea", type=int, default=None)

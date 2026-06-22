@@ -47,6 +47,7 @@ STATIC_MODULE_MODELS = {
 
 
 def main() -> None:
+    """Run the configured test corpus and write timestamped snapshots."""
     args = _parse_args()
     _load_dotenv(Path(".env"))
 
@@ -69,7 +70,7 @@ def main() -> None:
                 max_mellea=args.max_mellea,
             )
             _emit(f"{doc}: done")
-        except Exception as exc:  # noqa: BLE001 - any failure (often rate limit) stops the run
+        except Exception as exc:
             _emit(f"{doc}: STOPPED ({type(exc).__name__}: {exc})")
             _emit("Stopping; snapshots written so far are preserved.")
             sys.exit(1)
