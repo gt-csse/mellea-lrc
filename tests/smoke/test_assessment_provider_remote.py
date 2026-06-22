@@ -9,25 +9,21 @@ from typing import Any
 import requests
 import pytest
 
-pytestmark = pytest.mark.remote_smoke
+from scripts.e2e_backend.pipeline import _assessment_provider_config_from_env, _chat_completions_base_url
 
-REQUIRED_ENV_KEYS = (
-    "MELLEA_LRC_ASSESSMENT_API_BASE",
-    "MELLEA_LRC_ASSESSMENT_API_KEY",
-    "MELLEA_LRC_ASSESSMENT_MODEL",
-)
+pytestmark = pytest.mark.remote_smoke
 
 
 def test_assessment_provider_chat_completion(remote_timeout: float) -> None:
     config = _assessment_config_from_env_file()
     response = requests.post(
-        _chat_completions_url(config["MELLEA_LRC_ASSESSMENT_API_BASE"]),
+        f"{_chat_completions_base_url(config['api_base'])}/chat/completions",
         headers={
-            "Authorization": f"Bearer {config['MELLEA_LRC_ASSESSMENT_API_KEY']}",
+            "Authorization": f"Bearer {config['api_key']}",
             "Content-Type": "application/json",
         },
         json={
-            "model": config["MELLEA_LRC_ASSESSMENT_MODEL"],
+            "model": config["model"],
             "messages": [{"role": "user", "content": "Reply with OK only."}],
             "temperature": 0,
             "max_tokens": 8,
@@ -45,10 +41,11 @@ def test_assessment_provider_chat_completion(remote_timeout: float) -> None:
 
 def _assessment_config_from_env_file() -> dict[str, str]:
     values = {**os.environ, **_read_env_file(Path(".env"))}
-    missing = [key for key in REQUIRED_ENV_KEYS if _is_unset(values.get(key))]
-    if missing:
-        pytest.skip(f"Set {', '.join(missing)} in .env to run assessment provider smoke test.")
-    return {key: values[key] for key in REQUIRED_ENV_KEYS}
+    values = {key: value for key, value in values.items() if not _is_unset(value)}
+    try:
+        return _assessment_provider_config_from_env(values)
+    except RuntimeError as exc:
+        pytest.skip(f"{exc} in .env to run assessment provider smoke test.")
 
 
 def _is_unset(value: str | None) -> bool:
@@ -67,13 +64,6 @@ def _read_env_file(path: Path) -> dict[str, str]:
         key, value = stripped.split("=", 1)
         values[key.strip()] = value.strip().strip("\"'")
     return values
-
-
-def _chat_completions_url(api_base: str) -> str:
-    base = api_base.rstrip("/")
-    if not base.endswith("/v1"):
-        base = f"{base}/v1"
-    return f"{base}/chat/completions"
 
 
 def _first_message_content(payload: dict[str, Any]) -> str | None:
