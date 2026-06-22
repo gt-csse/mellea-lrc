@@ -745,10 +745,10 @@ def _assess_review_citation(
             ),
         )
 
-    from mellea_lrc.assessment.mellea import assess_case_name_with_mellea  # noqa: PLC0415
+    from mellea_lrc.assessment.mellea import assess_case_name_with_mellea_sync  # noqa: PLC0415
 
     span = Span(start=_int_field(citation.get("start")), end=_int_field(citation.get("end")))
-    case_name_run = assess_case_name_with_mellea(
+    case_name_run = assess_case_name_with_mellea_sync(
         session,
         citation_id=citation_id,
         extracted_case_name=extracted_case_name,

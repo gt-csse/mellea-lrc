@@ -1,5 +1,8 @@
 """Mellea-backed semantic assessment for citations."""
 
+from __future__ import annotations
+
+import asyncio
 import json
 import os
 from typing import Literal, cast
@@ -11,7 +14,6 @@ from mellea.stdlib.sampling import RejectionSamplingStrategy
 from pydantic import TypeAdapter, ValidationError
 
 from mellea_lrc.assessment.case_name import assess_case_name_exact_match
-from mellea_lrc.llm import llm_provider_config_from_env
 from mellea_lrc.assessment.types import (
     CaseNameAssessment,
     CaseNameAssessmentRun,
@@ -19,16 +21,17 @@ from mellea_lrc.assessment.types import (
     ModifiedExtractedCitationProposal,
     is_in_context,
 )
+from mellea_lrc.llm import llm_provider_config_from_env
 
 CaseNameVerdict = Literal["match", "different_case", "irregular_form"]
 MODIFIED_EXTRACTION_ADAPTER = TypeAdapter(ModifiedExtractedCitationProposal)
-CASE_NAME_VERDICT_MAX_TOKENS = 16
+CASE_NAME_VERDICT_MAX_TOKENS = 256
 MODIFIED_EXTRACTION_MAX_TOKENS = 512
 MODIFIED_EXTRACTION_STRATEGY = RejectionSamplingStrategy(loop_budget=3)
 
 
 @generative
-def classify_case_name(
+async def classify_case_name(
     local_context: str,
     extracted_case_name: str,
     retrieved_case_name: str,
@@ -61,7 +64,7 @@ def classify_case_name(
 
 
 @generative
-def propose_corrected_case_name(
+async def propose_corrected_case_name(
     local_context: str,
     extracted_case_name: str,
     retrieved_case_name: str,
@@ -83,7 +86,7 @@ def propose_corrected_case_name(
 
 
 @generative
-def propose_corrected_case_name_json(
+async def propose_corrected_case_name_json(
     local_context: str,
     extracted_case_name: str,
     retrieved_case_name: str,
@@ -103,7 +106,7 @@ def propose_corrected_case_name_json(
     """
 
 
-def assess_case_name_with_mellea(
+async def assess_case_name_with_mellea(
     session: MelleaSession,
     *,
     citation_id: str,
@@ -123,7 +126,7 @@ def assess_case_name_with_mellea(
         return CaseNameAssessmentRun(assessment=exact_result)
 
     try:
-        return _assess_case_name_with_mellea_after_exact(
+        return await _assess_case_name_with_mellea_after_exact(
             session,
             citation_id=citation_id,
             extracted_case_name=extracted_case_name,
@@ -137,7 +140,27 @@ def assess_case_name_with_mellea(
         raise RuntimeError(msg) from exc
 
 
-def _assess_case_name_with_mellea_after_exact(
+def assess_case_name_with_mellea_sync(
+    session: MelleaSession,
+    *,
+    citation_id: str,
+    extracted_case_name: str | None,
+    courtlistener_case_name: str | None,
+    document_context: str,
+) -> CaseNameAssessmentRun:
+    """Run :func:`assess_case_name_with_mellea` from synchronous callers."""
+    return _run_coroutine(
+        assess_case_name_with_mellea(
+            session,
+            citation_id=citation_id,
+            extracted_case_name=extracted_case_name,
+            courtlistener_case_name=courtlistener_case_name,
+            document_context=document_context,
+        )
+    )
+
+
+async def _assess_case_name_with_mellea_after_exact(
     session: MelleaSession,
     *,
     citation_id: str,
@@ -145,17 +168,9 @@ def _assess_case_name_with_mellea_after_exact(
     courtlistener_case_name: str,
     document_context: str,
 ) -> CaseNameAssessmentRun:
-    """Classify the case name, then re-extract from local context when warranted.
-
-    Stage 1 classifies the original extraction as ``match`` / ``different_case`` /
-    ``irregular_form``. A ``match`` is final. Otherwise Stage 2 revisits the local
-    context window and only re-extracts when a more complete grounded case name is
-    available; a re-extraction emits a separate reassessment alongside the
-    first-pass verdict, while the first-pass verdict is preserved.
-    """
-    # Stage 1: classify the original extraction (when there is one to classify).
+    """Classify the case name, then re-extract from local context when warranted."""
     if extracted_case_name:
-        verdict = classify_case_name(
+        verdict = await classify_case_name(
             session,
             local_context=document_context,
             extracted_case_name=extracted_case_name,
@@ -170,11 +185,9 @@ def _assess_case_name_with_mellea_after_exact(
                 ),
             )
     else:
-        # Nothing was extracted: treat the form as deficient and try to recover it.
         status = CaseNameAssessmentStatus.IRREGULAR_FORM
 
-    # Stage 2: revisit local context and re-extract only when warranted.
-    proposal = _propose_corrected_case_name(
+    proposal = await _propose_corrected_case_name(
         session,
         document_context=document_context,
         extracted_case_name=extracted_case_name or "",
@@ -184,10 +197,9 @@ def _assess_case_name_with_mellea_after_exact(
         citation_id, status, extracted_case_name, courtlistener_case_name
     )
     if not proposal.valid(document_context):
-        # Re-extraction is not warranted; keep the first-pass verdict.
         return CaseNameAssessmentRun(assessment=first_pass)
 
-    reassessment = _assess_corrected_case_name(
+    reassessment = await _assess_corrected_case_name(
         session,
         citation_id=citation_id,
         corrected_case_name=cast("str", proposal.extracted_case_name),
@@ -201,7 +213,7 @@ def _assess_case_name_with_mellea_after_exact(
     )
 
 
-def _assess_corrected_case_name(
+async def _assess_corrected_case_name(
     session: MelleaSession,
     *,
     citation_id: str,
@@ -217,7 +229,7 @@ def _assess_corrected_case_name(
     )
     if exact.status == CaseNameAssessmentStatus.EXACT_MATCH:
         return exact
-    verdict = classify_case_name(
+    verdict = await classify_case_name(
         session,
         local_context=document_context,
         extracted_case_name=corrected_case_name,
@@ -265,7 +277,7 @@ def modified_extracted_citation_is_in_context_requirement(document_context: str)
     )
 
 
-def _propose_corrected_case_name(
+async def _propose_corrected_case_name(
     session: MelleaSession,
     *,
     document_context: str,
@@ -274,7 +286,7 @@ def _propose_corrected_case_name(
 ) -> ModifiedExtractedCitationProposal:
     requirement = modified_extracted_citation_is_in_context_requirement(document_context)
     try:
-        return propose_corrected_case_name(
+        return await propose_corrected_case_name(
             session,
             local_context=document_context,
             extracted_case_name=extracted_case_name,
@@ -284,7 +296,7 @@ def _propose_corrected_case_name(
             model_options=_structured_model_options(max_tokens=MODIFIED_EXTRACTION_MAX_TOKENS),
         )
     except Exception:
-        raw = propose_corrected_case_name_json(
+        raw = await propose_corrected_case_name_json(
             session,
             local_context=document_context,
             extracted_case_name=extracted_case_name,
@@ -315,6 +327,15 @@ def _modified_extracted_citation_from_output(output: str) -> ModifiedExtractedCi
 
 def _structured_model_options(*, max_tokens: int) -> dict[str, object]:
     return llm_provider_config_from_env(os.environ).mellea_call_options(max_tokens=max_tokens)
+
+
+def _run_coroutine(coroutine):
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coroutine)
+    msg = "assess_case_name_with_mellea_sync cannot run inside an active event loop; use assess_case_name_with_mellea"
+    raise RuntimeError(msg)
 
 
 _STATUS_MESSAGES = {
