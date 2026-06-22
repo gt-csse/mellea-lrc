@@ -11,6 +11,7 @@ from mellea.stdlib.sampling import RejectionSamplingStrategy
 from pydantic import TypeAdapter, ValidationError
 
 from mellea_lrc.assessment.case_name import assess_case_name_exact_match
+from mellea_lrc.llm import llm_provider_config_from_env
 from mellea_lrc.assessment.types import (
     CaseNameAssessment,
     CaseNameAssessmentRun,
@@ -313,17 +314,7 @@ def _modified_extracted_citation_from_output(output: str) -> ModifiedExtractedCi
 
 
 def _structured_model_options(*, max_tokens: int) -> dict[str, object]:
-    options: dict[str, object] = {"temperature": 0, "max_tokens": max_tokens}
-    provider = os.environ.get("MELLEA_LRC_ASSESSMENT_PROVIDER", "").lower()
-    api_base = os.environ.get("MELLEA_LRC_ASSESSMENT_API_BASE", "")
-    require_parameters = os.environ.get("MELLEA_LRC_ASSESSMENT_REQUIRE_PARAMETERS", "")
-    if (provider == "openrouter" or "openrouter.ai" in api_base) and require_parameters.lower() in {
-        "1",
-        "true",
-        "yes",
-    }:
-        options["extra_body"] = {"provider": {"require_parameters": True}}
-    return options
+    return llm_provider_config_from_env(os.environ).mellea_call_options(max_tokens=max_tokens)
 
 
 _STATUS_MESSAGES = {

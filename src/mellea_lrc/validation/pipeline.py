@@ -21,7 +21,7 @@ HTTP_NOT_FOUND = 404
 HTTP_TOO_MANY_REQUESTS = 429
 
 
-def validate_extraction(
+def run_validation(
     extraction: DocumentExtraction,
     *,
     client_mode: ValidationClientMode = DEFAULT_CLIENT_MODE,

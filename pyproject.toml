@@ -14,7 +14,7 @@ authors = [
     { name = "Adrian Lozada", email = "alozada7@gatech.edu" },
     { name = "Robert Bates", email = "rbates8@gatech.edu" },
 ]
-requires-python = ">= 3.10"
+requires-python = ">=3.10"
 dependencies = []
 classifiers = [
     "Operating System :: MacOS",
@@ -40,7 +40,11 @@ Repository = "https://github.com/gt-csse/mellea-lrc"
 requires = ["uv_build>=0.11.16,<0.12.0"]
 build-backend = "uv_build"
 
+[tool.uv]
+default-groups = ["dev"]
+
 [dependency-groups]
+# Optional mellea_lrc pipeline-stage extras.
 preprocessing = [
     "charset-normalizer>=3.4.7",
     "docling>=2.0",
@@ -51,32 +55,55 @@ extraction = [
     "eyecite>=2.6",
     "mellea>=0.3.2",
 ]
+llm = [
+    "mellea>=0.3.2",
+]
+
+# Shared utilities for scripts and notebooks.
+scripts = [
+    "python-dotenv>=1.0",
+    "requests>=2.32",
+]
+
+# Full local pipeline (preprocess -> extract -> validate -> assess).
+pipeline = [
+    { include-group = "preprocessing" },
+    { include-group = "extraction" },
+    { include-group = "llm" },
+    { include-group = "scripts" },
+]
+
+# Label Studio upload tooling.
 label-studio = [
     { include-group = "extraction" },
-    "requests>=2.32",
-    "python-dotenv>=1.0",
+    { include-group = "scripts" },
 ]
+
+# CourtListener access HTTP service.
 courtlistener = [
-    "fastapi>=0.115",
+    { include-group = "scripts" },
+    "fastapi[standard]>=0.115",
     "python-multipart>=0.0.9",
-    "requests>=2.32",
 ]
+
+# R2-backed citation cache for deployed CourtListener access.
 courtlistener-r2 = [
     { include-group = "courtlistener" },
     "boto3>=1.34",
 ]
-assessment = [
-    "mellea>=0.3.2",
-]
+
+# Modal deploy targets (E2E backend and CourtListener access).
 modal = [
-    { include-group = "preprocessing" },
+    { include-group = "pipeline" },
     { include-group = "label-studio" },
     { include-group = "courtlistener-r2" },
-    "fastapi[standard]>=0.115",
     "modal>=1.0,<2.0",
 ]
+
+# Default local and CI environment.
 dev = [
     { include-group = "extraction" },
+    { include-group = "scripts" },
     { include-group = "courtlistener" },
     "autogitsemver>=0.9.13",
     "httpx2>=0.28",

@@ -6,21 +6,11 @@ import argparse
 import json
 import os
 import sys
+from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from mellea_lrc.assessment import (
-    CitationAssessment,
-    DocumentAssessment,
-    ModifiedExtractedCitation,
-    assess_case_name_exact_match,
-    assess_year_exact_match,
-    build_extracted_case_name,
-    find_text_span_near_full_span,
-    get_extended_span_text,
-)
-from mellea_lrc.assessment.types import CaseNameAssessmentStatus
-from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.assessment import run_assessment
 from mellea_lrc.extraction import run_extraction
 from mellea_lrc.preprocessing import preprocess_plain_text
 from mellea_lrc.serialization import (
@@ -28,12 +18,11 @@ from mellea_lrc.serialization import (
     serialize_document_assessment,
     serialize_document_validation,
 )
-from mellea_lrc.validation import validate_extraction
-from mellea_lrc.validation.types import CitationValidation, DocumentValidation, ValidationStatus
-from scripts.e2e_backend.pipeline import _start_mellea_session_from_env
+from mellea_lrc.validation import run_validation
 
 if TYPE_CHECKING:
     from mellea_lrc.extraction.types import DocumentExtraction
+    from mellea_lrc.validation.types import DocumentValidation
 
 DEFAULT_INPUT = Path("local/test_data/test-1.txt")
 DEFAULT_SNAPSHOT_DIR = Path("local/snapshots/e2e")
@@ -70,7 +59,7 @@ def main() -> None:
     if not args.assess_mellea:
         return
 
-    assessment = _run_assessment(validation, max_mellea=args.max_mellea)
+    assessment = run_assessment(validation, max_mellea=args.max_mellea, on_mellea_call=_emit_mellea_call)
     assessment_path.write_text(
         json.dumps(serialize_document_assessment(assessment), indent=2),
         encoding="utf-8",
@@ -98,110 +87,9 @@ def _load_or_create_validation(
         payload = json.loads(path.read_text(encoding="utf-8"))
         return deserialize_document_validation(payload)
 
-    validation = validate_extraction(extraction)
+    validation = run_validation(extraction)
     path.write_text(json.dumps(serialize_document_validation(validation), indent=2), encoding="utf-8")
     return validation
-
-
-def _run_assessment(validation: DocumentValidation, *, max_mellea: int | None) -> DocumentAssessment:
-    from mellea_lrc.assessment.mellea import assess_case_name_with_mellea  # noqa: PLC0415
-
-    validations_by_id = {item.citation_id: item for item in validation.validations}
-    assessments: list[CitationAssessment] = []
-    modified_citations: list[ModifiedExtractedCitation] = []
-    reassessments: list[CitationAssessment] = []
-    session = None
-    mellea_calls = 0
-
-    for citation in validation.citations:
-        citation_validation = validations_by_id.get(citation.citation_id)
-        if citation_validation is None:
-            continue
-        if not isinstance(citation.citation, FullCaseCitation):
-            continue
-        if citation_validation.status != ValidationStatus.FOUND:
-            continue
-
-        extracted_case_name = build_extracted_case_name(citation.citation)
-        courtlistener_case_name = _first_cluster_case_name(citation_validation)
-        year_assess = assess_year_exact_match(
-            citation_id=citation.citation_id,
-            extracted_year=citation.citation.year,
-            courtlistener_year=_first_cluster_year(citation_validation),
-        )
-        exact = assess_case_name_exact_match(
-            citation_id=citation.citation_id,
-            extracted_case_name=extracted_case_name,
-            courtlistener_case_name=courtlistener_case_name,
-        )
-        if exact.status != CaseNameAssessmentStatus.NEEDS_ASSESSMENT:
-            assessments.append(
-                CitationAssessment(
-                    citation_id=citation.citation_id,
-                    case_assess=exact,
-                    year_assess=year_assess,
-                )
-            )
-            continue
-        if max_mellea is not None and mellea_calls >= max_mellea:
-            continue
-
-        session = session or _start_mellea_session_from_env()
-        context = get_extended_span_text(validation.text, citation.span)
-        _emit_json(
-            {
-                "mellea_call": mellea_calls + 1,
-                "citation_id": citation.citation_id,
-                "matched_text": citation.matched_text,
-                "extracted_case_name": extracted_case_name,
-                "courtlistener_case_name": courtlistener_case_name,
-                "context": context,
-            }
-        )
-        run = assess_case_name_with_mellea(
-            session,
-            citation_id=citation.citation_id,
-            extracted_case_name=extracted_case_name,
-            courtlistener_case_name=courtlistener_case_name,
-            document_context=context,
-        )
-        mellea_calls += 1
-        assessments.append(
-            CitationAssessment(
-                citation_id=citation.citation_id,
-                case_assess=run.assessment,
-                year_assess=year_assess,
-            )
-        )
-        if run.modified_citation is not None:
-            modified_citations.append(
-                ModifiedExtractedCitation.from_proposal(
-                    run.modified_citation,
-                    citation_id=citation.citation_id,
-                    span=find_text_span_near_full_span(
-                        validation.text,
-                        run.modified_citation.extracted_case_name or "",
-                        citation.span,
-                    ),
-                )
-            )
-        if run.reassessment is not None:
-            reassessments.append(
-                CitationAssessment(
-                    citation_id=citation.citation_id,
-                    case_assess=run.reassessment,
-                    year_assess=year_assess,
-                )
-            )
-
-    return DocumentAssessment(
-        preprocessed=validation.preprocessed,
-        citations=validation.citations,
-        validations=validation.validations,
-        assessments=tuple(assessments),
-        modified_citations=tuple(modified_citations),
-        reassessments=tuple(reassessments),
-    )
 
 
 def _validation_counts(validation: DocumentValidation) -> dict[str, int]:
@@ -209,20 +97,6 @@ def _validation_counts(validation: DocumentValidation) -> dict[str, int]:
     for item in validation.validations:
         counts[item.status.value] = counts.get(item.status.value, 0) + 1
     return counts
-
-
-def _first_cluster_case_name(validation: CitationValidation) -> str | None:
-    if not validation.clusters:
-        return None
-    case_name = validation.clusters[0].get("case_name") or validation.clusters[0].get("caseName")
-    return str(case_name) if isinstance(case_name, str) and case_name else None
-
-
-def _first_cluster_year(validation: CitationValidation) -> str | None:
-    if not validation.clusters:
-        return None
-    date_filed = validation.clusters[0].get("date_filed") or validation.clusters[0].get("dateFiled")
-    return str(date_filed)[:4] if isinstance(date_filed, str) and date_filed else None
 
 
 def _load_dotenv(path: Path) -> None:
@@ -238,6 +112,10 @@ def _load_dotenv(path: Path) -> None:
 
 def _emit(message: str) -> None:
     sys.stdout.write(f"{message}\n")
+
+
+def _emit_mellea_call(payload: object) -> None:
+    _emit_json(asdict(payload))
 
 
 def _emit_json(payload: object) -> None:

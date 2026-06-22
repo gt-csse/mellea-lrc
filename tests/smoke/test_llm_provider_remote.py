@@ -1,4 +1,4 @@
-"""Remote smoke test for the OpenAI-compatible assessment model endpoint."""
+"""Remote smoke test for the OpenAI-compatible LLM endpoint."""
 
 from __future__ import annotations
 
@@ -9,21 +9,25 @@ from typing import Any
 import requests
 import pytest
 
-from scripts.e2e_backend.pipeline import _assessment_provider_config_from_env, _chat_completions_base_url
+from mellea_lrc.llm import (
+    LlmProviderConfig,
+    chat_completions_base_url,
+    llm_provider_config_from_env,
+)
 
 pytestmark = pytest.mark.remote_smoke
 
 
-def test_assessment_provider_chat_completion(remote_timeout: float) -> None:
-    config = _assessment_config_from_env_file()
+def test_llm_provider_chat_completion(remote_timeout: float) -> None:
+    config = _llm_config_from_env_file()
     response = requests.post(
-        f"{_chat_completions_base_url(config['api_base'])}/chat/completions",
+        f"{chat_completions_base_url(config.api_base)}/chat/completions",
         headers={
-            "Authorization": f"Bearer {config['api_key']}",
+            "Authorization": f"Bearer {config.api_key}",
             "Content-Type": "application/json",
         },
         json={
-            "model": config["model"],
+            "model": config.model,
             "messages": [{"role": "user", "content": "Reply with OK only."}],
             "temperature": 0,
             "max_tokens": 8,
@@ -32,20 +36,20 @@ def test_assessment_provider_chat_completion(remote_timeout: float) -> None:
     )
 
     if response.status_code == 429:
-        pytest.xfail(f"Assessment model endpoint is reachable but rate limited: {response.text}")
+        pytest.xfail(f"LLM endpoint is reachable but rate limited: {response.text}")
 
     assert response.status_code == 200, response.text
     payload = response.json()
     assert _first_message_content(payload)
 
 
-def _assessment_config_from_env_file() -> dict[str, str]:
+def _llm_config_from_env_file() -> LlmProviderConfig:
     values = {**os.environ, **_read_env_file(Path(".env"))}
     values = {key: value for key, value in values.items() if not _is_unset(value)}
     try:
-        return _assessment_provider_config_from_env(values)
+        return llm_provider_config_from_env(values)
     except RuntimeError as exc:
-        pytest.skip(f"{exc} in .env to run assessment provider smoke test.")
+        pytest.skip(f"{exc} in .env to run LLM provider smoke test.")
 
 
 def _is_unset(value: str | None) -> bool:
@@ -54,7 +58,7 @@ def _is_unset(value: str | None) -> bool:
 
 def _read_env_file(path: Path) -> dict[str, str]:
     if not path.exists():
-        pytest.skip("Create .env to run assessment provider smoke test.")
+        pytest.skip("Create .env to run LLM provider smoke test.")
 
     values: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8").splitlines():

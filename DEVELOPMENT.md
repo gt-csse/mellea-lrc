@@ -6,8 +6,20 @@
 | --- | --- | --- |
 | 1. Clone the repository locally. | `git clone https://github.com/gt-csse/mellea-lrc` | https://git-scm.com/docs/git-clone |
 | 2. Install [uv](https://github.com/astral-sh/uv). | `curl -LsSf https://astral.sh/uv/install.sh \| sh` on macOS and Linux or <br/>`powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 \| iex"` on Windows | https://docs.astral.sh |
-| 3. Install dependencies. | `uv sync` | https://docs.astral.sh/uv/concepts/projects/sync |
+| 3. Install dependencies. | `uv sync` (Python 3.10; installs the `dev` group) | https://docs.astral.sh/uv/concepts/projects/sync |
 | 4. Install [pre-commit](https://pre-commit.com/) hooks | `uv run pre-commit install` | https://pre-commit.com/#1-install-pre-commit |
+
+### Optional dependency groups
+
+| Group | Use when |
+| --- | --- |
+| `dev` | Default for CI and local lint/test (`uv sync`) |
+| `pipeline` | Notebook or corpus runs through preprocess → assess (`uv sync --group pipeline`) |
+| `llm` | LLM provider smoke tests only |
+| `preprocessing` | Docling conversion only |
+| `label-studio` | Label Studio upload scripts |
+| `courtlistener` | CourtListener access service locally |
+| `modal` | Deploy or serve Modal apps (includes `pipeline`) |
 
 ## Development Activities
 

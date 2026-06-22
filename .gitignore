@@ -31,3 +31,6 @@ frontend/.vercel/
 frontend/tsconfig.tsbuildinfo
 frontend/npm-debug.log*
 frontend/yarn-error.log*
+
+# exploratory notebooks
+notebooks/
