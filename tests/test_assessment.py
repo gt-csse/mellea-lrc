@@ -11,9 +11,18 @@ from mellea_lrc.assessment import (
     build_extracted_case_name,
     find_text_span_near_full_span,
     get_extended_span_text,
+    run_assessment,
 )
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.core.spans import Span
+from mellea_lrc.extraction.types import ExtractedCitation
+from mellea_lrc.preprocessing.types import (
+    PreprocessedDocument,
+    PreprocessedDocumentMetadata,
+    PreprocessingBackend,
+    SourceFormat,
+)
+from mellea_lrc.validation.types import CitationValidation, DocumentValidation, ValidationStatus
 
 
 def test_get_extended_span_text_includes_context_around_full_span() -> None:
@@ -235,3 +244,52 @@ def test_modified_extracted_citation_proposal_valid_rejects_ungrounded_fields() 
     )
 
     assert not modified.valid(context)
+
+
+def test_run_assessment_progresses_document_validation_to_document_assessment() -> None:
+    preprocessed = PreprocessedDocument(
+        text="Brown v. Board, 347 U.S. 483 (1954).",
+        metadata=PreprocessedDocumentMetadata(
+            source_path="test.txt",
+            source_format=SourceFormat.TEXT,
+            backend=PreprocessingBackend.PLAIN_TEXT,
+        ),
+    )
+    citation = ExtractedCitation(
+        citation_id="cite-1",
+        span=Span(0, 35),
+        matched_text="347 U.S. 483",
+        citation=FullCaseCitation(
+            plaintiff="Brown",
+            defendant="Board",
+            volume="347",
+            reporter="U.S.",
+            page="483",
+            year="1954",
+        ),
+    )
+    validation = DocumentValidation(
+        preprocessed=preprocessed,
+        citations=(citation,),
+        validations=(
+            CitationValidation(
+                citation_id="cite-1",
+                locator="347 U.S. 483",
+                status=ValidationStatus.FOUND,
+                source="test",
+                message="found",
+                case_names=("Brown v. Board",),
+                clusters=({"case_name": "Brown v. Board", "date_filed": "1954-05-17"},),
+            ),
+        ),
+    )
+
+    assessment = run_assessment(validation)
+
+    assert assessment.preprocessed == preprocessed
+    assert assessment.citations == (citation,)
+    assert assessment.validations == validation.validations
+    assert len(assessment.assessments) == 1
+    assert assessment.assessments[0].status == CitationAssessmentStatus.EXACT_MATCH
+    assert assessment.assessments[0].year_assess is not None
+    assert assessment.assessments[0].year_assess.status == YearAssessmentStatus.EXACT_MATCH

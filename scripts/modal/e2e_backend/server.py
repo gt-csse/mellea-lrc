@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO)
 app = modal.App(APP_NAME)
 
 image = (
-    modal.Image.debian_slim(python_version="3.11")
+    modal.Image.debian_slim(python_version="3.10")
     .apt_install("libgl1", "libglib2.0-0")
     .pip_install(
         "docling>=2.0",

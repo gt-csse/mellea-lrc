@@ -11,7 +11,7 @@ configured LLM, so the run can be rate limited. On the first failure for a
 document the run stops gracefully, preserving every snapshot already written.
 
 Usage:
-    uv run --group modal --group assessment python -m scripts.e2e_backend.snapshot_corpus
+    uv run --group pipeline python -m scripts.e2e_backend.snapshot_corpus
     # optional: --docs test-1 test-2   --snapshot-root local/snapshots   --max-mellea N
 """
 
@@ -24,7 +24,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from mellea_lrc.assessment import run_assessment
 from mellea_lrc.extraction import run_extraction
+from mellea_lrc.llm import llm_provider_config_from_env
 from mellea_lrc.preprocessing import preprocess_plain_text
 from mellea_lrc.serialization import (
     serialize_document_assessment,
@@ -32,8 +34,8 @@ from mellea_lrc.serialization import (
     serialize_document_validation,
     serialize_preprocessed_document,
 )
-from mellea_lrc.validation import validate_extraction
-from scripts.e2e_backend.run_artifact_pipeline import _load_dotenv, _run_assessment
+from mellea_lrc.validation import run_validation
+from scripts.e2e_backend.run_artifact_pipeline import _load_dotenv
 
 DEFAULT_TEST_DATA = Path("local/test_data")
 DEFAULT_SNAPSHOT_ROOT = Path("local/snapshots")
@@ -57,7 +59,7 @@ def main() -> None:
         return
 
     run_stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    assessment_model = os.environ.get("MELLEA_LRC_ASSESSMENT_MODEL", "unknown")
+    assessment_model = llm_provider_config_from_env(os.environ).model
 
     for input_path in documents:
         doc = input_path.stem
@@ -98,13 +100,13 @@ def _snapshot_document(
         serialize_document_extraction(extraction),
     )
 
-    validation = validate_extraction(extraction)
+    validation = run_validation(extraction)
     _write_snapshot(
         snapshot_root, doc, "validation", STATIC_MODULE_MODELS["validation"], run_stamp,
         serialize_document_validation(validation),
     )
 
-    assessment = _run_assessment(validation, max_mellea=max_mellea)
+    assessment = run_assessment(validation, max_mellea=max_mellea)
     _write_snapshot(
         snapshot_root, doc, "assessment", assessment_model, run_stamp,
         serialize_document_assessment(assessment),

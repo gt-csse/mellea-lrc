@@ -19,17 +19,16 @@ LS_ACCOUNT_AUTH=<label-studio-refresh-token>
 CL_ACCESS_MODAL_URL=<courtlistener-access-service-url>
 
 # Modal secret for /api/assess-review, if served remotely.
-# Set MELLEA_LRC_ASSESSMENT_PROVIDER to openrouter or digitalocean.
-# MELLEA_LRC_ASSESSMENT_MODEL is shared by both hooks.
-MELLEA_LRC_ASSESSMENT_BACKEND=openai
-MELLEA_LRC_ASSESSMENT_PROVIDER=openrouter
-MELLEA_LRC_ASSESSMENT_MODEL=openai/gpt-4.1-mini
-MELLEA_LRC_ASSESSMENT_TEMPERATURE=0
+# Set MELLEA_LRC_LLM_PROVIDER to openrouter or digitalocean.
+MELLEA_LRC_LLM_BACKEND=openai
+MELLEA_LRC_LLM_PROVIDER=openrouter
+MELLEA_LRC_LLM_TEMPERATURE=0
 
 # OpenRouter hook
-MELLEA_LRC_ASSESSMENT_API_BASE=https://openrouter.ai/api/v1
-MELLEA_LRC_ASSESSMENT_API_KEY=<openrouter-api-key>
-MELLEA_LRC_ASSESSMENT_REQUIRE_PARAMETERS=1
+MELLEA_LRC_LLM_MODEL=openai/gpt-4.1-mini
+MELLEA_LRC_LLM_API_BASE=https://openrouter.ai/api/v1
+MELLEA_LRC_LLM_API_KEY=<openrouter-api-key>
+MELLEA_LRC_LLM_REQUIRE_PARAMETERS=1
 
 # DigitalOcean Gradient Serverless Inference hook
 DIGITALOCEAN_INFERENCE_MODEL=openai-gpt-oss-20b
@@ -72,7 +71,7 @@ uv run --group modal modal serve scripts/modal/e2e_backend/server.py
 For local frontend E2E testing without Modal:
 
 ```bash
-uv run --group modal --group assessment fastapi run \
+uv run --group modal fastapi run \
   scripts/e2e_backend/local_server.py \
   --host 127.0.0.1 \
   --port 8011

@@ -36,3 +36,6 @@ frontend/tsconfig.tsbuildinfo
 notebooks/
 frontend/npm-debug.log*
 frontend/yarn-error.log*
+
+# exploratory notebooks
+notebooks/

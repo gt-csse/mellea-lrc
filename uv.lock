@@ -3554,18 +3554,16 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
-assessment = [
-    { name = "mellea", version = "0.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "mellea", version = "0.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-]
 courtlistener = [
-    { name = "fastapi" },
+    { name = "fastapi", extra = ["standard"] },
+    { name = "python-dotenv" },
     { name = "python-multipart" },
     { name = "requests" },
 ]
 courtlistener-r2 = [
     { name = "boto3" },
-    { name = "fastapi" },
+    { name = "fastapi", extra = ["standard"] },
+    { name = "python-dotenv" },
     { name = "python-multipart" },
     { name = "requests" },
 ]
@@ -3574,13 +3572,14 @@ dev = [
     { name = "docling" },
     { name = "dotenv" },
     { name = "eyecite" },
-    { name = "fastapi" },
+    { name = "fastapi", extra = ["standard"] },
     { name = "mellea", version = "0.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "mellea", version = "0.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "openai" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "python-dotenv" },
     { name = "python-multipart" },
     { name = "requests" },
     { name = "ruff" },
@@ -3609,6 +3608,10 @@ label-studio = [
     { name = "python-dotenv" },
     { name = "requests" },
 ]
+llm = [
+    { name = "mellea", version = "0.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "mellea", version = "0.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
 modal = [
     { name = "boto3" },
     { name = "charset-normalizer" },
@@ -3629,9 +3632,23 @@ notebook = [
     { name = "ipython", version = "9.15.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "jupyter" },
 ]
+pipeline = [
+    { name = "charset-normalizer" },
+    { name = "docling" },
+    { name = "dotenv" },
+    { name = "eyecite" },
+    { name = "mellea", version = "0.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "mellea", version = "0.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "python-dotenv" },
+    { name = "requests" },
+]
 preprocessing = [
     { name = "charset-normalizer" },
     { name = "docling" },
+]
+scripts = [
+    { name = "python-dotenv" },
+    { name = "requests" },
 ]
 
 [package.metadata]
@@ -3641,15 +3658,16 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-assessment = [{ name = "mellea", specifier = ">=0.3.2" }]
 courtlistener = [
-    { name = "fastapi", specifier = ">=0.115" },
+    { name = "fastapi", extras = ["standard"], specifier = ">=0.115" },
+    { name = "python-dotenv", specifier = ">=1.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "requests", specifier = ">=2.32" },
 ]
 courtlistener-r2 = [
     { name = "boto3", specifier = ">=1.34" },
-    { name = "fastapi", specifier = ">=0.115" },
+    { name = "fastapi", extras = ["standard"], specifier = ">=0.115" },
+    { name = "python-dotenv", specifier = ">=1.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "requests", specifier = ">=2.32" },
 ]
@@ -3658,12 +3676,13 @@ dev = [
     { name = "docling", specifier = ">=2.102.2" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "eyecite", specifier = ">=2.6" },
-    { name = "fastapi", specifier = ">=0.115" },
+    { name = "fastapi", extras = ["standard"], specifier = ">=0.115" },
     { name = "mellea", specifier = ">=0.3.2" },
     { name = "openai", specifier = ">=2.42.0" },
     { name = "pre-commit", specifier = ">=4.6.0" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
+    { name = "python-dotenv", specifier = ">=1.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "requests", specifier = ">=2.32" },
     { name = "ruff", specifier = ">=0.15.15" },
@@ -3687,6 +3706,7 @@ label-studio = [
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "requests", specifier = ">=2.32" },
 ]
+llm = [{ name = "mellea", specifier = ">=0.3.2" }]
 modal = [
     { name = "boto3", specifier = ">=1.34" },
     { name = "charset-normalizer", specifier = ">=3.4.7" },
@@ -3694,7 +3714,6 @@ modal = [
     { name = "docling", specifier = ">=2.102.2" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "eyecite", specifier = ">=2.6" },
-    { name = "fastapi", specifier = ">=0.115" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.115" },
     { name = "mellea", specifier = ">=0.3.2" },
     { name = "modal", specifier = ">=1.0,<2.0" },
@@ -3707,9 +3726,23 @@ notebook = [
     { name = "ipython", specifier = ">=8.39.0" },
     { name = "jupyter", specifier = ">=1.1.1" },
 ]
+pipeline = [
+    { name = "charset-normalizer", specifier = ">=3.4.7" },
+    { name = "docling", specifier = ">=2.0" },
+    { name = "docling", specifier = ">=2.102.2" },
+    { name = "dotenv", specifier = ">=0.9.9" },
+    { name = "eyecite", specifier = ">=2.6" },
+    { name = "mellea", specifier = ">=0.3.2" },
+    { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "requests", specifier = ">=2.32" },
+]
 preprocessing = [
     { name = "charset-normalizer", specifier = ">=3.4.7" },
     { name = "docling", specifier = ">=2.0" },
+]
+scripts = [
+    { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "requests", specifier = ">=2.32" },
 ]
 
 [[package]]

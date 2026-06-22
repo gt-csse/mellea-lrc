@@ -15,7 +15,7 @@ TOKEN_SHUFFLER = SystemRandom()
 app = modal.App(APP_NAME)
 
 image = (
-    modal.Image.debian_slim(python_version="3.11")
+    modal.Image.debian_slim(python_version="3.10")
     .pip_install(
         "boto3>=1.34",
         "fastapi>=0.115",
