@@ -332,6 +332,13 @@ input:focus-visible {
   opacity: 0.56;
 }
 
+.compact-action {
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
 .primary-action:not(:disabled):hover {
   background: var(--accent-strong);
   transform: translateY(-1px);
@@ -610,14 +617,20 @@ input:focus-visible {
   color: #075985;
 }
 
+.citation-tag.assessment.different_case,
+.citation-tag.assessment.reextraction_error {
+  background: #fee2e2;
+  color: var(--danger);
+}
+
+.citation-tag.year.mismatch {
+  background: #fee2e2;
+  color: var(--danger);
+}
+
 .citation-tag.assessment.irregular_form {
   background: #fef3c7;
   color: #b45309;
-}
-
-.citation-tag.assessment.different_case {
-  background: #fee2e2;
-  color: var(--danger);
 }
 
 .rail-empty,
@@ -675,6 +688,14 @@ input:focus-visible {
   justify-content: end;
   flex: 0 0 auto;
   gap: 8px;
+}
+
+.bookmark-status {
+  margin: -6px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
 }
 
 .status-badge {

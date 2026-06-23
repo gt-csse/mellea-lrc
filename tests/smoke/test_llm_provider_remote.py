@@ -10,8 +10,8 @@ import requests
 import pytest
 
 from mellea_lrc.llm import (
+    LlmProvider,
     LlmProviderConfig,
-    chat_completions_base_url,
     llm_provider_config_from_env,
 )
 
@@ -21,17 +21,12 @@ pytestmark = pytest.mark.remote_smoke
 def test_llm_provider_chat_completion(remote_timeout: float) -> None:
     config = _llm_config_from_env_file()
     response = requests.post(
-        f"{chat_completions_base_url(config.api_base)}/chat/completions",
+        f"{config.chat_completions_base_url()}/chat/completions",
         headers={
             "Authorization": f"Bearer {config.api_key}",
             "Content-Type": "application/json",
         },
-        json={
-            "model": config.model,
-            "messages": [{"role": "user", "content": "Reply with OK only."}],
-            "temperature": 0,
-            "max_tokens": 8,
-        },
+        json=_smoke_payload(config),
         timeout=remote_timeout,
     )
 
@@ -41,6 +36,18 @@ def test_llm_provider_chat_completion(remote_timeout: float) -> None:
     assert response.status_code == 200, response.text
     payload = response.json()
     assert _first_message_content(payload)
+
+
+def _smoke_payload(config: LlmProviderConfig) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": config.model,
+        "messages": [{"role": "user", "content": "Reply with OK only."}],
+        "temperature": 0,
+        "max_tokens": 64,
+    }
+    if config.provider == LlmProvider.DEEPSEEK:
+        payload["thinking"] = {"type": "disabled"}
+    return payload
 
 
 def _llm_config_from_env_file() -> LlmProviderConfig:

@@ -40,7 +40,10 @@ def _source_format(path: Path) -> SourceFormat:
 def preprocess_with_docling(path: Path | str) -> PreprocessedDocument:
     """Convert a raw document to plain text using Docling."""
     try:
+        from docling.datamodel.base_models import InputFormat  # noqa: PLC0415
+        from docling.datamodel.pipeline_options import PdfPipelineOptions, TesseractCliOcrOptions  # noqa: PLC0415
         from docling.document_converter import DocumentConverter  # noqa: PLC0415
+        from docling.document_converter import PdfFormatOption  # noqa: PLC0415
     except ImportError as exc:
         msg = (
             "Docling is required for raw document preprocessing. Install with: uv sync --group preprocessing"
@@ -49,6 +52,13 @@ def preprocess_with_docling(path: Path | str) -> PreprocessedDocument:
 
     source_path = Path(path)
     converter = DocumentConverter()
+    if source_path.suffix.lower() == ".pdf":
+        pipeline_options = PdfPipelineOptions()
+        pipeline_options.do_ocr = True
+        pipeline_options.ocr_options = TesseractCliOcrOptions(lang=["eng"])
+        converter = DocumentConverter(
+            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
+        )
     result = converter.convert(str(source_path))
     text = result.document.export_to_text()  # Ensure to normalize all characters to Unicode TODO
 

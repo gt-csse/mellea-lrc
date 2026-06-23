@@ -169,6 +169,8 @@ def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> 
     assert assessment["year_assess"]["extracted_year"] == "1954"
     assert assessment["year_assess"]["courtlistener_year"] == "1954"
     assert output["assessment"]["counts"]["exact_match"] == 1
+    assert output["assessment"]["case_name_counts"]["exact_match"] == 1
+    assert output["assessment"]["year_counts"]["exact_match"] == 1
 
 
 def test_review_document_assessment_renders_cached_assessment_payload() -> None:
@@ -226,6 +228,8 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
     assert output["citations"][0]["validation"]["status"] == "found"
     assert output["citations"][0]["assessment"]["status"] == "exact_match"
     assert output["assessment"]["counts"]["exact_match"] == 1
+    assert output["assessment"]["case_name_counts"]["exact_match"] == 1
+    assert output["assessment"]["year_counts"]["exact_match"] == 1
     assert output["stats"]["assessed"] == 1
 
 
@@ -253,6 +257,13 @@ def test_review_document_assessment_rejects_unresolved_assessment_handoff() -> N
                             extracted_case_name="Brown v. Board",
                             courtlistener_case_name="Brown v. Board of Education",
                             message="needs assessment",
+                        ),
+                        year_assess=YearAssessment(
+                            citation_id="cite-1",
+                            status=YearAssessmentStatus.EXACT_MATCH,
+                            extracted_year="1954",
+                            courtlistener_year="1954",
+                            message="match",
                         ),
                     ),
                 ),
@@ -307,6 +318,13 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
                     courtlistener_case_name="Brown v. Board",
                     message="match",
                 ),
+                year_assess=YearAssessment(
+                    citation_id="cite-1",
+                    status=YearAssessmentStatus.EXACT_MATCH,
+                    extracted_year="1954",
+                    courtlistener_year="1954",
+                    message="match",
+                ),
             ),
         ),
     )
@@ -356,12 +374,10 @@ def test_llm_provider_config_supports_explicit_digitalocean_inference() -> None:
     config = llm_provider_config_from_env(
         {
             "MELLEA_LRC_LLM_PROVIDER": "digitalocean",
-            "MELLEA_LRC_LLM_BACKEND": "openai",
             "MELLEA_LRC_LLM_TEMPERATURE": "0",
-            "MELLEA_LRC_LLM_MODEL": "openai/gpt-4.1-mini",
-            "DIGITALOCEAN_INFERENCE_MODEL": "openai-gpt-oss-20b",
-            "DIGITALOCEAN_INFERENCE_API_BASE": "https://inference.do-ai.run",
-            "DIGITALOCEAN_INFERENCE_API_KEY": "do-key",
+            "MELLEA_LRC_LLM_MODEL": "openai-gpt-oss-20b",
+            "MELLEA_LRC_LLM_API_BASE": "https://inference.do-ai.run",
+            "MELLEA_LRC_LLM_API_KEY": "do-key",
         }
     )
 
@@ -378,12 +394,11 @@ def test_llm_provider_config_supports_explicit_openrouter() -> None:
     config = llm_provider_config_from_env(
         {
             "MELLEA_LRC_LLM_PROVIDER": "openrouter",
-            "MELLEA_LRC_LLM_BACKEND": "openai",
             "MELLEA_LRC_LLM_MODEL": "openai/gpt-4.1-mini",
             "MELLEA_LRC_LLM_API_BASE": "https://openrouter.ai/api",
             "MELLEA_LRC_LLM_API_KEY": "openrouter-key",
             "MELLEA_LRC_LLM_TEMPERATURE": "0",
-            "MELLEA_LRC_LLM_REQUIRE_PARAMETERS": "1",
+            "MELLEA_LRC_LLM_OPENROUTER_REQUIRE_PARAMETERS": "1",
         }
     )
 
@@ -394,6 +409,24 @@ def test_llm_provider_config_supports_explicit_openrouter() -> None:
     assert config.api_key == "openrouter-key"
     assert config.temperature == 0
     assert chat_completions_base_url(config.api_base) == "https://openrouter.ai/api/v1"
+
+
+def test_llm_provider_config_supports_official_deepseek_v4_pro() -> None:
+    config = llm_provider_config_from_env(
+        {
+            "MELLEA_LRC_LLM_PROVIDER": "deepseek",
+            "MELLEA_LRC_LLM_API_KEY": "deepseek-key",
+            "MELLEA_LRC_LLM_TEMPERATURE": "0",
+        }
+    )
+
+    assert config.provider == LlmProvider.DEEPSEEK
+    assert config.backend == "openai"
+    assert config.model == "deepseek-v4-pro"
+    assert config.api_base == "https://api.deepseek.com"
+    assert config.api_key == "deepseek-key"
+    assert config.temperature == 0
+    assert config.chat_completions_base_url() == "https://api.deepseek.com"
 
 
 def test_llm_provider_config_requires_explicit_provider() -> None:
@@ -415,12 +448,11 @@ def test_llm_provider_config_uses_openrouter_hook_when_selected() -> None:
     config = llm_provider_config_from_env(
         {
             "MELLEA_LRC_LLM_PROVIDER": "openrouter",
-            "MELLEA_LRC_LLM_BACKEND": "openai",
             "MELLEA_LRC_LLM_MODEL": "openai/gpt-4.1-mini",
             "MELLEA_LRC_LLM_API_BASE": "https://openrouter.ai/api/v1",
             "MELLEA_LRC_LLM_API_KEY": "openrouter-key",
             "MELLEA_LRC_LLM_TEMPERATURE": "0",
-            "MELLEA_LRC_LLM_REQUIRE_PARAMETERS": "1",
+            "MELLEA_LRC_LLM_OPENROUTER_REQUIRE_PARAMETERS": "1",
         }
     )
 
@@ -438,14 +470,10 @@ def test_llm_provider_config_uses_digitalocean_hook_when_selected() -> None:
     config = llm_provider_config_from_env(
         {
             "MELLEA_LRC_LLM_PROVIDER": "digitalocean",
-            "MELLEA_LRC_LLM_BACKEND": "openai",
-            "MELLEA_LRC_LLM_MODEL": "openai/gpt-4.1-mini",
+            "MELLEA_LRC_LLM_MODEL": "openai-gpt-oss-20b",
             "MELLEA_LRC_LLM_TEMPERATURE": "0",
-            "DIGITALOCEAN_INFERENCE_MODEL": "openai-gpt-oss-20b",
-            "MELLEA_LRC_LLM_API_BASE": "https://openrouter.ai/api/v1",
-            "MELLEA_LRC_LLM_API_KEY": "openrouter-key",
-            "DIGITALOCEAN_INFERENCE_API_BASE": "https://inference.do-ai.run",
-            "DIGITALOCEAN_INFERENCE_API_KEY": "do-key",
+            "MELLEA_LRC_LLM_API_BASE": "https://inference.do-ai.run",
+            "MELLEA_LRC_LLM_API_KEY": "do-key",
         }
     )
 

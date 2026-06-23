@@ -4,7 +4,7 @@ import re
 
 from mellea_lrc.core.spans import Span
 
-DEFAULT_CONTEXT_CHARS = 20
+DEFAULT_CONTEXT_CHARS = 200
 
 
 def get_extended_span_text(
@@ -49,15 +49,17 @@ def find_text_span_near_full_span(
     window_end = min(len(text), full_span.end + after_chars)
     window = text[window_start:window_end]
 
-    literal_start = window.find(value)
-    if literal_start >= 0:
-        start = window_start + literal_start
+    literal_matches = tuple(re.finditer(re.escape(value), window))
+    if literal_matches:
+        match = min(literal_matches, key=lambda item: abs((window_start + item.start()) - full_span.start))
+        start = window_start + match.start()
         return Span(start=start, end=start + len(value))
 
     pattern = _whitespace_flexible_pattern(value)
-    match = re.search(pattern, window)
-    if match is None:
+    matches = tuple(re.finditer(pattern, window))
+    if not matches:
         return None
+    match = min(matches, key=lambda item: abs((window_start + item.start()) - full_span.start))
     return Span(start=window_start + match.start(), end=window_start + match.end())
 
 

@@ -19,21 +19,28 @@ LS_ACCOUNT_AUTH=<label-studio-refresh-token>
 CL_ACCESS_MODAL_URL=<courtlistener-access-service-url>
 
 # Modal secret for /api/assess-review, if served remotely.
-# Set MELLEA_LRC_LLM_PROVIDER to openrouter or digitalocean.
-MELLEA_LRC_LLM_BACKEND=openai
-MELLEA_LRC_LLM_PROVIDER=openrouter
+# Set MELLEA_LRC_LLM_PROVIDER to deepseek, openrouter, or digitalocean.
+MELLEA_LRC_LLM_PROVIDER=deepseek
 MELLEA_LRC_LLM_TEMPERATURE=0
 
-# OpenRouter hook
-MELLEA_LRC_LLM_MODEL=openai/gpt-4.1-mini
-MELLEA_LRC_LLM_API_BASE=https://openrouter.ai/api/v1
-MELLEA_LRC_LLM_API_KEY=<openrouter-api-key>
-MELLEA_LRC_LLM_REQUIRE_PARAMETERS=1
+# Active OpenAI-compatible endpoint.
+MELLEA_LRC_LLM_MODEL=deepseek-v4-pro
+MELLEA_LRC_LLM_API_BASE=https://api.deepseek.com
+MELLEA_LRC_LLM_API_KEY=<deepseek-api-key>
 
-# DigitalOcean Gradient Serverless Inference hook
-DIGITALOCEAN_INFERENCE_MODEL=openai-gpt-oss-20b
-DIGITALOCEAN_INFERENCE_API_BASE=https://inference.do-ai.run/v1
-DIGITALOCEAN_INFERENCE_API_KEY=<digitalocean-inference-key>
+# OpenRouter example:
+# MELLEA_LRC_LLM_MODEL=openai/gpt-4.1-mini
+# MELLEA_LRC_LLM_API_BASE=https://openrouter.ai/api/v1
+# MELLEA_LRC_LLM_API_KEY=<openrouter-api-key>
+
+# DigitalOcean Gradient example:
+# MELLEA_LRC_LLM_MODEL=openai-gpt-oss-20b
+# MELLEA_LRC_LLM_API_BASE=https://inference.do-ai.run/v1
+# MELLEA_LRC_LLM_API_KEY=<digitalocean-inference-key>
+
+# OpenRouter-only: require a provider that supports all requested params,
+# including structured JSON schema output.
+# MELLEA_LRC_LLM_OPENROUTER_REQUIRE_PARAMETERS=1
 ```
 
 `LS_ACCOUNT_AUTH` is only used by the Label Studio bridge to fetch uploaded PDF

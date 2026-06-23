@@ -8,26 +8,29 @@ import os
 from typing import Literal, cast
 
 from mellea import MelleaSession, generative
-from mellea.core import Requirement
-from mellea.stdlib.requirements import simple_validate
 from mellea.stdlib.sampling import RejectionSamplingStrategy
-from pydantic import TypeAdapter, ValidationError
 
 from mellea_lrc.assessment.case_name import assess_case_name_exact_match
+from mellea_lrc.assessment.reextraction import (
+    ReextractionResult,
+    ReextractionStatus,
+    reextract_case_name_with_deepseek,
+    reextract_case_name_with_mellea,
+)
 from mellea_lrc.assessment.types import (
     CaseNameAssessment,
     CaseNameAssessmentRun,
     CaseNameAssessmentStatus,
-    ModifiedExtractedCitationProposal,
-    is_in_context,
 )
-from mellea_lrc.llm import llm_provider_config_from_env
+from mellea_lrc.llm import LlmProvider, LlmProviderConfig, llm_provider_config_from_env
 
 CaseNameVerdict = Literal["match", "different_case", "irregular_form"]
-MODIFIED_EXTRACTION_ADAPTER = TypeAdapter(ModifiedExtractedCitationProposal)
-CASE_NAME_VERDICT_MAX_TOKENS = 256
-MODIFIED_EXTRACTION_MAX_TOKENS = 512
-MODIFIED_EXTRACTION_STRATEGY = RejectionSamplingStrategy(loop_budget=3)
+# Reasoning-style providers can spend completion budget before emitting the tiny
+# final JSON object that Mellea parses. Keep this comfortably above the final
+# schema size to avoid empty final content.
+CASE_NAME_VERDICT_MAX_TOKENS = 2048
+CASE_NAME_CLASSIFICATION_ATTEMPTS = 3
+CASE_NAME_CLASSIFICATION_STRATEGY = RejectionSamplingStrategy(loop_budget=3)
 
 
 @generative
@@ -42,6 +45,8 @@ async def classify_case_name(
     case name of the record retrieved for that citation (retrieved_case_name), and
     the surrounding document text (local_context). Judge ONLY the case name. Do not
     consider volume, reporter, page, pin cite, court, or year.
+    If extracted_case_name is <NO_EXTRACTED_CASE_NAME>, no plaintiff/defendant text
+    was extracted. Do not treat the locator string as a case name.
 
     Return one of:
     - "match": the two names denote the SAME case and the extracted form is a
@@ -60,49 +65,6 @@ async def classify_case_name(
       whole party is missing (only one side of the "v." is present), the parties
       are in the wrong order, or the text is broken by stray characters or line
       breaks.
-    """
-
-
-@generative
-async def propose_corrected_case_name(
-    local_context: str,
-    extracted_case_name: str,
-    retrieved_case_name: str,
-) -> ModifiedExtractedCitationProposal:
-    """Re-extract a corrected case name from local_context, only when warranted.
-
-    Propose corrected plaintiff and defendant strings, or a single corrected
-    case_name string, ONLY when local_context shows a more complete or more correct
-    case name than extracted_case_name. Copy strings EXACTLY from local_context.
-    Never use retrieved_case_name to invent text that is not present in
-    local_context.
-
-    Return an EMPTY ModifiedExtractedCitationProposal (all fields null) when the
-    current extraction is already the best reading supported by local_context —
-    including when the retrieved record simply names a different case. Do not
-    propose a change merely because extracted_case_name and retrieved_case_name
-    differ.
-    """
-
-
-@generative
-async def propose_corrected_case_name_json(
-    local_context: str,
-    extracted_case_name: str,
-    retrieved_case_name: str,
-) -> str:
-    """Re-extract a corrected case name from local_context as compact JSON.
-
-    Return exactly one JSON object with these keys: plaintiff, defendant,
-    case_name. Each value must be a string copied exactly from local_context
-    or null. Do not add markdown, comments, or explanatory text.
-
-    Use case_name when the corrected full case name appears as one visible string.
-    Use plaintiff and defendant when the corrected parties appear separately.
-    Propose a correction ONLY when local_context shows a more complete or more
-    correct case name than extracted_case_name. If the current extraction is
-    already the best grounded reading, return:
-    {"plaintiff": null, "defendant": null, "case_name": null}
     """
 
 
@@ -169,15 +131,23 @@ async def _assess_case_name_with_mellea_after_exact(
     document_context: str,
 ) -> CaseNameAssessmentRun:
     """Classify the case name, then re-extract from local context when warranted."""
+    deepseek_config = _deepseek_official_config()
+    if deepseek_config is not None:
+        return await _assess_case_name_with_deepseek_after_exact(
+            deepseek_config,
+            citation_id=citation_id,
+            extracted_case_name=extracted_case_name,
+            courtlistener_case_name=courtlistener_case_name,
+            document_context=document_context,
+        )
+
     if extracted_case_name:
-        verdict = await classify_case_name(
+        status = await _classify_case_name_with_mellea(
             session,
             local_context=document_context,
             extracted_case_name=extracted_case_name,
             retrieved_case_name=courtlistener_case_name,
-            model_options=_structured_model_options(max_tokens=CASE_NAME_VERDICT_MAX_TOKENS),
         )
-        status = CaseNameAssessmentStatus(cast("str", verdict))
         if status == CaseNameAssessmentStatus.MATCH:
             return CaseNameAssessmentRun(
                 assessment=_case_name_assessment(
@@ -187,28 +157,60 @@ async def _assess_case_name_with_mellea_after_exact(
     else:
         status = CaseNameAssessmentStatus.IRREGULAR_FORM
 
-    proposal = await _propose_corrected_case_name(
+    reextraction = await reextract_case_name_with_mellea(
         session,
         document_context=document_context,
-        extracted_case_name=extracted_case_name or "",
+        extracted_case_name=extracted_case_name,
         courtlistener_case_name=courtlistener_case_name,
     )
     first_pass = _case_name_assessment(
         citation_id, status, extracted_case_name, courtlistener_case_name
     )
-    if not proposal.valid(document_context):
+    return await _run_reassessment_after_reextraction(
+        session,
+        citation_id=citation_id,
+        first_pass=first_pass,
+        reextraction=reextraction,
+        courtlistener_case_name=courtlistener_case_name,
+        document_context=document_context,
+    )
+
+
+async def _run_reassessment_after_reextraction(
+    session: MelleaSession,
+    *,
+    citation_id: str,
+    first_pass: CaseNameAssessment,
+    reextraction: ReextractionResult,
+    courtlistener_case_name: str,
+    document_context: str,
+) -> CaseNameAssessmentRun:
+    if reextraction.status == ReextractionStatus.EMPTY:
         return CaseNameAssessmentRun(assessment=first_pass)
+    if reextraction.status != ReextractionStatus.ACCEPTED or reextraction.proposal is None:
+        return CaseNameAssessmentRun(
+            assessment=_case_name_assessment(
+                citation_id,
+                CaseNameAssessmentStatus.REEXTRACTION_ERROR,
+                first_pass.extracted_case_name,
+                courtlistener_case_name,
+                message=(
+                    "Case-name re-extraction failed programmatic validation after retries: "
+                    f"{reextraction.error_message or 'unknown error'}"
+                ),
+            )
+        )
 
     reassessment = await _assess_corrected_case_name(
         session,
         citation_id=citation_id,
-        corrected_case_name=cast("str", proposal.extracted_case_name),
+        corrected_case_name=cast("str", reextraction.proposal.extracted_case_name),
         courtlistener_case_name=courtlistener_case_name,
         document_context=document_context,
     )
     return CaseNameAssessmentRun(
         assessment=first_pass,
-        modified_citation=proposal,
+        modified_citation=reextraction.proposal,
         reassessment=reassessment,
     )
 
@@ -229,14 +231,23 @@ async def _assess_corrected_case_name(
     )
     if exact.status == CaseNameAssessmentStatus.EXACT_MATCH:
         return exact
-    verdict = await classify_case_name(
+    deepseek_config = _deepseek_official_config()
+    if deepseek_config is not None:
+        status = await _classify_case_name_with_deepseek(
+            deepseek_config,
+            document_context=document_context,
+            extracted_case_name=corrected_case_name,
+            courtlistener_case_name=courtlistener_case_name,
+        )
+        return _case_name_assessment(
+            citation_id, status, corrected_case_name, courtlistener_case_name
+        )
+    status = await _classify_case_name_with_mellea(
         session,
         local_context=document_context,
         extracted_case_name=corrected_case_name,
         retrieved_case_name=courtlistener_case_name,
-        model_options=_structured_model_options(max_tokens=CASE_NAME_VERDICT_MAX_TOKENS),
     )
-    status = CaseNameAssessmentStatus(cast("str", verdict))
     return _case_name_assessment(
         citation_id, status, corrected_case_name, courtlistener_case_name
     )
@@ -247,86 +258,254 @@ def _case_name_assessment(
     status: CaseNameAssessmentStatus,
     extracted_case_name: str | None,
     courtlistener_case_name: str | None,
+    *,
+    message: str | None = None,
 ) -> CaseNameAssessment:
     return CaseNameAssessment(
         citation_id=citation_id,
         status=status,
         extracted_case_name=extracted_case_name,
         courtlistener_case_name=courtlistener_case_name,
-        message=_message_for_status(status),
+        message=message or _message_for_status(status),
     )
 
 
-def modified_extracted_citation_is_in_context_requirement(document_context: str) -> Requirement:
-    """Build the Mellea requirement that prevents ungrounded modified citations."""
-
-    def validate(output: str) -> tuple[bool, str]:
-        modified = _modified_extracted_citation_from_output(output)
-        if modified is None:
-            return False, "Output could not be parsed as ModifiedExtractedCitationProposal."
-        values = tuple(
-            value for value in (modified.plaintiff, modified.defendant, modified.case_name) if value
-        )
-        if all(is_in_context(value, document_context) for value in values):
-            return True, ""
-        return False, "Modified citation fields must appear in document_context."
-
-    return Requirement(
-        "Every non-empty field in ModifiedExtractedCitationProposal must be copied from document_context.",
-        validation_fn=simple_validate(validate),
-    )
-
-
-async def _propose_corrected_case_name(
+async def _classify_case_name_with_mellea(
     session: MelleaSession,
     *,
-    document_context: str,
+    local_context: str,
     extracted_case_name: str,
-    courtlistener_case_name: str,
-) -> ModifiedExtractedCitationProposal:
-    requirement = modified_extracted_citation_is_in_context_requirement(document_context)
-    try:
-        return await propose_corrected_case_name(
-            session,
-            local_context=document_context,
-            extracted_case_name=extracted_case_name,
-            retrieved_case_name=courtlistener_case_name,
-            requirements=[requirement],
-            strategy=MODIFIED_EXTRACTION_STRATEGY,
-            model_options=_structured_model_options(max_tokens=MODIFIED_EXTRACTION_MAX_TOKENS),
-        )
-    except Exception:
-        raw = await propose_corrected_case_name_json(
-            session,
-            local_context=document_context,
-            extracted_case_name=extracted_case_name,
-            retrieved_case_name=courtlistener_case_name,
-            requirements=[requirement],
-            strategy=MODIFIED_EXTRACTION_STRATEGY,
-            model_options={"temperature": 0, "max_tokens": MODIFIED_EXTRACTION_MAX_TOKENS},
-        )
-        modified = _modified_extracted_citation_from_output(str(raw))
-        if modified is not None:
-            return modified
-        return ModifiedExtractedCitationProposal()
+    retrieved_case_name: str,
+) -> CaseNameAssessmentStatus:
+    """Classify a case name with Mellea resampling and JSON-parse retries."""
+    last_error: Exception | None = None
+    for _ in range(CASE_NAME_CLASSIFICATION_ATTEMPTS):
+        try:
+            verdict = await classify_case_name(
+                session,
+                local_context=local_context,
+                extracted_case_name=extracted_case_name,
+                retrieved_case_name=retrieved_case_name,
+                strategy=CASE_NAME_CLASSIFICATION_STRATEGY,
+                model_options=_structured_model_options(max_tokens=CASE_NAME_VERDICT_MAX_TOKENS),
+            )
+            return CaseNameAssessmentStatus(cast("str", verdict))
+        except Exception as exc:
+            if not _is_retryable_structured_output_error(exc):
+                raise
+            last_error = exc
+    assert last_error is not None
+    config = llm_provider_config_from_env(os.environ)
+    msg = (
+        "Mellea case-name classification failed after resampling. "
+        "The model returned empty or invalid structured JSON before Mellea could parse "
+        "ClassifyCaseNameResponse. This is commonly caused by the provider spending "
+        "the completion budget on reasoning tokens and emitting no final JSON. "
+        f"provider={config.provider.value}; model={config.model}; "
+        f"api_base={config.api_base}; max_tokens={CASE_NAME_VERDICT_MAX_TOKENS}; "
+        f"attempts={CASE_NAME_CLASSIFICATION_ATTEMPTS}; "
+        f"mellea_loop_budget={CASE_NAME_CLASSIFICATION_STRATEGY.loop_budget}; "
+        f"last_error={last_error}"
+    )
+    raise RuntimeError(msg) from last_error
 
 
-def _modified_extracted_citation_from_output(output: str) -> ModifiedExtractedCitationProposal | None:
-    try:
-        payload = json.loads(output)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(payload, dict):
-        return None
-    result = payload.get("result", payload)
-    try:
-        return MODIFIED_EXTRACTION_ADAPTER.validate_python(result)
-    except ValidationError:
-        return None
+def _is_retryable_structured_output_error(exc: Exception) -> bool:
+    message = str(exc)
+    return "Invalid JSON" in message or "EOF while parsing" in message or "input_value=''" in message
 
 
 def _structured_model_options(*, max_tokens: int) -> dict[str, object]:
     return llm_provider_config_from_env(os.environ).mellea_call_options(max_tokens=max_tokens)
+
+
+def _deepseek_official_config() -> LlmProviderConfig | None:
+    config = llm_provider_config_from_env(os.environ)
+    if config.provider == LlmProvider.DEEPSEEK:
+        return config
+    return None
+
+
+async def _assess_case_name_with_deepseek_after_exact(
+    config: LlmProviderConfig,
+    *,
+    citation_id: str,
+    extracted_case_name: str | None,
+    courtlistener_case_name: str,
+    document_context: str,
+) -> CaseNameAssessmentRun:
+    if extracted_case_name:
+        status = await _classify_case_name_with_deepseek(
+            config,
+            document_context=document_context,
+            extracted_case_name=extracted_case_name,
+            courtlistener_case_name=courtlistener_case_name,
+        )
+        if status == CaseNameAssessmentStatus.MATCH:
+            return CaseNameAssessmentRun(
+                assessment=_case_name_assessment(
+                    citation_id, status, extracted_case_name, courtlistener_case_name
+                ),
+            )
+    else:
+        status = CaseNameAssessmentStatus.IRREGULAR_FORM
+
+    reextraction = await reextract_case_name_with_deepseek(
+        config,
+        document_context=document_context,
+        extracted_case_name=extracted_case_name,
+        courtlistener_case_name=courtlistener_case_name,
+    )
+    first_pass = _case_name_assessment(
+        citation_id, status, extracted_case_name, courtlistener_case_name
+    )
+    if reextraction.status == ReextractionStatus.EMPTY:
+        return CaseNameAssessmentRun(assessment=first_pass)
+    if reextraction.status != ReextractionStatus.ACCEPTED or reextraction.proposal is None:
+        return CaseNameAssessmentRun(
+            assessment=_case_name_assessment(
+                citation_id,
+                CaseNameAssessmentStatus.REEXTRACTION_ERROR,
+                extracted_case_name,
+                courtlistener_case_name,
+                message=(
+                    "Case-name re-extraction failed programmatic validation after retries: "
+                    f"{reextraction.error_message or 'unknown error'}"
+                ),
+            )
+        )
+
+    reassessment = await _assess_corrected_case_name_with_deepseek(
+        config,
+        citation_id=citation_id,
+        corrected_case_name=cast("str", reextraction.proposal.extracted_case_name),
+        courtlistener_case_name=courtlistener_case_name,
+        document_context=document_context,
+    )
+    return CaseNameAssessmentRun(
+        assessment=first_pass,
+        modified_citation=reextraction.proposal,
+        reassessment=reassessment,
+    )
+
+
+async def _classify_case_name_with_deepseek(
+    config: LlmProviderConfig,
+    *,
+    document_context: str,
+    extracted_case_name: str,
+    courtlistener_case_name: str,
+) -> CaseNameAssessmentStatus:
+    payload = await _deepseek_json_chat(
+        config,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Classify how an extracted legal case name relates to a retrieved "
+                    "CourtListener record. Return JSON only, for example "
+                    '{"verdict":"match"}. The verdict must be one of: match, '
+                    "different_case, irregular_form. Judge only the case name, not "
+                    "volume, reporter, page, pin cite, court, or year."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"local_context:\n{document_context}\n\n"
+                    f"extracted_case_name: {extracted_case_name}\n"
+                    f"retrieved_case_name: {courtlistener_case_name}\n\n"
+                    "Return JSON with exactly this shape: "
+                    '{"verdict":"match|different_case|irregular_form"}'
+                ),
+            },
+        ],
+        max_tokens=CASE_NAME_VERDICT_MAX_TOKENS,
+    )
+    verdict = payload.get("verdict")
+    if not isinstance(verdict, str):
+        msg = "DeepSeek case-name classification did not return a string verdict."
+        raise RuntimeError(msg)
+    try:
+        return CaseNameAssessmentStatus(verdict)
+    except ValueError as exc:
+        msg = f"DeepSeek case-name classification returned unsupported verdict: {verdict}"
+        raise RuntimeError(msg) from exc
+
+
+async def _assess_corrected_case_name_with_deepseek(
+    config: LlmProviderConfig,
+    *,
+    citation_id: str,
+    corrected_case_name: str,
+    courtlistener_case_name: str,
+    document_context: str,
+) -> CaseNameAssessment:
+    exact = assess_case_name_exact_match(
+        citation_id=citation_id,
+        extracted_case_name=corrected_case_name,
+        courtlistener_case_name=courtlistener_case_name,
+    )
+    if exact.status == CaseNameAssessmentStatus.EXACT_MATCH:
+        return exact
+    status = await _classify_case_name_with_deepseek(
+        config,
+        document_context=document_context,
+        extracted_case_name=corrected_case_name,
+        courtlistener_case_name=courtlistener_case_name,
+    )
+    return _case_name_assessment(
+        citation_id, status, corrected_case_name, courtlistener_case_name
+    )
+
+
+async def _deepseek_json_chat(
+    config: LlmProviderConfig,
+    *,
+    messages: list[dict[str, str]],
+    max_tokens: int,
+) -> dict[str, object]:
+    try:
+        from openai import AsyncOpenAI  # noqa: PLC0415
+    except ImportError as exc:
+        msg = "DeepSeek LLM calls require the OpenAI client. Run with: uv sync --group llm"
+        raise RuntimeError(msg) from exc
+
+    client = AsyncOpenAI(api_key=config.api_key, base_url=config.chat_completions_base_url())
+    last_content = ""
+    for attempt in range(3):
+        request_messages = messages
+        if attempt:
+            request_messages = [
+                *messages,
+                {
+                    "role": "user",
+                    "content": "Retry and return one non-empty JSON object only. Do not include prose.",
+                },
+            ]
+        response = await client.chat.completions.create(
+            model=config.model,
+            messages=request_messages,  # type: ignore[arg-type]
+            temperature=0,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            extra_body={"thinking": {"type": "disabled"}},
+        )
+        content = response.choices[0].message.content or ""
+        last_content = content
+        if not content.strip():
+            continue
+        try:
+            payload = json.loads(content)
+        except json.JSONDecodeError as exc:
+            msg = "DeepSeek JSON Output returned invalid JSON."
+            raise RuntimeError(msg) from exc
+        if not isinstance(payload, dict):
+            msg = "DeepSeek JSON Output returned a non-object JSON value."
+            raise RuntimeError(msg)
+        return cast("dict[str, object]", payload)
+    msg = f"DeepSeek JSON Output returned empty content after retries: {last_content!r}"
+    raise RuntimeError(msg)
 
 
 def _run_coroutine(coroutine):
@@ -347,6 +526,7 @@ _STATUS_MESSAGES = {
     CaseNameAssessmentStatus.IRREGULAR_FORM: (
         "Extracted case name uses an unusual or incomplete form for this case."
     ),
+    CaseNameAssessmentStatus.REEXTRACTION_ERROR: "Case-name re-extraction failed.",
     CaseNameAssessmentStatus.NEEDS_ASSESSMENT: "Case name has not been assessed.",
 }
 
