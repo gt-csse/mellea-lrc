@@ -1,3 +1,5 @@
+"""Run benchmarks on Mellea models."""
+
 # %%
 from pathlib import Path
 from dotenv import load_dotenv
@@ -9,8 +11,6 @@ from mellea_lrc.extraction import extract_document_file
 
 # %%
 # Prints the sys.modules
-import sys
-
 print(type(sys.modules))
 for value in sys.modules:
     if "mellea" in value:
@@ -24,6 +24,7 @@ for index, value in enumerate(sys.path, start=1):
 # %%
 # Get a PDF document
 def get_document() -> Path:
+    """Get a PDF file from the samples folder."""
     all_documet_path = Path.cwd().parent / "law-document-samples"
     if all_documet_path.exists() and all_documet_path.is_dir():
         document_path = next(all_documet_path.iterdir())
@@ -39,6 +40,6 @@ def get_document() -> Path:
 # %%
 # Convert PDFs into plain text
 def convert_to_text(file_path: Path) -> str:
-
+    """Convert PDF to text and return it as a string."""
     sample_document = extract_document_file(file_path)
     return sample_document.text
