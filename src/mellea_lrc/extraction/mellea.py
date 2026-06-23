@@ -6,7 +6,7 @@ import mellea
 from mellea.stdlib.sampling.base import RejectionSamplingStrategy
 from mellea.backends.model_ids import IBM_GRANITE_4_1_3B
 
-from mellea_lrc.extraction.base import BaseExtractor
+from .base import BaseExtractor
 from mellea_lrc.preprocessing import (
     preprocess,
 )

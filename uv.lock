@@ -2788,6 +2788,8 @@ dependencies = [
 dev = [
     { name = "autogitsemver" },
     { name = "eyecite" },
+    { name = "mellea", version = "0.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "mellea", version = "0.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -2803,6 +2805,15 @@ eval = [
 ]
 extraction = [
     { name = "eyecite" },
+    { name = "mellea", version = "0.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "mellea", version = "0.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+label-studio = [
+    { name = "eyecite" },
+    { name = "mellea", version = "0.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "mellea", version = "0.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "python-dotenv" },
+    { name = "requests" },
 ]
 notebook = [
     { name = "ipykernel" },
@@ -2825,6 +2836,7 @@ requires-dist = [
 dev = [
     { name = "autogitsemver", specifier = ">=0.9.13" },
     { name = "eyecite", specifier = ">=2.6" },
+    { name = "mellea", specifier = ">=0.3.2" },
     { name = "pre-commit", specifier = ">=4.6.0" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
@@ -2835,7 +2847,16 @@ eval = [
     { name = "matplotlib", specifier = ">=3.10.9" },
     { name = "pandas", specifier = ">=2.3.3" },
 ]
-extraction = [{ name = "eyecite", specifier = ">=2.6" }]
+extraction = [
+    { name = "eyecite", specifier = ">=2.6" },
+    { name = "mellea", specifier = ">=0.3.2" },
+]
+label-studio = [
+    { name = "eyecite", specifier = ">=2.6" },
+    { name = "mellea", specifier = ">=0.3.2" },
+    { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "requests", specifier = ">=2.32" },
+]
 notebook = [
     { name = "ipykernel", specifier = ">=7.2.0" },
     { name = "ipython", specifier = ">=8.39.0" },
