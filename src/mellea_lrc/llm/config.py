@@ -10,21 +10,22 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-LLM_BACKEND_ENV = "MELLEA_LRC_LLM_BACKEND"
 LLM_PROVIDER_ENV = "MELLEA_LRC_LLM_PROVIDER"
 LLM_MODEL_ENV = "MELLEA_LRC_LLM_MODEL"
 LLM_API_BASE_ENV = "MELLEA_LRC_LLM_API_BASE"
 LLM_API_KEY_ENV = "MELLEA_LRC_LLM_API_KEY"
 LLM_TEMPERATURE_ENV = "MELLEA_LRC_LLM_TEMPERATURE"
-LLM_REQUIRE_PARAMETERS_ENV = "MELLEA_LRC_LLM_REQUIRE_PARAMETERS"
-DIGITALOCEAN_INFERENCE_MODEL_ENV = "DIGITALOCEAN_INFERENCE_MODEL"
-DIGITALOCEAN_INFERENCE_API_BASE_ENV = "DIGITALOCEAN_INFERENCE_API_BASE"
-DIGITALOCEAN_INFERENCE_API_KEY_ENV = "DIGITALOCEAN_INFERENCE_API_KEY"
+LLM_OPENROUTER_REQUIRE_PARAMETERS_ENV = "MELLEA_LRC_LLM_OPENROUTER_REQUIRE_PARAMETERS"
+DEFAULT_MELLEA_BACKEND = "openai"
+DEFAULT_TEMPERATURE = 0.0
+DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-pro"
+DEEPSEEK_DEFAULT_API_BASE = "https://api.deepseek.com"
 
 
 class LlmProvider(str, Enum):
     """Supported OpenAI-compatible LLM providers."""
 
+    DEEPSEEK = "deepseek"
     DIGITALOCEAN = "digitalocean"
     OPENROUTER = "openrouter"
 
@@ -48,29 +49,48 @@ class LlmProviderConfig:
             options["extra_body"] = {"provider": {"require_parameters": True}}
         return options
 
+    def chat_completions_base_url(self) -> str:
+        """Return the provider-specific OpenAI-compatible chat completions base URL."""
+        if self.provider == LlmProvider.DEEPSEEK:
+            return self.api_base.rstrip("/")
+        return chat_completions_base_url(self.api_base)
+
 
 def llm_provider_config_from_env(environ: Mapping[str, str]) -> LlmProviderConfig:
     """Resolve the active OpenAI-compatible LLM provider from env vars."""
     provider = _required_provider(environ)
-    backend = _required_env(environ, LLM_BACKEND_ENV)
-    temperature = _required_float_env(environ, LLM_TEMPERATURE_ENV)
+    temperature = _optional_float_env(environ, LLM_TEMPERATURE_ENV, DEFAULT_TEMPERATURE)
     if provider == LlmProvider.OPENROUTER:
         return LlmProviderConfig(
             provider=provider,
-            backend=backend,
+            backend=DEFAULT_MELLEA_BACKEND,
             model=_required_env(environ, LLM_MODEL_ENV),
             api_base=_required_env(environ, LLM_API_BASE_ENV),
             api_key=_required_env(environ, LLM_API_KEY_ENV),
             temperature=temperature,
-            openrouter_require_parameters=_required_bool_env(environ, LLM_REQUIRE_PARAMETERS_ENV),
+            openrouter_require_parameters=_optional_bool_env(
+                environ,
+                LLM_OPENROUTER_REQUIRE_PARAMETERS_ENV,
+                False,
+            ),
+        )
+    if provider == LlmProvider.DEEPSEEK:
+        return LlmProviderConfig(
+            provider=provider,
+            backend=DEFAULT_MELLEA_BACKEND,
+            model=_optional_env(environ, LLM_MODEL_ENV, DEEPSEEK_DEFAULT_MODEL),
+            api_base=_optional_env(environ, LLM_API_BASE_ENV, DEEPSEEK_DEFAULT_API_BASE),
+            api_key=_required_env(environ, LLM_API_KEY_ENV),
+            temperature=temperature,
+            openrouter_require_parameters=False,
         )
     if provider == LlmProvider.DIGITALOCEAN:
         return LlmProviderConfig(
             provider=provider,
-            backend=backend,
-            model=_required_env(environ, DIGITALOCEAN_INFERENCE_MODEL_ENV),
-            api_base=_required_env(environ, DIGITALOCEAN_INFERENCE_API_BASE_ENV),
-            api_key=_required_env(environ, DIGITALOCEAN_INFERENCE_API_KEY_ENV),
+            backend=DEFAULT_MELLEA_BACKEND,
+            model=_required_env(environ, LLM_MODEL_ENV),
+            api_base=_required_env(environ, LLM_API_BASE_ENV),
+            api_key=_required_env(environ, LLM_API_KEY_ENV),
             temperature=temperature,
             openrouter_require_parameters=False,
         )
@@ -91,7 +111,7 @@ def start_mellea_session_from_env() -> object:
     return start_session(
         config.backend,
         model_id=config.model,
-        base_url=chat_completions_base_url(config.api_base),
+        base_url=config.chat_completions_base_url(),
         api_key=config.api_key,
         model_options={"temperature": config.temperature},
     )
@@ -123,8 +143,15 @@ def _required_env(environ: Mapping[str, str], name: str) -> str:
     return value
 
 
-def _required_float_env(environ: Mapping[str, str], name: str) -> float:
-    value = _required_env(environ, name)
+def _optional_env(environ: Mapping[str, str], name: str, default: str) -> str:
+    value = environ.get(name, "").strip()
+    return value or default
+
+
+def _optional_float_env(environ: Mapping[str, str], name: str, default: float) -> float:
+    value = environ.get(name, "").strip()
+    if not value:
+        return default
     try:
         return float(value)
     except ValueError as exc:
@@ -132,8 +159,10 @@ def _required_float_env(environ: Mapping[str, str], name: str) -> float:
         raise RuntimeError(msg) from exc
 
 
-def _required_bool_env(environ: Mapping[str, str], name: str) -> bool:
-    value = _required_env(environ, name)
+def _optional_bool_env(environ: Mapping[str, str], name: str, default: bool) -> bool:
+    value = environ.get(name, "").strip()
+    if not value:
+        return default
     if value.lower() in {"1", "true", "yes"}:
         return True
     if value.lower() in {"0", "false", "no"}:

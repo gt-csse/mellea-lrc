@@ -26,6 +26,45 @@ To answer it, we only need the **citation locator** — the minimum set of field
 
 These three fields together (`531 U.S. 98`) are sufficient to retrieve a specific case from a reporter-indexed database. Other fields like party names or year are not needed for lookup — they are for cross-reference in Layer 2.
 
+### Implemented Validation Flow
+
+```mermaid
+flowchart TD
+    E[Extracted citation] --> F{FullCaseCitation?}
+    F -->|no| SKIP[skipped]
+    F -->|yes| L{Has volume + reporter + page?}
+    L -->|no| INV[invalid]
+    L -->|yes| Q[CourtListener lookup by locator]
+
+    Q --> S{Lookup status}
+    S -->|200| FOUND[found]
+    S -->|300| AMB[ambiguous]
+    S -->|404| NF[not_found]
+    S -->|400| BAD[invalid]
+    S -->|429| THROTTLED[throttled]
+    S -->|other/error| FAIL[lookup_failed]
+```
+
+The validation output is a `CitationValidation` record. It preserves the original
+lookup status, cache/key metadata, error message, limit detail, and any returned
+CourtListener clusters.
+
+### Formal Statuses
+
+The implemented status vocabulary is:
+
+- `found` — CourtListener returned one found citation result (`200`)
+- `ambiguous` — CourtListener returned multiple choices (`300`)
+- `not_found` — CourtListener did not find the locator (`404`)
+- `invalid` — the extracted citation is missing locator fields, or CourtListener rejected it (`400`)
+- `throttled` — CourtListener or the deployed access service reported rate limiting (`429`)
+- `lookup_failed` — any other lookup failure
+- `skipped` — citation kind is not validated by the Layer 1 full-case existence check
+
+Yes: throttling is represented formally as `ValidationStatus.THROTTLED`, serialized
+as `throttled`. When available, the raw rate-limit/error payload is preserved in
+`limit_detail`.
+
 ### CourtListener API
 
 The primary lookup target is CourtListener, which provides a REST API for querying its case law database. A citation lookup can be done against the clusters endpoint, filtering by reporter citation. CourtListener covers federal and state appellate cases and is our most reliable programmatic source.

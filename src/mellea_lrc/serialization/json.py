@@ -297,12 +297,8 @@ def serialize_citation_assessment(item: CitationAssessment) -> dict[str, JsonVal
         "citation_id": item.citation_id,
         "status": item.status.value,
         "message": item.message,
-        "case_assess": (
-            serialize_case_name_assessment(item.case_assess) if item.case_assess is not None else None
-        ),
-        "year_assess": (
-            serialize_year_assessment(item.year_assess) if item.year_assess is not None else None
-        ),
+        "case_assess": serialize_case_name_assessment(item.case_assess),
+        "year_assess": serialize_year_assessment(item.year_assess),
     }
 
 
@@ -310,18 +306,13 @@ def deserialize_citation_assessment(payload: Mapping[str, object]) -> CitationAs
     """Rebuild one citation assessment from JSON data."""
     case_payload = payload.get("case_assess")
     year_payload = payload.get("year_assess")
+    if not isinstance(case_payload, dict) or not isinstance(year_payload, dict):
+        msg = "citation assessment requires case_assess and year_assess"
+        raise ValueError(msg)
     return CitationAssessment(
         citation_id=str(payload.get("citation_id") or ""),
-        case_assess=(
-            deserialize_case_name_assessment(_mapping_field(case_payload))
-            if isinstance(case_payload, dict)
-            else None
-        ),
-        year_assess=(
-            deserialize_year_assessment(_mapping_field(year_payload))
-            if isinstance(year_payload, dict)
-            else None
-        ),
+        case_assess=deserialize_case_name_assessment(_mapping_field(case_payload)),
+        year_assess=deserialize_year_assessment(_mapping_field(year_payload)),
     )
 
 
@@ -364,6 +355,8 @@ def serialize_document_assessment(result: DocumentAssessment) -> dict[str, JsonV
         ],
         "reassessments": [serialize_citation_assessment(item) for item in result.reassessments],
         "counts": _count_assessment_by_status(result),
+        "case_name_counts": _count_assessment_case_names_by_status(result),
+        "year_counts": _count_assessment_years_by_status(result),
     }
 
 
@@ -419,6 +412,20 @@ def _count_assessment_by_status(result: DocumentAssessment) -> dict[str, int]:
     counts: dict[str, int] = {}
     for item in result.assessments:
         counts[item.status.value] = counts.get(item.status.value, 0) + 1
+    return counts
+
+
+def _count_assessment_case_names_by_status(result: DocumentAssessment) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in result.assessments:
+        counts[item.case_assess.status.value] = counts.get(item.case_assess.status.value, 0) + 1
+    return counts
+
+
+def _count_assessment_years_by_status(result: DocumentAssessment) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in result.assessments:
+        counts[item.year_assess.status.value] = counts.get(item.year_assess.status.value, 0) + 1
     return counts
 
 

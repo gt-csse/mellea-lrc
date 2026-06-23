@@ -49,7 +49,7 @@ def test_preprocess_rejects_path_without_suffix() -> None:
 
 
 def test_preprocess_with_docling_exports_plain_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: dict[str, str | bool] = {}
+    calls: dict[str, object] = {}
 
     class FakeDocument:
         def export_to_text(self) -> str:
@@ -63,14 +63,38 @@ def test_preprocess_with_docling_exports_plain_text(monkeypatch: pytest.MonkeyPa
         document = FakeDocument()
 
     class FakeConverter:
+        def __init__(self, **kwargs: object) -> None:
+            calls["converter_kwargs"] = kwargs
+
         def convert(self, path: str) -> FakeResult:
             calls["path"] = path
             return FakeResult()
 
+    class FakePdfPipelineOptions:
+        def __init__(self) -> None:
+            self.do_ocr = False
+            self.ocr_options = None
+
+    class FakeTesseractCliOcrOptions:
+        def __init__(self, *, lang: list[str]) -> None:
+            self.lang = lang
+
+    class FakePdfFormatOption:
+        def __init__(self, *, pipeline_options: FakePdfPipelineOptions) -> None:
+            self.pipeline_options = pipeline_options
+
     fake_docling = types.ModuleType("docling")
+    fake_base_models_module = types.ModuleType("docling.datamodel.base_models")
+    fake_base_models_module.InputFormat = types.SimpleNamespace(PDF="pdf")
+    fake_pipeline_options_module = types.ModuleType("docling.datamodel.pipeline_options")
+    fake_pipeline_options_module.PdfPipelineOptions = FakePdfPipelineOptions
+    fake_pipeline_options_module.TesseractCliOcrOptions = FakeTesseractCliOcrOptions
     fake_converter_module = types.ModuleType("docling.document_converter")
     fake_converter_module.DocumentConverter = FakeConverter
+    fake_converter_module.PdfFormatOption = FakePdfFormatOption
     monkeypatch.setitem(sys.modules, "docling", fake_docling)
+    monkeypatch.setitem(sys.modules, "docling.datamodel.base_models", fake_base_models_module)
+    monkeypatch.setitem(sys.modules, "docling.datamodel.pipeline_options", fake_pipeline_options_module)
     monkeypatch.setitem(sys.modules, "docling.document_converter", fake_converter_module)
 
     document = preprocess_with_docling("sample.pdf")
@@ -78,7 +102,12 @@ def test_preprocess_with_docling_exports_plain_text(monkeypatch: pytest.MonkeyPa
     assert document.text == "Plain text"
     assert document.metadata.source_format == SourceFormat.PDF
     assert document.metadata.backend == PreprocessingBackend.DOCLING
-    assert calls == {"path": "sample.pdf", "export_to_text": True}
+    assert calls["path"] == "sample.pdf"
+    assert calls["export_to_text"] is True
+    format_options = calls["converter_kwargs"]["format_options"]  # type: ignore[index]
+    pdf_options = format_options["pdf"].pipeline_options  # type: ignore[index]
+    assert pdf_options.do_ocr is True
+    assert pdf_options.ocr_options.lang == ["eng"]
 
 
 @pytest.mark.heavy

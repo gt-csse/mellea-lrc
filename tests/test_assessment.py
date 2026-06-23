@@ -13,6 +13,8 @@ from mellea_lrc.assessment import (
     get_extended_span_text,
     run_assessment,
 )
+from mellea_lrc.assessment.reextraction import ReextractionStatus, validate_proposal
+from mellea_lrc.assessment.types import CaseNameAssessment
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.types import ExtractedCitation
@@ -32,6 +34,18 @@ def test_get_extended_span_text_includes_context_around_full_span() -> None:
     extended = get_extended_span_text(text, full_span, before_chars=9, after_chars=7)
 
     assert extended == "context. Brown v. Board, 347 U.S. 483 (1954). After"
+
+
+def test_get_extended_span_text_defaults_to_two_hundred_chars_each_side() -> None:
+    before = "b" * 210
+    citation = "Brown v. Board, 347 U.S. 483 (1954)"
+    after = "a" * 210
+    text = before + citation + after
+    full_span = Span(start=len(before), end=len(before) + len(citation))
+
+    extended = get_extended_span_text(text, full_span)
+
+    assert extended == before[-200:] + citation + after[:200]
 
 
 def test_get_extended_span_text_clamps_to_document_boundaries() -> None:
@@ -88,13 +102,19 @@ def test_find_text_span_near_full_span_returns_none_outside_local_context() -> N
     text = "Brown v. Board is in background. See 347 U.S. 483 (1954)."
     full_span = Span(start=text.index("347"), end=len(text) - 1)
 
-    assert find_text_span_near_full_span(text, "Brown v. Board", full_span) is None
+    assert find_text_span_near_full_span(text, "Brown v. Board", full_span, before_chars=20) is None
 
 
 def test_build_extracted_case_name_from_parties() -> None:
     citation = FullCaseCitation(plaintiff="Brown", defendant="Board")
 
     assert build_extracted_case_name(citation) == "Brown v. Board"
+
+
+def test_build_extracted_case_name_is_missing_without_parties() -> None:
+    citation = FullCaseCitation(volume="347", reporter="U.S.", page="483")
+
+    assert build_extracted_case_name(citation) is None
 
 
 def test_assess_case_name_exact_match_passes_without_semantic_check() -> None:
@@ -177,7 +197,7 @@ def test_assess_year_missing_is_field_level_third_status() -> None:
     assert result.status == YearAssessmentStatus.MISSING
 
 
-def test_citation_assessment_status_decouples_year_from_rollup() -> None:
+def test_citation_assessment_status_rolls_up_year_mismatch() -> None:
     case_assess = assess_case_name_exact_match(
         citation_id="cite-1",
         extracted_case_name="Brown v. Board",
@@ -195,12 +215,32 @@ def test_citation_assessment_status_decouples_year_from_rollup() -> None:
         year_assess=year_assess,
     )
 
-    # A year mismatch is surfaced on the year field and no longer downgrades the
-    # citation-level (case-name) roll-up.
-    assert result.status == CitationAssessmentStatus.EXACT_MATCH
-    assert result.year_assess is not None
+    assert result.status == CitationAssessmentStatus.MISMATCH
     assert result.year_assess.status == YearAssessmentStatus.MISMATCH
-    assert result.message == "Extracted case name exactly matches CourtListener."
+    assert result.message == "Extracted year does not match CourtListener."
+
+
+def test_citation_assessment_status_rolls_up_year_mismatch_over_semantic_match() -> None:
+    case_assess = CaseNameAssessment(
+        citation_id="cite-1",
+        status=CaseNameAssessmentStatus.MATCH,
+        extracted_case_name="Brown v. Board",
+        courtlistener_case_name="Brown v. Board of Education",
+        message="Extracted case name matches the retrieved case.",
+    )
+    year_assess = assess_year_exact_match(
+        citation_id="cite-1",
+        extracted_year="1953",
+        courtlistener_year="1954",
+    )
+
+    result = CitationAssessment(
+        citation_id="cite-1",
+        case_assess=case_assess,
+        year_assess=year_assess,
+    )
+
+    assert result.status == CitationAssessmentStatus.MISMATCH
 
 
 def test_citation_assessment_status_rolls_up_case_name_verdict() -> None:
@@ -244,6 +284,64 @@ def test_modified_extracted_citation_proposal_valid_rejects_ungrounded_fields() 
     )
 
     assert not modified.valid(context)
+
+
+def test_reextraction_validation_accepts_grounded_proposal() -> None:
+    context = "See World Wide Ass'n of Specialty Programs v. Pure, Inc., 450 F.3d 1132."
+    proposal = ModifiedExtractedCitationProposal(
+        plaintiff="World Wide Ass'n of Specialty Programs",
+        defendant="Pure, Inc.",
+    )
+
+    status, error = validate_proposal(proposal, context)
+
+    assert status == ReextractionStatus.ACCEPTED
+    assert error is None
+
+
+def test_reextraction_validation_reports_ungrounded_fields() -> None:
+    context = "See World Wide Ass'n of Specialty Programs v. Pure, Inc., 450 F.3d 1132."
+    proposal = ModifiedExtractedCitationProposal(
+        plaintiff="World Wide Association of Specialty Programs",
+        defendant="Pure, Inc.",
+    )
+
+    status, error = validate_proposal(proposal, context)
+
+    assert status == ReextractionStatus.INVALID
+    assert error is not None
+    assert "plaintiff" in error
+
+
+def test_reextraction_validation_distinguishes_empty_proposal() -> None:
+    status, error = validate_proposal(ModifiedExtractedCitationProposal(), "Context")
+
+    assert status == ReextractionStatus.EMPTY
+    assert error is None
+
+
+def test_citation_assessment_status_rolls_up_reextraction_error() -> None:
+    case_assess = CaseNameAssessment(
+        citation_id="cite-1",
+        status=CaseNameAssessmentStatus.REEXTRACTION_ERROR,
+        extracted_case_name="Brown",
+        courtlistener_case_name="Brown v. Board",
+        message="re-extraction failed",
+    )
+    year_assess = assess_year_exact_match(
+        citation_id="cite-1",
+        extracted_year=None,
+        courtlistener_year="1954",
+    )
+
+    result = CitationAssessment(
+        citation_id="cite-1",
+        case_assess=case_assess,
+        year_assess=year_assess,
+    )
+
+    assert result.status == CitationAssessmentStatus.REEXTRACTION_ERROR
+    assert result.message == "re-extraction failed"
 
 
 def test_run_assessment_progresses_document_validation_to_document_assessment() -> None:
@@ -291,5 +389,4 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
     assert assessment.validations == validation.validations
     assert len(assessment.assessments) == 1
     assert assessment.assessments[0].status == CitationAssessmentStatus.EXACT_MATCH
-    assert assessment.assessments[0].year_assess is not None
     assert assessment.assessments[0].year_assess.status == YearAssessmentStatus.EXACT_MATCH

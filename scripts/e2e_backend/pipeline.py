@@ -373,10 +373,7 @@ def assess_review_payload(payload: dict[str, object]) -> dict[str, Any]:
             citation["assessment"] = None
             continue
         assessment = result.assessment
-        if (
-            assessment.case_assess is not None
-            and assessment.case_assess.status == CaseNameAssessmentStatus.NEEDS_ASSESSMENT
-        ):
+        if assessment.case_assess.status == CaseNameAssessmentStatus.NEEDS_ASSESSMENT:
             session = session or start_mellea_session_from_env()
             result = _assess_review_citation(citation, document_text, session)
             if result.assessment is None:
@@ -402,7 +399,12 @@ def assess_review_payload(payload: dict[str, object]) -> dict[str, Any]:
     output["assessment"] = _assessment_payload_document(document_assessment)
     output["stats"] = _merge_stats(
         output.get("stats"),
-        {"assessed": len(assessments), **_assessment_counts(assessments)},
+        {
+            "assessed": len(assessments),
+            "assessment_counts": _assessment_counts(assessments),
+            "case_name_counts": _assessment_case_name_counts(assessments),
+            "year_counts": _assessment_year_counts(assessments),
+        },
     )
     return output
 
@@ -419,7 +421,12 @@ def review_document_assessment(assessment: DocumentAssessment) -> dict[str, Any]
     output["assessment"] = _assessment_payload_document(assessment)
     output["stats"] = _merge_stats(
         output.get("stats"),
-        {"assessed": len(assessment.assessments), **_assessment_counts(list(assessment.assessments))},
+        {
+            "assessed": len(assessment.assessments),
+            "assessment_counts": _assessment_counts(list(assessment.assessments)),
+            "case_name_counts": _assessment_case_name_counts(list(assessment.assessments)),
+            "year_counts": _assessment_year_counts(list(assessment.assessments)),
+        },
     )
     assessment_by_id = {item.citation_id: _assessment_payload(item) for item in assessment.assessments}
     citations = _review_citations(output)
@@ -436,8 +443,7 @@ def _ensure_assessment_is_resolved(assessment: DocumentAssessment) -> None:
     pending = [
         item.citation_id
         for item in assessment.assessments
-        if item.case_assess is not None
-        and item.case_assess.status == CaseNameAssessmentStatus.NEEDS_ASSESSMENT
+        if item.case_assess.status == CaseNameAssessmentStatus.NEEDS_ASSESSMENT
         and item.case_assess.extracted_case_name
         and item.case_assess.courtlistener_case_name
     ]
@@ -838,17 +844,13 @@ def _assessment_payload(item: CitationAssessment) -> JsonDict:
     }
 
 
-def _case_assessment_payload(item: CaseNameAssessment | None) -> JsonDict | None:
-    if item is None:
-        return None
+def _case_assessment_payload(item: CaseNameAssessment) -> JsonDict:
     payload = asdict(item)
     payload["status"] = item.status.value
     return payload
 
 
-def _year_assessment_payload(item: YearAssessment | None) -> JsonDict | None:
-    if item is None:
-        return None
+def _year_assessment_payload(item: YearAssessment) -> JsonDict:
     payload = asdict(item)
     payload["status"] = item.status.value
     return payload
@@ -860,6 +862,8 @@ def _assessment_payload_document(assessment: DocumentAssessment) -> JsonDict:
         "modified_citations": [_modified_citation_payload(item) for item in assessment.modified_citations],
         "reassessments": [_assessment_payload(item) for item in assessment.reassessments],
         "counts": _assessment_counts(list(assessment.assessments)),
+        "case_name_counts": _assessment_case_name_counts(list(assessment.assessments)),
+        "year_counts": _assessment_year_counts(list(assessment.assessments)),
     }
 
 
@@ -873,6 +877,20 @@ def _assessment_counts(assessments: list[CitationAssessment]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for item in assessments:
         counts[item.status.value] = counts.get(item.status.value, 0) + 1
+    return counts
+
+
+def _assessment_case_name_counts(assessments: list[CitationAssessment]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in assessments:
+        counts[item.case_assess.status.value] = counts.get(item.case_assess.status.value, 0) + 1
+    return counts
+
+
+def _assessment_year_counts(assessments: list[CitationAssessment]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in assessments:
+        counts[item.year_assess.status.value] = counts.get(item.year_assess.status.value, 0) + 1
     return counts
 
 

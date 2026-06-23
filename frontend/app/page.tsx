@@ -2,6 +2,7 @@
 
 import {
   AlertCircle,
+  Bookmark,
   Brain,
   ChevronDown,
   ChevronLeft,
@@ -35,8 +36,8 @@ type AssessmentPayload = {
   citation_id: string;
   status: string;
   message: string;
-  case_assess: CaseNameAssessmentPayload | null;
-  year_assess: YearAssessmentPayload | null;
+  case_assess: CaseNameAssessmentPayload;
+  year_assess: YearAssessmentPayload;
 };
 
 type CaseNameAssessmentPayload = {
@@ -75,6 +76,8 @@ type ReviewAssessment = {
   modified_citations: ModifiedExtractedCitationPayload[];
   reassessments: AssessmentPayload[];
   counts: Record<string, number>;
+  case_name_counts: Record<string, number>;
+  year_counts: Record<string, number>;
 };
 
 type ModifiedExtractedCitationPayload = {
@@ -124,16 +127,15 @@ type AssessmentStatus =
   | "match"
   | "irregular_form"
   | "different_case"
-  | "not_assessed";
-type AssessmentFilter = Exclude<AssessmentStatus, "not_assessed">;
+  | "reextraction_error";
+type ExtractionFilter = "all" | "all_citations";
+type ValidationFilter = "all" | "ambiguous" | "not_found" | "not_checked" | "other";
+type AssessmentFilter = "all" | AssessmentStatus | "with_history";
 type CitationFilter =
-  | "all"
-  | "found"
-  | "ambiguous"
-  | "not_found"
-  | AssessmentFilter
-  | "with_history"
-  | "all_citations";
+  | ExtractionFilter
+  | ValidationFilter
+  | AssessmentFilter;
+type FilterOption = { label: string; value: CitationFilter };
 type ComparisonMatchType = "perfect" | "exact" | "semantic" | "warning" | "error" | "unchecked";
 type BibliographicRow = {
   label: string;
@@ -175,19 +177,26 @@ type WorkflowStageControl = {
 };
 
 const VALIDATION_REQUEST_INTERVAL_MS = 1500;
+const MISSING_EXTRACTED_CASE_NAME_LABEL = "No extracted case name";
 const exampleText = "Brown v. Board, 347 U.S. 483 (1954). See also Roe v. Wade, 410 U.S. 113.";
-const citationFilters: Array<{ label: string; value: CitationFilter }> = [
+const extractionFilters: FilterOption[] = [
   { label: "All", value: "all" },
-  { label: "Found", value: "found" },
-  { label: "Ambiguous", value: "ambiguous" },
-  { label: "Not found", value: "not_found" },
   { label: "All citations", value: "all_citations" }
 ];
-const assessmentFilters: Array<{ label: string; value: CitationFilter }> = [
+const validationFilters: FilterOption[] = [
+  { label: "All", value: "all" },
+  { label: "Ambiguous", value: "ambiguous" },
+  { label: "Not found", value: "not_found" },
+  { label: "Not checked", value: "not_checked" },
+  { label: "Other", value: "other" }
+];
+const assessmentFilters: FilterOption[] = [
+  { label: "All", value: "all" },
   { label: "Exact match", value: "exact_match" },
   { label: "Match", value: "match" },
   { label: "Irregular form", value: "irregular_form" },
   { label: "Different case", value: "different_case" },
+  { label: "Re-extraction error", value: "reextraction_error" },
   { label: "With history", value: "with_history" }
 ];
 const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
@@ -255,6 +264,7 @@ export default function Home() {
   const [extractedAttemptIndexes, setExtractedAttemptIndexes] = useState<Record<string, number>>({});
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [bookmarkStatus, setBookmarkStatus] = useState<string | null>(null);
   const documentPaneRef = useRef<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const snapshotInputRef = useRef<HTMLInputElement | null>(null);
@@ -323,42 +333,6 @@ export default function Home() {
     [result, selectedId, reextractOverlay]
   );
 
-  const renderCitations = useMemo(
-    () => (citationFilter === "all_citations" ? allCitations : primaryCitations),
-    [allCitations, citationFilter, primaryCitations]
-  );
-
-  const availableFilters = useMemo(
-    () =>
-      workflowStage === "assessed"
-        ? [...citationFilters.slice(0, -1), ...assessmentFilters, citationFilters.at(-1)!]
-        : citationFilters,
-    [workflowStage]
-  );
-
-  const filteredCitations = useMemo(
-    () =>
-      renderCitations.filter((citation) => {
-        if (citationFilter === "all_citations") {
-          return true;
-        }
-        if (!isFullCaseCitation(citation)) {
-          return false;
-        }
-        if (citationFilter === "with_history") {
-          return citationHasHistory(citation, result?.assessment ?? null);
-        }
-        if (isAssessmentFilter(citationFilter)) {
-          return (
-            assessmentStatusFromPayload(effectiveAssessment(citation, result?.assessment ?? null)) ===
-            citationFilter
-          );
-        }
-        return citationFilter === "all" || citationStatus(citation) === citationFilter;
-      }),
-    [citationFilter, renderCitations, result]
-  );
-
   const fullCaseCitations = useMemo(
     () => primaryCitations.filter(isFullCaseCitation),
     [primaryCitations]
@@ -374,6 +348,59 @@ export default function Home() {
         citationHasHistory(citation, result?.assessment ?? null)
       ).length,
     [fullCaseCitations, result]
+  );
+  const assessmentCandidateCount = useMemo(
+    () => fullCaseCitations.filter(isAssessmentCandidateCitation).length,
+    [fullCaseCitations]
+  );
+  const stageFullCaseTotal =
+    workflowStage === "assessed" ? assessmentCandidateCount : fullCaseCitations.length;
+
+  const availableFilters = useMemo(
+    () =>
+      stageFilterOptions(
+        workflowStage,
+        statusCounts,
+        assessmentCounts,
+        stageFullCaseTotal,
+        allCitations.length,
+        withHistoryCount
+      ),
+    [allCitations.length, assessmentCounts, stageFullCaseTotal, statusCounts, withHistoryCount, workflowStage]
+  );
+
+  const renderCitations = useMemo(
+    () => (citationFilter === "all_citations" ? allCitations : primaryCitations),
+    [allCitations, citationFilter, primaryCitations]
+  );
+
+  const filteredCitations = useMemo(
+    () =>
+      renderCitations.filter((citation) => {
+        if (citationFilter === "all_citations") {
+          return true;
+        }
+        if (!isFullCaseCitation(citation)) {
+          return false;
+        }
+        if (workflowStage === "assessed") {
+          if (citationFilter === "with_history") {
+            return citationHasHistory(citation, result?.assessment ?? null);
+          }
+          if (isAssessmentStatusFilter(citationFilter)) {
+            return (
+              assessmentStatusFromPayload(effectiveAssessment(citation, result?.assessment ?? null)) ===
+              citationFilter
+            );
+          }
+          return citationFilter === "all" && isAssessmentCandidateCitation(citation);
+        }
+        if (workflowStage === "validated" && isValidationStatusFilter(citationFilter)) {
+          return citationStatus(citation) === citationFilter;
+        }
+        return citationFilter === "all";
+      }),
+    [citationFilter, renderCitations, result, workflowStage]
   );
 
   const selectedClusterIndex = selectedCitation ? clusterIndexes[selectedCitation.id] ?? 0 : 0;
@@ -571,6 +598,7 @@ export default function Home() {
 
   function selectCitation(citationId: string) {
     setSelectedId(citationId);
+    setBookmarkStatus(null);
   }
 
   function selectCourtListenerCandidate(citationId: string, clusterIndex: number) {
@@ -585,6 +613,23 @@ export default function Home() {
       ...current,
       [citationId]: attemptIndex
     }));
+  }
+
+  async function bookmarkSelectedCitation() {
+    if (!result || !selectedCitation) {
+      return;
+    }
+    try {
+      setBookmarkStatus("Saving");
+      await bookmarkCitationContext({
+        citation_id: selectedCitation.id,
+        matched_text: selectedCitation.matched_text,
+        context: citationContextWindow(result.document.text, selectedCitation)
+      });
+      setBookmarkStatus("Saved to local/bookmarked/bookmarked.txt");
+    } catch (bookmarkError) {
+      setBookmarkStatus(bookmarkError instanceof Error ? bookmarkError.message : "Bookmark failed");
+    }
   }
 
   function onFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -800,7 +845,7 @@ export default function Home() {
                     filter,
                     statusCounts,
                     assessmentCounts,
-                    fullCaseCitations.length,
+                    stageFullCaseTotal,
                     allCitations.length,
                     withHistoryCount
                   )}
@@ -819,7 +864,11 @@ export default function Home() {
                   type="button"
                 >
                   <span className="citation-row-main">{citation.matched_text}</span>
-                  <CitationTags citation={citation} assessment={result?.assessment ?? null} />
+                  <CitationTags
+                    citation={citation}
+                    assessment={result?.assessment ?? null}
+                    workflowStage={workflowStage}
+                  />
                 </button>
               ))
             ) : (
@@ -842,10 +891,24 @@ export default function Home() {
                 <CitationTags
                   citation={selectedCitation}
                   assessment={result?.assessment ?? null}
+                  workflowStage={workflowStage}
                   variant="details"
                 />
               </div>
               <div className="details-actions">
+                <button
+                  className="secondary-action compact-action"
+                  type="button"
+                  onClick={() => void bookmarkSelectedCitation()}
+                  disabled={!selectedCitation || bookmarkStatus === "Saving"}
+                >
+                  {bookmarkStatus === "Saving" ? (
+                    <Loader2 className="spin" size={16} />
+                  ) : (
+                    <Bookmark size={16} />
+                  )}
+                  <span>Bookmark context</span>
+                </button>
                 <button
                   className="icon-action"
                   type="button"
@@ -861,6 +924,7 @@ export default function Home() {
                 </button>
               </div>
             </div>
+            {bookmarkStatus ? <p className="bookmark-status">{bookmarkStatus}</p> : null}
             <div className="details-grid">
               <BibliographicComparison
                 citation={selectedCitation}
@@ -894,28 +958,43 @@ function Metric({ label, value }: { label: string; value: number | string }) {
 function CitationTags({
   citation,
   assessment = null,
+  workflowStage,
   variant = "rail"
 }: {
   citation: ReviewCitation;
   assessment?: ReviewAssessment | null;
+  workflowStage: WorkflowStage;
   variant?: "rail" | "details";
 }) {
   // The event-level status rolls up to the re-extraction result when one exists,
   // so a recovered citation reads as its final (re-extracted) verdict.
   const effective = effectiveAssessment(citation, assessment);
+  const assessmentStatus = assessmentStatusFromPayload(effective);
+  const showValidation = Boolean(
+    citation.validation && (workflowStage === "validated" || variant === "details")
+  );
+  const showAssessment = Boolean(
+    assessmentStatus && (workflowStage === "assessed" || variant === "details")
+  );
+  const showKind = workflowStage !== "assessed";
+  const showYearMismatch = Boolean(
+    effective?.year_assess.status.toLowerCase().replaceAll("-", "_") === "mismatch" &&
+      (workflowStage === "assessed" || variant === "details")
+  );
   return (
     <span className={`citation-tags ${variant}`} aria-label="Citation labels">
-      <span className="citation-tag kind">{citation.kind}</span>
-      {citation.validation ? (
+      {showKind ? <span className="citation-tag kind">{citation.kind}</span> : null}
+      {showValidation && citation.validation ? (
         <span className={`citation-tag validation ${citationStatus(citation)}`}>
           {formatStatusLabel(citation.validation.status)}
         </span>
       ) : null}
-      {effective ? (
-        <span className={`citation-tag assessment ${assessmentStatusFromPayload(effective)}`}>
-          {formatAssessmentLabel(effective.status)}
+      {showAssessment && effective && assessmentStatus ? (
+        <span className={`citation-tag assessment ${assessmentStatus}`}>
+          {formatAssessmentLabel(assessmentStatus)}
         </span>
       ) : null}
+      {showYearMismatch ? <span className="citation-tag year mismatch">Year mismatch</span> : null}
     </span>
   );
 }
@@ -1174,7 +1253,7 @@ function CaseNameAssessmentDetails({ assessment }: { assessment: CaseNameAssessm
       </div>
       <div>
         <dt>Extracted case</dt>
-        <dd>{formatValue(assessment.extracted_case_name)}</dd>
+        <dd>{formatCaseNameValue(assessment.extracted_case_name)}</dd>
       </div>
       <div>
         <dt>CourtListener case</dt>
@@ -1249,7 +1328,8 @@ function bibliographicRows(
   const extractedLocatorParts = splitLocator(citationLocator);
   const courtListenerLocator = cluster ? citation.validation?.locator : null;
   const courtListenerLocatorParts = splitLocator(courtListenerLocator);
-  const extractedCaseName = caseNameFromFields(fields) || extractedAttempt.locator || citation.matched_text;
+  const extractedCaseName = caseNameFromFields(fields);
+  const extractedCaseNameDisplay = extractedCaseName ?? MISSING_EXTRACTED_CASE_NAME_LABEL;
   const courtListenerCaseName = readString(cluster, ["case_name", "caseName"]);
   const courtListenerCourt = readString(cluster, ["court", "court_id", "courtId"]);
   const courtListenerDate = readString(cluster, ["date_filed", "dateFiled"]);
@@ -1270,7 +1350,7 @@ function bibliographicRows(
     },
     {
       label: "Case name",
-      extracted: extractedCaseName,
+      extracted: extractedCaseNameDisplay,
       courtListener: courtListenerCaseName,
       matchType: canColorRows
         ? caseNameRowMatchType(
@@ -1347,7 +1427,7 @@ function caseNameRowMatchType(
     if (status === "irregular_form") {
       return "warning";
     }
-    if (status === "different_case" || status === "extraction_error") {
+    if (status === "different_case" || status === "extraction_error" || status === "reextraction_error") {
       return "error";
     }
   }
@@ -1436,6 +1516,13 @@ function formatValue(value: unknown) {
     return JSON.stringify(value);
   }
   return String(value);
+}
+
+function formatCaseNameValue(value: unknown) {
+  if (!hasDisplayValue(value)) {
+    return MISSING_EXTRACTED_CASE_NAME_LABEL;
+  }
+  return formatValue(value);
 }
 
 function formatStatusLabel(value: string) {
@@ -1751,11 +1838,11 @@ function effectiveAssessment(
   return reassessment ?? citation.assessment;
 }
 
-function assessmentStatusFromPayload(assessment: AssessmentPayload | null): AssessmentStatus {
+function assessmentStatusFromPayload(assessment: AssessmentPayload | null): AssessmentStatus | null {
   if (!assessment) {
-    return "not_assessed";
+    return null;
   }
-  const normalized = assessment.status.toLowerCase().replaceAll("-", "_");
+  const normalized = assessment.case_assess.status.toLowerCase().replaceAll("-", "_");
   if (normalized === "exact_match") {
     return "exact_match";
   }
@@ -1770,20 +1857,39 @@ function assessmentStatusFromPayload(assessment: AssessmentPayload | null): Asse
   if (normalized === "different_case" || normalized === "extraction_error") {
     return "different_case";
   }
-  return "not_assessed";
+  if (normalized === "reextraction_error") {
+    return "reextraction_error";
+  }
+  return null;
 }
 
-function isAssessmentFilter(filter: CitationFilter): filter is AssessmentFilter {
+function isAssessmentStatusFilter(filter: CitationFilter): filter is AssessmentStatus {
   return (
     filter === "exact_match" ||
     filter === "match" ||
     filter === "irregular_form" ||
-    filter === "different_case"
+    filter === "different_case" ||
+    filter === "reextraction_error"
+  );
+}
+
+function isValidationStatusFilter(
+  filter: CitationFilter
+): filter is Exclude<CitationStatus, "found"> {
+  return (
+    filter === "ambiguous" ||
+    filter === "not_found" ||
+    filter === "not_checked" ||
+    filter === "other"
   );
 }
 
 function isFullCaseCitation(citation: ReviewCitation) {
   return citation.kind.toLowerCase() === "fullcasecitation";
+}
+
+function isAssessmentCandidateCitation(citation: ReviewCitation) {
+  return citation.validation?.status.toLowerCase().replaceAll("-", "_") === "found";
 }
 
 function citationStatusFromValidation(validation: ValidationPayload): CitationStatus {
@@ -1860,7 +1966,9 @@ function assessmentStatusCounts(
   return citations.reduce(
     (counts, citation) => {
       const status = assessmentStatusFromPayload(effectiveAssessment(citation, assessment));
-      counts[status] += 1;
+      if (status) {
+        counts[status] += 1;
+      }
       return counts;
     },
     {
@@ -1868,13 +1976,13 @@ function assessmentStatusCounts(
       match: 0,
       irregular_form: 0,
       different_case: 0,
-      not_assessed: 0
+      reextraction_error: 0
     } satisfies Record<AssessmentStatus, number>
   );
 }
 
 function filterLabel(
-  filter: { label: string; value: CitationFilter },
+  filter: FilterOption,
   counts: Record<CitationStatus, number>,
   assessmentCounts: Record<AssessmentStatus, number>,
   fullCaseTotal: number,
@@ -1908,10 +2016,39 @@ function filterCount(
   if (filter === "with_history") {
     return withHistoryTotal;
   }
-  if (isAssessmentFilter(filter)) {
+  if (isAssessmentStatusFilter(filter)) {
     return assessmentCounts[filter];
   }
   return counts[filter];
+}
+
+function stageFilterOptions(
+  stage: WorkflowStage,
+  counts: Record<CitationStatus, number>,
+  assessmentCounts: Record<AssessmentStatus, number>,
+  fullCaseTotal: number,
+  allCitationTotal: number,
+  withHistoryTotal: number
+): FilterOption[] {
+  const filters =
+    stage === "assessed"
+      ? assessmentFilters
+      : stage === "validated"
+        ? validationFilters
+        : extractionFilters;
+  return filters.filter(
+    (filter) =>
+      filter.value === "all" ||
+      filter.value === "all_citations" ||
+      filterCount(
+        filter.value,
+        counts,
+        assessmentCounts,
+        fullCaseTotal,
+        allCitationTotal,
+        withHistoryTotal
+      ) > 0
+  );
 }
 
 async function extractText(text: string): Promise<ReviewResult> {
@@ -1967,6 +2104,28 @@ async function loadSnapshotReview(file: File): Promise<SnapshotReviewResult> {
     body: form
   });
   return parseJsonResponse<SnapshotReviewResult>(response);
+}
+
+async function bookmarkCitationContext(payload: {
+  citation_id: string;
+  matched_text: string;
+  context: string;
+}): Promise<void> {
+  const response = await fetch("/api/bookmark", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  await parseJsonResponse<{ path: string }>(response);
+}
+
+function citationContextWindow(documentText: string, citation: ReviewCitation) {
+  const contextChars = 200;
+  const start = Math.max(0, citation.start - contextChars);
+  const end = Math.min(documentText.length, citation.end + contextChars);
+  return documentText.slice(start, end);
 }
 
 async function parseReviewResponse(response: Response): Promise<ReviewResult> {

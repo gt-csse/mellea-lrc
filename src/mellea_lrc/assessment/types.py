@@ -27,12 +27,15 @@ class CaseNameAssessmentStatus(str, Enum):
       extractor's fault).
     - ``irregular_form`` — the same case, but written with unusual omission or
       shorthand (a likely mis-extraction worth re-checking against local context).
+    - ``reextraction_error`` — re-extraction was attempted, but model proposals
+      failed programmatic validation after retries.
     """
 
     EXACT_MATCH = "exact_match"
     MATCH = "match"
     DIFFERENT_CASE = "different_case"
     IRREGULAR_FORM = "irregular_form"
+    REEXTRACTION_ERROR = "reextraction_error"
     NEEDS_ASSESSMENT = "needs_assessment"
 
 
@@ -47,15 +50,16 @@ class YearAssessmentStatus(str, Enum):
 class CitationAssessmentStatus(str, Enum):
     """Canonical roll-up outcomes for one citation assessment.
 
-    Mirrors :class:`CaseNameAssessmentStatus`; the citation status currently rolls
-    up the case-name verdict. Year is assessed independently and surfaced on its
-    own field rather than folded into this status.
+    Mirrors :class:`CaseNameAssessmentStatus` with one override: a year mismatch
+    always rolls up to ``MISMATCH`` regardless of the case-name verdict.
     """
 
     EXACT_MATCH = "exact_match"
     MATCH = "match"
+    MISMATCH = "mismatch"
     DIFFERENT_CASE = "different_case"
     IRREGULAR_FORM = "irregular_form"
+    REEXTRACTION_ERROR = "reextraction_error"
     NEEDS_ASSESSMENT = "needs_assessment"
 
 
@@ -86,26 +90,26 @@ class CitationAssessment:
     """Assessment result for one validated citation."""
 
     citation_id: str
-    case_assess: CaseNameAssessment | None = None
-    year_assess: YearAssessment | None = None
+    case_assess: CaseNameAssessment
+    year_assess: YearAssessment
 
     @property
     def status(self) -> CitationAssessmentStatus:
-        """Roll up the case-name verdict for this citation.
+        """Roll up case-name and year assessments for this citation.
 
-        Year is assessed separately (see :attr:`year_assess`) and is not folded
-        into this status; a year mismatch is surfaced on the year field instead.
+        A year mismatch always rolls up to ``MISMATCH``. Otherwise the
+        case-name verdict is used.
         """
-        if self.case_assess is None:
-            return CitationAssessmentStatus.NEEDS_ASSESSMENT
+        if self.year_assess.status == YearAssessmentStatus.MISMATCH:
+            return CitationAssessmentStatus.MISMATCH
         return CitationAssessmentStatus(self.case_assess.status.value)
 
     @property
     def message(self) -> str:
         """Roll up a display message for this citation."""
-        if self.case_assess is not None:
-            return self.case_assess.message
-        return "Citation assessment is missing case-name assessment."
+        if self.year_assess.status == YearAssessmentStatus.MISMATCH:
+            return self.year_assess.message
+        return self.case_assess.message
 
 
 @dataclass(frozen=True, slots=True)
