@@ -50,6 +50,7 @@ preprocessing = [
 ]
 extraction = [
     "eyecite>=2.6",
+    "mellea>=0.3.2",
 ]
 label-studio = [
     { include-group = "extraction" },
