@@ -23,7 +23,7 @@ from mellea_lrc.core.spans import Span
 from mellea_lrc.llm import start_mellea_session_from_env
 from mellea_lrc.extraction import run_extraction
 from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
-from mellea_lrc.preprocessing.docling import is_docling_supported_format
+from mellea_lrc.preprocessing.docling import build_docling_converter, is_docling_supported_format
 from mellea_lrc.preprocessing.types import (
     PreprocessedDocument,
     PreprocessedDocumentMetadata,
@@ -477,14 +477,7 @@ def add_validation_notes(
 
 
 def _build_converter() -> DoclingConverter:
-    from docling.document_converter import DocumentConverter, PdfFormatOption  # noqa: PLC0415
-    from docling.datamodel.base_models import InputFormat  # noqa: PLC0415
-    from docling.datamodel.pipeline_options import PdfPipelineOptions  # noqa: PLC0415
-
-    opts = PdfPipelineOptions()
-    opts.do_ocr = False
-    opts.do_table_structure = False
-    return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)})
+    return build_docling_converter(enable_pdf_ocr=True)  # type: ignore[return-value]
 
 
 def _pdf_to_preprocessed(

@@ -37,8 +37,8 @@ def _source_format(path: Path) -> SourceFormat:
     return _SOURCE_FORMAT_BY_SUFFIX.get(path.suffix.lower(), SourceFormat.UNKNOWN)
 
 
-def preprocess_with_docling(path: Path | str) -> PreprocessedDocument:
-    """Convert a raw document to plain text using Docling."""
+def build_docling_converter(*, enable_pdf_ocr: bool = True) -> object:
+    """Build a Docling ``DocumentConverter`` with project PDF defaults."""
     try:
         from docling.datamodel.base_models import InputFormat  # noqa: PLC0415
         from docling.datamodel.pipeline_options import PdfPipelineOptions, TesseractCliOcrOptions  # noqa: PLC0415
@@ -50,16 +50,22 @@ def preprocess_with_docling(path: Path | str) -> PreprocessedDocument:
         )
         raise ImportError(msg) from exc
 
+    if not enable_pdf_ocr:
+        return DocumentConverter()
+
+    pipeline_options = PdfPipelineOptions()
+    pipeline_options.do_ocr = True
+    pipeline_options.ocr_options = TesseractCliOcrOptions(lang=["eng"])
+    return DocumentConverter(
+        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
+    )
+
+
+def preprocess_with_docling(path: Path | str, *, converter: object | None = None) -> PreprocessedDocument:
+    """Convert a raw document to plain text using Docling."""
     source_path = Path(path)
-    converter = DocumentConverter()
-    if source_path.suffix.lower() == ".pdf":
-        pipeline_options = PdfPipelineOptions()
-        pipeline_options.do_ocr = True
-        pipeline_options.ocr_options = TesseractCliOcrOptions(lang=["eng"])
-        converter = DocumentConverter(
-            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
-        )
-    result = converter.convert(str(source_path))
+    docling_converter = converter or build_docling_converter()
+    result = docling_converter.convert(str(source_path))  # type: ignore[attr-defined]
     text = result.document.export_to_text()
 
     return PreprocessedDocument(

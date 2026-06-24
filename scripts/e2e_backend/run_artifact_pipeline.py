@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 from mellea_lrc.assessment import run_assessment
 from mellea_lrc.extraction import run_extraction
-from mellea_lrc.preprocessing import preprocess_plain_text
+from mellea_lrc.preprocessing import preprocess, preprocess_plain_text
 from mellea_lrc.serialization import (
     deserialize_document_validation,
     serialize_document_assessment,
@@ -24,7 +24,8 @@ if TYPE_CHECKING:
     from mellea_lrc.extraction.types import DocumentExtraction
     from mellea_lrc.validation.types import DocumentValidation
 
-DEFAULT_INPUT = Path("local/test_data/test-1.txt")
+DEFAULT_INPUT = Path("local/test_data/pdfs/432895579.pdf")
+DEFAULT_FALLBACK_INPUT = Path("local/test_data/432895579.txt")
 DEFAULT_SNAPSHOT_DIR = Path("local/snapshots/e2e")
 
 
@@ -33,13 +34,24 @@ def main() -> None:
     args = _parse_args()
     _load_dotenv(Path(".env"))
 
-    input_path = args.input
+    input_path = args.input if args.input.exists() else DEFAULT_FALLBACK_INPUT
+    if not input_path.exists():
+        msg = (
+            "No default test input found. Provide --input or run "
+            "scripts.e2e_backend.preprocess_test_pdfs first."
+        )
+        raise FileNotFoundError(msg)
     snapshot_dir = args.snapshot_dir
     snapshot_dir.mkdir(parents=True, exist_ok=True)
     validation_path = snapshot_dir / f"{input_path.stem}.document_validation.json"
     assessment_path = snapshot_dir / f"{input_path.stem}.document_assessment.json"
 
-    extraction = run_extraction(preprocess_plain_text(input_path))
+    preprocessed = (
+        preprocess_plain_text(input_path)
+        if input_path.suffix.lower() == ".txt"
+        else preprocess(input_path)
+    )
+    extraction = run_extraction(preprocessed)
     validation = _load_or_create_validation(
         validation_path,
         extraction,
