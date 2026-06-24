@@ -60,5 +60,5 @@ The flip side is that **any change to the preprocessing pipeline invalidates exi
 ## Dataset Status
 
 - **Labeling server**: A Label Studio instance is hosted at [annotate.woodygoodenough.com](https://annotate.woodygoodenough.com/). Team members can register to begin annotating.
-- **Current focus**: Improve the 2nd layer as we develop extraction. Right now we use `Docling` for preprocessing, but there are a number of quick wins that could immediately improve extraction performance.
+- **Current focus**: Improve the 2nd layer as we develop extraction. We preprocess RECAP PDFs with Docling + Tesseract CLI OCR; see [Preprocessing Development](./Preprocessing%20Development.md).
 - **Data source**: See [Data Source](./Data%20Source.md) for details on the RECAP/CourtListener pipeline.

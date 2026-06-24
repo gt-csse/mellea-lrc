@@ -63,6 +63,18 @@ CourtListener Modal backend through `CL_ACCESS_MODAL_URL`.
   the existing review payload, then assess the validated payload.
 - Docling is initialized lazily on the first PDF request.
 
+## Local Test Corpus Preprocessing
+
+CourtListener plain-text exports are no longer the Layer 2 source for local tests.
+Regenerate text from the PDFs under `local/test_data/pdfs/` with:
+
+```bash
+uv run --group preprocessing python -m scripts.e2e_backend.preprocess_test_pdfs
+```
+
+See [Preprocessing Development](../../docs/Preprocessing%20Development.md) for
+rationale, defaults (Docling + Tesseract CLI OCR), and the evaluation drill.
+
 ## Deploy
 
 ```bash
