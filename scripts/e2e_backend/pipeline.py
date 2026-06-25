@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
@@ -10,13 +10,12 @@ from typing import TYPE_CHECKING, Any, Protocol
 from mellea_lrc.assessment import (
     CaseNameAssessmentStatus,
     CitationAssessment,
+    CitationAssessmentBundle,
     DocumentAssessment,
-    ModifiedExtractedCitation,
-    assess_case_name_exact_match,
-    assess_year_exact_match,
+    assess_found_citation,
     build_extracted_case_name,
-    find_text_span_near_full_span,
-    get_extended_span_text,
+    first_cluster_case_name,
+    first_cluster_year,
 )
 from mellea_lrc.core.citations import FullCaseCitation, UnknownCitation, citation_kind
 from mellea_lrc.core.spans import Span
@@ -39,21 +38,12 @@ if TYPE_CHECKING:
 
     from mellea_lrc.assessment.types import (
         CaseNameAssessment,
-        ModifiedExtractedCitationProposal,
+        ModifiedExtractedCitation,
         YearAssessment,
     )
     from mellea_lrc.validation import CourtListenerAccessClient
 
 JsonDict = dict[str, Any]
-
-
-@dataclass(frozen=True, slots=True)
-class ReviewCitationAssessmentResult:
-    """Assessment plus optional modified extraction history for one citation."""
-
-    assessment: CitationAssessment | None
-    modified_citation: ModifiedExtractedCitation | None = None
-    reassessment: CitationAssessment | None = None
 
 
 class DoclingDocument(Protocol):
@@ -192,9 +182,9 @@ class E2EBackend:
         """Validate one frontend review citation."""
         return validate_review_citation_payload(payload, client=client)
 
-    def assess_review_payload(self, payload: dict[str, object]) -> dict[str, Any]:
+    async def assess_review_payload(self, payload: dict[str, object]) -> dict[str, Any]:
         """Attach Mellea-assisted assessment to an existing validated review payload."""
-        return assess_review_payload(payload)
+        return await assess_review_payload(payload)
 
     def review_document_assessment(self, assessment: DocumentAssessment) -> dict[str, Any]:
         """Serialize a cached assessment artifact for the frontend review UI."""
@@ -355,7 +345,7 @@ def validate_review_citation_payload(
     return _validation_item_payload(validation.validations[0])
 
 
-def assess_review_payload(payload: dict[str, object]) -> dict[str, Any]:
+async def assess_review_payload(payload: dict[str, object]) -> dict[str, Any]:
     """Attach Mellea-assisted case-name assessment to an existing review payload."""
     output = _copy_review_payload(payload)
     document_text = _review_document_text(output)
@@ -368,24 +358,22 @@ def assess_review_payload(payload: dict[str, object]) -> dict[str, Any]:
     reassessments: list[CitationAssessment] = []
 
     for citation in citations:
-        result = _assess_review_citation(citation, document_text, session)
-        if result.assessment is None:
+        bundle = await _assess_review_citation(citation, document_text, session)
+        if bundle is None:
             citation["assessment"] = None
             continue
-        assessment = result.assessment
-        if assessment.case_assess.status == CaseNameAssessmentStatus.NEEDS_ASSESSMENT:
+        if bundle.assessment.case_assess.status == CaseNameAssessmentStatus.NEEDS_ASSESSMENT:
             session = session or start_mellea_session_from_env()
-            result = _assess_review_citation(citation, document_text, session)
-            if result.assessment is None:
+            bundle = await _assess_review_citation(citation, document_text, session)
+            if bundle is None:
                 citation["assessment"] = None
                 continue
-            assessment = result.assessment
-        citation["assessment"] = _assessment_payload(assessment)
-        assessments.append(assessment)
-        if result.modified_citation is not None:
-            modified_citations.append(result.modified_citation)
-        if result.reassessment is not None:
-            reassessments.append(result.reassessment)
+        citation["assessment"] = _assessment_payload(bundle.assessment)
+        assessments.append(bundle.assessment)
+        if bundle.modified_citation is not None:
+            modified_citations.append(bundle.modified_citation)
+        if bundle.reassessment is not None:
+            reassessments.append(bundle.reassessment)
 
     document_assessment = DocumentAssessment(
         preprocessed=extraction.preprocessed,
@@ -401,7 +389,6 @@ def assess_review_payload(payload: dict[str, object]) -> dict[str, Any]:
         output.get("stats"),
         {
             "assessed": len(assessments),
-            "assessment_counts": _assessment_counts(assessments),
             "case_name_counts": _assessment_case_name_counts(assessments),
             "year_counts": _assessment_year_counts(assessments),
         },
@@ -423,7 +410,6 @@ def review_document_assessment(assessment: DocumentAssessment) -> dict[str, Any]
         output.get("stats"),
         {
             "assessed": len(assessment.assessments),
-            "assessment_counts": _assessment_counts(list(assessment.assessments)),
             "case_name_counts": _assessment_case_name_counts(list(assessment.assessments)),
             "year_counts": _assessment_year_counts(list(assessment.assessments)),
         },
@@ -707,131 +693,48 @@ def _extracted_citation_from_review_item(item: JsonDict) -> ExtractedCitation:
     )
 
 
-def _assess_review_citation(
+async def _assess_review_citation(
     citation: JsonDict,
     document_text: str,
     session: object | None,
-) -> ReviewCitationAssessmentResult:
+) -> CitationAssessmentBundle | None:
     validation = citation.get("validation") if isinstance(citation.get("validation"), dict) else None
     if (
         citation.get("kind") != "FullCaseCitation"
         or validation is None
         or validation.get("status") != "found"
     ):
-        return ReviewCitationAssessmentResult(assessment=None)
+        return None
 
-    citation_id = str(citation.get("id") or "")
     fields = citation.get("fields") if isinstance(citation.get("fields"), dict) else {}
-    year_assess = _assess_review_year(citation_id, fields, validation)
-    extracted_case_name = build_extracted_case_name(
-        FullCaseCitation(
-            plaintiff=_optional_str(fields.get("plaintiff")),
-            defendant=_optional_str(fields.get("defendant")),
-        )
-    )
-    courtlistener_case_name = _first_cluster_case_name(validation)
-    exact = assess_case_name_exact_match(
-        citation_id=citation_id,
-        extracted_case_name=extracted_case_name,
-        courtlistener_case_name=courtlistener_case_name,
-    )
-    if exact.status != CaseNameAssessmentStatus.NEEDS_ASSESSMENT or session is None:
-        return ReviewCitationAssessmentResult(
-            assessment=CitationAssessment(
-                citation_id=citation_id,
-                case_assess=exact,
-                year_assess=year_assess,
-            ),
-        )
-
-    from mellea_lrc.assessment.mellea import assess_case_name_with_mellea_sync  # noqa: PLC0415
-
-    span = Span(start=_int_field(citation.get("start")), end=_int_field(citation.get("end")))
-    case_name_run = assess_case_name_with_mellea_sync(
-        session,
-        citation_id=citation_id,
-        extracted_case_name=extracted_case_name,
-        courtlistener_case_name=courtlistener_case_name,
-        document_context=get_extended_span_text(document_text, span),
-    )
-    reassessment = (
-        CitationAssessment(
-            citation_id=citation_id,
-            case_assess=case_name_run.reassessment,
-            year_assess=year_assess,
-        )
-        if case_name_run.reassessment is not None
-        else None
-    )
-    return ReviewCitationAssessmentResult(
-        assessment=CitationAssessment(
-            citation_id=citation_id,
-            case_assess=case_name_run.assessment,
-            year_assess=year_assess,
+    clusters = _validation_clusters(validation)
+    return await assess_found_citation(
+        citation_id=str(citation.get("id") or ""),
+        document_text=document_text,
+        span=Span(start=_int_field(citation.get("start")), end=_int_field(citation.get("end"))),
+        extracted_case_name=build_extracted_case_name(
+            FullCaseCitation(
+                plaintiff=_optional_str(fields.get("plaintiff")),
+                defendant=_optional_str(fields.get("defendant")),
+            )
         ),
-        modified_citation=_bind_modified_citation(
-            case_name_run.modified_citation,
-            document_text,
-            span,
-            citation_id,
-        ),
-        reassessment=reassessment,
-    )
-
-
-def _bind_modified_citation(
-    modified_citation: ModifiedExtractedCitationProposal | None,
-    document_text: str,
-    full_span: Span,
-    citation_id: str,
-) -> ModifiedExtractedCitation | None:
-    if modified_citation is None or not modified_citation.extracted_case_name:
-        return None
-    modified_span = find_text_span_near_full_span(
-        document_text,
-        modified_citation.extracted_case_name,
-        full_span,
-    )
-    return ModifiedExtractedCitation.from_proposal(
-        modified_citation,
-        citation_id=citation_id,
-        span=modified_span,
-    )
-
-
-def _assess_review_year(
-    citation_id: str,
-    fields: JsonDict,
-    validation: JsonDict,
-) -> YearAssessment:
-    return assess_year_exact_match(
-        citation_id=citation_id,
+        courtlistener_case_name=first_cluster_case_name(clusters),
         extracted_year=_optional_str(fields.get("year")),
-        courtlistener_year=_first_cluster_year(validation),
+        courtlistener_year=first_cluster_year(clusters),
+        session=session,
     )
 
 
-def _first_cluster_case_name(validation: JsonDict) -> str | None:
+def _validation_clusters(validation: JsonDict) -> tuple[JsonDict, ...]:
     clusters = validation.get("clusters")
-    if not isinstance(clusters, list) or not clusters or not isinstance(clusters[0], dict):
-        return None
-    case_name = clusters[0].get("case_name") or clusters[0].get("caseName")
-    return _optional_str(case_name)
-
-
-def _first_cluster_year(validation: JsonDict) -> str | None:
-    clusters = validation.get("clusters")
-    if not isinstance(clusters, list) or not clusters or not isinstance(clusters[0], dict):
-        return None
-    date_filed = _optional_str(clusters[0].get("date_filed") or clusters[0].get("dateFiled"))
-    return date_filed[:4] if date_filed else None
+    if not isinstance(clusters, list):
+        return ()
+    return tuple(item for item in clusters if isinstance(item, dict))
 
 
 def _assessment_payload(item: CitationAssessment) -> JsonDict:
     return {
         "citation_id": item.citation_id,
-        "status": item.status.value,
-        "message": item.message,
         "case_assess": _case_assessment_payload(item.case_assess),
         "year_assess": _year_assessment_payload(item.year_assess),
     }
@@ -854,7 +757,6 @@ def _assessment_payload_document(assessment: DocumentAssessment) -> JsonDict:
         "assessments": [_assessment_payload(item) for item in assessment.assessments],
         "modified_citations": [_modified_citation_payload(item) for item in assessment.modified_citations],
         "reassessments": [_assessment_payload(item) for item in assessment.reassessments],
-        "counts": _assessment_counts(list(assessment.assessments)),
         "case_name_counts": _assessment_case_name_counts(list(assessment.assessments)),
         "year_counts": _assessment_year_counts(list(assessment.assessments)),
     }
@@ -864,13 +766,6 @@ def _modified_citation_payload(item: ModifiedExtractedCitation) -> JsonDict:
     payload = asdict(item)
     payload["extracted_case_name"] = item.extracted_case_name
     return payload
-
-
-def _assessment_counts(assessments: list[CitationAssessment]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in assessments:
-        counts[item.status.value] = counts.get(item.status.value, 0) + 1
-    return counts
 
 
 def _assessment_case_name_counts(assessments: list[CitationAssessment]) -> dict[str, int]:

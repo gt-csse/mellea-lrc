@@ -20,6 +20,7 @@ DEFAULT_MELLEA_BACKEND = "openai"
 DEFAULT_TEMPERATURE = 0.0
 DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-pro"
 DEEPSEEK_DEFAULT_API_BASE = "https://api.deepseek.com"
+JSON_OBJECT_RESPONSE_FORMAT: dict[str, str] = {"type": "json_object"}
 
 
 class LlmProvider(str, Enum):
@@ -45,8 +46,15 @@ class LlmProviderConfig:
     def mellea_call_options(self, *, max_tokens: int, temperature: float = 0) -> dict[str, object]:
         """Build per-call Mellea model options for structured generation."""
         options: dict[str, object] = {"temperature": temperature, "max_tokens": max_tokens}
+        extra_body: dict[str, object] = {}
+        if self.provider == LlmProvider.DEEPSEEK:
+            # DeepSeek rejects Mellea's top-level json_schema response_format but accepts
+            # json_object when passed through the OpenAI SDK extra_body payload.
+            extra_body["response_format"] = JSON_OBJECT_RESPONSE_FORMAT
         if self.provider == LlmProvider.OPENROUTER and self.openrouter_require_parameters:
-            options["extra_body"] = {"provider": {"require_parameters": True}}
+            extra_body["provider"] = {"require_parameters": True}
+        if extra_body:
+            options["extra_body"] = extra_body
         return options
 
     def chat_completions_base_url(self) -> str:

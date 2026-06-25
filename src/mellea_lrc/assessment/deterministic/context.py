@@ -1,4 +1,4 @@
-"""Context helpers for Mellea-assisted assessment."""
+"""Document context helpers for assessment."""
 
 import re
 

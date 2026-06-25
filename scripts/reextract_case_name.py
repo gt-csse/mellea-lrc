@@ -18,7 +18,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from mellea_lrc.assessment.reextraction import reextract_case_name
+from mellea_lrc.assessment import reextract_case_name
 from mellea_lrc.llm import start_mellea_session_from_env
 
 

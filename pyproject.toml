@@ -56,7 +56,7 @@ extraction = [
     "mellea>=0.3.2",
 ]
 llm = [
-    "mellea>=0.3.2",
+    "mellea>=0.3.2,<0.4",
 ]
 
 # Shared utilities for scripts and notebooks.

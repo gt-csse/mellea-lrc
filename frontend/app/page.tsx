@@ -34,8 +34,6 @@ type ValidationPayload = {
 
 type AssessmentPayload = {
   citation_id: string;
-  status: string;
-  message: string;
   case_assess: CaseNameAssessmentPayload;
   year_assess: YearAssessmentPayload;
 };
@@ -75,7 +73,6 @@ type ReviewAssessment = {
   assessments: AssessmentPayload[];
   modified_citations: ModifiedExtractedCitationPayload[];
   reassessments: AssessmentPayload[];
-  counts: Record<string, number>;
   case_name_counts: Record<string, number>;
   year_counts: Record<string, number>;
 };
@@ -84,8 +81,6 @@ type ModifiedExtractedCitationPayload = {
   citation_id: string;
   span: TextSpan | null;
   matched_text: string | null;
-  plaintiff: string | null;
-  defendant: string | null;
   case_name: string | null;
   extracted_case_name: string | null;
 };
@@ -121,15 +116,15 @@ type SnapshotReviewResult = {
   stage: Exclude<WorkflowStage, "input">;
   result: ReviewResult;
 };
-type CitationStatus = "found" | "ambiguous" | "not_found" | "not_checked" | "other";
+type CitationStatus = "found" | "ambiguous" | "not_found" | "throttled" | "not_checked";
 type AssessmentStatus =
   | "exact_match"
-  | "match"
+  | "semantic_match"
   | "irregular_form"
   | "different_case"
-  | "reextraction_error";
+  | "reextraction_fail";
 type ExtractionFilter = "all" | "all_citations";
-type ValidationFilter = "all" | "ambiguous" | "not_found" | "not_checked" | "other";
+type ValidationFilter = "all" | "found" | "ambiguous" | "not_found" | "throttled";
 type AssessmentFilter = "all" | AssessmentStatus | "with_history";
 type CitationFilter =
   | ExtractionFilter
@@ -185,18 +180,18 @@ const extractionFilters: FilterOption[] = [
 ];
 const validationFilters: FilterOption[] = [
   { label: "All", value: "all" },
+  { label: "Found", value: "found" },
   { label: "Ambiguous", value: "ambiguous" },
   { label: "Not found", value: "not_found" },
-  { label: "Not checked", value: "not_checked" },
-  { label: "Other", value: "other" }
+  { label: "Throttled", value: "throttled" }
 ];
 const assessmentFilters: FilterOption[] = [
   { label: "All", value: "all" },
   { label: "Exact match", value: "exact_match" },
-  { label: "Match", value: "match" },
+  { label: "Semantic match", value: "semantic_match" },
   { label: "Irregular form", value: "irregular_form" },
   { label: "Different case", value: "different_case" },
-  { label: "Re-extraction error", value: "reextraction_error" },
+  { label: "Re-extraction fail", value: "reextraction_fail" },
   { label: "With history", value: "with_history" }
 ];
 const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
@@ -1225,14 +1220,6 @@ function AssessmentDetails({ assessment }: { assessment: AssessmentPayload | nul
     <div className="detail-group">
       <h3>Citation assessment</h3>
       <dl>
-        <div>
-          <dt>Status</dt>
-          <dd>{assessment.status.replaceAll("_", " ")}</dd>
-        </div>
-        <div>
-          <dt>Message</dt>
-          <dd>{assessment.message}</dd>
-        </div>
         {assessment.case_assess ? <CaseNameAssessmentDetails assessment={assessment.case_assess} /> : null}
         {assessment.year_assess ? <YearAssessmentDetails assessment={assessment.year_assess} /> : null}
       </dl>
@@ -1304,8 +1291,6 @@ function extractedCitationAttempts(
       label: items.length > 1 ? `Re-extracted ${index + 1}` : "Re-extracted",
       fields: {
         ...citation.fields,
-        plaintiff: item.plaintiff ?? undefined,
-        defendant: item.defendant ?? undefined,
         case_name: item.case_name ?? item.extracted_case_name ?? undefined
       },
       locator: citation.validation?.locator ?? citation.matched_text,
@@ -1421,13 +1406,13 @@ function caseNameRowMatchType(
     if (status === "exact_match") {
       return "exact";
     }
-    if (status === "match" || status === "semantic_match") {
+    if (status === "semantic_match") {
       return "semantic";
     }
     if (status === "irregular_form") {
       return "warning";
     }
-    if (status === "different_case" || status === "extraction_error" || status === "reextraction_error") {
+    if (status === "different_case" || status === "reextraction_fail") {
       return "error";
     }
   }
@@ -1846,19 +1831,17 @@ function assessmentStatusFromPayload(assessment: AssessmentPayload | null): Asse
   if (normalized === "exact_match") {
     return "exact_match";
   }
-  // Accept the legacy "semantic_match" alias for the current "match" verdict.
-  if (normalized === "match" || normalized === "semantic_match") {
-    return "match";
+  if (normalized === "semantic_match") {
+    return "semantic_match";
   }
   if (normalized === "irregular_form") {
     return "irregular_form";
   }
-  // Map the legacy catch-all "extraction_error" onto "different_case".
-  if (normalized === "different_case" || normalized === "extraction_error") {
+  if (normalized === "different_case") {
     return "different_case";
   }
-  if (normalized === "reextraction_error") {
-    return "reextraction_error";
+  if (normalized === "reextraction_fail") {
+    return "reextraction_fail";
   }
   return null;
 }
@@ -1866,21 +1849,21 @@ function assessmentStatusFromPayload(assessment: AssessmentPayload | null): Asse
 function isAssessmentStatusFilter(filter: CitationFilter): filter is AssessmentStatus {
   return (
     filter === "exact_match" ||
-    filter === "match" ||
+    filter === "semantic_match" ||
     filter === "irregular_form" ||
     filter === "different_case" ||
-    filter === "reextraction_error"
+    filter === "reextraction_fail"
   );
 }
 
 function isValidationStatusFilter(
   filter: CitationFilter
-): filter is Exclude<CitationStatus, "found"> {
+): filter is Exclude<ValidationFilter, "all"> {
   return (
+    filter === "found" ||
     filter === "ambiguous" ||
     filter === "not_found" ||
-    filter === "not_checked" ||
-    filter === "other"
+    filter === "throttled"
   );
 }
 
@@ -1895,15 +1878,18 @@ function isAssessmentCandidateCitation(citation: ReviewCitation) {
 function citationStatusFromValidation(validation: ValidationPayload): CitationStatus {
   const normalized = validation.status.toLowerCase().replaceAll("-", "_");
   if (normalized === "found") {
-    return validation.clusters.length > 1 ? "ambiguous" : "found";
+    return "found";
   }
-  if (normalized.includes("ambiguous")) {
+  if (normalized === "ambiguous") {
     return "ambiguous";
   }
-  if (normalized.includes("not_found") || normalized.includes("not found")) {
+  if (normalized === "not_found") {
     return "not_found";
   }
-  return "other";
+  if (normalized === "throttled") {
+    return "throttled";
+  }
+  return "not_checked";
 }
 
 function citationStatusCounts(citations: ReviewCitation[]) {
@@ -1913,7 +1899,7 @@ function citationStatusCounts(citations: ReviewCitation[]) {
       counts[status] += 1;
       return counts;
     },
-    { found: 0, ambiguous: 0, not_found: 0, not_checked: 0, other: 0 } satisfies Record<
+    { found: 0, ambiguous: 0, not_found: 0, throttled: 0, not_checked: 0 } satisfies Record<
       CitationStatus,
       number
     >
@@ -1973,10 +1959,10 @@ function assessmentStatusCounts(
     },
     {
       exact_match: 0,
-      match: 0,
+      semantic_match: 0,
       irregular_form: 0,
       different_case: 0,
-      reextraction_error: 0
+      reextraction_fail: 0
     } satisfies Record<AssessmentStatus, number>
   );
 }
@@ -2030,12 +2016,11 @@ function stageFilterOptions(
   allCitationTotal: number,
   withHistoryTotal: number
 ): FilterOption[] {
-  const filters =
-    stage === "assessed"
-      ? assessmentFilters
-      : stage === "validated"
-        ? validationFilters
-        : extractionFilters;
+  if (stage === "validated") {
+    return validationFilters;
+  }
+
+  const filters = stage === "assessed" ? assessmentFilters : extractionFilters;
   return filters.filter(
     (filter) =>
       filter.value === "all" ||

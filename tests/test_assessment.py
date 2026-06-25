@@ -2,8 +2,6 @@ import pytest
 
 from mellea_lrc.assessment import (
     CaseNameAssessmentStatus,
-    CitationAssessment,
-    CitationAssessmentStatus,
     ModifiedExtractedCitationProposal,
     YearAssessmentStatus,
     assess_case_name_exact_match,
@@ -13,8 +11,7 @@ from mellea_lrc.assessment import (
     get_extended_span_text,
     run_assessment,
 )
-from mellea_lrc.assessment.reextraction import ReextractionStatus, validate_proposal
-from mellea_lrc.assessment.types import CaseNameAssessment
+from mellea_lrc.assessment import ReextractionStatus, validate_proposal
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.types import ExtractedCitation
@@ -197,79 +194,10 @@ def test_assess_year_missing_is_field_level_third_status() -> None:
     assert result.status == YearAssessmentStatus.MISSING
 
 
-def test_citation_assessment_status_rolls_up_year_mismatch() -> None:
-    case_assess = assess_case_name_exact_match(
-        citation_id="cite-1",
-        extracted_case_name="Brown v. Board",
-        courtlistener_case_name="Brown v. Board",
-    )
-    year_assess = assess_year_exact_match(
-        citation_id="cite-1",
-        extracted_year="1953",
-        courtlistener_year="1954",
-    )
-
-    result = CitationAssessment(
-        citation_id="cite-1",
-        case_assess=case_assess,
-        year_assess=year_assess,
-    )
-
-    assert result.status == CitationAssessmentStatus.MISMATCH
-    assert result.year_assess.status == YearAssessmentStatus.MISMATCH
-    assert result.message == "Extracted year does not match CourtListener."
-
-
-def test_citation_assessment_status_rolls_up_year_mismatch_over_semantic_match() -> None:
-    case_assess = CaseNameAssessment(
-        citation_id="cite-1",
-        status=CaseNameAssessmentStatus.MATCH,
-        extracted_case_name="Brown v. Board",
-        courtlistener_case_name="Brown v. Board of Education",
-        message="Extracted case name matches the retrieved case.",
-    )
-    year_assess = assess_year_exact_match(
-        citation_id="cite-1",
-        extracted_year="1953",
-        courtlistener_year="1954",
-    )
-
-    result = CitationAssessment(
-        citation_id="cite-1",
-        case_assess=case_assess,
-        year_assess=year_assess,
-    )
-
-    assert result.status == CitationAssessmentStatus.MISMATCH
-
-
-def test_citation_assessment_status_rolls_up_case_name_verdict() -> None:
-    case_assess = assess_case_name_exact_match(
-        citation_id="cite-1",
-        extracted_case_name="Brown v. Board",
-        courtlistener_case_name="Brown v. Board",
-    )
-    year_assess = assess_year_exact_match(
-        citation_id="cite-1",
-        extracted_year=None,
-        courtlistener_year="1954",
-    )
-
-    result = CitationAssessment(
-        citation_id="cite-1",
-        case_assess=case_assess,
-        year_assess=year_assess,
-    )
-
-    assert result.status == CitationAssessmentStatus.EXACT_MATCH
-    assert result.message == "Extracted case name exactly matches CourtListener."
-
-
 def test_modified_extracted_citation_proposal_valid_requires_grounded_fields() -> None:
     context = "See World Wide Ass'n of Specialty Programs v. Pure, Inc., 450 F.3d 1132."
     modified = ModifiedExtractedCitationProposal(
-        plaintiff="World Wide Ass'n of Specialty Programs",
-        defendant="Pure, Inc.",
+        case_name="World Wide Ass'n of Specialty Programs v. Pure, Inc.",
     )
 
     assert modified.valid(context)
@@ -279,8 +207,7 @@ def test_modified_extracted_citation_proposal_valid_requires_grounded_fields() -
 def test_modified_extracted_citation_proposal_valid_rejects_ungrounded_fields() -> None:
     context = "See World Wide Ass'n of Specialty Programs v. Pure, Inc., 450 F.3d 1132."
     modified = ModifiedExtractedCitationProposal(
-        plaintiff="World Wide Association of Specialty Programs",
-        defendant="Pure, Inc.",
+        case_name="World Wide Association of Specialty Programs v. Pure, Inc.",
     )
 
     assert not modified.valid(context)
@@ -289,8 +216,7 @@ def test_modified_extracted_citation_proposal_valid_rejects_ungrounded_fields() 
 def test_reextraction_validation_accepts_grounded_proposal() -> None:
     context = "See World Wide Ass'n of Specialty Programs v. Pure, Inc., 450 F.3d 1132."
     proposal = ModifiedExtractedCitationProposal(
-        plaintiff="World Wide Ass'n of Specialty Programs",
-        defendant="Pure, Inc.",
+        case_name="World Wide Ass'n of Specialty Programs v. Pure, Inc.",
     )
 
     status, error = validate_proposal(proposal, context)
@@ -302,15 +228,14 @@ def test_reextraction_validation_accepts_grounded_proposal() -> None:
 def test_reextraction_validation_reports_ungrounded_fields() -> None:
     context = "See World Wide Ass'n of Specialty Programs v. Pure, Inc., 450 F.3d 1132."
     proposal = ModifiedExtractedCitationProposal(
-        plaintiff="World Wide Association of Specialty Programs",
-        defendant="Pure, Inc.",
+        case_name="World Wide Association of Specialty Programs v. Pure, Inc.",
     )
 
     status, error = validate_proposal(proposal, context)
 
     assert status == ReextractionStatus.INVALID
     assert error is not None
-    assert "plaintiff" in error
+    assert "case_name" in error
 
 
 def test_reextraction_validation_distinguishes_empty_proposal() -> None:
@@ -318,30 +243,6 @@ def test_reextraction_validation_distinguishes_empty_proposal() -> None:
 
     assert status == ReextractionStatus.EMPTY
     assert error is None
-
-
-def test_citation_assessment_status_rolls_up_reextraction_error() -> None:
-    case_assess = CaseNameAssessment(
-        citation_id="cite-1",
-        status=CaseNameAssessmentStatus.REEXTRACTION_ERROR,
-        extracted_case_name="Brown",
-        courtlistener_case_name="Brown v. Board",
-        message="re-extraction failed",
-    )
-    year_assess = assess_year_exact_match(
-        citation_id="cite-1",
-        extracted_year=None,
-        courtlistener_year="1954",
-    )
-
-    result = CitationAssessment(
-        citation_id="cite-1",
-        case_assess=case_assess,
-        year_assess=year_assess,
-    )
-
-    assert result.status == CitationAssessmentStatus.REEXTRACTION_ERROR
-    assert result.message == "re-extraction failed"
 
 
 def test_run_assessment_progresses_document_validation_to_document_assessment() -> None:
@@ -388,5 +289,5 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
     assert assessment.citations == (citation,)
     assert assessment.validations == validation.validations
     assert len(assessment.assessments) == 1
-    assert assessment.assessments[0].status == CitationAssessmentStatus.EXACT_MATCH
+    assert assessment.assessments[0].case_assess.status == CaseNameAssessmentStatus.EXACT_MATCH
     assert assessment.assessments[0].year_assess.status == YearAssessmentStatus.EXACT_MATCH

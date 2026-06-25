@@ -1,5 +1,6 @@
 """Tests for the standalone E2E backend pipeline helpers."""
 
+import asyncio
 from mellea_lrc.assessment import (
     CaseNameAssessment,
     CaseNameAssessmentStatus,
@@ -160,15 +161,13 @@ def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> 
         "clusters": [{"case_name": "Brown v. Board", "date_filed": "1954-05-17"}],
     }
 
-    output = assess_review_payload(extracted)
+    output = asyncio.run(assess_review_payload(extracted))
 
     assessment = output["citations"][0]["assessment"]
-    assert assessment["status"] == "exact_match"
     assert assessment["case_assess"]["status"] == "exact_match"
     assert assessment["year_assess"]["status"] == "exact_match"
     assert assessment["year_assess"]["extracted_year"] == "1954"
     assert assessment["year_assess"]["courtlistener_year"] == "1954"
-    assert output["assessment"]["counts"]["exact_match"] == 1
     assert output["assessment"]["case_name_counts"]["exact_match"] == 1
     assert output["assessment"]["year_counts"]["exact_match"] == 1
 
@@ -226,8 +225,7 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
 
     assert output["document"]["text"] == preprocessed.text
     assert output["citations"][0]["validation"]["status"] == "found"
-    assert output["citations"][0]["assessment"]["status"] == "exact_match"
-    assert output["assessment"]["counts"]["exact_match"] == 1
+    assert output["citations"][0]["assessment"]["case_assess"]["status"] == "exact_match"
     assert output["assessment"]["case_name_counts"]["exact_match"] == 1
     assert output["assessment"]["year_counts"]["exact_match"] == 1
     assert output["stats"]["assessed"] == 1

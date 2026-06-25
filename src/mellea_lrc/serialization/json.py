@@ -295,8 +295,6 @@ def serialize_citation_assessment(item: CitationAssessment) -> dict[str, JsonVal
     """Serialize one citation assessment."""
     return {
         "citation_id": item.citation_id,
-        "status": item.status.value,
-        "message": item.message,
         "case_assess": serialize_case_name_assessment(item.case_assess),
         "year_assess": serialize_year_assessment(item.year_assess),
     }
@@ -331,13 +329,12 @@ def deserialize_modified_extracted_citation(
 ) -> ModifiedExtractedCitation:
     """Rebuild one modified extraction from JSON data."""
     span_payload = payload.get("span")
+    case_name = _optional_str(payload.get("case_name"))
     return ModifiedExtractedCitation(
         citation_id=str(payload.get("citation_id") or ""),
         span=_deserialize_span(_mapping_field(span_payload)) if isinstance(span_payload, dict) else None,
-        matched_text=_optional_str(payload.get("matched_text")),
-        plaintiff=_optional_str(payload.get("plaintiff")),
-        defendant=_optional_str(payload.get("defendant")),
-        case_name=_optional_str(payload.get("case_name")),
+        matched_text=_optional_str(payload.get("matched_text")) or case_name,
+        case_name=case_name,
     )
 
 
@@ -354,7 +351,6 @@ def serialize_document_assessment(result: DocumentAssessment) -> dict[str, JsonV
             serialize_modified_extracted_citation(item) for item in result.modified_citations
         ],
         "reassessments": [serialize_citation_assessment(item) for item in result.reassessments],
-        "counts": _count_assessment_by_status(result),
         "case_name_counts": _count_assessment_case_names_by_status(result),
         "year_counts": _count_assessment_years_by_status(result),
     }
@@ -404,13 +400,6 @@ def _count_by_type(result: DocumentExtraction) -> dict[str, int]:
 def _count_validation_by_status(result: DocumentValidation) -> dict[str, int]:
     counts: dict[str, int] = {}
     for item in result.validations:
-        counts[item.status.value] = counts.get(item.status.value, 0) + 1
-    return counts
-
-
-def _count_assessment_by_status(result: DocumentAssessment) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in result.assessments:
         counts[item.status.value] = counts.get(item.status.value, 0) + 1
     return counts
 

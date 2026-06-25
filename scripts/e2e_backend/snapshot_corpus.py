@@ -4,7 +4,10 @@ For every PDF in ``local/test_data/pdfs/*.pdf`` (or matching preprocessed
 ``.txt`` in ``local/test_data/``) this runs the full chain (preprocess ->
 extract -> validate -> assess) and serializes each module output to:
 
-    local/snapshots/<doc>/<module>/<model>_<timestamp>.json
+    local/snapshots/<doc>/preprocessed.json
+    local/snapshots/<doc>/extraction.json
+    local/snapshots/<doc>/validation.json
+    local/snapshots/<doc>/assessment.json
 
 Layer 2 text should be regenerated from PDFs with:
 
@@ -23,14 +26,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 from mellea_lrc.assessment import run_assessment
 from mellea_lrc.extraction import run_extraction
-from mellea_lrc.llm import llm_provider_config_from_env
 from mellea_lrc.preprocessing import preprocess, preprocess_plain_text
 from mellea_lrc.preprocessing.types import PreprocessedDocument
 from mellea_lrc.serialization import (
@@ -46,16 +46,11 @@ DEFAULT_TEST_DATA = Path("local/test_data")
 DEFAULT_PDF_DIR = DEFAULT_TEST_DATA / "pdfs"
 DEFAULT_SNAPSHOT_ROOT = Path("local/snapshots")
 
-# Engine identifier recorded in the filename for the non-LLM modules.
-STATIC_MODULE_MODELS = {
-    "preprocessed": "docling-tesseract",
-    "extraction": "eyecite",
-    "validation": "cl-access",
-}
+SNAPSHOT_STAGES = ("preprocessed", "extraction", "validation", "assessment")
 
 
 def main() -> None:
-    """Run the configured test corpus and write timestamped snapshots."""
+    """Run the configured test corpus and write module snapshots."""
     args = _parse_args()
     _load_dotenv(Path(".env"))
 
@@ -64,9 +59,6 @@ def main() -> None:
         _emit("No matching test documents found.")
         return
 
-    run_stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    assessment_model = llm_provider_config_from_env(os.environ).model
-
     for input_path in documents:
         doc = input_path.stem
         try:
@@ -74,8 +66,6 @@ def main() -> None:
                 input_path,
                 test_data=args.test_data,
                 snapshot_root=args.snapshot_root,
-                run_stamp=run_stamp,
-                assessment_model=assessment_model,
                 max_mellea=args.max_mellea,
             )
             _emit(f"{doc}: done")
@@ -90,48 +80,30 @@ def _snapshot_document(
     *,
     test_data: Path,
     snapshot_root: Path,
-    run_stamp: str,
-    assessment_model: str,
     max_mellea: int | None,
 ) -> None:
     doc = input_path.stem
+    doc_dir = snapshot_root / doc
+    doc_dir.mkdir(parents=True, exist_ok=True)
 
     preprocessed = _load_preprocessed(input_path, test_data=test_data)
-    _write_snapshot(
-        snapshot_root, doc, "preprocessed", STATIC_MODULE_MODELS["preprocessed"], run_stamp,
-        serialize_preprocessed_document(preprocessed),
-    )
+    _write_snapshot(doc_dir, "preprocessed", serialize_preprocessed_document(preprocessed))
 
     extraction = run_extraction(preprocessed)
-    _write_snapshot(
-        snapshot_root, doc, "extraction", STATIC_MODULE_MODELS["extraction"], run_stamp,
-        serialize_document_extraction(extraction),
-    )
+    _write_snapshot(doc_dir, "extraction", serialize_document_extraction(extraction))
 
     validation = run_validation(extraction)
-    _write_snapshot(
-        snapshot_root, doc, "validation", STATIC_MODULE_MODELS["validation"], run_stamp,
-        serialize_document_validation(validation),
-    )
+    _write_snapshot(doc_dir, "validation", serialize_document_validation(validation))
 
     assessment = run_assessment(validation, max_mellea=max_mellea)
-    _write_snapshot(
-        snapshot_root, doc, "assessment", assessment_model, run_stamp,
-        serialize_document_assessment(assessment),
-    )
+    _write_snapshot(doc_dir, "assessment", serialize_document_assessment(assessment))
 
 
-def _write_snapshot(
-    snapshot_root: Path,
-    doc: str,
-    module: str,
-    model: str,
-    run_stamp: str,
-    payload: object,
-) -> Path:
-    out_dir = snapshot_root / doc / module
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{_slug(model)}_{run_stamp}.json"
+def _write_snapshot(doc_dir: Path, stage: str, payload: object) -> Path:
+    if stage not in SNAPSHOT_STAGES:
+        msg = f"Unknown snapshot stage: {stage}"
+        raise ValueError(msg)
+    path = doc_dir / f"{stage}.json"
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return path
 
@@ -166,10 +138,6 @@ def _select_documents(test_data: Path, pdf_dir: Path, docs: list[str] | None) ->
     if pdf_dir.exists():
         return sorted(pdf_dir.glob("*.pdf"))
     return sorted(test_data.glob("*.txt"))
-
-
-def _slug(value: str) -> str:
-    return value.replace("/", "-").replace(":", "-")
 
 
 def _parse_args() -> argparse.Namespace:
