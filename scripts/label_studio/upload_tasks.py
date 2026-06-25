@@ -8,6 +8,7 @@ from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
+from charset_normalizer import from_path
 
 from .pre_annotate import build_task_payload
 
@@ -72,7 +73,7 @@ def main(paths: list[str] | None = None) -> int:
     project_id = os.environ["LS_PROJECT_ID"]
 
     for document_path in document_paths:
-        text = Path(document_path).read_text(encoding="utf-8")
+        text = str(from_path(Path(document_path)).best())
         result = upload_task(
             session,
             os.environ["LS_URL"],
