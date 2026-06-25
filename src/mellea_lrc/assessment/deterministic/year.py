@@ -1,9 +1,6 @@
-"""Citation-level assessment helpers."""
+"""Deterministic year comparison."""
 
-from mellea_lrc.assessment.types import (
-    YearAssessment,
-    YearAssessmentStatus,
-)
+from mellea_lrc.assessment.types import YearAssessment, YearAssessmentStatus
 
 
 def assess_year_exact_match(

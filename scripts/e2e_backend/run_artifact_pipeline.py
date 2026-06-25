@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 DEFAULT_INPUT = Path("local/test_data/pdfs/432895579.pdf")
 DEFAULT_FALLBACK_INPUT = Path("local/test_data/432895579.txt")
-DEFAULT_SNAPSHOT_DIR = Path("local/snapshots/e2e")
+DEFAULT_SNAPSHOT_ROOT = Path("local/snapshots")
 
 
 def main() -> None:
@@ -41,10 +41,10 @@ def main() -> None:
             "scripts.e2e_backend.preprocess_test_pdfs first."
         )
         raise FileNotFoundError(msg)
-    snapshot_dir = args.snapshot_dir
+    snapshot_dir = args.snapshot_dir or (DEFAULT_SNAPSHOT_ROOT / input_path.stem)
     snapshot_dir.mkdir(parents=True, exist_ok=True)
-    validation_path = snapshot_dir / f"{input_path.stem}.document_validation.json"
-    assessment_path = snapshot_dir / f"{input_path.stem}.document_assessment.json"
+    validation_path = snapshot_dir / "validation.json"
+    assessment_path = snapshot_dir / "assessment.json"
 
     preprocessed = (
         preprocess_plain_text(input_path)
@@ -82,7 +82,12 @@ def main() -> None:
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
-    parser.add_argument("--snapshot-dir", type=Path, default=DEFAULT_SNAPSHOT_DIR)
+    parser.add_argument(
+        "--snapshot-dir",
+        type=Path,
+        default=None,
+        help="Directory for validation.json and assessment.json (default: local/snapshots/<doc>)",
+    )
     parser.add_argument("--refresh-validation", action="store_true")
     parser.add_argument("--assess-mellea", action="store_true")
     parser.add_argument("--max-mellea", type=int, default=None)

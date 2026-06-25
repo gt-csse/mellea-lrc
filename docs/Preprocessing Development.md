@@ -1,8 +1,8 @@
 ---
-tags: [preprocessing, docling, tesseract, ocr, layer-2]
+
+## tags: [preprocessing, docling, tesseract, ocr, layer-2]
 status: active
 created: 2026-06-24
----
 
 # Preprocessing Development
 
@@ -23,10 +23,10 @@ Our default preprocessing path is implemented in
 
 For PDFs we configure Docling with:
 
-- **`PdfPipelineOptions.do_ocr = True`** — run OCR when embedded text is missing
-  or unreliable.
-- **`TesseractCliOcrOptions(lang=["eng"])`** — use the system `tesseract`
-  binary rather than Docling's bundled OCR engines.
+- `**PdfPipelineOptions.do_ocr = True**` — run OCR when embedded text is missing
+or unreliable.
+- `**TesseractCliOcrOptions(lang=["eng"])**` — use the system `tesseract`
+binary rather than Docling's bundled OCR engines.
 
 Non-PDF formats (DOCX, HTML, etc.) still go through Docling's default converter
 without the PDF-specific OCR override.
@@ -42,7 +42,7 @@ Early local test data used RECAP-style `.txt` exports fetched from CourtListener
 but the body text is often **worse than re-parsing the original PDF**:
 
 - Line breaks and column order from PACER/RECAP extraction do not match the
-  visual brief layout.
+visual brief layout.
 - Citation strings are split across lines or merged with neighboring tokens.
 - OCR and copy/paste artifacts from upstream conversion propagate unchanged.
 

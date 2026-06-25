@@ -6,15 +6,15 @@ import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from mellea_lrc.assessment.case_name import assess_case_name_exact_match, build_extracted_case_name
-from mellea_lrc.assessment.citation import assess_year_exact_match
-from mellea_lrc.assessment.context import find_text_span_near_full_span, get_extended_span_text
+from mellea_lrc.assessment.citation.assess import CitationAssessmentBundle, assess_found_citation
+from mellea_lrc.assessment.citation.clusters import first_cluster_case_name, first_cluster_year
+from mellea_lrc.assessment.deterministic.case_name import assess_case_name_exact_match, build_extracted_case_name
+from mellea_lrc.assessment.deterministic.context import get_extended_span_text
 from mellea_lrc.assessment.types import (
     CaseNameAssessmentStatus,
     CitationAssessment,
     DocumentAssessment,
     ModifiedExtractedCitation,
-    YearAssessment,
 )
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.extraction.types import ExtractedCitation
@@ -24,7 +24,7 @@ from mellea_lrc.validation.types import ValidationStatus
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from mellea_lrc.validation.types import CitationValidation, DocumentValidation
+    from mellea_lrc.validation.types import DocumentValidation
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,7 +45,8 @@ class _PendingMelleaAssessment:
     document_text: str
     extracted_case_name: str | None
     courtlistener_case_name: str | None
-    year_assess: YearAssessment
+    extracted_year: str | None
+    courtlistener_year: str | None
     context: str
     mellea_call: int
 
@@ -78,14 +79,7 @@ async def run_assessment_async(
     on_mellea_call: Callable[[MelleaCallContext], None] | None = None,
     on_mellea_done: Callable[[MelleaCallContext, CitationAssessment], None] | None = None,
 ) -> DocumentAssessment:
-    """Assess a validated document with Mellea-backed case-name checks.
-
-    The interface boundary is intentionally simple:
-    :class:`DocumentValidation` in, :class:`DocumentAssessment` out.
-    Deterministic exact-match and year checks always run. Mellea-backed semantic
-    assessment is called only for case names that need it. Each Mellea citation
-    uses a cloned session. Use ``mellea_concurrency`` to cap parallel LLM calls.
-    """
+    """Assess a validated document with Mellea-backed case-name checks."""
     validations_by_id = {item.citation_id: item for item in validation.validations}
     assessments: list[CitationAssessment] = []
     modified_citations: list[ModifiedExtractedCitation] = []
@@ -102,25 +96,25 @@ async def run_assessment_async(
             continue
 
         extracted_case_name = build_extracted_case_name(citation.citation)
-        courtlistener_case_name = _first_cluster_case_name(citation_validation)
-        year_assess = assess_year_exact_match(
-            citation_id=citation.citation_id,
-            extracted_year=citation.citation.year,
-            courtlistener_year=_first_cluster_year(citation_validation),
-        )
+        courtlistener_case_name = first_cluster_case_name(citation_validation.clusters)
+        courtlistener_year = first_cluster_year(citation_validation.clusters)
         exact = assess_case_name_exact_match(
             citation_id=citation.citation_id,
             extracted_case_name=extracted_case_name,
             courtlistener_case_name=courtlistener_case_name,
         )
         if exact.status != CaseNameAssessmentStatus.NEEDS_ASSESSMENT:
-            assessments.append(
-                CitationAssessment(
-                    citation_id=citation.citation_id,
-                    case_assess=exact,
-                    year_assess=year_assess,
-                )
+            bundle = await assess_found_citation(
+                citation_id=citation.citation_id,
+                document_text=validation.text,
+                span=citation.span,
+                extracted_case_name=extracted_case_name,
+                courtlistener_case_name=courtlistener_case_name,
+                extracted_year=citation.citation.year,
+                courtlistener_year=courtlistener_year,
+                session=None,
             )
+            assessments.append(bundle.assessment)
             continue
         if max_mellea is not None and len(pending) >= max_mellea:
             continue
@@ -131,15 +125,14 @@ async def run_assessment_async(
                 document_text=validation.text,
                 extracted_case_name=extracted_case_name,
                 courtlistener_case_name=courtlistener_case_name,
-                year_assess=year_assess,
+                extracted_year=citation.citation.year,
+                courtlistener_year=courtlistener_year,
                 context=get_extended_span_text(validation.text, citation.span),
                 mellea_call=len(pending) + 1,
             )
         )
 
     if pending:
-        from mellea_lrc.assessment.mellea import assess_case_name_with_mellea  # noqa: PLC0415
-
         session = start_mellea_session_from_env()
         limit = mellea_concurrency if mellea_concurrency is not None else len(pending)
         semaphore = asyncio.Semaphore(max(1, limit))
@@ -149,19 +142,18 @@ async def run_assessment_async(
                     session,
                     job,
                     semaphore=semaphore,
-                    assess_case_name_with_mellea=assess_case_name_with_mellea,
                     on_mellea_call=on_mellea_call,
                     on_mellea_done=on_mellea_done,
                 )
                 for job in pending
             ]
         )
-        for citation_assessment, modified, reassessment in mellea_results:
-            assessments.append(citation_assessment)
-            if modified is not None:
-                modified_citations.append(modified)
-            if reassessment is not None:
-                reassessments.append(reassessment)
+        for bundle in mellea_results:
+            assessments.append(bundle.assessment)
+            if bundle.modified_citation is not None:
+                modified_citations.append(bundle.modified_citation)
+            if bundle.reassessment is not None:
+                reassessments.append(bundle.reassessment)
 
     return DocumentAssessment(
         preprocessed=validation.preprocessed,
@@ -178,10 +170,9 @@ async def _assess_pending_mellea_citation(
     job: _PendingMelleaAssessment,
     *,
     semaphore: asyncio.Semaphore,
-    assess_case_name_with_mellea,
     on_mellea_call: Callable[[MelleaCallContext], None] | None,
     on_mellea_done: Callable[[MelleaCallContext, CitationAssessment], None] | None,
-) -> tuple[CitationAssessment, ModifiedExtractedCitation | None, CitationAssessment | None]:
+) -> CitationAssessmentBundle:
     call_context = MelleaCallContext(
         mellea_call=job.mellea_call,
         citation_id=job.citation.citation_id,
@@ -193,54 +184,16 @@ async def _assess_pending_mellea_citation(
     async with semaphore:
         if on_mellea_call is not None:
             on_mellea_call(call_context)
-        run = await assess_case_name_with_mellea(
-            session.clone(),
+        bundle = await assess_found_citation(
             citation_id=job.citation.citation_id,
+            document_text=job.document_text,
+            span=job.citation.span,
             extracted_case_name=job.extracted_case_name,
             courtlistener_case_name=job.courtlistener_case_name,
-            document_context=job.context,
+            extracted_year=job.extracted_year,
+            courtlistener_year=job.courtlistener_year,
+            session=session.clone(),
         )
-    modified = None
-    if run.modified_citation is not None:
-        modified = ModifiedExtractedCitation.from_proposal(
-            run.modified_citation,
-            citation_id=job.citation.citation_id,
-            span=find_text_span_near_full_span(
-                job.document_text,
-                run.modified_citation.extracted_case_name or "",
-                job.citation.span,
-            ),
-        )
-    reassessment = None
-    if run.reassessment is not None:
-        reassessment = CitationAssessment(
-            citation_id=job.citation.citation_id,
-            case_assess=run.reassessment,
-            year_assess=job.year_assess,
-        )
-    citation_assessment = CitationAssessment(
-        citation_id=job.citation.citation_id,
-        case_assess=run.assessment,
-        year_assess=job.year_assess,
-    )
     if on_mellea_done is not None:
-        on_mellea_done(call_context, citation_assessment)
-    return (
-        citation_assessment,
-        modified,
-        reassessment,
-    )
-
-
-def _first_cluster_case_name(validation: CitationValidation) -> str | None:
-    if not validation.clusters:
-        return None
-    case_name = validation.clusters[0].get("case_name") or validation.clusters[0].get("caseName")
-    return str(case_name) if isinstance(case_name, str) and case_name else None
-
-
-def _first_cluster_year(validation: CitationValidation) -> str | None:
-    if not validation.clusters:
-        return None
-    date_filed = validation.clusters[0].get("date_filed") or validation.clusters[0].get("dateFiled")
-    return str(date_filed)[:4] if isinstance(date_filed, str) and date_filed else None
+        on_mellea_done(call_context, bundle.assessment)
+    return bundle

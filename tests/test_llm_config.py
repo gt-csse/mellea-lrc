@@ -21,9 +21,6 @@ def test_llm_provider_config_openrouter_mellea_call_options_respect_require_para
         "temperature": 0,
         "max_tokens": 8,
     }
-
-
-def test_llm_provider_config_supports_deepseek_official_defaults() -> None:
     config = llm_provider_config_from_env(
         {
             "MELLEA_LRC_LLM_PROVIDER": "deepseek",
@@ -41,4 +38,5 @@ def test_llm_provider_config_supports_deepseek_official_defaults() -> None:
     assert config.mellea_call_options(max_tokens=8) == {
         "temperature": 0,
         "max_tokens": 8,
+        "extra_body": {"response_format": {"type": "json_object"}},
     }

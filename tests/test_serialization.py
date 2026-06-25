@@ -142,7 +142,6 @@ def test_document_assessment_round_trips() -> None:
     artifact = serialize_document_assessment(document_assessment)
     restored = deserialize_document_assessment(artifact)
 
-    assert artifact["counts"] == {"exact_match": 1}
     assert artifact["case_name_counts"] == {"exact_match": 1}
     assert artifact["year_counts"] == {"exact_match": 1}
     assert restored == document_assessment

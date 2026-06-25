@@ -600,10 +600,19 @@ input:focus-visible {
   color: #92400e;
 }
 
-.citation-tag.validation.not_found,
-.citation-tag.validation.other {
+.citation-tag.validation.not_found {
   background: #fee2e2;
   color: var(--danger);
+}
+
+.citation-tag.validation.throttled {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.citation-tag.validation.not_checked {
+  background: #f3f4f6;
+  color: #4b5563;
 }
 
 .citation-tag.assessment {
@@ -612,13 +621,13 @@ input:focus-visible {
 }
 
 .citation-tag.assessment.exact_match,
-.citation-tag.assessment.match {
+.citation-tag.assessment.semantic_match {
   background: #e0f2fe;
   color: #075985;
 }
 
 .citation-tag.assessment.different_case,
-.citation-tag.assessment.reextraction_error {
+.citation-tag.assessment.reextraction_fail {
   background: #fee2e2;
   color: var(--danger);
 }

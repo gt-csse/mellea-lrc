@@ -81,7 +81,7 @@ def create_app(backend: E2EBackend | None = None) -> FastAPI:  # noqa: C901, PLR
     @web_app.post("/api/assess-review")
     async def assess_review(payload: dict[str, object]) -> dict[str, Any]:
         try:
-            return pipeline.assess_review_payload(payload)
+            return await pipeline.assess_review_payload(payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:

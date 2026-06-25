@@ -22,7 +22,7 @@ image = (
         "docling>=2.0",
         "eyecite>=2.6",
         "fastapi[standard]>=0.115",
-        "mellea>=0.3.2",
+        "mellea>=0.3.2,<0.4",
         "requests>=2.32",
     )
     .add_local_python_source("mellea_lrc", "scripts")
