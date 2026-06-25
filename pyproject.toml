@@ -1,6 +1,6 @@
 [project]
 name = "mellea-lrc"
-version = "0.0.0" 
+version = "0.1.9" 
 #          ^^^^^
 # Wheel names will be generated according to this value. Do not manually modify this value; instead
 # update it according to committed changes by running this command from the root of the repository:
@@ -15,7 +15,12 @@ authors = [
     { name = "Robert Bates", email = "rbates8@gatech.edu" },
 ]
 requires-python = ">= 3.10"
-dependencies = []
+dependencies = [
+    "docling>=2.96.1",
+    "dotenv>=0.9.9",
+    "eyecite>=2.7.6",
+    "mellea>=0.3.2",
+]
 classifiers = [
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
@@ -42,10 +47,12 @@ build-backend = "uv_build"
 
 [dependency-groups]
 preprocessing = [
+    "charset-normalizer>=3.4.7",
     "docling>=2.0",
 ]
 extraction = [
     "eyecite>=2.6",
+    "mellea>=0.3.2",
 ]
 label-studio = [
     { include-group = "extraction" },
@@ -60,6 +67,15 @@ dev = [
     "pytest-cov>=7.1.0",
     "ruff>=0.15.15",
     "typer<0.26",
+]
+eval = [
+    "matplotlib>=3.10.9",
+    "pandas>=2.3.3",
+]
+notebook = [
+    "ipykernel>=7.2.0",
+    "ipython>=8.39.0",
+    "jupyter>=1.1.1",
 ]
 
 [tool.pytest.ini_options]
@@ -102,6 +118,8 @@ ignore = [
     "TRY002", # Create your own exception
     "TRY300", # Consider moving this statement to an `else` block
     "UP032", # Use f-string instead of `format` call
+    "D203", # Incorrect blank lines before class
+    "D213", # Multiline line summary second line
 ]
 
 [tool.ruff.lint.mccabe]
