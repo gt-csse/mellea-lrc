@@ -33,4 +33,6 @@ frontend/npm-debug.log*
 frontend/yarn-error.log*
 
 # exploratory notebooks
-notebooks/
+*.ipynb
+
+!*.example.ipynb
