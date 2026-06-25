@@ -1,12 +1,10 @@
 """Run benchmarks on Mellea models."""
 
 # %%
+import hashlib
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-for index, path in enumerate(sys.path):
-    print(f"{index}. {path}")
 from mellea_lrc.extraction import extract_document_file
 from scripts.label_studio import upload_schema, upload_tasks
 
@@ -50,12 +48,23 @@ def convert_to_text(file_path: Path) -> str:
 def main() -> int:
     """Run the mellea benchmark."""
     file_path = get_document()
-    text = convert_to_text(file_path)
+    # Check if already converted
+    dir_name = Path(__file__).parent / ".cache"
+    dir_name.mkdir(exist_ok=True)
+    raw = file_path.read_bytes()
+    hash_string = hashlib.sha256(raw).hexdigest()
+    text_path = dir_name / str(hash_string + ".txt")
+    if hash_string in list(path.stem for path in dir_name.iterdir()):
+        text = text_path.read_text(encoding="utf-8")
+    else:
+        text = convert_to_text(file_path)
+        text_path.write_text(text)
+
     header = "\n".join(text.split("\n")[:9])
     print(header)
 
     upload_schema.main()
-    upload_tasks.main(paths=[str(file_path)])
+    upload_tasks.main(paths=[str(text_path)])
     return 0
 
 
