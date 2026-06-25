@@ -2853,17 +2853,12 @@ wheels = [
 name = "mellea-lrc"
 version = "0.1.9"
 source = { editable = "." }
-dependencies = [
-    { name = "docling" },
-    { name = "dotenv" },
-    { name = "eyecite" },
-    { name = "mellea", version = "0.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "mellea", version = "0.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-]
 
 [package.dev-dependencies]
 dev = [
     { name = "autogitsemver" },
+    { name = "docling" },
+    { name = "dotenv" },
     { name = "eyecite" },
     { name = "mellea", version = "0.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "mellea", version = "0.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -2880,11 +2875,15 @@ eval = [
     { name = "pandas", version = "3.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
 extraction = [
+    { name = "docling" },
+    { name = "dotenv" },
     { name = "eyecite" },
     { name = "mellea", version = "0.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "mellea", version = "0.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
 label-studio = [
+    { name = "docling" },
+    { name = "dotenv" },
     { name = "eyecite" },
     { name = "mellea", version = "0.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "mellea", version = "0.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -2903,16 +2902,12 @@ preprocessing = [
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "docling", specifier = ">=2.96.1" },
-    { name = "dotenv", specifier = ">=0.9.9" },
-    { name = "eyecite", specifier = ">=2.7.6" },
-    { name = "mellea", specifier = ">=0.3.2" },
-]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "autogitsemver", specifier = ">=0.9.13" },
+    { name = "docling", specifier = ">=2.102.2" },
+    { name = "dotenv", specifier = ">=0.9.9" },
     { name = "eyecite", specifier = ">=2.6" },
     { name = "mellea", specifier = ">=0.3.2" },
     { name = "pre-commit", specifier = ">=4.6.0" },
@@ -2926,10 +2921,14 @@ eval = [
     { name = "pandas", specifier = ">=2.3.3" },
 ]
 extraction = [
+    { name = "docling", specifier = ">=2.102.2" },
+    { name = "dotenv", specifier = ">=0.9.9" },
     { name = "eyecite", specifier = ">=2.6" },
     { name = "mellea", specifier = ">=0.3.2" },
 ]
 label-studio = [
+    { name = "docling", specifier = ">=2.102.2" },
+    { name = "dotenv", specifier = ">=0.9.9" },
     { name = "eyecite", specifier = ">=2.6" },
     { name = "mellea", specifier = ">=0.3.2" },
     { name = "python-dotenv", specifier = ">=1.0" },
