@@ -425,13 +425,16 @@ def review_document_assessment(assessment: DocumentAssessment) -> dict[str, Any]
 def _ensure_assessment_is_resolved(assessment: DocumentAssessment) -> None:
     # NEEDS_ASSESSMENT is a transient handoff only when both names are present and
     # comparable; a missing extracted or CourtListener name is legitimately
-    # unassessable and is allowed to remain NEEDS_ASSESSMENT.
+    # unassessable and is allowed to remain NEEDS_ASSESSMENT. When re-extraction
+    # ran, the final verdict is in reassessments — those citations are resolved.
+    reassessed_ids = {item.citation_id for item in assessment.reassessments}
     pending = [
         item.citation_id
         for item in assessment.assessments
         if item.case_assess.status == CaseNameAssessmentStatus.NEEDS_ASSESSMENT
         and item.case_assess.extracted_case_name
         and item.case_assess.courtlistener_case_name
+        and item.citation_id not in reassessed_ids
     ]
     if pending:
         msg = (
