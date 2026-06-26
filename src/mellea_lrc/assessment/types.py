@@ -48,6 +48,7 @@ class CaseNameAssessment:
     extracted_case_name: str | None
     courtlistener_case_name: str | None
     message: str
+    chat_history: list[dict[str, str]] | None = None
 
 
 @dataclass(frozen=True, slots=True)

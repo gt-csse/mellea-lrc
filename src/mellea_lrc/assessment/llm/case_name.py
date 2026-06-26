@@ -120,6 +120,7 @@ async def _run_reassessment_after_reextraction(
                     "Case-name re-extraction failed: "
                     f"{reextraction.error_message or reextraction.status.value}"
                 ),
+                chat_history=reextraction.chat_history,
             )
         )
 
