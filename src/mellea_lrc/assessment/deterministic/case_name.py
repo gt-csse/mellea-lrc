@@ -60,6 +60,7 @@ def build_case_name_assessment(
     courtlistener_case_name: str | None,
     *,
     message: str | None = None,
+    chat_history: list[dict[str, str]] | None = None,
 ) -> CaseNameAssessment:
     """Build a case-name assessment with the canonical status message."""
     return CaseNameAssessment(
@@ -68,6 +69,7 @@ def build_case_name_assessment(
         extracted_case_name=extracted_case_name,
         courtlistener_case_name=courtlistener_case_name,
         message=message or _STATUS_MESSAGES.get(status, "Case name has not been assessed."),
+        chat_history=chat_history,
     )
 
 

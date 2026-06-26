@@ -256,6 +256,12 @@ def serialize_case_name_assessment(item: CaseNameAssessment) -> dict[str, JsonVa
 
 def deserialize_case_name_assessment(payload: Mapping[str, object]) -> CaseNameAssessment:
     """Rebuild a case-name assessment from JSON data."""
+    raw_history = payload.get("chat_history")
+    chat_history = (
+        [dict(t) for t in raw_history if isinstance(t, dict)]
+        if isinstance(raw_history, list)
+        else None
+    )
     return CaseNameAssessment(
         citation_id=str(payload.get("citation_id") or ""),
         status=_enum_field(
@@ -266,6 +272,7 @@ def deserialize_case_name_assessment(payload: Mapping[str, object]) -> CaseNameA
         extracted_case_name=_optional_str(payload.get("extracted_case_name")),
         courtlistener_case_name=_optional_str(payload.get("courtlistener_case_name")),
         message=str(payload.get("message") or ""),
+        chat_history=chat_history,
     )
 
 
