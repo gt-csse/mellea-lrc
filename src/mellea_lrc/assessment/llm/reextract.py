@@ -7,8 +7,12 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 
 from mellea import MelleaSession, generative
-from mellea.stdlib.sampling import RejectionSamplingStrategy
-from pydantic import TypeAdapter, ValidationError
+from mellea.core import ValidationResult
+from mellea.core.base import Context
+from mellea.stdlib.context import ChatContext
+from mellea.stdlib.requirements import check, req
+from mellea.stdlib.sampling import MultiTurnStrategy
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from mellea_lrc.assessment.grounding.proposal import is_in_context
 from mellea_lrc.assessment.llm.options import structured_model_options
@@ -16,8 +20,6 @@ from mellea_lrc.assessment.types import ModifiedExtractedCitationProposal
 
 MISSING_EXTRACTED_CASE_NAME_PROMPT = "<NO_EXTRACTED_CASE_NAME>"
 REEXTRACTION_MAX_TOKENS = 512
-REEXTRACTION_ATTEMPTS = 3
-REEXTRACTION_STRATEGY = RejectionSamplingStrategy(loop_budget=1)
 PROPOSAL_ADAPTER = TypeAdapter(ModifiedExtractedCitationProposal)
 
 
@@ -31,22 +33,11 @@ class ReextractionStatus(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
-class ReextractionAttempt:
-    """One model proposal and the result of programmatic checking."""
-
-    attempt: int
-    proposal: ModifiedExtractedCitationProposal | None
-    raw_output: str | None
-    error_message: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class ReextractionResult:
-    """Complete re-extraction outcome, including failed attempts."""
+    """Complete re-extraction outcome."""
 
     status: ReextractionStatus
     proposal: ModifiedExtractedCitationProposal | None
-    attempts: tuple[ReextractionAttempt, ...]
     error_message: str | None = None
 
     def to_json(self) -> dict[str, object]:
@@ -54,44 +45,59 @@ class ReextractionResult:
         return {
             "status": self.status.value,
             "proposal": asdict(self.proposal) if self.proposal is not None else None,
-            "attempts": [
-                {
-                    "attempt": item.attempt,
-                    "proposal": asdict(item.proposal) if item.proposal is not None else None,
-                    "raw_output": item.raw_output,
-                    "error_message": item.error_message,
-                }
-                for item in self.attempts
-            ],
             "error_message": self.error_message,
         }
 
 
+class _ReextractionProposal(BaseModel):
+    available: bool
+    case_name: str | None = None
+
+
 @generative
-async def propose_case_name_reextraction_json(
+async def _propose_case_name_reextraction(
     local_context: str,
     extracted_case_name: str,
     retrieved_case_name: str,
-    previous_output: str | None = None,
-    validation_error: str | None = None,
-) -> str:
-    """Re-extract a corrected case name from local_context as compact JSON.
+) -> _ReextractionProposal:
+    """Re-extract a corrected case name from local_context.
 
-    Return exactly one JSON object with this key: case_name. The value must be a
-    string copied exactly from local_context or null. Do not add markdown,
-    comments, or explanatory text.
+    Return exactly one JSON object with key "result" containing two fields:
+      - "available": true if a case name can be identified in local_context, false otherwise
+      - "case_name": a string copied exactly from local_context when available is true,
+                     null when available is false
 
-    Propose a correction ONLY when local_context shows a more complete or more
-    correct case name than extracted_case_name. If the current extraction is
-    already the best grounded reading, return: {"case_name": null}
+    Set available to true and provide case_name ONLY when local_context shows a more
+    complete or more correct case name than extracted_case_name.
+    If the current extraction is already the best grounded reading, set available to false.
 
-    If extracted_case_name is <NO_EXTRACTED_CASE_NAME>, no case name text was
-    extracted. Do not treat the locator string as a case name.
+    If extracted_case_name is <NO_EXTRACTED_CASE_NAME>, no case name text was extracted.
+    Do not treat the locator string as a case name.
 
-    If previous_output and validation_error are provided, revise the previous
-    proposal to fix validation_error. The corrected case_name must still be
-    copied exactly from local_context.
+    Example — correction available:  {"result": {"available": true,  "case_name": "Smith v. Jones"}}
+    Example — not available:         {"result": {"available": false, "case_name": null}}
     """
+
+
+def _validate_availability_consistency(ctx: Context) -> ValidationResult:
+    proposal: _ReextractionProposal = ctx.last_output().parsed_repr
+    if proposal.available == (proposal.case_name is not None):
+        return ValidationResult(True)
+    if proposal.available:
+        return ValidationResult(False, reason="available is true but case_name is null")
+    return ValidationResult(False, reason="available is false but case_name is not null")
+
+
+def _validate_grounding(ctx: Context, document_context: str) -> ValidationResult:
+    proposal: _ReextractionProposal = ctx.last_output().parsed_repr
+    if not proposal.available:
+        return ValidationResult(True)
+    if is_in_context(proposal.case_name, document_context):
+        return ValidationResult(True)
+    return ValidationResult(
+        False,
+        reason=f"case_name={proposal.case_name!r} was not copied exactly from local_context",
+    )
 
 
 async def reextract_case_name(
@@ -100,60 +106,52 @@ async def reextract_case_name(
     document_context: str,
     extracted_case_name: str | None,
     courtlistener_case_name: str,
-    attempts: int = REEXTRACTION_ATTEMPTS,
 ) -> ReextractionResult:
-    """Run multi-attempt case-name re-extraction through Mellea."""
-    prompt_case_name = case_name_for_prompt(extracted_case_name)
-    previous_output: str | None = None
-    validation_error: str | None = None
-    attempt_results: list[ReextractionAttempt] = []
+    """Run case-name re-extraction through Mellea with programmatic grounding check.
 
-    for attempt in range(1, attempts + 1):
-        try:
-            raw = await propose_case_name_reextraction_json(
-                session,
-                local_context=document_context,
-                extracted_case_name=prompt_case_name,
-                retrieved_case_name=courtlistener_case_name,
-                previous_output=previous_output,
-                validation_error=validation_error,
-                strategy=REEXTRACTION_STRATEGY,
-                model_options=structured_model_options(max_tokens=REEXTRACTION_MAX_TOKENS),
-            )
-        except Exception as exc:
-            validation_error = f"model call failed: {exc}"
-            attempt_results.append(
-                ReextractionAttempt(
-                    attempt=attempt,
-                    proposal=None,
-                    raw_output=None,
-                    error_message=validation_error,
-                )
-            )
-            continue
-
-        raw_output = str(raw)
-        proposal = proposal_from_output(raw_output)
-        status, validation_error = validate_proposal(proposal, document_context)
-        attempt_results.append(
-            ReextractionAttempt(
-                attempt=attempt,
-                proposal=proposal,
-                raw_output=raw_output,
-                error_message=validation_error,
-            )
+    Uses MultiTurnStrategy so that on requirement failure the model receives a new
+    user turn with the failure reason — unlike simple rejection sampling, this gives
+    the model different input on each retry even at temperature=0.
+    """
+    try:
+        # Use (ChatContext, backend) form so MultiTurnStrategy can build a conversation.
+        # A fresh ChatContext is created per call so there is no state bleed-over.
+        proposal, _ = await _propose_case_name_reextraction(
+            ChatContext(),
+            session.backend,
+            local_context=document_context,
+            extracted_case_name=case_name_for_prompt(extracted_case_name),
+            retrieved_case_name=courtlistener_case_name,
+            requirements=[
+                check(
+                    "available must be true when case_name is provided, and false when case_name is null",
+                    validation_fn=_validate_availability_consistency,
+                ),
+                req(
+                    "case_name must be a string copied exactly from local_context",
+                    validation_fn=lambda ctx: _validate_grounding(ctx, document_context),
+                ),
+            ],
+            strategy=MultiTurnStrategy(loop_budget=3),
+            model_options=structured_model_options(max_tokens=REEXTRACTION_MAX_TOKENS),
         )
-        if status == ReextractionStatus.ACCEPTED:
-            return ReextractionResult(status, proposal, tuple(attempt_results))
-        if status == ReextractionStatus.EMPTY:
-            return ReextractionResult(status, None, tuple(attempt_results))
-        previous_output = raw_output
+    except Exception as exc:
+        return ReextractionResult(ReextractionStatus.FAILED, None, error_message=str(exc))
+
+    if not proposal.available:
+        return ReextractionResult(ReextractionStatus.EMPTY, None)
+
+    # Guard against exhausted retries: strategy returns the last attempt even on failure.
+    if not is_in_context(proposal.case_name, document_context):
+        return ReextractionResult(
+            ReextractionStatus.FAILED,
+            None,
+            error_message=f"Re-extraction exhausted retries: {proposal.case_name!r} not grounded",
+        )
 
     return ReextractionResult(
-        ReextractionStatus.FAILED,
-        None,
-        tuple(attempt_results),
-        validation_error or "Re-extraction failed after retries.",
+        ReextractionStatus.ACCEPTED,
+        ModifiedExtractedCitationProposal(case_name=proposal.case_name),
     )
 
 
@@ -165,11 +163,7 @@ def proposal_from_output(output: str) -> ModifiedExtractedCitationProposal | Non
         return None
     if not isinstance(payload, dict):
         return None
-    result = payload.get("result", payload)
-    try:
-        return PROPOSAL_ADAPTER.validate_python(result)
-    except ValidationError:
-        return None
+    return _parse_proposal_payload(payload)
 
 
 def case_name_for_prompt(extracted_case_name: str | None) -> str:
@@ -192,3 +186,13 @@ def validate_proposal(
             f"case_name={proposal.case_name!r} was not copied exactly from local_context.",
         )
     return ReextractionStatus.ACCEPTED, None
+
+
+def _parse_proposal_payload(
+    payload: dict[str, object],
+) -> ModifiedExtractedCitationProposal | None:
+    result = payload.get("result", payload)
+    try:
+        return PROPOSAL_ADAPTER.validate_python(result)
+    except ValidationError:
+        return None

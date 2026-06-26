@@ -7,7 +7,6 @@ from mellea_lrc.assessment.llm.classify import (
     semantic_match_case_name,
 )
 from mellea_lrc.assessment.llm.reextract import (
-    ReextractionAttempt,
     ReextractionResult,
     ReextractionStatus,
     reextract_case_name,
@@ -15,7 +14,6 @@ from mellea_lrc.assessment.llm.reextract import (
 )
 
 __all__ = [
-    "ReextractionAttempt",
     "ReextractionResult",
     "ReextractionStatus",
     "assess_case_name_with_mellea",

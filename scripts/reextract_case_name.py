@@ -4,8 +4,7 @@ Example:
     uv run --group llm python scripts/reextract_case_name.py \
       --context-file local/bookmarked/bookmarked.txt \
       --extracted-case-name "<NO_EXTRACTED_CASE_NAME>" \
-      --courtlistener-case-name "Brown v. Board" \
-      --attempts 3
+      --courtlistener-case-name "Brown v. Board"
 """
 
 from __future__ import annotations
@@ -34,7 +33,6 @@ def main() -> None:
             document_context=context,
             extracted_case_name=args.extracted_case_name,
             courtlistener_case_name=args.courtlistener_case_name,
-            attempts=args.attempts,
         )
     )
     print(json.dumps(result.to_json(), indent=2))
@@ -57,7 +55,6 @@ def _parse_args() -> argparse.Namespace:
         required=True,
         help="CourtListener case name to compare against.",
     )
-    parser.add_argument("--attempts", type=int, default=3, help="Maximum re-extraction attempts.")
     return parser.parse_args()
 
 
