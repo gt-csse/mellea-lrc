@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Literal, TypeAlias
 
-from mellea_lrc.courtlistener.types import JsonObject
+from mellea_lrc.core.immutable import FrozenJsonObject, freeze_json_object
 from mellea_lrc.extraction.types import ExtractedDocument
 
 ValidationClientMode: TypeAlias = Literal["deployed", "sdk", "custom"]
@@ -44,8 +44,17 @@ class CitationValidation:
     lookup_cache: str | None = None
     lookup_key: str | None = None
     error_message: str | None = None
-    limit_detail: JsonObject | None = None
-    clusters: tuple[JsonObject, ...] = ()
+    limit_detail: FrozenJsonObject | None = None
+    clusters: tuple[FrozenJsonObject, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "clusters",
+            tuple(freeze_json_object(item) for item in self.clusters),
+        )
+        if self.limit_detail is not None:
+            object.__setattr__(self, "limit_detail", freeze_json_object(self.limit_detail))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

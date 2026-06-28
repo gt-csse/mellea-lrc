@@ -1,5 +1,7 @@
 """Tests for neutral and Label Studio-specific serialization."""
 
+import json
+
 import pytest
 
 from mellea_lrc.assessment import (
@@ -142,6 +144,7 @@ def test_document_validation_round_trips() -> None:
     restored = deserialize_validated_document(artifact)
 
     assert artifact["artifact_type"] == "validated_document"
+    json.dumps(artifact)
     assert restored == validation
 
 

@@ -1,10 +1,13 @@
 """Contract tests for the immutable document artifact hierarchy."""
 
+from collections.abc import Mapping
+
 import pytest
 
 from mellea_lrc.assessment import initialize_assessment
-from mellea_lrc.assessment.types import AssessedDocument
+from mellea_lrc.assessment.types import CaseNameAssessment, CaseNameAssessmentStatus
 from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.core.documents import SourceMetadata
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import extract_citations
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
@@ -34,6 +37,69 @@ def test_document_stages_are_substitutable() -> None:
     assert isinstance(assessed, ExtractedDocument)
     assert isinstance(assessed, PreprocessedDocument)
     assert isinstance(assessed, DocumentBase)
+    assert assessed.source_metadata is extracted.source_metadata
+    assert assessed.preprocessing_metadata is extracted.preprocessing_metadata
+    assert assessed.extraction_metadata is extracted.extraction_metadata
+
+
+def test_source_metadata_copies_and_freezes_extras() -> None:
+    extras = {"docket": "original"}
+    metadata = SourceMetadata(extras=extras)
+
+    extras["docket"] = "changed"
+
+    assert metadata.extras == {"docket": "original"}
+    with pytest.raises(TypeError):
+        metadata.extras["docket"] = "changed"  # type: ignore[index]
+
+
+def test_validation_copies_and_deeply_freezes_service_payloads() -> None:
+    cluster = {
+        "case_name": "Brown v. Board",
+        "judges": ["Warren"],
+        "court": {"slug": "scotus"},
+    }
+    validation = CitationValidation(
+        citation_id="cite-1",
+        locator="347 U.S. 483",
+        status=ValidationStatus.FOUND,
+        source="test",
+        message="found",
+        clusters=(cluster,),
+    )
+
+    cluster["case_name"] = "Changed"
+    cluster["judges"].append("Changed")
+
+    assert validation.clusters[0]["case_name"] == "Brown v. Board"
+    assert validation.clusters[0]["judges"] == ("Warren",)
+    with pytest.raises(TypeError):
+        validation.clusters[0]["case_name"] = "Changed"  # type: ignore[index]
+    court = validation.clusters[0]["court"]
+    assert isinstance(court, Mapping)
+    with pytest.raises(TypeError):
+        court["slug"] = "changed"  # type: ignore[index]
+
+
+def test_assessment_copies_and_freezes_chat_history() -> None:
+    history = [{"role": "assistant", "content": "original"}]
+    assessment = CaseNameAssessment(
+        citation_id="cite-1",
+        status=CaseNameAssessmentStatus.EXACT_MATCH,
+        extracted_case_name="Brown v. Board",
+        courtlistener_case_name="Brown v. Board",
+        message="match",
+        chat_history=history,
+    )
+
+    history[0]["content"] = "changed"
+
+    assert assessment.chat_history == (
+        {"role": "assistant", "content": "original"},
+    )
+    assert assessment.chat_history is not None
+    with pytest.raises(TypeError):
+        assessment.chat_history[0]["content"] = "changed"  # type: ignore[index]
 
 
 def test_extraction_assigns_deterministic_document_local_ids() -> None:
