@@ -1,6 +1,7 @@
 """Deterministic case-name comparison."""
 
 import unicodedata
+from collections.abc import Iterable, Mapping
 
 from mellea_lrc.assessment.types import CaseNameAssessment, CaseNameAssessmentStatus
 from mellea_lrc.core.citations import FullCaseCitation
@@ -60,7 +61,7 @@ def build_case_name_assessment(
     courtlistener_case_name: str | None,
     *,
     message: str | None = None,
-    chat_history: list[dict[str, str]] | None = None,
+    chat_history: Iterable[Mapping[str, str]] | None = None,
 ) -> CaseNameAssessment:
     """Build a case-name assessment with the canonical status message."""
     return CaseNameAssessment(
@@ -69,7 +70,7 @@ def build_case_name_assessment(
         extracted_case_name=extracted_case_name,
         courtlistener_case_name=courtlistener_case_name,
         message=message or _STATUS_MESSAGES.get(status, "Case name has not been assessed."),
-        chat_history=chat_history,
+        chat_history=tuple(chat_history) if chat_history is not None else None,
     )
 
 

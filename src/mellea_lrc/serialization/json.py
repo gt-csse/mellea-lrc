@@ -35,6 +35,7 @@ from mellea_lrc.core.citations import (
     citation_kind,
 )
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
+from mellea_lrc.core.immutable import thaw_json_object
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.types import (
     ExtractedCitation,
@@ -275,11 +276,27 @@ def deserialize_extracted_document(payload: Mapping[str, object]) -> ExtractedDo
 
 def serialize_citation_validation(item: CitationValidation) -> dict[str, JsonValue]:
     """Serialize one citation validation result."""
-    payload = cast("dict[str, JsonValue]", asdict(item))
-    payload["status"] = item.status.value
-    payload["case_names"] = list(item.case_names)
-    payload["clusters"] = cast("list[JsonValue]", list(item.clusters))
-    return payload
+    return {
+        "citation_id": item.citation_id,
+        "locator": item.locator,
+        "status": item.status.value,
+        "source": item.source,
+        "message": item.message,
+        "case_names": list(item.case_names),
+        "lookup_status": item.lookup_status,
+        "lookup_cache": item.lookup_cache,
+        "lookup_key": item.lookup_key,
+        "error_message": item.error_message,
+        "limit_detail": (
+            cast("dict[str, JsonValue]", thaw_json_object(item.limit_detail))
+            if item.limit_detail is not None
+            else None
+        ),
+        "clusters": [
+            cast("dict[str, JsonValue]", thaw_json_object(cluster))
+            for cluster in item.clusters
+        ],
+    }
 
 
 def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationValidation:
@@ -353,16 +370,25 @@ def deserialize_validated_document(payload: Mapping[str, object]) -> ValidatedDo
 
 def serialize_case_name_assessment(item: CaseNameAssessment) -> dict[str, JsonValue]:
     """Serialize a case-name assessment."""
-    payload = cast("dict[str, JsonValue]", asdict(item))
-    payload["status"] = item.status.value
-    return payload
+    return {
+        "citation_id": item.citation_id,
+        "status": item.status.value,
+        "extracted_case_name": item.extracted_case_name,
+        "courtlistener_case_name": item.courtlistener_case_name,
+        "message": item.message,
+        "chat_history": (
+            [dict(turn) for turn in item.chat_history]
+            if item.chat_history is not None
+            else None
+        ),
+    }
 
 
 def deserialize_case_name_assessment(payload: Mapping[str, object]) -> CaseNameAssessment:
     """Rebuild a case-name assessment from JSON data."""
     raw_history = payload.get("chat_history")
     chat_history = (
-        [dict(t) for t in raw_history if isinstance(t, dict)]
+        tuple(dict(t) for t in raw_history if isinstance(t, dict))
         if isinstance(raw_history, list)
         else None
     )

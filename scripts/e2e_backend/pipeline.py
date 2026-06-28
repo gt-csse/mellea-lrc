@@ -33,6 +33,7 @@ from mellea_lrc.validation.types import (
     ValidationStatus,
 )
 from mellea_lrc.serialization import (
+    serialize_citation_validation,
     serialize_citation_assessment,
     serialize_citation_assessment_result,
 )
@@ -600,11 +601,7 @@ def _validation_from_review_payload(
 
 
 def _validation_item_payload(item: CitationValidation) -> dict[str, Any]:
-    payload = asdict(item)
-    payload["status"] = item.status.value
-    payload["case_names"] = list(item.case_names)
-    payload["clusters"] = list(item.clusters)
-    return payload
+    return dict(serialize_citation_validation(item))
 
 
 def _citation_validation_from_review_item(item: JsonDict) -> CitationValidation | None:

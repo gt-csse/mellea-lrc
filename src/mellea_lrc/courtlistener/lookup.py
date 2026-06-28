@@ -1,6 +1,7 @@
 """Citation lookup normalization shared by direct and remote clients."""
 
 from mellea_lrc.courtlistener.types import CourtListenerCitationLookup
+from mellea_lrc.core.immutable import thaw_json_object
 
 HTTP_NOT_FOUND = 404
 
@@ -38,12 +39,12 @@ def citation_lookup_response_dict(lookup: CourtListenerCitationLookup) -> dict[s
     response: dict[str, object] = {
         "citation": lookup.citation,
         "status": lookup.status,
-        "clusters": list(lookup.clusters),
+        "clusters": [thaw_json_object(item) for item in lookup.clusters],
     }
     if lookup.error_message is not None:
         response["error_message"] = lookup.error_message
     if lookup.limit_detail is not None:
-        response["limit_detail"] = lookup.limit_detail
+        response["limit_detail"] = thaw_json_object(lookup.limit_detail)
     return response
 
 

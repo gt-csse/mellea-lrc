@@ -78,6 +78,10 @@ stage.
   citation assessment.
 - Re-extraction is append-only: original extracted citations are never mutated or
   replaced.
+- Nested source extras, external-service JSON payloads, and chat histories are
+  defensively copied and deeply frozen when they enter an artifact. Frozen
+  top-level dataclasses therefore cannot be mutated indirectly through a retained
+  input dictionary or nested list.
 
 Assessment initialization marks eligible, found full-case citations as `waiting`
 and all ineligible citations as `skipped` with a structured reason. Execution moves
@@ -150,6 +154,8 @@ conventions instead of type-level contracts.
 
 Later artifacts can be consumed safely by earlier-stage read-only functions. Stage
 transitions allocate new objects and preserve prior tuples and records. Constructors
-and deserializers become responsible for enforcing cross-stage consistency. Python
-and serialized artifact consumers migrate directly to the canonical contract while
-the project remains pre-stability.
+and deserializers become responsible for enforcing cross-stage consistency and
+normalizing JSON-shaped boundary data into immutable mappings and tuples.
+Serializers thaw that data into ordinary JSON objects and arrays without exposing
+the artifact's internal values. Python and serialized artifact consumers migrate
+directly to the canonical contract while the project remains pre-stability.
