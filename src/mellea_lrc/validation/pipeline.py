@@ -4,10 +4,10 @@ from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.courtlistener.client import CourtListenerClient
 from mellea_lrc.courtlistener.remote import CourtListenerAccessClient
 from mellea_lrc.courtlistener.types import CitationLookupClient, CourtListenerCitationLookup
-from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
+from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
 from mellea_lrc.validation.types import (
     CitationValidation,
-    DocumentValidation,
+    ValidatedDocument,
     ValidationClientMode,
     ValidationStatus,
 )
@@ -22,15 +22,16 @@ HTTP_TOO_MANY_REQUESTS = 429
 
 
 def run_validation(
-    extraction: DocumentExtraction,
+    extraction: ExtractedDocument,
     *,
     client_mode: ValidationClientMode = DEFAULT_CLIENT_MODE,
     client: CitationLookupClient | None = None,
-) -> DocumentValidation:
+) -> ValidatedDocument:
     """Run first-layer existence validation for extractable full case citations."""
     lookup_client = _lookup_client(client_mode, client)
-    return DocumentValidation(
-        preprocessed=extraction.preprocessed,
+    return ValidatedDocument(
+        metadata=extraction.metadata,
+        text=extraction.text,
         citations=extraction.citations,
         validations=tuple(_validate_citation(item, lookup_client) for item in extraction.citations),
     )

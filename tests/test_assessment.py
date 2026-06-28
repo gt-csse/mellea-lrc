@@ -1,18 +1,24 @@
 import pytest
 
 from mellea_lrc.assessment import (
+    AssessmentSkipReason,
+    AssessedCitationAssessment,
     CaseNameAssessmentStatus,
+    FailedCitationAssessment,
     ModifiedExtractedCitationProposal,
+    SkippedCitationAssessment,
+    WaitingCitationAssessment,
     YearAssessmentStatus,
     assess_case_name_exact_match,
     assess_year_exact_match,
     build_extracted_case_name,
     find_text_span_near_full_span,
     get_extended_span_text,
+    initialize_assessment,
     run_assessment,
 )
 from mellea_lrc.assessment import ReextractionStatus, validate_proposal
-from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.types import ExtractedCitation
 from mellea_lrc.preprocessing.types import (
@@ -21,7 +27,7 @@ from mellea_lrc.preprocessing.types import (
     PreprocessingBackend,
     SourceFormat,
 )
-from mellea_lrc.validation.types import CitationValidation, DocumentValidation, ValidationStatus
+from mellea_lrc.validation.types import CitationValidation, ValidatedDocument, ValidationStatus
 
 
 def test_get_extended_span_text_includes_context_around_full_span() -> None:
@@ -267,8 +273,9 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
             year="1954",
         ),
     )
-    validation = DocumentValidation(
-        preprocessed=preprocessed,
+    validation = ValidatedDocument(
+        metadata=preprocessed.metadata,
+        text=preprocessed.text,
         citations=(citation,),
         validations=(
             CitationValidation(
@@ -285,9 +292,137 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
 
     assessment = run_assessment(validation)
 
-    assert assessment.preprocessed == preprocessed
+    assert assessment.text == preprocessed.text
+    assert assessment.metadata == preprocessed.metadata
     assert assessment.citations == (citation,)
     assert assessment.validations == validation.validations
+    assert assessment.assessment_complete is True
     assert len(assessment.assessments) == 1
-    assert assessment.assessments[0].case_assess.status == CaseNameAssessmentStatus.EXACT_MATCH
-    assert assessment.assessments[0].year_assess.status == YearAssessmentStatus.EXACT_MATCH
+    record = assessment.assessments[0]
+    assert isinstance(record, AssessedCitationAssessment)
+    assert record.result.case_assess.status == CaseNameAssessmentStatus.EXACT_MATCH
+    assert record.result.year_assess.status == YearAssessmentStatus.EXACT_MATCH
+
+
+def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
+    preprocessed = PreprocessedDocument(
+        text="Brown v. Board, 347 U.S. 483 (1954).",
+        metadata=PreprocessedDocumentMetadata(),
+    )
+    citation = ExtractedCitation(
+        citation_id="cite-1",
+        span=Span(0, 35),
+        matched_text="347 U.S. 483",
+        citation=FullCaseCitation(
+            plaintiff="Brown",
+            defendant="Board",
+            volume="347",
+            reporter="U.S.",
+            page="483",
+            year="1954",
+        ),
+    )
+    validation = ValidatedDocument(
+        metadata=preprocessed.metadata,
+        text=preprocessed.text,
+        citations=(citation,),
+        validations=(
+            CitationValidation(
+                citation_id="cite-1",
+                locator="347 U.S. 483",
+                status=ValidationStatus.FOUND,
+                source="test",
+                message="found",
+                clusters=({"case_name": "Different v. Case", "date_filed": "1954-05-17"},),
+            ),
+        ),
+    )
+
+    assessment = initialize_assessment(validation)
+
+    assert assessment.assessment_complete is False
+    assert assessment.assessments == (WaitingCitationAssessment(citation_id="cite-1"),)
+
+
+def test_initialize_assessment_marks_unsupported_citation_skipped() -> None:
+    text = "See 28 U.S.C. § 636."
+    preprocessed = PreprocessedDocument(text=text, metadata=PreprocessedDocumentMetadata())
+    citation = ExtractedCitation(
+        citation_id="cite-1",
+        span=Span(4, 20),
+        matched_text="28 U.S.C. § 636",
+        citation=FullLawCitation(volume="28", reporter="U.S.C.", page="636"),
+    )
+    validation = ValidatedDocument(
+        metadata=preprocessed.metadata,
+        text=preprocessed.text,
+        citations=(citation,),
+        validations=(
+            CitationValidation(
+                citation_id="cite-1",
+                locator=None,
+                status=ValidationStatus.SKIPPED,
+                source="test",
+                message="unsupported",
+            ),
+        ),
+    )
+
+    assessment = initialize_assessment(validation)
+
+    assert assessment.assessment_complete is True
+    assert assessment.assessments == (
+        SkippedCitationAssessment(
+            citation_id="cite-1",
+            reason=AssessmentSkipReason.UNSUPPORTED_CITATION_KIND,
+            message="Citation kind FullLawCitation is not assessed.",
+        ),
+    )
+
+
+def test_run_assessment_records_per_citation_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fail_assessment(**_kwargs):
+        msg = "assessment service unavailable"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr("mellea_lrc.assessment.pipeline.assess_found_citation", fail_assessment)
+    text = "Brown v. Board, 347 U.S. 483 (1954)."
+    preprocessed = PreprocessedDocument(text=text, metadata=PreprocessedDocumentMetadata())
+    citation = ExtractedCitation(
+        citation_id="cite-1",
+        span=Span(0, 35),
+        matched_text="347 U.S. 483",
+        citation=FullCaseCitation(
+            plaintiff="Brown",
+            defendant="Board",
+            volume="347",
+            reporter="U.S.",
+            page="483",
+            year="1954",
+        ),
+    )
+    validation = ValidatedDocument(
+        metadata=preprocessed.metadata,
+        text=preprocessed.text,
+        citations=(citation,),
+        validations=(
+            CitationValidation(
+                citation_id="cite-1",
+                locator="347 U.S. 483",
+                status=ValidationStatus.FOUND,
+                source="test",
+                message="found",
+                clusters=({"case_name": "Brown v. Board", "date_filed": "1954-05-17"},),
+            ),
+        ),
+    )
+
+    assessment = run_assessment(validation)
+
+    assert assessment.assessment_complete is True
+    assert assessment.assessments == (
+        FailedCitationAssessment(
+            citation_id="cite-1",
+            error="RuntimeError: assessment service unavailable",
+        ),
+    )

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import ClassVar, TYPE_CHECKING, TypeAlias
+
+from mellea_lrc.validation.types import ValidatedDocument
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from mellea_lrc.core.spans import Span
-    from mellea_lrc.extraction.types import ExtractedCitation
-    from mellea_lrc.preprocessing.types import PreprocessedDocument
-    from mellea_lrc.validation.types import CitationValidation
 
 
 class CaseNameAssessmentStatus(str, Enum):
@@ -39,6 +40,22 @@ class YearAssessmentStatus(str, Enum):
     MISSING = "missing"
 
 
+class AssessmentStatus(str, Enum):
+    """Execution state for one citation in the assessment stage."""
+
+    WAITING = "waiting"
+    SKIPPED = "skipped"
+    ASSESSED = "assessed"
+    FAILED = "failed"
+
+
+class AssessmentSkipReason(str, Enum):
+    """Reason a citation is intentionally excluded from assessment."""
+
+    UNSUPPORTED_CITATION_KIND = "unsupported_citation_kind"
+    VALIDATION_NOT_ELIGIBLE = "validation_not_eligible"
+
+
 @dataclass(frozen=True, slots=True)
 class CaseNameAssessment:
     """Assessment result for one extracted case name."""
@@ -63,8 +80,8 @@ class YearAssessment:
 
 
 @dataclass(frozen=True, slots=True)
-class CitationAssessment:
-    """Assessment result for one validated citation."""
+class CitationAssessmentResult:
+    """Completed substantive assessment for one validated citation."""
 
     citation_id: str
     case_assess: CaseNameAssessment
@@ -72,25 +89,81 @@ class CitationAssessment:
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentAssessment:
-    """Assessed citations for one validated document."""
+class WaitingCitationAssessment:
+    """Eligible citation whose assessment has not been attempted."""
 
-    preprocessed: PreprocessedDocument
-    citations: tuple[ExtractedCitation, ...]
-    validations: tuple[CitationValidation, ...]
+    status: ClassVar[AssessmentStatus] = AssessmentStatus.WAITING
+    citation_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class SkippedCitationAssessment:
+    """Citation intentionally excluded from assessment."""
+
+    status: ClassVar[AssessmentStatus] = AssessmentStatus.SKIPPED
+    citation_id: str
+    reason: AssessmentSkipReason
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class AssessedCitationAssessment:
+    """Citation whose assessment completed successfully."""
+
+    status: ClassVar[AssessmentStatus] = AssessmentStatus.ASSESSED
+    citation_id: str
+    result: CitationAssessmentResult
+
+
+@dataclass(frozen=True, slots=True)
+class FailedCitationAssessment:
+    """Citation whose assessment was attempted but failed."""
+
+    status: ClassVar[AssessmentStatus] = AssessmentStatus.FAILED
+    citation_id: str
+    error: str
+
+
+CitationAssessment: TypeAlias = (
+    WaitingCitationAssessment
+    | SkippedCitationAssessment
+    | AssessedCitationAssessment
+    | FailedCitationAssessment
+)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AssessedDocument(ValidatedDocument):
+    """A validated document with additive citation assessment history."""
+
     assessments: tuple[CitationAssessment, ...]
     modified_citations: tuple[ModifiedExtractedCitation, ...] = ()
-    reassessments: tuple[CitationAssessment, ...] = ()
+    reassessments: tuple[CitationAssessmentResult, ...] = ()
 
     @property
-    def text(self) -> str:
-        """Text that was assessed."""
-        return self.preprocessed.text
+    def assessment_complete(self) -> bool:
+        """Return whether no eligible citation remains unattempted."""
+        return not any(isinstance(item, WaitingCitationAssessment) for item in self.assessments)
 
-    @property
-    def source_path(self) -> str | None:
-        """Original source path, when known."""
-        return self.preprocessed.metadata.source_path
+    def __post_init__(self) -> None:
+        ValidatedDocument.__post_init__(self)
+        citation_ids = {item.citation_id for item in self.citations}
+        assessment_ids = _validated_assessment_record_ids(self.assessments)
+        modified_ids = _unique_document_ids(
+            (item.citation_id for item in self.modified_citations),
+            "modified citation",
+        )
+        reassessment_ids = _validated_assessment_result_ids(self.reassessments, "reassessment")
+
+        if assessment_ids != citation_ids:
+            msg = "Assessment identifiers must exactly match extracted citation identifiers"
+            raise ValueError(msg)
+        if not modified_ids <= citation_ids:
+            msg = "Modified citation identifiers must refer to extracted citations"
+            raise ValueError(msg)
+        if not reassessment_ids <= modified_ids:
+            msg = "Reassessment identifiers must refer to modified citations"
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,3 +222,48 @@ class CaseNameAssessmentRun:
     assessment: CaseNameAssessment
     modified_citation: ModifiedExtractedCitationProposal | None = None
     reassessment: CaseNameAssessment | None = None
+
+
+def _validated_assessment_record_ids(
+    assessments: tuple[CitationAssessment, ...],
+) -> set[str]:
+    ids = _unique_document_ids((item.citation_id for item in assessments), "assessment")
+    for item in assessments:
+        if isinstance(item, AssessedCitationAssessment):
+            _validate_assessment_result(item.result, item.citation_id, "assessment")
+    return ids
+
+
+def _validated_assessment_result_ids(
+    assessments: tuple[CitationAssessmentResult, ...],
+    label: str,
+) -> set[str]:
+    ids = _unique_document_ids((item.citation_id for item in assessments), label)
+    for item in assessments:
+        _validate_assessment_result(item, item.citation_id, label)
+    return ids
+
+
+def _validate_assessment_result(
+    result: CitationAssessmentResult,
+    citation_id: str,
+    label: str,
+) -> None:
+    if (
+        result.citation_id != citation_id
+        or result.case_assess.citation_id != citation_id
+        or result.year_assess.citation_id != citation_id
+    ):
+        msg = f"Nested {label} identifiers must match their parent citation identifier"
+        raise ValueError(msg)
+
+
+def _unique_document_ids(values: Iterable[str], label: str) -> set[str]:
+    ids = list(values)
+    if any(not item_id for item_id in ids):
+        msg = f"{label.title()} identifiers must not be empty"
+        raise ValueError(msg)
+    if len(ids) != len(set(ids)):
+        msg = f"{label.title()} identifiers must be unique within a document"
+        raise ValueError(msg)
+    return set(ids)

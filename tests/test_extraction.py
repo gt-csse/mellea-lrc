@@ -1,17 +1,11 @@
 """Tests for citation extraction."""
 
 from mellea_lrc.core.citations import CitationKind, FullCaseCitation, FullLawCitation
-import pytest
-
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction import (
-    ExtractedCitation,
-    ExtractedDocument,
-    ExtractionMetadata,
-    extract,
-    extract_citations,
-)
+from mellea_lrc.extraction import extract, extract_citations
+from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
 from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
+from mellea_lrc.preprocessing.types import PreprocessedDocumentMetadata
 
 SAMPLE_TEXT = (
     "Under Norton v. Shelby County, 118 U.S. 425, 442 (1886), an unconstitutional "
@@ -23,8 +17,7 @@ def test_extract_accepts_preprocessed_document() -> None:
     preprocessed = preprocess_plain_text_from_string(SAMPLE_TEXT)
     result = extract(preprocessed)
     assert isinstance(result, PreprocessedDocument)
-    assert result.source_metadata is preprocessed.source_metadata
-    assert result.preprocessing_metadata is preprocessed.preprocessing_metadata
+    assert result.metadata is preprocessed.metadata
     assert result.text == SAMPLE_TEXT
     assert result.citations
 
@@ -59,11 +52,9 @@ def test_extracted_document_rejects_duplicate_citation_ids() -> None:
 
     with pytest.raises(ValueError, match="must be unique"):
         ExtractedDocument(
-            source_metadata=preprocessed.source_metadata,
+            metadata=preprocessed.metadata,
             text=preprocessed.text,
-            preprocessing_metadata=preprocessed.preprocessing_metadata,
             citations=(citation, citation),
-            extraction_metadata=ExtractionMetadata(),
         )
 
 
@@ -78,9 +69,7 @@ def test_extracted_document_rejects_span_outside_text() -> None:
 
     with pytest.raises(ValueError, match="span exceeds"):
         ExtractedDocument(
-            source_metadata=preprocessed.source_metadata,
+            metadata=preprocessed.metadata,
             text=preprocessed.text,
-            preprocessing_metadata=preprocessed.preprocessing_metadata,
             citations=(citation,),
-            extraction_metadata=ExtractionMetadata(),
         )

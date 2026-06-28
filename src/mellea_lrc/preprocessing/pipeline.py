@@ -7,7 +7,7 @@ from mellea_lrc.preprocessing.plain_text import preprocess_plain_text
 from mellea_lrc.preprocessing.types import PreprocessedDocument
 
 
-def preprocess(path: Path | str) -> PreprocessedDocument:
+def run_preprocessing(path: Path | str) -> PreprocessedDocument:
     """Preprocess a document using the backend appropriate for its format."""
     source_path = Path(path)
     if source_path.suffix.lower() == ".txt":
@@ -18,8 +18,8 @@ def preprocess(path: Path | str) -> PreprocessedDocument:
     return preprocess_with_docling(source_path)
 
 
-def preprocess_directory(directory: Path | str) -> list[PreprocessedDocument]:
+def run_preprocessing_directory(directory: Path | str) -> list[PreprocessedDocument]:
     """Preprocess every file in a directory."""
     source_dir = Path(directory)
     paths = sorted(p for p in source_dir.iterdir() if p.is_file())
-    return [preprocess(path) for path in paths]
+    return [run_preprocessing(path) for path in paths]

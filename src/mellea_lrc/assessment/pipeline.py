@@ -11,10 +11,16 @@ from mellea_lrc.assessment.citation.clusters import first_cluster_case_name, fir
 from mellea_lrc.assessment.deterministic.case_name import assess_case_name_exact_match, build_extracted_case_name
 from mellea_lrc.assessment.deterministic.context import get_extended_span_text
 from mellea_lrc.assessment.types import (
+    AssessmentSkipReason,
+    AssessedCitationAssessment,
+    AssessedDocument,
     CaseNameAssessmentStatus,
     CitationAssessment,
-    DocumentAssessment,
+    CitationAssessmentResult,
+    FailedCitationAssessment,
     ModifiedExtractedCitation,
+    SkippedCitationAssessment,
+    WaitingCitationAssessment,
 )
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.extraction.types import ExtractedCitation
@@ -24,7 +30,7 @@ from mellea_lrc.validation.types import ValidationStatus
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from mellea_lrc.validation.types import DocumentValidation
+    from mellea_lrc.validation.types import ValidatedDocument
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,18 +58,16 @@ class _PendingMelleaAssessment:
 
 
 def run_assessment(
-    validation: DocumentValidation,
+    validation: ValidatedDocument,
     *,
-    max_mellea: int | None = None,
     mellea_concurrency: int | None = None,
     on_mellea_call: Callable[[MelleaCallContext], None] | None = None,
-    on_mellea_done: Callable[[MelleaCallContext, CitationAssessment], None] | None = None,
-) -> DocumentAssessment:
+    on_mellea_done: Callable[[MelleaCallContext, CitationAssessmentResult], None] | None = None,
+) -> AssessedDocument:
     """Assess a validated document synchronously."""
     return asyncio.run(
         run_assessment_async(
             validation,
-            max_mellea=max_mellea,
             mellea_concurrency=mellea_concurrency,
             on_mellea_call=on_mellea_call,
             on_mellea_done=on_mellea_done,
@@ -72,28 +76,26 @@ def run_assessment(
 
 
 async def run_assessment_async(
-    validation: DocumentValidation,
+    validation: ValidatedDocument,
     *,
-    max_mellea: int | None = None,
     mellea_concurrency: int | None = None,
     on_mellea_call: Callable[[MelleaCallContext], None] | None = None,
-    on_mellea_done: Callable[[MelleaCallContext, CitationAssessment], None] | None = None,
-) -> DocumentAssessment:
+    on_mellea_done: Callable[[MelleaCallContext, CitationAssessmentResult], None] | None = None,
+) -> AssessedDocument:
     """Assess a validated document with Mellea-backed case-name checks."""
+    initialized = initialize_assessment(validation)
     validations_by_id = {item.citation_id: item for item in validation.validations}
-    assessments: list[CitationAssessment] = []
+    assessments_by_id = {item.citation_id: item for item in initialized.assessments}
     modified_citations: list[ModifiedExtractedCitation] = []
-    reassessments: list[CitationAssessment] = []
+    reassessments: list[CitationAssessmentResult] = []
     pending: list[_PendingMelleaAssessment] = []
 
     for citation in validation.citations:
+        if not isinstance(assessments_by_id[citation.citation_id], WaitingCitationAssessment):
+            continue
         citation_validation = validations_by_id.get(citation.citation_id)
-        if citation_validation is None:
-            continue
-        if not isinstance(citation.citation, FullCaseCitation):
-            continue
-        if citation_validation.status != ValidationStatus.FOUND:
-            continue
+        assert citation_validation is not None
+        assert isinstance(citation.citation, FullCaseCitation)
 
         extracted_case_name = build_extracted_case_name(citation.citation)
         courtlistener_case_name = first_cluster_case_name(citation_validation.clusters)
@@ -104,19 +106,27 @@ async def run_assessment_async(
             courtlistener_case_name=courtlistener_case_name,
         )
         if exact.status != CaseNameAssessmentStatus.NEEDS_ASSESSMENT:
-            bundle = await assess_found_citation(
-                citation_id=citation.citation_id,
-                document_text=validation.text,
-                span=citation.span,
-                extracted_case_name=extracted_case_name,
-                courtlistener_case_name=courtlistener_case_name,
-                extracted_year=citation.citation.year,
-                courtlistener_year=courtlistener_year,
-                session=None,
-            )
-            assessments.append(bundle.assessment)
-            continue
-        if max_mellea is not None and len(pending) >= max_mellea:
+            try:
+                bundle = await assess_found_citation(
+                    citation_id=citation.citation_id,
+                    document_text=validation.text,
+                    span=citation.span,
+                    extracted_case_name=extracted_case_name,
+                    courtlistener_case_name=courtlistener_case_name,
+                    extracted_year=citation.citation.year,
+                    courtlistener_year=courtlistener_year,
+                    session=None,
+                )
+            except Exception as exc:
+                assessments_by_id[citation.citation_id] = _failed_assessment(citation.citation_id, exc)
+            else:
+                _record_bundle(
+                    citation.citation_id,
+                    bundle,
+                    assessments_by_id=assessments_by_id,
+                    modified_citations=modified_citations,
+                    reassessments=reassessments,
+                )
             continue
 
         pending.append(
@@ -133,35 +143,108 @@ async def run_assessment_async(
         )
 
     if pending:
-        session = start_mellea_session_from_env()
-        limit = mellea_concurrency if mellea_concurrency is not None else len(pending)
-        semaphore = asyncio.Semaphore(max(1, limit))
-        mellea_results = await asyncio.gather(
-            *[
-                _assess_pending_mellea_citation(
-                    session,
-                    job,
-                    semaphore=semaphore,
-                    on_mellea_call=on_mellea_call,
-                    on_mellea_done=on_mellea_done,
+        try:
+            session = start_mellea_session_from_env()
+        except Exception as exc:
+            for job in pending:
+                citation_id = job.citation.citation_id
+                assessments_by_id[citation_id] = _failed_assessment(citation_id, exc)
+        else:
+            limit = mellea_concurrency if mellea_concurrency is not None else len(pending)
+            semaphore = asyncio.Semaphore(max(1, limit))
+            mellea_results = await asyncio.gather(
+                *[
+                    _assess_pending_mellea_citation(
+                        session,
+                        job,
+                        semaphore=semaphore,
+                        on_mellea_call=on_mellea_call,
+                        on_mellea_done=on_mellea_done,
+                    )
+                    for job in pending
+                ],
+                return_exceptions=True,
+            )
+            for job, outcome in zip(pending, mellea_results, strict=True):
+                citation_id = job.citation.citation_id
+                if isinstance(outcome, BaseException):
+                    assessments_by_id[citation_id] = _failed_assessment(citation_id, outcome)
+                    continue
+                _record_bundle(
+                    citation_id,
+                    outcome,
+                    assessments_by_id=assessments_by_id,
+                    modified_citations=modified_citations,
+                    reassessments=reassessments,
                 )
-                for job in pending
-            ]
-        )
-        for bundle in mellea_results:
-            assessments.append(bundle.assessment)
-            if bundle.modified_citation is not None:
-                modified_citations.append(bundle.modified_citation)
-            if bundle.reassessment is not None:
-                reassessments.append(bundle.reassessment)
 
-    return DocumentAssessment(
-        preprocessed=validation.preprocessed,
+    return AssessedDocument(
+        metadata=validation.metadata,
+        text=validation.text,
+        citations=validation.citations,
+        validations=validation.validations,
+        assessments=tuple(assessments_by_id[item.citation_id] for item in validation.citations),
+        modified_citations=tuple(modified_citations),
+        reassessments=tuple(reassessments),
+    )
+
+
+def initialize_assessment(validation: ValidatedDocument) -> AssessedDocument:
+    """Create one waiting or skipped assessment record per citation."""
+    validations_by_id = {item.citation_id: item for item in validation.validations}
+    assessments: list[CitationAssessment] = []
+    for citation in validation.citations:
+        citation_validation = validations_by_id[citation.citation_id]
+        if not isinstance(citation.citation, FullCaseCitation):
+            assessments.append(
+                SkippedCitationAssessment(
+                    citation_id=citation.citation_id,
+                    reason=AssessmentSkipReason.UNSUPPORTED_CITATION_KIND,
+                    message=f"Citation kind {citation.citation.kind.value} is not assessed.",
+                )
+            )
+        elif citation_validation.status != ValidationStatus.FOUND:
+            assessments.append(
+                SkippedCitationAssessment(
+                    citation_id=citation.citation_id,
+                    reason=AssessmentSkipReason.VALIDATION_NOT_ELIGIBLE,
+                    message=f"Validation status {citation_validation.status.value} is not eligible.",
+                )
+            )
+        else:
+            assessments.append(WaitingCitationAssessment(citation_id=citation.citation_id))
+
+    return AssessedDocument(
+        metadata=validation.metadata,
+        text=validation.text,
         citations=validation.citations,
         validations=validation.validations,
         assessments=tuple(assessments),
-        modified_citations=tuple(modified_citations),
-        reassessments=tuple(reassessments),
+    )
+
+
+def _record_bundle(
+    citation_id: str,
+    bundle: CitationAssessmentBundle,
+    *,
+    assessments_by_id: dict[str, CitationAssessment],
+    modified_citations: list[ModifiedExtractedCitation],
+    reassessments: list[CitationAssessmentResult],
+) -> None:
+    assessments_by_id[citation_id] = AssessedCitationAssessment(
+        citation_id=citation_id,
+        result=bundle.assessment,
+    )
+    if bundle.modified_citation is not None:
+        modified_citations.append(bundle.modified_citation)
+    if bundle.reassessment is not None:
+        reassessments.append(bundle.reassessment)
+
+
+def _failed_assessment(citation_id: str, exc: BaseException) -> FailedCitationAssessment:
+    return FailedCitationAssessment(
+        citation_id=citation_id,
+        error=f"{type(exc).__name__}: {exc}",
     )
 
 
@@ -171,7 +254,7 @@ async def _assess_pending_mellea_citation(
     *,
     semaphore: asyncio.Semaphore,
     on_mellea_call: Callable[[MelleaCallContext], None] | None,
-    on_mellea_done: Callable[[MelleaCallContext, CitationAssessment], None] | None,
+    on_mellea_done: Callable[[MelleaCallContext, CitationAssessmentResult], None] | None,
 ) -> CitationAssessmentBundle:
     call_context = MelleaCallContext(
         mellea_call=job.mellea_call,

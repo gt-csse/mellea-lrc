@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import cast
 
 from eyecite import get_citations, resolve_citations
@@ -31,7 +30,7 @@ from mellea_lrc.core.citations import (
     UnknownCitation,
 )
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
+from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
 from mellea_lrc.preprocessing.plain_text import preprocess_plain_text_from_string
 from mellea_lrc.preprocessing.types import PreprocessedDocument  # noqa: TC001
 
@@ -148,14 +147,14 @@ def _assign_citation_ids(
     citations: list[CitationBase],
 ) -> list[tuple[CitationBase, str]]:
     citation_ids: list[tuple[CitationBase, str]] = []
-    for citation in citations:
+    for index, citation in enumerate(citations, start=1):
         if type(citation) not in EYECITE_CITATION_TYPES:
             msg = (
                 f"Unknown citation type: {type(citation).__name__}. "
                 "All citation types must be handled explicitly."
             )
             raise ValueError(msg)
-        citation_ids.append((citation, str(uuid.uuid4())[:8]))
+        citation_ids.append((citation, f"cite-{index:04d}"))
     return citation_ids
 
 
@@ -201,9 +200,8 @@ def _extract_from_text(
         )
 
     return ExtractedDocument(
-        source_metadata=preprocessed.source_metadata,
+        metadata=preprocessed.metadata,
         text=preprocessed.text,
-        preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=tuple(extracted),
         extraction_metadata=ExtractionMetadata(),
     )

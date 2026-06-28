@@ -11,7 +11,7 @@ from mellea_lrc.assessment.deterministic.year import assess_year_exact_match
 from mellea_lrc.assessment.llm.case_name import assess_case_name_with_mellea
 from mellea_lrc.assessment.types import (
     CaseNameAssessmentStatus,
-    CitationAssessment,
+    CitationAssessmentResult,
     ModifiedExtractedCitation,
     ModifiedExtractedCitationProposal,
     YearAssessment,
@@ -26,9 +26,9 @@ if TYPE_CHECKING:
 class CitationAssessmentBundle:
     """One citation assessment plus optional re-extraction history."""
 
-    assessment: CitationAssessment
+    assessment: CitationAssessmentResult
     modified_citation: ModifiedExtractedCitation | None = None
-    reassessment: CitationAssessment | None = None
+    reassessment: CitationAssessmentResult | None = None
 
 
 async def assess_found_citation(
@@ -55,7 +55,7 @@ async def assess_found_citation(
     )
     if exact.status != CaseNameAssessmentStatus.NEEDS_ASSESSMENT or session is None:
         return CitationAssessmentBundle(
-            assessment=CitationAssessment(
+            assessment=CitationAssessmentResult(
                 citation_id=citation_id,
                 case_assess=exact,
                 year_assess=year_assess,
@@ -71,7 +71,7 @@ async def assess_found_citation(
         document_context=document_context,
     )
     reassessment = (
-        CitationAssessment(
+        CitationAssessmentResult(
             citation_id=citation_id,
             case_assess=case_name_run.reassessment,
             year_assess=year_assess,
@@ -80,7 +80,7 @@ async def assess_found_citation(
         else None
     )
     return CitationAssessmentBundle(
-        assessment=CitationAssessment(
+        assessment=CitationAssessmentResult(
             citation_id=citation_id,
             case_assess=case_name_run.assessment,
             year_assess=year_assess,

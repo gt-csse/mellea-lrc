@@ -4,7 +4,7 @@ from pathlib import Path
 
 from mellea_lrc.extraction.eyecite import extract_baseline
 from mellea_lrc.extraction.types import ExtractedDocument
-from mellea_lrc.preprocessing import preprocess
+from mellea_lrc.preprocessing import run_preprocessing
 from mellea_lrc.preprocessing.plain_text import preprocess_plain_text_from_string
 from mellea_lrc.preprocessing.types import PreprocessedDocument
 
@@ -28,7 +28,7 @@ def run_extraction_from_text(
 
 def extract_document_file(path: Path | str) -> ExtractedDocument:
     """Preprocess and extract citations from a document file."""
-    preprocessed = preprocess(path)
+    preprocessed = run_preprocessing(path)
     return run_extraction(preprocessed)
 
 

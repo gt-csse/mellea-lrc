@@ -13,7 +13,12 @@ from mellea_lrc.assessment.deterministic import (
     find_text_span_near_full_span,
     get_extended_span_text,
 )
-from mellea_lrc.assessment.pipeline import MelleaCallContext, run_assessment, run_assessment_async
+from mellea_lrc.assessment.pipeline import (
+    MelleaCallContext,
+    initialize_assessment,
+    run_assessment,
+    run_assessment_async,
+)
 from mellea_lrc.assessment.llm import (
     ReextractionStatus,
     assess_case_name_with_mellea,
@@ -21,28 +26,42 @@ from mellea_lrc.assessment.llm import (
     validate_proposal,
 )
 from mellea_lrc.assessment.types import (
+    AssessmentSkipReason,
+    AssessmentStatus,
+    AssessedCitationAssessment,
+    AssessedDocument,
     CaseNameAssessment,
     CaseNameAssessmentRun,
     CaseNameAssessmentStatus,
     CitationAssessment,
-    DocumentAssessment,
+    CitationAssessmentResult,
+    FailedCitationAssessment,
     ModifiedExtractedCitation,
     ModifiedExtractedCitationProposal,
+    SkippedCitationAssessment,
+    WaitingCitationAssessment,
     YearAssessment,
     YearAssessmentStatus,
 )
 
 __all__ = [
+    "AssessedCitationAssessment",
+    "AssessedDocument",
+    "AssessmentSkipReason",
+    "AssessmentStatus",
     "CaseNameAssessment",
     "CaseNameAssessmentRun",
     "CaseNameAssessmentStatus",
     "CitationAssessment",
     "CitationAssessmentBundle",
-    "DocumentAssessment",
+    "CitationAssessmentResult",
+    "FailedCitationAssessment",
     "MelleaCallContext",
     "ModifiedExtractedCitation",
     "ModifiedExtractedCitationProposal",
     "ReextractionStatus",
+    "SkippedCitationAssessment",
+    "WaitingCitationAssessment",
     "YearAssessment",
     "YearAssessmentStatus",
     "assess_case_name_exact_match",
@@ -54,6 +73,7 @@ __all__ = [
     "first_cluster_case_name",
     "first_cluster_year",
     "get_extended_span_text",
+    "initialize_assessment",
     "reextract_case_name",
     "run_assessment",
     "run_assessment_async",

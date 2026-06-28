@@ -8,20 +8,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 from mellea_lrc.assessment import (
+    AssessedCitationAssessment,
+    AssessedDocument,
     CaseNameAssessmentStatus,
     CitationAssessment,
-    CitationAssessmentBundle,
-    DocumentAssessment,
-    assess_found_citation,
-    build_extracted_case_name,
-    first_cluster_case_name,
-    first_cluster_year,
+    run_assessment_async,
 )
 from mellea_lrc.core.citations import FullCaseCitation, UnknownCitation, citation_kind
 from mellea_lrc.core.spans import Span
-from mellea_lrc.llm import start_mellea_session_from_env
 from mellea_lrc.extraction import run_extraction
-from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
+from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
 from mellea_lrc.preprocessing.docling import build_docling_converter, is_docling_supported_format
 from mellea_lrc.preprocessing.types import (
     PreprocessedDocument,
@@ -30,17 +26,17 @@ from mellea_lrc.preprocessing.types import (
     SourceFormat,
 )
 from mellea_lrc.validation import run_validation
-from mellea_lrc.validation.types import CitationValidation, DocumentValidation, ValidationStatus
+from mellea_lrc.validation.types import CitationValidation, ValidatedDocument, ValidationStatus
+from mellea_lrc.serialization import (
+    serialize_citation_assessment,
+    serialize_citation_assessment_result,
+)
 from scripts.label_studio.label_studio import to_label_studio_prediction
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from mellea_lrc.assessment.types import (
-        CaseNameAssessment,
-        ModifiedExtractedCitation,
-        YearAssessment,
-    )
+    from mellea_lrc.assessment.types import ModifiedExtractedCitation
     from mellea_lrc.validation import CourtListenerAccessClient
 
 JsonDict = dict[str, Any]
@@ -89,11 +85,11 @@ class E2EBackend:
         """Serialize a preprocessed document snapshot for the frontend review UI."""
         return review_preprocessed_document(preprocessed)
 
-    def review_document_extraction(self, extraction: DocumentExtraction) -> dict[str, Any]:
+    def review_document_extraction(self, extraction: ExtractedDocument) -> dict[str, Any]:
         """Serialize an extraction snapshot for the frontend review UI."""
         return review_document_extraction(extraction)
 
-    def review_document_validation(self, validation: DocumentValidation) -> dict[str, Any]:
+    def review_document_validation(self, validation: ValidatedDocument) -> dict[str, Any]:
         """Serialize a validation snapshot for the frontend review UI."""
         return review_document_validation(validation)
 
@@ -186,7 +182,7 @@ class E2EBackend:
         """Attach Mellea-assisted assessment to an existing validated review payload."""
         return await assess_review_payload(payload)
 
-    def review_document_assessment(self, assessment: DocumentAssessment) -> dict[str, Any]:
+    def review_document_assessment(self, assessment: AssessedDocument) -> dict[str, Any]:
         """Serialize a cached assessment artifact for the frontend review UI."""
         return review_document_assessment(assessment)
 
@@ -231,8 +227,8 @@ def review_preprocessed(
         "document": {
             "text": extraction.text,
             "source_path": extraction.source_path,
-            "source_format": extraction.preprocessed.metadata.source_format.value,
-            "backend": extraction.preprocessed.metadata.backend.value,
+            "source_format": extraction.metadata.source_format.value,
+            "backend": extraction.metadata.backend.value,
         },
         "citations": _citation_payloads(extraction, validation),
         "validation": _validation_payload(validation),
@@ -260,14 +256,14 @@ def review_preprocessed_document(preprocessed: PreprocessedDocument) -> dict[str
     }
 
 
-def review_document_extraction(extraction: DocumentExtraction) -> dict[str, Any]:
+def review_document_extraction(extraction: ExtractedDocument) -> dict[str, Any]:
     """Serialize a typed extraction artifact as a frontend review payload."""
     return {
         "document": {
             "text": extraction.text,
             "source_path": extraction.source_path,
-            "source_format": extraction.preprocessed.metadata.source_format.value,
-            "backend": extraction.preprocessed.metadata.backend.value,
+            "source_format": extraction.metadata.source_format.value,
+            "backend": extraction.metadata.backend.value,
         },
         "citations": _citation_payloads(extraction, None),
         "validation": None,
@@ -276,18 +272,15 @@ def review_document_extraction(extraction: DocumentExtraction) -> dict[str, Any]
     }
 
 
-def review_document_validation(validation: DocumentValidation) -> dict[str, Any]:
+def review_document_validation(validation: ValidatedDocument) -> dict[str, Any]:
     """Serialize a typed validation artifact as a frontend review payload."""
-    extraction = DocumentExtraction(
-        preprocessed=validation.preprocessed,
-        citations=validation.citations,
-    )
+    extraction = validation
     return {
         "document": {
             "text": extraction.text,
             "source_path": extraction.source_path,
-            "source_format": extraction.preprocessed.metadata.source_format.value,
-            "backend": extraction.preprocessed.metadata.backend.value,
+            "source_format": extraction.metadata.source_format.value,
+            "backend": extraction.metadata.backend.value,
         },
         "citations": _citation_payloads(extraction, validation),
         "validation": _validation_payload(validation),
@@ -327,16 +320,22 @@ def validate_review_citation_payload(
         raise TypeError(msg)
 
     extracted_citation = _extracted_citation_from_review_item(citation)
-    extraction = DocumentExtraction(
-        preprocessed=PreprocessedDocument(
-            text=extracted_citation.matched_text or "citation",
-            metadata=PreprocessedDocumentMetadata(
-                source_path=None,
-                source_format=SourceFormat.UNKNOWN,
-                backend=PreprocessingBackend.PLAIN_TEXT,
-            ),
+    validation_text = extracted_citation.matched_text or "citation"
+    validation_citation = ExtractedCitation(
+        citation_id=extracted_citation.citation_id,
+        span=Span(start=0, end=len(validation_text)),
+        matched_text=extracted_citation.matched_text,
+        citation=extracted_citation.citation,
+        resolves_to=None,
+    )
+    extraction = ExtractedDocument(
+        text=validation_text,
+        metadata=PreprocessedDocumentMetadata(
+            source_path=None,
+            source_format=SourceFormat.UNKNOWN,
+            backend=PreprocessingBackend.PLAIN_TEXT,
         ),
-        citations=(extracted_citation,),
+        citations=(validation_citation,),
     )
     validation = _run_validation(extraction, validate=True, client=client)
     if validation is None or not validation.validations:
@@ -348,70 +347,38 @@ def validate_review_citation_payload(
 async def assess_review_payload(payload: dict[str, object]) -> dict[str, Any]:
     """Attach Mellea-assisted case-name assessment to an existing review payload."""
     output = _copy_review_payload(payload)
-    document_text = _review_document_text(output)
     citations = _review_citations(output)
     extraction = _extraction_from_review_payload(output)
     validation = _validation_from_review_payload(output, extraction)
-    session = None
-    assessments: list[CitationAssessment] = []
-    modified_citations = []
-    reassessments: list[CitationAssessment] = []
-
+    document_assessment = await run_assessment_async(validation)
+    assessment_by_id = {item.citation_id: item for item in document_assessment.assessments}
     for citation in citations:
-        bundle = await _assess_review_citation(citation, document_text, session)
-        if bundle is None:
-            citation["assessment"] = None
-            continue
-        if bundle.assessment.case_assess.status == CaseNameAssessmentStatus.NEEDS_ASSESSMENT:
-            session = session or start_mellea_session_from_env()
-            bundle = await _assess_review_citation(citation, document_text, session)
-            if bundle is None:
-                citation["assessment"] = None
-                continue
-        citation["assessment"] = _assessment_payload(bundle.assessment)
-        assessments.append(bundle.assessment)
-        if bundle.modified_citation is not None:
-            modified_citations.append(bundle.modified_citation)
-        if bundle.reassessment is not None:
-            reassessments.append(bundle.reassessment)
+        citation["assessment"] = _assessment_payload(assessment_by_id[str(citation.get("id"))])
 
-    document_assessment = DocumentAssessment(
-        preprocessed=extraction.preprocessed,
-        citations=extraction.citations,
-        validations=validation.validations,
-        assessments=tuple(assessments),
-        modified_citations=tuple(modified_citations),
-        reassessments=tuple(reassessments),
-    )
     output["citations"] = citations
     output["assessment"] = _assessment_payload_document(document_assessment)
     output["stats"] = _merge_stats(
         output.get("stats"),
         {
-            "assessed": len(assessments),
-            "case_name_counts": _assessment_case_name_counts(assessments),
-            "year_counts": _assessment_year_counts(assessments),
+            "assessed": _assessment_status_counts(document_assessment.assessments).get("assessed", 0),
+            "case_name_counts": _assessment_case_name_counts(document_assessment.assessments),
+            "year_counts": _assessment_year_counts(document_assessment.assessments),
         },
     )
     return output
 
 
-def review_document_assessment(assessment: DocumentAssessment) -> dict[str, Any]:
+def review_document_assessment(assessment: AssessedDocument) -> dict[str, Any]:
     """Serialize a typed assessment artifact as a frontend review payload."""
     _ensure_assessment_is_resolved(assessment)
-    validation = DocumentValidation(
-        preprocessed=assessment.preprocessed,
-        citations=assessment.citations,
-        validations=assessment.validations,
-    )
-    output = review_document_validation(validation)
+    output = review_document_validation(assessment)
     output["assessment"] = _assessment_payload_document(assessment)
     output["stats"] = _merge_stats(
         output.get("stats"),
         {
-            "assessed": len(assessment.assessments),
-            "case_name_counts": _assessment_case_name_counts(list(assessment.assessments)),
-            "year_counts": _assessment_year_counts(list(assessment.assessments)),
+            "assessed": _assessment_status_counts(assessment.assessments).get("assessed", 0),
+            "case_name_counts": _assessment_case_name_counts(assessment.assessments),
+            "year_counts": _assessment_year_counts(assessment.assessments),
         },
     )
     assessment_by_id = {item.citation_id: _assessment_payload(item) for item in assessment.assessments}
@@ -422,7 +389,7 @@ def review_document_assessment(assessment: DocumentAssessment) -> dict[str, Any]
     return output
 
 
-def _ensure_assessment_is_resolved(assessment: DocumentAssessment) -> None:
+def _ensure_assessment_is_resolved(assessment: AssessedDocument) -> None:
     # NEEDS_ASSESSMENT is a transient handoff only when both names are present and
     # comparable; a missing extracted or CourtListener name is legitimately
     # unassessable and is allowed to remain NEEDS_ASSESSMENT. When re-extraction
@@ -431,22 +398,23 @@ def _ensure_assessment_is_resolved(assessment: DocumentAssessment) -> None:
     pending = [
         item.citation_id
         for item in assessment.assessments
-        if item.case_assess.status == CaseNameAssessmentStatus.NEEDS_ASSESSMENT
-        and item.case_assess.extracted_case_name
-        and item.case_assess.courtlistener_case_name
+        if isinstance(item, AssessedCitationAssessment)
+        and item.result.case_assess.status == CaseNameAssessmentStatus.NEEDS_ASSESSMENT
+        and item.result.case_assess.extracted_case_name
+        and item.result.case_assess.courtlistener_case_name
         and item.citation_id not in reassessed_ids
     ]
     if pending:
         msg = (
-            "DocumentAssessment contains unresolved case-name assessment handoff states. "
-            f"Rerun assessment without a debug cap. Pending citation ids: {', '.join(pending[:5])}"
+            "AssessedDocument contains unresolved case-name assessment handoff states. "
+            f"Pending citation ids: {', '.join(pending[:5])}"
         )
         raise ValueError(msg)
 
 
 def add_validation_notes(
     prediction: dict[str, Any],
-    validation: DocumentValidation,
+    validation: ValidatedDocument,
 ) -> dict[str, Any]:
     """Add CourtListener validation messages as Label Studio per-region notes."""
     result = list(prediction.get("result", []))
@@ -539,11 +507,11 @@ def _source_format(filename: str) -> SourceFormat:
 
 
 def _run_validation(
-    extraction: DocumentExtraction,
+    extraction: ExtractedDocument,
     *,
     validate: bool,
     client: CourtListenerAccessClient | None,
-) -> DocumentValidation | None:
+) -> ValidatedDocument | None:
     if not validate:
         return None
     return run_validation(
@@ -554,8 +522,8 @@ def _run_validation(
 
 
 def _citation_payloads(
-    extraction: DocumentExtraction,
-    validation: DocumentValidation | None,
+    extraction: ExtractedDocument,
+    validation: ValidatedDocument | None,
 ) -> list[dict[str, Any]]:
     validation_by_id = {item.citation_id: item for item in validation.validations} if validation else {}
     return [
@@ -587,7 +555,7 @@ def _single_validation_payload(item: CitationValidation | None) -> dict[str, Any
     return _validation_item_payload(item)
 
 
-def _validation_payload(validation: DocumentValidation | None) -> dict[str, Any] | None:
+def _validation_payload(validation: ValidatedDocument | None) -> dict[str, Any] | None:
     if validation is None:
         return None
     return {
@@ -601,8 +569,8 @@ def _validation_payload(validation: DocumentValidation | None) -> dict[str, Any]
 
 def _validation_from_review_payload(
     payload: dict[str, object],
-    extraction: DocumentExtraction,
-) -> DocumentValidation:
+    extraction: ExtractedDocument,
+) -> ValidatedDocument:
     validation_by_id = {
         item.citation_id: item
         for item in (
@@ -610,8 +578,9 @@ def _validation_from_review_payload(
         )
         if item is not None
     }
-    return DocumentValidation(
-        preprocessed=extraction.preprocessed,
+    return ValidatedDocument(
+        metadata=extraction.metadata,
+        text=extraction.text,
         citations=extraction.citations,
         validations=tuple(
             validation_by_id[item.citation_id]
@@ -653,17 +622,15 @@ def _citation_validation_from_review_item(item: JsonDict) -> CitationValidation 
     )
 
 
-def _extraction_from_review_payload(payload: dict[str, object]) -> DocumentExtraction:
+def _extraction_from_review_payload(payload: dict[str, object]) -> ExtractedDocument:
     text = _review_document_text(payload)
     citations = tuple(_extracted_citation_from_review_item(item) for item in _review_citations(payload))
-    return DocumentExtraction(
-        preprocessed=PreprocessedDocument(
-            text=text,
-            metadata=PreprocessedDocumentMetadata(
-                source_path=_review_source_path(payload),
-                source_format=_review_source_format(payload),
-                backend=_review_preprocessing_backend(payload),
-            ),
+    return ExtractedDocument(
+        text=text,
+        metadata=PreprocessedDocumentMetadata(
+            source_path=_review_source_path(payload),
+            source_format=_review_source_format(payload),
+            backend=_review_preprocessing_backend(payload),
         ),
         citations=citations,
     )
@@ -696,72 +663,19 @@ def _extracted_citation_from_review_item(item: JsonDict) -> ExtractedCitation:
     )
 
 
-async def _assess_review_citation(
-    citation: JsonDict,
-    document_text: str,
-    session: object | None,
-) -> CitationAssessmentBundle | None:
-    validation = citation.get("validation") if isinstance(citation.get("validation"), dict) else None
-    if (
-        citation.get("kind") != "FullCaseCitation"
-        or validation is None
-        or validation.get("status") != "found"
-    ):
-        return None
-
-    fields = citation.get("fields") if isinstance(citation.get("fields"), dict) else {}
-    clusters = _validation_clusters(validation)
-    return await assess_found_citation(
-        citation_id=str(citation.get("id") or ""),
-        document_text=document_text,
-        span=Span(start=_int_field(citation.get("start")), end=_int_field(citation.get("end"))),
-        extracted_case_name=build_extracted_case_name(
-            FullCaseCitation(
-                plaintiff=_optional_str(fields.get("plaintiff")),
-                defendant=_optional_str(fields.get("defendant")),
-            )
-        ),
-        courtlistener_case_name=first_cluster_case_name(clusters),
-        extracted_year=_optional_str(fields.get("year")),
-        courtlistener_year=first_cluster_year(clusters),
-        session=session,
-    )
-
-
-def _validation_clusters(validation: JsonDict) -> tuple[JsonDict, ...]:
-    clusters = validation.get("clusters")
-    if not isinstance(clusters, list):
-        return ()
-    return tuple(item for item in clusters if isinstance(item, dict))
-
-
 def _assessment_payload(item: CitationAssessment) -> JsonDict:
-    return {
-        "citation_id": item.citation_id,
-        "case_assess": _case_assessment_payload(item.case_assess),
-        "year_assess": _year_assessment_payload(item.year_assess),
-    }
+    return dict(serialize_citation_assessment(item))
 
 
-def _case_assessment_payload(item: CaseNameAssessment) -> JsonDict:
-    payload = asdict(item)
-    payload["status"] = item.status.value
-    return payload
-
-
-def _year_assessment_payload(item: YearAssessment) -> JsonDict:
-    payload = asdict(item)
-    payload["status"] = item.status.value
-    return payload
-
-
-def _assessment_payload_document(assessment: DocumentAssessment) -> JsonDict:
+def _assessment_payload_document(assessment: AssessedDocument) -> JsonDict:
     return {
         "assessments": [_assessment_payload(item) for item in assessment.assessments],
+        "assessment_complete": assessment.assessment_complete,
+        "status_counts": _assessment_status_counts(assessment.assessments),
         "modified_citations": [_modified_citation_payload(item) for item in assessment.modified_citations],
-        "reassessments": [_assessment_payload(item) for item in assessment.reassessments],
-        "case_name_counts": _assessment_case_name_counts(list(assessment.assessments)),
-        "year_counts": _assessment_year_counts(list(assessment.assessments)),
+        "reassessments": [dict(serialize_citation_assessment_result(item)) for item in assessment.reassessments],
+        "case_name_counts": _assessment_case_name_counts(assessment.assessments),
+        "year_counts": _assessment_year_counts(assessment.assessments),
     }
 
 
@@ -771,17 +685,28 @@ def _modified_citation_payload(item: ModifiedExtractedCitation) -> JsonDict:
     return payload
 
 
-def _assessment_case_name_counts(assessments: list[CitationAssessment]) -> dict[str, int]:
+def _assessment_case_name_counts(assessments: tuple[CitationAssessment, ...]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for item in assessments:
-        counts[item.case_assess.status.value] = counts.get(item.case_assess.status.value, 0) + 1
+        if isinstance(item, AssessedCitationAssessment):
+            status = item.result.case_assess.status.value
+            counts[status] = counts.get(status, 0) + 1
     return counts
 
 
-def _assessment_year_counts(assessments: list[CitationAssessment]) -> dict[str, int]:
+def _assessment_year_counts(assessments: tuple[CitationAssessment, ...]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for item in assessments:
-        counts[item.year_assess.status.value] = counts.get(item.year_assess.status.value, 0) + 1
+        if isinstance(item, AssessedCitationAssessment):
+            status = item.result.year_assess.status.value
+            counts[status] = counts.get(status, 0) + 1
+    return counts
+
+
+def _assessment_status_counts(assessments: tuple[CitationAssessment, ...]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in assessments:
+        counts[item.status.value] = counts.get(item.status.value, 0) + 1
     return counts
 
 
@@ -874,8 +799,8 @@ def _int_field(value: object) -> int:
 
 
 def _stats(
-    extraction: DocumentExtraction,
-    validation: DocumentValidation | None,
+    extraction: ExtractedDocument,
+    validation: ValidatedDocument | None,
 ) -> dict[str, int]:
     label_count = len(extraction.citations)
     stats = {

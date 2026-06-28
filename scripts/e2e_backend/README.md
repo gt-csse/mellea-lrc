@@ -116,7 +116,7 @@ Useful endpoints:
 ## Snapshot Loading
 
 The frontend can load a JSON snapshot produced by the neutral serializers for:
-`PreprocessedDocument`, `DocumentExtraction`, `DocumentValidation`, or
-`DocumentAssessment`. Use the `Load snapshot` button in the input panel and choose
+`PreprocessedDocument`, `ExtractedDocument`, `ValidatedDocument`, or
+`AssessedDocument`. Use the `Load snapshot` button in the input panel and choose
 the artifact JSON file. The backend deserializes the artifact and returns the same
 review payload shape used by the normal staged workflow.

@@ -1,27 +1,36 @@
 """Tests for neutral and Label Studio-specific serialization."""
 
+import pytest
+
 from mellea_lrc.assessment import (
+    AssessmentSkipReason,
+    AssessedCitationAssessment,
+    AssessedDocument,
     CaseNameAssessment,
     CaseNameAssessmentStatus,
-    CitationAssessment,
-    DocumentAssessment,
+    CitationAssessmentResult,
+    FailedCitationAssessment,
     ModifiedExtractedCitation,
+    SkippedCitationAssessment,
+    WaitingCitationAssessment,
     YearAssessment,
     YearAssessmentStatus,
 )
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import extract_citations
 from mellea_lrc.serialization import (
-    deserialize_document_assessment,
-    deserialize_document_extraction,
-    deserialize_document_validation,
+    deserialize_assessed_document,
+    deserialize_extracted_document,
+    deserialize_citation_assessment,
     deserialize_preprocessed_document,
-    serialize_document_assessment,
-    serialize_document_extraction,
-    serialize_document_validation,
+    deserialize_validated_document,
+    serialize_assessed_document,
+    serialize_extracted_document,
+    serialize_citation_assessment,
     serialize_preprocessed_document,
+    serialize_validated_document,
 )
-from mellea_lrc.validation.types import CitationValidation, DocumentValidation, ValidationStatus
+from mellea_lrc.validation.types import CitationValidation, ValidatedDocument, ValidationStatus
 from scripts.label_studio.label_studio import to_label_studio_prediction
 from scripts.label_studio.pre_annotate import build_task_payload
 
@@ -36,8 +45,10 @@ RECAP_TEXT = (
 
 def test_document_extraction_serializes_without_ui_assumptions() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
-    artifact = serialize_document_extraction(extraction)
+    artifact = serialize_extracted_document(extraction)
 
+    assert artifact["schema_version"] == 1
+    assert artifact["artifact_type"] == "extracted_document"
     assert artifact["source_path"] is None
     assert artifact["text"] == SAMPLE_TEXT
     assert artifact["citations"]
@@ -53,26 +64,37 @@ def test_document_extraction_serializes_without_ui_assumptions() -> None:
 
 def test_preprocessed_document_round_trips() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
-    artifact = serialize_preprocessed_document(extraction.preprocessed)
+    artifact = serialize_preprocessed_document(extraction)
 
     restored = deserialize_preprocessed_document(artifact)
 
-    assert restored == extraction.preprocessed
+    assert restored.text == extraction.text
+    assert restored.metadata == extraction.metadata
+
+
+def test_unversioned_preprocessed_document_is_rejected() -> None:
+    extraction = extract_citations(SAMPLE_TEXT)
+    artifact = serialize_preprocessed_document(extraction)
+    artifact.pop("schema_version")
+
+    with pytest.raises(ValueError, match="schema_version"):
+        deserialize_preprocessed_document(artifact)
 
 
 def test_document_extraction_round_trips() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
-    artifact = serialize_document_extraction(extraction)
+    artifact = serialize_extracted_document(extraction)
 
-    restored = deserialize_document_extraction(artifact)
+    restored = deserialize_extracted_document(artifact)
 
     assert restored == extraction
 
 
 def test_document_validation_round_trips() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
-    validation = DocumentValidation(
-        preprocessed=extraction.preprocessed,
+    validation = ValidatedDocument(
+        metadata=extraction.metadata,
+        text=extraction.text,
         citations=extraction.citations,
         validations=(
             CitationValidation(
@@ -90,9 +112,10 @@ def test_document_validation_round_trips() -> None:
         ),
     )
 
-    artifact = serialize_document_validation(validation)
-    restored = deserialize_document_validation(artifact)
+    artifact = serialize_validated_document(validation)
+    restored = deserialize_validated_document(artifact)
 
+    assert artifact["artifact_type"] == "validated_document"
     assert restored == validation
 
 
@@ -106,7 +129,7 @@ def test_document_assessment_round_trips() -> None:
         message="found",
         clusters=({"case_name": "Norton v. Shelby County", "date_filed": "1886-01-01"},),
     )
-    assessment = CitationAssessment(
+    assessment_result = CitationAssessmentResult(
         citation_id=extraction.citations[0].citation_id,
         case_assess=CaseNameAssessment(
             citation_id=extraction.citations[0].citation_id,
@@ -123,11 +146,17 @@ def test_document_assessment_round_trips() -> None:
             message="match",
         ),
     )
-    document_assessment = DocumentAssessment(
-        preprocessed=extraction.preprocessed,
+    document_assessment = AssessedDocument(
+        metadata=extraction.metadata,
+        text=extraction.text,
         citations=extraction.citations,
         validations=(validation,),
-        assessments=(assessment,),
+        assessments=(
+            AssessedCitationAssessment(
+                citation_id=assessment_result.citation_id,
+                result=assessment_result,
+            ),
+        ),
         modified_citations=(
             ModifiedExtractedCitation(
                 citation_id=extraction.citations[0].citation_id,
@@ -136,15 +165,35 @@ def test_document_assessment_round_trips() -> None:
                 case_name="Norton v. Shelby County",
             ),
         ),
-        reassessments=(assessment,),
+        reassessments=(assessment_result,),
     )
 
-    artifact = serialize_document_assessment(document_assessment)
-    restored = deserialize_document_assessment(artifact)
+    artifact = serialize_assessed_document(document_assessment)
+    restored = deserialize_assessed_document(artifact)
 
+    assert artifact["artifact_type"] == "assessed_document"
+    assert artifact["assessment_status_counts"] == {"assessed": 1}
     assert artifact["case_name_counts"] == {"exact_match": 1}
     assert artifact["year_counts"] == {"exact_match": 1}
     assert restored == document_assessment
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        WaitingCitationAssessment(citation_id="cite-1"),
+        SkippedCitationAssessment(
+            citation_id="cite-1",
+            reason=AssessmentSkipReason.VALIDATION_NOT_ELIGIBLE,
+            message="not found",
+        ),
+        FailedCitationAssessment(citation_id="cite-1", error="RuntimeError: unavailable"),
+    ],
+)
+def test_non_assessed_execution_states_round_trip(record) -> None:
+    payload = serialize_citation_assessment(record)
+
+    assert deserialize_citation_assessment(payload) == record
 
 
 def test_label_studio_prediction_shape() -> None:

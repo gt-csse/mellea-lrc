@@ -4,7 +4,7 @@ from mellea_lrc.courtlistener.remote import CourtListenerAccessClient, CourtList
 from mellea_lrc.validation.pipeline import run_validation
 from mellea_lrc.validation.types import (
     CitationValidation,
-    DocumentValidation,
+    ValidatedDocument,
     ValidationClientMode,
     ValidationStatus,
 )
@@ -13,7 +13,7 @@ __all__ = [
     "CitationValidation",
     "CourtListenerAccessClient",
     "CourtListenerAccessConfig",
-    "DocumentValidation",
+    "ValidatedDocument",
     "ValidationClientMode",
     "ValidationStatus",
     "run_validation",

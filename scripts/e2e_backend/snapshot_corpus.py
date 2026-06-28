@@ -19,7 +19,7 @@ document the run stops gracefully, preserving every snapshot already written.
 
 Usage:
     uv run --group pipeline python -m scripts.e2e_backend.snapshot_corpus
-    # optional: --docs 432895579 436876274   --snapshot-root local/snapshots   --max-mellea N
+    # optional: --docs 432895579 436876274   --snapshot-root local/snapshots
 """
 
 from __future__ import annotations
@@ -31,12 +31,12 @@ from pathlib import Path
 
 from mellea_lrc.assessment import run_assessment
 from mellea_lrc.extraction import run_extraction
-from mellea_lrc.preprocessing import preprocess, preprocess_plain_text
+from mellea_lrc.preprocessing import preprocess_plain_text, run_preprocessing
 from mellea_lrc.preprocessing.types import PreprocessedDocument
 from mellea_lrc.serialization import (
-    serialize_document_assessment,
-    serialize_document_extraction,
-    serialize_document_validation,
+    serialize_assessed_document,
+    serialize_extracted_document,
+    serialize_validated_document,
     serialize_preprocessed_document,
 )
 from mellea_lrc.validation import run_validation
@@ -66,7 +66,6 @@ def main() -> None:
                 input_path,
                 test_data=args.test_data,
                 snapshot_root=args.snapshot_root,
-                max_mellea=args.max_mellea,
             )
             _emit(f"{doc}: done")
         except Exception as exc:
@@ -80,7 +79,6 @@ def _snapshot_document(
     *,
     test_data: Path,
     snapshot_root: Path,
-    max_mellea: int | None,
 ) -> None:
     doc = input_path.stem
     doc_dir = snapshot_root / doc
@@ -90,13 +88,13 @@ def _snapshot_document(
     _write_snapshot(doc_dir, "preprocessed", serialize_preprocessed_document(preprocessed))
 
     extraction = run_extraction(preprocessed)
-    _write_snapshot(doc_dir, "extraction", serialize_document_extraction(extraction))
+    _write_snapshot(doc_dir, "extraction", serialize_extracted_document(extraction))
 
     validation = run_validation(extraction)
-    _write_snapshot(doc_dir, "validation", serialize_document_validation(validation))
+    _write_snapshot(doc_dir, "validation", serialize_validated_document(validation))
 
-    assessment = run_assessment(validation, max_mellea=max_mellea)
-    _write_snapshot(doc_dir, "assessment", serialize_document_assessment(assessment))
+    assessment = run_assessment(validation)
+    _write_snapshot(doc_dir, "assessment", serialize_assessed_document(assessment))
 
 
 def _write_snapshot(doc_dir: Path, stage: str, payload: object) -> Path:
@@ -114,7 +112,7 @@ def _load_preprocessed(source_path: Path, *, test_data: Path) -> PreprocessedDoc
     if cached_txt.exists():
         return preprocess_plain_text(cached_txt)
     if source_path.suffix.lower() == ".pdf":
-        return preprocess(source_path)
+        return run_preprocessing(source_path)
     if source_path.suffix.lower() == ".txt":
         return preprocess_plain_text(source_path)
     msg = f"No preprocessed text for {source_path.name}; run preprocess_test_pdfs first."
@@ -151,7 +149,6 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Specific CourtListener ids or stems, e.g. 432895579",
     )
-    parser.add_argument("--max-mellea", type=int, default=None)
     return parser.parse_args()
 
 
