@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from pydantic import ValidationError
 
 from mellea_lrc.assessment import (
     AssessmentMetadata,
@@ -104,8 +105,49 @@ def test_missing_stage_metadata_is_rejected() -> None:
     artifact = serialize_extracted_document(extract_citations(SAMPLE_TEXT))
     artifact.pop("extraction_metadata")
 
-    with pytest.raises(TypeError, match="extraction_metadata"):
+    with pytest.raises(ValidationError, match="extraction_metadata"):
         deserialize_extracted_document(artifact)
+
+
+def test_artifact_transport_rejects_type_coercion() -> None:
+    artifact = serialize_preprocessed_document(extract_citations(SAMPLE_TEXT))
+    artifact["text"] = 123
+
+    with pytest.raises(ValidationError, match="text"):
+        deserialize_preprocessed_document(artifact)
+
+
+def test_artifact_transport_rejects_unknown_fields() -> None:
+    artifact = serialize_preprocessed_document(extract_citations(SAMPLE_TEXT))
+    artifact["legacy_metadata"] = {}
+
+    with pytest.raises(ValidationError, match="legacy_metadata"):
+        deserialize_preprocessed_document(artifact)
+
+
+def test_citation_transport_rejects_fields_from_another_citation_kind() -> None:
+    artifact = serialize_extracted_document(extract_citations(SAMPLE_TEXT))
+    citation = artifact["citations"][0]["citation"]
+    citation["publisher"] = "Not valid for a case citation"
+
+    with pytest.raises(ValidationError, match="publisher"):
+        deserialize_extracted_document(artifact)
+
+
+def test_artifact_transport_rejects_stale_derived_counts() -> None:
+    artifact = serialize_extracted_document(extract_citations(SAMPLE_TEXT))
+    artifact["counts"]["total"] = 999
+
+    with pytest.raises(ValueError, match="counts"):
+        deserialize_extracted_document(artifact)
+
+
+def test_assessment_transport_rejects_state_inappropriate_fields() -> None:
+    payload = serialize_citation_assessment(WaitingCitationAssessment(citation_id="cite-1"))
+    payload["error"] = "waiting records cannot contain an error"
+
+    with pytest.raises(ValidationError, match="error"):
+        deserialize_citation_assessment(payload)
 
 
 def test_document_extraction_round_trips() -> None:
