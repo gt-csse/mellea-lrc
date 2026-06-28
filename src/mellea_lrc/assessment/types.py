@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import ClassVar, TYPE_CHECKING, TypeAlias
 
+from mellea_lrc.assessment.grounding.proposal import is_in_context
 from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.validation.types import ValidatedDocument
 
@@ -212,8 +213,6 @@ class ModifiedExtractedCitationProposal:
 
     def valid(self, document_context: str) -> bool:
         """Require the proposed case name to be present in the original context."""
-        from mellea_lrc.assessment.grounding.proposal import is_in_context
-
         return bool(self.case_name) and is_in_context(self.case_name, document_context)
 
 

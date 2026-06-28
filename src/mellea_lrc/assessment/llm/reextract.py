@@ -107,20 +107,20 @@ def _chat_history_from_context(ctx: Context) -> tuple[ChatTurn, ...]:
 def _validate_availability_consistency(ctx: Context) -> ValidationResult:
     proposal: _ReextractionProposal = ctx.last_output().parsed_repr
     if proposal.available == (proposal.case_name is not None):
-        return ValidationResult(True)
+        return ValidationResult(result=True)
     if proposal.available:
-        return ValidationResult(False, reason="available is true but case_name is null")
-    return ValidationResult(False, reason="available is false but case_name is not null")
+        return ValidationResult(result=False, reason="available is true but case_name is null")
+    return ValidationResult(result=False, reason="available is false but case_name is not null")
 
 
 def _validate_grounding(ctx: Context, document_context: str) -> ValidationResult:
     proposal: _ReextractionProposal = ctx.last_output().parsed_repr
     if not proposal.available:
-        return ValidationResult(True)
+        return ValidationResult(result=True)
     if is_in_context(proposal.case_name, document_context):
-        return ValidationResult(True)
+        return ValidationResult(result=True)
     return ValidationResult(
-        False,
+        result=False,
         reason=f"case_name={proposal.case_name!r} was not copied exactly from local_context",
     )
 
@@ -197,7 +197,7 @@ def proposal_from_output(output: str) -> ModifiedExtractedCitationProposal | Non
 
 def case_name_for_prompt(extracted_case_name: str | None) -> str:
     """Represent a missing extracted case name explicitly in model prompts."""
-    return extracted_case_name if extracted_case_name else MISSING_EXTRACTED_CASE_NAME_PROMPT
+    return extracted_case_name or MISSING_EXTRACTED_CASE_NAME_PROMPT
 
 
 def validate_proposal(

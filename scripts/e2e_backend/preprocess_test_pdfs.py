@@ -15,9 +15,12 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from mellea_lrc.preprocessing.docling import build_docling_converter, preprocess_with_docling
-from mellea_lrc.preprocessing.types import PreprocessedDocument
+
+if TYPE_CHECKING:
+    from mellea_lrc.preprocessing.types import PreprocessedDocument
 
 DEFAULT_PDF_DIR = Path("local/test_data/pdfs")
 DEFAULT_OUTPUT_DIR = Path("local/test_data")
@@ -44,7 +47,7 @@ def main() -> None:
                 encoding="utf-8",
             )
             _emit(f"{pdf_path.name}: wrote {output_path} ({len(document.text)} chars)")
-        except Exception as exc:  # noqa: BLE001 - batch driver should continue
+        except Exception as exc:
             failures.append(f"{pdf_path.name}: {type(exc).__name__}: {exc}")
             _emit(f"{pdf_path.name}: FAILED ({type(exc).__name__}: {exc})")
 
@@ -63,9 +66,7 @@ def _format_preprocessed_text_file(
         f"Backend: {document.preprocessing_metadata.backend.value}",
     ]
     if document.preprocessing_metadata.backend_version:
-        header_lines.append(
-            f"Backend version: {document.preprocessing_metadata.backend_version}"
-        )
+        header_lines.append(f"Backend version: {document.preprocessing_metadata.backend_version}")
     return "\n".join(header_lines) + f"\n\n--- Plain text ---\n{document.text}"
 
 

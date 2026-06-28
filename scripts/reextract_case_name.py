@@ -5,6 +5,7 @@ Example:
       --context-file local/bookmarked/bookmarked.txt \
       --extracted-case-name "<NO_EXTRACTED_CASE_NAME>" \
       --courtlistener-case-name "Brown v. Board"
+
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ def main() -> None:
             courtlistener_case_name=args.courtlistener_case_name,
         )
     )
-    print(json.dumps(result.to_json(), indent=2))
+    sys.stdout.write(f"{json.dumps(result.to_json(), indent=2)}\n")
 
 
 def _parse_args() -> argparse.Namespace:

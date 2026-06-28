@@ -26,13 +26,15 @@ from mellea_lrc.assessment.types import (
     WaitingCitationAssessment,
 )
 from mellea_lrc.core.citations import FullCaseCitation
-from mellea_lrc.extraction.types import ExtractedCitation
 from mellea_lrc.llm import start_mellea_session_from_env
 from mellea_lrc.validation.types import ValidationStatus
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from mellea import MelleaSession
+
+    from mellea_lrc.extraction.types import ExtractedCitation
     from mellea_lrc.validation.types import ValidatedDocument
 
 
@@ -268,7 +270,7 @@ def _failed_assessment(citation_id: str, exc: BaseException) -> FailedCitationAs
 
 
 async def _assess_pending_mellea_citation(
-    session,
+    session: MelleaSession,
     job: _PendingMelleaAssessment,
     *,
     semaphore: asyncio.Semaphore,

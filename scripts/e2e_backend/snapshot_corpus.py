@@ -28,11 +28,11 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from mellea_lrc.assessment import run_assessment
 from mellea_lrc.extraction import run_extraction
 from mellea_lrc.preprocessing import preprocess_plain_text, run_preprocessing
-from mellea_lrc.preprocessing.types import PreprocessedDocument
 from mellea_lrc.serialization import (
     serialize_assessed_document,
     serialize_extracted_document,
@@ -41,6 +41,9 @@ from mellea_lrc.serialization import (
 )
 from mellea_lrc.validation import run_validation
 from scripts.e2e_backend.run_artifact_pipeline import _load_dotenv
+
+if TYPE_CHECKING:
+    from mellea_lrc.preprocessing.types import PreprocessedDocument
 
 DEFAULT_TEST_DATA = Path("local/test_data")
 DEFAULT_PDF_DIR = DEFAULT_TEST_DATA / "pdfs"

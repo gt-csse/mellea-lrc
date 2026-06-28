@@ -14,12 +14,12 @@ from mellea_lrc.assessment.types import (
     CitationAssessmentResult,
     ModifiedExtractedCitation,
     ModifiedExtractedCitationProposal,
-    YearAssessment,
 )
-from mellea_lrc.core.spans import Span
 
 if TYPE_CHECKING:
     from mellea import MelleaSession
+
+    from mellea_lrc.core.spans import Span
 
 
 @dataclass(frozen=True, slots=True)

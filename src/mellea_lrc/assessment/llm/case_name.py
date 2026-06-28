@@ -2,21 +2,25 @@
 
 from __future__ import annotations
 
-from typing import cast
-
-from mellea import MelleaSession
+from typing import TYPE_CHECKING, cast
 
 from mellea_lrc.assessment.deterministic.case_name import (
     assess_case_name_exact_match,
     build_case_name_assessment,
 )
-from mellea_lrc.assessment.llm.classify import classify_non_semantic_with_mellea, is_semantic_match_with_mellea
+from mellea_lrc.assessment.llm.classify import (
+    classify_non_semantic_with_mellea,
+    is_semantic_match_with_mellea,
+)
 from mellea_lrc.assessment.llm.reextract import ReextractionResult, ReextractionStatus, reextract_case_name
 from mellea_lrc.assessment.types import (
     CaseNameAssessment,
     CaseNameAssessmentRun,
     CaseNameAssessmentStatus,
 )
+
+if TYPE_CHECKING:
+    from mellea import MelleaSession
 
 
 async def assess_case_name_with_mellea(

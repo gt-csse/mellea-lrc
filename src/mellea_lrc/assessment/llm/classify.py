@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Literal, cast
+from typing import Literal, TYPE_CHECKING, cast
 
 from mellea import MelleaSession, generative
 from mellea.stdlib.sampling import RejectionSamplingStrategy
@@ -11,6 +11,9 @@ from mellea.stdlib.sampling import RejectionSamplingStrategy
 from mellea_lrc.assessment.types import CaseNameAssessmentStatus
 from mellea_lrc.assessment.llm.options import structured_model_options
 from mellea_lrc.llm import llm_provider_config_from_env
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 SemanticMatchVerdict = Literal["semantic_match", "not_semantic_match"]
 NonSemanticVerdict = Literal["different_case", "irregular_form"]
@@ -101,7 +104,7 @@ async def classify_non_semantic_with_mellea(
 
 async def _call_with_retries(
     session: MelleaSession,
-    fn,
+    fn: Callable[..., Awaitable[object]],
     *,
     local_context: str,
     extracted_case_name: str,
@@ -120,7 +123,7 @@ async def _call_with_retries(
                 model_options=structured_model_options(max_tokens=CASE_NAME_VERDICT_MAX_TOKENS),
             )
             return cast("str", verdict)
-        except Exception as exc:
+        except Exception as exc:  # noqa: PERF203 - exception is the bounded retry signal
             if not _is_retryable_structured_output_error(exc):
                 raise
             last_error = exc
