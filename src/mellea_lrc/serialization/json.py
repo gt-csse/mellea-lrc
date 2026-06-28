@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, fields, is_dataclass
-from typing import Any, TYPE_CHECKING, TypeAlias, TypeVar, cast
+from typing import TYPE_CHECKING, TypeAlias, TypeVar, cast
 
 from mellea_lrc.assessment.types import (
     AssessmentMetadata,
@@ -13,6 +13,7 @@ from mellea_lrc.assessment.types import (
     AssessedDocument,
     CaseNameAssessment,
     CaseNameAssessmentStatus,
+    ChatTurn,
     CitationAssessment,
     CitationAssessmentResult,
     FailedCitationAssessment,
@@ -35,7 +36,7 @@ from mellea_lrc.core.citations import (
     citation_kind,
 )
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
-from mellea_lrc.core.immutable import thaw_json_object
+from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.types import (
     ExtractedCitation,
@@ -55,6 +56,7 @@ from mellea_lrc.validation.types import (
     ValidationClientMode,
     ValidationStatus,
 )
+from mellea_lrc.courtlistener.types import CitationMatch, ValidationFailureDetail
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -63,7 +65,7 @@ if TYPE_CHECKING:
 
 JsonValue: TypeAlias = str | int | float | bool | None | dict[str, "JsonValue"] | list["JsonValue"]
 T = TypeVar("T")
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _CITATION_CLASSES = {
     CitationKind.FULL_CASE: FullCaseCitation,
@@ -84,9 +86,7 @@ def serialize_preprocessed_document(item: PreprocessedDocument) -> dict[str, Jso
         "artifact_type": "preprocessed_document",
         "text": item.text,
         "source_metadata": _serialize_source_metadata(item.source_metadata),
-        "preprocessing_metadata": _serialize_preprocessing_metadata(
-            item.preprocessing_metadata
-        ),
+        "preprocessing_metadata": _serialize_preprocessing_metadata(item.preprocessing_metadata),
     }
 
 
@@ -98,9 +98,7 @@ def deserialize_preprocessed_document(payload: Mapping[str, object]) -> Preproce
 
 def _deserialize_preprocessed_fields(payload: Mapping[str, object]) -> PreprocessedDocument:
     return PreprocessedDocument(
-        source_metadata=_deserialize_source_metadata(
-            _required_mapping_field(payload, "source_metadata")
-        ),
+        source_metadata=_deserialize_source_metadata(_required_mapping_field(payload, "source_metadata")),
         text=str(payload.get("text") or ""),
         preprocessing_metadata=_deserialize_preprocessing_metadata(
             _required_mapping_field(payload, "preprocessing_metadata")
@@ -113,7 +111,7 @@ def _serialize_source_metadata(item: SourceMetadata) -> dict[str, JsonValue]:
         "path": item.path,
         "format": item.format.value,
         "header": item.header,
-        "extras": dict(item.extras),
+        "extra_data": _serialize_extra_data(item.extra_data),
     }
 
 
@@ -122,8 +120,19 @@ def _deserialize_source_metadata(payload: Mapping[str, object]) -> SourceMetadat
         path=_optional_str(payload.get("path")),
         format=_enum_field(SourceFormat, payload.get("format"), SourceFormat.UNKNOWN),
         header=_optional_str(payload.get("header")),
-        extras={str(key): str(value) for key, value in _mapping_field(payload.get("extras")).items()},
+        extra_data=_deserialize_extra_data(payload.get("extra_data")),
     )
+
+
+def _serialize_extra_data(item: ExtraData) -> dict[str, JsonValue]:
+    return cast("dict[str, JsonValue]", item.to_dict())
+
+
+def _deserialize_extra_data(value: object) -> ExtraData:
+    if not isinstance(value, dict):
+        msg = "extra_data must be an object"
+        raise TypeError(msg)
+    return ExtraData(value)
 
 
 def _serialize_preprocessing_metadata(
@@ -243,9 +252,7 @@ def serialize_extracted_document(result: ExtractedDocument) -> dict[str, JsonVal
         "artifact_type": "extracted_document",
         "text": result.text,
         "source_metadata": _serialize_source_metadata(result.source_metadata),
-        "preprocessing_metadata": _serialize_preprocessing_metadata(
-            result.preprocessing_metadata
-        ),
+        "preprocessing_metadata": _serialize_preprocessing_metadata(result.preprocessing_metadata),
         "extraction_metadata": _serialize_extraction_metadata(result.extraction_metadata),
         "citations": [serialize_extracted_citation(item) for item in result.citations],
         "counts": {
@@ -282,21 +289,70 @@ def serialize_citation_validation(item: CitationValidation) -> dict[str, JsonVal
         "status": item.status.value,
         "source": item.source,
         "message": item.message,
-        "case_names": list(item.case_names),
         "lookup_status": item.lookup_status,
         "lookup_cache": item.lookup_cache,
         "lookup_key": item.lookup_key,
         "error_message": item.error_message,
-        "limit_detail": (
-            cast("dict[str, JsonValue]", thaw_json_object(item.limit_detail))
-            if item.limit_detail is not None
+        "failure_detail": (
+            _serialize_validation_failure_detail(item.failure_detail)
+            if item.failure_detail is not None
             else None
         ),
-        "clusters": [
-            cast("dict[str, JsonValue]", thaw_json_object(cluster))
-            for cluster in item.clusters
-        ],
+        "matches": [_serialize_citation_match(match) for match in item.matches],
+        "extra_data": _serialize_extra_data(item.extra_data),
     }
+
+
+def _serialize_citation_match(item: CitationMatch) -> dict[str, JsonValue]:
+    return {
+        "case_name": item.case_name,
+        "date_filed": item.date_filed,
+        "court": item.court,
+        "extra_data": _serialize_extra_data(item.extra_data),
+    }
+
+
+def _deserialize_citation_match(payload: Mapping[str, object]) -> CitationMatch:
+    return CitationMatch(
+        case_name=_optional_str(payload.get("case_name")),
+        date_filed=_optional_str(payload.get("date_filed")),
+        court=_optional_str(payload.get("court")),
+        extra_data=_deserialize_extra_data(payload.get("extra_data")),
+    )
+
+
+def _serialize_validation_failure_detail(
+    item: ValidationFailureDetail,
+) -> dict[str, JsonValue]:
+    return {
+        "failure_type": item.failure_type,
+        "message": item.message,
+        "retryable": item.retryable,
+        "upstream_status_code": item.upstream_status_code,
+        "key": item.key,
+        "url": item.url,
+        "retry_after_seconds": item.retry_after_seconds,
+        "extra_data": _serialize_extra_data(item.extra_data),
+    }
+
+
+def _deserialize_validation_failure_detail(
+    payload: Mapping[str, object],
+) -> ValidationFailureDetail:
+    retryable = payload.get("retryable")
+    if retryable is not None and not isinstance(retryable, bool):
+        msg = "failure_detail.retryable must be a boolean"
+        raise TypeError(msg)
+    return ValidationFailureDetail(
+        failure_type=_optional_str(payload.get("failure_type")),
+        message=_optional_str(payload.get("message")),
+        retryable=retryable,
+        upstream_status_code=_optional_int(payload.get("upstream_status_code")),
+        key=_optional_str(payload.get("key")),
+        url=_optional_str(payload.get("url")),
+        retry_after_seconds=_optional_float(payload.get("retry_after_seconds")),
+        extra_data=_deserialize_extra_data(payload.get("extra_data")),
+    )
 
 
 def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationValidation:
@@ -311,13 +367,19 @@ def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationVa
         ),
         source=str(payload.get("source") or ""),
         message=str(payload.get("message") or ""),
-        case_names=tuple(str(value) for value in _list_field(payload.get("case_names"))),
         lookup_status=_optional_int(payload.get("lookup_status")),
         lookup_cache=_optional_str(payload.get("lookup_cache")),
         lookup_key=_optional_str(payload.get("lookup_key")),
         error_message=_optional_str(payload.get("error_message")),
-        limit_detail=_optional_json_object(payload.get("limit_detail")),
-        clusters=tuple(_json_objects(payload.get("clusters"))),
+        failure_detail=(
+            _deserialize_validation_failure_detail(_mapping_field(payload.get("failure_detail")))
+            if isinstance(payload.get("failure_detail"), dict)
+            else None
+        ),
+        matches=tuple(
+            _deserialize_citation_match(_mapping_field(item)) for item in _list_field(payload.get("matches"))
+        ),
+        extra_data=_deserialize_extra_data(payload.get("extra_data")),
     )
 
 
@@ -328,9 +390,7 @@ def serialize_validated_document(result: ValidatedDocument) -> dict[str, JsonVal
         "artifact_type": "validated_document",
         "text": result.text,
         "source_metadata": _serialize_source_metadata(result.source_metadata),
-        "preprocessing_metadata": _serialize_preprocessing_metadata(
-            result.preprocessing_metadata
-        ),
+        "preprocessing_metadata": _serialize_preprocessing_metadata(result.preprocessing_metadata),
         "extraction_metadata": _serialize_extraction_metadata(result.extraction_metadata),
         "validation_metadata": _serialize_validation_metadata(result.validation_metadata),
         "citations": [serialize_extracted_citation(item) for item in result.citations],
@@ -377,18 +437,34 @@ def serialize_case_name_assessment(item: CaseNameAssessment) -> dict[str, JsonVa
         "courtlistener_case_name": item.courtlistener_case_name,
         "message": item.message,
         "chat_history": (
-            [dict(turn) for turn in item.chat_history]
+            [_serialize_chat_turn(turn) for turn in item.chat_history]
             if item.chat_history is not None
             else None
         ),
     }
 
 
+def _serialize_chat_turn(item: ChatTurn) -> dict[str, JsonValue]:
+    return {
+        "role": item.role,
+        "content": item.content,
+        "extra_data": _serialize_extra_data(item.extra_data),
+    }
+
+
+def _deserialize_chat_turn(payload: Mapping[str, object]) -> ChatTurn:
+    return ChatTurn(
+        role=_required_str(payload.get("role"), "chat turn role"),
+        content=_required_str(payload.get("content"), "chat turn content"),
+        extra_data=_deserialize_extra_data(payload.get("extra_data")),
+    )
+
+
 def deserialize_case_name_assessment(payload: Mapping[str, object]) -> CaseNameAssessment:
     """Rebuild a case-name assessment from JSON data."""
     raw_history = payload.get("chat_history")
     chat_history = (
-        tuple(dict(t) for t in raw_history if isinstance(t, dict))
+        tuple(_deserialize_chat_turn(t) for t in raw_history if isinstance(t, dict))
         if isinstance(raw_history, list)
         else None
     )
@@ -538,9 +614,7 @@ def serialize_assessed_document(result: AssessedDocument) -> dict[str, JsonValue
         "artifact_type": "assessed_document",
         "text": result.text,
         "source_metadata": _serialize_source_metadata(result.source_metadata),
-        "preprocessing_metadata": _serialize_preprocessing_metadata(
-            result.preprocessing_metadata
-        ),
+        "preprocessing_metadata": _serialize_preprocessing_metadata(result.preprocessing_metadata),
         "extraction_metadata": _serialize_extraction_metadata(result.extraction_metadata),
         "validation_metadata": _serialize_validation_metadata(result.validation_metadata),
         "assessment_metadata": _serialize_assessment_metadata(result.assessment_metadata),
@@ -707,23 +781,15 @@ def _optional_int(value: object) -> int | None:
         return None
 
 
+def _optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
 def _int_field(value: object) -> int:
     if isinstance(value, int):
         return value
     return int(str(value or 0))
-
-
-def _optional_json_object(value: object) -> dict[str, JsonValue] | None:
-    if not isinstance(value, dict):
-        return None
-    return _json_object(value)
-
-
-def _json_objects(value: object) -> list[dict[str, JsonValue]]:
-    if not isinstance(value, list):
-        return []
-    return [_json_object(item) for item in value if isinstance(item, dict)]
-
-
-def _json_object(value: Mapping[str, Any]) -> dict[str, JsonValue]:
-    return cast("dict[str, JsonValue]", dict(value))

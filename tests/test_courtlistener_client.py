@@ -422,7 +422,7 @@ class CourtListenerClientTests(unittest.TestCase):
 
         self.assertEqual(result.cache, "miss")
         self.assertEqual(result.status, 200)
-        self.assertEqual(result.clusters, ({"case_name": "Brown"},))
+        self.assertEqual(result.matches[0].case_name, "Brown")
         self.assertEqual(session.calls[0]["method"], "POST")
         self.assertEqual(
             session.calls[0]["data"],

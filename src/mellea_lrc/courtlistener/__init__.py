@@ -11,12 +11,18 @@ from mellea_lrc.courtlistener.client import (
 )
 from mellea_lrc.courtlistener.lookup import normalize_citation_lookup_payload
 from mellea_lrc.courtlistener.remote import CourtListenerAccessClient, CourtListenerAccessConfig
-from mellea_lrc.courtlistener.types import CitationLookupClient, CourtListenerCitationLookup
+from mellea_lrc.courtlistener.types import (
+    CitationLookupClient,
+    CitationMatch,
+    CourtListenerCitationLookup,
+    ValidationFailureDetail,
+)
 
 __all__ = [
     "CacheEntry",
     "CacheStore",
     "CitationLookupClient",
+    "CitationMatch",
     "CourtListenerAccessClient",
     "CourtListenerAccessConfig",
     "CourtListenerCitationLookup",
@@ -27,6 +33,7 @@ __all__ = [
     "CourtListenerRateLimiter",
     "NullCache",
     "R2Cache",
+    "ValidationFailureDetail",
     "create_api",
     "normalize_citation_lookup_payload",
 ]

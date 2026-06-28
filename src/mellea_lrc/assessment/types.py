@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import ClassVar, TYPE_CHECKING, TypeAlias
 
-from mellea_lrc.core.immutable import freeze_string_map
+from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.validation.types import ValidatedDocument
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Iterable
 
     from mellea_lrc.core.spans import Span
 
@@ -80,6 +80,15 @@ class AssessmentMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class ChatTurn:
+    """One typed conversation turn retained as assessment provenance."""
+
+    role: str
+    content: str
+    extra_data: ExtraData = field(default_factory=ExtraData)
+
+
+@dataclass(frozen=True, slots=True)
 class CaseNameAssessment:
     """Assessment result for one extracted case name."""
 
@@ -88,15 +97,7 @@ class CaseNameAssessment:
     extracted_case_name: str | None
     courtlistener_case_name: str | None
     message: str
-    chat_history: tuple[Mapping[str, str], ...] | None = None
-
-    def __post_init__(self) -> None:
-        if self.chat_history is not None:
-            object.__setattr__(
-                self,
-                "chat_history",
-                tuple(freeze_string_map(turn) for turn in self.chat_history),
-            )
+    chat_history: tuple[ChatTurn, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)

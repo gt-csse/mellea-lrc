@@ -1,9 +1,38 @@
-"""Shared CourtListener service types."""
+"""Typed CourtListener domain records and lookup protocol."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
-from mellea_lrc.core.immutable import FrozenJsonObject, freeze_json_object
+from mellea_lrc.core.immutable import ExtraData
+
+
+@dataclass(frozen=True, slots=True)
+class CitationMatch:
+    """A candidate case returned for a reporter citation lookup."""
+
+    case_name: str | None = None
+    date_filed: str | None = None
+    court: str | None = None
+    extra_data: ExtraData = field(default_factory=ExtraData)
+
+    @property
+    def year(self) -> str | None:
+        """Return the filing year when the upstream date begins with one."""
+        return self.date_filed[:4] if self.date_filed else None
+
+
+@dataclass(frozen=True, slots=True)
+class ValidationFailureDetail:
+    """Typed diagnostic detail for a failed or throttled lookup."""
+
+    failure_type: str | None = None
+    message: str | None = None
+    retryable: bool | None = None
+    upstream_status_code: int | None = None
+    key: str | None = None
+    url: str | None = None
+    retry_after_seconds: float | None = None
+    extra_data: ExtraData = field(default_factory=ExtraData)
 
 
 @dataclass(frozen=True, slots=True)
@@ -12,20 +41,12 @@ class CourtListenerCitationLookup:
 
     citation: str
     status: int
-    clusters: tuple[FrozenJsonObject, ...]
+    matches: tuple[CitationMatch, ...]
     cache: str | None = None
     key: str | None = None
     error_message: str | None = None
-    limit_detail: FrozenJsonObject | None = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "clusters",
-            tuple(freeze_json_object(item) for item in self.clusters),
-        )
-        if self.limit_detail is not None:
-            object.__setattr__(self, "limit_detail", freeze_json_object(self.limit_detail))
+    failure_detail: ValidationFailureDetail | None = None
+    extra_data: ExtraData = field(default_factory=ExtraData)
 
 
 class CitationLookupClient(Protocol):

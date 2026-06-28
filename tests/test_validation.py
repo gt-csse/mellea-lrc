@@ -1,13 +1,20 @@
 """Tests for first-layer citation validation."""
 
 import pytest
+from pydantic import ValidationError
 
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
+from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener.remote import (
     CourtListenerAccessClient,
     CourtListenerAccessConfig,
 )
+from mellea_lrc.courtlistener.lookup import (
+    citation_lookup_envelope_dict,
+    normalize_citation_lookup_payload,
+)
+from mellea_lrc.courtlistener.types import CitationMatch, ValidationFailureDetail
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
 from mellea_lrc.validation.pipeline import run_validation
@@ -54,6 +61,7 @@ def test_validate_full_case_found() -> None:
         client=_client(
             {
                 "cache": "miss",
+                "request_id": "request-1",
                 "response": {
                     "citation": "347 U.S. 483",
                     "status": 200,
@@ -62,8 +70,10 @@ def test_validate_full_case_found() -> None:
                             "case_name": "Brown v. Board of Education",
                             "date_filed": "1954-05-17",
                             "court": "scotus",
+                            "absolute_url": "/opinion/1/",
                         }
                     ],
+                    "query_time_ms": 12,
                 },
             }
         ),
@@ -80,14 +90,19 @@ def test_validate_full_case_found() -> None:
     assert validation.case_names == ("Brown v. Board of Education",)
     assert validation.lookup_status == 200
     assert validation.lookup_cache == "miss"
-    assert validation.clusters == (
-        {
-            "case_name": "Brown v. Board of Education",
-            "date_filed": "1954-05-17",
-            "court": "scotus",
-        },
+    assert validation.matches == (
+        CitationMatch(
+            case_name="Brown v. Board of Education",
+            date_filed="1954-05-17",
+            court="scotus",
+            extra_data=ExtraData({"absolute_url": "/opinion/1/"}),
+        ),
     )
     assert result.found == (validation,)
+    assert validation.extra_data.to_dict() == {
+        "response": {"query_time_ms": 12},
+        "envelope": {"request_id": "request-1"},
+    }
 
 
 def test_validate_non_case_citation_is_skipped() -> None:
@@ -108,7 +123,7 @@ def test_validate_non_case_citation_is_skipped() -> None:
     assert result.validations[0].status == ValidationStatus.SKIPPED
 
 
-def test_validate_surfaces_courtlistener_limit_detail() -> None:
+def test_validate_surfaces_typed_courtlistener_failure_detail() -> None:
     extraction = _extracted_document(
         preprocessed=preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483."),
         citations=(
@@ -145,12 +160,64 @@ def test_validate_surfaces_courtlistener_limit_detail() -> None:
     validation = result.validations[0]
     assert validation.status == ValidationStatus.THROTTLED
     assert validation.error_message == "CourtListener POST failed with 429"
-    assert validation.limit_detail == {
-        "failure_type": "api_limit",
-        "message": "CourtListener POST failed with 429",
-        "retryable": True,
-        "upstream_status_code": 429,
-    }
+    assert validation.failure_detail == ValidationFailureDetail(
+        failure_type="api_limit",
+        message="CourtListener POST failed with 429",
+        retryable=True,
+        upstream_status_code=429,
+    )
+
+
+def test_courtlistener_transport_rejects_type_coercion() -> None:
+    with pytest.raises(ValidationError):
+        normalize_citation_lookup_payload(
+            {"response": {"citation": "347 U.S. 483", "status": "200"}},
+            "347",
+            "U.S.",
+            "483",
+        )
+
+
+def test_direct_courtlistener_response_does_not_duplicate_fields_as_envelope_extras() -> None:
+    lookup = normalize_citation_lookup_payload(
+        {
+            "citation": "347 U.S. 483",
+            "status": 200,
+            "clusters": [],
+            "query_time_ms": 12,
+        },
+        "347",
+        "U.S.",
+        "483",
+    )
+
+    assert lookup.extra_data.to_dict() == {"response": {"query_time_ms": 12}}
+
+
+def test_courtlistener_service_round_trip_preserves_explicit_extra_data() -> None:
+    original = normalize_citation_lookup_payload(
+        {
+            "request_id": "request-1",
+            "response": {
+                "citation": "347 U.S. 483",
+                "status": 200,
+                "query_time_ms": 12,
+                "clusters": [{"case_name": "Brown", "absolute_url": "/opinion/1/"}],
+            },
+        },
+        "347",
+        "U.S.",
+        "483",
+    )
+
+    restored = normalize_citation_lookup_payload(
+        citation_lookup_envelope_dict(original),
+        "347",
+        "U.S.",
+        "483",
+    )
+
+    assert restored == original
 
 
 def test_validate_missing_locator_is_invalid_without_service_call() -> None:

@@ -47,7 +47,7 @@ execution context only; they do not hide text, citations, validations, or
 assessments.
 
 - `DocumentBase` owns `source_metadata`, containing source identity and provenance
-  (`path`, original `format`, source `header`, and source-specific `extras`).
+  (`path`, original `format`, source `header`, and explicit source `extra_data`).
 - `PreprocessedDocument` adds the real `text` output and
   `preprocessing_metadata`, containing preprocessing backend provenance.
 - `ExtractedDocument` adds the real `citations` output and
@@ -78,10 +78,25 @@ stage.
   citation assessment.
 - Re-extraction is append-only: original extracted citations are never mutated or
   replaced.
-- Nested source extras, external-service JSON payloads, and chat histories are
-  defensively copied and deeply frozen when they enter an artifact. Frozen
-  top-level dataclasses therefore cannot be mutated indirectly through a retained
-  input dictionary or nested list.
+- Semantic external data is converted into typed immutable domain records before
+  entering an artifact. CourtListener candidates use `CitationMatch`, lookup
+  diagnostics use `ValidationFailureDetail`, and assessment conversations use
+  `ChatTurn`.
+- Unknown external fields are preserved only in an explicitly named `ExtraData`
+  field. `ExtraData` is defensively copied and deeply frozen, so domain records
+  cannot be mutated indirectly through retained input dictionaries or nested lists.
+
+### External boundaries
+
+Untrusted CourtListener payloads are validated by strict Pydantic transport models
+and then converted into plain immutable dataclasses. Transport models do not become
+the document domain model. They reject type coercion while accepting newly added
+upstream fields; those unknown fields are collected into `extra_data` instead of
+being discarded or mixed with modeled fields. LLM structured outputs use the same
+boundary-validation principle.
+
+Internally initiated stage objects remain dataclasses. This keeps external parsing,
+schema adaptation, and domain invariants as separate responsibilities.
 
 Assessment initialization marks eligible, found full-case citations as `waiting`
 and all ineligible citations as `skipped` with a structured reason. Execution moves
@@ -116,10 +131,11 @@ Serialized artifacts remain flat for interoperability and require:
 
 Unversioned artifacts and mismatched artifact types are rejected. Deserialization
 validates the artifact invariants rather than silently constructing contradictory
-stage objects. Schema version 2 exposes the same stage ownership explicitly with
+stage objects. Schema version 3 exposes the same stage ownership explicitly with
 `source_metadata`, `preprocessing_metadata`, `extraction_metadata`,
-`validation_metadata`, and `assessment_metadata` keys as applicable. Version 1 is
-not accepted.
+`validation_metadata`, and `assessment_metadata` keys as applicable. It also uses
+typed validation matches and explicit `extra_data` fields. Earlier versions are not
+accepted.
 
 ### Breaking-change policy
 
@@ -154,8 +170,8 @@ conventions instead of type-level contracts.
 
 Later artifacts can be consumed safely by earlier-stage read-only functions. Stage
 transitions allocate new objects and preserve prior tuples and records. Constructors
-and deserializers become responsible for enforcing cross-stage consistency and
-normalizing JSON-shaped boundary data into immutable mappings and tuples.
-Serializers thaw that data into ordinary JSON objects and arrays without exposing
+and deserializers become responsible for enforcing cross-stage consistency.
+Pydantic transport models validate external payloads before conversion, while
+serializers produce ordinary JSON objects without exposing mutable references to
 the artifact's internal values. Python and serialized artifact consumers migrate
 directly to the canonical contract while the project remains pre-stability.

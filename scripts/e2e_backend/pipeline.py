@@ -33,6 +33,7 @@ from mellea_lrc.validation.types import (
     ValidationStatus,
 )
 from mellea_lrc.serialization import (
+    deserialize_citation_validation,
     serialize_citation_validation,
     serialize_citation_assessment,
     serialize_citation_assessment_result,
@@ -601,31 +602,18 @@ def _validation_from_review_payload(
 
 
 def _validation_item_payload(item: CitationValidation) -> dict[str, Any]:
-    return dict(serialize_citation_validation(item))
+    payload = dict(serialize_citation_validation(item))
+    payload["case_names"] = list(item.case_names)
+    return payload
 
 
 def _citation_validation_from_review_item(item: JsonDict) -> CitationValidation | None:
     validation = item.get("validation")
     if not isinstance(validation, dict):
         return None
-    try:
-        status = ValidationStatus(str(validation.get("status")))
-    except ValueError:
-        status = ValidationStatus.LOOKUP_FAILED
-    return CitationValidation(
-        citation_id=str(validation.get("citation_id") or item.get("id") or ""),
-        locator=_optional_str(validation.get("locator")),
-        status=status,
-        source=str(validation.get("source") or ""),
-        message=str(validation.get("message") or ""),
-        case_names=tuple(str(value) for value in _list_field(validation.get("case_names"))),
-        lookup_status=_optional_int(validation.get("lookup_status")),
-        lookup_cache=_optional_str(validation.get("lookup_cache")),
-        lookup_key=_optional_str(validation.get("lookup_key")),
-        error_message=_optional_str(validation.get("error_message")),
-        limit_detail=_dict_field(validation.get("limit_detail")),
-        clusters=tuple(_dict_items(validation.get("clusters"))),
-    )
+    validation_payload = dict(validation)
+    validation_payload["citation_id"] = str(validation.get("citation_id") or item.get("id") or "")
+    return deserialize_citation_validation(validation_payload)
 
 
 def _extraction_from_review_payload(payload: dict[str, object]) -> ExtractedDocument:
@@ -682,7 +670,9 @@ def _assessment_payload_document(assessment: AssessedDocument) -> JsonDict:
         "assessment_complete": assessment.assessment_complete,
         "status_counts": _assessment_status_counts(assessment.assessments),
         "modified_citations": [_modified_citation_payload(item) for item in assessment.modified_citations],
-        "reassessments": [dict(serialize_citation_assessment_result(item)) for item in assessment.reassessments],
+        "reassessments": [
+            dict(serialize_citation_assessment_result(item)) for item in assessment.reassessments
+        ],
         "case_name_counts": _assessment_case_name_counts(assessment.assessments),
         "year_counts": _assessment_year_counts(assessment.assessments),
     }
@@ -791,14 +781,6 @@ def _optional_int(value: object) -> int | None:
 
 def _list_field(value: object) -> list[object]:
     return value if isinstance(value, list) else []
-
-
-def _dict_field(value: object) -> JsonDict | None:
-    return dict(value) if isinstance(value, dict) else None
-
-
-def _dict_items(value: object) -> list[JsonDict]:
-    return [dict(item) for item in value if isinstance(item, dict)] if isinstance(value, list) else []
 
 
 def _int_field(value: object) -> int:

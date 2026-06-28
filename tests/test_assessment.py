@@ -21,6 +21,7 @@ from mellea_lrc.assessment import ReextractionStatus, validate_proposal
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.core.spans import Span
+from mellea_lrc.courtlistener.types import CitationMatch
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractionMetadata
 from mellea_lrc.preprocessing.types import (
     PreprocessedDocument,
@@ -82,10 +83,7 @@ def test_get_extended_span_text_rejects_negative_context_windows() -> None:
 
 
 def test_find_text_span_near_full_span_disambiguates_repeated_case_name() -> None:
-    text = (
-        "Brown v. Board appears in background. "
-        "Later, See Brown v. Board, 347 U.S. 483 (1954)."
-    )
+    text = "Brown v. Board appears in background. Later, See Brown v. Board, 347 U.S. 483 (1954)."
     full_span = Span(start=text.index("Brown v. Board, 347"), end=text.index(" (1954)") + len(" (1954)"))
 
     span = find_text_span_near_full_span(text, "Brown v. Board", full_span)
@@ -290,8 +288,12 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
                 status=ValidationStatus.FOUND,
                 source="test",
                 message="found",
-                case_names=("Brown v. Board",),
-                clusters=({"case_name": "Brown v. Board", "date_filed": "1954-05-17"},),
+                matches=(
+                    CitationMatch(
+                        case_name="Brown v. Board",
+                        date_filed="1954-05-17",
+                    ),
+                ),
             ),
         ),
         validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
@@ -344,7 +346,12 @@ def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
                 status=ValidationStatus.FOUND,
                 source="test",
                 message="found",
-                clusters=({"case_name": "Different v. Case", "date_filed": "1954-05-17"},),
+                matches=(
+                    CitationMatch(
+                        case_name="Different v. Case",
+                        date_filed="1954-05-17",
+                    ),
+                ),
             ),
         ),
         validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
@@ -437,7 +444,12 @@ def test_run_assessment_records_per_citation_failure(monkeypatch: pytest.MonkeyP
                 status=ValidationStatus.FOUND,
                 source="test",
                 message="found",
-                clusters=({"case_name": "Brown v. Board", "date_filed": "1954-05-17"},),
+                matches=(
+                    CitationMatch(
+                        case_name="Brown v. Board",
+                        date_filed="1954-05-17",
+                    ),
+                ),
             ),
         ),
         validation_metadata=ValidationMetadata(client_mode="custom", source="test"),

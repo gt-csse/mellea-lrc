@@ -3,15 +3,30 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TypeAlias, cast
 
 JsonScalar: TypeAlias = str | int | float | bool | None
-FrozenJsonValue: TypeAlias = (
-    JsonScalar | tuple["FrozenJsonValue", ...] | Mapping[str, "FrozenJsonValue"]
-)
+FrozenJsonValue: TypeAlias = JsonScalar | tuple["FrozenJsonValue", ...] | Mapping[str, "FrozenJsonValue"]
 FrozenJsonObject: TypeAlias = Mapping[str, FrozenJsonValue]
-FrozenStringMap: TypeAlias = Mapping[str, str]
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ExtraData:
+    """Explicit, deeply immutable storage for unmodeled external fields."""
+
+    values: FrozenJsonObject = field(default_factory=lambda: freeze_json_object({}))
+
+    def __init__(self, values: Mapping[str, object] | None = None) -> None:
+        object.__setattr__(self, "values", freeze_json_object(values or {}))
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a detached JSON-ready copy."""
+        return thaw_json_object(self.values)
+
+    def __bool__(self) -> bool:
+        return bool(self.values)
 
 
 def freeze_json_value(value: object) -> FrozenJsonValue:
@@ -49,11 +64,3 @@ def thaw_json_value(value: FrozenJsonValue) -> object:
 def thaw_json_object(value: FrozenJsonObject) -> dict[str, object]:
     """Copy an immutable JSON object into a JSON-ready dictionary."""
     return cast("dict[str, object]", thaw_json_value(value))
-
-
-def freeze_string_map(value: Mapping[str, str]) -> FrozenStringMap:
-    """Copy a string mapping into a read-only mapping."""
-    if any(not isinstance(key, str) or not isinstance(item, str) for key, item in value.items()):
-        msg = "String mappings require string keys and values"
-        raise TypeError(msg)
-    return MappingProxyType(dict(value))

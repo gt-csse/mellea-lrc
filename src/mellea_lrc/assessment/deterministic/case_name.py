@@ -1,9 +1,9 @@
 """Deterministic case-name comparison."""
 
 import unicodedata
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 
-from mellea_lrc.assessment.types import CaseNameAssessment, CaseNameAssessmentStatus
+from mellea_lrc.assessment.types import ChatTurn, CaseNameAssessment, CaseNameAssessmentStatus
 from mellea_lrc.core.citations import FullCaseCitation
 
 _TYPOGRAPHIC_TRANSLATION = str.maketrans(
@@ -61,7 +61,7 @@ def build_case_name_assessment(
     courtlistener_case_name: str | None,
     *,
     message: str | None = None,
-    chat_history: Iterable[Mapping[str, str]] | None = None,
+    chat_history: Iterable[ChatTurn] | None = None,
 ) -> CaseNameAssessment:
     """Build a case-name assessment with the canonical status message."""
     return CaseNameAssessment(

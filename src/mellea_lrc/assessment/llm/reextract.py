@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
 
 from mellea import MelleaSession, generative
 from mellea.core import ValidationResult
@@ -18,11 +17,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from mellea_lrc.assessment.grounding.proposal import is_in_context
 from mellea_lrc.assessment.llm.options import structured_model_options
-from mellea_lrc.assessment.types import ModifiedExtractedCitationProposal
-from mellea_lrc.core.immutable import freeze_string_map
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
+from mellea_lrc.assessment.types import ChatTurn, ModifiedExtractedCitationProposal
 
 MISSING_EXTRACTED_CASE_NAME_PROMPT = "<NO_EXTRACTED_CASE_NAME>"
 REEXTRACTION_MAX_TOKENS = 512
@@ -45,15 +40,7 @@ class ReextractionResult:
     status: ReextractionStatus
     proposal: ModifiedExtractedCitationProposal | None
     error_message: str | None = None
-    chat_history: tuple[Mapping[str, str], ...] | None = None
-
-    def __post_init__(self) -> None:
-        if self.chat_history is not None:
-            object.__setattr__(
-                self,
-                "chat_history",
-                tuple(freeze_string_map(turn) for turn in self.chat_history),
-            )
+    chat_history: tuple[ChatTurn, ...] | None = None
 
     def to_json(self) -> dict[str, object]:
         """Return a JSON-ready representation for scripts and diagnostics."""
@@ -62,7 +49,14 @@ class ReextractionResult:
             "proposal": asdict(self.proposal) if self.proposal is not None else None,
             "error_message": self.error_message,
             "chat_history": (
-                [dict(turn) for turn in self.chat_history]
+                [
+                    {
+                        "role": turn.role,
+                        "content": turn.content,
+                        "extra_data": turn.extra_data.to_dict(),
+                    }
+                    for turn in self.chat_history
+                ]
                 if self.chat_history is not None
                 else None
             ),
@@ -100,14 +94,14 @@ async def _propose_case_name_reextraction(
     """
 
 
-def _chat_history_from_context(ctx: Context) -> list[dict[str, str]]:
-    turns = []
+def _chat_history_from_context(ctx: Context) -> tuple[ChatTurn, ...]:
+    turns: list[ChatTurn] = []
     for item in ctx.as_list():
         if isinstance(item, Message):
-            turns.append({"role": item.role, "content": item.content})
+            turns.append(ChatTurn(role=item.role, content=item.content))
         elif isinstance(item, ModelOutputThunk) and item.value:
-            turns.append({"role": "assistant", "content": item.value})
-    return turns
+            turns.append(ChatTurn(role="assistant", content=item.value))
+    return tuple(turns)
 
 
 def _validate_availability_consistency(ctx: Context) -> ValidationResult:

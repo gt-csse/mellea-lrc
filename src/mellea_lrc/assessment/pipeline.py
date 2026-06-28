@@ -7,8 +7,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from mellea_lrc.assessment.citation.assess import CitationAssessmentBundle, assess_found_citation
-from mellea_lrc.assessment.citation.clusters import first_cluster_case_name, first_cluster_year
-from mellea_lrc.assessment.deterministic.case_name import assess_case_name_exact_match, build_extracted_case_name
+from mellea_lrc.assessment.deterministic.case_name import (
+    assess_case_name_exact_match,
+    build_extracted_case_name,
+)
 from mellea_lrc.assessment.deterministic.context import get_extended_span_text
 from mellea_lrc.assessment.types import (
     AssessmentMetadata,
@@ -101,8 +103,9 @@ async def run_assessment_async(
         assert isinstance(citation.citation, FullCaseCitation)
 
         extracted_case_name = build_extracted_case_name(citation.citation)
-        courtlistener_case_name = first_cluster_case_name(citation_validation.clusters)
-        courtlistener_year = first_cluster_year(citation_validation.clusters)
+        first_match = citation_validation.matches[0] if citation_validation.matches else None
+        courtlistener_case_name = first_match.case_name if first_match is not None else None
+        courtlistener_year = first_match.year if first_match is not None else None
         exact = assess_case_name_exact_match(
             citation_id=citation.citation_id,
             extracted_case_name=extracted_case_name,

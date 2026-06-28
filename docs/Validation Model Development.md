@@ -46,8 +46,9 @@ flowchart TD
 ```
 
 The validation output is a `CitationValidation` record. It preserves the original
-lookup status, cache/key metadata, error message, limit detail, and any returned
-CourtListener clusters.
+lookup status, cache/key metadata, error message, typed failure detail, and typed
+`CitationMatch` records converted from returned CourtListener clusters. Unknown
+upstream fields are retained separately as immutable `extra_data`.
 
 ### Formal Statuses
 
@@ -62,8 +63,8 @@ The implemented status vocabulary is:
 - `skipped` — citation kind is not validated by the Layer 1 full-case existence check
 
 Yes: throttling is represented formally as `ValidationStatus.THROTTLED`, serialized
-as `throttled`. When available, the raw rate-limit/error payload is preserved in
-`limit_detail`.
+as `throttled`. When available, rate-limit/error data is validated and converted to
+`ValidationFailureDetail`; unmodeled fields remain in its `extra_data`.
 
 ### CourtListener API
 

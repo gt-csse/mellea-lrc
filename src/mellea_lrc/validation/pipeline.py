@@ -101,22 +101,20 @@ def _validation_from_lookup(
     citation_id: str,
     lookup: CourtListenerCitationLookup,
 ) -> CitationValidation:
-    case_names = tuple(
-        case_name for cluster in lookup.clusters if isinstance((case_name := cluster.get("case_name")), str)
-    )
+    case_names = tuple(item.case_name for item in lookup.matches if item.case_name)
     return CitationValidation(
         citation_id=citation_id,
         locator=lookup.citation,
         status=_status_from_lookup(lookup.status),
         source=SOURCE,
         message=_message_from_lookup(lookup, case_names),
-        case_names=case_names,
         lookup_status=lookup.status,
         lookup_cache=lookup.cache,
         lookup_key=lookup.key,
         error_message=lookup.error_message,
-        limit_detail=lookup.limit_detail,
-        clusters=lookup.clusters,
+        failure_detail=lookup.failure_detail,
+        matches=lookup.matches,
+        extra_data=lookup.extra_data,
     )
 
 
@@ -143,7 +141,7 @@ def _message_from_lookup(
     if status == ValidationStatus.FOUND:
         return f"CourtListener: found {lookup.citation}{suffix}"
     if status == ValidationStatus.AMBIGUOUS:
-        return f"CourtListener: ambiguous ({len(lookup.clusters)} matches) {lookup.citation}{suffix}"
+        return f"CourtListener: ambiguous ({len(lookup.matches)} matches) {lookup.citation}{suffix}"
     if status == ValidationStatus.NOT_FOUND:
         return f"CourtListener: not found {lookup.citation}"
     if status == ValidationStatus.INVALID:

@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from mellea_lrc.courtlistener.api import create_api
 from mellea_lrc.courtlistener.client import CourtListenerError
-from mellea_lrc.courtlistener.types import CourtListenerCitationLookup
+from mellea_lrc.courtlistener.types import CitationMatch, CourtListenerCitationLookup
 
 
 class FailingClient:
@@ -33,7 +33,7 @@ class CitationClient:
         return CourtListenerCitationLookup(
             citation=f"{volume} {reporter} {page}",
             status=200,
-            clusters=({"case_name": "Brown"},),
+            matches=(CitationMatch(case_name="Brown"),),
             cache="miss",
         )
 
