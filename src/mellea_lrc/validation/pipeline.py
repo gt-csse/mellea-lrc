@@ -9,6 +9,7 @@ from mellea_lrc.validation.types import (
     CitationValidation,
     ValidatedDocument,
     ValidationClientMode,
+    ValidationMetadata,
     ValidationStatus,
 )
 
@@ -30,10 +31,13 @@ def run_validation(
     """Run first-layer existence validation for extractable full case citations."""
     lookup_client = _lookup_client(client_mode, client)
     return ValidatedDocument(
-        metadata=extraction.metadata,
+        source_metadata=extraction.source_metadata,
         text=extraction.text,
+        preprocessing_metadata=extraction.preprocessing_metadata,
         citations=extraction.citations,
+        extraction_metadata=extraction.extraction_metadata,
         validations=tuple(_validate_citation(item, lookup_client) for item in extraction.citations),
+        validation_metadata=ValidationMetadata(client_mode=client_mode, source=SOURCE),
     )
 
 

@@ -2,6 +2,7 @@
 
 import asyncio
 from mellea_lrc.assessment import (
+    AssessmentMetadata,
     AssessedCitationAssessment,
     AssessedDocument,
     CaseNameAssessment,
@@ -14,7 +15,7 @@ from mellea_lrc.assessment import (
 )
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
+from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
 from mellea_lrc.serialization import (
     serialize_assessed_document,
@@ -27,7 +28,12 @@ from mellea_lrc.llm import (
     chat_completions_base_url,
     llm_provider_config_from_env,
 )
-from mellea_lrc.validation.types import CitationValidation, ValidatedDocument, ValidationStatus
+from mellea_lrc.validation.types import (
+    CitationValidation,
+    ValidatedDocument,
+    ValidationMetadata,
+    ValidationStatus,
+)
 from scripts.e2e_backend.api import _review_snapshot_payload
 from scripts.label_studio.label_studio import to_label_studio_prediction
 from scripts.e2e_backend.pipeline import (
@@ -72,9 +78,11 @@ def _extracted_document(
     citations: tuple[ExtractedCitation, ...],
 ) -> ExtractedDocument:
     return ExtractedDocument(
-        metadata=preprocessed.metadata,
+        source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
+        preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=citations,
+        extraction_metadata=ExtractionMetadata(),
     )
 
 
@@ -85,10 +93,13 @@ def _validated_document(
     validations: tuple[CitationValidation, ...],
 ) -> ValidatedDocument:
     return ValidatedDocument(
-        metadata=preprocessed.metadata,
+        source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
+        preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=citations,
+        extraction_metadata=ExtractionMetadata(),
         validations=validations,
+        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
     )
 
 
@@ -102,11 +113,15 @@ def _assessed_document(
     reassessments: tuple[CitationAssessmentResult, ...] = (),
 ) -> AssessedDocument:
     return AssessedDocument(
-        metadata=preprocessed.metadata,
+        source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
+        preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=citations,
+        extraction_metadata=ExtractionMetadata(),
         validations=validations,
+        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
         assessments=assessments,
+        assessment_metadata=AssessmentMetadata(),
         modified_citations=modified_citations,
         reassessments=reassessments,
     )

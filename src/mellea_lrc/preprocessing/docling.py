@@ -3,11 +3,11 @@
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
+from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.preprocessing.types import (
     PreprocessedDocument,
-    PreprocessedDocumentMetadata,
     PreprocessingBackend,
-    SourceFormat,
+    PreprocessingMetadata,
 )
 
 _SOURCE_FORMAT_BY_SUFFIX = {
@@ -70,9 +70,11 @@ def preprocess_with_docling(path: Path | str, *, converter: object | None = None
 
     return PreprocessedDocument(
         text=text,
-        metadata=PreprocessedDocumentMetadata(
-            source_path=str(source_path),
-            source_format=_source_format(source_path),
+        source_metadata=SourceMetadata(
+            path=str(source_path),
+            format=_source_format(source_path),
+        ),
+        preprocessing_metadata=PreprocessingMetadata(
             backend=PreprocessingBackend.DOCLING,
             backend_version=_docling_version(),
         ),

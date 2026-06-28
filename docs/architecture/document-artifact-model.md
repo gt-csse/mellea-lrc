@@ -42,18 +42,25 @@ calls do not become methods on artifact classes.
 
 ### Field ownership
 
-- `DocumentBase` owns document provenance metadata shared by every stage.
-- `PreprocessedDocument` adds the exact text on which all spans are based.
-- `ExtractedDocument` adds canonical citations located in that text.
-- `ValidatedDocument` adds one validation outcome for every extracted citation,
-  including explicit `skipped` outcomes.
-- `AssessedDocument` adds one explicit assessment execution state per citation and
-  preserves modified-extraction and reassessment history without replacing the
-  original extraction.
+Real stage outputs remain direct fields. Metadata records contain provenance and
+execution context only; they do not hide text, citations, validations, or
+assessments.
 
-Preprocessing metadata remains grouped in `PreprocessedDocumentMetadata` during
-this migration so existing producers and snapshots retain their contract. A future
-decision may split source provenance from preprocessing-run provenance.
+- `DocumentBase` owns `source_metadata`, containing source identity and provenance
+  (`path`, original `format`, source `header`, and source-specific `extras`).
+- `PreprocessedDocument` adds the real `text` output and
+  `preprocessing_metadata`, containing preprocessing backend provenance.
+- `ExtractedDocument` adds the real `citations` output and
+  `extraction_metadata`, containing extraction backend provenance.
+- `ValidatedDocument` adds one real `validations` outcome for every citation and
+  `validation_metadata`, containing lookup client mode and source.
+- `AssessedDocument` adds real assessment execution states, modified-extraction
+  and reassessment history, plus `assessment_metadata`, containing assessment-run
+  execution provenance.
+
+Each later artifact inherits all earlier fields. A transition copies references to
+immutable earlier-stage values and allocates only the fields introduced by the new
+stage.
 
 ### Invariants
 
@@ -105,7 +112,10 @@ Serialized artifacts remain flat for interoperability and require:
 
 Unversioned artifacts and mismatched artifact types are rejected. Deserialization
 validates the artifact invariants rather than silently constructing contradictory
-stage objects.
+stage objects. Schema version 2 exposes the same stage ownership explicitly with
+`source_metadata`, `preprocessing_metadata`, `extraction_metadata`,
+`validation_metadata`, and `assessment_metadata` keys as applicable. Version 1 is
+not accepted.
 
 ### Breaking-change policy
 

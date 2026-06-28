@@ -19,15 +19,20 @@ from mellea_lrc.assessment import (
 )
 from mellea_lrc.assessment import ReextractionStatus, validate_proposal
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
+from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.types import ExtractedCitation
+from mellea_lrc.extraction.types import ExtractedCitation, ExtractionMetadata
 from mellea_lrc.preprocessing.types import (
     PreprocessedDocument,
-    PreprocessedDocumentMetadata,
     PreprocessingBackend,
-    SourceFormat,
+    PreprocessingMetadata,
 )
-from mellea_lrc.validation.types import CitationValidation, ValidatedDocument, ValidationStatus
+from mellea_lrc.validation.types import (
+    CitationValidation,
+    ValidatedDocument,
+    ValidationMetadata,
+    ValidationStatus,
+)
 
 
 def test_get_extended_span_text_includes_context_around_full_span() -> None:
@@ -253,10 +258,9 @@ def test_reextraction_validation_distinguishes_empty_proposal() -> None:
 
 def test_run_assessment_progresses_document_validation_to_document_assessment() -> None:
     preprocessed = PreprocessedDocument(
+        source_metadata=SourceMetadata(path="test.txt", format=SourceFormat.TEXT),
         text="Brown v. Board, 347 U.S. 483 (1954).",
-        metadata=PreprocessedDocumentMetadata(
-            source_path="test.txt",
-            source_format=SourceFormat.TEXT,
+        preprocessing_metadata=PreprocessingMetadata(
             backend=PreprocessingBackend.PLAIN_TEXT,
         ),
     )
@@ -274,9 +278,11 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
         ),
     )
     validation = ValidatedDocument(
-        metadata=preprocessed.metadata,
+        source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
+        preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=(citation,),
+        extraction_metadata=ExtractionMetadata(),
         validations=(
             CitationValidation(
                 citation_id="cite-1",
@@ -288,12 +294,14 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
                 clusters=({"case_name": "Brown v. Board", "date_filed": "1954-05-17"},),
             ),
         ),
+        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
     )
 
     assessment = run_assessment(validation)
 
     assert assessment.text == preprocessed.text
-    assert assessment.metadata == preprocessed.metadata
+    assert assessment.source_metadata == preprocessed.source_metadata
+    assert assessment.preprocessing_metadata == preprocessed.preprocessing_metadata
     assert assessment.citations == (citation,)
     assert assessment.validations == validation.validations
     assert assessment.assessment_complete is True
@@ -306,8 +314,9 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
 
 def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
     preprocessed = PreprocessedDocument(
+        source_metadata=SourceMetadata(),
         text="Brown v. Board, 347 U.S. 483 (1954).",
-        metadata=PreprocessedDocumentMetadata(),
+        preprocessing_metadata=PreprocessingMetadata(),
     )
     citation = ExtractedCitation(
         citation_id="cite-1",
@@ -323,9 +332,11 @@ def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
         ),
     )
     validation = ValidatedDocument(
-        metadata=preprocessed.metadata,
+        source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
+        preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=(citation,),
+        extraction_metadata=ExtractionMetadata(),
         validations=(
             CitationValidation(
                 citation_id="cite-1",
@@ -336,6 +347,7 @@ def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
                 clusters=({"case_name": "Different v. Case", "date_filed": "1954-05-17"},),
             ),
         ),
+        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
     )
 
     assessment = initialize_assessment(validation)
@@ -346,7 +358,11 @@ def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
 
 def test_initialize_assessment_marks_unsupported_citation_skipped() -> None:
     text = "See 28 U.S.C. § 636."
-    preprocessed = PreprocessedDocument(text=text, metadata=PreprocessedDocumentMetadata())
+    preprocessed = PreprocessedDocument(
+        source_metadata=SourceMetadata(),
+        text=text,
+        preprocessing_metadata=PreprocessingMetadata(),
+    )
     citation = ExtractedCitation(
         citation_id="cite-1",
         span=Span(4, 20),
@@ -354,9 +370,11 @@ def test_initialize_assessment_marks_unsupported_citation_skipped() -> None:
         citation=FullLawCitation(volume="28", reporter="U.S.C.", page="636"),
     )
     validation = ValidatedDocument(
-        metadata=preprocessed.metadata,
+        source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
+        preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=(citation,),
+        extraction_metadata=ExtractionMetadata(),
         validations=(
             CitationValidation(
                 citation_id="cite-1",
@@ -366,6 +384,7 @@ def test_initialize_assessment_marks_unsupported_citation_skipped() -> None:
                 message="unsupported",
             ),
         ),
+        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
     )
 
     assessment = initialize_assessment(validation)
@@ -387,7 +406,11 @@ def test_run_assessment_records_per_citation_failure(monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr("mellea_lrc.assessment.pipeline.assess_found_citation", fail_assessment)
     text = "Brown v. Board, 347 U.S. 483 (1954)."
-    preprocessed = PreprocessedDocument(text=text, metadata=PreprocessedDocumentMetadata())
+    preprocessed = PreprocessedDocument(
+        source_metadata=SourceMetadata(),
+        text=text,
+        preprocessing_metadata=PreprocessingMetadata(),
+    )
     citation = ExtractedCitation(
         citation_id="cite-1",
         span=Span(0, 35),
@@ -402,9 +425,11 @@ def test_run_assessment_records_per_citation_failure(monkeypatch: pytest.MonkeyP
         ),
     )
     validation = ValidatedDocument(
-        metadata=preprocessed.metadata,
+        source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
+        preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=(citation,),
+        extraction_metadata=ExtractionMetadata(),
         validations=(
             CitationValidation(
                 citation_id="cite-1",
@@ -415,6 +440,7 @@ def test_run_assessment_records_per_citation_failure(monkeypatch: pytest.MonkeyP
                 clusters=({"case_name": "Brown v. Board", "date_filed": "1954-05-17"},),
             ),
         ),
+        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
     )
 
     assessment = run_assessment(validation)

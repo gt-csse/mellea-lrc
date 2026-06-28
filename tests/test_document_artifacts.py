@@ -7,11 +7,12 @@ from mellea_lrc.assessment.types import AssessedDocument
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import extract_citations
-from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
+from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import DocumentBase, PreprocessedDocument, preprocess_plain_text_from_string
 from mellea_lrc.validation.types import (
     CitationValidation,
     ValidatedDocument,
+    ValidationMetadata,
     ValidationStatus,
 )
 
@@ -19,10 +20,13 @@ from mellea_lrc.validation.types import (
 def test_document_stages_are_substitutable() -> None:
     extracted = extract_citations("Brown v. Board, 347 U.S. 483.")
     validated = ValidatedDocument(
-        metadata=extracted.metadata,
+        source_metadata=extracted.source_metadata,
         text=extracted.text,
+        preprocessing_metadata=extracted.preprocessing_metadata,
         citations=extracted.citations,
+        extraction_metadata=extracted.extraction_metadata,
         validations=tuple(_validation(item.citation_id) for item in extracted.citations),
+        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
     )
     assessed = initialize_assessment(validated)
 
@@ -49,9 +53,11 @@ def test_extracted_document_rejects_duplicate_ids() -> None:
 
     with pytest.raises(ValueError, match="must be unique"):
         ExtractedDocument(
-            metadata=preprocessed.metadata,
+            source_metadata=preprocessed.source_metadata,
             text=preprocessed.text,
+            preprocessing_metadata=preprocessed.preprocessing_metadata,
             citations=(citation, citation),
+            extraction_metadata=ExtractionMetadata(),
         )
 
 
@@ -66,9 +72,11 @@ def test_extracted_document_rejects_span_outside_text() -> None:
 
     with pytest.raises(ValueError, match="span exceeds"):
         ExtractedDocument(
-            metadata=preprocessed.metadata,
+            source_metadata=preprocessed.source_metadata,
             text=preprocessed.text,
+            preprocessing_metadata=preprocessed.preprocessing_metadata,
             citations=(citation,),
+            extraction_metadata=ExtractionMetadata(),
         )
 
 
@@ -77,10 +85,13 @@ def test_validated_document_requires_one_result_per_citation() -> None:
 
     with pytest.raises(ValueError, match="exactly match"):
         ValidatedDocument(
-            metadata=preprocessed.metadata,
+            source_metadata=preprocessed.source_metadata,
             text=preprocessed.text,
+            preprocessing_metadata=preprocessed.preprocessing_metadata,
             citations=(_citation("cite-1"),),
+            extraction_metadata=ExtractionMetadata(),
             validations=(),
+            validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
         )
 
 

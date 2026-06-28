@@ -17,7 +17,8 @@ def test_extract_accepts_preprocessed_document() -> None:
     preprocessed = preprocess_plain_text_from_string(SAMPLE_TEXT)
     result = extract(preprocessed)
     assert isinstance(result, PreprocessedDocument)
-    assert result.metadata is preprocessed.metadata
+    assert result.source_metadata is preprocessed.source_metadata
+    assert result.preprocessing_metadata is preprocessed.preprocessing_metadata
     assert result.text == SAMPLE_TEXT
     assert result.citations
 

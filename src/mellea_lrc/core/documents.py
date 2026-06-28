@@ -1,6 +1,6 @@
 """Stage-neutral document identity and source provenance."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -24,6 +24,7 @@ class SourceMetadata:
     path: str | None = None
     format: SourceFormat = SourceFormat.UNKNOWN
     header: str | None = None
+    extras: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -34,5 +35,5 @@ class DocumentBase:
 
     @property
     def source_path(self) -> str | None:
-        """Return the original source path, when known."""
+        """Original source path, when known."""
         return self.source_metadata.path

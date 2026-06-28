@@ -8,7 +8,7 @@ from mellea_lrc.courtlistener.remote import (
     CourtListenerAccessClient,
     CourtListenerAccessConfig,
 )
-from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
+from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
 from mellea_lrc.validation.pipeline import run_validation
 from mellea_lrc.validation.types import ValidationStatus
@@ -27,9 +27,11 @@ def _extracted_document(
     citations: tuple[ExtractedCitation, ...],
 ) -> ExtractedDocument:
     return ExtractedDocument(
-        metadata=preprocessed.metadata,
+        source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
+        preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=citations,
+        extraction_metadata=ExtractionMetadata(),
     )
 
 
@@ -69,7 +71,9 @@ def test_validate_full_case_found() -> None:
 
     validation = result.validations[0]
     assert result.text == extraction.text
-    assert result.metadata == extraction.metadata
+    assert result.source_metadata == extraction.source_metadata
+    assert result.preprocessing_metadata == extraction.preprocessing_metadata
+    assert result.extraction_metadata == extraction.extraction_metadata
     assert result.citations == extraction.citations
     assert validation.status == ValidationStatus.FOUND
     assert validation.locator == "347 U.S. 483"

@@ -15,18 +15,22 @@ from mellea_lrc.core.citations import (
     citation_kind,
     is_full_citation,
 )
+from mellea_lrc.core.documents import DocumentBase, SourceFormat, SourceMetadata
 from mellea_lrc.core.spans import Span
 
 __all__ = [
     "FULL_CITATION_KINDS",
     "CanonicalCitation",
     "CitationKind",
+    "DocumentBase",
     "FullCaseCitation",
     "FullJournalCitation",
     "FullLawCitation",
     "IdCitation",
     "ReferenceCitation",
     "ShortCaseCitation",
+    "SourceFormat",
+    "SourceMetadata",
     "Span",
     "SupraCitation",
     "UnknownCitation",
