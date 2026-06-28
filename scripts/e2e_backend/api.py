@@ -10,9 +10,9 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from mellea_lrc.serialization import (
-    deserialize_document_assessment,
-    deserialize_document_extraction,
-    deserialize_document_validation,
+    deserialize_assessed_document,
+    deserialize_extracted_document,
+    deserialize_validated_document,
     deserialize_preprocessed_document,
 )
 from scripts.e2e_backend.pipeline import E2EBackend
@@ -134,28 +134,29 @@ def _review_snapshot_payload(payload: object, pipeline: E2EBackend) -> dict[str,
     if not isinstance(payload, dict):
         msg = "Snapshot must be a JSON object."
         raise TypeError(msg)
-    if "assessments" in payload:
+    artifact_type = payload.get("artifact_type")
+    if artifact_type == "assessed_document":
         return {
             "stage": "assessed",
-            "result": pipeline.review_document_assessment(deserialize_document_assessment(payload)),
+            "result": pipeline.review_document_assessment(deserialize_assessed_document(payload)),
         }
-    if "validations" in payload:
+    if artifact_type == "validated_document":
         return {
             "stage": "validated",
-            "result": pipeline.review_document_validation(deserialize_document_validation(payload)),
+            "result": pipeline.review_document_validation(deserialize_validated_document(payload)),
         }
-    if "citations" in payload:
+    if artifact_type == "extracted_document":
         return {
             "stage": "extracted",
-            "result": pipeline.review_document_extraction(deserialize_document_extraction(payload)),
+            "result": pipeline.review_document_extraction(deserialize_extracted_document(payload)),
         }
-    if "metadata" in payload and "text" in payload:
+    if artifact_type == "preprocessed_document":
         return {
             "stage": "preprocessed",
             "result": pipeline.review_preprocessed_document(deserialize_preprocessed_document(payload)),
         }
     msg = (
         "Snapshot does not look like a serialized PreprocessedDocument, "
-        "DocumentExtraction, DocumentValidation, or DocumentAssessment."
+        "ExtractedDocument, ValidatedDocument, or AssessedDocument."
     )
     raise ValueError(msg)

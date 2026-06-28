@@ -2,7 +2,7 @@
 
 from mellea_lrc.core.citations import CitationKind, FullCaseCitation, FullLawCitation
 from mellea_lrc.extraction import extract, extract_citations
-from mellea_lrc.preprocessing import preprocess_plain_text_from_string
+from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
 
 SAMPLE_TEXT = (
     "Under Norton v. Shelby County, 118 U.S. 425, 442 (1886), an unconstitutional "
@@ -13,7 +13,8 @@ SAMPLE_TEXT = (
 def test_extract_accepts_preprocessed_document() -> None:
     preprocessed = preprocess_plain_text_from_string(SAMPLE_TEXT)
     result = extract(preprocessed)
-    assert result.preprocessed is preprocessed
+    assert isinstance(result, PreprocessedDocument)
+    assert result.metadata is preprocessed.metadata
     assert result.text == SAMPLE_TEXT
     assert result.citations
 

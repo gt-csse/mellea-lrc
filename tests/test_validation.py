@@ -8,8 +8,8 @@ from mellea_lrc.courtlistener.remote import (
     CourtListenerAccessClient,
     CourtListenerAccessConfig,
 )
-from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
-from mellea_lrc.preprocessing import preprocess_plain_text_from_string
+from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
+from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
 from mellea_lrc.validation.pipeline import run_validation
 from mellea_lrc.validation.types import ValidationStatus
 
@@ -21,8 +21,20 @@ def _client(response: dict[str, object]) -> CourtListenerAccessClient:
     )
 
 
+def _extracted_document(
+    *,
+    preprocessed: PreprocessedDocument,
+    citations: tuple[ExtractedCitation, ...],
+) -> ExtractedDocument:
+    return ExtractedDocument(
+        metadata=preprocessed.metadata,
+        text=preprocessed.text,
+        citations=citations,
+    )
+
+
 def test_validate_full_case_found() -> None:
-    extraction = DocumentExtraction(
+    extraction = _extracted_document(
         preprocessed=preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483."),
         citations=(
             ExtractedCitation(
@@ -56,7 +68,8 @@ def test_validate_full_case_found() -> None:
     )
 
     validation = result.validations[0]
-    assert result.preprocessed == extraction.preprocessed
+    assert result.text == extraction.text
+    assert result.metadata == extraction.metadata
     assert result.citations == extraction.citations
     assert validation.status == ValidationStatus.FOUND
     assert validation.locator == "347 U.S. 483"
@@ -74,7 +87,7 @@ def test_validate_full_case_found() -> None:
 
 
 def test_validate_non_case_citation_is_skipped() -> None:
-    extraction = DocumentExtraction(
+    extraction = _extracted_document(
         preprocessed=preprocess_plain_text_from_string("See 28 U.S.C. § 636."),
         citations=(
             ExtractedCitation(
@@ -92,7 +105,7 @@ def test_validate_non_case_citation_is_skipped() -> None:
 
 
 def test_validate_surfaces_courtlistener_limit_detail() -> None:
-    extraction = DocumentExtraction(
+    extraction = _extracted_document(
         preprocessed=preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483."),
         citations=(
             ExtractedCitation(
@@ -144,7 +157,7 @@ def test_validate_missing_locator_is_invalid_without_service_call() -> None:
         calls += 1
         return {}
 
-    extraction = DocumentExtraction(
+    extraction = _extracted_document(
         preprocessed=preprocess_plain_text_from_string("Bad citation."),
         citations=(
             ExtractedCitation(
@@ -167,7 +180,7 @@ def test_validate_missing_locator_is_invalid_without_service_call() -> None:
 
 
 def test_validate_rejects_custom_mode_without_client() -> None:
-    extraction = DocumentExtraction(
+    extraction = _extracted_document(
         preprocessed=preprocess_plain_text_from_string("No citations."),
         citations=(),
     )
@@ -177,7 +190,7 @@ def test_validate_rejects_custom_mode_without_client() -> None:
 
 
 def test_validate_rejects_client_override_for_managed_modes() -> None:
-    extraction = DocumentExtraction(
+    extraction = _extracted_document(
         preprocessed=preprocess_plain_text_from_string("No citations."),
         citations=(),
     )
@@ -191,7 +204,7 @@ def test_validate_rejects_client_override_for_managed_modes() -> None:
 
 
 def test_validate_rejects_unknown_client_mode() -> None:
-    extraction = DocumentExtraction(
+    extraction = _extracted_document(
         preprocessed=preprocess_plain_text_from_string("No citations."),
         citations=(),
     )

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import cast
 
 from eyecite import get_citations, resolve_citations
@@ -31,7 +30,7 @@ from mellea_lrc.core.citations import (
     UnknownCitation,
 )
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
+from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
 from mellea_lrc.preprocessing.plain_text import preprocess_plain_text_from_string
 from mellea_lrc.preprocessing.types import PreprocessedDocument  # noqa: TC001
 
@@ -148,14 +147,14 @@ def _assign_citation_ids(
     citations: list[CitationBase],
 ) -> list[tuple[CitationBase, str]]:
     citation_ids: list[tuple[CitationBase, str]] = []
-    for citation in citations:
+    for index, citation in enumerate(citations, start=1):
         if type(citation) not in EYECITE_CITATION_TYPES:
             msg = (
                 f"Unknown citation type: {type(citation).__name__}. "
                 "All citation types must be handled explicitly."
             )
             raise ValueError(msg)
-        citation_ids.append((citation, str(uuid.uuid4())[:8]))
+        citation_ids.append((citation, f"cite-{index:04d}"))
     return citation_ids
 
 
@@ -176,7 +175,7 @@ def _build_antecedent_map(
 
 def _extract_from_text(
     preprocessed: PreprocessedDocument,
-) -> DocumentExtraction:
+) -> ExtractedDocument:
     """Extract canonical citations from a preprocessed document."""
     text = preprocessed.text
     eyecite_citations = get_citations(text)
@@ -200,18 +199,19 @@ def _extract_from_text(
             )
         )
 
-    return DocumentExtraction(
-        preprocessed=preprocessed,
+    return ExtractedDocument(
+        metadata=preprocessed.metadata,
+        text=preprocessed.text,
         citations=tuple(extracted),
     )
 
 
-def extract_baseline(preprocessed: PreprocessedDocument) -> DocumentExtraction:
+def extract_baseline(preprocessed: PreprocessedDocument) -> ExtractedDocument:
     """Extract canonical citations using eyecite as the baseline engine."""
     return _extract_from_text(preprocessed)
 
 
-def extract(preprocessed: PreprocessedDocument) -> DocumentExtraction:
+def extract(preprocessed: PreprocessedDocument) -> ExtractedDocument:
     """Extract canonical citations from a preprocessed document.
 
     Alias for :func:`extract_baseline`. Prefer :func:`run_extraction` for the
@@ -220,7 +220,7 @@ def extract(preprocessed: PreprocessedDocument) -> DocumentExtraction:
     return extract_baseline(preprocessed)
 
 
-def extract_citations(text: str, *, source_path: str | None = None) -> DocumentExtraction:
+def extract_citations(text: str, *, source_path: str | None = None) -> ExtractedDocument:
     """Extract citations from raw Layer 2 text."""
     preprocessed = preprocess_plain_text_from_string(text, source_path=source_path)
     return extract_baseline(preprocessed)

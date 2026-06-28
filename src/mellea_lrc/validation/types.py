@@ -5,8 +5,7 @@ from enum import Enum
 from typing import Literal, TypeAlias
 
 from mellea_lrc.courtlistener.types import JsonObject
-from mellea_lrc.extraction.types import ExtractedCitation
-from mellea_lrc.preprocessing.types import PreprocessedDocument
+from mellea_lrc.extraction.types import ExtractedDocument
 
 ValidationClientMode: TypeAlias = Literal["deployed", "sdk", "custom"]
 
@@ -41,25 +40,27 @@ class CitationValidation:
     clusters: tuple[JsonObject, ...] = ()
 
 
-@dataclass(frozen=True, slots=True)
-class DocumentValidation:
-    """Validated citations for one preprocessed document."""
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ValidatedDocument(ExtractedDocument):
+    """An extracted document with one validation outcome per citation."""
 
-    preprocessed: PreprocessedDocument
-    citations: tuple[ExtractedCitation, ...]
     validations: tuple[CitationValidation, ...]
-
-    @property
-    def text(self) -> str:
-        """Text that was validated."""
-        return self.preprocessed.text
-
-    @property
-    def source_path(self) -> str | None:
-        """Original source path, when known."""
-        return self.preprocessed.metadata.source_path
 
     @property
     def found(self) -> tuple[CitationValidation, ...]:
         """Return citations found by the validation source."""
         return tuple(item for item in self.validations if item.status == ValidationStatus.FOUND)
+
+    def __post_init__(self) -> None:
+        ExtractedDocument.__post_init__(self)
+        citation_ids = {item.citation_id for item in self.citations}
+        validation_ids = [item.citation_id for item in self.validations]
+        if any(not validation_id for validation_id in validation_ids):
+            msg = "Citation validation identifiers must not be empty"
+            raise ValueError(msg)
+        if len(validation_ids) != len(set(validation_ids)):
+            msg = "Citation validation identifiers must be unique within a document"
+            raise ValueError(msg)
+        if set(validation_ids) != citation_ids:
+            msg = "Citation validation identifiers must exactly match extracted citation identifiers"
+            raise ValueError(msg)

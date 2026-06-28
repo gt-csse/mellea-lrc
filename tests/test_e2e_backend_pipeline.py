@@ -2,21 +2,24 @@
 
 import asyncio
 from mellea_lrc.assessment import (
+    AssessedCitationAssessment,
+    AssessedDocument,
     CaseNameAssessment,
     CaseNameAssessmentStatus,
     CitationAssessment,
-    DocumentAssessment,
+    CitationAssessmentResult,
+    ModifiedExtractedCitation,
     YearAssessment,
     YearAssessmentStatus,
 )
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
-from mellea_lrc.preprocessing import preprocess_plain_text_from_string
+from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
+from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
 from mellea_lrc.serialization import (
-    serialize_document_assessment,
-    serialize_document_extraction,
-    serialize_document_validation,
+    serialize_assessed_document,
+    serialize_extracted_document,
+    serialize_validated_document,
     serialize_preprocessed_document,
 )
 from mellea_lrc.llm import (
@@ -24,7 +27,7 @@ from mellea_lrc.llm import (
     chat_completions_base_url,
     llm_provider_config_from_env,
 )
-from mellea_lrc.validation.types import CitationValidation, DocumentValidation, ValidationStatus
+from mellea_lrc.validation.types import CitationValidation, ValidatedDocument, ValidationStatus
 from scripts.e2e_backend.api import _review_snapshot_payload
 from scripts.label_studio.label_studio import to_label_studio_prediction
 from scripts.e2e_backend.pipeline import (
@@ -61,6 +64,52 @@ class FakeClient:
                 "limit_detail": None,
             },
         )()
+
+
+def _extracted_document(
+    *,
+    preprocessed: PreprocessedDocument,
+    citations: tuple[ExtractedCitation, ...],
+) -> ExtractedDocument:
+    return ExtractedDocument(
+        metadata=preprocessed.metadata,
+        text=preprocessed.text,
+        citations=citations,
+    )
+
+
+def _validated_document(
+    *,
+    preprocessed: PreprocessedDocument,
+    citations: tuple[ExtractedCitation, ...],
+    validations: tuple[CitationValidation, ...],
+) -> ValidatedDocument:
+    return ValidatedDocument(
+        metadata=preprocessed.metadata,
+        text=preprocessed.text,
+        citations=citations,
+        validations=validations,
+    )
+
+
+def _assessed_document(
+    *,
+    preprocessed: PreprocessedDocument,
+    citations: tuple[ExtractedCitation, ...],
+    validations: tuple[CitationValidation, ...],
+    assessments: tuple[CitationAssessment, ...],
+    modified_citations: tuple[ModifiedExtractedCitation, ...] = (),
+    reassessments: tuple[CitationAssessmentResult, ...] = (),
+) -> AssessedDocument:
+    return AssessedDocument(
+        metadata=preprocessed.metadata,
+        text=preprocessed.text,
+        citations=citations,
+        validations=validations,
+        assessments=assessments,
+        modified_citations=modified_citations,
+        reassessments=reassessments,
+    )
 
 
 def test_predict_preprocessed_adds_validation_notes() -> None:
@@ -164,10 +213,11 @@ def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> 
     output = asyncio.run(assess_review_payload(extracted))
 
     assessment = output["citations"][0]["assessment"]
-    assert assessment["case_assess"]["status"] == "exact_match"
-    assert assessment["year_assess"]["status"] == "exact_match"
-    assert assessment["year_assess"]["extracted_year"] == "1954"
-    assert assessment["year_assess"]["courtlistener_year"] == "1954"
+    assert assessment["status"] == "assessed"
+    assert assessment["result"]["case_assess"]["status"] == "exact_match"
+    assert assessment["result"]["year_assess"]["status"] == "exact_match"
+    assert assessment["result"]["year_assess"]["extracted_year"] == "1954"
+    assert assessment["result"]["year_assess"]["courtlistener_year"] == "1954"
     assert output["assessment"]["case_name_counts"]["exact_match"] == 1
     assert output["assessment"]["year_counts"]["exact_match"] == 1
 
@@ -196,7 +246,7 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
         case_names=("Brown v. Board",),
         clusters=({"case_name": "Brown v. Board", "date_filed": "1954-05-17"},),
     )
-    assessment = CitationAssessment(
+    assessment_result = CitationAssessmentResult(
         citation_id="cite-1",
         case_assess=CaseNameAssessment(
             citation_id="cite-1",
@@ -215,17 +265,22 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
     )
 
     output = review_document_assessment(
-        DocumentAssessment(
+        _assessed_document(
             preprocessed=preprocessed,
             citations=(citation,),
             validations=(validation,),
-            assessments=(assessment,),
+            assessments=(
+                AssessedCitationAssessment(
+                    citation_id=assessment_result.citation_id,
+                    result=assessment_result,
+                ),
+            ),
         )
     )
 
     assert output["document"]["text"] == preprocessed.text
     assert output["citations"][0]["validation"]["status"] == "found"
-    assert output["citations"][0]["assessment"]["case_assess"]["status"] == "exact_match"
+    assert output["citations"][0]["assessment"]["result"]["case_assess"]["status"] == "exact_match"
     assert output["assessment"]["case_name_counts"]["exact_match"] == 1
     assert output["assessment"]["year_counts"]["exact_match"] == 1
     assert output["stats"]["assessed"] == 1
@@ -242,26 +297,37 @@ def test_review_document_assessment_rejects_unresolved_assessment_handoff() -> N
 
     try:
         review_document_assessment(
-            DocumentAssessment(
+            _assessed_document(
                 preprocessed=preprocessed,
                 citations=(citation,),
-                validations=(),
-                assessments=(
-                    CitationAssessment(
+                validations=(
+                    CitationValidation(
                         citation_id="cite-1",
-                        case_assess=CaseNameAssessment(
+                        locator="347 U.S. 483",
+                        status=ValidationStatus.FOUND,
+                        source="test",
+                        message="found",
+                    ),
+                ),
+                assessments=(
+                    AssessedCitationAssessment(
+                        citation_id="cite-1",
+                        result=CitationAssessmentResult(
                             citation_id="cite-1",
-                            status=CaseNameAssessmentStatus.NEEDS_ASSESSMENT,
-                            extracted_case_name="Brown v. Board",
-                            courtlistener_case_name="Brown v. Board of Education",
-                            message="needs assessment",
-                        ),
-                        year_assess=YearAssessment(
-                            citation_id="cite-1",
-                            status=YearAssessmentStatus.EXACT_MATCH,
-                            extracted_year="1954",
-                            courtlistener_year="1954",
-                            message="match",
+                            case_assess=CaseNameAssessment(
+                                citation_id="cite-1",
+                                status=CaseNameAssessmentStatus.NEEDS_ASSESSMENT,
+                                extracted_case_name="Brown v. Board",
+                                courtlistener_case_name="Brown v. Board of Education",
+                                message="needs assessment",
+                            ),
+                            year_assess=YearAssessment(
+                                citation_id="cite-1",
+                                status=YearAssessmentStatus.EXACT_MATCH,
+                                extracted_year="1954",
+                                courtlistener_year="1954",
+                                message="match",
+                            ),
                         ),
                     ),
                 ),
@@ -289,7 +355,7 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
         courtlistener_year="1954",
         message="match",
     )
-    primary = CitationAssessment(
+    primary = CitationAssessmentResult(
         citation_id="cite-1",
         case_assess=CaseNameAssessment(
             citation_id="cite-1",
@@ -300,7 +366,7 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
         ),
         year_assess=year_assess,
     )
-    reassessment = CitationAssessment(
+    reassessment = CitationAssessmentResult(
         citation_id="cite-1",
         case_assess=CaseNameAssessment(
             citation_id="cite-1",
@@ -312,11 +378,27 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
         year_assess=year_assess,
     )
     output = review_document_assessment(
-        DocumentAssessment(
+        _assessed_document(
             preprocessed=preprocessed,
             citations=(citation,),
-            validations=(),
-            assessments=(primary,),
+            validations=(
+                CitationValidation(
+                    citation_id="cite-1",
+                    locator="347 U.S. 483",
+                    status=ValidationStatus.FOUND,
+                    source="test",
+                    message="found",
+                ),
+            ),
+            assessments=(AssessedCitationAssessment(citation_id="cite-1", result=primary),),
+            modified_citations=(
+                ModifiedExtractedCitation(
+                    citation_id="cite-1",
+                    span=Span(0, 14),
+                    matched_text="Brown v. Board",
+                    case_name="Brown v. Board",
+                ),
+            ),
             reassessments=(reassessment,),
         )
     )
@@ -338,8 +420,8 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
             year="1954",
         ),
     )
-    extraction = DocumentExtraction(preprocessed=preprocessed, citations=(citation,))
-    validation = DocumentValidation(
+    extraction = _extracted_document(preprocessed=preprocessed, citations=(citation,))
+    validation = _validated_document(
         preprocessed=preprocessed,
         citations=(citation,),
         validations=(
@@ -352,26 +434,29 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
             ),
         ),
     )
-    assessment = DocumentAssessment(
+    assessment = _assessed_document(
         preprocessed=preprocessed,
         citations=(citation,),
         validations=validation.validations,
         assessments=(
-            CitationAssessment(
+            AssessedCitationAssessment(
                 citation_id="cite-1",
-                case_assess=CaseNameAssessment(
+                result=CitationAssessmentResult(
                     citation_id="cite-1",
-                    status=CaseNameAssessmentStatus.EXACT_MATCH,
-                    extracted_case_name="Brown v. Board",
-                    courtlistener_case_name="Brown v. Board",
-                    message="match",
-                ),
-                year_assess=YearAssessment(
-                    citation_id="cite-1",
-                    status=YearAssessmentStatus.EXACT_MATCH,
-                    extracted_year="1954",
-                    courtlistener_year="1954",
-                    message="match",
+                    case_assess=CaseNameAssessment(
+                        citation_id="cite-1",
+                        status=CaseNameAssessmentStatus.EXACT_MATCH,
+                        extracted_case_name="Brown v. Board",
+                        courtlistener_case_name="Brown v. Board",
+                        message="match",
+                    ),
+                    year_assess=YearAssessment(
+                        citation_id="cite-1",
+                        status=YearAssessmentStatus.EXACT_MATCH,
+                        extracted_year="1954",
+                        courtlistener_year="1954",
+                        message="match",
+                    ),
                 ),
             ),
         ),
@@ -379,13 +464,13 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
     backend = E2EBackend()
 
     assert _review_snapshot_payload(serialize_preprocessed_document(preprocessed), backend)["stage"] == "preprocessed"
-    assert _review_snapshot_payload(serialize_document_extraction(extraction), backend)["stage"] == "extracted"
-    assert _review_snapshot_payload(serialize_document_validation(validation), backend)["stage"] == "validated"
-    assert _review_snapshot_payload(serialize_document_assessment(assessment), backend)["stage"] == "assessed"
+    assert _review_snapshot_payload(serialize_extracted_document(extraction), backend)["stage"] == "extracted"
+    assert _review_snapshot_payload(serialize_validated_document(validation), backend)["stage"] == "validated"
+    assert _review_snapshot_payload(serialize_assessed_document(assessment), backend)["stage"] == "assessed"
 
 
 def test_add_validation_notes_skips_non_case_citations() -> None:
-    extraction = DocumentExtraction(
+    extraction = _extracted_document(
         preprocessed=preprocess_plain_text_from_string("See 28 U.S.C. § 636."),
         citations=(
             ExtractedCitation(
@@ -400,8 +485,8 @@ def test_add_validation_notes_skips_non_case_citations() -> None:
 
     enriched = add_validation_notes(
         prediction,
-        DocumentValidation(
-            preprocessed=extraction.preprocessed,
+        _validated_document(
+            preprocessed=extraction,
             citations=extraction.citations,
             validations=(
                 CitationValidation(

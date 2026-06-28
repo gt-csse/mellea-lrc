@@ -37,12 +37,23 @@ class PreprocessedDocumentMetadata:
 
 
 # Extraction consumes text plus provenance through this shared wrapper.
-@dataclass(frozen=True, slots=True)
-class PreprocessedDocument:
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DocumentBase:
+    """Immutable provenance shared by every document-stage artifact."""
+
+    metadata: PreprocessedDocumentMetadata
+
+    @property
+    def source_path(self) -> str | None:
+        """Original source path, when known."""
+        return self.metadata.source_path
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PreprocessedDocument(DocumentBase):
     """Layer 2 text output consumed by citation extraction."""
 
     text: str
-    metadata: PreprocessedDocumentMetadata
 
     def __post_init__(self) -> None:
         if not self.text:
