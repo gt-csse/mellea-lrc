@@ -8,15 +8,15 @@ from mellea_lrc.core.citations import FullCaseCitation
 
 _TYPOGRAPHIC_TRANSLATION = str.maketrans(
     {
-        "‘": "'",
-        "’": "'",
-        "‛": "'",
-        "′": "'",
-        "“": '"',
-        "”": '"',
-        "–": "-",
-        "—": "-",
-        "−": "-",
+        "\N{LEFT SINGLE QUOTATION MARK}": "'",
+        "\N{RIGHT SINGLE QUOTATION MARK}": "'",
+        "\N{SINGLE HIGH-REVERSED-9 QUOTATION MARK}": "'",
+        "\N{PRIME}": "'",
+        "\N{LEFT DOUBLE QUOTATION MARK}": '"',
+        "\N{RIGHT DOUBLE QUOTATION MARK}": '"',
+        "\N{EN DASH}": "-",
+        "\N{EM DASH}": "-",
+        "\N{MINUS SIGN}": "-",
     }
 )
 

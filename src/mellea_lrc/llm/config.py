@@ -79,7 +79,7 @@ def llm_provider_config_from_env(environ: Mapping[str, str]) -> LlmProviderConfi
             openrouter_require_parameters=_optional_bool_env(
                 environ,
                 LLM_OPENROUTER_REQUIRE_PARAMETERS_ENV,
-                False,
+                default=False,
             ),
         )
     if provider == LlmProvider.DEEPSEEK:
@@ -167,7 +167,12 @@ def _optional_float_env(environ: Mapping[str, str], name: str, default: float) -
         raise RuntimeError(msg) from exc
 
 
-def _optional_bool_env(environ: Mapping[str, str], name: str, default: bool) -> bool:
+def _optional_bool_env(
+    environ: Mapping[str, str],
+    name: str,
+    *,
+    default: bool,
+) -> bool:
     value = environ.get(name, "").strip()
     if not value:
         return default

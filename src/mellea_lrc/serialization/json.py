@@ -583,7 +583,7 @@ def deserialize_citation_assessment_result(
     year_payload = validated.get("year_assess")
     if not isinstance(case_payload, dict) or not isinstance(year_payload, dict):
         msg = "citation assessment requires case_assess and year_assess"
-        raise ValueError(msg)
+        raise TypeError(msg)
     return CitationAssessmentResult(
         citation_id=_required_str(validated.get("citation_id"), "citation_id"),
         case_assess=deserialize_case_name_assessment(_mapping_field(case_payload)),
