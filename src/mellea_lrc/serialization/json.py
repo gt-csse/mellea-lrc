@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, fields, is_dataclass
-from typing import TYPE_CHECKING, TypeAlias, TypeVar, cast
+from dataclasses import asdict, fields
+from typing import TYPE_CHECKING, TypeAlias, cast
+
+from pydantic import TypeAdapter
 
 from mellea_lrc.assessment.types import (
     AssessmentMetadata,
@@ -57,6 +59,20 @@ from mellea_lrc.validation.types import (
     ValidationStatus,
 )
 from mellea_lrc.courtlistener.types import CitationMatch, ValidationFailureDetail
+from mellea_lrc.serialization.transport import (
+    AssessedDocumentPayload,
+    CanonicalCitationPayload,
+    CaseNameAssessmentPayload,
+    CitationAssessmentPayload,
+    CitationAssessmentResultPayload,
+    CitationValidationPayload,
+    ExtractedCitationPayload,
+    ExtractedDocumentPayload,
+    ModifiedExtractedCitationPayload,
+    PreprocessedDocumentPayload,
+    ValidatedDocumentPayload,
+    YearAssessmentPayload,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -64,8 +80,10 @@ if TYPE_CHECKING:
     from mellea_lrc.core.citations import CanonicalCitation
 
 JsonValue: TypeAlias = str | int | float | bool | None | dict[str, "JsonValue"] | list["JsonValue"]
-T = TypeVar("T")
 SCHEMA_VERSION = 3
+
+_CITATION_PAYLOAD_ADAPTER = TypeAdapter(CanonicalCitationPayload)
+_ASSESSMENT_PAYLOAD_ADAPTER = TypeAdapter(CitationAssessmentPayload)
 
 _CITATION_CLASSES = {
     CitationKind.FULL_CASE: FullCaseCitation,
@@ -92,14 +110,14 @@ def serialize_preprocessed_document(item: PreprocessedDocument) -> dict[str, Jso
 
 def deserialize_preprocessed_document(payload: Mapping[str, object]) -> PreprocessedDocument:
     """Rebuild the preprocessing boundary object from JSON data."""
-    _validate_artifact_metadata(payload, "preprocessed_document")
-    return _deserialize_preprocessed_fields(payload)
+    validated = PreprocessedDocumentPayload.model_validate(payload)
+    return _deserialize_preprocessed_fields(validated.model_dump(mode="python"))
 
 
 def _deserialize_preprocessed_fields(payload: Mapping[str, object]) -> PreprocessedDocument:
     return PreprocessedDocument(
         source_metadata=_deserialize_source_metadata(_required_mapping_field(payload, "source_metadata")),
-        text=str(payload.get("text") or ""),
+        text=_required_str(payload.get("text"), "document text"),
         preprocessing_metadata=_deserialize_preprocessing_metadata(
             _required_mapping_field(payload, "preprocessing_metadata")
         ),
@@ -118,7 +136,7 @@ def _serialize_source_metadata(item: SourceMetadata) -> dict[str, JsonValue]:
 def _deserialize_source_metadata(payload: Mapping[str, object]) -> SourceMetadata:
     return SourceMetadata(
         path=_optional_str(payload.get("path")),
-        format=_enum_field(SourceFormat, payload.get("format"), SourceFormat.UNKNOWN),
+        format=SourceFormat(_required_str(payload.get("format"), "source format")),
         header=_optional_str(payload.get("header")),
         extra_data=_deserialize_extra_data(payload.get("extra_data")),
     )
@@ -148,11 +166,7 @@ def _deserialize_preprocessing_metadata(
     payload: Mapping[str, object],
 ) -> PreprocessingMetadata:
     return PreprocessingMetadata(
-        backend=_enum_field(
-            PreprocessingBackend,
-            payload.get("backend"),
-            PreprocessingBackend.PLAIN_TEXT,
-        ),
+        backend=PreprocessingBackend(_required_str(payload.get("backend"), "preprocessing backend")),
         backend_version=_optional_str(payload.get("backend_version")),
     )
 
@@ -163,11 +177,7 @@ def _serialize_extraction_metadata(item: ExtractionMetadata) -> dict[str, JsonVa
 
 def _deserialize_extraction_metadata(payload: Mapping[str, object]) -> ExtractionMetadata:
     return ExtractionMetadata(
-        backend=_enum_field(
-            ExtractionBackend,
-            payload.get("backend"),
-            ExtractionBackend.EYECITE,
-        ),
+        backend=ExtractionBackend(_required_str(payload.get("backend"), "extraction backend")),
         backend_version=_optional_str(payload.get("backend_version")),
     )
 
@@ -177,7 +187,7 @@ def _serialize_validation_metadata(item: ValidationMetadata) -> dict[str, JsonVa
 
 
 def _deserialize_validation_metadata(payload: Mapping[str, object]) -> ValidationMetadata:
-    client_mode = str(payload.get("client_mode") or "")
+    client_mode = _required_str(payload.get("client_mode"), "validation client mode")
     if client_mode not in {"deployed", "sdk", "custom"}:
         msg = f"Unknown validation client mode: {client_mode!r}"
         raise ValueError(msg)
@@ -208,17 +218,14 @@ def _serialize_citation(citation: CanonicalCitation) -> dict[str, JsonValue]:
 
 
 def _deserialize_citation(payload: Mapping[str, object]) -> CanonicalCitation:
-    try:
-        kind = CitationKind(str(payload.get("type") or CitationKind.UNKNOWN.value))
-    except ValueError:
-        kind = CitationKind.UNKNOWN
+    validated = _CITATION_PAYLOAD_ADAPTER.validate_python(payload)
+    normalized = validated.model_dump(mode="python")
+    kind = CitationKind(normalized["type"])
     citation_cls = _CITATION_CLASSES[kind]
-    if not is_dataclass(citation_cls):
-        return UnknownCitation()
     kwargs = {
-        field.name: _optional_str(payload.get(field.name))
+        field.name: _optional_str(normalized.get(field.name))
         for field in fields(citation_cls)
-        if field.name in payload
+        if field.name in normalized
     }
     return cast("CanonicalCitation", citation_cls(**kwargs))
 
@@ -236,12 +243,13 @@ def serialize_extracted_citation(item: ExtractedCitation) -> dict[str, JsonValue
 
 def deserialize_extracted_citation(payload: Mapping[str, object]) -> ExtractedCitation:
     """Rebuild one extracted citation from JSON data."""
+    validated = ExtractedCitationPayload.model_validate(payload).model_dump(mode="python")
     return ExtractedCitation(
-        citation_id=str(payload.get("citation_id") or ""),
-        span=_deserialize_span(_mapping_field(payload.get("span"))),
-        matched_text=str(payload.get("matched_text") or ""),
-        citation=_deserialize_citation(_mapping_field(payload.get("citation"))),
-        resolves_to=_optional_str(payload.get("resolves_to")),
+        citation_id=_required_str(validated.get("citation_id"), "citation_id"),
+        span=_deserialize_span(_mapping_field(validated.get("span"))),
+        matched_text=_required_str(validated.get("matched_text"), "matched_text"),
+        citation=_deserialize_citation(_mapping_field(validated.get("citation"))),
+        resolves_to=_optional_str(validated.get("resolves_to")),
     )
 
 
@@ -265,20 +273,26 @@ def serialize_extracted_document(result: ExtractedDocument) -> dict[str, JsonVal
 
 def deserialize_extracted_document(payload: Mapping[str, object]) -> ExtractedDocument:
     """Rebuild the extraction boundary object from JSON data."""
-    _validate_artifact_metadata(payload, "extracted_document")
-    preprocessed = _deserialize_preprocessed_fields(payload)
-    return ExtractedDocument(
+    validated = ExtractedDocumentPayload.model_validate(payload).model_dump(mode="python")
+    preprocessed = _deserialize_preprocessed_fields(validated)
+    result = ExtractedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=tuple(
             deserialize_extracted_citation(_mapping_field(item))
-            for item in _list_field(payload.get("citations"))
+            for item in _list_field(validated.get("citations"))
         ),
         extraction_metadata=_deserialize_extraction_metadata(
-            _required_mapping_field(payload, "extraction_metadata")
+            _required_mapping_field(validated, "extraction_metadata")
         ),
     )
+    _require_derived_value(
+        "counts",
+        validated.get("counts"),
+        serialize_extracted_document(result)["counts"],
+    )
+    return result
 
 
 def serialize_citation_validation(item: CitationValidation) -> dict[str, JsonValue]:
@@ -357,29 +371,27 @@ def _deserialize_validation_failure_detail(
 
 def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationValidation:
     """Rebuild one citation validation result from JSON data."""
+    validated = CitationValidationPayload.model_validate(payload).model_dump(mode="python")
     return CitationValidation(
-        citation_id=str(payload.get("citation_id") or ""),
-        locator=_optional_str(payload.get("locator")),
-        status=_enum_field(
-            ValidationStatus,
-            payload.get("status"),
-            ValidationStatus.LOOKUP_FAILED,
-        ),
-        source=str(payload.get("source") or ""),
-        message=str(payload.get("message") or ""),
-        lookup_status=_optional_int(payload.get("lookup_status")),
-        lookup_cache=_optional_str(payload.get("lookup_cache")),
-        lookup_key=_optional_str(payload.get("lookup_key")),
-        error_message=_optional_str(payload.get("error_message")),
+        citation_id=_required_str(validated.get("citation_id"), "citation_id"),
+        locator=_optional_str(validated.get("locator")),
+        status=ValidationStatus(_required_str(validated.get("status"), "validation status")),
+        source=_required_str(validated.get("source"), "validation source"),
+        message=_required_str(validated.get("message"), "validation message"),
+        lookup_status=_optional_int(validated.get("lookup_status")),
+        lookup_cache=_optional_str(validated.get("lookup_cache")),
+        lookup_key=_optional_str(validated.get("lookup_key")),
+        error_message=_optional_str(validated.get("error_message")),
         failure_detail=(
-            _deserialize_validation_failure_detail(_mapping_field(payload.get("failure_detail")))
-            if isinstance(payload.get("failure_detail"), dict)
+            _deserialize_validation_failure_detail(_mapping_field(validated.get("failure_detail")))
+            if isinstance(validated.get("failure_detail"), dict)
             else None
         ),
         matches=tuple(
-            _deserialize_citation_match(_mapping_field(item)) for item in _list_field(payload.get("matches"))
+            _deserialize_citation_match(_mapping_field(item))
+            for item in _list_field(validated.get("matches"))
         ),
-        extra_data=_deserialize_extra_data(payload.get("extra_data")),
+        extra_data=_deserialize_extra_data(validated.get("extra_data")),
     )
 
 
@@ -405,27 +417,33 @@ def serialize_validated_document(result: ValidatedDocument) -> dict[str, JsonVal
 
 def deserialize_validated_document(payload: Mapping[str, object]) -> ValidatedDocument:
     """Rebuild the validation boundary object from JSON data."""
-    _validate_artifact_metadata(payload, "validated_document")
-    preprocessed = _deserialize_preprocessed_fields(payload)
-    return ValidatedDocument(
+    validated = ValidatedDocumentPayload.model_validate(payload).model_dump(mode="python")
+    preprocessed = _deserialize_preprocessed_fields(validated)
+    result = ValidatedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=tuple(
             deserialize_extracted_citation(_mapping_field(item))
-            for item in _list_field(payload.get("citations"))
+            for item in _list_field(validated.get("citations"))
         ),
         extraction_metadata=_deserialize_extraction_metadata(
-            _required_mapping_field(payload, "extraction_metadata")
+            _required_mapping_field(validated, "extraction_metadata")
         ),
         validations=tuple(
             deserialize_citation_validation(_mapping_field(item))
-            for item in _list_field(payload.get("validations"))
+            for item in _list_field(validated.get("validations"))
         ),
         validation_metadata=_deserialize_validation_metadata(
-            _required_mapping_field(payload, "validation_metadata")
+            _required_mapping_field(validated, "validation_metadata")
         ),
     )
+    _require_derived_value(
+        "counts",
+        validated.get("counts"),
+        serialize_validated_document(result)["counts"],
+    )
+    return result
 
 
 def serialize_case_name_assessment(item: CaseNameAssessment) -> dict[str, JsonValue]:
@@ -462,22 +480,21 @@ def _deserialize_chat_turn(payload: Mapping[str, object]) -> ChatTurn:
 
 def deserialize_case_name_assessment(payload: Mapping[str, object]) -> CaseNameAssessment:
     """Rebuild a case-name assessment from JSON data."""
-    raw_history = payload.get("chat_history")
+    validated = CaseNameAssessmentPayload.model_validate(payload).model_dump(mode="python")
+    raw_history = validated.get("chat_history")
     chat_history = (
         tuple(_deserialize_chat_turn(t) for t in raw_history if isinstance(t, dict))
         if isinstance(raw_history, list)
         else None
     )
     return CaseNameAssessment(
-        citation_id=str(payload.get("citation_id") or ""),
-        status=_enum_field(
-            CaseNameAssessmentStatus,
-            payload.get("status"),
-            CaseNameAssessmentStatus.NEEDS_ASSESSMENT,
+        citation_id=_required_str(validated.get("citation_id"), "citation_id"),
+        status=CaseNameAssessmentStatus(
+            _required_str(validated.get("status"), "case-name assessment status")
         ),
-        extracted_case_name=_optional_str(payload.get("extracted_case_name")),
-        courtlistener_case_name=_optional_str(payload.get("courtlistener_case_name")),
-        message=str(payload.get("message") or ""),
+        extracted_case_name=_optional_str(validated.get("extracted_case_name")),
+        courtlistener_case_name=_optional_str(validated.get("courtlistener_case_name")),
+        message=_required_str(validated.get("message"), "case-name assessment message"),
         chat_history=chat_history,
     )
 
@@ -491,16 +508,13 @@ def serialize_year_assessment(item: YearAssessment) -> dict[str, JsonValue]:
 
 def deserialize_year_assessment(payload: Mapping[str, object]) -> YearAssessment:
     """Rebuild a year assessment from JSON data."""
+    validated = YearAssessmentPayload.model_validate(payload).model_dump(mode="python")
     return YearAssessment(
-        citation_id=str(payload.get("citation_id") or ""),
-        status=_enum_field(
-            YearAssessmentStatus,
-            payload.get("status"),
-            YearAssessmentStatus.MISSING,
-        ),
-        extracted_year=_optional_str(payload.get("extracted_year")),
-        courtlistener_year=_optional_str(payload.get("courtlistener_year")),
-        message=str(payload.get("message") or ""),
+        citation_id=_required_str(validated.get("citation_id"), "citation_id"),
+        status=YearAssessmentStatus(_required_str(validated.get("status"), "year assessment status")),
+        extracted_year=_optional_str(validated.get("extracted_year")),
+        courtlistener_year=_optional_str(validated.get("courtlistener_year")),
+        message=_required_str(validated.get("message"), "year assessment message"),
     )
 
 
@@ -533,27 +547,20 @@ def serialize_citation_assessment_result(
 
 def deserialize_citation_assessment(payload: Mapping[str, object]) -> CitationAssessment:
     """Rebuild one discriminated citation-assessment execution state."""
-    citation_id = str(payload.get("citation_id") or "")
-    try:
-        status = AssessmentStatus(str(payload.get("status") or ""))
-    except ValueError as exc:
-        msg = f"Unknown citation assessment status: {payload.get('status')!r}"
-        raise ValueError(msg) from exc
+    validated_model = _ASSESSMENT_PAYLOAD_ADAPTER.validate_python(payload)
+    validated = validated_model.model_dump(mode="python")
+    citation_id = _required_str(validated.get("citation_id"), "citation_id")
+    status = AssessmentStatus(_required_str(validated.get("status"), "assessment status"))
     if status == AssessmentStatus.WAITING:
         return WaitingCitationAssessment(citation_id=citation_id)
     if status == AssessmentStatus.SKIPPED:
-        try:
-            reason = AssessmentSkipReason(str(payload.get("reason") or ""))
-        except ValueError as exc:
-            msg = f"Unknown assessment skip reason: {payload.get('reason')!r}"
-            raise ValueError(msg) from exc
         return SkippedCitationAssessment(
             citation_id=citation_id,
-            reason=reason,
-            message=_required_str(payload.get("message"), "skipped citation message"),
+            reason=AssessmentSkipReason(_required_str(validated.get("reason"), "assessment skip reason")),
+            message=_required_str(validated.get("message"), "skipped citation message"),
         )
     if status == AssessmentStatus.ASSESSED:
-        result_payload = payload.get("result")
+        result_payload = validated.get("result")
         if not isinstance(result_payload, dict):
             msg = "assessed citation requires a result"
             raise TypeError(msg)
@@ -563,7 +570,7 @@ def deserialize_citation_assessment(payload: Mapping[str, object]) -> CitationAs
         )
     return FailedCitationAssessment(
         citation_id=citation_id,
-        error=_required_str(payload.get("error"), "failed citation error"),
+        error=_required_str(validated.get("error"), "failed citation error"),
     )
 
 
@@ -571,13 +578,14 @@ def deserialize_citation_assessment_result(
     payload: Mapping[str, object],
 ) -> CitationAssessmentResult:
     """Rebuild a completed substantive citation assessment."""
-    case_payload = payload.get("case_assess")
-    year_payload = payload.get("year_assess")
+    validated = CitationAssessmentResultPayload.model_validate(payload).model_dump(mode="python")
+    case_payload = validated.get("case_assess")
+    year_payload = validated.get("year_assess")
     if not isinstance(case_payload, dict) or not isinstance(year_payload, dict):
         msg = "citation assessment requires case_assess and year_assess"
         raise ValueError(msg)
     return CitationAssessmentResult(
-        citation_id=str(payload.get("citation_id") or ""),
+        citation_id=_required_str(validated.get("citation_id"), "citation_id"),
         case_assess=deserialize_case_name_assessment(_mapping_field(case_payload)),
         year_assess=deserialize_year_assessment(_mapping_field(year_payload)),
     )
@@ -597,12 +605,13 @@ def deserialize_modified_extracted_citation(
     payload: Mapping[str, object],
 ) -> ModifiedExtractedCitation:
     """Rebuild one modified extraction from JSON data."""
-    span_payload = payload.get("span")
-    case_name = _optional_str(payload.get("case_name"))
+    validated = ModifiedExtractedCitationPayload.model_validate(payload).model_dump(mode="python")
+    span_payload = validated.get("span")
+    case_name = _optional_str(validated.get("case_name"))
     return ModifiedExtractedCitation(
-        citation_id=str(payload.get("citation_id") or ""),
+        citation_id=_required_str(validated.get("citation_id"), "citation_id"),
         span=_deserialize_span(_mapping_field(span_payload)) if isinstance(span_payload, dict) else None,
-        matched_text=_optional_str(payload.get("matched_text")) or case_name,
+        matched_text=_optional_str(validated.get("matched_text")) or case_name,
         case_name=case_name,
     )
 
@@ -634,42 +643,51 @@ def serialize_assessed_document(result: AssessedDocument) -> dict[str, JsonValue
 
 def deserialize_assessed_document(payload: Mapping[str, object]) -> AssessedDocument:
     """Rebuild the assessment boundary object from JSON data."""
-    _validate_artifact_metadata(payload, "assessed_document")
-    preprocessed = _deserialize_preprocessed_fields(payload)
-    return AssessedDocument(
+    validated = AssessedDocumentPayload.model_validate(payload).model_dump(mode="python")
+    preprocessed = _deserialize_preprocessed_fields(validated)
+    result = AssessedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=tuple(
             deserialize_extracted_citation(_mapping_field(item))
-            for item in _list_field(payload.get("citations"))
+            for item in _list_field(validated.get("citations"))
         ),
         extraction_metadata=_deserialize_extraction_metadata(
-            _required_mapping_field(payload, "extraction_metadata")
+            _required_mapping_field(validated, "extraction_metadata")
         ),
         validations=tuple(
             deserialize_citation_validation(_mapping_field(item))
-            for item in _list_field(payload.get("validations"))
+            for item in _list_field(validated.get("validations"))
         ),
         validation_metadata=_deserialize_validation_metadata(
-            _required_mapping_field(payload, "validation_metadata")
+            _required_mapping_field(validated, "validation_metadata")
         ),
         assessments=tuple(
             deserialize_citation_assessment(_mapping_field(item))
-            for item in _list_field(payload.get("assessments"))
+            for item in _list_field(validated.get("assessments"))
         ),
         assessment_metadata=_deserialize_assessment_metadata(
-            _required_mapping_field(payload, "assessment_metadata")
+            _required_mapping_field(validated, "assessment_metadata")
         ),
         modified_citations=tuple(
             deserialize_modified_extracted_citation(_mapping_field(item))
-            for item in _list_field(payload.get("modified_citations"))
+            for item in _list_field(validated.get("modified_citations"))
         ),
         reassessments=tuple(
             deserialize_citation_assessment_result(_mapping_field(item))
-            for item in _list_field(payload.get("reassessments"))
+            for item in _list_field(validated.get("reassessments"))
         ),
     )
+    serialized = serialize_assessed_document(result)
+    for field_name in (
+        "assessment_complete",
+        "assessment_status_counts",
+        "case_name_counts",
+        "year_counts",
+    ):
+        _require_derived_value(field_name, validated.get(field_name), serialized[field_name])
+    return result
 
 
 def _count_by_type(result: ExtractedDocument) -> dict[str, int]:
@@ -716,14 +734,9 @@ def _serialize_span(span: Span) -> dict[str, JsonValue]:
     return {"start": span.start, "end": span.end}
 
 
-def _validate_artifact_metadata(payload: Mapping[str, object], expected_type: str) -> None:
-    version = payload.get("schema_version")
-    if version != SCHEMA_VERSION:
-        msg = f"Unsupported artifact schema_version: {version!r}"
-        raise ValueError(msg)
-    artifact_type = payload.get("artifact_type")
-    if artifact_type != expected_type:
-        msg = f"Expected artifact_type={expected_type!r}, received {artifact_type!r}"
+def _require_derived_value(field_name: str, actual: object, expected: object) -> None:
+    if actual != expected:
+        msg = f"Serialized {field_name} does not match artifact contents"
         raise ValueError(msg)
 
 
@@ -731,15 +744,11 @@ def _deserialize_span(payload: Mapping[str, object]) -> Span:
     return Span(start=_int_field(payload.get("start")), end=_int_field(payload.get("end")))
 
 
-def _enum_field(enum_cls: type[T], value: object, default: T) -> T:
-    try:
-        return enum_cls(str(value)) if value is not None else default
-    except ValueError:
-        return default
-
-
 def _mapping_field(value: object) -> Mapping[str, object]:
-    return value if isinstance(value, dict) else {}
+    if isinstance(value, dict):
+        return value
+    msg = "Expected an object"
+    raise TypeError(msg)
 
 
 def _required_mapping_field(
@@ -754,14 +763,19 @@ def _required_mapping_field(
 
 
 def _list_field(value: object) -> list[object]:
-    return value if isinstance(value, list) else []
+    if isinstance(value, list):
+        return value
+    msg = "Expected an array"
+    raise TypeError(msg)
 
 
 def _optional_str(value: object) -> str | None:
     if value is None:
         return None
-    text = str(value)
-    return text or None
+    if isinstance(value, str):
+        return value
+    msg = "Expected a string or null"
+    raise TypeError(msg)
 
 
 def _required_str(value: object, field_name: str) -> str:
@@ -790,6 +804,7 @@ def _optional_float(value: object) -> float | None:
 
 
 def _int_field(value: object) -> int:
-    if isinstance(value, int):
+    if type(value) is int:
         return value
-    return int(str(value or 0))
+    msg = "Expected an integer"
+    raise TypeError(msg)

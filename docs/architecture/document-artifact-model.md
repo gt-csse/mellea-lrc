@@ -137,6 +137,16 @@ stage objects. Schema version 3 exposes the same stage ownership explicitly with
 typed validation matches and explicit `extra_data` fields. Earlier versions are not
 accepted.
 
+Every public artifact deserializer first validates a strict Pydantic transport DTO
+configured with `extra="forbid"` and no type coercion. Citation kinds and assessment
+execution states use discriminated transport unions, so state-inappropriate fields
+are rejected at the boundary. The validated DTO is then converted into immutable
+domain dataclasses; Pydantic models never enter the document inheritance chain.
+
+Serialized counts and completion flags are treated as derived integrity data. A
+reader recomputes them from the reconstructed artifact and rejects a payload when
+the serialized summary is stale or contradictory.
+
 ### Breaking-change policy
 
 The project is still pre-stability, so this refactor is an intentional clean break.

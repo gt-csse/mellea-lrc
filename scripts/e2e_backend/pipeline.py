@@ -612,6 +612,7 @@ def _citation_validation_from_review_item(item: JsonDict) -> CitationValidation 
     if not isinstance(validation, dict):
         return None
     validation_payload = dict(validation)
+    validation_payload.pop("case_names", None)
     validation_payload["citation_id"] = str(validation.get("citation_id") or item.get("id") or "")
     return deserialize_citation_validation(validation_payload)
 
