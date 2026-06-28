@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
 from typing import cast
 
 from eyecite import get_citations, resolve_citations
@@ -30,7 +31,7 @@ from mellea_lrc.core.citations import (
     UnknownCitation,
 )
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
+from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing.plain_text import preprocess_plain_text_from_string
 from mellea_lrc.preprocessing.types import PreprocessedDocument  # noqa: TC001
 
@@ -46,6 +47,13 @@ EYECITE_CITATION_TYPES = frozenset(
         EyeciteUnknownCitation,
     }
 )
+
+
+def _eyecite_version() -> str | None:
+    try:
+        return version("eyecite")
+    except PackageNotFoundError:
+        return None
 
 
 def _to_full_case(citation: EyeciteFullCaseCitation) -> FullCaseCitation:
@@ -200,9 +208,11 @@ def _extract_from_text(
         )
 
     return ExtractedDocument(
-        metadata=preprocessed.metadata,
+        source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
+        preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=tuple(extracted),
+        extraction_metadata=ExtractionMetadata(backend_version=_eyecite_version()),
     )
 
 

@@ -10,6 +10,14 @@ from mellea_lrc.extraction.types import ExtractedDocument
 ValidationClientMode: TypeAlias = Literal["deployed", "sdk", "custom"]
 
 
+@dataclass(frozen=True, slots=True)
+class ValidationMetadata:
+    """Provenance for the validation stage."""
+
+    client_mode: ValidationClientMode
+    source: str
+
+
 class ValidationStatus(str, Enum):
     """Canonical validation outcomes for citation existence checks."""
 
@@ -45,6 +53,7 @@ class ValidatedDocument(ExtractedDocument):
     """An extracted document with one validation outcome per citation."""
 
     validations: tuple[CitationValidation, ...]
+    validation_metadata: ValidationMetadata
 
     @property
     def found(self) -> tuple[CitationValidation, ...]:

@@ -27,9 +27,9 @@ def test_split_plain_text_file_splits_recap_header() -> None:
 def test_preprocess_plain_text_from_string_wraps_text() -> None:
     document = preprocess_plain_text_from_string("Hello world.", source_path="sample.txt")
     assert document.text == "Hello world."
-    assert document.metadata.source_path == "sample.txt"
-    assert document.metadata.backend == PreprocessingBackend.PLAIN_TEXT
-    assert document.metadata.source_format == SourceFormat.TEXT
+    assert document.source_metadata.path == "sample.txt"
+    assert document.preprocessing_metadata.backend == PreprocessingBackend.PLAIN_TEXT
+    assert document.source_metadata.format == SourceFormat.TEXT
 
 
 def test_is_docling_supported_format_checks_supported_suffixes() -> None:
@@ -100,8 +100,8 @@ def test_preprocess_with_docling_exports_plain_text(monkeypatch: pytest.MonkeyPa
     document = preprocess_with_docling("sample.pdf")
 
     assert document.text == "Plain text"
-    assert document.metadata.source_format == SourceFormat.PDF
-    assert document.metadata.backend == PreprocessingBackend.DOCLING
+    assert document.source_metadata.format == SourceFormat.PDF
+    assert document.preprocessing_metadata.backend == PreprocessingBackend.DOCLING
     assert calls["path"] == "sample.pdf"
     assert calls["export_to_text"] is True
     format_options = calls["converter_kwargs"]["format_options"]  # type: ignore[index]
@@ -120,9 +120,9 @@ def test_preprocess_with_real_docling_pdf_exports_plain_text(tmp_path: Path) -> 
 
     assert "Brown v. Board" in document.text
     assert "347 U.S. 483" in document.text
-    assert document.metadata.source_path == str(pdf_path)
-    assert document.metadata.source_format == SourceFormat.PDF
-    assert document.metadata.backend == PreprocessingBackend.DOCLING
+    assert document.source_metadata.path == str(pdf_path)
+    assert document.source_metadata.format == SourceFormat.PDF
+    assert document.preprocessing_metadata.backend == PreprocessingBackend.DOCLING
 
 
 def _minimal_text_pdf(text: str) -> bytes:

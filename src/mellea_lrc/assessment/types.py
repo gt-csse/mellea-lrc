@@ -57,6 +57,28 @@ class AssessmentSkipReason(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class AssessmentMetadata:
+    """Execution provenance for the assessment stage."""
+
+    mellea_calls: int = 0
+    mellea_concurrency: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.mellea_calls < 0:
+            msg = "AssessmentMetadata.mellea_calls must not be negative"
+            raise ValueError(msg)
+        if self.mellea_concurrency is not None and self.mellea_concurrency < 1:
+            msg = "AssessmentMetadata.mellea_concurrency must be positive when provided"
+            raise ValueError(msg)
+        if (self.mellea_calls == 0) != (self.mellea_concurrency is None):
+            msg = "AssessmentMetadata concurrency is required exactly when Mellea calls occur"
+            raise ValueError(msg)
+        if self.mellea_concurrency is not None and self.mellea_concurrency > self.mellea_calls:
+            msg = "AssessmentMetadata concurrency must not exceed Mellea calls"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True, slots=True)
 class CaseNameAssessment:
     """Assessment result for one extracted case name."""
 
@@ -137,6 +159,7 @@ class AssessedDocument(ValidatedDocument):
     """A validated document with additive citation assessment history."""
 
     assessments: tuple[CitationAssessment, ...]
+    assessment_metadata: AssessmentMetadata
     modified_citations: tuple[ModifiedExtractedCitation, ...] = ()
     reassessments: tuple[CitationAssessmentResult, ...] = ()
 

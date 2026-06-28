@@ -6,6 +6,7 @@ from dataclasses import asdict, fields, is_dataclass
 from typing import Any, TYPE_CHECKING, TypeAlias, TypeVar, cast
 
 from mellea_lrc.assessment.types import (
+    AssessmentMetadata,
     AssessmentSkipReason,
     AssessmentStatus,
     AssessedCitationAssessment,
@@ -33,15 +34,26 @@ from mellea_lrc.core.citations import (
     UnknownCitation,
     citation_kind,
 )
+from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
+from mellea_lrc.extraction.types import (
+    ExtractedCitation,
+    ExtractedDocument,
+    ExtractionBackend,
+    ExtractionMetadata,
+)
 from mellea_lrc.preprocessing.types import (
     PreprocessedDocument,
-    PreprocessedDocumentMetadata,
     PreprocessingBackend,
-    SourceFormat,
+    PreprocessingMetadata,
 )
-from mellea_lrc.validation.types import CitationValidation, ValidatedDocument, ValidationStatus
+from mellea_lrc.validation.types import (
+    CitationValidation,
+    ValidatedDocument,
+    ValidationMetadata,
+    ValidationClientMode,
+    ValidationStatus,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -50,7 +62,7 @@ if TYPE_CHECKING:
 
 JsonValue: TypeAlias = str | int | float | bool | None | dict[str, "JsonValue"] | list["JsonValue"]
 T = TypeVar("T")
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _CITATION_CLASSES = {
     CitationKind.FULL_CASE: FullCaseCitation,
@@ -70,51 +82,112 @@ def serialize_preprocessed_document(item: PreprocessedDocument) -> dict[str, Jso
         "schema_version": SCHEMA_VERSION,
         "artifact_type": "preprocessed_document",
         "text": item.text,
-        "metadata": _serialize_preprocessed_metadata(item.metadata),
+        "source_metadata": _serialize_source_metadata(item.source_metadata),
+        "preprocessing_metadata": _serialize_preprocessing_metadata(
+            item.preprocessing_metadata
+        ),
     }
 
 
 def deserialize_preprocessed_document(payload: Mapping[str, object]) -> PreprocessedDocument:
     """Rebuild the preprocessing boundary object from JSON data."""
     _validate_artifact_metadata(payload, "preprocessed_document")
-    return _deserialize_preprocessed_fields(payload.get("text"), payload.get("metadata"))
+    return _deserialize_preprocessed_fields(payload)
 
 
-def _deserialize_preprocessed_fields(text: object, metadata: object) -> PreprocessedDocument:
-    metadata_payload = _mapping_field(metadata)
+def _deserialize_preprocessed_fields(payload: Mapping[str, object]) -> PreprocessedDocument:
     return PreprocessedDocument(
-        text=str(text or ""),
-        metadata=_deserialize_preprocessed_metadata(metadata_payload),
+        source_metadata=_deserialize_source_metadata(
+            _required_mapping_field(payload, "source_metadata")
+        ),
+        text=str(payload.get("text") or ""),
+        preprocessing_metadata=_deserialize_preprocessing_metadata(
+            _required_mapping_field(payload, "preprocessing_metadata")
+        ),
     )
 
 
-def _serialize_preprocessed_metadata(
-    item: PreprocessedDocumentMetadata,
-) -> dict[str, JsonValue]:
+def _serialize_source_metadata(item: SourceMetadata) -> dict[str, JsonValue]:
     return {
-        "source_path": item.source_path,
-        "source_format": item.source_format.value,
-        "backend": item.backend.value,
-        "backend_version": item.backend_version,
+        "path": item.path,
+        "format": item.format.value,
         "header": item.header,
         "extras": dict(item.extras),
     }
 
 
-def _deserialize_preprocessed_metadata(
+def _deserialize_source_metadata(payload: Mapping[str, object]) -> SourceMetadata:
+    return SourceMetadata(
+        path=_optional_str(payload.get("path")),
+        format=_enum_field(SourceFormat, payload.get("format"), SourceFormat.UNKNOWN),
+        header=_optional_str(payload.get("header")),
+        extras={str(key): str(value) for key, value in _mapping_field(payload.get("extras")).items()},
+    )
+
+
+def _serialize_preprocessing_metadata(
+    item: PreprocessingMetadata,
+) -> dict[str, JsonValue]:
+    return {
+        "backend": item.backend.value,
+        "backend_version": item.backend_version,
+    }
+
+
+def _deserialize_preprocessing_metadata(
     payload: Mapping[str, object],
-) -> PreprocessedDocumentMetadata:
-    return PreprocessedDocumentMetadata(
-        source_path=_optional_str(payload.get("source_path")),
-        source_format=_enum_field(SourceFormat, payload.get("source_format"), SourceFormat.UNKNOWN),
+) -> PreprocessingMetadata:
+    return PreprocessingMetadata(
         backend=_enum_field(
             PreprocessingBackend,
             payload.get("backend"),
             PreprocessingBackend.PLAIN_TEXT,
         ),
         backend_version=_optional_str(payload.get("backend_version")),
-        header=_optional_str(payload.get("header")),
-        extras={str(key): str(value) for key, value in _mapping_field(payload.get("extras")).items()},
+    )
+
+
+def _serialize_extraction_metadata(item: ExtractionMetadata) -> dict[str, JsonValue]:
+    return {"backend": item.backend.value, "backend_version": item.backend_version}
+
+
+def _deserialize_extraction_metadata(payload: Mapping[str, object]) -> ExtractionMetadata:
+    return ExtractionMetadata(
+        backend=_enum_field(
+            ExtractionBackend,
+            payload.get("backend"),
+            ExtractionBackend.EYECITE,
+        ),
+        backend_version=_optional_str(payload.get("backend_version")),
+    )
+
+
+def _serialize_validation_metadata(item: ValidationMetadata) -> dict[str, JsonValue]:
+    return {"client_mode": item.client_mode, "source": item.source}
+
+
+def _deserialize_validation_metadata(payload: Mapping[str, object]) -> ValidationMetadata:
+    client_mode = str(payload.get("client_mode") or "")
+    if client_mode not in {"deployed", "sdk", "custom"}:
+        msg = f"Unknown validation client mode: {client_mode!r}"
+        raise ValueError(msg)
+    return ValidationMetadata(
+        client_mode=cast("ValidationClientMode", client_mode),
+        source=_required_str(payload.get("source"), "validation metadata source"),
+    )
+
+
+def _serialize_assessment_metadata(item: AssessmentMetadata) -> dict[str, JsonValue]:
+    return {
+        "mellea_calls": item.mellea_calls,
+        "mellea_concurrency": item.mellea_concurrency,
+    }
+
+
+def _deserialize_assessment_metadata(payload: Mapping[str, object]) -> AssessmentMetadata:
+    return AssessmentMetadata(
+        mellea_calls=_int_field(payload.get("mellea_calls")),
+        mellea_concurrency=_optional_int(payload.get("mellea_concurrency")),
     )
 
 
@@ -167,9 +240,12 @@ def serialize_extracted_document(result: ExtractedDocument) -> dict[str, JsonVal
     return {
         "schema_version": SCHEMA_VERSION,
         "artifact_type": "extracted_document",
-        "source_path": result.source_path,
         "text": result.text,
-        "preprocessing": _serialize_preprocessed_metadata(result.metadata),
+        "source_metadata": _serialize_source_metadata(result.source_metadata),
+        "preprocessing_metadata": _serialize_preprocessing_metadata(
+            result.preprocessing_metadata
+        ),
+        "extraction_metadata": _serialize_extraction_metadata(result.extraction_metadata),
         "citations": [serialize_extracted_citation(item) for item in result.citations],
         "counts": {
             "total": len(result.citations),
@@ -182,16 +258,17 @@ def serialize_extracted_document(result: ExtractedDocument) -> dict[str, JsonVal
 def deserialize_extracted_document(payload: Mapping[str, object]) -> ExtractedDocument:
     """Rebuild the extraction boundary object from JSON data."""
     _validate_artifact_metadata(payload, "extracted_document")
-    preprocessed = _deserialize_preprocessed_fields(
-        payload.get("text"),
-        payload.get("preprocessing"),
-    )
+    preprocessed = _deserialize_preprocessed_fields(payload)
     return ExtractedDocument(
-        metadata=preprocessed.metadata,
+        source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
+        preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=tuple(
             deserialize_extracted_citation(_mapping_field(item))
             for item in _list_field(payload.get("citations"))
+        ),
+        extraction_metadata=_deserialize_extraction_metadata(
+            _required_mapping_field(payload, "extraction_metadata")
         ),
     )
 
@@ -232,9 +309,13 @@ def serialize_validated_document(result: ValidatedDocument) -> dict[str, JsonVal
     return {
         "schema_version": SCHEMA_VERSION,
         "artifact_type": "validated_document",
-        "source_path": result.source_path,
         "text": result.text,
-        "preprocessing": _serialize_preprocessed_metadata(result.metadata),
+        "source_metadata": _serialize_source_metadata(result.source_metadata),
+        "preprocessing_metadata": _serialize_preprocessing_metadata(
+            result.preprocessing_metadata
+        ),
+        "extraction_metadata": _serialize_extraction_metadata(result.extraction_metadata),
+        "validation_metadata": _serialize_validation_metadata(result.validation_metadata),
         "citations": [serialize_extracted_citation(item) for item in result.citations],
         "validations": [serialize_citation_validation(item) for item in result.validations],
         "counts": {
@@ -248,20 +329,24 @@ def serialize_validated_document(result: ValidatedDocument) -> dict[str, JsonVal
 def deserialize_validated_document(payload: Mapping[str, object]) -> ValidatedDocument:
     """Rebuild the validation boundary object from JSON data."""
     _validate_artifact_metadata(payload, "validated_document")
-    preprocessed = _deserialize_preprocessed_fields(
-        payload.get("text"),
-        payload.get("preprocessing"),
-    )
+    preprocessed = _deserialize_preprocessed_fields(payload)
     return ValidatedDocument(
-        metadata=preprocessed.metadata,
+        source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
+        preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=tuple(
             deserialize_extracted_citation(_mapping_field(item))
             for item in _list_field(payload.get("citations"))
         ),
+        extraction_metadata=_deserialize_extraction_metadata(
+            _required_mapping_field(payload, "extraction_metadata")
+        ),
         validations=tuple(
             deserialize_citation_validation(_mapping_field(item))
             for item in _list_field(payload.get("validations"))
+        ),
+        validation_metadata=_deserialize_validation_metadata(
+            _required_mapping_field(payload, "validation_metadata")
         ),
     )
 
@@ -425,9 +510,14 @@ def serialize_assessed_document(result: AssessedDocument) -> dict[str, JsonValue
     return {
         "schema_version": SCHEMA_VERSION,
         "artifact_type": "assessed_document",
-        "source_path": result.source_path,
         "text": result.text,
-        "preprocessing": _serialize_preprocessed_metadata(result.metadata),
+        "source_metadata": _serialize_source_metadata(result.source_metadata),
+        "preprocessing_metadata": _serialize_preprocessing_metadata(
+            result.preprocessing_metadata
+        ),
+        "extraction_metadata": _serialize_extraction_metadata(result.extraction_metadata),
+        "validation_metadata": _serialize_validation_metadata(result.validation_metadata),
+        "assessment_metadata": _serialize_assessment_metadata(result.assessment_metadata),
         "citations": [serialize_extracted_citation(item) for item in result.citations],
         "validations": [serialize_citation_validation(item) for item in result.validations],
         "assessments": [serialize_citation_assessment(item) for item in result.assessments],
@@ -445,24 +535,31 @@ def serialize_assessed_document(result: AssessedDocument) -> dict[str, JsonValue
 def deserialize_assessed_document(payload: Mapping[str, object]) -> AssessedDocument:
     """Rebuild the assessment boundary object from JSON data."""
     _validate_artifact_metadata(payload, "assessed_document")
-    preprocessed = _deserialize_preprocessed_fields(
-        payload.get("text"),
-        payload.get("preprocessing"),
-    )
+    preprocessed = _deserialize_preprocessed_fields(payload)
     return AssessedDocument(
-        metadata=preprocessed.metadata,
+        source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
+        preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=tuple(
             deserialize_extracted_citation(_mapping_field(item))
             for item in _list_field(payload.get("citations"))
+        ),
+        extraction_metadata=_deserialize_extraction_metadata(
+            _required_mapping_field(payload, "extraction_metadata")
         ),
         validations=tuple(
             deserialize_citation_validation(_mapping_field(item))
             for item in _list_field(payload.get("validations"))
         ),
+        validation_metadata=_deserialize_validation_metadata(
+            _required_mapping_field(payload, "validation_metadata")
+        ),
         assessments=tuple(
             deserialize_citation_assessment(_mapping_field(item))
             for item in _list_field(payload.get("assessments"))
+        ),
+        assessment_metadata=_deserialize_assessment_metadata(
+            _required_mapping_field(payload, "assessment_metadata")
         ),
         modified_citations=tuple(
             deserialize_modified_extracted_citation(_mapping_field(item))
@@ -543,6 +640,17 @@ def _enum_field(enum_cls: type[T], value: object, default: T) -> T:
 
 def _mapping_field(value: object) -> Mapping[str, object]:
     return value if isinstance(value, dict) else {}
+
+
+def _required_mapping_field(
+    payload: Mapping[str, object],
+    field_name: str,
+) -> Mapping[str, object]:
+    value = payload.get(field_name)
+    if not isinstance(value, dict):
+        msg = f"{field_name} must be an object"
+        raise TypeError(msg)
+    return value
 
 
 def _list_field(value: object) -> list[object]:

@@ -60,10 +60,12 @@ def _format_preprocessed_text_file(
 ) -> str:
     header_lines = [
         f"Source PDF: {source_pdf}",
-        f"Backend: {document.metadata.backend.value}",
+        f"Backend: {document.preprocessing_metadata.backend.value}",
     ]
-    if document.metadata.backend_version:
-        header_lines.append(f"Backend version: {document.metadata.backend_version}")
+    if document.preprocessing_metadata.backend_version:
+        header_lines.append(
+            f"Backend version: {document.preprocessing_metadata.backend_version}"
+        )
     return "\n".join(header_lines) + f"\n\n--- Plain text ---\n{document.text}"
 
 

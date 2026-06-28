@@ -6,6 +6,7 @@ from mellea_lrc.validation.types import (
     CitationValidation,
     ValidatedDocument,
     ValidationClientMode,
+    ValidationMetadata,
     ValidationStatus,
 )
 
@@ -15,6 +16,7 @@ __all__ = [
     "CourtListenerAccessConfig",
     "ValidatedDocument",
     "ValidationClientMode",
+    "ValidationMetadata",
     "ValidationStatus",
     "run_validation",
 ]

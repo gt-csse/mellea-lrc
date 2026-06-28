@@ -11,6 +11,7 @@ from mellea_lrc.assessment.citation.clusters import first_cluster_case_name, fir
 from mellea_lrc.assessment.deterministic.case_name import assess_case_name_exact_match, build_extracted_case_name
 from mellea_lrc.assessment.deterministic.context import get_extended_span_text
 from mellea_lrc.assessment.types import (
+    AssessmentMetadata,
     AssessmentSkipReason,
     AssessedCitationAssessment,
     AssessedDocument,
@@ -89,6 +90,8 @@ async def run_assessment_async(
     modified_citations: list[ModifiedExtractedCitation] = []
     reassessments: list[CitationAssessmentResult] = []
     pending: list[_PendingMelleaAssessment] = []
+    mellea_calls = 0
+    effective_concurrency: int | None = None
 
     for citation in validation.citations:
         if not isinstance(assessments_by_id[citation.citation_id], WaitingCitationAssessment):
@@ -151,7 +154,9 @@ async def run_assessment_async(
                 assessments_by_id[citation_id] = _failed_assessment(citation_id, exc)
         else:
             limit = mellea_concurrency if mellea_concurrency is not None else len(pending)
-            semaphore = asyncio.Semaphore(max(1, limit))
+            effective_concurrency = min(max(1, limit), len(pending))
+            mellea_calls = len(pending)
+            semaphore = asyncio.Semaphore(effective_concurrency)
             mellea_results = await asyncio.gather(
                 *[
                     _assess_pending_mellea_citation(
@@ -179,11 +184,18 @@ async def run_assessment_async(
                 )
 
     return AssessedDocument(
-        metadata=validation.metadata,
+        source_metadata=validation.source_metadata,
         text=validation.text,
+        preprocessing_metadata=validation.preprocessing_metadata,
         citations=validation.citations,
+        extraction_metadata=validation.extraction_metadata,
         validations=validation.validations,
+        validation_metadata=validation.validation_metadata,
         assessments=tuple(assessments_by_id[item.citation_id] for item in validation.citations),
+        assessment_metadata=AssessmentMetadata(
+            mellea_calls=mellea_calls,
+            mellea_concurrency=effective_concurrency,
+        ),
         modified_citations=tuple(modified_citations),
         reassessments=tuple(reassessments),
     )
@@ -215,11 +227,15 @@ def initialize_assessment(validation: ValidatedDocument) -> AssessedDocument:
             assessments.append(WaitingCitationAssessment(citation_id=citation.citation_id))
 
     return AssessedDocument(
-        metadata=validation.metadata,
+        source_metadata=validation.source_metadata,
         text=validation.text,
+        preprocessing_metadata=validation.preprocessing_metadata,
         citations=validation.citations,
+        extraction_metadata=validation.extraction_metadata,
         validations=validation.validations,
+        validation_metadata=validation.validation_metadata,
         assessments=tuple(assessments),
+        assessment_metadata=AssessmentMetadata(),
     )
 
 

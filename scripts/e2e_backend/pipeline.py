@@ -15,18 +15,23 @@ from mellea_lrc.assessment import (
     run_assessment_async,
 )
 from mellea_lrc.core.citations import FullCaseCitation, UnknownCitation, citation_kind
+from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import run_extraction
-from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
+from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing.docling import build_docling_converter, is_docling_supported_format
 from mellea_lrc.preprocessing.types import (
     PreprocessedDocument,
-    PreprocessedDocumentMetadata,
     PreprocessingBackend,
-    SourceFormat,
+    PreprocessingMetadata,
 )
 from mellea_lrc.validation import run_validation
-from mellea_lrc.validation.types import CitationValidation, ValidatedDocument, ValidationStatus
+from mellea_lrc.validation.types import (
+    CitationValidation,
+    ValidatedDocument,
+    ValidationMetadata,
+    ValidationStatus,
+)
 from mellea_lrc.serialization import (
     serialize_citation_assessment,
     serialize_citation_assessment_result,
@@ -227,8 +232,8 @@ def review_preprocessed(
         "document": {
             "text": extraction.text,
             "source_path": extraction.source_path,
-            "source_format": extraction.metadata.source_format.value,
-            "backend": extraction.metadata.backend.value,
+            "source_format": extraction.source_metadata.format.value,
+            "backend": extraction.preprocessing_metadata.backend.value,
         },
         "citations": _citation_payloads(extraction, validation),
         "validation": _validation_payload(validation),
@@ -241,9 +246,9 @@ def review_preprocessed_document(preprocessed: PreprocessedDocument) -> dict[str
     return {
         "document": {
             "text": preprocessed.text,
-            "source_path": preprocessed.metadata.source_path,
-            "source_format": preprocessed.metadata.source_format.value,
-            "backend": preprocessed.metadata.backend.value,
+            "source_path": preprocessed.source_metadata.path,
+            "source_format": preprocessed.source_metadata.format.value,
+            "backend": preprocessed.preprocessing_metadata.backend.value,
         },
         "citations": [],
         "validation": None,
@@ -262,8 +267,8 @@ def review_document_extraction(extraction: ExtractedDocument) -> dict[str, Any]:
         "document": {
             "text": extraction.text,
             "source_path": extraction.source_path,
-            "source_format": extraction.metadata.source_format.value,
-            "backend": extraction.metadata.backend.value,
+            "source_format": extraction.source_metadata.format.value,
+            "backend": extraction.preprocessing_metadata.backend.value,
         },
         "citations": _citation_payloads(extraction, None),
         "validation": None,
@@ -279,8 +284,8 @@ def review_document_validation(validation: ValidatedDocument) -> dict[str, Any]:
         "document": {
             "text": extraction.text,
             "source_path": extraction.source_path,
-            "source_format": extraction.metadata.source_format.value,
-            "backend": extraction.metadata.backend.value,
+            "source_format": extraction.source_metadata.format.value,
+            "backend": extraction.preprocessing_metadata.backend.value,
         },
         "citations": _citation_payloads(extraction, validation),
         "validation": _validation_payload(validation),
@@ -329,13 +334,13 @@ def validate_review_citation_payload(
         resolves_to=None,
     )
     extraction = ExtractedDocument(
+        source_metadata=SourceMetadata(),
         text=validation_text,
-        metadata=PreprocessedDocumentMetadata(
-            source_path=None,
-            source_format=SourceFormat.UNKNOWN,
+        preprocessing_metadata=PreprocessingMetadata(
             backend=PreprocessingBackend.PLAIN_TEXT,
         ),
         citations=(validation_citation,),
+        extraction_metadata=ExtractionMetadata(),
     )
     validation = _run_validation(extraction, validate=True, client=client)
     if validation is None or not validation.validations:
@@ -467,10 +472,12 @@ def _docling_to_preprocessed(
     source = DocumentStream(name=filename, stream=BytesIO(content))
     result = converter.convert(source)
     return PreprocessedDocument(
+        source_metadata=SourceMetadata(
+            path=filename,
+            format=_source_format(filename),
+        ),
         text=result.document.export_to_text(),
-        metadata=PreprocessedDocumentMetadata(
-            source_path=filename,
-            source_format=_source_format(filename),
+        preprocessing_metadata=PreprocessingMetadata(
             backend=PreprocessingBackend.DOCLING,
         ),
     )
@@ -484,10 +491,9 @@ def _text_to_preprocessed(text: str) -> PreprocessedDocument:
 
 def _text_file_to_preprocessed(content: bytes, filename: str) -> PreprocessedDocument:
     return PreprocessedDocument(
+        source_metadata=SourceMetadata(path=filename, format=SourceFormat.TEXT),
         text=content.decode("utf-8"),
-        metadata=PreprocessedDocumentMetadata(
-            source_path=filename,
-            source_format=SourceFormat.TEXT,
+        preprocessing_metadata=PreprocessingMetadata(
             backend=PreprocessingBackend.PLAIN_TEXT,
         ),
     )
@@ -579,14 +585,17 @@ def _validation_from_review_payload(
         if item is not None
     }
     return ValidatedDocument(
-        metadata=extraction.metadata,
+        source_metadata=extraction.source_metadata,
         text=extraction.text,
+        preprocessing_metadata=extraction.preprocessing_metadata,
         citations=extraction.citations,
+        extraction_metadata=extraction.extraction_metadata,
         validations=tuple(
             validation_by_id[item.citation_id]
             for item in extraction.citations
             if item.citation_id in validation_by_id
         ),
+        validation_metadata=ValidationMetadata(client_mode="custom", source="review_payload"),
     )
 
 
@@ -626,13 +635,16 @@ def _extraction_from_review_payload(payload: dict[str, object]) -> ExtractedDocu
     text = _review_document_text(payload)
     citations = tuple(_extracted_citation_from_review_item(item) for item in _review_citations(payload))
     return ExtractedDocument(
+        source_metadata=SourceMetadata(
+            path=_review_source_path(payload),
+            format=_review_source_format(payload),
+        ),
         text=text,
-        metadata=PreprocessedDocumentMetadata(
-            source_path=_review_source_path(payload),
-            source_format=_review_source_format(payload),
+        preprocessing_metadata=PreprocessingMetadata(
             backend=_review_preprocessing_backend(payload),
         ),
         citations=citations,
+        extraction_metadata=ExtractionMetadata(),
     )
 
 

@@ -26,6 +26,7 @@ from mellea_lrc.assessment.llm import (
     validate_proposal,
 )
 from mellea_lrc.assessment.types import (
+    AssessmentMetadata,
     AssessmentSkipReason,
     AssessmentStatus,
     AssessedCitationAssessment,
@@ -47,6 +48,7 @@ from mellea_lrc.assessment.types import (
 __all__ = [
     "AssessedCitationAssessment",
     "AssessedDocument",
+    "AssessmentMetadata",
     "AssessmentSkipReason",
     "AssessmentStatus",
     "CaseNameAssessment",

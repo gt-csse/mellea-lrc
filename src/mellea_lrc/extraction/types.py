@@ -1,10 +1,25 @@
 """Extraction result types."""
 
 from dataclasses import dataclass
+from enum import Enum
 
 from mellea_lrc.core.citations import CanonicalCitation, is_full_citation
 from mellea_lrc.core.spans import Span
 from mellea_lrc.preprocessing.types import PreprocessedDocument
+
+
+class ExtractionBackend(str, Enum):
+    """Engine that produced the extracted citations."""
+
+    EYECITE = "eyecite"
+
+
+@dataclass(frozen=True, slots=True)
+class ExtractionMetadata:
+    """Provenance for the extraction stage."""
+
+    backend: ExtractionBackend = ExtractionBackend.EYECITE
+    backend_version: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +38,7 @@ class ExtractedDocument(PreprocessedDocument):
     """A preprocessed document with canonical extracted citations."""
 
     citations: tuple[ExtractedCitation, ...]
+    extraction_metadata: ExtractionMetadata
 
     @property
     def full_citations(self) -> tuple[ExtractedCitation, ...]:

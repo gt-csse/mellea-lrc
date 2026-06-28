@@ -3,6 +3,7 @@
 import pytest
 
 from mellea_lrc.assessment import (
+    AssessmentMetadata,
     AssessmentSkipReason,
     AssessedCitationAssessment,
     AssessedDocument,
@@ -30,7 +31,12 @@ from mellea_lrc.serialization import (
     serialize_preprocessed_document,
     serialize_validated_document,
 )
-from mellea_lrc.validation.types import CitationValidation, ValidatedDocument, ValidationStatus
+from mellea_lrc.validation.types import (
+    CitationValidation,
+    ValidatedDocument,
+    ValidationMetadata,
+    ValidationStatus,
+)
 from scripts.label_studio.label_studio import to_label_studio_prediction
 from scripts.label_studio.pre_annotate import build_task_payload
 
@@ -47,9 +53,9 @@ def test_document_extraction_serializes_without_ui_assumptions() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
     artifact = serialize_extracted_document(extraction)
 
-    assert artifact["schema_version"] == 1
+    assert artifact["schema_version"] == 2
     assert artifact["artifact_type"] == "extracted_document"
-    assert artifact["source_path"] is None
+    assert artifact["source_metadata"]["path"] is None
     assert artifact["text"] == SAMPLE_TEXT
     assert artifact["citations"]
     assert artifact["counts"]["total"] == len(extraction.citations)
@@ -69,7 +75,8 @@ def test_preprocessed_document_round_trips() -> None:
     restored = deserialize_preprocessed_document(artifact)
 
     assert restored.text == extraction.text
-    assert restored.metadata == extraction.metadata
+    assert restored.source_metadata == extraction.source_metadata
+    assert restored.preprocessing_metadata == extraction.preprocessing_metadata
 
 
 def test_unversioned_preprocessed_document_is_rejected() -> None:
@@ -79,6 +86,22 @@ def test_unversioned_preprocessed_document_is_rejected() -> None:
 
     with pytest.raises(ValueError, match="schema_version"):
         deserialize_preprocessed_document(artifact)
+
+
+def test_previous_schema_version_is_rejected() -> None:
+    artifact = serialize_preprocessed_document(extract_citations(SAMPLE_TEXT))
+    artifact["schema_version"] = 1
+
+    with pytest.raises(ValueError, match="schema_version"):
+        deserialize_preprocessed_document(artifact)
+
+
+def test_missing_stage_metadata_is_rejected() -> None:
+    artifact = serialize_extracted_document(extract_citations(SAMPLE_TEXT))
+    artifact.pop("extraction_metadata")
+
+    with pytest.raises(TypeError, match="extraction_metadata"):
+        deserialize_extracted_document(artifact)
 
 
 def test_document_extraction_round_trips() -> None:
@@ -93,9 +116,11 @@ def test_document_extraction_round_trips() -> None:
 def test_document_validation_round_trips() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
     validation = ValidatedDocument(
-        metadata=extraction.metadata,
+        source_metadata=extraction.source_metadata,
         text=extraction.text,
+        preprocessing_metadata=extraction.preprocessing_metadata,
         citations=extraction.citations,
+        extraction_metadata=extraction.extraction_metadata,
         validations=(
             CitationValidation(
                 citation_id=extraction.citations[0].citation_id,
@@ -110,6 +135,7 @@ def test_document_validation_round_trips() -> None:
                 clusters=({"case_name": "Norton v. Shelby County", "date_filed": "1886-01-01"},),
             ),
         ),
+        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
     )
 
     artifact = serialize_validated_document(validation)
@@ -147,16 +173,20 @@ def test_document_assessment_round_trips() -> None:
         ),
     )
     document_assessment = AssessedDocument(
-        metadata=extraction.metadata,
+        source_metadata=extraction.source_metadata,
         text=extraction.text,
+        preprocessing_metadata=extraction.preprocessing_metadata,
         citations=extraction.citations,
+        extraction_metadata=extraction.extraction_metadata,
         validations=(validation,),
+        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
         assessments=(
             AssessedCitationAssessment(
                 citation_id=assessment_result.citation_id,
                 result=assessment_result,
             ),
         ),
+        assessment_metadata=AssessmentMetadata(),
         modified_citations=(
             ModifiedExtractedCitation(
                 citation_id=extraction.citations[0].citation_id,
