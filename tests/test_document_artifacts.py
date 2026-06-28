@@ -1,14 +1,16 @@
 """Contract tests for the immutable document artifact hierarchy."""
 
-from collections.abc import Mapping
+from dataclasses import FrozenInstanceError
 
 import pytest
 
 from mellea_lrc.assessment import initialize_assessment
-from mellea_lrc.assessment.types import CaseNameAssessment, CaseNameAssessmentStatus
+from mellea_lrc.assessment.types import CaseNameAssessment, CaseNameAssessmentStatus, ChatTurn
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.core.documents import SourceMetadata
+from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.core.spans import Span
+from mellea_lrc.courtlistener.types import CitationMatch
 from mellea_lrc.extraction import extract_citations
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import DocumentBase, PreprocessedDocument, preprocess_plain_text_from_string
@@ -42,64 +44,58 @@ def test_document_stages_are_substitutable() -> None:
     assert assessed.extraction_metadata is extracted.extraction_metadata
 
 
-def test_source_metadata_copies_and_freezes_extras() -> None:
-    extras = {"docket": "original"}
-    metadata = SourceMetadata(extras=extras)
+def test_source_metadata_copies_and_freezes_extra_data() -> None:
+    extra_data = {"docket": "original"}
+    metadata = SourceMetadata(extra_data=ExtraData(extra_data))
 
-    extras["docket"] = "changed"
+    extra_data["docket"] = "changed"
 
-    assert metadata.extras == {"docket": "original"}
+    assert metadata.extra_data.to_dict() == {"docket": "original"}
     with pytest.raises(TypeError):
-        metadata.extras["docket"] = "changed"  # type: ignore[index]
+        metadata.extra_data.values["docket"] = "changed"  # type: ignore[index]
 
 
 def test_validation_copies_and_deeply_freezes_service_payloads() -> None:
-    cluster = {
-        "case_name": "Brown v. Board",
+    extra_data = {
         "judges": ["Warren"],
         "court": {"slug": "scotus"},
     }
+    match = CitationMatch(
+        case_name="Brown v. Board",
+        extra_data=ExtraData(extra_data),
+    )
     validation = CitationValidation(
         citation_id="cite-1",
         locator="347 U.S. 483",
         status=ValidationStatus.FOUND,
         source="test",
         message="found",
-        clusters=(cluster,),
+        matches=(match,),
     )
 
-    cluster["case_name"] = "Changed"
-    cluster["judges"].append("Changed")
+    extra_data["judges"].append("Changed")
 
-    assert validation.clusters[0]["case_name"] == "Brown v. Board"
-    assert validation.clusters[0]["judges"] == ("Warren",)
+    assert validation.matches[0].case_name == "Brown v. Board"
+    assert validation.matches[0].extra_data.values["judges"] == ("Warren",)
     with pytest.raises(TypeError):
-        validation.clusters[0]["case_name"] = "Changed"  # type: ignore[index]
-    court = validation.clusters[0]["court"]
-    assert isinstance(court, Mapping)
-    with pytest.raises(TypeError):
-        court["slug"] = "changed"  # type: ignore[index]
+        validation.matches[0].extra_data.values["judges"] = ()  # type: ignore[index]
 
 
 def test_assessment_copies_and_freezes_chat_history() -> None:
-    history = [{"role": "assistant", "content": "original"}]
+    turn = ChatTurn(role="assistant", content="original")
     assessment = CaseNameAssessment(
         citation_id="cite-1",
         status=CaseNameAssessmentStatus.EXACT_MATCH,
         extracted_case_name="Brown v. Board",
         courtlistener_case_name="Brown v. Board",
         message="match",
-        chat_history=history,
+        chat_history=(turn,),
     )
 
-    history[0]["content"] = "changed"
-
-    assert assessment.chat_history == (
-        {"role": "assistant", "content": "original"},
-    )
+    assert assessment.chat_history == (turn,)
     assert assessment.chat_history is not None
-    with pytest.raises(TypeError):
-        assessment.chat_history[0]["content"] = "changed"  # type: ignore[index]
+    with pytest.raises(FrozenInstanceError):
+        assessment.chat_history[0].content = "changed"  # type: ignore[misc]
 
 
 def test_extraction_assigns_deterministic_document_local_ids() -> None:
@@ -108,9 +104,7 @@ def test_extraction_assigns_deterministic_document_local_ids() -> None:
     first = extract_citations(text)
     second = extract_citations(text)
 
-    assert [item.citation_id for item in first.citations] == [
-        item.citation_id for item in second.citations
-    ]
+    assert [item.citation_id for item in first.citations] == [item.citation_id for item in second.citations]
 
 
 def test_extracted_document_rejects_duplicate_ids() -> None:

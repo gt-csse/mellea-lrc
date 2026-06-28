@@ -20,6 +20,8 @@ from mellea_lrc.assessment import (
     YearAssessmentStatus,
 )
 from mellea_lrc.core.spans import Span
+from mellea_lrc.core.immutable import ExtraData
+from mellea_lrc.courtlistener.types import CitationMatch
 from mellea_lrc.extraction import extract_citations
 from mellea_lrc.serialization import (
     deserialize_assessed_document,
@@ -55,7 +57,7 @@ def test_document_extraction_serializes_without_ui_assumptions() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
     artifact = serialize_extracted_document(extraction)
 
-    assert artifact["schema_version"] == 2
+    assert artifact["schema_version"] == 3
     assert artifact["artifact_type"] == "extracted_document"
     assert artifact["source_metadata"]["path"] is None
     assert artifact["text"] == SAMPLE_TEXT
@@ -92,7 +94,7 @@ def test_unversioned_preprocessed_document_is_rejected() -> None:
 
 def test_previous_schema_version_is_rejected() -> None:
     artifact = serialize_preprocessed_document(extract_citations(SAMPLE_TEXT))
-    artifact["schema_version"] = 1
+    artifact["schema_version"] = 2
 
     with pytest.raises(ValueError, match="schema_version"):
         deserialize_preprocessed_document(artifact)
@@ -130,11 +132,16 @@ def test_document_validation_round_trips() -> None:
                 status=ValidationStatus.FOUND,
                 source="test",
                 message="found",
-                case_names=("Norton v. Shelby County",),
                 lookup_status=200,
                 lookup_cache="miss",
                 lookup_key="118 U.S. 425",
-                clusters=({"case_name": "Norton v. Shelby County", "date_filed": "1886-01-01"},),
+                matches=(
+                    CitationMatch(
+                        case_name="Norton v. Shelby County",
+                        date_filed="1886-01-01",
+                        extra_data=ExtraData({"absolute_url": "/opinion/1/"}),
+                    ),
+                ),
             ),
         ),
         validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
@@ -156,7 +163,12 @@ def test_document_assessment_round_trips() -> None:
         status=ValidationStatus.FOUND,
         source="test",
         message="found",
-        clusters=({"case_name": "Norton v. Shelby County", "date_filed": "1886-01-01"},),
+        matches=(
+            CitationMatch(
+                case_name="Norton v. Shelby County",
+                date_filed="1886-01-01",
+            ),
+        ),
     )
     assessment_result = CitationAssessmentResult(
         citation_id=extraction.citations[0].citation_id,

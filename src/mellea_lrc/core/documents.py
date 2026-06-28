@@ -1,10 +1,9 @@
 """Stage-neutral document identity and source provenance."""
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 
-from mellea_lrc.core.immutable import freeze_string_map
+from mellea_lrc.core.immutable import ExtraData
 
 
 class SourceFormat(str, Enum):
@@ -27,10 +26,7 @@ class SourceMetadata:
     path: str | None = None
     format: SourceFormat = SourceFormat.UNKNOWN
     header: str | None = None
-    extras: Mapping[str, str] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "extras", freeze_string_map(self.extras))
+    extra_data: ExtraData = field(default_factory=ExtraData)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

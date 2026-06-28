@@ -16,6 +16,7 @@ from mellea_lrc.core.citations import (
     is_full_citation,
 )
 from mellea_lrc.core.documents import DocumentBase, SourceFormat, SourceMetadata
+from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.core.spans import Span
 
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     "CanonicalCitation",
     "CitationKind",
     "DocumentBase",
+    "ExtraData",
     "FullCaseCitation",
     "FullJournalCitation",
     "FullLawCitation",

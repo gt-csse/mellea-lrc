@@ -3,8 +3,6 @@
 from mellea_lrc.assessment.citation import (
     CitationAssessmentBundle,
     assess_found_citation,
-    first_cluster_case_name,
-    first_cluster_year,
 )
 from mellea_lrc.assessment.deterministic import (
     assess_case_name_exact_match,
@@ -34,6 +32,7 @@ from mellea_lrc.assessment.types import (
     CaseNameAssessment,
     CaseNameAssessmentRun,
     CaseNameAssessmentStatus,
+    ChatTurn,
     CitationAssessment,
     CitationAssessmentResult,
     FailedCitationAssessment,
@@ -54,6 +53,7 @@ __all__ = [
     "CaseNameAssessment",
     "CaseNameAssessmentRun",
     "CaseNameAssessmentStatus",
+    "ChatTurn",
     "CitationAssessment",
     "CitationAssessmentBundle",
     "CitationAssessmentResult",
@@ -72,8 +72,6 @@ __all__ = [
     "assess_year_exact_match",
     "build_extracted_case_name",
     "find_text_span_near_full_span",
-    "first_cluster_case_name",
-    "first_cluster_year",
     "get_extended_span_text",
     "initialize_assessment",
     "reextract_case_name",

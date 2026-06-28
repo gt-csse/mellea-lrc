@@ -15,6 +15,7 @@ from mellea_lrc.assessment import (
 )
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.spans import Span
+from mellea_lrc.courtlistener.types import CitationMatch, CourtListenerCitationLookup
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
 from mellea_lrc.serialization import (
@@ -51,25 +52,19 @@ from scripts.e2e_backend.pipeline import (
 class FakeClient:
     def lookup_citation(self, volume: str, reporter: str, page: str):
         assert (volume, reporter, page) == ("347", "U.S.", "483")
-        return type(
-            "Lookup",
-            (),
-            {
-                "citation": "347 U.S. 483",
-                "status": 200,
-                "clusters": (
-                    {
-                        "case_name": "Brown v. Board of Education",
-                        "date_filed": "1954-05-17",
-                        "court": "scotus",
-                    },
+        return CourtListenerCitationLookup(
+            citation="347 U.S. 483",
+            status=200,
+            matches=(
+                CitationMatch(
+                    case_name="Brown v. Board of Education",
+                    date_filed="1954-05-17",
+                    court="scotus",
                 ),
-                "cache": "miss",
-                "key": "lookup-key",
-                "error_message": None,
-                "limit_detail": None,
-            },
-        )()
+            ),
+            cache="miss",
+            key="lookup-key",
+        )
 
 
 def _extracted_document(
@@ -170,7 +165,7 @@ def test_review_preprocessed_returns_frontend_span_payload() -> None:
     assert citation["validation"]["lookup_status"] == 200
     assert citation["validation"]["lookup_cache"] == "miss"
     assert citation["validation"]["lookup_key"] == "lookup-key"
-    assert citation["validation"]["clusters"][0]["date_filed"] == "1954-05-17"
+    assert citation["validation"]["matches"][0]["date_filed"] == "1954-05-17"
     assert output["stats"]["found"] == 1
 
 
@@ -221,8 +216,16 @@ def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> 
         "lookup_cache": "miss",
         "lookup_key": "key",
         "error_message": None,
-        "limit_detail": None,
-        "clusters": [{"case_name": "Brown v. Board", "date_filed": "1954-05-17"}],
+        "failure_detail": None,
+        "matches": [
+            {
+                "case_name": "Brown v. Board",
+                "date_filed": "1954-05-17",
+                "court": None,
+                "extra_data": {},
+            }
+        ],
+        "extra_data": {},
     }
 
     output = asyncio.run(assess_review_payload(extracted))
@@ -258,8 +261,12 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
         status=ValidationStatus.FOUND,
         source="test",
         message="found",
-        case_names=("Brown v. Board",),
-        clusters=({"case_name": "Brown v. Board", "date_filed": "1954-05-17"},),
+        matches=(
+            CitationMatch(
+                case_name="Brown v. Board",
+                date_filed="1954-05-17",
+            ),
+        ),
     )
     assessment_result = CitationAssessmentResult(
         citation_id="cite-1",
@@ -478,7 +485,10 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
     )
     backend = E2EBackend()
 
-    assert _review_snapshot_payload(serialize_preprocessed_document(preprocessed), backend)["stage"] == "preprocessed"
+    assert (
+        _review_snapshot_payload(serialize_preprocessed_document(preprocessed), backend)["stage"]
+        == "preprocessed"
+    )
     assert _review_snapshot_payload(serialize_extracted_document(extraction), backend)["stage"] == "extracted"
     assert _review_snapshot_payload(serialize_validated_document(validation), backend)["stage"] == "validated"
     assert _review_snapshot_payload(serialize_assessed_document(assessment), backend)["stage"] == "assessed"

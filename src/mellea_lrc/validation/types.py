@@ -1,10 +1,11 @@
 """Validation result types."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal, TypeAlias
 
-from mellea_lrc.core.immutable import FrozenJsonObject, freeze_json_object
+from mellea_lrc.core.immutable import ExtraData
+from mellea_lrc.courtlistener.types import CitationMatch, ValidationFailureDetail
 from mellea_lrc.extraction.types import ExtractedDocument
 
 ValidationClientMode: TypeAlias = Literal["deployed", "sdk", "custom"]
@@ -39,22 +40,18 @@ class CitationValidation:
     status: ValidationStatus
     source: str
     message: str
-    case_names: tuple[str, ...] = ()
     lookup_status: int | None = None
     lookup_cache: str | None = None
     lookup_key: str | None = None
     error_message: str | None = None
-    limit_detail: FrozenJsonObject | None = None
-    clusters: tuple[FrozenJsonObject, ...] = ()
+    failure_detail: ValidationFailureDetail | None = None
+    matches: tuple[CitationMatch, ...] = ()
+    extra_data: ExtraData = field(default_factory=ExtraData)
 
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "clusters",
-            tuple(freeze_json_object(item) for item in self.clusters),
-        )
-        if self.limit_detail is not None:
-            object.__setattr__(self, "limit_detail", freeze_json_object(self.limit_detail))
+    @property
+    def case_names(self) -> tuple[str, ...]:
+        """Return non-empty candidate case names."""
+        return tuple(item.case_name for item in self.matches if item.case_name)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
