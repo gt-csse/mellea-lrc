@@ -1,5 +1,6 @@
 """Preprocessing layer public API."""
 
+from mellea_lrc.core.documents import DocumentBase, SourceFormat, SourceMetadata
 from mellea_lrc.preprocessing.docling import is_docling_supported_format, preprocess_with_docling
 from mellea_lrc.preprocessing.pipeline import preprocess, preprocess_directory
 from mellea_lrc.preprocessing.plain_text import (
@@ -9,16 +10,17 @@ from mellea_lrc.preprocessing.plain_text import (
 )
 from mellea_lrc.preprocessing.types import (
     PreprocessedDocument,
-    PreprocessedDocumentMetadata,
     PreprocessingBackend,
-    SourceFormat,
+    PreprocessingMetadata,
 )
 
 __all__ = [
+    "DocumentBase",
     "PreprocessedDocument",
-    "PreprocessedDocumentMetadata",
     "PreprocessingBackend",
+    "PreprocessingMetadata",
     "SourceFormat",
+    "SourceMetadata",
     "is_docling_supported_format",
     "preprocess",
     "preprocess_directory",
