@@ -12,6 +12,9 @@ from mellea_lrc.assessment import (
     AssessedDocument,
     CaseNameAssessmentStatus,
     CitationAssessment,
+    CitationReassessment,
+    SkippedCitationReassessment,
+    WaitingCitationReassessment,
     run_assessment_async,
 )
 from mellea_lrc.core.citations import FullCaseCitation, UnknownCitation, citation_kind
@@ -34,16 +37,15 @@ from mellea_lrc.validation.types import (
 )
 from mellea_lrc.serialization import (
     deserialize_citation_validation,
-    serialize_citation_validation,
     serialize_citation_assessment,
-    serialize_citation_assessment_result,
+    serialize_citation_reassessment,
+    serialize_citation_validation,
 )
 from scripts.label_studio.label_studio import to_label_studio_prediction
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from mellea_lrc.assessment.types import ModifiedExtractedCitation
     from mellea_lrc.validation import CourtListenerAccessClient
 
 JsonDict = dict[str, Any]
@@ -399,9 +401,8 @@ def review_document_assessment(assessment: AssessedDocument) -> dict[str, Any]:
 def _ensure_assessment_is_resolved(assessment: AssessedDocument) -> None:
     # NEEDS_ASSESSMENT is a transient handoff only when both names are present and
     # comparable; a missing extracted or CourtListener name is legitimately
-    # unassessable and is allowed to remain NEEDS_ASSESSMENT. When re-extraction
-    # ran, the final verdict is in reassessments — those citations are resolved.
-    reassessed_ids = {item.citation_id for item in assessment.reassessments}
+    # unassessable. A terminal reassessment success or failure resolves the handoff.
+    reassessments_by_id = {item.citation_id: item for item in assessment.reassessments}
     pending = [
         item.citation_id
         for item in assessment.assessments
@@ -409,7 +410,10 @@ def _ensure_assessment_is_resolved(assessment: AssessedDocument) -> None:
         and item.result.case_assess.status == CaseNameAssessmentStatus.NEEDS_ASSESSMENT
         and item.result.case_assess.extracted_case_name
         and item.result.case_assess.courtlistener_case_name
-        and item.citation_id not in reassessed_ids
+        and isinstance(
+            reassessments_by_id[item.citation_id],
+            (WaitingCitationReassessment, SkippedCitationReassessment),
+        )
     ]
     if pending:
         msg = (
@@ -670,20 +674,13 @@ def _assessment_payload_document(assessment: AssessedDocument) -> JsonDict:
         "assessments": [_assessment_payload(item) for item in assessment.assessments],
         "assessment_complete": assessment.assessment_complete,
         "status_counts": _assessment_status_counts(assessment.assessments),
-        "modified_citations": [_modified_citation_payload(item) for item in assessment.modified_citations],
         "reassessments": [
-            dict(serialize_citation_assessment_result(item)) for item in assessment.reassessments
+            dict(serialize_citation_reassessment(item)) for item in assessment.reassessments
         ],
+        "reassessment_status_counts": _reassessment_status_counts(assessment.reassessments),
         "case_name_counts": _assessment_case_name_counts(assessment.assessments),
         "year_counts": _assessment_year_counts(assessment.assessments),
     }
-
-
-def _modified_citation_payload(item: ModifiedExtractedCitation) -> JsonDict:
-    payload = asdict(item)
-    payload["extracted_case_name"] = item.extracted_case_name
-    return payload
-
 
 def _assessment_case_name_counts(assessments: tuple[CitationAssessment, ...]) -> dict[str, int]:
     counts: dict[str, int] = {}
@@ -706,6 +703,13 @@ def _assessment_year_counts(assessments: tuple[CitationAssessment, ...]) -> dict
 def _assessment_status_counts(assessments: tuple[CitationAssessment, ...]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for item in assessments:
+        counts[item.status.value] = counts.get(item.status.value, 0) + 1
+    return counts
+
+
+def _reassessment_status_counts(reassessments: tuple[CitationReassessment, ...]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in reassessments:
         counts[item.status.value] = counts.get(item.status.value, 0) + 1
     return counts
 

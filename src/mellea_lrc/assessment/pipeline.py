@@ -20,10 +20,13 @@ from mellea_lrc.assessment.types import (
     CaseNameAssessmentStatus,
     CitationAssessment,
     CitationAssessmentResult,
+    CitationReassessment,
     FailedCitationAssessment,
-    ModifiedExtractedCitation,
+    ReassessmentSkipReason,
     SkippedCitationAssessment,
+    SkippedCitationReassessment,
     WaitingCitationAssessment,
+    WaitingCitationReassessment,
 )
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.llm import start_mellea_session_from_env
@@ -91,8 +94,7 @@ async def run_assessment_async(
     initialized = initialize_assessment(validation)
     validations_by_id = {item.citation_id: item for item in validation.validations}
     assessments_by_id = {item.citation_id: item for item in initialized.assessments}
-    modified_citations: list[ModifiedExtractedCitation] = []
-    reassessments: list[CitationAssessmentResult] = []
+    reassessments_by_id = {item.citation_id: item for item in initialized.reassessments}
     pending: list[_PendingMelleaAssessment] = []
     mellea_calls = 0
     effective_concurrency: int | None = None
@@ -126,14 +128,18 @@ async def run_assessment_async(
                     session=None,
                 )
             except Exception as exc:
-                assessments_by_id[citation.citation_id] = _failed_assessment(citation.citation_id, exc)
+                _record_failure(
+                    citation.citation_id,
+                    exc,
+                    assessments_by_id=assessments_by_id,
+                    reassessments_by_id=reassessments_by_id,
+                )
             else:
                 _record_bundle(
                     citation.citation_id,
                     bundle,
                     assessments_by_id=assessments_by_id,
-                    modified_citations=modified_citations,
-                    reassessments=reassessments,
+                    reassessments_by_id=reassessments_by_id,
                 )
             continue
 
@@ -156,7 +162,12 @@ async def run_assessment_async(
         except Exception as exc:
             for job in pending:
                 citation_id = job.citation.citation_id
-                assessments_by_id[citation_id] = _failed_assessment(citation_id, exc)
+                _record_failure(
+                    citation_id,
+                    exc,
+                    assessments_by_id=assessments_by_id,
+                    reassessments_by_id=reassessments_by_id,
+                )
         else:
             limit = mellea_concurrency if mellea_concurrency is not None else len(pending)
             effective_concurrency = min(max(1, limit), len(pending))
@@ -178,14 +189,18 @@ async def run_assessment_async(
             for job, outcome in zip(pending, mellea_results, strict=True):
                 citation_id = job.citation.citation_id
                 if isinstance(outcome, BaseException):
-                    assessments_by_id[citation_id] = _failed_assessment(citation_id, outcome)
+                    _record_failure(
+                        citation_id,
+                        outcome,
+                        assessments_by_id=assessments_by_id,
+                        reassessments_by_id=reassessments_by_id,
+                    )
                     continue
                 _record_bundle(
                     citation_id,
                     outcome,
                     assessments_by_id=assessments_by_id,
-                    modified_citations=modified_citations,
-                    reassessments=reassessments,
+                    reassessments_by_id=reassessments_by_id,
                 )
 
     return AssessedDocument(
@@ -197,12 +212,11 @@ async def run_assessment_async(
         validations=validation.validations,
         validation_metadata=validation.validation_metadata,
         assessments=tuple(assessments_by_id[item.citation_id] for item in validation.citations),
+        reassessments=tuple(reassessments_by_id[item.citation_id] for item in validation.citations),
         assessment_metadata=AssessmentMetadata(
             mellea_calls=mellea_calls,
             mellea_concurrency=effective_concurrency,
         ),
-        modified_citations=tuple(modified_citations),
-        reassessments=tuple(reassessments),
     )
 
 
@@ -210,6 +224,7 @@ def initialize_assessment(validation: ValidatedDocument) -> AssessedDocument:
     """Create one waiting or skipped assessment record per citation."""
     validations_by_id = {item.citation_id: item for item in validation.validations}
     assessments: list[CitationAssessment] = []
+    reassessments: list[CitationReassessment] = []
     for citation in validation.citations:
         citation_validation = validations_by_id[citation.citation_id]
         if not isinstance(citation.citation, FullCaseCitation):
@@ -220,6 +235,13 @@ def initialize_assessment(validation: ValidatedDocument) -> AssessedDocument:
                     message=f"Citation kind {citation.citation.kind.value} is not assessed.",
                 )
             )
+            reassessments.append(
+                SkippedCitationReassessment(
+                    citation_id=citation.citation_id,
+                    reason=ReassessmentSkipReason.ASSESSMENT_SKIPPED,
+                    message="Primary assessment was skipped.",
+                )
+            )
         elif citation_validation.status != ValidationStatus.FOUND:
             assessments.append(
                 SkippedCitationAssessment(
@@ -228,8 +250,16 @@ def initialize_assessment(validation: ValidatedDocument) -> AssessedDocument:
                     message=f"Validation status {citation_validation.status.value} is not eligible.",
                 )
             )
+            reassessments.append(
+                SkippedCitationReassessment(
+                    citation_id=citation.citation_id,
+                    reason=ReassessmentSkipReason.ASSESSMENT_SKIPPED,
+                    message="Primary assessment was skipped.",
+                )
+            )
         else:
             assessments.append(WaitingCitationAssessment(citation_id=citation.citation_id))
+            reassessments.append(WaitingCitationReassessment(citation_id=citation.citation_id))
 
     return AssessedDocument(
         source_metadata=validation.source_metadata,
@@ -240,6 +270,7 @@ def initialize_assessment(validation: ValidatedDocument) -> AssessedDocument:
         validations=validation.validations,
         validation_metadata=validation.validation_metadata,
         assessments=tuple(assessments),
+        reassessments=tuple(reassessments),
         assessment_metadata=AssessmentMetadata(),
     )
 
@@ -249,23 +280,34 @@ def _record_bundle(
     bundle: CitationAssessmentBundle,
     *,
     assessments_by_id: dict[str, CitationAssessment],
-    modified_citations: list[ModifiedExtractedCitation],
-    reassessments: list[CitationAssessmentResult],
+    reassessments_by_id: dict[str, CitationReassessment],
 ) -> None:
     assessments_by_id[citation_id] = AssessedCitationAssessment(
         citation_id=citation_id,
         result=bundle.assessment,
     )
-    if bundle.modified_citation is not None:
-        modified_citations.append(bundle.modified_citation)
-    if bundle.reassessment is not None:
-        reassessments.append(bundle.reassessment)
+    reassessments_by_id[citation_id] = bundle.reassessment
 
 
 def _failed_assessment(citation_id: str, exc: BaseException) -> FailedCitationAssessment:
     return FailedCitationAssessment(
         citation_id=citation_id,
         error=f"{type(exc).__name__}: {exc}",
+    )
+
+
+def _record_failure(
+    citation_id: str,
+    exc: BaseException,
+    *,
+    assessments_by_id: dict[str, CitationAssessment],
+    reassessments_by_id: dict[str, CitationReassessment],
+) -> None:
+    assessments_by_id[citation_id] = _failed_assessment(citation_id, exc)
+    reassessments_by_id[citation_id] = SkippedCitationReassessment(
+        citation_id=citation_id,
+        reason=ReassessmentSkipReason.ASSESSMENT_FAILED,
+        message="Primary assessment failed before reassessment could be completed.",
     )
 
 

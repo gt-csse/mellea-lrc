@@ -58,6 +58,24 @@ class AssessmentSkipReason(str, Enum):
     VALIDATION_NOT_ELIGIBLE = "validation_not_eligible"
 
 
+class ReassessmentStatus(str, Enum):
+    """Execution state for one citation in the reassessment stage."""
+
+    WAITING = "waiting"
+    SKIPPED = "skipped"
+    REASSESSED = "reassessed"
+    REEXTRACTION_FAILED = "reextraction_failed"
+    REASSESSMENT_FAILED = "reassessment_failed"
+
+
+class ReassessmentSkipReason(str, Enum):
+    """Reason a citation did not require a reassessment attempt."""
+
+    ASSESSMENT_SKIPPED = "assessment_skipped"
+    ASSESSMENT_FAILED = "assessment_failed"
+    REEXTRACTION_NOT_REQUIRED = "reextraction_not_required"
+
+
 @dataclass(frozen=True, slots=True)
 class AssessmentMetadata:
     """Execution provenance for the assessment stage."""
@@ -165,41 +183,6 @@ CitationAssessment: TypeAlias = (
 )
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class AssessedDocument(ValidatedDocument):
-    """A validated document with additive citation assessment history."""
-
-    assessments: tuple[CitationAssessment, ...]
-    assessment_metadata: AssessmentMetadata
-    modified_citations: tuple[ModifiedExtractedCitation, ...] = ()
-    reassessments: tuple[CitationAssessmentResult, ...] = ()
-
-    @property
-    def assessment_complete(self) -> bool:
-        """Return whether no eligible citation remains unattempted."""
-        return not any(isinstance(item, WaitingCitationAssessment) for item in self.assessments)
-
-    def __post_init__(self) -> None:
-        ValidatedDocument.__post_init__(self)
-        citation_ids = {item.citation_id for item in self.citations}
-        assessment_ids = _validated_assessment_record_ids(self.assessments)
-        modified_ids = _unique_document_ids(
-            (item.citation_id for item in self.modified_citations),
-            "modified citation",
-        )
-        reassessment_ids = _validated_assessment_result_ids(self.reassessments, "reassessment")
-
-        if assessment_ids != citation_ids:
-            msg = "Assessment identifiers must exactly match extracted citation identifiers"
-            raise ValueError(msg)
-        if not modified_ids <= citation_ids:
-            msg = "Modified citation identifiers must refer to extracted citations"
-            raise ValueError(msg)
-        if not reassessment_ids <= modified_ids:
-            msg = "Reassessment identifiers must refer to modified citations"
-            raise ValueError(msg)
-
-
 @dataclass(frozen=True, slots=True)
 class ModifiedExtractedCitationProposal:
     """LLM-proposed corrected case name copied from local context."""
@@ -248,17 +231,140 @@ class ModifiedExtractedCitation:
 
 
 @dataclass(frozen=True, slots=True)
+class WaitingCitationReassessment:
+    """Citation whose reassessment path has not been resolved."""
+
+    status: ClassVar[ReassessmentStatus] = ReassessmentStatus.WAITING
+    citation_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class SkippedCitationReassessment:
+    """Citation whose reassessment path was intentionally not entered."""
+
+    status: ClassVar[ReassessmentStatus] = ReassessmentStatus.SKIPPED
+    citation_id: str
+    reason: ReassessmentSkipReason
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReassessedCitationReassessment:
+    """Citation successfully reassessed after a modified extraction."""
+
+    status: ClassVar[ReassessmentStatus] = ReassessmentStatus.REASSESSED
+    citation_id: str
+    modified_citation: ModifiedExtractedCitation
+    result: CitationAssessmentResult
+
+
+@dataclass(frozen=True, slots=True)
+class ReextractionFailedCitationReassessment:
+    """Citation whose modified extraction could not be produced."""
+
+    status: ClassVar[ReassessmentStatus] = ReassessmentStatus.REEXTRACTION_FAILED
+    citation_id: str
+    error: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReassessmentFailedCitationReassessment:
+    """Citation whose modified extraction succeeded but reassessment failed."""
+
+    status: ClassVar[ReassessmentStatus] = ReassessmentStatus.REASSESSMENT_FAILED
+    citation_id: str
+    modified_citation: ModifiedExtractedCitation
+    error: str
+
+
+CitationReassessment: TypeAlias = (
+    WaitingCitationReassessment
+    | SkippedCitationReassessment
+    | ReassessedCitationReassessment
+    | ReextractionFailedCitationReassessment
+    | ReassessmentFailedCitationReassessment
+)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AssessedDocument(ValidatedDocument):
+    """A validated document with complete assessment and reassessment state."""
+
+    assessments: tuple[CitationAssessment, ...]
+    reassessments: tuple[CitationReassessment, ...]
+    assessment_metadata: AssessmentMetadata
+
+    @property
+    def assessment_complete(self) -> bool:
+        """Return whether neither assessment stage contains waiting work."""
+        return not any(
+            isinstance(item, (WaitingCitationAssessment, WaitingCitationReassessment))
+            for item in (*self.assessments, *self.reassessments)
+        )
+
+    def __post_init__(self) -> None:
+        ValidatedDocument.__post_init__(self)
+        citation_ids = tuple(item.citation_id for item in self.citations)
+        assessment_ids = _validated_assessment_record_ids(self.assessments)
+        reassessment_ids = _validated_reassessment_record_ids(self.reassessments)
+
+        if assessment_ids != citation_ids:
+            msg = "Assessment identifiers must exactly match extracted citation identifiers in order"
+            raise ValueError(msg)
+        if reassessment_ids != citation_ids:
+            msg = "Reassessment identifiers must exactly match extracted citation identifiers in order"
+            raise ValueError(msg)
+        for assessment, reassessment in zip(self.assessments, self.reassessments, strict=True):
+            _validate_assessment_reassessment_pair(assessment, reassessment)
+
+
+@dataclass(frozen=True, slots=True)
+class CaseNameReassessmentNotRequired:
+    """Case-name assessment completed without re-extraction."""
+
+
+@dataclass(frozen=True, slots=True)
+class CaseNameReextractionFailed:
+    """Case-name re-extraction failed before a modified citation existed."""
+
+    error: str
+
+
+@dataclass(frozen=True, slots=True)
+class CaseNameReassessed:
+    """Case name was successfully re-extracted and reassessed."""
+
+    modified_citation: ModifiedExtractedCitationProposal
+    reassessment: CaseNameAssessment
+
+
+@dataclass(frozen=True, slots=True)
+class CaseNameReassessmentFailed:
+    """Case name was re-extracted but the subsequent assessment failed."""
+
+    modified_citation: ModifiedExtractedCitationProposal
+    error: str
+
+
+CaseNameReassessment: TypeAlias = (
+    CaseNameReassessmentNotRequired
+    | CaseNameReextractionFailed
+    | CaseNameReassessed
+    | CaseNameReassessmentFailed
+)
+
+
+@dataclass(frozen=True, slots=True)
 class CaseNameAssessmentRun:
-    """Case-name assessment plus any modified extraction history it produced."""
+    """Case-name assessment and its explicit reassessment outcome."""
 
     assessment: CaseNameAssessment
-    modified_citation: ModifiedExtractedCitationProposal | None = None
-    reassessment: CaseNameAssessment | None = None
+    reassessment: CaseNameReassessment
 
 
 def _validated_assessment_record_ids(
     assessments: tuple[CitationAssessment, ...],
-) -> set[str]:
+) -> tuple[str, ...]:
     ids = _unique_document_ids((item.citation_id for item in assessments), "assessment")
     for item in assessments:
         if isinstance(item, AssessedCitationAssessment):
@@ -266,14 +372,53 @@ def _validated_assessment_record_ids(
     return ids
 
 
-def _validated_assessment_result_ids(
-    assessments: tuple[CitationAssessmentResult, ...],
-    label: str,
-) -> set[str]:
-    ids = _unique_document_ids((item.citation_id for item in assessments), label)
-    for item in assessments:
-        _validate_assessment_result(item, item.citation_id, label)
+def _validated_reassessment_record_ids(
+    reassessments: tuple[CitationReassessment, ...],
+) -> tuple[str, ...]:
+    ids = _unique_document_ids((item.citation_id for item in reassessments), "reassessment")
+    for item in reassessments:
+        if (
+            isinstance(item, (ReassessedCitationReassessment, ReassessmentFailedCitationReassessment))
+            and item.modified_citation.citation_id != item.citation_id
+        ):
+            msg = "Modified citation identifier must match its reassessment identifier"
+            raise ValueError(msg)
+        if isinstance(item, ReassessedCitationReassessment):
+            _validate_assessment_result(item.result, item.citation_id, "reassessment")
     return ids
+
+
+def _validate_assessment_reassessment_pair(
+    assessment: CitationAssessment,
+    reassessment: CitationReassessment,
+) -> None:
+    if isinstance(assessment, WaitingCitationAssessment):
+        valid = isinstance(reassessment, WaitingCitationReassessment)
+    elif isinstance(assessment, SkippedCitationAssessment):
+        valid = (
+            isinstance(reassessment, SkippedCitationReassessment)
+            and reassessment.reason == ReassessmentSkipReason.ASSESSMENT_SKIPPED
+        )
+    elif isinstance(assessment, FailedCitationAssessment):
+        valid = (
+            isinstance(reassessment, SkippedCitationReassessment)
+            and reassessment.reason == ReassessmentSkipReason.ASSESSMENT_FAILED
+        )
+    else:
+        valid = not (
+            isinstance(reassessment, SkippedCitationReassessment)
+            and reassessment.reason
+            in {
+                ReassessmentSkipReason.ASSESSMENT_SKIPPED,
+                ReassessmentSkipReason.ASSESSMENT_FAILED,
+            }
+        )
+    if not valid:
+        msg = (
+            "Assessment and reassessment execution states are inconsistent for citation "
+            f"{assessment.citation_id}"
+        )
+        raise ValueError(msg)
 
 
 def _validate_assessment_result(
@@ -290,7 +435,7 @@ def _validate_assessment_result(
         raise ValueError(msg)
 
 
-def _unique_document_ids(values: Iterable[str], label: str) -> set[str]:
+def _unique_document_ids(values: Iterable[str], label: str) -> tuple[str, ...]:
     ids = list(values)
     if any(not item_id for item_id in ids):
         msg = f"{label.title()} identifiers must not be empty"
@@ -298,4 +443,4 @@ def _unique_document_ids(values: Iterable[str], label: str) -> set[str]:
     if len(ids) != len(set(ids)):
         msg = f"{label.title()} identifiers must be unique within a document"
         raise ValueError(msg)
-    return set(ids)
+    return tuple(ids)

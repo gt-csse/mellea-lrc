@@ -101,8 +101,7 @@ schema adaptation, and domain invariants as separate responsibilities.
 Assessment initialization marks eligible, found full-case citations as `waiting`
 and all ineligible citations as `skipped` with a structured reason. Execution moves
 each `waiting` record to either `assessed` with a substantive result or `failed`
-with an error. `assessment_complete` is derived: it is true exactly when no record
-remains `waiting`.
+with an error.
 
 | Execution state | State-specific payload |
 |---|---|
@@ -115,6 +114,26 @@ These are execution states. Domain conclusions such as `semantic_match` or
 `mismatch` remain inside the substantive result and cannot be confused with whether
 assessment execution succeeded.
 
+`AssessedDocument` also contains exactly one ordered reassessment record per
+citation. Reassessment is a peer collection to assessment, not a sparse history.
+This makes citations that never enter re-extraction explicit rather than absent.
+
+| Reassessment state | State-specific payload |
+|---|---|
+| `waiting` | Citation identity only |
+| `skipped` | Structured reason and message |
+| `reassessed` | Required modified citation and substantive reassessment result |
+| `reextraction_failed` | Required error detail; no modified citation exists |
+| `reassessment_failed` | Required modified citation and error detail |
+
+Skip reasons distinguish a skipped primary assessment, a failed primary assessment,
+and a completed primary assessment that did not require re-extraction. Modified
+citations are owned by `reassessed` or `reassessment_failed`; there is no separate
+top-level modified-citation collection. Assessment and reassessment records must
+match extracted citation identity and order, and their paired execution states must
+be consistent. `assessment_complete` is derived and is true exactly when neither
+collection contains a `waiting` record.
+
 ### Identity
 
 Citation identifiers are deterministic within an exact extracted artifact and are
@@ -124,18 +143,18 @@ stable legal-citation identifiers.
 
 ### Serialization
 
-Serialized artifacts remain flat for interoperability and require:
+Serialized artifacts retain explicit top-level stage fields and require:
 
 - `schema_version`
 - `artifact_type`
 
 Unversioned artifacts and mismatched artifact types are rejected. Deserialization
 validates the artifact invariants rather than silently constructing contradictory
-stage objects. Schema version 3 exposes the same stage ownership explicitly with
+stage objects. Schema version 4 exposes the same stage ownership explicitly with
 `source_metadata`, `preprocessing_metadata`, `extraction_metadata`,
 `validation_metadata`, and `assessment_metadata` keys as applicable. It also uses
-typed validation matches and explicit `extra_data` fields. Earlier versions are not
-accepted.
+typed validation matches, explicit `extra_data` fields, and the complete
+per-citation reassessment union described above. Earlier versions are not accepted.
 
 Every public artifact deserializer first validates a strict Pydantic transport DTO
 configured with `extra="forbid"` and no type coercion. Citation kinds and assessment

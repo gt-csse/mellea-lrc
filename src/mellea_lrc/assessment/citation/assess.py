@@ -10,10 +10,21 @@ from mellea_lrc.assessment.deterministic.context import find_text_span_near_full
 from mellea_lrc.assessment.deterministic.year import assess_year_exact_match
 from mellea_lrc.assessment.llm.case_name import assess_case_name_with_mellea
 from mellea_lrc.assessment.types import (
+    CaseNameReassessed,
+    CaseNameReassessmentFailed,
+    CaseNameReassessmentNotRequired,
+    CaseNameReextractionFailed,
     CaseNameAssessmentStatus,
+    CitationReassessment,
     CitationAssessmentResult,
     ModifiedExtractedCitation,
     ModifiedExtractedCitationProposal,
+    ReassessedCitationReassessment,
+    ReassessmentFailedCitationReassessment,
+    ReassessmentSkipReason,
+    ReextractionFailedCitationReassessment,
+    SkippedCitationReassessment,
+    YearAssessment,
 )
 
 if TYPE_CHECKING:
@@ -24,11 +35,10 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class CitationAssessmentBundle:
-    """One citation assessment plus optional re-extraction history."""
+    """One citation assessment and its explicit reassessment state."""
 
     assessment: CitationAssessmentResult
-    modified_citation: ModifiedExtractedCitation | None = None
-    reassessment: CitationAssessmentResult | None = None
+    reassessment: CitationReassessment
 
 
 async def assess_found_citation(
@@ -60,6 +70,11 @@ async def assess_found_citation(
                 case_assess=exact,
                 year_assess=year_assess,
             ),
+            reassessment=SkippedCitationReassessment(
+                citation_id=citation_id,
+                reason=ReassessmentSkipReason.REEXTRACTION_NOT_REQUIRED,
+                message="Primary assessment completed without re-extraction.",
+            ),
         )
 
     document_context = get_extended_span_text(document_text, span)
@@ -70,14 +85,12 @@ async def assess_found_citation(
         courtlistener_case_name=courtlistener_case_name,
         document_context=document_context,
     )
-    reassessment = (
-        CitationAssessmentResult(
-            citation_id=citation_id,
-            case_assess=case_name_run.reassessment,
-            year_assess=year_assess,
-        )
-        if case_name_run.reassessment is not None
-        else None
+    reassessment = _build_citation_reassessment(
+        case_name_run.reassessment,
+        citation_id=citation_id,
+        document_text=document_text,
+        full_span=span,
+        year_assess=year_assess,
     )
     return CitationAssessmentBundle(
         assessment=CitationAssessmentResult(
@@ -85,13 +98,55 @@ async def assess_found_citation(
             case_assess=case_name_run.assessment,
             year_assess=year_assess,
         ),
-        modified_citation=bind_modified_citation(
-            case_name_run.modified_citation,
-            document_text=document_text,
-            full_span=span,
-            citation_id=citation_id,
-        ),
         reassessment=reassessment,
+    )
+
+
+def _build_citation_reassessment(
+    outcome: (
+        CaseNameReassessmentNotRequired
+        | CaseNameReextractionFailed
+        | CaseNameReassessed
+        | CaseNameReassessmentFailed
+    ),
+    *,
+    citation_id: str,
+    document_text: str,
+    full_span: Span,
+    year_assess: YearAssessment,
+) -> CitationReassessment:
+    if isinstance(outcome, CaseNameReassessmentNotRequired):
+        return SkippedCitationReassessment(
+            citation_id=citation_id,
+            reason=ReassessmentSkipReason.REEXTRACTION_NOT_REQUIRED,
+            message="Primary assessment completed without re-extraction.",
+        )
+    if isinstance(outcome, CaseNameReextractionFailed):
+        return ReextractionFailedCitationReassessment(citation_id=citation_id, error=outcome.error)
+
+    modified = bind_modified_citation(
+        outcome.modified_citation,
+        document_text=document_text,
+        full_span=full_span,
+        citation_id=citation_id,
+    )
+    if modified is None:
+        msg = "Accepted re-extraction did not produce a modified citation"
+        raise RuntimeError(msg)
+    if isinstance(outcome, CaseNameReassessmentFailed):
+        return ReassessmentFailedCitationReassessment(
+            citation_id=citation_id,
+            modified_citation=modified,
+            error=outcome.error,
+        )
+    return ReassessedCitationReassessment(
+        citation_id=citation_id,
+        modified_citation=modified,
+        result=CitationAssessmentResult(
+            citation_id=citation_id,
+            case_assess=outcome.reassessment,
+            year_assess=year_assess,
+        ),
     )
 
 

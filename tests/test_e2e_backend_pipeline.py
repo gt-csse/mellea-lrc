@@ -9,7 +9,12 @@ from mellea_lrc.assessment import (
     CaseNameAssessmentStatus,
     CitationAssessment,
     CitationAssessmentResult,
+    CitationReassessment,
     ModifiedExtractedCitation,
+    ReassessedCitationReassessment,
+    ReassessmentSkipReason,
+    SkippedCitationReassessment,
+    WaitingCitationReassessment,
     YearAssessment,
     YearAssessmentStatus,
 )
@@ -104,9 +109,17 @@ def _assessed_document(
     citations: tuple[ExtractedCitation, ...],
     validations: tuple[CitationValidation, ...],
     assessments: tuple[CitationAssessment, ...],
-    modified_citations: tuple[ModifiedExtractedCitation, ...] = (),
-    reassessments: tuple[CitationAssessmentResult, ...] = (),
+    reassessments: tuple[CitationReassessment, ...] | None = None,
 ) -> AssessedDocument:
+    if reassessments is None:
+        reassessments = tuple(
+            SkippedCitationReassessment(
+                citation_id=citation.citation_id,
+                reason=ReassessmentSkipReason.REEXTRACTION_NOT_REQUIRED,
+                message="Primary assessment completed without re-extraction.",
+            )
+            for citation in citations
+        )
     return AssessedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
@@ -116,9 +129,8 @@ def _assessed_document(
         validations=validations,
         validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
         assessments=assessments,
-        assessment_metadata=AssessmentMetadata(),
-        modified_citations=modified_citations,
         reassessments=reassessments,
+        assessment_metadata=AssessmentMetadata(),
     )
 
 
@@ -353,6 +365,7 @@ def test_review_document_assessment_rejects_unresolved_assessment_handoff() -> N
                         ),
                     ),
                 ),
+                reassessments=(WaitingCitationReassessment(citation_id="cite-1"),),
             )
         )
     except ValueError as exc:
@@ -413,18 +426,23 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
                 ),
             ),
             assessments=(AssessedCitationAssessment(citation_id="cite-1", result=primary),),
-            modified_citations=(
-                ModifiedExtractedCitation(
+            reassessments=(
+                ReassessedCitationReassessment(
                     citation_id="cite-1",
-                    span=Span(0, 14),
-                    matched_text="Brown v. Board",
-                    case_name="Brown v. Board",
+                    modified_citation=ModifiedExtractedCitation(
+                        citation_id="cite-1",
+                        span=Span(0, 14),
+                        matched_text="Brown v. Board",
+                        case_name="Brown v. Board",
+                    ),
+                    result=reassessment,
                 ),
             ),
-            reassessments=(reassessment,),
         )
     )
-    assert output["assessment"]["reassessments"][0]["case_assess"]["status"] == "semantic_match"
+    assert output["assessment"]["reassessments"][0]["result"]["case_assess"]["status"] == (
+        "semantic_match"
+    )
 
 
 def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> None:
