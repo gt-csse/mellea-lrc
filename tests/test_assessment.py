@@ -7,6 +7,7 @@ from mellea_lrc.assessment import (
     AssessedCitationAssessment,
     CaseNameAssessment,
     CaseNameAssessmentRun,
+    CaseNameReassessed,
     CaseNameReassessmentFailed,
     CaseNameReextractionFailed,
     CaseNameAssessmentStatus,
@@ -351,8 +352,13 @@ def test_citation_reassessment_records_reextraction_failure_without_modified_cit
 def test_case_name_run_captures_reassessment_failure_after_accepted_reextraction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "mellea_lrc.assessment.llm.case_name.structured_model_options",
+        lambda **_kwargs: {},
+    )
+
     async def no_semantic_match(*_args, **_kwargs):
-        return False
+        return "not_semantic_match"
 
     async def accepted_reextraction(*_args, **_kwargs):
         return ReextractionResult(
@@ -367,7 +373,7 @@ def test_case_name_run_captures_reassessment_failure_after_accepted_reextraction
         raise RuntimeError(msg)
 
     monkeypatch.setattr(
-        "mellea_lrc.assessment.llm.case_name.is_semantic_match_with_mellea",
+        "mellea_lrc.assessment.llm.case_name.semantic_match_case_name",
         no_semantic_match,
     )
     monkeypatch.setattr(
@@ -392,6 +398,104 @@ def test_case_name_run_captures_reassessment_failure_after_accepted_reextraction
     assert isinstance(run.reassessment, CaseNameReassessmentFailed)
     assert run.reassessment.modified_citation.case_name == "Brown v. Board of Education"
     assert run.reassessment.error == "RuntimeError: classifier unavailable"
+
+
+def test_case_name_run_uses_native_semantic_classifier_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "mellea_lrc.assessment.llm.case_name.structured_model_options",
+        lambda **_kwargs: {},
+    )
+
+    async def semantic_match(*_args, **kwargs):
+        calls.append(kwargs)
+        return "semantic_match"
+
+    async def unexpected_reextraction(*_args, **_kwargs):
+        msg = "re-extraction should not run after a semantic match"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(
+        "mellea_lrc.assessment.llm.case_name.semantic_match_case_name",
+        semantic_match,
+    )
+    monkeypatch.setattr(
+        "mellea_lrc.assessment.llm.case_name.reextract_case_name",
+        unexpected_reextraction,
+    )
+
+    run = asyncio.run(
+        assess_case_name_with_mellea(
+            object(),
+            citation_id="cite-1",
+            extracted_case_name="Brown v. Board",
+            courtlistener_case_name="Brown v. Board of Education",
+            document_context="Brown v. Board, 347 U.S. 483",
+        )
+    )
+
+    assert run.assessment.status == CaseNameAssessmentStatus.SEMANTIC_MATCH
+    assert len(calls) == 1
+    assert "model_options" in calls[0]
+    assert "strategy" not in calls[0]
+
+
+def test_case_name_run_uses_native_post_reextraction_classifier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    semantic_calls = 0
+    non_semantic_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "mellea_lrc.assessment.llm.case_name.structured_model_options",
+        lambda **_kwargs: {},
+    )
+
+    async def no_semantic_match(*_args, **_kwargs):
+        nonlocal semantic_calls
+        semantic_calls += 1
+        return "not_semantic_match"
+
+    async def accepted_reextraction(*_args, **_kwargs):
+        return ReextractionResult(
+            status=ReextractionStatus.ACCEPTED,
+            proposal=ModifiedExtractedCitationProposal(case_name="Brown Board"),
+        )
+
+    async def irregular_form(*_args, **kwargs):
+        non_semantic_calls.append(kwargs)
+        return "irregular_form"
+
+    monkeypatch.setattr(
+        "mellea_lrc.assessment.llm.case_name.semantic_match_case_name",
+        no_semantic_match,
+    )
+    monkeypatch.setattr(
+        "mellea_lrc.assessment.llm.case_name.reextract_case_name",
+        accepted_reextraction,
+    )
+    monkeypatch.setattr(
+        "mellea_lrc.assessment.llm.case_name.classify_non_semantic_case_name",
+        irregular_form,
+    )
+
+    run = asyncio.run(
+        assess_case_name_with_mellea(
+            object(),
+            citation_id="cite-1",
+            extracted_case_name="Brown v. Board",
+            courtlistener_case_name="Brown v. Board of Education",
+            document_context="Brown Board, 347 U.S. 483",
+        )
+    )
+
+    assert isinstance(run.reassessment, CaseNameReassessed)
+    assert run.reassessment.reassessment.status == CaseNameAssessmentStatus.IRREGULAR_FORM
+    assert semantic_calls == 2
+    assert len(non_semantic_calls) == 1
+    assert "model_options" in non_semantic_calls[0]
+    assert "strategy" not in non_semantic_calls[0]
 
 
 def test_run_assessment_progresses_document_validation_to_document_assessment() -> None:
