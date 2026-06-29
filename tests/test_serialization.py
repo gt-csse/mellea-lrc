@@ -66,13 +66,12 @@ def test_document_extraction_serializes_without_ui_assumptions() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
     artifact = serialize_extracted_document(extraction)
 
-    assert artifact["schema_version"] == 4
+    assert artifact["schema_version"] == 5
     assert artifact["artifact_type"] == "extracted_document"
     assert artifact["source_metadata"]["path"] is None
     assert artifact["text"] == SAMPLE_TEXT
     assert artifact["citations"]
-    assert artifact["counts"]["total"] == len(extraction.citations)
-    assert artifact["counts"]["full"] == len(extraction.full_citations)
+    assert "counts" not in artifact
 
     citation = artifact["citations"][0]
     assert citation["citation_id"] == extraction.citations[0].citation_id
@@ -103,7 +102,7 @@ def test_unversioned_preprocessed_document_is_rejected() -> None:
 
 def test_previous_schema_version_is_rejected() -> None:
     artifact = serialize_preprocessed_document(extract_citations(SAMPLE_TEXT))
-    artifact["schema_version"] = 3
+    artifact["schema_version"] = 4
 
     with pytest.raises(ValueError, match="schema_version"):
         deserialize_preprocessed_document(artifact)
@@ -139,14 +138,6 @@ def test_citation_transport_rejects_fields_from_another_citation_kind() -> None:
     citation["publisher"] = "Not valid for a case citation"
 
     with pytest.raises(ValidationError, match="publisher"):
-        deserialize_extracted_document(artifact)
-
-
-def test_artifact_transport_rejects_stale_derived_counts() -> None:
-    artifact = serialize_extracted_document(extract_citations(SAMPLE_TEXT))
-    artifact["counts"]["total"] = 999
-
-    with pytest.raises(ValueError, match="counts"):
         deserialize_extracted_document(artifact)
 
 
@@ -280,14 +271,16 @@ def test_document_assessment_round_trips() -> None:
     restored = deserialize_assessed_document(artifact)
 
     assert artifact["artifact_type"] == "assessed_document"
-    assert artifact["assessment_status_counts"] == {"assessed": 1}
-    assert artifact["reassessment_status_counts"] == {"reassessed": 1}
+    assert "assessment_complete" not in artifact
+    assert "assessment_status_counts" not in artifact
+    assert "reassessment_status_counts" not in artifact
     assert "modified_citations" not in artifact
     assert artifact["reassessments"][0]["modified_citation"]["citation_id"] == (
         assessment_result.citation_id
     )
-    assert artifact["case_name_counts"] == {"exact_match": 1}
-    assert artifact["year_counts"] == {"exact_match": 1}
+    assert "extracted_case_name" not in artifact["reassessments"][0]["modified_citation"]
+    assert "case_name_counts" not in artifact
+    assert "year_counts" not in artifact
     assert restored == document_assessment
 
 

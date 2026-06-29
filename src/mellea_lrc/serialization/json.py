@@ -89,7 +89,7 @@ if TYPE_CHECKING:
     from mellea_lrc.core.citations import CanonicalCitation
 
 JsonValue: TypeAlias = str | int | float | bool | None | dict[str, "JsonValue"] | list["JsonValue"]
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _CITATION_PAYLOAD_ADAPTER = TypeAdapter(CanonicalCitationPayload)
 _ASSESSMENT_PAYLOAD_ADAPTER = TypeAdapter(CitationAssessmentPayload)
@@ -273,11 +273,6 @@ def serialize_extracted_document(result: ExtractedDocument) -> dict[str, JsonVal
         "preprocessing_metadata": _serialize_preprocessing_metadata(result.preprocessing_metadata),
         "extraction_metadata": _serialize_extraction_metadata(result.extraction_metadata),
         "citations": [serialize_extracted_citation(item) for item in result.citations],
-        "counts": {
-            "total": len(result.citations),
-            "full": len(result.full_citations),
-            "by_type": _count_by_type(result),
-        },
     }
 
 
@@ -285,7 +280,7 @@ def deserialize_extracted_document(payload: Mapping[str, object]) -> ExtractedDo
     """Rebuild the extraction boundary object from JSON data."""
     validated = ExtractedDocumentPayload.model_validate(payload).model_dump(mode="python")
     preprocessed = _deserialize_preprocessed_fields(validated)
-    result = ExtractedDocument(
+    return ExtractedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
@@ -297,12 +292,6 @@ def deserialize_extracted_document(payload: Mapping[str, object]) -> ExtractedDo
             _required_mapping_field(validated, "extraction_metadata")
         ),
     )
-    _require_derived_value(
-        "counts",
-        validated.get("counts"),
-        serialize_extracted_document(result)["counts"],
-    )
-    return result
 
 
 def serialize_citation_validation(item: CitationValidation) -> dict[str, JsonValue]:
@@ -417,11 +406,6 @@ def serialize_validated_document(result: ValidatedDocument) -> dict[str, JsonVal
         "validation_metadata": _serialize_validation_metadata(result.validation_metadata),
         "citations": [serialize_extracted_citation(item) for item in result.citations],
         "validations": [serialize_citation_validation(item) for item in result.validations],
-        "counts": {
-            "total": len(result.validations),
-            "found": len(result.found),
-            "by_status": _count_validation_by_status(result),
-        },
     }
 
 
@@ -429,7 +413,7 @@ def deserialize_validated_document(payload: Mapping[str, object]) -> ValidatedDo
     """Rebuild the validation boundary object from JSON data."""
     validated = ValidatedDocumentPayload.model_validate(payload).model_dump(mode="python")
     preprocessed = _deserialize_preprocessed_fields(validated)
-    result = ValidatedDocument(
+    return ValidatedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
@@ -448,12 +432,6 @@ def deserialize_validated_document(payload: Mapping[str, object]) -> ValidatedDo
             _required_mapping_field(validated, "validation_metadata")
         ),
     )
-    _require_derived_value(
-        "counts",
-        validated.get("counts"),
-        serialize_validated_document(result)["counts"],
-    )
-    return result
 
 
 def serialize_case_name_assessment(item: CaseNameAssessment) -> dict[str, JsonValue]:
@@ -607,7 +585,6 @@ def serialize_modified_extracted_citation(
     """Serialize one modified extraction bound to a document citation."""
     payload = cast("dict[str, JsonValue]", asdict(item))
     payload["span"] = _serialize_span(item.span) if item.span is not None else None
-    payload["extracted_case_name"] = item.extracted_case_name
     return payload
 
 
@@ -706,11 +683,6 @@ def serialize_assessed_document(result: AssessedDocument) -> dict[str, JsonValue
         "reassessments": [
             serialize_citation_reassessment(item) for item in result.reassessments
         ],
-        "assessment_complete": result.assessment_complete,
-        "assessment_status_counts": _count_assessments_by_execution_status(result),
-        "reassessment_status_counts": _count_reassessments_by_execution_status(result),
-        "case_name_counts": _count_assessment_case_names_by_status(result),
-        "year_counts": _count_assessment_years_by_status(result),
     }
 
 
@@ -718,7 +690,7 @@ def deserialize_assessed_document(payload: Mapping[str, object]) -> AssessedDocu
     """Rebuild the assessment boundary object from JSON data."""
     validated = AssessedDocumentPayload.model_validate(payload).model_dump(mode="python")
     preprocessed = _deserialize_preprocessed_fields(validated)
-    result = AssessedDocument(
+    return AssessedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
@@ -748,73 +720,10 @@ def deserialize_assessed_document(payload: Mapping[str, object]) -> AssessedDocu
             _required_mapping_field(validated, "assessment_metadata")
         ),
     )
-    serialized = serialize_assessed_document(result)
-    for field_name in (
-        "assessment_complete",
-        "assessment_status_counts",
-        "reassessment_status_counts",
-        "case_name_counts",
-        "year_counts",
-    ):
-        _require_derived_value(field_name, validated.get(field_name), serialized[field_name])
-    return result
-
-
-def _count_by_type(result: ExtractedDocument) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in result.citations:
-        kind = citation_kind(item.citation).value
-        counts[kind] = counts.get(kind, 0) + 1
-    return counts
-
-
-def _count_validation_by_status(result: ValidatedDocument) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in result.validations:
-        counts[item.status.value] = counts.get(item.status.value, 0) + 1
-    return counts
-
-
-def _count_assessment_case_names_by_status(result: AssessedDocument) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in result.assessments:
-        if isinstance(item, AssessedCitationAssessment):
-            status = item.result.case_assess.status.value
-            counts[status] = counts.get(status, 0) + 1
-    return counts
-
-
-def _count_assessment_years_by_status(result: AssessedDocument) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in result.assessments:
-        if isinstance(item, AssessedCitationAssessment):
-            status = item.result.year_assess.status.value
-            counts[status] = counts.get(status, 0) + 1
-    return counts
-
-
-def _count_reassessments_by_execution_status(result: AssessedDocument) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in result.reassessments:
-        counts[item.status.value] = counts.get(item.status.value, 0) + 1
-    return counts
-
-
-def _count_assessments_by_execution_status(result: AssessedDocument) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in result.assessments:
-        counts[item.status.value] = counts.get(item.status.value, 0) + 1
-    return counts
 
 
 def _serialize_span(span: Span) -> dict[str, JsonValue]:
     return {"start": span.start, "end": span.end}
-
-
-def _require_derived_value(field_name: str, actual: object, expected: object) -> None:
-    if actual != expected:
-        msg = f"Serialized {field_name} does not match artifact contents"
-        raise ValueError(msg)
 
 
 def _deserialize_span(payload: Mapping[str, object]) -> Span:

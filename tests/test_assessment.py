@@ -224,7 +224,7 @@ def test_modified_extracted_citation_proposal_valid_requires_grounded_fields() -
     )
 
     assert modified.valid(context)
-    assert modified.extracted_case_name == "World Wide Ass'n of Specialty Programs v. Pure, Inc."
+    assert modified.case_name == "World Wide Ass'n of Specialty Programs v. Pure, Inc."
 
 
 def test_modified_extracted_citation_proposal_valid_rejects_ungrounded_fields() -> None:

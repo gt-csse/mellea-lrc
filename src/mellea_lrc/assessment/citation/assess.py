@@ -158,11 +158,11 @@ def bind_modified_citation(
     citation_id: str,
 ) -> ModifiedExtractedCitation | None:
     """Bind a grounded re-extraction proposal to document-local citation identity."""
-    if modified_citation is None or not modified_citation.extracted_case_name:
+    if modified_citation is None or not modified_citation.case_name:
         return None
     modified_span = find_text_span_near_full_span(
         document_text,
-        modified_citation.extracted_case_name,
+        modified_citation.case_name,
         full_span,
     )
     return ModifiedExtractedCitation.from_proposal(
