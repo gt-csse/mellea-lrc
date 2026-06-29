@@ -3483,7 +3483,9 @@ label-studio = [
     { name = "requests" },
 ]
 llm = [
+    { name = "httpx" },
     { name = "mellea" },
+    { name = "openai" },
 ]
 modal = [
     { name = "boto3" },
@@ -3492,8 +3494,10 @@ modal = [
     { name = "dotenv" },
     { name = "eyecite" },
     { name = "fastapi", extra = ["standard"] },
+    { name = "httpx" },
     { name = "mellea" },
     { name = "modal" },
+    { name = "openai" },
     { name = "python-dotenv" },
     { name = "python-multipart" },
     { name = "requests" },
@@ -3509,7 +3513,9 @@ pipeline = [
     { name = "docling" },
     { name = "dotenv" },
     { name = "eyecite" },
+    { name = "httpx" },
     { name = "mellea" },
+    { name = "openai" },
     { name = "python-dotenv" },
     { name = "requests" },
 ]
@@ -3573,7 +3579,11 @@ label-studio = [
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "requests", specifier = ">=2.32" },
 ]
-llm = [{ name = "mellea", specifier = ">=0.3.2,<0.4" }]
+llm = [
+    { name = "httpx", specifier = ">=0.28,<1" },
+    { name = "mellea", specifier = ">=0.3.2,<0.4" },
+    { name = "openai", specifier = ">=2,<3" },
+]
 modal = [
     { name = "boto3", specifier = ">=1.34" },
     { name = "charset-normalizer", specifier = ">=3.4.7" },
@@ -3582,9 +3592,11 @@ modal = [
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "eyecite", specifier = ">=2.6" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.28,<1" },
     { name = "mellea", specifier = ">=0.3.2" },
     { name = "mellea", specifier = ">=0.3.2,<0.4" },
     { name = "modal", specifier = ">=1.0,<2.0" },
+    { name = "openai", specifier = ">=2,<3" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "requests", specifier = ">=2.32" },
@@ -3600,8 +3612,10 @@ pipeline = [
     { name = "docling", specifier = ">=2.102.2" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "eyecite", specifier = ">=2.6" },
+    { name = "httpx", specifier = ">=0.28,<1" },
     { name = "mellea", specifier = ">=0.3.2" },
     { name = "mellea", specifier = ">=0.3.2,<0.4" },
+    { name = "openai", specifier = ">=2,<3" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "requests", specifier = ">=2.32" },
 ]

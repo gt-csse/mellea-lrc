@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from mellea_lrc.assessment import run_assessment
+from mellea_lrc.core.env import load_env_file
 from mellea_lrc.extraction import run_extraction
 from mellea_lrc.preprocessing import preprocess_plain_text, run_preprocessing
 from mellea_lrc.serialization import (
@@ -116,14 +116,7 @@ def _validation_counts(validation: ValidatedDocument) -> dict[str, int]:
 
 
 def _load_dotenv(path: Path) -> None:
-    if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", maxsplit=1)
-        os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+    load_env_file(path)
 
 
 def _emit(message: str) -> None:

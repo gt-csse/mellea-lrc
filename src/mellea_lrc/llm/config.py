@@ -1,146 +1,98 @@
-"""OpenAI-compatible LLM provider configuration for Mellea-backed stages."""
+"""OpenAI-compatible API binding for Mellea-backed stages."""
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-LLM_PROVIDER_ENV = "MELLEA_LRC_LLM_PROVIDER"
+    from openai import OpenAI
+
 LLM_MODEL_ENV = "MELLEA_LRC_LLM_MODEL"
 LLM_API_BASE_ENV = "MELLEA_LRC_LLM_API_BASE"
 LLM_API_KEY_ENV = "MELLEA_LRC_LLM_API_KEY"
 LLM_TEMPERATURE_ENV = "MELLEA_LRC_LLM_TEMPERATURE"
-LLM_OPENROUTER_REQUIRE_PARAMETERS_ENV = "MELLEA_LRC_LLM_OPENROUTER_REQUIRE_PARAMETERS"
-DEFAULT_MELLEA_BACKEND = "openai"
+LLM_RESPONSE_FORMAT_ENV = "MELLEA_LRC_LLM_RESPONSE_FORMAT"
+LLM_CERT_REQUIRED_ENV = "MELLEA_LRC_LLM_CERT_REQUIRED"
 DEFAULT_TEMPERATURE = 0.0
-DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-pro"
-DEEPSEEK_DEFAULT_API_BASE = "https://api.deepseek.com"
 JSON_OBJECT_RESPONSE_FORMAT: dict[str, str] = {"type": "json_object"}
 
 
-class LlmProvider(str, Enum):
-    """Supported OpenAI-compatible LLM providers."""
+class LlmResponseFormat(str, Enum):
+    """Structured-output modes supported by the API binding."""
 
-    DEEPSEEK = "deepseek"
-    DIGITALOCEAN = "digitalocean"
-    OPENROUTER = "openrouter"
+    JSON_SCHEMA = "json_schema"
+    JSON_OBJECT = "json_object"
 
 
 @dataclass(frozen=True, slots=True)
-class LlmProviderConfig:
-    """Resolved provider configuration for Mellea LLM calls."""
+class LlmApiConfig:
+    """Resolved binding to an OpenAI-compatible API."""
 
-    provider: LlmProvider
-    backend: str
     model: str
     api_base: str
-    api_key: str
+    api_key: str = field(repr=False)
     temperature: float
-    openrouter_require_parameters: bool
+    response_format: LlmResponseFormat
+    cert_required: bool
 
     def mellea_call_options(self, *, max_tokens: int, temperature: float = 0) -> dict[str, object]:
         """Build per-call Mellea model options for structured generation."""
         options: dict[str, object] = {"temperature": temperature, "max_tokens": max_tokens}
-        extra_body: dict[str, object] = {}
-        if self.provider == LlmProvider.DEEPSEEK:
-            # DeepSeek rejects Mellea's top-level json_schema response_format but accepts
-            # json_object when passed through the OpenAI SDK extra_body payload.
-            extra_body["response_format"] = JSON_OBJECT_RESPONSE_FORMAT
-        if self.provider == LlmProvider.OPENROUTER and self.openrouter_require_parameters:
-            extra_body["provider"] = {"require_parameters": True}
-        if extra_body:
-            options["extra_body"] = extra_body
+        if self.response_format == LlmResponseFormat.JSON_OBJECT:
+            options["extra_body"] = {"response_format": JSON_OBJECT_RESPONSE_FORMAT}
         return options
 
-    def chat_completions_base_url(self) -> str:
-        """Return the provider-specific OpenAI-compatible chat completions base URL."""
-        if self.provider == LlmProvider.DEEPSEEK:
-            return self.api_base.rstrip("/")
-        return chat_completions_base_url(self.api_base)
-
-
-def llm_provider_config_from_env(environ: Mapping[str, str]) -> LlmProviderConfig:
-    """Resolve the active OpenAI-compatible LLM provider from env vars."""
-    provider = _required_provider(environ)
-    temperature = _optional_float_env(environ, LLM_TEMPERATURE_ENV, DEFAULT_TEMPERATURE)
-    if provider == LlmProvider.OPENROUTER:
-        return LlmProviderConfig(
-            provider=provider,
-            backend=DEFAULT_MELLEA_BACKEND,
-            model=_required_env(environ, LLM_MODEL_ENV),
-            api_base=_required_env(environ, LLM_API_BASE_ENV),
-            api_key=_required_env(environ, LLM_API_KEY_ENV),
-            temperature=temperature,
-            openrouter_require_parameters=_optional_bool_env(
-                environ,
-                LLM_OPENROUTER_REQUIRE_PARAMETERS_ENV,
-                default=False,
-            ),
-        )
-    if provider == LlmProvider.DEEPSEEK:
-        return LlmProviderConfig(
-            provider=provider,
-            backend=DEFAULT_MELLEA_BACKEND,
-            model=_optional_env(environ, LLM_MODEL_ENV, DEEPSEEK_DEFAULT_MODEL),
-            api_base=_optional_env(environ, LLM_API_BASE_ENV, DEEPSEEK_DEFAULT_API_BASE),
-            api_key=_required_env(environ, LLM_API_KEY_ENV),
-            temperature=temperature,
-            openrouter_require_parameters=False,
-        )
-    if provider == LlmProvider.DIGITALOCEAN:
-        return LlmProviderConfig(
-            provider=provider,
-            backend=DEFAULT_MELLEA_BACKEND,
-            model=_required_env(environ, LLM_MODEL_ENV),
-            api_base=_required_env(environ, LLM_API_BASE_ENV),
-            api_key=_required_env(environ, LLM_API_KEY_ENV),
-            temperature=temperature,
-            openrouter_require_parameters=False,
+    def openai_client(self) -> OpenAI:
+        """Create a synchronous client for the configured API binding."""
+        try:
+            import httpx  # noqa: PLC0415
+            import openai  # noqa: PLC0415
+        except ImportError as exc:
+            msg = "OpenAI client dependencies are not installed. Run with: uv sync --group llm"
+            raise RuntimeError(msg) from exc
+        return openai.OpenAI(
+            api_key=self.api_key,
+            base_url=self.api_base,
+            http_client=httpx.Client(verify=self.cert_required),
         )
 
-    msg = f"Unsupported LLM provider: {provider.value}"
-    raise RuntimeError(msg)
+
+def llm_api_config_from_env(environ: Mapping[str, str]) -> LlmApiConfig:
+    """Resolve an OpenAI-compatible API binding from environment variables."""
+    return LlmApiConfig(
+        model=_required_env(environ, LLM_MODEL_ENV),
+        api_base=_required_env(environ, LLM_API_BASE_ENV).rstrip("/"),
+        api_key=_required_env(environ, LLM_API_KEY_ENV),
+        temperature=_optional_float_env(environ, LLM_TEMPERATURE_ENV, DEFAULT_TEMPERATURE),
+        response_format=_optional_response_format(environ),
+        cert_required=_optional_bool_env(environ, LLM_CERT_REQUIRED_ENV, default=True),
+    )
 
 
 def start_mellea_session_from_env() -> object:
-    """Start a Mellea session from LLM provider environment variables."""
+    """Start a Mellea session from the configured API binding."""
     try:
-        from mellea import start_session  # noqa: PLC0415
+        from mellea import MelleaSession  # noqa: PLC0415
     except ImportError as exc:
         msg = "Mellea LLM dependencies are not installed. Run with: uv sync --group llm"
         raise RuntimeError(msg) from exc
 
-    config = llm_provider_config_from_env(os.environ)
-    return start_session(
-        config.backend,
+    from mellea_lrc.llm.openai_backend import MelleaLRCOpenAIBackend  # noqa: PLC0415
+
+    config = llm_api_config_from_env(os.environ)
+    backend = MelleaLRCOpenAIBackend(
         model_id=config.model,
-        base_url=config.chat_completions_base_url(),
+        base_url=config.api_base,
         api_key=config.api_key,
+        certificate_verification=config.cert_required,
         model_options={"temperature": config.temperature},
     )
-
-
-def chat_completions_base_url(base_url: str) -> str:
-    """Normalize an OpenAI-compatible provider base URL to its `/v1` root."""
-    normalized = base_url.rstrip("/")
-    if normalized.endswith("/v1"):
-        return normalized
-    return f"{normalized}/v1"
-
-
-def _required_provider(environ: Mapping[str, str]) -> LlmProvider:
-    raw_provider = _required_env(environ, LLM_PROVIDER_ENV)
-    try:
-        return LlmProvider(raw_provider)
-    except ValueError as exc:
-        allowed = ", ".join(item.value for item in LlmProvider)
-        msg = f"{LLM_PROVIDER_ENV} must be one of: {allowed}"
-        raise RuntimeError(msg) from exc
+    return MelleaSession(backend)
 
 
 def _required_env(environ: Mapping[str, str], name: str) -> str:
@@ -151,11 +103,6 @@ def _required_env(environ: Mapping[str, str], name: str) -> str:
     return value
 
 
-def _optional_env(environ: Mapping[str, str], name: str, default: str) -> str:
-    value = environ.get(name, "").strip()
-    return value or default
-
-
 def _optional_float_env(environ: Mapping[str, str], name: str, default: float) -> float:
     value = environ.get(name, "").strip()
     if not value:
@@ -164,6 +111,18 @@ def _optional_float_env(environ: Mapping[str, str], name: str, default: float) -
         return float(value)
     except ValueError as exc:
         msg = f"{name} must be a float-compatible value"
+        raise RuntimeError(msg) from exc
+
+
+def _optional_response_format(environ: Mapping[str, str]) -> LlmResponseFormat:
+    value = environ.get(LLM_RESPONSE_FORMAT_ENV, "").strip()
+    if not value:
+        return LlmResponseFormat.JSON_SCHEMA
+    try:
+        return LlmResponseFormat(value)
+    except ValueError as exc:
+        allowed = ", ".join(item.value for item in LlmResponseFormat)
+        msg = f"{LLM_RESPONSE_FORMAT_ENV} must be one of: {allowed}"
         raise RuntimeError(msg) from exc
 
 
