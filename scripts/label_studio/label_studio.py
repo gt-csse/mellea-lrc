@@ -13,7 +13,7 @@ from mellea_lrc.core.citations import (
     SupraCitation,
     UnknownCitation,
 )
-from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
+from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
 
 MODEL_VERSION = "eyecite-pre-annotation"
 
@@ -40,7 +40,7 @@ def _field_values(item: ExtractedCitation) -> dict[str, str | None]:
     raise TypeError(msg)
 
 
-def _label_result(extraction: DocumentExtraction, item: ExtractedCitation) -> dict[str, Any]:
+def _label_result(extraction: ExtractedDocument, item: ExtractedCitation) -> dict[str, Any]:
     annotated_text = extraction.text[item.span.start : item.span.end]
     return {
         "id": item.citation_id,
@@ -71,7 +71,7 @@ def _field_results(item: ExtractedCitation) -> list[dict[str, Any]]:
     return results
 
 
-def _relation_results(extraction: DocumentExtraction) -> list[dict[str, Any]]:
+def _relation_results(extraction: ExtractedDocument) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for item in extraction.citations:
         if item.resolves_to is None:
@@ -87,7 +87,7 @@ def _relation_results(extraction: DocumentExtraction) -> list[dict[str, Any]]:
     return results
 
 
-def to_label_studio_prediction(extraction: DocumentExtraction) -> dict[str, Any]:
+def to_label_studio_prediction(extraction: ExtractedDocument) -> dict[str, Any]:
     """Convert a document extraction into a Label Studio prediction dict."""
     results: list[dict[str, Any]] = []
     for item in extraction.citations:

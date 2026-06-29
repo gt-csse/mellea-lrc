@@ -1,7 +1,9 @@
 """Formal types for Layer 2 preprocessed documents."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
+
+from mellea_lrc.core.documents import DocumentBase
 
 
 class PreprocessingBackend(str, Enum):
@@ -11,38 +13,20 @@ class PreprocessingBackend(str, Enum):
     PLAIN_TEXT = "plain_text"
 
 
-class SourceFormat(str, Enum):
-    """Original document format before preprocessing."""
-
-    PDF = "pdf"
-    DOCX = "docx"
-    PPTX = "pptx"
-    XLSX = "xlsx"
-    HTML = "html"
-    MARKDOWN = "markdown"
-    TEXT = "text"
-    UNKNOWN = "unknown"
-
-
 @dataclass(frozen=True, slots=True)
-class PreprocessedDocumentMetadata:
-    """Provenance and pipeline metadata for a preprocessed document."""
+class PreprocessingMetadata:
+    """Backend provenance for the preprocessing stage."""
 
-    source_path: str | None = None
-    source_format: SourceFormat = SourceFormat.UNKNOWN
     backend: PreprocessingBackend = PreprocessingBackend.PLAIN_TEXT
     backend_version: str | None = None
-    header: str | None = None
-    extras: dict[str, str] = field(default_factory=dict)
 
 
-# Extraction consumes text plus provenance through this shared wrapper.
-@dataclass(frozen=True, slots=True)
-class PreprocessedDocument:
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PreprocessedDocument(DocumentBase):
     """Layer 2 text output consumed by citation extraction."""
 
     text: str
-    metadata: PreprocessedDocumentMetadata
+    preprocessing_metadata: PreprocessingMetadata
 
     def __post_init__(self) -> None:
         if not self.text:
