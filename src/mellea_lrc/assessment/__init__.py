@@ -1,28 +1,26 @@
-"""Mellea-assisted citation assessment helpers."""
+"""Document, citation, and field-level assessment APIs."""
 
-from mellea_lrc.assessment.citation import (
-    CitationAssessmentBundle,
-    assess_found_citation,
-)
-from mellea_lrc.assessment.deterministic import (
-    assess_case_name_exact_match,
-    assess_year_exact_match,
-    build_extracted_case_name,
+from mellea_lrc.assessment.citation import assess_found_citation
+from mellea_lrc.assessment.context import (
+    DocumentTextWindow,
     find_text_span_near_full_span,
     get_extended_span_text,
 )
-from mellea_lrc.assessment.pipeline import (
+from mellea_lrc.assessment.document import (
     MelleaCallContext,
     initialize_assessment,
     run_assessment,
     run_assessment_async,
 )
-from mellea_lrc.assessment.llm import (
+from mellea_lrc.assessment.fields.case_name import (
     ReextractionStatus,
+    assess_case_name_exact_match,
     assess_case_name_with_mellea,
+    build_extracted_case_name,
     reextract_case_name,
     validate_proposal,
 )
+from mellea_lrc.assessment.fields.year import assess_year_exact_match
 from mellea_lrc.assessment.types import (
     AssessmentMetadata,
     AssessmentSkipReason,
@@ -31,28 +29,21 @@ from mellea_lrc.assessment.types import (
     AssessedDocument,
     CaseNameAssessment,
     CaseNameAssessmentRun,
+    CaseNameAssessmentStatus,
+    CaseNameFollowup,
+    CaseNameFollowupStatus,
+    CaseNameProposal,
     CaseNameReassessed,
-    CaseNameReassessment,
     CaseNameReassessmentFailed,
     CaseNameReassessmentNotRequired,
     CaseNameReextractionFailed,
-    CaseNameAssessmentStatus,
     ChatTurn,
     CitationAssessment,
     CitationAssessmentResult,
-    CitationReassessment,
     FailedCitationAssessment,
-    ModifiedExtractedCitation,
-    ModifiedExtractedCitationProposal,
-    ReassessedCitationReassessment,
-    ReassessmentFailedCitationReassessment,
-    ReassessmentSkipReason,
-    ReassessmentStatus,
-    ReextractionFailedCitationReassessment,
+    ReextractedCaseName,
     SkippedCitationAssessment,
-    SkippedCitationReassessment,
     WaitingCitationAssessment,
-    WaitingCitationReassessment,
     YearAssessment,
     YearAssessmentStatus,
 )
@@ -66,30 +57,23 @@ __all__ = [
     "CaseNameAssessment",
     "CaseNameAssessmentRun",
     "CaseNameAssessmentStatus",
+    "CaseNameFollowup",
+    "CaseNameFollowupStatus",
+    "CaseNameProposal",
     "CaseNameReassessed",
-    "CaseNameReassessment",
     "CaseNameReassessmentFailed",
     "CaseNameReassessmentNotRequired",
     "CaseNameReextractionFailed",
     "ChatTurn",
     "CitationAssessment",
-    "CitationAssessmentBundle",
     "CitationAssessmentResult",
-    "CitationReassessment",
+    "DocumentTextWindow",
     "FailedCitationAssessment",
     "MelleaCallContext",
-    "ModifiedExtractedCitation",
-    "ModifiedExtractedCitationProposal",
-    "ReassessedCitationReassessment",
-    "ReassessmentFailedCitationReassessment",
-    "ReassessmentSkipReason",
-    "ReassessmentStatus",
-    "ReextractionFailedCitationReassessment",
+    "ReextractedCaseName",
     "ReextractionStatus",
     "SkippedCitationAssessment",
-    "SkippedCitationReassessment",
     "WaitingCitationAssessment",
-    "WaitingCitationReassessment",
     "YearAssessment",
     "YearAssessmentStatus",
     "assess_case_name_exact_match",

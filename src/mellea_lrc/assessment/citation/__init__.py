@@ -1,8 +1,7 @@
-"""Citation-level assessment orchestration."""
+"""Citation-level field aggregation."""
 
-from mellea_lrc.assessment.citation.assess import CitationAssessmentBundle, assess_found_citation
+from mellea_lrc.assessment.citation.assess import assess_found_citation
 
 __all__ = [
-    "CitationAssessmentBundle",
     "assess_found_citation",
 ]

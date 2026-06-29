@@ -33,9 +33,8 @@ type ValidationPayload = {
 };
 
 type AssessmentPayload = {
-  citation_id: string;
-  case_assess: CaseNameAssessmentPayload;
-  year_assess: YearAssessmentPayload;
+  case_name: CaseNameAssessmentRunPayload;
+  year: YearAssessmentPayload;
 };
 
 type CitationAssessmentPayload =
@@ -45,7 +44,6 @@ type CitationAssessmentPayload =
   | { citation_id: string; status: "failed"; error: string };
 
 type CaseNameAssessmentPayload = {
-  citation_id: string;
   status: string;
   extracted_case_name: string | null;
   courtlistener_case_name: string | null;
@@ -58,7 +56,6 @@ type TextSpan = {
 };
 
 type YearAssessmentPayload = {
-  citation_id: string;
   status: string;
   extracted_year: string | null;
   courtlistener_year: string | null;
@@ -79,35 +76,34 @@ type ReviewAssessment = {
   assessments: CitationAssessmentPayload[];
   assessment_complete: boolean;
   status_counts: Record<string, number>;
-  reassessments: CitationReassessmentPayload[];
-  reassessment_status_counts: Record<string, number>;
+  case_name_followup_status_counts: Record<string, number>;
   case_name_counts: Record<string, number>;
   year_counts: Record<string, number>;
 };
 
-type ModifiedExtractedCitationPayload = {
-  citation_id: string;
-  span: TextSpan | null;
-  matched_text: string | null;
-  case_name: string | null;
+type ReextractedCaseNamePayload = {
+  case_name: string;
+  case_name_span: TextSpan;
 };
 
-type CitationReassessmentPayload =
-  | { citation_id: string; status: "waiting" }
-  | { citation_id: string; status: "skipped"; reason: string; message: string }
+type CaseNameFollowupPayload =
+  | { status: "not_required" }
+  | { status: "reextraction_failed"; error: string }
   | {
-      citation_id: string;
       status: "reassessed";
-      modified_citation: ModifiedExtractedCitationPayload;
+      reextracted_case_name: ReextractedCaseNamePayload;
       result: CaseNameAssessmentPayload;
     }
-  | { citation_id: string; status: "reextraction_failed"; error: string }
   | {
-      citation_id: string;
       status: "reassessment_failed";
-      modified_citation: ModifiedExtractedCitationPayload;
+      reextracted_case_name: ReextractedCaseNamePayload;
       error: string;
     };
+
+type CaseNameAssessmentRunPayload = {
+  initial: CaseNameAssessmentPayload;
+  followup: CaseNameFollowupPayload;
+};
 
 type ReviewCitation = {
   id: string;
@@ -999,7 +995,7 @@ function CitationTags({
   );
   const showKind = workflowStage !== "assessed";
   const showYearMismatch = Boolean(
-    effective?.year_assess.status.toLowerCase().replaceAll("-", "_") === "mismatch" &&
+    effective?.year.status.toLowerCase().replaceAll("-", "_") === "mismatch" &&
       (workflowStage === "assessed" || variant === "details")
   );
   return (
@@ -1272,8 +1268,8 @@ function AssessmentDetails({ assessment }: { assessment: CitationAssessmentPaylo
     <div className="detail-group">
       <h3>Citation assessment</h3>
       <dl>
-        <CaseNameAssessmentDetails assessment={assessment.result.case_assess} />
-        <YearAssessmentDetails assessment={assessment.result.year_assess} />
+        <CaseNameAssessmentDetails assessment={assessment.result.case_name.initial} />
+        <YearAssessmentDetails assessment={assessment.result.year} />
       </dl>
     </div>
   );
@@ -1327,7 +1323,7 @@ function YearAssessmentDetails({ assessment }: { assessment: YearAssessmentPaylo
 
 function extractedCitationAttempts(
   citation: ReviewCitation,
-  assessment: ReviewAssessment | null
+  _assessment: ReviewAssessment | null
 ): ExtractedCitationAttempt[] {
   const original: ExtractedCitationAttempt = {
     label: "Extracted",
@@ -1337,28 +1333,23 @@ function extractedCitationAttempts(
     reassessment: null,
     span: null
   };
-  const modifiedReassessments = assessment?.reassessments.filter(
-    (item) => item.citation_id === citation.id && "modified_citation" in item
-  );
-  const modified = modifiedReassessments?.flatMap((reassessment, index, items) => {
-      if (!("modified_citation" in reassessment)) {
-        return [];
-      }
-      const item = reassessment.modified_citation;
-      return {
-        label: items.length > 1 ? `Re-extracted ${index + 1}` : "Re-extracted",
-        fields: {
-          ...citation.fields,
-          case_name: item.case_name ?? undefined
-        },
-        locator: citation.validation?.locator ?? citation.matched_text,
-        citation,
-        reassessment: reassessment.status === "reassessed" ? reassessment.result : null,
-        span: item.span ?? null
-      };
-    });
-
-  return [original, ...(modified ?? [])];
+  const result = completedAssessmentResult(citation.assessment);
+  const followup = result?.case_name.followup;
+  if (!followup || !("reextracted_case_name" in followup)) {
+    return [original];
+  }
+  const item = followup.reextracted_case_name;
+  return [
+    original,
+    {
+      label: "Re-extracted",
+      fields: { ...citation.fields, case_name: item.case_name },
+      locator: citation.validation?.locator ?? citation.matched_text,
+      citation,
+      reassessment: followup.status === "reassessed" ? followup.result : null,
+      span: item.case_name_span
+    }
+  ];
 }
 
 function bibliographicRows(
@@ -1398,7 +1389,7 @@ function bibliographicRows(
       courtListener: courtListenerCaseName,
       matchType: canColorRows
         ? caseNameRowMatchType(
-            extractedAttempt.reassessment ?? primaryAssessment?.case_assess,
+            extractedAttempt.reassessment ?? primaryAssessment?.case_name.initial,
             extractedCaseName,
             courtListenerCaseName
           )
@@ -1434,7 +1425,7 @@ function bibliographicRows(
       courtListener: courtListenerDate?.slice(0, 4),
       matchType: canColorRows
         ? yearRowMatchType(
-            primaryAssessment?.year_assess,
+            primaryAssessment?.year,
             fields.year,
             courtListenerDate?.slice(0, 4)
           )
@@ -1866,30 +1857,25 @@ function citationStatus(citation: ReviewCitation): CitationStatus {
 // extracted attempt for it (the source of the extraction-history switcher).
 function citationHasHistory(
   citation: ReviewCitation,
-  assessment: ReviewAssessment | null
+  _assessment: ReviewAssessment | null
 ): boolean {
-  return Boolean(
-    assessment?.reassessments.some(
-      (item) => item.citation_id === citation.id && "modified_citation" in item
-    )
-  );
+  const result = completedAssessmentResult(citation.assessment);
+  return Boolean(result && "reextracted_case_name" in result.case_name.followup);
 }
 
 // The effective (event-level) assessment for a citation: the re-extraction
 // reassessment when one exists, otherwise the original first-pass assessment.
 function effectiveAssessment(
   citation: ReviewCitation,
-  assessment: ReviewAssessment | null
+  _assessment: ReviewAssessment | null
 ): AssessmentPayload | null {
   const primary = completedAssessmentResult(citation.assessment);
   if (!primary) {
     return null;
   }
-  const reassessment = assessment?.reassessments.find(
-    (candidate) => candidate.citation_id === citation.id
-  );
-  return reassessment?.status === "reassessed"
-    ? { ...primary, case_assess: reassessment.result }
+  const followup = primary.case_name.followup;
+  return followup.status === "reassessed"
+    ? { ...primary, case_name: { ...primary.case_name, initial: followup.result } }
     : primary;
 }
 
@@ -1903,7 +1889,7 @@ function assessmentStatusFromPayload(assessment: AssessmentPayload | null): Asse
   if (!assessment) {
     return null;
   }
-  const normalized = assessment.case_assess.status.toLowerCase().replaceAll("-", "_");
+  const normalized = assessment.case_name.initial.status.toLowerCase().replaceAll("-", "_");
   if (normalized === "exact_match") {
     return "exact_match";
   }

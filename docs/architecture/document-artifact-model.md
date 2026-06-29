@@ -54,9 +54,9 @@ assessments.
   `extraction_metadata`, containing extraction backend provenance.
 - `ValidatedDocument` adds one real `validations` outcome for every citation and
   `validation_metadata`, containing lookup client mode and source.
-- `AssessedDocument` adds real assessment execution states, modified-extraction
-  and reassessment history, plus `assessment_metadata`, containing assessment-run
-  execution provenance.
+- `AssessedDocument` adds one real citation-assessment execution state per citation,
+  plus `assessment_metadata`, containing assessment-run execution provenance.
+  Completed citation assessments own their field results and case-name follow-up.
 
 Each later artifact inherits all earlier fields. A transition copies references to
 immutable earlier-stage values and allocates only the fields introduced by the new
@@ -72,10 +72,10 @@ stage.
 - Assessment identifiers exactly match extracted citation identifiers.
 - Assessment execution states form a tagged union: `waiting`, `skipped`,
   `assessed`, or `failed`. Each state carries only the data valid for that state.
-- Modified-citation and reassessment identifiers refer to citations in the same
-  document and are unique within their respective collections.
-- Nested case-name and year assessments use the same identifier as their parent
-  citation assessment.
+- Citation identity exists only on the document-level assessment record. Nested
+  case-name and year results do not duplicate it.
+- A re-extracted case name contains only its case-name value and required
+  document-local `case_name_span`; it is not represented as a modified citation.
 - Re-extraction is append-only: original extracted citations are never mutated or
   replaced.
 - Semantic external data is converted into typed immutable domain records before
@@ -115,7 +115,7 @@ with an error.
 |---|---|
 | `waiting` | Citation identity only |
 | `skipped` | Structured reason and message |
-| `assessed` | Required case-name and year assessment result |
+| `assessed` | Required case-name run and year assessment result |
 | `failed` | Required error detail |
 
 These are execution states. Domain conclusions such as `semantic_match` or
@@ -129,27 +129,22 @@ failure are not case-name conclusions. Work that has not run remains `waiting`;
 re-extraction and reassessment failures are represented by their corresponding
 reassessment execution states.
 
-`AssessedDocument` also contains exactly one ordered reassessment record per
-citation. Reassessment is a peer collection to assessment, not a sparse history.
-This makes citations that never enter re-extraction explicit rather than absent.
+Case-name reassessment is field-local and nested within a completed citation
+assessment. The initial assessment and follow-up outcome therefore cannot become
+detached from each other or from the owning citation record.
 
-| Reassessment state | State-specific payload |
+| Case-name follow-up state | State-specific payload |
 |---|---|
-| `waiting` | Citation identity only |
-| `skipped` | Structured reason and message |
-| `reassessed` | Required modified citation and substantive reassessment result |
-| `reextraction_failed` | Required error detail; no modified citation exists |
-| `reassessment_failed` | Required modified citation and error detail |
+| `not_required` | No additional payload |
+| `reassessed` | Required grounded `reextracted_case_name` and substantive result |
+| `reextraction_failed` | Required error detail; no grounded case name exists |
+| `reassessment_failed` | Required grounded `reextracted_case_name` and error detail |
 
-Skip reasons distinguish a skipped primary assessment, a failed primary assessment,
-and a completed primary assessment that did not require re-extraction. Modified
-citations are owned by `reassessed` or `reassessment_failed`; there is no separate
-top-level modified-citation collection. A successful reassessment contains the new
-case-name conclusion only; it does not copy the unchanged primary year assessment.
-Assessment and reassessment records must
-match extracted citation identity and order, and their paired execution states must
-be consistent. `assessment_complete` is derived and is true exactly when neither
-collection contains a `waiting` record.
+Skipped and failed citation assessments have no synthetic case-name follow-up;
+their document-level state already determines that field work did not run. A
+successful reassessment contains only the new case-name conclusion and does not
+copy the unchanged year assessment. `assessment_complete` is derived and is true
+exactly when no citation assessment remains `waiting`.
 
 `assessment_metadata` records the effective Mellea concurrency when applicable.
 It does not persist a `mellea_calls` counter; that redundant ordinal was removed
@@ -171,13 +166,13 @@ Serialized artifacts retain explicit top-level stage fields and require:
 
 Unversioned artifacts and mismatched artifact types are rejected. Deserialization
 validates the artifact invariants rather than silently constructing contradictory
-stage objects. Schema version 6 exposes the same stage ownership explicitly with
+stage objects. Schema version 7 exposes the same stage ownership explicitly with
 `source_metadata`, `preprocessing_metadata`, `extraction_metadata`,
 `validation_metadata`, and `assessment_metadata` keys as applicable. It also uses
-typed validation matches, explicit `extra_data` fields, and the complete
-per-citation reassessment union described above. Version 6 also adopts the
-conclusion-only case-name statuses and case-name-only successful reassessment
-payload. Earlier versions are not accepted.
+typed validation matches, explicit `extra_data` fields, conclusion-only case-name
+statuses, and nested case-name follow-up payloads. Version 7 removes the peer
+`reassessments` collection and duplicate nested citation identifiers. Earlier
+versions are not accepted.
 
 Every public artifact deserializer first validates a strict Pydantic transport DTO
 configured with `extra="forbid"` and no type coercion. Citation kinds and assessment

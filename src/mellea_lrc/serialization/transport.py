@@ -1,4 +1,4 @@
-"""Strict Pydantic DTOs for serialized artifact schema version 6."""
+"""Strict Pydantic DTOs for serialized artifact schema version 7."""
 
 # ruff: noqa: D101
 
@@ -182,7 +182,6 @@ class ChatTurnPayload(ArtifactPayload):
 
 
 class CaseNameAssessmentPayload(ArtifactPayload):
-    citation_id: str
     status: Literal[
         "exact_match",
         "semantic_match",
@@ -198,17 +197,55 @@ class CaseNameAssessmentPayload(ArtifactPayload):
 
 
 class YearAssessmentPayload(ArtifactPayload):
-    citation_id: str
     status: Literal["exact_match", "mismatch", "missing"]
     extracted_year: str | None
     courtlistener_year: str | None
     message: str
 
 
+class ReextractedCaseNamePayload(ArtifactPayload):
+    case_name: str
+    case_name_span: SpanPayload
+
+
+class CaseNameReassessmentNotRequiredPayload(ArtifactPayload):
+    status: Literal["not_required"]
+
+
+class CaseNameReextractionFailedPayload(ArtifactPayload):
+    status: Literal["reextraction_failed"]
+    error: str
+
+
+class CaseNameReassessedPayload(ArtifactPayload):
+    status: Literal["reassessed"]
+    reextracted_case_name: ReextractedCaseNamePayload
+    result: CaseNameAssessmentPayload
+
+
+class CaseNameReassessmentFailedPayload(ArtifactPayload):
+    status: Literal["reassessment_failed"]
+    reextracted_case_name: ReextractedCaseNamePayload
+    error: str
+
+
+CaseNameFollowupPayload = Annotated[
+    CaseNameReassessmentNotRequiredPayload
+    | CaseNameReextractionFailedPayload
+    | CaseNameReassessedPayload
+    | CaseNameReassessmentFailedPayload,
+    Field(discriminator="status"),
+]
+
+
+class CaseNameAssessmentRunPayload(ArtifactPayload):
+    initial: CaseNameAssessmentPayload
+    followup: CaseNameFollowupPayload
+
+
 class CitationAssessmentResultPayload(ArtifactPayload):
-    citation_id: str
-    case_assess: CaseNameAssessmentPayload
-    year_assess: YearAssessmentPayload
+    case_name: CaseNameAssessmentRunPayload
+    year: YearAssessmentPayload
 
 
 class WaitingCitationAssessmentPayload(ArtifactPayload):
@@ -244,59 +281,6 @@ CitationAssessmentPayload = Annotated[
 ]
 
 
-class ModifiedExtractedCitationPayload(ArtifactPayload):
-    citation_id: str
-    span: SpanPayload | None
-    matched_text: str | None
-    case_name: str | None
-
-
-class WaitingCitationReassessmentPayload(ArtifactPayload):
-    citation_id: str
-    status: Literal["waiting"]
-
-
-class SkippedCitationReassessmentPayload(ArtifactPayload):
-    citation_id: str
-    status: Literal["skipped"]
-    reason: Literal[
-        "assessment_skipped",
-        "assessment_failed",
-        "reextraction_not_required",
-    ]
-    message: str
-
-
-class ReassessedCitationReassessmentPayload(ArtifactPayload):
-    citation_id: str
-    status: Literal["reassessed"]
-    modified_citation: ModifiedExtractedCitationPayload
-    result: CaseNameAssessmentPayload
-
-
-class ReextractionFailedCitationReassessmentPayload(ArtifactPayload):
-    citation_id: str
-    status: Literal["reextraction_failed"]
-    error: str
-
-
-class ReassessmentFailedCitationReassessmentPayload(ArtifactPayload):
-    citation_id: str
-    status: Literal["reassessment_failed"]
-    modified_citation: ModifiedExtractedCitationPayload
-    error: str
-
-
-CitationReassessmentPayload = Annotated[
-    WaitingCitationReassessmentPayload
-    | SkippedCitationReassessmentPayload
-    | ReassessedCitationReassessmentPayload
-    | ReextractionFailedCitationReassessmentPayload
-    | ReassessmentFailedCitationReassessmentPayload,
-    Field(discriminator="status"),
-]
-
-
 class _PreprocessedDocumentFields(ArtifactPayload):
     text: str
     source_metadata: SourceMetadataPayload
@@ -314,23 +298,22 @@ class _ValidatedDocumentFields(_ExtractedDocumentFields):
 
 
 class PreprocessedDocumentPayload(_PreprocessedDocumentFields):
-    schema_version: Literal[6]
+    schema_version: Literal[7]
     artifact_type: Literal["preprocessed_document"]
 
 
 class ExtractedDocumentPayload(_ExtractedDocumentFields):
-    schema_version: Literal[6]
+    schema_version: Literal[7]
     artifact_type: Literal["extracted_document"]
 
 
 class ValidatedDocumentPayload(_ValidatedDocumentFields):
-    schema_version: Literal[6]
+    schema_version: Literal[7]
     artifact_type: Literal["validated_document"]
 
 
 class AssessedDocumentPayload(_ValidatedDocumentFields):
-    schema_version: Literal[6]
+    schema_version: Literal[7]
     artifact_type: Literal["assessed_document"]
     assessment_metadata: AssessmentMetadataPayload
     assessments: list[CitationAssessmentPayload]
-    reassessments: list[CitationReassessmentPayload]

@@ -7,19 +7,17 @@ from mellea_lrc.assessment import (
     AssessedCitationAssessment,
     CaseNameAssessment,
     CaseNameAssessmentRun,
+    CaseNameProposal,
     CaseNameReassessed,
     CaseNameReassessmentFailed,
+    CaseNameReassessmentNotRequired,
     CaseNameReextractionFailed,
     CaseNameAssessmentStatus,
     FailedCitationAssessment,
-    ModifiedExtractedCitationProposal,
-    ReassessmentSkipReason,
-    ReassessmentFailedCitationReassessment,
-    ReextractionFailedCitationReassessment,
+    DocumentTextWindow,
+    ReextractedCaseName,
     SkippedCitationAssessment,
-    SkippedCitationReassessment,
     WaitingCitationAssessment,
-    WaitingCitationReassessment,
     YearAssessmentStatus,
     assess_case_name_exact_match,
     assess_case_name_with_mellea,
@@ -32,7 +30,7 @@ from mellea_lrc.assessment import (
     run_assessment,
 )
 from mellea_lrc.assessment import ReextractionStatus, validate_proposal
-from mellea_lrc.assessment.llm.reextract import ReextractionResult
+from mellea_lrc.assessment.fields.case_name.reextract import ReextractionResult
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.core.spans import Span
@@ -140,7 +138,6 @@ def test_build_extracted_case_name_is_missing_without_parties() -> None:
 
 def test_assess_case_name_exact_match_passes_without_semantic_check() -> None:
     result = assess_case_name_exact_match(
-        citation_id="cite-1",
         extracted_case_name="Brown v. Board",
         courtlistener_case_name="Brown v. Board",
     )
@@ -150,7 +147,6 @@ def test_assess_case_name_exact_match_passes_without_semantic_check() -> None:
 
 def test_assess_case_name_mismatch_requires_mellea() -> None:
     result = assess_case_name_exact_match(
-        citation_id="cite-1",
         extracted_case_name="Brown v. Board",
         courtlistener_case_name="Brown v. Board of Education",
     )
@@ -160,7 +156,6 @@ def test_assess_case_name_mismatch_requires_mellea() -> None:
 
 def test_assess_case_name_missing_extracted_name_requires_mellea() -> None:
     result = assess_case_name_exact_match(
-        citation_id="cite-1",
         extracted_case_name=None,
         courtlistener_case_name="Brown v. Board",
     )
@@ -170,7 +165,6 @@ def test_assess_case_name_missing_extracted_name_requires_mellea() -> None:
 
 def test_assess_case_name_without_courtlistener_name_is_unassessable() -> None:
     result = assess_case_name_exact_match(
-        citation_id="cite-1",
         extracted_case_name="Brown v. Board",
         courtlistener_case_name=None,
     )
@@ -181,7 +175,6 @@ def test_assess_case_name_without_courtlistener_name_is_unassessable() -> None:
 
 def test_assess_case_name_exact_match_ignores_typographic_apostrophe() -> None:
     result = assess_case_name_exact_match(
-        citation_id="cite-1",
         extracted_case_name="World Wide Ass’n of Specialty Programs v. Pure, Inc.",
         courtlistener_case_name="World Wide Ass'n of Specialty Programs v. Pure, Inc.",
     )
@@ -191,7 +184,6 @@ def test_assess_case_name_exact_match_ignores_typographic_apostrophe() -> None:
 
 def test_assess_case_name_exact_match_ignores_collapsible_whitespace() -> None:
     result = assess_case_name_exact_match(
-        citation_id="cite-1",
         extracted_case_name="Brown v.\n\n Board",
         courtlistener_case_name="Brown v. Board",
     )
@@ -201,7 +193,6 @@ def test_assess_case_name_exact_match_ignores_collapsible_whitespace() -> None:
 
 def test_assess_year_exact_match_uses_string_equality() -> None:
     result = assess_year_exact_match(
-        citation_id="cite-1",
         extracted_year="1954",
         courtlistener_year="1954",
     )
@@ -211,7 +202,6 @@ def test_assess_year_exact_match_uses_string_equality() -> None:
 
 def test_assess_year_mismatch_is_deterministic_error() -> None:
     result = assess_year_exact_match(
-        citation_id="cite-1",
         extracted_year="1953",
         courtlistener_year="1954",
     )
@@ -221,7 +211,6 @@ def test_assess_year_mismatch_is_deterministic_error() -> None:
 
 def test_assess_year_missing_is_field_level_third_status() -> None:
     result = assess_year_exact_match(
-        citation_id="cite-1",
         extracted_year=None,
         courtlistener_year="1954",
     )
@@ -229,9 +218,9 @@ def test_assess_year_missing_is_field_level_third_status() -> None:
     assert result.status == YearAssessmentStatus.MISSING
 
 
-def test_modified_extracted_citation_proposal_valid_requires_grounded_fields() -> None:
+def test_case_name_proposal_valid_requires_grounding() -> None:
     context = "See World Wide Ass'n of Specialty Programs v. Pure, Inc., 450 F.3d 1132."
-    modified = ModifiedExtractedCitationProposal(
+    modified = CaseNameProposal(
         case_name="World Wide Ass'n of Specialty Programs v. Pure, Inc.",
     )
 
@@ -239,9 +228,9 @@ def test_modified_extracted_citation_proposal_valid_requires_grounded_fields() -
     assert modified.case_name == "World Wide Ass'n of Specialty Programs v. Pure, Inc."
 
 
-def test_modified_extracted_citation_proposal_valid_rejects_ungrounded_fields() -> None:
+def test_case_name_proposal_rejects_ungrounded_value() -> None:
     context = "See World Wide Ass'n of Specialty Programs v. Pure, Inc., 450 F.3d 1132."
-    modified = ModifiedExtractedCitationProposal(
+    modified = CaseNameProposal(
         case_name="World Wide Association of Specialty Programs v. Pure, Inc.",
     )
 
@@ -250,7 +239,7 @@ def test_modified_extracted_citation_proposal_valid_rejects_ungrounded_fields() 
 
 def test_reextraction_validation_accepts_grounded_proposal() -> None:
     context = "See World Wide Ass'n of Specialty Programs v. Pure, Inc., 450 F.3d 1132."
-    proposal = ModifiedExtractedCitationProposal(
+    proposal = CaseNameProposal(
         case_name="World Wide Ass'n of Specialty Programs v. Pure, Inc.",
     )
 
@@ -262,7 +251,7 @@ def test_reextraction_validation_accepts_grounded_proposal() -> None:
 
 def test_reextraction_validation_reports_ungrounded_fields() -> None:
     context = "See World Wide Ass'n of Specialty Programs v. Pure, Inc., 450 F.3d 1132."
-    proposal = ModifiedExtractedCitationProposal(
+    proposal = CaseNameProposal(
         case_name="World Wide Association of Specialty Programs v. Pure, Inc.",
     )
 
@@ -273,29 +262,29 @@ def test_reextraction_validation_reports_ungrounded_fields() -> None:
     assert "case_name" in error
 
 
-def test_reextraction_validation_distinguishes_empty_proposal() -> None:
-    status, error = validate_proposal(ModifiedExtractedCitationProposal(), "Context")
-
-    assert status == ReextractionStatus.EMPTY
-    assert error is None
+def test_case_name_proposal_rejects_empty_value() -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        CaseNameProposal(case_name="")
 
 
-def test_citation_reassessment_preserves_modified_citation_when_reassessment_fails(
+def test_case_name_followup_preserves_reextracted_value_when_reassessment_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    proposal = ModifiedExtractedCitationProposal(case_name="Brown v. Board of Education")
+    reextracted = ReextractedCaseName(
+        case_name="Brown v. Board of Education",
+        case_name_span=Span(0, 27),
+    )
 
     async def fail_after_reextraction(*_args, **_kwargs):
         return CaseNameAssessmentRun(
-            assessment=CaseNameAssessment(
-                citation_id="cite-1",
+            initial=CaseNameAssessment(
                 status=CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH,
                 extracted_case_name="Brown v. Board",
                 courtlistener_case_name="Brown v. Board of Education",
                 message="re-extraction attempted",
             ),
-            reassessment=CaseNameReassessmentFailed(
-                modified_citation=proposal,
+            followup=CaseNameReassessmentFailed(
+                reextracted_case_name=reextracted,
                 error="RuntimeError: reassessment unavailable",
             ),
         )
@@ -304,9 +293,8 @@ def test_citation_reassessment_preserves_modified_citation_when_reassessment_fai
         "mellea_lrc.assessment.citation.assess.assess_case_name_with_mellea",
         fail_after_reextraction,
     )
-    bundle = asyncio.run(
+    result = asyncio.run(
         assess_found_citation(
-            citation_id="cite-1",
             document_text="Brown v. Board of Education, 347 U.S. 483 (1954).",
             span=Span(0, 49),
             extracted_case_name="Brown v. Board",
@@ -317,33 +305,32 @@ def test_citation_reassessment_preserves_modified_citation_when_reassessment_fai
         )
     )
 
-    assert isinstance(bundle.reassessment, ReassessmentFailedCitationReassessment)
-    assert bundle.reassessment.modified_citation.case_name == "Brown v. Board of Education"
-    assert bundle.reassessment.error == "RuntimeError: reassessment unavailable"
+    followup = result.case_name.followup
+    assert isinstance(followup, CaseNameReassessmentFailed)
+    assert followup.reextracted_case_name.case_name == "Brown v. Board of Education"
+    assert followup.error == "RuntimeError: reassessment unavailable"
 
 
-def test_citation_reassessment_records_reextraction_failure_without_modified_citation(
+def test_case_name_followup_records_reextraction_failure_without_grounded_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fail_reextraction(*_args, **_kwargs):
         return CaseNameAssessmentRun(
-            assessment=CaseNameAssessment(
-                citation_id="cite-1",
+            initial=CaseNameAssessment(
                 status=CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH,
                 extracted_case_name="Brown v. Board",
                 courtlistener_case_name="Brown v. Board of Education",
                 message="re-extraction failed",
             ),
-            reassessment=CaseNameReextractionFailed(error="invalid proposal"),
+            followup=CaseNameReextractionFailed(error="invalid proposal"),
         )
 
     monkeypatch.setattr(
         "mellea_lrc.assessment.citation.assess.assess_case_name_with_mellea",
         fail_reextraction,
     )
-    bundle = asyncio.run(
+    result = asyncio.run(
         assess_found_citation(
-            citation_id="cite-1",
             document_text="Brown v. Board, 347 U.S. 483 (1954).",
             span=Span(0, 36),
             extracted_case_name="Brown v. Board",
@@ -354,17 +341,14 @@ def test_citation_reassessment_records_reextraction_failure_without_modified_cit
         )
     )
 
-    assert bundle.reassessment == ReextractionFailedCitationReassessment(
-        citation_id="cite-1",
-        error="invalid proposal",
-    )
+    assert result.case_name.followup == CaseNameReextractionFailed(error="invalid proposal")
 
 
 def test_case_name_run_captures_reassessment_failure_after_accepted_reextraction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "mellea_lrc.assessment.llm.case_name.structured_model_options",
+        "mellea_lrc.assessment.fields.case_name.assess.structured_model_options",
         lambda **_kwargs: {},
     )
 
@@ -374,7 +358,7 @@ def test_case_name_run_captures_reassessment_failure_after_accepted_reextraction
     async def accepted_reextraction(*_args, **_kwargs):
         return ReextractionResult(
             status=ReextractionStatus.ACCEPTED,
-            proposal=ModifiedExtractedCitationProposal(case_name="Brown v. Board of Education"),
+            proposal=CaseNameProposal(case_name="Brown v. Board of Education"),
         )
 
     async def fail_reassessment(*_args, **_kwargs):
@@ -382,31 +366,33 @@ def test_case_name_run_captures_reassessment_failure_after_accepted_reextraction
         raise RuntimeError(msg)
 
     monkeypatch.setattr(
-        "mellea_lrc.assessment.llm.case_name.semantic_match_case_name",
+        "mellea_lrc.assessment.fields.case_name.assess.semantic_match_case_name",
         no_semantic_match,
     )
     monkeypatch.setattr(
-        "mellea_lrc.assessment.llm.case_name.reextract_case_name",
+        "mellea_lrc.assessment.fields.case_name.assess.reextract_case_name",
         accepted_reextraction,
     )
     monkeypatch.setattr(
-        "mellea_lrc.assessment.llm.case_name._assess_reextracted_case_name",
+        "mellea_lrc.assessment.fields.case_name.assess._assess_reextracted_case_name",
         fail_reassessment,
     )
 
     run = asyncio.run(
         assess_case_name_with_mellea(
             object(),
-            citation_id="cite-1",
             extracted_case_name="Brown v. Board",
             courtlistener_case_name="Brown v. Board of Education",
-            document_context="Brown v. Board of Education",
+            document_context=DocumentTextWindow.around(
+                "Brown v. Board of Education",
+                Span(0, 27),
+            ),
         )
     )
 
-    assert isinstance(run.reassessment, CaseNameReassessmentFailed)
-    assert run.reassessment.modified_citation.case_name == "Brown v. Board of Education"
-    assert run.reassessment.error == "RuntimeError: classifier unavailable"
+    assert isinstance(run.followup, CaseNameReassessmentFailed)
+    assert run.followup.reextracted_case_name.case_name == "Brown v. Board of Education"
+    assert run.followup.error == "RuntimeError: classifier unavailable"
 
 
 def test_case_name_run_uses_native_semantic_classifier_call(
@@ -414,7 +400,7 @@ def test_case_name_run_uses_native_semantic_classifier_call(
 ) -> None:
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(
-        "mellea_lrc.assessment.llm.case_name.structured_model_options",
+        "mellea_lrc.assessment.fields.case_name.assess.structured_model_options",
         lambda **_kwargs: {},
     )
 
@@ -427,25 +413,28 @@ def test_case_name_run_uses_native_semantic_classifier_call(
         raise AssertionError(msg)
 
     monkeypatch.setattr(
-        "mellea_lrc.assessment.llm.case_name.semantic_match_case_name",
+        "mellea_lrc.assessment.fields.case_name.assess.semantic_match_case_name",
         semantic_match,
     )
     monkeypatch.setattr(
-        "mellea_lrc.assessment.llm.case_name.reextract_case_name",
+        "mellea_lrc.assessment.fields.case_name.assess.reextract_case_name",
         unexpected_reextraction,
     )
 
     run = asyncio.run(
         assess_case_name_with_mellea(
             object(),
-            citation_id="cite-1",
             extracted_case_name="Brown v. Board",
             courtlistener_case_name="Brown v. Board of Education",
-            document_context="Brown v. Board, 347 U.S. 483",
+            document_context=DocumentTextWindow.around(
+                "Brown v. Board, 347 U.S. 483",
+                Span(0, 14),
+            ),
         )
     )
 
-    assert run.assessment.status == CaseNameAssessmentStatus.SEMANTIC_MATCH
+    assert run.initial.status == CaseNameAssessmentStatus.SEMANTIC_MATCH
+    assert isinstance(run.followup, CaseNameReassessmentNotRequired)
     assert len(calls) == 1
     assert "model_options" in calls[0]
     assert "strategy" not in calls[0]
@@ -457,7 +446,7 @@ def test_case_name_run_uses_native_post_reextraction_classifier(
     semantic_calls = 0
     non_semantic_calls: list[dict[str, object]] = []
     monkeypatch.setattr(
-        "mellea_lrc.assessment.llm.case_name.structured_model_options",
+        "mellea_lrc.assessment.fields.case_name.assess.structured_model_options",
         lambda **_kwargs: {},
     )
 
@@ -469,7 +458,7 @@ def test_case_name_run_uses_native_post_reextraction_classifier(
     async def accepted_reextraction(*_args, **_kwargs):
         return ReextractionResult(
             status=ReextractionStatus.ACCEPTED,
-            proposal=ModifiedExtractedCitationProposal(case_name="Brown Board"),
+            proposal=CaseNameProposal(case_name="Brown Board"),
         )
 
     async def irregular_form(*_args, **kwargs):
@@ -477,30 +466,32 @@ def test_case_name_run_uses_native_post_reextraction_classifier(
         return "irregular_form"
 
     monkeypatch.setattr(
-        "mellea_lrc.assessment.llm.case_name.semantic_match_case_name",
+        "mellea_lrc.assessment.fields.case_name.assess.semantic_match_case_name",
         no_semantic_match,
     )
     monkeypatch.setattr(
-        "mellea_lrc.assessment.llm.case_name.reextract_case_name",
+        "mellea_lrc.assessment.fields.case_name.assess.reextract_case_name",
         accepted_reextraction,
     )
     monkeypatch.setattr(
-        "mellea_lrc.assessment.llm.case_name.classify_non_semantic_case_name",
+        "mellea_lrc.assessment.fields.case_name.assess.classify_non_semantic_case_name",
         irregular_form,
     )
 
     run = asyncio.run(
         assess_case_name_with_mellea(
             object(),
-            citation_id="cite-1",
             extracted_case_name="Brown v. Board",
             courtlistener_case_name="Brown v. Board of Education",
-            document_context="Brown Board, 347 U.S. 483",
+            document_context=DocumentTextWindow.around(
+                "Brown Board, 347 U.S. 483",
+                Span(0, 11),
+            ),
         )
     )
 
-    assert isinstance(run.reassessment, CaseNameReassessed)
-    assert run.reassessment.reassessment.status == CaseNameAssessmentStatus.IRREGULAR_FORM
+    assert isinstance(run.followup, CaseNameReassessed)
+    assert run.followup.result.status == CaseNameAssessmentStatus.IRREGULAR_FORM
     assert semantic_calls == 2
     assert len(non_semantic_calls) == 1
     assert "model_options" in non_semantic_calls[0]
@@ -563,15 +554,9 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
     assert len(assessment.assessments) == 1
     record = assessment.assessments[0]
     assert isinstance(record, AssessedCitationAssessment)
-    assert record.result.case_assess.status == CaseNameAssessmentStatus.EXACT_MATCH
-    assert record.result.year_assess.status == YearAssessmentStatus.EXACT_MATCH
-    assert assessment.reassessments == (
-        SkippedCitationReassessment(
-            citation_id="cite-1",
-            reason=ReassessmentSkipReason.REEXTRACTION_NOT_REQUIRED,
-            message="Primary assessment completed without re-extraction.",
-        ),
-    )
+    assert record.result.case_name.initial.status == CaseNameAssessmentStatus.EXACT_MATCH
+    assert isinstance(record.result.case_name.followup, CaseNameReassessmentNotRequired)
+    assert record.result.year.status == YearAssessmentStatus.EXACT_MATCH
 
 
 def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
@@ -621,7 +606,6 @@ def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
 
     assert assessment.assessment_complete is False
     assert assessment.assessments == (WaitingCitationAssessment(citation_id="cite-1"),)
-    assert assessment.reassessments == (WaitingCitationReassessment(citation_id="cite-1"),)
 
 
 def test_initialize_assessment_marks_unsupported_citation_skipped() -> None:
@@ -665,13 +649,6 @@ def test_initialize_assessment_marks_unsupported_citation_skipped() -> None:
             message="Citation kind FullLawCitation is not assessed.",
         ),
     )
-    assert assessment.reassessments == (
-        SkippedCitationReassessment(
-            citation_id="cite-1",
-            reason=ReassessmentSkipReason.ASSESSMENT_SKIPPED,
-            message="Primary assessment was skipped.",
-        ),
-    )
 
 
 def test_run_assessment_records_per_citation_failure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -679,7 +656,10 @@ def test_run_assessment_records_per_citation_failure(monkeypatch: pytest.MonkeyP
         msg = "assessment service unavailable"
         raise RuntimeError(msg)
 
-    monkeypatch.setattr("mellea_lrc.assessment.pipeline.assess_found_citation", fail_assessment)
+    monkeypatch.setattr(
+        "mellea_lrc.assessment.document.pipeline.assess_found_citation",
+        fail_assessment,
+    )
     text = "Brown v. Board, 347 U.S. 483 (1954)."
     preprocessed = PreprocessedDocument(
         source_metadata=SourceMetadata(),
@@ -730,12 +710,5 @@ def test_run_assessment_records_per_citation_failure(monkeypatch: pytest.MonkeyP
         FailedCitationAssessment(
             citation_id="cite-1",
             error="RuntimeError: assessment service unavailable",
-        ),
-    )
-    assert assessment.reassessments == (
-        SkippedCitationReassessment(
-            citation_id="cite-1",
-            reason=ReassessmentSkipReason.ASSESSMENT_FAILED,
-            message="Primary assessment failed before reassessment could be completed.",
         ),
     )

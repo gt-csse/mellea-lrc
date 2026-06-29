@@ -6,15 +6,14 @@ from mellea_lrc.assessment import (
     AssessedCitationAssessment,
     AssessedDocument,
     CaseNameAssessment,
+    CaseNameAssessmentRun,
     CaseNameAssessmentStatus,
+    CaseNameReassessed,
+    CaseNameReassessmentNotRequired,
     CitationAssessment,
     CitationAssessmentResult,
-    CitationReassessment,
-    ModifiedExtractedCitation,
-    ReassessedCitationReassessment,
-    ReassessmentSkipReason,
-    SkippedCitationReassessment,
-    WaitingCitationReassessment,
+    ReextractedCaseName,
+    WaitingCitationAssessment,
     YearAssessment,
     YearAssessmentStatus,
 )
@@ -109,17 +108,7 @@ def _assessed_document(
     citations: tuple[ExtractedCitation, ...],
     validations: tuple[CitationValidation, ...],
     assessments: tuple[CitationAssessment, ...],
-    reassessments: tuple[CitationReassessment, ...] | None = None,
 ) -> AssessedDocument:
-    if reassessments is None:
-        reassessments = tuple(
-            SkippedCitationReassessment(
-                citation_id=citation.citation_id,
-                reason=ReassessmentSkipReason.REEXTRACTION_NOT_REQUIRED,
-                message="Primary assessment completed without re-extraction.",
-            )
-            for citation in citations
-        )
     return AssessedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
@@ -129,7 +118,6 @@ def _assessed_document(
         validations=validations,
         validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
         assessments=assessments,
-        reassessments=reassessments,
         assessment_metadata=AssessmentMetadata(),
     )
 
@@ -244,10 +232,11 @@ def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> 
 
     assessment = output["citations"][0]["assessment"]
     assert assessment["status"] == "assessed"
-    assert assessment["result"]["case_assess"]["status"] == "exact_match"
-    assert assessment["result"]["year_assess"]["status"] == "exact_match"
-    assert assessment["result"]["year_assess"]["extracted_year"] == "1954"
-    assert assessment["result"]["year_assess"]["courtlistener_year"] == "1954"
+    assert assessment["result"]["case_name"]["initial"]["status"] == "exact_match"
+    assert assessment["result"]["case_name"]["followup"]["status"] == "not_required"
+    assert assessment["result"]["year"]["status"] == "exact_match"
+    assert assessment["result"]["year"]["extracted_year"] == "1954"
+    assert assessment["result"]["year"]["courtlistener_year"] == "1954"
     assert output["assessment"]["case_name_counts"]["exact_match"] == 1
     assert output["assessment"]["year_counts"]["exact_match"] == 1
 
@@ -281,16 +270,16 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
         ),
     )
     assessment_result = CitationAssessmentResult(
-        citation_id="cite-1",
-        case_assess=CaseNameAssessment(
-            citation_id="cite-1",
-            status=CaseNameAssessmentStatus.EXACT_MATCH,
-            extracted_case_name="Brown v. Board",
-            courtlistener_case_name="Brown v. Board",
-            message="match",
+        case_name=CaseNameAssessmentRun(
+            initial=CaseNameAssessment(
+                status=CaseNameAssessmentStatus.EXACT_MATCH,
+                extracted_case_name="Brown v. Board",
+                courtlistener_case_name="Brown v. Board",
+                message="match",
+            ),
+            followup=CaseNameReassessmentNotRequired(),
         ),
-        year_assess=YearAssessment(
-            citation_id="cite-1",
+        year=YearAssessment(
             status=YearAssessmentStatus.EXACT_MATCH,
             extracted_year="1954",
             courtlistener_year="1954",
@@ -305,7 +294,7 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
             validations=(validation,),
             assessments=(
                 AssessedCitationAssessment(
-                    citation_id=assessment_result.citation_id,
+                    citation_id="cite-1",
                     result=assessment_result,
                 ),
             ),
@@ -314,13 +303,13 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
 
     assert output["document"]["text"] == preprocessed.text
     assert output["citations"][0]["validation"]["status"] == "found"
-    assert output["citations"][0]["assessment"]["result"]["case_assess"]["status"] == "exact_match"
+    assert output["citations"][0]["assessment"]["result"]["case_name"]["initial"]["status"] == "exact_match"
     assert output["assessment"]["case_name_counts"]["exact_match"] == 1
     assert output["assessment"]["year_counts"]["exact_match"] == 1
     assert output["stats"]["assessed"] == 1
 
 
-def test_review_document_assessment_preserves_waiting_reassessment() -> None:
+def test_review_document_assessment_preserves_waiting_citation() -> None:
     preprocessed = preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483 (1954).")
     citation = ExtractedCitation(
         citation_id="cite-1",
@@ -342,34 +331,12 @@ def test_review_document_assessment_preserves_waiting_reassessment() -> None:
                     message="found",
                 ),
             ),
-            assessments=(
-                AssessedCitationAssessment(
-                    citation_id="cite-1",
-                    result=CitationAssessmentResult(
-                        citation_id="cite-1",
-                        case_assess=CaseNameAssessment(
-                            citation_id="cite-1",
-                            status=CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH,
-                            extracted_case_name="Brown v. Board",
-                            courtlistener_case_name="Brown v. Board of Education",
-                            message="needs assessment",
-                        ),
-                        year_assess=YearAssessment(
-                            citation_id="cite-1",
-                            status=YearAssessmentStatus.EXACT_MATCH,
-                            extracted_year="1954",
-                            courtlistener_year="1954",
-                            message="match",
-                        ),
-                    ),
-                ),
-            ),
-            reassessments=(WaitingCitationReassessment(citation_id="cite-1"),),
+            assessments=(WaitingCitationAssessment(citation_id="cite-1"),),
         )
     )
 
     assert output["assessment"]["assessment_complete"] is False
-    assert output["assessment"]["reassessments"][0]["status"] == "waiting"
+    assert output["assessment"]["assessments"][0]["status"] == "waiting"
 
 
 def test_review_document_assessment_allows_resolved_reextraction_handoff() -> None:
@@ -381,30 +348,34 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
         matched_text="347 U.S. 483",
         citation=FullCaseCitation(volume="347", reporter="U.S.", page="483"),
     )
-    year_assess = YearAssessment(
-        citation_id="cite-1",
+    year = YearAssessment(
         status=YearAssessmentStatus.EXACT_MATCH,
         extracted_year="1954",
         courtlistener_year="1954",
         message="match",
     )
     primary = CitationAssessmentResult(
-        citation_id="cite-1",
-        case_assess=CaseNameAssessment(
-            citation_id="cite-1",
-            status=CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH,
-            extracted_case_name="Brown v. Board",
-            courtlistener_case_name="Brown v. Board of Education",
-            message="re-extraction attempted",
+        case_name=CaseNameAssessmentRun(
+            initial=CaseNameAssessment(
+                status=CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH,
+                extracted_case_name="Brown v. Board",
+                courtlistener_case_name="Brown v. Board of Education",
+                message="re-extraction attempted",
+            ),
+            followup=CaseNameReassessed(
+                reextracted_case_name=ReextractedCaseName(
+                    case_name="Brown v. Board",
+                    case_name_span=Span(0, 14),
+                ),
+                result=CaseNameAssessment(
+                    status=CaseNameAssessmentStatus.SEMANTIC_MATCH,
+                    extracted_case_name="Brown v. Board of Education",
+                    courtlistener_case_name="Brown v. Board of Education",
+                    message="semantic match after re-extraction",
+                ),
+            ),
         ),
-        year_assess=year_assess,
-    )
-    reassessment = CaseNameAssessment(
-        citation_id="cite-1",
-        status=CaseNameAssessmentStatus.SEMANTIC_MATCH,
-        extracted_case_name="Brown v. Board of Education",
-        courtlistener_case_name="Brown v. Board of Education",
-        message="semantic match after re-extraction",
+        year=year,
     )
     output = review_document_assessment(
         _assessed_document(
@@ -420,21 +391,10 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
                 ),
             ),
             assessments=(AssessedCitationAssessment(citation_id="cite-1", result=primary),),
-            reassessments=(
-                ReassessedCitationReassessment(
-                    citation_id="cite-1",
-                    modified_citation=ModifiedExtractedCitation(
-                        citation_id="cite-1",
-                        span=Span(0, 14),
-                        matched_text="Brown v. Board",
-                        case_name="Brown v. Board",
-                    ),
-                    result=reassessment,
-                ),
-            ),
         )
     )
-    assert output["assessment"]["reassessments"][0]["result"]["status"] == "semantic_match"
+    followup = output["assessment"]["assessments"][0]["result"]["case_name"]["followup"]
+    assert followup["result"]["status"] == "semantic_match"
 
 
 def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> None:
@@ -474,16 +434,16 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
             AssessedCitationAssessment(
                 citation_id="cite-1",
                 result=CitationAssessmentResult(
-                    citation_id="cite-1",
-                    case_assess=CaseNameAssessment(
-                        citation_id="cite-1",
-                        status=CaseNameAssessmentStatus.EXACT_MATCH,
-                        extracted_case_name="Brown v. Board",
-                        courtlistener_case_name="Brown v. Board",
-                        message="match",
+                    case_name=CaseNameAssessmentRun(
+                        initial=CaseNameAssessment(
+                            status=CaseNameAssessmentStatus.EXACT_MATCH,
+                            extracted_case_name="Brown v. Board",
+                            courtlistener_case_name="Brown v. Board",
+                            message="match",
+                        ),
+                        followup=CaseNameReassessmentNotRequired(),
                     ),
-                    year_assess=YearAssessment(
-                        citation_id="cite-1",
+                    year=YearAssessment(
                         status=YearAssessmentStatus.EXACT_MATCH,
                         extracted_year="1954",
                         courtlistener_year="1954",
