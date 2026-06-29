@@ -189,11 +189,6 @@ class ModifiedExtractedCitationProposal:
 
     case_name: str | None = None
 
-    @property
-    def extracted_case_name(self) -> str | None:
-        """Alias used by reassessment and serialization."""
-        return self.case_name
-
     def valid(self, document_context: str) -> bool:
         """Require the proposed case name to be present in the original context."""
         return bool(self.case_name) and is_in_context(self.case_name, document_context)
@@ -207,11 +202,6 @@ class ModifiedExtractedCitation:
     span: Span | None = None
     matched_text: str | None = None
     case_name: str | None = None
-
-    @property
-    def extracted_case_name(self) -> str | None:
-        """Alias used by reassessment and serialization."""
-        return self.case_name
 
     @classmethod
     def from_proposal(

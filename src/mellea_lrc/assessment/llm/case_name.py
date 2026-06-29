@@ -158,7 +158,7 @@ async def _run_reassessment_after_reextraction(
         reassessment = await _assess_reextracted_case_name(
             session,
             citation_id=citation_id,
-            corrected_case_name=cast("str", reextraction.proposal.extracted_case_name),
+            corrected_case_name=cast("str", reextraction.proposal.case_name),
             courtlistener_case_name=courtlistener_case_name,
             document_context=document_context,
         )

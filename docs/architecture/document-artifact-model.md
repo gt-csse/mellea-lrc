@@ -150,7 +150,7 @@ Serialized artifacts retain explicit top-level stage fields and require:
 
 Unversioned artifacts and mismatched artifact types are rejected. Deserialization
 validates the artifact invariants rather than silently constructing contradictory
-stage objects. Schema version 4 exposes the same stage ownership explicitly with
+stage objects. Schema version 5 exposes the same stage ownership explicitly with
 `source_metadata`, `preprocessing_metadata`, `extraction_metadata`,
 `validation_metadata`, and `assessment_metadata` keys as applicable. It also uses
 typed validation matches, explicit `extra_data` fields, and the complete
@@ -162,9 +162,9 @@ execution states use discriminated transport unions, so state-inappropriate fiel
 are rejected at the boundary. The validated DTO is then converted into immutable
 domain dataclasses; Pydantic models never enter the document inheritance chain.
 
-Serialized counts and completion flags are treated as derived integrity data. A
-reader recomputes them from the reconstructed artifact and rejects a payload when
-the serialized summary is stale or contradictory.
+Serialized artifacts contain source-of-truth domain data only. Counts, completion
+flags, and status summaries are derived by consumers and are not duplicated in the
+artifact schema.
 
 ### Breaking-change policy
 
