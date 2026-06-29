@@ -5,8 +5,7 @@ import hashlib
 from pathlib import Path
 import sys
 
-from mellea_lrc.extraction import extract_document_file
-from scripts.label_studio import upload_schema, upload_tasks
+from mellea_lrc.extraction import extract_document_file, extract_citations, DocumentExtraction
 
 # %%
 # Prints the sys.modules
@@ -47,13 +46,15 @@ def convert_to_text(file_path: Path) -> str:
 # %%
 def main() -> int:
     """Run the mellea benchmark."""
+    # Get a PDF to analyze
     file_path = get_document()
-    # Check if already converted
+    # Convert the file to text and save a copy
     dir_name = Path(__file__).parent / ".cache"
     dir_name.mkdir(exist_ok=True)
     raw = file_path.read_bytes()
     hash_string = hashlib.sha256(raw).hexdigest()
     text_path = dir_name / str(hash_string + ".txt")
+    text = ""
     if hash_string in list(path.stem for path in dir_name.iterdir()):
         text = text_path.read_text(encoding="utf-8")
     else:
@@ -63,8 +64,12 @@ def main() -> int:
     header = "\n".join(text.split("\n")[:9])
     print(header)
 
-    upload_schema.main()
-    upload_tasks.main(paths=[str(text_path)])
+    # upload_schema.main()
+    # upload_tasks.main(paths=[str(text_path)]) Don't upload them to Label Studio
+    citations: DocumentExtraction = extract_citations(text)
+
+    
+
     return 0
 
 
