@@ -1,4 +1,6 @@
-"""Strict Pydantic models for external CourtListener citation payloads."""
+"""inbound boundary layer: untrusted JSON → validated Pydantic DTOs → immutable domain types in types.py
+Strict Pydantic models for external CourtListener citation payloads."""
+
 
 from __future__ import annotations
 
