@@ -84,7 +84,6 @@ def test_validation_copies_and_deeply_freezes_service_payloads() -> None:
 def test_assessment_copies_and_freezes_chat_history() -> None:
     turn = ChatTurn(role="assistant", content="original")
     assessment = CaseNameAssessment(
-        citation_id="cite-1",
         status=CaseNameAssessmentStatus.EXACT_MATCH,
         extracted_case_name="Brown v. Board",
         courtlistener_case_name="Brown v. Board",

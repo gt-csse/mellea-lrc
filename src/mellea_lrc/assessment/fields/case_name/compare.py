@@ -1,9 +1,10 @@
-"""Deterministic case-name comparison."""
+"""Deterministic case-name extraction and comparison."""
 
 import unicodedata
 from collections.abc import Iterable
 
-from mellea_lrc.assessment.types import ChatTurn, CaseNameAssessment, CaseNameAssessmentStatus
+from mellea_lrc.assessment.types.case_name import CaseNameAssessment, CaseNameAssessmentStatus
+from mellea_lrc.assessment.types.common import ChatTurn
 from mellea_lrc.core.citations import FullCaseCitation
 
 _TYPOGRAPHIC_TRANSLATION = str.maketrans(
@@ -37,7 +38,7 @@ _STATUS_MESSAGES = {
 
 
 def normalize_case_name(value: str) -> str:
-    """Normalize a case name for equality checks (quotes, dashes, whitespace)."""
+    """Normalize a case name for equality checks."""
     normalized = unicodedata.normalize("NFKC", value).translate(_TYPOGRAPHIC_TRANSLATION)
     return " ".join(normalized.split())
 
@@ -57,7 +58,6 @@ def build_extracted_case_name(citation: FullCaseCitation) -> str | None:
 
 
 def build_case_name_assessment(
-    citation_id: str,
     status: CaseNameAssessmentStatus,
     extracted_case_name: str | None,
     courtlistener_case_name: str | None,
@@ -65,9 +65,8 @@ def build_case_name_assessment(
     message: str | None = None,
     chat_history: Iterable[ChatTurn] | None = None,
 ) -> CaseNameAssessment:
-    """Build a case-name assessment with the canonical status message."""
+    """Build a case-name assessment with its canonical status message."""
     return CaseNameAssessment(
-        citation_id=citation_id,
         status=status,
         extracted_case_name=extracted_case_name,
         courtlistener_case_name=courtlistener_case_name,
@@ -78,14 +77,12 @@ def build_case_name_assessment(
 
 def assess_case_name_exact_match(
     *,
-    citation_id: str,
     extracted_case_name: str | None,
     courtlistener_case_name: str | None,
 ) -> CaseNameAssessment | None:
-    """Return a terminal deterministic conclusion, or ``None`` when Mellea is required."""
+    """Return a terminal deterministic conclusion, or None when Mellea is required."""
     if not courtlistener_case_name:
         return build_case_name_assessment(
-            citation_id,
             CaseNameAssessmentStatus.UNASSESSABLE,
             extracted_case_name,
             courtlistener_case_name,
@@ -93,7 +90,6 @@ def assess_case_name_exact_match(
         )
     if case_names_equivalent(extracted_case_name, courtlistener_case_name):
         return build_case_name_assessment(
-            citation_id,
             CaseNameAssessmentStatus.EXACT_MATCH,
             extracted_case_name,
             courtlistener_case_name,

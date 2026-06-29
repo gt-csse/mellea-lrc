@@ -11,18 +11,15 @@ from mellea_lrc.assessment import (
     AssessedCitationAssessment,
     AssessedDocument,
     CaseNameAssessment,
+    CaseNameAssessmentRun,
     CaseNameAssessmentStatus,
+    CaseNameReassessed,
+    CaseNameReassessmentFailed,
     CitationAssessmentResult,
     FailedCitationAssessment,
-    ModifiedExtractedCitation,
-    ReassessedCitationReassessment,
-    ReassessmentFailedCitationReassessment,
-    ReassessmentSkipReason,
-    ReextractionFailedCitationReassessment,
+    ReextractedCaseName,
     SkippedCitationAssessment,
-    SkippedCitationReassessment,
     WaitingCitationAssessment,
-    WaitingCitationReassessment,
     YearAssessment,
     YearAssessmentStatus,
 )
@@ -34,13 +31,11 @@ from mellea_lrc.serialization import (
     deserialize_assessed_document,
     deserialize_extracted_document,
     deserialize_citation_assessment,
-    deserialize_citation_reassessment,
     deserialize_preprocessed_document,
     deserialize_validated_document,
     serialize_assessed_document,
     serialize_extracted_document,
     serialize_citation_assessment,
-    serialize_citation_reassessment,
     serialize_preprocessed_document,
     serialize_validated_document,
 )
@@ -66,7 +61,7 @@ def test_document_extraction_serializes_without_ui_assumptions() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
     artifact = serialize_extracted_document(extraction)
 
-    assert artifact["schema_version"] == 6
+    assert artifact["schema_version"] == 7
     assert artifact["artifact_type"] == "extracted_document"
     assert artifact["source_metadata"]["path"] is None
     assert artifact["text"] == SAMPLE_TEXT
@@ -102,7 +97,7 @@ def test_unversioned_preprocessed_document_is_rejected() -> None:
 
 def test_previous_schema_version_is_rejected() -> None:
     artifact = serialize_preprocessed_document(extract_citations(SAMPLE_TEXT))
-    artifact["schema_version"] = 5
+    artifact["schema_version"] = 6
 
     with pytest.raises(ValueError, match="schema_version"):
         deserialize_preprocessed_document(artifact)
@@ -147,14 +142,6 @@ def test_assessment_transport_rejects_state_inappropriate_fields() -> None:
 
     with pytest.raises(ValidationError, match="error"):
         deserialize_citation_assessment(payload)
-
-
-def test_reassessment_transport_rejects_state_inappropriate_fields() -> None:
-    payload = serialize_citation_reassessment(WaitingCitationReassessment(citation_id="cite-1"))
-    payload["modified_citation"] = {}
-
-    with pytest.raises(ValidationError, match="modified_citation"):
-        deserialize_citation_reassessment(payload)
 
 
 def test_document_extraction_round_trips() -> None:
@@ -219,17 +206,29 @@ def test_document_assessment_round_trips() -> None:
             ),
         ),
     )
+    citation_id = extraction.citations[0].citation_id
     assessment_result = CitationAssessmentResult(
-        citation_id=extraction.citations[0].citation_id,
-        case_assess=CaseNameAssessment(
-            citation_id=extraction.citations[0].citation_id,
-            status=CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH,
-            extracted_case_name="Norton v. Shelby County",
-            courtlistener_case_name="Norton v. Shelby County",
-            message="match",
+        case_name=CaseNameAssessmentRun(
+            initial=CaseNameAssessment(
+                status=CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH,
+                extracted_case_name="Norton v. Shelby County",
+                courtlistener_case_name="Norton v. Shelby County",
+                message="re-extraction attempted",
+            ),
+            followup=CaseNameReassessed(
+                reextracted_case_name=ReextractedCaseName(
+                    case_name="Norton v. Shelby County",
+                    case_name_span=Span(start=6, end=29),
+                ),
+                result=CaseNameAssessment(
+                    status=CaseNameAssessmentStatus.EXACT_MATCH,
+                    extracted_case_name="Norton v. Shelby County",
+                    courtlistener_case_name="Norton v. Shelby County",
+                    message="match after re-extraction",
+                ),
+            ),
         ),
-        year_assess=YearAssessment(
-            citation_id=extraction.citations[0].citation_id,
+        year=YearAssessment(
             status=YearAssessmentStatus.EXACT_MATCH,
             extracted_year="1886",
             courtlistener_year="1886",
@@ -246,26 +245,8 @@ def test_document_assessment_round_trips() -> None:
         validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
         assessments=(
             AssessedCitationAssessment(
-                citation_id=assessment_result.citation_id,
+                citation_id=citation_id,
                 result=assessment_result,
-            ),
-        ),
-        reassessments=(
-            ReassessedCitationReassessment(
-                citation_id=assessment_result.citation_id,
-                modified_citation=ModifiedExtractedCitation(
-                    citation_id=extraction.citations[0].citation_id,
-                    span=Span(start=6, end=30),
-                    matched_text="Norton v. Shelby County",
-                    case_name="Norton v. Shelby County",
-                ),
-                result=CaseNameAssessment(
-                    citation_id=assessment_result.citation_id,
-                    status=CaseNameAssessmentStatus.EXACT_MATCH,
-                    extracted_case_name="Norton v. Shelby County",
-                    courtlistener_case_name="Norton v. Shelby County",
-                    message="match after re-extraction",
-                ),
             ),
         ),
         assessment_metadata=AssessmentMetadata(),
@@ -277,10 +258,11 @@ def test_document_assessment_round_trips() -> None:
     assert artifact["artifact_type"] == "assessed_document"
     assert "assessment_complete" not in artifact
     assert "assessment_status_counts" not in artifact
-    assert "reassessment_status_counts" not in artifact
-    assert "modified_citations" not in artifact
-    assert artifact["reassessments"][0]["modified_citation"]["citation_id"] == (assessment_result.citation_id)
-    assert "extracted_case_name" not in artifact["reassessments"][0]["modified_citation"]
+    assert "reassessments" not in artifact
+    reextracted = artifact["assessments"][0]["result"]["case_name"]["followup"]["reextracted_case_name"]
+    assert reextracted["case_name"] == "Norton v. Shelby County"
+    assert reextracted["case_name_span"] == {"start": 6, "end": 29}
+    assert "matched_text" not in reextracted
     assert "case_name_counts" not in artifact
     assert "year_counts" not in artifact
     assert "mellea_calls" not in artifact["assessment_metadata"]
@@ -309,33 +291,37 @@ def test_non_assessed_execution_states_round_trip(record) -> None:
     assert deserialize_citation_assessment(payload) == record
 
 
-@pytest.mark.parametrize(
-    "record",
-    [
-        WaitingCitationReassessment(citation_id="cite-1"),
-        SkippedCitationReassessment(
-            citation_id="cite-1",
-            reason=ReassessmentSkipReason.REEXTRACTION_NOT_REQUIRED,
-            message="not required",
-        ),
-        ReextractionFailedCitationReassessment(
-            citation_id="cite-1",
-            error="RuntimeError: unavailable",
-        ),
-        ReassessmentFailedCitationReassessment(
-            citation_id="cite-1",
-            modified_citation=ModifiedExtractedCitation(
-                citation_id="cite-1",
-                case_name="Norton v. Shelby County",
+def test_case_name_followup_round_trips_inside_citation_assessment() -> None:
+    record = AssessedCitationAssessment(
+        citation_id="cite-1",
+        result=CitationAssessmentResult(
+            case_name=CaseNameAssessmentRun(
+                initial=CaseNameAssessment(
+                    status=CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH,
+                    extracted_case_name="Norton",
+                    courtlistener_case_name="Norton v. Shelby County",
+                    message="re-extraction attempted",
+                ),
+                followup=CaseNameReassessmentFailed(
+                    reextracted_case_name=ReextractedCaseName(
+                        case_name="Norton v. Shelby County",
+                        case_name_span=Span(6, 29),
+                    ),
+                    error="RuntimeError: unavailable",
+                ),
             ),
-            error="RuntimeError: unavailable",
+            year=YearAssessment(
+                status=YearAssessmentStatus.EXACT_MATCH,
+                extracted_year="1886",
+                courtlistener_year="1886",
+                message="match",
+            ),
         ),
-    ],
-)
-def test_non_successful_reassessment_states_round_trip(record) -> None:
-    payload = serialize_citation_reassessment(record)
+    )
 
-    assert deserialize_citation_reassessment(payload) == record
+    payload = serialize_citation_assessment(record)
+
+    assert deserialize_citation_assessment(payload) == record
 
 
 def test_label_studio_prediction_shape() -> None:

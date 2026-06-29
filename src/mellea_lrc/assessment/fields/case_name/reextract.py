@@ -15,13 +15,14 @@ from mellea.stdlib.requirements import check, req
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from mellea_lrc.assessment.grounding.proposal import is_in_context
-from mellea_lrc.assessment.llm.options import structured_model_options
-from mellea_lrc.assessment.types import ChatTurn, ModifiedExtractedCitationProposal
+from mellea_lrc.assessment.context import is_text_in_context
+from mellea_lrc.assessment.model_options import structured_model_options
+from mellea_lrc.assessment.types.case_name import CaseNameProposal
+from mellea_lrc.assessment.types.common import ChatTurn
 
 MISSING_EXTRACTED_CASE_NAME_PROMPT = "<NO_EXTRACTED_CASE_NAME>"
 REEXTRACTION_MAX_TOKENS = 512
-PROPOSAL_ADAPTER = TypeAdapter(ModifiedExtractedCitationProposal)
+PROPOSAL_ADAPTER = TypeAdapter(CaseNameProposal)
 
 
 class ReextractionStatus(str, Enum):
@@ -35,15 +36,15 @@ class ReextractionStatus(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class ReextractionResult:
-    """Complete re-extraction outcome."""
+    """Complete case-name proposal outcome."""
 
     status: ReextractionStatus
-    proposal: ModifiedExtractedCitationProposal | None
+    proposal: CaseNameProposal | None
     error_message: str | None = None
     chat_history: tuple[ChatTurn, ...] | None = None
 
     def to_json(self) -> dict[str, object]:
-        """Return a JSON-ready representation for scripts and diagnostics."""
+        """Return a JSON-ready representation for diagnostics."""
         return {
             "status": self.status.value,
             "proposal": asdict(self.proposal) if self.proposal is not None else None,
@@ -76,21 +77,8 @@ async def _propose_case_name_reextraction(
 ) -> _ReextractionProposal:
     """Extract the case name that actually appears in local_context.
 
-    Your task is faithful extraction — copy whatever case name is present in local_context,
-    even if it differs from retrieved_case_name or extracted_case_name. Do not try to
-    correct toward retrieved_case_name. The downstream system handles whether names match.
-
-    Return exactly one JSON object with key "result" containing two fields:
-      - "available": true if a case name can be identified in local_context, false otherwise
-      - "case_name": a string copied exactly from local_context when available is true,
-                     null when available is false
-
-    Set available to false only when local_context contains no identifiable case name at all.
-    If extracted_case_name is <NO_EXTRACTED_CASE_NAME>, no prior extraction exists.
-    Do not treat locator strings (e.g. citation numbers) as case names.
-
-    Example — case name found:   {"result": {"available": true,  "case_name": "Smith v. Jones"}}
-    Example — no case name:      {"result": {"available": false, "case_name": null}}
+    Copy the local case name faithfully even when it differs from the retrieved or
+    previously extracted name. Return it only when an identifiable case name exists.
     """
 
 
@@ -108,16 +96,19 @@ def _validate_availability_consistency(ctx: Context) -> ValidationResult:
     proposal: _ReextractionProposal = ctx.last_output().parsed_repr
     if proposal.available == (proposal.case_name is not None):
         return ValidationResult(result=True)
-    if proposal.available:
-        return ValidationResult(result=False, reason="available is true but case_name is null")
-    return ValidationResult(result=False, reason="available is false but case_name is not null")
+    reason = (
+        "available is true but case_name is null"
+        if proposal.available
+        else "available is false but case_name is not null"
+    )
+    return ValidationResult(result=False, reason=reason)
 
 
 def _validate_grounding(ctx: Context, document_context: str) -> ValidationResult:
     proposal: _ReextractionProposal = ctx.last_output().parsed_repr
     if not proposal.available:
         return ValidationResult(result=True)
-    if is_in_context(proposal.case_name, document_context):
+    if proposal.case_name is not None and is_text_in_context(proposal.case_name, document_context):
         return ValidationResult(result=True)
     return ValidationResult(
         result=False,
@@ -132,16 +123,9 @@ async def reextract_case_name(
     extracted_case_name: str | None,
     courtlistener_case_name: str,
 ) -> ReextractionResult:
-    """Run case-name re-extraction through Mellea with programmatic grounding check.
-
-    Uses MultiTurnStrategy so that on requirement failure the model receives a new
-    user turn with the failure reason — unlike simple rejection sampling, this gives
-    the model different input on each retry even at temperature=0.
-    """
+    """Propose a case name with a deterministic local-grounding requirement."""
     final_ctx: Context | None = None
     try:
-        # Use (ChatContext, backend) form so MultiTurnStrategy can build a conversation.
-        # A fresh ChatContext is created per call so there is no state bleed-over.
         proposal, final_ctx = await _propose_case_name_reextraction(
             ChatContext(),
             session.backend,
@@ -165,34 +149,35 @@ async def reextract_case_name(
         return ReextractionResult(ReextractionStatus.FAILED, None, error_message=str(exc))
 
     history = _chat_history_from_context(final_ctx)
-
-    if not proposal.available:
+    if not proposal.available or proposal.case_name is None:
         return ReextractionResult(ReextractionStatus.EMPTY, None, chat_history=history)
-
-    # Guard against exhausted retries: strategy returns the last attempt even on failure.
-    if not is_in_context(proposal.case_name, document_context):
+    if not is_text_in_context(proposal.case_name, document_context):
         return ReextractionResult(
             ReextractionStatus.FAILED,
             None,
             error_message=f"Re-extraction exhausted retries: {proposal.case_name!r} not grounded",
             chat_history=history,
         )
-
     return ReextractionResult(
         ReextractionStatus.ACCEPTED,
-        ModifiedExtractedCitationProposal(case_name=proposal.case_name),
+        CaseNameProposal(case_name=proposal.case_name),
+        chat_history=history,
     )
 
 
-def proposal_from_output(output: str) -> ModifiedExtractedCitationProposal | None:
-    """Parse a JSON proposal from Mellea output."""
+def proposal_from_output(output: str) -> CaseNameProposal | None:
+    """Parse a case-name proposal from JSON output."""
     try:
         payload = json.loads(output)
     except json.JSONDecodeError:
         return None
     if not isinstance(payload, dict):
         return None
-    return _parse_proposal_payload(payload)
+    result = payload.get("result", payload)
+    try:
+        return PROPOSAL_ADAPTER.validate_python(result)
+    except (ValidationError, ValueError):
+        return None
 
 
 def case_name_for_prompt(extracted_case_name: str | None) -> str:
@@ -201,27 +186,15 @@ def case_name_for_prompt(extracted_case_name: str | None) -> str:
 
 
 def validate_proposal(
-    proposal: ModifiedExtractedCitationProposal | None,
+    proposal: CaseNameProposal | None,
     document_context: str,
 ) -> tuple[ReextractionStatus, str | None]:
     """Validate proposal grounding and return retryable diagnostics."""
     if proposal is None:
         return ReextractionStatus.INVALID, "Output could not be parsed as a proposal."
-    if not proposal.case_name:
-        return ReextractionStatus.EMPTY, None
-    if not is_in_context(proposal.case_name, document_context):
+    if not is_text_in_context(proposal.case_name, document_context):
         return (
             ReextractionStatus.INVALID,
             f"case_name={proposal.case_name!r} was not copied exactly from local_context.",
         )
     return ReextractionStatus.ACCEPTED, None
-
-
-def _parse_proposal_payload(
-    payload: dict[str, object],
-) -> ModifiedExtractedCitationProposal | None:
-    result = payload.get("result", payload)
-    try:
-        return PROPOSAL_ADAPTER.validate_python(result)
-    except ValidationError:
-        return None

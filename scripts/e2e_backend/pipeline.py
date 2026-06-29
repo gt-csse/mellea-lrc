@@ -11,7 +11,6 @@ from mellea_lrc.assessment import (
     AssessedCitationAssessment,
     AssessedDocument,
     CitationAssessment,
-    CitationReassessment,
     run_assessment_async,
 )
 from mellea_lrc.core.citations import FullCaseCitation, UnknownCitation, citation_kind
@@ -35,7 +34,6 @@ from mellea_lrc.validation.types import (
 from mellea_lrc.serialization import (
     deserialize_citation_validation,
     serialize_citation_assessment,
-    serialize_citation_reassessment,
     serialize_citation_validation,
 )
 from scripts.label_studio.label_studio import to_label_studio_prediction
@@ -645,8 +643,7 @@ def _assessment_payload_document(assessment: AssessedDocument) -> JsonDict:
         "assessments": [_assessment_payload(item) for item in assessment.assessments],
         "assessment_complete": assessment.assessment_complete,
         "status_counts": _assessment_status_counts(assessment.assessments),
-        "reassessments": [dict(serialize_citation_reassessment(item)) for item in assessment.reassessments],
-        "reassessment_status_counts": _reassessment_status_counts(assessment.reassessments),
+        "case_name_followup_status_counts": _case_name_followup_status_counts(assessment.assessments),
         "case_name_counts": _assessment_case_name_counts(assessment.assessments),
         "year_counts": _assessment_year_counts(assessment.assessments),
     }
@@ -656,7 +653,7 @@ def _assessment_case_name_counts(assessments: tuple[CitationAssessment, ...]) ->
     counts: dict[str, int] = {}
     for item in assessments:
         if isinstance(item, AssessedCitationAssessment):
-            status = item.result.case_assess.status.value
+            status = item.result.case_name.initial.status.value
             counts[status] = counts.get(status, 0) + 1
     return counts
 
@@ -665,7 +662,7 @@ def _assessment_year_counts(assessments: tuple[CitationAssessment, ...]) -> dict
     counts: dict[str, int] = {}
     for item in assessments:
         if isinstance(item, AssessedCitationAssessment):
-            status = item.result.year_assess.status.value
+            status = item.result.year.status.value
             counts[status] = counts.get(status, 0) + 1
     return counts
 
@@ -677,10 +674,14 @@ def _assessment_status_counts(assessments: tuple[CitationAssessment, ...]) -> di
     return counts
 
 
-def _reassessment_status_counts(reassessments: tuple[CitationReassessment, ...]) -> dict[str, int]:
+def _case_name_followup_status_counts(
+    assessments: tuple[CitationAssessment, ...],
+) -> dict[str, int]:
     counts: dict[str, int] = {}
-    for item in reassessments:
-        counts[item.status.value] = counts.get(item.status.value, 0) + 1
+    for item in assessments:
+        if isinstance(item, AssessedCitationAssessment):
+            status = item.result.case_name.followup.status.value
+            counts[status] = counts.get(status, 0) + 1
     return counts
 
 

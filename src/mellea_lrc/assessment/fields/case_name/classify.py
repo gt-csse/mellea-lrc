@@ -1,6 +1,4 @@
-"""Mellea case-name classification."""
-
-from __future__ import annotations
+"""Mellea case-name classification functions."""
 
 from typing import Literal
 
@@ -34,8 +32,6 @@ async def classify_non_semantic_case_name(
 ) -> NonSemanticVerdict:
     """Classify why a re-extracted case name is not a semantic match.
 
-    Consider only the case names and their local context. Return ``different_case``
-    when they identify unrelated cases. Return ``irregular_form`` when they identify
-    the same case but the extracted form is incomplete or garbled beyond normal
-    legal-citation shortening.
+    Return ``different_case`` for unrelated cases and ``irregular_form`` for the
+    same case expressed in an incomplete or garbled form.
     """
