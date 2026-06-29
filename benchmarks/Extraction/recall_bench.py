@@ -4,6 +4,8 @@
 import hashlib
 from pathlib import Path
 import sys
+from dataclasses import asdict
+import json
 
 from mellea_lrc.extraction import extract_document_file, extract_citations, DocumentExtraction
 
@@ -42,6 +44,12 @@ def convert_to_text(file_path: Path) -> str:
     sample_document = extract_document_file(file_path)
     return sample_document.text
 
+# %%
+# Save the citations
+def save_citations(path: Path, document: DocumentExtraction) -> None:
+    """Save the citions."""
+    with path.open("w", encoding="utf-8") as file:
+        json.dump(asdict(document), file, ident=4)
 
 # %%
 def main() -> int:
@@ -68,10 +76,7 @@ def main() -> int:
     # upload_tasks.main(paths=[str(text_path)]) Don't upload them to Label Studio
     citations: DocumentExtraction = extract_citations(text)
 
-    
-
     return 0
-
 
 # %%
 
