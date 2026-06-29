@@ -18,29 +18,16 @@ LS_ACCOUNT_AUTH=<label-studio-refresh-token>
 # Modal secret: cl-access-modal
 CL_ACCESS_MODAL_URL=<courtlistener-access-service-url>
 
-# Modal secret for /api/assess-review, if served remotely.
-# Set MELLEA_LRC_LLM_PROVIDER to deepseek, openrouter, or digitalocean.
-MELLEA_LRC_LLM_PROVIDER=deepseek
+# OpenAI-compatible API for /api/assess-review, if served remotely.
 MELLEA_LRC_LLM_TEMPERATURE=0
+MELLEA_LRC_LLM_MODEL=<model-id>
+MELLEA_LRC_LLM_API_BASE=<openai-compatible-api-base>
+MELLEA_LRC_LLM_API_KEY=<api-key>
+MELLEA_LRC_LLM_RESPONSE_FORMAT=json_schema
+MELLEA_LRC_LLM_CERT_REQUIRED=true
 
-# Active OpenAI-compatible endpoint.
-MELLEA_LRC_LLM_MODEL=deepseek-v4-pro
-MELLEA_LRC_LLM_API_BASE=https://api.deepseek.com
-MELLEA_LRC_LLM_API_KEY=<deepseek-api-key>
-
-# OpenRouter example:
-# MELLEA_LRC_LLM_MODEL=openai/gpt-4.1-mini
-# MELLEA_LRC_LLM_API_BASE=https://openrouter.ai/api/v1
-# MELLEA_LRC_LLM_API_KEY=<openrouter-api-key>
-
-# DigitalOcean Gradient example:
-# MELLEA_LRC_LLM_MODEL=openai-gpt-oss-20b
-# MELLEA_LRC_LLM_API_BASE=https://inference.do-ai.run/v1
-# MELLEA_LRC_LLM_API_KEY=<digitalocean-inference-key>
-
-# OpenRouter-only: require a provider that supports all requested params,
-# including structured JSON schema output.
-# MELLEA_LRC_LLM_OPENROUTER_REQUIRE_PARAMETERS=1
+# Use json_object when the endpoint does not accept JSON Schema response formats.
+# Disable certificate verification only for an endpoint that requires this workaround.
 ```
 
 `LS_ACCOUNT_AUTH` is only used by the Label Studio bridge to fetch uploaded PDF

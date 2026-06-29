@@ -22,7 +22,7 @@ uv run --group label-studio pytest tests/smoke/test_label_studio_upload_remote.p
 Run the OpenAI-compatible LLM smoke test with credentials from `.env` (requires `uv sync --group llm`):
 
 ```bash
-uv run --group llm pytest tests/smoke/test_llm_provider_remote.py --no-cov --run-remote-smoke
+uv run --group llm pytest tests/smoke/test_llm_api_remote.py --no-cov --run-remote-smoke
 ```
 
 Use `--remote-timeout <seconds>` to adjust HTTP timeouts for cold starts.

@@ -59,7 +59,9 @@ extraction = [
     "mellea>=0.3.2",
 ]
 llm = [
+    "httpx>=0.28,<1",
     "mellea>=0.3.2,<0.4",
+    "openai>=2,<3",
 ]
 
 # Shared utilities for scripts and notebooks.

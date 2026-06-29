@@ -28,8 +28,8 @@ type ValidationPayload = {
   lookup_cache: string | null;
   lookup_key: string | null;
   error_message: string | null;
-  limit_detail: Record<string, unknown> | null;
-  clusters: CourtListenerCluster[];
+  failure_detail: Record<string, unknown> | null;
+  matches: CourtListenerMatch[];
 };
 
 type AssessmentPayload = {
@@ -62,7 +62,7 @@ type YearAssessmentPayload = {
   message: string;
 };
 
-type CourtListenerCluster = Record<string, unknown>;
+type CourtListenerMatch = Record<string, unknown>;
 
 type ReviewValidation = {
   validations: ValidationPayload[];
@@ -1204,15 +1204,15 @@ function ValidationDetails({ validation }: { validation: ValidationPayload | nul
             <dd>{validation.error_message}</dd>
           </div>
         ) : null}
-        {validation.limit_detail ? (
+        {validation.failure_detail ? (
           <div>
-            <dt>Limit detail</dt>
-            <dd>{JSON.stringify(validation.limit_detail)}</dd>
+            <dt>Failure detail</dt>
+            <dd>{JSON.stringify(validation.failure_detail)}</dd>
           </div>
         ) : null}
         <div>
-          <dt>Clusters</dt>
-          <dd>{validation.clusters.length}</dd>
+          <dt>Matches</dt>
+          <dd>{courtListenerMatches(validation).length}</dd>
         </div>
       </dl>
     </div>
@@ -1265,25 +1265,41 @@ function AssessmentDetails({ assessment }: { assessment: CitationAssessmentPaylo
   }
 
   return (
-    <div className="detail-group">
-      <h3>Citation assessment</h3>
-      <dl>
-        <CaseNameAssessmentDetails assessment={assessment.result.case_name.initial} />
+    <div className="detail-group assessment-trace-group">
+      <div className="assessment-trace-heading">
+        <div>
+          <h3>Case-name assessment trace</h3>
+          <p>Initial verdict, correction attempt, and final verdict</p>
+        </div>
+      </div>
+      <ol className="assessment-trace">
+        <AssessmentTraceStep
+          index="1"
+          title="Initial assessment"
+          status={assessment.result.case_name.initial.status}
+        >
+          <CaseNameAssessmentDetails assessment={assessment.result.case_name.initial} />
+        </AssessmentTraceStep>
+        <CaseNameFollowupDetails followup={assessment.result.case_name.followup} />
+      </ol>
+      <section className="year-assessment-section">
+        <div className="assessment-section-heading">
+          <h3>Year assessment</h3>
+          <span className={`assessment-step-status ${assessmentStatusTone(assessment.result.year.status)}`}>
+            {formatStatusLabel(assessment.result.year.status)}
+          </span>
+        </div>
         <YearAssessmentDetails assessment={assessment.result.year} />
-      </dl>
+      </section>
     </div>
   );
 }
 
 function CaseNameAssessmentDetails({ assessment }: { assessment: CaseNameAssessmentPayload }) {
   return (
-    <>
+    <dl className="assessment-fields">
       <div>
-        <dt>Case name</dt>
-        <dd>{assessment.status.replaceAll("_", " ")}</dd>
-      </div>
-      <div>
-        <dt>Case message</dt>
+        <dt>Message</dt>
         <dd>{assessment.message}</dd>
       </div>
       <div>
@@ -1294,19 +1310,15 @@ function CaseNameAssessmentDetails({ assessment }: { assessment: CaseNameAssessm
         <dt>CourtListener case</dt>
         <dd>{formatValue(assessment.courtlistener_case_name)}</dd>
       </div>
-    </>
+    </dl>
   );
 }
 
 function YearAssessmentDetails({ assessment }: { assessment: YearAssessmentPayload }) {
   return (
-    <>
+    <dl className="assessment-fields">
       <div>
-        <dt>Year</dt>
-        <dd>{assessment.status.replaceAll("_", " ")}</dd>
-      </div>
-      <div>
-        <dt>Year message</dt>
+        <dt>Message</dt>
         <dd>{assessment.message}</dd>
       </div>
       <div>
@@ -1317,8 +1329,110 @@ function YearAssessmentDetails({ assessment }: { assessment: YearAssessmentPaylo
         <dt>CourtListener year</dt>
         <dd>{formatValue(assessment.courtlistener_year)}</dd>
       </div>
+    </dl>
+  );
+}
+
+function CaseNameFollowupDetails({ followup }: { followup: CaseNameFollowupPayload }) {
+  const hasReextraction = "reextracted_case_name" in followup;
+  const reextractionStatus =
+    followup.status === "not_required"
+      ? "not_required"
+      : followup.status === "reextraction_failed"
+        ? "failed"
+        : "completed";
+
+  return (
+    <>
+      <AssessmentTraceStep index="2" title="Re-extraction" status={reextractionStatus}>
+        {hasReextraction ? (
+          <dl className="assessment-fields">
+            <div>
+              <dt>Case name</dt>
+              <dd>{followup.reextracted_case_name.case_name}</dd>
+            </div>
+            <div>
+              <dt>Document span</dt>
+              <dd>
+                {followup.reextracted_case_name.case_name_span.start}–
+                {followup.reextracted_case_name.case_name_span.end}
+              </dd>
+            </div>
+          </dl>
+        ) : followup.status === "reextraction_failed" ? (
+          <p className="assessment-step-error">{followup.error}</p>
+        ) : (
+          <p className="assessment-step-note">The initial result did not require correction.</p>
+        )}
+      </AssessmentTraceStep>
+      <AssessmentTraceStep
+        index="3"
+        title="Reassessment"
+        status={
+          followup.status === "reassessed"
+            ? followup.result.status
+            : followup.status === "reassessment_failed"
+              ? "failed"
+              : followup.status === "reextraction_failed"
+                ? "blocked"
+                : "not_required"
+        }
+      >
+        {followup.status === "reassessed" ? (
+          <CaseNameAssessmentDetails assessment={followup.result} />
+        ) : followup.status === "reassessment_failed" ? (
+          <p className="assessment-step-error">{followup.error}</p>
+        ) : followup.status === "reextraction_failed" ? (
+          <p className="assessment-step-note">Reassessment could not run because re-extraction failed.</p>
+        ) : (
+          <p className="assessment-step-note">The initial result is the final case-name assessment.</p>
+        )}
+      </AssessmentTraceStep>
     </>
   );
+}
+
+function AssessmentTraceStep({
+  index,
+  title,
+  status,
+  children
+}: {
+  index: string;
+  title: string;
+  status: string;
+  children: ReactNode;
+}) {
+  return (
+    <li className="assessment-trace-step">
+      <span className="assessment-step-index" aria-hidden="true">
+        {index}
+      </span>
+      <div className="assessment-step-body">
+        <div className="assessment-section-heading">
+          <h4>{title}</h4>
+          <span className={`assessment-step-status ${assessmentStatusTone(status)}`}>
+            {formatStatusLabel(status)}
+          </span>
+        </div>
+        {children}
+      </div>
+    </li>
+  );
+}
+
+function assessmentStatusTone(status: string) {
+  const normalized = status.toLowerCase().replaceAll("-", "_");
+  if (["exact_match", "semantic_match", "completed"].includes(normalized)) {
+    return "success";
+  }
+  if (["failed", "different_case", "not_semantic_match"].includes(normalized)) {
+    return "danger";
+  }
+  if (["irregular_form", "unassessable", "blocked"].includes(normalized)) {
+    return "attention";
+  }
+  return "neutral";
 }
 
 function extractedCitationAttempts(
@@ -1354,7 +1468,7 @@ function extractedCitationAttempts(
 
 function bibliographicRows(
   extractedAttempt: ExtractedCitationAttempt,
-  cluster: CourtListenerCluster | null
+  cluster: CourtListenerMatch | null
 ): BibliographicRow[] {
   const { citation, fields } = extractedAttempt;
   const primaryAssessment = completedAssessmentResult(citation.assessment);
@@ -1522,17 +1636,26 @@ function splitLocator(locator: string | null | undefined) {
   };
 }
 
-function readString(record: CourtListenerCluster | null, keys: string[]) {
+function readString(record: CourtListenerMatch | null, keys: string[]) {
   if (!record) {
     return null;
   }
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "string" && value.trim()) {
-      return value;
-    }
-    if (typeof value === "number") {
-      return String(value);
+  const extraData = record.extra_data;
+  const records = [
+    record,
+    typeof extraData === "object" && extraData !== null
+      ? (extraData as Record<string, unknown>)
+      : null
+  ];
+  for (const candidate of records) {
+    for (const key of keys) {
+      const value = candidate?.[key];
+      if (typeof value === "string" && value.trim()) {
+        return value;
+      }
+      if (typeof value === "number") {
+        return String(value);
+      }
     }
   }
   return null;
@@ -1841,12 +1964,16 @@ function comparableCourtListenerClusters(validation: ValidationPayload | null) {
   if (!validation || !hasCourtListenerCandidate(validation)) {
     return [];
   }
-  return validation.clusters;
+  return courtListenerMatches(validation);
 }
 
 function hasCourtListenerCandidate(validation: ValidationPayload) {
   return (validation.status === "found" || citationStatusFromValidation(validation) === "ambiguous") &&
-    validation.clusters.length > 0;
+    courtListenerMatches(validation).length > 0;
+}
+
+function courtListenerMatches(validation: ValidationPayload): CourtListenerMatch[] {
+  return Array.isArray(validation.matches) ? validation.matches : [];
 }
 
 function citationStatus(citation: ReviewCitation): CitationStatus {
