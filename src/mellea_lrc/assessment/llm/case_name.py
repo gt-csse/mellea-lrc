@@ -18,11 +18,11 @@ from mellea_lrc.assessment.llm.reextract import ReextractionResult, Reextraction
 from mellea_lrc.assessment.types import (
     CaseNameAssessment,
     CaseNameAssessmentRun,
+    CaseNameAssessmentStatus,
     CaseNameReassessed,
     CaseNameReassessmentFailed,
     CaseNameReassessmentNotRequired,
     CaseNameReextractionFailed,
-    CaseNameAssessmentStatus,
 )
 
 if TYPE_CHECKING:
@@ -43,16 +43,12 @@ async def assess_case_name_with_mellea(
         extracted_case_name=extracted_case_name,
         courtlistener_case_name=courtlistener_case_name,
     )
-    if exact_result.status == CaseNameAssessmentStatus.EXACT_MATCH:
+    if exact_result is not None:
         return CaseNameAssessmentRun(
             assessment=exact_result,
             reassessment=CaseNameReassessmentNotRequired(),
         )
-    if not courtlistener_case_name:
-        return CaseNameAssessmentRun(
-            assessment=exact_result,
-            reassessment=CaseNameReassessmentNotRequired(),
-        )
+    assert courtlistener_case_name is not None
 
     try:
         return await _assess_case_name_with_mellea_after_exact(
@@ -78,13 +74,17 @@ async def _assess_case_name_with_mellea_after_exact(
     document_context: str,
 ) -> CaseNameAssessmentRun:
     """Run semantic match, then always re-extract when that fails."""
-    if extracted_case_name and await semantic_match_case_name(
-        session,
-        local_context=document_context,
-        extracted_case_name=extracted_case_name,
-        retrieved_case_name=courtlistener_case_name,
-        model_options=structured_model_options(max_tokens=CASE_NAME_VERDICT_MAX_TOKENS),
-    ) == "semantic_match":
+    if (
+        extracted_case_name
+        and await semantic_match_case_name(
+            session,
+            local_context=document_context,
+            extracted_case_name=extracted_case_name,
+            retrieved_case_name=courtlistener_case_name,
+            model_options=structured_model_options(max_tokens=CASE_NAME_VERDICT_MAX_TOKENS),
+        )
+        == "semantic_match"
+    ):
         return CaseNameAssessmentRun(
             assessment=build_case_name_assessment(
                 citation_id,
@@ -97,7 +97,7 @@ async def _assess_case_name_with_mellea_after_exact(
 
     first_pass = build_case_name_assessment(
         citation_id,
-        CaseNameAssessmentStatus.NEEDS_ASSESSMENT,
+        CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH,
         extracted_case_name,
         courtlistener_case_name,
         message="Case name failed semantic match; re-extraction attempted.",
@@ -112,13 +112,7 @@ async def _assess_case_name_with_mellea_after_exact(
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
         return CaseNameAssessmentRun(
-            assessment=build_case_name_assessment(
-                citation_id,
-                CaseNameAssessmentStatus.REEXTRACTION_FAIL,
-                extracted_case_name,
-                courtlistener_case_name,
-                message=f"Case-name re-extraction failed: {error}",
-            ),
+            assessment=first_pass,
             reassessment=CaseNameReextractionFailed(error=error),
         )
     return await _run_reassessment_after_reextraction(
@@ -143,17 +137,7 @@ async def _run_reassessment_after_reextraction(
     if reextraction.status != ReextractionStatus.ACCEPTED or reextraction.proposal is None:
         error = reextraction.error_message or reextraction.status.value
         return CaseNameAssessmentRun(
-            assessment=build_case_name_assessment(
-                citation_id,
-                CaseNameAssessmentStatus.REEXTRACTION_FAIL,
-                first_pass.extracted_case_name,
-                courtlistener_case_name,
-                message=(
-                    "Case-name re-extraction failed: "
-                    f"{error}"
-                ),
-                chat_history=reextraction.chat_history,
-            ),
+            assessment=first_pass,
             reassessment=CaseNameReextractionFailed(error=error),
         )
 
@@ -196,15 +180,18 @@ async def _assess_reextracted_case_name(
         extracted_case_name=corrected_case_name,
         courtlistener_case_name=courtlistener_case_name,
     )
-    if exact.status == CaseNameAssessmentStatus.EXACT_MATCH:
+    if exact is not None:
         return exact
-    if await semantic_match_case_name(
-        session,
-        local_context=document_context,
-        extracted_case_name=corrected_case_name,
-        retrieved_case_name=courtlistener_case_name,
-        model_options=structured_model_options(max_tokens=CASE_NAME_VERDICT_MAX_TOKENS),
-    ) == "semantic_match":
+    if (
+        await semantic_match_case_name(
+            session,
+            local_context=document_context,
+            extracted_case_name=corrected_case_name,
+            retrieved_case_name=courtlistener_case_name,
+            model_options=structured_model_options(max_tokens=CASE_NAME_VERDICT_MAX_TOKENS),
+        )
+        == "semantic_match"
+    ):
         return build_case_name_assessment(
             citation_id,
             CaseNameAssessmentStatus.SEMANTIC_MATCH,

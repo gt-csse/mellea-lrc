@@ -148,24 +148,35 @@ def test_assess_case_name_exact_match_passes_without_semantic_check() -> None:
     assert result.status == CaseNameAssessmentStatus.EXACT_MATCH
 
 
-def test_assess_case_name_mismatch_needs_assessment() -> None:
+def test_assess_case_name_mismatch_requires_mellea() -> None:
     result = assess_case_name_exact_match(
         citation_id="cite-1",
         extracted_case_name="Brown v. Board",
         courtlistener_case_name="Brown v. Board of Education",
     )
 
-    assert result.status == CaseNameAssessmentStatus.NEEDS_ASSESSMENT
+    assert result is None
 
 
-def test_assess_case_name_missing_name_needs_assessment() -> None:
+def test_assess_case_name_missing_extracted_name_requires_mellea() -> None:
     result = assess_case_name_exact_match(
         citation_id="cite-1",
         extracted_case_name=None,
         courtlistener_case_name="Brown v. Board",
     )
 
-    assert result.status == CaseNameAssessmentStatus.NEEDS_ASSESSMENT
+    assert result is None
+
+
+def test_assess_case_name_without_courtlistener_name_is_unassessable() -> None:
+    result = assess_case_name_exact_match(
+        citation_id="cite-1",
+        extracted_case_name="Brown v. Board",
+        courtlistener_case_name=None,
+    )
+
+    assert result is not None
+    assert result.status == CaseNameAssessmentStatus.UNASSESSABLE
 
 
 def test_assess_case_name_exact_match_ignores_typographic_apostrophe() -> None:
@@ -278,7 +289,7 @@ def test_citation_reassessment_preserves_modified_citation_when_reassessment_fai
         return CaseNameAssessmentRun(
             assessment=CaseNameAssessment(
                 citation_id="cite-1",
-                status=CaseNameAssessmentStatus.NEEDS_ASSESSMENT,
+                status=CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH,
                 extracted_case_name="Brown v. Board",
                 courtlistener_case_name="Brown v. Board of Education",
                 message="re-extraction attempted",
@@ -318,7 +329,7 @@ def test_citation_reassessment_records_reextraction_failure_without_modified_cit
         return CaseNameAssessmentRun(
             assessment=CaseNameAssessment(
                 citation_id="cite-1",
-                status=CaseNameAssessmentStatus.REEXTRACTION_FAIL,
+                status=CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH,
                 extracted_case_name="Brown v. Board",
                 courtlistener_case_name="Brown v. Board of Education",
                 message="re-extraction failed",
@@ -363,9 +374,7 @@ def test_case_name_run_captures_reassessment_failure_after_accepted_reextraction
     async def accepted_reextraction(*_args, **_kwargs):
         return ReextractionResult(
             status=ReextractionStatus.ACCEPTED,
-            proposal=ModifiedExtractedCitationProposal(
-                case_name="Brown v. Board of Education"
-            ),
+            proposal=ModifiedExtractedCitationProposal(case_name="Brown v. Board of Education"),
         )
 
     async def fail_reassessment(*_args, **_kwargs):

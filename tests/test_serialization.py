@@ -66,7 +66,7 @@ def test_document_extraction_serializes_without_ui_assumptions() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
     artifact = serialize_extracted_document(extraction)
 
-    assert artifact["schema_version"] == 5
+    assert artifact["schema_version"] == 6
     assert artifact["artifact_type"] == "extracted_document"
     assert artifact["source_metadata"]["path"] is None
     assert artifact["text"] == SAMPLE_TEXT
@@ -102,7 +102,7 @@ def test_unversioned_preprocessed_document_is_rejected() -> None:
 
 def test_previous_schema_version_is_rejected() -> None:
     artifact = serialize_preprocessed_document(extract_citations(SAMPLE_TEXT))
-    artifact["schema_version"] = 4
+    artifact["schema_version"] = 5
 
     with pytest.raises(ValueError, match="schema_version"):
         deserialize_preprocessed_document(artifact)
@@ -150,9 +150,7 @@ def test_assessment_transport_rejects_state_inappropriate_fields() -> None:
 
 
 def test_reassessment_transport_rejects_state_inappropriate_fields() -> None:
-    payload = serialize_citation_reassessment(
-        WaitingCitationReassessment(citation_id="cite-1")
-    )
+    payload = serialize_citation_reassessment(WaitingCitationReassessment(citation_id="cite-1"))
     payload["modified_citation"] = {}
 
     with pytest.raises(ValidationError, match="modified_citation"):
@@ -225,7 +223,7 @@ def test_document_assessment_round_trips() -> None:
         citation_id=extraction.citations[0].citation_id,
         case_assess=CaseNameAssessment(
             citation_id=extraction.citations[0].citation_id,
-            status=CaseNameAssessmentStatus.EXACT_MATCH,
+            status=CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH,
             extracted_case_name="Norton v. Shelby County",
             courtlistener_case_name="Norton v. Shelby County",
             message="match",
@@ -261,7 +259,13 @@ def test_document_assessment_round_trips() -> None:
                     matched_text="Norton v. Shelby County",
                     case_name="Norton v. Shelby County",
                 ),
-                result=assessment_result,
+                result=CaseNameAssessment(
+                    citation_id=assessment_result.citation_id,
+                    status=CaseNameAssessmentStatus.EXACT_MATCH,
+                    extracted_case_name="Norton v. Shelby County",
+                    courtlistener_case_name="Norton v. Shelby County",
+                    message="match after re-extraction",
+                ),
             ),
         ),
         assessment_metadata=AssessmentMetadata(),
@@ -275,13 +279,16 @@ def test_document_assessment_round_trips() -> None:
     assert "assessment_status_counts" not in artifact
     assert "reassessment_status_counts" not in artifact
     assert "modified_citations" not in artifact
-    assert artifact["reassessments"][0]["modified_citation"]["citation_id"] == (
-        assessment_result.citation_id
-    )
+    assert artifact["reassessments"][0]["modified_citation"]["citation_id"] == (assessment_result.citation_id)
     assert "extracted_case_name" not in artifact["reassessments"][0]["modified_citation"]
     assert "case_name_counts" not in artifact
     assert "year_counts" not in artifact
+    assert "mellea_calls" not in artifact["assessment_metadata"]
     assert restored == document_assessment
+
+    artifact["assessment_metadata"]["mellea_calls"] = 1
+    with pytest.raises(ValidationError, match="mellea_calls"):
+        deserialize_assessed_document(artifact)
 
 
 @pytest.mark.parametrize(

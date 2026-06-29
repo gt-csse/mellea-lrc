@@ -320,7 +320,7 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
     assert output["stats"]["assessed"] == 1
 
 
-def test_review_document_assessment_rejects_unresolved_assessment_handoff() -> None:
+def test_review_document_assessment_preserves_waiting_reassessment() -> None:
     preprocessed = preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483 (1954).")
     citation = ExtractedCitation(
         citation_id="cite-1",
@@ -329,53 +329,51 @@ def test_review_document_assessment_rejects_unresolved_assessment_handoff() -> N
         citation=FullCaseCitation(volume="347", reporter="U.S.", page="483"),
     )
 
-    try:
-        review_document_assessment(
-            _assessed_document(
-                preprocessed=preprocessed,
-                citations=(citation,),
-                validations=(
-                    CitationValidation(
-                        citation_id="cite-1",
-                        locator="347 U.S. 483",
-                        status=ValidationStatus.FOUND,
-                        source="test",
-                        message="found",
-                    ),
+    output = review_document_assessment(
+        _assessed_document(
+            preprocessed=preprocessed,
+            citations=(citation,),
+            validations=(
+                CitationValidation(
+                    citation_id="cite-1",
+                    locator="347 U.S. 483",
+                    status=ValidationStatus.FOUND,
+                    source="test",
+                    message="found",
                 ),
-                assessments=(
-                    AssessedCitationAssessment(
+            ),
+            assessments=(
+                AssessedCitationAssessment(
+                    citation_id="cite-1",
+                    result=CitationAssessmentResult(
                         citation_id="cite-1",
-                        result=CitationAssessmentResult(
+                        case_assess=CaseNameAssessment(
                             citation_id="cite-1",
-                            case_assess=CaseNameAssessment(
-                                citation_id="cite-1",
-                                status=CaseNameAssessmentStatus.NEEDS_ASSESSMENT,
-                                extracted_case_name="Brown v. Board",
-                                courtlistener_case_name="Brown v. Board of Education",
-                                message="needs assessment",
-                            ),
-                            year_assess=YearAssessment(
-                                citation_id="cite-1",
-                                status=YearAssessmentStatus.EXACT_MATCH,
-                                extracted_year="1954",
-                                courtlistener_year="1954",
-                                message="match",
-                            ),
+                            status=CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH,
+                            extracted_case_name="Brown v. Board",
+                            courtlistener_case_name="Brown v. Board of Education",
+                            message="needs assessment",
+                        ),
+                        year_assess=YearAssessment(
+                            citation_id="cite-1",
+                            status=YearAssessmentStatus.EXACT_MATCH,
+                            extracted_year="1954",
+                            courtlistener_year="1954",
+                            message="match",
                         ),
                     ),
                 ),
-                reassessments=(WaitingCitationReassessment(citation_id="cite-1"),),
-            )
+            ),
+            reassessments=(WaitingCitationReassessment(citation_id="cite-1"),),
         )
-    except ValueError as exc:
-        assert "unresolved case-name assessment" in str(exc)
-    else:
-        raise AssertionError("Expected unresolved assessment handoff to be rejected")
+    )
+
+    assert output["assessment"]["assessment_complete"] is False
+    assert output["assessment"]["reassessments"][0]["status"] == "waiting"
 
 
 def test_review_document_assessment_allows_resolved_reextraction_handoff() -> None:
-    """NEEDS_ASSESSMENT in assessments is allowed when reassessments has the verdict."""
+    """A non-semantic primary conclusion may have a reassessment verdict."""
     preprocessed = preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483 (1954).")
     citation = ExtractedCitation(
         citation_id="cite-1",
@@ -394,23 +392,19 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
         citation_id="cite-1",
         case_assess=CaseNameAssessment(
             citation_id="cite-1",
-            status=CaseNameAssessmentStatus.NEEDS_ASSESSMENT,
+            status=CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH,
             extracted_case_name="Brown v. Board",
             courtlistener_case_name="Brown v. Board of Education",
             message="re-extraction attempted",
         ),
         year_assess=year_assess,
     )
-    reassessment = CitationAssessmentResult(
+    reassessment = CaseNameAssessment(
         citation_id="cite-1",
-        case_assess=CaseNameAssessment(
-            citation_id="cite-1",
-            status=CaseNameAssessmentStatus.SEMANTIC_MATCH,
-            extracted_case_name="Brown v. Board of Education",
-            courtlistener_case_name="Brown v. Board of Education",
-            message="semantic match after re-extraction",
-        ),
-        year_assess=year_assess,
+        status=CaseNameAssessmentStatus.SEMANTIC_MATCH,
+        extracted_case_name="Brown v. Board of Education",
+        courtlistener_case_name="Brown v. Board of Education",
+        message="semantic match after re-extraction",
     )
     output = review_document_assessment(
         _assessed_document(
@@ -440,9 +434,7 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
             ),
         )
     )
-    assert output["assessment"]["reassessments"][0]["result"]["case_assess"]["status"] == (
-        "semantic_match"
-    )
+    assert output["assessment"]["reassessments"][0]["result"]["status"] == "semantic_match"
 
 
 def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> None:

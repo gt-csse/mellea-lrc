@@ -14,9 +14,8 @@ from mellea_lrc.assessment.types import (
     CaseNameReassessmentFailed,
     CaseNameReassessmentNotRequired,
     CaseNameReextractionFailed,
-    CaseNameAssessmentStatus,
-    CitationReassessment,
     CitationAssessmentResult,
+    CitationReassessment,
     ModifiedExtractedCitation,
     ModifiedExtractedCitationProposal,
     ReassessedCitationReassessment,
@@ -24,7 +23,6 @@ from mellea_lrc.assessment.types import (
     ReassessmentSkipReason,
     ReextractionFailedCitationReassessment,
     SkippedCitationReassessment,
-    YearAssessment,
 )
 
 if TYPE_CHECKING:
@@ -63,7 +61,7 @@ async def assess_found_citation(
         extracted_case_name=extracted_case_name,
         courtlistener_case_name=courtlistener_case_name,
     )
-    if exact.status != CaseNameAssessmentStatus.NEEDS_ASSESSMENT or session is None:
+    if exact is not None:
         return CitationAssessmentBundle(
             assessment=CitationAssessmentResult(
                 citation_id=citation_id,
@@ -76,6 +74,9 @@ async def assess_found_citation(
                 message="Primary assessment completed without re-extraction.",
             ),
         )
+    if session is None:
+        msg = "A Mellea session is required for a non-exact case-name assessment"
+        raise RuntimeError(msg)
 
     document_context = get_extended_span_text(document_text, span)
     case_name_run = await assess_case_name_with_mellea(
@@ -90,7 +91,6 @@ async def assess_found_citation(
         citation_id=citation_id,
         document_text=document_text,
         full_span=span,
-        year_assess=year_assess,
     )
     return CitationAssessmentBundle(
         assessment=CitationAssessmentResult(
@@ -113,7 +113,6 @@ def _build_citation_reassessment(
     citation_id: str,
     document_text: str,
     full_span: Span,
-    year_assess: YearAssessment,
 ) -> CitationReassessment:
     if isinstance(outcome, CaseNameReassessmentNotRequired):
         return SkippedCitationReassessment(
@@ -142,11 +141,7 @@ def _build_citation_reassessment(
     return ReassessedCitationReassessment(
         citation_id=citation_id,
         modified_citation=modified,
-        result=CitationAssessmentResult(
-            citation_id=citation_id,
-            case_assess=outcome.reassessment,
-            year_assess=year_assess,
-        ),
+        result=outcome.reassessment,
     )
 
 
