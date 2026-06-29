@@ -122,6 +122,13 @@ These are execution states. Domain conclusions such as `semantic_match` or
 `mismatch` remain inside the substantive result and cannot be confused with whether
 assessment execution succeeded.
 
+Case-name conclusions are likewise conclusion-only: `exact_match`,
+`semantic_match`, `not_semantic_match`, `different_case`, `irregular_form`, or
+`unassessable`. Workflow markers such as “needs assessment” and re-extraction
+failure are not case-name conclusions. Work that has not run remains `waiting`;
+re-extraction and reassessment failures are represented by their corresponding
+reassessment execution states.
+
 `AssessedDocument` also contains exactly one ordered reassessment record per
 citation. Reassessment is a peer collection to assessment, not a sparse history.
 This makes citations that never enter re-extraction explicit rather than absent.
@@ -137,10 +144,16 @@ This makes citations that never enter re-extraction explicit rather than absent.
 Skip reasons distinguish a skipped primary assessment, a failed primary assessment,
 and a completed primary assessment that did not require re-extraction. Modified
 citations are owned by `reassessed` or `reassessment_failed`; there is no separate
-top-level modified-citation collection. Assessment and reassessment records must
+top-level modified-citation collection. A successful reassessment contains the new
+case-name conclusion only; it does not copy the unchanged primary year assessment.
+Assessment and reassessment records must
 match extracted citation identity and order, and their paired execution states must
 be consistent. `assessment_complete` is derived and is true exactly when neither
 collection contains a `waiting` record.
+
+`assessment_metadata` records the effective Mellea concurrency when applicable.
+It does not persist a `mellea_calls` counter; that redundant ordinal was removed
+because it was easy to misread during concurrent debugging.
 
 ### Identity
 
@@ -158,11 +171,13 @@ Serialized artifacts retain explicit top-level stage fields and require:
 
 Unversioned artifacts and mismatched artifact types are rejected. Deserialization
 validates the artifact invariants rather than silently constructing contradictory
-stage objects. Schema version 5 exposes the same stage ownership explicitly with
+stage objects. Schema version 6 exposes the same stage ownership explicitly with
 `source_metadata`, `preprocessing_metadata`, `extraction_metadata`,
 `validation_metadata`, and `assessment_metadata` keys as applicable. It also uses
 typed validation matches, explicit `extra_data` fields, and the complete
-per-citation reassessment union described above. Earlier versions are not accepted.
+per-citation reassessment union described above. Version 6 also adopts the
+conclusion-only case-name statuses and case-name-only successful reassessment
+payload. Earlier versions are not accepted.
 
 Every public artifact deserializer first validates a strict Pydantic transport DTO
 configured with `extra="forbid"` and no type coercion. Citation kinds and assessment

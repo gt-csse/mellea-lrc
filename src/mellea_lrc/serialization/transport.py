@@ -1,4 +1,4 @@
-"""Strict Pydantic DTOs for serialized artifact schema version 5."""
+"""Strict Pydantic DTOs for serialized artifact schema version 6."""
 
 # ruff: noqa: D101
 
@@ -38,7 +38,6 @@ class ValidationMetadataPayload(ArtifactPayload):
 
 
 class AssessmentMetadataPayload(ArtifactPayload):
-    mellea_calls: int
     mellea_concurrency: int | None
 
 
@@ -187,10 +186,10 @@ class CaseNameAssessmentPayload(ArtifactPayload):
     status: Literal[
         "exact_match",
         "semantic_match",
+        "not_semantic_match",
         "different_case",
         "irregular_form",
-        "reextraction_fail",
-        "needs_assessment",
+        "unassessable",
     ]
     extracted_case_name: str | None
     courtlistener_case_name: str | None
@@ -272,7 +271,7 @@ class ReassessedCitationReassessmentPayload(ArtifactPayload):
     citation_id: str
     status: Literal["reassessed"]
     modified_citation: ModifiedExtractedCitationPayload
-    result: CitationAssessmentResultPayload
+    result: CaseNameAssessmentPayload
 
 
 class ReextractionFailedCitationReassessmentPayload(ArtifactPayload):
@@ -315,22 +314,22 @@ class _ValidatedDocumentFields(_ExtractedDocumentFields):
 
 
 class PreprocessedDocumentPayload(_PreprocessedDocumentFields):
-    schema_version: Literal[5]
+    schema_version: Literal[6]
     artifact_type: Literal["preprocessed_document"]
 
 
 class ExtractedDocumentPayload(_ExtractedDocumentFields):
-    schema_version: Literal[5]
+    schema_version: Literal[6]
     artifact_type: Literal["extracted_document"]
 
 
 class ValidatedDocumentPayload(_ValidatedDocumentFields):
-    schema_version: Literal[5]
+    schema_version: Literal[6]
     artifact_type: Literal["validated_document"]
 
 
 class AssessedDocumentPayload(_ValidatedDocumentFields):
-    schema_version: Literal[5]
+    schema_version: Literal[6]
     artifact_type: Literal["assessed_document"]
     assessment_metadata: AssessmentMetadataPayload
     assessments: list[CitationAssessmentPayload]

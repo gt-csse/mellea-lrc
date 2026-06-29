@@ -17,7 +17,6 @@ from mellea_lrc.assessment.types import (
     AssessmentSkipReason,
     AssessedCitationAssessment,
     AssessedDocument,
-    CaseNameAssessmentStatus,
     CitationAssessment,
     CitationAssessmentResult,
     CitationReassessment,
@@ -45,7 +44,6 @@ if TYPE_CHECKING:
 class MelleaCallContext:
     """Context emitted immediately before one semantic assessment call."""
 
-    mellea_call: int
     citation_id: str
     matched_text: str
     extracted_case_name: str | None
@@ -62,7 +60,6 @@ class _PendingMelleaAssessment:
     extracted_year: str | None
     courtlistener_year: str | None
     context: str
-    mellea_call: int
 
 
 def run_assessment(
@@ -96,7 +93,6 @@ async def run_assessment_async(
     assessments_by_id = {item.citation_id: item for item in initialized.assessments}
     reassessments_by_id = {item.citation_id: item for item in initialized.reassessments}
     pending: list[_PendingMelleaAssessment] = []
-    mellea_calls = 0
     effective_concurrency: int | None = None
 
     for citation in validation.citations:
@@ -115,7 +111,7 @@ async def run_assessment_async(
             extracted_case_name=extracted_case_name,
             courtlistener_case_name=courtlistener_case_name,
         )
-        if exact.status != CaseNameAssessmentStatus.NEEDS_ASSESSMENT:
+        if exact is not None:
             try:
                 bundle = await assess_found_citation(
                     citation_id=citation.citation_id,
@@ -152,7 +148,6 @@ async def run_assessment_async(
                 extracted_year=citation.citation.year,
                 courtlistener_year=courtlistener_year,
                 context=get_extended_span_text(validation.text, citation.span),
-                mellea_call=len(pending) + 1,
             )
         )
 
@@ -171,7 +166,6 @@ async def run_assessment_async(
         else:
             limit = mellea_concurrency if mellea_concurrency is not None else len(pending)
             effective_concurrency = min(max(1, limit), len(pending))
-            mellea_calls = len(pending)
             semaphore = asyncio.Semaphore(effective_concurrency)
             mellea_results = await asyncio.gather(
                 *[
@@ -214,7 +208,6 @@ async def run_assessment_async(
         assessments=tuple(assessments_by_id[item.citation_id] for item in validation.citations),
         reassessments=tuple(reassessments_by_id[item.citation_id] for item in validation.citations),
         assessment_metadata=AssessmentMetadata(
-            mellea_calls=mellea_calls,
             mellea_concurrency=effective_concurrency,
         ),
     )
@@ -320,7 +313,6 @@ async def _assess_pending_mellea_citation(
     on_mellea_done: Callable[[MelleaCallContext, CitationAssessmentResult], None] | None,
 ) -> CitationAssessmentBundle:
     call_context = MelleaCallContext(
-        mellea_call=job.mellea_call,
         citation_id=job.citation.citation_id,
         matched_text=job.citation.matched_text,
         extracted_case_name=job.extracted_case_name,

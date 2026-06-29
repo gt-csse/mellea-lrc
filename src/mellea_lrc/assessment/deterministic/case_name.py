@@ -29,8 +29,10 @@ _STATUS_MESSAGES = {
     CaseNameAssessmentStatus.IRREGULAR_FORM: (
         "Extracted case name uses an unusual or incomplete form for this case."
     ),
-    CaseNameAssessmentStatus.REEXTRACTION_FAIL: "Case-name re-extraction failed.",
-    CaseNameAssessmentStatus.NEEDS_ASSESSMENT: "Case name has not been assessed.",
+    CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH: (
+        "Extracted case name does not semantically match the retrieved case."
+    ),
+    CaseNameAssessmentStatus.UNASSESSABLE: "Case name cannot be assessed.",
 }
 
 
@@ -79,20 +81,12 @@ def assess_case_name_exact_match(
     citation_id: str,
     extracted_case_name: str | None,
     courtlistener_case_name: str | None,
-) -> CaseNameAssessment:
-    """Short-circuit case-name assessment when exact string equality is enough."""
-    if not extracted_case_name:
-        return build_case_name_assessment(
-            citation_id,
-            CaseNameAssessmentStatus.NEEDS_ASSESSMENT,
-            extracted_case_name,
-            courtlistener_case_name,
-            message="No case name was extracted; needs assessment against local context.",
-        )
+) -> CaseNameAssessment | None:
+    """Return a terminal deterministic conclusion, or ``None`` when Mellea is required."""
     if not courtlistener_case_name:
         return build_case_name_assessment(
             citation_id,
-            CaseNameAssessmentStatus.NEEDS_ASSESSMENT,
+            CaseNameAssessmentStatus.UNASSESSABLE,
             extracted_case_name,
             courtlistener_case_name,
             message="No CourtListener case name is available to compare against.",
@@ -104,10 +98,4 @@ def assess_case_name_exact_match(
             extracted_case_name,
             courtlistener_case_name,
         )
-    return build_case_name_assessment(
-        citation_id,
-        CaseNameAssessmentStatus.NEEDS_ASSESSMENT,
-        extracted_case_name,
-        courtlistener_case_name,
-        message="Extracted case name differs from CourtListener and needs assessment.",
-    )
+    return None

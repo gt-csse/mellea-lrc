@@ -10,11 +10,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 from mellea_lrc.assessment import (
     AssessedCitationAssessment,
     AssessedDocument,
-    CaseNameAssessmentStatus,
     CitationAssessment,
     CitationReassessment,
-    SkippedCitationReassessment,
-    WaitingCitationReassessment,
     run_assessment_async,
 )
 from mellea_lrc.core.citations import FullCaseCitation, UnknownCitation, citation_kind
@@ -379,7 +376,6 @@ async def assess_review_payload(payload: dict[str, object]) -> dict[str, Any]:
 
 def review_document_assessment(assessment: AssessedDocument) -> dict[str, Any]:
     """Serialize a typed assessment artifact as a frontend review payload."""
-    _ensure_assessment_is_resolved(assessment)
     output = review_document_validation(assessment)
     output["assessment"] = _assessment_payload_document(assessment)
     output["stats"] = _merge_stats(
@@ -396,31 +392,6 @@ def review_document_assessment(assessment: AssessedDocument) -> dict[str, Any]:
         citation["assessment"] = assessment_by_id.get(str(citation.get("id")))
     output["citations"] = citations
     return output
-
-
-def _ensure_assessment_is_resolved(assessment: AssessedDocument) -> None:
-    # NEEDS_ASSESSMENT is a transient handoff only when both names are present and
-    # comparable; a missing extracted or CourtListener name is legitimately
-    # unassessable. A terminal reassessment success or failure resolves the handoff.
-    reassessments_by_id = {item.citation_id: item for item in assessment.reassessments}
-    pending = [
-        item.citation_id
-        for item in assessment.assessments
-        if isinstance(item, AssessedCitationAssessment)
-        and item.result.case_assess.status == CaseNameAssessmentStatus.NEEDS_ASSESSMENT
-        and item.result.case_assess.extracted_case_name
-        and item.result.case_assess.courtlistener_case_name
-        and isinstance(
-            reassessments_by_id[item.citation_id],
-            (WaitingCitationReassessment, SkippedCitationReassessment),
-        )
-    ]
-    if pending:
-        msg = (
-            "AssessedDocument contains unresolved case-name assessment handoff states. "
-            f"Pending citation ids: {', '.join(pending[:5])}"
-        )
-        raise ValueError(msg)
 
 
 def add_validation_notes(
@@ -674,13 +645,12 @@ def _assessment_payload_document(assessment: AssessedDocument) -> JsonDict:
         "assessments": [_assessment_payload(item) for item in assessment.assessments],
         "assessment_complete": assessment.assessment_complete,
         "status_counts": _assessment_status_counts(assessment.assessments),
-        "reassessments": [
-            dict(serialize_citation_reassessment(item)) for item in assessment.reassessments
-        ],
+        "reassessments": [dict(serialize_citation_reassessment(item)) for item in assessment.reassessments],
         "reassessment_status_counts": _reassessment_status_counts(assessment.reassessments),
         "case_name_counts": _assessment_case_name_counts(assessment.assessments),
         "year_counts": _assessment_year_counts(assessment.assessments),
     }
+
 
 def _assessment_case_name_counts(assessments: tuple[CitationAssessment, ...]) -> dict[str, int]:
     counts: dict[str, int] = {}

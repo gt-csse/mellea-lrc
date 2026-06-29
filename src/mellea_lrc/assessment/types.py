@@ -17,21 +17,14 @@ if TYPE_CHECKING:
 
 
 class CaseNameAssessmentStatus(str, Enum):
-    """Canonical outcomes for case-name assessment.
-
-    First pass (before re-extraction): ``exact_match``, ``semantic_match``, or
-    route to re-extraction via internal ``needs_assessment``.
-
-    After re-extraction: ``exact_match``, ``semantic_match``, ``different_case``,
-    ``irregular_form``, or ``reextraction_fail``.
-    """
+    """Canonical substantive conclusions for case-name assessment."""
 
     EXACT_MATCH = "exact_match"
     SEMANTIC_MATCH = "semantic_match"
+    NOT_SEMANTIC_MATCH = "not_semantic_match"
     DIFFERENT_CASE = "different_case"
     IRREGULAR_FORM = "irregular_form"
-    REEXTRACTION_FAIL = "reextraction_fail"
-    NEEDS_ASSESSMENT = "needs_assessment"
+    UNASSESSABLE = "unassessable"
 
 
 class YearAssessmentStatus(str, Enum):
@@ -80,21 +73,11 @@ class ReassessmentSkipReason(str, Enum):
 class AssessmentMetadata:
     """Execution provenance for the assessment stage."""
 
-    mellea_calls: int = 0
     mellea_concurrency: int | None = None
 
     def __post_init__(self) -> None:
-        if self.mellea_calls < 0:
-            msg = "AssessmentMetadata.mellea_calls must not be negative"
-            raise ValueError(msg)
         if self.mellea_concurrency is not None and self.mellea_concurrency < 1:
             msg = "AssessmentMetadata.mellea_concurrency must be positive when provided"
-            raise ValueError(msg)
-        if (self.mellea_calls == 0) != (self.mellea_concurrency is None):
-            msg = "AssessmentMetadata concurrency is required exactly when Mellea calls occur"
-            raise ValueError(msg)
-        if self.mellea_concurrency is not None and self.mellea_concurrency > self.mellea_calls:
-            msg = "AssessmentMetadata concurrency must not exceed Mellea calls"
             raise ValueError(msg)
 
 
@@ -245,7 +228,7 @@ class ReassessedCitationReassessment:
     status: ClassVar[ReassessmentStatus] = ReassessmentStatus.REASSESSED
     citation_id: str
     modified_citation: ModifiedExtractedCitation
-    result: CitationAssessmentResult
+    result: CaseNameAssessment
 
 
 @dataclass(frozen=True, slots=True)
@@ -374,7 +357,17 @@ def _validated_reassessment_record_ids(
             msg = "Modified citation identifier must match its reassessment identifier"
             raise ValueError(msg)
         if isinstance(item, ReassessedCitationReassessment):
-            _validate_assessment_result(item.result, item.citation_id, "reassessment")
+            if item.result.citation_id != item.citation_id:
+                msg = "Reassessment result identifier must match its citation identifier"
+                raise ValueError(msg)
+            if item.result.status not in {
+                CaseNameAssessmentStatus.EXACT_MATCH,
+                CaseNameAssessmentStatus.SEMANTIC_MATCH,
+                CaseNameAssessmentStatus.DIFFERENT_CASE,
+                CaseNameAssessmentStatus.IRREGULAR_FORM,
+            }:
+                msg = "Successful reassessment must contain a terminal comparison conclusion"
+                raise ValueError(msg)
     return ids
 
 
@@ -395,14 +388,22 @@ def _validate_assessment_reassessment_pair(
             and reassessment.reason == ReassessmentSkipReason.ASSESSMENT_FAILED
         )
     else:
-        valid = not (
-            isinstance(reassessment, SkippedCitationReassessment)
-            and reassessment.reason
-            in {
-                ReassessmentSkipReason.ASSESSMENT_SKIPPED,
-                ReassessmentSkipReason.ASSESSMENT_FAILED,
-            }
-        )
+        case_status = assessment.result.case_assess.status
+        if case_status == CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH:
+            valid = isinstance(
+                reassessment,
+                (
+                    WaitingCitationReassessment,
+                    ReassessedCitationReassessment,
+                    ReextractionFailedCitationReassessment,
+                    ReassessmentFailedCitationReassessment,
+                ),
+            )
+        else:
+            valid = (
+                isinstance(reassessment, SkippedCitationReassessment)
+                and reassessment.reason == ReassessmentSkipReason.REEXTRACTION_NOT_REQUIRED
+            )
     if not valid:
         msg = (
             "Assessment and reassessment execution states are inconsistent for citation "

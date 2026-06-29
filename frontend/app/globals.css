@@ -627,7 +627,7 @@ input:focus-visible {
 }
 
 .citation-tag.assessment.different_case,
-.citation-tag.assessment.reextraction_fail {
+.citation-tag.assessment.not_semantic_match {
   background: #fee2e2;
   color: var(--danger);
 }
@@ -637,7 +637,8 @@ input:focus-visible {
   color: var(--danger);
 }
 
-.citation-tag.assessment.irregular_form {
+.citation-tag.assessment.irregular_form,
+.citation-tag.assessment.unassessable {
   background: #fef3c7;
   color: #b45309;
 }

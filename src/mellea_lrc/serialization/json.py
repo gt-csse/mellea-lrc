@@ -89,7 +89,7 @@ if TYPE_CHECKING:
     from mellea_lrc.core.citations import CanonicalCitation
 
 JsonValue: TypeAlias = str | int | float | bool | None | dict[str, "JsonValue"] | list["JsonValue"]
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 _CITATION_PAYLOAD_ADAPTER = TypeAdapter(CanonicalCitationPayload)
 _ASSESSMENT_PAYLOAD_ADAPTER = TypeAdapter(CitationAssessmentPayload)
@@ -208,15 +208,11 @@ def _deserialize_validation_metadata(payload: Mapping[str, object]) -> Validatio
 
 
 def _serialize_assessment_metadata(item: AssessmentMetadata) -> dict[str, JsonValue]:
-    return {
-        "mellea_calls": item.mellea_calls,
-        "mellea_concurrency": item.mellea_concurrency,
-    }
+    return {"mellea_concurrency": item.mellea_concurrency}
 
 
 def _deserialize_assessment_metadata(payload: Mapping[str, object]) -> AssessmentMetadata:
     return AssessmentMetadata(
-        mellea_calls=_int_field(payload.get("mellea_calls")),
         mellea_concurrency=_optional_int(payload.get("mellea_concurrency")),
     )
 
@@ -613,16 +609,12 @@ def serialize_citation_reassessment(item: CitationReassessment) -> dict[str, Jso
         payload["reason"] = item.reason.value
         payload["message"] = item.message
     elif isinstance(item, ReassessedCitationReassessment):
-        payload["modified_citation"] = serialize_modified_extracted_citation(
-            item.modified_citation
-        )
-        payload["result"] = serialize_citation_assessment_result(item.result)
+        payload["modified_citation"] = serialize_modified_extracted_citation(item.modified_citation)
+        payload["result"] = serialize_case_name_assessment(item.result)
     elif isinstance(item, ReextractionFailedCitationReassessment):
         payload["error"] = item.error
     elif isinstance(item, ReassessmentFailedCitationReassessment):
-        payload["modified_citation"] = serialize_modified_extracted_citation(
-            item.modified_citation
-        )
+        payload["modified_citation"] = serialize_modified_extracted_citation(item.modified_citation)
         payload["error"] = item.error
     return payload
 
@@ -638,9 +630,7 @@ def deserialize_citation_reassessment(payload: Mapping[str, object]) -> Citation
     if status == ReassessmentStatus.SKIPPED:
         return SkippedCitationReassessment(
             citation_id=citation_id,
-            reason=ReassessmentSkipReason(
-                _required_str(validated.get("reason"), "reassessment skip reason")
-            ),
+            reason=ReassessmentSkipReason(_required_str(validated.get("reason"), "reassessment skip reason")),
             message=_required_str(validated.get("message"), "skipped reassessment message"),
         )
     if status == ReassessmentStatus.REEXTRACTION_FAILED:
@@ -660,9 +650,7 @@ def deserialize_citation_reassessment(payload: Mapping[str, object]) -> Citation
     return ReassessedCitationReassessment(
         citation_id=citation_id,
         modified_citation=modified_citation,
-        result=deserialize_citation_assessment_result(
-            _required_mapping_field(validated, "result")
-        ),
+        result=deserialize_case_name_assessment(_required_mapping_field(validated, "result")),
     )
 
 
@@ -680,9 +668,7 @@ def serialize_assessed_document(result: AssessedDocument) -> dict[str, JsonValue
         "citations": [serialize_extracted_citation(item) for item in result.citations],
         "validations": [serialize_citation_validation(item) for item in result.validations],
         "assessments": [serialize_citation_assessment(item) for item in result.assessments],
-        "reassessments": [
-            serialize_citation_reassessment(item) for item in result.reassessments
-        ],
+        "reassessments": [serialize_citation_reassessment(item) for item in result.reassessments],
     }
 
 
