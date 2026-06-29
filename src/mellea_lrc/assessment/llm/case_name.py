@@ -16,6 +16,10 @@ from mellea_lrc.assessment.llm.reextract import ReextractionResult, Reextraction
 from mellea_lrc.assessment.types import (
     CaseNameAssessment,
     CaseNameAssessmentRun,
+    CaseNameReassessed,
+    CaseNameReassessmentFailed,
+    CaseNameReassessmentNotRequired,
+    CaseNameReextractionFailed,
     CaseNameAssessmentStatus,
 )
 
@@ -38,9 +42,15 @@ async def assess_case_name_with_mellea(
         courtlistener_case_name=courtlistener_case_name,
     )
     if exact_result.status == CaseNameAssessmentStatus.EXACT_MATCH:
-        return CaseNameAssessmentRun(assessment=exact_result)
+        return CaseNameAssessmentRun(
+            assessment=exact_result,
+            reassessment=CaseNameReassessmentNotRequired(),
+        )
     if not courtlistener_case_name:
-        return CaseNameAssessmentRun(assessment=exact_result)
+        return CaseNameAssessmentRun(
+            assessment=exact_result,
+            reassessment=CaseNameReassessmentNotRequired(),
+        )
 
     try:
         return await _assess_case_name_with_mellea_after_exact(
@@ -79,14 +89,9 @@ async def _assess_case_name_with_mellea_after_exact(
                 extracted_case_name,
                 courtlistener_case_name,
             ),
+            reassessment=CaseNameReassessmentNotRequired(),
         )
 
-    reextraction = await reextract_case_name(
-        session,
-        document_context=document_context,
-        extracted_case_name=extracted_case_name,
-        courtlistener_case_name=courtlistener_case_name,
-    )
     first_pass = build_case_name_assessment(
         citation_id,
         CaseNameAssessmentStatus.NEEDS_ASSESSMENT,
@@ -94,6 +99,25 @@ async def _assess_case_name_with_mellea_after_exact(
         courtlistener_case_name,
         message="Case name failed semantic match; re-extraction attempted.",
     )
+    try:
+        reextraction = await reextract_case_name(
+            session,
+            document_context=document_context,
+            extracted_case_name=extracted_case_name,
+            courtlistener_case_name=courtlistener_case_name,
+        )
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        return CaseNameAssessmentRun(
+            assessment=build_case_name_assessment(
+                citation_id,
+                CaseNameAssessmentStatus.REEXTRACTION_FAIL,
+                extracted_case_name,
+                courtlistener_case_name,
+                message=f"Case-name re-extraction failed: {error}",
+            ),
+            reassessment=CaseNameReextractionFailed(error=error),
+        )
     return await _run_reassessment_after_reextraction(
         session,
         citation_id=citation_id,
@@ -114,6 +138,7 @@ async def _run_reassessment_after_reextraction(
     document_context: str,
 ) -> CaseNameAssessmentRun:
     if reextraction.status != ReextractionStatus.ACCEPTED or reextraction.proposal is None:
+        error = reextraction.error_message or reextraction.status.value
         return CaseNameAssessmentRun(
             assessment=build_case_name_assessment(
                 citation_id,
@@ -122,23 +147,35 @@ async def _run_reassessment_after_reextraction(
                 courtlistener_case_name,
                 message=(
                     "Case-name re-extraction failed: "
-                    f"{reextraction.error_message or reextraction.status.value}"
+                    f"{error}"
                 ),
                 chat_history=reextraction.chat_history,
-            )
+            ),
+            reassessment=CaseNameReextractionFailed(error=error),
         )
 
-    reassessment = await _assess_reextracted_case_name(
-        session,
-        citation_id=citation_id,
-        corrected_case_name=cast("str", reextraction.proposal.extracted_case_name),
-        courtlistener_case_name=courtlistener_case_name,
-        document_context=document_context,
-    )
+    try:
+        reassessment = await _assess_reextracted_case_name(
+            session,
+            citation_id=citation_id,
+            corrected_case_name=cast("str", reextraction.proposal.extracted_case_name),
+            courtlistener_case_name=courtlistener_case_name,
+            document_context=document_context,
+        )
+    except Exception as exc:
+        return CaseNameAssessmentRun(
+            assessment=first_pass,
+            reassessment=CaseNameReassessmentFailed(
+                modified_citation=reextraction.proposal,
+                error=f"{type(exc).__name__}: {exc}",
+            ),
+        )
     return CaseNameAssessmentRun(
         assessment=first_pass,
-        modified_citation=reextraction.proposal,
-        reassessment=reassessment,
+        reassessment=CaseNameReassessed(
+            modified_citation=reextraction.proposal,
+            reassessment=reassessment,
+        ),
     )
 
 

@@ -15,8 +15,14 @@ from mellea_lrc.assessment import (
     CitationAssessmentResult,
     FailedCitationAssessment,
     ModifiedExtractedCitation,
+    ReassessedCitationReassessment,
+    ReassessmentFailedCitationReassessment,
+    ReassessmentSkipReason,
+    ReextractionFailedCitationReassessment,
     SkippedCitationAssessment,
+    SkippedCitationReassessment,
     WaitingCitationAssessment,
+    WaitingCitationReassessment,
     YearAssessment,
     YearAssessmentStatus,
 )
@@ -28,11 +34,13 @@ from mellea_lrc.serialization import (
     deserialize_assessed_document,
     deserialize_extracted_document,
     deserialize_citation_assessment,
+    deserialize_citation_reassessment,
     deserialize_preprocessed_document,
     deserialize_validated_document,
     serialize_assessed_document,
     serialize_extracted_document,
     serialize_citation_assessment,
+    serialize_citation_reassessment,
     serialize_preprocessed_document,
     serialize_validated_document,
 )
@@ -58,7 +66,7 @@ def test_document_extraction_serializes_without_ui_assumptions() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
     artifact = serialize_extracted_document(extraction)
 
-    assert artifact["schema_version"] == 3
+    assert artifact["schema_version"] == 4
     assert artifact["artifact_type"] == "extracted_document"
     assert artifact["source_metadata"]["path"] is None
     assert artifact["text"] == SAMPLE_TEXT
@@ -95,7 +103,7 @@ def test_unversioned_preprocessed_document_is_rejected() -> None:
 
 def test_previous_schema_version_is_rejected() -> None:
     artifact = serialize_preprocessed_document(extract_citations(SAMPLE_TEXT))
-    artifact["schema_version"] = 2
+    artifact["schema_version"] = 3
 
     with pytest.raises(ValueError, match="schema_version"):
         deserialize_preprocessed_document(artifact)
@@ -148,6 +156,16 @@ def test_assessment_transport_rejects_state_inappropriate_fields() -> None:
 
     with pytest.raises(ValidationError, match="error"):
         deserialize_citation_assessment(payload)
+
+
+def test_reassessment_transport_rejects_state_inappropriate_fields() -> None:
+    payload = serialize_citation_reassessment(
+        WaitingCitationReassessment(citation_id="cite-1")
+    )
+    payload["modified_citation"] = {}
+
+    with pytest.raises(ValidationError, match="modified_citation"):
+        deserialize_citation_reassessment(payload)
 
 
 def test_document_extraction_round_trips() -> None:
@@ -243,16 +261,19 @@ def test_document_assessment_round_trips() -> None:
                 result=assessment_result,
             ),
         ),
-        assessment_metadata=AssessmentMetadata(),
-        modified_citations=(
-            ModifiedExtractedCitation(
-                citation_id=extraction.citations[0].citation_id,
-                span=Span(start=6, end=30),
-                matched_text="Norton v. Shelby County",
-                case_name="Norton v. Shelby County",
+        reassessments=(
+            ReassessedCitationReassessment(
+                citation_id=assessment_result.citation_id,
+                modified_citation=ModifiedExtractedCitation(
+                    citation_id=extraction.citations[0].citation_id,
+                    span=Span(start=6, end=30),
+                    matched_text="Norton v. Shelby County",
+                    case_name="Norton v. Shelby County",
+                ),
+                result=assessment_result,
             ),
         ),
-        reassessments=(assessment_result,),
+        assessment_metadata=AssessmentMetadata(),
     )
 
     artifact = serialize_assessed_document(document_assessment)
@@ -260,6 +281,11 @@ def test_document_assessment_round_trips() -> None:
 
     assert artifact["artifact_type"] == "assessed_document"
     assert artifact["assessment_status_counts"] == {"assessed": 1}
+    assert artifact["reassessment_status_counts"] == {"reassessed": 1}
+    assert "modified_citations" not in artifact
+    assert artifact["reassessments"][0]["modified_citation"]["citation_id"] == (
+        assessment_result.citation_id
+    )
     assert artifact["case_name_counts"] == {"exact_match": 1}
     assert artifact["year_counts"] == {"exact_match": 1}
     assert restored == document_assessment
@@ -281,6 +307,35 @@ def test_non_assessed_execution_states_round_trip(record) -> None:
     payload = serialize_citation_assessment(record)
 
     assert deserialize_citation_assessment(payload) == record
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        WaitingCitationReassessment(citation_id="cite-1"),
+        SkippedCitationReassessment(
+            citation_id="cite-1",
+            reason=ReassessmentSkipReason.REEXTRACTION_NOT_REQUIRED,
+            message="not required",
+        ),
+        ReextractionFailedCitationReassessment(
+            citation_id="cite-1",
+            error="RuntimeError: unavailable",
+        ),
+        ReassessmentFailedCitationReassessment(
+            citation_id="cite-1",
+            modified_citation=ModifiedExtractedCitation(
+                citation_id="cite-1",
+                case_name="Norton v. Shelby County",
+            ),
+            error="RuntimeError: unavailable",
+        ),
+    ],
+)
+def test_non_successful_reassessment_states_round_trip(record) -> None:
+    payload = serialize_citation_reassessment(record)
+
+    assert deserialize_citation_reassessment(payload) == record
 
 
 def test_label_studio_prediction_shape() -> None:

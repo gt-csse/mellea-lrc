@@ -1,15 +1,28 @@
+import asyncio
+
 import pytest
 
 from mellea_lrc.assessment import (
     AssessmentSkipReason,
     AssessedCitationAssessment,
+    CaseNameAssessment,
+    CaseNameAssessmentRun,
+    CaseNameReassessmentFailed,
+    CaseNameReextractionFailed,
     CaseNameAssessmentStatus,
     FailedCitationAssessment,
     ModifiedExtractedCitationProposal,
+    ReassessmentSkipReason,
+    ReassessmentFailedCitationReassessment,
+    ReextractionFailedCitationReassessment,
     SkippedCitationAssessment,
+    SkippedCitationReassessment,
     WaitingCitationAssessment,
+    WaitingCitationReassessment,
     YearAssessmentStatus,
     assess_case_name_exact_match,
+    assess_case_name_with_mellea,
+    assess_found_citation,
     assess_year_exact_match,
     build_extracted_case_name,
     find_text_span_near_full_span,
@@ -18,6 +31,7 @@ from mellea_lrc.assessment import (
     run_assessment,
 )
 from mellea_lrc.assessment import ReextractionStatus, validate_proposal
+from mellea_lrc.assessment.llm.reextract import ReextractionResult
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.core.spans import Span
@@ -254,6 +268,132 @@ def test_reextraction_validation_distinguishes_empty_proposal() -> None:
     assert error is None
 
 
+def test_citation_reassessment_preserves_modified_citation_when_reassessment_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    proposal = ModifiedExtractedCitationProposal(case_name="Brown v. Board of Education")
+
+    async def fail_after_reextraction(*_args, **_kwargs):
+        return CaseNameAssessmentRun(
+            assessment=CaseNameAssessment(
+                citation_id="cite-1",
+                status=CaseNameAssessmentStatus.NEEDS_ASSESSMENT,
+                extracted_case_name="Brown v. Board",
+                courtlistener_case_name="Brown v. Board of Education",
+                message="re-extraction attempted",
+            ),
+            reassessment=CaseNameReassessmentFailed(
+                modified_citation=proposal,
+                error="RuntimeError: reassessment unavailable",
+            ),
+        )
+
+    monkeypatch.setattr(
+        "mellea_lrc.assessment.citation.assess.assess_case_name_with_mellea",
+        fail_after_reextraction,
+    )
+    bundle = asyncio.run(
+        assess_found_citation(
+            citation_id="cite-1",
+            document_text="Brown v. Board of Education, 347 U.S. 483 (1954).",
+            span=Span(0, 49),
+            extracted_case_name="Brown v. Board",
+            courtlistener_case_name="Brown v. Board of Education",
+            extracted_year="1954",
+            courtlistener_year="1954",
+            session=object(),
+        )
+    )
+
+    assert isinstance(bundle.reassessment, ReassessmentFailedCitationReassessment)
+    assert bundle.reassessment.modified_citation.case_name == "Brown v. Board of Education"
+    assert bundle.reassessment.error == "RuntimeError: reassessment unavailable"
+
+
+def test_citation_reassessment_records_reextraction_failure_without_modified_citation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fail_reextraction(*_args, **_kwargs):
+        return CaseNameAssessmentRun(
+            assessment=CaseNameAssessment(
+                citation_id="cite-1",
+                status=CaseNameAssessmentStatus.REEXTRACTION_FAIL,
+                extracted_case_name="Brown v. Board",
+                courtlistener_case_name="Brown v. Board of Education",
+                message="re-extraction failed",
+            ),
+            reassessment=CaseNameReextractionFailed(error="invalid proposal"),
+        )
+
+    monkeypatch.setattr(
+        "mellea_lrc.assessment.citation.assess.assess_case_name_with_mellea",
+        fail_reextraction,
+    )
+    bundle = asyncio.run(
+        assess_found_citation(
+            citation_id="cite-1",
+            document_text="Brown v. Board, 347 U.S. 483 (1954).",
+            span=Span(0, 36),
+            extracted_case_name="Brown v. Board",
+            courtlistener_case_name="Brown v. Board of Education",
+            extracted_year="1954",
+            courtlistener_year="1954",
+            session=object(),
+        )
+    )
+
+    assert bundle.reassessment == ReextractionFailedCitationReassessment(
+        citation_id="cite-1",
+        error="invalid proposal",
+    )
+
+
+def test_case_name_run_captures_reassessment_failure_after_accepted_reextraction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def no_semantic_match(*_args, **_kwargs):
+        return False
+
+    async def accepted_reextraction(*_args, **_kwargs):
+        return ReextractionResult(
+            status=ReextractionStatus.ACCEPTED,
+            proposal=ModifiedExtractedCitationProposal(
+                case_name="Brown v. Board of Education"
+            ),
+        )
+
+    async def fail_reassessment(*_args, **_kwargs):
+        msg = "classifier unavailable"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(
+        "mellea_lrc.assessment.llm.case_name.is_semantic_match_with_mellea",
+        no_semantic_match,
+    )
+    monkeypatch.setattr(
+        "mellea_lrc.assessment.llm.case_name.reextract_case_name",
+        accepted_reextraction,
+    )
+    monkeypatch.setattr(
+        "mellea_lrc.assessment.llm.case_name._assess_reextracted_case_name",
+        fail_reassessment,
+    )
+
+    run = asyncio.run(
+        assess_case_name_with_mellea(
+            object(),
+            citation_id="cite-1",
+            extracted_case_name="Brown v. Board",
+            courtlistener_case_name="Brown v. Board of Education",
+            document_context="Brown v. Board of Education",
+        )
+    )
+
+    assert isinstance(run.reassessment, CaseNameReassessmentFailed)
+    assert run.reassessment.modified_citation.case_name == "Brown v. Board of Education"
+    assert run.reassessment.error == "RuntimeError: classifier unavailable"
+
+
 def test_run_assessment_progresses_document_validation_to_document_assessment() -> None:
     preprocessed = PreprocessedDocument(
         source_metadata=SourceMetadata(path="test.txt", format=SourceFormat.TEXT),
@@ -312,6 +452,13 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
     assert isinstance(record, AssessedCitationAssessment)
     assert record.result.case_assess.status == CaseNameAssessmentStatus.EXACT_MATCH
     assert record.result.year_assess.status == YearAssessmentStatus.EXACT_MATCH
+    assert assessment.reassessments == (
+        SkippedCitationReassessment(
+            citation_id="cite-1",
+            reason=ReassessmentSkipReason.REEXTRACTION_NOT_REQUIRED,
+            message="Primary assessment completed without re-extraction.",
+        ),
+    )
 
 
 def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
@@ -361,6 +508,7 @@ def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
 
     assert assessment.assessment_complete is False
     assert assessment.assessments == (WaitingCitationAssessment(citation_id="cite-1"),)
+    assert assessment.reassessments == (WaitingCitationReassessment(citation_id="cite-1"),)
 
 
 def test_initialize_assessment_marks_unsupported_citation_skipped() -> None:
@@ -402,6 +550,13 @@ def test_initialize_assessment_marks_unsupported_citation_skipped() -> None:
             citation_id="cite-1",
             reason=AssessmentSkipReason.UNSUPPORTED_CITATION_KIND,
             message="Citation kind FullLawCitation is not assessed.",
+        ),
+    )
+    assert assessment.reassessments == (
+        SkippedCitationReassessment(
+            citation_id="cite-1",
+            reason=ReassessmentSkipReason.ASSESSMENT_SKIPPED,
+            message="Primary assessment was skipped.",
         ),
     )
 
@@ -462,5 +617,12 @@ def test_run_assessment_records_per_citation_failure(monkeypatch: pytest.MonkeyP
         FailedCitationAssessment(
             citation_id="cite-1",
             error="RuntimeError: assessment service unavailable",
+        ),
+    )
+    assert assessment.reassessments == (
+        SkippedCitationReassessment(
+            citation_id="cite-1",
+            reason=ReassessmentSkipReason.ASSESSMENT_FAILED,
+            message="Primary assessment failed before reassessment could be completed.",
         ),
     )
