@@ -9,9 +9,11 @@ from mellea_lrc.assessment.deterministic.case_name import (
     build_case_name_assessment,
 )
 from mellea_lrc.assessment.llm.classify import (
-    classify_non_semantic_with_mellea,
-    is_semantic_match_with_mellea,
+    CASE_NAME_VERDICT_MAX_TOKENS,
+    classify_non_semantic_case_name,
+    semantic_match_case_name,
 )
+from mellea_lrc.assessment.llm.options import structured_model_options
 from mellea_lrc.assessment.llm.reextract import ReextractionResult, ReextractionStatus, reextract_case_name
 from mellea_lrc.assessment.types import (
     CaseNameAssessment,
@@ -76,12 +78,13 @@ async def _assess_case_name_with_mellea_after_exact(
     document_context: str,
 ) -> CaseNameAssessmentRun:
     """Run semantic match, then always re-extract when that fails."""
-    if extracted_case_name and await is_semantic_match_with_mellea(
+    if extracted_case_name and await semantic_match_case_name(
         session,
         local_context=document_context,
         extracted_case_name=extracted_case_name,
         retrieved_case_name=courtlistener_case_name,
-    ):
+        model_options=structured_model_options(max_tokens=CASE_NAME_VERDICT_MAX_TOKENS),
+    ) == "semantic_match":
         return CaseNameAssessmentRun(
             assessment=build_case_name_assessment(
                 citation_id,
@@ -195,23 +198,27 @@ async def _assess_reextracted_case_name(
     )
     if exact.status == CaseNameAssessmentStatus.EXACT_MATCH:
         return exact
-    if await is_semantic_match_with_mellea(
+    if await semantic_match_case_name(
         session,
         local_context=document_context,
         extracted_case_name=corrected_case_name,
         retrieved_case_name=courtlistener_case_name,
-    ):
+        model_options=structured_model_options(max_tokens=CASE_NAME_VERDICT_MAX_TOKENS),
+    ) == "semantic_match":
         return build_case_name_assessment(
             citation_id,
             CaseNameAssessmentStatus.SEMANTIC_MATCH,
             corrected_case_name,
             courtlistener_case_name,
         )
-    status = await classify_non_semantic_with_mellea(
-        session,
-        local_context=document_context,
-        extracted_case_name=corrected_case_name,
-        retrieved_case_name=courtlistener_case_name,
+    status = CaseNameAssessmentStatus(
+        await classify_non_semantic_case_name(
+            session,
+            local_context=document_context,
+            extracted_case_name=corrected_case_name,
+            retrieved_case_name=courtlistener_case_name,
+            model_options=structured_model_options(max_tokens=CASE_NAME_VERDICT_MAX_TOKENS),
+        )
     )
     return build_case_name_assessment(
         citation_id,
