@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 CL_ACCESS_URL_ENV = "CL_ACCESS_MODAL_URL"
 
 PostJson = Callable[[str, Mapping[str, str]], object]
+GetJson = Callable[[str], object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,9 +44,11 @@ class CourtListenerAccessClient:
         config: CourtListenerAccessConfig | None = None,
         *,
         post_json: PostJson | None = None,
+        get_json: GetJson | None = None,
     ) -> None:
         self.config = config or CourtListenerAccessConfig.from_env()
         self._post_json = post_json or _post_json
+        self._get_json = get_json or _get_json
 
     def lookup_citation(
         self,
@@ -61,6 +64,29 @@ class CourtListenerAccessClient:
             {"volume": volume, "reporter": reporter, "page": page},
         )
         return normalize_citation_lookup_payload(payload, volume, reporter, page)
+
+    def get_docket(self, cl_docket_id: int | str) -> Mapping[str, object]:
+        """Retrieve one docket through the remote access service."""
+        url = f"{self.config.base_url.rstrip('/')}/dockets/{cl_docket_id}"
+        _validate_http_url(url)
+        payload = self._get_json(url)
+        return payload if isinstance(payload, Mapping) else {}
+
+
+def _get_json(url: str) -> object:
+    req = request.Request(  # noqa: S310
+        url,
+        headers={"Accept": "application/json"},
+        method="GET",
+    )
+    try:
+        with request.urlopen(req, timeout=45) as response:  # noqa: S310
+            return json.loads(response.read().decode("utf-8"))
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        return {"detail": _json_detail(detail) or detail}
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"detail": str(exc)}
 
 
 def _post_json(url: str, data: Mapping[str, str]) -> object:

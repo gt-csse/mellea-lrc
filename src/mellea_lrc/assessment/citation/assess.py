@@ -9,6 +9,7 @@ from mellea_lrc.assessment.fields.case_name import (
     assess_case_name_exact_match,
     assess_case_name_with_mellea,
 )
+from mellea_lrc.assessment.fields.court import assess_court_exact_match
 from mellea_lrc.assessment.fields.year import assess_year_exact_match
 from mellea_lrc.assessment.types import (
     CaseNameAssessmentRun,
@@ -30,9 +31,15 @@ async def assess_found_citation(
     courtlistener_case_name: str | None,
     extracted_year: str | None,
     courtlistener_year: str | None,
+    extracted_court: str | None = None,
+    courtlistener_court_id: str | None = None,
     session: MelleaSession | None = None,
 ) -> CitationAssessmentResult:
-    """Assess the case-name and year fields of one found full-case citation."""
+    """Assess case-name, court, and year fields of one found case citation."""
+    court = assess_court_exact_match(
+        extracted_court=extracted_court,
+        courtlistener_court_id=courtlistener_court_id,
+    )
     year = assess_year_exact_match(
         extracted_year=extracted_year,
         courtlistener_year=courtlistener_year,
@@ -56,4 +63,4 @@ async def assess_found_citation(
             courtlistener_case_name=courtlistener_case_name,
             document_context=DocumentTextWindow.around(document_text, span),
         )
-    return CitationAssessmentResult(case_name=case_name, year=year)
+    return CitationAssessmentResult(case_name=case_name, court=court, year=year)

@@ -1,6 +1,7 @@
 """Typed CourtListener domain records and lookup protocol."""
 
 from dataclasses import dataclass, field
+from collections.abc import Mapping
 from typing import Protocol
 
 from mellea_lrc.core.immutable import ExtraData
@@ -13,6 +14,7 @@ class CitationMatch:
     case_name: str | None = None
     date_filed: str | None = None
     court: str | None = None
+    court_id: str | None = None
     extra_data: ExtraData = field(default_factory=ExtraData)
 
     @property
@@ -59,3 +61,10 @@ class CitationLookupClient(Protocol):
         page: str,
     ) -> CourtListenerCitationLookup:
         """Look up one reporter citation."""
+
+
+class CitationValidationClient(CitationLookupClient, Protocol):
+    """Protocol for citation lookup plus case-level docket enrichment."""
+
+    def get_docket(self, cl_docket_id: int | str) -> Mapping[str, object]:
+        """Retrieve one canonical docket record."""

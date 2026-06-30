@@ -33,6 +33,10 @@ Optional environment values supported by the reusable client include
   validation.
 - Citation validation uses `POST /citation-lookup` with form fields `volume`,
   `reporter`, and `page`.
+- For a found cluster with a `docket_id`, validation follows with
+  `GET /dockets/{cl_docket_id}` and records the docket's canonical `court_id`.
+  This enrichment is best-effort and does not change a found result if the
+  docket request fails.
 - The reusable client handles CourtListener token rotation, rate limiting, and
   cache envelopes.
 - The Modal server shuffles configured `COURTLISTENER_API_TOKEN*` values on
@@ -62,5 +66,5 @@ Useful endpoints:
 - `GET /recap-documents/{recap_document_id}/download-url`
 - `GET /courts`
 - `GET /courts/{court_id}`
-- `GET /search`
+- `GET /search` — see [CourtListener Search API](../../../docs/CourtListener%20Search%20API.md)
 - `POST /citation-lookup`

@@ -120,9 +120,20 @@ def create_api(client_factory: Callable[[], CourtListenerClient] | None = None) 
         return client().get_court(court_id)
 
     @api.get("/search")
-    def search(q: str, type: str, cursor: str | None = None) -> dict[str, object]:  # noqa: A002
+    def search(
+        q: str,
+        type: str,  # noqa: A002
+        cursor: str | None = None,
+        *,
+        semantic: bool = False,
+    ) -> dict[str, object]:
         try:
-            return client().search(q=q, search_type=type, cursor=cursor)
+            return client().search(
+                q=q,
+                search_type=type,
+                cursor=cursor,
+                semantic=semantic,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -14,6 +14,7 @@ from mellea_lrc.courtlistener.remote import CourtListenerAccessClient, CourtList
 from mellea_lrc.courtlistener.types import (
     CitationLookupClient,
     CitationMatch,
+    CitationValidationClient,
     CourtListenerCitationLookup,
     ValidationFailureDetail,
 )
@@ -23,6 +24,7 @@ __all__ = [
     "CacheStore",
     "CitationLookupClient",
     "CitationMatch",
+    "CitationValidationClient",
     "CourtListenerAccessClient",
     "CourtListenerAccessConfig",
     "CourtListenerCitationLookup",

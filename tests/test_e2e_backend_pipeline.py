@@ -12,6 +12,8 @@ from mellea_lrc.assessment import (
     CaseNameReassessmentNotRequired,
     CitationAssessment,
     CitationAssessmentResult,
+    CourtAssessment,
+    CourtAssessmentStatus,
     ReextractedCaseName,
     WaitingCitationAssessment,
     YearAssessment,
@@ -65,6 +67,15 @@ class FakeClient:
             cache="miss",
             key="lookup-key",
         )
+
+
+def _court_assessment() -> CourtAssessment:
+    return CourtAssessment(
+        status=CourtAssessmentStatus.EXACT_MATCH,
+        extracted_court="scotus",
+        courtlistener_court_id="scotus",
+        message="match",
+    )
 
 
 def _extracted_document(
@@ -275,6 +286,7 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
             ),
             followup=CaseNameReassessmentNotRequired(),
         ),
+        court=_court_assessment(),
         year=YearAssessment(
             status=YearAssessmentStatus.EXACT_MATCH,
             extracted_year="1954",
@@ -371,6 +383,7 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
                 ),
             ),
         ),
+        court=_court_assessment(),
         year=year,
     )
     output = review_document_assessment(
@@ -439,6 +452,7 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
                         ),
                         followup=CaseNameReassessmentNotRequired(),
                     ),
+                    court=_court_assessment(),
                     year=YearAssessment(
                         status=YearAssessmentStatus.EXACT_MATCH,
                         extracted_year="1954",

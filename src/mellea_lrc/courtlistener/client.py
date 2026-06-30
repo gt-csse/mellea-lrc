@@ -345,15 +345,26 @@ class CourtListenerClient:
             "raw": raw,
         }
 
-    def search(self, q: str, search_type: str, cursor: str | None = None) -> dict[str, Any]:
+    def search(
+        self,
+        q: str,
+        search_type: str,
+        cursor: str | None = None,
+        *,
+        semantic: bool = False,
+    ) -> dict[str, Any]:
         if search_type not in {"r", "rd", "d", "o"}:
             raise ValueError("type must be one of: r, rd, d, o")
-        result = self.get("search", params={"q": q, "type": search_type, "cursor": cursor})
+        params = {"q": q, "type": search_type, "cursor": cursor}
+        if semantic:
+            params["semantic"] = "true"
+        result = self.get("search", params=params)
         raw = result["response"]
         return {
             **_request_metadata(result),
             "q": q,
             "type": search_type,
+            "semantic": semantic,
             "results": [_normalize_search_result(item, search_type) for item in _results(raw)],
             **_pagination_metadata(raw),
             "raw": raw,

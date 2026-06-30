@@ -21,10 +21,15 @@ from mellea_lrc.validation.pipeline import run_validation
 from mellea_lrc.validation.types import ValidationStatus
 
 
-def _client(response: dict[str, object]) -> CourtListenerAccessClient:
+def _client(
+    response: dict[str, object],
+    *,
+    docket_response: dict[str, object] | None = None,
+) -> CourtListenerAccessClient:
     return CourtListenerAccessClient(
         CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
         post_json=lambda _url, _data: response,
+        get_json=lambda _url: docket_response or {},
     )
 
 
@@ -69,13 +74,14 @@ def test_validate_full_case_found() -> None:
                         {
                             "case_name": "Brown v. Board of Education",
                             "date_filed": "1954-05-17",
-                            "court": "scotus",
+                            "docket_id": 191796,
                             "absolute_url": "/opinion/1/",
                         }
                     ],
                     "query_time_ms": 12,
                 },
-            }
+            },
+            docket_response={"id": 191796, "court_id": "scotus"},
         ),
     )
 
@@ -94,8 +100,8 @@ def test_validate_full_case_found() -> None:
         CitationMatch(
             case_name="Brown v. Board of Education",
             date_filed="1954-05-17",
-            court="scotus",
-            extra_data=ExtraData({"absolute_url": "/opinion/1/"}),
+            court_id="scotus",
+            extra_data=ExtraData({"docket_id": 191796, "absolute_url": "/opinion/1/"}),
         ),
     )
     assert result.found == (validation,)
@@ -103,6 +109,41 @@ def test_validate_full_case_found() -> None:
         "response": {"query_time_ms": 12},
         "envelope": {"request_id": "request-1"},
     }
+
+
+def test_validate_found_docket_lookup_is_best_effort_and_deduplicated() -> None:
+    extraction = _extracted_document(
+        preprocessed=preprocess_plain_text_from_string("Example, 1 F.3d 2."),
+        citations=(
+            ExtractedCitation(
+                citation_id="cite-1",
+                span=Span(0, 18),
+                matched_text="1 F.3d 2",
+                citation=FullCaseCitation(volume="1", reporter="F.3d", page="2"),
+            ),
+        ),
+    )
+    get_urls: list[str] = []
+    client = CourtListenerAccessClient(
+        CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
+        post_json=lambda _url, _data: {
+            "response": {
+                "citation": "1 F.3d 2",
+                "status": 200,
+                "clusters": [
+                    {"case_name": "Example A", "docket_id": 42},
+                    {"case_name": "Example B", "docket_id": 42},
+                ],
+            }
+        },
+        get_json=lambda url: get_urls.append(url) or {"detail": "temporarily unavailable"},
+    )
+
+    result = run_validation(extraction, client_mode="custom", client=client)
+
+    assert result.validations[0].status == ValidationStatus.FOUND
+    assert [match.court_id for match in result.validations[0].matches] == [None, None]
+    assert get_urls == ["https://cl-access.example.test/dockets/42"]
 
 
 def test_validate_non_case_citation_is_skipped() -> None:
