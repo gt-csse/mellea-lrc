@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
-from mellea import MelleaSession, generative
+from mellea import generative
 from mellea.core import ValidationResult
 from mellea.core.base import Context, ModelOutputThunk
 from mellea.stdlib.components import Message
@@ -19,6 +21,10 @@ from mellea_lrc.assessment.context import is_text_in_context
 from mellea_lrc.assessment.model_options import structured_model_options
 from mellea_lrc.assessment.types.case_name import CaseNameProposal
 from mellea_lrc.assessment.types.common import ChatTurn
+from mellea_lrc.llm import LlmResponseFormat, llm_api_config_from_env
+
+if TYPE_CHECKING:
+    from mellea import MelleaSession
 
 MISSING_EXTRACTED_CASE_NAME_PROMPT = "<NO_EXTRACTED_CASE_NAME>"
 REEXTRACTION_MAX_TOKENS = 512
@@ -69,16 +75,39 @@ class _ReextractionProposal(BaseModel):
     case_name: str | None = None
 
 
+# Passed as output_format_hint when the env selects json_object mode (the schema is
+# then stripped by mellea_call_options, so the prompt must describe the JSON shape and
+# the {"result": ...} wrapper Mellea expects). Under json_schema mode "none" is passed
+# and the schema carries the contract.
+JSON_OBJECT_HINT = (
+    'Return exactly one JSON object with key "result" containing two fields: '
+    '"available" (true when a case name is identifiable in local_context, false otherwise) '
+    'and "case_name" (a string copied exactly from local_context when available is true, '
+    "null otherwise). "
+    'Example - case name found: {"result": {"available": true, "case_name": "Smith v. Jones"}}. '
+    'Example - no case name: {"result": {"available": false, "case_name": null}}.'
+)
+
+
 @generative
 async def _propose_case_name_reextraction(
     local_context: str,
     extracted_case_name: str,
     retrieved_case_name: str,
+    output_format_hint: str,
 ) -> _ReextractionProposal:
     """Extract the case name that actually appears in local_context.
 
-    Copy the local case name faithfully even when it differs from the retrieved or
-    previously extracted name. Return it only when an identifiable case name exists.
+    Your task is faithful extraction - copy whatever case name is present in local_context,
+    even if it differs from retrieved_case_name or extracted_case_name. Do not try to
+    correct toward retrieved_case_name. The downstream system handles whether names match.
+
+    Set available to false only when local_context contains no identifiable case name
+    at all. If extracted_case_name is <NO_EXTRACTED_CASE_NAME>, no prior extraction
+    exists. Do not treat locator strings (e.g. citation numbers) as case names.
+
+    If output_format_hint is "none", follow the JSON schema passed to you.
+    Otherwise, return JSON exactly matching the shape described by output_format_hint.
     """
 
 
@@ -116,6 +145,12 @@ def _validate_grounding(ctx: Context, document_context: str) -> ValidationResult
     )
 
 
+def _output_format_hint() -> str:
+    """Return the JSON-shape hint to pass into the prompt, or ``"none"`` if schema-enforced."""
+    fmt = llm_api_config_from_env(os.environ).response_format
+    return JSON_OBJECT_HINT if fmt is LlmResponseFormat.JSON_OBJECT else "none"
+
+
 async def reextract_case_name(
     session: MelleaSession,
     *,
@@ -124,7 +159,6 @@ async def reextract_case_name(
     courtlistener_case_name: str,
 ) -> ReextractionResult:
     """Propose a case name with a deterministic local-grounding requirement."""
-    final_ctx: Context | None = None
     try:
         proposal, final_ctx = await _propose_case_name_reextraction(
             ChatContext(),
@@ -132,6 +166,7 @@ async def reextract_case_name(
             local_context=document_context,
             extracted_case_name=case_name_for_prompt(extracted_case_name),
             retrieved_case_name=courtlistener_case_name,
+            output_format_hint=_output_format_hint(),
             requirements=[
                 check(
                     "available must be true when case_name is provided, and false when case_name is null",
