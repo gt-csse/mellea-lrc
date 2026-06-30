@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 import requests
-from dotenv import load_dotenv
+from mellea_lrc.core.env import load_env_file
 from charset_normalizer import from_path
 
 from .pre_annotate import build_task_payload
@@ -56,7 +56,7 @@ def upload_task(
 
 def main(paths: list[str] | None = None) -> int:
     """Upload one or more text files to the configured Label Studio project."""
-    load_dotenv(dotenv_path=Path(".env"))
+    load_env_file(Path(".env"))
     document_paths = paths if paths is not None else sys.argv[1:]
     if not document_paths:
         print(  # noqa: T201

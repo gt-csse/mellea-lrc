@@ -16,16 +16,15 @@ import json
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 from mellea_lrc.assessment import reextract_case_name
+from mellea_lrc.core.env import load_env_file
 from mellea_lrc.llm import start_mellea_session_from_env
 
 
 def main() -> None:
     """Parse CLI args, run re-extraction, and print JSON."""
     args = _parse_args()
-    load_dotenv()
+    load_env_file(Path(".env"))
     context = _read_context(args.context_file)
     session = start_mellea_session_from_env()
     result = asyncio.run(

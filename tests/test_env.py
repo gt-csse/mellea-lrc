@@ -25,6 +25,24 @@ def test_load_env_file_preserves_process_values_by_default(tmp_path: Path) -> No
     assert environ == {"MODEL": "process", "API_BASE": "https://example.test/v1"}
 
 
+def test_read_env_file_strips_inline_comments(tmp_path: Path) -> None:
+    path = tmp_path / ".env"
+    path.write_text(
+        "MODEL=first # trailing comment\n"
+        "API_BASE=https://example.test/v1 # base url\n"
+        'NOTE="a # not a comment" # real comment\n',
+        encoding="utf-8",
+    )
+
+    values = read_env_file(path)
+
+    assert values == {
+        "MODEL": "first",
+        "API_BASE": "https://example.test/v1",
+        "NOTE": "a # not a comment",
+    }
+
+
 def test_load_env_file_can_explicitly_override_process_values(tmp_path: Path) -> None:
     path = tmp_path / ".env"
     path.write_text("MODEL=file\n", encoding="utf-8")

@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from dotenv import load_dotenv
+from mellea_lrc.core.env import load_env_file
 
 from .upload_tasks import get_session
 
@@ -39,7 +39,7 @@ def upload_schema(
 
 def main() -> int:
     """Upload this directory's Label Studio XML config."""
-    load_dotenv(dotenv_path=Path(".env"))
+    load_env_file(Path(".env"))
     ls_url = os.environ["LS_URL"]
     project_id = os.environ["LS_PROJECT_ID"]
     session = get_session(ls_url, os.environ["LS_EMAIL"], os.environ["LS_PASSWORD"])
