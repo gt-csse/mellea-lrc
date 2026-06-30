@@ -9,8 +9,7 @@ Run deployed Modal service checks with explicit service URLs:
 
 ```bash
 uv run pytest tests/smoke --no-cov --run-remote-smoke \
-  --courtlistener-url https://your-courtlistener-service.modal.run \
-  --label-studio-url https://your-label-studio-service.modal.run
+  --courtlistener-url https://your-courtlistener-service.modal.run
 ```
 
 Run the Label Studio upload/extraction smoke test with credentials from `.env`:

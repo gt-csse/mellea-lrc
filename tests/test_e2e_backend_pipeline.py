@@ -38,12 +38,9 @@ from mellea_lrc.validation.types import (
     ValidationStatus,
 )
 from scripts.e2e_backend.api import _review_snapshot_payload
-from scripts.label_studio.label_studio import to_label_studio_prediction
 from scripts.e2e_backend.pipeline import (
     E2EBackend,
-    add_validation_notes,
     assess_review_payload,
-    predict_preprocessed,
     review_document_assessment,
     review_preprocessed,
     validate_review_citation_payload,
@@ -127,28 +124,6 @@ def _assessed_document(
         assessments=assessments,
         assessment_metadata=AssessmentMetadata(),
     )
-
-
-def test_predict_preprocessed_adds_validation_notes() -> None:
-    preprocessed = preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483.")
-
-    output = predict_preprocessed(preprocessed, client=FakeClient())
-
-    assert output["text"] == preprocessed.text
-    assert output["stats"]["citation_spans"] == 1
-    assert output["stats"]["validated"] == 1
-    notes = [item for item in output["prediction"]["result"] if item.get("from_name") == "notes"]
-    assert notes
-    assert notes[0]["value"]["text"][0].startswith("CourtListener: found 347 U.S. 483")
-
-
-def test_e2e_backend_predict_text_exposes_pipeline_api() -> None:
-    output = E2EBackend().predict_text("Brown v. Board, 347 U.S. 483.", validate=False)
-
-    assert output["text"] == "Brown v. Board, 347 U.S. 483."
-    assert output["validation"] is None
-    assert output["stats"]["citation_spans"] == 1
-    assert output["prediction"]["result"]
 
 
 def test_review_preprocessed_returns_frontend_span_payload() -> None:
@@ -472,40 +447,6 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
     assert _review_snapshot_payload(serialize_extracted_document(extraction), backend)["stage"] == "extracted"
     assert _review_snapshot_payload(serialize_validated_document(validation), backend)["stage"] == "validated"
     assert _review_snapshot_payload(serialize_assessed_document(assessment), backend)["stage"] == "assessed"
-
-
-def test_add_validation_notes_skips_non_case_citations() -> None:
-    extraction = _extracted_document(
-        preprocessed=preprocess_plain_text_from_string("See 28 U.S.C. § 636."),
-        citations=(
-            ExtractedCitation(
-                citation_id="law",
-                span=Span(4, 20),
-                matched_text="28 U.S.C. § 636",
-                citation=FullLawCitation(volume="28", reporter="U.S.C.", page="636"),
-            ),
-        ),
-    )
-    prediction = to_label_studio_prediction(extraction)
-
-    enriched = add_validation_notes(
-        prediction,
-        _validated_document(
-            preprocessed=extraction,
-            citations=extraction.citations,
-            validations=(
-                CitationValidation(
-                    citation_id="law",
-                    locator=None,
-                    status=ValidationStatus.SKIPPED,
-                    source="cl-access",
-                    message="Only FullCaseCitation is validated.",
-                ),
-            ),
-        ),
-    )
-
-    assert not [item for item in enriched["result"] if item.get("from_name") == "notes"]
 
 
 def test_llm_api_config_binds_an_explicit_openai_compatible_endpoint() -> None:

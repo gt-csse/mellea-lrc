@@ -5,7 +5,6 @@ import logging
 import modal
 
 from scripts.e2e_backend.api import create_app
-from scripts.e2e_backend.label_studio_bridge import LabelStudioBridge, LabelStudioConfig
 from scripts.e2e_backend.pipeline import E2EBackend
 
 APP_NAME = "mellea-lrc-prototype"
@@ -34,7 +33,6 @@ backend = E2EBackend()
 @app.function(
     image=image,
     secrets=[
-        modal.Secret.from_name("label-studio"),
         modal.Secret.from_name("cl-access-modal"),
         modal.Secret.from_name("mellea-assessment"),
     ],
@@ -47,15 +45,4 @@ backend = E2EBackend()
 @modal.asgi_app()
 def web() -> object:
     """Expose the E2E backend through FastAPI."""
-    web_app = create_app(backend)
-
-    @web_app.post("/predict")
-    async def predict(payload: dict[str, object]) -> dict[str, list[object]]:
-        bridge = LabelStudioBridge(
-            backend,
-            LabelStudioConfig.from_env(),
-            logger=logger,
-        )
-        return bridge.predict_tasks(payload.get("tasks", []))
-
-    return web_app
+    return create_app(backend)
