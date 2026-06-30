@@ -16,6 +16,8 @@ from mellea_lrc.assessment import (
     CaseNameReassessed,
     CaseNameReassessmentFailed,
     CitationAssessmentResult,
+    CourtAssessment,
+    CourtAssessmentStatus,
     FailedCitationAssessment,
     ReextractedCaseName,
     SkippedCitationAssessment,
@@ -61,7 +63,7 @@ def test_document_extraction_serializes_without_ui_assumptions() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
     artifact = serialize_extracted_document(extraction)
 
-    assert artifact["schema_version"] == 7
+    assert artifact["schema_version"] == 8
     assert artifact["artifact_type"] == "extracted_document"
     assert artifact["source_metadata"]["path"] is None
     assert artifact["text"] == SAMPLE_TEXT
@@ -97,7 +99,7 @@ def test_unversioned_preprocessed_document_is_rejected() -> None:
 
 def test_previous_schema_version_is_rejected() -> None:
     artifact = serialize_preprocessed_document(extract_citations(SAMPLE_TEXT))
-    artifact["schema_version"] = 6
+    artifact["schema_version"] = 7
 
     with pytest.raises(ValueError, match="schema_version"):
         deserialize_preprocessed_document(artifact)
@@ -228,6 +230,12 @@ def test_document_assessment_round_trips() -> None:
                 ),
             ),
         ),
+        court=CourtAssessment(
+            status=CourtAssessmentStatus.EXACT_MATCH,
+            extracted_court="scotus",
+            courtlistener_court_id="scotus",
+            message="match",
+        ),
         year=YearAssessment(
             status=YearAssessmentStatus.EXACT_MATCH,
             extracted_year="1886",
@@ -309,6 +317,12 @@ def test_case_name_followup_round_trips_inside_citation_assessment() -> None:
                     ),
                     error="RuntimeError: unavailable",
                 ),
+            ),
+            court=CourtAssessment(
+                status=CourtAssessmentStatus.MISSING,
+                extracted_court=None,
+                courtlistener_court_id="scotus",
+                message="missing",
             ),
             year=YearAssessment(
                 status=YearAssessmentStatus.EXACT_MATCH,

@@ -1,9 +1,15 @@
 """Validation pipeline for extracted citations."""
 
+from dataclasses import replace
+
 from mellea_lrc.core.citations import FullCaseCitation
-from mellea_lrc.courtlistener.client import CourtListenerClient
+from mellea_lrc.courtlistener.client import CourtListenerClient, CourtListenerError
 from mellea_lrc.courtlistener.remote import CourtListenerAccessClient
-from mellea_lrc.courtlistener.types import CitationLookupClient, CourtListenerCitationLookup
+from mellea_lrc.courtlistener.types import (
+    CitationMatch,
+    CitationValidationClient,
+    CourtListenerCitationLookup,
+)
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
 from mellea_lrc.validation.types import (
     CitationValidation,
@@ -26,25 +32,28 @@ def run_validation(
     extraction: ExtractedDocument,
     *,
     client_mode: ValidationClientMode = DEFAULT_CLIENT_MODE,
-    client: CitationLookupClient | None = None,
+    client: CitationValidationClient | None = None,
 ) -> ValidatedDocument:
     """Run first-layer existence validation for extractable full case citations."""
     lookup_client = _lookup_client(client_mode, client)
+    docket_court_cache: dict[int | str, str | None] = {}
     return ValidatedDocument(
         source_metadata=extraction.source_metadata,
         text=extraction.text,
         preprocessing_metadata=extraction.preprocessing_metadata,
         citations=extraction.citations,
         extraction_metadata=extraction.extraction_metadata,
-        validations=tuple(_validate_citation(item, lookup_client) for item in extraction.citations),
+        validations=tuple(
+            _validate_citation(item, lookup_client, docket_court_cache) for item in extraction.citations
+        ),
         validation_metadata=ValidationMetadata(client_mode=client_mode, source=SOURCE),
     )
 
 
 def _lookup_client(
     client_mode: str,
-    client: CitationLookupClient | None,
-) -> CitationLookupClient:
+    client: CitationValidationClient | None,
+) -> CitationValidationClient:
     if client_mode == "deployed":
         _ensure_no_client_override(client_mode, client)
         return CourtListenerAccessClient()
@@ -63,7 +72,7 @@ def _lookup_client(
 
 def _ensure_no_client_override(
     client_mode: str,
-    client: CitationLookupClient | None,
+    client: CitationValidationClient | None,
 ) -> None:
     if client is not None:
         msg = f"client must be None when client_mode='{client_mode}'; use client_mode='custom'"
@@ -72,7 +81,8 @@ def _ensure_no_client_override(
 
 def _validate_citation(
     item: ExtractedCitation,
-    client: CitationLookupClient,
+    client: CitationValidationClient,
+    docket_court_cache: dict[int | str, str | None],
 ) -> CitationValidation:
     citation = item.citation
     if not isinstance(citation, FullCaseCitation):
@@ -94,7 +104,41 @@ def _validate_citation(
         )
 
     lookup = client.lookup_citation(citation.volume, citation.reporter, citation.page)
+    lookup = _enrich_found_lookup_courts(lookup, client, docket_court_cache)
     return _validation_from_lookup(item.citation_id, lookup)
+
+
+def _enrich_found_lookup_courts(
+    lookup: CourtListenerCitationLookup,
+    client: CitationValidationClient,
+    docket_court_cache: dict[int | str, str | None],
+) -> CourtListenerCitationLookup:
+    if lookup.status != HTTP_FOUND:
+        return lookup
+    return replace(
+        lookup,
+        matches=tuple(_enrich_match_court(match, client, docket_court_cache) for match in lookup.matches),
+    )
+
+
+def _enrich_match_court(
+    match: CitationMatch,
+    client: CitationValidationClient,
+    docket_court_cache: dict[int | str, str | None],
+) -> CitationMatch:
+    docket_id = match.extra_data.values.get("docket_id")
+    if not isinstance(docket_id, (int, str)) or isinstance(docket_id, bool):
+        return match
+    if docket_id not in docket_court_cache:
+        try:
+            docket = client.get_docket(docket_id)
+        except (AttributeError, CourtListenerError, OSError, TypeError, ValueError):
+            docket_court_cache[docket_id] = None
+        else:
+            court_id = docket.get("court_id")
+            docket_court_cache[docket_id] = court_id if isinstance(court_id, str) else None
+    court_id = docket_court_cache[docket_id]
+    return replace(match, court_id=court_id) if court_id is not None else match
 
 
 def _validation_from_lookup(

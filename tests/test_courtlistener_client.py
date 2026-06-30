@@ -402,6 +402,18 @@ class CourtListenerClientTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             client(FakeSession([])).search("Example", "p")
 
+    def test_search_can_enable_semantic_mode(self) -> None:
+        """Semantic search should be an explicit opt-in forwarded to CourtListener."""
+        session = FakeSession([FakeResponse({"count": 0, "results": []})])
+
+        result = client(session).search("Johnson v. City of Shelby", "o", semantic=True)
+
+        self.assertIs(result["semantic"], True)
+        self.assertEqual(
+            session.calls[0]["params"],
+            {"q": "Johnson v. City of Shelby", "type": "o", "semantic": "true"},
+        )
+
     def test_citation_lookup_uses_post(self) -> None:
         """Citation lookup must preserve CourtListener's volume/reporter/page POST shape."""
         session = FakeSession(

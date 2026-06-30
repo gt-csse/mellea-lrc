@@ -25,6 +25,8 @@ from mellea_lrc.assessment.types import (
     ChatTurn,
     CitationAssessment,
     CitationAssessmentResult,
+    CourtAssessment,
+    CourtAssessmentStatus,
     FailedCitationAssessment,
     ReextractedCaseName,
     SkippedCitationAssessment,
@@ -73,6 +75,7 @@ from mellea_lrc.serialization.transport import (
     CaseNameFollowupPayload,
     CitationAssessmentPayload,
     CitationAssessmentResultPayload,
+    CourtAssessmentPayload,
     CitationValidationPayload,
     ExtractedCitationPayload,
     ExtractedDocumentPayload,
@@ -88,7 +91,7 @@ if TYPE_CHECKING:
     from mellea_lrc.core.citations import CanonicalCitation
 
 JsonValue: TypeAlias = str | int | float | bool | None | dict[str, "JsonValue"] | list["JsonValue"]
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 _CITATION_PAYLOAD_ADAPTER = TypeAdapter(CanonicalCitationPayload)
 _ASSESSMENT_PAYLOAD_ADAPTER = TypeAdapter(CitationAssessmentPayload)
@@ -316,6 +319,7 @@ def _serialize_citation_match(item: CitationMatch) -> dict[str, JsonValue]:
         "case_name": item.case_name,
         "date_filed": item.date_filed,
         "court": item.court,
+        "court_id": item.court_id,
         "extra_data": _serialize_extra_data(item.extra_data),
     }
 
@@ -325,6 +329,7 @@ def _deserialize_citation_match(payload: Mapping[str, object]) -> CitationMatch:
         case_name=_optional_str(payload.get("case_name")),
         date_filed=_optional_str(payload.get("date_filed")),
         court=_optional_str(payload.get("court")),
+        court_id=_optional_str(payload.get("court_id")),
         extra_data=_deserialize_extra_data(payload.get("extra_data")),
     )
 
@@ -498,6 +503,24 @@ def deserialize_year_assessment(payload: Mapping[str, object]) -> YearAssessment
     )
 
 
+def serialize_court_assessment(item: CourtAssessment) -> dict[str, JsonValue]:
+    """Serialize a court assessment."""
+    payload = cast("dict[str, JsonValue]", asdict(item))
+    payload["status"] = item.status.value
+    return payload
+
+
+def deserialize_court_assessment(payload: Mapping[str, object]) -> CourtAssessment:
+    """Rebuild a court assessment from JSON data."""
+    validated = CourtAssessmentPayload.model_validate(payload).model_dump(mode="python")
+    return CourtAssessment(
+        status=CourtAssessmentStatus(_required_str(validated.get("status"), "court assessment status")),
+        extracted_court=_optional_str(validated.get("extracted_court")),
+        courtlistener_court_id=_optional_str(validated.get("courtlistener_court_id")),
+        message=_required_str(validated.get("message"), "court assessment message"),
+    )
+
+
 def serialize_citation_assessment(item: CitationAssessment) -> dict[str, JsonValue]:
     """Serialize one discriminated citation-assessment execution state."""
     payload: dict[str, JsonValue] = {
@@ -520,6 +543,7 @@ def serialize_citation_assessment_result(
     """Serialize a completed substantive citation assessment."""
     return {
         "case_name": serialize_case_name_assessment_run(item.case_name),
+        "court": serialize_court_assessment(item.court),
         "year": serialize_year_assessment(item.year),
     }
 
@@ -589,12 +613,14 @@ def deserialize_citation_assessment_result(
     """Rebuild a completed substantive citation assessment."""
     validated = CitationAssessmentResultPayload.model_validate(payload).model_dump(mode="python")
     case_payload = validated.get("case_name")
+    court_payload = validated.get("court")
     year_payload = validated.get("year")
-    if not isinstance(case_payload, dict) or not isinstance(year_payload, dict):
-        msg = "citation assessment requires case_name and year"
+    if not all(isinstance(item, dict) for item in (case_payload, court_payload, year_payload)):
+        msg = "citation assessment requires case_name, court, and year"
         raise TypeError(msg)
     return CitationAssessmentResult(
         case_name=deserialize_case_name_assessment_run(_mapping_field(case_payload)),
+        court=deserialize_court_assessment(_mapping_field(court_payload)),
         year=deserialize_year_assessment(_mapping_field(year_payload)),
     )
 

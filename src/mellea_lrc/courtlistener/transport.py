@@ -1,6 +1,7 @@
-"""inbound boundary layer: untrusted JSON → validated Pydantic DTOs → immutable domain types in types.py
-Strict Pydantic models for external CourtListener citation payloads."""
+"""Inbound boundary layer for untrusted CourtListener citation JSON.
 
+Payloads are validated with Pydantic before conversion to immutable domain types.
+"""
 
 from __future__ import annotations
 
@@ -39,6 +40,7 @@ class CitationMatchPayload(_ExternalPayload):
         validation_alias=AliasChoices("date_filed", "dateFiled"),
     )
     court: str | None = None
+    court_id: str | None = None
 
     def to_domain(self) -> CitationMatch:
         """Convert validated transport data into an immutable domain record."""
@@ -46,6 +48,7 @@ class CitationMatchPayload(_ExternalPayload):
             case_name=self.case_name,
             date_filed=self.date_filed,
             court=self.court,
+            court_id=self.court_id,
             extra_data=self.collected_extra_data(),
         )
 

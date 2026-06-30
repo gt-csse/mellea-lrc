@@ -34,6 +34,7 @@ type ValidationPayload = {
 
 type AssessmentPayload = {
   case_name: CaseNameAssessmentRunPayload;
+  court: CourtAssessmentPayload;
   year: YearAssessmentPayload;
 };
 
@@ -59,6 +60,13 @@ type YearAssessmentPayload = {
   status: string;
   extracted_year: string | null;
   courtlistener_year: string | null;
+  message: string;
+};
+
+type CourtAssessmentPayload = {
+  status: string;
+  extracted_court: string | null;
+  courtlistener_court_id: string | null;
   message: string;
 };
 
@@ -1291,6 +1299,15 @@ function AssessmentDetails({ assessment }: { assessment: CitationAssessmentPaylo
         </div>
         <YearAssessmentDetails assessment={assessment.result.year} />
       </section>
+      <section className="year-assessment-section">
+        <div className="assessment-section-heading">
+          <h3>Court assessment</h3>
+          <span className={`assessment-step-status ${assessmentStatusTone(assessment.result.court.status)}`}>
+            {formatStatusLabel(assessment.result.court.status)}
+          </span>
+        </div>
+        <CourtAssessmentDetails assessment={assessment.result.court} />
+      </section>
     </div>
   );
 }
@@ -1328,6 +1345,25 @@ function YearAssessmentDetails({ assessment }: { assessment: YearAssessmentPaylo
       <div>
         <dt>CourtListener year</dt>
         <dd>{formatValue(assessment.courtlistener_year)}</dd>
+      </div>
+    </dl>
+  );
+}
+
+function CourtAssessmentDetails({ assessment }: { assessment: CourtAssessmentPayload }) {
+  return (
+    <dl className="assessment-fields">
+      <div>
+        <dt>Message</dt>
+        <dd>{assessment.message}</dd>
+      </div>
+      <div>
+        <dt>Extracted court</dt>
+        <dd>{formatValue(assessment.extracted_court)}</dd>
+      </div>
+      <div>
+        <dt>CourtListener docket court</dt>
+        <dd>{formatValue(assessment.courtlistener_court_id)}</dd>
       </div>
     </dl>
   );
@@ -1480,7 +1516,7 @@ function bibliographicRows(
   const extractedCaseName = caseNameFromFields(fields);
   const extractedCaseNameDisplay = extractedCaseName ?? MISSING_EXTRACTED_CASE_NAME_LABEL;
   const courtListenerCaseName = readString(cluster, ["case_name", "caseName"]);
-  const courtListenerCourt = readString(cluster, ["court", "court_id", "courtId"]);
+  const courtListenerCourt = readString(cluster, ["court_id", "court", "courtId"]);
   const courtListenerDate = readString(cluster, ["date_filed", "dateFiled"]);
   const courtListenerUrl = readString(cluster, ["absolute_url", "absoluteUrl", "resource_uri"]);
 
@@ -1549,7 +1585,9 @@ function bibliographicRows(
       label: "Court",
       extracted: fields.court,
       courtListener: courtListenerCourt,
-      matchType: "unchecked"
+      matchType: canColorRows
+        ? courtRowMatchType(primaryAssessment?.court, fields.court, courtListenerCourt)
+        : "unchecked"
     },
     {
       label: "URL",
@@ -1588,6 +1626,24 @@ function caseNameRowMatchType(
 
 function yearRowMatchType(
   assessment: YearAssessmentPayload | null | undefined,
+  extracted: unknown,
+  courtListener: unknown
+): ComparisonMatchType {
+  const status = assessment?.status.toLowerCase().replaceAll("-", "_");
+  if (status === "exact_match") {
+    return "exact";
+  }
+  if (status === "mismatch") {
+    return "error";
+  }
+  if (status === "missing") {
+    return "unchecked";
+  }
+  return directRowMatchType(extracted, courtListener);
+}
+
+function courtRowMatchType(
+  assessment: CourtAssessmentPayload | null | undefined,
   extracted: unknown,
   courtListener: unknown
 ): ComparisonMatchType {

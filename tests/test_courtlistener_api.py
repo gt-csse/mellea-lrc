@@ -38,7 +38,46 @@ class CitationClient:
         )
 
 
+class SearchClient:
+    def __init__(self) -> None:
+        self.semantic: bool | None = None
+
+    def search(
+        self,
+        *,
+        q: str,
+        search_type: str,
+        cursor: str | None,
+        semantic: bool,
+    ) -> dict[str, object]:
+        self.semantic = semantic
+        return {"q": q, "type": search_type, "cursor": cursor, "semantic": semantic}
+
+
 class AppTests(unittest.TestCase):
+    def test_search_route_forwards_semantic_mode(self) -> None:
+        search_client = SearchClient()
+
+        response = TestClient(create_api(client_factory=lambda: search_client)).get(
+            "/search",
+            params={"q": "Johnson v. City of Shelby", "type": "o", "semantic": "true"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIs(search_client.semantic, True)
+        self.assertIs(response.json()["semantic"], True)
+
+    def test_search_route_defaults_to_keyword_mode(self) -> None:
+        search_client = SearchClient()
+
+        response = TestClient(create_api(client_factory=lambda: search_client)).get(
+            "/search",
+            params={"q": "Johnson v. City of Shelby", "type": "o"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIs(search_client.semantic, False)
+
     def test_courtlistener_error_handler_returns_typed_failure(self) -> None:
         response = TestClient(create_api(client_factory=FailingClient)).get("/dockets/9")
 

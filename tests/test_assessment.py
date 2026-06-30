@@ -13,6 +13,7 @@ from mellea_lrc.assessment import (
     CaseNameReassessmentNotRequired,
     CaseNameReextractionFailed,
     CaseNameAssessmentStatus,
+    CourtAssessmentStatus,
     FailedCitationAssessment,
     DocumentTextWindow,
     ReextractedCaseName,
@@ -21,6 +22,7 @@ from mellea_lrc.assessment import (
     YearAssessmentStatus,
     assess_case_name_exact_match,
     assess_case_name_with_mellea,
+    assess_court_exact_match,
     assess_found_citation,
     assess_year_exact_match,
     build_extracted_case_name,
@@ -216,6 +218,33 @@ def test_assess_year_missing_is_field_level_third_status() -> None:
     )
 
     assert result.status == YearAssessmentStatus.MISSING
+
+
+def test_assess_court_exact_match_uses_string_equality() -> None:
+    result = assess_court_exact_match(
+        extracted_court="scotus",
+        courtlistener_court_id="scotus",
+    )
+
+    assert result.status == CourtAssessmentStatus.EXACT_MATCH
+
+
+def test_assess_court_mismatch_is_deterministic_error() -> None:
+    result = assess_court_exact_match(
+        extracted_court="ca9",
+        courtlistener_court_id="ca8",
+    )
+
+    assert result.status == CourtAssessmentStatus.MISMATCH
+
+
+def test_assess_court_missing_is_field_level_third_status() -> None:
+    result = assess_court_exact_match(
+        extracted_court=None,
+        courtlistener_court_id="scotus",
+    )
+
+    assert result.status == CourtAssessmentStatus.MISSING
 
 
 def test_case_name_proposal_valid_requires_grounding() -> None:
@@ -517,6 +546,7 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
             reporter="U.S.",
             page="483",
             year="1954",
+            court="scotus",
         ),
     )
     validation = ValidatedDocument(
@@ -536,6 +566,7 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
                     CitationMatch(
                         case_name="Brown v. Board",
                         date_filed="1954-05-17",
+                        court_id="scotus",
                     ),
                 ),
             ),
@@ -556,6 +587,7 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
     assert isinstance(record, AssessedCitationAssessment)
     assert record.result.case_name.initial.status == CaseNameAssessmentStatus.EXACT_MATCH
     assert isinstance(record.result.case_name.followup, CaseNameReassessmentNotRequired)
+    assert record.result.court.status == CourtAssessmentStatus.EXACT_MATCH
     assert record.result.year.status == YearAssessmentStatus.EXACT_MATCH
 
 

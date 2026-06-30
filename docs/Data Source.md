@@ -45,6 +45,18 @@ CourtListener is the Free Law Project's main platform. It aggregates data from m
 
 CourtListener is our primary access point for sourcing the original court filings in our dataset.
 
+CourtListener uses a unified `Docket` object across its collections. In PACER/
+RECAP data, a docket can own docket entries, parties, attorneys, and documents.
+In case-law data, including incorporated Harvard Caselaw Access Project records,
+the docket instead sits above opinion clusters and opinions. A state appellate
+docket can therefore be a valid source of case and court metadata without
+having any docket entries. This distinction controls our retrieval path: use
+the docket referenced by a found opinion cluster to obtain `court_id`; do not
+require RECAP coverage or docket-entry availability.
+
+For the search endpoint contract, supported corpora, semantic-search behavior,
+and project-specific usage guidance, see [CourtListener Search API](CourtListener%20Search%20API.md).
+
 ---
 
 ## Why Some Documents Are Available and Others Are Not

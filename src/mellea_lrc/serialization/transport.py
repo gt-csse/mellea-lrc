@@ -1,4 +1,4 @@
-"""Strict Pydantic DTOs for serialized artifact schema version 7."""
+"""Strict Pydantic DTOs for serialized artifact schema version 8."""
 
 # ruff: noqa: D101
 
@@ -138,6 +138,7 @@ class CitationMatchPayload(ArtifactPayload):
     case_name: str | None
     date_filed: str | None
     court: str | None
+    court_id: str | None = None
     extra_data: dict[str, JsonValue]
 
 
@@ -203,6 +204,13 @@ class YearAssessmentPayload(ArtifactPayload):
     message: str
 
 
+class CourtAssessmentPayload(ArtifactPayload):
+    status: Literal["exact_match", "mismatch", "missing"]
+    extracted_court: str | None
+    courtlistener_court_id: str | None
+    message: str
+
+
 class ReextractedCaseNamePayload(ArtifactPayload):
     case_name: str
     case_name_span: SpanPayload
@@ -245,6 +253,7 @@ class CaseNameAssessmentRunPayload(ArtifactPayload):
 
 class CitationAssessmentResultPayload(ArtifactPayload):
     case_name: CaseNameAssessmentRunPayload
+    court: CourtAssessmentPayload
     year: YearAssessmentPayload
 
 
@@ -298,22 +307,22 @@ class _ValidatedDocumentFields(_ExtractedDocumentFields):
 
 
 class PreprocessedDocumentPayload(_PreprocessedDocumentFields):
-    schema_version: Literal[7]
+    schema_version: Literal[8]
     artifact_type: Literal["preprocessed_document"]
 
 
 class ExtractedDocumentPayload(_ExtractedDocumentFields):
-    schema_version: Literal[7]
+    schema_version: Literal[8]
     artifact_type: Literal["extracted_document"]
 
 
 class ValidatedDocumentPayload(_ValidatedDocumentFields):
-    schema_version: Literal[7]
+    schema_version: Literal[8]
     artifact_type: Literal["validated_document"]
 
 
 class AssessedDocumentPayload(_ValidatedDocumentFields):
-    schema_version: Literal[7]
+    schema_version: Literal[8]
     artifact_type: Literal["assessed_document"]
     assessment_metadata: AssessmentMetadataPayload
     assessments: list[CitationAssessmentPayload]

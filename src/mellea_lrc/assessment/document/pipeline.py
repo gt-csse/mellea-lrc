@@ -55,6 +55,8 @@ class _PendingMelleaAssessment:
     courtlistener_case_name: str | None
     extracted_year: str | None
     courtlistener_year: str | None
+    extracted_court: str | None
+    courtlistener_court_id: str | None
     context: DocumentTextWindow
 
 
@@ -99,6 +101,7 @@ async def run_assessment_async(
         first_match = citation_validation.matches[0] if citation_validation.matches else None
         courtlistener_case_name = first_match.case_name if first_match is not None else None
         courtlistener_year = first_match.year if first_match is not None else None
+        courtlistener_court_id = first_match.court_id if first_match is not None else None
         exact = assess_case_name_exact_match(
             extracted_case_name=extracted_case_name,
             courtlistener_case_name=courtlistener_case_name,
@@ -112,6 +115,8 @@ async def run_assessment_async(
                     courtlistener_case_name=courtlistener_case_name,
                     extracted_year=citation.citation.year,
                     courtlistener_year=courtlistener_year,
+                    extracted_court=citation.citation.court,
+                    courtlistener_court_id=courtlistener_court_id,
                 )
             except Exception as exc:
                 assessments_by_id[citation.citation_id] = _failed_assessment(
@@ -130,6 +135,8 @@ async def run_assessment_async(
                 courtlistener_case_name=courtlistener_case_name,
                 extracted_year=citation.citation.year,
                 courtlistener_year=courtlistener_year,
+                extracted_court=citation.citation.court,
+                courtlistener_court_id=courtlistener_court_id,
                 context=DocumentTextWindow.around(validation.text, citation.span),
             )
         )
@@ -261,6 +268,8 @@ async def _assess_pending_mellea_citation(
             courtlistener_case_name=job.courtlistener_case_name,
             extracted_year=job.extracted_year,
             courtlistener_year=job.courtlistener_year,
+            extracted_court=job.extracted_court,
+            courtlistener_court_id=job.courtlistener_court_id,
             session=session.clone(),
         )
     if on_mellea_done is not None:
