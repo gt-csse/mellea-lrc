@@ -36,7 +36,6 @@ from mellea_lrc.serialization import (
     serialize_citation_assessment,
     serialize_citation_validation,
 )
-from scripts.label_studio.label_studio import to_label_studio_prediction
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -67,7 +66,7 @@ class DoclingConverter(Protocol):
 
 
 class E2EBackend:
-    """Well-defined API for text/PDF extraction, validation, and prediction."""
+    """Well-defined API for text/PDF extraction, validation, and assessment."""
 
     def __init__(
         self,
@@ -76,10 +75,6 @@ class E2EBackend:
     ) -> None:
         self._converter_factory = converter_factory or _build_converter
         self._converter: DoclingConverter | None = None
-
-    def predict_text(self, text: str, *, validate: bool = True) -> dict[str, Any]:
-        """Run the assembled pipeline for plain text input."""
-        return predict_preprocessed(_text_to_preprocessed(text), validate=validate)
 
     def review_text(self, text: str, *, validate: bool = True) -> dict[str, Any]:
         """Run the frontend review API for plain text input."""
@@ -100,22 +95,6 @@ class E2EBackend:
     def extract_text(self, text: str) -> dict[str, Any]:
         """Extract frontend review citations from plain text without validation."""
         return review_preprocessed(_text_to_preprocessed(text), validate=False)
-
-    def predict_pdf_bytes(
-        self,
-        content: bytes,
-        filename: str,
-        *,
-        validate: bool = True,
-    ) -> dict[str, Any]:
-        """Run the assembled pipeline for PDF bytes."""
-        if content[:4] != b"%PDF":
-            msg = f"{filename} is not a PDF"
-            raise ValueError(msg)
-        return predict_preprocessed(
-            _pdf_to_preprocessed(self._get_converter(), content, filename),
-            validate=validate,
-        )
 
     def review_pdf_bytes(
         self,
@@ -194,27 +173,6 @@ class E2EBackend:
         if self._converter is None:
             self._converter = self._converter_factory()
         return self._converter
-
-
-def predict_preprocessed(
-    preprocessed: PreprocessedDocument,
-    *,
-    validate: bool = True,
-    client: CourtListenerAccessClient | None = None,
-) -> dict[str, Any]:
-    """Run extraction, optional validation, and Label Studio prediction serialization."""
-    extraction = run_extraction(preprocessed)
-    validation = _run_validation(extraction, validate=validate, client=client)
-    prediction = to_label_studio_prediction(extraction)
-    if validation is not None:
-        prediction = add_validation_notes(prediction, validation)
-
-    return {
-        "text": extraction.text,
-        "prediction": prediction,
-        "validation": _validation_payload(validation),
-        "stats": _stats(extraction, validation),
-    }
 
 
 def review_preprocessed(
@@ -390,27 +348,6 @@ def review_document_assessment(assessment: AssessedDocument) -> dict[str, Any]:
         citation["assessment"] = assessment_by_id.get(str(citation.get("id")))
     output["citations"] = citations
     return output
-
-
-def add_validation_notes(
-    prediction: dict[str, Any],
-    validation: ValidatedDocument,
-) -> dict[str, Any]:
-    """Add CourtListener validation messages as Label Studio per-region notes."""
-    result = list(prediction.get("result", []))
-    for item in validation.validations:
-        if item.status == ValidationStatus.SKIPPED:
-            continue
-        result.append(
-            {
-                "id": item.citation_id,
-                "from_name": "notes",
-                "to_name": "text",
-                "type": "textarea",
-                "value": {"text": [item.message]},
-            }
-        )
-    return {**prediction, "result": result}
 
 
 def _build_converter() -> DoclingConverter:

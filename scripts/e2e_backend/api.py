@@ -20,7 +20,7 @@ from scripts.e2e_backend.pipeline import E2EBackend
 APP_NAME = "mellea-lrc-prototype"
 
 
-def create_app(backend: E2EBackend | None = None) -> FastAPI:  # noqa: C901, PLR0915
+def create_app(backend: E2EBackend | None = None) -> FastAPI:  # noqa: C901
     """Create the E2E backend app for Modal or local serving."""
     pipeline = backend or E2EBackend()
     web_app = FastAPI(title="Mellea LRC E2E Backend", version="0.1.0")
@@ -35,16 +35,6 @@ def create_app(backend: E2EBackend | None = None) -> FastAPI:  # noqa: C901, PLR
     @web_app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "UP", "model_class": APP_NAME}
-
-    @web_app.post("/setup")
-    async def setup(_payload: dict[str, object]) -> dict[str, str]:
-        return {"model_version": "eyecite-pre-annotation"}
-
-    @web_app.post("/predict_text")
-    async def predict_text(payload: dict[str, object]) -> dict[str, object]:
-        text = payload.get("text") or ""
-        validate = bool(payload.get("validate", True))
-        return pipeline.predict_text(str(text), validate=validate)
 
     @web_app.post("/api/extract-text")
     async def extract_text(payload: dict[str, object]) -> dict[str, Any]:

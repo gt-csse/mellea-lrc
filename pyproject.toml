@@ -99,7 +99,6 @@ courtlistener-r2 = [
 # Modal deploy targets (E2E backend and CourtListener access).
 modal = [
     { include-group = "pipeline" },
-    { include-group = "label-studio" },
     { include-group = "courtlistener-r2" },
     "modal>=1.0,<2.0",
 ]

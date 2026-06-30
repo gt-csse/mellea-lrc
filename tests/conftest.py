@@ -28,12 +28,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Base URL for a deployed CourtListener access service.",
     )
     parser.addoption(
-        "--label-studio-url",
-        action="store",
-        default=None,
-        help="Base URL for a deployed E2E Modal backend with Label Studio endpoints.",
-    )
-    parser.addoption(
         "--remote-timeout",
         action="store",
         default=30.0,
@@ -71,7 +65,4 @@ def _remote_url_fixture(option_name: str, service_name: str) -> Callable[[pytest
 
 courtlistener_url = pytest.fixture(
     _remote_url_fixture("--courtlistener-url", "CourtListener"),
-)
-label_studio_url = pytest.fixture(
-    _remote_url_fixture("--label-studio-url", "Label Studio"),
 )
