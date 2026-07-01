@@ -66,6 +66,36 @@ class CourtResolutionTrace:
     error_message: str | None
 
 
+class CaseNameSearchStatus(str, Enum):
+    """Whether/why a case-name search ran for a not-found citation."""
+
+    SEARCHED = "searched"
+    SKIPPED_NO_CASE_NAME = "skipped_no_case_name"
+    SKIPPED_PARTIAL_CASE_NAME = "skipped_partial_case_name"
+    SEARCH_UNAVAILABLE = "search_unavailable"
+    SEARCH_FAILED = "search_failed"
+    NOT_ATTEMPTED = "not_attempted"
+
+
+@dataclass(frozen=True, slots=True)
+class CaseNameSearchTrace:
+    """Case-name search attached to a not-found citation (retrieval only).
+
+    When a reporter lookup 404s but both parties were extracted, we query
+    CourtListener's relevance search for the case name and record only *how
+    many* opinions matched (``case_count``). Validation never inspects, ranks,
+    or compares the individual candidates — case names are non-unique and often
+    only semantically equivalent, so deciding whether any candidate is the cited
+    case is the assessment stage's job. This trace exists so the frontend can
+    report "N CourtListener cases share this case name" for a not-found cite.
+    """
+
+    status: CaseNameSearchStatus = CaseNameSearchStatus.NOT_ATTEMPTED
+    query: str | None = None
+    case_count: int | None = None
+    error_message: str | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class ValidationMetadata:
     """Provenance for the validation stage."""
@@ -130,6 +160,7 @@ class NotFoundCitationValidation:
     lookup_status: int
     lookup_cache: str | None
     lookup_key: str | None
+    candidate_search: CaseNameSearchTrace = field(default_factory=CaseNameSearchTrace)
     extra_data: ExtraData = field(default_factory=ExtraData)
 
     @property

@@ -19,6 +19,7 @@ from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, Ex
 from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
 from mellea_lrc.validation.pipeline import run_validation
 from mellea_lrc.validation.types import (
+    CaseNameSearchStatus,
     CourtResolutionSource,
     ValidationStatus,
 )
@@ -168,6 +169,59 @@ def test_validate_non_case_citation_is_skipped() -> None:
     result = run_validation(extraction, client_mode="custom", client=_client({}))
 
     assert result.validations[0].status == ValidationStatus.SKIPPED
+
+
+def _not_found_extraction(citation: FullCaseCitation) -> ExtractedDocument:
+    return _extracted_document(
+        preprocessed=preprocess_plain_text_from_string("Doe v. Roe, 999 U.S. 999."),
+        citations=(
+            ExtractedCitation(
+                citation_id="nf",
+                span=Span(0, 24),
+                matched_text="999 U.S. 999",
+                citation=citation,
+            ),
+        ),
+    )
+
+
+def test_not_found_reports_case_name_search_count() -> None:
+    client = CourtListenerAccessClient(
+        CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
+        post_json=lambda _url, _data: {
+            "response": {"citation": "999 U.S. 999", "status": 404, "clusters": []},
+        },
+        get_json=lambda _url: {"count": 7, "results": []},
+    )
+    extraction = _not_found_extraction(
+        FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter="U.S.", page="999"),
+    )
+
+    validation = run_validation(extraction, client_mode="custom", client=client).validations[0]
+
+    assert validation.status == ValidationStatus.NOT_FOUND
+    assert validation.candidate_search.status == CaseNameSearchStatus.SEARCHED
+    assert validation.candidate_search.query == 'caseName:"Doe v. Roe"'
+    assert validation.candidate_search.case_count == 7
+
+
+def test_not_found_skips_search_without_both_parties() -> None:
+    client = CourtListenerAccessClient(
+        CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
+        post_json=lambda _url, _data: {
+            "response": {"citation": "999 U.S. 999", "status": 404, "clusters": []},
+        },
+        get_json=lambda _url: pytest.fail("search must not run without both parties"),
+    )
+    extraction = _not_found_extraction(
+        FullCaseCitation(plaintiff="Doe", volume="999", reporter="U.S.", page="999"),
+    )
+
+    validation = run_validation(extraction, client_mode="custom", client=client).validations[0]
+
+    assert validation.status == ValidationStatus.NOT_FOUND
+    assert validation.candidate_search.status == CaseNameSearchStatus.SKIPPED_PARTIAL_CASE_NAME
+    assert validation.candidate_search.case_count is None
 
 
 def test_validate_surfaces_typed_courtlistener_failure_detail() -> None:

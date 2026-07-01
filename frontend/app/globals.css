@@ -638,6 +638,7 @@ input:focus-visible {
   color: var(--danger);
 }
 
+.citation-tag.court.mismatch,
 .citation-tag.year.mismatch {
   background: #fee2e2;
   color: var(--danger);
@@ -898,9 +899,69 @@ input:focus-visible {
   overflow-wrap: anywhere;
 }
 
-.year-assessment-section {
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
+.assessment-field-sections {
+  display: grid;
+  gap: 8px;
+}
+
+.assessment-field-section {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-soft);
+  overflow: hidden;
+}
+
+.assessment-field-section.open {
+  background: transparent;
+}
+
+.assessment-field-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.assessment-field-toggle:hover {
+  background: var(--surface-soft);
+}
+
+.assessment-field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.assessment-field-title {
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.assessment-field-subtitle {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.assessment-field-toggle-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.assessment-field-body {
+  padding: 4px 11px 11px;
 }
 
 .detail-title-row {
@@ -989,6 +1050,37 @@ input:focus-visible {
   color: #334155;
   font-size: 11px;
   text-align: center;
+}
+
+.row-attempt-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.row-attempt-switcher button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: #334155;
+  padding: 0;
+}
+
+.row-attempt-switcher button:hover {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.row-attempt-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .comparison-row {

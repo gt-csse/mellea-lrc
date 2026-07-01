@@ -68,6 +68,8 @@ from mellea_lrc.preprocessing.types import (
 )
 from mellea_lrc.validation.types import (
     AmbiguousCitationValidation,
+    CaseNameSearchStatus,
+    CaseNameSearchTrace,
     CitationValidation,
     CourtResolutionSource,
     CourtResolutionTrace,
@@ -88,6 +90,7 @@ from mellea_lrc.serialization.transport import (
     CanonicalCitationPayload,
     CaseNameAssessmentPayload,
     CaseNameFollowupPayload,
+    CaseNameSearchTracePayload,
     CitationAssessmentPayload,
     CitationAssessmentResultPayload,
     CourtAssessmentPayload,
@@ -354,6 +357,7 @@ def serialize_citation_validation(item: CitationValidation) -> dict[str, JsonVal
                 "lookup_status": item.lookup_status,
                 "lookup_cache": item.lookup_cache,
                 "lookup_key": item.lookup_key,
+                "candidate_search": _serialize_case_name_search_trace(item.candidate_search),
                 "extra_data": _serialize_extra_data(item.extra_data),
             },
         )
@@ -387,6 +391,31 @@ def _serialize_court_resolution_trace(item: CourtResolutionTrace) -> dict[str, J
         "cached": item.cached,
         "error_message": item.error_message,
     }
+
+
+def _serialize_case_name_search_trace(item: CaseNameSearchTrace) -> dict[str, JsonValue]:
+    """Serialize the case-name search trace for a not-found citation."""
+    return {
+        "status": item.status.value,
+        "query": item.query,
+        "case_count": item.case_count,
+        "error_message": item.error_message,
+    }
+
+
+def _deserialize_case_name_search_trace(
+    payload: Mapping[str, object] | None,
+) -> CaseNameSearchTrace:
+    """Rebuild a case-name search trace, tolerating payloads that predate it."""
+    if payload is None:
+        return CaseNameSearchTrace()
+    validated = CaseNameSearchTracePayload.model_validate(payload).model_dump(mode="python")
+    return CaseNameSearchTrace(
+        status=CaseNameSearchStatus(_required_str(validated.get("status"), "candidate search status")),
+        query=_optional_str(validated.get("query")),
+        case_count=_optional_int(validated.get("case_count")),
+        error_message=_optional_str(validated.get("error_message")),
+    )
 
 
 def _deserialize_court_resolution_trace(
@@ -501,6 +530,7 @@ def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationVa
             extra_data=_deserialize_extra_data(validated.get("extra_data")),
         )
     if status is ValidationStatus.NOT_FOUND:
+        candidate_search = validated.get("candidate_search")
         return NotFoundCitationValidation(
             citation_id=citation_id,
             locator=_required_str(validated.get("locator"), "locator"),
@@ -509,6 +539,9 @@ def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationVa
             lookup_status=_required_int(validated.get("lookup_status"), "lookup_status"),
             lookup_cache=_optional_str(validated.get("lookup_cache")),
             lookup_key=_optional_str(validated.get("lookup_key")),
+            candidate_search=_deserialize_case_name_search_trace(
+                candidate_search if isinstance(candidate_search, Mapping) else None,
+            ),
             extra_data=_deserialize_extra_data(validated.get("extra_data")),
         )
     if status is ValidationStatus.INVALID:

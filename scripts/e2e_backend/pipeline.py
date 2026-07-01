@@ -324,6 +324,7 @@ async def assess_review_payload(payload: dict[str, object]) -> dict[str, Any]:
         {
             "assessed": _assessment_status_counts(document_assessment.assessments).get("assessed", 0),
             "case_name_counts": _assessment_case_name_counts(document_assessment.assessments),
+            "court_counts": _assessment_court_counts(document_assessment.assessments),
             "year_counts": _assessment_year_counts(document_assessment.assessments),
         },
     )
@@ -339,6 +340,7 @@ def review_document_assessment(assessment: AssessedDocument) -> dict[str, Any]:
         {
             "assessed": _assessment_status_counts(assessment.assessments).get("assessed", 0),
             "case_name_counts": _assessment_case_name_counts(assessment.assessments),
+            "court_counts": _assessment_court_counts(assessment.assessments),
             "year_counts": _assessment_year_counts(assessment.assessments),
         },
     )
@@ -582,6 +584,7 @@ def _assessment_payload_document(assessment: AssessedDocument) -> JsonDict:
         "status_counts": _assessment_status_counts(assessment.assessments),
         "case_name_followup_status_counts": _case_name_followup_status_counts(assessment.assessments),
         "case_name_counts": _assessment_case_name_counts(assessment.assessments),
+        "court_counts": _assessment_court_counts(assessment.assessments),
         "year_counts": _assessment_year_counts(assessment.assessments),
     }
 
@@ -591,6 +594,15 @@ def _assessment_case_name_counts(assessments: tuple[CitationAssessment, ...]) ->
     for item in assessments:
         if isinstance(item, AssessedCitationAssessment):
             status = item.result.case_name.initial.status.value
+            counts[status] = counts.get(status, 0) + 1
+    return counts
+
+
+def _assessment_court_counts(assessments: tuple[CitationAssessment, ...]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in assessments:
+        if isinstance(item, AssessedCitationAssessment):
+            status = item.result.court.final.status.value
             counts[status] = counts.get(status, 0) + 1
     return counts
 

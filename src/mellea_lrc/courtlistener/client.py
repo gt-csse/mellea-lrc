@@ -365,10 +365,15 @@ class CourtListenerClient:
             "q": q,
             "type": search_type,
             "semantic": semantic,
+            "count": raw.get("count") if isinstance(raw, dict) else None,
             "results": [_normalize_search_result(item, search_type) for item in _results(raw)],
             **_pagination_metadata(raw),
             "raw": raw,
         }
+
+    def search_opinions(self, q: str) -> dict[str, Any]:
+        """Run an opinion (``type=o``) relevance search; response carries ``count``."""
+        return self.search(q, "o")
 
     def lookup_citation(self, volume: str, reporter: str, page: str) -> CourtListenerCitationLookup:
         result = self.post(

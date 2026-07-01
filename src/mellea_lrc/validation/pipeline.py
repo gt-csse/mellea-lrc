@@ -27,6 +27,7 @@ from mellea_lrc.courtlistener.types import (
     CourtListenerCitationLookup,
 )
 from mellea_lrc.validation.court_resolution import resolve_court
+from mellea_lrc.validation.not_found_search import search_case_name_candidates
 from mellea_lrc.validation.types import (
     AmbiguousCitationValidation,
     CitationValidation,
@@ -139,7 +140,7 @@ def _validate_citation(
         )
 
     lookup = client.lookup_citation(citation.volume, citation.reporter, citation.page)
-    return _validation_from_lookup(item.citation_id, lookup, client, docket_court_cache)
+    return _validation_from_lookup(item.citation_id, lookup, client, docket_court_cache, citation)
 
 
 def _validation_from_lookup(
@@ -147,6 +148,7 @@ def _validation_from_lookup(
     lookup: CourtListenerCitationLookup,
     client: CitationValidationClient,
     docket_court_cache: dict[str, str | None],
+    citation: FullCaseCitation,
 ) -> CitationValidation:
     status = _status_from_lookup(lookup.status)
     case_names = tuple(item.case_name for item in lookup.matches if item.case_name)
@@ -182,7 +184,10 @@ def _validation_from_lookup(
     if status is ValidationStatus.AMBIGUOUS:
         return AmbiguousCitationValidation(**common, matches=lookup.matches)
     if status is ValidationStatus.NOT_FOUND:
-        return NotFoundCitationValidation(**common)
+        return NotFoundCitationValidation(
+            **common,
+            candidate_search=search_case_name_candidates(citation, client=client),
+        )
     if status is ValidationStatus.THROTTLED:
         return ThrottledCitationValidation(
             **common,
