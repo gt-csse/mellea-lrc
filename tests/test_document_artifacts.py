@@ -16,6 +16,9 @@ from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, Ex
 from mellea_lrc.preprocessing import DocumentBase, PreprocessedDocument, preprocess_plain_text_from_string
 from mellea_lrc.validation.types import (
     CitationValidation,
+    CourtResolutionSource,
+    CourtResolutionTrace,
+    FoundCitationValidation,
     ValidatedDocument,
     ValidationMetadata,
     ValidationStatus,
@@ -64,13 +67,24 @@ def test_validation_copies_and_deeply_freezes_service_payloads() -> None:
         case_name="Brown v. Board",
         extra_data=ExtraData(extra_data),
     )
-    validation = CitationValidation(
+    validation = FoundCitationValidation(
         citation_id="cite-1",
         locator="347 U.S. 483",
-        status=ValidationStatus.FOUND,
         source="test",
         message="found",
+        lookup_status=200,
+        lookup_cache=None,
+        lookup_key=None,
         matches=(match,),
+        court_resolution=CourtResolutionTrace(
+            courtlistener_court_id=None,
+            resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
+            docket_id=None,
+            docket_url=None,
+            cached=False,
+            error_message=None,
+        ),
+        extra_data=ExtraData(),
     )
 
     extra_data["judges"].append("Changed")
@@ -164,10 +178,22 @@ def _citation(citation_id: str) -> ExtractedCitation:
 
 
 def _validation(citation_id: str) -> CitationValidation:
-    return CitationValidation(
+    return FoundCitationValidation(
         citation_id=citation_id,
         locator="347 U.S. 483",
-        status=ValidationStatus.FOUND,
         source="test",
         message="found",
+        lookup_status=200,
+        lookup_cache=None,
+        lookup_key=None,
+        matches=(),
+        court_resolution=CourtResolutionTrace(
+            courtlistener_court_id=None,
+            resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
+            docket_id=None,
+            docket_url=None,
+            cached=False,
+            error_message=None,
+        ),
+        extra_data=ExtraData(),
     )

@@ -34,7 +34,7 @@ type ValidationPayload = {
 
 type AssessmentPayload = {
   case_name: CaseNameAssessmentRunPayload;
-  court: CourtAssessmentPayload;
+  court: CourtAssessmentRunPayload;
   year: YearAssessmentPayload;
 };
 
@@ -68,6 +68,20 @@ type CourtAssessmentPayload = {
   extracted_court: string | null;
   courtlistener_court_id: string | null;
   message: string;
+};
+
+type CourtFollowupPayload =
+  | { status: "not_required" }
+  | {
+      status: "inferred_from_reporter";
+      reporter: string | null;
+      citation_court_before: string | null;
+      result: CourtAssessmentPayload;
+    };
+
+type CourtAssessmentRunPayload = {
+  initial: CourtAssessmentPayload;
+  followup: CourtFollowupPayload;
 };
 
 type CourtListenerMatch = Record<string, unknown>;
@@ -1300,13 +1314,22 @@ function AssessmentDetails({ assessment }: { assessment: CitationAssessmentPaylo
         <YearAssessmentDetails assessment={assessment.result.year} />
       </section>
       <section className="year-assessment-section">
-        <div className="assessment-section-heading">
-          <h3>Court assessment</h3>
-          <span className={`assessment-step-status ${assessmentStatusTone(assessment.result.court.status)}`}>
-            {formatStatusLabel(assessment.result.court.status)}
-          </span>
+        <div className="assessment-trace-heading">
+          <div>
+            <h3>Court assessment trace</h3>
+            <p>Initial verdict and reporter inference when the extracted court was missing</p>
+          </div>
         </div>
-        <CourtAssessmentDetails assessment={assessment.result.court} />
+        <ol className="assessment-trace">
+          <AssessmentTraceStep
+            index="1"
+            title="Initial assessment"
+            status={assessment.result.court.initial.status}
+          >
+            <CourtAssessmentDetails assessment={assessment.result.court.initial} />
+          </AssessmentTraceStep>
+          <CourtFollowupDetails followup={assessment.result.court.followup} />
+        </ol>
       </section>
     </div>
   );
@@ -1366,6 +1389,38 @@ function CourtAssessmentDetails({ assessment }: { assessment: CourtAssessmentPay
         <dd>{formatValue(assessment.courtlistener_court_id)}</dd>
       </div>
     </dl>
+  );
+}
+
+function CourtFollowupDetails({ followup }: { followup: CourtFollowupPayload }) {
+  return (
+    <AssessmentTraceStep
+      index="2"
+      title="Reporter inference"
+      status={
+        followup.status === "inferred_from_reporter"
+          ? followup.result.status
+          : followup.status
+      }
+    >
+      {followup.status === "inferred_from_reporter" ? (
+        <>
+          <dl className="assessment-fields">
+            <div>
+              <dt>Reporter</dt>
+              <dd>{formatValue(followup.reporter)}</dd>
+            </div>
+            <div>
+              <dt>Citation court before inference</dt>
+              <dd>{formatValue(followup.citation_court_before)}</dd>
+            </div>
+          </dl>
+          <CourtAssessmentDetails assessment={followup.result} />
+        </>
+      ) : (
+        <p className="assessment-step-note">The initial result did not require reporter inference.</p>
+      )}
+    </AssessmentTraceStep>
   );
 }
 
@@ -1642,7 +1697,27 @@ function yearRowMatchType(
   return directRowMatchType(extracted, courtListener);
 }
 
+function effectiveCourtAssessment(
+  assessment: CourtAssessmentRunPayload | null | undefined,
+): CourtAssessmentPayload | null | undefined {
+  if (!assessment) {
+    return undefined;
+  }
+  if (assessment.followup.status === "inferred_from_reporter") {
+    return assessment.followup.result;
+  }
+  return assessment.initial;
+}
+
 function courtRowMatchType(
+  assessment: CourtAssessmentRunPayload | null | undefined,
+  extracted: unknown,
+  courtListener: unknown,
+): ComparisonMatchType {
+  return courtAssessmentRowMatchType(effectiveCourtAssessment(assessment), extracted, courtListener);
+}
+
+function courtAssessmentRowMatchType(
   assessment: CourtAssessmentPayload | null | undefined,
   extracted: unknown,
   courtListener: unknown

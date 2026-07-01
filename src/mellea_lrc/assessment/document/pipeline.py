@@ -25,7 +25,7 @@ from mellea_lrc.assessment.types import (
 )
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.llm import start_mellea_session_from_env
-from mellea_lrc.validation.types import ValidationStatus
+from mellea_lrc.validation.types import FoundCitationValidation, ValidationStatus
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -56,6 +56,7 @@ class _PendingMelleaAssessment:
     extracted_year: str | None
     courtlistener_year: str | None
     extracted_court: str | None
+    reporter: str | None
     courtlistener_court_id: str | None
     context: DocumentTextWindow
 
@@ -98,10 +99,20 @@ async def run_assessment_async(
         citation_validation = validations_by_id[citation.citation_id]
         assert isinstance(citation.citation, FullCaseCitation)
         extracted_case_name = build_extracted_case_name(citation.citation)
-        first_match = citation_validation.matches[0] if citation_validation.matches else None
-        courtlistener_case_name = first_match.case_name if first_match is not None else None
-        courtlistener_year = first_match.year if first_match is not None else None
-        courtlistener_court_id = first_match.court_id if first_match is not None else None
+        if isinstance(citation_validation, FoundCitationValidation):
+            courtlistener_case_name = (
+                citation_validation.matches[0].case_name
+                if citation_validation.matches
+                else None
+            )
+            courtlistener_year = (
+                citation_validation.matches[0].year if citation_validation.matches else None
+            )
+            courtlistener_court_id = citation_validation.court_resolution.courtlistener_court_id
+        else:
+            courtlistener_case_name = None
+            courtlistener_year = None
+            courtlistener_court_id = None
         exact = assess_case_name_exact_match(
             extracted_case_name=extracted_case_name,
             courtlistener_case_name=courtlistener_case_name,
@@ -116,6 +127,7 @@ async def run_assessment_async(
                     extracted_year=citation.citation.year,
                     courtlistener_year=courtlistener_year,
                     extracted_court=citation.citation.court,
+                    reporter=citation.citation.reporter,
                     courtlistener_court_id=courtlistener_court_id,
                 )
             except Exception as exc:
@@ -136,6 +148,7 @@ async def run_assessment_async(
                 extracted_year=citation.citation.year,
                 courtlistener_year=courtlistener_year,
                 extracted_court=citation.citation.court,
+                reporter=citation.citation.reporter,
                 courtlistener_court_id=courtlistener_court_id,
                 context=DocumentTextWindow.around(validation.text, citation.span),
             )
@@ -269,6 +282,7 @@ async def _assess_pending_mellea_citation(
             extracted_year=job.extracted_year,
             courtlistener_year=job.courtlistener_year,
             extracted_court=job.extracted_court,
+            reporter=job.reporter,
             courtlistener_court_id=job.courtlistener_court_id,
             session=session.clone(),
         )

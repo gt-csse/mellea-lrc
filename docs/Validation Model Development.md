@@ -92,6 +92,43 @@ Layer 2 uses the case retrieved in Layer 1 to verify the remaining fields in the
 
 **The scope of this layer is explicitly bounded to the canonical citation representation.** We check what can be checked from the structured fields we extracted — nothing more. Any check that requires reading the content of the cited document or the source document belongs to Layer 3.
 
+### Court field assessment
+
+Validation only retrieves the CourtListener court — it never compares it
+against anything. Court assessment is where the comparison happens: it
+compares the **raw eyecite** ``court`` slug against the CourtListener court
+resolved during validation. When that initial comparison is ``missing`` and
+the reporter unambiguously identifies SCOTUS (``L. Ed.`` / ``L. Ed. 2d`` gaps
+in eyecite), assessment applies **reporter inference** as a field-local
+follow-up — mirroring the case-name ``initial`` + ``followup`` trace.
+
+Implementation: ``assessment/fields/court/assess.py`` (`assess_court`),
+``assessment/fields/court/inference.py``. Trace shape: ``CourtAssessmentRun``
+with ``CourtInferredFromReporter`` follow-up.
+
+Extraction and validation do **not** apply this fallback, and validation never
+flags a missing comparison — there is nothing to flag when no comparison is
+attempted. Assessment is where we express the opinion that ``L. Ed. 2d``
+implies ``scotus``.
+
+#### Reporter table (eyecite 2.7.x, clean text)
+
+| Reporter | Example | eyecite `court` | assessment inference? |
+|---|---|---|---|
+| `U.S.` | `347 U.S. 483` | `scotus` | No — initial `exact_match` |
+| `S. Ct.` | `123 S. Ct. 456` | `scotus` | No |
+| `L. Ed.` | `123 L. Ed. 456` | *(absent)* | Yes — follow-up `inferred_from_reporter` |
+| `L. Ed. 2d` | `123 L. Ed. 2d 789` | *(absent)* | Yes |
+| `F.3d` | `38 F.3d 1225` | varies | No — ambiguous reporter |
+
+#### Example — `L. Ed. 2d`
+
+```
+Extraction:   court=None, reporter="L. Ed. 2d"
+Validation:   extracted_court=None vs CL "scotus" → missing_extracted
+Assessment:   initial=missing → followup inferred_from_reporter → result=exact_match
+```
+
 ---
 
 ## Layer 3 — Contextual Verification

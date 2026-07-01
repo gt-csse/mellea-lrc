@@ -1,4 +1,4 @@
-"""Strict Pydantic DTOs for serialized artifact schema version 8."""
+"""Strict Pydantic DTOs for serialized artifact schema version 9."""
 
 # ruff: noqa: D101
 
@@ -35,6 +35,7 @@ class ExtractionMetadataPayload(ArtifactPayload):
 class ValidationMetadataPayload(ArtifactPayload):
     client_mode: Literal["deployed", "sdk", "custom"]
     source: str
+    duration_ms: float | None = None
 
 
 class AssessmentMetadataPayload(ArtifactPayload):
@@ -153,18 +154,85 @@ class ValidationFailureDetailPayload(ArtifactPayload):
     extra_data: dict[str, JsonValue]
 
 
-class CitationValidationPayload(ArtifactPayload):
-    citation_id: str
-    locator: str | None
-    status: Literal[
-        "found",
-        "ambiguous",
-        "not_found",
-        "invalid",
-        "throttled",
-        "lookup_failed",
-        "skipped",
+class CourtResolutionTracePayload(ArtifactPayload):
+    courtlistener_court_id: str | None
+    resolved_via: Literal[
+        "cluster_provided",
+        "docket_lookup",
+        "no_docket_id",
+        "docket_lookup_failed",
+        "not_attempted",
     ]
+    docket_id: str | None
+    docket_url: str | None
+    cached: bool
+    error_message: str | None
+
+
+class FoundCitationValidationPayload(ArtifactPayload):
+    citation_id: str
+    status: Literal["found"]
+    locator: str
+    source: str
+    message: str
+    lookup_status: int
+    lookup_cache: str | None
+    lookup_key: str | None
+    matches: list[CitationMatchPayload]
+    court_resolution: CourtResolutionTracePayload
+    extra_data: dict[str, JsonValue]
+
+
+class AmbiguousCitationValidationPayload(ArtifactPayload):
+    citation_id: str
+    status: Literal["ambiguous"]
+    locator: str
+    source: str
+    message: str
+    lookup_status: int
+    lookup_cache: str | None
+    lookup_key: str | None
+    matches: list[CitationMatchPayload]
+    extra_data: dict[str, JsonValue]
+
+
+class NotFoundCitationValidationPayload(ArtifactPayload):
+    citation_id: str
+    status: Literal["not_found"]
+    locator: str
+    source: str
+    message: str
+    lookup_status: int
+    lookup_cache: str | None
+    lookup_key: str | None
+    extra_data: dict[str, JsonValue]
+
+
+class InvalidCitationValidationPayload(ArtifactPayload):
+    citation_id: str
+    status: Literal["invalid"]
+    source: str
+    message: str
+
+
+class ThrottledCitationValidationPayload(ArtifactPayload):
+    citation_id: str
+    status: Literal["throttled"]
+    locator: str
+    source: str
+    message: str
+    lookup_status: int
+    lookup_cache: str | None
+    lookup_key: str | None
+    error_message: str | None
+    failure_detail: ValidationFailureDetailPayload | None
+    extra_data: dict[str, JsonValue]
+
+
+class LookupFailedCitationValidationPayload(ArtifactPayload):
+    citation_id: str
+    status: Literal["lookup_failed"]
+    locator: str
     source: str
     message: str
     lookup_status: int | None
@@ -172,8 +240,26 @@ class CitationValidationPayload(ArtifactPayload):
     lookup_key: str | None
     error_message: str | None
     failure_detail: ValidationFailureDetailPayload | None
-    matches: list[CitationMatchPayload]
     extra_data: dict[str, JsonValue]
+
+
+class SkippedCitationValidationPayload(ArtifactPayload):
+    citation_id: str
+    status: Literal["skipped"]
+    source: str
+    message: str
+
+
+CitationValidationPayload = Annotated[
+    FoundCitationValidationPayload
+    | AmbiguousCitationValidationPayload
+    | NotFoundCitationValidationPayload
+    | InvalidCitationValidationPayload
+    | ThrottledCitationValidationPayload
+    | LookupFailedCitationValidationPayload
+    | SkippedCitationValidationPayload,
+    Field(discriminator="status"),
+]
 
 
 class ChatTurnPayload(ArtifactPayload):
@@ -209,6 +295,28 @@ class CourtAssessmentPayload(ArtifactPayload):
     extracted_court: str | None
     courtlistener_court_id: str | None
     message: str
+
+
+class CourtFollowupNotRequiredPayload(ArtifactPayload):
+    status: Literal["not_required"]
+
+
+class CourtInferredFromReporterPayload(ArtifactPayload):
+    status: Literal["inferred_from_reporter"]
+    reporter: str | None
+    citation_court_before: str | None
+    result: CourtAssessmentPayload
+
+
+CourtFollowupPayload = Annotated[
+    CourtFollowupNotRequiredPayload | CourtInferredFromReporterPayload,
+    Field(discriminator="status"),
+]
+
+
+class CourtAssessmentRunPayload(ArtifactPayload):
+    initial: CourtAssessmentPayload
+    followup: CourtFollowupPayload
 
 
 class ReextractedCaseNamePayload(ArtifactPayload):
@@ -253,7 +361,7 @@ class CaseNameAssessmentRunPayload(ArtifactPayload):
 
 class CitationAssessmentResultPayload(ArtifactPayload):
     case_name: CaseNameAssessmentRunPayload
-    court: CourtAssessmentPayload
+    court: CourtAssessmentRunPayload
     year: YearAssessmentPayload
 
 
@@ -307,22 +415,22 @@ class _ValidatedDocumentFields(_ExtractedDocumentFields):
 
 
 class PreprocessedDocumentPayload(_PreprocessedDocumentFields):
-    schema_version: Literal[8]
+    schema_version: Literal[11]
     artifact_type: Literal["preprocessed_document"]
 
 
 class ExtractedDocumentPayload(_ExtractedDocumentFields):
-    schema_version: Literal[8]
+    schema_version: Literal[11]
     artifact_type: Literal["extracted_document"]
 
 
 class ValidatedDocumentPayload(_ValidatedDocumentFields):
-    schema_version: Literal[8]
+    schema_version: Literal[11]
     artifact_type: Literal["validated_document"]
 
 
 class AssessedDocumentPayload(_ValidatedDocumentFields):
-    schema_version: Literal[8]
+    schema_version: Literal[11]
     artifact_type: Literal["assessed_document"]
     assessment_metadata: AssessmentMetadataPayload
     assessments: list[CitationAssessmentPayload]

@@ -20,7 +20,7 @@ from mellea_lrc.assessment.fields.case_name import (
     reextract_case_name,
     validate_proposal,
 )
-from mellea_lrc.assessment.fields.court import assess_court_exact_match
+from mellea_lrc.assessment.fields.court import assess_court, assess_court_exact_match
 from mellea_lrc.assessment.fields.year import assess_year_exact_match
 from mellea_lrc.assessment.types import (
     AssessmentMetadata,
@@ -42,7 +42,12 @@ from mellea_lrc.assessment.types import (
     CitationAssessment,
     CitationAssessmentResult,
     CourtAssessment,
+    CourtAssessmentRun,
     CourtAssessmentStatus,
+    CourtFollowup,
+    CourtFollowupNotRequired,
+    CourtFollowupStatus,
+    CourtInferredFromReporter,
     FailedCitationAssessment,
     ReextractedCaseName,
     SkippedCitationAssessment,
@@ -71,7 +76,12 @@ __all__ = [
     "CitationAssessment",
     "CitationAssessmentResult",
     "CourtAssessment",
+    "CourtAssessmentRun",
     "CourtAssessmentStatus",
+    "CourtFollowup",
+    "CourtFollowupNotRequired",
+    "CourtFollowupStatus",
+    "CourtInferredFromReporter",
     "DocumentTextWindow",
     "FailedCitationAssessment",
     "MelleaCallContext",
@@ -83,6 +93,7 @@ __all__ = [
     "YearAssessmentStatus",
     "assess_case_name_exact_match",
     "assess_case_name_with_mellea",
+    "assess_court",
     "assess_court_exact_match",
     "assess_found_citation",
     "assess_year_exact_match",

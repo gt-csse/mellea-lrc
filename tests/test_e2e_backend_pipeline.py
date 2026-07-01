@@ -13,13 +13,16 @@ from mellea_lrc.assessment import (
     CitationAssessment,
     CitationAssessmentResult,
     CourtAssessment,
+    CourtAssessmentRun,
     CourtAssessmentStatus,
+    CourtFollowupNotRequired,
     ReextractedCaseName,
     WaitingCitationAssessment,
     YearAssessment,
     YearAssessmentStatus,
 )
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
+from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener.types import CitationMatch, CourtListenerCitationLookup
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
@@ -33,6 +36,9 @@ from mellea_lrc.serialization import (
 from mellea_lrc.llm import llm_api_config_from_env
 from mellea_lrc.validation.types import (
     CitationValidation,
+    CourtResolutionSource,
+    CourtResolutionTrace,
+    FoundCitationValidation,
     ValidatedDocument,
     ValidationMetadata,
     ValidationStatus,
@@ -66,12 +72,15 @@ class FakeClient:
         )
 
 
-def _court_assessment() -> CourtAssessment:
-    return CourtAssessment(
-        status=CourtAssessmentStatus.EXACT_MATCH,
-        extracted_court="scotus",
-        courtlistener_court_id="scotus",
-        message="match",
+def _court_assessment() -> CourtAssessmentRun:
+    return CourtAssessmentRun(
+        initial=CourtAssessment(
+            status=CourtAssessmentStatus.EXACT_MATCH,
+            extracted_court="scotus",
+            courtlistener_court_id="scotus",
+            message="match",
+        ),
+        followup=CourtFollowupNotRequired(),
     )
 
 
@@ -197,8 +206,6 @@ def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> 
         "lookup_status": 200,
         "lookup_cache": "miss",
         "lookup_key": "key",
-        "error_message": None,
-        "failure_detail": None,
         "matches": [
             {
                 "case_name": "Brown v. Board",
@@ -207,6 +214,14 @@ def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> 
                 "extra_data": {},
             }
         ],
+        "court_resolution": {
+            "courtlistener_court_id": None,
+            "resolved_via": "not_attempted",
+            "docket_id": None,
+            "docket_url": None,
+            "cached": False,
+            "error_message": None,
+        },
         "extra_data": {},
     }
 
@@ -238,18 +253,29 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
             year="1954",
         ),
     )
-    validation = CitationValidation(
+    validation = FoundCitationValidation(
         citation_id="cite-1",
         locator="347 U.S. 483",
-        status=ValidationStatus.FOUND,
         source="test",
         message="found",
+        lookup_status=200,
+        lookup_cache=None,
+        lookup_key=None,
         matches=(
             CitationMatch(
                 case_name="Brown v. Board",
                 date_filed="1954-05-17",
             ),
         ),
+        court_resolution=CourtResolutionTrace(
+            courtlistener_court_id=None,
+            resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
+            docket_id=None,
+            docket_url=None,
+            cached=False,
+            error_message=None,
+        ),
+        extra_data=ExtraData(),
     )
     assessment_result = CitationAssessmentResult(
         case_name=CaseNameAssessmentRun(
@@ -306,12 +332,24 @@ def test_review_document_assessment_preserves_waiting_citation() -> None:
             preprocessed=preprocessed,
             citations=(citation,),
             validations=(
-                CitationValidation(
+                FoundCitationValidation(
                     citation_id="cite-1",
                     locator="347 U.S. 483",
-                    status=ValidationStatus.FOUND,
                     source="test",
                     message="found",
+                    lookup_status=200,
+                    lookup_cache=None,
+                    lookup_key=None,
+                    matches=(),
+                    court_resolution=CourtResolutionTrace(
+                        courtlistener_court_id=None,
+                        resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
+                        docket_id=None,
+                        docket_url=None,
+                        cached=False,
+                        error_message=None,
+                    ),
+                    extra_data=ExtraData(),
                 ),
             ),
             assessments=(WaitingCitationAssessment(citation_id="cite-1"),),
@@ -366,12 +404,24 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
             preprocessed=preprocessed,
             citations=(citation,),
             validations=(
-                CitationValidation(
+                FoundCitationValidation(
                     citation_id="cite-1",
                     locator="347 U.S. 483",
-                    status=ValidationStatus.FOUND,
                     source="test",
                     message="found",
+                    lookup_status=200,
+                    lookup_cache=None,
+                    lookup_key=None,
+                    matches=(),
+                    court_resolution=CourtResolutionTrace(
+                        courtlistener_court_id=None,
+                        resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
+                        docket_id=None,
+                        docket_url=None,
+                        cached=False,
+                        error_message=None,
+                    ),
+                    extra_data=ExtraData(),
                 ),
             ),
             assessments=(AssessedCitationAssessment(citation_id="cite-1", result=primary),),
@@ -401,12 +451,24 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
         preprocessed=preprocessed,
         citations=(citation,),
         validations=(
-            CitationValidation(
+            FoundCitationValidation(
                 citation_id="cite-1",
                 locator="347 U.S. 483",
-                status=ValidationStatus.FOUND,
                 source="test",
                 message="found",
+                lookup_status=200,
+                lookup_cache=None,
+                lookup_key=None,
+                matches=(),
+                court_resolution=CourtResolutionTrace(
+                    courtlistener_court_id=None,
+                    resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
+                    docket_id=None,
+                    docket_url=None,
+                    cached=False,
+                    error_message=None,
+                ),
+                extra_data=ExtraData(),
             ),
         ),
     )
