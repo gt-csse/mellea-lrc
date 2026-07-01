@@ -196,6 +196,20 @@ class AmbiguousCitationValidationPayload(ArtifactPayload):
     extra_data: dict[str, JsonValue]
 
 
+class CaseNameSearchTracePayload(ArtifactPayload):
+    status: Literal[
+        "searched",
+        "skipped_no_case_name",
+        "skipped_partial_case_name",
+        "search_unavailable",
+        "search_failed",
+        "not_attempted",
+    ]
+    query: str | None
+    case_count: int | None
+    error_message: str | None
+
+
 class NotFoundCitationValidationPayload(ArtifactPayload):
     citation_id: str
     status: Literal["not_found"]
@@ -205,6 +219,7 @@ class NotFoundCitationValidationPayload(ArtifactPayload):
     lookup_status: int
     lookup_cache: str | None
     lookup_key: str | None
+    candidate_search: CaseNameSearchTracePayload
     extra_data: dict[str, JsonValue]
 
 

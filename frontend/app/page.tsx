@@ -17,6 +17,22 @@ import {
 } from "lucide-react";
 import { ChangeEvent, DragEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
+type CourtResolutionTracePayload = {
+  courtlistener_court_id: string | null;
+  resolved_via: string;
+  docket_id: string | null;
+  docket_url: string | null;
+  cached: boolean;
+  error_message: string | null;
+};
+
+type CaseNameSearchTracePayload = {
+  status: string;
+  query: string | null;
+  case_count: number | null;
+  error_message: string | null;
+};
+
 type ValidationPayload = {
   citation_id: string;
   locator: string | null;
@@ -30,6 +46,8 @@ type ValidationPayload = {
   error_message: string | null;
   failure_detail: Record<string, unknown> | null;
   matches: CourtListenerMatch[];
+  court_resolution: CourtResolutionTracePayload | null;
+  candidate_search: CaseNameSearchTracePayload | null;
 };
 
 type AssessmentPayload = {
@@ -100,6 +118,7 @@ type ReviewAssessment = {
   status_counts: Record<string, number>;
   case_name_followup_status_counts: Record<string, number>;
   case_name_counts: Record<string, number>;
+  court_counts: Record<string, number>;
   year_counts: Record<string, number>;
 };
 
@@ -168,7 +187,7 @@ type AssessmentStatus =
   | "unassessable";
 type ExtractionFilter = "all" | "all_citations";
 type ValidationFilter = "all" | "found" | "ambiguous" | "not_found" | "throttled";
-type AssessmentFilter = "all" | AssessmentStatus | "with_history";
+type AssessmentFilter = "all" | AssessmentStatus | "reextraction";
 type CitationFilter =
   | ExtractionFilter
   | ValidationFilter
@@ -176,6 +195,7 @@ type CitationFilter =
 type FilterOption = { label: string; value: CitationFilter };
 type ComparisonMatchType = "perfect" | "exact" | "semantic" | "warning" | "error" | "unchecked";
 type BibliographicRow = {
+  id: string;
   label: string;
   extracted: unknown;
   courtListener: unknown;
@@ -183,6 +203,7 @@ type BibliographicRow = {
 };
 type ExtractedCitationAttempt = {
   label: string;
+  isReextracted: boolean;
   fields: Record<string, unknown>;
   locator: string | null;
   citation: ReviewCitation;
@@ -236,7 +257,7 @@ const assessmentFilters: FilterOption[] = [
   { label: "Irregular form", value: "irregular_form" },
   { label: "Different case", value: "different_case" },
   { label: "Unassessable", value: "unassessable" },
-  { label: "With history", value: "with_history" }
+  { label: "Re-extraction", value: "reextraction" }
 ];
 const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
   input: {
@@ -381,10 +402,10 @@ export default function Home() {
     () => assessmentStatusCounts(fullCaseCitations, result?.assessment ?? null),
     [fullCaseCitations, result]
   );
-  const withHistoryCount = useMemo(
+  const reextractionCount = useMemo(
     () =>
       fullCaseCitations.filter((citation) =>
-        citationHasHistory(citation, result?.assessment ?? null)
+        citationHasReextraction(citation, result?.assessment ?? null)
       ).length,
     [fullCaseCitations, result]
   );
@@ -403,9 +424,9 @@ export default function Home() {
         assessmentCounts,
         stageFullCaseTotal,
         allCitations.length,
-        withHistoryCount
+        reextractionCount
       ),
-    [allCitations.length, assessmentCounts, stageFullCaseTotal, statusCounts, withHistoryCount, workflowStage]
+    [allCitations.length, assessmentCounts, stageFullCaseTotal, statusCounts, reextractionCount, workflowStage]
   );
 
   const renderCitations = useMemo(
@@ -423,8 +444,8 @@ export default function Home() {
           return false;
         }
         if (workflowStage === "assessed") {
-          if (citationFilter === "with_history") {
-            return citationHasHistory(citation, result?.assessment ?? null);
+          if (citationFilter === "reextraction") {
+            return citationHasReextraction(citation, result?.assessment ?? null);
           }
           if (isAssessmentStatusFilter(citationFilter)) {
             return (
@@ -886,7 +907,7 @@ export default function Home() {
                     assessmentCounts,
                     stageFullCaseTotal,
                     allCitations.length,
-                    withHistoryCount
+                    reextractionCount
                   )}
                 </option>
               ))}
@@ -1020,6 +1041,12 @@ function CitationTags({
     effective?.year.status.toLowerCase().replaceAll("-", "_") === "mismatch" &&
       (workflowStage === "assessed" || variant === "details")
   );
+  const courtFinalStatus = effective
+    ? effectiveCourtAssessment(effective.court)?.status.toLowerCase().replaceAll("-", "_")
+    : undefined;
+  const showCourtMismatch = Boolean(
+    courtFinalStatus === "mismatch" && (workflowStage === "assessed" || variant === "details")
+  );
   return (
     <span className={`citation-tags ${variant}`} aria-label="Citation labels">
       {showKind ? <span className="citation-tag kind">{citation.kind}</span> : null}
@@ -1033,6 +1060,7 @@ function CitationTags({
           {formatAssessmentLabel(assessmentStatus)}
         </span>
       ) : null}
+      {showCourtMismatch ? <span className="citation-tag court mismatch">Court mismatch</span> : null}
       {showYearMismatch ? <span className="citation-tag year mismatch">Year mismatch</span> : null}
     </span>
   );
@@ -1097,28 +1125,7 @@ function BibliographicComparison({
         <div className="comparison-header" role="row">
           <span role="columnheader">Field</span>
           <span className="courtlistener-column-header" role="columnheader">
-            <span>{extractedAttempt?.label ?? "Extracted"}</span>
-            {hasMultipleExtractedAttempts ? (
-              <span className="case-switcher" aria-label="Extracted citation history selector">
-                <button
-                  aria-label="Show previous extracted citation"
-                  type="button"
-                  onClick={() => changeExtractedAttempt(-1)}
-                >
-                  <ChevronLeft size={14} aria-hidden="true" />
-                </button>
-                <strong>
-                  {safeExtractedAttemptIndex + 1}/{extractedAttempts.length}
-                </strong>
-                <button
-                  aria-label="Show next extracted citation"
-                  type="button"
-                  onClick={() => changeExtractedAttempt(1)}
-                >
-                  <ChevronRight size={14} aria-hidden="true" />
-                </button>
-              </span>
-            ) : null}
+            <span>Extracted</span>
           </span>
           <span className="courtlistener-column-header" role="columnheader">
             <span>CourtListener</span>
@@ -1146,9 +1153,31 @@ function BibliographicComparison({
           </span>
         </div>
         {rows.map((row) => (
-          <div className={`comparison-row ${row.matchType}`} key={row.label} role="row">
+          <div className={`comparison-row ${row.matchType}`} key={row.id} role="row">
             <span role="cell">{row.label}</span>
-            <span role="cell">{formatValue(row.extracted)}</span>
+            <span role="cell">
+              {row.id === "case_name" && hasMultipleExtractedAttempts ? (
+                <span className="row-attempt-switcher" aria-label="Re-extraction selector">
+                  <button
+                    aria-label="Show previous extracted case name"
+                    type="button"
+                    onClick={() => changeExtractedAttempt(-1)}
+                  >
+                    <ChevronLeft size={13} aria-hidden="true" />
+                  </button>
+                  <span className="row-attempt-value">{formatValue(row.extracted)}</span>
+                  <button
+                    aria-label="Show next extracted case name"
+                    type="button"
+                    onClick={() => changeExtractedAttempt(1)}
+                  >
+                    <ChevronRight size={13} aria-hidden="true" />
+                  </button>
+                </span>
+              ) : (
+                formatValue(row.extracted)
+              )}
+            </span>
             <span role="cell">{formatValue(row.courtListener)}</span>
           </div>
         ))}
@@ -1161,7 +1190,7 @@ function ValidationDetails({ validation }: { validation: ValidationPayload | nul
   if (!validation) {
     return (
       <div className="detail-group">
-        <h3>Validation status</h3>
+        <h3>Validation trace</h3>
         <dl>
           <div>
             <dt>Status</dt>
@@ -1176,68 +1205,155 @@ function ValidationDetails({ validation }: { validation: ValidationPayload | nul
     );
   }
 
+  const resolution = validation.court_resolution;
+  const search = validation.candidate_search;
+
   return (
-    <div className="detail-group">
-      <h3>Validation status</h3>
-      <dl>
+    <div className="detail-group assessment-trace-group">
+      <div className="assessment-trace-heading">
         <div>
-          <dt>Status</dt>
-          <dd>{validation.status.replaceAll("_", " ")}</dd>
+          <h3>Validation trace</h3>
+          <p>CourtListener existence lookup, then court resolution or case-name search</p>
         </div>
-        <div>
-          <dt>Message</dt>
-          <dd>{validation.message}</dd>
-        </div>
-        <div>
-          <dt>Source</dt>
-          <dd>{validation.source}</dd>
-        </div>
-        {validation.locator ? (
-          <div>
-            <dt>Locator</dt>
-            <dd>{validation.locator}</dd>
-          </div>
-        ) : null}
-        {validation.case_names.length ? (
-          <div>
-            <dt>Case names</dt>
-            <dd>{validation.case_names.join(", ")}</dd>
-          </div>
-        ) : null}
-        <div>
-          <dt>Lookup status</dt>
-          <dd>{formatValue(validation.lookup_status)}</dd>
-        </div>
-        {validation.lookup_cache ? (
-          <div>
-            <dt>Cache</dt>
-            <dd>{validation.lookup_cache}</dd>
-          </div>
-        ) : null}
-        {validation.lookup_key ? (
-          <div>
-            <dt>Lookup key</dt>
-            <dd>{validation.lookup_key}</dd>
-          </div>
-        ) : null}
-        {validation.error_message ? (
-          <div>
-            <dt>Error</dt>
-            <dd>{validation.error_message}</dd>
-          </div>
-        ) : null}
-        {validation.failure_detail ? (
-          <div>
-            <dt>Failure detail</dt>
-            <dd>{JSON.stringify(validation.failure_detail)}</dd>
-          </div>
-        ) : null}
-        <div>
-          <dt>Matches</dt>
-          <dd>{courtListenerMatches(validation).length}</dd>
-        </div>
-      </dl>
+      </div>
+      <ol className="assessment-trace">
+        <AssessmentTraceStep index="1" title="Citation lookup" status={validation.status}>
+          <ValidationLookupDetails validation={validation} />
+        </AssessmentTraceStep>
+        {resolution ? (
+          <AssessmentTraceStep index="2" title="Court resolution" status={resolution.resolved_via}>
+            <CourtResolutionDetails resolution={resolution} />
+          </AssessmentTraceStep>
+        ) : search ? (
+          <AssessmentTraceStep index="2" title="Case-name search" status={search.status}>
+            <CaseNameSearchDetails search={search} />
+          </AssessmentTraceStep>
+        ) : (
+          <AssessmentTraceStep index="2" title="Court resolution" status="not_attempted">
+            <p className="assessment-step-note">
+              Court resolution runs only when the citation is found in CourtListener.
+            </p>
+          </AssessmentTraceStep>
+        )}
+      </ol>
     </div>
+  );
+}
+
+function CaseNameSearchDetails({ search }: { search: CaseNameSearchTracePayload }) {
+  return (
+    <dl className="assessment-fields">
+      <div>
+        <dt>Cases found</dt>
+        <dd>
+          {search.status === "searched"
+            ? search.case_count ?? "-"
+            : formatStatusLabel(search.status)}
+        </dd>
+      </div>
+      {search.query ? (
+        <div>
+          <dt>Query</dt>
+          <dd>{search.query}</dd>
+        </div>
+      ) : null}
+      {search.error_message ? (
+        <div>
+          <dt>Error</dt>
+          <dd>{search.error_message}</dd>
+        </div>
+      ) : null}
+    </dl>
+  );
+}
+
+function ValidationLookupDetails({ validation }: { validation: ValidationPayload }) {
+  return (
+    <dl className="assessment-fields">
+      <div>
+        <dt>Message</dt>
+        <dd>{validation.message}</dd>
+      </div>
+      <div>
+        <dt>Source</dt>
+        <dd>{validation.source}</dd>
+      </div>
+      {validation.locator ? (
+        <div>
+          <dt>Locator</dt>
+          <dd>{validation.locator}</dd>
+        </div>
+      ) : null}
+      {validation.case_names.length ? (
+        <div>
+          <dt>Case names</dt>
+          <dd>{validation.case_names.join(", ")}</dd>
+        </div>
+      ) : null}
+      <div>
+        <dt>Lookup status</dt>
+        <dd>{formatValue(validation.lookup_status)}</dd>
+      </div>
+      {validation.lookup_cache ? (
+        <div>
+          <dt>Cache</dt>
+          <dd>{validation.lookup_cache}</dd>
+        </div>
+      ) : null}
+      {validation.lookup_key ? (
+        <div>
+          <dt>Lookup key</dt>
+          <dd>{validation.lookup_key}</dd>
+        </div>
+      ) : null}
+      {validation.error_message ? (
+        <div>
+          <dt>Error</dt>
+          <dd>{validation.error_message}</dd>
+        </div>
+      ) : null}
+      {validation.failure_detail ? (
+        <div>
+          <dt>Failure detail</dt>
+          <dd>{JSON.stringify(validation.failure_detail)}</dd>
+        </div>
+      ) : null}
+      <div>
+        <dt>Matches</dt>
+        <dd>{courtListenerMatches(validation).length}</dd>
+      </div>
+    </dl>
+  );
+}
+
+function CourtResolutionDetails({ resolution }: { resolution: CourtResolutionTracePayload }) {
+  return (
+    <dl className="assessment-fields">
+      <div>
+        <dt>CourtListener court</dt>
+        <dd>{formatValue(resolution.courtlistener_court_id)}</dd>
+      </div>
+      <div>
+        <dt>Resolved via</dt>
+        <dd>{formatStatusLabel(resolution.resolved_via)}</dd>
+      </div>
+      {resolution.docket_id ? (
+        <div>
+          <dt>Docket</dt>
+          <dd>{resolution.docket_url ?? resolution.docket_id}</dd>
+        </div>
+      ) : null}
+      <div>
+        <dt>Cached</dt>
+        <dd>{resolution.cached ? "Yes" : "No"}</dd>
+      </div>
+      {resolution.error_message ? (
+        <div>
+          <dt>Error</dt>
+          <dd>{resolution.error_message}</dd>
+        </div>
+      ) : null}
+    </dl>
   );
 }
 
@@ -1286,53 +1402,87 @@ function AssessmentDetails({ assessment }: { assessment: CitationAssessmentPaylo
     );
   }
 
+  const { case_name, court, year } = assessment.result;
+
   return (
     <div className="detail-group assessment-trace-group">
       <div className="assessment-trace-heading">
         <div>
-          <h3>Case-name assessment trace</h3>
-          <p>Initial verdict, correction attempt, and final verdict</p>
+          <h3>Citation assessment</h3>
+          <p>Field-by-field verdicts — expand a field to see its trace</p>
         </div>
       </div>
-      <ol className="assessment-trace">
-        <AssessmentTraceStep
-          index="1"
-          title="Initial assessment"
-          status={assessment.result.case_name.initial.status}
+      <div className="assessment-field-sections">
+        <CollapsibleField
+          title="Case name"
+          subtitle="Initial verdict, correction attempt, and final verdict"
+          status={finalCaseNameStatus(case_name)}
         >
-          <CaseNameAssessmentDetails assessment={assessment.result.case_name.initial} />
-        </AssessmentTraceStep>
-        <CaseNameFollowupDetails followup={assessment.result.case_name.followup} />
-      </ol>
-      <section className="year-assessment-section">
-        <div className="assessment-section-heading">
-          <h3>Year assessment</h3>
-          <span className={`assessment-step-status ${assessmentStatusTone(assessment.result.year.status)}`}>
-            {formatStatusLabel(assessment.result.year.status)}
-          </span>
-        </div>
-        <YearAssessmentDetails assessment={assessment.result.year} />
-      </section>
-      <section className="year-assessment-section">
-        <div className="assessment-trace-heading">
-          <div>
-            <h3>Court assessment trace</h3>
-            <p>Initial verdict and reporter inference when the extracted court was missing</p>
-          </div>
-        </div>
-        <ol className="assessment-trace">
-          <AssessmentTraceStep
-            index="1"
-            title="Initial assessment"
-            status={assessment.result.court.initial.status}
-          >
-            <CourtAssessmentDetails assessment={assessment.result.court.initial} />
-          </AssessmentTraceStep>
-          <CourtFollowupDetails followup={assessment.result.court.followup} />
-        </ol>
-      </section>
+          <ol className="assessment-trace">
+            <AssessmentTraceStep index="1" title="Initial assessment" status={case_name.initial.status}>
+              <CaseNameAssessmentDetails assessment={case_name.initial} />
+            </AssessmentTraceStep>
+            <CaseNameFollowupDetails followup={case_name.followup} />
+          </ol>
+        </CollapsibleField>
+        <CollapsibleField
+          title="Court"
+          subtitle="Initial verdict and reporter inference when the extracted court was missing"
+          status={effectiveCourtAssessment(court)?.status ?? court.initial.status}
+        >
+          <ol className="assessment-trace">
+            <AssessmentTraceStep index="1" title="Initial assessment" status={court.initial.status}>
+              <CourtAssessmentDetails assessment={court.initial} />
+            </AssessmentTraceStep>
+            <CourtFollowupDetails followup={court.followup} />
+          </ol>
+        </CollapsibleField>
+        <CollapsibleField title="Year" subtitle="Extracted year against CourtListener" status={year.status}>
+          <YearAssessmentDetails assessment={year} />
+        </CollapsibleField>
+      </div>
     </div>
   );
+}
+
+function CollapsibleField({
+  title,
+  subtitle,
+  status,
+  children
+}: {
+  title: string;
+  subtitle?: string;
+  status: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className={`assessment-field-section${open ? " open" : ""}`}>
+      <button
+        type="button"
+        className="assessment-field-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="assessment-field-label">
+          <span className="assessment-field-title">{title}</span>
+          {subtitle ? <span className="assessment-field-subtitle">{subtitle}</span> : null}
+        </span>
+        <span className="assessment-field-toggle-meta">
+          <span className={`assessment-step-status ${assessmentStatusTone(status)}`}>
+            {formatStatusLabel(status)}
+          </span>
+          {open ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
+        </span>
+      </button>
+      {open ? <div className="assessment-field-body">{children}</div> : null}
+    </section>
+  );
+}
+
+function finalCaseNameStatus(run: CaseNameAssessmentRunPayload): string {
+  return run.followup.status === "reassessed" ? run.followup.result.status : run.initial.status;
 }
 
 function CaseNameAssessmentDetails({ assessment }: { assessment: CaseNameAssessmentPayload }) {
@@ -1514,13 +1664,48 @@ function AssessmentTraceStep({
 
 function assessmentStatusTone(status: string) {
   const normalized = status.toLowerCase().replaceAll("-", "_");
-  if (["exact_match", "semantic_match", "completed"].includes(normalized)) {
+  if (
+    [
+      "exact_match",
+      "semantic_match",
+      "completed",
+      "found",
+      "cluster_provided",
+      "docket_lookup"
+    ].includes(normalized)
+  ) {
     return "success";
   }
-  if (["failed", "different_case", "not_semantic_match"].includes(normalized)) {
+  if (
+    [
+      "failed",
+      "different_case",
+      "not_semantic_match",
+      "not_found",
+      "invalid",
+      "lookup_failed",
+      "docket_lookup_failed",
+      "search_failed"
+    ].includes(normalized)
+  ) {
     return "danger";
   }
-  if (["irregular_form", "unassessable", "blocked"].includes(normalized)) {
+  if (
+    [
+      "irregular_form",
+      "unassessable",
+      "blocked",
+      "ambiguous",
+      "throttled",
+      "no_docket_id",
+      "not_attempted",
+      "skipped",
+      "searched",
+      "skipped_no_case_name",
+      "skipped_partial_case_name",
+      "search_unavailable"
+    ].includes(normalized)
+  ) {
     return "attention";
   }
   return "neutral";
@@ -1532,6 +1717,7 @@ function extractedCitationAttempts(
 ): ExtractedCitationAttempt[] {
   const original: ExtractedCitationAttempt = {
     label: "Extracted",
+    isReextracted: false,
     fields: citation.fields,
     locator: citation.validation?.locator ?? citation.matched_text,
     citation,
@@ -1548,6 +1734,7 @@ function extractedCitationAttempts(
     original,
     {
       label: "Re-extracted",
+      isReextracted: true,
       fields: { ...citation.fields, case_name: item.case_name },
       locator: citation.validation?.locator ?? citation.matched_text,
       citation,
@@ -1571,25 +1758,35 @@ function bibliographicRows(
   const extractedCaseName = caseNameFromFields(fields);
   const extractedCaseNameDisplay = extractedCaseName ?? MISSING_EXTRACTED_CASE_NAME_LABEL;
   const courtListenerCaseName = readString(cluster, ["case_name", "caseName"]);
-  const courtListenerCourt = readString(cluster, ["court_id", "court", "courtId"]);
+  // The immediate cluster payload rarely carries the court; it is resolved
+  // deterministically during validation (docket lookup) into court_resolution.
+  const courtListenerCourt = cluster
+    ? readString(cluster, ["court_id", "court", "courtId"]) ??
+      citation.validation?.court_resolution?.courtlistener_court_id ??
+      null
+    : null;
   const courtListenerDate = readString(cluster, ["date_filed", "dateFiled"]);
-  const courtListenerUrl = readString(cluster, ["absolute_url", "absoluteUrl", "resource_uri"]);
 
   return [
     {
+      id: "plaintiff",
       label: "Plaintiff",
       extracted: fields.plaintiff ?? null,
       courtListener: null,
       matchType: "unchecked"
     },
     {
+      id: "defendant",
       label: "Defendant",
       extracted: fields.defendant ?? null,
       courtListener: null,
       matchType: "unchecked"
     },
     {
-      label: "Case name",
+      id: "case_name",
+      // The re-extraction only revises the case name, so the row itself
+      // (not the whole extracted column) reflects that it is a re-extracted value.
+      label: extractedAttempt.isReextracted ? "Re-extracted case name" : "Case name",
       extracted: extractedCaseNameDisplay,
       courtListener: courtListenerCaseName,
       matchType: canColorRows
@@ -1601,30 +1798,42 @@ function bibliographicRows(
         : "unchecked"
     },
     {
+      id: "locator",
       label: "Locator",
       extracted: citationLocator,
       courtListener: courtListenerLocator,
       matchType: canColorRows ? "perfect" : "unchecked"
     },
     {
+      id: "volume",
       label: "Volume",
       extracted: fields.volume ?? extractedLocatorParts.volume,
       courtListener: courtListenerLocatorParts.volume,
       matchType: canColorRows ? "perfect" : "unchecked"
     },
     {
+      id: "reporter",
       label: "Reporter",
       extracted: fields.reporter ?? extractedLocatorParts.reporter,
       courtListener: courtListenerLocatorParts.reporter,
       matchType: canColorRows ? "perfect" : "unchecked"
     },
     {
+      id: "page",
       label: "Page",
       extracted: fields.page ?? extractedLocatorParts.page,
       courtListener: courtListenerLocatorParts.page,
       matchType: canColorRows ? "perfect" : "unchecked"
     },
     {
+      id: "pin_cite",
+      label: "Pin cite",
+      extracted: fields.pin_cite ?? null,
+      courtListener: null,
+      matchType: "unchecked"
+    },
+    {
+      id: "year",
       label: "Year",
       extracted: fields.year,
       courtListener: courtListenerDate?.slice(0, 4),
@@ -1637,18 +1846,13 @@ function bibliographicRows(
         : "unchecked"
     },
     {
+      id: "court",
       label: "Court",
       extracted: fields.court,
       courtListener: courtListenerCourt,
       matchType: canColorRows
         ? courtRowMatchType(primaryAssessment?.court, fields.court, courtListenerCourt)
         : "unchecked"
-    },
-    {
-      label: "URL",
-      extracted: null,
-      courtListener: courtListenerUrl,
-      matchType: "unchecked"
     }
   ];
 }
@@ -2111,9 +2315,9 @@ function citationStatus(citation: ReviewCitation): CitationStatus {
   return citation.validation ? citationStatusFromValidation(citation.validation) : "not_checked";
 }
 
-// A citation "has history" when a grounded re-extraction produced an additional
-// extracted attempt for it (the source of the extraction-history switcher).
-function citationHasHistory(
+// A citation had a re-extraction when a grounded re-extraction produced an
+// additional extracted attempt for it (the source of the case-name re-extraction switcher).
+function citationHasReextraction(
   citation: ReviewCitation,
   _assessment: ReviewAssessment | null
 ): boolean {
@@ -2298,7 +2502,7 @@ function filterLabel(
   assessmentCounts: Record<AssessmentStatus, number>,
   fullCaseTotal: number,
   allCitationTotal: number,
-  withHistoryTotal: number
+  reextractionTotal: number
 ) {
   return `${filter.label} (${filterCount(
     filter.value,
@@ -2306,7 +2510,7 @@ function filterLabel(
     assessmentCounts,
     fullCaseTotal,
     allCitationTotal,
-    withHistoryTotal
+    reextractionTotal
   )})`;
 }
 
@@ -2316,7 +2520,7 @@ function filterCount(
   assessmentCounts: Record<AssessmentStatus, number>,
   fullCaseTotal: number,
   allCitationTotal: number,
-  withHistoryTotal: number
+  reextractionTotal: number
 ) {
   if (filter === "all") {
     return fullCaseTotal;
@@ -2324,8 +2528,8 @@ function filterCount(
   if (filter === "all_citations") {
     return allCitationTotal;
   }
-  if (filter === "with_history") {
-    return withHistoryTotal;
+  if (filter === "reextraction") {
+    return reextractionTotal;
   }
   if (isAssessmentStatusFilter(filter)) {
     return assessmentCounts[filter];
@@ -2339,7 +2543,7 @@ function stageFilterOptions(
   assessmentCounts: Record<AssessmentStatus, number>,
   fullCaseTotal: number,
   allCitationTotal: number,
-  withHistoryTotal: number
+  reextractionTotal: number
 ): FilterOption[] {
   if (stage === "validated") {
     return validationFilters;
@@ -2356,7 +2560,7 @@ function stageFilterOptions(
         assessmentCounts,
         fullCaseTotal,
         allCitationTotal,
-        withHistoryTotal
+        reextractionTotal
       ) > 0
   );
 }

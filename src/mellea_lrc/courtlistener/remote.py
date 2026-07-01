@@ -72,6 +72,14 @@ class CourtListenerAccessClient:
         payload = self._get_json(url)
         return payload if isinstance(payload, Mapping) else {}
 
+    def search_opinions(self, q: str) -> Mapping[str, object]:
+        """Run an opinion (``type=o``) search through the remote access service."""
+        query = parse.urlencode({"q": q, "type": "o"})
+        url = f"{self.config.base_url.rstrip('/')}/search?{query}"
+        _validate_http_url(url)
+        payload = self._get_json(url)
+        return payload if isinstance(payload, Mapping) else {}
+
 
 def _get_json(url: str) -> object:
     req = request.Request(  # noqa: S310

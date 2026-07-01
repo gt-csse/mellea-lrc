@@ -235,6 +235,9 @@ def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> 
     assert assessment["result"]["year"]["extracted_year"] == "1954"
     assert assessment["result"]["year"]["courtlistener_year"] == "1954"
     assert output["assessment"]["case_name_counts"]["exact_match"] == 1
+    # Extracted court "scotus" but CourtListener court unresolved: reporter
+    # inference reruns and still lands on a missing terminal verdict.
+    assert output["assessment"]["court_counts"]["missing"] == 1
     assert output["assessment"]["year_counts"]["exact_match"] == 1
 
 
@@ -314,6 +317,7 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
     assert output["citations"][0]["validation"]["status"] == "found"
     assert output["citations"][0]["assessment"]["result"]["case_name"]["initial"]["status"] == "exact_match"
     assert output["assessment"]["case_name_counts"]["exact_match"] == 1
+    assert output["assessment"]["court_counts"]["exact_match"] == 1
     assert output["assessment"]["year_counts"]["exact_match"] == 1
     assert output["stats"]["assessed"] == 1
 

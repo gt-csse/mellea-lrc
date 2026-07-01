@@ -68,3 +68,6 @@ class CitationValidationClient(CitationLookupClient, Protocol):
 
     def get_docket(self, cl_docket_id: int | str) -> Mapping[str, object]:
         """Retrieve one canonical docket record."""
+
+    def search_opinions(self, q: str) -> Mapping[str, object]:
+        """Run a CourtListener opinion (``type=o``) search; response carries ``count``."""

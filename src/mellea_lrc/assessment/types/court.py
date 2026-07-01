@@ -57,6 +57,20 @@ class CourtAssessmentRun:
     initial: CourtAssessment
     followup: CourtFollowup
 
+    @property
+    def final(self) -> CourtAssessment:
+        """The terminal court verdict after any reporter-inference follow-up.
+
+        When reporter inference ran, its reassessment is the conclusion the
+        citation should be read by; otherwise the initial comparison stands.
+        This is the single value downstream consumers (counts, tags) should
+        report, mirroring how ``YearAssessment`` and the reassessed
+        ``CaseNameAssessment`` expose a terminal per-field verdict.
+        """
+        if isinstance(self.followup, CourtInferredFromReporter):
+            return self.followup.result
+        return self.initial
+
     def __post_init__(self) -> None:
         if isinstance(self.followup, CourtInferredFromReporter):
             if self.initial.status != CourtAssessmentStatus.MISSING:

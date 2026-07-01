@@ -268,6 +268,10 @@ def test_assess_court_applies_reporter_inference_in_followup() -> None:
     assert isinstance(result.followup, CourtInferredFromReporter)
     assert result.followup.reporter == "L. Ed. 2d"
     assert result.followup.result.status == CourtAssessmentStatus.EXACT_MATCH
+    # The terminal verdict is the reporter-inference reassessment, not the
+    # initial missing comparison.
+    assert result.final is result.followup.result
+    assert result.final.status == CourtAssessmentStatus.EXACT_MATCH
 
 
 def test_assess_court_skips_inference_when_extracted_court_is_present() -> None:
@@ -279,6 +283,8 @@ def test_assess_court_skips_inference_when_extracted_court_is_present() -> None:
 
     assert result.initial.status == CourtAssessmentStatus.EXACT_MATCH
     assert isinstance(result.followup, CourtFollowupNotRequired)
+    # With no follow-up, the initial comparison is the terminal verdict.
+    assert result.final is result.initial
 
 
 def test_case_name_proposal_valid_requires_grounding() -> None:
