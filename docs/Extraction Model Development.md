@@ -108,7 +108,7 @@ A complete citation to a reported case.
 | pin_cite | `99` | Specific page cited; omit if absent |
 | extra | `aff'd, 123 F.3d 456` | Subsequent history; omit if absent |
 | year | `2000` | From parenthetical |
-| court | `scotus` | eyecite canonical court code; omit if absent |
+| court | `scotus` | eyecite canonical court code; omit if absent. Reporter inference during assessment may supply a value when eyecite omits it — see [Validation Model Development](./Validation%20Model%20Development.md#court-field-assessment). |
 
 ### FullLawCitation
 A citation to a statute, regulation, or code section.

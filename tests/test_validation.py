@@ -18,7 +18,10 @@ from mellea_lrc.courtlistener.types import CitationMatch, ValidationFailureDetai
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
 from mellea_lrc.validation.pipeline import run_validation
-from mellea_lrc.validation.types import ValidationStatus
+from mellea_lrc.validation.types import (
+    CourtResolutionSource,
+    ValidationStatus,
+)
 
 
 def _client(
@@ -55,7 +58,7 @@ def test_validate_full_case_found() -> None:
                 citation_id="abc123",
                 span=Span(0, 28),
                 matched_text="347 U.S. 483",
-                citation=FullCaseCitation(volume="347", reporter="U.S.", page="483"),
+                citation=FullCaseCitation(volume="347", reporter="U.S.", page="483", court="scotus"),
             ),
         ),
     )
@@ -91,6 +94,7 @@ def test_validate_full_case_found() -> None:
     assert result.preprocessing_metadata == extraction.preprocessing_metadata
     assert result.extraction_metadata == extraction.extraction_metadata
     assert result.citations == extraction.citations
+    assert validation.court_resolution.courtlistener_court_id == "scotus"
     assert validation.status == ValidationStatus.FOUND
     assert validation.locator == "347 U.S. 483"
     assert validation.case_names == ("Brown v. Board of Education",)
@@ -100,10 +104,12 @@ def test_validate_full_case_found() -> None:
         CitationMatch(
             case_name="Brown v. Board of Education",
             date_filed="1954-05-17",
-            court_id="scotus",
+            court_id=None,
             extra_data=ExtraData({"docket_id": 191796, "absolute_url": "/opinion/1/"}),
         ),
     )
+    assert validation.court_resolution.courtlistener_court_id == "scotus"
+    assert validation.court_resolution.resolved_via == CourtResolutionSource.DOCKET_LOOKUP
     assert result.found == (validation,)
     assert validation.extra_data.to_dict() == {
         "response": {"query_time_ms": 12},

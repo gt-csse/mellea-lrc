@@ -15,7 +15,15 @@ from mellea_lrc.assessment.types.case_name import (
 )
 from mellea_lrc.assessment.types.citation import CitationAssessmentResult
 from mellea_lrc.assessment.types.common import ChatTurn
-from mellea_lrc.assessment.types.court import CourtAssessment, CourtAssessmentStatus
+from mellea_lrc.assessment.types.court import (
+    CourtAssessment,
+    CourtAssessmentRun,
+    CourtAssessmentStatus,
+    CourtFollowup,
+    CourtFollowupNotRequired,
+    CourtFollowupStatus,
+    CourtInferredFromReporter,
+)
 from mellea_lrc.assessment.types.document import (
     AssessmentMetadata,
     AssessmentSkipReason,
@@ -49,7 +57,12 @@ __all__ = [
     "CitationAssessment",
     "CitationAssessmentResult",
     "CourtAssessment",
+    "CourtAssessmentRun",
     "CourtAssessmentStatus",
+    "CourtFollowup",
+    "CourtFollowupNotRequired",
+    "CourtFollowupStatus",
+    "CourtInferredFromReporter",
     "FailedCitationAssessment",
     "ReextractedCaseName",
     "SkippedCitationAssessment",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, fields
 from typing import TYPE_CHECKING, TypeAlias, cast
 
@@ -26,7 +27,12 @@ from mellea_lrc.assessment.types import (
     CitationAssessment,
     CitationAssessmentResult,
     CourtAssessment,
+    CourtAssessmentRun,
     CourtAssessmentStatus,
+    CourtFollowup,
+    CourtFollowupNotRequired,
+    CourtFollowupStatus,
+    CourtInferredFromReporter,
     FailedCitationAssessment,
     ReextractedCaseName,
     SkippedCitationAssessment,
@@ -61,10 +67,19 @@ from mellea_lrc.preprocessing.types import (
     PreprocessingMetadata,
 )
 from mellea_lrc.validation.types import (
+    AmbiguousCitationValidation,
     CitationValidation,
+    CourtResolutionSource,
+    CourtResolutionTrace,
+    FoundCitationValidation,
+    InvalidCitationValidation,
+    LookupFailedCitationValidation,
+    NotFoundCitationValidation,
+    SkippedCitationValidation,
+    ThrottledCitationValidation,
     ValidatedDocument,
-    ValidationMetadata,
     ValidationClientMode,
+    ValidationMetadata,
     ValidationStatus,
 )
 from mellea_lrc.courtlistener.types import CitationMatch, ValidationFailureDetail
@@ -76,7 +91,10 @@ from mellea_lrc.serialization.transport import (
     CitationAssessmentPayload,
     CitationAssessmentResultPayload,
     CourtAssessmentPayload,
+    CourtAssessmentRunPayload,
+    CourtFollowupPayload,
     CitationValidationPayload,
+    CourtResolutionTracePayload,
     ExtractedCitationPayload,
     ExtractedDocumentPayload,
     ReextractedCaseNamePayload,
@@ -86,16 +104,16 @@ from mellea_lrc.serialization.transport import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from mellea_lrc.core.citations import CanonicalCitation
 
 JsonValue: TypeAlias = str | int | float | bool | None | dict[str, "JsonValue"] | list["JsonValue"]
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 11
 
 _CITATION_PAYLOAD_ADAPTER = TypeAdapter(CanonicalCitationPayload)
 _ASSESSMENT_PAYLOAD_ADAPTER = TypeAdapter(CitationAssessmentPayload)
 _CASE_NAME_FOLLOWUP_PAYLOAD_ADAPTER = TypeAdapter(CaseNameFollowupPayload)
+_COURT_FOLLOWUP_PAYLOAD_ADAPTER = TypeAdapter(CourtFollowupPayload)
+_VALIDATION_PAYLOAD_ADAPTER = TypeAdapter(CitationValidationPayload)
 
 _CITATION_CLASSES = {
     CitationKind.FULL_CASE: FullCaseCitation,
@@ -195,7 +213,10 @@ def _deserialize_extraction_metadata(payload: Mapping[str, object]) -> Extractio
 
 
 def _serialize_validation_metadata(item: ValidationMetadata) -> dict[str, JsonValue]:
-    return {"client_mode": item.client_mode, "source": item.source}
+    payload: dict[str, JsonValue] = {"client_mode": item.client_mode, "source": item.source}
+    if item.duration_ms is not None:
+        payload["duration_ms"] = item.duration_ms
+    return payload
 
 
 def _deserialize_validation_metadata(payload: Mapping[str, object]) -> ValidationMetadata:
@@ -203,9 +224,12 @@ def _deserialize_validation_metadata(payload: Mapping[str, object]) -> Validatio
     if client_mode not in {"deployed", "sdk", "custom"}:
         msg = f"Unknown validation client mode: {client_mode!r}"
         raise ValueError(msg)
+    raw_duration = payload.get("duration_ms")
+    duration_ms = _optional_float(raw_duration) if raw_duration is not None else None
     return ValidationMetadata(
         client_mode=cast("ValidationClientMode", client_mode),
         source=_required_str(payload.get("source"), "validation metadata source"),
+        duration_ms=duration_ms,
     )
 
 
@@ -293,25 +317,91 @@ def deserialize_extracted_document(payload: Mapping[str, object]) -> ExtractedDo
 
 
 def serialize_citation_validation(item: CitationValidation) -> dict[str, JsonValue]:
-    """Serialize one citation validation result."""
-    return {
+    """Serialize one citation validation result (discriminated by ``status``)."""
+    base: dict[str, JsonValue] = {
         "citation_id": item.citation_id,
-        "locator": item.locator,
         "status": item.status.value,
         "source": item.source,
         "message": item.message,
-        "lookup_status": item.lookup_status,
-        "lookup_cache": item.lookup_cache,
-        "lookup_key": item.lookup_key,
-        "error_message": item.error_message,
-        "failure_detail": (
-            _serialize_validation_failure_detail(item.failure_detail)
-            if item.failure_detail is not None
-            else None
-        ),
-        "matches": [_serialize_citation_match(match) for match in item.matches],
-        "extra_data": _serialize_extra_data(item.extra_data),
     }
+    if isinstance(item, FoundCitationValidation):
+        base.update(
+            {
+                "locator": item.locator,
+                "lookup_status": item.lookup_status,
+                "lookup_cache": item.lookup_cache,
+                "lookup_key": item.lookup_key,
+                "matches": [_serialize_citation_match(match) for match in item.matches],
+                "court_resolution": _serialize_court_resolution_trace(item.court_resolution),
+                "extra_data": _serialize_extra_data(item.extra_data),
+            },
+        )
+    elif isinstance(item, AmbiguousCitationValidation):
+        base.update(
+            {
+                "locator": item.locator,
+                "lookup_status": item.lookup_status,
+                "lookup_cache": item.lookup_cache,
+                "lookup_key": item.lookup_key,
+                "matches": [_serialize_citation_match(match) for match in item.matches],
+                "extra_data": _serialize_extra_data(item.extra_data),
+            },
+        )
+    elif isinstance(item, NotFoundCitationValidation):
+        base.update(
+            {
+                "locator": item.locator,
+                "lookup_status": item.lookup_status,
+                "lookup_cache": item.lookup_cache,
+                "lookup_key": item.lookup_key,
+                "extra_data": _serialize_extra_data(item.extra_data),
+            },
+        )
+    elif isinstance(item, (ThrottledCitationValidation, LookupFailedCitationValidation)):
+        base.update(
+            {
+                "locator": item.locator,
+                "lookup_status": item.lookup_status,
+                "lookup_cache": item.lookup_cache,
+                "lookup_key": item.lookup_key,
+                "error_message": item.error_message,
+                "failure_detail": (
+                    _serialize_validation_failure_detail(item.failure_detail)
+                    if item.failure_detail is not None
+                    else None
+                ),
+                "extra_data": _serialize_extra_data(item.extra_data),
+            },
+        )
+    # Invalid and Skipped carry only the common fields.
+    return base
+
+
+def _serialize_court_resolution_trace(item: CourtResolutionTrace) -> dict[str, JsonValue]:
+    """Serialize the court resolution trace for a found citation."""
+    return {
+        "courtlistener_court_id": item.courtlistener_court_id,
+        "resolved_via": item.resolved_via.value,
+        "docket_id": item.docket_id,
+        "docket_url": item.docket_url,
+        "cached": item.cached,
+        "error_message": item.error_message,
+    }
+
+
+def _deserialize_court_resolution_trace(
+    payload: Mapping[str, object],
+) -> CourtResolutionTrace:
+    """Rebuild a court resolution trace from JSON data."""
+    validated = CourtResolutionTracePayload.model_validate(payload).model_dump(mode="python")
+    return CourtResolutionTrace(
+        courtlistener_court_id=_optional_str(validated.get("courtlistener_court_id")),
+        resolved_via=CourtResolutionSource(_required_str(validated.get("resolved_via"), "resolved_via")),
+        docket_id=_optional_str(validated.get("docket_id")),
+        docket_url=_optional_str(validated.get("docket_url")),
+        cached=bool(validated.get("cached", False)),
+        error_message=_optional_str(validated.get("error_message")),
+    )
 
 
 def _serialize_citation_match(item: CitationMatch) -> dict[str, JsonValue]:
@@ -369,28 +459,103 @@ def _deserialize_validation_failure_detail(
 
 
 def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationValidation:
-    """Rebuild one citation validation result from JSON data."""
-    validated = CitationValidationPayload.model_validate(payload).model_dump(mode="python")
-    return CitationValidation(
-        citation_id=_required_str(validated.get("citation_id"), "citation_id"),
-        locator=_optional_str(validated.get("locator")),
-        status=ValidationStatus(_required_str(validated.get("status"), "validation status")),
-        source=_required_str(validated.get("source"), "validation source"),
-        message=_required_str(validated.get("message"), "validation message"),
-        lookup_status=_optional_int(validated.get("lookup_status")),
-        lookup_cache=_optional_str(validated.get("lookup_cache")),
-        lookup_key=_optional_str(validated.get("lookup_key")),
-        error_message=_optional_str(validated.get("error_message")),
-        failure_detail=(
-            _deserialize_validation_failure_detail(_mapping_field(validated.get("failure_detail")))
-            if isinstance(validated.get("failure_detail"), dict)
-            else None
-        ),
-        matches=tuple(
-            _deserialize_citation_match(_mapping_field(item))
-            for item in _list_field(validated.get("matches"))
-        ),
-        extra_data=_deserialize_extra_data(validated.get("extra_data")),
+    """Rebuild one citation validation result from JSON data (status-discriminated)."""
+    validated = _VALIDATION_PAYLOAD_ADAPTER.validate_python(payload).model_dump(mode="python")
+    status = ValidationStatus(_required_str(validated.get("status"), "validation status"))
+    citation_id = _required_str(validated.get("citation_id"), "citation_id")
+    source = _required_str(validated.get("source"), "validation source")
+    message = _required_str(validated.get("message"), "validation message")
+
+    if status is ValidationStatus.FOUND:
+        # Pydantic discriminated-union model ensures the "found" branch has these fields.
+        return FoundCitationValidation(
+            citation_id=citation_id,
+            locator=_required_str(validated.get("locator"), "locator"),
+            source=source,
+            message=message,
+            lookup_status=_required_int(validated.get("lookup_status"), "lookup_status"),
+            lookup_cache=_optional_str(validated.get("lookup_cache")),
+            lookup_key=_optional_str(validated.get("lookup_key")),
+            matches=tuple(
+                _deserialize_citation_match(_mapping_field(item))
+                for item in _list_field(validated.get("matches"))
+            ),
+            court_resolution=_deserialize_court_resolution_trace(
+                _required_mapping_field(validated, "court_resolution"),
+            ),
+            extra_data=_deserialize_extra_data(validated.get("extra_data")),
+        )
+    if status is ValidationStatus.AMBIGUOUS:
+        return AmbiguousCitationValidation(
+            citation_id=citation_id,
+            locator=_required_str(validated.get("locator"), "locator"),
+            source=source,
+            message=message,
+            lookup_status=_required_int(validated.get("lookup_status"), "lookup_status"),
+            lookup_cache=_optional_str(validated.get("lookup_cache")),
+            lookup_key=_optional_str(validated.get("lookup_key")),
+            matches=tuple(
+                _deserialize_citation_match(_mapping_field(item))
+                for item in _list_field(validated.get("matches"))
+            ),
+            extra_data=_deserialize_extra_data(validated.get("extra_data")),
+        )
+    if status is ValidationStatus.NOT_FOUND:
+        return NotFoundCitationValidation(
+            citation_id=citation_id,
+            locator=_required_str(validated.get("locator"), "locator"),
+            source=source,
+            message=message,
+            lookup_status=_required_int(validated.get("lookup_status"), "lookup_status"),
+            lookup_cache=_optional_str(validated.get("lookup_cache")),
+            lookup_key=_optional_str(validated.get("lookup_key")),
+            extra_data=_deserialize_extra_data(validated.get("extra_data")),
+        )
+    if status is ValidationStatus.INVALID:
+        return InvalidCitationValidation(
+            citation_id=citation_id,
+            source=source,
+            message=message,
+        )
+    if status is ValidationStatus.THROTTLED:
+        return ThrottledCitationValidation(
+            citation_id=citation_id,
+            locator=_required_str(validated.get("locator"), "locator"),
+            source=source,
+            message=message,
+            lookup_status=_required_int(validated.get("lookup_status"), "lookup_status"),
+            lookup_cache=_optional_str(validated.get("lookup_cache")),
+            lookup_key=_optional_str(validated.get("lookup_key")),
+            error_message=_optional_str(validated.get("error_message")),
+            failure_detail=(
+                _deserialize_validation_failure_detail(_mapping_field(validated.get("failure_detail")))
+                if isinstance(validated.get("failure_detail"), dict)
+                else None
+            ),
+            extra_data=_deserialize_extra_data(validated.get("extra_data")),
+        )
+    if status is ValidationStatus.LOOKUP_FAILED:
+        return LookupFailedCitationValidation(
+            citation_id=citation_id,
+            locator=_optional_str(validated.get("locator")) or "",
+            source=source,
+            message=message,
+            lookup_status=_optional_int(validated.get("lookup_status")),
+            lookup_cache=_optional_str(validated.get("lookup_cache")),
+            lookup_key=_optional_str(validated.get("lookup_key")),
+            error_message=_optional_str(validated.get("error_message")),
+            failure_detail=(
+                _deserialize_validation_failure_detail(_mapping_field(validated.get("failure_detail")))
+                if isinstance(validated.get("failure_detail"), dict)
+                else None
+            ),
+            extra_data=_deserialize_extra_data(validated.get("extra_data")),
+        )
+    # Skipped
+    return SkippedCitationValidation(
+        citation_id=citation_id,
+        source=source,
+        message=message,
     )
 
 
@@ -521,6 +686,52 @@ def deserialize_court_assessment(payload: Mapping[str, object]) -> CourtAssessme
     )
 
 
+def serialize_court_assessment_run(item: CourtAssessmentRun) -> dict[str, JsonValue]:
+    """Serialize the initial court assessment and follow-up."""
+    return {
+        "initial": serialize_court_assessment(item.initial),
+        "followup": serialize_court_followup(item.followup),
+    }
+
+
+def serialize_court_followup(item: CourtFollowup) -> dict[str, JsonValue]:
+    """Serialize one field-local court follow-up outcome."""
+    payload: dict[str, JsonValue] = {"status": item.status.value}
+    if isinstance(item, CourtInferredFromReporter):
+        payload["reporter"] = item.reporter
+        payload["citation_court_before"] = item.citation_court_before
+        payload["result"] = serialize_court_assessment(item.result)
+    return payload
+
+
+def deserialize_court_assessment_run(payload: Mapping[str, object]) -> CourtAssessmentRun:
+    """Rebuild an initial court assessment and its follow-up."""
+    initial = deserialize_court_assessment(_required_mapping_field(payload, "initial"))
+    followup = deserialize_court_followup(_required_mapping_field(payload, "followup"))
+    return CourtAssessmentRun(initial=initial, followup=followup)
+
+
+def deserialize_court_followup(payload: Mapping[str, object]) -> CourtFollowup:
+    """Rebuild one field-local court follow-up outcome."""
+    validated_model = _COURT_FOLLOWUP_PAYLOAD_ADAPTER.validate_python(payload)
+    validated = validated_model.model_dump(mode="python")
+    status = CourtFollowupStatus(_required_str(validated.get("status"), "court followup status"))
+    if status == CourtFollowupStatus.NOT_REQUIRED:
+        return CourtFollowupNotRequired()
+    if status == CourtFollowupStatus.INFERRED_FROM_REPORTER:
+        result_payload = validated.get("result")
+        if not isinstance(result_payload, dict):
+            msg = "inferred_from_reporter follow-up requires a result"
+            raise TypeError(msg)
+        return CourtInferredFromReporter(
+            reporter=_optional_str(validated.get("reporter")),
+            citation_court_before=_optional_str(validated.get("citation_court_before")),
+            result=deserialize_court_assessment(result_payload),
+        )
+    msg = f"Unknown court follow-up status: {status.value}"
+    raise ValueError(msg)
+
+
 def serialize_citation_assessment(item: CitationAssessment) -> dict[str, JsonValue]:
     """Serialize one discriminated citation-assessment execution state."""
     payload: dict[str, JsonValue] = {
@@ -543,7 +754,7 @@ def serialize_citation_assessment_result(
     """Serialize a completed substantive citation assessment."""
     return {
         "case_name": serialize_case_name_assessment_run(item.case_name),
-        "court": serialize_court_assessment(item.court),
+        "court": serialize_court_assessment_run(item.court),
         "year": serialize_year_assessment(item.year),
     }
 
@@ -620,7 +831,7 @@ def deserialize_citation_assessment_result(
         raise TypeError(msg)
     return CitationAssessmentResult(
         case_name=deserialize_case_name_assessment_run(_mapping_field(case_payload)),
-        court=deserialize_court_assessment(_mapping_field(court_payload)),
+        court=deserialize_court_assessment_run(_mapping_field(court_payload)),
         year=deserialize_year_assessment(_mapping_field(year_payload)),
     )
 
@@ -763,6 +974,17 @@ def _required_str(value: object, field_name: str) -> str:
         msg = f"{field_name} must not be empty"
         raise ValueError(msg)
     return text
+
+
+def _required_int(value: object, field_name: str) -> int:
+    if value is None:
+        msg = f"{field_name} must not be empty"
+        raise ValueError(msg)
+    parsed = _optional_int(value)
+    if parsed is None:
+        msg = f"{field_name} must be an integer"
+        raise ValueError(msg)
+    return parsed
 
 
 def _optional_int(value: object) -> int | None:

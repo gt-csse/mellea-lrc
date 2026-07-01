@@ -13,7 +13,11 @@ from mellea_lrc.assessment import (
     CaseNameReassessmentNotRequired,
     CaseNameReextractionFailed,
     CaseNameAssessmentStatus,
+    CourtAssessment,
+    CourtAssessmentRun,
     CourtAssessmentStatus,
+    CourtFollowupNotRequired,
+    CourtInferredFromReporter,
     FailedCitationAssessment,
     DocumentTextWindow,
     ReextractedCaseName,
@@ -22,6 +26,7 @@ from mellea_lrc.assessment import (
     YearAssessmentStatus,
     assess_case_name_exact_match,
     assess_case_name_with_mellea,
+    assess_court,
     assess_court_exact_match,
     assess_found_citation,
     assess_year_exact_match,
@@ -35,6 +40,7 @@ from mellea_lrc.assessment import ReextractionStatus, validate_proposal
 from mellea_lrc.assessment.fields.case_name.reextract import ReextractionResult
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
+from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener.types import CitationMatch
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractionMetadata
@@ -45,6 +51,10 @@ from mellea_lrc.preprocessing.types import (
 )
 from mellea_lrc.validation.types import (
     CitationValidation,
+    CourtResolutionSource,
+    CourtResolutionTrace,
+    FoundCitationValidation,
+    SkippedCitationValidation,
     ValidatedDocument,
     ValidationMetadata,
     ValidationStatus,
@@ -245,6 +255,30 @@ def test_assess_court_missing_is_field_level_third_status() -> None:
     )
 
     assert result.status == CourtAssessmentStatus.MISSING
+
+
+def test_assess_court_applies_reporter_inference_in_followup() -> None:
+    result = assess_court(
+        extracted_court=None,
+        courtlistener_court_id="scotus",
+        reporter="L. Ed. 2d",
+    )
+
+    assert result.initial.status == CourtAssessmentStatus.MISSING
+    assert isinstance(result.followup, CourtInferredFromReporter)
+    assert result.followup.reporter == "L. Ed. 2d"
+    assert result.followup.result.status == CourtAssessmentStatus.EXACT_MATCH
+
+
+def test_assess_court_skips_inference_when_extracted_court_is_present() -> None:
+    result = assess_court(
+        extracted_court="scotus",
+        courtlistener_court_id="scotus",
+        reporter="U.S.",
+    )
+
+    assert result.initial.status == CourtAssessmentStatus.EXACT_MATCH
+    assert isinstance(result.followup, CourtFollowupNotRequired)
 
 
 def test_case_name_proposal_valid_requires_grounding() -> None:
@@ -556,12 +590,14 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
         citations=(citation,),
         extraction_metadata=ExtractionMetadata(),
         validations=(
-            CitationValidation(
+            FoundCitationValidation(
                 citation_id="cite-1",
                 locator="347 U.S. 483",
-                status=ValidationStatus.FOUND,
                 source="test",
                 message="found",
+                lookup_status=200,
+                lookup_cache=None,
+                lookup_key=None,
                 matches=(
                     CitationMatch(
                         case_name="Brown v. Board",
@@ -569,6 +605,15 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
                         court_id="scotus",
                     ),
                 ),
+                court_resolution=CourtResolutionTrace(
+                    courtlistener_court_id="scotus",
+                    resolved_via=CourtResolutionSource.CLUSTER_PROVIDED,
+                    docket_id=None,
+                    docket_url=None,
+                    cached=False,
+                    error_message=None,
+                ),
+                extra_data=ExtraData(),
             ),
         ),
         validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
@@ -587,7 +632,8 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
     assert isinstance(record, AssessedCitationAssessment)
     assert record.result.case_name.initial.status == CaseNameAssessmentStatus.EXACT_MATCH
     assert isinstance(record.result.case_name.followup, CaseNameReassessmentNotRequired)
-    assert record.result.court.status == CourtAssessmentStatus.EXACT_MATCH
+    assert record.result.court.initial.status == CourtAssessmentStatus.EXACT_MATCH
+    assert isinstance(record.result.court.followup, CourtFollowupNotRequired)
     assert record.result.year.status == YearAssessmentStatus.EXACT_MATCH
 
 
@@ -617,18 +663,29 @@ def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
         citations=(citation,),
         extraction_metadata=ExtractionMetadata(),
         validations=(
-            CitationValidation(
+            FoundCitationValidation(
                 citation_id="cite-1",
                 locator="347 U.S. 483",
-                status=ValidationStatus.FOUND,
                 source="test",
                 message="found",
+                lookup_status=200,
+                lookup_cache=None,
+                lookup_key=None,
                 matches=(
                     CitationMatch(
                         case_name="Different v. Case",
                         date_filed="1954-05-17",
                     ),
                 ),
+                court_resolution=CourtResolutionTrace(
+                    courtlistener_court_id=None,
+                    resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
+                    docket_id=None,
+                    docket_url=None,
+                    cached=False,
+                    error_message=None,
+                ),
+                extra_data=ExtraData(),
             ),
         ),
         validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
@@ -660,10 +717,8 @@ def test_initialize_assessment_marks_unsupported_citation_skipped() -> None:
         citations=(citation,),
         extraction_metadata=ExtractionMetadata(),
         validations=(
-            CitationValidation(
+            SkippedCitationValidation(
                 citation_id="cite-1",
-                locator=None,
-                status=ValidationStatus.SKIPPED,
                 source="test",
                 message="unsupported",
             ),
@@ -718,18 +773,29 @@ def test_run_assessment_records_per_citation_failure(monkeypatch: pytest.MonkeyP
         citations=(citation,),
         extraction_metadata=ExtractionMetadata(),
         validations=(
-            CitationValidation(
+            FoundCitationValidation(
                 citation_id="cite-1",
                 locator="347 U.S. 483",
-                status=ValidationStatus.FOUND,
                 source="test",
                 message="found",
+                lookup_status=200,
+                lookup_cache=None,
+                lookup_key=None,
                 matches=(
                     CitationMatch(
                         case_name="Brown v. Board",
                         date_filed="1954-05-17",
                     ),
                 ),
+                court_resolution=CourtResolutionTrace(
+                    courtlistener_court_id=None,
+                    resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
+                    docket_id=None,
+                    docket_url=None,
+                    cached=False,
+                    error_message=None,
+                ),
+                extra_data=ExtraData(),
             ),
         ),
         validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
