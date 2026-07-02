@@ -24,8 +24,8 @@ if TYPE_CHECKING:
     from mellea_lrc.extraction.types import ExtractedDocument
     from mellea_lrc.validation.types import ValidatedDocument
 
-DEFAULT_INPUT = Path("local/test_data/pdfs/432895579.pdf")
-DEFAULT_FALLBACK_INPUT = Path("local/test_data/432895579.txt")
+DEFAULT_INPUT = Path("local/test_data/pdfs/1.pdf")
+DEFAULT_FALLBACK_INPUT = Path("local/test_data/1.txt")
 DEFAULT_SNAPSHOT_ROOT = Path("local/snapshots")
 
 

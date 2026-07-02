@@ -113,7 +113,6 @@ class FoundCitationValidation:
     citation_id: str
     locator: str
     source: str
-    message: str
     lookup_status: int
     lookup_cache: str | None
     lookup_key: str | None
@@ -135,7 +134,6 @@ class AmbiguousCitationValidation:
     citation_id: str
     locator: str
     source: str
-    message: str
     lookup_status: int
     lookup_cache: str | None
     lookup_key: str | None
@@ -156,7 +154,6 @@ class NotFoundCitationValidation:
     citation_id: str
     locator: str
     source: str
-    message: str
     lookup_status: int
     lookup_cache: str | None
     lookup_key: str | None
@@ -176,7 +173,6 @@ class InvalidCitationValidation:
     status: ClassVar[ValidationStatus] = ValidationStatus.INVALID
     citation_id: str
     source: str
-    message: str
 
     @property
     def case_names(self) -> tuple[str, ...]:
@@ -192,7 +188,6 @@ class ThrottledCitationValidation:
     citation_id: str
     locator: str
     source: str
-    message: str
     lookup_status: int
     lookup_cache: str | None
     lookup_key: str | None
@@ -214,7 +209,6 @@ class LookupFailedCitationValidation:
     citation_id: str
     locator: str
     source: str
-    message: str
     lookup_status: int | None
     lookup_cache: str | None
     lookup_key: str | None
@@ -235,7 +229,6 @@ class SkippedCitationValidation:
     status: ClassVar[ValidationStatus] = ValidationStatus.SKIPPED
     citation_id: str
     source: str
-    message: str
 
     @property
     def case_names(self) -> tuple[str, ...]:

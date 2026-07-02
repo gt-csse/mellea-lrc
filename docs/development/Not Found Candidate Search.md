@@ -35,8 +35,15 @@ Wiring:
 
 Out of scope (defer to assessment if needed): candidate DTOs, bm25 score, pagination, and any exact-name filtering.
 
-## Future direction (ordered — B depends on A)
+## Planned replacement
 
-**A. Rank candidates into high-probability dockets.** Move past a raw count to identifying *which* opinions/dockets are likely the cited case. Explore a programmatic signal — a third-party relevance score (e.g. CL's `meta.score.bm25`) or our own enhanced implementation — that turns "N cases share this name" into a meaningful, ranked suggestion. This is the prerequisite for any real not-found suggestion.
+The count-only fallback above remains the description of shipped behavior. The
+next design is not merely a better ranking of the same query. It is a bounded,
+iterative retrieval agent that can inspect case-name candidates, retain the
+failed locator as search evidence, use CourtListener jurisdiction as a coverage
+prior, search appropriate CourtListener corpora, and escalate to general or
+court-specific sources.
 
-**B. Re-extract the case name, then search — gated on A.** For not-found cites, re-extract the case name (as assessment already does for case-name reassessment) and re-run the search on the cleaned name. This only pays off once A proves the case-name search actually yields useful suggestions; without A it just feeds a better query into an output nobody can act on. **Do not start B until A is meaningful.**
+See [Not-Found Retrieval Agent](./Not-Found%20Retrieval%20Agent.md) for inputs,
+tools, deliberation, the non-opinionated output contract, assessment boundary,
+and delivery plan.

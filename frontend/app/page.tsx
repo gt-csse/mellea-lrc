@@ -38,7 +38,6 @@ type ValidationPayload = {
   locator: string | null;
   status: string;
   source: string;
-  message: string;
   case_names: string[];
   lookup_status: number | null;
   lookup_cache: string | null;
@@ -1211,10 +1210,6 @@ function ValidationDetails({ validation }: { validation: ValidationPayload | nul
             <dt>Status</dt>
             <dd>Not requested</dd>
           </div>
-          <div>
-            <dt>Message</dt>
-            <dd>Run with validation enabled to query CourtListener.</dd>
-          </div>
         </dl>
       </div>
     );
@@ -1286,56 +1281,24 @@ function ValidationLookupDetails({ validation }: { validation: ValidationPayload
   return (
     <dl className="assessment-fields">
       <div>
-        <dt>Message</dt>
-        <dd>{validation.message}</dd>
-      </div>
-      <div>
         <dt>Source</dt>
         <dd>{validation.source}</dd>
       </div>
-      {validation.locator ? (
-        <div>
-          <dt>Locator</dt>
-          <dd>{validation.locator}</dd>
-        </div>
-      ) : null}
-      {validation.case_names.length ? (
-        <div>
-          <dt>Case names</dt>
-          <dd>{validation.case_names.join(", ")}</dd>
-        </div>
-      ) : null}
       <div>
-        <dt>Lookup status</dt>
-        <dd>{formatValue(validation.lookup_status)}</dd>
+        <dt>Locator</dt>
+        <dd>{formatValue(validation.locator)}</dd>
       </div>
-      {validation.lookup_cache ? (
-        <div>
-          <dt>Cache</dt>
-          <dd>{validation.lookup_cache}</dd>
-        </div>
-      ) : null}
-      {validation.lookup_key ? (
-        <div>
-          <dt>Lookup key</dt>
-          <dd>{validation.lookup_key}</dd>
-        </div>
-      ) : null}
-      {validation.error_message ? (
-        <div>
-          <dt>Error</dt>
-          <dd>{validation.error_message}</dd>
-        </div>
-      ) : null}
-      {validation.failure_detail ? (
-        <div>
-          <dt>Failure detail</dt>
-          <dd>{JSON.stringify(validation.failure_detail)}</dd>
-        </div>
-      ) : null}
       <div>
-        <dt>Matches</dt>
-        <dd>{courtListenerMatches(validation).length}</dd>
+        <dt>Case name</dt>
+        <dd>{validation.case_names.length ? validation.case_names.join(", ") : "-"}</dd>
+      </div>
+      <div>
+        <dt>Status</dt>
+        <dd>{formatStatusLabel(validation.status)}</dd>
+      </div>
+      <div>
+        <dt>Cache</dt>
+        <dd>{formatValue(validation.lookup_cache)}</dd>
       </div>
     </dl>
   );

@@ -38,10 +38,21 @@ RECAP is a browser extension developed by the Free Law Project. When a user down
 Importantly, **RECAP only contains documents that someone has already downloaded from PACER**. The docket entry (metadata) may exist in CourtListener even if no one has ever uploaded the actual PDF. This is a key source of availability gaps.
 
 ### Case.law (Harvard Caselaw Access Project)
-Case.law is a Harvard Law School initiative that digitized the entire corpus of published US case law from physical reporters. This data has since been migrated to the Free Law Project and is now accessible via CourtListener. It covers federal and state appellate opinions going back centuries, but is limited to published opinions — trial-level documents are not included.
+Case.law is a Harvard Law School initiative that digitized published US case
+law from physical reporters. This data has since been incorporated and
+normalized by the Free Law Project and is now accessible via CourtListener. It
+is a historical case-law source rather than a live docket feed. Its center of
+gravity is published appellate case law, but reported trial and special-court
+decisions can also occur; it must not be modeled as categorically
+“appellate-only.”
 
 ### CourtListener
-CourtListener is the Free Law Project's main platform. It aggregates data from multiple sources: the RECAP archive, the Case.law migration, direct scraping of court websites, and bulk data contributions. It indexes both federal and state cases, as long as they have reached the appellate phase.
+CourtListener is the Free Law Project's main platform. It aggregates data from
+multiple sources: the RECAP archive, incorporated Case.law data, direct
+scraping of court websites, court publishing partnerships, and bulk data
+contributions. Its case-law database includes federal and state courts at
+multiple levels, but coverage is strongest for published appellate decisions.
+Its RECAP database separately covers federal PACER dockets and filings.
 
 CourtListener is our primary access point for sourcing the original court filings in our dataset.
 
@@ -56,6 +67,9 @@ require RECAP coverage or docket-entry availability.
 
 For the search endpoint contract, supported corpora, semantic-search behavior,
 and project-specific usage guidance, see [CourtListener Search API](CourtListener%20Search%20API.md).
+For the court-level taxonomy, human-readable inference signals, and
+level-specific coverage strategy, see
+[Court Level Classification](Court%20Level%20Classification.md).
 
 ---
 

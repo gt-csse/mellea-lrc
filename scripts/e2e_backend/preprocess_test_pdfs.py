@@ -7,7 +7,7 @@ provenance header followed by the shared ``--- Plain text ---`` marker used by
 
 Usage:
     uv run --group preprocessing python -m scripts.e2e_backend.preprocess_test_pdfs
-    uv run --group preprocessing python -m scripts.e2e_backend.preprocess_test_pdfs --pdf 432895579
+    uv run --group preprocessing python -m scripts.e2e_backend.preprocess_test_pdfs --pdf 1
 """
 
 from __future__ import annotations
@@ -73,7 +73,14 @@ def _format_preprocessed_text_file(
 def _select_pdfs(pdf_dir: Path, stems: list[str] | None) -> list[Path]:
     if stems:
         return [pdf_dir / (stem if stem.endswith(".pdf") else f"{stem}.pdf") for stem in stems]
-    return sorted(pdf_dir.glob("*.pdf"))
+    return sorted(pdf_dir.glob("*.pdf"), key=_document_sort_key)
+
+
+def _document_sort_key(path: Path) -> tuple[int, str]:
+    stem = path.stem
+    if stem.isdigit():
+        return (int(stem), stem)
+    return (10**9, stem)
 
 
 def _parse_args() -> argparse.Namespace:

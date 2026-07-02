@@ -36,11 +36,13 @@ from mellea_lrc.courtlistener.types import CitationMatch
 from mellea_lrc.extraction import extract_citations
 from mellea_lrc.serialization import (
     deserialize_assessed_document,
+    deserialize_citation_validation,
     deserialize_extracted_document,
     deserialize_citation_assessment,
     deserialize_preprocessed_document,
     deserialize_validated_document,
     serialize_assessed_document,
+    serialize_citation_validation,
     serialize_extracted_document,
     serialize_citation_assessment,
     serialize_preprocessed_document,
@@ -71,7 +73,7 @@ def test_document_extraction_serializes_without_ui_assumptions() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
     artifact = serialize_extracted_document(extraction)
 
-    assert artifact["schema_version"] == 11
+    assert artifact["schema_version"] == 12
     assert artifact["artifact_type"] == "extracted_document"
     assert artifact["source_metadata"]["path"] is None
     assert artifact["text"] == SAMPLE_TEXT
@@ -176,7 +178,6 @@ def test_document_validation_round_trips() -> None:
                 citation_id=extraction.citations[0].citation_id,
                 locator="118 U.S. 425",
                 source="test",
-                message="found",
                 lookup_status=200,
                 lookup_cache="miss",
                 lookup_key="118 U.S. 425",
@@ -209,13 +210,41 @@ def test_document_validation_round_trips() -> None:
     assert restored == validation
 
 
+def test_deserialize_citation_validation_ignores_legacy_message() -> None:
+    payload = serialize_citation_validation(
+        FoundCitationValidation(
+            citation_id="cite-1",
+            locator="118 U.S. 425",
+            source="test",
+            lookup_status=200,
+            lookup_cache=None,
+            lookup_key=None,
+            matches=(),
+            court_resolution=CourtResolutionTrace(
+                courtlistener_court_id=None,
+                resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
+                docket_id=None,
+                docket_url=None,
+                cached=False,
+                error_message=None,
+            ),
+            extra_data=ExtraData(),
+        )
+    )
+    payload["message"] = "CourtListener: found 118 U.S. 425"
+
+    restored = deserialize_citation_validation(payload)
+
+    assert "message" not in serialize_citation_validation(restored)
+    assert restored.status == ValidationStatus.FOUND
+
+
 def test_document_assessment_round_trips() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
     validation = FoundCitationValidation(
         citation_id=extraction.citations[0].citation_id,
         locator="118 U.S. 425",
         source="test",
-        message="found",
         lookup_status=200,
         lookup_cache=None,
         lookup_key=None,

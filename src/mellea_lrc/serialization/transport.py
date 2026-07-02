@@ -1,4 +1,4 @@
-"""Strict Pydantic DTOs for serialized artifact schema version 9."""
+"""Strict Pydantic DTOs for serialized artifact schema version 12."""
 
 # ruff: noqa: D101
 
@@ -175,7 +175,6 @@ class FoundCitationValidationPayload(ArtifactPayload):
     status: Literal["found"]
     locator: str
     source: str
-    message: str
     lookup_status: int
     lookup_cache: str | None
     lookup_key: str | None
@@ -189,7 +188,6 @@ class AmbiguousCitationValidationPayload(ArtifactPayload):
     status: Literal["ambiguous"]
     locator: str
     source: str
-    message: str
     lookup_status: int
     lookup_cache: str | None
     lookup_key: str | None
@@ -216,7 +214,6 @@ class NotFoundCitationValidationPayload(ArtifactPayload):
     status: Literal["not_found"]
     locator: str
     source: str
-    message: str
     lookup_status: int
     lookup_cache: str | None
     lookup_key: str | None
@@ -228,7 +225,6 @@ class InvalidCitationValidationPayload(ArtifactPayload):
     citation_id: str
     status: Literal["invalid"]
     source: str
-    message: str
 
 
 class ThrottledCitationValidationPayload(ArtifactPayload):
@@ -236,7 +232,6 @@ class ThrottledCitationValidationPayload(ArtifactPayload):
     status: Literal["throttled"]
     locator: str
     source: str
-    message: str
     lookup_status: int
     lookup_cache: str | None
     lookup_key: str | None
@@ -250,7 +245,6 @@ class LookupFailedCitationValidationPayload(ArtifactPayload):
     status: Literal["lookup_failed"]
     locator: str
     source: str
-    message: str
     lookup_status: int | None
     lookup_cache: str | None
     lookup_key: str | None
@@ -263,7 +257,6 @@ class SkippedCitationValidationPayload(ArtifactPayload):
     citation_id: str
     status: Literal["skipped"]
     source: str
-    message: str
 
 
 CitationValidationPayload = Annotated[
@@ -445,22 +438,22 @@ class _ValidatedDocumentFields(_ExtractedDocumentFields):
 
 
 class PreprocessedDocumentPayload(_PreprocessedDocumentFields):
-    schema_version: Literal[11]
+    schema_version: Literal[12]
     artifact_type: Literal["preprocessed_document"]
 
 
 class ExtractedDocumentPayload(_ExtractedDocumentFields):
-    schema_version: Literal[11]
+    schema_version: Literal[12]
     artifact_type: Literal["extracted_document"]
 
 
 class ValidatedDocumentPayload(_ValidatedDocumentFields):
-    schema_version: Literal[11]
+    schema_version: Literal[12]
     artifact_type: Literal["validated_document"]
 
 
 class AssessedDocumentPayload(_ValidatedDocumentFields):
-    schema_version: Literal[11]
+    schema_version: Literal[12]
     artifact_type: Literal["assessed_document"]
     assessment_metadata: AssessmentMetadataPayload
     assessments: list[CitationAssessmentPayload]

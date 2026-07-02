@@ -52,6 +52,10 @@ Consequences for `mellea-lrc`:
 - A search fallback must require exact equality with the known cluster ID and
   must use keyword mode.
 
+The shared docket hierarchy does not make coverage uniform across court
+levels. See [Court Level Classification](Court%20Level%20Classification.md) for
+the classification model and level-aware corpus routing.
+
 Live verification on 2026-06-30 found that state supreme and appellate CAP
 dockets for Myers, Redhair, Watkins, and Ford all returned `court_id` from the
 docket endpoint while returning zero docket entries. A RECAP federal comparison

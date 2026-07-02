@@ -19,7 +19,7 @@ document the run stops gracefully, preserving every snapshot already written.
 
 Usage:
     uv run --group pipeline python -m scripts.e2e_backend.snapshot_corpus
-    # optional: --docs 432895579 436876274   --snapshot-root local/snapshots
+    # optional: --docs 1 2   --snapshot-root local/snapshots
 """
 
 from __future__ import annotations
@@ -137,8 +137,15 @@ def _select_documents(test_data: Path, pdf_dir: Path, docs: list[str] | None) ->
                 selected.append(pdf_path)
         return selected
     if pdf_dir.exists():
-        return sorted(pdf_dir.glob("*.pdf"))
-    return sorted(test_data.glob("*.txt"))
+        return sorted(pdf_dir.glob("*.pdf"), key=_document_sort_key)
+    return sorted(test_data.glob("*.txt"), key=_document_sort_key)
+
+
+def _document_sort_key(path: Path) -> tuple[int, str]:
+    stem = path.stem
+    if stem.isdigit():
+        return (int(stem), stem)
+    return (10**9, stem)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -150,7 +157,7 @@ def _parse_args() -> argparse.Namespace:
         "--docs",
         nargs="*",
         default=None,
-        help="Specific CourtListener ids or stems, e.g. 432895579",
+        help="Specific document stems, e.g. 1",
     )
     return parser.parse_args()
 

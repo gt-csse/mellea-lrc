@@ -33,4 +33,9 @@ Eight types; fields below are used for annotation and for serialization to the 1
 | `ReferenceCitation` | `Bush v. Gore` (bare name) | plaintiff, defendant | full case for that name |
 | `UnknownCitation` | — | none (label span + note) | — |
 
-Field notes: `pin_cite`/`extra`/`year`/`court` are omitted when absent. `court` is eyecite's canonical code; when eyecite omits it, **reporter inference during assessment** may supply it — see [Validation Model Development](./Validation%20Model%20Development.md#court-field-assessment).
+Field notes: `pin_cite`/`extra`/`year`/`court` are omitted when absent. `court`
+is eyecite's canonical code. When eyecite recognizes a reporter but omits the
+court, assessment may apply the extraction-level fallback documented in
+[Reporter-to-Court Inference](../knowledge/Reporter%20Court%20Inference.md).
+Inference is allowed only for reporters that cover one court exclusively; it
+does not turn missing CourtListener data into a match or mismatch.

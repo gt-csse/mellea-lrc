@@ -129,14 +129,12 @@ def _validate_citation(
         return SkippedCitationValidation(
             citation_id=item.citation_id,
             source=SOURCE,
-            message="Only FullCaseCitation is validated in the first-layer existence check.",
         )
 
     if not citation.volume or not citation.reporter or not citation.page:
         return InvalidCitationValidation(
             citation_id=item.citation_id,
             source=SOURCE,
-            message="Missing volume, reporter, or page.",
         )
 
     lookup = client.lookup_citation(citation.volume, citation.reporter, citation.page)
@@ -151,12 +149,10 @@ def _validation_from_lookup(
     citation: FullCaseCitation,
 ) -> CitationValidation:
     status = _status_from_lookup(lookup.status)
-    case_names = tuple(item.case_name for item in lookup.matches if item.case_name)
     common = {
         "citation_id": citation_id,
         "locator": lookup.citation,
         "source": SOURCE,
-        "message": _message_from_lookup(lookup, case_names, status),
         "lookup_status": lookup.status,
         "lookup_cache": lookup.cache,
         "lookup_key": lookup.key,
@@ -213,27 +209,6 @@ def _status_from_lookup(status: int) -> ValidationStatus:
     if status == HTTP_TOO_MANY_REQUESTS:
         return ValidationStatus.THROTTLED
     return ValidationStatus.LOOKUP_FAILED
-
-
-def _message_from_lookup(
-    lookup: CourtListenerCitationLookup,
-    case_names: tuple[str, ...],
-    status: ValidationStatus,
-) -> str:
-    suffix = f" - {'; '.join(case_names[:3])}" if case_names else ""
-    if status == ValidationStatus.FOUND:
-        return f"CourtListener: found {lookup.citation}{suffix}"
-    if status == ValidationStatus.AMBIGUOUS:
-        return f"CourtListener: ambiguous ({len(lookup.matches)} matches) {lookup.citation}{suffix}"
-    if status == ValidationStatus.NOT_FOUND:
-        return f"CourtListener: not found {lookup.citation}"
-    if status == ValidationStatus.INVALID:
-        return f"CourtListener: invalid citation {lookup.citation}"
-    if status == ValidationStatus.THROTTLED:
-        return f"CourtListener: lookup throttled {lookup.citation}"
-    if lookup.error_message:
-        return f"CourtListener: lookup failed {lookup.citation}: {lookup.error_message}"
-    return f"CourtListener: lookup status {lookup.status} {lookup.citation}"
 
 
 # Re-export the simpler protocol so legacy downstream imports keep working.

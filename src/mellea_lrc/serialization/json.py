@@ -112,7 +112,7 @@ if TYPE_CHECKING:
     from mellea_lrc.core.citations import CanonicalCitation
 
 JsonValue: TypeAlias = str | int | float | bool | None | dict[str, "JsonValue"] | list["JsonValue"]
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 _CITATION_PAYLOAD_ADAPTER = TypeAdapter(CanonicalCitationPayload)
 _ASSESSMENT_PAYLOAD_ADAPTER = TypeAdapter(CitationAssessmentPayload)
@@ -327,7 +327,6 @@ def serialize_citation_validation(item: CitationValidation) -> dict[str, JsonVal
         "citation_id": item.citation_id,
         "status": item.status.value,
         "source": item.source,
-        "message": item.message,
     }
     if isinstance(item, FoundCitationValidation):
         base.update(
@@ -493,11 +492,12 @@ def _deserialize_validation_failure_detail(
 
 def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationValidation:
     """Rebuild one citation validation result from JSON data (status-discriminated)."""
-    validated = _VALIDATION_PAYLOAD_ADAPTER.validate_python(payload).model_dump(mode="python")
+    normalized = dict(payload)
+    normalized.pop("message", None)
+    validated = _VALIDATION_PAYLOAD_ADAPTER.validate_python(normalized).model_dump(mode="python")
     status = ValidationStatus(_required_str(validated.get("status"), "validation status"))
     citation_id = _required_str(validated.get("citation_id"), "citation_id")
     source = _required_str(validated.get("source"), "validation source")
-    message = _required_str(validated.get("message"), "validation message")
 
     if status is ValidationStatus.FOUND:
         # Pydantic discriminated-union model ensures the "found" branch has these fields.
@@ -505,7 +505,6 @@ def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationVa
             citation_id=citation_id,
             locator=_required_str(validated.get("locator"), "locator"),
             source=source,
-            message=message,
             lookup_status=_required_int(validated.get("lookup_status"), "lookup_status"),
             lookup_cache=_optional_str(validated.get("lookup_cache")),
             lookup_key=_optional_str(validated.get("lookup_key")),
@@ -523,7 +522,6 @@ def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationVa
             citation_id=citation_id,
             locator=_required_str(validated.get("locator"), "locator"),
             source=source,
-            message=message,
             lookup_status=_required_int(validated.get("lookup_status"), "lookup_status"),
             lookup_cache=_optional_str(validated.get("lookup_cache")),
             lookup_key=_optional_str(validated.get("lookup_key")),
@@ -539,7 +537,6 @@ def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationVa
             citation_id=citation_id,
             locator=_required_str(validated.get("locator"), "locator"),
             source=source,
-            message=message,
             lookup_status=_required_int(validated.get("lookup_status"), "lookup_status"),
             lookup_cache=_optional_str(validated.get("lookup_cache")),
             lookup_key=_optional_str(validated.get("lookup_key")),
@@ -552,14 +549,12 @@ def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationVa
         return InvalidCitationValidation(
             citation_id=citation_id,
             source=source,
-            message=message,
         )
     if status is ValidationStatus.THROTTLED:
         return ThrottledCitationValidation(
             citation_id=citation_id,
             locator=_required_str(validated.get("locator"), "locator"),
             source=source,
-            message=message,
             lookup_status=_required_int(validated.get("lookup_status"), "lookup_status"),
             lookup_cache=_optional_str(validated.get("lookup_cache")),
             lookup_key=_optional_str(validated.get("lookup_key")),
@@ -576,7 +571,6 @@ def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationVa
             citation_id=citation_id,
             locator=_optional_str(validated.get("locator")) or "",
             source=source,
-            message=message,
             lookup_status=_optional_int(validated.get("lookup_status")),
             lookup_cache=_optional_str(validated.get("lookup_cache")),
             lookup_key=_optional_str(validated.get("lookup_key")),
@@ -592,7 +586,6 @@ def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationVa
     return SkippedCitationValidation(
         citation_id=citation_id,
         source=source,
-        message=message,
     )
 
 

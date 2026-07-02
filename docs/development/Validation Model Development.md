@@ -33,7 +33,11 @@ Each outcome is a `CitationValidation` variant preserving lookup status, cache/k
 **Principle: validation retrieves, it never compares.** It resolves data (the CourtListener court, case-name search candidates) and attaches it; all comparison/opinion is assessment's job.
 
 - CourtListener coverage and the RECAP pipeline: [Data Source](../knowledge/Data%20Source.md).
-- **Not-found handling** (case-name search): [Not Found Candidate Search](./Not%20Found%20Candidate%20Search.md). A coverage gap is not the same as a hallucination, so a not-found locator triggers a case-name search that reports how many CourtListener cases share the name.
+- **Not-found handling**: the shipped count-only fallback is described in
+  [Not Found Candidate Search](./Not%20Found%20Candidate%20Search.md). Its planned
+  replacement is the candidate-bearing, iterative
+  [Not-Found Retrieval Agent](./Not-Found%20Retrieval%20Agent.md). A coverage gap
+  is not the same as a hallucination; retrieval remains non-opinionated.
 - **Ambiguous handling** (multiple clusters, HTTP 300): [Ambiguous Resolution](./Ambiguous%20Resolution.md). Validation returns all candidates; assessment runs the found-branch assessment on each (gated above 5).
 
 ## Layer 2 — Bibliographic cross-reference
@@ -42,13 +46,18 @@ Uses the case retrieved in Layer 1 to check the remaining canonical fields — p
 
 ### Court field assessment
 
-Validation only *retrieves* the CourtListener court. The comparison lives in assessment: it compares the raw eyecite `court` slug against the retrieved court, and when the initial comparison is `missing` and the reporter unambiguously identifies SCOTUS, it applies **reporter inference** as a field-local follow-up (mirroring the case-name `initial` + `followup` trace). Implementation: `assessment/fields/court/{assess,inference}.py`; trace shape `CourtAssessmentRun` with `CourtInferredFromReporter`.
+Validation only *retrieves* the CourtListener court. The comparison lives in
+assessment and begins with eyecite's raw `court` value. When that value is
+missing and the reporter covers one court exclusively, reporter inference may
+supply the citation court as a field-local extraction fallback. This fallback
+can run even when CourtListener has no court; in that case comparison remains
+`missing` and expresses no opinion.
 
-| Reporter | eyecite `court` | inference? |
-|---|---|---|
-| `U.S.`, `S. Ct.` | `scotus` | No — initial `exact_match` |
-| `L. Ed.`, `L. Ed. 2d` | *(absent)* | Yes — follow-up `inferred_from_reporter` |
-| `F.3d` | varies | No — ambiguous reporter |
+The trace is `CourtAssessmentRun` with a
+`CourtInferredFromReporter` follow-up. Implementation:
+`assessment/fields/court/{assess,inference}.py`. The admission rule, implemented
+mappings, eyecite coverage gaps, and deliberately excluded reporters live in
+[Reporter-to-Court Inference](../knowledge/Reporter%20Court%20Inference.md).
 
 ## Layer 3 — Contextual verification (lower priority)
 
