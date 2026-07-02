@@ -41,6 +41,13 @@ class CitationMatchPayload(_ExternalPayload):
     )
     court: str | None = None
     court_id: str | None = None
+    # CourtListener returns docket_id as an int; keep it structured (str) for all
+    # lookups — a stable case-identity key and, for ambiguous 300s, a per-candidate
+    # discriminator worth analyzing.
+    docket_id: int | str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("docket_id", "docketId"),
+    )
 
     def to_domain(self) -> CitationMatch:
         """Convert validated transport data into an immutable domain record."""
@@ -49,6 +56,7 @@ class CitationMatchPayload(_ExternalPayload):
             date_filed=self.date_filed,
             court=self.court,
             court_id=self.court_id,
+            docket_id=str(self.docket_id) if self.docket_id is not None else None,
             extra_data=self.collected_extra_data(),
         )
 

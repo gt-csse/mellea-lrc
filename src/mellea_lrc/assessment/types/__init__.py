@@ -25,11 +25,13 @@ from mellea_lrc.assessment.types.court import (
     CourtInferredFromReporter,
 )
 from mellea_lrc.assessment.types.document import (
+    AmbiguousCitationAssessment,
     AssessmentMetadata,
     AssessmentSkipReason,
     AssessmentStatus,
     AssessedCitationAssessment,
     AssessedDocument,
+    CandidateAssessment,
     CitationAssessment,
     FailedCitationAssessment,
     SkippedCitationAssessment,
@@ -38,11 +40,13 @@ from mellea_lrc.assessment.types.document import (
 from mellea_lrc.assessment.types.year import YearAssessment, YearAssessmentStatus
 
 __all__ = [
+    "AmbiguousCitationAssessment",
     "AssessedCitationAssessment",
     "AssessedDocument",
     "AssessmentMetadata",
     "AssessmentSkipReason",
     "AssessmentStatus",
+    "CandidateAssessment",
     "CaseNameAssessment",
     "CaseNameAssessmentRun",
     "CaseNameAssessmentStatus",

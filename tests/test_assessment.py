@@ -3,8 +3,10 @@ import asyncio
 import pytest
 
 from mellea_lrc.assessment import (
+    AmbiguousCitationAssessment,
     AssessmentSkipReason,
     AssessedCitationAssessment,
+    CandidateAssessment,
     CaseNameAssessment,
     CaseNameAssessmentRun,
     CaseNameProposal,
@@ -50,6 +52,7 @@ from mellea_lrc.preprocessing.types import (
     PreprocessingMetadata,
 )
 from mellea_lrc.validation.types import (
+    AmbiguousCitationValidation,
     CitationValidation,
     CourtResolutionSource,
     CourtResolutionTrace,
@@ -641,6 +644,86 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
     assert record.result.court.initial.status == CourtAssessmentStatus.EXACT_MATCH
     assert isinstance(record.result.court.followup, CourtFollowupNotRequired)
     assert record.result.year.status == YearAssessmentStatus.EXACT_MATCH
+
+
+def _ambiguous_validation(
+    citation: ExtractedCitation,
+    matches: tuple[CitationMatch, ...],
+) -> ValidatedDocument:
+    preprocessed = PreprocessedDocument(
+        source_metadata=SourceMetadata(),
+        text="Doe v. Roe, 1 F.3d 2 (2001).",
+        preprocessing_metadata=PreprocessingMetadata(backend=PreprocessingBackend.PLAIN_TEXT),
+    )
+    return ValidatedDocument(
+        source_metadata=preprocessed.source_metadata,
+        text=preprocessed.text,
+        preprocessing_metadata=preprocessed.preprocessing_metadata,
+        citations=(citation,),
+        extraction_metadata=ExtractionMetadata(),
+        validations=(
+            AmbiguousCitationValidation(
+                citation_id=citation.citation_id,
+                locator="1 F.3d 2",
+                source="test",
+                message="ambiguous",
+                lookup_status=300,
+                lookup_cache=None,
+                lookup_key=None,
+                matches=matches,
+            ),
+        ),
+        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
+    )
+
+
+def test_run_assessment_assesses_each_ambiguous_candidate() -> None:
+    citation = ExtractedCitation(
+        citation_id="cite-1",
+        span=Span(0, 10),
+        matched_text="1 F.3d 2",
+        citation=FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="1", reporter="F.3d", page="2"),
+    )
+    # Both candidates take the deterministic (no-Mellea) case-name path: one exact,
+    # one with no CourtListener name (unassessable).
+    validation = _ambiguous_validation(
+        citation,
+        (
+            CitationMatch(case_name="Doe v. Roe", date_filed="2001-01-01", docket_id="11"),
+            CitationMatch(case_name=None, date_filed="2001-01-01", docket_id="22"),
+        ),
+    )
+
+    assessment = run_assessment(validation)
+
+    record = assessment.assessments[0]
+    assert isinstance(record, AmbiguousCitationAssessment)
+    assert record.gated is False
+    assert len(record.candidates) == 2
+    assert all(isinstance(c, CandidateAssessment) for c in record.candidates)
+    assert record.candidates[0].match.docket_id == "11"
+    assert record.candidates[0].result.case_name.initial.status == CaseNameAssessmentStatus.EXACT_MATCH
+    assert record.candidates[1].match.docket_id == "22"
+    assert record.candidates[1].result.case_name.initial.status == CaseNameAssessmentStatus.UNASSESSABLE
+    assert assessment.assessment_complete is True
+
+
+def test_run_assessment_gates_ambiguous_beyond_candidate_limit() -> None:
+    citation = ExtractedCitation(
+        citation_id="cite-1",
+        span=Span(0, 10),
+        matched_text="1 F.3d 2",
+        citation=FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="1", reporter="F.3d", page="2"),
+    )
+    matches = tuple(CitationMatch(case_name=f"Case {i}", docket_id=str(i)) for i in range(6))
+    validation = _ambiguous_validation(citation, matches)
+
+    record = run_assessment(validation).assessments[0]
+
+    assert isinstance(record, AmbiguousCitationAssessment)
+    assert record.gated is True
+    assert record.candidates == ()
+    assert "6 candidates" in record.message
 
 
 def test_initialize_assessment_marks_eligible_citation_waiting() -> None:

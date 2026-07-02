@@ -9,11 +9,13 @@ from typing import TYPE_CHECKING, TypeAlias, cast
 from pydantic import TypeAdapter
 
 from mellea_lrc.assessment.types import (
+    AmbiguousCitationAssessment,
     AssessmentMetadata,
     AssessmentSkipReason,
     AssessmentStatus,
     AssessedCitationAssessment,
     AssessedDocument,
+    CandidateAssessment,
     CaseNameAssessment,
     CaseNameAssessmentRun,
     CaseNameAssessmentStatus,
@@ -439,6 +441,7 @@ def _serialize_citation_match(item: CitationMatch) -> dict[str, JsonValue]:
         "date_filed": item.date_filed,
         "court": item.court,
         "court_id": item.court_id,
+        "docket_id": item.docket_id,
         "extra_data": _serialize_extra_data(item.extra_data),
     }
 
@@ -449,6 +452,7 @@ def _deserialize_citation_match(payload: Mapping[str, object]) -> CitationMatch:
         date_filed=_optional_str(payload.get("date_filed")),
         court=_optional_str(payload.get("court")),
         court_id=_optional_str(payload.get("court_id")),
+        docket_id=_optional_str(payload.get("docket_id")),
         extra_data=_deserialize_extra_data(payload.get("extra_data")),
     )
 
@@ -776,6 +780,16 @@ def serialize_citation_assessment(item: CitationAssessment) -> dict[str, JsonVal
         payload["message"] = item.message
     elif isinstance(item, AssessedCitationAssessment):
         payload["result"] = serialize_citation_assessment_result(item.result)
+    elif isinstance(item, AmbiguousCitationAssessment):
+        payload["candidates"] = [
+            {
+                "match": _serialize_citation_match(candidate.match),
+                "result": serialize_citation_assessment_result(candidate.result),
+            }
+            for candidate in item.candidates
+        ]
+        payload["gated"] = item.gated
+        payload["message"] = item.message
     elif isinstance(item, FailedCitationAssessment):
         payload["error"] = item.error
     return payload
@@ -844,6 +858,21 @@ def deserialize_citation_assessment(payload: Mapping[str, object]) -> CitationAs
         return AssessedCitationAssessment(
             citation_id=citation_id,
             result=deserialize_citation_assessment_result(result_payload),
+        )
+    if status == AssessmentStatus.AMBIGUOUS:
+        return AmbiguousCitationAssessment(
+            citation_id=citation_id,
+            candidates=tuple(
+                CandidateAssessment(
+                    match=_deserialize_citation_match(_mapping_field(candidate.get("match"))),
+                    result=deserialize_citation_assessment_result(
+                        _required_mapping_field(candidate, "result"),
+                    ),
+                )
+                for candidate in _list_field(validated.get("candidates"))
+            ),
+            gated=bool(validated.get("gated", False)),
+            message=_optional_str(validated.get("message")) or "",
         )
     return FailedCitationAssessment(
         citation_id=citation_id,

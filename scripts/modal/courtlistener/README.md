@@ -66,5 +66,5 @@ Useful endpoints:
 - `GET /recap-documents/{recap_document_id}/download-url`
 - `GET /courts`
 - `GET /courts/{court_id}`
-- `GET /search` — see [CourtListener Search API](../../../docs/CourtListener%20Search%20API.md)
+- `GET /search` — see [CourtListener Search API](../../../docs/knowledge/CourtListener%20Search%20API.md)
 - `POST /citation-lookup`

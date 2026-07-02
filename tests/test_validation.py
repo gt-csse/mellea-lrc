@@ -106,7 +106,8 @@ def test_validate_full_case_found() -> None:
             case_name="Brown v. Board of Education",
             date_filed="1954-05-17",
             court_id=None,
-            extra_data=ExtraData({"docket_id": 191796, "absolute_url": "/opinion/1/"}),
+            docket_id="191796",
+            extra_data=ExtraData({"absolute_url": "/opinion/1/"}),
         ),
     )
     assert validation.court_resolution.courtlistener_court_id == "scotus"
