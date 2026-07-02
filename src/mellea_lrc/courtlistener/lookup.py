@@ -83,6 +83,7 @@ def _citation_match_dict(item: CitationMatch) -> dict[str, object]:
         "date_filed": item.date_filed,
         "court": item.court,
         "court_id": item.court_id,
+        "docket_id": item.docket_id,
     }
     if item.extra_data:
         payload["extra_data"] = item.extra_data.to_dict()

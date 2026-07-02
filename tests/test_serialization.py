@@ -6,15 +6,18 @@ import pytest
 from pydantic import ValidationError
 
 from mellea_lrc.assessment import (
+    AmbiguousCitationAssessment,
     AssessmentMetadata,
     AssessmentSkipReason,
     AssessedCitationAssessment,
     AssessedDocument,
+    CandidateAssessment,
     CaseNameAssessment,
     CaseNameAssessmentRun,
     CaseNameAssessmentStatus,
     CaseNameReassessed,
     CaseNameReassessmentFailed,
+    CaseNameReassessmentNotRequired,
     CitationAssessmentResult,
     CourtAssessment,
     CourtAssessmentRun,
@@ -321,6 +324,69 @@ def test_document_assessment_round_trips() -> None:
     ],
 )
 def test_non_assessed_execution_states_round_trip(record) -> None:
+    payload = serialize_citation_assessment(record)
+
+    assert deserialize_citation_assessment(payload) == record
+
+
+def _minimal_result(case_name: str) -> CitationAssessmentResult:
+    return CitationAssessmentResult(
+        case_name=CaseNameAssessmentRun(
+            initial=CaseNameAssessment(
+                status=CaseNameAssessmentStatus.EXACT_MATCH,
+                extracted_case_name=case_name,
+                courtlistener_case_name=case_name,
+                message="match",
+            ),
+            followup=CaseNameReassessmentNotRequired(),
+        ),
+        court=CourtAssessmentRun(
+            initial=CourtAssessment(
+                status=CourtAssessmentStatus.MISSING,
+                extracted_court=None,
+                courtlistener_court_id=None,
+                message="missing",
+            ),
+            followup=CourtFollowupNotRequired(),
+        ),
+        year=YearAssessment(
+            status=YearAssessmentStatus.MISSING,
+            extracted_year=None,
+            courtlistener_year=None,
+            message="missing",
+        ),
+    )
+
+
+def test_ambiguous_citation_assessment_round_trips() -> None:
+    record = AmbiguousCitationAssessment(
+        citation_id="cite-1",
+        candidates=(
+            CandidateAssessment(
+                match=CitationMatch(case_name="Doe v. Roe", date_filed="2001-01-01", docket_id="11"),
+                result=_minimal_result("Doe v. Roe"),
+            ),
+            CandidateAssessment(
+                match=CitationMatch(case_name="Doe v. Roe", date_filed="2001-01-02", docket_id="22"),
+                result=_minimal_result("Doe v. Roe"),
+            ),
+        ),
+    )
+
+    payload = serialize_citation_assessment(record)
+
+    assert payload["status"] == "ambiguous"
+    assert deserialize_citation_assessment(payload) == record
+
+
+def test_gated_ambiguous_citation_assessment_round_trips() -> None:
+    record = AmbiguousCitationAssessment(
+        citation_id="cite-1",
+        candidates=(),
+        gated=True,
+        message="6 candidates exceed the 5-candidate enumeration limit.",
+    )
+
     payload = serialize_citation_assessment(record)
 
     assert deserialize_citation_assessment(payload) == record

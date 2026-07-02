@@ -4,7 +4,7 @@ Applied in ``assess_court`` when the initial comparison is ``missing`` and the
 reporter unambiguously identifies SCOTUS. Extraction keeps raw eyecite output;
 validation compares that raw value against CourtListener without inference.
 
-See ``docs/Validation Model Development.md`` — Court field assessment.
+See ``docs/development/Validation Model Development.md`` — Court field assessment.
 """
 
 from __future__ import annotations

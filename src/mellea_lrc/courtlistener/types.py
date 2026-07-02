@@ -15,6 +15,7 @@ class CitationMatch:
     date_filed: str | None = None
     court: str | None = None
     court_id: str | None = None
+    docket_id: str | None = None
     extra_data: ExtraData = field(default_factory=ExtraData)
 
     @property

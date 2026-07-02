@@ -140,6 +140,7 @@ class CitationMatchPayload(ArtifactPayload):
     date_filed: str | None
     court: str | None
     court_id: str | None = None
+    docket_id: str | None = None
     extra_data: dict[str, JsonValue]
 
 
@@ -398,6 +399,19 @@ class AssessedCitationAssessmentPayload(ArtifactPayload):
     result: CitationAssessmentResultPayload
 
 
+class CandidateAssessmentPayload(ArtifactPayload):
+    match: CitationMatchPayload
+    result: CitationAssessmentResultPayload
+
+
+class AmbiguousCitationAssessmentPayload(ArtifactPayload):
+    citation_id: str
+    status: Literal["ambiguous"]
+    candidates: list[CandidateAssessmentPayload]
+    gated: bool = False
+    message: str = ""
+
+
 class FailedCitationAssessmentPayload(ArtifactPayload):
     citation_id: str
     status: Literal["failed"]
@@ -408,6 +422,7 @@ CitationAssessmentPayload = Annotated[
     WaitingCitationAssessmentPayload
     | SkippedCitationAssessmentPayload
     | AssessedCitationAssessmentPayload
+    | AmbiguousCitationAssessmentPayload
     | FailedCitationAssessmentPayload,
     Field(discriminator="status"),
 ]

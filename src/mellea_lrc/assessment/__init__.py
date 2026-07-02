@@ -23,11 +23,13 @@ from mellea_lrc.assessment.fields.case_name import (
 from mellea_lrc.assessment.fields.court import assess_court, assess_court_exact_match
 from mellea_lrc.assessment.fields.year import assess_year_exact_match
 from mellea_lrc.assessment.types import (
+    AmbiguousCitationAssessment,
     AssessmentMetadata,
     AssessmentSkipReason,
     AssessmentStatus,
     AssessedCitationAssessment,
     AssessedDocument,
+    CandidateAssessment,
     CaseNameAssessment,
     CaseNameAssessmentRun,
     CaseNameAssessmentStatus,
@@ -57,11 +59,13 @@ from mellea_lrc.assessment.types import (
 )
 
 __all__ = [
+    "AmbiguousCitationAssessment",
     "AssessedCitationAssessment",
     "AssessedDocument",
     "AssessmentMetadata",
     "AssessmentSkipReason",
     "AssessmentStatus",
+    "CandidateAssessment",
     "CaseNameAssessment",
     "CaseNameAssessmentRun",
     "CaseNameAssessmentStatus",

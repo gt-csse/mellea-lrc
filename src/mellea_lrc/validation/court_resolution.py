@@ -67,11 +67,10 @@ def _resolve_courtlistener_court(
     if match.court_id:
         return match.court_id, CourtResolutionSource.CLUSTER_PROVIDED, None, None, False, None
 
-    raw_docket_id = match.extra_data.values.get("docket_id")
-    if not isinstance(raw_docket_id, (int, str)) or isinstance(raw_docket_id, bool):
+    if not match.docket_id:
         return None, CourtResolutionSource.NO_DOCKET_ID, None, None, False, None
 
-    docket_id = str(raw_docket_id)
+    docket_id = match.docket_id
     docket_url = f"/dockets/{docket_id}"
 
     if docket_id in cache:

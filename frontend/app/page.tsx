@@ -56,10 +56,22 @@ type AssessmentPayload = {
   year: YearAssessmentPayload;
 };
 
+type CandidateAssessmentPayload = {
+  match: CourtListenerMatch;
+  result: AssessmentPayload;
+};
+
 type CitationAssessmentPayload =
   | { citation_id: string; status: "waiting" }
   | { citation_id: string; status: "skipped"; reason: string; message: string }
   | { citation_id: string; status: "assessed"; result: AssessmentPayload }
+  | {
+      citation_id: string;
+      status: "ambiguous";
+      candidates: CandidateAssessmentPayload[];
+      gated: boolean;
+      message: string;
+    }
   | { citation_id: string; status: "failed"; error: string };
 
 type CaseNameAssessmentPayload = {
@@ -995,7 +1007,10 @@ export default function Home() {
                 onExtractedAttemptChange={selectExtractedAttempt}
               />
               <ValidationDetails validation={selectedCitation.validation} />
-              <AssessmentDetails assessment={selectedCitation.assessment} />
+              <AssessmentDetails
+                assessment={selectedCitation.assessment}
+                candidateIndex={selectedClusterIndex}
+              />
             </div>
           </>
         ) : (
@@ -1357,7 +1372,13 @@ function CourtResolutionDetails({ resolution }: { resolution: CourtResolutionTra
   );
 }
 
-function AssessmentDetails({ assessment }: { assessment: CitationAssessmentPayload | null }) {
+function AssessmentDetails({
+  assessment,
+  candidateIndex = 0
+}: {
+  assessment: CitationAssessmentPayload | null;
+  candidateIndex?: number;
+}) {
   if (!assessment) {
     return (
       <div className="detail-group">
@@ -1374,6 +1395,10 @@ function AssessmentDetails({ assessment }: { assessment: CitationAssessmentPaylo
         </dl>
       </div>
     );
+  }
+
+  if (assessment.status === "ambiguous") {
+    return <AmbiguousAssessmentDetails assessment={assessment} candidateIndex={candidateIndex} />;
   }
 
   if (assessment.status !== "assessed" || !assessment.result) {
@@ -1402,8 +1427,6 @@ function AssessmentDetails({ assessment }: { assessment: CitationAssessmentPaylo
     );
   }
 
-  const { case_name, court, year } = assessment.result;
-
   return (
     <div className="detail-group assessment-trace-group">
       <div className="assessment-trace-heading">
@@ -1412,35 +1435,89 @@ function AssessmentDetails({ assessment }: { assessment: CitationAssessmentPaylo
           <p>Field-by-field verdicts — expand a field to see its trace</p>
         </div>
       </div>
-      <div className="assessment-field-sections">
-        <CollapsibleField
-          title="Case name"
-          subtitle="Initial verdict, correction attempt, and final verdict"
-          status={finalCaseNameStatus(case_name)}
-        >
-          <ol className="assessment-trace">
-            <AssessmentTraceStep index="1" title="Initial assessment" status={case_name.initial.status}>
-              <CaseNameAssessmentDetails assessment={case_name.initial} />
-            </AssessmentTraceStep>
-            <CaseNameFollowupDetails followup={case_name.followup} />
-          </ol>
-        </CollapsibleField>
-        <CollapsibleField
-          title="Court"
-          subtitle="Initial verdict and reporter inference when the extracted court was missing"
-          status={effectiveCourtAssessment(court)?.status ?? court.initial.status}
-        >
-          <ol className="assessment-trace">
-            <AssessmentTraceStep index="1" title="Initial assessment" status={court.initial.status}>
-              <CourtAssessmentDetails assessment={court.initial} />
-            </AssessmentTraceStep>
-            <CourtFollowupDetails followup={court.followup} />
-          </ol>
-        </CollapsibleField>
-        <CollapsibleField title="Year" subtitle="Extracted year against CourtListener" status={year.status}>
-          <YearAssessmentDetails assessment={year} />
-        </CollapsibleField>
+      <AssessmentResultFields result={assessment.result} />
+    </div>
+  );
+}
+
+function AmbiguousAssessmentDetails({
+  assessment,
+  candidateIndex
+}: {
+  assessment: Extract<CitationAssessmentPayload, { status: "ambiguous" }>;
+  candidateIndex: number;
+}) {
+  if (assessment.gated || assessment.candidates.length === 0) {
+    return (
+      <div className="detail-group">
+        <h3>Citation assessment</h3>
+        <dl>
+          <div>
+            <dt>Status</dt>
+            <dd>Ambiguous — not enumerated</dd>
+          </div>
+          <div>
+            <dt>Message</dt>
+            <dd>{assessment.message || "Too many CourtListener candidates to assess individually."}</dd>
+          </div>
+        </dl>
       </div>
+    );
+  }
+
+  const total = assessment.candidates.length;
+  const index = Math.min(Math.max(candidateIndex, 0), total - 1);
+  const candidate = assessment.candidates[index];
+  const candidateName = readString(candidate.match, ["case_name", "caseName"]);
+
+  return (
+    <div className="detail-group assessment-trace-group">
+      <div className="assessment-trace-heading">
+        <div>
+          <h3>Citation assessment</h3>
+          <p>
+            Ambiguous — candidate {index + 1}/{total} assessed on its own
+            {candidateName ? `: ${candidateName}` : ""}. Use the CourtListener candidate switcher above to
+            compare.
+          </p>
+        </div>
+      </div>
+      <AssessmentResultFields result={candidate.result} />
+    </div>
+  );
+}
+
+function AssessmentResultFields({ result }: { result: AssessmentPayload }) {
+  const { case_name, court, year } = result;
+  return (
+    <div className="assessment-field-sections">
+      <CollapsibleField
+        title="Case name"
+        subtitle="Initial verdict, correction attempt, and final verdict"
+        status={finalCaseNameStatus(case_name)}
+      >
+        <ol className="assessment-trace">
+          <AssessmentTraceStep index="1" title="Initial assessment" status={case_name.initial.status}>
+            <CaseNameAssessmentDetails assessment={case_name.initial} />
+          </AssessmentTraceStep>
+          <CaseNameFollowupDetails followup={case_name.followup} />
+        </ol>
+      </CollapsibleField>
+      <CollapsibleField
+        title="Court"
+        subtitle="Initial verdict and reporter inference when the extracted court was missing"
+        status={effectiveCourtAssessment(court)?.status ?? court.initial.status}
+      >
+        <ol className="assessment-trace">
+          <AssessmentTraceStep index="1" title="Initial assessment" status={court.initial.status}>
+            <CourtAssessmentDetails assessment={court.initial} />
+          </AssessmentTraceStep>
+          <CourtFollowupDetails followup={court.followup} />
+        </ol>
+      </CollapsibleField>
+      <CollapsibleField title="Year" subtitle="Extracted year against CourtListener" status={year.status}>
+        <YearAssessmentDetails assessment={year} />
+      </CollapsibleField>
     </div>
   );
 }
@@ -2400,7 +2477,8 @@ function isFullCaseCitation(citation: ReviewCitation) {
 }
 
 function isAssessmentCandidateCitation(citation: ReviewCitation) {
-  return citation.validation?.status.toLowerCase().replaceAll("-", "_") === "found";
+  const status = citation.validation?.status.toLowerCase().replaceAll("-", "_");
+  return status === "found" || status === "ambiguous";
 }
 
 function citationStatusFromValidation(validation: ValidationPayload): CitationStatus {

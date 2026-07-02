@@ -47,7 +47,7 @@ Regenerate text from the PDFs under `local/test_data/pdfs/` with:
 uv run --group preprocessing python -m scripts.e2e_backend.preprocess_test_pdfs
 ```
 
-See [Preprocessing Development](../../docs/Preprocessing%20Development.md) for
+See [Preprocessing Development](../../docs/development/Preprocessing%20Development.md) for
 rationale, defaults (Docling + Tesseract CLI OCR), and the evaluation drill.
 
 ## Deploy
