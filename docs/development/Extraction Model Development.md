@@ -7,16 +7,6 @@ Extraction operates on the **2nd layer**: preprocessed text, in which it locates
 1. **Bad parse of a clean span** (Type 1) — the span is found but a field is wrong (e.g. plaintiff of `Methodist Hosp. of Sacramento v. Shalala` parsed as `Sacramento`). Preprocessing-agnostic; this is where we add the most durable value.
 2. **Non-recognition from ill-formatted text** (Type 2) — OCR artifacts, broken lines, hyphenation across page breaks stop a span from being recognized at all. Upstream problem; fixed in preprocessing, cautiously (a clean-up that helps one case can break another).
 
-## Annotate-as-you-go
-
-We don't freeze a static ground truth. We improve the 2nd-layer benchmark and the model together:
-
-1. Pre-annotate new docs with the current model (`eyecite` + augmentations).
-2. Review in Label Studio; classify each miss as Type 1 (parser) or Type 2 (preprocessing).
-3. Fix the pipeline accordingly and re-run.
-4. Commit manual ground truth only once the pipeline is stable (any preprocessing change invalidates existing offsets).
-
-See [Benchmark](./Benchmark.md) and [Preprocessing Development](./Preprocessing%20Development.md).
 
 ## Canonical citation types
 

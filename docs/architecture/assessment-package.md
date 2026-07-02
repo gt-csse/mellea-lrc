@@ -2,6 +2,9 @@
 
 Status: accepted
 
+Development behavior and field-level workflows are documented in
+[Assessment Development](../development/assessment/index.md).
+
 The assessment package is organized by domain ownership rather than execution
 mechanism:
 
@@ -11,11 +14,13 @@ assessment/
 ├── citation/                 # aggregation of field results for one citation
 ├── fields/
 │   ├── case_name/            # comparison, LLM classification, and re-extraction
+│   ├── court/                # comparison and reporter-based extraction fallback
 │   └── year/                 # deterministic year comparison
 ├── types/
 │   ├── document.py           # citation identity and AssessedDocument
 │   ├── citation.py           # completed citation aggregate
 │   ├── case_name.py          # case-name values and follow-up union
+│   ├── court.py              # court values and inference follow-up
 │   ├── year.py               # year values
 │   └── common.py             # shared provenance records
 ├── context.py                # offset-preserving document text windows

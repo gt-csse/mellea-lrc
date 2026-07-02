@@ -33,6 +33,21 @@
 | Python Package Creation | `uv build` | Create a python package using [uv](https://github.com/astral-sh/uv) based on settings in `pyproject.toml`. Generated packages will be written to `./dist`. | | :white_check_mark: |
 | Python Package Publishing | `uv publish` | Publish a python package to [PyPi](https://pypi.org/) using [uv](https://github.com/astral-sh/uv) based on settings in `pyproject.toml`. | | :white_check_mark: |
 
+## Design Documentation
+
+Implementation notes and behavioral contracts live under `docs/development/`:
+
+- [Preprocessing](docs/development/Preprocessing%20Development.md)
+- [Extraction](docs/development/Extraction%20Model%20Development.md)
+- [Validation](docs/development/validation/index.md) — retrieval and provenance
+  only; this phase does not express an opinion
+- [Assessment](docs/development/assessment/index.md) — field-level comparisons
+  and conclusions
+- [Benchmark architecture](docs/development/Benchmark.md)
+
+Validation and assessment each have nested field/path documents. Add new
+behavior to the owning directory and link it from that directory's `index.md`.
+
 ## Contributing Changes
 Pull requests are preferred, since they are specific. For more about how to create a pull request, see https://help.github.com/articles/using-pull-requests/.
 

@@ -27,17 +27,19 @@ complete locator -> exact citation lookup
 The agent consumes the knowledge base instead of recreating court and coverage
 assumptions in its prompt:
 
-- [Court Level Classification](../knowledge/Court%20Level%20Classification.md):
+- [Court Level Classification](../../knowledge/Court%20Level%20Classification%20%5Bin%20progress%5D.md):
   Court API resolution, raw jurisdiction categories, human-readable fallback
   signals, coverage priors, and timeliness.
-- [CourtListener Search API](../knowledge/CourtListener%20Search%20API.md):
+- [CourtListener Search API](../../knowledge/CourtListener%20Search%20API.md):
   separate corpora, query behavior, and the shared docket hierarchy.
-- [Data Source](../knowledge/Data%20Source.md): CAP, PACER/RECAP, direct court
+- [Data Source](../../knowledge/Data%20Source.md): CAP, PACER/RECAP, direct court
   scraping, and availability gaps.
-- [Reporter-to-Court Inference](../knowledge/Reporter%20Court%20Inference.md):
+- [Reporter-to-Court Inference](../../knowledge/Reporter%20Court%20Inference.md):
   exclusive reporter mappings and deliberately ambiguous reporters.
-- [Not-Found Candidate Search](./Not%20Found%20Candidate%20Search.md): current
+- [Not-Found Candidate Search](./not-found-candidate-search.md): current
   one-shot, count-only behavior that this design supersedes.
+- [Not-Found Retrieval Sources](../../knowledge/Not-Found%20Retrieval%20Sources%20%5Bin%20progress%5D.md):
+  structured, official, legal-vertical, and open-web source hierarchy.
 
 ## Inputs
 
@@ -55,33 +57,50 @@ The task contains immutable structured evidence:
 If CourtListener does not recognize the court, record that fact and permit
 general court reasoning. Never fabricate a CourtListener slug.
 
-## Exploration paths
+## Exploration policy
 
-The agent chooses, orders, and may revisit paths based on intermediate results.
+The agent plans routes before searching, chooses the narrowest reliable source,
+and may revisit paths as evidence changes. The default escalation order is:
 
-### Locator-oriented search
+```text
+CourtListener refinement
+  -> structured legal/government collection
+  -> issuing court's official source
+  -> legal vertical index
+  -> authorized commercial legal source (if configured)
+  -> pure open-web search
+```
 
-Search the failed locator as text. This remains useful when citation lookup
-does not support the reporter or court, a state-trial decision appears only on
-external sites, or results expose a parallel citation. Probes may use quoted
-and normalized locators, reporter aliases, and locator plus one party name.
+Pure web search is not the immediate fallback after a CourtListener 404. It is
+permitted only when the trace records that applicable structured, official, and
+legal-vertical routes were exhausted or unavailable.
 
-### CourtListener case-name and corpus search
+### CourtListener refinement
 
-Search `type=o` using a fielded case-name phrase and retain actual candidates,
-not only the count. Inspect court, date, docket, citations, and ranking metadata;
-case names are non-unique and BM25 rank does not establish identity.
+Search `type=o` using locator text, reporter aliases, fielded case-name phrases,
+party tokens, court/year constraints, docket number, neutral citation, and
+distinctive local phrases. Retain actual candidates and inspect court, date,
+docket, parallel citations, ranking metadata, and cited-by relationships. Case
+names are non-unique and BM25 or semantic rank does not establish identity.
 
-For plausible federal proceedings, the agent may search RECAP cases and
+For plausible federal proceedings, search RECAP cases, dockets, and filing
 documents. State opinions should not be expected in RECAP merely because their
 case-law records have CourtListener docket IDs.
 
-### General and court-specific search
+### Structured and official sources
 
-Search the wider web or an available court-specific source using combinations
-of case name, locator, canonical court name, year, docket number, and distinctive
-local context. This path has a higher prior for state-trial cases and weakly
-covered courts, but remains available for every jurisdiction category.
+Route to CAP for original historical metadata/parallel citations, GovInfo for
+selected federal opinions, PACER/PCL for authoritative federal docket recovery,
+and the resolved issuing court's official opinion or case-information system.
+Prefer APIs, metadata search, feeds, sitemaps, and predictable official
+identifiers over scraping.
+
+### Legal verticals, then open web
+
+Use a compliant legal vertical such as Google Scholar Case law—or an explicitly
+configured licensed research service—before general web search. If those routes
+fail, run constrained web probes (`site:` official domain, exact locator/name,
+court, year, docket, distinctive phrase) before any unconstrained query.
 
 ### Evidence-driven reformulation
 
@@ -112,10 +131,11 @@ lookup nor asserts content availability.
 This is not a one-shot classifier. A high-capacity agent should:
 
 1. state competing explanations for the 404;
-2. select high-information probes within budget;
+2. produce a source route plan and select high-information probes within budget;
 3. inspect returned candidates and local context;
 4. update hypotheses and launch evidence-supported follow-up probes;
-5. stop when a grounded candidate set exists, paths are exhausted, or further
+5. justify every escalation, especially entry into pure web search;
+6. stop when a grounded candidate set exists, paths are exhausted, or further
    searches have low expected value.
 
 Independent probes may run in parallel; follow-up probes depend on their
@@ -134,9 +154,10 @@ insufficient_evidence
 search_unavailable
 ```
 
-The artifact preserves hypotheses, exact queries, sources/corpora, timestamps,
-stable candidate identifiers, supporting evidence, rejected candidates and
-reasons, unresolved conflicts, stopping reason, and unused plausible paths.
+The artifact preserves hypotheses, route plan, source class, exact queries and
+filters, sources/corpora, timestamps, stable candidate identifiers, supporting
+evidence, rejected candidates and reasons, unresolved conflicts, escalation
+justifications, stopping reason, and unused plausible paths.
 
 `not_found_after_exploration` means only that bounded retrieval found nothing.
 It must not become `False` or hallucinated without separate assessment.
@@ -157,11 +178,14 @@ cited authority and may propose field corrections.
 3. Define the agent task, allowed tools, budgets, output schema, and stopping
    states before model prompts.
 4. Implement CourtListener case-law and RECAP probes as deterministic tools.
-5. Add general-search and court-specific adapters with source attribution.
-6. Implement iterative orchestration and candidate deduplication without
+5. Implement CAP and GovInfo adapters, then budgeted PACER/PCL integration.
+6. Build a verified registry of official court search surfaces and adapters.
+7. Add compliant legal-vertical adapters; gate pure web search on recorded
+   exhaustion of better routes.
+8. Implement iterative orchestration and candidate deduplication without
    treating docket ID as universal identity.
-7. Add the non-opinionated assessment handoff.
-8. Evaluate stratified 404s: corrupted locators, parallel reporters, recent
+9. Add the non-opinionated assessment handoff.
+10. Evaluate stratified 404s: corrupted locators, parallel reporters, recent
    cases, federal/state and trial/appellate courts, special courts, genuine
    hallucinations, and temporary search failures.
 

@@ -53,7 +53,7 @@ Consequences for `mellea-lrc`:
   must use keyword mode.
 
 The shared docket hierarchy does not make coverage uniform across court
-levels. See [Court Level Classification](Court%20Level%20Classification.md) for
+levels. See [Court Level Classification](Court%20Level%20Classification%20%5Bin%20progress%5D.md) for
 the classification model and level-aware corpus routing.
 
 Live verification on 2026-06-30 found that state supreme and appellate CAP

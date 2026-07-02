@@ -69,7 +69,10 @@ For the search endpoint contract, supported corpora, semantic-search behavior,
 and project-specific usage guidance, see [CourtListener Search API](CourtListener%20Search%20API.md).
 For the court-level taxonomy, human-readable inference signals, and
 level-specific coverage strategy, see
-[Court Level Classification](Court%20Level%20Classification.md).
+[Court Level Classification](Court%20Level%20Classification%20%5Bin%20progress%5D.md).
+For structured and official sources to try when exact CourtListener lookup
+misses, see
+[Not-Found Retrieval Sources](Not-Found%20Retrieval%20Sources%20%5Bin%20progress%5D.md).
 
 ---
 

@@ -44,6 +44,6 @@ failed locator as search evidence, use CourtListener jurisdiction as a coverage
 prior, search appropriate CourtListener corpora, and escalate to general or
 court-specific sources.
 
-See [Not-Found Retrieval Agent](./Not-Found%20Retrieval%20Agent.md) for inputs,
+See [Not-Found Retrieval Agent](./not-found-retrieval-agent%20%5Bin%20progress%5D.md) for inputs,
 tools, deliberation, the non-opinionated output contract, assessment boundary,
 and delivery plan.

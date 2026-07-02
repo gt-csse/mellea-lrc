@@ -1,9 +1,9 @@
-# Ambiguous Resolution
+# Ambiguous Citations
 
 A reporter lookup returns **HTTP 300** when the citation is valid but matches
 more than one CourtListener cluster. Validation pulls the candidates back;
 deciding which one the citation refers to is an opinion, so that is delegated to
-assessment. See also [Validation Model Development](./Validation%20Model%20Development.md).
+assessment. See also [Validation Development](../validation/index.md).
 
 ## What ambiguity actually is (real data)
 

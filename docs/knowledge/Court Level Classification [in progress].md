@@ -261,7 +261,7 @@ Court classification remains a small deterministic enrichment step:
    court reasoning.
 
 The workflow consuming this knowledge after citation lookup fails is specified
-in [Not-Found Retrieval Agent](../development/Not-Found%20Retrieval%20Agent.md).
+in [Not-Found Retrieval Agent](../development/validation/not-found-retrieval-agent%20%5Bin%20progress%5D.md).
 
 ## Primary sources
 

@@ -4,7 +4,6 @@ Applied in ``assess_court`` when the initial comparison is ``missing`` and the
 reporter publishes decisions from exactly one court. Extraction keeps raw
 eyecite output; assessment records inference as a field-local follow-up.
 
-See ``docs/development/Validation Model Development.md`` — Court field assessment.
 """
 
 from __future__ import annotations
