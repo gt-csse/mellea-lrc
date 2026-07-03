@@ -10,7 +10,7 @@ from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.core.documents import SourceMetadata
 from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.core.spans import Span
-from mellea_lrc.courtlistener.types import CitationMatch
+from mellea_lrc.courtlistener.types import CourtListenerCitationRecord
 from mellea_lrc.extraction import extract_citations
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import DocumentBase, PreprocessedDocument, preprocess_plain_text_from_string
@@ -19,6 +19,7 @@ from mellea_lrc.validation.types import (
     CourtResolutionSource,
     CourtResolutionTrace,
     FoundCitationValidation,
+    RetrievedCandidate,
     ValidatedDocument,
     ValidationMetadata,
     ValidationStatus,
@@ -63,7 +64,7 @@ def test_validation_copies_and_deeply_freezes_service_payloads() -> None:
         "judges": ["Warren"],
         "court": {"slug": "scotus"},
     }
-    match = CitationMatch(
+    record = CourtListenerCitationRecord(
         case_name="Brown v. Board",
         extra_data=ExtraData(extra_data),
     )
@@ -74,24 +75,27 @@ def test_validation_copies_and_deeply_freezes_service_payloads() -> None:
         lookup_status=200,
         lookup_cache=None,
         lookup_key=None,
-        matches=(match,),
-        court_resolution=CourtResolutionTrace(
-            courtlistener_court_id=None,
-            resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
-            docket_id=None,
-            docket_url=None,
-            cached=False,
-            error_message=None,
+        candidate=RetrievedCandidate(
+            candidate_id="cite-1:candidate:0",
+            record=record,
+            court_resolution=CourtResolutionTrace(
+                courtlistener_court_id=None,
+                resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
+                docket_id=None,
+                docket_url=None,
+                cached=False,
+                error_message=None,
+            ),
         ),
         extra_data=ExtraData(),
     )
 
     extra_data["judges"].append("Changed")
 
-    assert validation.matches[0].case_name == "Brown v. Board"
-    assert validation.matches[0].extra_data.values["judges"] == ("Warren",)
+    assert validation.candidate.record.case_name == "Brown v. Board"
+    assert validation.candidate.record.extra_data.values["judges"] == ("Warren",)
     with pytest.raises(TypeError):
-        validation.matches[0].extra_data.values["judges"] = ()  # type: ignore[index]
+        validation.candidate.record.extra_data.values["judges"] = ()  # type: ignore[index]
 
 
 def test_assessment_copies_and_freezes_chat_history() -> None:
@@ -184,14 +188,17 @@ def _validation(citation_id: str) -> CitationValidation:
         lookup_status=200,
         lookup_cache=None,
         lookup_key=None,
-        matches=(),
-        court_resolution=CourtResolutionTrace(
-            courtlistener_court_id=None,
-            resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
-            docket_id=None,
-            docket_url=None,
-            cached=False,
-            error_message=None,
+        candidate=RetrievedCandidate(
+            candidate_id=f"{citation_id}:candidate:0",
+            record=CourtListenerCitationRecord(),
+            court_resolution=CourtResolutionTrace(
+                courtlistener_court_id=None,
+                resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
+                docket_id=None,
+                docket_url=None,
+                cached=False,
+                error_message=None,
+            ),
         ),
         extra_data=ExtraData(),
     )

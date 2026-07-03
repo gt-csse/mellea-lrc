@@ -8,8 +8,8 @@ from mellea_lrc.core.immutable import ExtraData
 
 
 @dataclass(frozen=True, slots=True)
-class CitationMatch:
-    """A candidate case returned for a reporter citation lookup."""
+class CourtListenerCitationRecord:
+    """One CourtListener record retrieved by a reporter citation lookup."""
 
     case_name: str | None = None
     date_filed: str | None = None
@@ -44,7 +44,7 @@ class CourtListenerCitationLookup:
 
     citation: str
     status: int
-    matches: tuple[CitationMatch, ...]
+    records: tuple[CourtListenerCitationRecord, ...]
     cache: str | None = None
     key: str | None = None
     error_message: str | None = None

@@ -10,13 +10,16 @@ from mellea_lrc.assessment.types.case_name import (
     CaseNameReassessed,
     CaseNameReassessmentFailed,
 )
-from mellea_lrc.validation.types import ValidatedDocument
+from mellea_lrc.validation.types import (
+    AmbiguousCitationValidation,
+    FoundCitationValidation,
+    ValidatedDocument,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from mellea_lrc.assessment.types.citation import CitationAssessmentResult
-    from mellea_lrc.courtlistener.types import CitationMatch
 
 
 class AssessmentStatus(str, Enum):
@@ -72,6 +75,7 @@ class AssessedCitationAssessment:
 
     status: ClassVar[AssessmentStatus] = AssessmentStatus.ASSESSED
     citation_id: str
+    candidate_id: str
     result: CitationAssessmentResult
 
 
@@ -79,7 +83,7 @@ class AssessedCitationAssessment:
 class CandidateAssessment:
     """One ambiguous candidate, assessed by the same logic as the found branch."""
 
-    match: CitationMatch
+    candidate_id: str
     result: CitationAssessmentResult
 
 
@@ -142,10 +146,30 @@ class AssessedDocument(ValidatedDocument):
         if assessment_ids != citation_ids:
             msg = "Assessment identifiers must exactly match extracted citation identifiers in order"
             raise ValueError(msg)
+        validation_by_id = {item.citation_id: item for item in self.validations}
         for item in self.assessments:
             if isinstance(item, AssessedCitationAssessment):
+                validation = validation_by_id[item.citation_id]
+                if (
+                    not isinstance(validation, FoundCitationValidation)
+                    or item.candidate_id != validation.candidate.candidate_id
+                ):
+                    msg = f"Assessment candidate ID does not reference found validation for {item.citation_id!r}"
+                    raise ValueError(msg)
                 self._validate_reextracted_span(item.citation_id, item.result)
             elif isinstance(item, AmbiguousCitationAssessment):
+                validation = validation_by_id[item.citation_id]
+                assessment_candidate_ids = tuple(candidate.candidate_id for candidate in item.candidates)
+                if len(assessment_candidate_ids) != len(set(assessment_candidate_ids)):
+                    msg = f"Assessment candidate IDs must be unique for {item.citation_id!r}"
+                    raise ValueError(msg)
+                if not item.gated and (
+                    not isinstance(validation, AmbiguousCitationValidation)
+                    or assessment_candidate_ids
+                    != tuple(candidate.candidate_id for candidate in validation.candidates)
+                ):
+                    msg = f"Assessment candidate IDs do not reference ambiguous validation for {item.citation_id!r}"
+                    raise ValueError(msg)
                 for candidate in item.candidates:
                     self._validate_reextracted_span(item.citation_id, candidate.result)
 

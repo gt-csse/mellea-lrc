@@ -1,4 +1,4 @@
-"""Strict Pydantic DTOs for serialized artifact schema version 12."""
+"""Strict Pydantic DTOs for serialized artifact schema version 13."""
 
 # ruff: noqa: D101
 
@@ -135,7 +135,7 @@ class ExtractedCitationPayload(ArtifactPayload):
     resolves_to: str | None
 
 
-class CitationMatchPayload(ArtifactPayload):
+class CourtListenerCitationRecordPayload(ArtifactPayload):
     case_name: str | None
     date_filed: str | None
     court: str | None
@@ -170,6 +170,12 @@ class CourtResolutionTracePayload(ArtifactPayload):
     error_message: str | None
 
 
+class RetrievedCandidatePayload(ArtifactPayload):
+    candidate_id: str
+    record: CourtListenerCitationRecordPayload
+    court_resolution: CourtResolutionTracePayload
+
+
 class FoundCitationValidationPayload(ArtifactPayload):
     citation_id: str
     status: Literal["found"]
@@ -178,8 +184,7 @@ class FoundCitationValidationPayload(ArtifactPayload):
     lookup_status: int
     lookup_cache: str | None
     lookup_key: str | None
-    matches: list[CitationMatchPayload]
-    court_resolution: CourtResolutionTracePayload
+    candidate: RetrievedCandidatePayload
     extra_data: dict[str, JsonValue]
 
 
@@ -191,7 +196,7 @@ class AmbiguousCitationValidationPayload(ArtifactPayload):
     lookup_status: int
     lookup_cache: str | None
     lookup_key: str | None
-    matches: list[CitationMatchPayload]
+    candidates: list[RetrievedCandidatePayload]
     extra_data: dict[str, JsonValue]
 
 
@@ -207,6 +212,7 @@ class CaseNameSearchTracePayload(ArtifactPayload):
     query: str | None
     case_count: int | None
     error_message: str | None
+    http_status: int | None = None
 
 
 class NotFoundCitationValidationPayload(ArtifactPayload):
@@ -389,11 +395,12 @@ class SkippedCitationAssessmentPayload(ArtifactPayload):
 class AssessedCitationAssessmentPayload(ArtifactPayload):
     citation_id: str
     status: Literal["assessed"]
+    candidate_id: str
     result: CitationAssessmentResultPayload
 
 
 class CandidateAssessmentPayload(ArtifactPayload):
-    match: CitationMatchPayload
+    candidate_id: str
     result: CitationAssessmentResultPayload
 
 
@@ -438,22 +445,22 @@ class _ValidatedDocumentFields(_ExtractedDocumentFields):
 
 
 class PreprocessedDocumentPayload(_PreprocessedDocumentFields):
-    schema_version: Literal[12]
+    schema_version: Literal[13]
     artifact_type: Literal["preprocessed_document"]
 
 
 class ExtractedDocumentPayload(_ExtractedDocumentFields):
-    schema_version: Literal[12]
+    schema_version: Literal[13]
     artifact_type: Literal["extracted_document"]
 
 
 class ValidatedDocumentPayload(_ValidatedDocumentFields):
-    schema_version: Literal[12]
+    schema_version: Literal[13]
     artifact_type: Literal["validated_document"]
 
 
 class AssessedDocumentPayload(_ValidatedDocumentFields):
-    schema_version: Literal[12]
+    schema_version: Literal[13]
     artifact_type: Literal["assessed_document"]
     assessment_metadata: AssessmentMetadataPayload
     assessments: list[CitationAssessmentPayload]

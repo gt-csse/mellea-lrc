@@ -15,7 +15,8 @@ This boundary applies to every validation path:
 - `found` means CourtListener returned one record for the locator; it does not
   mean every extracted field is correct.
 - `ambiguous` means CourtListener returned multiple records; validation retains
-  them without choosing or collapsing candidates.
+  them without choosing or collapsing candidates and attaches an independent
+  court-resolution trace to each one.
 - `not_found` means the bounded lookup returned no record; it does not mean the
   cited authority does not exist.
 - resolved court data and search results are attached as retrieved facts. They
@@ -36,7 +37,7 @@ flowchart TD
     L -->|yes| Q["CourtListener locator lookup"]
     Q --> S{"HTTP status"}
     S -->|200| FOUND["found + retrieved match"]
-    S -->|300| AMB["ambiguous + all matches"]
+    S -->|300| AMB["ambiguous + candidate records"]
     S -->|404| NF["not_found + retrieval trace"]
     S -->|400| BAD["lookup_failed"]
     S -->|429| THROTTLED["throttled"]
@@ -46,7 +47,7 @@ flowchart TD
 ```
 
 Every citation produces one `CitationValidation` variant. The artifact keeps
-the citation ID, lookup source and status, cache/key metadata, typed matches,
+the citation ID, lookup source and status, cache/key metadata, typed records,
 errors, and unmodeled upstream fields in `extra_data`. Run-level provenance is
 stored in `ValidationMetadata`.
 

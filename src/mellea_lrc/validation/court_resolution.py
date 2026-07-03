@@ -1,7 +1,7 @@
-"""Court resolution for found citations.
+"""Court resolution for retrieved citation candidates.
 
 Court resolution is the deterministic (non-LLM) work of deciding which
-CourtListener court a found citation belongs to. The resolution ``trace``
+CourtListener court a retrieved candidate belongs to. The resolution ``trace``
 captures how the CourtListener court was obtained (cluster payload, docket
 GET, or unavailable). Validation only retrieves this data; it never compares
 the resolved court against the citation court from extraction — that
@@ -23,19 +23,19 @@ from mellea_lrc.validation.types import (
 )
 
 if TYPE_CHECKING:
-    from mellea_lrc.courtlistener.types import CitationMatch, CitationValidationClient
+    from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, CitationValidationClient
 
 
 def resolve_court(
-    match: CitationMatch,
+    record: CourtListenerCitationRecord,
     *,
     client: CitationValidationClient,
     cache: dict[str, str | None],
 ) -> CourtResolutionTrace:
-    """Resolve the CourtListener court for one found match.
+    """Resolve the CourtListener court for one retrieved match.
 
     Args:
-        match: The single found ``CitationMatch`` (typically ``lookup.matches[0]``).
+        record: One CourtListener record retrieved as a candidate.
         client: The validation client, used only when a docket GET is required. Must
             expose ``get_docket`` per ``CitationValidationClient``; clients that only
             implement ``CitationLookupClient`` are detected via ``hasattr`` and treated
@@ -45,7 +45,7 @@ def resolve_court(
 
     """
     courtlistener_court_id, resolved_via, docket_id, docket_url, cached, error_message = (
-        _resolve_courtlistener_court(match, client, cache)
+        _resolve_courtlistener_court(record, client, cache)
     )
 
     return CourtResolutionTrace(
@@ -59,18 +59,18 @@ def resolve_court(
 
 
 def _resolve_courtlistener_court(
-    match: CitationMatch,
+    record: CourtListenerCitationRecord,
     client: CitationValidationClient,
     cache: dict[str, str | None],
 ) -> tuple[str | None, CourtResolutionSource, str | None, str | None, bool, str | None]:
     """Return ``(court_id, source, docket_id, docket_url, cached, error)``."""
-    if match.court_id:
-        return match.court_id, CourtResolutionSource.CLUSTER_PROVIDED, None, None, False, None
+    if record.court_id:
+        return record.court_id, CourtResolutionSource.CLUSTER_PROVIDED, None, None, False, None
 
-    if not match.docket_id:
+    if not record.docket_id:
         return None, CourtResolutionSource.NO_DOCKET_ID, None, None, False, None
 
-    docket_id = match.docket_id
+    docket_id = record.docket_id
     docket_url = f"/dockets/{docket_id}"
 
     if docket_id in cache:
@@ -88,8 +88,13 @@ def _resolve_courtlistener_court(
         docket = client.get_docket(docket_id)
     except (CourtListenerError, OSError, TypeError, ValueError) as exc:
         cache[docket_id] = None
-        return None, CourtResolutionSource.DOCKET_LOOKUP_FAILED, docket_id, docket_url, False, (
-            f"{type(exc).__name__}: {exc}"
+        return (
+            None,
+            CourtResolutionSource.DOCKET_LOOKUP_FAILED,
+            docket_id,
+            docket_url,
+            False,
+            (f"{type(exc).__name__}: {exc}"),
         )
 
     court_id = docket.get("court_id") if isinstance(docket, Mapping) else None

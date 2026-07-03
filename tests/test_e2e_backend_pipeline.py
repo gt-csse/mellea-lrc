@@ -24,7 +24,7 @@ from mellea_lrc.assessment import (
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.core.spans import Span
-from mellea_lrc.courtlistener.types import CitationMatch, CourtListenerCitationLookup
+from mellea_lrc.courtlistener.types import CourtListenerCitationLookup, CourtListenerCitationRecord
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
 from mellea_lrc.serialization import (
@@ -39,6 +39,7 @@ from mellea_lrc.validation.types import (
     CourtResolutionSource,
     CourtResolutionTrace,
     FoundCitationValidation,
+    RetrievedCandidate,
     ValidatedDocument,
     ValidationMetadata,
     ValidationStatus,
@@ -54,14 +55,36 @@ from scripts.e2e_backend.pipeline import (
 )
 
 
+def _retrieved_candidate(
+    citation_id: str,
+    record: CourtListenerCitationRecord | None = None,
+) -> RetrievedCandidate:
+    return RetrievedCandidate(
+        candidate_id=f"{citation_id}:candidate:0",
+        record=record or CourtListenerCitationRecord(),
+        court_resolution=CourtResolutionTrace(
+            courtlistener_court_id=record.court_id if record else None,
+            resolved_via=(
+                CourtResolutionSource.CLUSTER_PROVIDED
+                if record and record.court_id
+                else CourtResolutionSource.NOT_ATTEMPTED
+            ),
+            docket_id=record.docket_id if record else None,
+            docket_url=None,
+            cached=False,
+            error_message=None,
+        ),
+    )
+
+
 class FakeClient:
     def lookup_citation(self, volume: str, reporter: str, page: str):
         assert (volume, reporter, page) == ("347", "U.S.", "483")
         return CourtListenerCitationLookup(
             citation="347 U.S. 483",
             status=200,
-            matches=(
-                CitationMatch(
+            records=(
+                CourtListenerCitationRecord(
                     case_name="Brown v. Board of Education",
                     date_filed="1954-05-17",
                     court="scotus",
@@ -156,7 +179,7 @@ def test_review_preprocessed_returns_frontend_span_payload() -> None:
     assert citation["validation"]["lookup_status"] == 200
     assert citation["validation"]["lookup_cache"] == "miss"
     assert citation["validation"]["lookup_key"] == "lookup-key"
-    assert citation["validation"]["matches"][0]["date_filed"] == "1954-05-17"
+    assert citation["validation"]["candidate"]["record"]["date_filed"] == "1954-05-17"
     assert output["stats"]["found"] == 1
 
 
@@ -205,21 +228,24 @@ def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> 
         "lookup_status": 200,
         "lookup_cache": "miss",
         "lookup_key": "key",
-        "matches": [
-            {
+        "candidate": {
+            "candidate_id": f"{extracted['citations'][0]['id']}:candidate:0",
+            "record": {
                 "case_name": "Brown v. Board",
                 "date_filed": "1954-05-17",
                 "court": None,
+                "court_id": None,
+                "docket_id": None,
                 "extra_data": {},
-            }
-        ],
-        "court_resolution": {
-            "courtlistener_court_id": None,
-            "resolved_via": "not_attempted",
-            "docket_id": None,
-            "docket_url": None,
-            "cached": False,
-            "error_message": None,
+            },
+            "court_resolution": {
+                "courtlistener_court_id": None,
+                "resolved_via": "not_attempted",
+                "docket_id": None,
+                "docket_url": None,
+                "cached": False,
+                "error_message": None,
+            },
         },
         "extra_data": {},
     }
@@ -262,19 +288,12 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
         lookup_status=200,
         lookup_cache=None,
         lookup_key=None,
-        matches=(
-            CitationMatch(
+        candidate=_retrieved_candidate(
+            "cite-1",
+            CourtListenerCitationRecord(
                 case_name="Brown v. Board",
                 date_filed="1954-05-17",
             ),
-        ),
-        court_resolution=CourtResolutionTrace(
-            courtlistener_court_id=None,
-            resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
-            docket_id=None,
-            docket_url=None,
-            cached=False,
-            error_message=None,
         ),
         extra_data=ExtraData(),
     )
@@ -305,6 +324,7 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
             assessments=(
                 AssessedCitationAssessment(
                     citation_id="cite-1",
+                    candidate_id=validation.candidate.candidate_id,
                     result=assessment_result,
                 ),
             ),
@@ -341,15 +361,7 @@ def test_review_document_assessment_preserves_waiting_citation() -> None:
                     lookup_status=200,
                     lookup_cache=None,
                     lookup_key=None,
-                    matches=(),
-                    court_resolution=CourtResolutionTrace(
-                        courtlistener_court_id=None,
-                        resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
-                        docket_id=None,
-                        docket_url=None,
-                        cached=False,
-                        error_message=None,
-                    ),
+                    candidate=_retrieved_candidate("cite-1"),
                     extra_data=ExtraData(),
                 ),
             ),
@@ -412,19 +424,17 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
                     lookup_status=200,
                     lookup_cache=None,
                     lookup_key=None,
-                    matches=(),
-                    court_resolution=CourtResolutionTrace(
-                        courtlistener_court_id=None,
-                        resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
-                        docket_id=None,
-                        docket_url=None,
-                        cached=False,
-                        error_message=None,
-                    ),
+                    candidate=_retrieved_candidate("cite-1"),
                     extra_data=ExtraData(),
                 ),
             ),
-            assessments=(AssessedCitationAssessment(citation_id="cite-1", result=primary),),
+            assessments=(
+                AssessedCitationAssessment(
+                    citation_id="cite-1",
+                    candidate_id="cite-1:candidate:0",
+                    result=primary,
+                ),
+            ),
         )
     )
     followup = output["assessment"]["assessments"][0]["result"]["case_name"]["followup"]
@@ -458,15 +468,7 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
                 lookup_status=200,
                 lookup_cache=None,
                 lookup_key=None,
-                matches=(),
-                court_resolution=CourtResolutionTrace(
-                    courtlistener_court_id=None,
-                    resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
-                    docket_id=None,
-                    docket_url=None,
-                    cached=False,
-                    error_message=None,
-                ),
+                candidate=_retrieved_candidate("cite-1"),
                 extra_data=ExtraData(),
             ),
         ),
@@ -478,6 +480,7 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
         assessments=(
             AssessedCitationAssessment(
                 citation_id="cite-1",
+                candidate_id="cite-1:candidate:0",
                 result=CitationAssessmentResult(
                     case_name=CaseNameAssessmentRun(
                         initial=CaseNameAssessment(

@@ -32,7 +32,7 @@ from mellea_lrc.assessment import (
 )
 from mellea_lrc.core.spans import Span
 from mellea_lrc.core.immutable import ExtraData
-from mellea_lrc.courtlistener.types import CitationMatch
+from mellea_lrc.courtlistener.types import CourtListenerCitationRecord
 from mellea_lrc.extraction import extract_citations
 from mellea_lrc.serialization import (
     deserialize_assessed_document,
@@ -49,10 +49,12 @@ from mellea_lrc.serialization import (
     serialize_validated_document,
 )
 from mellea_lrc.validation.types import (
+    AmbiguousCitationValidation,
     CitationValidation,
     CourtResolutionSource,
     CourtResolutionTrace,
     FoundCitationValidation,
+    RetrievedCandidate,
     ValidatedDocument,
     ValidationMetadata,
     ValidationStatus,
@@ -69,11 +71,34 @@ RECAP_TEXT = (
 )
 
 
+def _retrieved_candidate(
+    citation_id: str,
+    record: CourtListenerCitationRecord,
+    index: int = 0,
+) -> RetrievedCandidate:
+    return RetrievedCandidate(
+        candidate_id=f"{citation_id}:candidate:{index}",
+        record=record,
+        court_resolution=CourtResolutionTrace(
+            courtlistener_court_id=record.court_id,
+            resolved_via=(
+                CourtResolutionSource.CLUSTER_PROVIDED
+                if record.court_id
+                else CourtResolutionSource.NOT_ATTEMPTED
+            ),
+            docket_id=record.docket_id,
+            docket_url=None,
+            cached=False,
+            error_message=None,
+        ),
+    )
+
+
 def test_document_extraction_serializes_without_ui_assumptions() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
     artifact = serialize_extracted_document(extraction)
 
-    assert artifact["schema_version"] == 12
+    assert artifact["schema_version"] == 13
     assert artifact["artifact_type"] == "extracted_document"
     assert artifact["source_metadata"]["path"] is None
     assert artifact["text"] == SAMPLE_TEXT
@@ -181,20 +206,13 @@ def test_document_validation_round_trips() -> None:
                 lookup_status=200,
                 lookup_cache="miss",
                 lookup_key="118 U.S. 425",
-                matches=(
-                    CitationMatch(
+                candidate=_retrieved_candidate(
+                    extraction.citations[0].citation_id,
+                    CourtListenerCitationRecord(
                         case_name="Norton v. Shelby County",
                         date_filed="1886-01-01",
                         extra_data=ExtraData({"absolute_url": "/opinion/1/"}),
                     ),
-                ),
-                court_resolution=CourtResolutionTrace(
-                    courtlistener_court_id=None,
-                    resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
-                    docket_id=None,
-                    docket_url=None,
-                    cached=False,
-                    error_message=None,
                 ),
                 extra_data=ExtraData(),
             ),
@@ -219,14 +237,9 @@ def test_deserialize_citation_validation_ignores_legacy_message() -> None:
             lookup_status=200,
             lookup_cache=None,
             lookup_key=None,
-            matches=(),
-            court_resolution=CourtResolutionTrace(
-                courtlistener_court_id=None,
-                resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
-                docket_id=None,
-                docket_url=None,
-                cached=False,
-                error_message=None,
+            candidate=_retrieved_candidate(
+                "cite-1",
+                CourtListenerCitationRecord(),
             ),
             extra_data=ExtraData(),
         )
@@ -239,6 +252,51 @@ def test_deserialize_citation_validation_ignores_legacy_message() -> None:
     assert restored.status == ValidationStatus.FOUND
 
 
+def test_ambiguous_validation_candidates_round_trip_with_court_traces() -> None:
+    record = AmbiguousCitationValidation(
+        citation_id="cite-1",
+        locator="1 F.3d 2",
+        source="test",
+        lookup_status=300,
+        lookup_cache="miss",
+        lookup_key="key",
+        candidates=(
+            RetrievedCandidate(
+                candidate_id="cite-1:candidate:0",
+                record=CourtListenerCitationRecord(case_name="Example A", docket_id="11"),
+                court_resolution=CourtResolutionTrace(
+                    courtlistener_court_id="ca1",
+                    resolved_via=CourtResolutionSource.DOCKET_LOOKUP,
+                    docket_id="11",
+                    docket_url="/dockets/11",
+                    cached=False,
+                    error_message=None,
+                ),
+            ),
+            RetrievedCandidate(
+                candidate_id="cite-1:candidate:1",
+                record=CourtListenerCitationRecord(case_name="Example B", court_id="ca2"),
+                court_resolution=CourtResolutionTrace(
+                    courtlistener_court_id="ca2",
+                    resolved_via=CourtResolutionSource.CLUSTER_PROVIDED,
+                    docket_id=None,
+                    docket_url=None,
+                    cached=False,
+                    error_message=None,
+                ),
+            ),
+        ),
+    )
+
+    payload = serialize_citation_validation(record)
+
+    assert "record" not in payload
+    assert len(payload["candidates"]) == 2
+    assert payload["candidates"][0]["record"]["case_name"] == "Example A"
+    assert payload["candidates"][0]["court_resolution"]["courtlistener_court_id"] == "ca1"
+    assert deserialize_citation_validation(payload) == record
+
+
 def test_document_assessment_round_trips() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
     validation = FoundCitationValidation(
@@ -248,19 +306,12 @@ def test_document_assessment_round_trips() -> None:
         lookup_status=200,
         lookup_cache=None,
         lookup_key=None,
-        matches=(
-            CitationMatch(
+        candidate=_retrieved_candidate(
+            extraction.citations[0].citation_id,
+            CourtListenerCitationRecord(
                 case_name="Norton v. Shelby County",
                 date_filed="1886-01-01",
             ),
-        ),
-        court_resolution=CourtResolutionTrace(
-            courtlistener_court_id=None,
-            resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
-            docket_id=None,
-            docket_url=None,
-            cached=False,
-            error_message=None,
         ),
         extra_data=ExtraData(),
     )
@@ -313,6 +364,7 @@ def test_document_assessment_round_trips() -> None:
         assessments=(
             AssessedCitationAssessment(
                 citation_id=citation_id,
+                candidate_id=validation.candidate.candidate_id,
                 result=assessment_result,
             ),
         ),
@@ -392,11 +444,11 @@ def test_ambiguous_citation_assessment_round_trips() -> None:
         citation_id="cite-1",
         candidates=(
             CandidateAssessment(
-                match=CitationMatch(case_name="Doe v. Roe", date_filed="2001-01-01", docket_id="11"),
+                candidate_id="cite-1:candidate:0",
                 result=_minimal_result("Doe v. Roe"),
             ),
             CandidateAssessment(
-                match=CitationMatch(case_name="Doe v. Roe", date_filed="2001-01-02", docket_id="22"),
+                candidate_id="cite-1:candidate:1",
                 result=_minimal_result("Doe v. Roe"),
             ),
         ),
@@ -424,6 +476,7 @@ def test_gated_ambiguous_citation_assessment_round_trips() -> None:
 def test_case_name_followup_round_trips_inside_citation_assessment() -> None:
     record = AssessedCitationAssessment(
         citation_id="cite-1",
+        candidate_id="cite-1:candidate:0",
         result=CitationAssessmentResult(
             case_name=CaseNameAssessmentRun(
                 initial=CaseNameAssessment(

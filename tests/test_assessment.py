@@ -44,7 +44,7 @@ from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.core.spans import Span
-from mellea_lrc.courtlistener.types import CitationMatch
+from mellea_lrc.courtlistener.types import CourtListenerCitationRecord
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractionMetadata
 from mellea_lrc.preprocessing.types import (
     PreprocessedDocument,
@@ -57,11 +57,35 @@ from mellea_lrc.validation.types import (
     CourtResolutionSource,
     CourtResolutionTrace,
     FoundCitationValidation,
+    RetrievedCandidate,
     SkippedCitationValidation,
     ValidatedDocument,
     ValidationMetadata,
     ValidationStatus,
 )
+
+
+def _retrieved_candidate(
+    citation_id: str,
+    record: CourtListenerCitationRecord,
+    index: int = 0,
+) -> RetrievedCandidate:
+    return RetrievedCandidate(
+        candidate_id=f"{citation_id}:candidate:{index}",
+        record=record,
+        court_resolution=CourtResolutionTrace(
+            courtlistener_court_id=record.court_id,
+            resolved_via=(
+                CourtResolutionSource.CLUSTER_PROVIDED
+                if record.court_id
+                else CourtResolutionSource.NOT_ATTEMPTED
+            ),
+            docket_id=record.docket_id,
+            docket_url=None,
+            cached=False,
+            error_message=None,
+        ),
+    )
 
 
 def test_get_extended_span_text_includes_context_around_full_span() -> None:
@@ -606,20 +630,13 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
                 lookup_status=200,
                 lookup_cache=None,
                 lookup_key=None,
-                matches=(
-                    CitationMatch(
+                candidate=_retrieved_candidate(
+                    "cite-1",
+                    CourtListenerCitationRecord(
                         case_name="Brown v. Board",
                         date_filed="1954-05-17",
                         court_id="scotus",
                     ),
-                ),
-                court_resolution=CourtResolutionTrace(
-                    courtlistener_court_id="scotus",
-                    resolved_via=CourtResolutionSource.CLUSTER_PROVIDED,
-                    docket_id=None,
-                    docket_url=None,
-                    cached=False,
-                    error_message=None,
                 ),
                 extra_data=ExtraData(),
             ),
@@ -647,7 +664,7 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
 
 def _ambiguous_validation(
     citation: ExtractedCitation,
-    matches: tuple[CitationMatch, ...],
+    records: tuple[CourtListenerCitationRecord, ...],
 ) -> ValidatedDocument:
     preprocessed = PreprocessedDocument(
         source_metadata=SourceMetadata(),
@@ -668,7 +685,14 @@ def _ambiguous_validation(
                 lookup_status=300,
                 lookup_cache=None,
                 lookup_key=None,
-                matches=matches,
+                candidates=tuple(
+                    _retrieved_candidate(
+                        citation.citation_id,
+                        record,
+                        index,
+                    )
+                    for index, record in enumerate(records)
+                ),
             ),
         ),
         validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
@@ -687,8 +711,13 @@ def test_run_assessment_assesses_each_ambiguous_candidate() -> None:
     validation = _ambiguous_validation(
         citation,
         (
-            CitationMatch(case_name="Doe v. Roe", date_filed="2001-01-01", docket_id="11"),
-            CitationMatch(case_name=None, date_filed="2001-01-01", docket_id="22"),
+            CourtListenerCitationRecord(
+                case_name="Doe v. Roe",
+                date_filed="2001-01-01",
+                court_id="ca1",
+                docket_id="11",
+            ),
+            CourtListenerCitationRecord(case_name=None, date_filed="2001-01-01", docket_id="22"),
         ),
     )
 
@@ -699,9 +728,10 @@ def test_run_assessment_assesses_each_ambiguous_candidate() -> None:
     assert record.gated is False
     assert len(record.candidates) == 2
     assert all(isinstance(c, CandidateAssessment) for c in record.candidates)
-    assert record.candidates[0].match.docket_id == "11"
+    assert record.candidates[0].candidate_id == "cite-1:candidate:0"
     assert record.candidates[0].result.case_name.initial.status == CaseNameAssessmentStatus.EXACT_MATCH
-    assert record.candidates[1].match.docket_id == "22"
+    assert record.candidates[0].result.court.initial.courtlistener_court_id == "ca1"
+    assert record.candidates[1].candidate_id == "cite-1:candidate:1"
     assert record.candidates[1].result.case_name.initial.status == CaseNameAssessmentStatus.UNASSESSABLE
     assert assessment.assessment_complete is True
 
@@ -713,8 +743,8 @@ def test_run_assessment_gates_ambiguous_beyond_candidate_limit() -> None:
         matched_text="1 F.3d 2",
         citation=FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="1", reporter="F.3d", page="2"),
     )
-    matches = tuple(CitationMatch(case_name=f"Case {i}", docket_id=str(i)) for i in range(6))
-    validation = _ambiguous_validation(citation, matches)
+    records = tuple(CourtListenerCitationRecord(case_name=f"Case {i}", docket_id=str(i)) for i in range(6))
+    validation = _ambiguous_validation(citation, records)
 
     record = run_assessment(validation).assessments[0]
 
@@ -757,19 +787,12 @@ def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
                 lookup_status=200,
                 lookup_cache=None,
                 lookup_key=None,
-                matches=(
-                    CitationMatch(
+                candidate=_retrieved_candidate(
+                    "cite-1",
+                    CourtListenerCitationRecord(
                         case_name="Different v. Case",
                         date_filed="1954-05-17",
                     ),
-                ),
-                court_resolution=CourtResolutionTrace(
-                    courtlistener_court_id=None,
-                    resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
-                    docket_id=None,
-                    docket_url=None,
-                    cached=False,
-                    error_message=None,
                 ),
                 extra_data=ExtraData(),
             ),
@@ -865,19 +888,12 @@ def test_run_assessment_records_per_citation_failure(monkeypatch: pytest.MonkeyP
                 lookup_status=200,
                 lookup_cache=None,
                 lookup_key=None,
-                matches=(
-                    CitationMatch(
+                candidate=_retrieved_candidate(
+                    "cite-1",
+                    CourtListenerCitationRecord(
                         case_name="Brown v. Board",
                         date_filed="1954-05-17",
                     ),
-                ),
-                court_resolution=CourtResolutionTrace(
-                    courtlistener_court_id=None,
-                    resolved_via=CourtResolutionSource.NOT_ATTEMPTED,
-                    docket_id=None,
-                    docket_url=None,
-                    cached=False,
-                    error_message=None,
                 ),
                 extra_data=ExtraData(),
             ),

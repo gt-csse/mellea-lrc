@@ -79,12 +79,17 @@ stage.
 - Re-extraction is append-only: original extracted citations are never mutated or
   replaced.
 - Semantic external data is converted into typed immutable domain records before
-  entering an artifact. CourtListener candidates use `CitationMatch`, lookup
+  entering an artifact. CourtListener responses use `CourtListenerCitationRecord`;
+  validation wraps each retrieved record in `RetrievedCandidate` with a stable
+  `candidate_id` and candidate-scoped provenance. Lookup
   diagnostics use `ValidationFailureDetail`, and assessment conversations use
   `ChatTurn`.
 - Unknown external fields are preserved only in an explicitly named `ExtraData`
   field. `ExtraData` is defensively copied and deeply frozen, so domain records
   cannot be mutated indirectly through retained input dictionaries or nested lists.
+- Found and ambiguous validation share the same `RetrievedCandidate` type.
+  Assessment refers to it by `candidate_id` rather than duplicating the external
+  record. Array position is presentation order, not identity.
 
 ### External boundaries
 
@@ -169,7 +174,7 @@ validates the artifact invariants rather than silently constructing contradictor
 stage objects. Schema version 7 exposes the same stage ownership explicitly with
 `source_metadata`, `preprocessing_metadata`, `extraction_metadata`,
 `validation_metadata`, and `assessment_metadata` keys as applicable. It also uses
-typed validation matches, explicit `extra_data` fields, conclusion-only case-name
+typed retrieved candidates, explicit `extra_data` fields, conclusion-only case-name
 statuses, and nested case-name follow-up payloads. Version 7 removes the peer
 `reassessments` collection and duplicate nested citation identifiers. Earlier
 versions are not accepted.

@@ -29,8 +29,15 @@ type CourtResolutionTracePayload = {
 type CaseNameSearchTracePayload = {
   status: string;
   query: string | null;
+  http_status: number | null;
   case_count: number | null;
   error_message: string | null;
+};
+
+type RetrievedCandidatePayload = {
+  candidate_id: string;
+  record: CourtListenerCitationRecord;
+  court_resolution: CourtResolutionTracePayload;
 };
 
 type ValidationPayload = {
@@ -44,8 +51,8 @@ type ValidationPayload = {
   lookup_key: string | null;
   error_message: string | null;
   failure_detail: Record<string, unknown> | null;
-  matches: CourtListenerMatch[];
-  court_resolution: CourtResolutionTracePayload | null;
+  candidate: RetrievedCandidatePayload | null;
+  candidates: RetrievedCandidatePayload[];
   candidate_search: CaseNameSearchTracePayload | null;
 };
 
@@ -56,14 +63,14 @@ type AssessmentPayload = {
 };
 
 type CandidateAssessmentPayload = {
-  match: CourtListenerMatch;
+  candidate_id: string;
   result: AssessmentPayload;
 };
 
 type CitationAssessmentPayload =
   | { citation_id: string; status: "waiting" }
   | { citation_id: string; status: "skipped"; reason: string; message: string }
-  | { citation_id: string; status: "assessed"; result: AssessmentPayload }
+  | { citation_id: string; status: "assessed"; candidate_id: string; result: AssessmentPayload }
   | {
       citation_id: string;
       status: "ambiguous";
@@ -113,7 +120,7 @@ type CourtAssessmentRunPayload = {
   followup: CourtFollowupPayload;
 };
 
-type CourtListenerMatch = Record<string, unknown>;
+type CourtListenerCitationRecord = Record<string, unknown>;
 
 type ReviewValidation = {
   validations: ValidationPayload[];
@@ -1005,10 +1012,19 @@ export default function Home() {
                 onClusterChange={selectCourtListenerCandidate}
                 onExtractedAttemptChange={selectExtractedAttempt}
               />
-              <ValidationDetails validation={selectedCitation.validation} />
+              <ValidationDetails
+                validation={selectedCitation.validation}
+                citationId={selectedCitation.id}
+                candidateIndex={selectedClusterIndex}
+                onCandidateChange={selectCourtListenerCandidate}
+              />
               <AssessmentDetails
                 assessment={selectedCitation.assessment}
                 candidateIndex={selectedClusterIndex}
+                candidateId={candidateIdForIndex(
+                  selectedCitation.validation,
+                  selectedClusterIndex
+                )}
               />
             </div>
           </>
@@ -1104,7 +1120,11 @@ function BibliographicComparison({
     ? Math.min(Math.max(extractedAttemptIndex, 0), extractedAttempts.length - 1)
     : 0;
   const extractedAttempt = extractedAttempts[safeExtractedAttemptIndex] ?? extractedAttempts[0];
-  const rows = bibliographicRows(extractedAttempt, cluster);
+  const courtResolution = courtResolutionForCandidate(
+    citation.validation,
+    safeClusterIndex
+  );
+  const rows = bibliographicRows(extractedAttempt, cluster, courtResolution);
   const hasMultipleClusters = clusters.length > 1;
   const hasMultipleExtractedAttempts = extractedAttempts.length > 1;
 
@@ -1200,7 +1220,17 @@ function BibliographicComparison({
   );
 }
 
-function ValidationDetails({ validation }: { validation: ValidationPayload | null }) {
+function ValidationDetails({
+  validation,
+  citationId,
+  candidateIndex,
+  onCandidateChange
+}: {
+  validation: ValidationPayload | null;
+  citationId: string;
+  candidateIndex: number;
+  onCandidateChange: (citationId: string, candidateIndex: number) => void;
+}) {
   if (!validation) {
     return (
       <div className="detail-group">
@@ -1215,16 +1245,56 @@ function ValidationDetails({ validation }: { validation: ValidationPayload | nul
     );
   }
 
-  const resolution = validation.court_resolution;
+  const candidates = ambiguousValidationCandidates(validation);
+  const safeCandidateIndex = candidates.length
+    ? Math.min(Math.max(candidateIndex, 0), candidates.length - 1)
+    : 0;
+  const selectedCandidate = candidates[safeCandidateIndex] ?? null;
+  const resolution = selectedCandidate?.court_resolution ?? validation.candidate?.court_resolution;
   const search = validation.candidate_search;
+
+  function changeCandidate(direction: -1 | 1) {
+    if (candidates.length < 2) {
+      return;
+    }
+    const nextIndex =
+      (safeCandidateIndex + direction + candidates.length) % candidates.length;
+    onCandidateChange(citationId, nextIndex);
+  }
 
   return (
     <div className="detail-group assessment-trace-group">
       <div className="assessment-trace-heading">
         <div>
           <h3>Validation trace</h3>
-          <p>CourtListener existence lookup, then court resolution or case-name search</p>
+          <p>
+            CourtListener existence lookup, then court resolution or case-name search
+            {selectedCandidate
+              ? ` — candidate ${safeCandidateIndex + 1}/${candidates.length}`
+              : ""}
+          </p>
         </div>
+        {candidates.length > 1 ? (
+          <span className="case-switcher" aria-label="Validation candidate selector">
+            <button
+              aria-label="Show previous validation candidate"
+              type="button"
+              onClick={() => changeCandidate(-1)}
+            >
+              <ChevronLeft size={14} aria-hidden="true" />
+            </button>
+            <strong>
+              {safeCandidateIndex + 1}/{candidates.length}
+            </strong>
+            <button
+              aria-label="Show next validation candidate"
+              type="button"
+              onClick={() => changeCandidate(1)}
+            >
+              <ChevronRight size={14} aria-hidden="true" />
+            </button>
+          </span>
+        ) : null}
       </div>
       <ol className="assessment-trace">
         <AssessmentTraceStep index="1" title="Citation lookup" status={validation.status}>
@@ -1254,11 +1324,13 @@ function CaseNameSearchDetails({ search }: { search: CaseNameSearchTracePayload 
   return (
     <dl className="assessment-fields">
       <div>
+        <dt>HTTP status</dt>
+        <dd>{search.http_status ?? "No response"}</dd>
+      </div>
+      <div>
         <dt>Cases found</dt>
         <dd>
-          {search.status === "searched"
-            ? search.case_count ?? "-"
-            : formatStatusLabel(search.status)}
+          {search.status === "searched" ? search.case_count : "Unavailable"}
         </dd>
       </div>
       {search.query ? (
@@ -1337,10 +1409,12 @@ function CourtResolutionDetails({ resolution }: { resolution: CourtResolutionTra
 
 function AssessmentDetails({
   assessment,
-  candidateIndex = 0
+  candidateIndex = 0,
+  candidateId = null
 }: {
   assessment: CitationAssessmentPayload | null;
   candidateIndex?: number;
+  candidateId?: string | null;
 }) {
   if (!assessment) {
     return (
@@ -1361,7 +1435,13 @@ function AssessmentDetails({
   }
 
   if (assessment.status === "ambiguous") {
-    return <AmbiguousAssessmentDetails assessment={assessment} candidateIndex={candidateIndex} />;
+    return (
+      <AmbiguousAssessmentDetails
+        assessment={assessment}
+        candidateIndex={candidateIndex}
+        candidateId={candidateId}
+      />
+    );
   }
 
   if (assessment.status !== "assessed" || !assessment.result) {
@@ -1405,10 +1485,12 @@ function AssessmentDetails({
 
 function AmbiguousAssessmentDetails({
   assessment,
-  candidateIndex
+  candidateIndex,
+  candidateId
 }: {
   assessment: Extract<CitationAssessmentPayload, { status: "ambiguous" }>;
   candidateIndex: number;
+  candidateId: string | null;
 }) {
   if (assessment.gated || assessment.candidates.length === 0) {
     return (
@@ -1429,9 +1511,14 @@ function AmbiguousAssessmentDetails({
   }
 
   const total = assessment.candidates.length;
-  const index = Math.min(Math.max(candidateIndex, 0), total - 1);
+  const referencedIndex = candidateId
+    ? assessment.candidates.findIndex((candidate) => candidate.candidate_id === candidateId)
+    : -1;
+  const index =
+    referencedIndex >= 0
+      ? referencedIndex
+      : Math.min(Math.max(candidateIndex, 0), total - 1);
   const candidate = assessment.candidates[index];
-  const candidateName = readString(candidate.match, ["case_name", "caseName"]);
 
   return (
     <div className="detail-group assessment-trace-group">
@@ -1440,8 +1527,8 @@ function AmbiguousAssessmentDetails({
           <h3>Citation assessment</h3>
           <p>
             Ambiguous — candidate {index + 1}/{total} assessed on its own
-            {candidateName ? `: ${candidateName}` : ""}. Use the CourtListener candidate switcher above to
-            compare.
+            {candidate.candidate_id ? ` (${candidate.candidate_id})` : ""}. Use the CourtListener
+            candidate switcher above to compare.
           </p>
         </div>
       </div>
@@ -1786,7 +1873,8 @@ function extractedCitationAttempts(
 
 function bibliographicRows(
   extractedAttempt: ExtractedCitationAttempt,
-  cluster: CourtListenerMatch | null
+  cluster: CourtListenerCitationRecord | null,
+  courtResolution: CourtResolutionTracePayload | null
 ): BibliographicRow[] {
   const { citation, fields } = extractedAttempt;
   const primaryAssessment = completedAssessmentResult(citation.assessment);
@@ -1802,7 +1890,7 @@ function bibliographicRows(
   // deterministically during validation (docket lookup) into court_resolution.
   const courtListenerCourt = cluster
     ? readString(cluster, ["court_id", "court", "courtId"]) ??
-      citation.validation?.court_resolution?.courtlistener_court_id ??
+      courtResolution?.courtlistener_court_id ??
       null
     : null;
   const courtListenerDate = readString(cluster, ["date_filed", "dateFiled"]);
@@ -2011,7 +2099,7 @@ function splitLocator(locator: string | null | undefined) {
   };
 }
 
-function readString(record: CourtListenerMatch | null, keys: string[]) {
+function readString(record: CourtListenerCitationRecord | null, keys: string[]) {
   if (!record) {
     return null;
   }
@@ -2347,8 +2435,50 @@ function hasCourtListenerCandidate(validation: ValidationPayload) {
     courtListenerMatches(validation).length > 0;
 }
 
-function courtListenerMatches(validation: ValidationPayload): CourtListenerMatch[] {
-  return Array.isArray(validation.matches) ? validation.matches : [];
+function courtListenerMatches(validation: ValidationPayload): CourtListenerCitationRecord[] {
+  const candidates = ambiguousValidationCandidates(validation);
+  if (candidates.length) {
+    return candidates.map((candidate) => candidate.record);
+  }
+  return validation.candidate ? [validation.candidate.record] : [];
+}
+
+function ambiguousValidationCandidates(
+  validation: ValidationPayload | null
+): RetrievedCandidatePayload[] {
+  return validation?.status === "ambiguous" && Array.isArray(validation.candidates)
+    ? validation.candidates
+    : [];
+}
+
+function courtResolutionForCandidate(
+  validation: ValidationPayload | null,
+  candidateIndex: number
+): CourtResolutionTracePayload | null {
+  if (!validation) {
+    return null;
+  }
+  const candidates = ambiguousValidationCandidates(validation);
+  if (candidates.length) {
+    const safeIndex = Math.min(Math.max(candidateIndex, 0), candidates.length - 1);
+    return candidates[safeIndex]?.court_resolution ?? null;
+  }
+  return validation.candidate?.court_resolution ?? null;
+}
+
+function candidateIdForIndex(
+  validation: ValidationPayload | null,
+  candidateIndex: number
+): string | null {
+  if (!validation) {
+    return null;
+  }
+  const candidates = ambiguousValidationCandidates(validation);
+  if (candidates.length) {
+    const safeIndex = Math.min(Math.max(candidateIndex, 0), candidates.length - 1);
+    return candidates[safeIndex]?.candidate_id ?? null;
+  }
+  return validation.candidate?.candidate_id ?? null;
 }
 
 function citationStatus(citation: ReviewCitation): CitationStatus {

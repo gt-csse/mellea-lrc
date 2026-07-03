@@ -21,7 +21,7 @@ is [assessment](../assessment/index.md), not validation.
 | non-case citation | `skipped` | this validator does not handle the citation type |
 | incomplete locator | `invalid` | required retrieval input is absent |
 | HTTP 200 | `found` | one match was retrieved |
-| HTTP 300 | `ambiguous` | multiple matches were retrieved |
+| HTTP 300 | `ambiguous` | multiple candidate records were retrieved |
 | HTTP 404 | `not_found` | this lookup retrieved no match |
 | HTTP 400 | `lookup_failed` | the source rejected the query |
 | HTTP 429 | `throttled` | the source asked the client to retry later |
@@ -34,8 +34,9 @@ that it is false.
 ## Implementation contract
 
 The lookup preserves `lookup_status`, `lookup_cache`, `lookup_key`, typed
-`CitationMatch` values where available, failure detail, and upstream
-`extra_data`. A malformed HTTP 200 with no matches becomes `lookup_failed`
+`CourtListenerCitationRecord` values where available, failure detail, and upstream
+`extra_data`. Validation wraps each record in a `RetrievedCandidate`; a malformed
+HTTP 200 with no record becomes `lookup_failed`
 rather than inventing a record.
 
 Implementations live in `validation/pipeline.py`, with source access under

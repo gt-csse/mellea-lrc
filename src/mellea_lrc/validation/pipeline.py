@@ -35,6 +35,7 @@ from mellea_lrc.validation.types import (
     InvalidCitationValidation,
     LookupFailedCitationValidation,
     NotFoundCitationValidation,
+    RetrievedCandidate,
     SkippedCitationValidation,
     ThrottledCitationValidation,
     ValidatedDocument,
@@ -44,6 +45,7 @@ from mellea_lrc.validation.types import (
 )
 
 if TYPE_CHECKING:
+    from mellea_lrc.courtlistener.types import CourtListenerCitationRecord
     from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
 
 SOURCE = "cl-access"
@@ -159,26 +161,38 @@ def _validation_from_lookup(
         "extra_data": lookup.extra_data,
     }
     if status is ValidationStatus.FOUND:
-        match = lookup.matches[0] if lookup.matches else None
-        if match is None:
-            # Defensive: a 200 with no matches is a malformed lookup; surface as failure.
+        record = lookup.records[0] if lookup.records else None
+        if record is None:
+            # Defensive: a 200 with no record is a malformed lookup; surface as failure.
             return LookupFailedCitationValidation(
                 **common,
-                error_message="CourtListener returned HTTP 200 but no matches.",
+                error_message="CourtListener returned HTTP 200 but no records.",
                 failure_detail=lookup.failure_detail,
             )
-        resolution = resolve_court(
-            match,
-            client=client,
-            cache=docket_court_cache,
-        )
         return FoundCitationValidation(
             **common,
-            matches=lookup.matches,
-            court_resolution=resolution,
+            candidate=_retrieved_candidate(
+                citation_id,
+                0,
+                record,
+                client=client,
+                cache=docket_court_cache,
+            ),
         )
     if status is ValidationStatus.AMBIGUOUS:
-        return AmbiguousCitationValidation(**common, matches=lookup.matches)
+        return AmbiguousCitationValidation(
+            **common,
+            candidates=tuple(
+                _retrieved_candidate(
+                    citation_id,
+                    index,
+                    record,
+                    client=client,
+                    cache=docket_court_cache,
+                )
+                for index, record in enumerate(lookup.records)
+            ),
+        )
     if status is ValidationStatus.NOT_FOUND:
         return NotFoundCitationValidation(
             **common,
@@ -194,6 +208,22 @@ def _validation_from_lookup(
         **common,
         error_message=lookup.error_message,
         failure_detail=lookup.failure_detail,
+    )
+
+
+def _retrieved_candidate(
+    citation_id: str,
+    index: int,
+    record: CourtListenerCitationRecord,
+    *,
+    client: CitationValidationClient,
+    cache: dict[str, str | None],
+) -> RetrievedCandidate:
+    """Attach stable validation identity and provenance to one retrieved record."""
+    return RetrievedCandidate(
+        candidate_id=f"{citation_id}:candidate:{index}",
+        record=record,
+        court_resolution=resolve_court(record, client=client, cache=cache),
     )
 
 

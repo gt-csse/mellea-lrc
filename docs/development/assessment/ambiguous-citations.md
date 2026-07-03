@@ -33,25 +33,30 @@ So the discriminators for "same case" are name subsumption/equality, same
 
 ## Shipped
 
-**Validation — retrieve only.** Ambiguous candidates are returned as `CitationMatch`
-records; `docket_id` is now a structured field on all lookups (was buried in
-`extra_data`). No collapse, no opinion.
+**Validation — retrieve only.** Found and ambiguous results share
+`RetrievedCandidate(candidate_id, record, court_resolution)`. Validation resolves
+the CourtListener-side court independently for every candidate, preserving
+upstream order and reusing the document-level docket cache. It does not collapse
+candidates or compare any candidate with the extracted citation.
 
 **Assessment — found-branch per candidate.** The pipeline was restructured into
 per-`(citation, candidate)` jobs, all delegating to the same `assess_found_citation`:
 
 - Found → one candidate → `AssessedCitationAssessment`.
 - Ambiguous → one candidate per cluster → `AmbiguousCitationAssessment`, holding a
-  `CandidateAssessment(match, result)` per cluster (order preserved).
+  `CandidateAssessment(candidate_id, result)` per cluster (order preserved).
+  The ID references validation; assessment does not duplicate the retrieved record.
 - **Defensive gate**: more than `MAX_AMBIGUOUS_CANDIDATES` (5) → `gated=True`, no
   enumeration, reason recorded. Empty-candidate lookups short-circuit the same way.
-- Court for a candidate uses its own `match.court_id` (usually absent); no
-  per-candidate docket resolution runs, so court stays best-effort here.
+- Court assessment consumes that candidate's own validation resolution trace;
+  candidate court provenance is never inferred from a sibling candidate.
 
-**Frontend.** Ambiguous citations are assessment-eligible and selectable. The
-right-column panel shows the selected candidate's full field-by-field trace,
-**synced to the bibliographic candidate switcher** — flipping the CourtListener
-candidate flips its assessment. Gated/empty shows a "not enumerated" note.
+**Frontend.** Ambiguous citations are assessment-eligible and selectable. One
+shared candidate index controls the bibliographic comparison, the complete
+candidate-scoped validation trace (including court resolution), and the
+field-by-field assessment. The validation panel also exposes the selector, so
+switching there updates every candidate-scoped view. Gated/empty assessment
+shows a "not enumerated" note without discarding validation candidates.
 
 ## Deferred / future direction
 

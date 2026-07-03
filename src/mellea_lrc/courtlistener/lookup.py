@@ -2,7 +2,7 @@
 
 from mellea_lrc.courtlistener.transport import CitationLookupEnvelopePayload
 from mellea_lrc.courtlistener.types import (
-    CitationMatch,
+    CourtListenerCitationRecord,
     CourtListenerCitationLookup,
     ValidationFailureDetail,
 )
@@ -52,7 +52,7 @@ def citation_lookup_response_dict(lookup: CourtListenerCitationLookup) -> dict[s
     response: dict[str, object] = {
         "citation": lookup.citation,
         "status": lookup.status,
-        "clusters": [_citation_match_dict(item) for item in lookup.matches],
+        "clusters": [_citation_record_dict(item) for item in lookup.records],
     }
     if lookup.error_message is not None:
         response["error_message"] = lookup.error_message
@@ -77,7 +77,7 @@ def citation_lookup_envelope_dict(lookup: CourtListenerCitationLookup) -> dict[s
     return envelope
 
 
-def _citation_match_dict(item: CitationMatch) -> dict[str, object]:
+def _citation_record_dict(item: CourtListenerCitationRecord) -> dict[str, object]:
     payload: dict[str, object] = {
         "case_name": item.case_name,
         "date_filed": item.date_filed,

@@ -1,7 +1,8 @@
 # Court Retrieval
 
-For a `found` locator, validation attempts to resolve the court associated with
-the retrieved CourtListener record. This is retrieval enrichment only.
+For every candidate returned by a `found` or `ambiguous` locator, validation
+attempts to resolve the court associated with that CourtListener record. This
+is retrieval enrichment only.
 
 `CourtResolutionTrace` records:
 
@@ -16,6 +17,9 @@ whether they agree, or changes the citation. A missing court remains missing.
 The comparison and the optional exclusive-reporter fallback are documented in
 [Court Assessment](../assessment/court.md).
 
-Court resolution is implemented in `validation/court_resolution.py`. The
-document pipeline owns a per-run docket cache so citations sharing a docket do
-not trigger duplicate GET requests.
+Court resolution is implemented in `validation/court_resolution.py`. Both found
+and ambiguous validation use
+`RetrievedCandidate(candidate_id, record, court_resolution)`; found owns one and
+ambiguous owns a tuple.
+The document pipeline owns a per-run docket cache so candidates or citations
+sharing a docket do not trigger duplicate GET requests.

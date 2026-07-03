@@ -9,7 +9,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, JsonValue
 
 from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.courtlistener.types import (
-    CitationMatch,
+    CourtListenerCitationRecord,
     CourtListenerCitationLookup,
     ValidationFailureDetail,
 )
@@ -28,7 +28,7 @@ class _ExternalPayload(BaseModel):
         return ExtraData(values)
 
 
-class CitationMatchPayload(_ExternalPayload):
+class CourtListenerCitationRecordPayload(_ExternalPayload):
     """External CourtListener cluster payload."""
 
     case_name: str | None = Field(
@@ -49,9 +49,9 @@ class CitationMatchPayload(_ExternalPayload):
         validation_alias=AliasChoices("docket_id", "docketId"),
     )
 
-    def to_domain(self) -> CitationMatch:
+    def to_domain(self) -> CourtListenerCitationRecord:
         """Convert validated transport data into an immutable domain record."""
-        return CitationMatch(
+        return CourtListenerCitationRecord(
             case_name=self.case_name,
             date_filed=self.date_filed,
             court=self.court,
@@ -91,7 +91,7 @@ class CitationLookupResponsePayload(_ExternalPayload):
 
     citation: str | None = None
     status: int | None = None
-    clusters: list[CitationMatchPayload] = Field(default_factory=list)
+    clusters: list[CourtListenerCitationRecordPayload] = Field(default_factory=list)
     error_message: str | None = None
     limit_detail: ValidationFailureDetailPayload | None = None
 
@@ -115,7 +115,7 @@ class CitationLookupEnvelopePayload(_ExternalPayload):
         return CourtListenerCitationLookup(
             citation=self.response.citation or fallback_citation,
             status=self.response.status or fallback_status,
-            matches=tuple(item.to_domain() for item in self.response.clusters),
+            records=tuple(item.to_domain() for item in self.response.clusters),
             cache=self.cache,
             key=self.key,
             error_message=self.response.error_message,

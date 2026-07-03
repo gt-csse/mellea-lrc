@@ -24,9 +24,21 @@ class CaseNameSearchStatus(str, Enum):
 class CaseNameSearchTrace:
     status: CaseNameSearchStatus = NOT_ATTEMPTED
     query: str | None = None          # caseName:"A v. B"
+    http_status: int | None = None    # actual upstream/search-service HTTP status
     case_count: int | None = None     # CL 'count' — matches, NOT exact matches
     error_message: str | None = None
 ```
+
+The trace state is determined from transport status before the response count:
+
+- `searched`: HTTP 200 with a non-negative integer `count` (including zero);
+- `search_failed`: non-200 HTTP status or no HTTP response.
+
+`case_count` never determines whether the request succeeded. It is populated
+only for `searched`; all other states preserve `http_status` and diagnostics
+with `case_count=None`. Current cl-access responses expose the count at the top
+level. Older deployed responses omit that normalized field but preserve the
+same value under `raw.count`; the parser supports both shapes.
 
 Wiring:
 - `validation/not_found_search.py` — skip gate (**both parties** required; single/no party is noise), query `caseName:"A v. B"`, read `count`.

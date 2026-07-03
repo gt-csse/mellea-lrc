@@ -362,6 +362,7 @@ class CourtListenerClient:
         raw = result["response"]
         return {
             **_request_metadata(result),
+            "http_status": result["status"],
             "q": q,
             "type": search_type,
             "semantic": semantic,
@@ -402,7 +403,12 @@ class CourtListenerClient:
 
         cached = self.cache.get(key)
         if cached is not None:
-            return {"cache": "hit", "key": key, "response": cached.response}
+            return {
+                "cache": "hit",
+                "key": key,
+                "status": cached.status_code,
+                "response": cached.response,
+            }
 
         response = self._send(method, endpoint, params, data, key)
         try:
@@ -431,7 +437,12 @@ class CourtListenerClient:
                 response=payload,
             )
         )
-        return {"cache": "miss", "key": key, "response": payload}
+        return {
+            "cache": "miss",
+            "key": key,
+            "status": response.status_code,
+            "response": payload,
+        }
 
     def _send(
         self,

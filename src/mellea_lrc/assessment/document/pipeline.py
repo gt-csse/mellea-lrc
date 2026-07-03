@@ -48,16 +48,13 @@ if TYPE_CHECKING:
 
     from mellea import MelleaSession
 
-    from mellea_lrc.courtlistener.types import CitationMatch
     from mellea_lrc.extraction.types import ExtractedCitation
     from mellea_lrc.validation.types import ValidatedDocument
 
 # Ambiguous lookups with more clusters than this skip per-candidate enumeration.
 MAX_AMBIGUOUS_CANDIDATES = 5
 
-_ELIGIBLE_VALIDATION_STATUSES = frozenset(
-    {ValidationStatus.FOUND, ValidationStatus.AMBIGUOUS}
-)
+_ELIGIBLE_VALIDATION_STATUSES = frozenset({ValidationStatus.FOUND, ValidationStatus.AMBIGUOUS})
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,13 +73,13 @@ class _AssessmentJob:
     """One (citation, candidate) unit assessed via the found-branch path.
 
     ``candidate_index`` is ``None`` for a found citation's single candidate and
-    ``0..n`` for each ambiguous cluster; ``match`` is retained so ambiguous
-    results can be reassembled with their originating cluster.
+    ``0..n`` for each ambiguous candidate. ``candidate_id`` links the result
+    back to validation without duplicating the retrieved record.
     """
 
     citation: ExtractedCitation
+    candidate_id: str
     candidate_index: int | None
-    match: CitationMatch | None
     document_text: str
     extracted_case_name: str | None
     courtlistener_case_name: str | None
@@ -192,16 +189,16 @@ def _candidate_jobs(
     context = DocumentTextWindow.around(document_text, citation.span)
 
     def job(
+        candidate_id: str,
         candidate_index: int | None,
-        match: CitationMatch | None,
         cl_case_name: str | None,
         cl_year: str | None,
         cl_court_id: str | None,
     ) -> _AssessmentJob:
         return _AssessmentJob(
             citation=citation,
+            candidate_id=candidate_id,
             candidate_index=candidate_index,
-            match=match,
             document_text=document_text,
             extracted_case_name=extracted_case_name,
             courtlistener_case_name=cl_case_name,
@@ -211,22 +208,23 @@ def _candidate_jobs(
         )
 
     if isinstance(citation_validation, FoundCitationValidation):
-        match = citation_validation.matches[0] if citation_validation.matches else None
+        candidate = citation_validation.candidate
+        record = candidate.record
         return _CandidateJobs(
             jobs=(
                 job(
+                    candidate.candidate_id,
                     None,
-                    None,
-                    match.case_name if match else None,
-                    match.year if match else None,
-                    citation_validation.court_resolution.courtlistener_court_id,
+                    record.case_name,
+                    record.year,
+                    candidate.court_resolution.courtlistener_court_id,
                 ),
             )
         )
 
     if isinstance(citation_validation, AmbiguousCitationValidation):
-        matches = citation_validation.matches
-        if not matches:
+        candidates = citation_validation.candidates
+        if not candidates:
             return _CandidateJobs(
                 jobs=(),
                 direct=AmbiguousCitationAssessment(
@@ -235,7 +233,7 @@ def _candidate_jobs(
                     message="Ambiguous lookup returned no candidates.",
                 ),
             )
-        if len(matches) > MAX_AMBIGUOUS_CANDIDATES:
+        if len(candidates) > MAX_AMBIGUOUS_CANDIDATES:
             return _CandidateJobs(
                 jobs=(),
                 direct=AmbiguousCitationAssessment(
@@ -243,17 +241,21 @@ def _candidate_jobs(
                     candidates=(),
                     gated=True,
                     message=(
-                        f"{len(matches)} candidates exceed the "
+                        f"{len(candidates)} candidates exceed the "
                         f"{MAX_AMBIGUOUS_CANDIDATES}-candidate enumeration limit."
                     ),
                 ),
             )
         return _CandidateJobs(
             jobs=tuple(
-                # Ambiguous candidates carry their own court_id (usually absent); no
-                # per-candidate docket resolution runs, so court stays best-effort here.
-                job(index, match, match.case_name, match.year, match.court_id)
-                for index, match in enumerate(matches)
+                job(
+                    candidate.candidate_id,
+                    index,
+                    candidate.record.case_name,
+                    candidate.record.year,
+                    candidate.court_resolution.courtlistener_court_id,
+                )
+                for index, candidate in enumerate(candidates)
             )
         )
 
@@ -344,11 +346,7 @@ def _assemble(
 
     for citation_id, citation_jobs in by_citation.items():
         is_found = isinstance(validations_by_id.get(citation_id), FoundCitationValidation)
-        errors = [
-            outcomes[job.key]
-            for job in citation_jobs
-            if isinstance(outcomes[job.key], BaseException)
-        ]
+        errors = [outcomes[job.key] for job in citation_jobs if isinstance(outcomes[job.key], BaseException)]
         if errors:
             assessments_by_id[citation_id] = _failed_assessment(citation_id, errors[0])
         elif is_found:
@@ -356,14 +354,17 @@ def _assemble(
             assert not isinstance(outcome, BaseException)
             assessments_by_id[citation_id] = AssessedCitationAssessment(
                 citation_id=citation_id,
+                candidate_id=citation_jobs[0].candidate_id,
                 result=outcome,
             )
         else:
             ordered = sorted(citation_jobs, key=lambda job: job.candidate_index or 0)
             candidates = tuple(
-                CandidateAssessment(match=job.match, result=outcomes[job.key])  # type: ignore[arg-type]
+                CandidateAssessment(
+                    candidate_id=job.candidate_id,
+                    result=outcomes[job.key],  # type: ignore[arg-type]
+                )
                 for job in ordered
-                if job.match is not None
             )
             assessments_by_id[citation_id] = AmbiguousCitationAssessment(
                 citation_id=citation_id,

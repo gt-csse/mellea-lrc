@@ -79,6 +79,7 @@ from mellea_lrc.validation.types import (
     InvalidCitationValidation,
     LookupFailedCitationValidation,
     NotFoundCitationValidation,
+    RetrievedCandidate,
     SkippedCitationValidation,
     ThrottledCitationValidation,
     ValidatedDocument,
@@ -86,7 +87,7 @@ from mellea_lrc.validation.types import (
     ValidationMetadata,
     ValidationStatus,
 )
-from mellea_lrc.courtlistener.types import CitationMatch, ValidationFailureDetail
+from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, ValidationFailureDetail
 from mellea_lrc.serialization.transport import (
     AssessedDocumentPayload,
     CanonicalCitationPayload,
@@ -112,7 +113,7 @@ if TYPE_CHECKING:
     from mellea_lrc.core.citations import CanonicalCitation
 
 JsonValue: TypeAlias = str | int | float | bool | None | dict[str, "JsonValue"] | list["JsonValue"]
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 _CITATION_PAYLOAD_ADAPTER = TypeAdapter(CanonicalCitationPayload)
 _ASSESSMENT_PAYLOAD_ADAPTER = TypeAdapter(CitationAssessmentPayload)
@@ -335,8 +336,7 @@ def serialize_citation_validation(item: CitationValidation) -> dict[str, JsonVal
                 "lookup_status": item.lookup_status,
                 "lookup_cache": item.lookup_cache,
                 "lookup_key": item.lookup_key,
-                "matches": [_serialize_citation_match(match) for match in item.matches],
-                "court_resolution": _serialize_court_resolution_trace(item.court_resolution),
+                "candidate": _serialize_retrieved_candidate(item.candidate),
                 "extra_data": _serialize_extra_data(item.extra_data),
             },
         )
@@ -347,7 +347,7 @@ def serialize_citation_validation(item: CitationValidation) -> dict[str, JsonVal
                 "lookup_status": item.lookup_status,
                 "lookup_cache": item.lookup_cache,
                 "lookup_key": item.lookup_key,
-                "matches": [_serialize_citation_match(match) for match in item.matches],
+                "candidates": [_serialize_retrieved_candidate(candidate) for candidate in item.candidates],
                 "extra_data": _serialize_extra_data(item.extra_data),
             },
         )
@@ -394,11 +394,23 @@ def _serialize_court_resolution_trace(item: CourtResolutionTrace) -> dict[str, J
     }
 
 
+def _serialize_retrieved_candidate(
+    item: RetrievedCandidate,
+) -> dict[str, JsonValue]:
+    """Serialize one retrieved candidate with identity and provenance."""
+    return {
+        "candidate_id": item.candidate_id,
+        "record": _serialize_citation_record(item.record),
+        "court_resolution": _serialize_court_resolution_trace(item.court_resolution),
+    }
+
+
 def _serialize_case_name_search_trace(item: CaseNameSearchTrace) -> dict[str, JsonValue]:
     """Serialize the case-name search trace for a not-found citation."""
     return {
         "status": item.status.value,
         "query": item.query,
+        "http_status": item.http_status,
         "case_count": item.case_count,
         "error_message": item.error_message,
     }
@@ -411,9 +423,16 @@ def _deserialize_case_name_search_trace(
     if payload is None:
         return CaseNameSearchTrace()
     validated = CaseNameSearchTracePayload.model_validate(payload).model_dump(mode="python")
+    status = CaseNameSearchStatus(_required_str(validated.get("status"), "candidate search status"))
+    http_status = _optional_int(validated.get("http_status"))
+    if status is CaseNameSearchStatus.SEARCHED and http_status is None:
+        # Artifacts written before HTTP status became explicit only emitted
+        # ``searched`` after a successful deployed-client call.
+        http_status = 200
     return CaseNameSearchTrace(
-        status=CaseNameSearchStatus(_required_str(validated.get("status"), "candidate search status")),
+        status=status,
         query=_optional_str(validated.get("query")),
+        http_status=http_status,
         case_count=_optional_int(validated.get("case_count")),
         error_message=_optional_str(validated.get("error_message")),
     )
@@ -434,7 +453,20 @@ def _deserialize_court_resolution_trace(
     )
 
 
-def _serialize_citation_match(item: CitationMatch) -> dict[str, JsonValue]:
+def _deserialize_retrieved_candidate(
+    payload: Mapping[str, object],
+) -> RetrievedCandidate:
+    """Rebuild one retrieved candidate with identity and provenance."""
+    return RetrievedCandidate(
+        candidate_id=_required_str(payload.get("candidate_id"), "candidate_id"),
+        record=_deserialize_citation_record(_required_mapping_field(payload, "record")),
+        court_resolution=_deserialize_court_resolution_trace(
+            _required_mapping_field(payload, "court_resolution")
+        ),
+    )
+
+
+def _serialize_citation_record(item: CourtListenerCitationRecord) -> dict[str, JsonValue]:
     return {
         "case_name": item.case_name,
         "date_filed": item.date_filed,
@@ -445,8 +477,8 @@ def _serialize_citation_match(item: CitationMatch) -> dict[str, JsonValue]:
     }
 
 
-def _deserialize_citation_match(payload: Mapping[str, object]) -> CitationMatch:
-    return CitationMatch(
+def _deserialize_citation_record(payload: Mapping[str, object]) -> CourtListenerCitationRecord:
+    return CourtListenerCitationRecord(
         case_name=_optional_str(payload.get("case_name")),
         date_filed=_optional_str(payload.get("date_filed")),
         court=_optional_str(payload.get("court")),
@@ -508,13 +540,7 @@ def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationVa
             lookup_status=_required_int(validated.get("lookup_status"), "lookup_status"),
             lookup_cache=_optional_str(validated.get("lookup_cache")),
             lookup_key=_optional_str(validated.get("lookup_key")),
-            matches=tuple(
-                _deserialize_citation_match(_mapping_field(item))
-                for item in _list_field(validated.get("matches"))
-            ),
-            court_resolution=_deserialize_court_resolution_trace(
-                _required_mapping_field(validated, "court_resolution"),
-            ),
+            candidate=_deserialize_retrieved_candidate(_required_mapping_field(validated, "candidate")),
             extra_data=_deserialize_extra_data(validated.get("extra_data")),
         )
     if status is ValidationStatus.AMBIGUOUS:
@@ -525,9 +551,9 @@ def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationVa
             lookup_status=_required_int(validated.get("lookup_status"), "lookup_status"),
             lookup_cache=_optional_str(validated.get("lookup_cache")),
             lookup_key=_optional_str(validated.get("lookup_key")),
-            matches=tuple(
-                _deserialize_citation_match(_mapping_field(item))
-                for item in _list_field(validated.get("matches"))
+            candidates=tuple(
+                _deserialize_retrieved_candidate(_mapping_field(item))
+                for item in _list_field(validated.get("candidates"))
             ),
             extra_data=_deserialize_extra_data(validated.get("extra_data")),
         )
@@ -772,11 +798,12 @@ def serialize_citation_assessment(item: CitationAssessment) -> dict[str, JsonVal
         payload["reason"] = item.reason.value
         payload["message"] = item.message
     elif isinstance(item, AssessedCitationAssessment):
+        payload["candidate_id"] = item.candidate_id
         payload["result"] = serialize_citation_assessment_result(item.result)
     elif isinstance(item, AmbiguousCitationAssessment):
         payload["candidates"] = [
             {
-                "match": _serialize_citation_match(candidate.match),
+                "candidate_id": candidate.candidate_id,
                 "result": serialize_citation_assessment_result(candidate.result),
             }
             for candidate in item.candidates
@@ -850,6 +877,7 @@ def deserialize_citation_assessment(payload: Mapping[str, object]) -> CitationAs
             raise TypeError(msg)
         return AssessedCitationAssessment(
             citation_id=citation_id,
+            candidate_id=_required_str(validated.get("candidate_id"), "candidate_id"),
             result=deserialize_citation_assessment_result(result_payload),
         )
     if status == AssessmentStatus.AMBIGUOUS:
@@ -857,7 +885,7 @@ def deserialize_citation_assessment(payload: Mapping[str, object]) -> CitationAs
             citation_id=citation_id,
             candidates=tuple(
                 CandidateAssessment(
-                    match=_deserialize_citation_match(_mapping_field(candidate.get("match"))),
+                    candidate_id=_required_str(candidate.get("candidate_id"), "candidate_id"),
                     result=deserialize_citation_assessment_result(
                         _required_mapping_field(candidate, "result"),
                     ),

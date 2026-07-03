@@ -2,9 +2,9 @@
 
 Validation is a deterministic (no-LLM) stage that resolves one citation against
 CourtListener. Each outcome is one variant of the ``CitationValidation``
-discriminated union; the variant is chosen by the lookup status, and only the
-``Found`` variant carries the structured ``CourtResolutionTrace`` that records
-how the CL court was resolved (docket GET, cache hit, etc.). Validation only
+discriminated union. Found validation carries one structured
+``CourtResolutionTrace``; ambiguous validation carries one trace per candidate.
+Each records how the CL court was resolved (docket GET, cache hit, etc.). Validation only
 retrieves data — it never compares the resolved court against the citation
 court from extraction; that comparison belongs to the assessment stage.
 """
@@ -19,9 +19,10 @@ from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.extraction.types import ExtractedDocument
 
 if TYPE_CHECKING:
-    from mellea_lrc.courtlistener.types import CitationMatch, ValidationFailureDetail
+    from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, ValidationFailureDetail
 
 ValidationClientMode: TypeAlias = Literal["deployed", "sdk", "custom"]
+HTTP_OK = 200
 
 
 class ValidationStatus(str, Enum):
@@ -92,8 +93,26 @@ class CaseNameSearchTrace:
 
     status: CaseNameSearchStatus = CaseNameSearchStatus.NOT_ATTEMPTED
     query: str | None = None
+    http_status: int | None = None
     case_count: int | None = None
     error_message: str | None = None
+
+    def __post_init__(self) -> None:
+        """Keep successful counts distinct from unavailable search results."""
+        if self.status is CaseNameSearchStatus.SEARCHED:
+            if self.http_status != HTTP_OK:
+                msg = "A searched case-name trace requires HTTP 200"
+                raise ValueError(msg)
+            if self.case_count is None or isinstance(self.case_count, bool) or self.case_count < 0:
+                msg = "A searched case-name trace requires a non-negative case_count"
+                raise ValueError(msg)
+            return
+        if self.case_count is not None:
+            msg = "Only a searched case-name trace may carry case_count"
+            raise ValueError(msg)
+        if self.status is CaseNameSearchStatus.SEARCH_FAILED and self.http_status == HTTP_OK:
+            msg = "A failed case-name search cannot carry HTTP 200"
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,8 +125,22 @@ class ValidationMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class RetrievedCandidate:
+    """One retrieved record with stable identity and candidate-scoped provenance."""
+
+    candidate_id: str
+    record: CourtListenerCitationRecord
+    court_resolution: CourtResolutionTrace
+
+    def __post_init__(self) -> None:
+        if not self.candidate_id:
+            msg = "RetrievedCandidate.candidate_id must not be empty"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True, slots=True)
 class FoundCitationValidation:
-    """A citation found in CourtListener with a resolved court-consistency trace."""
+    """A locator that retrieved exactly one candidate from CourtListener."""
 
     status: ClassVar[ValidationStatus] = ValidationStatus.FOUND
     citation_id: str
@@ -116,19 +149,18 @@ class FoundCitationValidation:
     lookup_status: int
     lookup_cache: str | None
     lookup_key: str | None
-    matches: tuple[CitationMatch, ...]
-    court_resolution: CourtResolutionTrace
+    candidate: RetrievedCandidate
     extra_data: ExtraData = field(default_factory=ExtraData)
 
     @property
     def case_names(self) -> tuple[str, ...]:
-        """Return non-empty candidate case names from the found matches."""
-        return tuple(item.case_name for item in self.matches if item.case_name)
+        """Return the retrieved candidate's case name when present."""
+        return (self.candidate.record.case_name,) if self.candidate.record.case_name else ()
 
 
 @dataclass(frozen=True, slots=True)
 class AmbiguousCitationValidation:
-    """A citation that resolves to multiple CourtListener matches."""
+    """A citation that resolves to multiple independently enriched candidates."""
 
     status: ClassVar[ValidationStatus] = ValidationStatus.AMBIGUOUS
     citation_id: str
@@ -137,13 +169,21 @@ class AmbiguousCitationValidation:
     lookup_status: int
     lookup_cache: str | None
     lookup_key: str | None
-    matches: tuple[CitationMatch, ...]
+    candidates: tuple[RetrievedCandidate, ...]
     extra_data: ExtraData = field(default_factory=ExtraData)
+
+    def __post_init__(self) -> None:
+        candidate_ids = tuple(candidate.candidate_id for candidate in self.candidates)
+        if len(candidate_ids) != len(set(candidate_ids)):
+            msg = "Ambiguous candidate identifiers must be unique"
+            raise ValueError(msg)
 
     @property
     def case_names(self) -> tuple[str, ...]:
-        """Return non-empty candidate case names from the ambiguous matches."""
-        return tuple(item.case_name for item in self.matches if item.case_name)
+        """Return non-empty case names from retrieved candidates."""
+        return tuple(
+            candidate.record.case_name for candidate in self.candidates if candidate.record.case_name
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,9 +297,7 @@ class ValidatedDocument(ExtractedDocument):
     @property
     def found(self) -> tuple[FoundCitationValidation, ...]:
         """Return citations found by the validation source."""
-        return tuple(
-            item for item in self.validations if isinstance(item, FoundCitationValidation)
-        )
+        return tuple(item for item in self.validations if isinstance(item, FoundCitationValidation))
 
     def __post_init__(self) -> None:
         ExtractedDocument.__post_init__(self)

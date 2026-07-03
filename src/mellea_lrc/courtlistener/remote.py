@@ -78,7 +78,15 @@ class CourtListenerAccessClient:
         url = f"{self.config.base_url.rstrip('/')}/search?{query}"
         _validate_http_url(url)
         payload = self._get_json(url)
-        return payload if isinstance(payload, Mapping) else {}
+        if not isinstance(payload, Mapping):
+            return {"http_status": None, "detail": "Search response was not a JSON object."}
+        if "http_status" in payload:
+            return payload
+        # urllib only returns normally for a successful HTTP response. Older
+        # cl-access deployments did not include their upstream status.
+        if "detail" not in payload:
+            return {**payload, "http_status": 200}
+        return payload
 
 
 def _get_json(url: str) -> object:
@@ -92,9 +100,9 @@ def _get_json(url: str) -> object:
             return json.loads(response.read().decode("utf-8"))
     except error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        return {"detail": _json_detail(detail) or detail}
+        return {"http_status": exc.code, "detail": _json_detail(detail) or detail}
     except (OSError, json.JSONDecodeError) as exc:
-        return {"detail": str(exc)}
+        return {"http_status": None, "detail": str(exc)}
 
 
 def _post_json(url: str, data: Mapping[str, str]) -> object:

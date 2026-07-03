@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from mellea_lrc.core.citations import FullCaseCitation
     from mellea_lrc.courtlistener.types import CitationValidationClient
 
+HTTP_OK = 200
+
 
 def search_case_name_candidates(
     citation: FullCaseCitation,
@@ -49,24 +51,73 @@ def search_case_name_candidates(
 
     try:
         payload = client.search_opinions(query)
-    except (CourtListenerError, OSError, TypeError, ValueError) as exc:
+    except CourtListenerError as exc:
+        return CaseNameSearchTrace(
+            status=CaseNameSearchStatus.SEARCH_FAILED,
+            query=query,
+            http_status=exc.upstream_status_code,
+            error_message=f"{type(exc).__name__}: {exc}",
+        )
+    except (OSError, TypeError, ValueError) as exc:
         return CaseNameSearchTrace(
             status=CaseNameSearchStatus.SEARCH_FAILED,
             query=query,
             error_message=f"{type(exc).__name__}: {exc}",
         )
 
+    http_status = _http_status(payload)
+    if http_status != HTTP_OK:
+        return CaseNameSearchTrace(
+            status=CaseNameSearchStatus.SEARCH_FAILED,
+            query=query,
+            http_status=http_status,
+            error_message=_response_error(payload, http_status),
+        )
+
+    case_count = _case_count(payload)
+    if case_count is None:
+        msg = "HTTP 200 CourtListener search response omitted count in both normalized and raw data"
+        raise ValueError(msg)
+
     return CaseNameSearchTrace(
         status=CaseNameSearchStatus.SEARCHED,
         query=query,
-        case_count=_case_count(payload),
+        http_status=http_status,
+        case_count=case_count,
     )
+
+
+def _http_status(payload: object) -> int | None:
+    if not isinstance(payload, Mapping):
+        return None
+    status = payload.get("http_status")
+    if isinstance(status, bool) or not isinstance(status, int):
+        return None
+    return status
+
+
+def _response_error(payload: object, http_status: int | None) -> str:
+    if isinstance(payload, Mapping):
+        detail = payload.get("detail")
+        if isinstance(detail, str) and detail:
+            return detail
+        if isinstance(detail, Mapping):
+            message = detail.get("message")
+            if isinstance(message, str) and message:
+                return message
+            return str(dict(detail))
+    if http_status is None:
+        return "CourtListener search ended without an HTTP response."
+    return f"CourtListener search returned HTTP {http_status}."
 
 
 def _case_count(payload: object) -> int | None:
     if not isinstance(payload, Mapping):
         return None
     count = payload.get("count")
-    if isinstance(count, bool) or not isinstance(count, int):
+    if count is None:
+        raw = payload.get("raw")
+        count = raw.get("count") if isinstance(raw, Mapping) else None
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
         return None
     return count
