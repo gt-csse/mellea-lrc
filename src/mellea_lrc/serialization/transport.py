@@ -200,9 +200,18 @@ class AmbiguousCitationValidationPayload(ArtifactPayload):
     extra_data: dict[str, JsonValue]
 
 
+class CaseNameSearchProbePayload(ArtifactPayload):
+    corpus: Literal["o", "r"]
+    status: Literal["searched", "search_unavailable", "search_failed"]
+    case_count: int | None
+    error_message: str | None
+    http_status: int | None = None
+
+
 class CaseNameSearchTracePayload(ArtifactPayload):
     status: Literal[
         "searched",
+        "partial",
         "skipped_no_case_name",
         "skipped_partial_case_name",
         "search_unavailable",
@@ -210,9 +219,7 @@ class CaseNameSearchTracePayload(ArtifactPayload):
         "not_attempted",
     ]
     query: str | None
-    case_count: int | None
-    error_message: str | None
-    http_status: int | None = None
+    probes: list[CaseNameSearchProbePayload]
 
 
 class NotFoundCitationValidationPayload(ArtifactPayload):
@@ -445,22 +452,22 @@ class _ValidatedDocumentFields(_ExtractedDocumentFields):
 
 
 class PreprocessedDocumentPayload(_PreprocessedDocumentFields):
-    schema_version: Literal[13]
+    schema_version: Literal[14]
     artifact_type: Literal["preprocessed_document"]
 
 
 class ExtractedDocumentPayload(_ExtractedDocumentFields):
-    schema_version: Literal[13]
+    schema_version: Literal[14]
     artifact_type: Literal["extracted_document"]
 
 
 class ValidatedDocumentPayload(_ValidatedDocumentFields):
-    schema_version: Literal[13]
+    schema_version: Literal[14]
     artifact_type: Literal["validated_document"]
 
 
 class AssessedDocumentPayload(_ValidatedDocumentFields):
-    schema_version: Literal[13]
+    schema_version: Literal[14]
     artifact_type: Literal["assessed_document"]
     assessment_metadata: AssessmentMetadataPayload
     assessments: list[CitationAssessmentPayload]

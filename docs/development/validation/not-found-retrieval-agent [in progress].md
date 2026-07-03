@@ -9,7 +9,8 @@ expected coverage.
 A 404 ends exact locator validation but does not establish that the authority
 is false. The reporter may be unsupported, a field may be wrong, the decision
 may be too recent for permanent citation ingestion, the court may be poorly
-covered, or the case may exist under a parallel locator.
+covered, the case may exist under a parallel locator, or CourtListener may have
+captured its docket without creating the corresponding opinion cluster.
 
 The proposed **not-found retrieval agent** performs bounded, iterative
 exploration after that 404. It retrieves and synthesizes candidates; it does
@@ -83,9 +84,40 @@ distinctive local phrases. Retain actual candidates and inspect court, date,
 docket, parallel citations, ranking metadata, and cited-by relationships. Case
 names are non-unique and BM25 or semantic rank does not establish identity.
 
+Treat `type=o` results as clusters with nested individual opinions. Keep the
+cluster ID, docket ID, sibling/opinion IDs, case name, citations, source, status,
+and nested opinion types distinct. Do not describe the count as a count of
+individual opinions.
+
 For plausible federal proceedings, search RECAP cases, dockets, and filing
 documents. State opinions should not be expected in RECAP merely because their
 case-law records have CourtListener docket IDs.
+
+### Cross-corpus gap handling
+
+CourtListener case law is continuously updated and can ingest new court-source
+clusters within hours. Age is therefore a useful hypothesis, not a sufficient
+explanation for a miss. A years-old published opinion that fails independent
+citation, case-name, docket-number, docket-ID, court/date, and distinctive-text
+probes should be represented as a probable coverage or linkage gap—not “still
+pending ingestion” and not a false citation.
+
+When RECAP finds a plausible federal case but `type=o` finds no cluster:
+
+1. retain each RECAP docket candidate and its exact case name;
+2. search `type=rd` by docket ID for opinion/order/judgment records;
+3. record document availability, entry date, PACER document ID, description,
+   and stable RECAP identifiers;
+4. search `type=o` independently by every discovered stable key;
+5. if no cluster exists, route to the issuing court's official opinion archive
+   using the court, docket number, date, and document identifier;
+6. only then continue through structured legal verticals and constrained web
+   search under the normal escalation policy.
+
+Never synthesize a `cluster_id` from a RECAP document or docket. A RECAP event
+described as an opinion is evidence for retrieval planning, not evidence that a
+CourtListener `OpinionCluster` exists. Preserve the explicit relation state:
+`linked`, `not_linked`, `link_unavailable`, or `not_checked`.
 
 ### Structured and official sources
 
@@ -178,14 +210,18 @@ cited authority and may propose field corrections.
 3. Define the agent task, allowed tools, budgets, output schema, and stopping
    states before model prompts.
 4. Implement CourtListener case-law and RECAP probes as deterministic tools.
-5. Implement CAP and GovInfo adapters, then budgeted PACER/PCL integration.
-6. Build a verified registry of official court search surfaces and adapters.
-7. Add compliant legal-vertical adapters; gate pure web search on recorded
+5. Add an explicit docket-to-cluster linkage probe and cross-corpus relation
+   state; never infer the link from shared names or dates.
+6. Add the issuing-court recovery route for RECAP opinion records whose
+   case-law cluster is absent.
+7. Implement CAP and GovInfo adapters, then budgeted PACER/PCL integration.
+8. Build a verified registry of official court search surfaces and adapters.
+9. Add compliant legal-vertical adapters; gate pure web search on recorded
    exhaustion of better routes.
-8. Implement iterative orchestration and candidate deduplication without
+10. Implement iterative orchestration and candidate deduplication without
    treating docket ID as universal identity.
-9. Add the non-opinionated assessment handoff.
-10. Evaluate stratified 404s: corrupted locators, parallel reporters, recent
+11. Add the non-opinionated assessment handoff.
+12. Evaluate stratified 404s: corrupted locators, parallel reporters, recent
    cases, federal/state and trial/appellate courts, special courts, genuine
    hallucinations, and temporary search failures.
 

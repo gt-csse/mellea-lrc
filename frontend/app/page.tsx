@@ -29,9 +29,13 @@ type CourtResolutionTracePayload = {
 type CaseNameSearchTracePayload = {
   status: string;
   query: string | null;
-  http_status: number | null;
-  case_count: number | null;
-  error_message: string | null;
+  probes: Array<{
+    corpus: "o" | "r";
+    status: string;
+    http_status: number | null;
+    case_count: number | null;
+    error_message: string | null;
+  }>;
 };
 
 type RetrievedCandidatePayload = {
@@ -1323,26 +1327,21 @@ function ValidationDetails({
 function CaseNameSearchDetails({ search }: { search: CaseNameSearchTracePayload }) {
   return (
     <dl className="assessment-fields">
-      <div>
-        <dt>HTTP status</dt>
-        <dd>{search.http_status ?? "No response"}</dd>
-      </div>
-      <div>
-        <dt>Cases found</dt>
-        <dd>
-          {search.status === "searched" ? search.case_count : "Unavailable"}
-        </dd>
-      </div>
+      {search.probes.map((probe) => (
+        <div key={probe.corpus}>
+          <dt>{probe.corpus === "o" ? "Opinion search" : "RECAP search"}</dt>
+          <dd>
+            {probe.status === "searched"
+              ? `${probe.case_count} cases (HTTP ${probe.http_status})`
+              : `${probe.status}${probe.http_status ? ` (HTTP ${probe.http_status})` : ""}`}
+            {probe.error_message ? ` — ${probe.error_message}` : ""}
+          </dd>
+        </div>
+      ))}
       {search.query ? (
         <div>
           <dt>Query</dt>
           <dd>{search.query}</dd>
-        </div>
-      ) : null}
-      {search.error_message ? (
-        <div>
-          <dt>Error</dt>
-          <dd>{search.error_message}</dd>
         </div>
       ) : null}
     </dl>

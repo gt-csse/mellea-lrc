@@ -41,6 +41,52 @@ corrected and normalized CAP fields, including mapping Harvard's plain-text
 court values into CourtListener's verified `Court` records. See Free Law
 Project's [CAP and CourtListener data comparison](https://wiki.free.law/c/courtlistener/help/general/how-does-the-data-in-harvards-caselaw-access-project-compare-to-courtlisteners-case-law-database).
 
+### The case-law corpus is live, not a CAP-era snapshot
+
+CAP is one historical source, not the endpoint of CourtListener's case-law
+collection. Free Law Project says it continuously collects decisions as courts
+release them, has added more than 1.75 million records through scrapers, and has
+supported direct court publishing since 2020. Its search `source` values make
+the provenance distinction explicit: `U` is Harvard CAP, `C` is a court
+website, and `D` is direct court input. See the official
+[case-law coverage statement](https://www.courtlistener.com/help/coverage/opinions/)
+and [search-field reference](https://www.courtlistener.com/help/search-operators/).
+
+Live verification on 2026-07-03 found Tenth Circuit `type=o` clusters dated as
+recently as 2026-07-01, with `source=C`. The same search returned 99 Tenth
+Circuit clusters filed in 2026, 230 in 2025, 170 in 2024, and 119 in 2021.
+CourtListener separately says real-time case-law alerts normally arrive within
+about an hour of court publication. These facts rule out a corpus frozen at the
+Harvard era and show that ordinary successful ingestion can be near-real-time.
+
+Continuous ingestion does not imply complete ingestion. A court opinion may be
+present as RECAP docket metadata or a filing record without ever becoming an
+`OpinionCluster`. The reverse is also possible: historical and state case-law
+clusters may have dockets but no docket entries. Corpus existence must therefore
+be tested per layer, not inferred across the shared docket hierarchy.
+
+#### Observed gap: *Peterson v. Nelnet Diversified Solutions*
+
+The published Tenth Circuit opinion at `15 F.4th 1033` illustrates a persistent
+cross-corpus gap rather than normal lag:
+
+- the issuing court published the opinion on 2021-10-08;
+- RECAP contains appellate dockets `59714552` and `67593265`, both named
+  `Peterson v. Nelnet Diversified Solutions`;
+- each docket has an `rd` record described as `Case termination for opinion`,
+  but the document is unavailable and has no `cluster_id`;
+- CourtListener's citation resolver for `15 F.4th 1033` returns 404;
+- `type=o` returns zero for the citation, both appellate docket numbers, both
+  docket IDs, the party-name intersection, and a distinctive text phrase;
+- the official Tenth Circuit PDF remains available at the
+  [court source](https://www.ca10.uscourts.gov/sites/ca10/files/opinions/010110588582.pdf).
+
+Because independent cluster metadata and content probes all miss, this is not
+merely delayed reporter-citation enrichment or an unexpectedly formatted case
+name. The best current explanation is that RECAP captured an opinion-related
+docket event while case-law ingestion failed to create or index the cluster.
+The evidence does not establish which upstream ingestion step failed.
+
 Consequences for `mellea-lrc`:
 
 - State appellate opinions can have a valid `docket_id` and no docket entries.
@@ -87,7 +133,7 @@ CourtListener, but it requires their compatible fine-tuned embedding model.
 
 | Type | Upstream corpus |
 | --- | --- |
-| `o` | Case-law opinion clusters with nested opinions. |
+| `o` | Case-law opinion clusters with nested individual opinions. The response `count` is a cluster count. |
 | `r` | Federal RECAP cases with up to three matching nested documents. |
 | `rd` | Federal PACER filing documents without docket metadata. |
 | `d` | Federal PACER cases without filing metadata. |
@@ -144,6 +190,13 @@ The `citation` list is distinct from an opinion's `cites` field. `citation`
 contains parallel reporter identifiers for the result; `cites` identifies other
 opinions cited by an opinion.
 
+The top-level unit is an opinion cluster even though CourtListener labels the
+search surface “Opinions” or “Case Law.” For example, the merits result for
+*Roe v. Wade* is cluster `108713`; its nested `opinions` include distinct lead,
+concurrence, dissent, and combined-opinion IDs. `caseName:(Roe AND Wade)` returns
+multiple clusters, including the merits decision and related procedural orders,
+not one row per judicial writing.
+
 ## Result and Coverage Caveats
 
 - Case-law search returns published opinions by default. Other statuses must be
@@ -156,6 +209,10 @@ opinions cited by an opinion.
 - BM25 is a ranking score, not a probability or a validation confidence value.
 - A candidate should not be treated as an exact citation match unless its
   returned `citation` list contains the normalized locator.
+- A zero `type=o` count means no matching indexed cluster. It does not establish
+  that the opinion is unreal, unpublished, or absent from the issuing court.
+- A RECAP docket or opinion-related filing does not establish that a linked
+  opinion cluster exists.
 
 ## `mellea-lrc` Wrapper
 

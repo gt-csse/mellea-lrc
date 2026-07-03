@@ -4,6 +4,8 @@ from mellea_lrc.courtlistener.remote import CourtListenerAccessClient, CourtList
 from mellea_lrc.validation.pipeline import run_validation
 from mellea_lrc.validation.types import (
     AmbiguousCitationValidation,
+    CaseNameSearchCorpus,
+    CaseNameSearchProbe,
     CaseNameSearchStatus,
     CaseNameSearchTrace,
     CitationValidation,
@@ -24,6 +26,8 @@ from mellea_lrc.validation.types import (
 
 __all__ = [
     "AmbiguousCitationValidation",
+    "CaseNameSearchCorpus",
+    "CaseNameSearchProbe",
     "CaseNameSearchStatus",
     "CaseNameSearchTrace",
     "CitationValidation",

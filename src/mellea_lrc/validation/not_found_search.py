@@ -1,11 +1,9 @@
 """Case-name search for not-found citations.
 
 When a reporter lookup 404s, the case may still be real under a different
-locator. This module runs a single CourtListener relevance search on the
-extracted case name and records only *how many* opinions matched — a retrieval,
-not a comparison. Deciding whether any candidate is actually the cited case is
-the assessment stage's job (case names are non-unique and often only
-semantically equivalent), so nothing here inspects the individual results.
+locator. This module sends one engineered query to both CourtListener's opinion
+and RECAP corpora and records each response independently. This is retrieval,
+not comparison: validation never combines counts or interprets the results.
 
 Kept separate from ``validation/pipeline.py`` so the pipeline stays a thin
 existence-lookup orchestrator, mirroring ``validation/court_resolution.py``.
@@ -14,16 +12,41 @@ existence-lookup orchestrator, mirroring ``validation/court_resolution.py``.
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 from typing import TYPE_CHECKING
 
 from mellea_lrc.courtlistener.client import CourtListenerError
-from mellea_lrc.validation.types import CaseNameSearchStatus, CaseNameSearchTrace
+from mellea_lrc.validation.types import (
+    CaseNameSearchCorpus,
+    CaseNameSearchProbe,
+    CaseNameSearchStatus,
+    CaseNameSearchTrace,
+)
 
 if TYPE_CHECKING:
     from mellea_lrc.core.citations import FullCaseCitation
     from mellea_lrc.courtlistener.types import CitationValidationClient
 
 HTTP_OK = 200
+_PARTY_TOKEN = re.compile(r"(?:[A-Za-z]\.){2,}|[A-Za-z0-9]+")
+_NON_DISTINCTIVE_PARTY_TOKENS = frozenset(
+    {
+        "and",
+        "co",
+        "company",
+        "corp",
+        "corporation",
+        "inc",
+        "incorporated",
+        "llc",
+        "llp",
+        "lp",
+        "ltd",
+        "no",
+        "of",
+        "the",
+    }
+)
 
 
 def search_case_name_candidates(
@@ -34,9 +57,8 @@ def search_case_name_candidates(
     """Count CourtListener opinions matching a not-found citation's case name.
 
     Only runs when both parties were extracted (a real "A v. B"); a single party
-    or no case name yields nothing but noise, so those are skipped. Clients that
-    cannot search (``search_opinions`` absent) are recorded explicitly rather
-    than treated as an error.
+    or no case name yields nothing but noise, so those are skipped. Each search
+    path is represented independently, including unavailable client methods.
     """
     plaintiff = citation.plaintiff
     defendant = citation.defendant
@@ -45,46 +67,84 @@ def search_case_name_candidates(
     if not (plaintiff and defendant):
         return CaseNameSearchTrace(status=CaseNameSearchStatus.SKIPPED_PARTIAL_CASE_NAME)
 
-    query = f'caseName:"{plaintiff} v. {defendant}"'
-    if not hasattr(client, "search_opinions"):
-        return CaseNameSearchTrace(status=CaseNameSearchStatus.SEARCH_UNAVAILABLE, query=query)
-
     try:
-        payload = client.search_opinions(query)
+        query = _case_name_query(plaintiff, defendant)
+    except ValueError:
+        return CaseNameSearchTrace(status=CaseNameSearchStatus.SEARCH_FAILED)
+
+    probes = (
+        _search_corpus(client, query, CaseNameSearchCorpus.OPINIONS, "search_opinions"),
+        _search_corpus(client, query, CaseNameSearchCorpus.RECAP, "search_recap"),
+    )
+    successes = sum(probe.status is CaseNameSearchStatus.SEARCHED for probe in probes)
+    if successes == len(probes):
+        status = CaseNameSearchStatus.SEARCHED
+    elif successes:
+        status = CaseNameSearchStatus.PARTIAL
+    elif all(probe.status is CaseNameSearchStatus.SEARCH_UNAVAILABLE for probe in probes):
+        status = CaseNameSearchStatus.SEARCH_UNAVAILABLE
+    else:
+        status = CaseNameSearchStatus.SEARCH_FAILED
+    return CaseNameSearchTrace(status=status, query=query, probes=probes)
+
+
+def _search_corpus(
+    client: CitationValidationClient,
+    query: str,
+    corpus: CaseNameSearchCorpus,
+    method_name: str,
+) -> CaseNameSearchProbe:
+    method = getattr(client, method_name, None)
+    if not callable(method):
+        return CaseNameSearchProbe(corpus, CaseNameSearchStatus.SEARCH_UNAVAILABLE)
+    try:
+        payload = method(query)
     except CourtListenerError as exc:
-        return CaseNameSearchTrace(
-            status=CaseNameSearchStatus.SEARCH_FAILED,
-            query=query,
+        return CaseNameSearchProbe(
+            corpus,
+            CaseNameSearchStatus.SEARCH_FAILED,
             http_status=exc.upstream_status_code,
             error_message=f"{type(exc).__name__}: {exc}",
         )
     except (OSError, TypeError, ValueError) as exc:
-        return CaseNameSearchTrace(
-            status=CaseNameSearchStatus.SEARCH_FAILED,
-            query=query,
+        return CaseNameSearchProbe(
+            corpus,
+            CaseNameSearchStatus.SEARCH_FAILED,
             error_message=f"{type(exc).__name__}: {exc}",
         )
-
     http_status = _http_status(payload)
     if http_status != HTTP_OK:
-        return CaseNameSearchTrace(
-            status=CaseNameSearchStatus.SEARCH_FAILED,
-            query=query,
+        return CaseNameSearchProbe(
+            corpus,
+            CaseNameSearchStatus.SEARCH_FAILED,
             http_status=http_status,
             error_message=_response_error(payload, http_status),
         )
-
     case_count = _case_count(payload)
     if case_count is None:
-        msg = "HTTP 200 CourtListener search response omitted count in both normalized and raw data"
+        msg = "HTTP 200 CourtListener search response omitted count"
         raise ValueError(msg)
-
-    return CaseNameSearchTrace(
-        status=CaseNameSearchStatus.SEARCHED,
-        query=query,
+    return CaseNameSearchProbe(
+        corpus,
+        CaseNameSearchStatus.SEARCHED,
         http_status=http_status,
         case_count=case_count,
     )
+
+
+def _case_name_query(plaintiff: str, defendant: str) -> str:
+    """Build a recall-oriented field query from one anchor token per party."""
+    return f"caseName:({_party_anchor(plaintiff)} AND {_party_anchor(defendant)})"
+
+
+def _party_anchor(party: str) -> str:
+    """Return the first meaningful alphanumeric token, preserving dotted acronyms."""
+    tokens = [token.replace(".", "") for token in _PARTY_TOKEN.findall(party)]
+    if not tokens:
+        msg = "Case-name party did not contain a searchable token"
+        raise ValueError(msg)
+    meaningful = [token for token in tokens if token.lower() not in _NON_DISTINCTIVE_PARTY_TOKENS]
+    return (meaningful or tokens)[0]
 
 
 def _http_status(payload: object) -> int | None:

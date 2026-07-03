@@ -70,6 +70,8 @@ from mellea_lrc.preprocessing.types import (
 )
 from mellea_lrc.validation.types import (
     AmbiguousCitationValidation,
+    CaseNameSearchCorpus,
+    CaseNameSearchProbe,
     CaseNameSearchStatus,
     CaseNameSearchTrace,
     CitationValidation,
@@ -113,7 +115,7 @@ if TYPE_CHECKING:
     from mellea_lrc.core.citations import CanonicalCitation
 
 JsonValue: TypeAlias = str | int | float | bool | None | dict[str, "JsonValue"] | list["JsonValue"]
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 _CITATION_PAYLOAD_ADAPTER = TypeAdapter(CanonicalCitationPayload)
 _ASSESSMENT_PAYLOAD_ADAPTER = TypeAdapter(CitationAssessmentPayload)
@@ -410,9 +412,16 @@ def _serialize_case_name_search_trace(item: CaseNameSearchTrace) -> dict[str, Js
     return {
         "status": item.status.value,
         "query": item.query,
-        "http_status": item.http_status,
-        "case_count": item.case_count,
-        "error_message": item.error_message,
+        "probes": [
+            {
+                "corpus": probe.corpus.value,
+                "status": probe.status.value,
+                "http_status": probe.http_status,
+                "case_count": probe.case_count,
+                "error_message": probe.error_message,
+            }
+            for probe in item.probes
+        ],
     }
 
 
@@ -424,17 +433,20 @@ def _deserialize_case_name_search_trace(
         return CaseNameSearchTrace()
     validated = CaseNameSearchTracePayload.model_validate(payload).model_dump(mode="python")
     status = CaseNameSearchStatus(_required_str(validated.get("status"), "candidate search status"))
-    http_status = _optional_int(validated.get("http_status"))
-    if status is CaseNameSearchStatus.SEARCHED and http_status is None:
-        # Artifacts written before HTTP status became explicit only emitted
-        # ``searched`` after a successful deployed-client call.
-        http_status = 200
+    probes = tuple(
+        CaseNameSearchProbe(
+            corpus=CaseNameSearchCorpus(_required_str(probe.get("corpus"), "search corpus")),
+            status=CaseNameSearchStatus(_required_str(probe.get("status"), "probe status")),
+            http_status=_optional_int(probe.get("http_status")),
+            case_count=_optional_int(probe.get("case_count")),
+            error_message=_optional_str(probe.get("error_message")),
+        )
+        for probe in validated.get("probes", [])
+    )
     return CaseNameSearchTrace(
         status=status,
         query=_optional_str(validated.get("query")),
-        http_status=http_status,
-        case_count=_optional_int(validated.get("case_count")),
-        error_message=_optional_str(validated.get("error_message")),
+        probes=probes,
     )
 
 

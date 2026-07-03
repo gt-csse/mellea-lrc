@@ -376,6 +376,10 @@ class CourtListenerClient:
         """Run an opinion (``type=o``) relevance search; response carries ``count``."""
         return self.search(q, "o")
 
+    def search_recap(self, q: str) -> dict[str, Any]:
+        """Run a RECAP (``type=r``) relevance search; response carries ``count``."""
+        return self.search(q, "r")
+
     def lookup_citation(self, volume: str, reporter: str, page: str) -> CourtListenerCitationLookup:
         result = self.post(
             "citation-lookup",

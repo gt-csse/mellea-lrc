@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 ValidationClientMode: TypeAlias = Literal["deployed", "sdk", "custom"]
 HTTP_OK = 200
+EXPECTED_CASE_NAME_PROBES = 2
 
 
 class ValidationStatus(str, Enum):
@@ -71,6 +72,7 @@ class CaseNameSearchStatus(str, Enum):
     """Whether/why a case-name search ran for a not-found citation."""
 
     SEARCHED = "searched"
+    PARTIAL = "partial"
     SKIPPED_NO_CASE_NAME = "skipped_no_case_name"
     SKIPPED_PARTIAL_CASE_NAME = "skipped_partial_case_name"
     SEARCH_UNAVAILABLE = "search_unavailable"
@@ -78,40 +80,74 @@ class CaseNameSearchStatus(str, Enum):
     NOT_ATTEMPTED = "not_attempted"
 
 
+class CaseNameSearchCorpus(str, Enum):
+    """CourtListener corpus searched by one case-name probe."""
+
+    OPINIONS = "o"
+    RECAP = "r"
+
+
 @dataclass(frozen=True, slots=True)
-class CaseNameSearchTrace:
-    """Case-name search attached to a not-found citation (retrieval only).
+class CaseNameSearchProbe:
+    """Independent result from searching one CourtListener corpus."""
 
-    When a reporter lookup 404s but both parties were extracted, we query
-    CourtListener's relevance search for the case name and record only *how
-    many* opinions matched (``case_count``). Validation never inspects, ranks,
-    or compares the individual candidates — case names are non-unique and often
-    only semantically equivalent, so deciding whether any candidate is the cited
-    case is the assessment stage's job. This trace exists so the frontend can
-    report "N CourtListener cases share this case name" for a not-found cite.
-    """
-
-    status: CaseNameSearchStatus = CaseNameSearchStatus.NOT_ATTEMPTED
-    query: str | None = None
+    corpus: CaseNameSearchCorpus
+    status: CaseNameSearchStatus
     http_status: int | None = None
     case_count: int | None = None
     error_message: str | None = None
 
     def __post_init__(self) -> None:
-        """Keep successful counts distinct from unavailable search results."""
         if self.status is CaseNameSearchStatus.SEARCHED:
             if self.http_status != HTTP_OK:
-                msg = "A searched case-name trace requires HTTP 200"
+                msg = "A searched case-name probe requires HTTP 200"
                 raise ValueError(msg)
             if self.case_count is None or isinstance(self.case_count, bool) or self.case_count < 0:
-                msg = "A searched case-name trace requires a non-negative case_count"
+                msg = "A searched case-name probe requires a non-negative case_count"
                 raise ValueError(msg)
-            return
-        if self.case_count is not None:
-            msg = "Only a searched case-name trace may carry case_count"
+        elif self.case_count is not None:
+            msg = "Only a searched case-name probe may carry case_count"
+            raise ValueError(msg)
+        if self.status not in {
+            CaseNameSearchStatus.SEARCHED,
+            CaseNameSearchStatus.SEARCH_FAILED,
+            CaseNameSearchStatus.SEARCH_UNAVAILABLE,
+        }:
+            msg = "A probe requires a corpus-level search status"
             raise ValueError(msg)
         if self.status is CaseNameSearchStatus.SEARCH_FAILED and self.http_status == HTTP_OK:
-            msg = "A failed case-name search cannot carry HTTP 200"
+            msg = "A failed case-name probe cannot carry HTTP 200"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True, slots=True)
+class CaseNameSearchTrace:
+    """Two-corpus case-name search attached to a not-found citation.
+
+    When a reporter lookup 404s but both parties were extracted, we query
+    The same engineered query is sent independently to opinions and RECAP.
+    Counts remain corpus-scoped: validation does not combine, rank, or interpret
+    them, and expresses no opinion about whether a result is the cited case.
+    """
+
+    status: CaseNameSearchStatus = CaseNameSearchStatus.NOT_ATTEMPTED
+    query: str | None = None
+    probes: tuple[CaseNameSearchProbe, ...] = ()
+
+    def __post_init__(self) -> None:
+        corpora = tuple(probe.corpus for probe in self.probes)
+        if len(corpora) != len(set(corpora)):
+            msg = "Case-name trace probe corpora must be unique"
+            raise ValueError(msg)
+        successes = sum(probe.status is CaseNameSearchStatus.SEARCHED for probe in self.probes)
+        if self.status is CaseNameSearchStatus.SEARCHED and successes != EXPECTED_CASE_NAME_PROBES:
+            msg = "A searched trace requires two successful corpus probes"
+            raise ValueError(msg)
+        if self.status is CaseNameSearchStatus.PARTIAL and not (0 < successes < EXPECTED_CASE_NAME_PROBES):
+            msg = "A partial trace requires one successful corpus probe"
+            raise ValueError(msg)
+        if self.status is CaseNameSearchStatus.SEARCH_FAILED and successes:
+            msg = "A failed trace cannot contain a successful probe"
             raise ValueError(msg)
 
 

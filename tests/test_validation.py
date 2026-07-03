@@ -17,6 +17,7 @@ from mellea_lrc.courtlistener.lookup import (
 from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, ValidationFailureDetail
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
+from mellea_lrc.validation.not_found_search import _case_name_query
 from mellea_lrc.validation.pipeline import run_validation
 from mellea_lrc.validation.types import (
     AmbiguousCitationValidation,
@@ -252,9 +253,19 @@ def test_not_found_reports_case_name_search_count() -> None:
 
     assert validation.status == ValidationStatus.NOT_FOUND
     assert validation.candidate_search.status == CaseNameSearchStatus.SEARCHED
-    assert validation.candidate_search.query == 'caseName:"Doe v. Roe"'
-    assert validation.candidate_search.http_status == 200
-    assert validation.candidate_search.case_count == 7
+    assert validation.candidate_search.query == "caseName:(Doe AND Roe)"
+    assert [
+        (probe.corpus.value, probe.http_status, probe.case_count)
+        for probe in validation.candidate_search.probes
+    ] == [
+        ("o", 200, 7),
+        ("r", 200, 7),
+    ]
+
+
+def test_case_name_query_uses_one_meaningful_anchor_per_party() -> None:
+    assert _case_name_query("Peterson", "Nelnet Diversified Sols., LLC") == "caseName:(Peterson AND Nelnet)"
+    assert _case_name_query("E.E.O.C.", "Maricopa County Cmty. Coll. Dist.") == "caseName:(EEOC AND Maricopa)"
 
 
 def test_not_found_reports_zero_case_name_search_results() -> None:
@@ -272,8 +283,7 @@ def test_not_found_reports_zero_case_name_search_results() -> None:
     validation = run_validation(extraction, client_mode="custom", client=client).validations[0]
 
     assert validation.candidate_search.status == CaseNameSearchStatus.SEARCHED
-    assert validation.candidate_search.http_status == 200
-    assert validation.candidate_search.case_count == 0
+    assert [probe.case_count for probe in validation.candidate_search.probes] == [0, 0]
 
 
 def test_not_found_preserves_failed_search_http_status() -> None:
@@ -291,9 +301,35 @@ def test_not_found_preserves_failed_search_http_status() -> None:
     validation = run_validation(extraction, client_mode="custom", client=client).validations[0]
 
     assert validation.candidate_search.status == CaseNameSearchStatus.SEARCH_FAILED
-    assert validation.candidate_search.http_status == 503
-    assert validation.candidate_search.case_count is None
-    assert validation.candidate_search.error_message == "upstream search unavailable"
+    assert [probe.http_status for probe in validation.candidate_search.probes] == [503, 503]
+    assert all(probe.case_count is None for probe in validation.candidate_search.probes)
+    assert all(
+        probe.error_message == "upstream search unavailable" for probe in validation.candidate_search.probes
+    )
+
+
+def test_not_found_traces_opinion_and_recap_search_independently() -> None:
+    client = CourtListenerAccessClient(
+        CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
+        post_json=lambda _url, _data: {
+            "response": {"citation": "999 U.S. 999", "status": 404, "clusters": []},
+        },
+        get_json=lambda url: (
+            {"count": 3, "results": []}
+            if "type=o" in url
+            else {"http_status": 503, "detail": "RECAP unavailable"}
+        ),
+    )
+    extraction = _not_found_extraction(
+        FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter="U.S.", page="999"),
+    )
+
+    search = run_validation(extraction, client_mode="custom", client=client).validations[0].candidate_search
+
+    assert search.status == CaseNameSearchStatus.PARTIAL
+    assert search.probes[0].case_count == 3
+    assert search.probes[1].http_status == 503
+    assert search.probes[1].error_message == "RECAP unavailable"
 
 
 def test_not_found_reads_count_from_deployed_service_raw_response() -> None:
@@ -314,9 +350,8 @@ def test_not_found_reads_count_from_deployed_service_raw_response() -> None:
     validation = run_validation(extraction, client_mode="custom", client=client).validations[0]
 
     assert validation.candidate_search.status == CaseNameSearchStatus.SEARCHED
-    assert validation.candidate_search.http_status == 200
-    assert validation.candidate_search.case_count == 0
-    assert validation.candidate_search.error_message is None
+    assert [probe.case_count for probe in validation.candidate_search.probes] == [0, 0]
+    assert all(probe.error_message is None for probe in validation.candidate_search.probes)
 
 
 def test_not_found_skips_search_without_both_parties() -> None:
@@ -335,7 +370,7 @@ def test_not_found_skips_search_without_both_parties() -> None:
 
     assert validation.status == ValidationStatus.NOT_FOUND
     assert validation.candidate_search.status == CaseNameSearchStatus.SKIPPED_PARTIAL_CASE_NAME
-    assert validation.candidate_search.case_count is None
+    assert validation.candidate_search.probes == ()
 
 
 def test_validate_surfaces_typed_courtlistener_failure_detail() -> None:

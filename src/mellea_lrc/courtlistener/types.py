@@ -72,3 +72,6 @@ class CitationValidationClient(CitationLookupClient, Protocol):
 
     def search_opinions(self, q: str) -> Mapping[str, object]:
         """Run a CourtListener opinion (``type=o``) search; response carries ``count``."""
+
+    def search_recap(self, q: str) -> Mapping[str, object]:
+        """Run a CourtListener RECAP (``type=r``) search; response carries ``count``."""
