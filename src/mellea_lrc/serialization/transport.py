@@ -1,4 +1,4 @@
-"""Strict Pydantic DTOs for schema 15, accepting schema-14 retrieval aliases."""
+"""Strict Pydantic DTOs for schema 15."""
 
 # ruff: noqa: D101
 
@@ -312,33 +312,23 @@ class YearAssessmentPayload(ArtifactPayload):
     message: str
 
 
+class CLCourtTaxonomyPayload(ArtifactPayload):
+    court_id: str
+    system: str | None
+    jurisdiction: str | None
+    type: str | None
+
+
 class CourtAssessmentPayload(ArtifactPayload):
     status: Literal["exact_match", "mismatch", "missing"]
     extracted_court: str | None
     courtlistener_court_id: str | None
     message: str
+    source: Literal["direct", "reporter_inferred"]
+    cl_court_taxonomy: CLCourtTaxonomyPayload | None = None
 
 
-class CourtFollowupNotRequiredPayload(ArtifactPayload):
-    status: Literal["not_required"]
 
-
-class CourtInferredFromReporterPayload(ArtifactPayload):
-    status: Literal["inferred_from_reporter"]
-    reporter: str | None
-    citation_court_before: str | None
-    result: CourtAssessmentPayload
-
-
-CourtFollowupPayload = Annotated[
-    CourtFollowupNotRequiredPayload | CourtInferredFromReporterPayload,
-    Field(discriminator="status"),
-]
-
-
-class CourtAssessmentRunPayload(ArtifactPayload):
-    initial: CourtAssessmentPayload
-    followup: CourtFollowupPayload
 
 
 class ReextractedCaseNamePayload(ArtifactPayload):
@@ -381,9 +371,27 @@ class CaseNameAssessmentRunPayload(ArtifactPayload):
     followup: CaseNameFollowupPayload
 
 
+class ReporterJurisdictionEvidencePayload(ArtifactPayload):
+    source: str
+    statement: str
+
+
+class ReporterJurisdictionInferencePayload(ArtifactPayload):
+    reporter: str | None
+    status: Literal[
+        "missing_reporter",
+        "unrecognized",
+        "valid_reporter",
+        "exhaustive_reporter",
+    ]
+    court_ids: list[str]
+    evidence: list[ReporterJurisdictionEvidencePayload]
+
+
 class CitationAssessmentResultPayload(ArtifactPayload):
     case_name: CaseNameAssessmentRunPayload
-    court: CourtAssessmentRunPayload
+    reporter_inference: ReporterJurisdictionInferencePayload
+    court: CourtAssessmentPayload
     year: YearAssessmentPayload
 
 
@@ -447,31 +455,27 @@ class _ExtractedDocumentFields(_PreprocessedDocumentFields):
 
 
 class _RetrievedDocumentFields(_ExtractedDocumentFields):
-    retrieval_metadata: RetrievalMetadataPayload = Field(
-        validation_alias=AliasChoices("retrieval_metadata", "validation_metadata")
-    )
-    retrievals: list[CitationRetrievalPayload] = Field(
-        validation_alias=AliasChoices("retrievals", "validations")
-    )
+    retrieval_metadata: RetrievalMetadataPayload
+    retrievals: list[CitationRetrievalPayload]
 
 
 class PreprocessedDocumentPayload(_PreprocessedDocumentFields):
-    schema_version: Literal[14, 15]
+    schema_version: Literal[15]
     artifact_type: Literal["preprocessed_document"]
 
 
 class ExtractedDocumentPayload(_ExtractedDocumentFields):
-    schema_version: Literal[14, 15]
+    schema_version: Literal[15]
     artifact_type: Literal["extracted_document"]
 
 
 class RetrievedDocumentPayload(_RetrievedDocumentFields):
-    schema_version: Literal[14, 15]
-    artifact_type: Literal["retrieved_document", "validated_document"]
+    schema_version: Literal[15]
+    artifact_type: Literal["retrieved_document"]
 
 
 class AssessedDocumentPayload(_RetrievedDocumentFields):
-    schema_version: Literal[14, 15]
+    schema_version: Literal[15]
     artifact_type: Literal["assessed_document"]
     assessment_metadata: AssessmentMetadataPayload
     assessments: list[CitationAssessmentPayload]

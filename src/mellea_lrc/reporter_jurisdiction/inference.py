@@ -1,8 +1,8 @@
 """Pure reporter-to-jurisdiction inference."""
 
 from mellea_lrc.reporter_jurisdiction.registry import (
-    RECOGNIZED_WITHOUT_CONSTRAINT,
-    REPORTER_SCOPES,
+    EXHAUSTIVE_REPORTERS,
+    VALID_REPORTERS,
 )
 from mellea_lrc.reporter_jurisdiction.types import (
     ReporterJurisdictionEvidence,
@@ -22,15 +22,19 @@ def infer_reporter_jurisdiction(reporter: str | None) -> ReporterJurisdictionInf
         )
 
     canonical = reporter.strip()
-    scope = REPORTER_SCOPES.get(canonical)
+
+    if canonical not in VALID_REPORTERS:
+        return ReporterJurisdictionInference(
+            reporter=canonical,
+            status=ReporterJurisdictionStatus.UNRECOGNIZED,
+        )
+
+    scope = EXHAUSTIVE_REPORTERS.get(canonical)
     if scope is not None:
         return ReporterJurisdictionInference(
             reporter=canonical,
-            status=ReporterJurisdictionStatus.CONSTRAINED,
-            court_ids=scope.court_ids,
-            court_classes=scope.court_classes,
-            jurisdiction_ids=scope.jurisdiction_ids,
-            coverage=scope.coverage,
+            status=ReporterJurisdictionStatus.EXHAUSTIVE_REPORTER,
+            court_ids=(scope.court_id,),
             evidence=(
                 ReporterJurisdictionEvidence(
                     source=REGISTRY_SOURCE,
@@ -39,13 +43,7 @@ def infer_reporter_jurisdiction(reporter: str | None) -> ReporterJurisdictionInf
             ),
         )
 
-    if canonical in RECOGNIZED_WITHOUT_CONSTRAINT:
-        return ReporterJurisdictionInference(
-            reporter=canonical,
-            status=ReporterJurisdictionStatus.RECOGNIZED_WITHOUT_CONSTRAINT,
-        )
     return ReporterJurisdictionInference(
         reporter=canonical,
-        status=ReporterJurisdictionStatus.UNRECOGNIZED,
+        status=ReporterJurisdictionStatus.VALID_REPORTER,
     )
-

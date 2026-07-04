@@ -481,9 +481,6 @@ def _serialize_reporter_inference(
         "reporter": inference.reporter,
         "status": inference.status.value,
         "court_ids": list(inference.court_ids),
-        "court_classes": [court_class.value for court_class in inference.court_classes],
-        "jurisdiction_ids": list(inference.jurisdiction_ids),
-        "coverage": inference.coverage.value,
         "exact_court_id": inference.exact_court_id,
         "evidence": [
             {"source": evidence.source, "statement": evidence.statement}
@@ -633,7 +630,7 @@ def _assessment_court_counts(assessments: tuple[CitationAssessment, ...]) -> dic
     counts: dict[str, int] = {}
     for item in assessments:
         if isinstance(item, AssessedCitationAssessment):
-            status = item.result.court.final.status.value
+            status = item.result.court.status.value
             counts[status] = counts.get(status, 0) + 1
     return counts
 

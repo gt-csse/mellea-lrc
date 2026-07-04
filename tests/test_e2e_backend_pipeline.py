@@ -13,13 +13,15 @@ from mellea_lrc.assessment import (
     CitationAssessment,
     CitationAssessmentResult,
     CourtAssessment,
-    CourtAssessmentRun,
     CourtAssessmentStatus,
-    CourtFollowupNotRequired,
     ReextractedCaseName,
     WaitingCitationAssessment,
     YearAssessment,
     YearAssessmentStatus,
+)
+from mellea_lrc.reporter_jurisdiction.types import (
+    ReporterJurisdictionInference,
+    ReporterJurisdictionStatus,
 )
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.immutable import ExtraData
@@ -95,16 +97,15 @@ class FakeClient:
         )
 
 
-def _court_assessment() -> CourtAssessmentRun:
-    return CourtAssessmentRun(
-        initial=CourtAssessment(
-            status=CourtAssessmentStatus.EXACT_MATCH,
-            extracted_court="scotus",
-            courtlistener_court_id="scotus",
-            message="match",
-        ),
-        followup=CourtFollowupNotRequired(),
+def _court_assessment() -> CourtAssessment:
+    return CourtAssessment(
+        status=CourtAssessmentStatus.EXACT_MATCH,
+        extracted_court="scotus",
+        courtlistener_court_id="scotus",
+        message="match",
+        source="direct",
     )
+
 
 
 def _extracted_document(
@@ -176,11 +177,8 @@ def test_review_preprocessed_returns_frontend_span_payload() -> None:
     assert citation["fields"]["plaintiff"] == "Brown"
     assert citation["reporter_inference"] == {
         "reporter": "U.S.",
-        "status": "constrained",
+        "status": "exhaustive_reporter",
         "court_ids": ["scotus"],
-        "court_classes": ["federal_supreme"],
-        "jurisdiction_ids": ["us-federal"],
-        "coverage": "exhaustive",
         "exact_court_id": "scotus",
         "evidence": [
             {
@@ -322,6 +320,12 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
             ),
             followup=CaseNameReassessmentNotRequired(),
         ),
+        reporter_inference=ReporterJurisdictionInference(
+            reporter="U.S.",
+            status=ReporterJurisdictionStatus.VALID_REPORTER,
+            court_ids=(),
+            evidence=(),
+        ),
         court=_court_assessment(),
         year=YearAssessment(
             status=YearAssessmentStatus.EXACT_MATCH,
@@ -424,6 +428,12 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
                 ),
             ),
         ),
+        reporter_inference=ReporterJurisdictionInference(
+            reporter="U.S.",
+            status=ReporterJurisdictionStatus.VALID_REPORTER,
+            court_ids=(),
+            evidence=(),
+        ),
         court=_court_assessment(),
         year=year,
     )
@@ -505,6 +515,12 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
                             message="match",
                         ),
                         followup=CaseNameReassessmentNotRequired(),
+                    ),
+                    reporter_inference=ReporterJurisdictionInference(
+                        reporter="U.S.",
+                        status=ReporterJurisdictionStatus.VALID_REPORTER,
+                        court_ids=(),
+                        evidence=(),
                     ),
                     court=_court_assessment(),
                     year=YearAssessment(

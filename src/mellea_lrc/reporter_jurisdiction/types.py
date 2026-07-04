@@ -7,30 +7,18 @@ from enum import Enum
 
 
 class ReporterJurisdictionStatus(str, Enum):
-    """Whether a reporter was present, recognized, and jurisdictionally useful."""
+    """Classification of a reporter string against the curated registry.
+
+    ``VALID_REPORTER`` and ``EXHAUSTIVE_REPORTER`` form a hierarchy:
+    every ``EXHAUSTIVE_REPORTER`` is also a ``VALID_REPORTER``.
+    Downstream guards that only need to know "is this a known reporter?"
+    should accept both statuses.
+    """
 
     MISSING_REPORTER = "missing_reporter"
     UNRECOGNIZED = "unrecognized"
-    RECOGNIZED_WITHOUT_CONSTRAINT = "recognized_without_constraint"
-    CONSTRAINED = "constrained"
-
-
-class ReporterCoverage(str, Enum):
-    """How completely the recorded constraints describe a reporter's scope."""
-
-    UNKNOWN = "unknown"
-    PARTIAL = "partial"
-    EXHAUSTIVE = "exhaustive"
-
-
-class CourtClass(str, Enum):
-    """Court classes useful for retrieval without asserting an exact court."""
-
-    FEDERAL_SUPREME = "federal_supreme"
-    FEDERAL_APPELLATE = "federal_appellate"
-    FEDERAL_DISTRICT = "federal_district"
-    FEDERAL_BANKRUPTCY = "federal_bankruptcy"
-    SPECIALIZED_FEDERAL = "specialized_federal"
+    VALID_REPORTER = "valid_reporter"
+    EXHAUSTIVE_REPORTER = "exhaustive_reporter"
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,75 +38,46 @@ class ReporterJurisdictionEvidence:
 class ReporterJurisdictionInference:
     """Jurisdiction constraints supplied by a reporter designation.
 
-    Exact-court inference is deliberately a projection of this representation:
-    it exists only for an exhaustive singleton court set.
+    ``exact_court_id`` is a projection available only for
+    ``EXHAUSTIVE_REPORTER`` status, where the reporter maps to exactly
+    one CourtListener court.
     """
 
     reporter: str | None
     status: ReporterJurisdictionStatus
     court_ids: tuple[str, ...] = ()
-    court_classes: tuple[CourtClass, ...] = ()
-    jurisdiction_ids: tuple[str, ...] = ()
-    coverage: ReporterCoverage = ReporterCoverage.UNKNOWN
     evidence: tuple[ReporterJurisdictionEvidence, ...] = ()
 
     def __post_init__(self) -> None:
         if self.reporter is not None and not self.reporter.strip():
             msg = "Reporter must be None or a non-empty string"
             raise ValueError(msg)
-        for label, values in (
-            ("court_ids", self.court_ids),
-            ("court_classes", self.court_classes),
-            ("jurisdiction_ids", self.jurisdiction_ids),
-        ):
-            if len(values) != len(set(values)):
-                msg = f"Reporter jurisdiction {label} must be unique"
-                raise ValueError(msg)
+        if len(self.court_ids) != len(set(self.court_ids)):
+            msg = "Reporter jurisdiction court_ids must be unique"
+            raise ValueError(msg)
 
-        constrained = bool(self.court_ids or self.court_classes or self.jurisdiction_ids)
+        is_terminal = self.status in {
+            ReporterJurisdictionStatus.MISSING_REPORTER,
+            ReporterJurisdictionStatus.UNRECOGNIZED,
+            ReporterJurisdictionStatus.VALID_REPORTER,
+        }
         if self.status is ReporterJurisdictionStatus.MISSING_REPORTER and self.reporter is not None:
             msg = "Missing-reporter inference cannot carry a reporter"
             raise ValueError(msg)
-        if self.status in {
-            ReporterJurisdictionStatus.MISSING_REPORTER,
-            ReporterJurisdictionStatus.UNRECOGNIZED,
-            ReporterJurisdictionStatus.RECOGNIZED_WITHOUT_CONSTRAINT,
-        } and constrained:
-            msg = f"{self.status.value} inference cannot carry jurisdiction constraints"
+        if is_terminal and self.court_ids:
+            msg = f"{self.status.value} inference cannot carry court_ids"
             raise ValueError(msg)
-        if self.status is ReporterJurisdictionStatus.CONSTRAINED and not constrained:
-            msg = "Constrained reporter inference requires at least one constraint"
-            raise ValueError(msg)
-        if self.coverage is ReporterCoverage.EXHAUSTIVE and not constrained:
-            msg = "Exhaustive reporter inference requires jurisdiction constraints"
-            raise ValueError(msg)
-        if self.status is ReporterJurisdictionStatus.CONSTRAINED and not self.evidence:
-            msg = "Constrained reporter inference requires provenance evidence"
-            raise ValueError(msg)
+        if self.status is ReporterJurisdictionStatus.EXHAUSTIVE_REPORTER:
+            if len(self.court_ids) != 1:
+                msg = "Exhaustive reporter inference requires exactly one court_id"
+                raise ValueError(msg)
+            if not self.evidence:
+                msg = "Exhaustive reporter inference requires provenance evidence"
+                raise ValueError(msg)
 
     @property
     def exact_court_id(self) -> str | None:
-        """Return the court only for an exhaustive singleton court mapping."""
-        if self.coverage is ReporterCoverage.EXHAUSTIVE and len(self.court_ids) == 1:
+        """Return the court ID for an exhaustive reporter, otherwise None."""
+        if self.status is ReporterJurisdictionStatus.EXHAUSTIVE_REPORTER:
             return self.court_ids[0]
         return None
-
-
-class ReporterJurisdictionCompatibilityStatus(str, Enum):
-    """Relationship between reporter constraints and explicit candidate metadata."""
-
-    COMPATIBLE = "compatible"
-    INCOMPATIBLE = "incompatible"
-    INDETERMINATE = "indeterminate"
-
-
-@dataclass(frozen=True, slots=True)
-class ReporterJurisdictionCompatibility:
-    """Non-mutating comparison of one inference with one candidate court."""
-
-    status: ReporterJurisdictionCompatibilityStatus
-    candidate_court_id: str | None
-    candidate_court_class: CourtClass | None
-    candidate_jurisdiction_id: str | None
-    message: str
-

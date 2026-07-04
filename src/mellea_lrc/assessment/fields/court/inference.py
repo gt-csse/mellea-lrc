@@ -1,16 +1,17 @@
 """Reporter→court inference during court assessment.
 
 Applied in ``assess_court`` when the initial comparison is ``missing`` and the
-reporter publishes decisions from exactly one court. Extraction keeps raw
-eyecite output; assessment records inference as a field-local follow-up.
+reporter is an exhaustive singleton. Returns the full inference object so the
+follow-up trace is self-describing.
 
 """
 
 from __future__ import annotations
 
 from mellea_lrc.reporter_jurisdiction import infer_reporter_jurisdiction
+from mellea_lrc.reporter_jurisdiction.types import ReporterJurisdictionInference
 
 
-def infer_court_from_reporter(reporter: str | None) -> str | None:
-    """Project broader reporter evidence to an exhaustive singleton court."""
-    return infer_reporter_jurisdiction(reporter).exact_court_id
+def get_reporter_inference(reporter: str | None) -> ReporterJurisdictionInference:
+    """Return the full reporter jurisdiction inference for use in court assessment."""
+    return infer_reporter_jurisdiction(reporter)

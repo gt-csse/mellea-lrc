@@ -15,11 +15,9 @@ from mellea_lrc.assessment import (
     CaseNameReassessmentNotRequired,
     CaseNameReextractionFailed,
     CaseNameAssessmentStatus,
+    CitationAssessmentResult,
     CourtAssessment,
-    CourtAssessmentRun,
     CourtAssessmentStatus,
-    CourtFollowupNotRequired,
-    CourtInferredFromReporter,
     FailedCitationAssessment,
     DocumentTextWindow,
     ReextractedCaseName,
@@ -29,7 +27,6 @@ from mellea_lrc.assessment import (
     assess_case_name_exact_match,
     assess_case_name_with_mellea,
     assess_court,
-    assess_court_exact_match,
     assess_found_citation,
     assess_year_exact_match,
     build_extracted_case_name,
@@ -258,60 +255,33 @@ def test_assess_year_missing_is_field_level_third_status() -> None:
 
 
 def test_assess_court_exact_match_uses_string_equality() -> None:
-    result = assess_court_exact_match(
+    result = assess_court(
         extracted_court="scotus",
         courtlistener_court_id="scotus",
     )
 
     assert result.status == CourtAssessmentStatus.EXACT_MATCH
+    assert result.source == "direct"
 
 
 def test_assess_court_mismatch_is_deterministic_error() -> None:
-    result = assess_court_exact_match(
+    result = assess_court(
         extracted_court="ca9",
         courtlistener_court_id="ca8",
     )
 
     assert result.status == CourtAssessmentStatus.MISMATCH
+    assert result.source == "direct"
 
 
 def test_assess_court_missing_is_field_level_third_status() -> None:
-    result = assess_court_exact_match(
+    result = assess_court(
         extracted_court=None,
         courtlistener_court_id="scotus",
     )
 
     assert result.status == CourtAssessmentStatus.MISSING
-
-
-def test_assess_court_applies_reporter_inference_in_followup() -> None:
-    result = assess_court(
-        extracted_court=None,
-        courtlistener_court_id="scotus",
-        reporter="L. Ed. 2d",
-    )
-
-    assert result.initial.status == CourtAssessmentStatus.MISSING
-    assert isinstance(result.followup, CourtInferredFromReporter)
-    assert result.followup.reporter == "L. Ed. 2d"
-    assert result.followup.result.status == CourtAssessmentStatus.EXACT_MATCH
-    # The terminal verdict is the reporter-inference reassessment, not the
-    # initial missing comparison.
-    assert result.final is result.followup.result
-    assert result.final.status == CourtAssessmentStatus.EXACT_MATCH
-
-
-def test_assess_court_skips_inference_when_extracted_court_is_present() -> None:
-    result = assess_court(
-        extracted_court="scotus",
-        courtlistener_court_id="scotus",
-        reporter="U.S.",
-    )
-
-    assert result.initial.status == CourtAssessmentStatus.EXACT_MATCH
-    assert isinstance(result.followup, CourtFollowupNotRequired)
-    # With no follow-up, the initial comparison is the terminal verdict.
-    assert result.final is result.initial
+    assert result.source == "direct"
 
 
 def test_case_name_proposal_valid_requires_grounding() -> None:
@@ -657,8 +627,8 @@ def test_run_assessment_progresses_document_retrieval_to_document_assessment() -
     assert isinstance(record, AssessedCitationAssessment)
     assert record.result.case_name.initial.status == CaseNameAssessmentStatus.EXACT_MATCH
     assert isinstance(record.result.case_name.followup, CaseNameReassessmentNotRequired)
-    assert record.result.court.initial.status == CourtAssessmentStatus.EXACT_MATCH
-    assert isinstance(record.result.court.followup, CourtFollowupNotRequired)
+    assert record.result.court.status == CourtAssessmentStatus.EXACT_MATCH
+    assert record.result.court.source == "direct"
     assert record.result.year.status == YearAssessmentStatus.EXACT_MATCH
 
 
@@ -730,7 +700,7 @@ def test_run_assessment_assesses_each_ambiguous_candidate() -> None:
     assert all(isinstance(c, CandidateAssessment) for c in record.candidates)
     assert record.candidates[0].candidate_id == "cite-1:candidate:0"
     assert record.candidates[0].result.case_name.initial.status == CaseNameAssessmentStatus.EXACT_MATCH
-    assert record.candidates[0].result.court.initial.courtlistener_court_id == "ca1"
+    assert record.candidates[0].result.court.courtlistener_court_id == "ca1"
     assert record.candidates[1].candidate_id == "cite-1:candidate:1"
     assert record.candidates[1].result.case_name.initial.status == CaseNameAssessmentStatus.UNASSESSABLE
     assert assessment.assessment_complete is True

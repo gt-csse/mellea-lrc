@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from mellea_lrc.assessment.context import DocumentTextWindow
 from mellea_lrc.assessment.fields.case_name import (
     assess_case_name_exact_match,
     assess_case_name_with_mellea,
 )
-from mellea_lrc.assessment.fields.court import assess_court, assess_court_exact_match
+from mellea_lrc.assessment.fields.court import assess_court, get_reporter_inference
 from mellea_lrc.assessment.fields.year import assess_year_exact_match
 from mellea_lrc.assessment.types import (
     CaseNameAssessmentRun,
@@ -37,11 +37,22 @@ async def assess_found_citation(
     session: MelleaSession | None = None,
 ) -> CitationAssessmentResult:
     """Assess case-name, court, and year fields of one found case citation."""
+    reporter_inference = get_reporter_inference(reporter)
+
+    # Court assessment logic: prefer extracted court, fallback to exhaustive reporter inference
+    court_to_assess = extracted_court
+    source: Literal["direct", "reporter_inferred"] = "direct"
+
+    if court_to_assess is None and reporter_inference.exact_court_id is not None:
+        court_to_assess = reporter_inference.exact_court_id
+        source = "reporter_inferred"
+
     court = assess_court(
-        extracted_court=extracted_court,
+        extracted_court=court_to_assess,
         courtlistener_court_id=courtlistener_court_id,
-        reporter=reporter,
+        source=source,
     )
+
     year = assess_year_exact_match(
         extracted_year=extracted_year,
         courtlistener_year=courtlistener_year,
@@ -65,4 +76,9 @@ async def assess_found_citation(
             courtlistener_case_name=courtlistener_case_name,
             document_context=DocumentTextWindow.around(document_text, span),
         )
-    return CitationAssessmentResult(case_name=case_name, court=court, year=year)
+    return CitationAssessmentResult(
+        case_name=case_name,
+        reporter_inference=reporter_inference,
+        court=court,
+        year=year,
+    )

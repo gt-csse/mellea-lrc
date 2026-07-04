@@ -29,12 +29,7 @@ from mellea_lrc.assessment.types import (
     CitationAssessment,
     CitationAssessmentResult,
     CourtAssessment,
-    CourtAssessmentRun,
     CourtAssessmentStatus,
-    CourtFollowup,
-    CourtFollowupNotRequired,
-    CourtFollowupStatus,
-    CourtInferredFromReporter,
     FailedCitationAssessment,
     ReextractedCaseName,
     SkippedCitationAssessment,
@@ -89,6 +84,11 @@ from mellea_lrc.retrieval.types import (
     RetrievalMetadata,
     RetrievalStatus,
 )
+from mellea_lrc.reporter_jurisdiction.types import (
+    ReporterJurisdictionEvidence,
+    ReporterJurisdictionInference,
+    ReporterJurisdictionStatus,
+)
 from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, RetrievalFailureDetail
 from mellea_lrc.serialization.transport import (
     AssessedDocumentPayload,
@@ -98,10 +98,11 @@ from mellea_lrc.serialization.transport import (
     CaseNameSearchTracePayload,
     CitationAssessmentPayload,
     CitationAssessmentResultPayload,
+    CLCourtTaxonomyPayload,
     CourtAssessmentPayload,
-    CourtFollowupPayload,
     CitationRetrievalPayload,
     CourtResolutionTracePayload,
+    ReporterJurisdictionInferencePayload,
     ExtractedCitationPayload,
     ExtractedDocumentPayload,
     ReextractedCaseNamePayload,
@@ -119,7 +120,6 @@ SCHEMA_VERSION = 15
 _CITATION_PAYLOAD_ADAPTER = TypeAdapter(CanonicalCitationPayload)
 _ASSESSMENT_PAYLOAD_ADAPTER = TypeAdapter(CitationAssessmentPayload)
 _CASE_NAME_FOLLOWUP_PAYLOAD_ADAPTER = TypeAdapter(CaseNameFollowupPayload)
-_COURT_FOLLOWUP_PAYLOAD_ADAPTER = TypeAdapter(CourtFollowupPayload)
 _RETRIEVAL_PAYLOAD_ADAPTER = TypeAdapter(CitationRetrievalPayload)
 
 _CITATION_CLASSES = {
@@ -535,9 +535,7 @@ def _deserialize_retrieval_failure_detail(
 
 def deserialize_citation_retrieval(payload: Mapping[str, object]) -> CitationRetrieval:
     """Rebuild one citation retrieval result from JSON data (status-discriminated)."""
-    normalized = dict(payload)
-    normalized.pop("message", None)
-    validated = _RETRIEVAL_PAYLOAD_ADAPTER.validate_python(normalized).model_dump(mode="python")
+    validated = _RETRIEVAL_PAYLOAD_ADAPTER.validate_python(payload).model_dump(mode="python")
     status = RetrievalStatus(_required_str(validated.get("status"), "retrieval status"))
     citation_id = _required_str(validated.get("citation_id"), "citation_id")
     source = _required_str(validated.get("source"), "retrieval source")
@@ -739,64 +737,70 @@ def serialize_court_assessment(item: CourtAssessment) -> dict[str, JsonValue]:
     """Serialize a court assessment."""
     payload = cast("dict[str, JsonValue]", asdict(item))
     payload["status"] = item.status.value
+    payload["source"] = item.source
+    if item.cl_court_taxonomy:
+        payload["cl_court_taxonomy"] = asdict(item.cl_court_taxonomy)
     return payload
 
 
 def deserialize_court_assessment(payload: Mapping[str, object]) -> CourtAssessment:
     """Rebuild a court assessment from JSON data."""
     validated = CourtAssessmentPayload.model_validate(payload).model_dump(mode="python")
+    tax_payload = cast("dict[str, object] | None", validated.get("cl_court_taxonomy"))
+    taxonomy = None
+    if tax_payload:
+        from mellea_lrc.courtlistener.taxonomy import CLCourtTaxonomy
+        taxonomy = CLCourtTaxonomy(**tax_payload)  # type: ignore[arg-type]
+
     return CourtAssessment(
         status=CourtAssessmentStatus(_required_str(validated.get("status"), "court assessment status")),
         extracted_court=_optional_str(validated.get("extracted_court")),
         courtlistener_court_id=_optional_str(validated.get("courtlistener_court_id")),
         message=_required_str(validated.get("message"), "court assessment message"),
+        source=validated.get("source", "direct"),  # type: ignore[arg-type]
+        cl_court_taxonomy=taxonomy,
     )
 
 
-def serialize_court_assessment_run(item: CourtAssessmentRun) -> dict[str, JsonValue]:
-    """Serialize the initial court assessment and follow-up."""
+def serialize_reporter_inference(
+    item: ReporterJurisdictionInference,
+) -> dict[str, JsonValue]:
+    """Serialize reporter inference context."""
     return {
-        "initial": serialize_court_assessment(item.initial),
-        "followup": serialize_court_followup(item.followup),
+        "reporter": item.reporter,
+        "status": item.status.value,
+        "court_ids": list(item.court_ids),
+        "evidence": [
+            {"source": e.source, "statement": e.statement} for e in item.evidence
+        ],
     }
 
 
-def serialize_court_followup(item: CourtFollowup) -> dict[str, JsonValue]:
-    """Serialize one field-local court follow-up outcome."""
-    payload: dict[str, JsonValue] = {"status": item.status.value}
-    if isinstance(item, CourtInferredFromReporter):
-        payload["reporter"] = item.reporter
-        payload["citation_court_before"] = item.citation_court_before
-        payload["result"] = serialize_court_assessment(item.result)
-    return payload
-
-
-def deserialize_court_assessment_run(payload: Mapping[str, object]) -> CourtAssessmentRun:
-    """Rebuild an initial court assessment and its follow-up."""
-    initial = deserialize_court_assessment(_required_mapping_field(payload, "initial"))
-    followup = deserialize_court_followup(_required_mapping_field(payload, "followup"))
-    return CourtAssessmentRun(initial=initial, followup=followup)
-
-
-def deserialize_court_followup(payload: Mapping[str, object]) -> CourtFollowup:
-    """Rebuild one field-local court follow-up outcome."""
-    validated_model = _COURT_FOLLOWUP_PAYLOAD_ADAPTER.validate_python(payload)
-    validated = validated_model.model_dump(mode="python")
-    status = CourtFollowupStatus(_required_str(validated.get("status"), "court followup status"))
-    if status == CourtFollowupStatus.NOT_REQUIRED:
-        return CourtFollowupNotRequired()
-    if status == CourtFollowupStatus.INFERRED_FROM_REPORTER:
-        result_payload = validated.get("result")
-        if not isinstance(result_payload, dict):
-            msg = "inferred_from_reporter follow-up requires a result"
-            raise TypeError(msg)
-        return CourtInferredFromReporter(
-            reporter=_optional_str(validated.get("reporter")),
-            citation_court_before=_optional_str(validated.get("citation_court_before")),
-            result=deserialize_court_assessment(result_payload),
+def deserialize_reporter_inference(
+    payload: Mapping[str, object],
+) -> ReporterJurisdictionInference:
+    """Rebuild reporter inference context."""
+    validated = ReporterJurisdictionInferencePayload.model_validate(payload).model_dump(
+        mode="python"
+    )
+    evidence = tuple(
+        ReporterJurisdictionEvidence(
+            source=_required_str(e.get("source"), "evidence source"),
+            statement=_required_str(e.get("statement"), "evidence statement"),
         )
-    msg = f"Unknown court follow-up status: {status.value}"
-    raise ValueError(msg)
+        for e in validated.get("evidence", [])
+        if isinstance(e, dict)
+    )
+    return ReporterJurisdictionInference(
+        reporter=_optional_str(validated.get("reporter")),
+        status=ReporterJurisdictionStatus(
+            _required_str(validated.get("status"), "reporter inference status")
+        ),
+        court_ids=tuple(
+            str(c) for c in validated.get("court_ids", []) if isinstance(c, str)
+        ),
+        evidence=evidence,
+    )
 
 
 def serialize_citation_assessment(item: CitationAssessment) -> dict[str, JsonValue]:
@@ -832,7 +836,8 @@ def serialize_citation_assessment_result(
     """Serialize a completed substantive citation assessment."""
     return {
         "case_name": serialize_case_name_assessment_run(item.case_name),
-        "court": serialize_court_assessment_run(item.court),
+        "reporter_inference": serialize_reporter_inference(item.reporter_inference),
+        "court": serialize_court_assessment(item.court),
         "year": serialize_year_assessment(item.year),
     }
 
@@ -918,14 +923,21 @@ def deserialize_citation_assessment_result(
     """Rebuild a completed substantive citation assessment."""
     validated = CitationAssessmentResultPayload.model_validate(payload).model_dump(mode="python")
     case_payload = validated.get("case_name")
+    reporter_payload = validated.get("reporter_inference")
     court_payload = validated.get("court")
     year_payload = validated.get("year")
-    if not all(isinstance(item, dict) for item in (case_payload, court_payload, year_payload)):
-        msg = "citation assessment requires case_name, court, and year"
+    if not all(
+        isinstance(item, dict)
+        for item in (case_payload, reporter_payload, court_payload, year_payload)
+    ):
+        msg = "citation assessment requires case_name, reporter_inference, court, and year"
         raise TypeError(msg)
     return CitationAssessmentResult(
         case_name=deserialize_case_name_assessment_run(_mapping_field(case_payload)),
-        court=deserialize_court_assessment_run(_mapping_field(court_payload)),
+        reporter_inference=deserialize_reporter_inference(
+            _mapping_field(reporter_payload)
+        ),
+        court=deserialize_court_assessment(_mapping_field(court_payload)),
         year=deserialize_year_assessment(_mapping_field(year_payload)),
     )
 

@@ -1,47 +1,40 @@
 import pytest
 
 from mellea_lrc.reporter_jurisdiction import (
-    CourtClass,
-    ReporterCoverage,
-    ReporterJurisdictionCompatibilityStatus,
     ReporterJurisdictionStatus,
-    compare_reporter_jurisdiction,
     infer_reporter_jurisdiction,
 )
+from mellea_lrc.reporter_jurisdiction.registry import EXHAUSTIVE_REPORTERS, VALID_REPORTERS
+from mellea_lrc.courtlistener import is_recognized_court
 
 
-def test_exact_court_is_exhaustive_singleton_projection() -> None:
+def test_exhaustive_reporters_are_subset_of_valid_reporters() -> None:
+    """Every key in EXHAUSTIVE_REPORTERS must appear in VALID_REPORTERS."""
+    assert set(EXHAUSTIVE_REPORTERS.keys()).issubset(VALID_REPORTERS)
+
+
+def test_exhaustive_reporter_infers_exact_court() -> None:
     inference = infer_reporter_jurisdiction("U.S.")
 
-    assert inference.status is ReporterJurisdictionStatus.CONSTRAINED
-    assert inference.coverage is ReporterCoverage.EXHAUSTIVE
+    assert inference.status is ReporterJurisdictionStatus.EXHAUSTIVE_REPORTER
     assert inference.court_ids == ("scotus",)
-    assert inference.court_classes == (CourtClass.FEDERAL_SUPREME,)
     assert inference.exact_court_id == "scotus"
     assert inference.evidence
 
 
 @pytest.mark.parametrize(
-    ("reporter", "court_class"),
-    (
-        ("F.3d", CourtClass.FEDERAL_APPELLATE),
-        ("F.4th", CourtClass.FEDERAL_APPELLATE),
-        ("F. Supp. 2d", CourtClass.FEDERAL_DISTRICT),
-        ("F. Supp. 3d", CourtClass.FEDERAL_DISTRICT),
-    ),
+    "reporter",
+    ("F.3d", "F.4th", "F. Supp. 2d", "F. Supp. 3d", "B.R.", "WL", "LEXIS"),
 )
-def test_reporter_can_constrain_court_class_without_exact_court(
-    reporter: str,
-    court_class: CourtClass,
-) -> None:
+def test_valid_reporter_without_exact_court(reporter: str) -> None:
     inference = infer_reporter_jurisdiction(reporter)
 
-    assert inference.status is ReporterJurisdictionStatus.CONSTRAINED
-    assert inference.court_classes == (court_class,)
+    assert inference.status is ReporterJurisdictionStatus.VALID_REPORTER
+    assert inference.court_ids == ()
     assert inference.exact_court_id is None
 
 
-def test_missing_unrecognized_and_unconstrained_are_distinct() -> None:
+def test_missing_and_unrecognized_terminate() -> None:
     assert (
         infer_reporter_jurisdiction(None).status
         is ReporterJurisdictionStatus.MISSING_REPORTER
@@ -50,36 +43,27 @@ def test_missing_unrecognized_and_unconstrained_are_distinct() -> None:
         infer_reporter_jurisdiction("Imaginary Reporter").status
         is ReporterJurisdictionStatus.UNRECOGNIZED
     )
-    assert (
-        infer_reporter_jurisdiction("WL").status
-        is ReporterJurisdictionStatus.RECOGNIZED_WITHOUT_CONSTRAINT
-    )
 
 
-def test_compatibility_uses_explicit_candidate_class() -> None:
-    inference = infer_reporter_jurisdiction("F.4th")
-
-    compatible = compare_reporter_jurisdiction(
-        inference,
-        candidate_court_id="ca10",
-        candidate_court_class=CourtClass.FEDERAL_APPELLATE,
-        candidate_jurisdiction_id="us-federal",
-    )
-    incompatible = compare_reporter_jurisdiction(
-        inference,
-        candidate_court_id="azd",
-        candidate_court_class=CourtClass.FEDERAL_DISTRICT,
-        candidate_jurisdiction_id="us-federal",
-    )
-
-    assert compatible.status is ReporterJurisdictionCompatibilityStatus.COMPATIBLE
-    assert incompatible.status is ReporterJurisdictionCompatibilityStatus.INCOMPATIBLE
+def test_exhaustive_is_a_valid_reporter_by_status_hierarchy() -> None:
+    """EXHAUSTIVE_REPORTER is a VALID_REPORTER — both are non-terminal statuses."""
+    valid_statuses = {
+        ReporterJurisdictionStatus.VALID_REPORTER,
+        ReporterJurisdictionStatus.EXHAUSTIVE_REPORTER,
+    }
+    assert infer_reporter_jurisdiction("U.S.").status in valid_statuses
+    assert infer_reporter_jurisdiction("F.3d").status in valid_statuses
 
 
-def test_exact_court_can_exclude_wrong_candidate() -> None:
-    result = compare_reporter_jurisdiction(
-        infer_reporter_jurisdiction("U.S."),
-        candidate_court_id="ca9",
-    )
+def test_exact_court_id_is_none_for_non_exhaustive() -> None:
+    assert infer_reporter_jurisdiction("WL").exact_court_id is None
+    assert infer_reporter_jurisdiction("F.4th").exact_court_id is None
+    assert infer_reporter_jurisdiction(None).exact_court_id is None
+    assert infer_reporter_jurisdiction("Unknown").exact_court_id is None
 
-    assert result.status is ReporterJurisdictionCompatibilityStatus.INCOMPATIBLE
+
+def test_exhaustive_reporters_map_to_recognized_courts() -> None:
+    """Every exact court ID from EXHAUSTIVE_REPORTERS must be recognized."""
+    for scope in EXHAUSTIVE_REPORTERS.values():
+        assert is_recognized_court(scope.court_id), f"Court {scope.court_id} is not recognized"
+

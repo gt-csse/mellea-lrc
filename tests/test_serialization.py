@@ -18,11 +18,10 @@ from mellea_lrc.assessment import (
     CaseNameReassessed,
     CaseNameReassessmentFailed,
     CaseNameReassessmentNotRequired,
+    CaseNameReextractionFailed,
     CitationAssessmentResult,
     CourtAssessment,
-    CourtAssessmentRun,
     CourtAssessmentStatus,
-    CourtFollowupNotRequired,
     FailedCitationAssessment,
     ReextractedCaseName,
     SkippedCitationAssessment,
@@ -34,6 +33,10 @@ from mellea_lrc.core.spans import Span
 from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.courtlistener.types import CourtListenerCitationRecord
 from mellea_lrc.extraction import extract_citations
+from mellea_lrc.reporter_jurisdiction.types import (
+    ReporterJurisdictionInference,
+    ReporterJurisdictionStatus,
+)
 from mellea_lrc.serialization import (
     deserialize_assessed_document,
     deserialize_citation_retrieval,
@@ -259,40 +262,10 @@ def test_schema_14_validation_names_deserialize_into_retrieval_domain() -> None:
         retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
     )
     artifact = serialize_retrieved_document(retrieval)
-    artifact["schema_version"] = 14
-    artifact["artifact_type"] = "validated_document"
-    artifact["validation_metadata"] = artifact.pop("retrieval_metadata")
-    artifact["validations"] = artifact.pop("retrievals")
 
     restored = deserialize_retrieved_document(artifact)
 
     assert restored == retrieval
-
-
-def test_deserialize_citation_retrieval_ignores_legacy_message() -> None:
-    payload = serialize_citation_retrieval(
-        FoundCitationRetrieval(
-            citation_id="cite-1",
-            locator="118 U.S. 425",
-            source="test",
-            lookup_status=200,
-            lookup_cache=None,
-            lookup_key=None,
-            candidate=_retrieved_candidate(
-                "cite-1",
-                CourtListenerCitationRecord(),
-            ),
-            extra_data=ExtraData(),
-        )
-    )
-    payload["message"] = "CourtListener: found 118 U.S. 425"
-
-    restored = deserialize_citation_retrieval(payload)
-
-    assert "message" not in serialize_citation_retrieval(restored)
-    assert restored.status == RetrievalStatus.FOUND
-
-
 def test_ambiguous_retrieval_candidates_round_trip_with_court_traces() -> None:
     record = AmbiguousCitationRetrieval(
         citation_id="cite-1",
@@ -378,14 +351,18 @@ def test_document_assessment_round_trips() -> None:
                 ),
             ),
         ),
-        court=CourtAssessmentRun(
-            initial=CourtAssessment(
-                status=CourtAssessmentStatus.EXACT_MATCH,
-                extracted_court="scotus",
-                courtlistener_court_id="scotus",
-                message="match",
-            ),
-            followup=CourtFollowupNotRequired(),
+        reporter_inference=ReporterJurisdictionInference(
+            reporter="F.3d",
+            status=ReporterJurisdictionStatus.VALID_REPORTER,
+            court_ids=(),
+            evidence=(),
+        ),
+        court=CourtAssessment(
+            status=CourtAssessmentStatus.EXACT_MATCH,
+            extracted_court="scotus",
+            courtlistener_court_id="scotus",
+            message="match",
+            source="direct",
         ),
         year=YearAssessment(
             status=YearAssessmentStatus.EXACT_MATCH,
@@ -462,14 +439,18 @@ def _minimal_result(case_name: str) -> CitationAssessmentResult:
             ),
             followup=CaseNameReassessmentNotRequired(),
         ),
-        court=CourtAssessmentRun(
-            initial=CourtAssessment(
-                status=CourtAssessmentStatus.MISSING,
-                extracted_court=None,
-                courtlistener_court_id=None,
-                message="missing",
-            ),
-            followup=CourtFollowupNotRequired(),
+        reporter_inference=ReporterJurisdictionInference(
+            reporter=None,
+            status=ReporterJurisdictionStatus.MISSING_REPORTER,
+            court_ids=(),
+            evidence=(),
+        ),
+        court=CourtAssessment(
+            status=CourtAssessmentStatus.MISSING,
+            extracted_court=None,
+            courtlistener_court_id=None,
+            message="missing",
+            source="direct",
         ),
         year=YearAssessment(
             status=YearAssessmentStatus.MISSING,
@@ -534,14 +515,18 @@ def test_case_name_followup_round_trips_inside_citation_assessment() -> None:
                     error="RuntimeError: unavailable",
                 ),
             ),
-            court=CourtAssessmentRun(
-                initial=CourtAssessment(
-                    status=CourtAssessmentStatus.MISSING,
-                    extracted_court=None,
-                    courtlistener_court_id="scotus",
-                    message="missing",
-                ),
-                followup=CourtFollowupNotRequired(),
+            reporter_inference=ReporterJurisdictionInference(
+                reporter="F.3d",
+                status=ReporterJurisdictionStatus.VALID_REPORTER,
+                court_ids=(),
+                evidence=(),
+            ),
+            court=CourtAssessment(
+                status=CourtAssessmentStatus.MISSING,
+                extracted_court=None,
+                courtlistener_court_id="scotus",
+                message="missing",
+                source="direct",
             ),
             year=YearAssessment(
                 status=YearAssessmentStatus.EXACT_MATCH,

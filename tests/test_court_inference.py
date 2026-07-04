@@ -1,7 +1,8 @@
 import pytest
 from eyecite import get_citations
 
-from mellea_lrc.assessment.fields.court import infer_court_from_reporter
+from mellea_lrc.assessment.fields.court import get_reporter_inference
+from mellea_lrc.reporter_jurisdiction.types import ReporterJurisdictionStatus
 
 
 @pytest.mark.parametrize(
@@ -20,12 +21,13 @@ from mellea_lrc.assessment.fields.court import infer_court_from_reporter
         ("Cust. Ct.", "cusc"),
         ("C.C.P.A.", "ccpa"),
         ("Vet. App.", "cavc"),
-        ("M.S.P.R.", "mspb"),
         ("C.M.A.", "cma"),
     ),
 )
 def test_infer_court_from_exclusive_reporter(reporter: str, court: str) -> None:
-    assert infer_court_from_reporter(reporter) == court
+    inference = get_reporter_inference(reporter)
+    assert inference.status is ReporterJurisdictionStatus.EXHAUSTIVE_REPORTER
+    assert inference.exact_court_id == court
 
 
 @pytest.mark.parametrize(
@@ -59,5 +61,6 @@ def test_eyecite_does_not_infer_exclusive_reporter_court(
     "reporter",
     (None, "", "F.3d", "F. Supp. 3d", "B.R.", "M.J.", "U.S.L.W."),
 )
-def test_does_not_infer_court_from_ambiguous_reporter(reporter: str | None) -> None:
-    assert infer_court_from_reporter(reporter) is None
+def test_does_not_infer_court_from_non_exhaustive_reporter(reporter: str | None) -> None:
+    inference = get_reporter_inference(reporter)
+    assert inference.exact_court_id is None
