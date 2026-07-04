@@ -3,6 +3,7 @@
 import {
   AlertCircle,
   Bookmark,
+  BookmarkCheck,
   Brain,
   ChevronDown,
   ChevronLeft,
@@ -15,7 +16,16 @@ import {
   ShieldCheck,
   Upload
 } from "lucide-react";
-import { ChangeEvent, DragEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  DragEvent,
+  KeyboardEvent,
+  ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 
 type CourtResolutionTracePayload = {
   courtlistener_court_id: string | null;
@@ -44,7 +54,18 @@ type RetrievedCandidatePayload = {
   court_resolution: CourtResolutionTracePayload;
 };
 
-type ValidationPayload = {
+type ReporterJurisdictionInferencePayload = {
+  reporter: string | null;
+  status: "missing_reporter" | "unrecognized" | "recognized_without_constraint" | "constrained";
+  court_ids: string[];
+  court_classes: string[];
+  jurisdiction_ids: string[];
+  coverage: "unknown" | "partial" | "exhaustive";
+  exact_court_id: string | null;
+  evidence: Array<{ source: string; statement: string }>;
+};
+
+type RetrievalPayload = {
   citation_id: string;
   locator: string | null;
   status: string;
@@ -126,8 +147,8 @@ type CourtAssessmentRunPayload = {
 
 type CourtListenerCitationRecord = Record<string, unknown>;
 
-type ReviewValidation = {
-  validations: ValidationPayload[];
+type ReviewRetrieval = {
+  retrievals: RetrievalPayload[];
   counts: {
     total: number;
     found: number;
@@ -176,7 +197,8 @@ type ReviewCitation = {
   kind: string;
   fields: Record<string, string | number | boolean>;
   resolves_to: string | null;
-  validation: ValidationPayload | null;
+  reporter_inference: ReporterJurisdictionInferencePayload | null;
+  retrieval: RetrievalPayload | null;
   assessment: CitationAssessmentPayload | null;
 };
 
@@ -188,12 +210,19 @@ type ReviewResult = {
     backend: string;
   };
   citations: ReviewCitation[];
-  validation: ReviewValidation | null;
+  retrieval: ReviewRetrieval | null;
   assessment: ReviewAssessment | null;
   stats: Record<string, number>;
 };
 
-type WorkflowStage = "input" | "preprocessed" | "extracted" | "validated" | "assessed";
+type BookmarkMutationResult = {
+  result: "created" | "provenance_added" | "already_bookmarked";
+  bookmark_id: string;
+  provenance_count: number;
+  paths: { json: string; text: string };
+};
+
+type WorkflowStage = "input" | "preprocessed" | "extracted" | "retrieved" | "assessed";
 type LoadingStage = WorkflowStage | "snapshot";
 type SnapshotReviewResult = {
   stage: Exclude<WorkflowStage, "input">;
@@ -208,14 +237,16 @@ type AssessmentStatus =
   | "different_case"
   | "unassessable";
 type ExtractionFilter = "all" | "all_citations";
-type ValidationFilter = "all" | "found" | "ambiguous" | "not_found" | "throttled";
+type RetrievalFilter = "all" | "found" | "ambiguous" | "not_found" | "throttled";
 type AssessmentFilter = "all" | AssessmentStatus | "reextraction";
 type CitationFilter =
   | ExtractionFilter
-  | ValidationFilter
+  | RetrievalFilter
   | AssessmentFilter;
 type FilterOption = { label: string; value: CitationFilter };
 type ComparisonMatchType = "perfect" | "exact" | "semantic" | "warning" | "error" | "unchecked";
+type TraceSectionId = "retrieval" | "assessment" | "reporter-inference";
+type TraceOperationStatus = "complete" | "running" | "failed" | "not-run" | "unavailable";
 type BibliographicRow = {
   id: string;
   label: string;
@@ -252,19 +283,19 @@ type WorkflowStageControl = {
   canEditInput: boolean;
   canLoadSnapshot: boolean;
   canExtract: boolean;
-  canValidate: boolean;
+  canRetrieve: boolean;
   canAssess: boolean;
   canReset: boolean;
 };
 
-const VALIDATION_REQUEST_INTERVAL_MS = 1500;
+const RETRIEVAL_REQUEST_INTERVAL_MS = 1500;
 const MISSING_EXTRACTED_CASE_NAME_LABEL = "No extracted case name";
 const exampleText = "Brown v. Board, 347 U.S. 483 (1954). See also Roe v. Wade, 410 U.S. 113.";
 const extractionFilters: FilterOption[] = [
   { label: "All", value: "all" },
   { label: "All citations", value: "all_citations" }
 ];
-const validationFilters: FilterOption[] = [
+const retrievalFilters: FilterOption[] = [
   { label: "All", value: "all" },
   { label: "Found", value: "found" },
   { label: "Ambiguous", value: "ambiguous" },
@@ -287,7 +318,7 @@ const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
     canEditInput: true,
     canLoadSnapshot: true,
     canExtract: true,
-    canValidate: false,
+    canRetrieve: false,
     canAssess: false,
     canReset: false
   },
@@ -296,7 +327,7 @@ const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
     canEditInput: false,
     canLoadSnapshot: false,
     canExtract: true,
-    canValidate: false,
+    canRetrieve: false,
     canAssess: false,
     canReset: true
   },
@@ -305,16 +336,16 @@ const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
     canEditInput: false,
     canLoadSnapshot: false,
     canExtract: false,
-    canValidate: true,
+    canRetrieve: true,
     canAssess: false,
     canReset: true
   },
-  validated: {
-    label: "Validated",
+  retrieved: {
+    label: "Retrieved",
     canEditInput: false,
     canLoadSnapshot: false,
     canExtract: false,
-    canValidate: false,
+    canRetrieve: false,
     canAssess: true,
     canReset: true
   },
@@ -323,7 +354,7 @@ const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
     canEditInput: false,
     canLoadSnapshot: false,
     canExtract: false,
-    canValidate: false,
+    canRetrieve: false,
     canAssess: false,
     canReset: true
   }
@@ -336,7 +367,7 @@ export default function Home() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState<LoadingStage | null>(null);
-  const [validationProgress, setValidationProgress] = useState<{ completed: number; total: number } | null>(
+  const [retrievalProgress, setRetrievalProgress] = useState<{ completed: number; total: number } | null>(
     null
   );
   const [workflowStage, setWorkflowStage] = useState<WorkflowStage>("input");
@@ -345,12 +376,14 @@ export default function Home() {
   const [clusterIndexes, setClusterIndexes] = useState<Record<string, number>>({});
   const [extractedAttemptIndexes, setExtractedAttemptIndexes] = useState<Record<string, number>>({});
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
+  const [selectedTraceSection, setSelectedTraceSection] = useState<TraceSectionId>("retrieval");
   const [error, setError] = useState<string | null>(null);
   const [bookmarkStatus, setBookmarkStatus] = useState<string | null>(null);
+  const [bookmarkedCitationIds, setBookmarkedCitationIds] = useState<Set<string>>(new Set());
   const documentPaneRef = useRef<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const snapshotInputRef = useRef<HTMLInputElement | null>(null);
-  const validationRunIdRef = useRef(0);
+  const retrievalRunIdRef = useRef(0);
   const stageControl = workflowStageControls[workflowStage];
   const isTaskLocked = !stageControl.canEditInput;
   const hasExtractionInput =
@@ -363,6 +396,35 @@ export default function Home() {
     () => result?.citations.find((citation) => citation.id === selectedId) ?? null,
     [result, selectedId]
   );
+  const isBookmarkFixture = isBookmarkFixturePath(result?.document.source_path ?? null);
+  const selectedCitationIsBookmarked = selectedCitation
+    ? bookmarkedCitationIds.has(selectedCitation.id)
+    : false;
+
+  useEffect(() => {
+    const citations = result?.citations ?? [];
+    if (!citations.length) {
+      setBookmarkedCitationIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    void fetchBookmarkStatuses(citations)
+      .then((statuses) => {
+        if (!cancelled) {
+          setBookmarkedCitationIds(
+            new Set(Object.entries(statuses).filter(([, saved]) => saved).map(([id]) => id))
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBookmarkedCitationIds(new Set());
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [result?.citations]);
 
   const selectedExtractedAttempts = useMemo(
     () => (selectedCitation ? extractedCitationAttempts(selectedCitation, result?.assessment ?? null) : []),
@@ -477,7 +539,7 @@ export default function Home() {
           }
           return citationFilter === "all" && isAssessmentCandidateCitation(citation);
         }
-        if (workflowStage === "validated" && isValidationStatusFilter(citationFilter)) {
+        if (workflowStage === "retrieved" && isRetrievalStatusFilter(citationFilter)) {
           return citationStatus(citation) === citationFilter;
         }
         return citationFilter === "all";
@@ -524,11 +586,13 @@ export default function Home() {
   }, [selectedId]);
 
   async function runExtraction() {
-    validationRunIdRef.current += 1;
+    retrievalRunIdRef.current += 1;
     setIsLoading(true);
     setLoadingStage("extracted");
-    setValidationProgress(null);
+    setRetrievalProgress(null);
     setError(null);
+    setBookmarkStatus(null);
+    setBookmarkedCitationIds(new Set());
 
     try {
       const sourceText = workflowStage === "preprocessed" && result ? result.document.text : text;
@@ -548,47 +612,47 @@ export default function Home() {
     }
   }
 
-  async function runValidation() {
+  async function runRetrieval() {
     if (!result) {
       return;
     }
-    const citationsToValidate = result.citations.filter(isFullCaseCitation);
-    if (!citationsToValidate.length) {
-      setResult(withValidationStats(result));
-      setWorkflowStage("validated");
+    const citationsToRetrieve = result.citations.filter(isFullCaseCitation);
+    if (!citationsToRetrieve.length) {
+      setResult(withRetrievalStats(result));
+      setWorkflowStage("retrieved");
       setCitationFilter("all");
       return;
     }
 
-    const runId = validationRunIdRef.current + 1;
-    validationRunIdRef.current = runId;
+    const runId = retrievalRunIdRef.current + 1;
+    retrievalRunIdRef.current = runId;
     setIsLoading(true);
-    setLoadingStage("validated");
-    setValidationProgress({ completed: 0, total: citationsToValidate.length });
+    setLoadingStage("retrieved");
+    setRetrievalProgress({ completed: 0, total: citationsToRetrieve.length });
     setError(null);
 
     try {
       const failures: string[] = [];
       await Promise.all(
-        citationsToValidate.map(async (citation, index) => {
+        citationsToRetrieve.map(async (citation, index) => {
           if (index > 0) {
-            await wait(VALIDATION_REQUEST_INTERVAL_MS * index);
+            await wait(RETRIEVAL_REQUEST_INTERVAL_MS * index);
           }
-          if (validationRunIdRef.current !== runId) {
+          if (retrievalRunIdRef.current !== runId) {
             return;
           }
 
           try {
-            const validation = await validateReviewCitation(citation);
-            if (validationRunIdRef.current !== runId) {
+            const retrieval = await retrieveReviewCitation(citation);
+            if (retrievalRunIdRef.current !== runId) {
               return;
             }
-            setResult((current) => (current ? mergeCitationValidation(current, validation) : current));
+            setResult((current) => (current ? mergeCitationRetrieval(current, retrieval) : current));
           } catch (err) {
-            failures.push(err instanceof Error ? err.message : "Validation failed");
+            failures.push(err instanceof Error ? err.message : "Retrieval failed");
           } finally {
-            if (validationRunIdRef.current === runId) {
-              setValidationProgress((current) =>
+            if (retrievalRunIdRef.current === runId) {
+              setRetrievalProgress((current) =>
                 current ? { ...current, completed: Math.min(current.completed + 1, current.total) } : current
               );
             }
@@ -596,24 +660,24 @@ export default function Home() {
         })
       );
 
-      if (validationRunIdRef.current !== runId) {
+      if (retrievalRunIdRef.current !== runId) {
         return;
       }
-      setResult((current) => (current ? withValidationStats(current) : current));
+      setResult((current) => (current ? withRetrievalStats(current) : current));
       setCitationFilter("all");
       if (failures.length) {
-        setError(`Validation finished with ${failures.length} failed request${failures.length === 1 ? "" : "s"}.`);
+        setError(`Retrieval finished with ${failures.length} failed request${failures.length === 1 ? "" : "s"}.`);
         setWorkflowStage("extracted");
       } else {
-        setWorkflowStage("validated");
+        setWorkflowStage("retrieved");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Validation failed");
+      setError(err instanceof Error ? err.message : "Retrieval failed");
     } finally {
-      if (validationRunIdRef.current === runId) {
+      if (retrievalRunIdRef.current === runId) {
         setIsLoading(false);
         setLoadingStage(null);
-        setValidationProgress(null);
+        setRetrievalProgress(null);
       }
     }
   }
@@ -639,10 +703,10 @@ export default function Home() {
   }
 
   async function loadSnapshot(file: File) {
-    validationRunIdRef.current += 1;
+    retrievalRunIdRef.current += 1;
     setIsLoading(true);
     setLoadingStage("snapshot");
-    setValidationProgress(null);
+    setRetrievalProgress(null);
     setError(null);
 
     try {
@@ -665,7 +729,7 @@ export default function Home() {
   }
 
   function resetTask() {
-    validationRunIdRef.current += 1;
+    retrievalRunIdRef.current += 1;
     setResult(null);
     setSelectedId(null);
     setCitationFilter("all");
@@ -674,8 +738,10 @@ export default function Home() {
     setWorkflowStage("input");
     setIsInputCollapsed(false);
     setIsDetailsExpanded(false);
-    setValidationProgress(null);
+    setRetrievalProgress(null);
     setError(null);
+    setBookmarkStatus(null);
+    setBookmarkedCitationIds(new Set());
   }
 
   function selectCitation(citationId: string) {
@@ -698,17 +764,33 @@ export default function Home() {
   }
 
   async function bookmarkSelectedCitation() {
-    if (!result || !selectedCitation) {
+    if (
+      !result ||
+      !selectedCitation ||
+      isBookmarkFixture ||
+      selectedCitationIsBookmarked
+    ) {
       return;
     }
     try {
       setBookmarkStatus("Saving");
-      await bookmarkCitationContext({
-        citation_id: selectedCitation.id,
-        matched_text: selectedCitation.matched_text,
-        context: citationContextWindow(result.document.text, selectedCitation)
+      const saved = await bookmarkCitationContext({
+        action: "add",
+        citation: bookmarkCitationIdentity(selectedCitation),
+        provenance: {
+          source_path: result.document.source_path,
+          source_format: result.document.source_format,
+          citation_id: selectedCitation.id,
+          span: { start: selectedCitation.start, end: selectedCitation.end },
+          context: citationContextWindow(result.document.text, selectedCitation)
+        }
       });
-      setBookmarkStatus("Saved to local/bookmarked/bookmarked.txt");
+      setBookmarkedCitationIds((current) => new Set(current).add(selectedCitation.id));
+      setBookmarkStatus(
+        saved.result === "provenance_added"
+          ? `Added provenance to ${saved.paths.json}`
+          : `Saved to ${saved.paths.text} and ${saved.paths.json}`
+      );
     } catch (bookmarkError) {
       setBookmarkStatus(bookmarkError instanceof Error ? bookmarkError.message : "Bookmark failed");
     }
@@ -743,10 +825,10 @@ export default function Home() {
   const citationCount = result?.stats.citation_spans ?? 0;
   const foundCount = result?.stats.found;
   const sourceLabel = file?.name ?? result?.document.source_path ?? `${text.trim().length || 0} chars`;
-  const validationLabel =
-    loadingStage === "validated" && validationProgress
-      ? `Validating ${validationProgress.completed}/${validationProgress.total}`
-      : "Validate";
+  const retrievalLabel =
+    loadingStage === "retrieved" && retrievalProgress
+      ? `Validating ${retrievalProgress.completed}/${retrievalProgress.total}`
+      : "Retrieve";
 
   return (
     <main className={`app-shell${isDetailsExpanded ? " details-expanded" : ""}`}>
@@ -838,16 +920,16 @@ export default function Home() {
           </button>
           <button
             className="secondary-action"
-            disabled={isLoading || !result || !stageControl.canValidate}
-            onClick={runValidation}
+            disabled={isLoading || !result || !stageControl.canRetrieve}
+            onClick={runRetrieval}
             type="button"
           >
-            {loadingStage === "validated" ? (
+            {loadingStage === "retrieved" ? (
               <Loader2 className="spin" size={18} />
             ) : (
               <ShieldCheck size={18} />
             )}
-            <span>{validationLabel}</span>
+            <span>{retrievalLabel}</span>
           </button>
           <button
             className="secondary-action"
@@ -950,6 +1032,7 @@ export default function Home() {
                     citation={citation}
                     assessment={result?.assessment ?? null}
                     workflowStage={workflowStage}
+                    bookmarked={bookmarkedCitationIds.has(citation.id)}
                   />
                 </button>
               ))
@@ -975,21 +1058,44 @@ export default function Home() {
                   assessment={result?.assessment ?? null}
                   workflowStage={workflowStage}
                   variant="details"
+                  bookmarked={selectedCitationIsBookmarked}
                 />
               </div>
               <div className="details-actions">
                 <button
-                  className="secondary-action compact-action"
+                  className={`secondary-action compact-action bookmark-action${
+                    selectedCitationIsBookmarked ? " bookmarked" : ""
+                  }`}
                   type="button"
                   onClick={() => void bookmarkSelectedCitation()}
-                  disabled={!selectedCitation || bookmarkStatus === "Saving"}
+                  disabled={
+                    !selectedCitation ||
+                    bookmarkStatus === "Saving" ||
+                    selectedCitationIsBookmarked ||
+                    isBookmarkFixture
+                  }
+                  title={
+                    isBookmarkFixture
+                      ? "Bookmarking is disabled while viewing the bookmark test fixture."
+                      : selectedCitationIsBookmarked
+                        ? "This extracted citation is already bookmarked."
+                        : undefined
+                  }
                 >
                   {bookmarkStatus === "Saving" ? (
                     <Loader2 className="spin" size={16} />
+                  ) : selectedCitationIsBookmarked ? (
+                    <BookmarkCheck size={16} />
                   ) : (
                     <Bookmark size={16} />
                   )}
-                  <span>Bookmark context</span>
+                  <span>
+                    {isBookmarkFixture
+                      ? "Bookmark fixture"
+                      : selectedCitationIsBookmarked
+                        ? "Bookmarked"
+                        : "Bookmark context"}
+                  </span>
                 </button>
                 <button
                   className="icon-action"
@@ -1006,37 +1112,218 @@ export default function Home() {
                 </button>
               </div>
             </div>
-            {bookmarkStatus ? <p className="bookmark-status">{bookmarkStatus}</p> : null}
-            <div className="details-grid">
-              <BibliographicComparison
-                citation={selectedCitation}
-                extractedAttempts={selectedExtractedAttempts}
-                extractedAttemptIndex={selectedExtractedAttemptIndex}
-                clusterIndex={selectedClusterIndex}
-                onClusterChange={selectCourtListenerCandidate}
-                onExtractedAttemptChange={selectExtractedAttempt}
-              />
-              <ValidationDetails
-                validation={selectedCitation.validation}
-                citationId={selectedCitation.id}
-                candidateIndex={selectedClusterIndex}
-                onCandidateChange={selectCourtListenerCandidate}
-              />
-              <AssessmentDetails
-                assessment={selectedCitation.assessment}
-                candidateIndex={selectedClusterIndex}
-                candidateId={candidateIdForIndex(
-                  selectedCitation.validation,
-                  selectedClusterIndex
-                )}
-              />
-            </div>
+            {bookmarkStatus ? (
+              <p className="bookmark-status" role="status" aria-live="polite">
+                {bookmarkStatus}
+              </p>
+            ) : null}
+            <TraceWorkspace
+              citation={selectedCitation}
+              extractedAttempts={selectedExtractedAttempts}
+              extractedAttemptIndex={selectedExtractedAttemptIndex}
+              candidateIndex={selectedClusterIndex}
+              loadingStage={loadingStage}
+              selectedSection={selectedTraceSection}
+              onSectionChange={setSelectedTraceSection}
+              onCandidateChange={selectCourtListenerCandidate}
+              onExtractedAttemptChange={selectExtractedAttempt}
+            />
           </>
         ) : (
-          <div className="details-empty">Select a citation to inspect fields and validation.</div>
+          <div className="details-empty">Select a citation to inspect fields and retrieval.</div>
         )}
       </section>
     </main>
+  );
+}
+
+function TraceWorkspace({
+  citation,
+  extractedAttempts,
+  extractedAttemptIndex,
+  candidateIndex,
+  loadingStage,
+  selectedSection,
+  onSectionChange,
+  onCandidateChange,
+  onExtractedAttemptChange
+}: {
+  citation: ReviewCitation;
+  extractedAttempts: ExtractedCitationAttempt[];
+  extractedAttemptIndex: number;
+  candidateIndex: number;
+  loadingStage: LoadingStage | null;
+  selectedSection: TraceSectionId;
+  onSectionChange: (section: TraceSectionId) => void;
+  onCandidateChange: (citationId: string, candidateIndex: number) => void;
+  onExtractedAttemptChange: (citationId: string, attemptIndex: number) => void;
+}) {
+  const sections: Array<{ id: TraceSectionId; label: string; status: TraceOperationStatus }> = [
+    {
+      id: "retrieval",
+      label: "Retrieval",
+      status: retrievalOperationStatus(citation.retrieval, loadingStage)
+    },
+    {
+      id: "assessment",
+      label: "Assessment",
+      status: assessmentOperationStatus(citation.assessment, loadingStage)
+    },
+    {
+      id: "reporter-inference",
+      label: "Reporter inference",
+      status: citation.reporter_inference ? "complete" : "unavailable"
+    }
+  ];
+
+  function moveTab(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") {
+      return;
+    }
+    event.preventDefault();
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    const nextIndex = (index + direction + sections.length) % sections.length;
+    onSectionChange(sections[nextIndex].id);
+    const tabList = event.currentTarget.parentElement;
+    requestAnimationFrame(() => {
+      (tabList?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex])?.focus();
+    });
+  }
+
+  return (
+    <div className="trace-workspace">
+      <div className="bibliographic-column">
+        <BibliographicComparison
+          citation={citation}
+          extractedAttempts={extractedAttempts}
+          extractedAttemptIndex={extractedAttemptIndex}
+          clusterIndex={candidateIndex}
+          onClusterChange={onCandidateChange}
+          onExtractedAttemptChange={onExtractedAttemptChange}
+        />
+      </div>
+
+      <section className="trace-region" aria-label="Citation traces">
+        <div className="trace-nav" role="tablist" aria-label="Trace sections" aria-orientation="horizontal">
+          {sections.map((section, index) => (
+            <button
+              key={section.id}
+              id={`trace-tab-${section.id}`}
+              className={`trace-tab ${section.status}${
+                selectedSection === section.id ? " selected" : ""
+              }`}
+              type="button"
+              role="tab"
+              aria-selected={selectedSection === section.id}
+              aria-controls={`trace-panel-${section.id}`}
+              tabIndex={selectedSection === section.id ? 0 : -1}
+              onClick={() => onSectionChange(section.id)}
+              onKeyDown={(event) => moveTab(event, index)}
+            >
+              <span>{section.label}</span>
+              <small>
+                <i aria-hidden="true" />
+                {formatTraceOperationStatus(section.status)}
+              </small>
+            </button>
+          ))}
+        </div>
+        <div
+          id={`trace-panel-${selectedSection}`}
+          className="trace-panel"
+          role="tabpanel"
+          aria-labelledby={`trace-tab-${selectedSection}`}
+          tabIndex={0}
+        >
+          {selectedSection === "retrieval" ? (
+            <RetrievalDetails
+              retrieval={citation.retrieval}
+              citationId={citation.id}
+              candidateIndex={candidateIndex}
+              onCandidateChange={onCandidateChange}
+            />
+          ) : null}
+          {selectedSection === "assessment" ? (
+            <AssessmentDetails
+              assessment={citation.assessment}
+              candidateIndex={candidateIndex}
+              candidateId={candidateIdForIndex(citation.retrieval, candidateIndex)}
+            />
+          ) : null}
+          {selectedSection === "reporter-inference" ? (
+            <ReporterInferenceDetails inference={citation.reporter_inference} />
+          ) : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function retrievalOperationStatus(
+  retrieval: RetrievalPayload | null,
+  loadingStage: LoadingStage | null
+): TraceOperationStatus {
+  if (retrieval) {
+    return retrieval.status === "lookup_failed" || retrieval.status === "throttled"
+      ? "failed"
+      : "complete";
+  }
+  return loadingStage === "retrieved" ? "running" : "not-run";
+}
+
+function assessmentOperationStatus(
+  assessment: CitationAssessmentPayload | null,
+  loadingStage: LoadingStage | null
+): TraceOperationStatus {
+  if (assessment) {
+    return assessment.status === "waiting" ? "running" : "complete";
+  }
+  return loadingStage === "assessed" ? "running" : "not-run";
+}
+
+function formatTraceOperationStatus(status: TraceOperationStatus) {
+  return status === "not-run" ? "Not run" : formatStatusLabel(status);
+}
+
+function ReporterInferenceDetails({
+  inference
+}: {
+  inference: ReporterJurisdictionInferencePayload | null;
+}) {
+  if (!inference) {
+    return (
+      <div className="detail-group trace-empty-state">
+        <h3>Reporter inference</h3>
+        <p>This citation type has no reporter-jurisdiction inference.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="detail-group assessment-trace-group">
+      <div className="assessment-trace-heading">
+        <h3>Reporter jurisdiction inference</h3>
+        <p>Jurisdiction evidence only — this trace does not select or assess a case.</p>
+      </div>
+      <dl className="assessment-fields">
+        <div><dt>Reporter</dt><dd>{formatValue(inference.reporter)}</dd></div>
+        <div><dt>Status</dt><dd>{formatStatusLabel(inference.status)}</dd></div>
+        <div><dt>Coverage</dt><dd>{formatStatusLabel(inference.coverage)}</dd></div>
+        <div><dt>Exact court</dt><dd>{formatValue(inference.exact_court_id)}</dd></div>
+        <div><dt>Court set</dt><dd>{formatValue(inference.court_ids)}</dd></div>
+        <div><dt>Court class</dt><dd>{formatValue(inference.court_classes.map(formatStatusLabel))}</dd></div>
+        <div><dt>Jurisdiction</dt><dd>{formatValue(inference.jurisdiction_ids)}</dd></div>
+      </dl>
+      <div className="inference-evidence">
+        <h4>Evidence</h4>
+        {inference.evidence.length ? inference.evidence.map((evidence) => (
+          <article key={`${evidence.source}:${evidence.statement}`}>
+            <p>{evidence.statement}</p>
+            <small>{evidence.source}</small>
+          </article>
+        )) : <p className="muted">No jurisdiction constraint is registered for this reporter.</p>}
+      </div>
+    </div>
   );
 }
 
@@ -1053,19 +1340,21 @@ function CitationTags({
   citation,
   assessment = null,
   workflowStage,
-  variant = "rail"
+  variant = "rail",
+  bookmarked = false
 }: {
   citation: ReviewCitation;
   assessment?: ReviewAssessment | null;
   workflowStage: WorkflowStage;
   variant?: "rail" | "details";
+  bookmarked?: boolean;
 }) {
   // The event-level status rolls up to the re-extraction result when one exists,
   // so a recovered citation reads as its final (re-extracted) verdict.
   const effective = effectiveAssessment(citation, assessment);
   const assessmentStatus = assessmentStatusFromPayload(effective);
-  const showValidation = Boolean(
-    citation.validation && (workflowStage === "validated" || variant === "details")
+  const showRetrieval = Boolean(
+    citation.retrieval && (workflowStage === "retrieved" || variant === "details")
   );
   const showAssessment = Boolean(
     assessmentStatus && (workflowStage === "assessed" || variant === "details")
@@ -1084,9 +1373,10 @@ function CitationTags({
   return (
     <span className={`citation-tags ${variant}`} aria-label="Citation labels">
       {showKind ? <span className="citation-tag kind">{citation.kind}</span> : null}
-      {showValidation && citation.validation ? (
-        <span className={`citation-tag validation ${citationStatus(citation)}`}>
-          {formatStatusLabel(citation.validation.status)}
+      {bookmarked ? <span className="citation-tag bookmark">Bookmarked</span> : null}
+      {showRetrieval && citation.retrieval ? (
+        <span className={`citation-tag retrieval ${citationStatus(citation)}`}>
+          {formatStatusLabel(citation.retrieval.status)}
         </span>
       ) : null}
       {showAssessment && effective && assessmentStatus ? (
@@ -1115,7 +1405,7 @@ function BibliographicComparison({
   onClusterChange: (citationId: string, clusterIndex: number) => void;
   onExtractedAttemptChange: (citationId: string, attemptIndex: number) => void;
 }) {
-  const clusters = comparableCourtListenerClusters(citation.validation);
+  const clusters = comparableCourtListenerClusters(citation.retrieval);
   const safeClusterIndex = clusters.length
     ? Math.min(Math.max(clusterIndex, 0), clusters.length - 1)
     : 0;
@@ -1125,7 +1415,7 @@ function BibliographicComparison({
     : 0;
   const extractedAttempt = extractedAttempts[safeExtractedAttemptIndex] ?? extractedAttempts[0];
   const courtResolution = courtResolutionForCandidate(
-    citation.validation,
+    citation.retrieval,
     safeClusterIndex
   );
   const rows = bibliographicRows(extractedAttempt, cluster, courtResolution);
@@ -1224,21 +1514,21 @@ function BibliographicComparison({
   );
 }
 
-function ValidationDetails({
-  validation,
+function RetrievalDetails({
+  retrieval,
   citationId,
   candidateIndex,
   onCandidateChange
 }: {
-  validation: ValidationPayload | null;
+  retrieval: RetrievalPayload | null;
   citationId: string;
   candidateIndex: number;
   onCandidateChange: (citationId: string, candidateIndex: number) => void;
 }) {
-  if (!validation) {
+  if (!retrieval) {
     return (
       <div className="detail-group">
-        <h3>Validation trace</h3>
+        <h3>Retrieval trace</h3>
         <dl>
           <div>
             <dt>Status</dt>
@@ -1249,13 +1539,13 @@ function ValidationDetails({
     );
   }
 
-  const candidates = ambiguousValidationCandidates(validation);
+  const candidates = ambiguousRetrievalCandidates(retrieval);
   const safeCandidateIndex = candidates.length
     ? Math.min(Math.max(candidateIndex, 0), candidates.length - 1)
     : 0;
   const selectedCandidate = candidates[safeCandidateIndex] ?? null;
-  const resolution = selectedCandidate?.court_resolution ?? validation.candidate?.court_resolution;
-  const search = validation.candidate_search;
+  const resolution = selectedCandidate?.court_resolution ?? retrieval.candidate?.court_resolution;
+  const search = retrieval.candidate_search;
 
   function changeCandidate(direction: -1 | 1) {
     if (candidates.length < 2) {
@@ -1270,7 +1560,7 @@ function ValidationDetails({
     <div className="detail-group assessment-trace-group">
       <div className="assessment-trace-heading">
         <div>
-          <h3>Validation trace</h3>
+          <h3>Retrieval trace</h3>
           <p>
             CourtListener existence lookup, then court resolution or case-name search
             {selectedCandidate
@@ -1279,9 +1569,9 @@ function ValidationDetails({
           </p>
         </div>
         {candidates.length > 1 ? (
-          <span className="case-switcher" aria-label="Validation candidate selector">
+          <span className="case-switcher" aria-label="Retrieval candidate selector">
             <button
-              aria-label="Show previous validation candidate"
+              aria-label="Show previous retrieval candidate"
               type="button"
               onClick={() => changeCandidate(-1)}
             >
@@ -1291,7 +1581,7 @@ function ValidationDetails({
               {safeCandidateIndex + 1}/{candidates.length}
             </strong>
             <button
-              aria-label="Show next validation candidate"
+              aria-label="Show next retrieval candidate"
               type="button"
               onClick={() => changeCandidate(1)}
             >
@@ -1301,8 +1591,8 @@ function ValidationDetails({
         ) : null}
       </div>
       <ol className="assessment-trace">
-        <AssessmentTraceStep index="1" title="Citation lookup" status={validation.status}>
-          <ValidationLookupDetails validation={validation} />
+        <AssessmentTraceStep index="1" title="Citation lookup" status={retrieval.status}>
+          <RetrievalLookupDetails retrieval={retrieval} />
         </AssessmentTraceStep>
         {resolution ? (
           <AssessmentTraceStep index="2" title="Court resolution" status={resolution.resolved_via}>
@@ -1348,28 +1638,28 @@ function CaseNameSearchDetails({ search }: { search: CaseNameSearchTracePayload 
   );
 }
 
-function ValidationLookupDetails({ validation }: { validation: ValidationPayload }) {
+function RetrievalLookupDetails({ retrieval }: { retrieval: RetrievalPayload }) {
   return (
     <dl className="assessment-fields">
       <div>
         <dt>Source</dt>
-        <dd>{validation.source}</dd>
+        <dd>{retrieval.source}</dd>
       </div>
       <div>
         <dt>Locator</dt>
-        <dd>{formatValue(validation.locator)}</dd>
+        <dd>{formatValue(retrieval.locator)}</dd>
       </div>
       <div>
         <dt>Case name</dt>
-        <dd>{validation.case_names.length ? validation.case_names.join(", ") : "-"}</dd>
+        <dd>{retrieval.case_names.length ? retrieval.case_names.join(", ") : "-"}</dd>
       </div>
       <div>
         <dt>Status</dt>
-        <dd>{formatStatusLabel(validation.status)}</dd>
+        <dd>{formatStatusLabel(retrieval.status)}</dd>
       </div>
       <div>
         <dt>Cache</dt>
-        <dd>{formatValue(validation.lookup_cache)}</dd>
+        <dd>{formatValue(retrieval.lookup_cache)}</dd>
       </div>
     </dl>
   );
@@ -1426,7 +1716,7 @@ function AssessmentDetails({
           </div>
           <div>
             <dt>Message</dt>
-            <dd>Run assessment after validation to check case-name extraction.</dd>
+            <dd>Run assessment after retrieval to check case-name extraction.</dd>
           </div>
         </dl>
       </div>
@@ -1845,7 +2135,7 @@ function extractedCitationAttempts(
     label: "Extracted",
     isReextracted: false,
     fields: citation.fields,
-    locator: citation.validation?.locator ?? citation.matched_text,
+    locator: citation.retrieval?.locator ?? citation.matched_text,
     citation,
     reassessment: null,
     span: null
@@ -1862,7 +2152,7 @@ function extractedCitationAttempts(
       label: "Re-extracted",
       isReextracted: true,
       fields: { ...citation.fields, case_name: item.case_name },
-      locator: citation.validation?.locator ?? citation.matched_text,
+      locator: citation.retrieval?.locator ?? citation.matched_text,
       citation,
       reassessment: followup.status === "reassessed" ? followup.result : null,
       span: item.case_name_span
@@ -1878,15 +2168,15 @@ function bibliographicRows(
   const { citation, fields } = extractedAttempt;
   const primaryAssessment = completedAssessmentResult(citation.assessment);
   const canColorRows = primaryAssessment !== null;
-  const citationLocator = extractedAttempt.locator ?? citation.validation?.locator ?? citation.matched_text;
+  const citationLocator = extractedAttempt.locator ?? citation.retrieval?.locator ?? citation.matched_text;
   const extractedLocatorParts = splitLocator(citationLocator);
-  const courtListenerLocator = cluster ? citation.validation?.locator : null;
+  const courtListenerLocator = cluster ? citation.retrieval?.locator : null;
   const courtListenerLocatorParts = splitLocator(courtListenerLocator);
   const extractedCaseName = caseNameFromFields(fields);
   const extractedCaseNameDisplay = extractedCaseName ?? MISSING_EXTRACTED_CASE_NAME_LABEL;
   const courtListenerCaseName = readString(cluster, ["case_name", "caseName"]);
   // The immediate cluster payload rarely carries the court; it is resolved
-  // deterministically during validation (docket lookup) into court_resolution.
+  // deterministically during retrieval (docket lookup) into court_resolution.
   const courtListenerCourt = cluster
     ? readString(cluster, ["court_id", "court", "courtId"]) ??
       courtResolution?.courtlistener_court_id ??
@@ -2422,66 +2712,66 @@ function renderSpansOverlap(left: RenderCitation, right: RenderCitation) {
   return left.highlightStart < right.highlightEnd && right.highlightStart < left.highlightEnd;
 }
 
-function comparableCourtListenerClusters(validation: ValidationPayload | null) {
-  if (!validation || !hasCourtListenerCandidate(validation)) {
+function comparableCourtListenerClusters(retrieval: RetrievalPayload | null) {
+  if (!retrieval || !hasCourtListenerCandidate(retrieval)) {
     return [];
   }
-  return courtListenerMatches(validation);
+  return courtListenerMatches(retrieval);
 }
 
-function hasCourtListenerCandidate(validation: ValidationPayload) {
-  return (validation.status === "found" || citationStatusFromValidation(validation) === "ambiguous") &&
-    courtListenerMatches(validation).length > 0;
+function hasCourtListenerCandidate(retrieval: RetrievalPayload) {
+  return (retrieval.status === "found" || citationStatusFromRetrieval(retrieval) === "ambiguous") &&
+    courtListenerMatches(retrieval).length > 0;
 }
 
-function courtListenerMatches(validation: ValidationPayload): CourtListenerCitationRecord[] {
-  const candidates = ambiguousValidationCandidates(validation);
+function courtListenerMatches(retrieval: RetrievalPayload): CourtListenerCitationRecord[] {
+  const candidates = ambiguousRetrievalCandidates(retrieval);
   if (candidates.length) {
     return candidates.map((candidate) => candidate.record);
   }
-  return validation.candidate ? [validation.candidate.record] : [];
+  return retrieval.candidate ? [retrieval.candidate.record] : [];
 }
 
-function ambiguousValidationCandidates(
-  validation: ValidationPayload | null
+function ambiguousRetrievalCandidates(
+  retrieval: RetrievalPayload | null
 ): RetrievedCandidatePayload[] {
-  return validation?.status === "ambiguous" && Array.isArray(validation.candidates)
-    ? validation.candidates
+  return retrieval?.status === "ambiguous" && Array.isArray(retrieval.candidates)
+    ? retrieval.candidates
     : [];
 }
 
 function courtResolutionForCandidate(
-  validation: ValidationPayload | null,
+  retrieval: RetrievalPayload | null,
   candidateIndex: number
 ): CourtResolutionTracePayload | null {
-  if (!validation) {
+  if (!retrieval) {
     return null;
   }
-  const candidates = ambiguousValidationCandidates(validation);
+  const candidates = ambiguousRetrievalCandidates(retrieval);
   if (candidates.length) {
     const safeIndex = Math.min(Math.max(candidateIndex, 0), candidates.length - 1);
     return candidates[safeIndex]?.court_resolution ?? null;
   }
-  return validation.candidate?.court_resolution ?? null;
+  return retrieval.candidate?.court_resolution ?? null;
 }
 
 function candidateIdForIndex(
-  validation: ValidationPayload | null,
+  retrieval: RetrievalPayload | null,
   candidateIndex: number
 ): string | null {
-  if (!validation) {
+  if (!retrieval) {
     return null;
   }
-  const candidates = ambiguousValidationCandidates(validation);
+  const candidates = ambiguousRetrievalCandidates(retrieval);
   if (candidates.length) {
     const safeIndex = Math.min(Math.max(candidateIndex, 0), candidates.length - 1);
     return candidates[safeIndex]?.candidate_id ?? null;
   }
-  return validation.candidate?.candidate_id ?? null;
+  return retrieval.candidate?.candidate_id ?? null;
 }
 
 function citationStatus(citation: ReviewCitation): CitationStatus {
-  return citation.validation ? citationStatusFromValidation(citation.validation) : "not_checked";
+  return citation.retrieval ? citationStatusFromRetrieval(citation.retrieval) : "not_checked";
 }
 
 // A citation had a re-extraction when a grounded re-extraction produced an
@@ -2553,9 +2843,9 @@ function isAssessmentStatusFilter(filter: CitationFilter): filter is AssessmentS
   );
 }
 
-function isValidationStatusFilter(
+function isRetrievalStatusFilter(
   filter: CitationFilter
-): filter is Exclude<ValidationFilter, "all"> {
+): filter is Exclude<RetrievalFilter, "all"> {
   return (
     filter === "found" ||
     filter === "ambiguous" ||
@@ -2569,12 +2859,12 @@ function isFullCaseCitation(citation: ReviewCitation) {
 }
 
 function isAssessmentCandidateCitation(citation: ReviewCitation) {
-  const status = citation.validation?.status.toLowerCase().replaceAll("-", "_");
+  const status = citation.retrieval?.status.toLowerCase().replaceAll("-", "_");
   return status === "found" || status === "ambiguous";
 }
 
-function citationStatusFromValidation(validation: ValidationPayload): CitationStatus {
-  const normalized = validation.status.toLowerCase().replaceAll("-", "_");
+function citationStatusFromRetrieval(retrieval: RetrievalPayload): CitationStatus {
+  const normalized = retrieval.status.toLowerCase().replaceAll("-", "_");
   if (normalized === "found") {
     return "found";
   }
@@ -2604,42 +2894,42 @@ function citationStatusCounts(citations: ReviewCitation[]) {
   );
 }
 
-function mergeCitationValidation(result: ReviewResult, validation: ValidationPayload): ReviewResult {
-  return withValidationStats({
+function mergeCitationRetrieval(result: ReviewResult, retrieval: RetrievalPayload): ReviewResult {
+  return withRetrievalStats({
     ...result,
     citations: result.citations.map((citation) =>
-      citation.id === validation.citation_id
-        ? { ...citation, validation, assessment: null }
+      citation.id === retrieval.citation_id
+        ? { ...citation, retrieval, assessment: null }
         : citation
     )
   });
 }
 
-function withValidationStats(result: ReviewResult): ReviewResult {
-  const validations = result.citations
-    .map((citation) => citation.validation)
-    .filter(isValidationPayload);
-  const validated = validations.filter((validation) => validation.status !== "skipped").length;
-  const found = validations.filter((validation) => validation.status === "found").length;
+function withRetrievalStats(result: ReviewResult): ReviewResult {
+  const retrievals = result.citations
+    .map((citation) => citation.retrieval)
+    .filter(isRetrievalPayload);
+  const retrieved = retrievals.filter((retrieval) => retrieval.status !== "skipped").length;
+  const found = retrievals.filter((retrieval) => retrieval.status === "found").length;
 
   return {
     ...result,
-    validation: {
-      validations,
+    retrieval: {
+      retrievals,
       counts: {
-        total: validations.length,
+        total: retrievals.length,
         found
       }
     },
     stats: {
       ...result.stats,
-      validated,
+      retrieved,
       found
     }
   };
 }
 
-function isValidationPayload(value: ValidationPayload | null): value is ValidationPayload {
+function isRetrievalPayload(value: RetrievalPayload | null): value is RetrievalPayload {
   return value !== null;
 }
 
@@ -2715,8 +3005,8 @@ function stageFilterOptions(
   allCitationTotal: number,
   reextractionTotal: number
 ): FilterOption[] {
-  if (stage === "validated") {
-    return validationFilters;
+  if (stage === "retrieved") {
+    return retrievalFilters;
   }
 
   const filters = stage === "assessed" ? assessmentFilters : extractionFilters;
@@ -2757,15 +3047,15 @@ async function extractDocument(file: File): Promise<ReviewResult> {
   return parseReviewResponse(response);
 }
 
-async function validateReviewCitation(citation: ReviewCitation): Promise<ValidationPayload> {
-  const response = await fetch("/api/e2e/validate-review-citation", {
+async function retrieveReviewCitation(citation: ReviewCitation): Promise<RetrievalPayload> {
+  const response = await fetch("/api/e2e/retrieve-review-citation", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({ citation })
   });
-  return parseJsonResponse<ValidationPayload>(response);
+  return parseJsonResponse<RetrievalPayload>(response);
 }
 
 async function assessReview(result: ReviewResult): Promise<ReviewResult> {
@@ -2790,11 +3080,41 @@ async function loadSnapshotReview(file: File): Promise<SnapshotReviewResult> {
   return parseJsonResponse<SnapshotReviewResult>(response);
 }
 
+async function fetchBookmarkStatuses(citations: ReviewCitation[]) {
+  const response = await fetch("/api/bookmark", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      action: "status",
+      citations: citations.map(bookmarkCitationIdentity)
+    })
+  });
+  const payload = await parseJsonResponse<{ statuses: Record<string, boolean> }>(response);
+  return payload.statuses;
+}
+
+function bookmarkCitationIdentity(citation: ReviewCitation) {
+  return {
+    citation_id: citation.id,
+    matched_text: citation.matched_text,
+    kind: citation.kind,
+    fields: citation.fields
+  };
+}
+
 async function bookmarkCitationContext(payload: {
-  citation_id: string;
-  matched_text: string;
-  context: string;
-}): Promise<void> {
+  action: "add";
+  citation: ReturnType<typeof bookmarkCitationIdentity>;
+  provenance: {
+    source_path: string | null;
+    source_format: string;
+    citation_id: string;
+    span: { start: number; end: number };
+    context: string;
+  };
+}): Promise<BookmarkMutationResult> {
   const response = await fetch("/api/bookmark", {
     method: "POST",
     headers: {
@@ -2802,7 +3122,15 @@ async function bookmarkCitationContext(payload: {
     },
     body: JSON.stringify(payload)
   });
-  await parseJsonResponse<{ path: string }>(response);
+  return parseJsonResponse<BookmarkMutationResult>(response);
+}
+
+function isBookmarkFixturePath(sourcePath: string | null) {
+  if (!sourcePath) {
+    return false;
+  }
+  const filename = sourcePath.replaceAll("\\", "/").split("/").pop()?.toLowerCase();
+  return filename === "bookmarked.txt";
 }
 
 function citationContextWindow(documentText: string, citation: ReviewCitation) {

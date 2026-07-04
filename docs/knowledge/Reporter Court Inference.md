@@ -1,5 +1,11 @@
 # Reporter-to-Court Inference
 
+This page documents the currently implemented exhaustive-single-court mapping.
+It is the exact-court projection of the broader
+[`ReporterJurisdictionInference`](../development/retrieval/reporter-jurisdiction-inference%20%5Bin%20progress%5D.md)
+design. Multi-court and court-class constraints remain useful inference results
+even though the current helper cannot represent them.
+
 Reporter-to-court inference is a narrow extraction fallback for
 `FullCaseCitation.court`. Eyecite can recognize a reporter and still leave the
 court empty. When the reporter publishes decisions from exactly one court, the
@@ -26,8 +32,10 @@ the same canonical reporter value.
 
 ## Implemented mappings
 
-The implementation is
-`src/mellea_lrc/assessment/fields/court/inference.py`.
+The registry and formal inference live in
+`src/mellea_lrc/reporter_jurisdiction/`. The assessment helper in
+`src/mellea_lrc/assessment/fields/court/inference.py` is a compatibility
+projection that returns only `exact_court_id`.
 
 | Canonical reporter | CourtListener court | Eyecite behavior | Why inference is valid |
 |---|---|---|---|

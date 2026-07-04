@@ -5,11 +5,11 @@ Status: accepted
 ## Context
 
 The document pipeline is monotonic: preprocessing establishes text and provenance,
-extraction adds citations, validation adds lookup results, and assessment adds
+extraction adds citations, retrieval adds lookup results, and assessment adds
 cross-reference judgments and re-extraction history. The previous top-level result
 types represented that lifecycle inconsistently: `PreprocessedDocument` was wrapped
 by `DocumentExtraction`, while later stages copied the preprocessing, citation, and
-validation fields into new peer classes.
+retrieval fields into new peer classes.
 
 That structure obscured the fact that every later artifact is also a valid earlier
 artifact, duplicated forwarding properties, and forced adapters to reconstruct
@@ -23,7 +23,7 @@ Document artifacts use an immutable, additive inheritance chain:
 DocumentBase
 └── PreprocessedDocument
     └── ExtractedDocument
-        └── ValidatedDocument
+        └── RetrievedDocument
             └── AssessedDocument
 ```
 
@@ -33,8 +33,8 @@ pure transition functions:
 ```text
 run_preprocessing(source)          -> PreprocessedDocument
 run_extraction(preprocessed)       -> ExtractedDocument
-run_validation(extracted)          -> ValidatedDocument
-run_assessment(validated)          -> AssessedDocument
+run_retrieval(extracted)          -> RetrievedDocument
+run_assessment(retrieved)          -> AssessedDocument
 ```
 
 External operations such as document conversion, CourtListener lookup, and LLM
@@ -43,7 +43,7 @@ calls do not become methods on artifact classes.
 ### Field ownership
 
 Real stage outputs remain direct fields. Metadata records contain provenance and
-execution context only; they do not hide text, citations, validations, or
+execution context only; they do not hide text, citations, retrievals, or
 assessments.
 
 - `DocumentBase` owns `source_metadata`, containing source identity and provenance
@@ -52,8 +52,8 @@ assessments.
   `preprocessing_metadata`, containing preprocessing backend provenance.
 - `ExtractedDocument` adds the real `citations` output and
   `extraction_metadata`, containing extraction backend provenance.
-- `ValidatedDocument` adds one real `validations` outcome for every citation and
-  `validation_metadata`, containing lookup client mode and source.
+- `RetrievedDocument` adds one real `retrievals` outcome for every citation and
+  `retrieval_metadata`, containing lookup client mode and source.
 - `AssessedDocument` adds one real citation-assessment execution state per citation,
   plus `assessment_metadata`, containing assessment-run execution provenance.
   Completed citation assessments own their field results and case-name follow-up.
@@ -68,7 +68,7 @@ stage.
 - Citation identifiers are non-empty and unique within a document.
 - Citation spans are contained by the preprocessed text.
 - `resolves_to` refers to another citation in the same document.
-- Validation identifiers exactly match extracted citation identifiers.
+- Retrieval identifiers exactly match extracted citation identifiers.
 - Assessment identifiers exactly match extracted citation identifiers.
 - Assessment execution states form a tagged union: `waiting`, `skipped`,
   `assessed`, or `failed`. Each state carries only the data valid for that state.
@@ -80,25 +80,25 @@ stage.
   replaced.
 - Semantic external data is converted into typed immutable domain records before
   entering an artifact. CourtListener responses use `CourtListenerCitationRecord`;
-  validation wraps each retrieved record in `RetrievedCandidate` with a stable
+  retrieval wraps each retrieved record in `RetrievedCandidate` with a stable
   `candidate_id` and candidate-scoped provenance. Lookup
-  diagnostics use `ValidationFailureDetail`, and assessment conversations use
+  diagnostics use `RetrievalFailureDetail`, and assessment conversations use
   `ChatTurn`.
 - Unknown external fields are preserved only in an explicitly named `ExtraData`
   field. `ExtraData` is defensively copied and deeply frozen, so domain records
   cannot be mutated indirectly through retained input dictionaries or nested lists.
-- Found and ambiguous validation share the same `RetrievedCandidate` type.
+- Found and ambiguous retrieval share the same `RetrievedCandidate` type.
   Assessment refers to it by `candidate_id` rather than duplicating the external
   record. Array position is presentation order, not identity.
 
 ### External boundaries
 
-Untrusted CourtListener payloads are validated by strict Pydantic transport models
+Untrusted CourtListener payloads are retrieved by strict Pydantic transport models
 and then converted into plain immutable dataclasses. Transport models do not become
 the document domain model. They reject type coercion while accepting newly added
 upstream fields; those unknown fields are collected into `extra_data` instead of
 being discarded or mixed with modeled fields. LLM structured outputs use the same
-boundary-validation principle.
+boundary-retrieval principle.
 
 Internally initiated stage objects remain dataclasses. This keeps external parsing,
 schema adaptation, and domain invariants as separate responsibilities.
@@ -171,18 +171,18 @@ Serialized artifacts retain explicit top-level stage fields and require:
 
 Unversioned artifacts and mismatched artifact types are rejected. Deserialization
 validates the artifact invariants rather than silently constructing contradictory
-stage objects. Schema version 7 exposes the same stage ownership explicitly with
+stage objects. Schema version 15 exposes the same stage ownership explicitly with
 `source_metadata`, `preprocessing_metadata`, `extraction_metadata`,
-`validation_metadata`, and `assessment_metadata` keys as applicable. It also uses
+`retrieval_metadata`, and `assessment_metadata` keys as applicable. It also uses
 typed retrieved candidates, explicit `extra_data` fields, conclusion-only case-name
-statuses, and nested case-name follow-up payloads. Version 7 removes the peer
-`reassessments` collection and duplicate nested citation identifiers. Earlier
-versions are not accepted.
+statuses, and nested case-name follow-up payloads. Schema-14 artifacts are accepted
+only through a narrow read adapter that maps the former retrieval-stage field names
+to the canonical schema; all new writes use schema 15.
 
 Every public artifact deserializer first validates a strict Pydantic transport DTO
 configured with `extra="forbid"` and no type coercion. Citation kinds and assessment
 execution states use discriminated transport unions, so state-inappropriate fields
-are rejected at the boundary. The validated DTO is then converted into immutable
+are rejected at the boundary. The retrieved DTO is then converted into immutable
 domain dataclasses; Pydantic models never enter the document inheritance chain.
 
 Serialized artifacts contain source-of-truth domain data only. Counts, completion
@@ -196,12 +196,11 @@ Only the canonical names are exported:
 
 - `PreprocessedDocument`
 - `ExtractedDocument`
-- `ValidatedDocument`
+- `RetrievedDocument`
 - `AssessedDocument`
 
-The previous `DocumentExtraction`, `DocumentValidation`, and `DocumentAssessment`
-types are removed without compatibility adapters. Artifact readers require the
-current explicit schema version and do not infer stages from payload keys.
+Superseded domain type names are not exported. Artifact readers require an explicit
+supported schema version and do not infer stages from payload keys.
 
 ## Alternatives considered
 
@@ -214,7 +213,7 @@ artifacts for earlier read-only consumers.
 
 ### One document with optional stage fields
 
-A single class with optional citations, validations, and assessments was rejected
+A single class with optional citations, retrievals, and assessments was rejected
 because it permits many invalid combinations and makes stage requirements runtime
 conventions instead of type-level contracts.
 

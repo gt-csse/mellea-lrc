@@ -1,4 +1,4 @@
-"""Tests for first-layer citation validation."""
+"""Tests for first-layer citation retrieval."""
 
 import pytest
 from pydantic import ValidationError
@@ -14,16 +14,16 @@ from mellea_lrc.courtlistener.lookup import (
     citation_lookup_envelope_dict,
     normalize_citation_lookup_payload,
 )
-from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, ValidationFailureDetail
+from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, RetrievalFailureDetail
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
-from mellea_lrc.validation.not_found_search import _case_name_query
-from mellea_lrc.validation.pipeline import run_validation
-from mellea_lrc.validation.types import (
-    AmbiguousCitationValidation,
+from mellea_lrc.retrieval.not_found_search import _case_name_query
+from mellea_lrc.retrieval.pipeline import run_retrieval
+from mellea_lrc.retrieval.types import (
+    AmbiguousCitationRetrieval,
     CaseNameSearchStatus,
     CourtResolutionSource,
-    ValidationStatus,
+    RetrievalStatus,
 )
 
 
@@ -53,7 +53,7 @@ def _extracted_document(
     )
 
 
-def test_validate_full_case_found() -> None:
+def test_retrieve_full_case_found() -> None:
     extraction = _extracted_document(
         preprocessed=preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483."),
         citations=(
@@ -66,7 +66,7 @@ def test_validate_full_case_found() -> None:
         ),
     )
 
-    result = run_validation(
+    result = run_retrieval(
         extraction,
         client_mode="custom",
         client=_client(
@@ -91,35 +91,35 @@ def test_validate_full_case_found() -> None:
         ),
     )
 
-    validation = result.validations[0]
+    retrieval = result.retrievals[0]
     assert result.text == extraction.text
     assert result.source_metadata == extraction.source_metadata
     assert result.preprocessing_metadata == extraction.preprocessing_metadata
     assert result.extraction_metadata == extraction.extraction_metadata
     assert result.citations == extraction.citations
-    assert validation.candidate.court_resolution.courtlistener_court_id == "scotus"
-    assert validation.status == ValidationStatus.FOUND
-    assert validation.locator == "347 U.S. 483"
-    assert validation.case_names == ("Brown v. Board of Education",)
-    assert validation.lookup_status == 200
-    assert validation.lookup_cache == "miss"
-    assert validation.candidate.record == CourtListenerCitationRecord(
+    assert retrieval.candidate.court_resolution.courtlistener_court_id == "scotus"
+    assert retrieval.status == RetrievalStatus.FOUND
+    assert retrieval.locator == "347 U.S. 483"
+    assert retrieval.case_names == ("Brown v. Board of Education",)
+    assert retrieval.lookup_status == 200
+    assert retrieval.lookup_cache == "miss"
+    assert retrieval.candidate.record == CourtListenerCitationRecord(
         case_name="Brown v. Board of Education",
         date_filed="1954-05-17",
         court_id=None,
         docket_id="191796",
         extra_data=ExtraData({"absolute_url": "/opinion/1/"}),
     )
-    assert validation.candidate.court_resolution.courtlistener_court_id == "scotus"
-    assert validation.candidate.court_resolution.resolved_via == CourtResolutionSource.DOCKET_LOOKUP
-    assert result.found == (validation,)
-    assert validation.extra_data.to_dict() == {
+    assert retrieval.candidate.court_resolution.courtlistener_court_id == "scotus"
+    assert retrieval.candidate.court_resolution.resolved_via == CourtResolutionSource.DOCKET_LOOKUP
+    assert result.found == (retrieval,)
+    assert retrieval.extra_data.to_dict() == {
         "response": {"query_time_ms": 12},
         "envelope": {"request_id": "request-1"},
     }
 
 
-def test_validate_found_docket_lookup_is_best_effort_and_deduplicated() -> None:
+def test_retrieve_found_docket_lookup_is_best_effort_and_deduplicated() -> None:
     extraction = _extracted_document(
         preprocessed=preprocess_plain_text_from_string("Example, 1 F.3d 2."),
         citations=(
@@ -147,14 +147,14 @@ def test_validate_found_docket_lookup_is_best_effort_and_deduplicated() -> None:
         get_json=lambda url: get_urls.append(url) or {"detail": "temporarily unavailable"},
     )
 
-    result = run_validation(extraction, client_mode="custom", client=client)
+    result = run_retrieval(extraction, client_mode="custom", client=client)
 
-    assert result.validations[0].status == ValidationStatus.FOUND
-    assert result.validations[0].candidate.record.court_id is None
+    assert result.retrievals[0].status == RetrievalStatus.FOUND
+    assert result.retrievals[0].candidate.record.court_id is None
     assert get_urls == ["https://cl-access.example.test/dockets/42"]
 
 
-def test_validate_ambiguous_resolves_court_for_each_candidate() -> None:
+def test_retrieve_ambiguous_resolves_court_for_each_candidate() -> None:
     extraction = _extracted_document(
         preprocessed=preprocess_plain_text_from_string("Example, 1 F.3d 2."),
         citations=(
@@ -187,15 +187,15 @@ def test_validate_ambiguous_resolves_court_for_each_candidate() -> None:
         get_json=get_json,
     )
 
-    result = run_validation(extraction, client_mode="custom", client=client)
+    result = run_retrieval(extraction, client_mode="custom", client=client)
 
-    validation = result.validations[0]
-    assert isinstance(validation, AmbiguousCitationValidation)
-    assert [candidate.record.case_name for candidate in validation.candidates] == [
+    retrieval = result.retrievals[0]
+    assert isinstance(retrieval, AmbiguousCitationRetrieval)
+    assert [candidate.record.case_name for candidate in retrieval.candidates] == [
         "Example A",
         "Example B",
     ]
-    assert [candidate.court_resolution.courtlistener_court_id for candidate in validation.candidates] == [
+    assert [candidate.court_resolution.courtlistener_court_id for candidate in retrieval.candidates] == [
         "ca1",
         "ca2",
     ]
@@ -205,7 +205,7 @@ def test_validate_ambiguous_resolves_court_for_each_candidate() -> None:
     ]
 
 
-def test_validate_non_case_citation_is_skipped() -> None:
+def test_retrieve_non_case_citation_is_skipped() -> None:
     extraction = _extracted_document(
         preprocessed=preprocess_plain_text_from_string("See 28 U.S.C. § 636."),
         citations=(
@@ -218,9 +218,9 @@ def test_validate_non_case_citation_is_skipped() -> None:
         ),
     )
 
-    result = run_validation(extraction, client_mode="custom", client=_client({}))
+    result = run_retrieval(extraction, client_mode="custom", client=_client({}))
 
-    assert result.validations[0].status == ValidationStatus.SKIPPED
+    assert result.retrievals[0].status == RetrievalStatus.SKIPPED
 
 
 def _not_found_extraction(citation: FullCaseCitation) -> ExtractedDocument:
@@ -249,14 +249,14 @@ def test_not_found_reports_case_name_search_count() -> None:
         FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter="U.S.", page="999"),
     )
 
-    validation = run_validation(extraction, client_mode="custom", client=client).validations[0]
+    retrieval = run_retrieval(extraction, client_mode="custom", client=client).retrievals[0]
 
-    assert validation.status == ValidationStatus.NOT_FOUND
-    assert validation.candidate_search.status == CaseNameSearchStatus.SEARCHED
-    assert validation.candidate_search.query == "caseName:(Doe AND Roe)"
+    assert retrieval.status == RetrievalStatus.NOT_FOUND
+    assert retrieval.candidate_search.status == CaseNameSearchStatus.SEARCHED
+    assert retrieval.candidate_search.query == "caseName:(Doe AND Roe)"
     assert [
         (probe.corpus.value, probe.http_status, probe.case_count)
-        for probe in validation.candidate_search.probes
+        for probe in retrieval.candidate_search.probes
     ] == [
         ("o", 200, 7),
         ("r", 200, 7),
@@ -280,10 +280,10 @@ def test_not_found_reports_zero_case_name_search_results() -> None:
         FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter="U.S.", page="999"),
     )
 
-    validation = run_validation(extraction, client_mode="custom", client=client).validations[0]
+    retrieval = run_retrieval(extraction, client_mode="custom", client=client).retrievals[0]
 
-    assert validation.candidate_search.status == CaseNameSearchStatus.SEARCHED
-    assert [probe.case_count for probe in validation.candidate_search.probes] == [0, 0]
+    assert retrieval.candidate_search.status == CaseNameSearchStatus.SEARCHED
+    assert [probe.case_count for probe in retrieval.candidate_search.probes] == [0, 0]
 
 
 def test_not_found_preserves_failed_search_http_status() -> None:
@@ -298,13 +298,13 @@ def test_not_found_preserves_failed_search_http_status() -> None:
         FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter="U.S.", page="999"),
     )
 
-    validation = run_validation(extraction, client_mode="custom", client=client).validations[0]
+    retrieval = run_retrieval(extraction, client_mode="custom", client=client).retrievals[0]
 
-    assert validation.candidate_search.status == CaseNameSearchStatus.SEARCH_FAILED
-    assert [probe.http_status for probe in validation.candidate_search.probes] == [503, 503]
-    assert all(probe.case_count is None for probe in validation.candidate_search.probes)
+    assert retrieval.candidate_search.status == CaseNameSearchStatus.SEARCH_FAILED
+    assert [probe.http_status for probe in retrieval.candidate_search.probes] == [503, 503]
+    assert all(probe.case_count is None for probe in retrieval.candidate_search.probes)
     assert all(
-        probe.error_message == "upstream search unavailable" for probe in validation.candidate_search.probes
+        probe.error_message == "upstream search unavailable" for probe in retrieval.candidate_search.probes
     )
 
 
@@ -324,7 +324,7 @@ def test_not_found_traces_opinion_and_recap_search_independently() -> None:
         FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter="U.S.", page="999"),
     )
 
-    search = run_validation(extraction, client_mode="custom", client=client).validations[0].candidate_search
+    search = run_retrieval(extraction, client_mode="custom", client=client).retrievals[0].candidate_search
 
     assert search.status == CaseNameSearchStatus.PARTIAL
     assert search.probes[0].case_count == 3
@@ -347,11 +347,11 @@ def test_not_found_reads_count_from_deployed_service_raw_response() -> None:
         FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter="U.S.", page="999"),
     )
 
-    validation = run_validation(extraction, client_mode="custom", client=client).validations[0]
+    retrieval = run_retrieval(extraction, client_mode="custom", client=client).retrievals[0]
 
-    assert validation.candidate_search.status == CaseNameSearchStatus.SEARCHED
-    assert [probe.case_count for probe in validation.candidate_search.probes] == [0, 0]
-    assert all(probe.error_message is None for probe in validation.candidate_search.probes)
+    assert retrieval.candidate_search.status == CaseNameSearchStatus.SEARCHED
+    assert [probe.case_count for probe in retrieval.candidate_search.probes] == [0, 0]
+    assert all(probe.error_message is None for probe in retrieval.candidate_search.probes)
 
 
 def test_not_found_skips_search_without_both_parties() -> None:
@@ -366,14 +366,14 @@ def test_not_found_skips_search_without_both_parties() -> None:
         FullCaseCitation(plaintiff="Doe", volume="999", reporter="U.S.", page="999"),
     )
 
-    validation = run_validation(extraction, client_mode="custom", client=client).validations[0]
+    retrieval = run_retrieval(extraction, client_mode="custom", client=client).retrievals[0]
 
-    assert validation.status == ValidationStatus.NOT_FOUND
-    assert validation.candidate_search.status == CaseNameSearchStatus.SKIPPED_PARTIAL_CASE_NAME
-    assert validation.candidate_search.probes == ()
+    assert retrieval.status == RetrievalStatus.NOT_FOUND
+    assert retrieval.candidate_search.status == CaseNameSearchStatus.SKIPPED_PARTIAL_CASE_NAME
+    assert retrieval.candidate_search.probes == ()
 
 
-def test_validate_surfaces_typed_courtlistener_failure_detail() -> None:
+def test_retrieve_surfaces_typed_courtlistener_failure_detail() -> None:
     extraction = _extracted_document(
         preprocessed=preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483."),
         citations=(
@@ -386,7 +386,7 @@ def test_validate_surfaces_typed_courtlistener_failure_detail() -> None:
         ),
     )
 
-    result = run_validation(
+    result = run_retrieval(
         extraction,
         client_mode="custom",
         client=_client(
@@ -407,10 +407,10 @@ def test_validate_surfaces_typed_courtlistener_failure_detail() -> None:
         ),
     )
 
-    validation = result.validations[0]
-    assert validation.status == ValidationStatus.THROTTLED
-    assert validation.error_message == "CourtListener POST failed with 429"
-    assert validation.failure_detail == ValidationFailureDetail(
+    retrieval = result.retrievals[0]
+    assert retrieval.status == RetrievalStatus.THROTTLED
+    assert retrieval.error_message == "CourtListener POST failed with 429"
+    assert retrieval.failure_detail == RetrievalFailureDetail(
         failure_type="api_limit",
         message="CourtListener POST failed with 429",
         retryable=True,
@@ -470,7 +470,7 @@ def test_courtlistener_service_round_trip_preserves_explicit_extra_data() -> Non
     assert restored == original
 
 
-def test_validate_missing_locator_is_invalid_without_service_call() -> None:
+def test_retrieve_missing_locator_is_invalid_without_service_call() -> None:
     calls = 0
 
     def post_json(_url: str, _data: object) -> object:
@@ -494,23 +494,23 @@ def test_validate_missing_locator_is_invalid_without_service_call() -> None:
         post_json=post_json,
     )
 
-    result = run_validation(extraction, client_mode="custom", client=client)
+    result = run_retrieval(extraction, client_mode="custom", client=client)
 
-    assert result.validations[0].status == ValidationStatus.INVALID
+    assert result.retrievals[0].status == RetrievalStatus.INVALID
     assert calls == 0
 
 
-def test_validate_rejects_custom_mode_without_client() -> None:
+def test_retrieve_rejects_custom_mode_without_client() -> None:
     extraction = _extracted_document(
         preprocessed=preprocess_plain_text_from_string("No citations."),
         citations=(),
     )
 
     with pytest.raises(ValueError, match="client is required"):
-        run_validation(extraction, client_mode="custom")
+        run_retrieval(extraction, client_mode="custom")
 
 
-def test_validate_rejects_client_override_for_managed_modes() -> None:
+def test_retrieve_rejects_client_override_for_managed_modes() -> None:
     extraction = _extracted_document(
         preprocessed=preprocess_plain_text_from_string("No citations."),
         citations=(),
@@ -518,17 +518,17 @@ def test_validate_rejects_client_override_for_managed_modes() -> None:
     client = _client({})
 
     with pytest.raises(ValueError, match="client must be None"):
-        run_validation(extraction, client_mode="deployed", client=client)
+        run_retrieval(extraction, client_mode="deployed", client=client)
 
     with pytest.raises(ValueError, match="client must be None"):
-        run_validation(extraction, client_mode="sdk", client=client)
+        run_retrieval(extraction, client_mode="sdk", client=client)
 
 
-def test_validate_rejects_unknown_client_mode() -> None:
+def test_retrieve_rejects_unknown_client_mode() -> None:
     extraction = _extracted_document(
         preprocessed=preprocess_plain_text_from_string("No citations."),
         citations=(),
     )
 
     with pytest.raises(ValueError, match="client_mode must be one of"):
-        run_validation(extraction, client_mode="other")  # type: ignore[arg-type]
+        run_retrieval(extraction, client_mode="other")  # type: ignore[arg-type]

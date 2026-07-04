@@ -1,4 +1,4 @@
-"""Assembled extraction and validation API for the Modal E2E backend."""
+"""Assembled extraction and retrieval API for the Modal E2E backend."""
 
 from __future__ import annotations
 
@@ -24,23 +24,27 @@ from mellea_lrc.preprocessing.types import (
     PreprocessingBackend,
     PreprocessingMetadata,
 )
-from mellea_lrc.validation import run_validation
-from mellea_lrc.validation.types import (
-    CitationValidation,
-    ValidatedDocument,
-    ValidationMetadata,
-    ValidationStatus,
+from mellea_lrc.reporter_jurisdiction import (
+    ReporterJurisdictionInference,
+    infer_reporter_jurisdiction,
+)
+from mellea_lrc.retrieval import run_retrieval
+from mellea_lrc.retrieval.types import (
+    CitationRetrieval,
+    RetrievedDocument,
+    RetrievalMetadata,
+    RetrievalStatus,
 )
 from mellea_lrc.serialization import (
-    deserialize_citation_validation,
+    deserialize_citation_retrieval,
     serialize_citation_assessment,
-    serialize_citation_validation,
+    serialize_citation_retrieval,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from mellea_lrc.validation import CourtListenerAccessClient
+    from mellea_lrc.retrieval import CourtListenerAccessClient
 
 JsonDict = dict[str, Any]
 
@@ -66,7 +70,7 @@ class DoclingConverter(Protocol):
 
 
 class E2EBackend:
-    """Well-defined API for text/PDF extraction, validation, and assessment."""
+    """Well-defined API for text/PDF extraction, retrieval, and assessment."""
 
     def __init__(
         self,
@@ -76,9 +80,9 @@ class E2EBackend:
         self._converter_factory = converter_factory or _build_converter
         self._converter: DoclingConverter | None = None
 
-    def review_text(self, text: str, *, validate: bool = True) -> dict[str, Any]:
+    def review_text(self, text: str, *, retrieve: bool = True) -> dict[str, Any]:
         """Run the frontend review API for plain text input."""
-        return review_preprocessed(_text_to_preprocessed(text), validate=validate)
+        return review_preprocessed(_text_to_preprocessed(text), retrieve=retrieve)
 
     def review_preprocessed_document(self, preprocessed: PreprocessedDocument) -> dict[str, Any]:
         """Serialize a preprocessed document snapshot for the frontend review UI."""
@@ -88,20 +92,20 @@ class E2EBackend:
         """Serialize an extraction snapshot for the frontend review UI."""
         return review_document_extraction(extraction)
 
-    def review_document_validation(self, validation: ValidatedDocument) -> dict[str, Any]:
-        """Serialize a validation snapshot for the frontend review UI."""
-        return review_document_validation(validation)
+    def review_document_retrieval(self, retrieval: RetrievedDocument) -> dict[str, Any]:
+        """Serialize a retrieval snapshot for the frontend review UI."""
+        return review_document_retrieval(retrieval)
 
     def extract_text(self, text: str) -> dict[str, Any]:
-        """Extract frontend review citations from plain text without validation."""
-        return review_preprocessed(_text_to_preprocessed(text), validate=False)
+        """Extract frontend review citations from plain text without retrieval."""
+        return review_preprocessed(_text_to_preprocessed(text), retrieve=False)
 
     def review_pdf_bytes(
         self,
         content: bytes,
         filename: str,
         *,
-        validate: bool = True,
+        retrieve: bool = True,
     ) -> dict[str, Any]:
         """Run the frontend review API for PDF bytes."""
         if content[:4] != b"%PDF":
@@ -109,7 +113,7 @@ class E2EBackend:
             raise ValueError(msg)
         return review_preprocessed(
             _pdf_to_preprocessed(self._get_converter(), content, filename),
-            validate=validate,
+            retrieve=retrieve,
         )
 
     def review_document_bytes(
@@ -117,17 +121,17 @@ class E2EBackend:
         content: bytes,
         filename: str,
         *,
-        validate: bool = True,
+        retrieve: bool = True,
     ) -> dict[str, Any]:
         """Run the frontend review API for an uploaded document."""
         if Path(filename).suffix.lower() == ".txt":
             return review_preprocessed(
                 _text_file_to_preprocessed(content, filename),
-                validate=validate,
+                retrieve=retrieve,
             )
         return review_preprocessed(
             _document_to_preprocessed(self._get_converter(), content, filename),
-            validate=validate,
+            retrieve=retrieve,
         )
 
     def extract_document_bytes(
@@ -135,34 +139,34 @@ class E2EBackend:
         content: bytes,
         filename: str,
     ) -> dict[str, Any]:
-        """Extract frontend review citations from an uploaded document without validation."""
+        """Extract frontend review citations from an uploaded document without retrieval."""
         if Path(filename).suffix.lower() == ".txt":
-            return review_preprocessed(_text_file_to_preprocessed(content, filename), validate=False)
+            return review_preprocessed(_text_file_to_preprocessed(content, filename), retrieve=False)
         return review_preprocessed(
             _document_to_preprocessed(self._get_converter(), content, filename),
-            validate=False,
+            retrieve=False,
         )
 
-    def validate_review_payload(
+    def retrieve_review_payload(
         self,
         payload: dict[str, object],
         *,
         client: CourtListenerAccessClient | None = None,
     ) -> dict[str, Any]:
-        """Attach CourtListener validation to an existing frontend review payload."""
-        return validate_review_payload(payload, client=client)
+        """Attach CourtListener retrieval to an existing frontend review payload."""
+        return retrieve_review_payload(payload, client=client)
 
-    def validate_review_citation_payload(
+    def retrieve_review_citation_payload(
         self,
         payload: dict[str, object],
         *,
         client: CourtListenerAccessClient | None = None,
     ) -> dict[str, Any]:
-        """Validate one frontend review citation."""
-        return validate_review_citation_payload(payload, client=client)
+        """Retrieve one frontend review citation."""
+        return retrieve_review_citation_payload(payload, client=client)
 
     async def assess_review_payload(self, payload: dict[str, object]) -> dict[str, Any]:
-        """Attach Mellea-assisted assessment to an existing validated review payload."""
+        """Attach Mellea-assisted assessment to an existing retrieved review payload."""
         return await assess_review_payload(payload)
 
     def review_document_assessment(self, assessment: AssessedDocument) -> dict[str, Any]:
@@ -178,12 +182,12 @@ class E2EBackend:
 def review_preprocessed(
     preprocessed: PreprocessedDocument,
     *,
-    validate: bool = True,
+    retrieve: bool = True,
     client: CourtListenerAccessClient | None = None,
 ) -> dict[str, Any]:
-    """Run extraction, optional validation, and frontend review serialization."""
+    """Run extraction, optional retrieval, and frontend review serialization."""
     extraction = run_extraction(preprocessed)
-    validation = _run_validation(extraction, validate=validate, client=client)
+    retrieval = _run_retrieval(extraction, retrieve=retrieve, client=client)
 
     return {
         "document": {
@@ -192,9 +196,9 @@ def review_preprocessed(
             "source_format": extraction.source_metadata.format.value,
             "backend": extraction.preprocessing_metadata.backend.value,
         },
-        "citations": _citation_payloads(extraction, validation),
-        "validation": _validation_payload(validation),
-        "stats": _stats(extraction, validation),
+        "citations": _citation_payloads(extraction, retrieval),
+        "retrieval": _retrieval_payload(retrieval),
+        "stats": _stats(extraction, retrieval),
     }
 
 
@@ -208,7 +212,7 @@ def review_preprocessed_document(preprocessed: PreprocessedDocument) -> dict[str
             "backend": preprocessed.preprocessing_metadata.backend.value,
         },
         "citations": [],
-        "validation": None,
+        "retrieval": None,
         "assessment": None,
         "stats": {
             "chars": len(preprocessed.text),
@@ -228,15 +232,15 @@ def review_document_extraction(extraction: ExtractedDocument) -> dict[str, Any]:
             "backend": extraction.preprocessing_metadata.backend.value,
         },
         "citations": _citation_payloads(extraction, None),
-        "validation": None,
+        "retrieval": None,
         "assessment": None,
         "stats": _stats(extraction, None),
     }
 
 
-def review_document_validation(validation: ValidatedDocument) -> dict[str, Any]:
-    """Serialize a typed validation artifact as a frontend review payload."""
-    extraction = validation
+def review_document_retrieval(retrieval: RetrievedDocument) -> dict[str, Any]:
+    """Serialize a typed retrieval artifact as a frontend review payload."""
+    extraction = retrieval
     return {
         "document": {
             "text": extraction.text,
@@ -244,66 +248,66 @@ def review_document_validation(validation: ValidatedDocument) -> dict[str, Any]:
             "source_format": extraction.source_metadata.format.value,
             "backend": extraction.preprocessing_metadata.backend.value,
         },
-        "citations": _citation_payloads(extraction, validation),
-        "validation": _validation_payload(validation),
+        "citations": _citation_payloads(extraction, retrieval),
+        "retrieval": _retrieval_payload(retrieval),
         "assessment": None,
-        "stats": _stats(extraction, validation),
+        "stats": _stats(extraction, retrieval),
     }
 
 
-def validate_review_payload(
+def retrieve_review_payload(
     payload: dict[str, object],
     *,
     client: CourtListenerAccessClient | None = None,
 ) -> dict[str, Any]:
-    """Attach validation to an existing frontend review payload without re-extracting."""
+    """Attach retrieval to an existing frontend review payload without re-extracting."""
     extraction = _extraction_from_review_payload(payload)
-    validation = _run_validation(extraction, validate=True, client=client)
+    retrieval = _run_retrieval(extraction, retrieve=True, client=client)
     output = _copy_review_payload(payload)
-    validation_by_id = {item.citation_id: _validation_item_payload(item) for item in validation.validations}
+    retrieval_by_id = {item.citation_id: _retrieval_item_payload(item) for item in retrieval.retrievals}
     citations = _review_citations(output)
     for citation in citations:
-        citation["validation"] = validation_by_id.get(str(citation.get("id")))
+        citation["retrieval"] = retrieval_by_id.get(str(citation.get("id")))
     output["citations"] = citations
-    output["validation"] = _validation_payload(validation)
-    output["stats"] = _merge_stats(output.get("stats"), _stats(extraction, validation))
+    output["retrieval"] = _retrieval_payload(retrieval)
+    output["stats"] = _merge_stats(output.get("stats"), _stats(extraction, retrieval))
     return output
 
 
-def validate_review_citation_payload(
+def retrieve_review_citation_payload(
     payload: dict[str, object],
     *,
     client: CourtListenerAccessClient | None = None,
 ) -> dict[str, Any]:
-    """Validate a single frontend review citation payload."""
+    """Retrieve a single frontend review citation payload."""
     citation = payload.get("citation")
     if not isinstance(citation, dict):
         msg = "citation is required"
         raise TypeError(msg)
 
     extracted_citation = _extracted_citation_from_review_item(citation)
-    validation_text = extracted_citation.matched_text or "citation"
-    validation_citation = ExtractedCitation(
+    retrieval_text = extracted_citation.matched_text or "citation"
+    retrieval_citation = ExtractedCitation(
         citation_id=extracted_citation.citation_id,
-        span=Span(start=0, end=len(validation_text)),
+        span=Span(start=0, end=len(retrieval_text)),
         matched_text=extracted_citation.matched_text,
         citation=extracted_citation.citation,
         resolves_to=None,
     )
     extraction = ExtractedDocument(
         source_metadata=SourceMetadata(),
-        text=validation_text,
+        text=retrieval_text,
         preprocessing_metadata=PreprocessingMetadata(
             backend=PreprocessingBackend.PLAIN_TEXT,
         ),
-        citations=(validation_citation,),
+        citations=(retrieval_citation,),
         extraction_metadata=ExtractionMetadata(),
     )
-    validation = _run_validation(extraction, validate=True, client=client)
-    if validation is None or not validation.validations:
-        msg = "citation validation did not produce a result"
+    retrieval = _run_retrieval(extraction, retrieve=True, client=client)
+    if retrieval is None or not retrieval.retrievals:
+        msg = "citation retrieval did not produce a result"
         raise ValueError(msg)
-    return _validation_item_payload(validation.validations[0])
+    return _retrieval_item_payload(retrieval.retrievals[0])
 
 
 async def assess_review_payload(payload: dict[str, object]) -> dict[str, Any]:
@@ -311,8 +315,8 @@ async def assess_review_payload(payload: dict[str, object]) -> dict[str, Any]:
     output = _copy_review_payload(payload)
     citations = _review_citations(output)
     extraction = _extraction_from_review_payload(output)
-    validation = _validation_from_review_payload(output, extraction)
-    document_assessment = await run_assessment_async(validation)
+    retrieval = _retrieval_from_review_payload(output, extraction)
+    document_assessment = await run_assessment_async(retrieval)
     assessment_by_id = {item.citation_id: item for item in document_assessment.assessments}
     for citation in citations:
         citation["assessment"] = _assessment_payload(assessment_by_id[str(citation.get("id"))])
@@ -333,7 +337,7 @@ async def assess_review_payload(payload: dict[str, object]) -> dict[str, Any]:
 
 def review_document_assessment(assessment: AssessedDocument) -> dict[str, Any]:
     """Serialize a typed assessment artifact as a frontend review payload."""
-    output = review_document_validation(assessment)
+    output = review_document_retrieval(assessment)
     output["assessment"] = _assessment_payload_document(assessment)
     output["stats"] = _merge_stats(
         output.get("stats"),
@@ -426,15 +430,15 @@ def _source_format(filename: str) -> SourceFormat:
     }.get(suffix, SourceFormat.UNKNOWN)
 
 
-def _run_validation(
+def _run_retrieval(
     extraction: ExtractedDocument,
     *,
-    validate: bool,
+    retrieve: bool,
     client: CourtListenerAccessClient | None,
-) -> ValidatedDocument | None:
-    if not validate:
+) -> RetrievedDocument | None:
+    if not retrieve:
         return None
-    return run_validation(
+    return run_retrieval(
         extraction,
         client_mode="custom" if client is not None else "deployed",
         client=client,
@@ -443,9 +447,9 @@ def _run_validation(
 
 def _citation_payloads(
     extraction: ExtractedDocument,
-    validation: ValidatedDocument | None,
+    retrieval: RetrievedDocument | None,
 ) -> list[dict[str, Any]]:
-    validation_by_id = {item.citation_id: item for item in validation.validations} if validation else {}
+    retrieval_by_id = {item.citation_id: item for item in retrieval.retrievals} if retrieval else {}
     return [
         {
             "id": item.citation_id,
@@ -455,10 +459,37 @@ def _citation_payloads(
             "kind": citation_kind(item.citation).value,
             "fields": _citation_fields(item.citation),
             "resolves_to": item.resolves_to,
-            "validation": _single_validation_payload(validation_by_id.get(item.citation_id)),
+            "reporter_inference": _reporter_inference_payload(item.citation),
+            "retrieval": _single_retrieval_payload(retrieval_by_id.get(item.citation_id)),
         }
         for item in extraction.citations
     ]
+
+
+def _reporter_inference_payload(citation: object) -> dict[str, Any] | None:
+    """Expose reporter evidence as an independent, non-assessment trace."""
+    if not isinstance(citation, FullCaseCitation):
+        return None
+    inference = infer_reporter_jurisdiction(citation.reporter)
+    return _serialize_reporter_inference(inference)
+
+
+def _serialize_reporter_inference(
+    inference: ReporterJurisdictionInference,
+) -> dict[str, Any]:
+    return {
+        "reporter": inference.reporter,
+        "status": inference.status.value,
+        "court_ids": list(inference.court_ids),
+        "court_classes": [court_class.value for court_class in inference.court_classes],
+        "jurisdiction_ids": list(inference.jurisdiction_ids),
+        "coverage": inference.coverage.value,
+        "exact_court_id": inference.exact_court_id,
+        "evidence": [
+            {"source": evidence.source, "statement": evidence.statement}
+            for evidence in inference.evidence
+        ],
+    }
 
 
 def _citation_fields(citation: object) -> dict[str, object]:
@@ -469,64 +500,64 @@ def _has_citation_field_value(value: object) -> bool:
     return value is not None and value not in ("", ())
 
 
-def _single_validation_payload(item: CitationValidation | None) -> dict[str, Any] | None:
+def _single_retrieval_payload(item: CitationRetrieval | None) -> dict[str, Any] | None:
     if item is None:
         return None
-    return _validation_item_payload(item)
+    return _retrieval_item_payload(item)
 
 
-def _validation_payload(validation: ValidatedDocument | None) -> dict[str, Any] | None:
-    if validation is None:
+def _retrieval_payload(retrieval: RetrievedDocument | None) -> dict[str, Any] | None:
+    if retrieval is None:
         return None
     return {
-        "validations": [_validation_item_payload(item) for item in validation.validations],
+        "retrievals": [_retrieval_item_payload(item) for item in retrieval.retrievals],
         "counts": {
-            "total": len(validation.validations),
-            "found": len(validation.found),
+            "total": len(retrieval.retrievals),
+            "found": len(retrieval.found),
         },
     }
 
 
-def _validation_from_review_payload(
+def _retrieval_from_review_payload(
     payload: dict[str, object],
     extraction: ExtractedDocument,
-) -> ValidatedDocument:
-    validation_by_id = {
+) -> RetrievedDocument:
+    retrieval_by_id = {
         item.citation_id: item
         for item in (
-            _citation_validation_from_review_item(citation) for citation in _review_citations(payload)
+            _citation_retrieval_from_review_item(citation) for citation in _review_citations(payload)
         )
         if item is not None
     }
-    return ValidatedDocument(
+    return RetrievedDocument(
         source_metadata=extraction.source_metadata,
         text=extraction.text,
         preprocessing_metadata=extraction.preprocessing_metadata,
         citations=extraction.citations,
         extraction_metadata=extraction.extraction_metadata,
-        validations=tuple(
-            validation_by_id[item.citation_id]
+        retrievals=tuple(
+            retrieval_by_id[item.citation_id]
             for item in extraction.citations
-            if item.citation_id in validation_by_id
+            if item.citation_id in retrieval_by_id
         ),
-        validation_metadata=ValidationMetadata(client_mode="custom", source="review_payload"),
+        retrieval_metadata=RetrievalMetadata(client_mode="custom", source="review_payload"),
     )
 
 
-def _validation_item_payload(item: CitationValidation) -> dict[str, Any]:
-    payload = dict(serialize_citation_validation(item))
+def _retrieval_item_payload(item: CitationRetrieval) -> dict[str, Any]:
+    payload = dict(serialize_citation_retrieval(item))
     payload["case_names"] = list(item.case_names)
     return payload
 
 
-def _citation_validation_from_review_item(item: JsonDict) -> CitationValidation | None:
-    validation = item.get("validation")
-    if not isinstance(validation, dict):
+def _citation_retrieval_from_review_item(item: JsonDict) -> CitationRetrieval | None:
+    retrieval = item.get("retrieval")
+    if not isinstance(retrieval, dict):
         return None
-    validation_payload = dict(validation)
-    validation_payload.pop("case_names", None)
-    validation_payload["citation_id"] = str(validation.get("citation_id") or item.get("id") or "")
-    return deserialize_citation_validation(validation_payload)
+    retrieval_payload = dict(retrieval)
+    retrieval_payload.pop("case_names", None)
+    retrieval_payload["citation_id"] = str(retrieval.get("citation_id") or item.get("id") or "")
+    return deserialize_citation_retrieval(retrieval_payload)
 
 
 def _extraction_from_review_payload(payload: dict[str, object]) -> ExtractedDocument:
@@ -638,7 +669,7 @@ def _copy_review_payload(payload: dict[str, object]) -> JsonDict:
     return {
         "document": dict(payload.get("document")) if isinstance(payload.get("document"), dict) else {},
         "citations": _review_citations(payload),
-        "validation": payload.get("validation"),
+        "retrieval": payload.get("retrieval"),
         "assessment": payload.get("assessment"),
         "stats": dict(payload.get("stats")) if isinstance(payload.get("stats"), dict) else {},
     }
@@ -716,7 +747,7 @@ def _int_field(value: object) -> int:
 
 def _stats(
     extraction: ExtractedDocument,
-    validation: ValidatedDocument | None,
+    retrieval: RetrievedDocument | None,
 ) -> dict[str, int]:
     label_count = len(extraction.citations)
     stats = {
@@ -724,9 +755,9 @@ def _stats(
         "citation_spans": label_count,
         "full_citations": len(extraction.full_citations),
     }
-    if validation is not None:
-        stats["validated"] = sum(
-            1 for item in validation.validations if item.status != ValidationStatus.SKIPPED
+    if retrieval is not None:
+        stats["retrieved"] = sum(
+            1 for item in retrieval.retrievals if item.status != RetrievalStatus.SKIPPED
         )
-        stats["found"] = len(validation.found)
+        stats["found"] = len(retrieval.found)
     return stats

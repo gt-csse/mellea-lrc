@@ -341,7 +341,7 @@ class CourtListenerClientTests(unittest.TestCase):
         self.assertEqual(result["download_url"], "https://storage.courtlistener.com/recap/example.pdf")
 
     def test_get_court_normalizes_court_metadata(self) -> None:
-        """Court metadata should be available for court-id validation."""
+        """Court metadata should be available for court-id retrieval."""
         session = FakeSession(
             [
                 FakeResponse(

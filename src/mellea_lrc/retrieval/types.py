@@ -1,10 +1,10 @@
-"""Validation result types.
+"""Retrieval result types.
 
-Validation is a deterministic (no-LLM) stage that resolves one citation against
-CourtListener. Each outcome is one variant of the ``CitationValidation``
-discriminated union. Found validation carries one structured
-``CourtResolutionTrace``; ambiguous validation carries one trace per candidate.
-Each records how the CL court was resolved (docket GET, cache hit, etc.). Validation only
+Retrieval is a deterministic (no-LLM) stage that resolves one citation against
+CourtListener. Each outcome is one variant of the ``CitationRetrieval``
+discriminated union. Found retrieval carries one structured
+``CourtResolutionTrace``; ambiguous retrieval carries one trace per candidate.
+Each records how the CL court was resolved (docket GET, cache hit, etc.). Retrieval only
 retrieves data — it never compares the resolved court against the citation
 court from extraction; that comparison belongs to the assessment stage.
 """
@@ -19,15 +19,15 @@ from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.extraction.types import ExtractedDocument
 
 if TYPE_CHECKING:
-    from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, ValidationFailureDetail
+    from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, RetrievalFailureDetail
 
-ValidationClientMode: TypeAlias = Literal["deployed", "sdk", "custom"]
+RetrievalClientMode: TypeAlias = Literal["deployed", "sdk", "custom"]
 HTTP_OK = 200
 EXPECTED_CASE_NAME_PROBES = 2
 
 
-class ValidationStatus(str, Enum):
-    """Canonical validation outcomes for citation existence checks."""
+class RetrievalStatus(str, Enum):
+    """Canonical retrieval outcomes for citation existence checks."""
 
     FOUND = "found"
     AMBIGUOUS = "ambiguous"
@@ -50,12 +50,12 @@ class CourtResolutionSource(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class CourtResolutionTrace:
-    """Traced court-resolution work for one found validation.
+    """Traced court-resolution work for one found retrieval.
 
     Records how the CourtListener-side court slug was obtained (docket GET,
-    cluster payload, or no resolution). Validation never compares this against
+    cluster payload, or no resolution). Retrieval never compares this against
     the citation court from extraction; that comparison is the assessment
-    stage's job. This is the per-citation "validation window" trace that
+    stage's job. This is the per-citation "retrieval window" trace that
     mirrors the assessment stage's case-name followup provenance, restricted
     to deterministic (non-LLM) resolution.
     """
@@ -126,7 +126,7 @@ class CaseNameSearchTrace:
 
     When a reporter lookup 404s but both parties were extracted, we query
     The same engineered query is sent independently to opinions and RECAP.
-    Counts remain corpus-scoped: validation does not combine, rank, or interpret
+    Counts remain corpus-scoped: retrieval does not combine, rank, or interpret
     them, and expresses no opinion about whether a result is the cited case.
     """
 
@@ -152,10 +152,10 @@ class CaseNameSearchTrace:
 
 
 @dataclass(frozen=True, slots=True)
-class ValidationMetadata:
-    """Provenance for the validation stage."""
+class RetrievalMetadata:
+    """Provenance for the retrieval stage."""
 
-    client_mode: ValidationClientMode
+    client_mode: RetrievalClientMode
     source: str
     duration_ms: float | None = None
 
@@ -175,10 +175,10 @@ class RetrievedCandidate:
 
 
 @dataclass(frozen=True, slots=True)
-class FoundCitationValidation:
+class FoundCitationRetrieval:
     """A locator that retrieved exactly one candidate from CourtListener."""
 
-    status: ClassVar[ValidationStatus] = ValidationStatus.FOUND
+    status: ClassVar[RetrievalStatus] = RetrievalStatus.FOUND
     citation_id: str
     locator: str
     source: str
@@ -195,10 +195,10 @@ class FoundCitationValidation:
 
 
 @dataclass(frozen=True, slots=True)
-class AmbiguousCitationValidation:
+class AmbiguousCitationRetrieval:
     """A citation that resolves to multiple independently enriched candidates."""
 
-    status: ClassVar[ValidationStatus] = ValidationStatus.AMBIGUOUS
+    status: ClassVar[RetrievalStatus] = RetrievalStatus.AMBIGUOUS
     citation_id: str
     locator: str
     source: str
@@ -223,10 +223,10 @@ class AmbiguousCitationValidation:
 
 
 @dataclass(frozen=True, slots=True)
-class NotFoundCitationValidation:
+class NotFoundCitationRetrieval:
     """A full citation that CourtListener does not have."""
 
-    status: ClassVar[ValidationStatus] = ValidationStatus.NOT_FOUND
+    status: ClassVar[RetrievalStatus] = RetrievalStatus.NOT_FOUND
     citation_id: str
     locator: str
     source: str
@@ -243,10 +243,10 @@ class NotFoundCitationValidation:
 
 
 @dataclass(frozen=True, slots=True)
-class InvalidCitationValidation:
+class InvalidCitationRetrieval:
     """A citation missing the volume, reporter, or page required to look it up."""
 
-    status: ClassVar[ValidationStatus] = ValidationStatus.INVALID
+    status: ClassVar[RetrievalStatus] = RetrievalStatus.INVALID
     citation_id: str
     source: str
 
@@ -257,10 +257,10 @@ class InvalidCitationValidation:
 
 
 @dataclass(frozen=True, slots=True)
-class ThrottledCitationValidation:
+class ThrottledCitationRetrieval:
     """A lookup that CourtListener rejected with a retryable throttle response."""
 
-    status: ClassVar[ValidationStatus] = ValidationStatus.THROTTLED
+    status: ClassVar[RetrievalStatus] = RetrievalStatus.THROTTLED
     citation_id: str
     locator: str
     source: str
@@ -268,7 +268,7 @@ class ThrottledCitationValidation:
     lookup_cache: str | None
     lookup_key: str | None
     error_message: str | None
-    failure_detail: ValidationFailureDetail | None
+    failure_detail: RetrievalFailureDetail | None
     extra_data: ExtraData = field(default_factory=ExtraData)
 
     @property
@@ -278,10 +278,10 @@ class ThrottledCitationValidation:
 
 
 @dataclass(frozen=True, slots=True)
-class LookupFailedCitationValidation:
+class LookupFailedCitationRetrieval:
     """A lookup that failed for a non-throttle reason (network, parse, upstream 5xx)."""
 
-    status: ClassVar[ValidationStatus] = ValidationStatus.LOOKUP_FAILED
+    status: ClassVar[RetrievalStatus] = RetrievalStatus.LOOKUP_FAILED
     citation_id: str
     locator: str
     source: str
@@ -289,7 +289,7 @@ class LookupFailedCitationValidation:
     lookup_cache: str | None
     lookup_key: str | None
     error_message: str | None
-    failure_detail: ValidationFailureDetail | None
+    failure_detail: RetrievalFailureDetail | None
     extra_data: ExtraData = field(default_factory=ExtraData)
 
     @property
@@ -299,10 +299,10 @@ class LookupFailedCitationValidation:
 
 
 @dataclass(frozen=True, slots=True)
-class SkippedCitationValidation:
-    """A citation intentionally excluded from validation (e.g. not a FullCaseCitation)."""
+class SkippedCitationRetrieval:
+    """A citation intentionally excluded from retrieval (e.g. not a FullCaseCitation)."""
 
-    status: ClassVar[ValidationStatus] = ValidationStatus.SKIPPED
+    status: ClassVar[RetrievalStatus] = RetrievalStatus.SKIPPED
     citation_id: str
     source: str
 
@@ -312,39 +312,39 @@ class SkippedCitationValidation:
         return ()
 
 
-CitationValidation: TypeAlias = (
-    FoundCitationValidation
-    | AmbiguousCitationValidation
-    | NotFoundCitationValidation
-    | InvalidCitationValidation
-    | ThrottledCitationValidation
-    | LookupFailedCitationValidation
-    | SkippedCitationValidation
+CitationRetrieval: TypeAlias = (
+    FoundCitationRetrieval
+    | AmbiguousCitationRetrieval
+    | NotFoundCitationRetrieval
+    | InvalidCitationRetrieval
+    | ThrottledCitationRetrieval
+    | LookupFailedCitationRetrieval
+    | SkippedCitationRetrieval
 )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ValidatedDocument(ExtractedDocument):
-    """An extracted document with one validation outcome per citation."""
+class RetrievedDocument(ExtractedDocument):
+    """An extracted document with one retrieval outcome per citation."""
 
-    validations: tuple[CitationValidation, ...]
-    validation_metadata: ValidationMetadata
+    retrievals: tuple[CitationRetrieval, ...]
+    retrieval_metadata: RetrievalMetadata
 
     @property
-    def found(self) -> tuple[FoundCitationValidation, ...]:
-        """Return citations found by the validation source."""
-        return tuple(item for item in self.validations if isinstance(item, FoundCitationValidation))
+    def found(self) -> tuple[FoundCitationRetrieval, ...]:
+        """Return citations found by the retrieval source."""
+        return tuple(item for item in self.retrievals if isinstance(item, FoundCitationRetrieval))
 
     def __post_init__(self) -> None:
         ExtractedDocument.__post_init__(self)
         citation_ids = {item.citation_id for item in self.citations}
-        validation_ids = [item.citation_id for item in self.validations]
-        if any(not validation_id for validation_id in validation_ids):
-            msg = "Citation validation identifiers must not be empty"
+        retrieval_ids = [item.citation_id for item in self.retrievals]
+        if any(not retrieval_id for retrieval_id in retrieval_ids):
+            msg = "Citation retrieval identifiers must not be empty"
             raise ValueError(msg)
-        if len(validation_ids) != len(set(validation_ids)):
-            msg = "Citation validation identifiers must be unique within a document"
+        if len(retrieval_ids) != len(set(retrieval_ids)):
+            msg = "Citation retrieval identifiers must be unique within a document"
             raise ValueError(msg)
-        if set(validation_ids) != citation_ids:
-            msg = "Citation validation identifiers must exactly match extracted citation identifiers"
+        if set(retrieval_ids) != citation_ids:
+            msg = "Citation retrieval identifiers must exactly match extracted citation identifiers"
             raise ValueError(msg)

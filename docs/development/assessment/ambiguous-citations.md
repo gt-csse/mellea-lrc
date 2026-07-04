@@ -1,9 +1,9 @@
 # Ambiguous Citations
 
 A reporter lookup returns **HTTP 300** when the citation is valid but matches
-more than one CourtListener cluster. Validation pulls the candidates back;
+more than one CourtListener cluster. Retrieval pulls the candidates back;
 deciding which one the citation refers to is an opinion, so that is delegated to
-assessment. See also [Validation Development](../validation/index.md).
+assessment. See also [Retrieval Development](../retrieval/index.md).
 
 ## What ambiguity actually is (real data)
 
@@ -33,8 +33,8 @@ So the discriminators for "same case" are name subsumption/equality, same
 
 ## Shipped
 
-**Validation — retrieve only.** Found and ambiguous results share
-`RetrievedCandidate(candidate_id, record, court_resolution)`. Validation resolves
+**Retrieval — retrieve only.** Found and ambiguous results share
+`RetrievedCandidate(candidate_id, record, court_resolution)`. Retrieval resolves
 the CourtListener-side court independently for every candidate, preserving
 upstream order and reusing the document-level docket cache. It does not collapse
 candidates or compare any candidate with the extracted citation.
@@ -45,18 +45,18 @@ per-`(citation, candidate)` jobs, all delegating to the same `assess_found_citat
 - Found → one candidate → `AssessedCitationAssessment`.
 - Ambiguous → one candidate per cluster → `AmbiguousCitationAssessment`, holding a
   `CandidateAssessment(candidate_id, result)` per cluster (order preserved).
-  The ID references validation; assessment does not duplicate the retrieved record.
+  The ID references retrieval; assessment does not duplicate the retrieved record.
 - **Defensive gate**: more than `MAX_AMBIGUOUS_CANDIDATES` (5) → `gated=True`, no
   enumeration, reason recorded. Empty-candidate lookups short-circuit the same way.
-- Court assessment consumes that candidate's own validation resolution trace;
+- Court assessment consumes that candidate's own retrieval resolution trace;
   candidate court provenance is never inferred from a sibling candidate.
 
 **Frontend.** Ambiguous citations are assessment-eligible and selectable. One
 shared candidate index controls the bibliographic comparison, the complete
-candidate-scoped validation trace (including court resolution), and the
-field-by-field assessment. The validation panel also exposes the selector, so
+candidate-scoped retrieval trace (including court resolution), and the
+field-by-field assessment. The retrieval panel also exposes the selector, so
 switching there updates every candidate-scoped view. Gated/empty assessment
-shows a "not enumerated" note without discarding validation candidates.
+shows a "not enumerated" note without discarding retrieval candidates.
 
 ## Deferred / future direction
 

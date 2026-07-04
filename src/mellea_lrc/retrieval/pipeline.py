@@ -1,14 +1,14 @@
-"""Validation pipeline for extracted citations.
+"""Retrieval pipeline for extracted citations.
 
-Validation is a deterministic existence check against CourtListener: each
-extracted citation resolves to one variant of the ``CitationValidation``
+Retrieval is a deterministic existence check against CourtListener: each
+extracted citation resolves to one variant of the ``CitationRetrieval``
 discriminated union, and the ``Found`` variant additionally carries a
 ``CourtResolutionTrace`` describing how the CourtListener-side court was
-obtained. Validation only retrieves data; it never compares the resolved
+obtained. Retrieval only retrieves data; it never compares the resolved
 court against the citation court from extraction.
 
 The court resolution work itself lives in
-:mod:`mellea_lrc.validation.court_resolution`; this orchestrator only owns the
+:mod:`mellea_lrc.retrieval.court_resolution`; this orchestrator only owns the
 lookup call and the per-run docket cache that deduplicates GETs across
 citations in one document.
 """
@@ -23,25 +23,25 @@ from mellea_lrc.courtlistener.client import CourtListenerClient
 from mellea_lrc.courtlistener.remote import CourtListenerAccessClient
 from mellea_lrc.courtlistener.types import (
     CitationLookupClient,
-    CitationValidationClient,
+    CitationRetrievalClient,
     CourtListenerCitationLookup,
 )
-from mellea_lrc.validation.court_resolution import resolve_court
-from mellea_lrc.validation.not_found_search import search_case_name_candidates
-from mellea_lrc.validation.types import (
-    AmbiguousCitationValidation,
-    CitationValidation,
-    FoundCitationValidation,
-    InvalidCitationValidation,
-    LookupFailedCitationValidation,
-    NotFoundCitationValidation,
+from mellea_lrc.retrieval.court_resolution import resolve_court
+from mellea_lrc.retrieval.not_found_search import search_case_name_candidates
+from mellea_lrc.retrieval.types import (
+    AmbiguousCitationRetrieval,
+    CitationRetrieval,
+    FoundCitationRetrieval,
+    InvalidCitationRetrieval,
+    LookupFailedCitationRetrieval,
+    NotFoundCitationRetrieval,
     RetrievedCandidate,
-    SkippedCitationValidation,
-    ThrottledCitationValidation,
-    ValidatedDocument,
-    ValidationClientMode,
-    ValidationMetadata,
-    ValidationStatus,
+    SkippedCitationRetrieval,
+    ThrottledCitationRetrieval,
+    RetrievedDocument,
+    RetrievalClientMode,
+    RetrievalMetadata,
+    RetrievalStatus,
 )
 
 if TYPE_CHECKING:
@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
 
 SOURCE = "cl-access"
-DEFAULT_CLIENT_MODE: ValidationClientMode = "deployed"
+DEFAULT_CLIENT_MODE: RetrievalClientMode = "deployed"
 HTTP_FOUND = 200
 HTTP_MULTIPLE_CHOICES = 300
 HTTP_BAD_REQUEST = 400
@@ -57,34 +57,34 @@ HTTP_NOT_FOUND = 404
 HTTP_TOO_MANY_REQUESTS = 429
 
 
-def run_validation(
+def run_retrieval(
     extraction: ExtractedDocument,
     *,
-    client_mode: ValidationClientMode = DEFAULT_CLIENT_MODE,
-    client: CitationValidationClient | None = None,
-) -> ValidatedDocument:
-    """Run first-layer existence validation plus court resolution for each full case citation.
+    client_mode: RetrievalClientMode = DEFAULT_CLIENT_MODE,
+    client: CitationRetrievalClient | None = None,
+) -> RetrievedDocument:
+    """Run first-layer existence retrieval plus court resolution for each full case citation.
 
     The stage is fully deterministic (no LLM). Each citation yields one variant of
-    the ``CitationValidation`` discriminated union; ``Found`` citations additionally
+    the ``CitationRetrieval`` discriminated union; ``Found`` citations additionally
     carry a ``CourtResolutionTrace``. The docket-id cache deduplicates docket GETs
     across citations sharing the same docket within one document.
     """
     lookup_client = _lookup_client(client_mode, client)
     docket_court_cache: dict[str, str | None] = {}
     started = time.perf_counter()
-    validations = tuple(
-        _validate_citation(item, lookup_client, docket_court_cache) for item in extraction.citations
+    retrievals = tuple(
+        _retrieve_citation(item, lookup_client, docket_court_cache) for item in extraction.citations
     )
     duration_ms = (time.perf_counter() - started) * 1000.0
-    return ValidatedDocument(
+    return RetrievedDocument(
         source_metadata=extraction.source_metadata,
         text=extraction.text,
         preprocessing_metadata=extraction.preprocessing_metadata,
         citations=extraction.citations,
         extraction_metadata=extraction.extraction_metadata,
-        validations=validations,
-        validation_metadata=ValidationMetadata(
+        retrievals=retrievals,
+        retrieval_metadata=RetrievalMetadata(
             client_mode=client_mode,
             source=SOURCE,
             duration_ms=duration_ms,
@@ -94,8 +94,8 @@ def run_validation(
 
 def _lookup_client(
     client_mode: str,
-    client: CitationValidationClient | None,
-) -> CitationValidationClient:
+    client: CitationRetrievalClient | None,
+) -> CitationRetrievalClient:
     if client_mode == "deployed":
         _ensure_no_client_override(client_mode, client)
         return CourtListenerAccessClient()
@@ -114,42 +114,42 @@ def _lookup_client(
 
 def _ensure_no_client_override(
     client_mode: str,
-    client: CitationValidationClient | None,
+    client: CitationRetrievalClient | None,
 ) -> None:
     if client is not None:
         msg = f"client must be None when client_mode='{client_mode}'; use client_mode='custom'"
         raise ValueError(msg)
 
 
-def _validate_citation(
+def _retrieve_citation(
     item: ExtractedCitation,
-    client: CitationValidationClient,
+    client: CitationRetrievalClient,
     docket_court_cache: dict[str, str | None],
-) -> CitationValidation:
+) -> CitationRetrieval:
     citation = item.citation
     if not isinstance(citation, FullCaseCitation):
-        return SkippedCitationValidation(
+        return SkippedCitationRetrieval(
             citation_id=item.citation_id,
             source=SOURCE,
         )
 
     if not citation.volume or not citation.reporter or not citation.page:
-        return InvalidCitationValidation(
+        return InvalidCitationRetrieval(
             citation_id=item.citation_id,
             source=SOURCE,
         )
 
     lookup = client.lookup_citation(citation.volume, citation.reporter, citation.page)
-    return _validation_from_lookup(item.citation_id, lookup, client, docket_court_cache, citation)
+    return _retrieval_from_lookup(item.citation_id, lookup, client, docket_court_cache, citation)
 
 
-def _validation_from_lookup(
+def _retrieval_from_lookup(
     citation_id: str,
     lookup: CourtListenerCitationLookup,
-    client: CitationValidationClient,
+    client: CitationRetrievalClient,
     docket_court_cache: dict[str, str | None],
     citation: FullCaseCitation,
-) -> CitationValidation:
+) -> CitationRetrieval:
     status = _status_from_lookup(lookup.status)
     common = {
         "citation_id": citation_id,
@@ -160,16 +160,16 @@ def _validation_from_lookup(
         "lookup_key": lookup.key,
         "extra_data": lookup.extra_data,
     }
-    if status is ValidationStatus.FOUND:
+    if status is RetrievalStatus.FOUND:
         record = lookup.records[0] if lookup.records else None
         if record is None:
             # Defensive: a 200 with no record is a malformed lookup; surface as failure.
-            return LookupFailedCitationValidation(
+            return LookupFailedCitationRetrieval(
                 **common,
                 error_message="CourtListener returned HTTP 200 but no records.",
                 failure_detail=lookup.failure_detail,
             )
-        return FoundCitationValidation(
+        return FoundCitationRetrieval(
             **common,
             candidate=_retrieved_candidate(
                 citation_id,
@@ -179,8 +179,8 @@ def _validation_from_lookup(
                 cache=docket_court_cache,
             ),
         )
-    if status is ValidationStatus.AMBIGUOUS:
-        return AmbiguousCitationValidation(
+    if status is RetrievalStatus.AMBIGUOUS:
+        return AmbiguousCitationRetrieval(
             **common,
             candidates=tuple(
                 _retrieved_candidate(
@@ -193,18 +193,18 @@ def _validation_from_lookup(
                 for index, record in enumerate(lookup.records)
             ),
         )
-    if status is ValidationStatus.NOT_FOUND:
-        return NotFoundCitationValidation(
+    if status is RetrievalStatus.NOT_FOUND:
+        return NotFoundCitationRetrieval(
             **common,
             candidate_search=search_case_name_candidates(citation, client=client),
         )
-    if status is ValidationStatus.THROTTLED:
-        return ThrottledCitationValidation(
+    if status is RetrievalStatus.THROTTLED:
+        return ThrottledCitationRetrieval(
             **common,
             error_message=lookup.error_message,
             failure_detail=lookup.failure_detail,
         )
-    return LookupFailedCitationValidation(
+    return LookupFailedCitationRetrieval(
         **common,
         error_message=lookup.error_message,
         failure_detail=lookup.failure_detail,
@@ -216,10 +216,10 @@ def _retrieved_candidate(
     index: int,
     record: CourtListenerCitationRecord,
     *,
-    client: CitationValidationClient,
+    client: CitationRetrievalClient,
     cache: dict[str, str | None],
 ) -> RetrievedCandidate:
-    """Attach stable validation identity and provenance to one retrieved record."""
+    """Attach stable retrieval identity and provenance to one retrieved record."""
     return RetrievedCandidate(
         candidate_id=f"{citation_id}:candidate:{index}",
         record=record,
@@ -227,22 +227,22 @@ def _retrieved_candidate(
     )
 
 
-def _status_from_lookup(status: int) -> ValidationStatus:
+def _status_from_lookup(status: int) -> RetrievalStatus:
     if status == HTTP_FOUND:
-        return ValidationStatus.FOUND
+        return RetrievalStatus.FOUND
     if status == HTTP_MULTIPLE_CHOICES:
-        return ValidationStatus.AMBIGUOUS
+        return RetrievalStatus.AMBIGUOUS
     if status == HTTP_NOT_FOUND:
-        return ValidationStatus.NOT_FOUND
+        return RetrievalStatus.NOT_FOUND
     if status == HTTP_BAD_REQUEST:
-        return ValidationStatus.INVALID
+        return RetrievalStatus.INVALID
     if status == HTTP_TOO_MANY_REQUESTS:
-        return ValidationStatus.THROTTLED
-    return ValidationStatus.LOOKUP_FAILED
+        return RetrievalStatus.THROTTLED
+    return RetrievalStatus.LOOKUP_FAILED
 
 
 # Re-export the simpler protocol so legacy downstream imports keep working.
 __all__ = [
     "CitationLookupClient",
-    "run_validation",
+    "run_retrieval",
 ]

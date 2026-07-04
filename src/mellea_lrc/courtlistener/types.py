@@ -25,7 +25,7 @@ class CourtListenerCitationRecord:
 
 
 @dataclass(frozen=True, slots=True)
-class ValidationFailureDetail:
+class RetrievalFailureDetail:
     """Typed diagnostic detail for a failed or throttled lookup."""
 
     failure_type: str | None = None
@@ -48,7 +48,7 @@ class CourtListenerCitationLookup:
     cache: str | None = None
     key: str | None = None
     error_message: str | None = None
-    failure_detail: ValidationFailureDetail | None = None
+    failure_detail: RetrievalFailureDetail | None = None
     extra_data: ExtraData = field(default_factory=ExtraData)
 
 
@@ -64,7 +64,7 @@ class CitationLookupClient(Protocol):
         """Look up one reporter citation."""
 
 
-class CitationValidationClient(CitationLookupClient, Protocol):
+class CitationRetrievalClient(CitationLookupClient, Protocol):
     """Protocol for citation lookup plus case-level docket enrichment."""
 
     def get_docket(self, cl_docket_id: int | str) -> Mapping[str, object]:

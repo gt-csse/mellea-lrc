@@ -1,6 +1,6 @@
 # Not-Found Candidate Search
 
-When a reporter lookup 404s, the case may still be real under a different locator. Validation performs retrieval only: it records what CourtListener returned and expresses no opinion about whether any result is the cited case.
+When a reporter lookup 404s, the case may still be real under a different locator. Retrieval performs retrieval only: it records what CourtListener returned and expresses no opinion about whether any result is the cited case.
 
 Two decisions are intentionally separate.
 
@@ -17,7 +17,7 @@ later as separate probes; they are not silently mixed into today's default.
 
 ## 2. Default search-path implementation
 
-For every eligible not-found citation, validation sends the same engineered
+For every eligible not-found citation, retrieval sends the same engineered
 query to both default CourtListener paths:
 
 - opinion-cluster search (`type=o`);
@@ -25,7 +25,7 @@ query to both default CourtListener paths:
 
 Both searches always run when supported. Their HTTP status, count, and error are
 traced independently. Counts are never added together: the corpora may overlap,
-and validation does not deduplicate, rank, compare, or interpret results. Later
+and retrieval does not deduplicate, rank, compare, or interpret results. Later
 design work can decide how assessment should consume these two observations.
 
 ## What we can and can't get from CourtListener
@@ -40,7 +40,7 @@ design work can decide how assessment should consume these two observations.
 We attach the two search observations, no candidates and no normalizer. A count
 means only that the corresponding CourtListener path returned that many hits.
 
-`CaseNameSearchTrace` on `NotFoundCitationValidation` (mirrors `court_resolution` on the found variant):
+`CaseNameSearchTrace` on `NotFoundCitationRetrieval` (mirrors `court_resolution` on the found variant):
 
 ```python
 class CaseNameSearchStatus(str, Enum):
@@ -78,11 +78,11 @@ count at the top level. Older deployed responses omit that normalized field but
 preserve the same value under `raw.count`; the parser supports both shapes.
 
 Wiring:
-- `validation/not_found_search.py` — skip gate (**both parties** required;
+- `retrieval/not_found_search.py` — skip gate (**both parties** required;
   single/no party is noise), select one meaningful alphanumeric anchor from each
   party, query `caseName:(A AND B)`, and read `count`.
 - `search_opinions` and `search_recap` on both clients, with each method preserving its own response.
-- Frontend: the validation trace's second step is **Case-name search**, showing opinion and RECAP outcomes separately.
+- Frontend: the retrieval trace's second step is **Case-name search**, showing opinion and RECAP outcomes separately.
 
 CourtListener also supports fuzzy tokens such as `Peterson~1`. We do not apply
 fuzziness to the first probe: edit-distance matching increases noise and does

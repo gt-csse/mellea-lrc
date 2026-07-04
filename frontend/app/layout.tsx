@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Mellea LRC Review",
-  description: "Citation extraction and validation review workspace"
+  description: "Citation extraction and retrieval review workspace"
 };
 
 export default function RootLayout({

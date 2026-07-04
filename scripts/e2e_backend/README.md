@@ -1,7 +1,7 @@
 # E2E Backend
 
 This backend exposes the assembled mellea-lrc preprocessing, extraction,
-validation, and assessment pipeline for the custom frontend review UI. It can
+retrieval, and assessment pipeline for the custom frontend review UI. It can
 run locally as a standalone FastAPI app or be wrapped by Modal for deployment.
 
 Modal app name: `mellea-lrc-prototype`.
@@ -26,7 +26,7 @@ MELLEA_LRC_LLM_CERT_REQUIRED=true
 # Disable certificate verification only for an endpoint that requires this workaround.
 ```
 
-Validation uses the CourtListener Modal backend through `CL_ACCESS_MODAL_URL`.
+Retrieval uses the CourtListener Modal backend through `CL_ACCESS_MODAL_URL`.
 Assessment uses the OpenAI-compatible API bound by the `mellea-assessment` secret.
 Label Studio is no longer integrated as a prediction-retrieval backend: upload
 scripts live under `scripts/label_studio/` and are independent of this service.
@@ -34,8 +34,8 @@ scripts live under `scripts/label_studio/` and are independent of this service.
 ## Runtime Assumptions
 
 - The assembled backend API is defined by `pipeline.E2EBackend`.
-- The custom frontend uses staged review endpoints: extract first, then validate
-  the existing review payload, then assess the validated payload.
+- The custom frontend uses staged review endpoints: extract first, then retrieve
+  the existing review payload, then assess the retrieved payload.
 - Docling is initialized lazily on the first PDF request.
 
 ## Local Test Corpus Preprocessing
@@ -82,13 +82,13 @@ Useful endpoints:
 - `POST /api/extract-text`: frontend text extraction stage
 - `POST /api/extract-document`: frontend document extraction stage
 - `POST /api/review-snapshot`: frontend dev loader for serialized interface artifacts
-- `POST /api/validate-review`: frontend validation stage for an existing review payload
+- `POST /api/retrieve-review`: frontend retrieval stage for an existing review payload
 - `POST /api/assess-review`: frontend Mellea assessment stage for an existing review payload
 
 ## Snapshot Loading
 
 The frontend can load a JSON snapshot produced by the neutral serializers for:
-`PreprocessedDocument`, `ExtractedDocument`, `ValidatedDocument`, or
+`PreprocessedDocument`, `ExtractedDocument`, `RetrievedDocument`, or
 `AssessedDocument`. Use the `Load snapshot` button in the input panel and choose
 the artifact JSON file. The backend deserializes the artifact and returns the same
 review payload shape used by the normal staged workflow.

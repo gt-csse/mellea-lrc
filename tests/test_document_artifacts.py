@@ -14,32 +14,32 @@ from mellea_lrc.courtlistener.types import CourtListenerCitationRecord
 from mellea_lrc.extraction import extract_citations
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import DocumentBase, PreprocessedDocument, preprocess_plain_text_from_string
-from mellea_lrc.validation.types import (
-    CitationValidation,
+from mellea_lrc.retrieval.types import (
+    CitationRetrieval,
     CourtResolutionSource,
     CourtResolutionTrace,
-    FoundCitationValidation,
+    FoundCitationRetrieval,
     RetrievedCandidate,
-    ValidatedDocument,
-    ValidationMetadata,
-    ValidationStatus,
+    RetrievedDocument,
+    RetrievalMetadata,
+    RetrievalStatus,
 )
 
 
 def test_document_stages_are_substitutable() -> None:
     extracted = extract_citations("Brown v. Board, 347 U.S. 483.")
-    validated = ValidatedDocument(
+    retrieved = RetrievedDocument(
         source_metadata=extracted.source_metadata,
         text=extracted.text,
         preprocessing_metadata=extracted.preprocessing_metadata,
         citations=extracted.citations,
         extraction_metadata=extracted.extraction_metadata,
-        validations=tuple(_validation(item.citation_id) for item in extracted.citations),
-        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
+        retrievals=tuple(_retrieval(item.citation_id) for item in extracted.citations),
+        retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
     )
-    assessed = initialize_assessment(validated)
+    assessed = initialize_assessment(retrieved)
 
-    assert isinstance(assessed, ValidatedDocument)
+    assert isinstance(assessed, RetrievedDocument)
     assert isinstance(assessed, ExtractedDocument)
     assert isinstance(assessed, PreprocessedDocument)
     assert isinstance(assessed, DocumentBase)
@@ -59,7 +59,7 @@ def test_source_metadata_copies_and_freezes_extra_data() -> None:
         metadata.extra_data.values["docket"] = "changed"  # type: ignore[index]
 
 
-def test_validation_copies_and_deeply_freezes_service_payloads() -> None:
+def test_retrieval_copies_and_deeply_freezes_service_payloads() -> None:
     extra_data = {
         "judges": ["Warren"],
         "court": {"slug": "scotus"},
@@ -68,7 +68,7 @@ def test_validation_copies_and_deeply_freezes_service_payloads() -> None:
         case_name="Brown v. Board",
         extra_data=ExtraData(extra_data),
     )
-    validation = FoundCitationValidation(
+    retrieval = FoundCitationRetrieval(
         citation_id="cite-1",
         locator="347 U.S. 483",
         source="test",
@@ -92,10 +92,10 @@ def test_validation_copies_and_deeply_freezes_service_payloads() -> None:
 
     extra_data["judges"].append("Changed")
 
-    assert validation.candidate.record.case_name == "Brown v. Board"
-    assert validation.candidate.record.extra_data.values["judges"] == ("Warren",)
+    assert retrieval.candidate.record.case_name == "Brown v. Board"
+    assert retrieval.candidate.record.extra_data.values["judges"] == ("Warren",)
     with pytest.raises(TypeError):
-        validation.candidate.record.extra_data.values["judges"] = ()  # type: ignore[index]
+        retrieval.candidate.record.extra_data.values["judges"] = ()  # type: ignore[index]
 
 
 def test_assessment_copies_and_freezes_chat_history() -> None:
@@ -156,18 +156,18 @@ def test_extracted_document_rejects_span_outside_text() -> None:
         )
 
 
-def test_validated_document_requires_one_result_per_citation() -> None:
+def test_retrieved_document_requires_one_result_per_citation() -> None:
     preprocessed = preprocess_plain_text_from_string("347 U.S. 483")
 
     with pytest.raises(ValueError, match="exactly match"):
-        ValidatedDocument(
+        RetrievedDocument(
             source_metadata=preprocessed.source_metadata,
             text=preprocessed.text,
             preprocessing_metadata=preprocessed.preprocessing_metadata,
             citations=(_citation("cite-1"),),
             extraction_metadata=ExtractionMetadata(),
-            validations=(),
-            validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
+            retrievals=(),
+            retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
         )
 
 
@@ -180,8 +180,8 @@ def _citation(citation_id: str) -> ExtractedCitation:
     )
 
 
-def _validation(citation_id: str) -> CitationValidation:
-    return FoundCitationValidation(
+def _retrieval(citation_id: str) -> CitationRetrieval:
+    return FoundCitationRetrieval(
         citation_id=citation_id,
         locator="347 U.S. 483",
         source="test",

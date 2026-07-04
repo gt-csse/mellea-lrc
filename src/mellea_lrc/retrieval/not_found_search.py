@@ -3,10 +3,10 @@
 When a reporter lookup 404s, the case may still be real under a different
 locator. This module sends one engineered query to both CourtListener's opinion
 and RECAP corpora and records each response independently. This is retrieval,
-not comparison: validation never combines counts or interprets the results.
+not comparison: retrieval never combines counts or interprets the results.
 
-Kept separate from ``validation/pipeline.py`` so the pipeline stays a thin
-existence-lookup orchestrator, mirroring ``validation/court_resolution.py``.
+Kept separate from ``retrieval/pipeline.py`` so the pipeline stays a thin
+existence-lookup orchestrator, mirroring ``retrieval/court_resolution.py``.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import re
 from typing import TYPE_CHECKING
 
 from mellea_lrc.courtlistener.client import CourtListenerError
-from mellea_lrc.validation.types import (
+from mellea_lrc.retrieval.types import (
     CaseNameSearchCorpus,
     CaseNameSearchProbe,
     CaseNameSearchStatus,
@@ -25,7 +25,7 @@ from mellea_lrc.validation.types import (
 
 if TYPE_CHECKING:
     from mellea_lrc.core.citations import FullCaseCitation
-    from mellea_lrc.courtlistener.types import CitationValidationClient
+    from mellea_lrc.courtlistener.types import CitationRetrievalClient
 
 HTTP_OK = 200
 _PARTY_TOKEN = re.compile(r"(?:[A-Za-z]\.){2,}|[A-Za-z0-9]+")
@@ -52,7 +52,7 @@ _NON_DISTINCTIVE_PARTY_TOKENS = frozenset(
 def search_case_name_candidates(
     citation: FullCaseCitation,
     *,
-    client: CitationValidationClient,
+    client: CitationRetrievalClient,
 ) -> CaseNameSearchTrace:
     """Count CourtListener opinions matching a not-found citation's case name.
 
@@ -89,7 +89,7 @@ def search_case_name_candidates(
 
 
 def _search_corpus(
-    client: CitationValidationClient,
+    client: CitationRetrievalClient,
     query: str,
     corpus: CaseNameSearchCorpus,
     method_name: str,

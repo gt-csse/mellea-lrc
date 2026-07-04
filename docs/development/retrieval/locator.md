@@ -1,6 +1,6 @@
 # Locator Lookup
 
-The validation lookup key for a full case citation is the three-field locator:
+The retrieval lookup key for a full case citation is the three-field locator:
 
 | Field | Example | Role |
 |---|---|---|
@@ -10,13 +10,13 @@ The validation lookup key for a full case citation is the three-field locator:
 
 Together these form `531 U.S. 98`. Case name, year, court, and pin cite do not
 participate in this exact lookup. Comparing those fields with a retrieved record
-is [assessment](../assessment/index.md), not validation.
+is [assessment](../assessment/index.md), not retrieval.
 
 ## Outcomes
 
-`validation/pipeline.py` maps the upstream response to one typed result:
+`retrieval/pipeline.py` maps the upstream response to one typed result:
 
-| Condition | Validation status | Meaning |
+| Condition | Retrieval status | Meaning |
 |---|---|---|
 | non-case citation | `skipped` | this validator does not handle the citation type |
 | incomplete locator | `invalid` | required retrieval input is absent |
@@ -35,10 +35,10 @@ that it is false.
 
 The lookup preserves `lookup_status`, `lookup_cache`, `lookup_key`, typed
 `CourtListenerCitationRecord` values where available, failure detail, and upstream
-`extra_data`. Validation wraps each record in a `RetrievedCandidate`; a malformed
+`extra_data`. Retrieval wraps each record in a `RetrievedCandidate`; a malformed
 HTTP 200 with no record becomes `lookup_failed`
 rather than inventing a record.
 
-Implementations live in `validation/pipeline.py`, with source access under
+Implementations live in `retrieval/pipeline.py`, with source access under
 `courtlistener/`. Tests should assert retrieval state and provenance without
 introducing assessment conclusions.

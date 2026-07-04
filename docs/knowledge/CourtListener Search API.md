@@ -206,7 +206,7 @@ not one row per judicial writing.
 - For `type=d` and `type=r`, counts above 2,000 use an approximate cardinality
   aggregation with documented error of approximately plus or minus six percent.
 - Upstream search results are cached for ten minutes.
-- BM25 is a ranking score, not a probability or a validation confidence value.
+- BM25 is a ranking score, not a probability or a retrieval confidence value.
 - A candidate should not be treated as an exact citation match unless its
   returned `citation` list contains the normalized locator.
 - A zero `type=o` count means no matching indexed cluster. It does not establish
@@ -241,7 +241,7 @@ The wrapper does not currently expose upstream `order_by`, `highlight`, `p`,
 
 ## Citation-Recovery Guidance
 
-For citation validation and recovery:
+For citation retrieval and recovery:
 
 1. Use `/citation-lookup` first for the exact volume/reporter/page triad.
 2. If lookup returns `404`, search by extracted case name using keyword mode.

@@ -36,28 +36,28 @@ from mellea_lrc.courtlistener.types import CourtListenerCitationRecord
 from mellea_lrc.extraction import extract_citations
 from mellea_lrc.serialization import (
     deserialize_assessed_document,
-    deserialize_citation_validation,
+    deserialize_citation_retrieval,
     deserialize_extracted_document,
     deserialize_citation_assessment,
     deserialize_preprocessed_document,
-    deserialize_validated_document,
+    deserialize_retrieved_document,
     serialize_assessed_document,
-    serialize_citation_validation,
+    serialize_citation_retrieval,
     serialize_extracted_document,
     serialize_citation_assessment,
     serialize_preprocessed_document,
-    serialize_validated_document,
+    serialize_retrieved_document,
 )
-from mellea_lrc.validation.types import (
-    AmbiguousCitationValidation,
-    CitationValidation,
+from mellea_lrc.retrieval.types import (
+    AmbiguousCitationRetrieval,
+    CitationRetrieval,
     CourtResolutionSource,
     CourtResolutionTrace,
-    FoundCitationValidation,
+    FoundCitationRetrieval,
     RetrievedCandidate,
-    ValidatedDocument,
-    ValidationMetadata,
-    ValidationStatus,
+    RetrievedDocument,
+    RetrievalMetadata,
+    RetrievalStatus,
 )
 from scripts.label_studio.label_studio import to_label_studio_prediction
 from scripts.label_studio.pre_annotate import build_task_payload
@@ -98,7 +98,7 @@ def test_document_extraction_serializes_without_ui_assumptions() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
     artifact = serialize_extracted_document(extraction)
 
-    assert artifact["schema_version"] == 14
+    assert artifact["schema_version"] == 15
     assert artifact["artifact_type"] == "extracted_document"
     assert artifact["source_metadata"]["path"] is None
     assert artifact["text"] == SAMPLE_TEXT
@@ -190,16 +190,16 @@ def test_document_extraction_round_trips() -> None:
     assert restored == extraction
 
 
-def test_document_validation_round_trips() -> None:
+def test_document_retrieval_round_trips() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
-    validation = ValidatedDocument(
+    retrieval = RetrievedDocument(
         source_metadata=extraction.source_metadata,
         text=extraction.text,
         preprocessing_metadata=extraction.preprocessing_metadata,
         citations=extraction.citations,
         extraction_metadata=extraction.extraction_metadata,
-        validations=(
-            FoundCitationValidation(
+        retrievals=(
+            FoundCitationRetrieval(
                 citation_id=extraction.citations[0].citation_id,
                 locator="118 U.S. 425",
                 source="test",
@@ -217,20 +217,61 @@ def test_document_validation_round_trips() -> None:
                 extra_data=ExtraData(),
             ),
         ),
-        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
+        retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
     )
 
-    artifact = serialize_validated_document(validation)
-    restored = deserialize_validated_document(artifact)
+    artifact = serialize_retrieved_document(retrieval)
+    restored = deserialize_retrieved_document(artifact)
 
-    assert artifact["artifact_type"] == "validated_document"
+    assert artifact["artifact_type"] == "retrieved_document"
     json.dumps(artifact)
-    assert restored == validation
+    assert restored == retrieval
 
 
-def test_deserialize_citation_validation_ignores_legacy_message() -> None:
-    payload = serialize_citation_validation(
-        FoundCitationValidation(
+def test_schema_14_validation_names_deserialize_into_retrieval_domain() -> None:
+    extraction = extract_citations(SAMPLE_TEXT)
+    citation_id = extraction.citations[0].citation_id
+    retrieval = RetrievedDocument(
+        source_metadata=extraction.source_metadata,
+        text=extraction.text,
+        preprocessing_metadata=extraction.preprocessing_metadata,
+        citations=extraction.citations,
+        extraction_metadata=extraction.extraction_metadata,
+        retrievals=(
+            FoundCitationRetrieval(
+                citation_id=citation_id,
+                locator="118 U.S. 425",
+                source="test",
+                lookup_status=200,
+                lookup_cache="miss",
+                lookup_key="118 U.S. 425",
+                candidate=_retrieved_candidate(
+                    citation_id,
+                    CourtListenerCitationRecord(
+                        case_name="Norton v. Shelby County",
+                        date_filed="1886-01-01",
+                        extra_data=ExtraData({"absolute_url": "/opinion/1/"}),
+                    ),
+                ),
+                extra_data=ExtraData(),
+            ),
+        ),
+        retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
+    )
+    artifact = serialize_retrieved_document(retrieval)
+    artifact["schema_version"] = 14
+    artifact["artifact_type"] = "validated_document"
+    artifact["validation_metadata"] = artifact.pop("retrieval_metadata")
+    artifact["validations"] = artifact.pop("retrievals")
+
+    restored = deserialize_retrieved_document(artifact)
+
+    assert restored == retrieval
+
+
+def test_deserialize_citation_retrieval_ignores_legacy_message() -> None:
+    payload = serialize_citation_retrieval(
+        FoundCitationRetrieval(
             citation_id="cite-1",
             locator="118 U.S. 425",
             source="test",
@@ -246,14 +287,14 @@ def test_deserialize_citation_validation_ignores_legacy_message() -> None:
     )
     payload["message"] = "CourtListener: found 118 U.S. 425"
 
-    restored = deserialize_citation_validation(payload)
+    restored = deserialize_citation_retrieval(payload)
 
-    assert "message" not in serialize_citation_validation(restored)
-    assert restored.status == ValidationStatus.FOUND
+    assert "message" not in serialize_citation_retrieval(restored)
+    assert restored.status == RetrievalStatus.FOUND
 
 
-def test_ambiguous_validation_candidates_round_trip_with_court_traces() -> None:
-    record = AmbiguousCitationValidation(
+def test_ambiguous_retrieval_candidates_round_trip_with_court_traces() -> None:
+    record = AmbiguousCitationRetrieval(
         citation_id="cite-1",
         locator="1 F.3d 2",
         source="test",
@@ -288,18 +329,18 @@ def test_ambiguous_validation_candidates_round_trip_with_court_traces() -> None:
         ),
     )
 
-    payload = serialize_citation_validation(record)
+    payload = serialize_citation_retrieval(record)
 
     assert "record" not in payload
     assert len(payload["candidates"]) == 2
     assert payload["candidates"][0]["record"]["case_name"] == "Example A"
     assert payload["candidates"][0]["court_resolution"]["courtlistener_court_id"] == "ca1"
-    assert deserialize_citation_validation(payload) == record
+    assert deserialize_citation_retrieval(payload) == record
 
 
 def test_document_assessment_round_trips() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
-    validation = FoundCitationValidation(
+    retrieval = FoundCitationRetrieval(
         citation_id=extraction.citations[0].citation_id,
         locator="118 U.S. 425",
         source="test",
@@ -359,12 +400,12 @@ def test_document_assessment_round_trips() -> None:
         preprocessing_metadata=extraction.preprocessing_metadata,
         citations=extraction.citations,
         extraction_metadata=extraction.extraction_metadata,
-        validations=(validation,),
-        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
+        retrievals=(retrieval,),
+        retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
         assessments=(
             AssessedCitationAssessment(
                 citation_id=citation_id,
-                candidate_id=validation.candidate.candidate_id,
+                candidate_id=retrieval.candidate.candidate_id,
                 result=assessment_result,
             ),
         ),
@@ -398,7 +439,7 @@ def test_document_assessment_round_trips() -> None:
         WaitingCitationAssessment(citation_id="cite-1"),
         SkippedCitationAssessment(
             citation_id="cite-1",
-            reason=AssessmentSkipReason.VALIDATION_NOT_ELIGIBLE,
+            reason=AssessmentSkipReason.RETRIEVAL_NOT_ELIGIBLE,
             message="not found",
         ),
         FailedCitationAssessment(citation_id="cite-1", error="RuntimeError: unavailable"),

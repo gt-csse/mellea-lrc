@@ -10,10 +10,10 @@ from mellea_lrc.assessment.types.case_name import (
     CaseNameReassessed,
     CaseNameReassessmentFailed,
 )
-from mellea_lrc.validation.types import (
-    AmbiguousCitationValidation,
-    FoundCitationValidation,
-    ValidatedDocument,
+from mellea_lrc.retrieval.types import (
+    AmbiguousCitationRetrieval,
+    FoundCitationRetrieval,
+    RetrievedDocument,
 )
 
 if TYPE_CHECKING:
@@ -36,7 +36,7 @@ class AssessmentSkipReason(str, Enum):
     """Reason a citation is intentionally excluded from assessment."""
 
     UNSUPPORTED_CITATION_KIND = "unsupported_citation_kind"
-    VALIDATION_NOT_ELIGIBLE = "validation_not_eligible"
+    RETRIEVAL_NOT_ELIGIBLE = "retrieval_not_eligible"
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,7 +91,7 @@ class CandidateAssessment:
 class AmbiguousCitationAssessment:
     """An ambiguous citation whose found-branch assessment ran per candidate.
 
-    Validation only pulls the candidates back; deciding which one the citation
+    Retrieval only pulls the candidates back; deciding which one the citation
     refers to is an opinion, so we delegate the normal found-branch assessment to
     each candidate and surface them side by side. Drawing a single conclusion
     across candidates is deferred. When more than ``_MAX`` candidates are
@@ -125,8 +125,8 @@ CitationAssessment: TypeAlias = (
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class AssessedDocument(ValidatedDocument):
-    """A validated document with one assessment record per citation."""
+class AssessedDocument(RetrievedDocument):
+    """A retrieved document with one assessment record per citation."""
 
     assessments: tuple[CitationAssessment, ...]
     assessment_metadata: AssessmentMetadata
@@ -137,7 +137,7 @@ class AssessedDocument(ValidatedDocument):
         return not any(isinstance(item, WaitingCitationAssessment) for item in self.assessments)
 
     def __post_init__(self) -> None:
-        ValidatedDocument.__post_init__(self)
+        RetrievedDocument.__post_init__(self)
         citation_ids = tuple(item.citation_id for item in self.citations)
         assessment_ids = _unique_document_ids(
             (item.citation_id for item in self.assessments),
@@ -146,29 +146,29 @@ class AssessedDocument(ValidatedDocument):
         if assessment_ids != citation_ids:
             msg = "Assessment identifiers must exactly match extracted citation identifiers in order"
             raise ValueError(msg)
-        validation_by_id = {item.citation_id: item for item in self.validations}
+        retrieval_by_id = {item.citation_id: item for item in self.retrievals}
         for item in self.assessments:
             if isinstance(item, AssessedCitationAssessment):
-                validation = validation_by_id[item.citation_id]
+                retrieval = retrieval_by_id[item.citation_id]
                 if (
-                    not isinstance(validation, FoundCitationValidation)
-                    or item.candidate_id != validation.candidate.candidate_id
+                    not isinstance(retrieval, FoundCitationRetrieval)
+                    or item.candidate_id != retrieval.candidate.candidate_id
                 ):
-                    msg = f"Assessment candidate ID does not reference found validation for {item.citation_id!r}"
+                    msg = f"Assessment candidate ID does not reference found retrieval for {item.citation_id!r}"
                     raise ValueError(msg)
                 self._validate_reextracted_span(item.citation_id, item.result)
             elif isinstance(item, AmbiguousCitationAssessment):
-                validation = validation_by_id[item.citation_id]
+                retrieval = retrieval_by_id[item.citation_id]
                 assessment_candidate_ids = tuple(candidate.candidate_id for candidate in item.candidates)
                 if len(assessment_candidate_ids) != len(set(assessment_candidate_ids)):
                     msg = f"Assessment candidate IDs must be unique for {item.citation_id!r}"
                     raise ValueError(msg)
                 if not item.gated and (
-                    not isinstance(validation, AmbiguousCitationValidation)
+                    not isinstance(retrieval, AmbiguousCitationRetrieval)
                     or assessment_candidate_ids
-                    != tuple(candidate.candidate_id for candidate in validation.candidates)
+                    != tuple(candidate.candidate_id for candidate in retrieval.candidates)
                 ):
-                    msg = f"Assessment candidate IDs do not reference ambiguous validation for {item.citation_id!r}"
+                    msg = f"Assessment candidate IDs do not reference ambiguous retrieval for {item.citation_id!r}"
                     raise ValueError(msg)
                 for candidate in item.candidates:
                     self._validate_reextracted_span(item.citation_id, candidate.result)

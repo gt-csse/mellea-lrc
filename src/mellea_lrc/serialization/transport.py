@@ -1,4 +1,4 @@
-"""Strict Pydantic DTOs for serialized artifact schema version 13."""
+"""Strict Pydantic DTOs for schema 15, accepting schema-14 retrieval aliases."""
 
 # ruff: noqa: D101
 
@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, JsonValue
 
 
 class ArtifactPayload(BaseModel):
@@ -32,7 +32,7 @@ class ExtractionMetadataPayload(ArtifactPayload):
     backend_version: str | None
 
 
-class ValidationMetadataPayload(ArtifactPayload):
+class RetrievalMetadataPayload(ArtifactPayload):
     client_mode: Literal["deployed", "sdk", "custom"]
     source: str
     duration_ms: float | None = None
@@ -144,7 +144,7 @@ class CourtListenerCitationRecordPayload(ArtifactPayload):
     extra_data: dict[str, JsonValue]
 
 
-class ValidationFailureDetailPayload(ArtifactPayload):
+class RetrievalFailureDetailPayload(ArtifactPayload):
     failure_type: str | None
     message: str | None
     retryable: bool | None
@@ -176,7 +176,7 @@ class RetrievedCandidatePayload(ArtifactPayload):
     court_resolution: CourtResolutionTracePayload
 
 
-class FoundCitationValidationPayload(ArtifactPayload):
+class FoundCitationRetrievalPayload(ArtifactPayload):
     citation_id: str
     status: Literal["found"]
     locator: str
@@ -188,7 +188,7 @@ class FoundCitationValidationPayload(ArtifactPayload):
     extra_data: dict[str, JsonValue]
 
 
-class AmbiguousCitationValidationPayload(ArtifactPayload):
+class AmbiguousCitationRetrievalPayload(ArtifactPayload):
     citation_id: str
     status: Literal["ambiguous"]
     locator: str
@@ -222,7 +222,7 @@ class CaseNameSearchTracePayload(ArtifactPayload):
     probes: list[CaseNameSearchProbePayload]
 
 
-class NotFoundCitationValidationPayload(ArtifactPayload):
+class NotFoundCitationRetrievalPayload(ArtifactPayload):
     citation_id: str
     status: Literal["not_found"]
     locator: str
@@ -234,13 +234,13 @@ class NotFoundCitationValidationPayload(ArtifactPayload):
     extra_data: dict[str, JsonValue]
 
 
-class InvalidCitationValidationPayload(ArtifactPayload):
+class InvalidCitationRetrievalPayload(ArtifactPayload):
     citation_id: str
     status: Literal["invalid"]
     source: str
 
 
-class ThrottledCitationValidationPayload(ArtifactPayload):
+class ThrottledCitationRetrievalPayload(ArtifactPayload):
     citation_id: str
     status: Literal["throttled"]
     locator: str
@@ -249,11 +249,11 @@ class ThrottledCitationValidationPayload(ArtifactPayload):
     lookup_cache: str | None
     lookup_key: str | None
     error_message: str | None
-    failure_detail: ValidationFailureDetailPayload | None
+    failure_detail: RetrievalFailureDetailPayload | None
     extra_data: dict[str, JsonValue]
 
 
-class LookupFailedCitationValidationPayload(ArtifactPayload):
+class LookupFailedCitationRetrievalPayload(ArtifactPayload):
     citation_id: str
     status: Literal["lookup_failed"]
     locator: str
@@ -262,24 +262,24 @@ class LookupFailedCitationValidationPayload(ArtifactPayload):
     lookup_cache: str | None
     lookup_key: str | None
     error_message: str | None
-    failure_detail: ValidationFailureDetailPayload | None
+    failure_detail: RetrievalFailureDetailPayload | None
     extra_data: dict[str, JsonValue]
 
 
-class SkippedCitationValidationPayload(ArtifactPayload):
+class SkippedCitationRetrievalPayload(ArtifactPayload):
     citation_id: str
     status: Literal["skipped"]
     source: str
 
 
-CitationValidationPayload = Annotated[
-    FoundCitationValidationPayload
-    | AmbiguousCitationValidationPayload
-    | NotFoundCitationValidationPayload
-    | InvalidCitationValidationPayload
-    | ThrottledCitationValidationPayload
-    | LookupFailedCitationValidationPayload
-    | SkippedCitationValidationPayload,
+CitationRetrievalPayload = Annotated[
+    FoundCitationRetrievalPayload
+    | AmbiguousCitationRetrievalPayload
+    | NotFoundCitationRetrievalPayload
+    | InvalidCitationRetrievalPayload
+    | ThrottledCitationRetrievalPayload
+    | LookupFailedCitationRetrievalPayload
+    | SkippedCitationRetrievalPayload,
     Field(discriminator="status"),
 ]
 
@@ -395,7 +395,7 @@ class WaitingCitationAssessmentPayload(ArtifactPayload):
 class SkippedCitationAssessmentPayload(ArtifactPayload):
     citation_id: str
     status: Literal["skipped"]
-    reason: Literal["unsupported_citation_kind", "validation_not_eligible"]
+    reason: Literal["unsupported_citation_kind", "retrieval_not_eligible"]
     message: str
 
 
@@ -446,28 +446,32 @@ class _ExtractedDocumentFields(_PreprocessedDocumentFields):
     citations: list[ExtractedCitationPayload]
 
 
-class _ValidatedDocumentFields(_ExtractedDocumentFields):
-    validation_metadata: ValidationMetadataPayload
-    validations: list[CitationValidationPayload]
+class _RetrievedDocumentFields(_ExtractedDocumentFields):
+    retrieval_metadata: RetrievalMetadataPayload = Field(
+        validation_alias=AliasChoices("retrieval_metadata", "validation_metadata")
+    )
+    retrievals: list[CitationRetrievalPayload] = Field(
+        validation_alias=AliasChoices("retrievals", "validations")
+    )
 
 
 class PreprocessedDocumentPayload(_PreprocessedDocumentFields):
-    schema_version: Literal[14]
+    schema_version: Literal[14, 15]
     artifact_type: Literal["preprocessed_document"]
 
 
 class ExtractedDocumentPayload(_ExtractedDocumentFields):
-    schema_version: Literal[14]
+    schema_version: Literal[14, 15]
     artifact_type: Literal["extracted_document"]
 
 
-class ValidatedDocumentPayload(_ValidatedDocumentFields):
-    schema_version: Literal[14]
-    artifact_type: Literal["validated_document"]
+class RetrievedDocumentPayload(_RetrievedDocumentFields):
+    schema_version: Literal[14, 15]
+    artifact_type: Literal["retrieved_document", "validated_document"]
 
 
-class AssessedDocumentPayload(_ValidatedDocumentFields):
-    schema_version: Literal[14]
+class AssessedDocumentPayload(_RetrievedDocumentFields):
+    schema_version: Literal[14, 15]
     artifact_type: Literal["assessed_document"]
     assessment_metadata: AssessmentMetadataPayload
     assessments: list[CitationAssessmentPayload]

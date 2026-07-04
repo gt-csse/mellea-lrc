@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from mellea_lrc.serialization import (
     deserialize_assessed_document,
     deserialize_extracted_document,
-    deserialize_validated_document,
+    deserialize_retrieved_document,
     deserialize_preprocessed_document,
 )
 from scripts.e2e_backend.pipeline import E2EBackend
@@ -54,17 +54,17 @@ def create_app(backend: E2EBackend | None = None) -> FastAPI:  # noqa: C901
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @web_app.post("/api/validate-review")
-    async def validate_review(payload: dict[str, object]) -> dict[str, Any]:
+    @web_app.post("/api/retrieve-review")
+    async def retrieve_review(payload: dict[str, object]) -> dict[str, Any]:
         try:
-            return pipeline.validate_review_payload(payload)
+            return pipeline.retrieve_review_payload(payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @web_app.post("/api/validate-review-citation")
-    async def validate_review_citation(payload: dict[str, object]) -> dict[str, Any]:
+    @web_app.post("/api/retrieve-review-citation")
+    async def retrieve_review_citation(payload: dict[str, object]) -> dict[str, Any]:
         try:
-            return pipeline.validate_review_citation_payload(payload)
+            return pipeline.retrieve_review_citation_payload(payload)
         except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -95,18 +95,18 @@ def create_app(backend: E2EBackend | None = None) -> FastAPI:  # noqa: C901
         text = str(payload.get("text") or "")
         if not text.strip():
             raise HTTPException(status_code=400, detail="text is required")
-        validate = bool(payload.get("validate", True))
-        return pipeline.review_text(text, validate=validate)
+        retrieve = bool(payload.get("retrieve", True))
+        return pipeline.review_text(text, retrieve=retrieve)
 
     @web_app.post("/api/review-document")
     async def review_document(
         *,
         file: Annotated[UploadFile, File()],
-        validate: Annotated[bool, Form()] = True,
+        retrieve: Annotated[bool, Form()] = True,
     ) -> dict[str, object]:
         filename = file.filename or "document.pdf"
         try:
-            return pipeline.review_document_bytes(await file.read(), filename, validate=validate)
+            return pipeline.review_document_bytes(await file.read(), filename, retrieve=retrieve)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -130,10 +130,10 @@ def _review_snapshot_payload(payload: object, pipeline: E2EBackend) -> dict[str,
             "stage": "assessed",
             "result": pipeline.review_document_assessment(deserialize_assessed_document(payload)),
         }
-    if artifact_type == "validated_document":
+    if artifact_type in {"retrieved_document", "validated_document"}:
         return {
-            "stage": "validated",
-            "result": pipeline.review_document_validation(deserialize_validated_document(payload)),
+            "stage": "retrieved",
+            "result": pipeline.review_document_retrieval(deserialize_retrieved_document(payload)),
         }
     if artifact_type == "extracted_document":
         return {
@@ -147,6 +147,6 @@ def _review_snapshot_payload(payload: object, pipeline: E2EBackend) -> dict[str,
         }
     msg = (
         "Snapshot does not look like a serialized PreprocessedDocument, "
-        "ExtractedDocument, ValidatedDocument, or AssessedDocument."
+        "ExtractedDocument, RetrievedDocument, or AssessedDocument."
     )
     raise ValueError(msg)

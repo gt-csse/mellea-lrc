@@ -39,13 +39,13 @@ Implementation notes and behavioral contracts live under `docs/development/`:
 
 - [Preprocessing](docs/development/Preprocessing%20Development.md)
 - [Extraction](docs/development/Extraction%20Model%20Development.md)
-- [Validation](docs/development/validation/index.md) — retrieval and provenance
+- [Retrieval](docs/development/retrieval/index.md) — retrieval and provenance
   only; this phase does not express an opinion
 - [Assessment](docs/development/assessment/index.md) — field-level comparisons
   and conclusions
 - [Benchmark architecture](docs/development/Benchmark.md)
 
-Validation and assessment each have nested field/path documents. Add new
+Retrieval and assessment each have nested field/path documents. Add new
 behavior to the owning directory and link it from that directory's `index.md`.
 
 ## Contributing Changes

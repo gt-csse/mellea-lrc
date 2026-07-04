@@ -14,15 +14,15 @@ from mellea_lrc.core.env import load_env_file
 from mellea_lrc.extraction import run_extraction
 from mellea_lrc.preprocessing import preprocess_plain_text, run_preprocessing
 from mellea_lrc.serialization import (
-    deserialize_validated_document,
+    deserialize_retrieved_document,
     serialize_assessed_document,
-    serialize_validated_document,
+    serialize_retrieved_document,
 )
-from mellea_lrc.validation import run_validation
+from mellea_lrc.retrieval import run_retrieval
 
 if TYPE_CHECKING:
     from mellea_lrc.extraction.types import ExtractedDocument
-    from mellea_lrc.validation.types import ValidatedDocument
+    from mellea_lrc.retrieval.types import RetrievedDocument
 
 DEFAULT_INPUT = Path("local/test_data/pdfs/1.pdf")
 DEFAULT_FALLBACK_INPUT = Path("local/test_data/1.txt")
@@ -30,7 +30,7 @@ DEFAULT_SNAPSHOT_ROOT = Path("local/snapshots")
 
 
 def main() -> None:
-    """Run extraction, reusable validation, and optional Mellea assessment."""
+    """Run extraction, reusable retrieval, and optional Mellea assessment."""
     args = _parse_args()
     _load_dotenv(Path(".env"))
 
@@ -43,7 +43,7 @@ def main() -> None:
         raise FileNotFoundError(msg)
     snapshot_dir = args.snapshot_dir or (DEFAULT_SNAPSHOT_ROOT / input_path.stem)
     snapshot_dir.mkdir(parents=True, exist_ok=True)
-    validation_path = snapshot_dir / "validation.json"
+    retrieval_path = snapshot_dir / "retrieval.json"
     assessment_path = snapshot_dir / "assessment.json"
 
     preprocessed = (
@@ -52,26 +52,26 @@ def main() -> None:
         else run_preprocessing(input_path)
     )
     extraction = run_extraction(preprocessed)
-    validation = _load_or_create_validation(
-        validation_path,
+    retrieval = _load_or_create_retrieval(
+        retrieval_path,
         extraction,
-        refresh=args.refresh_validation,
+        refresh=args.refresh_retrieval,
     )
 
     _emit_json(
         {
             "input": str(input_path),
-            "validation_snapshot": str(validation_path),
+            "retrieval_snapshot": str(retrieval_path),
             "assessment_snapshot": str(assessment_path),
             "citations": len(extraction.citations),
-            "validations": _validation_counts(validation),
+            "retrievals": _retrieval_counts(retrieval),
         }
     )
 
     if not args.assess_mellea:
         return
 
-    assessment = run_assessment(validation, on_mellea_call=_emit_mellea_call)
+    assessment = run_assessment(retrieval, on_mellea_call=_emit_mellea_call)
     assessment_path.write_text(
         json.dumps(serialize_assessed_document(assessment), indent=2),
         encoding="utf-8",
@@ -86,31 +86,31 @@ def _parse_args() -> argparse.Namespace:
         "--snapshot-dir",
         type=Path,
         default=None,
-        help="Directory for validation.json and assessment.json (default: local/snapshots/<doc>)",
+        help="Directory for retrieval.json and assessment.json (default: local/snapshots/<doc>)",
     )
-    parser.add_argument("--refresh-validation", action="store_true")
+    parser.add_argument("--refresh-retrieval", action="store_true")
     parser.add_argument("--assess-mellea", action="store_true")
     return parser.parse_args()
 
 
-def _load_or_create_validation(
+def _load_or_create_retrieval(
     path: Path,
     extraction: ExtractedDocument,
     *,
     refresh: bool,
-) -> ValidatedDocument:
+) -> RetrievedDocument:
     if path.exists() and not refresh:
         payload = json.loads(path.read_text(encoding="utf-8"))
-        return deserialize_validated_document(payload)
+        return deserialize_retrieved_document(payload)
 
-    validation = run_validation(extraction)
-    path.write_text(json.dumps(serialize_validated_document(validation), indent=2), encoding="utf-8")
-    return validation
+    retrieval = run_retrieval(extraction)
+    path.write_text(json.dumps(serialize_retrieved_document(retrieval), indent=2), encoding="utf-8")
+    return retrieval
 
 
-def _validation_counts(validation: ValidatedDocument) -> dict[str, int]:
+def _retrieval_counts(retrieval: RetrievedDocument) -> dict[str, int]:
     counts: dict[str, int] = {}
-    for item in validation.validations:
+    for item in retrieval.retrievals:
         counts[item.status.value] = counts.get(item.status.value, 0) + 1
     return counts
 

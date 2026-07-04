@@ -68,28 +68,28 @@ from mellea_lrc.preprocessing.types import (
     PreprocessingBackend,
     PreprocessingMetadata,
 )
-from mellea_lrc.validation.types import (
-    AmbiguousCitationValidation,
+from mellea_lrc.retrieval.types import (
+    AmbiguousCitationRetrieval,
     CaseNameSearchCorpus,
     CaseNameSearchProbe,
     CaseNameSearchStatus,
     CaseNameSearchTrace,
-    CitationValidation,
+    CitationRetrieval,
     CourtResolutionSource,
     CourtResolutionTrace,
-    FoundCitationValidation,
-    InvalidCitationValidation,
-    LookupFailedCitationValidation,
-    NotFoundCitationValidation,
+    FoundCitationRetrieval,
+    InvalidCitationRetrieval,
+    LookupFailedCitationRetrieval,
+    NotFoundCitationRetrieval,
     RetrievedCandidate,
-    SkippedCitationValidation,
-    ThrottledCitationValidation,
-    ValidatedDocument,
-    ValidationClientMode,
-    ValidationMetadata,
-    ValidationStatus,
+    SkippedCitationRetrieval,
+    ThrottledCitationRetrieval,
+    RetrievedDocument,
+    RetrievalClientMode,
+    RetrievalMetadata,
+    RetrievalStatus,
 )
-from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, ValidationFailureDetail
+from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, RetrievalFailureDetail
 from mellea_lrc.serialization.transport import (
     AssessedDocumentPayload,
     CanonicalCitationPayload,
@@ -99,15 +99,14 @@ from mellea_lrc.serialization.transport import (
     CitationAssessmentPayload,
     CitationAssessmentResultPayload,
     CourtAssessmentPayload,
-    CourtAssessmentRunPayload,
     CourtFollowupPayload,
-    CitationValidationPayload,
+    CitationRetrievalPayload,
     CourtResolutionTracePayload,
     ExtractedCitationPayload,
     ExtractedDocumentPayload,
     ReextractedCaseNamePayload,
     PreprocessedDocumentPayload,
-    ValidatedDocumentPayload,
+    RetrievedDocumentPayload,
     YearAssessmentPayload,
 )
 
@@ -115,13 +114,13 @@ if TYPE_CHECKING:
     from mellea_lrc.core.citations import CanonicalCitation
 
 JsonValue: TypeAlias = str | int | float | bool | None | dict[str, "JsonValue"] | list["JsonValue"]
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 _CITATION_PAYLOAD_ADAPTER = TypeAdapter(CanonicalCitationPayload)
 _ASSESSMENT_PAYLOAD_ADAPTER = TypeAdapter(CitationAssessmentPayload)
 _CASE_NAME_FOLLOWUP_PAYLOAD_ADAPTER = TypeAdapter(CaseNameFollowupPayload)
 _COURT_FOLLOWUP_PAYLOAD_ADAPTER = TypeAdapter(CourtFollowupPayload)
-_VALIDATION_PAYLOAD_ADAPTER = TypeAdapter(CitationValidationPayload)
+_RETRIEVAL_PAYLOAD_ADAPTER = TypeAdapter(CitationRetrievalPayload)
 
 _CITATION_CLASSES = {
     CitationKind.FULL_CASE: FullCaseCitation,
@@ -220,23 +219,23 @@ def _deserialize_extraction_metadata(payload: Mapping[str, object]) -> Extractio
     )
 
 
-def _serialize_validation_metadata(item: ValidationMetadata) -> dict[str, JsonValue]:
+def _serialize_retrieval_metadata(item: RetrievalMetadata) -> dict[str, JsonValue]:
     payload: dict[str, JsonValue] = {"client_mode": item.client_mode, "source": item.source}
     if item.duration_ms is not None:
         payload["duration_ms"] = item.duration_ms
     return payload
 
 
-def _deserialize_validation_metadata(payload: Mapping[str, object]) -> ValidationMetadata:
-    client_mode = _required_str(payload.get("client_mode"), "validation client mode")
+def _deserialize_retrieval_metadata(payload: Mapping[str, object]) -> RetrievalMetadata:
+    client_mode = _required_str(payload.get("client_mode"), "retrieval client mode")
     if client_mode not in {"deployed", "sdk", "custom"}:
-        msg = f"Unknown validation client mode: {client_mode!r}"
+        msg = f"Unknown retrieval client mode: {client_mode!r}"
         raise ValueError(msg)
     raw_duration = payload.get("duration_ms")
     duration_ms = _optional_float(raw_duration) if raw_duration is not None else None
-    return ValidationMetadata(
-        client_mode=cast("ValidationClientMode", client_mode),
-        source=_required_str(payload.get("source"), "validation metadata source"),
+    return RetrievalMetadata(
+        client_mode=cast("RetrievalClientMode", client_mode),
+        source=_required_str(payload.get("source"), "retrieval metadata source"),
         duration_ms=duration_ms,
     )
 
@@ -324,14 +323,14 @@ def deserialize_extracted_document(payload: Mapping[str, object]) -> ExtractedDo
     )
 
 
-def serialize_citation_validation(item: CitationValidation) -> dict[str, JsonValue]:
-    """Serialize one citation validation result (discriminated by ``status``)."""
+def serialize_citation_retrieval(item: CitationRetrieval) -> dict[str, JsonValue]:
+    """Serialize one citation retrieval result (discriminated by ``status``)."""
     base: dict[str, JsonValue] = {
         "citation_id": item.citation_id,
         "status": item.status.value,
         "source": item.source,
     }
-    if isinstance(item, FoundCitationValidation):
+    if isinstance(item, FoundCitationRetrieval):
         base.update(
             {
                 "locator": item.locator,
@@ -342,7 +341,7 @@ def serialize_citation_validation(item: CitationValidation) -> dict[str, JsonVal
                 "extra_data": _serialize_extra_data(item.extra_data),
             },
         )
-    elif isinstance(item, AmbiguousCitationValidation):
+    elif isinstance(item, AmbiguousCitationRetrieval):
         base.update(
             {
                 "locator": item.locator,
@@ -353,7 +352,7 @@ def serialize_citation_validation(item: CitationValidation) -> dict[str, JsonVal
                 "extra_data": _serialize_extra_data(item.extra_data),
             },
         )
-    elif isinstance(item, NotFoundCitationValidation):
+    elif isinstance(item, NotFoundCitationRetrieval):
         base.update(
             {
                 "locator": item.locator,
@@ -364,7 +363,7 @@ def serialize_citation_validation(item: CitationValidation) -> dict[str, JsonVal
                 "extra_data": _serialize_extra_data(item.extra_data),
             },
         )
-    elif isinstance(item, (ThrottledCitationValidation, LookupFailedCitationValidation)):
+    elif isinstance(item, (ThrottledCitationRetrieval, LookupFailedCitationRetrieval)):
         base.update(
             {
                 "locator": item.locator,
@@ -373,7 +372,7 @@ def serialize_citation_validation(item: CitationValidation) -> dict[str, JsonVal
                 "lookup_key": item.lookup_key,
                 "error_message": item.error_message,
                 "failure_detail": (
-                    _serialize_validation_failure_detail(item.failure_detail)
+                    _serialize_retrieval_failure_detail(item.failure_detail)
                     if item.failure_detail is not None
                     else None
                 ),
@@ -500,8 +499,8 @@ def _deserialize_citation_record(payload: Mapping[str, object]) -> CourtListener
     )
 
 
-def _serialize_validation_failure_detail(
-    item: ValidationFailureDetail,
+def _serialize_retrieval_failure_detail(
+    item: RetrievalFailureDetail,
 ) -> dict[str, JsonValue]:
     return {
         "failure_type": item.failure_type,
@@ -515,14 +514,14 @@ def _serialize_validation_failure_detail(
     }
 
 
-def _deserialize_validation_failure_detail(
+def _deserialize_retrieval_failure_detail(
     payload: Mapping[str, object],
-) -> ValidationFailureDetail:
+) -> RetrievalFailureDetail:
     retryable = payload.get("retryable")
     if retryable is not None and not isinstance(retryable, bool):
         msg = "failure_detail.retryable must be a boolean"
         raise TypeError(msg)
-    return ValidationFailureDetail(
+    return RetrievalFailureDetail(
         failure_type=_optional_str(payload.get("failure_type")),
         message=_optional_str(payload.get("message")),
         retryable=retryable,
@@ -534,18 +533,18 @@ def _deserialize_validation_failure_detail(
     )
 
 
-def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationValidation:
-    """Rebuild one citation validation result from JSON data (status-discriminated)."""
+def deserialize_citation_retrieval(payload: Mapping[str, object]) -> CitationRetrieval:
+    """Rebuild one citation retrieval result from JSON data (status-discriminated)."""
     normalized = dict(payload)
     normalized.pop("message", None)
-    validated = _VALIDATION_PAYLOAD_ADAPTER.validate_python(normalized).model_dump(mode="python")
-    status = ValidationStatus(_required_str(validated.get("status"), "validation status"))
+    validated = _RETRIEVAL_PAYLOAD_ADAPTER.validate_python(normalized).model_dump(mode="python")
+    status = RetrievalStatus(_required_str(validated.get("status"), "retrieval status"))
     citation_id = _required_str(validated.get("citation_id"), "citation_id")
-    source = _required_str(validated.get("source"), "validation source")
+    source = _required_str(validated.get("source"), "retrieval source")
 
-    if status is ValidationStatus.FOUND:
+    if status is RetrievalStatus.FOUND:
         # Pydantic discriminated-union model ensures the "found" branch has these fields.
-        return FoundCitationValidation(
+        return FoundCitationRetrieval(
             citation_id=citation_id,
             locator=_required_str(validated.get("locator"), "locator"),
             source=source,
@@ -555,8 +554,8 @@ def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationVa
             candidate=_deserialize_retrieved_candidate(_required_mapping_field(validated, "candidate")),
             extra_data=_deserialize_extra_data(validated.get("extra_data")),
         )
-    if status is ValidationStatus.AMBIGUOUS:
-        return AmbiguousCitationValidation(
+    if status is RetrievalStatus.AMBIGUOUS:
+        return AmbiguousCitationRetrieval(
             citation_id=citation_id,
             locator=_required_str(validated.get("locator"), "locator"),
             source=source,
@@ -569,9 +568,9 @@ def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationVa
             ),
             extra_data=_deserialize_extra_data(validated.get("extra_data")),
         )
-    if status is ValidationStatus.NOT_FOUND:
+    if status is RetrievalStatus.NOT_FOUND:
         candidate_search = validated.get("candidate_search")
-        return NotFoundCitationValidation(
+        return NotFoundCitationRetrieval(
             citation_id=citation_id,
             locator=_required_str(validated.get("locator"), "locator"),
             source=source,
@@ -583,13 +582,13 @@ def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationVa
             ),
             extra_data=_deserialize_extra_data(validated.get("extra_data")),
         )
-    if status is ValidationStatus.INVALID:
-        return InvalidCitationValidation(
+    if status is RetrievalStatus.INVALID:
+        return InvalidCitationRetrieval(
             citation_id=citation_id,
             source=source,
         )
-    if status is ValidationStatus.THROTTLED:
-        return ThrottledCitationValidation(
+    if status is RetrievalStatus.THROTTLED:
+        return ThrottledCitationRetrieval(
             citation_id=citation_id,
             locator=_required_str(validated.get("locator"), "locator"),
             source=source,
@@ -598,14 +597,14 @@ def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationVa
             lookup_key=_optional_str(validated.get("lookup_key")),
             error_message=_optional_str(validated.get("error_message")),
             failure_detail=(
-                _deserialize_validation_failure_detail(_mapping_field(validated.get("failure_detail")))
+                _deserialize_retrieval_failure_detail(_mapping_field(validated.get("failure_detail")))
                 if isinstance(validated.get("failure_detail"), dict)
                 else None
             ),
             extra_data=_deserialize_extra_data(validated.get("extra_data")),
         )
-    if status is ValidationStatus.LOOKUP_FAILED:
-        return LookupFailedCitationValidation(
+    if status is RetrievalStatus.LOOKUP_FAILED:
+        return LookupFailedCitationRetrieval(
             citation_id=citation_id,
             locator=_optional_str(validated.get("locator")) or "",
             source=source,
@@ -614,39 +613,39 @@ def deserialize_citation_validation(payload: Mapping[str, object]) -> CitationVa
             lookup_key=_optional_str(validated.get("lookup_key")),
             error_message=_optional_str(validated.get("error_message")),
             failure_detail=(
-                _deserialize_validation_failure_detail(_mapping_field(validated.get("failure_detail")))
+                _deserialize_retrieval_failure_detail(_mapping_field(validated.get("failure_detail")))
                 if isinstance(validated.get("failure_detail"), dict)
                 else None
             ),
             extra_data=_deserialize_extra_data(validated.get("extra_data")),
         )
     # Skipped
-    return SkippedCitationValidation(
+    return SkippedCitationRetrieval(
         citation_id=citation_id,
         source=source,
     )
 
 
-def serialize_validated_document(result: ValidatedDocument) -> dict[str, JsonValue]:
-    """Serialize the validation boundary object."""
+def serialize_retrieved_document(result: RetrievedDocument) -> dict[str, JsonValue]:
+    """Serialize the retrieval boundary object."""
     return {
         "schema_version": SCHEMA_VERSION,
-        "artifact_type": "validated_document",
+        "artifact_type": "retrieved_document",
         "text": result.text,
         "source_metadata": _serialize_source_metadata(result.source_metadata),
         "preprocessing_metadata": _serialize_preprocessing_metadata(result.preprocessing_metadata),
         "extraction_metadata": _serialize_extraction_metadata(result.extraction_metadata),
-        "validation_metadata": _serialize_validation_metadata(result.validation_metadata),
+        "retrieval_metadata": _serialize_retrieval_metadata(result.retrieval_metadata),
         "citations": [serialize_extracted_citation(item) for item in result.citations],
-        "validations": [serialize_citation_validation(item) for item in result.validations],
+        "retrievals": [serialize_citation_retrieval(item) for item in result.retrievals],
     }
 
 
-def deserialize_validated_document(payload: Mapping[str, object]) -> ValidatedDocument:
-    """Rebuild the validation boundary object from JSON data."""
-    validated = ValidatedDocumentPayload.model_validate(payload).model_dump(mode="python")
+def deserialize_retrieved_document(payload: Mapping[str, object]) -> RetrievedDocument:
+    """Rebuild the retrieval boundary object from JSON data."""
+    validated = RetrievedDocumentPayload.model_validate(payload).model_dump(mode="python")
     preprocessed = _deserialize_preprocessed_fields(validated)
-    return ValidatedDocument(
+    return RetrievedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
@@ -657,12 +656,12 @@ def deserialize_validated_document(payload: Mapping[str, object]) -> ValidatedDo
         extraction_metadata=_deserialize_extraction_metadata(
             _required_mapping_field(validated, "extraction_metadata")
         ),
-        validations=tuple(
-            deserialize_citation_validation(_mapping_field(item))
-            for item in _list_field(validated.get("validations"))
+        retrievals=tuple(
+            deserialize_citation_retrieval(_mapping_field(item))
+            for item in _list_field(validated.get("retrievals"))
         ),
-        validation_metadata=_deserialize_validation_metadata(
-            _required_mapping_field(validated, "validation_metadata")
+        retrieval_metadata=_deserialize_retrieval_metadata(
+            _required_mapping_field(validated, "retrieval_metadata")
         ),
     )
 
@@ -981,10 +980,10 @@ def serialize_assessed_document(result: AssessedDocument) -> dict[str, JsonValue
         "source_metadata": _serialize_source_metadata(result.source_metadata),
         "preprocessing_metadata": _serialize_preprocessing_metadata(result.preprocessing_metadata),
         "extraction_metadata": _serialize_extraction_metadata(result.extraction_metadata),
-        "validation_metadata": _serialize_validation_metadata(result.validation_metadata),
+        "retrieval_metadata": _serialize_retrieval_metadata(result.retrieval_metadata),
         "assessment_metadata": _serialize_assessment_metadata(result.assessment_metadata),
         "citations": [serialize_extracted_citation(item) for item in result.citations],
-        "validations": [serialize_citation_validation(item) for item in result.validations],
+        "retrievals": [serialize_citation_retrieval(item) for item in result.retrievals],
         "assessments": [serialize_citation_assessment(item) for item in result.assessments],
     }
 
@@ -1004,12 +1003,12 @@ def deserialize_assessed_document(payload: Mapping[str, object]) -> AssessedDocu
         extraction_metadata=_deserialize_extraction_metadata(
             _required_mapping_field(validated, "extraction_metadata")
         ),
-        validations=tuple(
-            deserialize_citation_validation(_mapping_field(item))
-            for item in _list_field(validated.get("validations"))
+        retrievals=tuple(
+            deserialize_citation_retrieval(_mapping_field(item))
+            for item in _list_field(validated.get("retrievals"))
         ),
-        validation_metadata=_deserialize_validation_metadata(
-            _required_mapping_field(validated, "validation_metadata")
+        retrieval_metadata=_deserialize_retrieval_metadata(
+            _required_mapping_field(validated, "retrieval_metadata")
         ),
         assessments=tuple(
             deserialize_citation_assessment(_mapping_field(item))

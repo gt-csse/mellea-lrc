@@ -62,7 +62,7 @@ button:disabled {
     "error"
     "workspace"
     "details";
-  grid-template-rows: auto auto auto minmax(0, 1fr) minmax(280px, 38vh);
+  grid-template-rows: auto auto auto minmax(0, 1fr) minmax(360px, 48vh);
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
@@ -216,7 +216,7 @@ h3 {
 }
 
 .text-input span,
-.validation-toggle span {
+.retrieval-toggle span {
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
@@ -278,14 +278,14 @@ input:focus-visible {
   display: none;
 }
 
-.validation-toggle {
+.retrieval-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 8px;
 }
 
-.validation-toggle input {
+.retrieval-toggle input {
   width: 18px;
   height: 18px;
   accent-color: var(--accent);
@@ -591,32 +591,32 @@ input:focus-visible {
   color: #334155;
 }
 
-.citation-tag.validation {
+.citation-tag.retrieval {
   background: #dbeafe;
   color: #1d4ed8;
 }
 
-.citation-tag.validation.found {
+.citation-tag.retrieval.found {
   background: #dcfce7;
   color: var(--success);
 }
 
-.citation-tag.validation.ambiguous {
+.citation-tag.retrieval.ambiguous {
   background: #fef3c7;
   color: #92400e;
 }
 
-.citation-tag.validation.not_found {
+.citation-tag.retrieval.not_found {
   background: #fee2e2;
   color: var(--danger);
 }
 
-.citation-tag.validation.throttled {
+.citation-tag.retrieval.throttled {
   background: #ffedd5;
   color: #c2410c;
 }
 
-.citation-tag.validation.not_checked {
+.citation-tag.retrieval.not_checked {
   background: #f3f4f6;
   color: #4b5563;
 }
@@ -624,6 +624,18 @@ input:focus-visible {
 .citation-tag.assessment {
   background: #ede9fe;
   color: #5b21b6;
+}
+
+.citation-tag.bookmark {
+  background: #dcfce7;
+  color: var(--success);
+}
+
+.bookmark-action.bookmarked:disabled {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: var(--success);
+  opacity: 1;
 }
 
 .citation-tag.assessment.exact_match,
@@ -748,6 +760,203 @@ input:focus-visible {
   gap: 12px;
   min-height: 0;
   overflow: hidden;
+}
+
+.trace-workspace {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(0, 1.45fr);
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.bibliographic-column,
+.trace-region {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.bibliographic-column > .detail-group {
+  height: 100%;
+}
+
+.trace-region {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.trace-nav {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: end;
+  gap: 5px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0 8px;
+  scrollbar-width: thin;
+}
+
+.trace-tab {
+  --operation-bg: #f1f5f9;
+  --operation-border: #cbd5e1;
+  --operation-ink: #475569;
+  --operation-dot: #64748b;
+  display: flex;
+  min-width: 130px;
+  min-height: 44px;
+  flex: 0 1 180px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  margin-bottom: -1px;
+  border: 1px solid var(--operation-border);
+  border-radius: 8px 8px 0 0;
+  background: var(--operation-bg);
+  padding: 6px 10px 7px;
+  color: #334155;
+  text-align: left;
+  transition:
+    border-color 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.trace-tab:hover {
+  filter: brightness(0.985);
+}
+
+.trace-tab.selected {
+  z-index: 2;
+  border-color: var(--operation-border);
+  border-bottom-color: var(--surface);
+  background: var(--surface);
+  box-shadow: inset 0 3px 0 var(--operation-dot);
+  color: var(--ink);
+}
+
+.trace-tab.complete {
+  --operation-bg: #ecfdf5;
+  --operation-border: #86efac;
+  --operation-ink: #166534;
+  --operation-dot: #16a34a;
+}
+
+.trace-tab.running {
+  --operation-bg: #eff6ff;
+  --operation-border: #93c5fd;
+  --operation-ink: #1d4ed8;
+  --operation-dot: #2563eb;
+}
+
+.trace-tab.failed {
+  --operation-bg: #fef2f2;
+  --operation-border: #fca5a5;
+  --operation-ink: #b91c1c;
+  --operation-dot: #dc2626;
+}
+
+.trace-tab.not-run {
+  --operation-bg: #f8fafc;
+  --operation-border: #cbd5e1;
+  --operation-ink: #475569;
+  --operation-dot: #64748b;
+}
+
+.trace-tab.unavailable {
+  --operation-bg: #fffbeb;
+  --operation-border: #fcd34d;
+  --operation-ink: #92400e;
+  --operation-dot: #d97706;
+}
+
+.trace-tab:focus-visible,
+.trace-panel:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.28);
+  outline-offset: 2px;
+}
+
+.trace-tab span {
+  max-width: 100%;
+  font-size: 12px;
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.trace-tab small {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--operation-ink);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.trace-tab small i {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--operation-dot);
+}
+
+.trace-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.trace-panel > .detail-group {
+  height: 100%;
+}
+
+.trace-panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.trace-panel > .detail-group {
+  border: 0;
+  border-radius: 0;
+}
+
+.trace-empty-state {
+  justify-content: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.inference-evidence {
+  display: grid;
+  gap: 8px;
+}
+
+.inference-evidence h4 {
+  margin: 2px 0 0;
+  font-size: 12px;
+}
+
+.inference-evidence article {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 10px;
+}
+
+.inference-evidence article p {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.inference-evidence article small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
 }
 
 .detail-group {
@@ -1275,6 +1484,30 @@ dd {
   .details-grid {
     grid-template-columns: 1fr;
     overflow: visible;
+  }
+
+  .trace-workspace {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    overflow: visible;
+  }
+
+  .bibliographic-column,
+  .trace-region,
+  .trace-panel {
+    overflow: visible;
+  }
+
+  .bibliographic-column {
+    min-height: 300px;
+  }
+
+  .trace-region {
+    min-height: 344px;
+  }
+
+  .trace-panel {
+    min-height: 300px;
   }
 
   .details-panel {

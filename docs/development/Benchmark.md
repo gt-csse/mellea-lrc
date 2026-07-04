@@ -16,14 +16,14 @@ graph TD
 - **2nd layer** — preprocessed text with character-level citation span annotations. Evaluates **extraction** (locating/classifying citation spans).
 - **1st layer** — deduplicated canonical citations (volume, reporter, page,
   parties, year…) with expected retrieval states and source evidence. This
-  evaluates whether validation faithfully retrieves and records evidence; it
-  does not ask validation to declare a citation real or false.
+  evaluates whether retrieval faithfully retrieves and records evidence; it
+  does not ask retrieval to declare a citation real or false.
 - **Assessment labels** — field-level conclusions grounded in an extracted
   citation and retrieved candidate. These evaluate comparison and opinionated
   behavior separately from retrieval.
 
-Extraction, validation, and assessment remain separately measurable. See
-[Validation Development](./validation/index.md) for the non-opinionated
+Extraction, retrieval, and assessment remain separately measurable. See
+[Retrieval Development](./retrieval/index.md) for the non-opinionated
 retrieval contract and [Assessment Development](./assessment/index.md) for
 field-level conclusions.
 

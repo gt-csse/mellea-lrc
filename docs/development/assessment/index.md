@@ -1,19 +1,19 @@
 # Assessment Development
 
 Assessment is the phase that interprets retrieved evidence. It compares
-extracted citation fields with validation candidates and records field-level
+extracted citation fields with retrieval candidates and records field-level
 conclusions, provenance, and follow-up work.
 
-This is intentionally separate from [validation](../validation/index.md): validation
+This is intentionally separate from [retrieval](../retrieval/index.md): retrieval
 retrieves without expressing an opinion; assessment owns match, mismatch,
 equivalence, irregularity, and other evaluative conclusions.
 
 ## Current scope
 
-Only validation results with status `found` or `ambiguous` are currently
+Only retrieval results with status `found` or `ambiguous` are currently
 assessment-eligible. A found result supplies one candidate. An ambiguous result
 supplies one assessment job per candidate, subject to the defensive candidate
-gate. Other validation states become typed skipped or failed assessment states;
+gate. Other retrieval states become typed skipped or failed assessment states;
 assessment does not reinterpret `not_found` as false.
 
 For each eligible candidate, `assess_found_citation` aggregates three independent

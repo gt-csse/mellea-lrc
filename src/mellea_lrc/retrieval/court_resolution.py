@@ -3,12 +3,12 @@
 Court resolution is the deterministic (non-LLM) work of deciding which
 CourtListener court a retrieved candidate belongs to. The resolution ``trace``
 captures how the CourtListener court was obtained (cluster payload, docket
-GET, or unavailable). Validation only retrieves this data; it never compares
+GET, or unavailable). Retrieval only retrieves this data; it never compares
 the resolved court against the citation court from extraction — that
 comparison is the assessment stage's job.
 
-This module owns that work so ``validation/pipeline.py`` stays a thin existence
-lookup; the court concern no longer leaks into the validation orchestrator.
+This module owns that work so ``retrieval/pipeline.py`` stays a thin existence
+lookup; the court concern no longer leaks into the retrieval orchestrator.
 """
 
 from __future__ import annotations
@@ -17,27 +17,27 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from mellea_lrc.courtlistener.client import CourtListenerError
-from mellea_lrc.validation.types import (
+from mellea_lrc.retrieval.types import (
     CourtResolutionSource,
     CourtResolutionTrace,
 )
 
 if TYPE_CHECKING:
-    from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, CitationValidationClient
+    from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, CitationRetrievalClient
 
 
 def resolve_court(
     record: CourtListenerCitationRecord,
     *,
-    client: CitationValidationClient,
+    client: CitationRetrievalClient,
     cache: dict[str, str | None],
 ) -> CourtResolutionTrace:
     """Resolve the CourtListener court for one retrieved match.
 
     Args:
         record: One CourtListener record retrieved as a candidate.
-        client: The validation client, used only when a docket GET is required. Must
-            expose ``get_docket`` per ``CitationValidationClient``; clients that only
+        client: The retrieval client, used only when a docket GET is required. Must
+            expose ``get_docket`` per ``CitationRetrievalClient``; clients that only
             implement ``CitationLookupClient`` are detected via ``hasattr`` and treated
             as ``NO_DOCKET_ID`` rather than swallowing ``AttributeError``.
         cache: Per-run docket-id -> resolved-court cache, normalized to ``str`` keys so
@@ -60,7 +60,7 @@ def resolve_court(
 
 def _resolve_courtlistener_court(
     record: CourtListenerCitationRecord,
-    client: CitationValidationClient,
+    client: CitationRetrievalClient,
     cache: dict[str, str | None],
 ) -> tuple[str | None, CourtResolutionSource, str | None, str | None, bool, str | None]:
     """Return ``(court_id, source, docket_id, docket_url, cached, error)``."""

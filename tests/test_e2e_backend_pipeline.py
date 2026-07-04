@@ -30,19 +30,19 @@ from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text
 from mellea_lrc.serialization import (
     serialize_assessed_document,
     serialize_extracted_document,
-    serialize_validated_document,
+    serialize_retrieved_document,
     serialize_preprocessed_document,
 )
 from mellea_lrc.llm import llm_api_config_from_env
-from mellea_lrc.validation.types import (
-    CitationValidation,
+from mellea_lrc.retrieval.types import (
+    CitationRetrieval,
     CourtResolutionSource,
     CourtResolutionTrace,
-    FoundCitationValidation,
+    FoundCitationRetrieval,
     RetrievedCandidate,
-    ValidatedDocument,
-    ValidationMetadata,
-    ValidationStatus,
+    RetrievedDocument,
+    RetrievalMetadata,
+    RetrievalStatus,
 )
 from scripts.e2e_backend.api import _review_snapshot_payload
 from scripts.e2e_backend.pipeline import (
@@ -50,8 +50,8 @@ from scripts.e2e_backend.pipeline import (
     assess_review_payload,
     review_document_assessment,
     review_preprocessed,
-    validate_review_citation_payload,
-    validate_review_payload,
+    retrieve_review_citation_payload,
+    retrieve_review_payload,
 )
 
 
@@ -121,20 +121,20 @@ def _extracted_document(
     )
 
 
-def _validated_document(
+def _retrieved_document(
     *,
     preprocessed: PreprocessedDocument,
     citations: tuple[ExtractedCitation, ...],
-    validations: tuple[CitationValidation, ...],
-) -> ValidatedDocument:
-    return ValidatedDocument(
+    retrievals: tuple[CitationRetrieval, ...],
+) -> RetrievedDocument:
+    return RetrievedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=citations,
         extraction_metadata=ExtractionMetadata(),
-        validations=validations,
-        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
+        retrievals=retrievals,
+        retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
     )
 
 
@@ -142,7 +142,7 @@ def _assessed_document(
     *,
     preprocessed: PreprocessedDocument,
     citations: tuple[ExtractedCitation, ...],
-    validations: tuple[CitationValidation, ...],
+    retrievals: tuple[CitationRetrieval, ...],
     assessments: tuple[CitationAssessment, ...],
 ) -> AssessedDocument:
     return AssessedDocument(
@@ -151,8 +151,8 @@ def _assessed_document(
         preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=citations,
         extraction_metadata=ExtractionMetadata(),
-        validations=validations,
-        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
+        retrievals=retrievals,
+        retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
         assessments=assessments,
         assessment_metadata=AssessmentMetadata(),
     )
@@ -174,52 +174,67 @@ def test_review_preprocessed_returns_frontend_span_payload() -> None:
     assert citation["fields"]["reporter"] == "U.S."
     assert citation["fields"]["page"] == "483"
     assert citation["fields"]["plaintiff"] == "Brown"
-    assert citation["validation"]["status"] == "found"
-    assert citation["validation"]["case_names"] == ["Brown v. Board of Education"]
-    assert citation["validation"]["lookup_status"] == 200
-    assert citation["validation"]["lookup_cache"] == "miss"
-    assert citation["validation"]["lookup_key"] == "lookup-key"
-    assert citation["validation"]["candidate"]["record"]["date_filed"] == "1954-05-17"
+    assert citation["reporter_inference"] == {
+        "reporter": "U.S.",
+        "status": "constrained",
+        "court_ids": ["scotus"],
+        "court_classes": ["federal_supreme"],
+        "jurisdiction_ids": ["us-federal"],
+        "coverage": "exhaustive",
+        "exact_court_id": "scotus",
+        "evidence": [
+            {
+                "source": "mellea-lrc curated reporter registry",
+                "statement": "Publishes Supreme Court decisions.",
+            },
+        ],
+    }
+    assert citation["retrieval"]["status"] == "found"
+    assert citation["retrieval"]["case_names"] == ["Brown v. Board of Education"]
+    assert citation["retrieval"]["lookup_status"] == 200
+    assert citation["retrieval"]["lookup_cache"] == "miss"
+    assert citation["retrieval"]["lookup_key"] == "lookup-key"
+    assert citation["retrieval"]["candidate"]["record"]["date_filed"] == "1954-05-17"
     assert output["stats"]["found"] == 1
 
 
-def test_validate_review_payload_reuses_existing_extraction_payload() -> None:
+def test_retrieve_review_payload_reuses_existing_extraction_payload() -> None:
     extracted = review_preprocessed(
         preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483."),
-        validate=False,
+        retrieve=False,
     )
 
-    output = validate_review_payload(extracted, client=FakeClient())
+    output = retrieve_review_payload(extracted, client=FakeClient())
 
     citation = output["citations"][0]
     assert citation["start"] == extracted["citations"][0]["start"]
     assert citation["end"] == extracted["citations"][0]["end"]
-    assert citation["validation"]["status"] == "found"
-    assert output["validation"]["counts"]["found"] == 1
+    assert citation["retrieval"]["status"] == "found"
+    assert output["retrieval"]["counts"]["found"] == 1
 
 
-def test_validate_review_citation_payload_returns_single_validation() -> None:
+def test_retrieve_review_citation_payload_returns_single_retrieval() -> None:
     extracted = review_preprocessed(
         preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483."),
-        validate=False,
+        retrieve=False,
     )
 
-    validation = validate_review_citation_payload(
+    retrieval = retrieve_review_citation_payload(
         {"citation": extracted["citations"][0]},
         client=FakeClient(),
     )
 
-    assert validation["citation_id"] == extracted["citations"][0]["id"]
-    assert validation["status"] == "found"
-    assert validation["lookup_key"] == "lookup-key"
+    assert retrieval["citation_id"] == extracted["citations"][0]["id"]
+    assert retrieval["status"] == "found"
+    assert retrieval["lookup_key"] == "lookup-key"
 
 
 def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> None:
     extracted = review_preprocessed(
         preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483 (1954)."),
-        validate=False,
+        retrieve=False,
     )
-    extracted["citations"][0]["validation"] = {
+    extracted["citations"][0]["retrieval"] = {
         "citation_id": extracted["citations"][0]["id"],
         "locator": "347 U.S. 483",
         "status": "found",
@@ -281,7 +296,7 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
             year="1954",
         ),
     )
-    validation = FoundCitationValidation(
+    retrieval = FoundCitationRetrieval(
         citation_id="cite-1",
         locator="347 U.S. 483",
         source="test",
@@ -320,11 +335,11 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
         _assessed_document(
             preprocessed=preprocessed,
             citations=(citation,),
-            validations=(validation,),
+            retrievals=(retrieval,),
             assessments=(
                 AssessedCitationAssessment(
                     citation_id="cite-1",
-                    candidate_id=validation.candidate.candidate_id,
+                    candidate_id=retrieval.candidate.candidate_id,
                     result=assessment_result,
                 ),
             ),
@@ -332,7 +347,7 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
     )
 
     assert output["document"]["text"] == preprocessed.text
-    assert output["citations"][0]["validation"]["status"] == "found"
+    assert output["citations"][0]["retrieval"]["status"] == "found"
     assert output["citations"][0]["assessment"]["result"]["case_name"]["initial"]["status"] == "exact_match"
     assert output["assessment"]["case_name_counts"]["exact_match"] == 1
     assert output["assessment"]["court_counts"]["exact_match"] == 1
@@ -353,8 +368,8 @@ def test_review_document_assessment_preserves_waiting_citation() -> None:
         _assessed_document(
             preprocessed=preprocessed,
             citations=(citation,),
-            validations=(
-                FoundCitationValidation(
+            retrievals=(
+                FoundCitationRetrieval(
                     citation_id="cite-1",
                     locator="347 U.S. 483",
                     source="test",
@@ -416,8 +431,8 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
         _assessed_document(
             preprocessed=preprocessed,
             citations=(citation,),
-            validations=(
-                FoundCitationValidation(
+            retrievals=(
+                FoundCitationRetrieval(
                     citation_id="cite-1",
                     locator="347 U.S. 483",
                     source="test",
@@ -457,11 +472,11 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
         ),
     )
     extraction = _extracted_document(preprocessed=preprocessed, citations=(citation,))
-    validation = _validated_document(
+    retrieval = _retrieved_document(
         preprocessed=preprocessed,
         citations=(citation,),
-        validations=(
-            FoundCitationValidation(
+        retrievals=(
+            FoundCitationRetrieval(
                 citation_id="cite-1",
                 locator="347 U.S. 483",
                 source="test",
@@ -476,7 +491,7 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
     assessment = _assessed_document(
         preprocessed=preprocessed,
         citations=(citation,),
-        validations=validation.validations,
+        retrievals=retrieval.retrievals,
         assessments=(
             AssessedCitationAssessment(
                 citation_id="cite-1",
@@ -509,7 +524,7 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
         == "preprocessed"
     )
     assert _review_snapshot_payload(serialize_extracted_document(extraction), backend)["stage"] == "extracted"
-    assert _review_snapshot_payload(serialize_validated_document(validation), backend)["stage"] == "validated"
+    assert _review_snapshot_payload(serialize_retrieved_document(retrieval), backend)["stage"] == "retrieved"
     assert _review_snapshot_payload(serialize_assessed_document(assessment), backend)["stage"] == "assessed"
 
 

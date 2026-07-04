@@ -1,0 +1,50 @@
+"""Citation retrieval from external legal-data services."""
+
+from mellea_lrc.courtlistener.remote import CourtListenerAccessClient, CourtListenerAccessConfig
+from mellea_lrc.retrieval.pipeline import run_retrieval
+from mellea_lrc.retrieval.types import (
+    AmbiguousCitationRetrieval,
+    CaseNameSearchCorpus,
+    CaseNameSearchProbe,
+    CaseNameSearchStatus,
+    CaseNameSearchTrace,
+    CitationRetrieval,
+    CourtResolutionSource,
+    CourtResolutionTrace,
+    FoundCitationRetrieval,
+    InvalidCitationRetrieval,
+    LookupFailedCitationRetrieval,
+    NotFoundCitationRetrieval,
+    RetrievedCandidate,
+    RetrievedDocument,
+    RetrievalClientMode,
+    RetrievalMetadata,
+    RetrievalStatus,
+    SkippedCitationRetrieval,
+    ThrottledCitationRetrieval,
+)
+
+__all__ = [
+    "AmbiguousCitationRetrieval",
+    "CaseNameSearchCorpus",
+    "CaseNameSearchProbe",
+    "CaseNameSearchStatus",
+    "CaseNameSearchTrace",
+    "CitationRetrieval",
+    "CourtListenerAccessClient",
+    "CourtListenerAccessConfig",
+    "CourtResolutionSource",
+    "CourtResolutionTrace",
+    "FoundCitationRetrieval",
+    "InvalidCitationRetrieval",
+    "LookupFailedCitationRetrieval",
+    "NotFoundCitationRetrieval",
+    "RetrievalClientMode",
+    "RetrievalMetadata",
+    "RetrievalStatus",
+    "RetrievedCandidate",
+    "RetrievedDocument",
+    "SkippedCitationRetrieval",
+    "ThrottledCitationRetrieval",
+    "run_retrieval",
+]

@@ -51,17 +51,17 @@ from mellea_lrc.preprocessing.types import (
     PreprocessingBackend,
     PreprocessingMetadata,
 )
-from mellea_lrc.validation.types import (
-    AmbiguousCitationValidation,
-    CitationValidation,
+from mellea_lrc.retrieval.types import (
+    AmbiguousCitationRetrieval,
+    CitationRetrieval,
     CourtResolutionSource,
     CourtResolutionTrace,
-    FoundCitationValidation,
+    FoundCitationRetrieval,
     RetrievedCandidate,
-    SkippedCitationValidation,
-    ValidatedDocument,
-    ValidationMetadata,
-    ValidationStatus,
+    SkippedCitationRetrieval,
+    RetrievedDocument,
+    RetrievalMetadata,
+    RetrievalStatus,
 )
 
 
@@ -594,7 +594,7 @@ def test_case_name_run_uses_native_post_reextraction_classifier(
     assert "strategy" not in non_semantic_calls[0]
 
 
-def test_run_assessment_progresses_document_validation_to_document_assessment() -> None:
+def test_run_assessment_progresses_document_retrieval_to_document_assessment() -> None:
     preprocessed = PreprocessedDocument(
         source_metadata=SourceMetadata(path="test.txt", format=SourceFormat.TEXT),
         text="Brown v. Board, 347 U.S. 483 (1954).",
@@ -616,14 +616,14 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
             court="scotus",
         ),
     )
-    validation = ValidatedDocument(
+    retrieval = RetrievedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=(citation,),
         extraction_metadata=ExtractionMetadata(),
-        validations=(
-            FoundCitationValidation(
+        retrievals=(
+            FoundCitationRetrieval(
                 citation_id="cite-1",
                 locator="347 U.S. 483",
                 source="test",
@@ -641,16 +641,16 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
                 extra_data=ExtraData(),
             ),
         ),
-        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
+        retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
     )
 
-    assessment = run_assessment(validation)
+    assessment = run_assessment(retrieval)
 
     assert assessment.text == preprocessed.text
     assert assessment.source_metadata == preprocessed.source_metadata
     assert assessment.preprocessing_metadata == preprocessed.preprocessing_metadata
     assert assessment.citations == (citation,)
-    assert assessment.validations == validation.validations
+    assert assessment.retrievals == retrieval.retrievals
     assert assessment.assessment_complete is True
     assert len(assessment.assessments) == 1
     record = assessment.assessments[0]
@@ -662,23 +662,23 @@ def test_run_assessment_progresses_document_validation_to_document_assessment() 
     assert record.result.year.status == YearAssessmentStatus.EXACT_MATCH
 
 
-def _ambiguous_validation(
+def _ambiguous_retrieval(
     citation: ExtractedCitation,
     records: tuple[CourtListenerCitationRecord, ...],
-) -> ValidatedDocument:
+) -> RetrievedDocument:
     preprocessed = PreprocessedDocument(
         source_metadata=SourceMetadata(),
         text="Doe v. Roe, 1 F.3d 2 (2001).",
         preprocessing_metadata=PreprocessingMetadata(backend=PreprocessingBackend.PLAIN_TEXT),
     )
-    return ValidatedDocument(
+    return RetrievedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=(citation,),
         extraction_metadata=ExtractionMetadata(),
-        validations=(
-            AmbiguousCitationValidation(
+        retrievals=(
+            AmbiguousCitationRetrieval(
                 citation_id=citation.citation_id,
                 locator="1 F.3d 2",
                 source="test",
@@ -695,7 +695,7 @@ def _ambiguous_validation(
                 ),
             ),
         ),
-        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
+        retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
     )
 
 
@@ -708,7 +708,7 @@ def test_run_assessment_assesses_each_ambiguous_candidate() -> None:
     )
     # Both candidates take the deterministic (no-Mellea) case-name path: one exact,
     # one with no CourtListener name (unassessable).
-    validation = _ambiguous_validation(
+    retrieval = _ambiguous_retrieval(
         citation,
         (
             CourtListenerCitationRecord(
@@ -721,7 +721,7 @@ def test_run_assessment_assesses_each_ambiguous_candidate() -> None:
         ),
     )
 
-    assessment = run_assessment(validation)
+    assessment = run_assessment(retrieval)
 
     record = assessment.assessments[0]
     assert isinstance(record, AmbiguousCitationAssessment)
@@ -744,9 +744,9 @@ def test_run_assessment_gates_ambiguous_beyond_candidate_limit() -> None:
         citation=FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="1", reporter="F.3d", page="2"),
     )
     records = tuple(CourtListenerCitationRecord(case_name=f"Case {i}", docket_id=str(i)) for i in range(6))
-    validation = _ambiguous_validation(citation, records)
+    retrieval = _ambiguous_retrieval(citation, records)
 
-    record = run_assessment(validation).assessments[0]
+    record = run_assessment(retrieval).assessments[0]
 
     assert isinstance(record, AmbiguousCitationAssessment)
     assert record.gated is True
@@ -773,14 +773,14 @@ def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
             year="1954",
         ),
     )
-    validation = ValidatedDocument(
+    retrieval = RetrievedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=(citation,),
         extraction_metadata=ExtractionMetadata(),
-        validations=(
-            FoundCitationValidation(
+        retrievals=(
+            FoundCitationRetrieval(
                 citation_id="cite-1",
                 locator="347 U.S. 483",
                 source="test",
@@ -797,10 +797,10 @@ def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
                 extra_data=ExtraData(),
             ),
         ),
-        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
+        retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
     )
 
-    assessment = initialize_assessment(validation)
+    assessment = initialize_assessment(retrieval)
 
     assert assessment.assessment_complete is False
     assert assessment.assessments == (WaitingCitationAssessment(citation_id="cite-1"),)
@@ -819,22 +819,22 @@ def test_initialize_assessment_marks_unsupported_citation_skipped() -> None:
         matched_text="28 U.S.C. § 636",
         citation=FullLawCitation(volume="28", reporter="U.S.C.", page="636"),
     )
-    validation = ValidatedDocument(
+    retrieval = RetrievedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=(citation,),
         extraction_metadata=ExtractionMetadata(),
-        validations=(
-            SkippedCitationValidation(
+        retrievals=(
+            SkippedCitationRetrieval(
                 citation_id="cite-1",
                 source="test",
             ),
         ),
-        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
+        retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
     )
 
-    assessment = initialize_assessment(validation)
+    assessment = initialize_assessment(retrieval)
 
     assert assessment.assessment_complete is True
     assert assessment.assessments == (
@@ -874,14 +874,14 @@ def test_run_assessment_records_per_citation_failure(monkeypatch: pytest.MonkeyP
             year="1954",
         ),
     )
-    validation = ValidatedDocument(
+    retrieval = RetrievedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=(citation,),
         extraction_metadata=ExtractionMetadata(),
-        validations=(
-            FoundCitationValidation(
+        retrievals=(
+            FoundCitationRetrieval(
                 citation_id="cite-1",
                 locator="347 U.S. 483",
                 source="test",
@@ -898,10 +898,10 @@ def test_run_assessment_records_per_citation_failure(monkeypatch: pytest.MonkeyP
                 extra_data=ExtraData(),
             ),
         ),
-        validation_metadata=ValidationMetadata(client_mode="custom", source="test"),
+        retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
     )
 
-    assessment = run_assessment(validation)
+    assessment = run_assessment(retrieval)
 
     assert assessment.assessment_complete is True
     assert assessment.assessments == (

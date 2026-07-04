@@ -30,10 +30,10 @@ Optional environment values supported by the reusable client include
 ## Runtime Assumptions
 
 - The service is a general-purpose CourtListener backend, not only citation
-  validation.
-- Citation validation uses `POST /citation-lookup` with form fields `volume`,
+  retrieval.
+- Citation retrieval uses `POST /citation-lookup` with form fields `volume`,
   `reporter`, and `page`.
-- For a found cluster with a `docket_id`, validation follows with
+- For a found cluster with a `docket_id`, retrieval follows with
   `GET /dockets/{cl_docket_id}` and records the docket's canonical `court_id`.
   This enrichment is best-effort and does not change a found result if the
   docket request fails.

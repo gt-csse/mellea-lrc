@@ -1,20 +1,20 @@
-# Validation Development
+# Retrieval Development
 
-Validation is the retrieval and provenance phase between extraction and
+Retrieval is the retrieval and provenance phase between extraction and
 assessment. It attempts to resolve each extracted citation against an external
 source and records exactly what happened.
 
 > [!IMPORTANT]
-> Validation does **not express an opinion** about whether a citation is real,
+> Retrieval does **not express an opinion** about whether a citation is real,
 > correct, hallucinated, or used appropriately. A lookup result is evidence, not
 > a verdict. Comparison and conclusions belong to
 > [assessment](../assessment/index.md).
 
-This boundary applies to every validation path:
+This boundary applies to every retrieval path:
 
 - `found` means CourtListener returned one record for the locator; it does not
   mean every extracted field is correct.
-- `ambiguous` means CourtListener returned multiple records; validation retains
+- `ambiguous` means CourtListener returned multiple records; retrieval retains
   them without choosing or collapsing candidates and attaches an independent
   court-resolution trace to each one.
 - `not_found` means the bounded lookup returned no record; it does not mean the
@@ -24,7 +24,7 @@ This boundary applies to every validation path:
 
 ## Current pipeline
 
-Validation currently accepts complete case citations and performs an exact
+Retrieval currently accepts complete case citations and performs an exact
 CourtListener lookup using the locator fields `volume`, `reporter`, and `page`.
 It is deterministic and makes no LLM calls.
 
@@ -46,10 +46,10 @@ flowchart TD
     AMB --> A
 ```
 
-Every citation produces one `CitationValidation` variant. The artifact keeps
+Every citation produces one `CitationRetrieval` variant. The artifact keeps
 the citation ID, lookup source and status, cache/key metadata, typed records,
 errors, and unmodeled upstream fields in `extra_data`. Run-level provenance is
-stored in `ValidationMetadata`.
+stored in `RetrievalMetadata`.
 
 ## Field and path documentation
 
@@ -68,9 +68,9 @@ Candidate selection and all field comparisons are documented under
 [Assessment Development](../assessment/index.md). CourtListener coverage limitations
 are documented in [Data Source](../../knowledge/Data%20Source.md).
 
-## Adding validation work
+## Adding retrieval work
 
-New validation behavior should return source-grounded data and an execution
+New retrieval behavior should return source-grounded data and an execution
 trace. It may normalize a request or resolve an external identifier when needed
 to retrieve evidence. It must not:
 

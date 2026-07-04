@@ -1,7 +1,7 @@
-"""Canonical citation representations shared across extraction and validation.
+"""Canonical citation representations shared across extraction and retrieval.
 
 These are project-level citation classes. Eyecite citations are converted into
-these canonical types before downstream validation and serialization.
+these canonical types before downstream retrieval and serialization.
 """
 
 from dataclasses import dataclass
@@ -22,7 +22,7 @@ class CitationKind(str, Enum):
     UNKNOWN = "UnknownCitation"
 
 
-# Full citations are self-contained enough for validation against case search;
+# Full citations are self-contained enough for retrieval against case search;
 # short citations generally need an antecedent before they can be validated.
 FULL_CITATION_KINDS = frozenset(
     {

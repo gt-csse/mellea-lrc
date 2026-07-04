@@ -11,7 +11,7 @@ from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.courtlistener.types import (
     CourtListenerCitationRecord,
     CourtListenerCitationLookup,
-    ValidationFailureDetail,
+    RetrievalFailureDetail,
 )
 
 
@@ -61,7 +61,7 @@ class CourtListenerCitationRecordPayload(_ExternalPayload):
         )
 
 
-class ValidationFailureDetailPayload(_ExternalPayload):
+class RetrievalFailureDetailPayload(_ExternalPayload):
     """External lookup failure-detail payload."""
 
     failure_type: str | None = None
@@ -72,9 +72,9 @@ class ValidationFailureDetailPayload(_ExternalPayload):
     url: str | None = None
     retry_after_seconds: float | None = None
 
-    def to_domain(self) -> ValidationFailureDetail:
+    def to_domain(self) -> RetrievalFailureDetail:
         """Convert validated transport data into an immutable domain record."""
-        return ValidationFailureDetail(
+        return RetrievalFailureDetail(
             failure_type=self.failure_type,
             message=self.message,
             retryable=self.retryable,
@@ -93,7 +93,7 @@ class CitationLookupResponsePayload(_ExternalPayload):
     status: int | None = None
     clusters: list[CourtListenerCitationRecordPayload] = Field(default_factory=list)
     error_message: str | None = None
-    limit_detail: ValidationFailureDetailPayload | None = None
+    limit_detail: RetrievalFailureDetailPayload | None = None
 
 
 class CitationLookupEnvelopePayload(_ExternalPayload):

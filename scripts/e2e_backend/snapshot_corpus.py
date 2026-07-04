@@ -2,18 +2,18 @@
 
 For every PDF in ``local/test_data/pdfs/*.pdf`` (or matching preprocessed
 ``.txt`` in ``local/test_data/``) this runs the full chain (preprocess ->
-extract -> validate -> assess) and serializes each module output to:
+extract -> retrieve -> assess) and serializes each module output to:
 
     local/snapshots/<doc>/preprocessed.json
     local/snapshots/<doc>/extraction.json
-    local/snapshots/<doc>/validation.json
+    local/snapshots/<doc>/retrieval.json
     local/snapshots/<doc>/assessment.json
 
 Layer 2 text should be regenerated from PDFs with:
 
     uv run --group preprocessing python -m scripts.e2e_backend.preprocess_test_pdfs
 
-Validation hits the deployed CourtListener service and assessment hits the
+Retrieval hits the deployed CourtListener service and assessment hits the
 configured LLM, so the run can be rate limited. On the first failure for a
 document the run stops gracefully, preserving every snapshot already written.
 
@@ -36,10 +36,10 @@ from mellea_lrc.preprocessing import preprocess_plain_text, run_preprocessing
 from mellea_lrc.serialization import (
     serialize_assessed_document,
     serialize_extracted_document,
-    serialize_validated_document,
+    serialize_retrieved_document,
     serialize_preprocessed_document,
 )
-from mellea_lrc.validation import run_validation
+from mellea_lrc.retrieval import run_retrieval
 from scripts.e2e_backend.run_artifact_pipeline import _load_dotenv
 
 if TYPE_CHECKING:
@@ -49,7 +49,7 @@ DEFAULT_TEST_DATA = Path("local/test_data")
 DEFAULT_PDF_DIR = DEFAULT_TEST_DATA / "pdfs"
 DEFAULT_SNAPSHOT_ROOT = Path("local/snapshots")
 
-SNAPSHOT_STAGES = ("preprocessed", "extraction", "validation", "assessment")
+SNAPSHOT_STAGES = ("preprocessed", "extraction", "retrieval", "assessment")
 
 
 def main() -> None:
@@ -93,10 +93,10 @@ def _snapshot_document(
     extraction = run_extraction(preprocessed)
     _write_snapshot(doc_dir, "extraction", serialize_extracted_document(extraction))
 
-    validation = run_validation(extraction)
-    _write_snapshot(doc_dir, "validation", serialize_validated_document(validation))
+    retrieval = run_retrieval(extraction)
+    _write_snapshot(doc_dir, "retrieval", serialize_retrieved_document(retrieval))
 
-    assessment = run_assessment(validation)
+    assessment = run_assessment(retrieval)
     _write_snapshot(doc_dir, "assessment", serialize_assessed_document(assessment))
 
 

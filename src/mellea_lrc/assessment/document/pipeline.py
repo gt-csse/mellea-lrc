@@ -37,10 +37,10 @@ from mellea_lrc.assessment.types import (
 )
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.llm import start_mellea_session_from_env
-from mellea_lrc.validation.types import (
-    AmbiguousCitationValidation,
-    FoundCitationValidation,
-    ValidationStatus,
+from mellea_lrc.retrieval.types import (
+    AmbiguousCitationRetrieval,
+    FoundCitationRetrieval,
+    RetrievalStatus,
 )
 
 if TYPE_CHECKING:
@@ -49,12 +49,12 @@ if TYPE_CHECKING:
     from mellea import MelleaSession
 
     from mellea_lrc.extraction.types import ExtractedCitation
-    from mellea_lrc.validation.types import ValidatedDocument
+    from mellea_lrc.retrieval.types import RetrievedDocument
 
 # Ambiguous lookups with more clusters than this skip per-candidate enumeration.
 MAX_AMBIGUOUS_CANDIDATES = 5
 
-_ELIGIBLE_VALIDATION_STATUSES = frozenset({ValidationStatus.FOUND, ValidationStatus.AMBIGUOUS})
+_ELIGIBLE_RETRIEVAL_STATUSES = frozenset({RetrievalStatus.FOUND, RetrievalStatus.AMBIGUOUS})
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +74,7 @@ class _AssessmentJob:
 
     ``candidate_index`` is ``None`` for a found citation's single candidate and
     ``0..n`` for each ambiguous candidate. ``candidate_id`` links the result
-    back to validation without duplicating the retrieved record.
+    back to retrieval without duplicating the retrieved record.
     """
 
     citation: ExtractedCitation
@@ -93,16 +93,16 @@ class _AssessmentJob:
 
 
 def run_assessment(
-    validation: ValidatedDocument,
+    retrieval: RetrievedDocument,
     *,
     mellea_concurrency: int | None = None,
     on_mellea_call: Callable[[MelleaCallContext], None] | None = None,
     on_mellea_done: Callable[[MelleaCallContext, CitationAssessmentResult], None] | None = None,
 ) -> AssessedDocument:
-    """Assess a validated document synchronously."""
+    """Assess a retrieved document synchronously."""
     return asyncio.run(
         run_assessment_async(
-            validation,
+            retrieval,
             mellea_concurrency=mellea_concurrency,
             on_mellea_call=on_mellea_call,
             on_mellea_done=on_mellea_done,
@@ -111,25 +111,25 @@ def run_assessment(
 
 
 async def run_assessment_async(
-    validation: ValidatedDocument,
+    retrieval: RetrievedDocument,
     *,
     mellea_concurrency: int | None = None,
     on_mellea_call: Callable[[MelleaCallContext], None] | None = None,
     on_mellea_done: Callable[[MelleaCallContext, CitationAssessmentResult], None] | None = None,
 ) -> AssessedDocument:
-    """Assess a validated document with bounded Mellea concurrency."""
-    initialized = initialize_assessment(validation)
-    validations_by_id = {item.citation_id: item for item in validation.validations}
+    """Assess a retrieved document with bounded Mellea concurrency."""
+    initialized = initialize_assessment(retrieval)
+    retrievals_by_id = {item.citation_id: item for item in retrieval.retrievals}
     assessments_by_id = {item.citation_id: item for item in initialized.assessments}
     outcomes: dict[tuple[str, int | None], CitationAssessmentResult | BaseException] = {}
     jobs: list[_AssessmentJob] = []
 
-    for citation in validation.citations:
+    for citation in retrieval.citations:
         if not isinstance(assessments_by_id[citation.citation_id], WaitingCitationAssessment):
             continue
-        citation_validation = validations_by_id[citation.citation_id]
+        citation_retrieval = retrievals_by_id[citation.citation_id]
         assert isinstance(citation.citation, FullCaseCitation)
-        gate = _candidate_jobs(citation, citation_validation, validation.text)
+        gate = _candidate_jobs(citation, citation_retrieval, retrieval.text)
         if gate.direct is not None:
             assessments_by_id[citation.citation_id] = gate.direct
             continue
@@ -151,17 +151,17 @@ async def run_assessment_async(
         on_mellea_done=on_mellea_done,
     )
 
-    _assemble(validation, assessments_by_id, validations_by_id, jobs, outcomes)
+    _assemble(retrieval, assessments_by_id, retrievals_by_id, jobs, outcomes)
 
     return AssessedDocument(
-        source_metadata=validation.source_metadata,
-        text=validation.text,
-        preprocessing_metadata=validation.preprocessing_metadata,
-        citations=validation.citations,
-        extraction_metadata=validation.extraction_metadata,
-        validations=validation.validations,
-        validation_metadata=validation.validation_metadata,
-        assessments=tuple(assessments_by_id[item.citation_id] for item in validation.citations),
+        source_metadata=retrieval.source_metadata,
+        text=retrieval.text,
+        preprocessing_metadata=retrieval.preprocessing_metadata,
+        citations=retrieval.citations,
+        extraction_metadata=retrieval.extraction_metadata,
+        retrievals=retrieval.retrievals,
+        retrieval_metadata=retrieval.retrieval_metadata,
+        assessments=tuple(assessments_by_id[item.citation_id] for item in retrieval.citations),
         assessment_metadata=AssessmentMetadata(mellea_concurrency=effective_concurrency),
     )
 
@@ -181,7 +181,7 @@ class _CandidateJobs:
 
 def _candidate_jobs(
     citation: ExtractedCitation,
-    citation_validation: object,
+    citation_retrieval: object,
     document_text: str,
 ) -> _CandidateJobs:
     assert isinstance(citation.citation, FullCaseCitation)
@@ -207,8 +207,8 @@ def _candidate_jobs(
             context=context,
         )
 
-    if isinstance(citation_validation, FoundCitationValidation):
-        candidate = citation_validation.candidate
+    if isinstance(citation_retrieval, FoundCitationRetrieval):
+        candidate = citation_retrieval.candidate
         record = candidate.record
         return _CandidateJobs(
             jobs=(
@@ -222,8 +222,8 @@ def _candidate_jobs(
             )
         )
 
-    if isinstance(citation_validation, AmbiguousCitationValidation):
-        candidates = citation_validation.candidates
+    if isinstance(citation_retrieval, AmbiguousCitationRetrieval):
+        candidates = citation_retrieval.candidates
         if not candidates:
             return _CandidateJobs(
                 jobs=(),
@@ -334,9 +334,9 @@ async def _run_pending(
 
 
 def _assemble(
-    validation: ValidatedDocument,
+    retrieval: RetrievedDocument,
     assessments_by_id: dict[str, CitationAssessment],
-    validations_by_id: dict[str, object],
+    retrievals_by_id: dict[str, object],
     jobs: list[_AssessmentJob],
     outcomes: dict[tuple[str, int | None], CitationAssessmentResult | BaseException],
 ) -> None:
@@ -345,7 +345,7 @@ def _assemble(
         by_citation[job.citation.citation_id].append(job)
 
     for citation_id, citation_jobs in by_citation.items():
-        is_found = isinstance(validations_by_id.get(citation_id), FoundCitationValidation)
+        is_found = isinstance(retrievals_by_id.get(citation_id), FoundCitationRetrieval)
         errors = [outcomes[job.key] for job in citation_jobs if isinstance(outcomes[job.key], BaseException)]
         if errors:
             assessments_by_id[citation_id] = _failed_assessment(citation_id, errors[0])
@@ -372,12 +372,12 @@ def _assemble(
             )
 
 
-def initialize_assessment(validation: ValidatedDocument) -> AssessedDocument:
+def initialize_assessment(retrieval: RetrievedDocument) -> AssessedDocument:
     """Create one waiting or skipped assessment record per citation."""
-    validations_by_id = {item.citation_id: item for item in validation.validations}
+    retrievals_by_id = {item.citation_id: item for item in retrieval.retrievals}
     assessments: list[CitationAssessment] = []
-    for citation in validation.citations:
-        citation_validation = validations_by_id[citation.citation_id]
+    for citation in retrieval.citations:
+        citation_retrieval = retrievals_by_id[citation.citation_id]
         if not isinstance(citation.citation, FullCaseCitation):
             assessments.append(
                 SkippedCitationAssessment(
@@ -386,25 +386,25 @@ def initialize_assessment(validation: ValidatedDocument) -> AssessedDocument:
                     message=f"Citation kind {citation.citation.kind.value} is not assessed.",
                 )
             )
-        elif citation_validation.status not in _ELIGIBLE_VALIDATION_STATUSES:
+        elif citation_retrieval.status not in _ELIGIBLE_RETRIEVAL_STATUSES:
             assessments.append(
                 SkippedCitationAssessment(
                     citation_id=citation.citation_id,
-                    reason=AssessmentSkipReason.VALIDATION_NOT_ELIGIBLE,
-                    message=f"Validation status {citation_validation.status.value} is not eligible.",
+                    reason=AssessmentSkipReason.RETRIEVAL_NOT_ELIGIBLE,
+                    message=f"Retrieval status {citation_retrieval.status.value} is not eligible.",
                 )
             )
         else:
             assessments.append(WaitingCitationAssessment(citation_id=citation.citation_id))
 
     return AssessedDocument(
-        source_metadata=validation.source_metadata,
-        text=validation.text,
-        preprocessing_metadata=validation.preprocessing_metadata,
-        citations=validation.citations,
-        extraction_metadata=validation.extraction_metadata,
-        validations=validation.validations,
-        validation_metadata=validation.validation_metadata,
+        source_metadata=retrieval.source_metadata,
+        text=retrieval.text,
+        preprocessing_metadata=retrieval.preprocessing_metadata,
+        citations=retrieval.citations,
+        extraction_metadata=retrieval.extraction_metadata,
+        retrievals=retrieval.retrievals,
+        retrieval_metadata=retrieval.retrieval_metadata,
         assessments=tuple(assessments),
         assessment_metadata=AssessmentMetadata(),
     )

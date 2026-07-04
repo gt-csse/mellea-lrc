@@ -1,10 +1,10 @@
-"""Citation lookup validation and domain conversion."""
+"""Citation lookup retrieval and domain conversion."""
 
 from mellea_lrc.courtlistener.transport import CitationLookupEnvelopePayload
 from mellea_lrc.courtlistener.types import (
     CourtListenerCitationRecord,
     CourtListenerCitationLookup,
-    ValidationFailureDetail,
+    RetrievalFailureDetail,
 )
 
 HTTP_NOT_FOUND = 404
@@ -90,7 +90,7 @@ def _citation_record_dict(item: CourtListenerCitationRecord) -> dict[str, object
     return payload
 
 
-def _failure_detail_dict(item: ValidationFailureDetail) -> dict[str, object]:
+def _failure_detail_dict(item: RetrievalFailureDetail) -> dict[str, object]:
     payload: dict[str, object] = {
         "failure_type": item.failure_type,
         "message": item.message,
