@@ -9,6 +9,7 @@ from mellea_lrc.reporter_jurisdiction.types import (
     ReporterJurisdictionInference,
     ReporterJurisdictionStatus,
 )
+from mellea_lrc.courtlistener.taxonomy import get_court_taxonomy
 
 REGISTRY_SOURCE = "mellea-lrc curated reporter registry"
 
@@ -31,6 +32,7 @@ def infer_reporter_jurisdiction(reporter: str | None) -> ReporterJurisdictionInf
 
     scope = EXHAUSTIVE_REPORTERS.get(canonical)
     if scope is not None:
+        taxonomy = get_court_taxonomy(scope.court_id)
         return ReporterJurisdictionInference(
             reporter=canonical,
             status=ReporterJurisdictionStatus.EXHAUSTIVE_REPORTER,
@@ -41,6 +43,7 @@ def infer_reporter_jurisdiction(reporter: str | None) -> ReporterJurisdictionInf
                     statement=scope.statement,
                 ),
             ),
+            cl_court_taxonomy=taxonomy,
         )
 
     return ReporterJurisdictionInference(

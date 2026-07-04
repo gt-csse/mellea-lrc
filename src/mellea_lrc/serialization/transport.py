@@ -325,7 +325,6 @@ class CourtAssessmentPayload(ArtifactPayload):
     courtlistener_court_id: str | None
     message: str
     source: Literal["direct", "reporter_inferred"]
-    cl_court_taxonomy: CLCourtTaxonomyPayload | None = None
 
 
 
@@ -386,6 +385,7 @@ class ReporterJurisdictionInferencePayload(ArtifactPayload):
     ]
     court_ids: list[str]
     evidence: list[ReporterJurisdictionEvidencePayload]
+    cl_court_taxonomy: CLCourtTaxonomyPayload | None = None
 
 
 class CitationAssessmentResultPayload(ArtifactPayload):

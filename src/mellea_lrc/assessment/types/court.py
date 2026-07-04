@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Literal
 
-from mellea_lrc.courtlistener.taxonomy import CLCourtTaxonomy
-
 
 class CourtAssessmentStatus(str, Enum):
     """Canonical outcomes for deterministic court assessment."""
@@ -24,4 +22,3 @@ class CourtAssessment:
     courtlistener_court_id: str | None
     message: str
     source: Literal["direct", "reporter_inferred"] = "direct"
-    cl_court_taxonomy: CLCourtTaxonomy | None = None

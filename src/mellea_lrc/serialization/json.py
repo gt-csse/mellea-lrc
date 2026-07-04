@@ -738,19 +738,12 @@ def serialize_court_assessment(item: CourtAssessment) -> dict[str, JsonValue]:
     payload = cast("dict[str, JsonValue]", asdict(item))
     payload["status"] = item.status.value
     payload["source"] = item.source
-    if item.cl_court_taxonomy:
-        payload["cl_court_taxonomy"] = asdict(item.cl_court_taxonomy)
     return payload
 
 
 def deserialize_court_assessment(payload: Mapping[str, object]) -> CourtAssessment:
     """Rebuild a court assessment from JSON data."""
     validated = CourtAssessmentPayload.model_validate(payload).model_dump(mode="python")
-    tax_payload = cast("dict[str, object] | None", validated.get("cl_court_taxonomy"))
-    taxonomy = None
-    if tax_payload:
-        from mellea_lrc.courtlistener.taxonomy import CLCourtTaxonomy
-        taxonomy = CLCourtTaxonomy(**tax_payload)  # type: ignore[arg-type]
 
     return CourtAssessment(
         status=CourtAssessmentStatus(_required_str(validated.get("status"), "court assessment status")),
@@ -758,7 +751,6 @@ def deserialize_court_assessment(payload: Mapping[str, object]) -> CourtAssessme
         courtlistener_court_id=_optional_str(validated.get("courtlistener_court_id")),
         message=_required_str(validated.get("message"), "court assessment message"),
         source=validated.get("source", "direct"),  # type: ignore[arg-type]
-        cl_court_taxonomy=taxonomy,
     )
 
 
@@ -766,7 +758,7 @@ def serialize_reporter_inference(
     item: ReporterJurisdictionInference,
 ) -> dict[str, JsonValue]:
     """Serialize reporter inference context."""
-    return {
+    payload: dict[str, JsonValue] = {
         "reporter": item.reporter,
         "status": item.status.value,
         "court_ids": list(item.court_ids),
@@ -774,6 +766,9 @@ def serialize_reporter_inference(
             {"source": e.source, "statement": e.statement} for e in item.evidence
         ],
     }
+    if item.cl_court_taxonomy:
+        payload["cl_court_taxonomy"] = asdict(item.cl_court_taxonomy)  # type: ignore[assignment]
+    return payload
 
 
 def deserialize_reporter_inference(
@@ -783,6 +778,12 @@ def deserialize_reporter_inference(
     validated = ReporterJurisdictionInferencePayload.model_validate(payload).model_dump(
         mode="python"
     )
+    tax_payload = cast("dict[str, object] | None", validated.get("cl_court_taxonomy"))
+    taxonomy = None
+    if tax_payload:
+        from mellea_lrc.courtlistener.taxonomy import CLCourtTaxonomy
+        taxonomy = CLCourtTaxonomy(**tax_payload)  # type: ignore[arg-type]
+
     evidence = tuple(
         ReporterJurisdictionEvidence(
             source=_required_str(e.get("source"), "evidence source"),
@@ -800,6 +801,7 @@ def deserialize_reporter_inference(
             str(c) for c in validated.get("court_ids", []) if isinstance(c, str)
         ),
         evidence=evidence,
+        cl_court_taxonomy=taxonomy,
     )
 
 

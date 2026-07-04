@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mellea_lrc.courtlistener.taxonomy import CLCourtTaxonomy
 
 
 class ReporterJurisdictionStatus(str, Enum):
@@ -47,6 +51,7 @@ class ReporterJurisdictionInference:
     status: ReporterJurisdictionStatus
     court_ids: tuple[str, ...] = ()
     evidence: tuple[ReporterJurisdictionEvidence, ...] = ()
+    cl_court_taxonomy: "CLCourtTaxonomy | None" = None
 
     def __post_init__(self) -> None:
         if self.reporter is not None and not self.reporter.strip():
