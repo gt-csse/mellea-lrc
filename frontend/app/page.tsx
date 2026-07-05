@@ -54,15 +54,28 @@ type RetrievedCandidatePayload = {
   court_resolution: CourtResolutionTracePayload;
 };
 
-type ReporterJurisdictionInferencePayload = {
+type ReporterLeadPayload = {
   reporter: string | null;
-  status: "missing_reporter" | "unrecognized" | "recognized_without_constraint" | "constrained";
-  court_ids: string[];
-  court_classes: string[];
-  jurisdiction_ids: string[];
-  coverage: "unknown" | "partial" | "exhaustive";
-  exact_court_id: string | null;
-  evidence: Array<{ source: string; statement: string }>;
+  status: "missing_reporter" | "unrecognized" | "recognized";
+  mlz_jurisdictions: string[];
+};
+
+type CLCourtTaxonomyPayload = {
+  court_id: string;
+  system: string;
+  jurisdiction: string | null;
+  type: string | null;
+};
+
+type CourtLeadPayload = {
+  extracted_court: string | null;
+  status: "missing_court" | "unrecognized" | "resolved";
+  cl_court_taxonomy: CLCourtTaxonomyPayload | null;
+};
+
+type JurisdictionInferencePayload = {
+  reporter_lead: ReporterLeadPayload;
+  court_lead: CourtLeadPayload;
 };
 
 type RetrievalPayload = {
@@ -83,7 +96,7 @@ type RetrievalPayload = {
 
 type AssessmentPayload = {
   case_name: CaseNameAssessmentRunPayload;
-  court: CourtAssessmentRunPayload;
+  court: CourtAssessmentPayload;
   year: YearAssessmentPayload;
 };
 
@@ -131,19 +144,6 @@ type CourtAssessmentPayload = {
   message: string;
 };
 
-type CourtFollowupPayload =
-  | { status: "not_required" }
-  | {
-      status: "inferred_from_reporter";
-      reporter: string | null;
-      citation_court_before: string | null;
-      result: CourtAssessmentPayload;
-    };
-
-type CourtAssessmentRunPayload = {
-  initial: CourtAssessmentPayload;
-  followup: CourtFollowupPayload;
-};
 
 type CourtListenerCitationRecord = Record<string, unknown>;
 
@@ -197,7 +197,7 @@ type ReviewCitation = {
   kind: string;
   fields: Record<string, string | number | boolean>;
   resolves_to: string | null;
-  reporter_inference: ReporterJurisdictionInferencePayload | null;
+  jurisdiction_inference: JurisdictionInferencePayload | null;
   retrieval: RetrievalPayload | null;
   assessment: CitationAssessmentPayload | null;
 };
@@ -245,7 +245,7 @@ type CitationFilter =
   | AssessmentFilter;
 type FilterOption = { label: string; value: CitationFilter };
 type ComparisonMatchType = "perfect" | "exact" | "semantic" | "warning" | "error" | "unchecked";
-type TraceSectionId = "retrieval" | "assessment" | "reporter-inference";
+type TraceSectionId = "retrieval" | "assessment" | "jurisdiction-inference";
 type TraceOperationStatus = "complete" | "running" | "failed" | "not-run" | "unavailable";
 type BibliographicRow = {
   id: string;
@@ -1170,9 +1170,9 @@ function TraceWorkspace({
       status: assessmentOperationStatus(citation.assessment, loadingStage)
     },
     {
-      id: "reporter-inference",
-      label: "Reporter inference",
-      status: citation.reporter_inference ? "complete" : "unavailable"
+      id: "jurisdiction-inference",
+      label: "Jurisdiction inference",
+      status: citation.jurisdiction_inference ? "complete" : "unavailable"
     }
   ];
 
@@ -1250,8 +1250,8 @@ function TraceWorkspace({
               candidateId={candidateIdForIndex(citation.retrieval, candidateIndex)}
             />
           ) : null}
-          {selectedSection === "reporter-inference" ? (
-            <ReporterInferenceDetails inference={citation.reporter_inference} />
+          {selectedSection === "jurisdiction-inference" ? (
+            <JurisdictionInferenceDetails inference={citation.jurisdiction_inference} />
           ) : null}
         </div>
       </section>
@@ -1285,44 +1285,69 @@ function formatTraceOperationStatus(status: TraceOperationStatus) {
   return status === "not-run" ? "Not run" : formatStatusLabel(status);
 }
 
-function ReporterInferenceDetails({
+function JurisdictionInferenceDetails({
   inference
 }: {
-  inference: ReporterJurisdictionInferencePayload | null;
+  inference: JurisdictionInferencePayload | null;
 }) {
   if (!inference) {
     return (
       <div className="detail-group trace-empty-state">
-        <h3>Reporter inference</h3>
-        <p>This citation type has no reporter-jurisdiction inference.</p>
+        <h3>Jurisdiction inference</h3>
+        <p>This citation type has no jurisdiction inference.</p>
       </div>
     );
   }
 
+  const { reporter_lead, court_lead } = inference;
+
   return (
     <div className="detail-group assessment-trace-group">
       <div className="assessment-trace-heading">
-        <h3>Reporter jurisdiction inference</h3>
-        <p>Jurisdiction evidence only — this trace does not select or assess a case.</p>
+        <h3>Jurisdiction inference</h3>
+        <p>Triad taxonomy components for inferring citation jurisdiction.</p>
+      </div>
+
+      <div className="assessment-trace-heading" style={{ marginTop: '16px' }}>
+        <h4 style={{ margin: '0', fontSize: '14px', color: 'var(--accent-fg)' }}>Reporter Lead</h4>
       </div>
       <dl className="assessment-fields">
-        <div><dt>Reporter</dt><dd>{formatValue(inference.reporter)}</dd></div>
-        <div><dt>Status</dt><dd>{formatStatusLabel(inference.status)}</dd></div>
-        <div><dt>Coverage</dt><dd>{formatStatusLabel(inference.coverage)}</dd></div>
-        <div><dt>Exact court</dt><dd>{formatValue(inference.exact_court_id)}</dd></div>
-        <div><dt>Court set</dt><dd>{formatValue(inference.court_ids)}</dd></div>
-        <div><dt>Court class</dt><dd>{formatValue(inference.court_classes.map(formatStatusLabel))}</dd></div>
-        <div><dt>Jurisdiction</dt><dd>{formatValue(inference.jurisdiction_ids)}</dd></div>
+        <div><dt>Reporter</dt><dd>{formatValue(reporter_lead.reporter)}</dd></div>
+        <div><dt>Status</dt><dd>{formatStatusLabel(reporter_lead.status)}</dd></div>
       </dl>
-      <div className="inference-evidence">
-        <h4>Evidence</h4>
-        {inference.evidence.length ? inference.evidence.map((evidence) => (
-          <article key={`${evidence.source}:${evidence.statement}`}>
-            <p>{evidence.statement}</p>
-            <small>{evidence.source}</small>
-          </article>
-        )) : <p className="muted">No jurisdiction constraint is registered for this reporter.</p>}
+      {reporter_lead.mlz_jurisdictions.length > 0 && (
+        <dl className="assessment-fields" style={{ marginTop: '0' }}>
+          <div>
+            <dt>MLZ Jurisdictions</dt>
+            <dd>
+              <ul style={{ margin: '0', paddingLeft: '16px', color: 'var(--text-secondary)' }}>
+                {reporter_lead.mlz_jurisdictions.slice(0, 3).map((j) => (
+                  <li key={j}>{j}</li>
+                ))}
+                {reporter_lead.mlz_jurisdictions.length > 3 && (
+                  <li>... ({reporter_lead.mlz_jurisdictions.length} in total)</li>
+                )}
+              </ul>
+            </dd>
+          </div>
+        </dl>
+      )}
+
+      <div className="assessment-trace-heading" style={{ marginTop: '16px' }}>
+        <h4 style={{ margin: '0', fontSize: '14px', color: 'var(--accent-fg)' }}>Court Lead</h4>
       </div>
+      <dl className="assessment-fields">
+        <div><dt>Extracted Court</dt><dd>{formatValue(court_lead.extracted_court)}</dd></div>
+        <div><dt>Status</dt><dd>{formatStatusLabel(court_lead.status)}</dd></div>
+      </dl>
+      {court_lead.cl_court_taxonomy && (
+        <dl className="assessment-fields" style={{ marginTop: '0' }}>
+          <div><dt>CL Court ID</dt><dd>{formatValue(court_lead.cl_court_taxonomy.court_id)}</dd></div>
+          <div><dt>System</dt><dd>{formatValue(court_lead.cl_court_taxonomy.system)}</dd></div>
+          <div><dt>Jurisdiction</dt><dd>{formatValue(court_lead.cl_court_taxonomy.jurisdiction)}</dd></div>
+          <div><dt>Type</dt><dd>{formatValue(court_lead.cl_court_taxonomy.type)}</dd></div>
+        </dl>
+      )}
     </div>
   );
 }
@@ -1365,7 +1390,7 @@ function CitationTags({
       (workflowStage === "assessed" || variant === "details")
   );
   const courtFinalStatus = effective
-    ? effectiveCourtAssessment(effective.court)?.status.toLowerCase().replaceAll("-", "_")
+    ? effective.court?.status.toLowerCase().replaceAll("-", "_")
     : undefined;
   const showCourtMismatch = Boolean(
     courtFinalStatus === "mismatch" && (workflowStage === "assessed" || variant === "details")
@@ -1844,15 +1869,10 @@ function AssessmentResultFields({ result }: { result: AssessmentPayload }) {
       </CollapsibleField>
       <CollapsibleField
         title="Court"
-        subtitle="Initial verdict and reporter inference when the extracted court was missing"
-        status={effectiveCourtAssessment(court)?.status ?? court.initial.status}
+        subtitle="Extracted court against CourtListener"
+        status={court.status}
       >
-        <ol className="assessment-trace">
-          <AssessmentTraceStep index="1" title="Initial assessment" status={court.initial.status}>
-            <CourtAssessmentDetails assessment={court.initial} />
-          </AssessmentTraceStep>
-          <CourtFollowupDetails followup={court.followup} />
-        </ol>
+        <CourtAssessmentDetails assessment={court} />
       </CollapsibleField>
       <CollapsibleField title="Year" subtitle="Extracted year against CourtListener" status={year.status}>
         <YearAssessmentDetails assessment={year} />
@@ -1955,38 +1975,6 @@ function CourtAssessmentDetails({ assessment }: { assessment: CourtAssessmentPay
         <dd>{formatValue(assessment.courtlistener_court_id)}</dd>
       </div>
     </dl>
-  );
-}
-
-function CourtFollowupDetails({ followup }: { followup: CourtFollowupPayload }) {
-  return (
-    <AssessmentTraceStep
-      index="2"
-      title="Reporter inference"
-      status={
-        followup.status === "inferred_from_reporter"
-          ? followup.result.status
-          : followup.status
-      }
-    >
-      {followup.status === "inferred_from_reporter" ? (
-        <>
-          <dl className="assessment-fields">
-            <div>
-              <dt>Reporter</dt>
-              <dd>{formatValue(followup.reporter)}</dd>
-            </div>
-            <div>
-              <dt>Citation court before inference</dt>
-              <dd>{formatValue(followup.citation_court_before)}</dd>
-            </div>
-          </dl>
-          <CourtAssessmentDetails assessment={followup.result} />
-        </>
-      ) : (
-        <p className="assessment-step-note">The initial result did not require reporter inference.</p>
-      )}
-    </AssessmentTraceStep>
   );
 }
 
@@ -2318,24 +2306,12 @@ function yearRowMatchType(
   return directRowMatchType(extracted, courtListener);
 }
 
-function effectiveCourtAssessment(
-  assessment: CourtAssessmentRunPayload | null | undefined,
-): CourtAssessmentPayload | null | undefined {
-  if (!assessment) {
-    return undefined;
-  }
-  if (assessment.followup.status === "inferred_from_reporter") {
-    return assessment.followup.result;
-  }
-  return assessment.initial;
-}
-
 function courtRowMatchType(
-  assessment: CourtAssessmentRunPayload | null | undefined,
+  assessment: CourtAssessmentPayload | null | undefined,
   extracted: unknown,
   courtListener: unknown,
 ): ComparisonMatchType {
-  return courtAssessmentRowMatchType(effectiveCourtAssessment(assessment), extracted, courtListener);
+  return courtAssessmentRowMatchType(assessment, extracted, courtListener);
 }
 
 function courtAssessmentRowMatchType(

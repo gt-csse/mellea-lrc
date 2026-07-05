@@ -38,6 +38,7 @@ from mellea_lrc.assessment import (
 from mellea_lrc.assessment import ReextractionStatus, validate_proposal
 from mellea_lrc.assessment.fields.case_name.reextract import ReextractionResult
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
+from mellea_lrc.jurisdiction_inference.types import JurisdictionInference, ReporterLead, CourtLead, ReporterLeadStatus, CourtLeadStatus
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.core.spans import Span

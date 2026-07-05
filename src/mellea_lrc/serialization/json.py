@@ -84,10 +84,12 @@ from mellea_lrc.retrieval.types import (
     RetrievalMetadata,
     RetrievalStatus,
 )
-from mellea_lrc.reporter_jurisdiction.types import (
-    ReporterJurisdictionEvidence,
-    ReporterJurisdictionInference,
-    ReporterJurisdictionStatus,
+from mellea_lrc.jurisdiction_inference.types import (
+    JurisdictionInference,
+    ReporterLead,
+    CourtLead,
+    ReporterLeadStatus,
+    CourtLeadStatus,
 )
 from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, RetrievalFailureDetail
 from mellea_lrc.serialization.transport import (
@@ -102,7 +104,7 @@ from mellea_lrc.serialization.transport import (
     CourtAssessmentPayload,
     CitationRetrievalPayload,
     CourtResolutionTracePayload,
-    ReporterJurisdictionInferencePayload,
+    JurisdictionInferencePayload,
     ExtractedCitationPayload,
     ExtractedDocumentPayload,
     ReextractedCaseNamePayload,
@@ -754,54 +756,56 @@ def deserialize_court_assessment(payload: Mapping[str, object]) -> CourtAssessme
     )
 
 
-def serialize_reporter_inference(
-    item: ReporterJurisdictionInference,
+def serialize_jurisdiction_inference(
+    item: JurisdictionInference,
 ) -> dict[str, JsonValue]:
     """Serialize reporter inference context."""
-    payload: dict[str, JsonValue] = {
-        "reporter": item.reporter,
-        "status": item.status.value,
-        "court_ids": list(item.court_ids),
-        "evidence": [
-            {"source": e.source, "statement": e.statement} for e in item.evidence
-        ],
+    return {
+        "reporter_lead": {
+            "reporter": item.reporter_lead.reporter,
+            "status": item.reporter_lead.status.value,
+            "mlz_jurisdictions": list(item.reporter_lead.mlz_jurisdictions),
+        },
+        "court_lead": {
+            "extracted_court": item.court_lead.extracted_court,
+            "status": item.court_lead.status.value,
+            "cl_court_taxonomy": (
+                asdict(item.court_lead.cl_court_taxonomy)
+                if item.court_lead.cl_court_taxonomy
+                else None
+            ),
+        }
     }
-    if item.cl_court_taxonomy:
-        payload["cl_court_taxonomy"] = asdict(item.cl_court_taxonomy)  # type: ignore[assignment]
-    return payload
 
 
-def deserialize_reporter_inference(
+def deserialize_jurisdiction_inference(
     payload: Mapping[str, object],
-) -> ReporterJurisdictionInference:
+) -> JurisdictionInference:
     """Rebuild reporter inference context."""
-    validated = ReporterJurisdictionInferencePayload.model_validate(payload).model_dump(
+    validated = JurisdictionInferencePayload.model_validate(payload).model_dump(
         mode="python"
     )
-    tax_payload = cast("dict[str, object] | None", validated.get("cl_court_taxonomy"))
+    
+    reporter_lead_data = cast("dict[str, object]", validated.get("reporter_lead", {}))
+    court_lead_data = cast("dict[str, object]", validated.get("court_lead", {}))
+    
+    tax_payload = cast("dict[str, object] | None", court_lead_data.get("cl_court_taxonomy"))
     taxonomy = None
     if tax_payload:
         from mellea_lrc.courtlistener.taxonomy import CLCourtTaxonomy
         taxonomy = CLCourtTaxonomy(**tax_payload)  # type: ignore[arg-type]
 
-    evidence = tuple(
-        ReporterJurisdictionEvidence(
-            source=_required_str(e.get("source"), "evidence source"),
-            statement=_required_str(e.get("statement"), "evidence statement"),
+    return JurisdictionInference(
+        reporter_lead=ReporterLead(
+            reporter=_optional_str(reporter_lead_data.get("reporter")),
+            status=ReporterLeadStatus(_required_str(reporter_lead_data.get("status"), "status")),
+            mlz_jurisdictions=tuple(reporter_lead_data.get("mlz_jurisdictions", [])),
+        ),
+        court_lead=CourtLead(
+            extracted_court=_optional_str(court_lead_data.get("extracted_court")),
+            status=CourtLeadStatus(_required_str(court_lead_data.get("status"), "status")),
+            cl_court_taxonomy=taxonomy,
         )
-        for e in validated.get("evidence", [])
-        if isinstance(e, dict)
-    )
-    return ReporterJurisdictionInference(
-        reporter=_optional_str(validated.get("reporter")),
-        status=ReporterJurisdictionStatus(
-            _required_str(validated.get("status"), "reporter inference status")
-        ),
-        court_ids=tuple(
-            str(c) for c in validated.get("court_ids", []) if isinstance(c, str)
-        ),
-        evidence=evidence,
-        cl_court_taxonomy=taxonomy,
     )
 
 
@@ -838,7 +842,7 @@ def serialize_citation_assessment_result(
     """Serialize a completed substantive citation assessment."""
     return {
         "case_name": serialize_case_name_assessment_run(item.case_name),
-        "reporter_inference": serialize_reporter_inference(item.reporter_inference),
+        "jurisdiction_inference": serialize_jurisdiction_inference(item.jurisdiction_inference),
         "court": serialize_court_assessment(item.court),
         "year": serialize_year_assessment(item.year),
     }
@@ -925,18 +929,18 @@ def deserialize_citation_assessment_result(
     """Rebuild a completed substantive citation assessment."""
     validated = CitationAssessmentResultPayload.model_validate(payload).model_dump(mode="python")
     case_payload = validated.get("case_name")
-    reporter_payload = validated.get("reporter_inference")
+    reporter_payload = validated.get("jurisdiction_inference")
     court_payload = validated.get("court")
     year_payload = validated.get("year")
     if not all(
         isinstance(item, dict)
         for item in (case_payload, reporter_payload, court_payload, year_payload)
     ):
-        msg = "citation assessment requires case_name, reporter_inference, court, and year"
+        msg = "citation assessment requires case_name, jurisdiction_inference, court, and year"
         raise TypeError(msg)
     return CitationAssessmentResult(
         case_name=deserialize_case_name_assessment_run(_mapping_field(case_payload)),
-        reporter_inference=deserialize_reporter_inference(
+        jurisdiction_inference=deserialize_jurisdiction_inference(
             _mapping_field(reporter_payload)
         ),
         court=deserialize_court_assessment(_mapping_field(court_payload)),

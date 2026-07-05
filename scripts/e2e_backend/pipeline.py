@@ -24,9 +24,9 @@ from mellea_lrc.preprocessing.types import (
     PreprocessingBackend,
     PreprocessingMetadata,
 )
-from mellea_lrc.reporter_jurisdiction import (
-    ReporterJurisdictionInference,
-    infer_reporter_jurisdiction,
+from mellea_lrc.jurisdiction_inference import (
+    JurisdictionInference,
+    
 )
 from mellea_lrc.retrieval import run_retrieval
 from mellea_lrc.retrieval.types import (
@@ -459,34 +459,26 @@ def _citation_payloads(
             "kind": citation_kind(item.citation).value,
             "fields": _citation_fields(item.citation),
             "resolves_to": item.resolves_to,
-            "reporter_inference": _reporter_inference_payload(item.citation),
+            "jurisdiction_inference": _jurisdiction_inference_payload(item.citation),
             "retrieval": _single_retrieval_payload(retrieval_by_id.get(item.citation_id)),
         }
         for item in extraction.citations
     ]
 
 
-def _reporter_inference_payload(citation: object) -> dict[str, Any] | None:
-    """Expose reporter evidence as an independent, non-assessment trace."""
-    if not isinstance(citation, FullCaseCitation):
+def _jurisdiction_inference_payload(citation: object) -> dict[str, Any] | None:
+    """Expose jurisdiction inference as an independent, non-assessment trace."""
+    if not hasattr(citation, "reporter") or not hasattr(citation, "court"):
         return None
-    inference = infer_reporter_jurisdiction(citation.reporter)
-    return _serialize_reporter_inference(inference)
-
-
-def _serialize_reporter_inference(
-    inference: ReporterJurisdictionInference,
-) -> dict[str, Any]:
-    return {
-        "reporter": inference.reporter,
-        "status": inference.status.value,
-        "court_ids": list(inference.court_ids),
-        "exact_court_id": inference.exact_court_id,
-        "evidence": [
-            {"source": evidence.source, "statement": evidence.statement}
-            for evidence in inference.evidence
-        ],
-    }
+    from mellea_lrc.jurisdiction_inference.leads import evaluate_reporter_lead, evaluate_court_lead
+    from mellea_lrc.jurisdiction_inference.types import JurisdictionInference
+    from mellea_lrc.serialization.json import serialize_jurisdiction_inference
+    
+    inference = JurisdictionInference(
+        reporter_lead=evaluate_reporter_lead(citation.reporter),
+        court_lead=evaluate_court_lead(citation.court),
+    )
+    return serialize_jurisdiction_inference(inference)
 
 
 def _citation_fields(citation: object) -> dict[str, object]:

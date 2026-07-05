@@ -9,7 +9,9 @@ from mellea_lrc.assessment.fields.case_name import (
     assess_case_name_exact_match,
     assess_case_name_with_mellea,
 )
-from mellea_lrc.assessment.fields.court import assess_court, get_reporter_inference
+from mellea_lrc.assessment.fields.court import assess_court
+from mellea_lrc.jurisdiction_inference.leads import evaluate_reporter_lead, evaluate_court_lead
+from mellea_lrc.jurisdiction_inference.types import JurisdictionInference, ReporterLead, CourtLead, ReporterLeadStatus, CourtLeadStatus
 from mellea_lrc.assessment.fields.year import assess_year_exact_match
 from mellea_lrc.assessment.types import (
     CaseNameAssessmentRun,
@@ -37,16 +39,17 @@ async def assess_found_citation(
     session: MelleaSession | None = None,
 ) -> CitationAssessmentResult:
     """Assess case-name, court, and year fields of one found case citation."""
-    reporter_inference = get_reporter_inference(reporter)
+    reporter_lead = evaluate_reporter_lead(reporter)
+
+    # Court assessment logic: prefer extracted court, fallback to exhaustive reporter inference
+    court_lead = evaluate_court_lead(extracted_court)
 
     # Court assessment logic: prefer extracted court, fallback to exhaustive reporter inference
     court_to_assess = extracted_court
     source: Literal["direct", "reporter_inferred"] = "direct"
 
-    if court_to_assess is None and reporter_inference.exact_court_id is not None:
-        court_to_assess = reporter_inference.exact_court_id
-        source = "reporter_inferred"
-
+    # We do not use translation layer for inference anymore, but reporter_lead could be used in the future
+    
     court = assess_court(
         extracted_court=court_to_assess,
         courtlistener_court_id=courtlistener_court_id,
@@ -78,7 +81,7 @@ async def assess_found_citation(
         )
     return CitationAssessmentResult(
         case_name=case_name,
-        reporter_inference=reporter_inference,
+        jurisdiction_inference=JurisdictionInference(reporter_lead=evaluate_reporter_lead(reporter) if reporter else ReporterLead(reporter=None, status=ReporterLeadStatus.UNRECOGNIZED, mlz_jurisdictions=()), court_lead=evaluate_court_lead(extracted_court) if extracted_court else CourtLead(extracted_court=None, status=CourtLeadStatus.UNRECOGNIZED, cl_court_taxonomy=None)),
         court=court,
         year=year,
     )

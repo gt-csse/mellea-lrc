@@ -1,0 +1,17 @@
+{
+    "us;supreme.court": ["scotus"],
+    "us:c;court.appeals.federal.circuit": ["cafc"],
+    "us:c;court.claims": ["uscfc"],
+    "us:c1;court.appeals": ["ca1"],
+    "us:c2;court.appeals": ["ca2"],
+    "us:c3;court.appeals": ["ca3"],
+    "us:c4;court.appeals": ["ca4"],
+    "us:c5;court.appeals": ["ca5"],
+    "us:c6;court.appeals": ["ca6"],
+    "us:c7;court.appeals": ["ca7"],
+    "us:c8;court.appeals": ["ca8"],
+    "us:c9;court.appeals": ["ca9"],
+    "us:c10;court.appeals": ["ca10"],
+    "us:c11;court.appeals": ["ca11"],
+    "us:dc;court.appeals": ["cadc"]
+}

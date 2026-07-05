@@ -33,9 +33,12 @@ from mellea_lrc.core.spans import Span
 from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.courtlistener.types import CourtListenerCitationRecord
 from mellea_lrc.extraction import extract_citations
-from mellea_lrc.reporter_jurisdiction.types import (
-    ReporterJurisdictionInference,
-    ReporterJurisdictionStatus,
+from mellea_lrc.jurisdiction_inference.types import (
+    JurisdictionInference,
+    ReporterLeadStatus,
+    ReporterLead,
+    CourtLead,
+    CourtLeadStatus,
 )
 from mellea_lrc.serialization import (
     deserialize_assessed_document,
@@ -351,11 +354,17 @@ def test_document_assessment_round_trips() -> None:
                 ),
             ),
         ),
-        reporter_inference=ReporterJurisdictionInference(
-            reporter="F.3d",
-            status=ReporterJurisdictionStatus.VALID_REPORTER,
-            court_ids=(),
-            evidence=(),
+        jurisdiction_inference=JurisdictionInference(
+            reporter_lead=ReporterLead(
+                reporter="F.3d",
+                status=ReporterLeadStatus.RECOGNIZED,
+                mlz_jurisdictions=("us;federal",),
+            ),
+            court_lead=CourtLead(
+                extracted_court="ca9",
+                status=CourtLeadStatus.RESOLVED,
+                cl_court_taxonomy=None,
+            ),
         ),
         court=CourtAssessment(
             status=CourtAssessmentStatus.EXACT_MATCH,
@@ -439,11 +448,17 @@ def _minimal_result(case_name: str) -> CitationAssessmentResult:
             ),
             followup=CaseNameReassessmentNotRequired(),
         ),
-        reporter_inference=ReporterJurisdictionInference(
-            reporter=None,
-            status=ReporterJurisdictionStatus.MISSING_REPORTER,
-            court_ids=(),
-            evidence=(),
+        jurisdiction_inference=JurisdictionInference(
+            reporter_lead=ReporterLead(
+                reporter="F.3d",
+                status=ReporterLeadStatus.RECOGNIZED,
+                mlz_jurisdictions=("us;federal",),
+            ),
+            court_lead=CourtLead(
+                extracted_court="ca9",
+                status=CourtLeadStatus.RESOLVED,
+                cl_court_taxonomy=None,
+            ),
         ),
         court=CourtAssessment(
             status=CourtAssessmentStatus.MISSING,
@@ -515,12 +530,18 @@ def test_case_name_followup_round_trips_inside_citation_assessment() -> None:
                     error="RuntimeError: unavailable",
                 ),
             ),
-            reporter_inference=ReporterJurisdictionInference(
+            jurisdiction_inference=JurisdictionInference(
+            reporter_lead=ReporterLead(
                 reporter="F.3d",
-                status=ReporterJurisdictionStatus.VALID_REPORTER,
-                court_ids=(),
-                evidence=(),
+                status=ReporterLeadStatus.RECOGNIZED,
+                mlz_jurisdictions=("us;federal",),
             ),
+            court_lead=CourtLead(
+                extracted_court="ca9",
+                status=CourtLeadStatus.RESOLVED,
+                cl_court_taxonomy=None,
+            ),
+        ),
             court=CourtAssessment(
                 status=CourtAssessmentStatus.MISSING,
                 extracted_court=None,

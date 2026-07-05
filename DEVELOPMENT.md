@@ -43,6 +43,7 @@ Implementation notes and behavioral contracts live under `docs/development/`:
   only; this phase does not express an opinion
 - [Assessment](docs/development/assessment/index.md) — field-level comparisons
   and conclusions
+- [Document Inference](docs/development/Document%20Inference%20Development.md) — holistic understanding of the source document
 - [Benchmark architecture](docs/development/Benchmark.md)
 
 Retrieval and assessment each have nested field/path documents. Add new

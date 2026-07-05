@@ -375,22 +375,34 @@ class ReporterJurisdictionEvidencePayload(ArtifactPayload):
     statement: str
 
 
-class ReporterJurisdictionInferencePayload(ArtifactPayload):
+class ReporterLeadPayload(ArtifactPayload):
     reporter: str | None
     status: Literal[
         "missing_reporter",
         "unrecognized",
-        "valid_reporter",
-        "exhaustive_reporter",
+        "recognized",
     ]
-    court_ids: list[str]
-    evidence: list[ReporterJurisdictionEvidencePayload]
+    mlz_jurisdictions: list[str]
+
+
+class CourtLeadPayload(ArtifactPayload):
+    extracted_court: str | None
+    status: Literal[
+        "missing_court",
+        "unrecognized",
+        "resolved",
+    ]
     cl_court_taxonomy: CLCourtTaxonomyPayload | None = None
+
+
+class JurisdictionInferencePayload(ArtifactPayload):
+    reporter_lead: ReporterLeadPayload
+    court_lead: CourtLeadPayload
 
 
 class CitationAssessmentResultPayload(ArtifactPayload):
     case_name: CaseNameAssessmentRunPayload
-    reporter_inference: ReporterJurisdictionInferencePayload
+    jurisdiction_inference: JurisdictionInferencePayload
     court: CourtAssessmentPayload
     year: YearAssessmentPayload
 

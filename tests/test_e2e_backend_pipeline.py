@@ -19,9 +19,12 @@ from mellea_lrc.assessment import (
     YearAssessment,
     YearAssessmentStatus,
 )
-from mellea_lrc.reporter_jurisdiction.types import (
-    ReporterJurisdictionInference,
-    ReporterJurisdictionStatus,
+from mellea_lrc.jurisdiction_inference.types import (
+    JurisdictionInference,
+    ReporterLeadStatus,
+    ReporterLead,
+    CourtLead,
+    CourtLeadStatus,
 )
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.immutable import ExtraData
@@ -175,17 +178,22 @@ def test_review_preprocessed_returns_frontend_span_payload() -> None:
     assert citation["fields"]["reporter"] == "U.S."
     assert citation["fields"]["page"] == "483"
     assert citation["fields"]["plaintiff"] == "Brown"
-    assert citation["reporter_inference"] == {
-        "reporter": "U.S.",
-        "status": "exhaustive_reporter",
-        "court_ids": ["scotus"],
-        "exact_court_id": "scotus",
-        "evidence": [
-            {
-                "source": "mellea-lrc curated reporter registry",
-                "statement": "Publishes Supreme Court decisions.",
+    assert citation["jurisdiction_inference"] == {
+        "reporter_lead": {
+            "reporter": "U.S.",
+            "status": "recognized",
+            "mlz_jurisdictions": ['us;supreme.court', 'us:c9;court.appeals', 'us:c10;court.appeals', 'us:c;court.appeals.federal.circuit', 'us:c;court.claims', 'us:c3:pa.wd;district.court', 'us:de;supreme.court', 'us:ny;supreme.court', 'us:pa;supreme.court', 'us;circuit.court', 'us:pa.ed;circuit.court', 'us:pa.d;circuit.court', 'us:nh;privy.council', 'us:pa;court.common.pleas', 'us:pa;court.oyer.terminer', 'us:pa:phila;mayors.court'],
+        },
+        "court_lead": {
+            "extracted_court": "scotus",
+            "status": "resolved",
+            "cl_court_taxonomy": {
+                "court_id": "scotus",
+                "system": "federal",
+                "jurisdiction": None,
+                "type": "appellate",
             },
-        ],
+        }
     }
     assert citation["retrieval"]["status"] == "found"
     assert citation["retrieval"]["case_names"] == ["Brown v. Board of Education"]
@@ -320,11 +328,9 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
             ),
             followup=CaseNameReassessmentNotRequired(),
         ),
-        reporter_inference=ReporterJurisdictionInference(
-            reporter="U.S.",
-            status=ReporterJurisdictionStatus.VALID_REPORTER,
-            court_ids=(),
-            evidence=(),
+        jurisdiction_inference=JurisdictionInference(
+            reporter_lead=ReporterLead(reporter="U.S.", status=ReporterLeadStatus.RECOGNIZED, mlz_jurisdictions=()),
+            court_lead=CourtLead(extracted_court="scotus", status=CourtLeadStatus.RESOLVED, cl_court_taxonomy=None),
         ),
         court=_court_assessment(),
         year=YearAssessment(
@@ -428,11 +434,9 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
                 ),
             ),
         ),
-        reporter_inference=ReporterJurisdictionInference(
-            reporter="U.S.",
-            status=ReporterJurisdictionStatus.VALID_REPORTER,
-            court_ids=(),
-            evidence=(),
+        jurisdiction_inference=JurisdictionInference(
+            reporter_lead=ReporterLead(reporter="U.S.", status=ReporterLeadStatus.RECOGNIZED, mlz_jurisdictions=()),
+            court_lead=CourtLead(extracted_court="scotus", status=CourtLeadStatus.RESOLVED, cl_court_taxonomy=None),
         ),
         court=_court_assessment(),
         year=year,
@@ -516,12 +520,10 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
                         ),
                         followup=CaseNameReassessmentNotRequired(),
                     ),
-                    reporter_inference=ReporterJurisdictionInference(
-                        reporter="U.S.",
-                        status=ReporterJurisdictionStatus.VALID_REPORTER,
-                        court_ids=(),
-                        evidence=(),
-                    ),
+                    jurisdiction_inference=JurisdictionInference(
+            reporter_lead=ReporterLead(reporter="U.S.", status=ReporterLeadStatus.RECOGNIZED, mlz_jurisdictions=()),
+            court_lead=CourtLead(extracted_court="scotus", status=CourtLeadStatus.RESOLVED, cl_court_taxonomy=None),
+        ),
                     court=_court_assessment(),
                     year=YearAssessment(
                         status=YearAssessmentStatus.EXACT_MATCH,
