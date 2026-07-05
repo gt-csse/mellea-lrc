@@ -1,63 +1,64 @@
-"""Citation Jurisdiction Leads inference."""
+"""Citation Jurisdiction Inference."""
 
+from mellea_lrc.core.citations import Reporter
 from mellea_lrc.jurisdiction_inference.registry import (
     VALID_REPORTERS,
     REPORTER_MLZ_JURISDICTIONS,
 )
 from mellea_lrc.jurisdiction_inference.types import (
-    JurisdictionInference,
-    ReporterLead,
-    CourtLead,
-    ReporterLeadStatus,
-    CourtLeadStatus,
+    ReporterInference,
+    CourtInference,
+    ReporterInferenceStatus,
+    CourtInferenceStatus,
 )
 from mellea_lrc.courtlistener.taxonomy import get_court_taxonomy, is_recognized_court
-from mellea_lrc.jurisdiction_inference.translation import triangulate_court_id
 
 
-def evaluate_court_lead(extracted_court: str | None) -> CourtLead:
+def evaluate_court_inference(extracted_court: str | None) -> CourtInference:
     """Evaluate a citation's explicit extracted court string."""
     if extracted_court is None or not extracted_court.strip():
-        return CourtLead(
+        return CourtInference(
             extracted_court=None,
-            status=CourtLeadStatus.MISSING_COURT,
+            status=CourtInferenceStatus.MISSING_COURT,
             cl_court_taxonomy=None,
         )
 
     canonical_court = extracted_court.strip().lower()
     if not is_recognized_court(canonical_court):
-        return CourtLead(
+        return CourtInference(
             extracted_court=canonical_court,
-            status=CourtLeadStatus.UNRECOGNIZED,
+            status=CourtInferenceStatus.UNRECOGNIZED,
             cl_court_taxonomy=None,
         )
 
     taxonomy = get_court_taxonomy(canonical_court)
-    return CourtLead(
+    return CourtInference(
         extracted_court=canonical_court,
-        status=CourtLeadStatus.RESOLVED,
+        status=CourtInferenceStatus.RESOLVED,
         cl_court_taxonomy=taxonomy,
     )
 
 
-def evaluate_reporter_lead(reporter: str | None) -> ReporterLead:
-    if reporter is None or not reporter.strip():
-        return ReporterLead(
+def evaluate_reporter_inference(
+    reporter: Reporter | None,
+) -> ReporterInference:
+    if reporter is None:
+        return ReporterInference(
             reporter=None,
-            status=ReporterLeadStatus.MISSING_REPORTER,
+            status=ReporterInferenceStatus.MISSING_REPORTER,
             mlz_jurisdictions=(),
         )
 
-    canonical = reporter.strip()
-    if canonical not in VALID_REPORTERS:
-        return ReporterLead(
-            reporter=canonical,
-            status=ReporterLeadStatus.UNRECOGNIZED,
+    edition = reporter.edition.strip()
+    if not edition or edition not in VALID_REPORTERS:
+        return ReporterInference(
+            reporter=reporter,
+            status=ReporterInferenceStatus.UNRECOGNIZED,
             mlz_jurisdictions=(),
         )
 
-    return ReporterLead(
-        reporter=canonical,
-        status=ReporterLeadStatus.RECOGNIZED,
-        mlz_jurisdictions=tuple(REPORTER_MLZ_JURISDICTIONS.get(canonical, [])),
+    return ReporterInference(
+        reporter=reporter,
+        status=ReporterInferenceStatus.RECOGNIZED,
+        mlz_jurisdictions=tuple(REPORTER_MLZ_JURISDICTIONS.get(edition, [])),
     )

@@ -16,6 +16,68 @@ not depend on CourtListener supplying a court, and it does not turn missing
 CourtListener data into a match or mismatch. If the comparison still lacks a
 CourtListener court, the assessment remains `missing` and expresses no opinion.
 
+## How eyecite resolves courts
+
+Eyecite uses two completely separate mechanisms to determine `court`:
+
+### Mechanism 1: SCOTUS heuristic (reporter-based)
+
+In `Reporter.__post_init__()` (`eyecite/models.py`):
+```python
+if (self.cite_type == "federal" and "supreme" in self.name.lower()) or "scotus" in self.cite_type.lower():
+    object.__setattr__(self, "is_scotus", True)
+```
+Both `cite_type` and `name` are pass-through values from `reporters-db` (`reporters.json`).
+Eyecite reads `source["cite_type"]` at `tokenizers.py:185-189` and constructs
+`Reporter(short_name, name, cite_type, source)` directly from the data.
+
+Then `CaseCitation.guess_court()` sets `metadata.court = "scotus"` if any edition's
+reporter has `is_scotus = True`. This is the **only** court-setting logic in eyecite
+that operates on reporter metadata alone.
+
+The possible `cite_type` values in `reporters-db`: `federal`, `neutral`,
+`scotus_early`, `specialty`, `specialty_lexis`, `specialty_west`, `state`,
+`state_regional`. The heuristic fires when `cite_type` is `federal` AND the
+reporter name contains "supreme".
+
+### Mechanism 2: Parenthetical lookup (courts-db based)
+
+For all other courts, eyecite's `get_court_by_paren()` (`eyecite/helpers.py`) uses
+the separate `courts-db` package to map parenthetical strings to CourtListener
+court slugs:
+
+```python
+from courts_db import courts
+
+def get_court_by_paren(paren_string: str) -> str | None:
+    court_str = re.sub(r"[^\w]", "", paren_string).lower()
+    for court in courts:
+        s = re.sub(r"[^\w]", "", court["citation_string"]).lower()
+        if s == court_str:
+            return court["id"]
+```
+
+When a citation like `100 F.3d 100 (2d Cir. 1996)` is parsed,
+`add_post_citation()` extracts the parenthetical, and `get_court_by_paren("2d Cir.")`
+returns `"ca2"`. This is a pure dictionary lookup with no reporter involvement.
+
+`courts-db` entries are strictly 1:1: each entry has exactly one `citation_string`
+and one `id`. No two entries share a `citation_string`. Its `cites` field
+(reporter-to-court hint) exists for only 3 entries (`scotus`, `nh`, `pa`) and
+is not a general mechanism.
+
+### The gap
+
+No established database directly connects a reporter to a set of CourtListener
+court slugs:
+- **`reporters-db`** maps reporters to MLZ jurisdiction strings (a different taxonomy)
+- **`courts-db`** maps parenthetical strings and name regexes to CL slugs, but has
+  no reporter field (except the vestigial `cites` on 3 entries)
+- **The MLZ-to-CL bridge** (`mlz_to_cl_map.json`) manually maps only 17 MLZ strings
+
+This is why `EXHAUSTIVE_REPORTERS` in `registry.py` was manually curated (and
+ultimately commented out) — the data simply does not exist in any public database.
+
 ## Admission rule
 
 Add a mapping only when all of the following are true:
@@ -38,11 +100,11 @@ The registry and formal inference live in
 projection that returns only `exact_court_id`.
 
 | Canonical reporter | CourtListener court | Eyecite behavior | Why inference is valid |
-|---|---|---|---|
-| `U.S.` | `scotus` | Eyecite normally emits `scotus`; this mapping is defensive rather than an augmentation. | *United States Reports* is the official reporter of the Supreme Court of the United States and covers that court exclusively. |
-| `S. Ct.` | `scotus` | Eyecite normally emits `scotus`; this mapping is defensive rather than an augmentation. | *Supreme Court Reporter* reports decisions of the Supreme Court of the United States exclusively. |
-| `L. Ed.` | `scotus` | Eyecite recognizes the reporter but does not infer a court by default. | The first series of *United States Supreme Court Reports, Lawyers' Edition* reports decisions of the Supreme Court of the United States exclusively. |
-| `L. Ed. 2d` | `scotus` | Eyecite recognizes the reporter but does not infer a court by default. | The second series of *United States Supreme Court Reports, Lawyers' Edition* reports decisions of the Supreme Court of the United States exclusively. |
+|---|---|---|---|---|
+| `U.S.` | `scotus` | Eyecite's SCOTUS heuristic fires (`cite_type=federal`, `name` contains "supreme") → `guess_court()` sets `court="scotus"`. This mapping is defensive rather than an augmentation. | *United States Reports* is the official reporter of the Supreme Court of the United States and covers that court exclusively. |
+| `S. Ct.` | `scotus` | Same heuristic: `cite_type=federal`, `name="Supreme Court Reporter"` contains "supreme" → `guess_court()` sets `court="scotus"`. This mapping is defensive. | *Supreme Court Reporter* reports decisions of the Supreme Court of the United States exclusively. |
+| `L. Ed.` | `scotus` | Heuristic does **not** fire: `reporters-db` sets `name="Lawyer's Edition"` (no "supreme" in the name), so `is_scotus` stays `False`. Eyecite leaves `court` empty. | The first series of *United States Supreme Court Reports, Lawyers' Edition* reports decisions of the Supreme Court of the United States exclusively. |
+| `L. Ed. 2d` | `scotus` | Same name as `L. Ed.` (`"Lawyer's Edition"`), same non-firing heuristic. Eyecite leaves `court` empty. | The second series of *United States Supreme Court Reports, Lawyers' Edition* reports decisions of the Supreme Court of the United States exclusively. |
 
 ## Additional implemented mappings
 
@@ -86,9 +148,32 @@ Do not generate mappings automatically from `reporters-db.mlz_jurisdiction`.
 That field is useful research input, but some entries describe observed or
 broad jurisdiction associations rather than an exclusive publishing court.
 
+MLZ records historical observation: for `U.S.`, the MLZ list includes 16 entries
+(`us;supreme.court`, plus historical circuit courts, state supreme courts, and even
+a mayor's court) because early *United States Reports* (pre-1875) compiled decisions
+from many courts. Eyecite's heuristic, by contrast, is based on the reporter's
+modern name (`"United States Supreme Court Reports"`) — a present-day editorial
+fact, not an observational record.
+
+## The database landscape
+
+Three Free Law Project databases exist, each serving a different mapping:
+
+| Database | Maps | Direction | Cardinality | Used by |
+|---|---|---|---|---|
+| `reporters-db` | reporter → MLZ jurisdiction | many-to-many | `U.S.` → 16 MLZ strings | eyecite tokenization, our validation |
+| `courts-db` | parenthetical string → CL court slug | one-to-one | `"2d Cir."` → `"ca2"` | eyecite `get_court_by_paren()` |
+| `courts-db` (regex) | court name pattern → CL court slug | many-to-one | 40 patterns → `"ca2"` | case name matching |
+| `reporters-db` (via our bridge) | MLZ string → CL court slug | curated | 17 entries in `mlz_to_cl_map.json` | `triangulate_court_id()` fallback |
+
+No database directly connects a reporter string to a CourtListener court slug.
+The `courts-db.cites` field comes closest but is populated for only 3 entries
+(`scotus`, `nh`, `pa`). Building this mapping is a gap this project fills.
+
 ## Sources
 
 - [GovInfo: United States Reports](https://www.govinfo.gov/help/usreports)
 - [United States Tax Court: citation guidance](https://www.ustaxcourt.gov/petitioners-after/)
 - [CourtListener: available jurisdictions and canonical slugs](https://www.courtlistener.com/help/api/jurisdictions/)
 - [`reporters-db`](https://github.com/freelawproject/reporters-db), the reporter metadata used by eyecite
+- [`courts-db`](https://github.com/freelawproject/courts-db), the court metadata used by eyecite `get_court_by_paren()`

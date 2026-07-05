@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
+from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation, Reporter
 from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener.remote import (
@@ -61,7 +61,7 @@ def test_retrieve_full_case_found() -> None:
                 citation_id="abc123",
                 span=Span(0, 28),
                 matched_text="347 U.S. 483",
-                citation=FullCaseCitation(volume="347", reporter="U.S.", page="483", court="scotus"),
+                citation=FullCaseCitation(volume="347", reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483", court="scotus"),
             ),
         ),
     )
@@ -127,7 +127,7 @@ def test_retrieve_found_docket_lookup_is_best_effort_and_deduplicated() -> None:
                 citation_id="cite-1",
                 span=Span(0, 18),
                 matched_text="1 F.3d 2",
-                citation=FullCaseCitation(volume="1", reporter="F.3d", page="2"),
+                citation=FullCaseCitation(volume="1", reporter=Reporter(edition="F.3d", short_name="F.", name="Federal Reporter", cite_type="federal", is_scotus=False, source="reporters"), page="2"),
             ),
         ),
     )
@@ -162,7 +162,7 @@ def test_retrieve_ambiguous_resolves_court_for_each_candidate() -> None:
                 citation_id="cite-1",
                 span=Span(0, 18),
                 matched_text="1 F.3d 2",
-                citation=FullCaseCitation(volume="1", reporter="F.3d", page="2"),
+                citation=FullCaseCitation(volume="1", reporter=Reporter(edition="F.3d", short_name="F.", name="Federal Reporter", cite_type="federal", is_scotus=False, source="reporters"), page="2"),
             ),
         ),
     )
@@ -246,7 +246,7 @@ def test_not_found_reports_case_name_search_count() -> None:
         get_json=lambda _url: {"count": 7, "results": []},
     )
     extraction = _not_found_extraction(
-        FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter="U.S.", page="999"),
+        FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="999"),
     )
 
     retrieval = run_retrieval(extraction, client_mode="custom", client=client).retrievals[0]
@@ -277,7 +277,7 @@ def test_not_found_reports_zero_case_name_search_results() -> None:
         get_json=lambda _url: {"count": 0, "results": []},
     )
     extraction = _not_found_extraction(
-        FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter="U.S.", page="999"),
+        FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="999"),
     )
 
     retrieval = run_retrieval(extraction, client_mode="custom", client=client).retrievals[0]
@@ -295,7 +295,7 @@ def test_not_found_preserves_failed_search_http_status() -> None:
         get_json=lambda _url: {"http_status": 503, "detail": "upstream search unavailable"},
     )
     extraction = _not_found_extraction(
-        FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter="U.S.", page="999"),
+        FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="999"),
     )
 
     retrieval = run_retrieval(extraction, client_mode="custom", client=client).retrievals[0]
@@ -321,7 +321,7 @@ def test_not_found_traces_opinion_and_recap_search_independently() -> None:
         ),
     )
     extraction = _not_found_extraction(
-        FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter="U.S.", page="999"),
+        FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="999"),
     )
 
     search = run_retrieval(extraction, client_mode="custom", client=client).retrievals[0].candidate_search
@@ -344,7 +344,7 @@ def test_not_found_reads_count_from_deployed_service_raw_response() -> None:
         },
     )
     extraction = _not_found_extraction(
-        FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter="U.S.", page="999"),
+        FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="999"),
     )
 
     retrieval = run_retrieval(extraction, client_mode="custom", client=client).retrievals[0]
@@ -363,7 +363,7 @@ def test_not_found_skips_search_without_both_parties() -> None:
         get_json=lambda _url: pytest.fail("search must not run without both parties"),
     )
     extraction = _not_found_extraction(
-        FullCaseCitation(plaintiff="Doe", volume="999", reporter="U.S.", page="999"),
+        FullCaseCitation(plaintiff="Doe", volume="999", reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="999"),
     )
 
     retrieval = run_retrieval(extraction, client_mode="custom", client=client).retrievals[0]
@@ -381,7 +381,7 @@ def test_retrieve_surfaces_typed_courtlistener_failure_detail() -> None:
                 citation_id="limited",
                 span=Span(0, 28),
                 matched_text="347 U.S. 483",
-                citation=FullCaseCitation(volume="347", reporter="U.S.", page="483"),
+                citation=FullCaseCitation(volume="347", reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483"),
             ),
         ),
     )

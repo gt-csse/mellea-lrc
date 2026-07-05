@@ -6,7 +6,7 @@ import pytest
 
 from mellea_lrc.assessment import initialize_assessment
 from mellea_lrc.assessment.types import CaseNameAssessment, CaseNameAssessmentStatus, ChatTurn
-from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.core.citations import FullCaseCitation, Reporter
 from mellea_lrc.core.documents import SourceMetadata
 from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.core.spans import Span
@@ -14,6 +14,14 @@ from mellea_lrc.courtlistener.types import CourtListenerCitationRecord
 from mellea_lrc.extraction import extract_citations
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import DocumentBase, PreprocessedDocument, preprocess_plain_text_from_string
+from mellea_lrc.jurisdiction_inference import Jurisdiction
+from mellea_lrc.jurisdiction_inference.leads import evaluate_court_inference, evaluate_reporter_inference
+from mellea_lrc.jurisdiction_inference.types import (
+    CourtInference,
+    CourtInferenceStatus,
+    ReporterInference,
+    ReporterInferenceStatus,
+)
 from mellea_lrc.retrieval.types import (
     CitationRetrieval,
     CourtResolutionSource,
@@ -36,6 +44,13 @@ def test_document_stages_are_substitutable() -> None:
         extraction_metadata=extracted.extraction_metadata,
         retrievals=tuple(_retrieval(item.citation_id) for item in extracted.citations),
         retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
+        jurisdictions=tuple(
+            Jurisdiction(
+                reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
+                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+            )
+            for item in extracted.citations
+        ),
     )
     assessed = initialize_assessment(retrieved)
 
@@ -143,7 +158,7 @@ def test_extracted_document_rejects_span_outside_text() -> None:
         citation_id="cite-1",
         span=Span(0, len(preprocessed.text) + 1),
         matched_text="347 U.S. 483",
-        citation=FullCaseCitation(volume="347", reporter="U.S.", page="483"),
+        citation=FullCaseCitation(volume="347", reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483"),
     )
 
     with pytest.raises(ValueError, match="span exceeds"):
@@ -168,6 +183,13 @@ def test_retrieved_document_requires_one_result_per_citation() -> None:
             extraction_metadata=ExtractionMetadata(),
             retrievals=(),
             retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
+            jurisdictions=tuple(
+                Jurisdiction(
+                    reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
+                    court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+                )
+                for item in (_citation("cite-1"),)
+            ),
         )
 
 
@@ -176,7 +198,7 @@ def _citation(citation_id: str) -> ExtractedCitation:
         citation_id=citation_id,
         span=Span(0, 12),
         matched_text="347 U.S. 483",
-        citation=FullCaseCitation(volume="347", reporter="U.S.", page="483"),
+        citation=FullCaseCitation(volume="347", reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483"),
     )
 
 

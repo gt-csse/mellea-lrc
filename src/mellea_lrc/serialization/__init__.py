@@ -7,6 +7,7 @@ from mellea_lrc.serialization.json import (
     deserialize_citation_retrieval,
     deserialize_extracted_document,
     deserialize_extracted_citation,
+    deserialize_inferred_document,
     deserialize_preprocessed_document,
     deserialize_retrieved_document,
     serialize_assessed_document,
@@ -15,6 +16,7 @@ from mellea_lrc.serialization.json import (
     serialize_citation_retrieval,
     serialize_extracted_document,
     serialize_extracted_citation,
+    serialize_inferred_document,
     serialize_preprocessed_document,
     serialize_retrieved_document,
 )
@@ -26,6 +28,7 @@ __all__ = [
     "deserialize_citation_retrieval",
     "deserialize_extracted_citation",
     "deserialize_extracted_document",
+    "deserialize_inferred_document",
     "deserialize_preprocessed_document",
     "deserialize_retrieved_document",
     "serialize_assessed_document",
@@ -34,6 +37,7 @@ __all__ = [
     "serialize_citation_retrieval",
     "serialize_extracted_citation",
     "serialize_extracted_document",
+    "serialize_inferred_document",
     "serialize_preprocessed_document",
     "serialize_retrieved_document",
 ]

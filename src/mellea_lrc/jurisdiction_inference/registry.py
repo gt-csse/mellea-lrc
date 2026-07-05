@@ -36,6 +36,7 @@ def _scope(court_id: str, statement: str) -> ReporterScope:
     return ReporterScope(court_id=court_id, statement=statement)
 
 
+
 # EXHAUSTIVE_REPORTERS: dict[str, ReporterScope] = {
 #     "U.S.": _scope("scotus", "Publishes Supreme Court decisions."),
 #     "S. Ct.": _scope("scotus", "Publishes Supreme Court decisions."),
@@ -76,15 +77,13 @@ def _load_cl_reporters() -> tuple[frozenset[str], dict[str, list[str]]]:
         data = json.load(f)
         
     editions = set()
-    mlz_map = {}
+    mlz_map: dict[str, list[str]] = {}
     for root_key, entries in data.items():
         for entry in entries:
             mlz = entry.get("mlz_jurisdiction", [])
             for edition in entry.get("editions", {}):
                 editions.add(edition)
-                if edition not in mlz_map:
-                    mlz_map[edition] = []
-                mlz_map[edition].extend(mlz)
+                mlz_map.setdefault(edition, []).extend(mlz)
     return frozenset(editions), mlz_map
 
 _CL_REPORTERS, REPORTER_MLZ_JURISDICTIONS = _load_cl_reporters()

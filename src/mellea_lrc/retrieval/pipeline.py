@@ -28,6 +28,8 @@ from mellea_lrc.courtlistener.types import (
 )
 from mellea_lrc.retrieval.court_resolution import resolve_court
 from mellea_lrc.retrieval.not_found_search import search_case_name_candidates
+from mellea_lrc.jurisdiction_inference.pipeline import infer_jurisdiction
+from mellea_lrc.jurisdiction_inference.types import InferredDocument
 from mellea_lrc.retrieval.types import (
     AmbiguousCitationRetrieval,
     CitationRetrieval,
@@ -46,7 +48,7 @@ from mellea_lrc.retrieval.types import (
 
 if TYPE_CHECKING:
     from mellea_lrc.courtlistener.types import CourtListenerCitationRecord
-    from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
+    from mellea_lrc.extraction.types import ExtractedCitation
 
 SOURCE = "cl-access"
 DEFAULT_CLIENT_MODE: RetrievalClientMode = "deployed"
@@ -58,7 +60,7 @@ HTTP_TOO_MANY_REQUESTS = 429
 
 
 def run_retrieval(
-    extraction: ExtractedDocument,
+    document: InferredDocument,
     *,
     client_mode: RetrievalClientMode = DEFAULT_CLIENT_MODE,
     client: CitationRetrievalClient | None = None,
@@ -69,20 +71,27 @@ def run_retrieval(
     the ``CitationRetrieval`` discriminated union; ``Found`` citations additionally
     carry a ``CourtResolutionTrace``. The docket-id cache deduplicates docket GETs
     across citations sharing the same docket within one document.
+
+    If the input document does not carry jurisdiction jurisdictions (i.e. it is an
+    ``ExtractedDocument`` rather than an ``InferredDocument``), inference is run
+    automatically as a fast local step before retrieval.
     """
+    if not isinstance(document, InferredDocument):
+        document = infer_jurisdiction(document)
     lookup_client = _lookup_client(client_mode, client)
     docket_court_cache: dict[str, str | None] = {}
     started = time.perf_counter()
     retrievals = tuple(
-        _retrieve_citation(item, lookup_client, docket_court_cache) for item in extraction.citations
+        _retrieve_citation(item, lookup_client, docket_court_cache) for item in document.citations
     )
     duration_ms = (time.perf_counter() - started) * 1000.0
     return RetrievedDocument(
-        source_metadata=extraction.source_metadata,
-        text=extraction.text,
-        preprocessing_metadata=extraction.preprocessing_metadata,
-        citations=extraction.citations,
-        extraction_metadata=extraction.extraction_metadata,
+        source_metadata=document.source_metadata,
+        text=document.text,
+        preprocessing_metadata=document.preprocessing_metadata,
+        citations=document.citations,
+        extraction_metadata=document.extraction_metadata,
+        jurisdictions=document.jurisdictions,
         retrievals=retrievals,
         retrieval_metadata=RetrievalMetadata(
             client_mode=client_mode,
@@ -133,13 +142,14 @@ def _retrieve_citation(
             source=SOURCE,
         )
 
-    if not citation.volume or not citation.reporter or not citation.page:
+    edition = citation.reporter.edition if citation.reporter else None
+    if not citation.volume or not edition or not citation.page:
         return InvalidCitationRetrieval(
             citation_id=item.citation_id,
             source=SOURCE,
         )
 
-    lookup = client.lookup_citation(citation.volume, citation.reporter, citation.page)
+    lookup = client.lookup_citation(citation.volume, edition, citation.page)
     return _retrieval_from_lookup(item.citation_id, lookup, client, docket_court_cache, citation)
 
 

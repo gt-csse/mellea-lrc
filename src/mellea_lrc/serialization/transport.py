@@ -47,18 +47,27 @@ class SpanPayload(ArtifactPayload):
     end: int
 
 
+class ReporterPayload(ArtifactPayload):
+    edition: str
+    short_name: str
+    name: str
+    cite_type: str
+    is_scotus: bool
+    source: str
+
+
 class FullCaseCitationPayload(ArtifactPayload):
     type: Literal["FullCaseCitation"]
     plaintiff: str | None
     defendant: str | None
     volume: str | None
-    reporter: str | None
     page: str | None
     pin_cite: str | None
     extra: str | None
     year: str | None
     court: str | None
     parenthetical: str | None
+    reporter: ReporterPayload | None = None
 
 
 class FullLawCitationPayload(ArtifactPayload):
@@ -85,11 +94,11 @@ class FullJournalCitationPayload(ArtifactPayload):
 class ShortCaseCitationPayload(ArtifactPayload):
     type: Literal["ShortCaseCitation"]
     volume: str | None
-    reporter: str | None
     page: str | None
     pin_cite: str | None
     court: str | None
     parenthetical: str | None
+    reporter: ReporterPayload | None = None
 
 
 class SupraCitationPayload(ArtifactPayload):
@@ -375,9 +384,10 @@ class ReporterJurisdictionEvidencePayload(ArtifactPayload):
     statement: str
 
 
-class ReporterLeadPayload(ArtifactPayload):
-    reporter: str | None
+class ReporterInferencePayload(ArtifactPayload):
+    reporter: ReporterPayload | None
     status: Literal[
+        "unsupported",
         "missing_reporter",
         "unrecognized",
         "recognized",
@@ -385,9 +395,10 @@ class ReporterLeadPayload(ArtifactPayload):
     mlz_jurisdictions: list[str]
 
 
-class CourtLeadPayload(ArtifactPayload):
+class CourtInferencePayload(ArtifactPayload):
     extracted_court: str | None
     status: Literal[
+        "unsupported",
         "missing_court",
         "unrecognized",
         "resolved",
@@ -395,14 +406,13 @@ class CourtLeadPayload(ArtifactPayload):
     cl_court_taxonomy: CLCourtTaxonomyPayload | None = None
 
 
-class JurisdictionInferencePayload(ArtifactPayload):
-    reporter_lead: ReporterLeadPayload
-    court_lead: CourtLeadPayload
+class JurisdictionPayload(ArtifactPayload):
+    reporter_inference: ReporterInferencePayload
+    court_inference: CourtInferencePayload
 
 
 class CitationAssessmentResultPayload(ArtifactPayload):
     case_name: CaseNameAssessmentRunPayload
-    jurisdiction_inference: JurisdictionInferencePayload
     court: CourtAssessmentPayload
     year: YearAssessmentPayload
 
@@ -466,7 +476,11 @@ class _ExtractedDocumentFields(_PreprocessedDocumentFields):
     citations: list[ExtractedCitationPayload]
 
 
-class _RetrievedDocumentFields(_ExtractedDocumentFields):
+class _InferredDocumentFields(_ExtractedDocumentFields):
+    jurisdictions: list[JurisdictionPayload]
+
+
+class _RetrievedDocumentFields(_InferredDocumentFields):
     retrieval_metadata: RetrievalMetadataPayload
     retrievals: list[CitationRetrievalPayload]
 
@@ -479,6 +493,11 @@ class PreprocessedDocumentPayload(_PreprocessedDocumentFields):
 class ExtractedDocumentPayload(_ExtractedDocumentFields):
     schema_version: Literal[15]
     artifact_type: Literal["extracted_document"]
+
+
+class InferredDocumentPayload(_InferredDocumentFields):
+    schema_version: Literal[15]
+    artifact_type: Literal["inferred_document"]
 
 
 class RetrievedDocumentPayload(_RetrievedDocumentFields):

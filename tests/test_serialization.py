@@ -33,13 +33,15 @@ from mellea_lrc.core.spans import Span
 from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.courtlistener.types import CourtListenerCitationRecord
 from mellea_lrc.extraction import extract_citations
+from mellea_lrc.jurisdiction_inference.leads import evaluate_court_inference, evaluate_reporter_inference
 from mellea_lrc.jurisdiction_inference.types import (
-    JurisdictionInference,
-    ReporterLeadStatus,
-    ReporterLead,
-    CourtLead,
-    CourtLeadStatus,
+    Jurisdiction,
+    ReporterInferenceStatus,
+    ReporterInference,
+    CourtInference,
+    CourtInferenceStatus,
 )
+from mellea_lrc.core.citations import Reporter
 from mellea_lrc.serialization import (
     deserialize_assessed_document,
     deserialize_citation_retrieval,
@@ -224,6 +226,13 @@ def test_document_retrieval_round_trips() -> None:
             ),
         ),
         retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
+        jurisdictions=tuple(
+            Jurisdiction(
+                reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
+                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+            )
+            for item in extraction.citations
+        ),
     )
 
     artifact = serialize_retrieved_document(retrieval)
@@ -263,6 +272,13 @@ def test_schema_14_validation_names_deserialize_into_retrieval_domain() -> None:
             ),
         ),
         retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
+        jurisdictions=tuple(
+            Jurisdiction(
+                reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
+                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+            )
+            for item in extraction.citations
+        ),
     )
     artifact = serialize_retrieved_document(retrieval)
 
@@ -354,18 +370,6 @@ def test_document_assessment_round_trips() -> None:
                 ),
             ),
         ),
-        jurisdiction_inference=JurisdictionInference(
-            reporter_lead=ReporterLead(
-                reporter="F.3d",
-                status=ReporterLeadStatus.RECOGNIZED,
-                mlz_jurisdictions=("us;federal",),
-            ),
-            court_lead=CourtLead(
-                extracted_court="ca9",
-                status=CourtLeadStatus.RESOLVED,
-                cl_court_taxonomy=None,
-            ),
-        ),
         court=CourtAssessment(
             status=CourtAssessmentStatus.EXACT_MATCH,
             extracted_court="scotus",
@@ -386,6 +390,13 @@ def test_document_assessment_round_trips() -> None:
         preprocessing_metadata=extraction.preprocessing_metadata,
         citations=extraction.citations,
         extraction_metadata=extraction.extraction_metadata,
+        jurisdictions=tuple(
+            Jurisdiction(
+                reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') and isinstance(item.citation.reporter, Reporter) else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
+                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+            )
+            for item in extraction.citations
+        ),
         retrievals=(retrieval,),
         retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
         assessments=(
@@ -447,18 +458,6 @@ def _minimal_result(case_name: str) -> CitationAssessmentResult:
                 message="match",
             ),
             followup=CaseNameReassessmentNotRequired(),
-        ),
-        jurisdiction_inference=JurisdictionInference(
-            reporter_lead=ReporterLead(
-                reporter="F.3d",
-                status=ReporterLeadStatus.RECOGNIZED,
-                mlz_jurisdictions=("us;federal",),
-            ),
-            court_lead=CourtLead(
-                extracted_court="ca9",
-                status=CourtLeadStatus.RESOLVED,
-                cl_court_taxonomy=None,
-            ),
         ),
         court=CourtAssessment(
             status=CourtAssessmentStatus.MISSING,
@@ -530,18 +529,6 @@ def test_case_name_followup_round_trips_inside_citation_assessment() -> None:
                     error="RuntimeError: unavailable",
                 ),
             ),
-            jurisdiction_inference=JurisdictionInference(
-            reporter_lead=ReporterLead(
-                reporter="F.3d",
-                status=ReporterLeadStatus.RECOGNIZED,
-                mlz_jurisdictions=("us;federal",),
-            ),
-            court_lead=CourtLead(
-                extracted_court="ca9",
-                status=CourtLeadStatus.RESOLVED,
-                cl_court_taxonomy=None,
-            ),
-        ),
             court=CourtAssessment(
                 status=CourtAssessmentStatus.MISSING,
                 extracted_court=None,

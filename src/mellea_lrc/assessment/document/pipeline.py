@@ -159,6 +159,7 @@ async def run_assessment_async(
         preprocessing_metadata=retrieval.preprocessing_metadata,
         citations=retrieval.citations,
         extraction_metadata=retrieval.extraction_metadata,
+        jurisdictions=retrieval.jurisdictions,
         retrievals=retrieval.retrievals,
         retrieval_metadata=retrieval.retrieval_metadata,
         assessments=tuple(assessments_by_id[item.citation_id] for item in retrieval.citations),
@@ -287,7 +288,6 @@ async def _run_job(
             extracted_year=job.citation.citation.year,
             courtlistener_year=job.courtlistener_year,
             extracted_court=job.citation.citation.court,
-            reporter=job.citation.citation.reporter,
             courtlistener_court_id=job.courtlistener_court_id,
             session=session.clone() if session is not None else None,
         )
@@ -403,6 +403,7 @@ def initialize_assessment(retrieval: RetrievedDocument) -> AssessedDocument:
         preprocessing_metadata=retrieval.preprocessing_metadata,
         citations=retrieval.citations,
         extraction_metadata=retrieval.extraction_metadata,
+        jurisdictions=retrieval.jurisdictions,
         retrievals=retrieval.retrievals,
         retrieval_metadata=retrieval.retrieval_metadata,
         assessments=tuple(assessments),
@@ -444,7 +445,6 @@ async def _assess_pending_job(
             extracted_year=job.citation.citation.year,
             courtlistener_year=job.courtlistener_year,
             extracted_court=job.citation.citation.court,
-            reporter=job.citation.citation.reporter,
             courtlistener_court_id=job.courtlistener_court_id,
             session=session.clone(),
         )

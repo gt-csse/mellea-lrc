@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from mellea_lrc.serialization import (
     deserialize_assessed_document,
     deserialize_extracted_document,
+    deserialize_inferred_document,
     deserialize_retrieved_document,
     deserialize_preprocessed_document,
 )
@@ -140,6 +141,11 @@ def _review_snapshot_payload(payload: object, pipeline: E2EBackend) -> dict[str,
             "stage": "extracted",
             "result": pipeline.review_document_extraction(deserialize_extracted_document(payload)),
         }
+    if artifact_type == "inferred_document":
+        return {
+            "stage": "inferred",
+            "result": pipeline.review_document_inference(deserialize_inferred_document(payload)),
+        }
     if artifact_type == "preprocessed_document":
         return {
             "stage": "preprocessed",
@@ -147,6 +153,7 @@ def _review_snapshot_payload(payload: object, pipeline: E2EBackend) -> dict[str,
         }
     msg = (
         "Snapshot does not look like a serialized PreprocessedDocument, "
-        "ExtractedDocument, RetrievedDocument, or AssessedDocument."
+        "ExtractedDocument, InferredDocument, RetrievedDocument, "
+        "or AssessedDocument."
     )
     raise ValueError(msg)

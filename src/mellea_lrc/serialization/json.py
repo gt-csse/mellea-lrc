@@ -44,6 +44,7 @@ from mellea_lrc.core.citations import (
     FullLawCitation,
     IdCitation,
     ReferenceCitation,
+    Reporter,
     ShortCaseCitation,
     SupraCitation,
     UnknownCitation,
@@ -85,17 +86,19 @@ from mellea_lrc.retrieval.types import (
     RetrievalStatus,
 )
 from mellea_lrc.jurisdiction_inference.types import (
-    JurisdictionInference,
-    ReporterLead,
-    CourtLead,
-    ReporterLeadStatus,
-    CourtLeadStatus,
+    CourtInference,
+    CourtInferenceStatus,
+    InferredDocument,
+    Jurisdiction,
+    ReporterInference,
+    ReporterInferenceStatus,
 )
 from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, RetrievalFailureDetail
 from mellea_lrc.serialization.transport import (
     AssessedDocumentPayload,
     CanonicalCitationPayload,
     CaseNameAssessmentPayload,
+    InferredDocumentPayload,
     CaseNameFollowupPayload,
     CaseNameSearchTracePayload,
     CitationAssessmentPayload,
@@ -104,7 +107,7 @@ from mellea_lrc.serialization.transport import (
     CourtAssessmentPayload,
     CitationRetrievalPayload,
     CourtResolutionTracePayload,
-    JurisdictionInferencePayload,
+    JurisdictionPayload,
     ExtractedCitationPayload,
     ExtractedDocumentPayload,
     ReextractedCaseNamePayload,
@@ -263,11 +266,15 @@ def _deserialize_citation(payload: Mapping[str, object]) -> CanonicalCitation:
     normalized = validated.model_dump(mode="python")
     kind = CitationKind(normalized["type"])
     citation_cls = _CITATION_CLASSES[kind]
-    kwargs = {
-        field.name: _optional_str(normalized.get(field.name))
-        for field in fields(citation_cls)
-        if field.name in normalized
-    }
+    kwargs: dict[str, object] = {}
+    for field in fields(citation_cls):
+        if field.name not in normalized:
+            continue
+        value = normalized[field.name]
+        if field.name == "reporter" and isinstance(value, dict):
+            kwargs[field.name] = Reporter(**value)
+        else:
+            kwargs[field.name] = _optional_str(value)
     return cast("CanonicalCitation", citation_cls(**kwargs))
 
 
@@ -321,6 +328,43 @@ def deserialize_extracted_document(payload: Mapping[str, object]) -> ExtractedDo
         ),
         extraction_metadata=_deserialize_extraction_metadata(
             _required_mapping_field(validated, "extraction_metadata")
+        ),
+    )
+
+
+def serialize_inferred_document(result: InferredDocument) -> dict[str, JsonValue]:
+    """Serialize a jurisdiction-inferred document artifact."""
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "artifact_type": "inferred_document",
+        "text": result.text,
+        "source_metadata": _serialize_source_metadata(result.source_metadata),
+        "preprocessing_metadata": _serialize_preprocessing_metadata(result.preprocessing_metadata),
+        "extraction_metadata": _serialize_extraction_metadata(result.extraction_metadata),
+        "citations": [serialize_extracted_citation(item) for item in result.citations],
+        "jurisdictions": [serialize_jurisdiction(item) for item in result.jurisdictions],
+    }
+
+
+def deserialize_inferred_document(payload: Mapping[str, object]) -> InferredDocument:
+    """Rebuild the jurisdiction-inferred document from JSON data."""
+    validated = InferredDocumentPayload.model_validate(payload).model_dump(mode="python")
+    preprocessed = _deserialize_preprocessed_fields(validated)
+    jurisdictions_raw = _list_field(validated.get("jurisdictions"))
+    return InferredDocument(
+        source_metadata=preprocessed.source_metadata,
+        text=preprocessed.text,
+        preprocessing_metadata=preprocessed.preprocessing_metadata,
+        citations=tuple(
+            deserialize_extracted_citation(_mapping_field(item))
+            for item in _list_field(validated.get("citations"))
+        ),
+        extraction_metadata=_deserialize_extraction_metadata(
+            _required_mapping_field(validated, "extraction_metadata")
+        ),
+        jurisdictions=tuple(
+            deserialize_jurisdiction(_mapping_field(item))
+            for item in jurisdictions_raw
         ),
     )
 
@@ -637,6 +681,7 @@ def serialize_retrieved_document(result: RetrievedDocument) -> dict[str, JsonVal
         "extraction_metadata": _serialize_extraction_metadata(result.extraction_metadata),
         "retrieval_metadata": _serialize_retrieval_metadata(result.retrieval_metadata),
         "citations": [serialize_extracted_citation(item) for item in result.citations],
+        "jurisdictions": [serialize_jurisdiction(item) for item in result.jurisdictions],
         "retrievals": [serialize_citation_retrieval(item) for item in result.retrievals],
     }
 
@@ -645,6 +690,7 @@ def deserialize_retrieved_document(payload: Mapping[str, object]) -> RetrievedDo
     """Rebuild the retrieval boundary object from JSON data."""
     validated = RetrievedDocumentPayload.model_validate(payload).model_dump(mode="python")
     preprocessed = _deserialize_preprocessed_fields(validated)
+    jurisdictions_raw = _list_field(validated.get("jurisdictions"))
     return RetrievedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
@@ -655,6 +701,10 @@ def deserialize_retrieved_document(payload: Mapping[str, object]) -> RetrievedDo
         ),
         extraction_metadata=_deserialize_extraction_metadata(
             _required_mapping_field(validated, "extraction_metadata")
+        ),
+        jurisdictions=tuple(
+            deserialize_jurisdiction(_mapping_field(item))
+            for item in jurisdictions_raw
         ),
         retrievals=tuple(
             deserialize_citation_retrieval(_mapping_field(item))
@@ -756,54 +806,62 @@ def deserialize_court_assessment(payload: Mapping[str, object]) -> CourtAssessme
     )
 
 
-def serialize_jurisdiction_inference(
-    item: JurisdictionInference,
+def serialize_jurisdiction(
+    item: Jurisdiction,
 ) -> dict[str, JsonValue]:
     """Serialize reporter inference context."""
+    reporter_payload: JsonValue = None
+    if item.reporter_inference.reporter is not None:
+        reporter_payload = asdict(item.reporter_inference.reporter)  # type: ignore[arg-type]
     return {
-        "reporter_lead": {
-            "reporter": item.reporter_lead.reporter,
-            "status": item.reporter_lead.status.value,
-            "mlz_jurisdictions": list(item.reporter_lead.mlz_jurisdictions),
+        "reporter_inference": {
+            "reporter": reporter_payload,
+            "status": item.reporter_inference.status.value,
+            "mlz_jurisdictions": list(item.reporter_inference.mlz_jurisdictions),
         },
-        "court_lead": {
-            "extracted_court": item.court_lead.extracted_court,
-            "status": item.court_lead.status.value,
+        "court_inference": {
+            "extracted_court": item.court_inference.extracted_court,
+            "status": item.court_inference.status.value,
             "cl_court_taxonomy": (
-                asdict(item.court_lead.cl_court_taxonomy)
-                if item.court_lead.cl_court_taxonomy
+                asdict(item.court_inference.cl_court_taxonomy)
+                if item.court_inference.cl_court_taxonomy
                 else None
             ),
         }
     }
 
 
-def deserialize_jurisdiction_inference(
+def deserialize_jurisdiction(
     payload: Mapping[str, object],
-) -> JurisdictionInference:
+) -> Jurisdiction:
     """Rebuild reporter inference context."""
-    validated = JurisdictionInferencePayload.model_validate(payload).model_dump(
+    validated = JurisdictionPayload.model_validate(payload).model_dump(
         mode="python"
     )
     
-    reporter_lead_data = cast("dict[str, object]", validated.get("reporter_lead", {}))
-    court_lead_data = cast("dict[str, object]", validated.get("court_lead", {}))
+    reporter_inference_data = cast("dict[str, object]", validated.get("reporter_inference", {}))
+    court_inference_data = cast("dict[str, object]", validated.get("court_inference", {}))
     
-    tax_payload = cast("dict[str, object] | None", court_lead_data.get("cl_court_taxonomy"))
+    reporter_payload = cast("dict[str, object] | None", reporter_inference_data.get("reporter"))
+    reporter: Reporter | None = None
+    if reporter_payload:
+        reporter = Reporter(**reporter_payload)
+    
+    tax_payload = cast("dict[str, object] | None", court_inference_data.get("cl_court_taxonomy"))
     taxonomy = None
     if tax_payload:
         from mellea_lrc.courtlistener.taxonomy import CLCourtTaxonomy
         taxonomy = CLCourtTaxonomy(**tax_payload)  # type: ignore[arg-type]
 
-    return JurisdictionInference(
-        reporter_lead=ReporterLead(
-            reporter=_optional_str(reporter_lead_data.get("reporter")),
-            status=ReporterLeadStatus(_required_str(reporter_lead_data.get("status"), "status")),
-            mlz_jurisdictions=tuple(reporter_lead_data.get("mlz_jurisdictions", [])),
+    return Jurisdiction(
+        reporter_inference=ReporterInference(
+            reporter=reporter,
+            status=ReporterInferenceStatus(_required_str(reporter_inference_data.get("status"), "status")),
+            mlz_jurisdictions=tuple(reporter_inference_data.get("mlz_jurisdictions", [])),
         ),
-        court_lead=CourtLead(
-            extracted_court=_optional_str(court_lead_data.get("extracted_court")),
-            status=CourtLeadStatus(_required_str(court_lead_data.get("status"), "status")),
+        court_inference=CourtInference(
+            extracted_court=_optional_str(court_inference_data.get("extracted_court")),
+            status=CourtInferenceStatus(_required_str(court_inference_data.get("status"), "status")),
             cl_court_taxonomy=taxonomy,
         )
     )
@@ -842,7 +900,6 @@ def serialize_citation_assessment_result(
     """Serialize a completed substantive citation assessment."""
     return {
         "case_name": serialize_case_name_assessment_run(item.case_name),
-        "jurisdiction_inference": serialize_jurisdiction_inference(item.jurisdiction_inference),
         "court": serialize_court_assessment(item.court),
         "year": serialize_year_assessment(item.year),
     }
@@ -929,20 +986,13 @@ def deserialize_citation_assessment_result(
     """Rebuild a completed substantive citation assessment."""
     validated = CitationAssessmentResultPayload.model_validate(payload).model_dump(mode="python")
     case_payload = validated.get("case_name")
-    reporter_payload = validated.get("jurisdiction_inference")
     court_payload = validated.get("court")
     year_payload = validated.get("year")
-    if not all(
-        isinstance(item, dict)
-        for item in (case_payload, reporter_payload, court_payload, year_payload)
-    ):
-        msg = "citation assessment requires case_name, jurisdiction_inference, court, and year"
+    if not all(isinstance(item, dict) for item in (case_payload, court_payload, year_payload)):
+        msg = "citation assessment requires case_name, court, and year"
         raise TypeError(msg)
     return CitationAssessmentResult(
         case_name=deserialize_case_name_assessment_run(_mapping_field(case_payload)),
-        jurisdiction_inference=deserialize_jurisdiction_inference(
-            _mapping_field(reporter_payload)
-        ),
         court=deserialize_court_assessment(_mapping_field(court_payload)),
         year=deserialize_year_assessment(_mapping_field(year_payload)),
     )
@@ -1001,6 +1051,7 @@ def serialize_assessed_document(result: AssessedDocument) -> dict[str, JsonValue
         "retrieval_metadata": _serialize_retrieval_metadata(result.retrieval_metadata),
         "assessment_metadata": _serialize_assessment_metadata(result.assessment_metadata),
         "citations": [serialize_extracted_citation(item) for item in result.citations],
+        "jurisdictions": [serialize_jurisdiction(item) for item in result.jurisdictions],
         "retrievals": [serialize_citation_retrieval(item) for item in result.retrievals],
         "assessments": [serialize_citation_assessment(item) for item in result.assessments],
     }
@@ -1010,6 +1061,7 @@ def deserialize_assessed_document(payload: Mapping[str, object]) -> AssessedDocu
     """Rebuild the assessment boundary object from JSON data."""
     validated = AssessedDocumentPayload.model_validate(payload).model_dump(mode="python")
     preprocessed = _deserialize_preprocessed_fields(validated)
+    jurisdictions_raw = _list_field(validated.get("jurisdictions"))
     return AssessedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
@@ -1020,6 +1072,10 @@ def deserialize_assessed_document(payload: Mapping[str, object]) -> AssessedDocu
         ),
         extraction_metadata=_deserialize_extraction_metadata(
             _required_mapping_field(validated, "extraction_metadata")
+        ),
+        jurisdictions=tuple(
+            deserialize_jurisdiction(_mapping_field(item))
+            for item in jurisdictions_raw
         ),
         retrievals=tuple(
             deserialize_citation_retrieval(_mapping_field(item))

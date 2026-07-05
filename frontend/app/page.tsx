@@ -54,30 +54,6 @@ type RetrievedCandidatePayload = {
   court_resolution: CourtResolutionTracePayload;
 };
 
-type ReporterLeadPayload = {
-  reporter: string | null;
-  status: "missing_reporter" | "unrecognized" | "recognized";
-  mlz_jurisdictions: string[];
-};
-
-type CLCourtTaxonomyPayload = {
-  court_id: string;
-  system: string;
-  jurisdiction: string | null;
-  type: string | null;
-};
-
-type CourtLeadPayload = {
-  extracted_court: string | null;
-  status: "missing_court" | "unrecognized" | "resolved";
-  cl_court_taxonomy: CLCourtTaxonomyPayload | null;
-};
-
-type JurisdictionInferencePayload = {
-  reporter_lead: ReporterLeadPayload;
-  court_lead: CourtLeadPayload;
-};
-
 type RetrievalPayload = {
   citation_id: string;
   locator: string | null;
@@ -197,9 +173,41 @@ type ReviewCitation = {
   kind: string;
   fields: Record<string, string | number | boolean>;
   resolves_to: string | null;
-  jurisdiction_inference: JurisdictionInferencePayload | null;
   retrieval: RetrievalPayload | null;
   assessment: CitationAssessmentPayload | null;
+};
+
+type ReporterPayload = {
+  edition: string;
+  short_name: string;
+  name: string;
+  cite_type: string;
+  is_scotus: boolean;
+  source: string | null;
+};
+
+type ReporterInferencePayload = {
+  reporter: ReporterPayload | null;
+  status: "unsupported" | "missing_reporter" | "unrecognized" | "recognized";
+  mlz_jurisdictions: string[];
+};
+
+type CLCourtTaxonomyPayload = {
+  court_id: string;
+  system: string;
+  jurisdiction: string | null;
+  type: string | null;
+};
+
+type CourtInferencePayload = {
+  extracted_court: string | null;
+  status: "unsupported" | "missing_court" | "unrecognized" | "resolved";
+  cl_court_taxonomy: CLCourtTaxonomyPayload | null;
+};
+
+type JurisdictionPayload = {
+  reporter_inference: ReporterInferencePayload;
+  court_inference: CourtInferencePayload;
 };
 
 type ReviewResult = {
@@ -210,6 +218,7 @@ type ReviewResult = {
     backend: string;
   };
   citations: ReviewCitation[];
+  jurisdictions: JurisdictionPayload[] | null;
   retrieval: ReviewRetrieval | null;
   assessment: ReviewAssessment | null;
   stats: Record<string, number>;
@@ -222,7 +231,7 @@ type BookmarkMutationResult = {
   paths: { json: string; text: string };
 };
 
-type WorkflowStage = "input" | "preprocessed" | "extracted" | "retrieved" | "assessed";
+type WorkflowStage = "input" | "preprocessed" | "extracted" | "inferred" | "retrieved" | "assessed";
 type LoadingStage = WorkflowStage | "snapshot";
 type SnapshotReviewResult = {
   stage: Exclude<WorkflowStage, "input">;
@@ -340,6 +349,15 @@ const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
     canAssess: false,
     canReset: true
   },
+  inferred: {
+    label: "Inferred",
+    canEditInput: false,
+    canLoadSnapshot: false,
+    canExtract: false,
+    canRetrieve: true,
+    canAssess: false,
+    canReset: true
+  },
   retrieved: {
     label: "Retrieved",
     canEditInput: false,
@@ -394,6 +412,10 @@ export default function Home() {
 
   const selectedCitation = useMemo(
     () => result?.citations.find((citation) => citation.id === selectedId) ?? null,
+    [result, selectedId]
+  );
+  const selectedCitationIndex = useMemo(
+    () => result?.citations.findIndex((citation) => citation.id === selectedId) ?? -1,
     [result, selectedId]
   );
   const isBookmarkFixture = isBookmarkFixturePath(result?.document.source_path ?? null);
@@ -1119,6 +1141,8 @@ export default function Home() {
             ) : null}
             <TraceWorkspace
               citation={selectedCitation}
+              citationIndex={selectedCitationIndex}
+              jurisdictions={result?.jurisdictions ?? null}
               extractedAttempts={selectedExtractedAttempts}
               extractedAttemptIndex={selectedExtractedAttemptIndex}
               candidateIndex={selectedClusterIndex}
@@ -1139,6 +1163,8 @@ export default function Home() {
 
 function TraceWorkspace({
   citation,
+  citationIndex,
+  jurisdictions,
   extractedAttempts,
   extractedAttemptIndex,
   candidateIndex,
@@ -1149,6 +1175,8 @@ function TraceWorkspace({
   onExtractedAttemptChange
 }: {
   citation: ReviewCitation;
+  citationIndex: number;
+  jurisdictions: JurisdictionPayload[] | null;
   extractedAttempts: ExtractedCitationAttempt[];
   extractedAttemptIndex: number;
   candidateIndex: number;
@@ -1172,7 +1200,7 @@ function TraceWorkspace({
     {
       id: "jurisdiction-inference",
       label: "Jurisdiction inference",
-      status: citation.jurisdiction_inference ? "complete" : "unavailable"
+      status: citationIndex >= 0 && jurisdictions && citationIndex < jurisdictions.length ? "complete" : "unavailable"
     }
   ];
 
@@ -1250,8 +1278,8 @@ function TraceWorkspace({
               candidateId={candidateIdForIndex(citation.retrieval, candidateIndex)}
             />
           ) : null}
-          {selectedSection === "jurisdiction-inference" ? (
-            <JurisdictionInferenceDetails inference={citation.jurisdiction_inference} />
+          {selectedSection === "jurisdiction-inference" && citationIndex >= 0 && jurisdictions ? (
+            <JurisdictionDetails inference={jurisdictions[citationIndex] ?? null} />
           ) : null}
         </div>
       </section>
@@ -1285,10 +1313,10 @@ function formatTraceOperationStatus(status: TraceOperationStatus) {
   return status === "not-run" ? "Not run" : formatStatusLabel(status);
 }
 
-function JurisdictionInferenceDetails({
+function JurisdictionDetails({
   inference
 }: {
-  inference: JurisdictionInferencePayload | null;
+  inference: JurisdictionPayload | null;
 }) {
   if (!inference) {
     return (
@@ -1299,7 +1327,7 @@ function JurisdictionInferenceDetails({
     );
   }
 
-  const { reporter_lead, court_lead } = inference;
+  const { reporter_inference, court_inference } = inference;
 
   return (
     <div className="detail-group assessment-trace-group">
@@ -1309,23 +1337,25 @@ function JurisdictionInferenceDetails({
       </div>
 
       <div className="assessment-trace-heading" style={{ marginTop: '16px' }}>
-        <h4 style={{ margin: '0', fontSize: '14px', color: 'var(--accent-fg)' }}>Reporter Lead</h4>
+        <h4 style={{ margin: '0', fontSize: '14px', color: 'var(--accent-fg)' }}>Reporter Inference</h4>
       </div>
       <dl className="assessment-fields">
-        <div><dt>Reporter</dt><dd>{formatValue(reporter_lead.reporter)}</dd></div>
-        <div><dt>Status</dt><dd>{formatStatusLabel(reporter_lead.status)}</dd></div>
+        <div><dt>Edition</dt><dd>{formatValue(reporter_inference.reporter?.edition ?? null)}</dd></div>
+        <div><dt>Name</dt><dd>{formatValue(reporter_inference.reporter?.name ?? null)}</dd></div>
+        <div><dt>Cite type</dt><dd>{formatValue(reporter_inference.reporter?.cite_type ?? null)}</dd></div>
+        <div><dt>Status</dt><dd>{formatStatusLabel(reporter_inference.status)}</dd></div>
       </dl>
-      {reporter_lead.mlz_jurisdictions.length > 0 && (
+      {reporter_inference.mlz_jurisdictions.length > 0 && (
         <dl className="assessment-fields" style={{ marginTop: '0' }}>
           <div>
             <dt>MLZ Jurisdictions</dt>
             <dd>
               <ul style={{ margin: '0', paddingLeft: '16px', color: 'var(--text-secondary)' }}>
-                {reporter_lead.mlz_jurisdictions.slice(0, 3).map((j) => (
+                {reporter_inference.mlz_jurisdictions.slice(0, 3).map((j) => (
                   <li key={j}>{j}</li>
                 ))}
-                {reporter_lead.mlz_jurisdictions.length > 3 && (
-                  <li>... ({reporter_lead.mlz_jurisdictions.length} in total)</li>
+                {reporter_inference.mlz_jurisdictions.length > 3 && (
+                  <li>... ({reporter_inference.mlz_jurisdictions.length} in total)</li>
                 )}
               </ul>
             </dd>
@@ -1334,18 +1364,18 @@ function JurisdictionInferenceDetails({
       )}
 
       <div className="assessment-trace-heading" style={{ marginTop: '16px' }}>
-        <h4 style={{ margin: '0', fontSize: '14px', color: 'var(--accent-fg)' }}>Court Lead</h4>
+        <h4 style={{ margin: '0', fontSize: '14px', color: 'var(--accent-fg)' }}>Court Inference</h4>
       </div>
       <dl className="assessment-fields">
-        <div><dt>Extracted Court</dt><dd>{formatValue(court_lead.extracted_court)}</dd></div>
-        <div><dt>Status</dt><dd>{formatStatusLabel(court_lead.status)}</dd></div>
+        <div><dt>Extracted Court</dt><dd>{formatValue(court_inference.extracted_court)}</dd></div>
+        <div><dt>Status</dt><dd>{formatStatusLabel(court_inference.status)}</dd></div>
       </dl>
-      {court_lead.cl_court_taxonomy && (
+      {court_inference.cl_court_taxonomy && (
         <dl className="assessment-fields" style={{ marginTop: '0' }}>
-          <div><dt>CL Court ID</dt><dd>{formatValue(court_lead.cl_court_taxonomy.court_id)}</dd></div>
-          <div><dt>System</dt><dd>{formatValue(court_lead.cl_court_taxonomy.system)}</dd></div>
-          <div><dt>Jurisdiction</dt><dd>{formatValue(court_lead.cl_court_taxonomy.jurisdiction)}</dd></div>
-          <div><dt>Type</dt><dd>{formatValue(court_lead.cl_court_taxonomy.type)}</dd></div>
+          <div><dt>CL Court ID</dt><dd>{formatValue(court_inference.cl_court_taxonomy.court_id)}</dd></div>
+          <div><dt>System</dt><dd>{formatValue(court_inference.cl_court_taxonomy.system)}</dd></div>
+          <div><dt>Jurisdiction</dt><dd>{formatValue(court_inference.cl_court_taxonomy.jurisdiction)}</dd></div>
+          <div><dt>Type</dt><dd>{formatValue(court_inference.cl_court_taxonomy.type)}</dd></div>
         </dl>
       )}
     </div>
@@ -2219,7 +2249,9 @@ function bibliographicRows(
     {
       id: "reporter",
       label: "Reporter",
-      extracted: fields.reporter ?? extractedLocatorParts.reporter,
+      extracted: typeof fields.reporter === "object" && fields.reporter
+        ? (fields.reporter as Record<string, unknown>).edition as string
+        : (fields.reporter ?? extractedLocatorParts.reporter),
       courtListener: courtListenerLocatorParts.reporter,
       matchType: canColorRows ? "perfect" : "unchecked"
     },

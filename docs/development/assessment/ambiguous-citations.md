@@ -66,3 +66,15 @@ shows a "not enumerated" note without discarding retrieval candidates.
   data above, a likely first rule is *collapse duplicates* (name subsumption +
   same date + stub detection) → promote to a single effective `found`, with true
   multi-case ambiguity (different names AND dates) as the rare fallback.
+
+- **Docket relationship research.** The 4 ambiguous fixture pairs each have
+  *different* `docket_id`s, confirming separate ingestion events. But these are
+  not unrelated proceedings — they appear to be the same underlying case ingested
+  from different sources or at different times. The relationship between such
+  docket pairs is not yet understood: are they duplicate ingestions, amended
+  opinions, consolidated proceedings, or something else? We need to inspect the
+  raw CourtListener docket records to determine whether one docket is a
+  duplicate, a sub-opinion container, a different version, or an unrelated
+  proceeding with the same case name. Understanding this relationship is
+  necessary to decide whether duplicate-cluster collapse should merge, replace,
+  or keep candidates separate during assessment.

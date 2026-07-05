@@ -3,31 +3,31 @@
 from __future__ import annotations
 
 from mellea_lrc.jurisdiction_inference.types import (
-    ReporterLead,
-    CourtLead,
-    CourtLeadStatus,
-    ReporterLeadStatus,
+    ReporterInference,
+    CourtInference,
+    CourtInferenceStatus,
+    ReporterInferenceStatus,
     TranslationLayerResult,
     TranslationLayerStatus,
 )
 from mellea_lrc.jurisdiction_inference.registry import MLZ_TO_CL_MAP
 
 def triangulate_court_id(
-    reporter_lead: ReporterLead, court_lead: CourtLead
+    reporter_inference: ReporterInference, court_inference: CourtInference
 ) -> TranslationLayerResult:
     """Triangulate the exact CourtListener Court ID based on MLZ and Extracted leads."""
     
-    # Heuristic 1: If the CourtLead is resolved, it takes precedence.
-    if court_lead.status is CourtLeadStatus.RESOLVED and court_lead.cl_court_taxonomy:
+    # Heuristic 1: If the CourtInference is resolved, it takes precedence.
+    if court_inference.status is CourtInferenceStatus.RESOLVED and court_inference.cl_court_taxonomy:
         return TranslationLayerResult(
             status=TranslationLayerStatus.RESOLVED,
-            translated_court_id=court_lead.cl_court_taxonomy.court_id,
+            translated_court_id=court_inference.cl_court_taxonomy.court_id,
         )
 
-    # Heuristic 2: Use the ReporterLead MLZ mapping.
-    if reporter_lead.status is ReporterLeadStatus.RECOGNIZED:
+    # Heuristic 2: Use the ReporterInference MLZ mapping.
+    if reporter_inference.status is ReporterInferenceStatus.RECOGNIZED:
         possible_courts: set[str] = set()
-        for mlz in reporter_lead.mlz_jurisdictions:
+        for mlz in reporter_inference.mlz_jurisdictions:
             if courts := MLZ_TO_CL_MAP.get(mlz):
                 possible_courts.update(courts)
         

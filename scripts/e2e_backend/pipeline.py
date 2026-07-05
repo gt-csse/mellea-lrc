@@ -13,7 +13,7 @@ from mellea_lrc.assessment import (
     CitationAssessment,
     run_assessment_async,
 )
-from mellea_lrc.core.citations import FullCaseCitation, UnknownCitation, citation_kind
+from mellea_lrc.core.citations import FullCaseCitation, Reporter, UnknownCitation, citation_kind
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import run_extraction
@@ -25,8 +25,16 @@ from mellea_lrc.preprocessing.types import (
     PreprocessingMetadata,
 )
 from mellea_lrc.jurisdiction_inference import (
-    JurisdictionInference,
-    
+    InferredDocument,
+    Jurisdiction,
+    infer_jurisdiction,
+)
+from mellea_lrc.jurisdiction_inference.leads import evaluate_court_inference, evaluate_reporter_inference
+from mellea_lrc.jurisdiction_inference.types import (
+    CourtInference,
+    CourtInferenceStatus,
+    ReporterInference,
+    ReporterInferenceStatus,
 )
 from mellea_lrc.retrieval import run_retrieval
 from mellea_lrc.retrieval.types import (
@@ -91,6 +99,10 @@ class E2EBackend:
     def review_document_extraction(self, extraction: ExtractedDocument) -> dict[str, Any]:
         """Serialize an extraction snapshot for the frontend review UI."""
         return review_document_extraction(extraction)
+
+    def review_document_inference(self, inferred: InferredDocument) -> dict[str, Any]:
+        """Serialize a jurisdiction-inferred document for the frontend review UI."""
+        return review_document_inference(inferred)
 
     def review_document_retrieval(self, retrieval: RetrievedDocument) -> dict[str, Any]:
         """Serialize a retrieval snapshot for the frontend review UI."""
@@ -185,20 +197,22 @@ def review_preprocessed(
     retrieve: bool = True,
     client: CourtListenerAccessClient | None = None,
 ) -> dict[str, Any]:
-    """Run extraction, optional retrieval, and frontend review serialization."""
+    """Run extraction, jurisdiction inference, optional retrieval, and frontend review."""
     extraction = run_extraction(preprocessed)
-    retrieval = _run_retrieval(extraction, retrieve=retrieve, client=client)
+    inferred = infer_jurisdiction(extraction)
+    retrieval = _run_retrieval(inferred, retrieve=retrieve, client=client)
 
     return {
         "document": {
-            "text": extraction.text,
-            "source_path": extraction.source_path,
-            "source_format": extraction.source_metadata.format.value,
-            "backend": extraction.preprocessing_metadata.backend.value,
+            "text": inferred.text,
+            "source_path": inferred.source_path,
+            "source_format": inferred.source_metadata.format.value,
+            "backend": inferred.preprocessing_metadata.backend.value,
         },
-        "citations": _citation_payloads(extraction, retrieval),
+        "citations": _citation_payloads(inferred, retrieval),
+        "jurisdictions": _jurisdictions_payload(inferred),
         "retrieval": _retrieval_payload(retrieval),
-        "stats": _stats(extraction, retrieval),
+        "stats": _stats(inferred, retrieval),
     }
 
 
@@ -222,6 +236,13 @@ def review_preprocessed_document(preprocessed: PreprocessedDocument) -> dict[str
     }
 
 
+def _jurisdictions_payload(document: InferredDocument) -> list[dict[str, Any]]:
+    """Serialize the document's jurisdiction inferences for the frontend."""
+    from mellea_lrc.serialization.json import serialize_jurisdiction
+
+    return [serialize_jurisdiction(j) for j in document.jurisdictions]
+
+
 def review_document_extraction(extraction: ExtractedDocument) -> dict[str, Any]:
     """Serialize a typed extraction artifact as a frontend review payload."""
     return {
@@ -232,26 +253,44 @@ def review_document_extraction(extraction: ExtractedDocument) -> dict[str, Any]:
             "backend": extraction.preprocessing_metadata.backend.value,
         },
         "citations": _citation_payloads(extraction, None),
+        "jurisdictions": None,
         "retrieval": None,
         "assessment": None,
         "stats": _stats(extraction, None),
     }
 
 
-def review_document_retrieval(retrieval: RetrievedDocument) -> dict[str, Any]:
-    """Serialize a typed retrieval artifact as a frontend review payload."""
-    extraction = retrieval
+def review_document_inference(inferred: InferredDocument) -> dict[str, Any]:
+    """Serialize a typed jurisdiction-inferred artifact as a frontend review payload."""
     return {
         "document": {
-            "text": extraction.text,
-            "source_path": extraction.source_path,
-            "source_format": extraction.source_metadata.format.value,
-            "backend": extraction.preprocessing_metadata.backend.value,
+            "text": inferred.text,
+            "source_path": inferred.source_path,
+            "source_format": inferred.source_metadata.format.value,
+            "backend": inferred.preprocessing_metadata.backend.value,
         },
-        "citations": _citation_payloads(extraction, retrieval),
+        "citations": _citation_payloads(inferred, None),
+        "jurisdictions": _jurisdictions_payload(inferred),
+        "retrieval": None,
+        "assessment": None,
+        "stats": _stats(inferred, None),
+    }
+
+
+def review_document_retrieval(retrieval: RetrievedDocument) -> dict[str, Any]:
+    """Serialize a typed retrieval artifact as a frontend review payload."""
+    return {
+        "document": {
+            "text": retrieval.text,
+            "source_path": retrieval.source_path,
+            "source_format": retrieval.source_metadata.format.value,
+            "backend": retrieval.preprocessing_metadata.backend.value,
+        },
+        "citations": _citation_payloads(retrieval, retrieval),
+        "jurisdictions": _jurisdictions_payload(retrieval),
         "retrieval": _retrieval_payload(retrieval),
         "assessment": None,
-        "stats": _stats(extraction, retrieval),
+        "stats": _stats(retrieval, retrieval),
     }
 
 
@@ -431,15 +470,19 @@ def _source_format(filename: str) -> SourceFormat:
 
 
 def _run_retrieval(
-    extraction: ExtractedDocument,
+    document: ExtractedDocument,
     *,
     retrieve: bool,
     client: CourtListenerAccessClient | None,
 ) -> RetrievedDocument | None:
     if not retrieve:
         return None
+    if isinstance(document, InferredDocument):
+        inferred = document
+    else:
+        inferred = infer_jurisdiction(document)
     return run_retrieval(
-        extraction,
+        inferred,
         client_mode="custom" if client is not None else "deployed",
         client=client,
     )
@@ -459,26 +502,10 @@ def _citation_payloads(
             "kind": citation_kind(item.citation).value,
             "fields": _citation_fields(item.citation),
             "resolves_to": item.resolves_to,
-            "jurisdiction_inference": _jurisdiction_inference_payload(item.citation),
             "retrieval": _single_retrieval_payload(retrieval_by_id.get(item.citation_id)),
         }
         for item in extraction.citations
     ]
-
-
-def _jurisdiction_inference_payload(citation: object) -> dict[str, Any] | None:
-    """Expose jurisdiction inference as an independent, non-assessment trace."""
-    if not hasattr(citation, "reporter") or not hasattr(citation, "court"):
-        return None
-    from mellea_lrc.jurisdiction_inference.leads import evaluate_reporter_lead, evaluate_court_lead
-    from mellea_lrc.jurisdiction_inference.types import JurisdictionInference
-    from mellea_lrc.serialization.json import serialize_jurisdiction_inference
-    
-    inference = JurisdictionInference(
-        reporter_lead=evaluate_reporter_lead(citation.reporter),
-        court_lead=evaluate_court_lead(citation.court),
-    )
-    return serialize_jurisdiction_inference(inference)
 
 
 def _citation_fields(citation: object) -> dict[str, object]:
@@ -530,6 +557,13 @@ def _retrieval_from_review_payload(
             if item.citation_id in retrieval_by_id
         ),
         retrieval_metadata=RetrievalMetadata(client_mode="custom", source="review_payload"),
+        jurisdictions=tuple(
+            Jurisdiction(
+                reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
+                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+            )
+            for item in extraction.citations
+        ),
     )
 
 
@@ -568,12 +602,25 @@ def _extraction_from_review_payload(payload: dict[str, object]) -> ExtractedDocu
 
 def _extracted_citation_from_review_item(item: JsonDict) -> ExtractedCitation:
     fields = item.get("fields") if isinstance(item.get("fields"), dict) else {}
+    reporter: Reporter | None = None
+    raw_reporter = fields.get("reporter")
+    if isinstance(raw_reporter, dict):
+        reporter = Reporter(**raw_reporter)
+    elif isinstance(raw_reporter, str):
+        reporter = Reporter(
+            edition=raw_reporter,
+            short_name=raw_reporter,
+            name="",
+            cite_type="",
+            is_scotus=False,
+            source="",
+        )
     citation = (
         FullCaseCitation(
             plaintiff=_optional_str(fields.get("plaintiff")),
             defendant=_optional_str(fields.get("defendant")),
             volume=_optional_str(fields.get("volume")),
-            reporter=_optional_str(fields.get("reporter")),
+            reporter=reporter,
             page=_optional_str(fields.get("page")),
             pin_cite=_optional_str(fields.get("pin_cite")),
             extra=_optional_str(fields.get("extra")),
@@ -658,6 +705,7 @@ def _copy_review_payload(payload: dict[str, object]) -> JsonDict:
     return {
         "document": dict(payload.get("document")) if isinstance(payload.get("document"), dict) else {},
         "citations": _review_citations(payload),
+        "jurisdictions": payload.get("jurisdictions"),
         "retrieval": payload.get("retrieval"),
         "assessment": payload.get("assessment"),
         "stats": dict(payload.get("stats")) if isinstance(payload.get("stats"), dict) else {},

@@ -13,6 +13,7 @@ from eyecite.models import (
     FullLawCitation as EyeciteFullLawCitation,
     IdCitation as EyeciteIdCitation,
     ReferenceCitation as EyeciteReferenceCitation,
+    Reporter as EyeciteReporter,
     Resource,
     ShortCaseCitation as EyeciteShortCaseCitation,
     SupraCitation as EyeciteSupraCitation,
@@ -26,6 +27,7 @@ from mellea_lrc.core.citations import (
     FullLawCitation,
     IdCitation,
     ReferenceCitation,
+    Reporter,
     ShortCaseCitation,
     SupraCitation,
     UnknownCitation,
@@ -57,17 +59,29 @@ def _eyecite_version() -> str | None:
 
 
 def _to_full_case(citation: EyeciteFullCaseCitation) -> FullCaseCitation:
+    reporter: Reporter | None = None
+    if citation.all_editions:
+        ed = citation.all_editions[0]
+        er = ed.reporter
+        reporter = Reporter(
+            edition=ed.short_name,
+            short_name=er.short_name,
+            name=er.name,
+            cite_type=er.cite_type,
+            is_scotus=er.is_scotus,
+            source=er.source,
+        )
     return FullCaseCitation(
         plaintiff=citation.metadata.plaintiff,
         defendant=citation.metadata.defendant,
         volume=citation.groups.get("volume"),
-        reporter=citation.groups.get("reporter"),
         page=citation.groups.get("page"),
         pin_cite=citation.metadata.pin_cite,
         extra=citation.metadata.extra,
         year=citation.metadata.year,
         court=citation.metadata.court,
         parenthetical=citation.metadata.parenthetical,
+        reporter=reporter,
     )
 
 
@@ -95,13 +109,25 @@ def _to_full_journal(citation: EyeciteFullJournalCitation) -> FullJournalCitatio
 
 
 def _to_short_case(citation: EyeciteShortCaseCitation) -> ShortCaseCitation:
+    reporter: Reporter | None = None
+    if citation.all_editions:
+        ed = citation.all_editions[0]
+        er = ed.reporter
+        reporter = Reporter(
+            edition=ed.short_name,
+            short_name=er.short_name,
+            name=er.name,
+            cite_type=er.cite_type,
+            is_scotus=er.is_scotus,
+            source=er.source,
+        )
     return ShortCaseCitation(
         volume=citation.groups.get("volume"),
-        reporter=citation.groups.get("reporter"),
         page=citation.groups.get("page"),
         pin_cite=citation.metadata.pin_cite,
         court=citation.metadata.court,
         parenthetical=citation.metadata.parenthetical,
+        reporter=reporter,
     )
 
 

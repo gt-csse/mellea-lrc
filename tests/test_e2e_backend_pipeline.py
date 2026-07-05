@@ -19,14 +19,15 @@ from mellea_lrc.assessment import (
     YearAssessment,
     YearAssessmentStatus,
 )
+from mellea_lrc.jurisdiction_inference.leads import evaluate_court_inference, evaluate_reporter_inference
 from mellea_lrc.jurisdiction_inference.types import (
-    JurisdictionInference,
-    ReporterLeadStatus,
-    ReporterLead,
-    CourtLead,
-    CourtLeadStatus,
+    Jurisdiction,
+    ReporterInferenceStatus,
+    ReporterInference,
+    CourtInference,
+    CourtInferenceStatus,
 )
-from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
+from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation, Reporter
 from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener.types import CourtListenerCitationLookup, CourtListenerCitationRecord
@@ -139,6 +140,13 @@ def _retrieved_document(
         extraction_metadata=ExtractionMetadata(),
         retrievals=retrievals,
         retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
+        jurisdictions=tuple(
+            Jurisdiction(
+                reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
+                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+            )
+            for item in citations
+        ),
     )
 
 
@@ -155,6 +163,13 @@ def _assessed_document(
         preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=citations,
         extraction_metadata=ExtractionMetadata(),
+        jurisdictions=tuple(
+            Jurisdiction(
+                reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') and isinstance(item.citation.reporter, Reporter) else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
+                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+            )
+            for item in citations
+        ),
         retrievals=retrievals,
         retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
         assessments=assessments,
@@ -175,26 +190,11 @@ def test_review_preprocessed_returns_frontend_span_payload() -> None:
     assert citation["matched_text"] == "347 U.S. 483"
     assert citation["kind"] == "FullCaseCitation"
     assert citation["fields"]["volume"] == "347"
-    assert citation["fields"]["reporter"] == "U.S."
+    assert citation["fields"]["reporter"]["edition"] == "U.S."
+    assert citation["fields"]["reporter"]["short_name"] == "U.S."
+    assert citation["fields"]["reporter"]["cite_type"] == "federal"
     assert citation["fields"]["page"] == "483"
     assert citation["fields"]["plaintiff"] == "Brown"
-    assert citation["jurisdiction_inference"] == {
-        "reporter_lead": {
-            "reporter": "U.S.",
-            "status": "recognized",
-            "mlz_jurisdictions": ['us;supreme.court', 'us:c9;court.appeals', 'us:c10;court.appeals', 'us:c;court.appeals.federal.circuit', 'us:c;court.claims', 'us:c3:pa.wd;district.court', 'us:de;supreme.court', 'us:ny;supreme.court', 'us:pa;supreme.court', 'us;circuit.court', 'us:pa.ed;circuit.court', 'us:pa.d;circuit.court', 'us:nh;privy.council', 'us:pa;court.common.pleas', 'us:pa;court.oyer.terminer', 'us:pa:phila;mayors.court'],
-        },
-        "court_lead": {
-            "extracted_court": "scotus",
-            "status": "resolved",
-            "cl_court_taxonomy": {
-                "court_id": "scotus",
-                "system": "federal",
-                "jurisdiction": None,
-                "type": "appellate",
-            },
-        }
-    }
     assert citation["retrieval"]["status"] == "found"
     assert citation["retrieval"]["case_names"] == ["Brown v. Board of Education"]
     assert citation["retrieval"]["lookup_status"] == 200
@@ -297,7 +297,7 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
             plaintiff="Brown",
             defendant="Board",
             volume="347",
-            reporter="U.S.",
+            reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"),
             page="483",
             year="1954",
         ),
@@ -327,10 +327,6 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
                 message="match",
             ),
             followup=CaseNameReassessmentNotRequired(),
-        ),
-        jurisdiction_inference=JurisdictionInference(
-            reporter_lead=ReporterLead(reporter="U.S.", status=ReporterLeadStatus.RECOGNIZED, mlz_jurisdictions=()),
-            court_lead=CourtLead(extracted_court="scotus", status=CourtLeadStatus.RESOLVED, cl_court_taxonomy=None),
         ),
         court=_court_assessment(),
         year=YearAssessment(
@@ -371,7 +367,7 @@ def test_review_document_assessment_preserves_waiting_citation() -> None:
         citation_id="cite-1",
         span=Span(0, 35),
         matched_text="347 U.S. 483",
-        citation=FullCaseCitation(volume="347", reporter="U.S.", page="483"),
+        citation=FullCaseCitation(volume="347", reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483"),
     )
 
     output = review_document_assessment(
@@ -405,7 +401,7 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
         citation_id="cite-1",
         span=Span(0, 35),
         matched_text="347 U.S. 483",
-        citation=FullCaseCitation(volume="347", reporter="U.S.", page="483"),
+        citation=FullCaseCitation(volume="347", reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483"),
     )
     year = YearAssessment(
         status=YearAssessmentStatus.EXACT_MATCH,
@@ -433,10 +429,6 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
                     message="semantic match after re-extraction",
                 ),
             ),
-        ),
-        jurisdiction_inference=JurisdictionInference(
-            reporter_lead=ReporterLead(reporter="U.S.", status=ReporterLeadStatus.RECOGNIZED, mlz_jurisdictions=()),
-            court_lead=CourtLead(extracted_court="scotus", status=CourtLeadStatus.RESOLVED, cl_court_taxonomy=None),
         ),
         court=_court_assessment(),
         year=year,
@@ -480,7 +472,7 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
             plaintiff="Brown",
             defendant="Board",
             volume="347",
-            reporter="U.S.",
+            reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"),
             page="483",
             year="1954",
         ),
@@ -520,10 +512,6 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
                         ),
                         followup=CaseNameReassessmentNotRequired(),
                     ),
-                    jurisdiction_inference=JurisdictionInference(
-            reporter_lead=ReporterLead(reporter="U.S.", status=ReporterLeadStatus.RECOGNIZED, mlz_jurisdictions=()),
-            court_lead=CourtLead(extracted_court="scotus", status=CourtLeadStatus.RESOLVED, cl_court_taxonomy=None),
-        ),
                     court=_court_assessment(),
                     year=YearAssessment(
                         status=YearAssessmentStatus.EXACT_MATCH,

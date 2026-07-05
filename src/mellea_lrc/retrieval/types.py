@@ -16,7 +16,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, ClassVar, Literal, TypeAlias
 
 from mellea_lrc.core.immutable import ExtraData
-from mellea_lrc.extraction.types import ExtractedDocument
+from mellea_lrc.jurisdiction_inference.types import InferredDocument
 
 if TYPE_CHECKING:
     from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, RetrievalFailureDetail
@@ -324,8 +324,8 @@ CitationRetrieval: TypeAlias = (
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class RetrievedDocument(ExtractedDocument):
-    """An extracted document with one retrieval outcome per citation."""
+class RetrievedDocument(InferredDocument):
+    """An inferred document with one retrieval outcome per citation."""
 
     retrievals: tuple[CitationRetrieval, ...]
     retrieval_metadata: RetrievalMetadata
@@ -336,7 +336,7 @@ class RetrievedDocument(ExtractedDocument):
         return tuple(item for item in self.retrievals if isinstance(item, FoundCitationRetrieval))
 
     def __post_init__(self) -> None:
-        ExtractedDocument.__post_init__(self)
+        InferredDocument.__post_init__(self)
         citation_ids = {item.citation_id for item in self.citations}
         retrieval_ids = [item.citation_id for item in self.retrievals]
         if any(not retrieval_id for retrieval_id in retrieval_ids):

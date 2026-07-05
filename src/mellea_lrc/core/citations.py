@@ -9,6 +9,27 @@ from enum import Enum
 from typing import ClassVar, TypeAlias
 
 
+@dataclass(frozen=True, slots=True)
+class Reporter:
+    """Project-level reporter, decoupled from eyecite's Reporter model.
+
+    Populated from ``reporters-db`` data during eyecite-to-canonical conversion.
+
+    ``edition`` is the specific citation edition string (e.g. ``"F.3d"``).
+    ``short_name`` is the root key from reporters-db (e.g. ``"F."`` for all
+    editions including F.2d, F.3d).
+    """
+
+    edition: str = ""
+    short_name: str = ""
+    name: str = ""
+    cite_type: str = ""
+    is_scotus: bool = False
+    source: str = ""
+
+
+
+
 class CitationKind(str, Enum):
     """Canonical citation type names used in annotation and serialization."""
 
@@ -42,13 +63,13 @@ class FullCaseCitation:
     plaintiff: str | None = None
     defendant: str | None = None
     volume: str | None = None
-    reporter: str | None = None
     page: str | None = None
     pin_cite: str | None = None
     extra: str | None = None
     year: str | None = None
     court: str | None = None
     parenthetical: str | None = None
+    reporter: Reporter | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,11 +108,11 @@ class ShortCaseCitation:
     kind: ClassVar[CitationKind] = CitationKind.SHORT_CASE
 
     volume: str | None = None
-    reporter: str | None = None
     page: str | None = None
     pin_cite: str | None = None
     court: str | None = None
     parenthetical: str | None = None
+    reporter: Reporter | None = None
 
 
 @dataclass(frozen=True, slots=True)

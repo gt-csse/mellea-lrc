@@ -6,37 +6,42 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
+from mellea_lrc.extraction.types import ExtractedDocument
+
 if TYPE_CHECKING:
     from mellea_lrc.courtlistener.taxonomy import CLCourtTaxonomy
+    from mellea_lrc.core.citations import Reporter
 
 
-class ReporterLeadStatus(str, Enum):
-    """Classification of a reporter string."""
+class ReporterInferenceStatus(str, Enum):
+    """Classification of a reporter inference."""
+    UNSUPPORTED = "unsupported"
     MISSING_REPORTER = "missing_reporter"
     UNRECOGNIZED = "unrecognized"
     RECOGNIZED = "recognized"
 
 
-class CourtLeadStatus(str, Enum):
+class CourtInferenceStatus(str, Enum):
     """Classification of an extracted court string."""
+    UNSUPPORTED = "unsupported"
     MISSING_COURT = "missing_court"
     UNRECOGNIZED = "unrecognized"
     RESOLVED = "resolved"
 
 
 @dataclass(frozen=True, slots=True)
-class ReporterLead:
-    """Reporter-based jurisdiction lead."""
-    reporter: str | None
-    status: ReporterLeadStatus
+class ReporterInference:
+    """Reporter-based jurisdiction inference."""
+    reporter: Reporter | None
+    status: ReporterInferenceStatus
     mlz_jurisdictions: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class CourtLead:
-    """Court-based jurisdiction lead."""
+class CourtInference:
+    """Court-based jurisdiction inference."""
     extracted_court: str | None
-    status: CourtLeadStatus
+    status: CourtInferenceStatus
     cl_court_taxonomy: CLCourtTaxonomy | None
 
 
@@ -55,7 +60,23 @@ class TranslationLayerResult:
 
 
 @dataclass(frozen=True, slots=True)
-class JurisdictionInference:
+class Jurisdiction:
     """Combined jurisdiction leads for a citation."""
-    reporter_lead: ReporterLead
-    court_lead: CourtLead
+    reporter_inference: ReporterInference
+    court_inference: CourtInference
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class InferredDocument(ExtractedDocument):
+    """An extracted document with jurisdiction inference per citation."""
+
+    jurisdictions: tuple[Jurisdiction, ...]
+
+    def __post_init__(self) -> None:
+        ExtractedDocument.__post_init__(self)
+        if len(self.jurisdictions) != len(self.citations):
+            msg = (
+                f"Inferences count {len(self.jurisdictions)} must match "
+                f"citations count {len(self.citations)}"
+            )
+            raise ValueError(msg)
