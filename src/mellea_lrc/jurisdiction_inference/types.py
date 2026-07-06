@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from mellea_lrc.extraction.types import ExtractedDocument
 
 if TYPE_CHECKING:
-    from mellea_lrc.courtlistener.taxonomy import CLCourtTaxonomy
+    from mellea_lrc.courtlistener.taxonomy import CourtsDBClassification
     from mellea_lrc.core.citations import Reporter
 
 
@@ -42,7 +42,7 @@ class CourtInference:
     """Court-based jurisdiction inference."""
     extracted_court: str | None
     status: CourtInferenceStatus
-    cl_court_taxonomy: CLCourtTaxonomy | None
+    courts_db_classification: CourtsDBClassification | None
 
 
 class TranslationLayerStatus(str, Enum):

@@ -169,7 +169,7 @@ def test_build_extracted_case_name_from_parties() -> None:
 
 
 def test_build_extracted_case_name_is_missing_without_parties() -> None:
-    citation = FullCaseCitation(volume="347", reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483")
+    citation = FullCaseCitation(volume="347", reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483")
 
     assert build_extracted_case_name(citation) is None
 
@@ -582,7 +582,7 @@ def test_run_assessment_progresses_document_retrieval_to_document_assessment() -
             plaintiff="Brown",
             defendant="Board",
             volume="347",
-            reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"),
+            reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"),
             page="483",
             year="1954",
             court="scotus",
@@ -617,7 +617,7 @@ def test_run_assessment_progresses_document_retrieval_to_document_assessment() -
         jurisdictions=tuple(
             Jurisdiction(
                 reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') and isinstance(item.citation.reporter, Reporter) else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
-                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, courts_db_classification=None),
             )
             for item in (citation,)
         ),
@@ -678,7 +678,7 @@ def _ambiguous_retrieval(
         jurisdictions=tuple(
             Jurisdiction(
                 reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') and isinstance(item.citation.reporter, Reporter) else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
-                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, courts_db_classification=None),
             )
             for item in (citation,)
         ),
@@ -690,7 +690,7 @@ def test_run_assessment_assesses_each_ambiguous_candidate() -> None:
         citation_id="cite-1",
         span=Span(0, 10),
         matched_text="1 F.3d 2",
-        citation=FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="1", reporter=Reporter(edition="F.3d", short_name="F.", name="Federal Reporter", cite_type="federal", is_scotus=False, source="reporters"), page="2"),
+        citation=FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="1", reporter=Reporter(edition_short_name="F.3d", root_short_name="F.", name="Federal Reporter", cite_type="federal", is_scotus=False, source="reporters"), page="2"),
     )
     # Both candidates take the deterministic (no-Mellea) case-name path: one exact,
     # one with no CourtListener name (unassessable).
@@ -727,7 +727,7 @@ def test_run_assessment_gates_ambiguous_beyond_candidate_limit() -> None:
         citation_id="cite-1",
         span=Span(0, 10),
         matched_text="1 F.3d 2",
-        citation=FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="1", reporter=Reporter(edition="F.3d", short_name="F.", name="Federal Reporter", cite_type="federal", is_scotus=False, source="reporters"), page="2"),
+        citation=FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="1", reporter=Reporter(edition_short_name="F.3d", root_short_name="F.", name="Federal Reporter", cite_type="federal", is_scotus=False, source="reporters"), page="2"),
     )
     records = tuple(CourtListenerCitationRecord(case_name=f"Case {i}", docket_id=str(i)) for i in range(6))
     retrieval = _ambiguous_retrieval(citation, records)
@@ -754,7 +754,7 @@ def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
             plaintiff="Brown",
             defendant="Board",
             volume="347",
-            reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"),
+            reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"),
             page="483",
             year="1954",
         ),
@@ -787,7 +787,7 @@ def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
         jurisdictions=tuple(
             Jurisdiction(
                 reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') and isinstance(item.citation.reporter, Reporter) else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
-                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, courts_db_classification=None),
             )
             for item in (citation,)
         ),
@@ -828,7 +828,7 @@ def test_initialize_assessment_marks_unsupported_citation_skipped() -> None:
         jurisdictions=tuple(
             Jurisdiction(
                 reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') and isinstance(item.citation.reporter, Reporter) else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
-                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, courts_db_classification=None),
             )
             for item in (citation,)
         ),
@@ -869,7 +869,7 @@ def test_run_assessment_records_per_citation_failure(monkeypatch: pytest.MonkeyP
             plaintiff="Brown",
             defendant="Board",
             volume="347",
-            reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"),
+            reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"),
             page="483",
             year="1954",
         ),
@@ -902,7 +902,7 @@ def test_run_assessment_records_per_citation_failure(monkeypatch: pytest.MonkeyP
         jurisdictions=tuple(
             Jurisdiction(
                 reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') and isinstance(item.citation.reporter, Reporter) else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
-                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, courts_db_classification=None),
             )
             for item in (citation,)
         ),

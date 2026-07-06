@@ -64,8 +64,8 @@ def _to_full_case(citation: EyeciteFullCaseCitation) -> FullCaseCitation:
         ed = citation.all_editions[0]
         er = ed.reporter
         reporter = Reporter(
-            edition=ed.short_name,
-            short_name=er.short_name,
+            edition_short_name=ed.short_name,
+            root_short_name=er.short_name,
             name=er.name,
             cite_type=er.cite_type,
             is_scotus=er.is_scotus,
@@ -114,8 +114,8 @@ def _to_short_case(citation: EyeciteShortCaseCitation) -> ShortCaseCitation:
         ed = citation.all_editions[0]
         er = ed.reporter
         reporter = Reporter(
-            edition=ed.short_name,
-            short_name=er.short_name,
+            edition_short_name=ed.short_name,
+            root_short_name=er.short_name,
             name=er.name,
             cite_type=er.cite_type,
             is_scotus=er.is_scotus,

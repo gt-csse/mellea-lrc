@@ -14,14 +14,17 @@ class Reporter:
     """Project-level reporter, decoupled from eyecite's Reporter model.
 
     Populated from ``reporters-db`` data during eyecite-to-canonical conversion.
+    All keys here are the canonical normalized form from ``reporters-db``, never
+    raw citation text, so they can be used as keys into the database directly.
 
-    ``edition`` is the specific citation edition string (e.g. ``"F.3d"``).
-    ``short_name`` is the root key from reporters-db (e.g. ``"F."`` for all
-    editions including F.2d, F.3d).
+    ``edition_short_name`` is the specific edition key (e.g. ``"F.3d"``),
+    sourced from ``Edition.short_name`` in eyecite. ``root_short_name`` is the
+    root reporter key (e.g. ``"F."`` for all Federal Reporter editions),
+    sourced from ``Reporter.short_name`` in eyecite.
     """
 
-    edition: str = ""
-    short_name: str = ""
+    edition_short_name: str = ""
+    root_short_name: str = ""
     name: str = ""
     cite_type: str = ""
     is_scotus: bool = False

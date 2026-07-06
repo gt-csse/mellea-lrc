@@ -18,10 +18,10 @@ def triangulate_court_id(
     """Triangulate the exact CourtListener Court ID based on MLZ and Extracted leads."""
     
     # Heuristic 1: If the CourtInference is resolved, it takes precedence.
-    if court_inference.status is CourtInferenceStatus.RESOLVED and court_inference.cl_court_taxonomy:
+    if court_inference.status is CourtInferenceStatus.RESOLVED and court_inference.courts_db_classification:
         return TranslationLayerResult(
             status=TranslationLayerStatus.RESOLVED,
-            translated_court_id=court_inference.cl_court_taxonomy.court_id,
+            translated_court_id=court_inference.courts_db_classification.court_id,
         )
 
     # Heuristic 2: Use the ReporterInference MLZ mapping.

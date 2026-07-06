@@ -103,7 +103,7 @@ from mellea_lrc.serialization.transport import (
     CaseNameSearchTracePayload,
     CitationAssessmentPayload,
     CitationAssessmentResultPayload,
-    CLCourtTaxonomyPayload,
+    CourtsDBClassificationPayload,
     CourtAssessmentPayload,
     CitationRetrievalPayload,
     CourtResolutionTracePayload,
@@ -120,7 +120,7 @@ if TYPE_CHECKING:
     from mellea_lrc.core.citations import CanonicalCitation
 
 JsonValue: TypeAlias = str | int | float | bool | None | dict[str, "JsonValue"] | list["JsonValue"]
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 17
 
 _CITATION_PAYLOAD_ADAPTER = TypeAdapter(CanonicalCitationPayload)
 _ASSESSMENT_PAYLOAD_ADAPTER = TypeAdapter(CitationAssessmentPayload)
@@ -822,9 +822,9 @@ def serialize_jurisdiction(
         "court_inference": {
             "extracted_court": item.court_inference.extracted_court,
             "status": item.court_inference.status.value,
-            "cl_court_taxonomy": (
-                asdict(item.court_inference.cl_court_taxonomy)
-                if item.court_inference.cl_court_taxonomy
+            "courts_db_classification": (
+                asdict(item.court_inference.courts_db_classification)
+                if item.court_inference.courts_db_classification
                 else None
             ),
         }
@@ -847,11 +847,11 @@ def deserialize_jurisdiction(
     if reporter_payload:
         reporter = Reporter(**reporter_payload)
     
-    tax_payload = cast("dict[str, object] | None", court_inference_data.get("cl_court_taxonomy"))
-    taxonomy = None
+    tax_payload = cast("dict[str, object] | None", court_inference_data.get("courts_db_classification"))
+    classification = None
     if tax_payload:
-        from mellea_lrc.courtlistener.taxonomy import CLCourtTaxonomy
-        taxonomy = CLCourtTaxonomy(**tax_payload)  # type: ignore[arg-type]
+        from mellea_lrc.courtlistener.taxonomy import CourtsDBClassification
+        classification = CourtsDBClassification(**tax_payload)  # type: ignore[arg-type]
 
     return Jurisdiction(
         reporter_inference=ReporterInference(
@@ -862,7 +862,7 @@ def deserialize_jurisdiction(
         court_inference=CourtInference(
             extracted_court=_optional_str(court_inference_data.get("extracted_court")),
             status=CourtInferenceStatus(_required_str(court_inference_data.get("status"), "status")),
-            cl_court_taxonomy=taxonomy,
+            courts_db_classification=classification,
         )
     )
 

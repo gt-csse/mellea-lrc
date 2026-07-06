@@ -106,7 +106,7 @@ def test_document_extraction_serializes_without_ui_assumptions() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
     artifact = serialize_extracted_document(extraction)
 
-    assert artifact["schema_version"] == 15
+    assert artifact["schema_version"] == 17
     assert artifact["artifact_type"] == "extracted_document"
     assert artifact["source_metadata"]["path"] is None
     assert artifact["text"] == SAMPLE_TEXT
@@ -229,7 +229,7 @@ def test_document_retrieval_round_trips() -> None:
         jurisdictions=tuple(
             Jurisdiction(
                 reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
-                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, courts_db_classification=None),
             )
             for item in extraction.citations
         ),
@@ -275,7 +275,7 @@ def test_schema_14_validation_names_deserialize_into_retrieval_domain() -> None:
         jurisdictions=tuple(
             Jurisdiction(
                 reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
-                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, courts_db_classification=None),
             )
             for item in extraction.citations
         ),
@@ -393,7 +393,7 @@ def test_document_assessment_round_trips() -> None:
         jurisdictions=tuple(
             Jurisdiction(
                 reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') and isinstance(item.citation.reporter, Reporter) else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
-                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, courts_db_classification=None),
             )
             for item in extraction.citations
         ),

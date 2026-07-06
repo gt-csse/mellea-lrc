@@ -142,7 +142,7 @@ def _retrieve_citation(
             source=SOURCE,
         )
 
-    edition = citation.reporter.edition if citation.reporter else None
+    edition = citation.reporter.edition_short_name if citation.reporter else None
     if not citation.volume or not edition or not citation.page:
         return InvalidCitationRetrieval(
             citation_id=item.citation_id,

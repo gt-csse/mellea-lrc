@@ -35,7 +35,7 @@ def test_extract_citations_returns_canonical_types() -> None:
     assert full_case.citation.defendant == "Shelby County"
     assert full_case.citation.volume == "118"
     assert full_case.citation.reporter is not None
-    assert full_case.citation.reporter.edition == "U.S."
+    assert full_case.citation.reporter.edition_short_name == "U.S."
     assert full_case.resolves_to is None
 
     full_law = next(item for item in result.citations if isinstance(item.citation, FullLawCitation))

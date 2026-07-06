@@ -6,18 +6,18 @@ def test_court_inference_infers_resolved():
     lead = evaluate_court_inference("scotus")
     assert lead.status == CourtInferenceStatus.RESOLVED
     assert lead.extracted_court == "scotus"
-    assert lead.cl_court_taxonomy is not None
-    assert lead.cl_court_taxonomy.system == "federal"
-    assert lead.cl_court_taxonomy.type == "appellate"
+    assert lead.courts_db_classification is not None
+    assert lead.courts_db_classification.system == "federal"
+    assert lead.courts_db_classification.type == "appellate"
 
 def test_court_inference_missing():
     lead = evaluate_court_inference(None)
     assert lead.status == CourtInferenceStatus.MISSING_COURT
     assert lead.extracted_court is None
-    assert lead.cl_court_taxonomy is None
+    assert lead.courts_db_classification is None
 
 def test_court_inference_unrecognized():
     lead = evaluate_court_inference("fake_court")
     assert lead.status == CourtInferenceStatus.UNRECOGNIZED
     assert lead.extracted_court == "fake_court"
-    assert lead.cl_court_taxonomy is None
+    assert lead.courts_db_classification is None

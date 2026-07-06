@@ -47,7 +47,7 @@ def test_document_stages_are_substitutable() -> None:
         jurisdictions=tuple(
             Jurisdiction(
                 reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
-                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, courts_db_classification=None),
             )
             for item in extracted.citations
         ),
@@ -158,7 +158,7 @@ def test_extracted_document_rejects_span_outside_text() -> None:
         citation_id="cite-1",
         span=Span(0, len(preprocessed.text) + 1),
         matched_text="347 U.S. 483",
-        citation=FullCaseCitation(volume="347", reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483"),
+        citation=FullCaseCitation(volume="347", reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483"),
     )
 
     with pytest.raises(ValueError, match="span exceeds"):
@@ -186,7 +186,7 @@ def test_retrieved_document_requires_one_result_per_citation() -> None:
             jurisdictions=tuple(
                 Jurisdiction(
                     reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
-                    court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, cl_court_taxonomy=None),
+                    court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, courts_db_classification=None),
                 )
                 for item in (_citation("cite-1"),)
             ),
@@ -198,7 +198,7 @@ def _citation(citation_id: str) -> ExtractedCitation:
         citation_id=citation_id,
         span=Span(0, 12),
         matched_text="347 U.S. 483",
-        citation=FullCaseCitation(volume="347", reporter=Reporter(edition="U.S.", short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483"),
+        citation=FullCaseCitation(volume="347", reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483"),
     )
 
 

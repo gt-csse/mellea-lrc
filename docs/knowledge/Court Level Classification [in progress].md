@@ -12,6 +12,8 @@ The useful term for routing citations and queries is **`cl_jurisdiction`**. We m
 
 We faithfully represent the CourtListener (`cl`) way. CourtListener already models federal bankruptcy courts and panels, federal and state special courts, military, tribal, territorial, international, attorney-general, and committee records precisely. We retain CourtListener's exact fields instead of coercing every record into arbitrary human-readable labels (like "federal appellate" or "state trial").
 
+> **Data source note.** The `system` / `type` / `jurisdiction` triple used by `cl_jurisdiction` is not a CourtListener API field. It comes from the Free Law Project [`courts-db`](https://github.com/freelawproject/courts-db) package (the same data eyecite uses for parenthetical lookup). The courts-db slugs happen to coincide with CourtListener court IDs, so the snapshot works for our routing purposes, but the authoritative source for the classification is `courts-db`. The `cl_jurisdiction` term itself is a project-local name for the `(system, type, jurisdiction)` triple.
+
 ## Recommended model
 
 Use CourtListener's `Court` record as the knowledge model whenever a court slug or name resolves. The API gives us the canonical slug, full and short names, and the exact `cl_jurisdiction` properties (`system`, `type`, `jurisdiction`). Preserve those upstream values instead of building a parallel court ontology prematurely.
@@ -124,7 +126,7 @@ The workflow consuming this knowledge after citation lookup fails is specified i
 
 ## Future Roadmap: Taxonomy Utilization
 
-Looking ahead, the `cl_court_taxonomy` will unlock three major downstream search and reasoning capabilities:
+Looking ahead, the `courts_db_classification` will unlock three major downstream search and reasoning capabilities:
 
 ### 1. Coverage Confidence and Search Routing
 The taxonomy will inform whether a correctly parsed citation/locator is expected to be indexed by CourtListener and via which specific endpoint (e.g., citation lookup / Cluster vs. RECAP / Docket). This determines our confidence: if a case isn't found where the taxonomy strongly suggests it should be, we can confidently state it does not exist in the dataset or gracefully delegate to a broader external web search.
@@ -133,7 +135,7 @@ The taxonomy will inform whether a correctly parsed citation/locator is expected
 The structured taxonomy enables cross-jurisdictional conflict detection during semantic inference. For example, if a state-level trial court is found citing an unrelated state's appellate or trial court, the system can flag this as an anomaly or conflict. This will add a layer of legal logic validation beyond string matching.
 
 ### 3. Direct Reporter-to-Taxonomy Mapping
-Currently, the pipeline attempts to resolve `reporter -> court -> cl_court_taxonomy`. Because `eyecite` mappings often attempt to recover one exact court from a reporter, this path is brittle. Future implementations will establish a direct `reporter -> cl_court_taxonomy` path (via rule-based mappings or LLM inference). Even when the exact court is ambiguous, providing the overarching system/jurisdiction/type from the reporter alone will significantly narrow the downstream search scope.
+Currently, the pipeline attempts to resolve `reporter -> court -> courts_db_classification`. Because `eyecite` mappings often attempt to recover one exact court from a reporter, this path is brittle. Future implementations will establish a direct `reporter -> courts_db_classification` path (via rule-based mappings or LLM inference). Even when the exact court is ambiguous, providing the overarching system/jurisdiction/type from the reporter alone will significantly narrow the downstream search scope.
 
 ## Primary sources
 

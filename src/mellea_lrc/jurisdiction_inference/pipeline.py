@@ -33,7 +33,7 @@ def infer_jurisdiction(doc: ExtractedDocument) -> InferredDocument:
             court_inference = CourtInference(
                 extracted_court=None,
                 status=CourtInferenceStatus.UNSUPPORTED,
-                cl_court_taxonomy=None,
+                courts_db_classification=None,
             )
 
         jurisdictions.append(Jurisdiction(

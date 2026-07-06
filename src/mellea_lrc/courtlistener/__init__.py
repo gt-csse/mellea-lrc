@@ -19,13 +19,13 @@ from mellea_lrc.courtlistener.types import (
     RetrievalFailureDetail,
 )
 from mellea_lrc.courtlistener.taxonomy import (
-    CLCourtTaxonomy,
-    get_court_taxonomy,
+    CourtsDBClassification,
+    get_courts_db_classification,
     is_recognized_court,
 )
 
 __all__ = [
-    "CLCourtTaxonomy",
+    "CourtsDBClassification",
     "CacheEntry",
     "CacheStore",
     "CitationLookupClient",
@@ -43,7 +43,7 @@ __all__ = [
     "R2Cache",
     "RetrievalFailureDetail",
     "create_api",
-    "get_court_taxonomy",
+    "get_courts_db_classification",
     "is_recognized_court",
     "normalize_citation_lookup_payload",
 ]

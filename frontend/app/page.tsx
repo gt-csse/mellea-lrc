@@ -178,8 +178,8 @@ type ReviewCitation = {
 };
 
 type ReporterPayload = {
-  edition: string;
-  short_name: string;
+  edition_short_name: string;
+  root_short_name: string;
   name: string;
   cite_type: string;
   is_scotus: boolean;
@@ -192,7 +192,7 @@ type ReporterInferencePayload = {
   mlz_jurisdictions: string[];
 };
 
-type CLCourtTaxonomyPayload = {
+type CourtsDBClassificationPayload = {
   court_id: string;
   system: string;
   jurisdiction: string | null;
@@ -202,7 +202,7 @@ type CLCourtTaxonomyPayload = {
 type CourtInferencePayload = {
   extracted_court: string | null;
   status: "unsupported" | "missing_court" | "unrecognized" | "resolved";
-  cl_court_taxonomy: CLCourtTaxonomyPayload | null;
+  courts_db_classification: CourtsDBClassificationPayload | null;
 };
 
 type JurisdictionPayload = {
@@ -1340,7 +1340,7 @@ function JurisdictionDetails({
         <h4 style={{ margin: '0', fontSize: '14px', color: 'var(--accent-fg)' }}>Reporter Inference</h4>
       </div>
       <dl className="assessment-fields">
-        <div><dt>Edition</dt><dd>{formatValue(reporter_inference.reporter?.edition ?? null)}</dd></div>
+        <div><dt>Edition</dt><dd>{formatValue(reporter_inference.reporter?.edition_short_name ?? null)}</dd></div>
         <div><dt>Name</dt><dd>{formatValue(reporter_inference.reporter?.name ?? null)}</dd></div>
         <div><dt>Cite type</dt><dd>{formatValue(reporter_inference.reporter?.cite_type ?? null)}</dd></div>
         <div><dt>Status</dt><dd>{formatStatusLabel(reporter_inference.status)}</dd></div>
@@ -1370,12 +1370,12 @@ function JurisdictionDetails({
         <div><dt>Extracted Court</dt><dd>{formatValue(court_inference.extracted_court)}</dd></div>
         <div><dt>Status</dt><dd>{formatStatusLabel(court_inference.status)}</dd></div>
       </dl>
-      {court_inference.cl_court_taxonomy && (
+      {court_inference.courts_db_classification && (
         <dl className="assessment-fields" style={{ marginTop: '0' }}>
-          <div><dt>CL Court ID</dt><dd>{formatValue(court_inference.cl_court_taxonomy.court_id)}</dd></div>
-          <div><dt>System</dt><dd>{formatValue(court_inference.cl_court_taxonomy.system)}</dd></div>
-          <div><dt>Jurisdiction</dt><dd>{formatValue(court_inference.cl_court_taxonomy.jurisdiction)}</dd></div>
-          <div><dt>Type</dt><dd>{formatValue(court_inference.cl_court_taxonomy.type)}</dd></div>
+          <div><dt>Court ID</dt><dd>{formatValue(court_inference.courts_db_classification.court_id)}</dd></div>
+          <div><dt>System</dt><dd>{formatValue(court_inference.courts_db_classification.system)}</dd></div>
+          <div><dt>Jurisdiction</dt><dd>{formatValue(court_inference.courts_db_classification.jurisdiction)}</dd></div>
+          <div><dt>Type</dt><dd>{formatValue(court_inference.courts_db_classification.type)}</dd></div>
         </dl>
       )}
     </div>
@@ -1473,7 +1473,8 @@ function BibliographicComparison({
     citation.retrieval,
     safeClusterIndex
   );
-  const rows = bibliographicRows(extractedAttempt, cluster, courtResolution);
+  const activeResult = activeAssessmentResult(citation.assessment, safeClusterIndex);
+  const rows = bibliographicRows(extractedAttempt, cluster, courtResolution, activeResult);
   const hasMultipleClusters = clusters.length > 1;
   const hasMultipleExtractedAttempts = extractedAttempts.length > 1;
 
@@ -2181,11 +2182,10 @@ function extractedCitationAttempts(
 function bibliographicRows(
   extractedAttempt: ExtractedCitationAttempt,
   cluster: CourtListenerCitationRecord | null,
-  courtResolution: CourtResolutionTracePayload | null
+  courtResolution: CourtResolutionTracePayload | null,
+  primaryAssessment: AssessmentPayload | null
 ): BibliographicRow[] {
   const { citation, fields } = extractedAttempt;
-  const primaryAssessment = completedAssessmentResult(citation.assessment);
-  const canColorRows = primaryAssessment !== null;
   const citationLocator = extractedAttempt.locator ?? citation.retrieval?.locator ?? citation.matched_text;
   const extractedLocatorParts = splitLocator(citationLocator);
   const courtListenerLocator = cluster ? citation.retrieval?.locator : null;
@@ -2224,43 +2224,52 @@ function bibliographicRows(
       label: extractedAttempt.isReextracted ? "Re-extracted case name" : "Case name",
       extracted: extractedCaseNameDisplay,
       courtListener: courtListenerCaseName,
-      matchType: canColorRows
-        ? caseNameRowMatchType(
-            extractedAttempt.reassessment ?? primaryAssessment?.case_name.initial,
-            extractedCaseName,
-            courtListenerCaseName
-          )
-        : "unchecked"
+      matchType: caseNameRowMatchType(
+        extractedAttempt.reassessment ?? primaryAssessment?.case_name.initial,
+        extractedCaseName,
+        courtListenerCaseName
+      )
     },
     {
       id: "locator",
       label: "Locator",
       extracted: citationLocator,
       courtListener: courtListenerLocator,
-      matchType: canColorRows ? "perfect" : "unchecked"
+      matchType: directRowMatchType(citationLocator, courtListenerLocator)
     },
     {
       id: "volume",
       label: "Volume",
       extracted: fields.volume ?? extractedLocatorParts.volume,
       courtListener: courtListenerLocatorParts.volume,
-      matchType: canColorRows ? "perfect" : "unchecked"
+      matchType: directRowMatchType(
+        fields.volume ?? extractedLocatorParts.volume,
+        courtListenerLocatorParts.volume
+      )
     },
     {
       id: "reporter",
       label: "Reporter",
       extracted: typeof fields.reporter === "object" && fields.reporter
-        ? (fields.reporter as Record<string, unknown>).edition as string
+        ? (fields.reporter as Record<string, unknown>).edition_short_name as string
         : (fields.reporter ?? extractedLocatorParts.reporter),
       courtListener: courtListenerLocatorParts.reporter,
-      matchType: canColorRows ? "perfect" : "unchecked"
+      matchType: directRowMatchType(
+        typeof fields.reporter === "object" && fields.reporter
+          ? (fields.reporter as Record<string, unknown>).edition_short_name as string
+          : (fields.reporter ?? extractedLocatorParts.reporter),
+        courtListenerLocatorParts.reporter
+      )
     },
     {
       id: "page",
       label: "Page",
       extracted: fields.page ?? extractedLocatorParts.page,
       courtListener: courtListenerLocatorParts.page,
-      matchType: canColorRows ? "perfect" : "unchecked"
+      matchType: directRowMatchType(
+        fields.page ?? extractedLocatorParts.page,
+        courtListenerLocatorParts.page
+      )
     },
     {
       id: "pin_cite",
@@ -2274,22 +2283,18 @@ function bibliographicRows(
       label: "Year",
       extracted: fields.year,
       courtListener: courtListenerDate?.slice(0, 4),
-      matchType: canColorRows
-        ? yearRowMatchType(
-            primaryAssessment?.year,
-            fields.year,
-            courtListenerDate?.slice(0, 4)
-          )
-        : "unchecked"
+      matchType: yearRowMatchType(
+        primaryAssessment?.year,
+        fields.year,
+        courtListenerDate?.slice(0, 4)
+      )
     },
     {
       id: "court",
       label: "Court",
       extracted: fields.court,
       courtListener: courtListenerCourt,
-      matchType: canColorRows
-        ? courtRowMatchType(primaryAssessment?.court, fields.court, courtListenerCourt)
-        : "unchecked"
+      matchType: courtRowMatchType(primaryAssessment?.court, fields.court, courtListenerCourt)
     }
   ];
 }
@@ -2812,6 +2817,23 @@ function completedAssessmentResult(
   assessment: CitationAssessmentPayload | null
 ): AssessmentPayload | null {
   return assessment?.status === "assessed" ? assessment.result : null;
+}
+
+function activeAssessmentResult(
+  assessment: CitationAssessmentPayload | null,
+  candidateIndex: number
+): AssessmentPayload | null {
+  if (!assessment) {
+    return null;
+  }
+  if (assessment.status === "assessed") {
+    return assessment.result;
+  }
+  if (assessment.status === "ambiguous" && !assessment.gated) {
+    const candidate = assessment.candidates[candidateIndex]?.result;
+    return candidate ?? null;
+  }
+  return null;
 }
 
 function assessmentStatusFromPayload(assessment: AssessmentPayload | null): AssessmentStatus | null {

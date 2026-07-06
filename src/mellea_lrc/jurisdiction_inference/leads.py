@@ -11,16 +11,22 @@ from mellea_lrc.jurisdiction_inference.types import (
     ReporterInferenceStatus,
     CourtInferenceStatus,
 )
-from mellea_lrc.courtlistener.taxonomy import get_court_taxonomy, is_recognized_court
+from mellea_lrc.courtlistener.taxonomy import get_courts_db_classification, is_recognized_court
 
 
 def evaluate_court_inference(extracted_court: str | None) -> CourtInference:
-    """Evaluate a citation's explicit extracted court string."""
+    """Evaluate a citation's explicit extracted court string.
+
+    Returns the `courts_db_classification` (a snapshot of the Free Law Project
+    `courts-db` package) for the slug, if recognized. The classification is a
+    lookup of an already-extracted court slug; it is not a verification of the
+    citation's locator and it does not assert that the cited case exists.
+    """
     if extracted_court is None or not extracted_court.strip():
         return CourtInference(
             extracted_court=None,
             status=CourtInferenceStatus.MISSING_COURT,
-            cl_court_taxonomy=None,
+            courts_db_classification=None,
         )
 
     canonical_court = extracted_court.strip().lower()
@@ -28,14 +34,14 @@ def evaluate_court_inference(extracted_court: str | None) -> CourtInference:
         return CourtInference(
             extracted_court=canonical_court,
             status=CourtInferenceStatus.UNRECOGNIZED,
-            cl_court_taxonomy=None,
+            courts_db_classification=None,
         )
 
-    taxonomy = get_court_taxonomy(canonical_court)
+    classification = get_courts_db_classification(canonical_court)
     return CourtInference(
         extracted_court=canonical_court,
         status=CourtInferenceStatus.RESOLVED,
-        cl_court_taxonomy=taxonomy,
+        courts_db_classification=classification,
     )
 
 
@@ -49,7 +55,7 @@ def evaluate_reporter_inference(
             mlz_jurisdictions=(),
         )
 
-    edition = reporter.edition.strip()
+    edition = reporter.edition_short_name.strip()
     if not edition or edition not in VALID_REPORTERS:
         return ReporterInference(
             reporter=reporter,

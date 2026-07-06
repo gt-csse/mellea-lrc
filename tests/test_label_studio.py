@@ -29,5 +29,5 @@ def test_build_task_payload_includes_extraction_prediction() -> None:
     }
     assert field_results["defendant"] == "Shelby County"
     assert field_results["volume"] == "118"
-    assert field_results["reporter"]["edition"] == "U.S."
+    assert field_results["reporter"]["edition_short_name"] == "U.S."
     assert field_results["page"] == "425"

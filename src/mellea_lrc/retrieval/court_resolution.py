@@ -100,4 +100,9 @@ def _resolve_courtlistener_court(
     court_id = docket.get("court_id") if isinstance(docket, Mapping) else None
     court_id = court_id if isinstance(court_id, str) else None
     cache[docket_id] = court_id
-    return court_id, CourtResolutionSource.DOCKET_LOOKUP, docket_id, docket_url, False, None
+    # ``cached`` reflects the persistent R2 cache, not the per-run in-memory
+    # dedup above. The per-run cache only avoids redundant calls within one
+    # ``run_retrieval`` execution; the trace answers "was this served from the
+    # persistent cache on a later run?", which is what the caller cares about.
+    r2_cache_hit = docket.get("cache") == "hit" if isinstance(docket, Mapping) else False
+    return court_id, CourtResolutionSource.DOCKET_LOOKUP, docket_id, docket_url, r2_cache_hit, None

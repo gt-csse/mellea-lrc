@@ -1,4 +1,4 @@
-"""Strict Pydantic DTOs for schema 15."""
+"""Strict Pydantic DTOs for schema 17."""
 
 # ruff: noqa: D101
 
@@ -48,8 +48,8 @@ class SpanPayload(ArtifactPayload):
 
 
 class ReporterPayload(ArtifactPayload):
-    edition: str
-    short_name: str
+    edition_short_name: str
+    root_short_name: str
     name: str
     cite_type: str
     is_scotus: bool
@@ -321,7 +321,7 @@ class YearAssessmentPayload(ArtifactPayload):
     message: str
 
 
-class CLCourtTaxonomyPayload(ArtifactPayload):
+class CourtsDBClassificationPayload(ArtifactPayload):
     court_id: str
     system: str | None
     jurisdiction: str | None
@@ -403,7 +403,7 @@ class CourtInferencePayload(ArtifactPayload):
         "unrecognized",
         "resolved",
     ]
-    cl_court_taxonomy: CLCourtTaxonomyPayload | None = None
+    courts_db_classification: CourtsDBClassificationPayload | None = None
 
 
 class JurisdictionPayload(ArtifactPayload):
@@ -486,27 +486,27 @@ class _RetrievedDocumentFields(_InferredDocumentFields):
 
 
 class PreprocessedDocumentPayload(_PreprocessedDocumentFields):
-    schema_version: Literal[15]
+    schema_version: Literal[17]
     artifact_type: Literal["preprocessed_document"]
 
 
 class ExtractedDocumentPayload(_ExtractedDocumentFields):
-    schema_version: Literal[15]
+    schema_version: Literal[17]
     artifact_type: Literal["extracted_document"]
 
 
 class InferredDocumentPayload(_InferredDocumentFields):
-    schema_version: Literal[15]
+    schema_version: Literal[17]
     artifact_type: Literal["inferred_document"]
 
 
 class RetrievedDocumentPayload(_RetrievedDocumentFields):
-    schema_version: Literal[15]
+    schema_version: Literal[17]
     artifact_type: Literal["retrieved_document"]
 
 
 class AssessedDocumentPayload(_RetrievedDocumentFields):
-    schema_version: Literal[15]
+    schema_version: Literal[17]
     artifact_type: Literal["assessed_document"]
     assessment_metadata: AssessmentMetadataPayload
     assessments: list[CitationAssessmentPayload]
