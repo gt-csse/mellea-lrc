@@ -1,11 +1,12 @@
 """Tests for citation extraction."""
 
+import pytest
+
 from mellea_lrc.core.citations import CitationKind, FullCaseCitation, FullLawCitation
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import extract, extract_citations
-from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
+from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
-from mellea_lrc.preprocessing.types import PreprocessedDocumentMetadata
 
 SAMPLE_TEXT = (
     "Under Norton v. Shelby County, 118 U.S. 425, 442 (1886), an unconstitutional "
@@ -54,7 +55,9 @@ def test_extracted_document_rejects_duplicate_citation_ids() -> None:
 
     with pytest.raises(ValueError, match="must be unique"):
         ExtractedDocument(
-            metadata=preprocessed.metadata,
+            source_metadata=preprocessed.source_metadata,
+            preprocessing_metadata=preprocessed.preprocessing_metadata,
+            extraction_metadata=ExtractionMetadata(),
             text=preprocessed.text,
             citations=(citation, citation),
         )
@@ -71,7 +74,9 @@ def test_extracted_document_rejects_span_outside_text() -> None:
 
     with pytest.raises(ValueError, match="span exceeds"):
         ExtractedDocument(
-            metadata=preprocessed.metadata,
+            source_metadata=preprocessed.source_metadata,
+            preprocessing_metadata=preprocessed.preprocessing_metadata,
+            extraction_metadata=ExtractionMetadata(),
             text=preprocessed.text,
             citations=(citation,),
         )

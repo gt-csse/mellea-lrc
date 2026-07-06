@@ -2,23 +2,20 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const schemaVersion = 1;
+const schemaVersion = 2;
 const separator = "========";
 
-type CitationField = string | number | boolean;
+const contextChars = 200;
 
-export type BookmarkCitationInput = {
-  citation_id: string;
-  matched_text: string;
-  kind: string;
-  fields: Record<string, CitationField>;
-};
-
-type BookmarkProvenanceInput = {
+type BookmarkProvenance = {
   source_path: string | null;
   source_format: string;
-  citation_id: string;
   span: { start: number; end: number };
+};
+
+export type BookmarkCitationInput = {
+  citation_id?: string;
+  matched_text: string;
   context: string;
 };
 
@@ -30,26 +27,40 @@ export type BookmarkStatusRequest = {
 export type BookmarkAddRequest = {
   action: "add";
   citation: BookmarkCitationInput;
-  provenance: BookmarkProvenanceInput;
+  provenance: BookmarkProvenance;
+  comment: string | null;
 };
 
-type StoredCitation = Omit<BookmarkCitationInput, "citation_id">;
+export type BookmarkUpdateCommentRequest = {
+  action: "update_comment";
+  citation: BookmarkCitationInput;
+  comment: string | null;
+};
 
-type StoredProvenance = BookmarkProvenanceInput & {
+type StoredCitation = BookmarkCitationInput;
+
+type StoredProvenance = BookmarkProvenance & {
   provenance_id: string;
-  bookmarked_at: string | null;
+  seen_at: string;
 };
 
 type BookmarkRecord = {
   bookmark_id: string;
-  citation: StoredCitation | null;
-  test_context: string;
+  citation: StoredCitation;
+  comment: string | null;
   provenances: StoredProvenance[];
+  created_at: string;
+  updated_at: string;
 };
 
 type BookmarkStore = {
-  schema_version: 1;
+  schema_version: 2;
   bookmarks: BookmarkRecord[];
+};
+
+type BookmarkStatusEntry = {
+  bookmarked: boolean;
+  comment: string | null;
 };
 
 let operationQueue: Promise<void> = Promise.resolve();
@@ -65,17 +76,36 @@ export function isBookmarkAddRequest(value: unknown): value is BookmarkAddReques
   if (!isRecord(value) || value.action !== "add") {
     return false;
   }
-  return isCitationInput(value.citation) && isProvenanceInput(value.provenance);
+  return isCitationInput(value.citation) && isProvenance(value.provenance) && isComment(value.comment);
+}
+
+export function isBookmarkUpdateCommentRequest(
+  value: unknown
+): value is BookmarkUpdateCommentRequest {
+  if (!isRecord(value) || value.action !== "update_comment") {
+    return false;
+  }
+  return isCitationInput(value.citation) && isComment(value.comment);
 }
 
 export async function bookmarkStatuses(citations: BookmarkCitationInput[]) {
   return withStoreLock(async () => {
     const paths = bookmarkPaths();
     const store = await loadOrMigrateStore(paths);
-    const available = new Set(store.bookmarks.map((bookmark) => bookmark.bookmark_id));
+    const lookup = new Map(
+      store.bookmarks.map((bookmark) => [bookmark.bookmark_id, bookmark])
+    );
     return {
       statuses: Object.fromEntries(
-        citations.map((citation) => [citation.citation_id, available.has(bookmarkId(citation))])
+        citations.map((citation) => {
+          const id = bookmarkId(citation);
+          const existing = lookup.get(id);
+          const entry: BookmarkStatusEntry = {
+            bookmarked: existing !== undefined,
+            comment: existing?.comment ?? null
+          };
+          return [citation.citation_id ?? id, entry];
+        })
       ),
       paths: publicPaths(paths)
     };
@@ -87,22 +117,26 @@ export async function addBookmark(request: BookmarkAddRequest) {
     const paths = bookmarkPaths();
     const store = await loadOrMigrateStore(paths);
     const id = bookmarkId(request.citation);
-    const provenance = storedProvenance(request.provenance);
+    const now = new Date().toISOString();
+    const provenance = storedProvenance(request.provenance, now);
     const existing = store.bookmarks.find((bookmark) => bookmark.bookmark_id === id);
     let result: "created" | "provenance_added" | "already_bookmarked";
+    let commentChanged = false;
 
     if (!existing) {
       store.bookmarks.push({
         bookmark_id: id,
         citation: {
           matched_text: request.citation.matched_text.trim(),
-          kind: request.citation.kind,
-          fields: sortedFields(request.citation.fields)
+          context: request.citation.context.trim()
         },
-        test_context: request.provenance.context.trim(),
-        provenances: [provenance]
+        comment: request.comment?.trim() ? request.comment.trim() : null,
+        provenances: [provenance],
+        created_at: now,
+        updated_at: now
       });
       result = "created";
+      commentChanged = request.comment !== null;
     } else if (
       existing.provenances.some((item) => item.provenance_id === provenance.provenance_id)
     ) {
@@ -112,40 +146,77 @@ export async function addBookmark(request: BookmarkAddRequest) {
       result = "provenance_added";
     }
 
-    if (result !== "already_bookmarked") {
+    if (result !== "already_bookmarked" || commentChanged) {
       await writeStoreAndFixture(paths, store);
     }
     return {
       result,
       bookmark_id: id,
+      comment: store.bookmarks.find((b) => b.bookmark_id === id)?.comment ?? null,
       provenance_count: existing?.provenances.length ?? 1,
       paths: publicPaths(paths)
     };
   });
 }
 
-function bookmarkId(citation: BookmarkCitationInput) {
-  const fields = sortedFields(citation.fields);
-  const identity = {
-    kind: citation.kind,
-    fields,
-    ...(Object.keys(fields).length ? {} : { matched_text: citation.matched_text.trim() })
-  };
-  return `citation:${digest(stableJson(identity))}`;
+export async function updateBookmarkComment(
+  request: BookmarkUpdateCommentRequest
+) {
+  return withStoreLock(async () => {
+    const paths = bookmarkPaths();
+    const store = await loadOrMigrateStore(paths);
+    const id = bookmarkId(request.citation);
+    const bookmark = store.bookmarks.find((item) => item.bookmark_id === id);
+    if (!bookmark) {
+      return {
+        result: "not_found" as const,
+        bookmark_id: id,
+        comment: null,
+        paths: publicPaths(paths)
+      };
+    }
+    const trimmed = request.comment?.trim() ? request.comment.trim() : null;
+    if (bookmark.comment === trimmed) {
+      return {
+        result: "unchanged" as const,
+        bookmark_id: id,
+        comment: bookmark.comment,
+        paths: publicPaths(paths)
+      };
+    }
+    bookmark.comment = trimmed;
+    bookmark.updated_at = new Date().toISOString();
+    await writeStoreAndFixture(paths, store);
+    return {
+      result: "updated" as const,
+      bookmark_id: id,
+      comment: bookmark.comment,
+      paths: publicPaths(paths)
+    };
+  });
 }
 
-function storedProvenance(input: BookmarkProvenanceInput): StoredProvenance {
+function bookmarkId(citation: BookmarkCitationInput) {
+  return `citation:${digest(normalizeBookmarkText(citation))}`;
+}
+
+function normalizeBookmarkText(citation: BookmarkCitationInput) {
+  return stableJson({
+    matched_text: citation.matched_text.trim().replace(/\s+/g, " "),
+    context: citation.context.trim().replace(/\s+/g, " ")
+  });
+}
+
+function storedProvenance(input: BookmarkProvenance, seenAt: string): StoredProvenance {
   const identity = {
     source_path: input.source_path,
     source_format: input.source_format,
-    span: input.span,
-    context: input.context.trim()
+    span: input.span
   };
   return {
     ...input,
-    context: input.context.trim(),
     provenance_id: `provenance:${digest(stableJson(identity))}`,
-    bookmarked_at: new Date().toISOString()
+    seen_at: seenAt
   };
 }
 
@@ -169,7 +240,7 @@ async function loadOrMigrateStore(paths: ReturnType<typeof bookmarkPaths>): Prom
   try {
     const parsed = JSON.parse(await readFile(paths.json, "utf-8")) as unknown;
     if (!isBookmarkStore(parsed)) {
-      throw new Error("Bookmark JSON does not match schema version 1.");
+      throw new Error(`Bookmark JSON does not match schema version ${schemaVersion}.`);
     }
     return parsed;
   } catch (error) {
@@ -208,21 +279,25 @@ async function migrateLegacyText(textPath: string): Promise<BookmarkStore> {
     schema_version: schemaVersion,
     bookmarks: contexts.map((context) => {
       const id = digest(context);
+      const now = new Date().toISOString();
       return {
         bookmark_id: `legacy:${id}`,
-        citation: null,
-        test_context: context,
+        citation: {
+          matched_text: context,
+          context
+        },
+        comment: null,
         provenances: [
           {
             provenance_id: `legacy-provenance:${id}`,
             source_path: "local/bookmarked/bookmarked.txt",
             source_format: "text",
-            citation_id: "legacy",
             span: { start: 0, end: context.length },
-            context,
-            bookmarked_at: null
+            seen_at: now
           }
-        ]
+        ],
+        created_at: now,
+        updated_at: now
       };
     })
   };
@@ -234,10 +309,24 @@ async function writeStoreAndFixture(
 ) {
   const json = `${JSON.stringify(store, null, 2)}\n`;
   const text = store.bookmarks.length
-    ? `${store.bookmarks.map((bookmark) => `${separator}\n${bookmark.test_context}`).join("\n\n")}\n`
+    ? `${store.bookmarks
+        .map(
+          (bookmark) =>
+            `${separator}\n${formatBookmarkText(bookmark)}`
+        )
+        .join("\n\n")}\n`
     : "";
   await atomicWrite(paths.json, json);
   await atomicWrite(paths.text, text);
+}
+
+function formatBookmarkText(bookmark: BookmarkRecord) {
+  const lines = [bookmark.citation.matched_text];
+  if (bookmark.comment) {
+    lines.push("", `> ${bookmark.comment}`);
+  }
+  lines.push("", `Context: ${bookmark.citation.context}`);
+  return lines.join("\n");
 }
 
 async function atomicWrite(destination: string, contents: string) {
@@ -253,10 +342,6 @@ function publicPaths(paths: ReturnType<typeof bookmarkPaths>) {
     json: relativeJson.startsWith("..") ? paths.json : relativeJson,
     text: relativeText.startsWith("..") ? paths.text : relativeText
   };
-}
-
-function sortedFields(fields: Record<string, CitationField>) {
-  return Object.fromEntries(Object.entries(fields).sort(([left], [right]) => left.localeCompare(right)));
 }
 
 function stableJson(value: unknown): string {
@@ -279,26 +364,34 @@ function digest(value: string) {
 function isCitationInput(value: unknown): value is BookmarkCitationInput {
   return (
     isRecord(value) &&
-    typeof value.citation_id === "string" &&
-    Boolean(value.citation_id) &&
     typeof value.matched_text === "string" &&
     Boolean(value.matched_text.trim()) &&
-    typeof value.kind === "string" &&
-    Boolean(value.kind) &&
-    isCitationFields(value.fields)
+    typeof value.context === "string" &&
+    Boolean(value.context.trim())
   );
 }
 
-function isProvenanceInput(value: unknown): value is BookmarkProvenanceInput {
+function isProvenance(value: unknown): value is BookmarkProvenance {
   return (
     isRecord(value) &&
     (typeof value.source_path === "string" || value.source_path === null) &&
     typeof value.source_format === "string" &&
-    typeof value.citation_id === "string" &&
-    isSpan(value.span) &&
-    typeof value.context === "string" &&
-    Boolean(value.context.trim())
+    isSpan(value.span)
   );
+}
+
+function isSpan(value: unknown): value is { start: number; end: number } {
+  return (
+    isRecord(value) &&
+    Number.isInteger(value.start) &&
+    Number.isInteger(value.end) &&
+    Number(value.start) >= 0 &&
+    Number(value.end) >= Number(value.start)
+  );
+}
+
+function isComment(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
 }
 
 function isBookmarkStore(value: unknown): value is BookmarkStore {
@@ -314,8 +407,10 @@ function isBookmarkRecord(value: unknown): value is BookmarkRecord {
   return (
     isRecord(value) &&
     typeof value.bookmark_id === "string" &&
-    (value.citation === null || isStoredCitation(value.citation)) &&
-    typeof value.test_context === "string" &&
+    isStoredCitation(value.citation) &&
+    (value.comment === null || typeof value.comment === "string") &&
+    typeof value.created_at === "string" &&
+    typeof value.updated_at === "string" &&
     Array.isArray(value.provenances) &&
     value.provenances.every(isStoredProvenance)
   );
@@ -325,8 +420,7 @@ function isStoredCitation(value: unknown): value is StoredCitation {
   return (
     isRecord(value) &&
     typeof value.matched_text === "string" &&
-    typeof value.kind === "string" &&
-    isCitationFields(value.fields)
+    typeof value.context === "string"
   );
 }
 
@@ -335,33 +429,14 @@ function isStoredProvenance(value: unknown): value is StoredProvenance {
     return false;
   }
   const record = value;
-  if (!isProvenanceInput(record)) {
+  if (!isProvenance(record)) {
     return false;
   }
   return (
     "provenance_id" in record &&
     typeof record.provenance_id === "string" &&
-    "bookmarked_at" in record &&
-    (typeof record.bookmarked_at === "string" || record.bookmarked_at === null)
-  );
-}
-
-function isCitationFields(value: unknown): value is Record<string, CitationField> {
-  return (
-    isRecord(value) &&
-    Object.values(value).every(
-      (field) => typeof field === "string" || typeof field === "number" || typeof field === "boolean"
-    )
-  );
-}
-
-function isSpan(value: unknown): value is { start: number; end: number } {
-  return (
-    isRecord(value) &&
-    Number.isInteger(value.start) &&
-    Number.isInteger(value.end) &&
-    Number(value.start) >= 0 &&
-    Number(value.end) >= Number(value.start)
+    "seen_at" in record &&
+    typeof record.seen_at === "string"
   );
 }
 
@@ -386,3 +461,5 @@ async function withStoreLock<T>(operation: () => Promise<T>): Promise<T> {
     release();
   }
 }
+
+export const __test = { contextChars, normalizeBookmarkText, bookmarkId };

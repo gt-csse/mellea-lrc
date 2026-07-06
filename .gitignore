@@ -40,4 +40,4 @@ frontend/yarn-error.log*
 # exploratory notebooks
 *.ipynb
 
-!*.example.ipynb
+!*.example.ipynb.next

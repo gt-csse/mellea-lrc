@@ -2,7 +2,9 @@ import {
   addBookmark,
   bookmarkStatuses,
   isBookmarkAddRequest,
-  isBookmarkStatusRequest
+  isBookmarkStatusRequest,
+  isBookmarkUpdateCommentRequest,
+  updateBookmarkComment
 } from "./store";
 
 export const runtime = "nodejs";
@@ -21,6 +23,9 @@ export async function POST(request: Request) {
     }
     if (isBookmarkAddRequest(payload)) {
       return Response.json(await addBookmark(payload));
+    }
+    if (isBookmarkUpdateCommentRequest(payload)) {
+      return Response.json(await updateBookmarkComment(payload));
     }
     return Response.json({ detail: "Unsupported bookmark request shape." }, { status: 400 });
   } catch (error) {

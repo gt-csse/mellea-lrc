@@ -19,6 +19,7 @@ import {
 import {
   ChangeEvent,
   DragEvent,
+  FormEvent,
   KeyboardEvent,
   ReactNode,
   useEffect,
@@ -224,10 +225,28 @@ type ReviewResult = {
   stats: Record<string, number>;
 };
 
+type BookmarkStatusEntry = {
+  bookmarked: boolean;
+  comment: string | null;
+};
+
+type BookmarkStatusResponse = {
+  statuses: Record<string, BookmarkStatusEntry>;
+  paths: { json: string; text: string };
+};
+
 type BookmarkMutationResult = {
   result: "created" | "provenance_added" | "already_bookmarked";
   bookmark_id: string;
+  comment: string | null;
   provenance_count: number;
+  paths: { json: string; text: string };
+};
+
+type BookmarkCommentUpdateResult = {
+  result: "updated" | "unchanged" | "not_found";
+  bookmark_id: string;
+  comment: string | null;
   paths: { json: string; text: string };
 };
 
@@ -397,7 +416,15 @@ export default function Home() {
   const [selectedTraceSection, setSelectedTraceSection] = useState<TraceSectionId>("retrieval");
   const [error, setError] = useState<string | null>(null);
   const [bookmarkStatus, setBookmarkStatus] = useState<string | null>(null);
-  const [bookmarkedCitationIds, setBookmarkedCitationIds] = useState<Set<string>>(new Set());
+  const [bookmarkEntries, setBookmarkEntries] = useState<Map<string, BookmarkStatusEntry>>(
+    new Map()
+  );
+  const [bookmarkModal, setBookmarkModal] = useState<{
+    citationId: string;
+    matchedText: string;
+    context: string;
+    existingComment: string | null;
+  } | null>(null);
   const documentPaneRef = useRef<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const snapshotInputRef = useRef<HTMLInputElement | null>(null);
@@ -419,34 +446,35 @@ export default function Home() {
     [result, selectedId]
   );
   const isBookmarkFixture = isBookmarkFixturePath(result?.document.source_path ?? null);
-  const selectedCitationIsBookmarked = selectedCitation
-    ? bookmarkedCitationIds.has(selectedCitation.id)
-    : false;
+  const selectedCitationEntry = selectedCitation
+    ? citationBookmarkEntry(selectedCitation, bookmarkEntries)
+    : undefined;
+  const selectedCitationIsBookmarked = selectedCitationEntry?.bookmarked ?? false;
+  const selectedCitationComment = selectedCitationEntry?.comment ?? null;
 
   useEffect(() => {
     const citations = result?.citations ?? [];
+    const documentText = result?.document.text ?? "";
     if (!citations.length) {
-      setBookmarkedCitationIds(new Set());
+      setBookmarkEntries(new Map());
       return;
     }
     let cancelled = false;
-    void fetchBookmarkStatuses(citations)
+    void fetchBookmarkStatuses(citations, documentText)
       .then((statuses) => {
         if (!cancelled) {
-          setBookmarkedCitationIds(
-            new Set(Object.entries(statuses).filter(([, saved]) => saved).map(([id]) => id))
-          );
+          setBookmarkEntries(new Map(Object.entries(statuses)));
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setBookmarkedCitationIds(new Set());
+          setBookmarkEntries(new Map());
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [result?.citations]);
+  }, [result?.citations, result?.document.text]);
 
   const selectedExtractedAttempts = useMemo(
     () => (selectedCitation ? extractedCitationAttempts(selectedCitation, result?.assessment ?? null) : []),
@@ -614,7 +642,7 @@ export default function Home() {
     setRetrievalProgress(null);
     setError(null);
     setBookmarkStatus(null);
-    setBookmarkedCitationIds(new Set());
+    setBookmarkEntries(new Map());
 
     try {
       const sourceText = workflowStage === "preprocessed" && result ? result.document.text : text;
@@ -763,7 +791,7 @@ export default function Home() {
     setRetrievalProgress(null);
     setError(null);
     setBookmarkStatus(null);
-    setBookmarkedCitationIds(new Set());
+    setBookmarkEntries(new Map());
   }
 
   function selectCitation(citationId: string) {
@@ -785,36 +813,88 @@ export default function Home() {
     }));
   }
 
-  async function bookmarkSelectedCitation() {
-    if (
-      !result ||
-      !selectedCitation ||
-      isBookmarkFixture ||
-      selectedCitationIsBookmarked
-    ) {
+  function openBookmarkModalForSelected() {
+    if (!result || !selectedCitation || isBookmarkFixture) {
       return;
     }
+    const context = citationContextWindow(result.document.text, selectedCitation);
+    setBookmarkModal({
+      citationId: selectedCitation.id,
+      matchedText: selectedCitation.matched_text,
+      context,
+      existingComment: selectedCitationComment
+    });
+  }
+
+  function closeBookmarkModal() {
+    setBookmarkModal(null);
+  }
+
+  async function submitBookmarkModal(comment: string | null) {
+    if (!result || !bookmarkModal) {
+      return;
+    }
+    const trimmed = comment?.trim() ? comment.trim() : null;
+    const isUpdate = bookmarkModal.existingComment !== null;
+    setBookmarkStatus("Saving");
     try {
-      setBookmarkStatus("Saving");
-      const saved = await bookmarkCitationContext({
-        action: "add",
-        citation: bookmarkCitationIdentity(selectedCitation),
-        provenance: {
-          source_path: result.document.source_path,
-          source_format: result.document.source_format,
-          citation_id: selectedCitation.id,
-          span: { start: selectedCitation.start, end: selectedCitation.end },
-          context: citationContextWindow(result.document.text, selectedCitation)
+      if (isUpdate) {
+        const saved = await updateBookmarkCommentAction({
+          citation: {
+            matched_text: bookmarkModal.matchedText,
+            context: bookmarkModal.context
+          },
+          comment: trimmed
+        });
+        if (saved.result === "not_found") {
+          setBookmarkStatus("Bookmark no longer exists; reopen the modal to recreate it.");
+          return;
         }
-      });
-      setBookmarkedCitationIds((current) => new Set(current).add(selectedCitation.id));
-      setBookmarkStatus(
-        saved.result === "provenance_added"
-          ? `Added provenance to ${saved.paths.json}`
-          : `Saved to ${saved.paths.text} and ${saved.paths.json}`
-      );
+        setBookmarkEntries((current) => {
+          const next = new Map(current);
+          next.set(bookmarkModal.citationId, {
+            bookmarked: true,
+            comment: saved.comment
+          });
+          return next;
+        });
+        setBookmarkStatus(
+          saved.result === "unchanged"
+            ? "Comment unchanged"
+            : `Updated comment in ${saved.paths.json}`
+        );
+      } else {
+        const saved = await addBookmarkCitation({
+          citation: {
+            matched_text: bookmarkModal.matchedText,
+            context: bookmarkModal.context
+          },
+          provenance: {
+            source_path: result.document.source_path,
+            source_format: result.document.source_format,
+            span: { start: selectedCitation?.start ?? 0, end: selectedCitation?.end ?? 0 }
+          },
+          comment: trimmed
+        });
+        setBookmarkEntries((current) => {
+          const next = new Map(current);
+          next.set(bookmarkModal.citationId, {
+            bookmarked: true,
+            comment: saved.comment
+          });
+          return next;
+        });
+        setBookmarkStatus(
+          saved.result === "provenance_added"
+            ? `Added provenance to ${saved.paths.json}`
+            : `Saved to ${saved.paths.text} and ${saved.paths.json}`
+        );
+      }
+      setBookmarkModal(null);
     } catch (bookmarkError) {
-      setBookmarkStatus(bookmarkError instanceof Error ? bookmarkError.message : "Bookmark failed");
+      setBookmarkStatus(
+        bookmarkError instanceof Error ? bookmarkError.message : "Bookmark failed"
+      );
     }
   }
 
@@ -1054,7 +1134,11 @@ export default function Home() {
                     citation={citation}
                     assessment={result?.assessment ?? null}
                     workflowStage={workflowStage}
-                    bookmarked={bookmarkedCitationIds.has(citation.id)}
+                    bookmarked={isCitationBookmarked(
+                      citation,
+                      result?.document.text ?? "",
+                      bookmarkEntries
+                    )}
                   />
                 </button>
               ))
@@ -1089,19 +1173,18 @@ export default function Home() {
                     selectedCitationIsBookmarked ? " bookmarked" : ""
                   }`}
                   type="button"
-                  onClick={() => void bookmarkSelectedCitation()}
+                  onClick={() => openBookmarkModalForSelected()}
                   disabled={
                     !selectedCitation ||
                     bookmarkStatus === "Saving" ||
-                    selectedCitationIsBookmarked ||
                     isBookmarkFixture
                   }
                   title={
                     isBookmarkFixture
                       ? "Bookmarking is disabled while viewing the bookmark test fixture."
                       : selectedCitationIsBookmarked
-                        ? "This extracted citation is already bookmarked."
-                        : undefined
+                        ? "Edit bookmark comment"
+                        : "Bookmark this citation context"
                   }
                 >
                   {bookmarkStatus === "Saving" ? (
@@ -1115,7 +1198,7 @@ export default function Home() {
                     {isBookmarkFixture
                       ? "Bookmark fixture"
                       : selectedCitationIsBookmarked
-                        ? "Bookmarked"
+                        ? "Edit bookmark"
                         : "Bookmark context"}
                   </span>
                 </button>
@@ -1134,6 +1217,16 @@ export default function Home() {
                 </button>
               </div>
             </div>
+            {selectedCitationIsBookmarked ? (
+              <div className="bookmark-comment" aria-label="Bookmark comment">
+                <p className="bookmark-comment-label">Comment</p>
+                <p className="bookmark-comment-body">
+                  {selectedCitationComment?.trim()
+                    ? selectedCitationComment
+                    : "No comment yet. Click Edit bookmark to add one."}
+                </p>
+              </div>
+            ) : null}
             {bookmarkStatus ? (
               <p className="bookmark-status" role="status" aria-live="polite">
                 {bookmarkStatus}
@@ -1157,6 +1250,16 @@ export default function Home() {
           <div className="details-empty">Select a citation to inspect fields and retrieval.</div>
         )}
       </section>
+      {bookmarkModal ? (
+        <BookmarkModal
+          matchedText={bookmarkModal.matchedText}
+          context={bookmarkModal.context}
+          existingComment={bookmarkModal.existingComment}
+          saving={bookmarkStatus === "Saving"}
+          onSave={(comment) => void submitBookmarkModal(comment)}
+          onCancel={closeBookmarkModal}
+        />
+      ) : null}
     </main>
   );
 }
@@ -3110,7 +3213,10 @@ async function loadSnapshotReview(file: File): Promise<SnapshotReviewResult> {
   return parseJsonResponse<SnapshotReviewResult>(response);
 }
 
-async function fetchBookmarkStatuses(citations: ReviewCitation[]) {
+async function fetchBookmarkStatuses(
+  citations: ReviewCitation[],
+  documentText: string
+) {
   const response = await fetch("/api/bookmark", {
     method: "POST",
     headers: {
@@ -3118,41 +3224,47 @@ async function fetchBookmarkStatuses(citations: ReviewCitation[]) {
     },
     body: JSON.stringify({
       action: "status",
-      citations: citations.map(bookmarkCitationIdentity)
+      citations: citations.map((citation) => ({
+        citation_id: citation.id,
+        ...bookmarkIdentityForCitation(citation, documentText)
+      }))
     })
   });
-  const payload = await parseJsonResponse<{ statuses: Record<string, boolean> }>(response);
+  const payload = await parseJsonResponse<BookmarkStatusResponse>(response);
   return payload.statuses;
 }
 
-function bookmarkCitationIdentity(citation: ReviewCitation) {
-  return {
-    citation_id: citation.id,
-    matched_text: citation.matched_text,
-    kind: citation.kind,
-    fields: citation.fields
-  };
-}
-
-async function bookmarkCitationContext(payload: {
-  action: "add";
-  citation: ReturnType<typeof bookmarkCitationIdentity>;
+async function addBookmarkCitation(payload: {
+  citation: { matched_text: string; context: string };
   provenance: {
     source_path: string | null;
     source_format: string;
-    citation_id: string;
     span: { start: number; end: number };
-    context: string;
   };
+  comment: string | null;
 }): Promise<BookmarkMutationResult> {
   const response = await fetch("/api/bookmark", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ action: "add", ...payload })
   });
   return parseJsonResponse<BookmarkMutationResult>(response);
+}
+
+async function updateBookmarkCommentAction(payload: {
+  citation: { matched_text: string; context: string };
+  comment: string | null;
+}): Promise<BookmarkCommentUpdateResult> {
+  const response = await fetch("/api/bookmark", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ action: "update_comment", ...payload })
+  });
+  return parseJsonResponse<BookmarkCommentUpdateResult>(response);
 }
 
 function isBookmarkFixturePath(sourcePath: string | null) {
@@ -3168,6 +3280,28 @@ function citationContextWindow(documentText: string, citation: ReviewCitation) {
   const start = Math.max(0, citation.start - contextChars);
   const end = Math.min(documentText.length, citation.end + contextChars);
   return documentText.slice(start, end);
+}
+
+function bookmarkIdentityForCitation(citation: ReviewCitation, documentText: string) {
+  return {
+    matched_text: citation.matched_text,
+    context: citationContextWindow(documentText, citation)
+  };
+}
+
+function isCitationBookmarked(
+  citation: ReviewCitation,
+  documentText: string,
+  entries: Map<string, BookmarkStatusEntry>
+) {
+  return entries.get(citation.id)?.bookmarked ?? false;
+}
+
+function citationBookmarkEntry(
+  citation: ReviewCitation,
+  entries: Map<string, BookmarkStatusEntry>
+) {
+  return entries.get(citation.id);
 }
 
 async function parseReviewResponse(response: Response): Promise<ReviewResult> {
@@ -3193,4 +3327,109 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 
 function wait(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function BookmarkModal({
+  matchedText,
+  context,
+  existingComment,
+  saving,
+  onSave,
+  onCancel
+}: {
+  matchedText: string;
+  context: string;
+  existingComment: string | null;
+  saving: boolean;
+  onSave: (comment: string | null) => void;
+  onCancel: () => void;
+}) {
+  const [comment, setComment] = useState<string>(existingComment ?? "");
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    setComment(existingComment ?? "");
+  }, [existingComment]);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving) {
+      return;
+    }
+    onSave(comment.trim() ? comment : null);
+  }
+
+  return (
+    <div className="bookmark-modal-backdrop" role="presentation">
+      <div
+        className="bookmark-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bookmark-modal-title"
+      >
+        <header className="bookmark-modal-header">
+          <h2 id="bookmark-modal-title">
+            {existingComment === null ? "Bookmark citation" : "Edit bookmark comment"}
+          </h2>
+          <button
+            className="icon-action"
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            aria-label="Close bookmark modal"
+          >
+            ×
+          </button>
+        </header>
+        <form onSubmit={handleSubmit} className="bookmark-modal-form">
+          <p className="bookmark-modal-citation">{matchedText}</p>
+          <details className="bookmark-modal-context">
+            <summary>Context window</summary>
+            <pre>{context}</pre>
+          </details>
+          <label className="bookmark-modal-label" htmlFor="bookmark-modal-comment">
+            Comment (optional)
+          </label>
+          <textarea
+            ref={inputRef}
+            id="bookmark-modal-comment"
+            className="bookmark-modal-textarea"
+            value={comment}
+            onChange={(event) => setComment(event.target.value)}
+            placeholder="Why is this citation worth bookmarking?"
+            rows={4}
+            disabled={saving}
+          />
+          <p className="bookmark-modal-hint">
+            The bookmark is identified by the citation text and surrounding
+            context. The same text in a different document is recognized as
+            the same bookmark.
+          </p>
+          <div className="bookmark-modal-actions">
+            <button
+              className="secondary-action compact-action"
+              type="button"
+              onClick={onCancel}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+            <button
+              className="primary-action compact-action"
+              type="submit"
+              disabled={saving}
+            >
+              {saving ? <Loader2 className="spin" size={14} /> : null}
+              <span>{existingComment === null ? "Save bookmark" : "Update comment"}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 }
