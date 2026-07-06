@@ -24,3 +24,6 @@ frontend/.env*.local
 frontend/.next/
 frontend/node_modules/
 frontend/tsconfig.tsbuildinfo
+
+# notebooks
+notebooks/
