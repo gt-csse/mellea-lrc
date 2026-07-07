@@ -44,6 +44,7 @@ type CaseNameSearchTracePayload = {
     corpus: "o" | "r";
     status: string;
     http_status: number | null;
+    cache: string | null;
     case_count: number | null;
     error_message: string | null;
   }>;
@@ -1776,6 +1777,12 @@ function RetrievalDetails({
 function CaseNameSearchDetails({ search }: { search: CaseNameSearchTracePayload }) {
   return (
     <dl className="assessment-fields">
+      {search.query ? (
+        <div>
+          <dt>CourtListener query</dt>
+          <dd>{search.query}</dd>
+        </div>
+      ) : null}
       {search.probes.map((probe) => (
         <div key={probe.corpus}>
           <dt>{probe.corpus === "o" ? "Opinion search" : "RECAP search"}</dt>
@@ -1783,16 +1790,11 @@ function CaseNameSearchDetails({ search }: { search: CaseNameSearchTracePayload 
             {probe.status === "searched"
               ? `${probe.case_count} cases (HTTP ${probe.http_status})`
               : `${probe.status}${probe.http_status ? ` (HTTP ${probe.http_status})` : ""}`}
+            {probe.cache ? `, cache ${probe.cache}` : ""}
             {probe.error_message ? ` — ${probe.error_message}` : ""}
           </dd>
         </div>
       ))}
-      {search.query ? (
-        <div>
-          <dt>Query</dt>
-          <dd>{search.query}</dd>
-        </div>
-      ) : null}
     </dl>
   );
 }

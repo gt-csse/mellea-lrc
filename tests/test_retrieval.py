@@ -243,29 +243,36 @@ def test_not_found_reports_case_name_search_count() -> None:
         post_json=lambda _url, _data: {
             "response": {"citation": "999 U.S. 999", "status": 404, "clusters": []},
         },
-        get_json=lambda _url: {"count": 7, "results": []},
+        get_json=lambda _url: {"cache": "hit", "count": 7, "results": []},
     )
     extraction = _not_found_extraction(
-        FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="999"),
+        FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="999", court="scotus"),
     )
 
     retrieval = run_retrieval(extraction, client_mode="custom", client=client).retrievals[0]
 
     assert retrieval.status == RetrievalStatus.NOT_FOUND
     assert retrieval.candidate_search.status == CaseNameSearchStatus.SEARCHED
-    assert retrieval.candidate_search.query == "caseName:(Doe AND Roe)"
+    assert retrieval.candidate_search.query == "caseName:(Doe AND Roe) AND court_id:scotus"
     assert [
-        (probe.corpus.value, probe.http_status, probe.case_count)
+        (probe.corpus.value, probe.http_status, probe.cache, probe.case_count)
         for probe in retrieval.candidate_search.probes
     ] == [
-        ("o", 200, 7),
-        ("r", 200, 7),
+        ("o", 200, "hit", 7),
+        ("r", 200, "hit", 7),
     ]
 
 
 def test_case_name_query_uses_one_meaningful_anchor_per_party() -> None:
     assert _case_name_query("Peterson", "Nelnet Diversified Sols., LLC") == "caseName:(Peterson AND Nelnet)"
     assert _case_name_query("E.E.O.C.", "Maricopa County Cmty. Coll. Dist.") == "caseName:(EEOC AND Maricopa)"
+
+
+def test_case_name_query_includes_court_when_available() -> None:
+    assert (
+        _case_name_query("Peterson", "Nelnet", court="ca10")
+        == "caseName:(Peterson AND Nelnet) AND court_id:ca10"
+    )
 
 
 def test_not_found_reports_zero_case_name_search_results() -> None:

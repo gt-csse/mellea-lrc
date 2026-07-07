@@ -462,6 +462,7 @@ def _serialize_case_name_search_trace(item: CaseNameSearchTrace) -> dict[str, Js
                 "corpus": probe.corpus.value,
                 "status": probe.status.value,
                 "http_status": probe.http_status,
+                "cache": probe.cache,
                 "case_count": probe.case_count,
                 "error_message": probe.error_message,
             }
@@ -483,6 +484,7 @@ def _deserialize_case_name_search_trace(
             corpus=CaseNameSearchCorpus(_required_str(probe.get("corpus"), "search corpus")),
             status=CaseNameSearchStatus(_required_str(probe.get("status"), "probe status")),
             http_status=_optional_int(probe.get("http_status")),
+            cache=_optional_str(probe.get("cache")),
             case_count=_optional_int(probe.get("case_count")),
             error_message=_optional_str(probe.get("error_message")),
         )

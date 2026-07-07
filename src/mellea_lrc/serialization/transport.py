@@ -215,6 +215,7 @@ class CaseNameSearchProbePayload(ArtifactPayload):
     case_count: int | None
     error_message: str | None
     http_status: int | None = None
+    cache: str | None = None
 
 
 class CaseNameSearchTracePayload(ArtifactPayload):

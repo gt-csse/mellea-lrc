@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 HTTP_OK = 200
 _PARTY_TOKEN = re.compile(r"(?:[A-Za-z]\.){2,}|[A-Za-z0-9]+")
+_COURT_ID = re.compile(r"[A-Za-z0-9_-]+")
 _NON_DISTINCTIVE_PARTY_TOKENS = frozenset(
     {
         "and",
@@ -68,7 +69,7 @@ def search_case_name_candidates(
         return CaseNameSearchTrace(status=CaseNameSearchStatus.SKIPPED_PARTIAL_CASE_NAME)
 
     try:
-        query = _case_name_query(plaintiff, defendant)
+        query = _case_name_query(plaintiff, defendant, court=citation.court)
     except ValueError:
         return CaseNameSearchTrace(status=CaseNameSearchStatus.SEARCH_FAILED)
 
@@ -113,11 +114,13 @@ def _search_corpus(
             error_message=f"{type(exc).__name__}: {exc}",
         )
     http_status = _http_status(payload)
+    cache = _cache_status(payload)
     if http_status != HTTP_OK:
         return CaseNameSearchProbe(
             corpus,
             CaseNameSearchStatus.SEARCH_FAILED,
             http_status=http_status,
+            cache=cache,
             error_message=_response_error(payload, http_status),
         )
     case_count = _case_count(payload)
@@ -128,13 +131,25 @@ def _search_corpus(
         corpus,
         CaseNameSearchStatus.SEARCHED,
         http_status=http_status,
+        cache=cache,
         case_count=case_count,
     )
 
 
-def _case_name_query(plaintiff: str, defendant: str) -> str:
-    """Build a recall-oriented field query from one anchor token per party."""
-    return f"caseName:({_party_anchor(plaintiff)} AND {_party_anchor(defendant)})"
+def _case_name_query(
+    plaintiff: str,
+    defendant: str,
+    *,
+    court: str | None = None,
+) -> str:
+    """Build a field query from party anchors and the extracted court, when present."""
+    query = f"caseName:({_party_anchor(plaintiff)} AND {_party_anchor(defendant)})"
+    if court:
+        if _COURT_ID.fullmatch(court) is None:
+            msg = "Court ID did not contain a searchable CourtListener slug"
+            raise ValueError(msg)
+        query = f"{query} AND court_id:{court}"
+    return query
 
 
 def _party_anchor(party: str) -> str:
@@ -154,6 +169,13 @@ def _http_status(payload: object) -> int | None:
     if isinstance(status, bool) or not isinstance(status, int):
         return None
     return status
+
+
+def _cache_status(payload: object) -> str | None:
+    if not isinstance(payload, Mapping):
+        return None
+    cache = payload.get("cache")
+    return cache if isinstance(cache, str) and cache else None
 
 
 def _response_error(payload: object, http_status: int | None) -> str:

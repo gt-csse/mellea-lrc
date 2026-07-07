@@ -6,10 +6,12 @@ Two decisions are intentionally separate.
 
 ## 1. Case-name query engineering
 
-The current reasonable default is one fielded token intersection, such as
-`caseName:(Peterson AND Nelnet)`. `caseName:` keeps body-text mentions from
-dominating, while one meaningful anchor per party avoids requiring exact
-punctuation, abbreviations, entity suffixes, or a contiguous full name.
+The current reasonable default is one fielded token intersection plus the
+extracted court when one is available, such as
+`caseName:(Peterson AND Nelnet) AND court_id:ca10`. `caseName:` keeps body-text
+mentions from dominating, while one meaningful anchor per party avoids
+requiring exact punctuation, abbreviations, entity suffixes, or a contiguous
+full name. Citations without an extracted court retain the case-name-only query.
 
 This query is a replaceable engineering choice, not a claim that the resulting
 cases match the citation. Fuzzy tokens and alternative expansions may be tested
@@ -23,10 +25,11 @@ query to both default CourtListener paths:
 - opinion-cluster search (`type=o`);
 - RECAP search (`type=r`).
 
-Both searches always run when supported. Their HTTP status, count, and error are
-traced independently. Counts are never added together: the corpora may overlap,
-and retrieval does not deduplicate, rank, compare, or interpret results. Later
-design work can decide how assessment should consume these two observations.
+Both searches always run when supported. Their HTTP status, cache outcome,
+count, and error are traced independently. Counts are never added together: the
+corpora may overlap, and retrieval does not deduplicate, rank, compare, or
+interpret results. Later design work can decide how assessment should consume
+these two observations.
 
 ## What we can and can't get from CourtListener
 
@@ -52,6 +55,7 @@ class CaseNameSearchProbe:
     corpus: Literal["o", "r"]
     status: CaseNameSearchStatus
     http_status: int | None = None
+    cache: str | None = None
     case_count: int | None = None     # corpus-scoped hits; type=o counts clusters
     error_message: str | None = None
 
@@ -80,7 +84,8 @@ preserve the same value under `raw.count`; the parser supports both shapes.
 Wiring:
 - `retrieval/not_found_search.py` — skip gate (**both parties** required;
   single/no party is noise), select one meaningful alphanumeric anchor from each
-  party, query `caseName:(A AND B)`, and read `count`.
+  party, query `caseName:(A AND B) AND court_id:<court>` when a court is
+  available (otherwise case name only), and read `count`.
 - `search_opinions` and `search_recap` on both clients, with each method preserving its own response.
 - Frontend: the retrieval trace's second step is **Case-name search**, showing opinion and RECAP outcomes separately.
 

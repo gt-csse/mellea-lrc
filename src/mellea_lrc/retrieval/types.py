@@ -94,6 +94,7 @@ class CaseNameSearchProbe:
     corpus: CaseNameSearchCorpus
     status: CaseNameSearchStatus
     http_status: int | None = None
+    cache: str | None = None
     case_count: int | None = None
     error_message: str | None = None
 
@@ -124,8 +125,9 @@ class CaseNameSearchProbe:
 class CaseNameSearchTrace:
     """Two-corpus case-name search attached to a not-found citation.
 
-    When a reporter lookup 404s but both parties were extracted, we query
-    The same engineered query is sent independently to opinions and RECAP.
+    When a reporter lookup 404s but both parties were extracted, the traced
+    query combines party anchors with the extracted court when available. The
+    same engineered query is sent independently to opinions and RECAP.
     Counts remain corpus-scoped: retrieval does not combine, rank, or interpret
     them, and expresses no opinion about whether a result is the cited case.
     """
