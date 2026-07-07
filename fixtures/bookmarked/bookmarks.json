@@ -1,0 +1,181 @@
+{
+  "schema_version": 2,
+  "bookmarks": [
+    {
+      "bookmark_id": "citation:32cc6c88c32291627587c8e9a39af86b15c2105f1776001a8a138f3e032f9262",
+      "citation": {
+        "matched_text": "497 F. Supp. 3d 1025",
+        "context": "States v. Smalls , 605 F.3d 765, 787 (10th Cir. 2010) (internal quotations and citations omitted).\n\nThe trial court's discretion to balance possible unfair prejudice against probative value is broad. United States v. Begay ,  497 F. Supp. 3d 1025, 1052 (D.N.M. 2020) (citations omitted). While Federal Rule of Evidence 404(a) generally prohibits character evidence to prove conduct in conformity therewith, Rule 405(b) expressly permits evidence of specific instances of conduct when ch"
+      },
+      "comment": "not found branch\nopinion returns 3 cases while recap returns 324 cases",
+      "provenances": [
+        {
+          "source_path": "../local/test_data/1.txt",
+          "source_format": "text",
+          "span": {
+            "start": 3022,
+            "end": 3108
+          },
+          "provenance_id": "provenance:d54dda2442f05f767fcb1c77cb6f8ce2761f504c19464e5326ff1b08bc1856d0",
+          "seen_at": "2026-07-07T17:00:07.375Z"
+        }
+      ],
+      "created_at": "2026-07-07T17:00:07.375Z",
+      "updated_at": "2026-07-07T17:00:07.375Z"
+    },
+    {
+      "bookmark_id": "citation:43ae974f98aecb0f0e0cf4f3e115282bf8305ad4de3c20c564658ea6fa7e0de1",
+      "citation": {
+        "matched_text": "409 F.Supp.3d 1122",
+        "context": "\"  in  defamation  cases). Additionally,  under  Rule  608(b),  specific  instances  of conduct  may  be  inquired  into  on  cross-examination  if  probative  of  truthfulness. New  Mexico  ex  rel.\n\nBalderas v. Real Estate Law Center, P.C ., 409 F.Supp.3d 1122, 1128 (2019) (allowing cross-examination about specific instances of dishonesty).\n\nThe Court must balance the probative value of evidence against the danger of unfair prejudice under Rule 403. However, evidence is not unfairly prejudicial merely because it damages a party's case"
+      },
+      "comment": "opinion returns 0 but recap returns only 1,\nmight be a good case to show this fallback",
+      "provenances": [
+        {
+          "source_path": "../local/test_data/1.txt",
+          "source_format": "text",
+          "span": {
+            "start": 3888,
+            "end": 4031
+          },
+          "provenance_id": "provenance:12f1d74c70aea703a992aaacdf0550b7b6f12140b1f3143116c036b5509bc970",
+          "seen_at": "2026-07-07T17:01:09.007Z"
+        }
+      ],
+      "created_at": "2026-07-07T17:01:09.007Z",
+      "updated_at": "2026-07-07T17:01:09.007Z"
+    },
+    {
+      "bookmark_id": "citation:acf652c7721bc7c9384d92742f6f65b72780449d5e96cdad2ae1ddade98b601d",
+      "citation": {
+        "matched_text": "416 F.Supp.3d 1131",
+        "context": "Farmington ,  798 F.Supp.2d  1215,  1227  (D.N.M.  2011),  the  court  allowed  evidence  of  prior  substance  abuse  issues  as relevant to emotional distress damages. The District of Colorado in Sanchez v. Duffy , 416 F.Supp.3d 1131 (D. Colo. 2018) permitted evidence of prior mental health treatment to challenge causation in emotional distress claims.\n\nIn Boeser v. Sharp , the court recognized that when a plaintiff places mental state at issue"
+      },
+      "comment": "not found\nnothing returns. real hallucination?",
+      "provenances": [
+        {
+          "source_path": "../local/test_data/1.txt",
+          "source_format": "text",
+          "span": {
+            "start": 11442,
+            "end": 11495
+          },
+          "provenance_id": "provenance:50ec36d3c98987ce53f05f4a4b3982e291418fbca37b5cc12e47c5a61c546620",
+          "seen_at": "2026-07-07T17:01:57.192Z"
+        }
+      ],
+      "created_at": "2026-07-07T17:01:57.192Z",
+      "updated_at": "2026-07-07T17:01:57.192Z"
+    },
+    {
+      "bookmark_id": "citation:91b92b15468d71fbe6acd0ccfbeb630dc50b55834d72f1d9c78e9745a9edc9d4",
+      "citation": {
+        "matched_text": "2007 WL 1430100",
+        "context": "istress claims.\n\nIn Boeser v. Sharp , the court recognized that when a plaintiff places mental state at issue evidence of  pre-existing  conditions  becomes  highly  relevant  to  assessing  damages. Boeser  v.  Sharp ,  No. CIVA03CV00031WDMMEH, 2007 WL 1430100, at *7 (D. Colo. May 14, 2007); see also Solis-Marrufo v. Bd. of Comm'rs for Cnty. of Bernalillo , No. CIV 11-0107 JB/KBM, 2013 WL 1658203, at *20 (D.N.M. Mar.  28,  2013)  (permitting  Defendants  to  contradict  a  plaintiff's"
+      },
+      "comment": "not found \nrecap returns 1 and opinion 0\nthe case_name extraction is malformatted",
+      "provenances": [
+        {
+          "source_path": "../local/test_data/1.txt",
+          "source_format": "text",
+          "span": {
+            "start": 11785,
+            "end": 11877
+          },
+          "provenance_id": "provenance:cb7e5c6bc2af885505a149681d5d4ef983107b5eda1014c6e41579f3fedbe3a1",
+          "seen_at": "2026-07-07T17:03:13.711Z"
+        }
+      ],
+      "created_at": "2026-07-07T17:03:13.711Z",
+      "updated_at": "2026-07-07T17:03:13.711Z"
+    },
+    {
+      "bookmark_id": "citation:b622ce5b6cc51a6f8a0270210121428f3ffb667f4dad300164cc5432a8667ebb",
+      "citation": {
+        "matched_text": "2013 WL 1658203",
+        "context": "nditions  becomes  highly  relevant  to  assessing  damages. Boeser  v.  Sharp ,  No. CIVA03CV00031WDMMEH, 2007 WL 1430100, at *7 (D. Colo. May 14, 2007); see also Solis-Marrufo v. Bd. of Comm'rs for Cnty. of Bernalillo , No. CIV 11-0107 JB/KBM, 2013 WL 1658203, at *20 (D.N.M. Mar.  28,  2013)  (permitting  Defendants  to  contradict  a  plaintiff's  asserted  damages  by  inquiring  into previous drug use as admissible where plaintiff's mental and emotional state at issue under Rules 403"
+      },
+      "comment": "case_name malformatted in extraction",
+      "provenances": [
+        {
+          "source_path": "../local/test_data/1.txt",
+          "source_format": "text",
+          "span": {
+            "start": 11924,
+            "end": 12018
+          },
+          "provenance_id": "provenance:ec6983d926944b56850257c238dfaa1f7e7762e68e9438112e1aa4c6fe1d616f",
+          "seen_at": "2026-07-07T17:03:57.765Z"
+        }
+      ],
+      "created_at": "2026-07-07T17:03:57.765Z",
+      "updated_at": "2026-07-07T17:03:57.765Z"
+    },
+    {
+      "bookmark_id": "citation:97240c9addc44dee240d0f263f2d87972014cf135535d2dc464af6906944d3b4",
+      "citation": {
+        "matched_text": "2021 WL 4133804",
+        "context": "y admitted social media evidence in similar contexts. See Sanchez v. Duffy , 416 F.Supp.3d 1131, 1142 (D. Colo. 2018) (allowing Facebook posts as relevant to plaintiff's mental state and reputation); Estate of Martinelli v. City & Cty. of Denver , No. 19cv-02737, 2021 WL 4133804, at *6-7 (D. Colo. Sept. 10, 2021) (admitting social media evidence as relevant to damages claims); Peterson v. Nelnet Diversified Sols., LLC ,  400 F.Supp.3d 1122, 1131 (D. Colo. 2019) (permitting discovery and use of social media posts in emotional distress case).\n\nB. Religious Beliefs Evidence"
+      },
+      "comment": "opinion exists 2 cases\nrecap 26 cases",
+      "provenances": [
+        {
+          "source_path": "../local/test_data/1.txt",
+          "source_format": "text",
+          "span": {
+            "start": 18912,
+            "end": 19090
+          },
+          "provenance_id": "provenance:8cb9de7d25e6847c0d0da5f6c096c35c795eeae129352657f0ce2870be15c9e7",
+          "seen_at": "2026-07-07T17:06:46.505Z"
+        }
+      ],
+      "created_at": "2026-07-07T17:06:46.505Z",
+      "updated_at": "2026-07-07T17:06:46.505Z"
+    },
+    {
+      "bookmark_id": "citation:24c2f8d1dd047b1f609dc09db2544f8f00e0a5ad38046c95cd3661aad0d8a517",
+      "citation": {
+        "matched_text": "400 F.Supp.3d 1122",
+        "context": "te and reputation); Estate of Martinelli v. City & Cty. of Denver , No. 19cv-02737, 2021 WL 4133804, at *6-7 (D. Colo. Sept. 10, 2021) (admitting social media evidence as relevant to damages claims); Peterson v. Nelnet Diversified Sols., LLC ,  400 F.Supp.3d 1122, 1131 (D. Colo. 2019) (permitting discovery and use of social media posts in emotional distress case).\n\nB. Religious Beliefs Evidence Under Rule 610.\n\nWhile  Rule  610  prohibits  evidence  of  religious  beliefs  'to  attack  or  support  the  witness's credibility,' it does not bar such evidence wh"
+      },
+      "comment": "opinion 0\nrecap 1",
+      "provenances": [
+        {
+          "source_path": "../local/test_data/1.txt",
+          "source_format": "text",
+          "span": {
+            "start": 19092,
+            "end": 19257
+          },
+          "provenance_id": "provenance:5dc834b85e3fd5544ebbfbbbf9a51c66495ccfa80f9b984124895c9d9b490735",
+          "seen_at": "2026-07-07T17:07:25.546Z"
+        }
+      ],
+      "created_at": "2026-07-07T17:07:25.546Z",
+      "updated_at": "2026-07-07T17:07:25.546Z"
+    },
+    {
+      "bookmark_id": "citation:be766a86263989ff5263544dde5a4312890b872e07ec8dbbac5fd68c16f45db3",
+      "citation": {
+        "matched_text": "2021 WL 4133804",
+        "context": "nstructions because of its clearly probative value); Peterson v. Nelnet Diversified Sols., LLC , 400 F.Supp.3d at 1133 (finding probative value of reputation evidence outweighed potential prejudice); Estate of Martinelli , 2021 WL 4133804 at *8 (allowing evidence critical to damages claims despite prejudicial potential).\n\nVI. Alternatively, the Defendants are Entitled to Individual Analysis or Limiting Instructions Considering the Intersect"
+      },
+      "comment": "malformed extraction\nwith wrong locator",
+      "provenances": [
+        {
+          "source_path": "../local/test_data/1.txt",
+          "source_format": "text",
+          "span": {
+            "start": 23891,
+            "end": 23935
+          },
+          "provenance_id": "provenance:8f5943365425f458acffcd0fe8aac891dc61827243910370310b22e0213ce693",
+          "seen_at": "2026-07-07T17:07:57.729Z"
+        }
+      ],
+      "created_at": "2026-07-07T17:07:57.729Z",
+      "updated_at": "2026-07-07T17:07:57.729Z"
+    }
+  ]
+}

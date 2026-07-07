@@ -1,0 +1,81 @@
+========
+497 F. Supp. 3d 1025
+
+> not found branch
+opinion returns 3 cases while recap returns 324 cases
+
+Context: States v. Smalls , 605 F.3d 765, 787 (10th Cir. 2010) (internal quotations and citations omitted).
+
+The trial court's discretion to balance possible unfair prejudice against probative value is broad. United States v. Begay ,  497 F. Supp. 3d 1025, 1052 (D.N.M. 2020) (citations omitted). While Federal Rule of Evidence 404(a) generally prohibits character evidence to prove conduct in conformity therewith, Rule 405(b) expressly permits evidence of specific instances of conduct when ch
+
+========
+409 F.Supp.3d 1122
+
+> opinion returns 0 but recap returns only 1,
+might be a good case to show this fallback
+
+Context: "  in  defamation  cases). Additionally,  under  Rule  608(b),  specific  instances  of conduct  may  be  inquired  into  on  cross-examination  if  probative  of  truthfulness. New  Mexico  ex  rel.
+
+Balderas v. Real Estate Law Center, P.C ., 409 F.Supp.3d 1122, 1128 (2019) (allowing cross-examination about specific instances of dishonesty).
+
+The Court must balance the probative value of evidence against the danger of unfair prejudice under Rule 403. However, evidence is not unfairly prejudicial merely because it damages a party's case
+
+========
+416 F.Supp.3d 1131
+
+> not found
+nothing returns. real hallucination?
+
+Context: Farmington ,  798 F.Supp.2d  1215,  1227  (D.N.M.  2011),  the  court  allowed  evidence  of  prior  substance  abuse  issues  as relevant to emotional distress damages. The District of Colorado in Sanchez v. Duffy , 416 F.Supp.3d 1131 (D. Colo. 2018) permitted evidence of prior mental health treatment to challenge causation in emotional distress claims.
+
+In Boeser v. Sharp , the court recognized that when a plaintiff places mental state at issue
+
+========
+2007 WL 1430100
+
+> not found 
+recap returns 1 and opinion 0
+the case_name extraction is malformatted
+
+Context: istress claims.
+
+In Boeser v. Sharp , the court recognized that when a plaintiff places mental state at issue evidence of  pre-existing  conditions  becomes  highly  relevant  to  assessing  damages. Boeser  v.  Sharp ,  No. CIVA03CV00031WDMMEH, 2007 WL 1430100, at *7 (D. Colo. May 14, 2007); see also Solis-Marrufo v. Bd. of Comm'rs for Cnty. of Bernalillo , No. CIV 11-0107 JB/KBM, 2013 WL 1658203, at *20 (D.N.M. Mar.  28,  2013)  (permitting  Defendants  to  contradict  a  plaintiff's
+
+========
+2013 WL 1658203
+
+> case_name malformatted in extraction
+
+Context: nditions  becomes  highly  relevant  to  assessing  damages. Boeser  v.  Sharp ,  No. CIVA03CV00031WDMMEH, 2007 WL 1430100, at *7 (D. Colo. May 14, 2007); see also Solis-Marrufo v. Bd. of Comm'rs for Cnty. of Bernalillo , No. CIV 11-0107 JB/KBM, 2013 WL 1658203, at *20 (D.N.M. Mar.  28,  2013)  (permitting  Defendants  to  contradict  a  plaintiff's  asserted  damages  by  inquiring  into previous drug use as admissible where plaintiff's mental and emotional state at issue under Rules 403
+
+========
+2021 WL 4133804
+
+> opinion exists 2 cases
+recap 26 cases
+
+Context: y admitted social media evidence in similar contexts. See Sanchez v. Duffy , 416 F.Supp.3d 1131, 1142 (D. Colo. 2018) (allowing Facebook posts as relevant to plaintiff's mental state and reputation); Estate of Martinelli v. City & Cty. of Denver , No. 19cv-02737, 2021 WL 4133804, at *6-7 (D. Colo. Sept. 10, 2021) (admitting social media evidence as relevant to damages claims); Peterson v. Nelnet Diversified Sols., LLC ,  400 F.Supp.3d 1122, 1131 (D. Colo. 2019) (permitting discovery and use of social media posts in emotional distress case).
+
+B. Religious Beliefs Evidence
+
+========
+400 F.Supp.3d 1122
+
+> opinion 0
+recap 1
+
+Context: te and reputation); Estate of Martinelli v. City & Cty. of Denver , No. 19cv-02737, 2021 WL 4133804, at *6-7 (D. Colo. Sept. 10, 2021) (admitting social media evidence as relevant to damages claims); Peterson v. Nelnet Diversified Sols., LLC ,  400 F.Supp.3d 1122, 1131 (D. Colo. 2019) (permitting discovery and use of social media posts in emotional distress case).
+
+B. Religious Beliefs Evidence Under Rule 610.
+
+While  Rule  610  prohibits  evidence  of  religious  beliefs  'to  attack  or  support  the  witness's credibility,' it does not bar such evidence wh
+
+========
+2021 WL 4133804
+
+> malformed extraction
+with wrong locator
+
+Context: nstructions because of its clearly probative value); Peterson v. Nelnet Diversified Sols., LLC , 400 F.Supp.3d at 1133 (finding probative value of reputation evidence outweighed potential prejudice); Estate of Martinelli , 2021 WL 4133804 at *8 (allowing evidence critical to damages claims despite prejudicial potential).
+
+VI. Alternatively, the Defendants are Entitled to Individual Analysis or Limiting Instructions Considering the Intersect

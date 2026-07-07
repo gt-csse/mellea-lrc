@@ -91,7 +91,7 @@ export function isBookmarkUpdateCommentRequest(
 export async function bookmarkStatuses(citations: BookmarkCitationInput[]) {
   return withStoreLock(async () => {
     const paths = bookmarkPaths();
-    const store = await loadOrMigrateStore(paths);
+    const store = await loadStore(paths);
     const lookup = new Map(
       store.bookmarks.map((bookmark) => [bookmark.bookmark_id, bookmark])
     );
@@ -115,7 +115,7 @@ export async function bookmarkStatuses(citations: BookmarkCitationInput[]) {
 export async function addBookmark(request: BookmarkAddRequest) {
   return withStoreLock(async () => {
     const paths = bookmarkPaths();
-    const store = await loadOrMigrateStore(paths);
+    const store = await loadStore(paths);
     const id = bookmarkId(request.citation);
     const now = new Date().toISOString();
     const provenance = storedProvenance(request.provenance, now);
@@ -164,7 +164,7 @@ export async function updateBookmarkComment(
 ) {
   return withStoreLock(async () => {
     const paths = bookmarkPaths();
-    const store = await loadOrMigrateStore(paths);
+    const store = await loadStore(paths);
     const id = bookmarkId(request.citation);
     const bookmark = store.bookmarks.find((item) => item.bookmark_id === id);
     if (!bookmark) {
@@ -226,7 +226,7 @@ function bookmarkPaths() {
     : process.cwd();
   const directory = process.env.MELLEA_LRC_BOOKMARK_DIR
     ? path.resolve(process.env.MELLEA_LRC_BOOKMARK_DIR)
-    : path.join(repoRoot, "local", "bookmarked");
+    : path.join(repoRoot, "fixtures", "bookmarked");
   return {
     directory,
     json: path.join(directory, "bookmarks.json"),
@@ -235,7 +235,7 @@ function bookmarkPaths() {
   };
 }
 
-async function loadOrMigrateStore(paths: ReturnType<typeof bookmarkPaths>): Promise<BookmarkStore> {
+async function loadStore(paths: ReturnType<typeof bookmarkPaths>): Promise<BookmarkStore> {
   await mkdir(paths.directory, { recursive: true });
   try {
     const parsed = JSON.parse(await readFile(paths.json, "utf-8")) as unknown;
@@ -249,7 +249,7 @@ async function loadOrMigrateStore(paths: ReturnType<typeof bookmarkPaths>): Prom
     }
   }
 
-  const store = await migrateLegacyText(paths.text);
+  const store: BookmarkStore = { schema_version: schemaVersion, bookmarks: [] };
   await atomicWrite(paths.json, `${JSON.stringify(store, null, 2)}\n`);
   try {
     await readFile(paths.text, "utf-8");
@@ -260,47 +260,6 @@ async function loadOrMigrateStore(paths: ReturnType<typeof bookmarkPaths>): Prom
     await atomicWrite(paths.text, "");
   }
   return store;
-}
-
-async function migrateLegacyText(textPath: string): Promise<BookmarkStore> {
-  let text = "";
-  try {
-    text = await readFile(textPath, "utf-8");
-  } catch (error) {
-    if (!isMissingFile(error)) {
-      throw error;
-    }
-  }
-  const contexts = text
-    .split(/^========\s*$/m)
-    .map((context) => context.trim())
-    .filter(Boolean);
-  return {
-    schema_version: schemaVersion,
-    bookmarks: contexts.map((context) => {
-      const id = digest(context);
-      const now = new Date().toISOString();
-      return {
-        bookmark_id: `legacy:${id}`,
-        citation: {
-          matched_text: context,
-          context
-        },
-        comment: null,
-        provenances: [
-          {
-            provenance_id: `legacy-provenance:${id}`,
-            source_path: "local/bookmarked/bookmarked.txt",
-            source_format: "text",
-            span: { start: 0, end: context.length },
-            seen_at: now
-          }
-        ],
-        created_at: now,
-        updated_at: now
-      };
-    })
-  };
 }
 
 async function writeStoreAndFixture(

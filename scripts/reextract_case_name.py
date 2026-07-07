@@ -2,7 +2,7 @@
 
 Example:
     uv run --group llm python scripts/reextract_case_name.py \
-      --context-file local/bookmarked/bookmarked.txt \
+      --context-file fixtures/bookmarked/bookmarked.txt \
       --extracted-case-name "<NO_EXTRACTED_CASE_NAME>" \
       --courtlistener-case-name "Brown v. Board"
 
