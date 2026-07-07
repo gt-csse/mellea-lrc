@@ -46,9 +46,12 @@ build-backend = "uv_build"
 
 [dependency-groups]
 preprocessing = [
+    "charset-normalizer>=3.4.7",
     "docling>=2.0",
 ]
 extraction = [
+    "docling>=2.102.2",
+    "dotenv>=0.9.9",
     "eyecite>=2.6",
     "mellea>=0.3.2",
 ]

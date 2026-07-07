@@ -7,13 +7,18 @@ from mellea_lrc.extraction.pipeline import (
     run_extraction,
     run_extraction_from_text,
 )
-from mellea_lrc.extraction.types import DocumentExtraction, ExtractedCitation
-from mellea_lrc.extraction.mellea import MelleaExtractor
+from mellea_lrc.extraction.types import (
+    ExtractedCitation,
+    ExtractedDocument,
+    ExtractionBackend,
+    ExtractionMetadata,
+)
 
 __all__ = [
-    "DocumentExtraction",
     "ExtractedCitation",
-    "MelleaExtractor",
+    "ExtractedDocument",
+    "ExtractionBackend",
+    "ExtractionMetadata",
     "extract",
     "extract_baseline",
     "extract_citations",

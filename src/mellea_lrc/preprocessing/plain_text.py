@@ -2,11 +2,11 @@
 
 from pathlib import Path
 
+from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.preprocessing.types import (
     PreprocessedDocument,
-    PreprocessedDocumentMetadata,
     PreprocessingBackend,
-    SourceFormat,
+    PreprocessingMetadata,
 )
 
 _PLAIN_TEXT_MARKER = "--- Plain text ---"
@@ -28,12 +28,14 @@ def preprocess_plain_text(path: Path | str) -> PreprocessedDocument:
     header, body = split_plain_text_file(raw)
 
     return PreprocessedDocument(
-        text=body,
-        metadata=PreprocessedDocumentMetadata(
-            source_path=str(source_path),
-            source_format=SourceFormat.TEXT,
-            backend=PreprocessingBackend.PLAIN_TEXT,
+        source_metadata=SourceMetadata(
+            path=str(source_path),
+            format=SourceFormat.TEXT,
             header=header or None,
+        ),
+        text=body,
+        preprocessing_metadata=PreprocessingMetadata(
+            backend=PreprocessingBackend.PLAIN_TEXT,
         ),
     )
 
@@ -46,11 +48,13 @@ def preprocess_plain_text_from_string(
     """Wrap raw text in a preprocessed document without reading a file."""
     header, body = split_plain_text_file(text)
     return PreprocessedDocument(
-        text=body,
-        metadata=PreprocessedDocumentMetadata(
-            source_path=source_path,
-            source_format=SourceFormat.TEXT,
-            backend=PreprocessingBackend.PLAIN_TEXT,
+        source_metadata=SourceMetadata(
+            path=source_path,
+            format=SourceFormat.TEXT,
             header=header or None,
+        ),
+        text=body,
+        preprocessing_metadata=PreprocessingMetadata(
+            backend=PreprocessingBackend.PLAIN_TEXT,
         ),
     )
