@@ -28,13 +28,18 @@ import {
   useState
 } from "react";
 
+type CourtListenerRequestTracePayload = {
+  http_status: number | null;
+  cache: string | null;
+  error_message: string | null;
+};
+
 type CourtResolutionTracePayload = {
   courtlistener_court_id: string | null;
   resolved_via: string;
   docket_id: string | null;
   docket_url: string | null;
-  cached: boolean;
-  error_message: string | null;
+  request_trace: CourtListenerRequestTracePayload | null;
 };
 
 type CaseNameSearchTracePayload = {
@@ -43,10 +48,8 @@ type CaseNameSearchTracePayload = {
   probes: Array<{
     corpus: "o" | "r";
     status: string;
-    http_status: number | null;
-    cache: string | null;
+    request_trace: CourtListenerRequestTracePayload;
     case_count: number | null;
-    error_message: string | null;
   }>;
 };
 
@@ -62,10 +65,7 @@ type RetrievalPayload = {
   status: string;
   source: string;
   case_names: string[];
-  lookup_status: number | null;
-  lookup_cache: string | null;
-  lookup_key: string | null;
-  error_message: string | null;
+  request_trace: CourtListenerRequestTracePayload;
   failure_detail: Record<string, unknown> | null;
   candidate: RetrievedCandidatePayload | null;
   candidates: RetrievedCandidatePayload[];
@@ -274,7 +274,7 @@ type CitationFilter =
   | AssessmentFilter;
 type FilterOption = { label: string; value: CitationFilter };
 type ComparisonMatchType = "perfect" | "exact" | "semantic" | "warning" | "error" | "unchecked";
-type TraceSectionId = "retrieval" | "assessment" | "jurisdiction-inference";
+type TraceSectionId = "retrieval" | "assessment" | "jurisdiction-inference" | "comment";
 type TraceOperationStatus = "complete" | "running" | "failed" | "not-run" | "unavailable";
 type BibliographicRow = {
   id: string;
@@ -1218,16 +1218,6 @@ export default function Home() {
                 </button>
               </div>
             </div>
-            {selectedCitationIsBookmarked ? (
-              <div className="bookmark-comment" aria-label="Bookmark comment">
-                <p className="bookmark-comment-label">Comment</p>
-                <p className="bookmark-comment-body">
-                  {selectedCitationComment?.trim()
-                    ? selectedCitationComment
-                    : "No comment yet. Click Edit bookmark to add one."}
-                </p>
-              </div>
-            ) : null}
             {bookmarkStatus ? (
               <p className="bookmark-status" role="status" aria-live="polite">
                 {bookmarkStatus}
@@ -1245,6 +1235,8 @@ export default function Home() {
               onSectionChange={setSelectedTraceSection}
               onCandidateChange={selectCourtListenerCandidate}
               onExtractedAttemptChange={selectExtractedAttempt}
+              comment={selectedCitationComment}
+              bookmarked={selectedCitationIsBookmarked}
             />
           </>
         ) : (
@@ -1276,7 +1268,9 @@ function TraceWorkspace({
   selectedSection,
   onSectionChange,
   onCandidateChange,
-  onExtractedAttemptChange
+  onExtractedAttemptChange,
+  comment,
+  bookmarked
 }: {
   citation: ReviewCitation;
   citationIndex: number;
@@ -1289,6 +1283,8 @@ function TraceWorkspace({
   onSectionChange: (section: TraceSectionId) => void;
   onCandidateChange: (citationId: string, candidateIndex: number) => void;
   onExtractedAttemptChange: (citationId: string, attemptIndex: number) => void;
+  comment: string | null;
+  bookmarked: boolean;
 }) {
   const sections: Array<{ id: TraceSectionId; label: string; status: TraceOperationStatus }> = [
     {
@@ -1305,6 +1301,11 @@ function TraceWorkspace({
       id: "jurisdiction-inference",
       label: "Jurisdiction inference",
       status: citationIndex >= 0 && jurisdictions && citationIndex < jurisdictions.length ? "complete" : "unavailable"
+    },
+    {
+      id: "comment",
+      label: "Comment",
+      status: comment?.trim() ? "complete" : bookmarked ? "not-run" : "unavailable"
     }
   ];
 
@@ -1385,6 +1386,9 @@ function TraceWorkspace({
           {selectedSection === "jurisdiction-inference" && citationIndex >= 0 && jurisdictions ? (
             <JurisdictionDetails inference={jurisdictions[citationIndex] ?? null} />
           ) : null}
+          {selectedSection === "comment" ? (
+            <CommentDetails comment={comment} bookmarked={bookmarked} />
+          ) : null}
         </div>
       </section>
     </div>
@@ -1415,6 +1419,28 @@ function assessmentOperationStatus(
 
 function formatTraceOperationStatus(status: TraceOperationStatus) {
   return status === "not-run" ? "Not run" : formatStatusLabel(status);
+}
+
+function CommentDetails({ comment, bookmarked }: { comment: string | null; bookmarked: boolean }) {
+  return (
+    <div className="detail-group comment-detail-group">
+      <div className="assessment-trace-heading">
+        <h3>Review comment</h3>
+        <p>Notes saved with this citation context.</p>
+      </div>
+      <div className={`comment-note${comment?.trim() ? " has-comment" : ""}`}>
+        {comment?.trim() ? (
+          <p>{comment}</p>
+        ) : (
+          <p>
+            {bookmarked
+              ? "No comment yet. Use Edit bookmark to add one."
+              : "Bookmark this citation context to save a comment."}
+          </p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function JurisdictionDetails({
@@ -1778,20 +1804,17 @@ function CaseNameSearchDetails({ search }: { search: CaseNameSearchTracePayload 
   return (
     <dl className="assessment-fields">
       {search.query ? (
-        <div>
-          <dt>CourtListener query</dt>
+        <div className="search-query-field">
+          <dt>Search query</dt>
           <dd>{search.query}</dd>
         </div>
       ) : null}
       {search.probes.map((probe) => (
         <div key={probe.corpus}>
           <dt>{probe.corpus === "o" ? "Opinion search" : "RECAP search"}</dt>
-          <dd>
-            {probe.status === "searched"
-              ? `${probe.case_count} cases (HTTP ${probe.http_status})`
-              : `${probe.status}${probe.http_status ? ` (HTTP ${probe.http_status})` : ""}`}
-            {probe.cache ? `, cache ${probe.cache}` : ""}
-            {probe.error_message ? ` — ${probe.error_message}` : ""}
+          <dd className="search-probe-result">
+            <span>{probe.status === "searched" ? `${probe.case_count} cases` : formatStatusLabel(probe.status)}</span>
+            <HttpMetadata trace={probe.request_trace} />
           </dd>
         </div>
       ))}
@@ -1800,6 +1823,7 @@ function CaseNameSearchDetails({ search }: { search: CaseNameSearchTracePayload 
 }
 
 function RetrievalLookupDetails({ retrieval }: { retrieval: RetrievalPayload }) {
+  const requestTrace = retrieval.request_trace;
   return (
     <dl className="assessment-fields">
       <div>
@@ -1819,8 +1843,8 @@ function RetrievalLookupDetails({ retrieval }: { retrieval: RetrievalPayload }) 
         <dd>{formatStatusLabel(retrieval.status)}</dd>
       </div>
       <div>
-        <dt>Cache</dt>
-        <dd>{formatValue(retrieval.lookup_cache)}</dd>
+        <dt>HTTP</dt>
+        <dd><HttpMetadata trace={requestTrace} /></dd>
       </div>
     </dl>
   );
@@ -1843,17 +1867,26 @@ function CourtResolutionDetails({ resolution }: { resolution: CourtResolutionTra
           <dd>{resolution.docket_url ?? resolution.docket_id}</dd>
         </div>
       ) : null}
-      <div>
-        <dt>Cached</dt>
-        <dd>{resolution.cached ? "Yes" : "No"}</dd>
-      </div>
-      {resolution.error_message ? (
+      {resolution.request_trace ? (
         <div>
-          <dt>Error</dt>
-          <dd>{resolution.error_message}</dd>
+          <dt>HTTP</dt>
+          <dd><HttpMetadata trace={resolution.request_trace} /></dd>
         </div>
       ) : null}
     </dl>
+  );
+}
+
+function HttpMetadata({ trace }: { trace: CourtListenerRequestTracePayload }) {
+  const successful = trace.http_status !== null && trace.http_status >= 200 && trace.http_status < 400;
+  return (
+    <span className="http-metadata" aria-label="HTTP request metadata">
+      <span className={`http-status ${successful ? "success" : "failed"}`}>
+        HTTP {trace.http_status ?? "No response"}
+      </span>
+      <span className="http-cache">Cache {trace.cache ?? "n/a"}</span>
+      {trace.error_message ? <span className="http-error">{trace.error_message}</span> : null}
+    </span>
   );
 }
 

@@ -229,6 +229,7 @@ class CourtListenerClient:
         raw = result["response"]
         return {
             **_request_metadata(result),
+            "http_status": result["status"],
             **_normalize_docket(raw),
             "raw": raw,
         }

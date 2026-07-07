@@ -54,10 +54,8 @@ class CaseNameSearchStatus(str, Enum):
 class CaseNameSearchProbe:
     corpus: Literal["o", "r"]
     status: CaseNameSearchStatus
-    http_status: int | None = None
-    cache: str | None = None
+    request_trace: CourtListenerRequestTrace
     case_count: int | None = None     # corpus-scoped hits; type=o counts clusters
-    error_message: str | None = None
 
 @dataclass(frozen=True, slots=True)
 class CaseNameSearchTrace:
@@ -65,6 +63,10 @@ class CaseNameSearchTrace:
     query: str | None = None
     probes: tuple[CaseNameSearchProbe, ...] = ()
 ```
+
+The serialized retrieval contract exposes common request metadata only as
+`request_trace` (`http_status`, `cache`, `key`, and `error_message`). Citation
+lookup, each search probe, and docket-based court resolution use this same shape.
 
 Each probe state is determined from transport status before the response count:
 

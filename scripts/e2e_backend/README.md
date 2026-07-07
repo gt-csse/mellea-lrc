@@ -92,3 +92,25 @@ The frontend can load a JSON snapshot produced by the neutral serializers for:
 `AssessedDocument`. Use the `Load snapshot` button in the input panel and choose
 the artifact JSON file. The backend deserializes the artifact and returns the same
 review payload shape used by the normal staged workflow.
+
+## Snapshot Regeneration
+
+Regenerate the same strict stage snapshots as the development notebook without
+running cells manually:
+
+```bash
+# One configured fixture
+uv run --group pipeline python -m scripts.e2e_backend.snapshot_corpus \
+  --file 3 --phase assessment
+
+# The configured bookmarked text
+uv run --group pipeline python -m scripts.e2e_backend.snapshot_corpus \
+  --file bookmarked --phase retrieval
+
+# The inclusive numeric text-fixture range configured in snapshot_corpus.py
+uv run --group pipeline python -m scripts.e2e_backend.snapshot_corpus
+```
+
+The CLI intentionally accepts only `--file` and `--phase`. Configure the env,
+test-data, bookmark, and snapshot paths, numeric batch range, and Mellea
+concurrency through `SnapshotConfig`/`CONFIG` in `snapshot_corpus.py`.

@@ -26,6 +26,16 @@ HTTP_OK = 200
 EXPECTED_CASE_NAME_PROBES = 2
 
 
+@dataclass(frozen=True, slots=True)
+class CourtListenerRequestTrace:
+    """Transport and cache metadata for one CourtListener request."""
+
+    http_status: int | None = None
+    cache: str | None = None
+    key: str | None = None
+    error_message: str | None = None
+
+
 class RetrievalStatus(str, Enum):
     """Canonical retrieval outcomes for citation existence checks."""
 
@@ -64,8 +74,7 @@ class CourtResolutionTrace:
     resolved_via: CourtResolutionSource
     docket_id: str | None
     docket_url: str | None
-    cached: bool
-    error_message: str | None
+    request_trace: CourtListenerRequestTrace | None = None
 
 
 class CaseNameSearchStatus(str, Enum):
@@ -93,14 +102,12 @@ class CaseNameSearchProbe:
 
     corpus: CaseNameSearchCorpus
     status: CaseNameSearchStatus
-    http_status: int | None = None
-    cache: str | None = None
+    request_trace: CourtListenerRequestTrace
     case_count: int | None = None
-    error_message: str | None = None
 
     def __post_init__(self) -> None:
         if self.status is CaseNameSearchStatus.SEARCHED:
-            if self.http_status != HTTP_OK:
+            if self.request_trace.http_status != HTTP_OK:
                 msg = "A searched case-name probe requires HTTP 200"
                 raise ValueError(msg)
             if self.case_count is None or isinstance(self.case_count, bool) or self.case_count < 0:
@@ -116,7 +123,10 @@ class CaseNameSearchProbe:
         }:
             msg = "A probe requires a corpus-level search status"
             raise ValueError(msg)
-        if self.status is CaseNameSearchStatus.SEARCH_FAILED and self.http_status == HTTP_OK:
+        if (
+            self.status is CaseNameSearchStatus.SEARCH_FAILED
+            and self.request_trace.http_status == HTTP_OK
+        ):
             msg = "A failed case-name probe cannot carry HTTP 200"
             raise ValueError(msg)
 
@@ -184,9 +194,7 @@ class FoundCitationRetrieval:
     citation_id: str
     locator: str
     source: str
-    lookup_status: int
-    lookup_cache: str | None
-    lookup_key: str | None
+    request_trace: CourtListenerRequestTrace
     candidate: RetrievedCandidate
     extra_data: ExtraData = field(default_factory=ExtraData)
 
@@ -204,9 +212,7 @@ class AmbiguousCitationRetrieval:
     citation_id: str
     locator: str
     source: str
-    lookup_status: int
-    lookup_cache: str | None
-    lookup_key: str | None
+    request_trace: CourtListenerRequestTrace
     candidates: tuple[RetrievedCandidate, ...]
     extra_data: ExtraData = field(default_factory=ExtraData)
 
@@ -232,9 +238,7 @@ class NotFoundCitationRetrieval:
     citation_id: str
     locator: str
     source: str
-    lookup_status: int
-    lookup_cache: str | None
-    lookup_key: str | None
+    request_trace: CourtListenerRequestTrace
     candidate_search: CaseNameSearchTrace = field(default_factory=CaseNameSearchTrace)
     extra_data: ExtraData = field(default_factory=ExtraData)
 
@@ -266,10 +270,7 @@ class ThrottledCitationRetrieval:
     citation_id: str
     locator: str
     source: str
-    lookup_status: int
-    lookup_cache: str | None
-    lookup_key: str | None
-    error_message: str | None
+    request_trace: CourtListenerRequestTrace
     failure_detail: RetrievalFailureDetail | None
     extra_data: ExtraData = field(default_factory=ExtraData)
 
@@ -287,10 +288,7 @@ class LookupFailedCitationRetrieval:
     citation_id: str
     locator: str
     source: str
-    lookup_status: int | None
-    lookup_cache: str | None
-    lookup_key: str | None
-    error_message: str | None
+    request_trace: CourtListenerRequestTrace
     failure_detail: RetrievalFailureDetail | None
     extra_data: ExtraData = field(default_factory=ExtraData)
 

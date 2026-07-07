@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from mellea_lrc.courtlistener.client import CourtListenerError
 from mellea_lrc.retrieval.types import (
+    CourtListenerRequestTrace,
     CourtResolutionSource,
     CourtResolutionTrace,
 )
@@ -44,17 +45,22 @@ def resolve_court(
             JSON-int (``42``) and JSON-string (``"42"``) collapse to one entry.
 
     """
-    courtlistener_court_id, resolved_via, docket_id, docket_url, cached, error_message = (
-        _resolve_courtlistener_court(record, client, cache)
-    )
+    (
+        courtlistener_court_id,
+        resolved_via,
+        docket_id,
+        docket_url,
+        _cached,
+        _error_message,
+        request_trace,
+    ) = _resolve_courtlistener_court(record, client, cache)
 
     return CourtResolutionTrace(
         courtlistener_court_id=courtlistener_court_id,
         resolved_via=resolved_via,
         docket_id=docket_id,
         docket_url=docket_url,
-        cached=cached,
-        error_message=error_message,
+        request_trace=request_trace,
     )
 
 
@@ -62,27 +68,43 @@ def _resolve_courtlistener_court(
     record: CourtListenerCitationRecord,
     client: CitationRetrievalClient,
     cache: dict[str, str | None],
-) -> tuple[str | None, CourtResolutionSource, str | None, str | None, bool, str | None]:
-    """Return ``(court_id, source, docket_id, docket_url, cached, error)``."""
+) -> tuple[
+    str | None,
+    CourtResolutionSource,
+    str | None,
+    str | None,
+    bool,
+    str | None,
+    CourtListenerRequestTrace | None,
+]:
+    """Return the resolved court fields and any docket-request trace."""
     if record.court_id:
-        return record.court_id, CourtResolutionSource.CLUSTER_PROVIDED, None, None, False, None
+        return record.court_id, CourtResolutionSource.CLUSTER_PROVIDED, None, None, False, None, None
 
     if not record.docket_id:
-        return None, CourtResolutionSource.NO_DOCKET_ID, None, None, False, None
+        return None, CourtResolutionSource.NO_DOCKET_ID, None, None, False, None, None
 
     docket_id = record.docket_id
     docket_url = f"/dockets/{docket_id}"
 
     if docket_id in cache:
         cached_id = cache[docket_id]
-        return cached_id, CourtResolutionSource.DOCKET_LOOKUP, docket_id, docket_url, True, None
+        return (
+            cached_id,
+            CourtResolutionSource.DOCKET_LOOKUP,
+            docket_id,
+            docket_url,
+            True,
+            None,
+            CourtListenerRequestTrace(cache="memory"),
+        )
 
     if not hasattr(client, "get_docket"):
         # A client implementing only CitationLookupClient cannot enrich; record the
         # inability explicitly rather than silently catching AttributeError from a
         # missing method (the pre-refactor behaviour swallowed implementation bugs).
         cache[docket_id] = None
-        return None, CourtResolutionSource.NO_DOCKET_ID, docket_id, docket_url, False, None
+        return None, CourtResolutionSource.NO_DOCKET_ID, docket_id, docket_url, False, None, None
 
     try:
         docket = client.get_docket(docket_id)
@@ -95,6 +117,11 @@ def _resolve_courtlistener_court(
             docket_url,
             False,
             (f"{type(exc).__name__}: {exc}"),
+            CourtListenerRequestTrace(
+                http_status=exc.upstream_status_code if isinstance(exc, CourtListenerError) else None,
+                key=exc.cache_key if isinstance(exc, CourtListenerError) else None,
+                error_message=f"{type(exc).__name__}: {exc}",
+            ),
         )
 
     court_id = docket.get("court_id") if isinstance(docket, Mapping) else None
@@ -105,4 +132,25 @@ def _resolve_courtlistener_court(
     # ``run_retrieval`` execution; the trace answers "was this served from the
     # persistent cache on a later run?", which is what the caller cares about.
     r2_cache_hit = docket.get("cache") == "hit" if isinstance(docket, Mapping) else False
-    return court_id, CourtResolutionSource.DOCKET_LOOKUP, docket_id, docket_url, r2_cache_hit, None
+    request_trace = CourtListenerRequestTrace(
+        http_status=_optional_int(docket.get("http_status")),
+        cache=_optional_str(docket.get("cache")),
+        key=_optional_str(docket.get("key")),
+    )
+    return (
+        court_id,
+        CourtResolutionSource.DOCKET_LOOKUP,
+        docket_id,
+        docket_url,
+        r2_cache_hit,
+        None,
+        request_trace,
+    )
+
+
+def _optional_int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None

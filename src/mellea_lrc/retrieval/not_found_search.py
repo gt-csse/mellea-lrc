@@ -21,6 +21,7 @@ from mellea_lrc.retrieval.types import (
     CaseNameSearchProbe,
     CaseNameSearchStatus,
     CaseNameSearchTrace,
+    CourtListenerRequestTrace,
 )
 
 if TYPE_CHECKING:
@@ -97,31 +98,42 @@ def _search_corpus(
 ) -> CaseNameSearchProbe:
     method = getattr(client, method_name, None)
     if not callable(method):
-        return CaseNameSearchProbe(corpus, CaseNameSearchStatus.SEARCH_UNAVAILABLE)
+        return CaseNameSearchProbe(
+            corpus,
+            CaseNameSearchStatus.SEARCH_UNAVAILABLE,
+            CourtListenerRequestTrace(),
+        )
     try:
         payload = method(query)
     except CourtListenerError as exc:
         return CaseNameSearchProbe(
             corpus,
             CaseNameSearchStatus.SEARCH_FAILED,
-            http_status=exc.upstream_status_code,
-            error_message=f"{type(exc).__name__}: {exc}",
+            CourtListenerRequestTrace(
+                http_status=exc.upstream_status_code,
+                key=exc.cache_key,
+                error_message=f"{type(exc).__name__}: {exc}",
+            ),
         )
     except (OSError, TypeError, ValueError) as exc:
         return CaseNameSearchProbe(
             corpus,
             CaseNameSearchStatus.SEARCH_FAILED,
-            error_message=f"{type(exc).__name__}: {exc}",
+            CourtListenerRequestTrace(error_message=f"{type(exc).__name__}: {exc}"),
         )
     http_status = _http_status(payload)
     cache = _cache_status(payload)
+    key = _request_key(payload)
     if http_status != HTTP_OK:
         return CaseNameSearchProbe(
             corpus,
             CaseNameSearchStatus.SEARCH_FAILED,
-            http_status=http_status,
-            cache=cache,
-            error_message=_response_error(payload, http_status),
+            CourtListenerRequestTrace(
+                http_status=http_status,
+                cache=cache,
+                key=key,
+                error_message=_response_error(payload, http_status),
+            ),
         )
     case_count = _case_count(payload)
     if case_count is None:
@@ -130,8 +142,7 @@ def _search_corpus(
     return CaseNameSearchProbe(
         corpus,
         CaseNameSearchStatus.SEARCHED,
-        http_status=http_status,
-        cache=cache,
+        CourtListenerRequestTrace(http_status=http_status, cache=cache, key=key),
         case_count=case_count,
     )
 
@@ -176,6 +187,16 @@ def _cache_status(payload: object) -> str | None:
         return None
     cache = payload.get("cache")
     return cache if isinstance(cache, str) and cache else None
+
+
+def _request_key(payload: object) -> str | None:
+    if not isinstance(payload, Mapping):
+        return None
+    key = payload.get("key")
+    if key is None:
+        detail = payload.get("detail")
+        key = detail.get("key") if isinstance(detail, Mapping) else None
+    return key if isinstance(key, str) and key else None
 
 
 def _response_error(payload: object, http_status: int | None) -> str:

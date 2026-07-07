@@ -53,6 +53,7 @@ from mellea_lrc.preprocessing.types import (
 from mellea_lrc.retrieval.types import (
     AmbiguousCitationRetrieval,
     CitationRetrieval,
+    CourtListenerRequestTrace,
     CourtResolutionSource,
     CourtResolutionTrace,
     FoundCitationRetrieval,
@@ -81,8 +82,7 @@ def _retrieved_candidate(
             ),
             docket_id=record.docket_id,
             docket_url=None,
-            cached=False,
-            error_message=None,
+            request_trace=None,
         ),
     )
 
@@ -599,9 +599,7 @@ def test_run_assessment_progresses_document_retrieval_to_document_assessment() -
                 citation_id="cite-1",
                 locator="347 U.S. 483",
                 source="test",
-                lookup_status=200,
-                lookup_cache=None,
-                lookup_key=None,
+                request_trace=CourtListenerRequestTrace(http_status=200),
                 candidate=_retrieved_candidate(
                     "cite-1",
                     CourtListenerCitationRecord(
@@ -661,9 +659,7 @@ def _ambiguous_retrieval(
                 citation_id=citation.citation_id,
                 locator="1 F.3d 2",
                 source="test",
-                lookup_status=300,
-                lookup_cache=None,
-                lookup_key=None,
+                request_trace=CourtListenerRequestTrace(http_status=300),
                 candidates=tuple(
                     _retrieved_candidate(
                         citation.citation_id,
@@ -770,9 +766,7 @@ def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
                 citation_id="cite-1",
                 locator="347 U.S. 483",
                 source="test",
-                lookup_status=200,
-                lookup_cache=None,
-                lookup_key=None,
+                request_trace=CourtListenerRequestTrace(http_status=200),
                 candidate=_retrieved_candidate(
                     "cite-1",
                     CourtListenerCitationRecord(
@@ -885,9 +879,7 @@ def test_run_assessment_records_per_citation_failure(monkeypatch: pytest.MonkeyP
                 citation_id="cite-1",
                 locator="347 U.S. 483",
                 source="test",
-                lookup_status=200,
-                lookup_cache=None,
-                lookup_key=None,
+                request_trace=CourtListenerRequestTrace(http_status=200),
                 candidate=_retrieved_candidate(
                     "cite-1",
                     CourtListenerCitationRecord(

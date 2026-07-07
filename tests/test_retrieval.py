@@ -101,8 +101,8 @@ def test_retrieve_full_case_found() -> None:
     assert retrieval.status == RetrievalStatus.FOUND
     assert retrieval.locator == "347 U.S. 483"
     assert retrieval.case_names == ("Brown v. Board of Education",)
-    assert retrieval.lookup_status == 200
-    assert retrieval.lookup_cache == "miss"
+    assert retrieval.request_trace.http_status == 200
+    assert retrieval.request_trace.cache == "miss"
     assert retrieval.candidate.record == CourtListenerCitationRecord(
         case_name="Brown v. Board of Education",
         date_filed="1954-05-17",
@@ -112,6 +112,8 @@ def test_retrieve_full_case_found() -> None:
     )
     assert retrieval.candidate.court_resolution.courtlistener_court_id == "scotus"
     assert retrieval.candidate.court_resolution.resolved_via == CourtResolutionSource.DOCKET_LOOKUP
+    assert retrieval.candidate.court_resolution.request_trace is not None
+    assert retrieval.candidate.court_resolution.request_trace.http_status == 200
     assert result.found == (retrieval,)
     assert retrieval.extra_data.to_dict() == {
         "response": {"query_time_ms": 12},
@@ -243,7 +245,12 @@ def test_not_found_reports_case_name_search_count() -> None:
         post_json=lambda _url, _data: {
             "response": {"citation": "999 U.S. 999", "status": 404, "clusters": []},
         },
-        get_json=lambda _url: {"cache": "hit", "count": 7, "results": []},
+        get_json=lambda _url: {
+            "cache": "hit",
+            "key": "search-key",
+            "count": 7,
+            "results": [],
+        },
     )
     extraction = _not_found_extraction(
         FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="999", court="scotus"),
@@ -254,8 +261,17 @@ def test_not_found_reports_case_name_search_count() -> None:
     assert retrieval.status == RetrievalStatus.NOT_FOUND
     assert retrieval.candidate_search.status == CaseNameSearchStatus.SEARCHED
     assert retrieval.candidate_search.query == "caseName:(Doe AND Roe) AND court_id:scotus"
+    assert [probe.request_trace.key for probe in retrieval.candidate_search.probes] == [
+        "search-key",
+        "search-key",
+    ]
     assert [
-        (probe.corpus.value, probe.http_status, probe.cache, probe.case_count)
+        (
+            probe.corpus.value,
+            probe.request_trace.http_status,
+            probe.request_trace.cache,
+            probe.case_count,
+        )
         for probe in retrieval.candidate_search.probes
     ] == [
         ("o", 200, "hit", 7),
@@ -308,10 +324,11 @@ def test_not_found_preserves_failed_search_http_status() -> None:
     retrieval = run_retrieval(extraction, client_mode="custom", client=client).retrievals[0]
 
     assert retrieval.candidate_search.status == CaseNameSearchStatus.SEARCH_FAILED
-    assert [probe.http_status for probe in retrieval.candidate_search.probes] == [503, 503]
+    assert [probe.request_trace.http_status for probe in retrieval.candidate_search.probes] == [503, 503]
     assert all(probe.case_count is None for probe in retrieval.candidate_search.probes)
     assert all(
-        probe.error_message == "upstream search unavailable" for probe in retrieval.candidate_search.probes
+        probe.request_trace.error_message == "upstream search unavailable"
+        for probe in retrieval.candidate_search.probes
     )
 
 
@@ -335,8 +352,8 @@ def test_not_found_traces_opinion_and_recap_search_independently() -> None:
 
     assert search.status == CaseNameSearchStatus.PARTIAL
     assert search.probes[0].case_count == 3
-    assert search.probes[1].http_status == 503
-    assert search.probes[1].error_message == "RECAP unavailable"
+    assert search.probes[1].request_trace.http_status == 503
+    assert search.probes[1].request_trace.error_message == "RECAP unavailable"
 
 
 def test_not_found_reads_count_from_deployed_service_raw_response() -> None:
@@ -358,7 +375,7 @@ def test_not_found_reads_count_from_deployed_service_raw_response() -> None:
 
     assert retrieval.candidate_search.status == CaseNameSearchStatus.SEARCHED
     assert [probe.case_count for probe in retrieval.candidate_search.probes] == [0, 0]
-    assert all(probe.error_message is None for probe in retrieval.candidate_search.probes)
+    assert all(probe.request_trace.error_message is None for probe in retrieval.candidate_search.probes)
 
 
 def test_not_found_skips_search_without_both_parties() -> None:
@@ -416,7 +433,7 @@ def test_retrieve_surfaces_typed_courtlistener_failure_detail() -> None:
 
     retrieval = result.retrievals[0]
     assert retrieval.status == RetrievalStatus.THROTTLED
-    assert retrieval.error_message == "CourtListener POST failed with 429"
+    assert retrieval.request_trace.error_message == "CourtListener POST failed with 429"
     assert retrieval.failure_detail == RetrievalFailureDetail(
         failure_type="api_limit",
         message="CourtListener POST failed with 429",

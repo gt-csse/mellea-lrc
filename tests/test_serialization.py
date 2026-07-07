@@ -59,6 +59,7 @@ from mellea_lrc.serialization import (
 from mellea_lrc.retrieval.types import (
     AmbiguousCitationRetrieval,
     CitationRetrieval,
+    CourtListenerRequestTrace,
     CourtResolutionSource,
     CourtResolutionTrace,
     FoundCitationRetrieval,
@@ -96,8 +97,7 @@ def _retrieved_candidate(
             ),
             docket_id=record.docket_id,
             docket_url=None,
-            cached=False,
-            error_message=None,
+            request_trace=None,
         ),
     )
 
@@ -106,7 +106,7 @@ def test_document_extraction_serializes_without_ui_assumptions() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
     artifact = serialize_extracted_document(extraction)
 
-    assert artifact["schema_version"] == 17
+    assert artifact["schema_version"] == 18
     assert artifact["artifact_type"] == "extracted_document"
     assert artifact["source_metadata"]["path"] is None
     assert artifact["text"] == SAMPLE_TEXT
@@ -142,7 +142,7 @@ def test_unversioned_preprocessed_document_is_rejected() -> None:
 
 def test_previous_schema_version_is_rejected() -> None:
     artifact = serialize_preprocessed_document(extract_citations(SAMPLE_TEXT))
-    artifact["schema_version"] = 10
+    artifact["schema_version"] = 17
 
     with pytest.raises(ValueError, match="schema_version"):
         deserialize_preprocessed_document(artifact)
@@ -211,9 +211,9 @@ def test_document_retrieval_round_trips() -> None:
                 citation_id=extraction.citations[0].citation_id,
                 locator="118 U.S. 425",
                 source="test",
-                lookup_status=200,
-                lookup_cache="miss",
-                lookup_key="118 U.S. 425",
+                request_trace=CourtListenerRequestTrace(
+                    http_status=200, cache="miss", key="118 U.S. 425"
+                ),
                 candidate=_retrieved_candidate(
                     extraction.citations[0].citation_id,
                     CourtListenerCitationRecord(
@@ -243,7 +243,7 @@ def test_document_retrieval_round_trips() -> None:
     assert restored == retrieval
 
 
-def test_schema_14_validation_names_deserialize_into_retrieval_domain() -> None:
+def test_current_schema_validation_names_deserialize_into_retrieval_domain() -> None:
     extraction = extract_citations(SAMPLE_TEXT)
     citation_id = extraction.citations[0].citation_id
     retrieval = RetrievedDocument(
@@ -257,9 +257,9 @@ def test_schema_14_validation_names_deserialize_into_retrieval_domain() -> None:
                 citation_id=citation_id,
                 locator="118 U.S. 425",
                 source="test",
-                lookup_status=200,
-                lookup_cache="miss",
-                lookup_key="118 U.S. 425",
+                request_trace=CourtListenerRequestTrace(
+                    http_status=200, cache="miss", key="118 U.S. 425"
+                ),
                 candidate=_retrieved_candidate(
                     citation_id,
                     CourtListenerCitationRecord(
@@ -290,9 +290,7 @@ def test_ambiguous_retrieval_candidates_round_trip_with_court_traces() -> None:
         citation_id="cite-1",
         locator="1 F.3d 2",
         source="test",
-        lookup_status=300,
-        lookup_cache="miss",
-        lookup_key="key",
+        request_trace=CourtListenerRequestTrace(http_status=300, cache="miss", key="key"),
         candidates=(
             RetrievedCandidate(
                 candidate_id="cite-1:candidate:0",
@@ -302,8 +300,7 @@ def test_ambiguous_retrieval_candidates_round_trip_with_court_traces() -> None:
                     resolved_via=CourtResolutionSource.DOCKET_LOOKUP,
                     docket_id="11",
                     docket_url="/dockets/11",
-                    cached=False,
-                    error_message=None,
+                    request_trace=CourtListenerRequestTrace(http_status=200, cache="miss"),
                 ),
             ),
             RetrievedCandidate(
@@ -314,8 +311,7 @@ def test_ambiguous_retrieval_candidates_round_trip_with_court_traces() -> None:
                     resolved_via=CourtResolutionSource.CLUSTER_PROVIDED,
                     docket_id=None,
                     docket_url=None,
-                    cached=False,
-                    error_message=None,
+                    request_trace=None,
                 ),
             ),
         ),
@@ -336,9 +332,7 @@ def test_document_assessment_round_trips() -> None:
         citation_id=extraction.citations[0].citation_id,
         locator="118 U.S. 425",
         source="test",
-        lookup_status=200,
-        lookup_cache=None,
-        lookup_key=None,
+        request_trace=CourtListenerRequestTrace(http_status=200),
         candidate=_retrieved_candidate(
             extraction.citations[0].citation_id,
             CourtListenerCitationRecord(

@@ -169,15 +169,12 @@ Serialized artifacts retain explicit top-level stage fields and require:
 - `schema_version`
 - `artifact_type`
 
-Unversioned artifacts and mismatched artifact types are rejected. Deserialization
-validates the artifact invariants rather than silently constructing contradictory
-stage objects. Schema version 15 exposes the same stage ownership explicitly with
-`source_metadata`, `preprocessing_metadata`, `extraction_metadata`,
-`retrieval_metadata`, and `assessment_metadata` keys as applicable. It also uses
-typed retrieved candidates, explicit `extra_data` fields, conclusion-only case-name
-statuses, and nested case-name follow-up payloads. Schema-14 artifacts are accepted
-only through a narrow read adapter that maps the former retrieval-stage field names
-to the canonical schema; all new writes use schema 15.
+Unversioned artifacts, previous schema versions, and mismatched artifact types are
+rejected. Deserialization validates artifact invariants rather than silently
+constructing contradictory stage objects. Schema version 18 uses one nested
+`request_trace` contract for CourtListener HTTP status, cache outcome, request key,
+and error metadata. Schema changes always increment the version; deserializers do
+not adapt previous versions.
 
 Every public artifact deserializer first validates a strict Pydantic transport DTO
 configured with `extra="forbid"` and no type coercion. Citation kinds and assessment

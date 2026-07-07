@@ -1,4 +1,10 @@
-"""JSON-ready serialization for reusable mellea-lrc artifacts."""
+"""JSON-ready serialization for reusable mellea-lrc artifacts.
+
+Schema policy: every contract change increments ``SCHEMA_VERSION``. Writers and
+readers support only the current schema. Do not add compatibility adapters,
+legacy aliases, duplicated fields, or fallback parsing; update domain types,
+transport DTOs, serialization, consumers, and tests together.
+"""
 
 from __future__ import annotations
 
@@ -73,6 +79,7 @@ from mellea_lrc.retrieval.types import (
     CitationRetrieval,
     CourtResolutionSource,
     CourtResolutionTrace,
+    CourtListenerRequestTrace,
     FoundCitationRetrieval,
     InvalidCitationRetrieval,
     LookupFailedCitationRetrieval,
@@ -120,7 +127,7 @@ if TYPE_CHECKING:
     from mellea_lrc.core.citations import CanonicalCitation
 
 JsonValue: TypeAlias = str | int | float | bool | None | dict[str, "JsonValue"] | list["JsonValue"]
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 
 _CITATION_PAYLOAD_ADAPTER = TypeAdapter(CanonicalCitationPayload)
 _ASSESSMENT_PAYLOAD_ADAPTER = TypeAdapter(CitationAssessmentPayload)
@@ -380,9 +387,7 @@ def serialize_citation_retrieval(item: CitationRetrieval) -> dict[str, JsonValue
         base.update(
             {
                 "locator": item.locator,
-                "lookup_status": item.lookup_status,
-                "lookup_cache": item.lookup_cache,
-                "lookup_key": item.lookup_key,
+                "request_trace": _serialize_request_trace(item.request_trace),
                 "candidate": _serialize_retrieved_candidate(item.candidate),
                 "extra_data": _serialize_extra_data(item.extra_data),
             },
@@ -391,9 +396,7 @@ def serialize_citation_retrieval(item: CitationRetrieval) -> dict[str, JsonValue
         base.update(
             {
                 "locator": item.locator,
-                "lookup_status": item.lookup_status,
-                "lookup_cache": item.lookup_cache,
-                "lookup_key": item.lookup_key,
+                "request_trace": _serialize_request_trace(item.request_trace),
                 "candidates": [_serialize_retrieved_candidate(candidate) for candidate in item.candidates],
                 "extra_data": _serialize_extra_data(item.extra_data),
             },
@@ -402,9 +405,7 @@ def serialize_citation_retrieval(item: CitationRetrieval) -> dict[str, JsonValue
         base.update(
             {
                 "locator": item.locator,
-                "lookup_status": item.lookup_status,
-                "lookup_cache": item.lookup_cache,
-                "lookup_key": item.lookup_key,
+                "request_trace": _serialize_request_trace(item.request_trace),
                 "candidate_search": _serialize_case_name_search_trace(item.candidate_search),
                 "extra_data": _serialize_extra_data(item.extra_data),
             },
@@ -413,10 +414,7 @@ def serialize_citation_retrieval(item: CitationRetrieval) -> dict[str, JsonValue
         base.update(
             {
                 "locator": item.locator,
-                "lookup_status": item.lookup_status,
-                "lookup_cache": item.lookup_cache,
-                "lookup_key": item.lookup_key,
-                "error_message": item.error_message,
+                "request_trace": _serialize_request_trace(item.request_trace),
                 "failure_detail": (
                     _serialize_retrieval_failure_detail(item.failure_detail)
                     if item.failure_detail is not None
@@ -429,6 +427,15 @@ def serialize_citation_retrieval(item: CitationRetrieval) -> dict[str, JsonValue
     return base
 
 
+def _serialize_request_trace(item: CourtListenerRequestTrace) -> dict[str, JsonValue]:
+    return {
+        "http_status": item.http_status,
+        "cache": item.cache,
+        "key": item.key,
+        "error_message": item.error_message,
+    }
+
+
 def _serialize_court_resolution_trace(item: CourtResolutionTrace) -> dict[str, JsonValue]:
     """Serialize the court resolution trace for a found citation."""
     return {
@@ -436,8 +443,9 @@ def _serialize_court_resolution_trace(item: CourtResolutionTrace) -> dict[str, J
         "resolved_via": item.resolved_via.value,
         "docket_id": item.docket_id,
         "docket_url": item.docket_url,
-        "cached": item.cached,
-        "error_message": item.error_message,
+        "request_trace": (
+            _serialize_request_trace(item.request_trace) if item.request_trace is not None else None
+        ),
     }
 
 
@@ -461,10 +469,8 @@ def _serialize_case_name_search_trace(item: CaseNameSearchTrace) -> dict[str, Js
             {
                 "corpus": probe.corpus.value,
                 "status": probe.status.value,
-                "http_status": probe.http_status,
-                "cache": probe.cache,
+                "request_trace": _serialize_request_trace(probe.request_trace),
                 "case_count": probe.case_count,
-                "error_message": probe.error_message,
             }
             for probe in item.probes
         ],
@@ -483,10 +489,10 @@ def _deserialize_case_name_search_trace(
         CaseNameSearchProbe(
             corpus=CaseNameSearchCorpus(_required_str(probe.get("corpus"), "search corpus")),
             status=CaseNameSearchStatus(_required_str(probe.get("status"), "probe status")),
-            http_status=_optional_int(probe.get("http_status")),
-            cache=_optional_str(probe.get("cache")),
+            request_trace=_deserialize_request_trace(
+                _required_mapping_field(probe, "request_trace")
+            ),
             case_count=_optional_int(probe.get("case_count")),
-            error_message=_optional_str(probe.get("error_message")),
         )
         for probe in validated.get("probes", [])
     )
@@ -507,8 +513,7 @@ def _deserialize_court_resolution_trace(
         resolved_via=CourtResolutionSource(_required_str(validated.get("resolved_via"), "resolved_via")),
         docket_id=_optional_str(validated.get("docket_id")),
         docket_url=_optional_str(validated.get("docket_url")),
-        cached=bool(validated.get("cached", False)),
-        error_message=_optional_str(validated.get("error_message")),
+        request_trace=_deserialize_optional_request_trace(validated.get("request_trace")),
     )
 
 
@@ -594,9 +599,9 @@ def deserialize_citation_retrieval(payload: Mapping[str, object]) -> CitationRet
             citation_id=citation_id,
             locator=_required_str(validated.get("locator"), "locator"),
             source=source,
-            lookup_status=_required_int(validated.get("lookup_status"), "lookup_status"),
-            lookup_cache=_optional_str(validated.get("lookup_cache")),
-            lookup_key=_optional_str(validated.get("lookup_key")),
+            request_trace=_deserialize_request_trace(
+                _required_mapping_field(validated, "request_trace")
+            ),
             candidate=_deserialize_retrieved_candidate(_required_mapping_field(validated, "candidate")),
             extra_data=_deserialize_extra_data(validated.get("extra_data")),
         )
@@ -605,9 +610,9 @@ def deserialize_citation_retrieval(payload: Mapping[str, object]) -> CitationRet
             citation_id=citation_id,
             locator=_required_str(validated.get("locator"), "locator"),
             source=source,
-            lookup_status=_required_int(validated.get("lookup_status"), "lookup_status"),
-            lookup_cache=_optional_str(validated.get("lookup_cache")),
-            lookup_key=_optional_str(validated.get("lookup_key")),
+            request_trace=_deserialize_request_trace(
+                _required_mapping_field(validated, "request_trace")
+            ),
             candidates=tuple(
                 _deserialize_retrieved_candidate(_mapping_field(item))
                 for item in _list_field(validated.get("candidates"))
@@ -620,9 +625,9 @@ def deserialize_citation_retrieval(payload: Mapping[str, object]) -> CitationRet
             citation_id=citation_id,
             locator=_required_str(validated.get("locator"), "locator"),
             source=source,
-            lookup_status=_required_int(validated.get("lookup_status"), "lookup_status"),
-            lookup_cache=_optional_str(validated.get("lookup_cache")),
-            lookup_key=_optional_str(validated.get("lookup_key")),
+            request_trace=_deserialize_request_trace(
+                _required_mapping_field(validated, "request_trace")
+            ),
             candidate_search=_deserialize_case_name_search_trace(
                 candidate_search if isinstance(candidate_search, Mapping) else None,
             ),
@@ -638,10 +643,9 @@ def deserialize_citation_retrieval(payload: Mapping[str, object]) -> CitationRet
             citation_id=citation_id,
             locator=_required_str(validated.get("locator"), "locator"),
             source=source,
-            lookup_status=_required_int(validated.get("lookup_status"), "lookup_status"),
-            lookup_cache=_optional_str(validated.get("lookup_cache")),
-            lookup_key=_optional_str(validated.get("lookup_key")),
-            error_message=_optional_str(validated.get("error_message")),
+            request_trace=_deserialize_request_trace(
+                _required_mapping_field(validated, "request_trace")
+            ),
             failure_detail=(
                 _deserialize_retrieval_failure_detail(_mapping_field(validated.get("failure_detail")))
                 if isinstance(validated.get("failure_detail"), dict)
@@ -654,10 +658,9 @@ def deserialize_citation_retrieval(payload: Mapping[str, object]) -> CitationRet
             citation_id=citation_id,
             locator=_optional_str(validated.get("locator")) or "",
             source=source,
-            lookup_status=_optional_int(validated.get("lookup_status")),
-            lookup_cache=_optional_str(validated.get("lookup_cache")),
-            lookup_key=_optional_str(validated.get("lookup_key")),
-            error_message=_optional_str(validated.get("error_message")),
+            request_trace=_deserialize_request_trace(
+                _required_mapping_field(validated, "request_trace")
+            ),
             failure_detail=(
                 _deserialize_retrieval_failure_detail(_mapping_field(validated.get("failure_detail")))
                 if isinstance(validated.get("failure_detail"), dict)
@@ -1136,6 +1139,21 @@ def _optional_str(value: object) -> str | None:
         return value
     msg = "Expected a string or null"
     raise TypeError(msg)
+
+
+def _deserialize_optional_request_trace(value: object) -> CourtListenerRequestTrace | None:
+    if not isinstance(value, Mapping):
+        return None
+    return _deserialize_request_trace(value)
+
+
+def _deserialize_request_trace(value: Mapping[str, object]) -> CourtListenerRequestTrace:
+    return CourtListenerRequestTrace(
+        http_status=_optional_int(value.get("http_status")),
+        cache=_optional_str(value.get("cache")),
+        key=_optional_str(value.get("key")),
+        error_message=_optional_str(value.get("error_message")),
+    )
 
 
 def _required_str(value: object, field_name: str) -> str:

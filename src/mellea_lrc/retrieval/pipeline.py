@@ -33,6 +33,7 @@ from mellea_lrc.jurisdiction_inference.types import InferredDocument
 from mellea_lrc.retrieval.types import (
     AmbiguousCitationRetrieval,
     CitationRetrieval,
+    CourtListenerRequestTrace,
     FoundCitationRetrieval,
     InvalidCitationRetrieval,
     LookupFailedCitationRetrieval,
@@ -165,9 +166,12 @@ def _retrieval_from_lookup(
         "citation_id": citation_id,
         "locator": lookup.citation,
         "source": SOURCE,
-        "lookup_status": lookup.status,
-        "lookup_cache": lookup.cache,
-        "lookup_key": lookup.key,
+        "request_trace": CourtListenerRequestTrace(
+            http_status=lookup.status,
+            cache=lookup.cache,
+            key=lookup.key,
+            error_message=lookup.error_message,
+        ),
         "extra_data": lookup.extra_data,
     }
     if status is RetrievalStatus.FOUND:
@@ -175,8 +179,16 @@ def _retrieval_from_lookup(
         if record is None:
             # Defensive: a 200 with no record is a malformed lookup; surface as failure.
             return LookupFailedCitationRetrieval(
-                **common,
-                error_message="CourtListener returned HTTP 200 but no records.",
+                citation_id=citation_id,
+                locator=lookup.citation,
+                source=SOURCE,
+                request_trace=CourtListenerRequestTrace(
+                    http_status=lookup.status,
+                    cache=lookup.cache,
+                    key=lookup.key,
+                    error_message="CourtListener returned HTTP 200 but no records.",
+                ),
+                extra_data=lookup.extra_data,
                 failure_detail=lookup.failure_detail,
             )
         return FoundCitationRetrieval(
@@ -211,12 +223,10 @@ def _retrieval_from_lookup(
     if status is RetrievalStatus.THROTTLED:
         return ThrottledCitationRetrieval(
             **common,
-            error_message=lookup.error_message,
             failure_detail=lookup.failure_detail,
         )
     return LookupFailedCitationRetrieval(
         **common,
-        error_message=lookup.error_message,
         failure_detail=lookup.failure_detail,
     )
 

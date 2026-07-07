@@ -1,4 +1,8 @@
-"""Strict Pydantic DTOs for schema 17."""
+"""Strict Pydantic DTOs for schema 18.
+
+These DTOs represent only the current schema. Every contract change must bump
+the schema version; never add backward-compatible aliases or fallback fields.
+"""
 
 # ruff: noqa: D101
 
@@ -164,6 +168,13 @@ class RetrievalFailureDetailPayload(ArtifactPayload):
     extra_data: dict[str, JsonValue]
 
 
+class CourtListenerRequestTracePayload(ArtifactPayload):
+    http_status: int | None = None
+    cache: str | None = None
+    key: str | None = None
+    error_message: str | None = None
+
+
 class CourtResolutionTracePayload(ArtifactPayload):
     courtlistener_court_id: str | None
     resolved_via: Literal[
@@ -175,8 +186,7 @@ class CourtResolutionTracePayload(ArtifactPayload):
     ]
     docket_id: str | None
     docket_url: str | None
-    cached: bool
-    error_message: str | None
+    request_trace: CourtListenerRequestTracePayload | None = None
 
 
 class RetrievedCandidatePayload(ArtifactPayload):
@@ -190,9 +200,7 @@ class FoundCitationRetrievalPayload(ArtifactPayload):
     status: Literal["found"]
     locator: str
     source: str
-    lookup_status: int
-    lookup_cache: str | None
-    lookup_key: str | None
+    request_trace: CourtListenerRequestTracePayload
     candidate: RetrievedCandidatePayload
     extra_data: dict[str, JsonValue]
 
@@ -202,9 +210,7 @@ class AmbiguousCitationRetrievalPayload(ArtifactPayload):
     status: Literal["ambiguous"]
     locator: str
     source: str
-    lookup_status: int
-    lookup_cache: str | None
-    lookup_key: str | None
+    request_trace: CourtListenerRequestTracePayload
     candidates: list[RetrievedCandidatePayload]
     extra_data: dict[str, JsonValue]
 
@@ -213,9 +219,7 @@ class CaseNameSearchProbePayload(ArtifactPayload):
     corpus: Literal["o", "r"]
     status: Literal["searched", "search_unavailable", "search_failed"]
     case_count: int | None
-    error_message: str | None
-    http_status: int | None = None
-    cache: str | None = None
+    request_trace: CourtListenerRequestTracePayload
 
 
 class CaseNameSearchTracePayload(ArtifactPayload):
@@ -237,9 +241,7 @@ class NotFoundCitationRetrievalPayload(ArtifactPayload):
     status: Literal["not_found"]
     locator: str
     source: str
-    lookup_status: int
-    lookup_cache: str | None
-    lookup_key: str | None
+    request_trace: CourtListenerRequestTracePayload
     candidate_search: CaseNameSearchTracePayload
     extra_data: dict[str, JsonValue]
 
@@ -255,10 +257,7 @@ class ThrottledCitationRetrievalPayload(ArtifactPayload):
     status: Literal["throttled"]
     locator: str
     source: str
-    lookup_status: int
-    lookup_cache: str | None
-    lookup_key: str | None
-    error_message: str | None
+    request_trace: CourtListenerRequestTracePayload
     failure_detail: RetrievalFailureDetailPayload | None
     extra_data: dict[str, JsonValue]
 
@@ -268,10 +267,7 @@ class LookupFailedCitationRetrievalPayload(ArtifactPayload):
     status: Literal["lookup_failed"]
     locator: str
     source: str
-    lookup_status: int | None
-    lookup_cache: str | None
-    lookup_key: str | None
-    error_message: str | None
+    request_trace: CourtListenerRequestTracePayload
     failure_detail: RetrievalFailureDetailPayload | None
     extra_data: dict[str, JsonValue]
 
@@ -487,27 +483,27 @@ class _RetrievedDocumentFields(_InferredDocumentFields):
 
 
 class PreprocessedDocumentPayload(_PreprocessedDocumentFields):
-    schema_version: Literal[17]
+    schema_version: Literal[18]
     artifact_type: Literal["preprocessed_document"]
 
 
 class ExtractedDocumentPayload(_ExtractedDocumentFields):
-    schema_version: Literal[17]
+    schema_version: Literal[18]
     artifact_type: Literal["extracted_document"]
 
 
 class InferredDocumentPayload(_InferredDocumentFields):
-    schema_version: Literal[17]
+    schema_version: Literal[18]
     artifact_type: Literal["inferred_document"]
 
 
 class RetrievedDocumentPayload(_RetrievedDocumentFields):
-    schema_version: Literal[17]
+    schema_version: Literal[18]
     artifact_type: Literal["retrieved_document"]
 
 
 class AssessedDocumentPayload(_RetrievedDocumentFields):
-    schema_version: Literal[17]
+    schema_version: Literal[18]
     artifact_type: Literal["assessed_document"]
     assessment_metadata: AssessmentMetadataPayload
     assessments: list[CitationAssessmentPayload]

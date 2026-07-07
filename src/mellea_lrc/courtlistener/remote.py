@@ -70,7 +70,11 @@ class CourtListenerAccessClient:
         url = f"{self.config.base_url.rstrip('/')}/dockets/{cl_docket_id}"
         _validate_http_url(url)
         payload = self._get_json(url)
-        return payload if isinstance(payload, Mapping) else {}
+        if not isinstance(payload, Mapping):
+            return {}
+        if "http_status" not in payload and "detail" not in payload:
+            return {**payload, "http_status": 200}
+        return payload
 
     def search_opinions(self, q: str) -> Mapping[str, object]:
         """Run an opinion (``type=o``) search through the remote access service."""

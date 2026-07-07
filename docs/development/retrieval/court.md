@@ -12,6 +12,10 @@ is retrieval enrichment only.
 - whether the per-document docket cache was used; and
 - any lookup failure.
 
+When docket resolution makes a CourtListener request, `request_trace` records
+its HTTP status, persistent or per-run cache outcome, request key, and error.
+Cluster-provided courts do not fabricate request metadata.
+
 Retrieval never compares this value with eyecite's extracted `court`, infers
 whether they agree, or changes the citation. A missing court remains missing.
 The comparison and the optional exclusive-reporter fallback are documented in

@@ -42,6 +42,7 @@ from mellea_lrc.serialization import (
 from mellea_lrc.llm import llm_api_config_from_env
 from mellea_lrc.retrieval.types import (
     CitationRetrieval,
+    CourtListenerRequestTrace,
     CourtResolutionSource,
     CourtResolutionTrace,
     FoundCitationRetrieval,
@@ -77,8 +78,7 @@ def _retrieved_candidate(
             ),
             docket_id=record.docket_id if record else None,
             docket_url=None,
-            cached=False,
-            error_message=None,
+            request_trace=None,
         ),
     )
 
@@ -197,9 +197,12 @@ def test_review_preprocessed_returns_frontend_span_payload() -> None:
     assert citation["fields"]["plaintiff"] == "Brown"
     assert citation["retrieval"]["status"] == "found"
     assert citation["retrieval"]["case_names"] == ["Brown v. Board of Education"]
-    assert citation["retrieval"]["lookup_status"] == 200
-    assert citation["retrieval"]["lookup_cache"] == "miss"
-    assert citation["retrieval"]["lookup_key"] == "lookup-key"
+    assert citation["retrieval"]["request_trace"] == {
+        "http_status": 200,
+        "cache": "miss",
+        "key": "lookup-key",
+        "error_message": None,
+    }
     assert citation["retrieval"]["candidate"]["record"]["date_filed"] == "1954-05-17"
     assert output["stats"]["found"] == 1
 
@@ -232,7 +235,7 @@ def test_retrieve_review_citation_payload_returns_single_retrieval() -> None:
 
     assert retrieval["citation_id"] == extracted["citations"][0]["id"]
     assert retrieval["status"] == "found"
-    assert retrieval["lookup_key"] == "lookup-key"
+    assert retrieval["request_trace"]["key"] == "lookup-key"
 
 
 def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> None:
@@ -246,9 +249,12 @@ def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> 
         "status": "found",
         "source": "test",
         "case_names": ["Brown v. Board"],
-        "lookup_status": 200,
-        "lookup_cache": "miss",
-        "lookup_key": "key",
+        "request_trace": {
+            "http_status": 200,
+            "cache": "miss",
+            "key": "key",
+            "error_message": None,
+        },
         "candidate": {
             "candidate_id": f"{extracted['citations'][0]['id']}:candidate:0",
             "record": {
@@ -264,8 +270,7 @@ def test_assess_review_payload_adds_exact_case_name_assessment_without_llm() -> 
                 "resolved_via": "not_attempted",
                 "docket_id": None,
                 "docket_url": None,
-                "cached": False,
-                "error_message": None,
+                "request_trace": None,
             },
         },
         "extra_data": {},
@@ -306,9 +311,7 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
         citation_id="cite-1",
         locator="347 U.S. 483",
         source="test",
-        lookup_status=200,
-        lookup_cache=None,
-        lookup_key=None,
+        request_trace=CourtListenerRequestTrace(http_status=200),
         candidate=_retrieved_candidate(
             "cite-1",
             CourtListenerCitationRecord(
@@ -379,9 +382,7 @@ def test_review_document_assessment_preserves_waiting_citation() -> None:
                     citation_id="cite-1",
                     locator="347 U.S. 483",
                     source="test",
-                    lookup_status=200,
-                    lookup_cache=None,
-                    lookup_key=None,
+                    request_trace=CourtListenerRequestTrace(http_status=200),
                     candidate=_retrieved_candidate("cite-1"),
                     extra_data=ExtraData(),
                 ),
@@ -442,9 +443,7 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
                     citation_id="cite-1",
                     locator="347 U.S. 483",
                     source="test",
-                    lookup_status=200,
-                    lookup_cache=None,
-                    lookup_key=None,
+                    request_trace=CourtListenerRequestTrace(http_status=200),
                     candidate=_retrieved_candidate("cite-1"),
                     extra_data=ExtraData(),
                 ),
@@ -486,9 +485,7 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
                 citation_id="cite-1",
                 locator="347 U.S. 483",
                 source="test",
-                lookup_status=200,
-                lookup_cache=None,
-                lookup_key=None,
+                request_trace=CourtListenerRequestTrace(http_status=200),
                 candidate=_retrieved_candidate("cite-1"),
                 extra_data=ExtraData(),
             ),

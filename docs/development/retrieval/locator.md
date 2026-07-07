@@ -33,7 +33,7 @@ that it is false.
 
 ## Implementation contract
 
-The lookup preserves `lookup_status`, `lookup_cache`, `lookup_key`, typed
+The lookup preserves HTTP status, cache outcome, and request key in `request_trace`, typed
 `CourtListenerCitationRecord` values where available, failure detail, and upstream
 `extra_data`. Retrieval wraps each record in a `RetrievedCandidate`; a malformed
 HTTP 200 with no record becomes `lookup_failed`
