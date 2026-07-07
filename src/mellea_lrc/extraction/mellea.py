@@ -5,6 +5,7 @@ from pathlib import Path
 import mellea
 from mellea.stdlib.sampling.base import RejectionSamplingStrategy
 from mellea.backends.model_ids import IBM_GRANITE_4_1_3B
+from dotenv import load_dotenv, find_dotenv
 
 from .base import BaseExtractor
 from mellea_lrc.preprocessing import (
@@ -15,7 +16,12 @@ from mellea_lrc.preprocessing import (
 class MelleaExtractor(BaseExtractor):
     """Extractor that uses Mellea."""
 
-    _mellea_session = mellea.start_session(backend_name="ollama", model_id=IBM_GRANITE_4_1_3B)
+    load_dotenv(find_dotenv())
+    # change the backend to chat-based
+    # backend = mellea.start_backend(
+    #     "ollama", ModelIdentifier=IBM_GRANITE_4_1_3B, context_type="chat", model_options={"temperature": 0}
+    # )
+    _mellea_session_granite_3b = mellea.start_session(backend_name="ollama", model_id=IBM_GRANITE_4_1_3B)
 
     def __init__(self) -> None:
         """Initialize a Mellea session."""
@@ -33,7 +39,7 @@ class MelleaExtractor(BaseExtractor):
             A list of citations.
 
         """
-        response = cls._mellea_session.instruct(
+        response = cls._mellea_session_granite_3b.instruct(
             "return a list of all case law citations in the document. document: {{text}}",
             user_variables={"text": text},
             requirements=[
