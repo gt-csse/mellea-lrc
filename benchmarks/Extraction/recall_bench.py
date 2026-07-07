@@ -3,26 +3,14 @@
 # %%
 import hashlib
 from pathlib import Path
-import sys
 from dataclasses import asdict
 import json
-from typing import cast
+import difflib
+import unittest
 
-from mellea_lrc.extraction import extract_document_file, extract_citations, DocumentExtraction, ExtractedCitation
-from mellea_lrc.core import CanonicalCitation, FullCaseCitation, FullLawCitation, FullJournalCitation, ShortCaseCitation, SupraCitation, IdCitation
-from mellea_lrc.preprocessing import PreprocessedDocument, PreprocessedDocumentMetadata
-
-# %%
-# Prints the sys.modules
-print(type(sys.modules))
-for value in sys.modules:
-    if "mellea" in value:
-        print(value)
-
-# %%
-for index, value in enumerate(sys.path, start=1):
-    print(f"{index}: {value!r}")
-
+from mellea_lrc.extraction import extract_document_file, extract_citations, ExtractedCitation, ExtractedDocument, ExtractionMetadata, ExtractionBackend
+from mellea_lrc.core import CanonicalCitation, FullCaseCitation, FullLawCitation, FullJournalCitation, ShortCaseCitation, SupraCitation, IdCitation, Span, SourceMetadata, SourceFormat
+from mellea_lrc.preprocessing import PreprocessingMetadata, PreprocessingBackend
 
 # %%
 # Get a PDF document
@@ -49,7 +37,7 @@ def convert_to_text(file_path: Path) -> str:
 
 # %%
 # Save the citations
-def save_citations(path: Path, document: DocumentExtraction) -> None:
+def save_citations(path: Path, document: ExtractedDocument) -> None:
     """Save the citions."""
     document_dict = asdict(document)
     # Add `kind` key to each Citation
@@ -61,29 +49,54 @@ def save_citations(path: Path, document: DocumentExtraction) -> None:
 # %%
 # Load the saved citations
 mapping = { citation_type.kind : citation_type for citation_type in (FullCaseCitation, FullJournalCitation, FullLawCitation, ShortCaseCitation, SupraCitation, IdCitation)}
-def load_citations(path: Path) -> DocumentExtraction:
+def load_citations(path: Path) -> ExtractedDocument:
     """Load the saved citations."""
     data = None
+    # Load file into data
     if path.exists() and path.is_file() and path.suffix == ".json":
         with path.open("r", encoding="utf-8") as file:
             data = json.load(file)
     else:
         msg = f"{path} doesn't exists, is not a file, or it isn't json"
         raise Exception(msg)
-    citations = []
-    if data:
-        for citation in data.get("citations", []):
-            sub_citation = citation.pop("citation")
-            kind =  sub_citation.pop("kind") # raise error if key is missing (should be there)
-            citation_type = mapping[kind](**sub_citation) # Create a citation of 'kind' type
-            temp = ExtractedCitation(citation=citation_type, **citation)
-            citations.append(temp)
-        preprocessed = data.pop("preprocessed")
-        pre_pros_meta = PreprocessedDocumentMetadata(**preprocessed["metadata"])
-        pre_pros_doc = PreprocessedDocument(text=preprocessed["text"], metadata=pre_pros_meta)
 
-        citations = cast(tuple[ExtractedCitation, ...], citations)
-        document = DocumentExtraction(preprocessed=pre_pros_doc, citations=citations)
+    # Reconstruct dataclasses
+    if data:
+        citations = []
+        # Reconstruct all of the `ExtractedCitation` dataclasses
+        for citation in data.pop("citations", []):
+            copy = citation
+            # Reconstruct `CanonicalCitation`
+            canonical_citation = copy.pop("citation")
+            kind =  canonical_citation.pop("kind") # raise error if key is missing (should be there)
+            citation_type = mapping[kind](**canonical_citation) # Create a citation of 'kind' type
+            # Reconstruct `Span`
+            span = copy.pop("span")
+            span_dc = Span(**span)
+        
+            temp = ExtractedCitation(citation=citation_type, span=span_dc, **copy)
+            citations.append(temp)
+        citations = tuple(citations)
+        
+        # Reconstruct `PreprocessingMetadata` 
+        preprocessed = data.pop("preprocessing_metadata")
+        backend = preprocessed.pop("backend")
+        backend_dc = PreprocessingBackend(backend)
+        preprocessing_metadata = PreprocessingMetadata(backend=backend_dc, **preprocessed)
+
+        # Reconstruct `ExtractedBackend`
+        extraction_meta = data.pop("extraction_metadata")
+        extraction_backend = extraction_meta.pop("backend")
+        extraction_backend_dc = ExtractionBackend(extraction_backend)
+        extraction_meta_dc = ExtractionMetadata(backend=extraction_backend_dc, **extraction_meta)
+
+        # Reconstruct `SourceMetadata`
+        source_meta = data.pop("source_metadata")
+        format_data = source_meta.pop("format")
+        format_data_dc = SourceFormat(format_data)
+        source_meta_dc = SourceMetadata(format=format_data_dc, **source_meta)
+
+        document = ExtractedDocument(source_metadata=source_meta_dc, citations=citations, preprocessing_metadata=preprocessing_metadata, extraction_metadata=extraction_meta_dc, **data)
         return document
     else:
         msg = f"Couldn't create DocumentExtraction for {path}"
@@ -106,35 +119,45 @@ def main() -> int:
         text = convert_to_text(file_path)
         text_path.write_text(text)
 
-    header = "\n".join(text.split("\n")[:9])
-    print(header)
 
-    citations: DocumentExtraction = extract_citations(text)
+    citations: ExtractedDocument = extract_citations(text)
     saved_document_path = dir_name / str(hash_string + ".json")
     save_citations(saved_document_path, citations)
     citation = load_citations(saved_document_path)
     #assert(citation == citations)
     separator = "-" * 80
-    if citations.text != citation.text:
-        print("The text are not equal")
-    if citations.preprocessed != citation.preprocessed:
-        print("the preprocessed are not equal!")
-        if citations.preprocessed.metadata != citation.preprocessed.metadata:
-            print(" - The metadata are not equal")
-            print()
-            x = json.dumps(asdict(citations.preprocessed.metadata), indent=4)
-            print(x)
+    if citation != citations:
+        print("They are not equal")
+        unittest.TestCase().assertDictEqual(asdict(citation), asdict(citations))
+        print(f"{type(citation.citations)} vs. f{type(citations.citations)}")
+        print(f"{type(citation.extraction_metadata)} vs. f{type(citations.extraction_metadata)}")
+        print(f"{type(citation.text)} vs. f{type(citations.text)}")
+        print(f"{type(citation.preprocessing_metadata)} vs. f{type(citations.preprocessing_metadata)}")
+        if citations.text != citation.text:
+            print("The text are not equal")
+        if citations.preprocessing_metadata != citation.preprocessing_metadata:
+            print("the preprocessing_metadata are not equal!")
+        if citations.extraction_metadata != citation.extraction_metadata:
+            print("The extraction metadata are not equal")
+        if citations.citations != citation.citations:
+            print("The citation are not equal")
             print(separator)
-            print()
-            x = json.dumps(asdict(citation.preprocessed.metadata), indent=4)
-            print(x)
+            print(type(citation.citations))
+            print(type(citations.citations))
+            first = json.dumps(asdict(citations), indent=4)
+            second = json.dumps(asdict(citation), indent=4)
+            print(len(second))
+            diff = difflib.Differ()
+            #difference = diff.compare(first.splitlines(), second.splitlines())
+            ht = difflib.HtmlDiff()
+            html_output = ht.make_file(first.splitlines(), second.splitlines())
+            html_path = saved_document_path.parent / "html-render.html"
+            with html_path.open("w") as file:
+                file.write(html_output)
+        if citations.source_metadata != citation.source_metadata:
+            print("The source metadata are not equal")
+    
             print(separator)
-            
-
-
-
-    if citations.citations != citation.citations:
-        print("the citations are not equal")
     return 0
 
 # %%
