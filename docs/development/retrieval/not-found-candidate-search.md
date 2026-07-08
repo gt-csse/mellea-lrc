@@ -2,6 +2,18 @@
 
 When a reporter lookup 404s, the case may still be real under a different locator. Retrieval performs retrieval only: it records what CourtListener returned and expresses no opinion about whether any result is the cited case.
 
+Candidate-description, proceeding, document, and locator evidence must remain
+distinct. WL/database locators also require a different verification route from
+reporter coordinates. See
+[Decision Publication, Access, and Locators](../../knowledge/Decision%20Publication,%20Access,%20and%20Locators.md).
+
+In particular, **state-trial + WL** is a bounded shallow-search route when no
+licensed WL backend is configured. After exact CourtListener, one constrained
+case-law/official-court probe, and at most one exact web probe, retrieval should
+stop and recommend Westlaw for full locator validation. It should not spend
+model tokens iterating over fragmented state trial sources, and it must not
+turn that coverage limitation into an opinion that the citation is incorrect.
+
 Two decisions are intentionally separate.
 
 The current search gate requires both parties. Missing, partial, or malformed

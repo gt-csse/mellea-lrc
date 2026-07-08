@@ -67,6 +67,9 @@ require RECAP coverage or docket-entry availability.
 
 For the search endpoint contract, supported corpora, semantic-search behavior,
 and project-specific usage guidance, see [CourtListener Search API](CourtListener%20Search%20API.md).
+For the distinction between publication, precedential force, access, reporter
+and commercial locators, and authority-identity evidence, see
+[Decision Publication, Access, and Locators](Decision%20Publication,%20Access,%20and%20Locators.md).
 For the court-level taxonomy, human-readable inference signals, and
 level-specific coverage strategy, see
 [Court Level Classification](Court%20Level%20Classification%20%5Bin%20progress%5D.md).
@@ -86,7 +89,12 @@ Even within federal cases (which are the most comprehensively indexed), document
 
 **State cases are less consistently covered.** CourtListener indexes state appellate opinions, but trial-level state documents are largely absent. Coverage varies significantly by state and court.
 
-**Published vs. unpublished opinions.** Many federal appellate decisions are designated "unpublished" and may not appear in traditional reporter services. Their presence in CourtListener depends on whether they were scraped directly from court websites or uploaded via RECAP.
+**Publication, access, and precedential status are separate.** A decision may be
+court-designated unpublished while remaining openly available and citable. A
+published decision may be available only through an authenticated or paywalled
+copy. PACER/RECAP availability and CourtListener opinion-cluster ingestion are
+also independent. Use the canonical locator note linked above rather than
+treating “unpublished,” “not found,” and “locked” as synonyms.
 
 ---
 

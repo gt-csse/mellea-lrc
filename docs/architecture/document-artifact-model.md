@@ -2,6 +2,11 @@
 
 Status: accepted
 
+This document-stage model remains canonical for the current development cycle.
+A possible future per-citation orchestration model is recorded, but explicitly
+deferred, in
+[Per-Citation Execution Model](./per-citation-execution-model.md).
+
 ## Context
 
 The document pipeline is monotonic: preprocessing establishes text and provenance,

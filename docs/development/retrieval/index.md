@@ -66,7 +66,9 @@ stored in `RetrievalMetadata`.
 
 Candidate selection and all field comparisons are documented under
 [Assessment Development](../assessment/index.md). CourtListener coverage limitations
-are documented in [Data Source](../../knowledge/Data%20Source.md).
+are documented in [Data Source](../../knowledge/Data%20Source.md). Publication,
+access, WL treatment, and locator-verification evidence are defined in
+[Decision Publication, Access, and Locators](../../knowledge/Decision%20Publication,%20Access,%20and%20Locators.md).
 
 ## Adding retrieval work
 
@@ -81,3 +83,9 @@ to retrieve evidence. It must not:
 
 If a feature needs any of those operations, preserve the retrieval artifact and
 implement the opinion in assessment.
+
+Route selection may still use known source-coverage constraints. The canonical
+example is a state-trial WL citation without a licensed WL backend: perform only
+the documented shallow probes, record the coverage limitation, and recommend a
+commercial backend for full locator validation. Bounded routing is not an
+identity verdict.

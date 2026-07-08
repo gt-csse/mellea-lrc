@@ -8,16 +8,19 @@ belong in `provenances`.
 
 ## Comments
 
-Comments are short research conclusions. Prefer this stable shape:
+Comments are short retrieval and authority-identity research conclusions.
+Proposition support and citation appropriateness belong to a later evaluation
+layer, not this fixture's current comments. A useful comment records:
 
 ```text
-Finding: what the pipeline/search returned.
-Evaluation: whether the evidence identifies the cited case, and why.
-Next: the smallest useful follow-up (omit when resolved).
+Identity: VERIFIED, UNRESOLVED, NO CANDIDATE, NOT SEARCHED, or LINKAGE DEFECT.
+Evidence: the parties, court, docket, date, and decisional-document cues used.
+Next: the smallest missing identity-resolution step (omit when resolved).
 ```
 
-Do not paste raw API payloads into a comment. Candidate summaries belong in
-the retrieval snapshot; comments should interpret that evidence.
+Do not paste raw API payloads or proposition-support judgments into a comment.
+Candidate summaries belong in the retrieval snapshot; comments should interpret
+only the authority-identity evidence.
 
 Update a comment by an unambiguous bookmark-ID prefix so neither JSON nor the
 generated text fixture needs to be edited by hand:

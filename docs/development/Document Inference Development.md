@@ -24,6 +24,20 @@ At a minimum, the Document Inference module should extract the following context
 
 By extracting these attributes comprehensively upfront and providing them alongside citations, downstream evaluation pipelines can make complex legal properness judgements efficiently and accurately.
 
+## Prefix-cached execution direction
+
+Document inference should not replace the full document in downstream model
+context. Instead, the full immutable document and one grounded, materialized
+document inference should form a shared prefix. Citation-level nodes fork only
+after that boundary, allowing provider KV/prefix caching to reuse document
+prefill while every node retains access to the complete source and the same
+interpretive frame.
+
+The architecture, cache contract, node graph, and limitations are documented in
+[Prefix-Cached Document Reasoning](../architecture/prefix-cached-document-reasoning.md).
+Appropriateness/proposition-support reasoning is a later consumer described in
+[Appropriateness Evaluation Layer](../architecture/appropriateness-evaluation-layer.md).
+
 ## The Translation Layer Heuristic
 
 To successfully determine the **Court Level/Jurisdiction** of a document, we can leverage the aggregate network of citations it contains. This requires normalizing extracted citations from arbitrary text into a standardized court taxonomy (CourtListener Court IDs). Because no authoritative 1:1 crosswalk exists between the extraction layer's MLZ jurisdictions and CourtListener's archival IDs, we are building a dedicated **Translation Layer**.
