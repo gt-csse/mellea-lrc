@@ -28,3 +28,8 @@ the span uses absolute offsets into preprocessed document text.
 
 Implementation: `assessment/fields/case_name/` and
 `assessment/types/case_name.py`.
+
+This is the current implementation, not the intended long-term ownership.
+Retrieval now also needs grounded case-name repair before candidate search. The
+proposed shared workflow is documented in
+[Shared Re-extraction Workflow](../../architecture/shared-reextraction-workflow.md).

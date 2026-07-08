@@ -282,6 +282,7 @@ def test_not_found_reports_case_name_search_count() -> None:
 def test_case_name_query_uses_one_meaningful_anchor_per_party() -> None:
     assert _case_name_query("Peterson", "Nelnet Diversified Sols., LLC") == "caseName:(Peterson AND Nelnet)"
     assert _case_name_query("E.E.O.C.", "Maricopa County Cmty. Coll. Dist.") == "caseName:(EEOC AND Maricopa)"
+    assert _case_name_query("Estate of Martinelli", "City & Cty. of Denver") == "caseName:(Martinelli AND Denver)"
 
 
 def test_case_name_query_includes_court_when_available() -> None:
@@ -307,6 +308,35 @@ def test_not_found_reports_zero_case_name_search_results() -> None:
 
     assert retrieval.candidate_search.status == CaseNameSearchStatus.SEARCHED
     assert [probe.case_count for probe in retrieval.candidate_search.probes] == [0, 0]
+
+
+def test_not_found_preserves_bounded_search_candidate_summaries() -> None:
+    results = [
+        {
+            "caseName": f"Doe v. Roe {index}",
+            "court_id": "scotus",
+            "dateFiled": "2001-01-01",
+            "docketNumber": str(index),
+            "cluster_id": index,
+        }
+        for index in range(7)
+    ]
+    client = CourtListenerAccessClient(
+        CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
+        post_json=lambda _url, _data: {
+            "response": {"citation": "999 U.S. 999", "status": 404, "clusters": []},
+        },
+        get_json=lambda _url: {"count": 7, "results": results},
+    )
+    extraction = _not_found_extraction(
+        FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="999", reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="999", court="scotus"),
+    )
+
+    search = run_retrieval(extraction, client_mode="custom", client=client).retrievals[0].candidate_search
+
+    assert len(search.probes[0].candidates) == 5
+    assert search.probes[0].candidates[0].case_name == "Doe v. Roe 0"
+    assert search.probes[0].candidates[0].cluster_id == "0"
 
 
 def test_not_found_preserves_failed_search_http_status() -> None:

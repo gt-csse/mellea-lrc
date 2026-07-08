@@ -171,7 +171,7 @@ Serialized artifacts retain explicit top-level stage fields and require:
 
 Unversioned artifacts, previous schema versions, and mismatched artifact types are
 rejected. Deserialization validates artifact invariants rather than silently
-constructing contradictory stage objects. Schema version 18 uses one nested
+constructing contradictory stage objects. Schema version 19 uses one nested
 `request_trace` contract for CourtListener HTTP status, cache outcome, request key,
 and error metadata. Schema changes always increment the version; deserializers do
 not adapt previous versions.

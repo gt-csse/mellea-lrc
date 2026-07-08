@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 RetrievalClientMode: TypeAlias = Literal["deployed", "sdk", "custom"]
 HTTP_OK = 200
 EXPECTED_CASE_NAME_PROBES = 2
+MAX_CASE_NAME_SEARCH_CANDIDATES = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +98,19 @@ class CaseNameSearchCorpus(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class CaseNameSearchCandidate:
+    """Small, stable projection of one CourtListener search result."""
+
+    case_name: str | None = None
+    court_id: str | None = None
+    date_filed: str | None = None
+    docket_number: str | None = None
+    cluster_id: str | None = None
+    docket_id: str | None = None
+    absolute_url: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class CaseNameSearchProbe:
     """Independent result from searching one CourtListener corpus."""
 
@@ -104,6 +118,7 @@ class CaseNameSearchProbe:
     status: CaseNameSearchStatus
     request_trace: CourtListenerRequestTrace
     case_count: int | None = None
+    candidates: tuple[CaseNameSearchCandidate, ...] = ()
 
     def __post_init__(self) -> None:
         if self.status is CaseNameSearchStatus.SEARCHED:
@@ -115,6 +130,12 @@ class CaseNameSearchProbe:
                 raise ValueError(msg)
         elif self.case_count is not None:
             msg = "Only a searched case-name probe may carry case_count"
+            raise ValueError(msg)
+        if self.status is not CaseNameSearchStatus.SEARCHED and self.candidates:
+            msg = "Only a searched case-name probe may carry candidates"
+            raise ValueError(msg)
+        if len(self.candidates) > MAX_CASE_NAME_SEARCH_CANDIDATES:
+            msg = "A case-name probe carries at most five candidate summaries"
             raise ValueError(msg)
         if self.status not in {
             CaseNameSearchStatus.SEARCHED,

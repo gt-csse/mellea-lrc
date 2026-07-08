@@ -7,7 +7,7 @@
         "matched_text": "497 F. Supp. 3d 1025",
         "context": "States v. Smalls , 605 F.3d 765, 787 (10th Cir. 2010) (internal quotations and citations omitted).\n\nThe trial court's discretion to balance possible unfair prejudice against probative value is broad. United States v. Begay ,  497 F. Supp. 3d 1025, 1052 (D.N.M. 2020) (citations omitted). While Federal Rule of Evidence 404(a) generally prohibits character evidence to prove conduct in conformity therewith, Rule 405(b) expressly permits evidence of specific instances of conduct when ch"
       },
-      "comment": "not found branch\nopinion returns 3 cases while recap returns 324 cases",
+      "comment": "Identity: UNRESOLVED. The cited decision is real (United States v. Begay, 497 F. Supp. 3d 1025 (D.N.M. 2020)), but the 3 surfaced opinion candidates were filed in 2005, 2016, and 2018; none is shown to be the cited 2020 decision. The 324 RECAP results are too broad to identify it.\nProposition: NOT CHECKED against a surfaced candidate.\nEvidence needed: locate the 2020 decisional document or its docket/document number before treating any candidate as a match.",
       "provenances": [
         {
           "source_path": "../local/test_data/1.txt",
@@ -29,7 +29,7 @@
         "matched_text": "409 F.Supp.3d 1122",
         "context": "\"  in  defamation  cases). Additionally,  under  Rule  608(b),  specific  instances  of conduct  may  be  inquired  into  on  cross-examination  if  probative  of  truthfulness. New  Mexico  ex  rel.\n\nBalderas v. Real Estate Law Center, P.C ., 409 F.Supp.3d 1122, 1128 (2019) (allowing cross-examination about specific instances of dishonesty).\n\nThe Court must balance the probative value of evidence against the danger of unfair prejudice under Rule 403. However, evidence is not unfairly prejudicial merely because it damages a party's case"
       },
-      "comment": "opinion returns 0 but recap returns only 1,\nmight be a good case to show this fallback",
+      "comment": "Identity: VERIFIED. The sole RECAP result is Balderas v. Real Estate Law Center, PC, D.N.M. No. 1:17-cv-00251. Docket entry 193 is the relevant memorandum opinion reported at 409 F. Supp. 3d 1122.\nProposition: SUPPORTED. The opinion permits cross-examination about prior misconduct probative of Pratt\u2019s truthfulness under Rule 608(b), substantially matching the citation\u2019s use.\nDecisive cues: exact parties, court, docket, decisional document, and matching opinion text.",
       "provenances": [
         {
           "source_path": "../local/test_data/1.txt",
@@ -51,7 +51,7 @@
         "matched_text": "416 F.Supp.3d 1131",
         "context": "Farmington ,  798 F.Supp.2d  1215,  1227  (D.N.M.  2011),  the  court  allowed  evidence  of  prior  substance  abuse  issues  as relevant to emotional distress damages. The District of Colorado in Sanchez v. Duffy , 416 F.Supp.3d 1131 (D. Colo. 2018) permitted evidence of prior mental health treatment to challenge causation in emotional distress claims.\n\nIn Boeser v. Sharp , the court recognized that when a plaintiff places mental state at issue"
       },
-      "comment": "not found\nnothing returns. real hallucination?",
+      "comment": "Identity: NO CANDIDATE. Court-filtered opinion and RECAP searches both returned 0 for Sanchez v. Duffy, 416 F. Supp. 3d 1131 (D. Colo. 2018).\nProposition: UNVERIFIED. No surfaced document supports the claim about prior mental-health treatment or social-media evidence.\nInterpretation: likely malformed or hallucinated citation unless another source can locate the decision.",
       "provenances": [
         {
           "source_path": "../local/test_data/1.txt",
@@ -73,7 +73,7 @@
         "matched_text": "2007 WL 1430100",
         "context": "istress claims.\n\nIn Boeser v. Sharp , the court recognized that when a plaintiff places mental state at issue evidence of  pre-existing  conditions  becomes  highly  relevant  to  assessing  damages. Boeser  v.  Sharp ,  No. CIVA03CV00031WDMMEH, 2007 WL 1430100, at *7 (D. Colo. May 14, 2007); see also Solis-Marrufo v. Bd. of Comm'rs for Cnty. of Bernalillo , No. CIV 11-0107 JB/KBM, 2013 WL 1658203, at *20 (D.N.M. Mar.  28,  2013)  (permitting  Defendants  to  contradict  a  plaintiff's"
       },
-      "comment": "not found \nrecap returns 1 and opinion 0\nthe case_name extraction is malformatted",
+      "comment": "Identity: VERIFIED. The sole RECAP result is Boeser v. Sharp, D. Colo. No. 1:03-cv-00031. Docket entry 331 is an order filed May 14, 2007, matching 2007 WL 1430100.\nProposition: NOT SUPPORTED AS STATED. The order discusses emotional-distress evidence but does not hold that prior mental-health conditions are admissible to challenge causation; it says later objections will be decided in context.\nLesson: matching the exact decision does not validate the citing document\u2019s characterization of it.",
       "provenances": [
         {
           "source_path": "../local/test_data/1.txt",
@@ -95,7 +95,7 @@
         "matched_text": "2013 WL 1658203",
         "context": "nditions  becomes  highly  relevant  to  assessing  damages. Boeser  v.  Sharp ,  No. CIVA03CV00031WDMMEH, 2007 WL 1430100, at *7 (D. Colo. May 14, 2007); see also Solis-Marrufo v. Bd. of Comm'rs for Cnty. of Bernalillo , No. CIV 11-0107 JB/KBM, 2013 WL 1658203, at *20 (D.N.M. Mar.  28,  2013)  (permitting  Defendants  to  contradict  a  plaintiff's  asserted  damages  by  inquiring  into previous drug use as admissible where plaintiff's mental and emotional state at issue under Rules 403"
       },
-      "comment": "case_name malformatted in extraction",
+      "comment": "Identity: NOT SEARCHED. Extraction did not recover both parties for Solis-Marrufo v. Board of Commissioners, so the candidate-search gate could not run.\nProposition: UNVERIFIED.\nRequired next evidence: grounded case-name re-extraction, followed by court/date/docket-aware retrieval and inspection of the cited order.",
       "provenances": [
         {
           "source_path": "../local/test_data/1.txt",
@@ -117,7 +117,7 @@
         "matched_text": "2021 WL 4133804",
         "context": "y admitted social media evidence in similar contexts. See Sanchez v. Duffy , 416 F.Supp.3d 1131, 1142 (D. Colo. 2018) (allowing Facebook posts as relevant to plaintiff's mental state and reputation); Estate of Martinelli v. City & Cty. of Denver , No. 19cv-02737, 2021 WL 4133804, at *6-7 (D. Colo. Sept. 10, 2021) (admitting social media evidence as relevant to damages claims); Peterson v. Nelnet Diversified Sols., LLC ,  400 F.Supp.3d 1122, 1131 (D. Colo. 2019) (permitting discovery and use of social media posts in emotional distress case).\n\nB. Religious Beliefs Evidence"
       },
-      "comment": "opinion exists 2 cases\nrecap 26 cases",
+      "comment": "Identity: NO CANDIDATE. The generic Estate AND City query produced unrelated results; the corrected Martinelli AND Denver + D. Colo. query produced 0 opinion and 0 RECAP results.\nProposition: UNVERIFIED. No surfaced document supports the claimed social-media holding for 2021 WL 4133804.\nKnown citation cues: Estate of Martinelli v. City & County of Denver, No. 19-cv-02737, asserted date September 10, 2021. Search by docket number or another source.",
       "provenances": [
         {
           "source_path": "../local/test_data/1.txt",
@@ -139,7 +139,7 @@
         "matched_text": "400 F.Supp.3d 1122",
         "context": "te and reputation); Estate of Martinelli v. City & Cty. of Denver , No. 19cv-02737, 2021 WL 4133804, at *6-7 (D. Colo. Sept. 10, 2021) (admitting social media evidence as relevant to damages claims); Peterson v. Nelnet Diversified Sols., LLC ,  400 F.Supp.3d 1122, 1131 (D. Colo. 2019) (permitting discovery and use of social media posts in emotional distress case).\n\nB. Religious Beliefs Evidence Under Rule 610.\n\nWhile  Rule  610  prohibits  evidence  of  religious  beliefs  'to  attack  or  support  the  witness's credibility,' it does not bar such evidence wh"
       },
-      "comment": "opinion 0\nrecap 1",
+      "comment": "Identity: VERIFIED. The sole RECAP result is Peterson v. Nelnet Diversified Solutions, LLC, D. Colo. No. 1:17-cv-01064. Docket entry 186 is the August 23, 2019 memorandum opinion reported at 400 F. Supp. 3d 1122.\nProposition: CONTRADICTED. The opinion is an FLSA compensation decision about pre-shift computer startup work; it does not concern social media, reputation, or emotional-distress evidence.\nConclusion: correct case and decision, but the citing document misattributes the holding.",
       "provenances": [
         {
           "source_path": "../local/test_data/1.txt",
@@ -161,7 +161,7 @@
         "matched_text": "2021 WL 4133804",
         "context": "nstructions because of its clearly probative value); Peterson v. Nelnet Diversified Sols., LLC , 400 F.Supp.3d at 1133 (finding probative value of reputation evidence outweighed potential prejudice); Estate of Martinelli , 2021 WL 4133804 at *8 (allowing evidence critical to damages claims despite prejudicial potential).\n\nVI. Alternatively, the Defendants are Entitled to Individual Analysis or Limiting Instructions Considering the Intersect"
       },
-      "comment": "malformed extraction\nwith wrong locator",
+      "comment": "Identity: LINKAGE DEFECT. This is a repeated short-form reference to Estate of Martinelli, but extraction attached an incomplete case name and incorrect locator/pinpoint. It is not evidence of a second case.\nProposition: UNVERIFIED because no Martinelli decisional document was surfaced.\nRequired repair: resolve the short form to the earlier full citation before retrieval or proposition checking.",
       "provenances": [
         {
           "source_path": "../local/test_data/1.txt",

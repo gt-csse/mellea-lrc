@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from mellea_lrc.courtlistener.client import CourtListenerError
 from mellea_lrc.retrieval.types import (
     CaseNameSearchCorpus,
+    CaseNameSearchCandidate,
     CaseNameSearchProbe,
     CaseNameSearchStatus,
     CaseNameSearchTrace,
@@ -38,6 +39,11 @@ _NON_DISTINCTIVE_PARTY_TOKENS = frozenset(
         "company",
         "corp",
         "corporation",
+        "county",
+        "city",
+        "cty",
+        "estate",
+        "ex",
         "inc",
         "incorporated",
         "llc",
@@ -46,6 +52,7 @@ _NON_DISTINCTIVE_PARTY_TOKENS = frozenset(
         "ltd",
         "no",
         "of",
+        "rel",
         "the",
     }
 )
@@ -144,6 +151,7 @@ def _search_corpus(
         CaseNameSearchStatus.SEARCHED,
         CourtListenerRequestTrace(http_status=http_status, cache=cache, key=key),
         case_count=case_count,
+        candidates=_search_candidates(payload),
     )
 
 
@@ -224,3 +232,38 @@ def _case_count(payload: object) -> int | None:
     if isinstance(count, bool) or not isinstance(count, int) or count < 0:
         return None
     return count
+
+
+def _search_candidates(payload: object) -> tuple[CaseNameSearchCandidate, ...]:
+    """Keep a bounded, normalized projection instead of copying raw search JSON."""
+    if not isinstance(payload, Mapping):
+        return ()
+    results = payload.get("results")
+    if not isinstance(results, list):
+        raw = payload.get("raw")
+        results = raw.get("results") if isinstance(raw, Mapping) else None
+    if not isinstance(results, list):
+        return ()
+    return tuple(
+        CaseNameSearchCandidate(
+            case_name=_candidate_str(item, "case_name", "caseName"),
+            court_id=_candidate_str(item, "court_id", "courtId", "court"),
+            date_filed=_candidate_str(item, "date_filed", "dateFiled"),
+            docket_number=_candidate_str(item, "docket_number", "docketNumber"),
+            cluster_id=_candidate_str(item, "cluster_id", "clusterId"),
+            docket_id=_candidate_str(item, "cl_docket_id", "docket_id", "docketId"),
+            absolute_url=_candidate_str(item, "absolute_url", "absoluteUrl"),
+        )
+        for item in results[:5]
+        if isinstance(item, Mapping)
+    )
+
+
+def _candidate_str(item: Mapping[object, object], *keys: str) -> str | None:
+    for key in keys:
+        value = item.get(key)
+        if isinstance(value, str) and value:
+            return value
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
+    return None

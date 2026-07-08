@@ -73,6 +73,7 @@ from mellea_lrc.preprocessing.types import (
 from mellea_lrc.retrieval.types import (
     AmbiguousCitationRetrieval,
     CaseNameSearchCorpus,
+    CaseNameSearchCandidate,
     CaseNameSearchProbe,
     CaseNameSearchStatus,
     CaseNameSearchTrace,
@@ -127,7 +128,7 @@ if TYPE_CHECKING:
     from mellea_lrc.core.citations import CanonicalCitation
 
 JsonValue: TypeAlias = str | int | float | bool | None | dict[str, "JsonValue"] | list["JsonValue"]
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 _CITATION_PAYLOAD_ADAPTER = TypeAdapter(CanonicalCitationPayload)
 _ASSESSMENT_PAYLOAD_ADAPTER = TypeAdapter(CitationAssessmentPayload)
@@ -471,6 +472,18 @@ def _serialize_case_name_search_trace(item: CaseNameSearchTrace) -> dict[str, Js
                 "status": probe.status.value,
                 "request_trace": _serialize_request_trace(probe.request_trace),
                 "case_count": probe.case_count,
+                "candidates": [
+                    {
+                        "case_name": candidate.case_name,
+                        "court_id": candidate.court_id,
+                        "date_filed": candidate.date_filed,
+                        "docket_number": candidate.docket_number,
+                        "cluster_id": candidate.cluster_id,
+                        "docket_id": candidate.docket_id,
+                        "absolute_url": candidate.absolute_url,
+                    }
+                    for candidate in probe.candidates
+                ],
             }
             for probe in item.probes
         ],
@@ -493,6 +506,18 @@ def _deserialize_case_name_search_trace(
                 _required_mapping_field(probe, "request_trace")
             ),
             case_count=_optional_int(probe.get("case_count")),
+            candidates=tuple(
+                CaseNameSearchCandidate(
+                    case_name=_optional_str(candidate.get("case_name")),
+                    court_id=_optional_str(candidate.get("court_id")),
+                    date_filed=_optional_str(candidate.get("date_filed")),
+                    docket_number=_optional_str(candidate.get("docket_number")),
+                    cluster_id=_optional_str(candidate.get("cluster_id")),
+                    docket_id=_optional_str(candidate.get("docket_id")),
+                    absolute_url=_optional_str(candidate.get("absolute_url")),
+                )
+                for candidate in probe.get("candidates", [])
+            ),
         )
         for probe in validated.get("probes", [])
     )

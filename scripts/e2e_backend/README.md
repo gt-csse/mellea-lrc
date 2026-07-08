@@ -1,5 +1,7 @@
 # E2E Backend
 
+Command index: [../README.md](../README.md).
+
 This backend exposes the assembled mellea-lrc preprocessing, extraction,
 retrieval, and assessment pipeline for the custom frontend review UI. It can
 run locally as a standalone FastAPI app or be wrapped by Modal for deployment.

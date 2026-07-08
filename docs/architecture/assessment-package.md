@@ -2,6 +2,11 @@
 
 Status: accepted
 
+The package layout below describes current ownership. Case-name re-extraction
+is proposed to move to a shared, stage-independent capability so retrieval can
+use grounded repairs before assessment. See
+[Shared Re-extraction Workflow](./shared-reextraction-workflow.md).
+
 Development behavior and field-level workflows are documented in
 [Assessment Development](../development/assessment/index.md).
 

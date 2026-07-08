@@ -50,6 +50,15 @@ type CaseNameSearchTracePayload = {
     status: string;
     request_trace: CourtListenerRequestTracePayload;
     case_count: number | null;
+    candidates: Array<{
+      case_name: string | null;
+      court_id: string | null;
+      date_filed: string | null;
+      docket_number: string | null;
+      cluster_id: string | null;
+      docket_id: string | null;
+      absolute_url: string | null;
+    }>;
   }>;
 };
 
@@ -1815,6 +1824,20 @@ function CaseNameSearchDetails({ search }: { search: CaseNameSearchTracePayload 
           <dd className="search-probe-result">
             <span>{probe.status === "searched" ? `${probe.case_count} cases` : formatStatusLabel(probe.status)}</span>
             <HttpMetadata trace={probe.request_trace} />
+            {probe.candidates.length ? (
+              <ol>
+                {probe.candidates.map((candidate, index) => (
+                  <li key={`${probe.corpus}-${candidate.cluster_id ?? candidate.docket_id ?? index}`}>
+                    <strong>{candidate.case_name ?? "Unnamed case"}</strong>
+                    <span>
+                      {[candidate.court_id, candidate.date_filed, candidate.docket_number]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            ) : null}
           </dd>
         </div>
       ))}

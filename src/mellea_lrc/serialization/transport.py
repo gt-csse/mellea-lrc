@@ -215,11 +215,22 @@ class AmbiguousCitationRetrievalPayload(ArtifactPayload):
     extra_data: dict[str, JsonValue]
 
 
+class CaseNameSearchCandidatePayload(ArtifactPayload):
+    case_name: str | None = None
+    court_id: str | None = None
+    date_filed: str | None = None
+    docket_number: str | None = None
+    cluster_id: str | None = None
+    docket_id: str | None = None
+    absolute_url: str | None = None
+
+
 class CaseNameSearchProbePayload(ArtifactPayload):
     corpus: Literal["o", "r"]
     status: Literal["searched", "search_unavailable", "search_failed"]
     case_count: int | None
     request_trace: CourtListenerRequestTracePayload
+    candidates: list[CaseNameSearchCandidatePayload] = Field(default_factory=list)
 
 
 class CaseNameSearchTracePayload(ArtifactPayload):
@@ -483,27 +494,27 @@ class _RetrievedDocumentFields(_InferredDocumentFields):
 
 
 class PreprocessedDocumentPayload(_PreprocessedDocumentFields):
-    schema_version: Literal[18]
+    schema_version: Literal[19]
     artifact_type: Literal["preprocessed_document"]
 
 
 class ExtractedDocumentPayload(_ExtractedDocumentFields):
-    schema_version: Literal[18]
+    schema_version: Literal[19]
     artifact_type: Literal["extracted_document"]
 
 
 class InferredDocumentPayload(_InferredDocumentFields):
-    schema_version: Literal[18]
+    schema_version: Literal[19]
     artifact_type: Literal["inferred_document"]
 
 
 class RetrievedDocumentPayload(_RetrievedDocumentFields):
-    schema_version: Literal[18]
+    schema_version: Literal[19]
     artifact_type: Literal["retrieved_document"]
 
 
 class AssessedDocumentPayload(_RetrievedDocumentFields):
-    schema_version: Literal[18]
+    schema_version: Literal[19]
     artifact_type: Literal["assessed_document"]
     assessment_metadata: AssessmentMetadataPayload
     assessments: list[CitationAssessmentPayload]

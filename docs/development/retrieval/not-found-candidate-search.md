@@ -4,6 +4,12 @@ When a reporter lookup 404s, the case may still be real under a different locato
 
 Two decisions are intentionally separate.
 
+The current search gate requires both parties. Missing, partial, or malformed
+party extraction can therefore block retrieval before assessment's existing
+re-extraction fallback runs. The proposed stage-independent repair boundary is
+documented in
+[Shared Re-extraction Workflow](../../architecture/shared-reextraction-workflow.md).
+
 ## 1. Case-name query engineering
 
 The current reasonable default is one fielded token intersection plus the

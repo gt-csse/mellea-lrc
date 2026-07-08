@@ -1,5 +1,7 @@
 # Label Studio Workflow
 
+Command index: [../README.md](../README.md).
+
 Pre-annotates legal documents with the source extraction pipeline and uploads them to Label Studio for human review.
 
 Label Studio is an annotation UI adapter. Reusable preprocessing, extraction, and neutral JSON serialization live under `src/mellea_lrc`.

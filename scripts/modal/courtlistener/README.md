@@ -1,5 +1,7 @@
 # CourtListener Modal Backend
 
+Command index: [../../README.md](../../README.md).
+
 This Modal app exposes the reusable CourtListener access API from
 `src/mellea_lrc/courtlistener`. The Modal layer only defines deployment details;
 routes, cache behavior, rate limiting, and CourtListener response normalization
