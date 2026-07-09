@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import TYPE_CHECKING
 
 from mellea.core import ValidationResult
@@ -50,6 +49,19 @@ borrow parties from another citation.
 Treat the locator string as the boundary marker inside local_context. Prefer the
 nearest copied "plaintiff v. defendant" name before that locator over parser
 hints. Parser hints may come from a different citation in the same window.
+If parser hints conflict with the nearest copied name attached to locator, ignore
+the hints and return the locator-bound copied parties. A wrong parser hint is not
+a reason to answer no_case_name.
+
+When local_context contains an earlier citation and then another copied case name
+right before locator, choose the later copied name bound to locator. For example,
+in "... Alpha v. Beta, 111 F.3d 222. ... Gamma v. Delta, 999 U.S. 999", the
+parties for locator "999 U.S. 999" are Gamma and Delta.
+
+Reporter-like citations between the case name and locator can be parallel
+citations for the same authority, not necessarily a boundary. Do not borrow
+parties from an earlier separate citation, but do not reject a case name merely
+because the same copied citation includes multiple reporter locators.
 
 Use classification "complete_case_name" when both parties are present,
 "partial_case_name" when exactly one party is present, and "no_case_name" when
@@ -163,10 +175,7 @@ def _case_name_preparation_requirements(window: DocumentTextWindow) -> list[Requ
             validation_fn=_validate_classification_consistency,
         ),
         req(
-            "plaintiff and defendant must be copied from local_context before the locator; "
-            "if a visible 'plaintiff v. defendant' case-name marker appears before the locator, "
-            "return complete_case_name for that citation; do not use parties separated from the "
-            "target locator by another reporter citation",
+            "plaintiff and defendant must be copied from local_context before the locator",
             validation_fn=lambda ctx: _validate_grounded_before_locator(ctx, window),
         ),
     ]
@@ -287,14 +296,6 @@ def _validate_grounded_before_locator(
         proposal = _proposal_from_context(ctx)
     except ValueError as exc:
         return ValidationResult(result=False, reason=str(exc))
-    if (
-        proposal.classification != "complete_case_name"
-        and _has_case_name_marker_before_locator(window)
-    ):
-        return ValidationResult(
-            result=False,
-            reason="a copied v. case-name marker appears before the locator",
-        )
     for label, value in (("plaintiff", proposal.plaintiff), ("defendant", proposal.defendant)):
         if not value:
             continue
@@ -309,28 +310,7 @@ def _validate_grounded_before_locator(
                 result=False,
                 reason=f"{label}={value!r} did not appear before the locator",
             )
-        between = _window_text_between(window, grounded.span.end, window.anchor_span.start)
-        if _contains_reporter_like_locator(between):
-            return ValidationResult(
-                result=False,
-                reason=f"{label}={value!r} appears before another locator, not the target locator",
-            )
     return ValidationResult(result=True)
-
-
-def _has_case_name_marker_before_locator(window: DocumentTextWindow) -> bool:
-    before_locator = _window_text_between(window, window.span.start, window.anchor_span.start)
-    return bool(re.search(r"\b\S+\s+v\.?\s+\S+", before_locator))
-
-
-def _contains_reporter_like_locator(text: str) -> bool:
-    return bool(re.search(r"\b\d+\s+[A-Z][A-Za-z.0-9]*\s+\d+\b", text))
-
-
-def _window_text_between(window: DocumentTextWindow, start: int, end: int) -> str:
-    local_start = max(0, start - window.span.start)
-    local_end = max(local_start, end - window.span.start)
-    return window.text[local_start:local_end]
 
 
 def _status_from_classification(classification: str) -> CaseNamePreparationStatus:

@@ -398,7 +398,7 @@ def test_case_name_preparation_validation_uses_raw_instruct_output() -> None:
     assert _validate_grounded_before_locator(Context(), window).as_bool()
 
 
-def test_case_name_preparation_rejects_incomplete_output_when_case_marker_is_visible() -> None:
+def test_case_name_preparation_allows_incomplete_output_when_only_prompt_can_bind_marker() -> None:
     text = "First see Alpha v. Beta, 111 F.3d 222. But see Gamma v. Delta, 999 U.S. 999."
     locator_start = text.index("999 U.S. 999")
     window = DocumentTextWindow.around(
@@ -418,15 +418,11 @@ def test_case_name_preparation_rejects_incomplete_output_when_case_marker_is_vis
         def last_output(self) -> Output:
             return Output()
 
-    result = _validate_grounded_before_locator(Context(), window)
-
-    assert not result.as_bool()
-    assert result.reason is not None
-    assert "v. case-name marker" in result.reason
+    assert _validate_grounded_before_locator(Context(), window).as_bool()
 
 
-def test_case_name_preparation_rejects_party_before_intervening_locator() -> None:
-    text = "First see Alpha v. Beta, 111 F.3d 222. But see Gamma v. Delta, 999 U.S. 999."
+def test_case_name_preparation_allows_empty_when_only_prior_citation_has_case_marker() -> None:
+    text = "First see Alpha v. Beta, 111 F.3d 222. The same point appears at 999 U.S. 999."
     locator_start = text.index("999 U.S. 999")
     window = DocumentTextWindow.around(
         text,
@@ -437,19 +433,38 @@ def test_case_name_preparation_rejects_party_before_intervening_locator() -> Non
 
     class Output:
         value = (
-            '{"classification": "complete_case_name", '
-            '"plaintiff": "Alpha", "defendant": "Beta", "reason": "parser hint"}'
+            '{"classification": "no_case_name", '
+            '"plaintiff": null, "defendant": null, "reason": "no case name bound to locator"}'
         )
 
     class Context:
         def last_output(self) -> Output:
             return Output()
 
-    result = _validate_grounded_before_locator(Context(), window)
+    assert _validate_grounded_before_locator(Context(), window).as_bool()
 
-    assert not result.as_bool()
-    assert result.reason is not None
-    assert "before another locator" in result.reason
+
+def test_case_name_preparation_allows_parties_before_parallel_locator() -> None:
+    text = "Garrison v. Louisiana, 379 U.S. 64, 74, 85 S.Ct. 209, 13 L.Ed.2d 125 (1964)."
+    locator_start = text.index("85 S.Ct. 209")
+    window = DocumentTextWindow.around(
+        text,
+        Span(locator_start, locator_start + len("85 S.Ct. 209")),
+        before_chars=320,
+        after_chars=0,
+    )
+
+    class Output:
+        value = (
+            '{"classification": "complete_case_name", '
+            '"plaintiff": "Garrison", "defendant": "Louisiana", "reason": "parallel citation"}'
+        )
+
+    class Context:
+        def last_output(self) -> Output:
+            return Output()
+
+    assert _validate_grounded_before_locator(Context(), window).as_bool()
 
 
 def test_not_found_reports_zero_case_name_search_results() -> None:

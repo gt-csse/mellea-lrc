@@ -1,8 +1,15 @@
 """Run the standalone case-name re-extraction workflow.
 
+Keep this script aligned with retrieval case-name preparation: both workflows
+should bind extracted names to the target locator, prefer copied text before the
+locator, and debug prompt changes by rendering the raw Mellea instruct prompt.
+Re-extraction differs only by using CourtListener's retrieved case name as an
+extra identity cue; it is still not allowed to copy text from that cue.
+
 Example:
     uv run --group llm python scripts/reextract_case_name.py \
       --context-file fixtures/bookmarked/bookmarked.txt \
+      --citation-locator "999 U.S. 999" \
       --extracted-case-name "<NO_EXTRACTED_CASE_NAME>" \
       --courtlistener-case-name "Brown v. Board"
 
@@ -33,6 +40,7 @@ def main() -> None:
             document_context=context,
             extracted_case_name=args.extracted_case_name,
             courtlistener_case_name=args.courtlistener_case_name,
+            citation_locator=args.citation_locator,
         )
     )
     sys.stdout.write(f"{json.dumps(result.to_json(), indent=2)}\n")
@@ -54,6 +62,11 @@ def _parse_args() -> argparse.Namespace:
         "--courtlistener-case-name",
         required=True,
         help="CourtListener case name to compare against.",
+    )
+    parser.add_argument(
+        "--citation-locator",
+        default=None,
+        help="Matched locator text for the target citation, used to bind the copied case name.",
     )
     return parser.parse_args()
 

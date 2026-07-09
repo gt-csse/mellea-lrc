@@ -176,6 +176,28 @@
       ],
       "created_at": "2026-07-07T17:07:57.729Z",
       "updated_at": "2026-07-07T17:07:57.729Z"
+    },
+    {
+      "bookmark_id": "citation:7084ba22d3eddbb45168643a5c991afabb54a33d81bc95222a673f372e47c125",
+      "citation": {
+        "matched_text": "18 F. App'x 744",
+        "context": "t a reasonable fee for time spent in responding to discovery.\"\n13. Fed. R. Civ. P. 45(d)(2)(B)(ii): Subpoenaing party must \"protect the person subject to the subpoena from significant expense.\"\n14. ( Lampe v. United States , 18 F. App'x 744 (10th Cir. 2001) (affirming that the deposing party bears the expert fee absent bad faith by the retaining party)\n\nIII. ARGUMENT\n\n15. Safeway Issued Subpoena and Must Pay. Safeway issued subpoena August 4, 2025. Safeway noticed deposition. Safeway requested documents. Dr. Echeverry's invoice (Ex. 74-3) documents"
+      },
+      "comment": "Identity: LINKAGE DEFECT. Exact citation lookup for 18 F. App'x 744 surfaced Tri-State Commodities, Inc. v. GSO America, Inc., but the copied citation context is Lampe v. United States, 18 F. App'x 744 (10th Cir. 2001). Assessment re-extraction correctly grounds Lampe and reassessment classifies the surfaced candidate as a different case.\nEvidence: locator, copied parties, year/court parenthetical, and candidate case-name mismatch.\nNext: inspect CourtListener exact-lookup metadata for reporter/page collision or candidate mapping defect.",
+      "provenances": [
+        {
+          "source_path": "../local/test_data/13.txt",
+          "source_format": "text",
+          "span": {
+            "start": 2481,
+            "end": 2635
+          },
+          "provenance_id": "provenance:4646702eea147070d387d1de6259094fca6002c96d4169ad5ebeca16cc9d4989",
+          "seen_at": "2026-07-09T14:57:43.000Z"
+        }
+      ],
+      "created_at": "2026-07-09T14:57:43.000Z",
+      "updated_at": "2026-07-09T14:57:43.000Z"
     }
   ]
 }

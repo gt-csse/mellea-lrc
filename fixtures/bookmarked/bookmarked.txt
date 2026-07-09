@@ -80,3 +80,18 @@ Next: resolve the short form to the earlier full citation before retrieval.
 Context: nstructions because of its clearly probative value); Peterson v. Nelnet Diversified Sols., LLC , 400 F.Supp.3d at 1133 (finding probative value of reputation evidence outweighed potential prejudice); Estate of Martinelli , 2021 WL 4133804 at *8 (allowing evidence critical to damages claims despite prejudicial potential).
 
 VI. Alternatively, the Defendants are Entitled to Individual Analysis or Limiting Instructions Considering the Intersect
+
+========
+18 F. App'x 744
+
+> Identity: LINKAGE DEFECT. Exact citation lookup for 18 F. App'x 744 surfaced Tri-State Commodities, Inc. v. GSO America, Inc., but the copied citation context is Lampe v. United States, 18 F. App'x 744 (10th Cir. 2001). Assessment re-extraction correctly grounds Lampe and reassessment classifies the surfaced candidate as a different case.
+Evidence: locator, copied parties, year/court parenthetical, and candidate case-name mismatch.
+Next: inspect CourtListener exact-lookup metadata for reporter/page collision or candidate mapping defect.
+
+Context: t a reasonable fee for time spent in responding to discovery."
+13. Fed. R. Civ. P. 45(d)(2)(B)(ii): Subpoenaing party must "protect the person subject to the subpoena from significant expense."
+14. ( Lampe v. United States , 18 F. App'x 744 (10th Cir. 2001) (affirming that the deposing party bears the expert fee absent bad faith by the retaining party)
+
+III. ARGUMENT
+
+15. Safeway Issued Subpoena and Must Pay. Safeway issued subpoena August 4, 2025. Safeway noticed deposition. Safeway requested documents. Dr. Echeverry's invoice (Ex. 74-3) documents

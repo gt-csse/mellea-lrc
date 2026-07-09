@@ -33,6 +33,7 @@ async def assess_found_citation(
     courtlistener_year: str | None,
     extracted_court: str | None = None,
     courtlistener_court_id: str | None = None,
+    citation_locator: str | None = None,
     session: MelleaSession | None = None,
 ) -> CitationAssessmentResult:
     """Assess case-name, court, and year fields of one found case citation."""
@@ -64,6 +65,7 @@ async def assess_found_citation(
             extracted_case_name=extracted_case_name,
             courtlistener_case_name=courtlistener_case_name,
             document_context=DocumentTextWindow.around(document_text, span),
+            citation_locator=citation_locator,
         )
     return CitationAssessmentResult(
         case_name=case_name,

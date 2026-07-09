@@ -37,7 +37,6 @@ from mellea_lrc.assessment import (
 )
 from mellea_lrc.assessment import ReextractionStatus, validate_proposal
 from mellea_lrc.assessment.fields.case_name.classify import (
-    _non_semantic_output_from_text,
     _semantic_output_from_text,
 )
 from mellea_lrc.assessment.fields.case_name.reextract import ReextractionResult
@@ -368,19 +367,53 @@ def test_reextraction_validation_uses_raw_instruct_output() -> None:
     assert result.as_bool()
 
 
+def test_reextraction_validation_rejects_case_name_after_locator() -> None:
+    class Output:
+        value = '{"available": true, "case_name": "Smith v. Jones"}'
+
+    class Context:
+        def last_output(self) -> Output:
+            return Output()
+
+    result = _validate_reextraction_grounding(
+        Context(),
+        "999 U.S. 999, citing Smith v. Jones.",
+        citation_locator="999 U.S. 999",
+    )
+
+    assert not result.as_bool()
+    assert result.reason is not None
+    assert "before the locator" in result.reason
+
+
+def test_reextraction_validation_allows_case_name_before_parallel_locator() -> None:
+    class Output:
+        value = '{"available": true, "case_name": "Garrison v. Louisiana"}'
+
+    class Context:
+        def last_output(self) -> Output:
+            return Output()
+
+    result = _validate_reextraction_grounding(
+        Context(),
+        "Garrison v. Louisiana, 379 U.S. 64, 74, 85 S.Ct. 209, 13 L.Ed.2d 125 (1964).",
+        citation_locator="85 S.Ct. 209",
+    )
+
+    assert result.as_bool()
+
+
 def test_case_name_classifiers_parse_unwrapped_instruct_json() -> None:
     semantic = _semantic_output_from_text('{"verdict": "semantic_match"}')
-    non_semantic = _non_semantic_output_from_text('{"verdict": "different_case"}')
 
     assert semantic.verdict == "semantic_match"
-    assert non_semantic.verdict == "different_case"
 
 
 def test_case_name_classifiers_reject_invalid_or_extra_output() -> None:
     with pytest.raises(ValueError, match="semantic verdict"):
         _semantic_output_from_text('{"verdict": "maybe"}')
-    with pytest.raises(ValueError, match="non-semantic verdict"):
-        _non_semantic_output_from_text('{"verdict": "different_case", "reason": "extra"}')
+    with pytest.raises(ValueError, match="semantic verdict"):
+        _semantic_output_from_text('{"verdict": "not_semantic_match", "reason": "extra"}')
 
 
 def test_case_name_followup_preserves_reextracted_value_when_reassessment_fails(
@@ -556,11 +589,10 @@ def test_case_name_run_uses_native_semantic_classifier_call(
     assert "strategy" not in calls[0]
 
 
-def test_case_name_run_uses_native_post_reextraction_classifier(
+def test_case_name_run_stops_at_not_semantic_after_reextraction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     semantic_calls = 0
-    non_semantic_calls: list[dict[str, object]] = []
     monkeypatch.setattr(
         "mellea_lrc.assessment.fields.case_name.assess.structured_model_options",
         lambda **_kwargs: {},
@@ -577,10 +609,6 @@ def test_case_name_run_uses_native_post_reextraction_classifier(
             proposal=CaseNameProposal(case_name="Brown Board"),
         )
 
-    async def irregular_form(*_args, **kwargs):
-        non_semantic_calls.append(kwargs)
-        return "irregular_form"
-
     monkeypatch.setattr(
         "mellea_lrc.assessment.fields.case_name.assess.semantic_match_case_name",
         no_semantic_match,
@@ -588,10 +616,6 @@ def test_case_name_run_uses_native_post_reextraction_classifier(
     monkeypatch.setattr(
         "mellea_lrc.assessment.fields.case_name.assess.reextract_case_name",
         accepted_reextraction,
-    )
-    monkeypatch.setattr(
-        "mellea_lrc.assessment.fields.case_name.assess.classify_non_semantic_case_name",
-        irregular_form,
     )
 
     run = asyncio.run(
@@ -607,11 +631,8 @@ def test_case_name_run_uses_native_post_reextraction_classifier(
     )
 
     assert isinstance(run.followup, CaseNameReassessed)
-    assert run.followup.result.status == CaseNameAssessmentStatus.IRREGULAR_FORM
+    assert run.followup.result.status == CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH
     assert semantic_calls == 2
-    assert len(non_semantic_calls) == 1
-    assert "model_options" in non_semantic_calls[0]
-    assert "strategy" not in non_semantic_calls[0]
 
 
 def test_run_assessment_progresses_document_retrieval_to_document_assessment() -> None:

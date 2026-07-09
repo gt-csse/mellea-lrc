@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -87,10 +88,31 @@ local_context, even if it differs from retrieved_case_name or extracted_case_nam
 Do not correct toward retrieved_case_name. The downstream system handles whether
 names match.
 
+Use only the case name bound to locator. The relevant copied case name usually
+appears before the locator. If local_context contains multiple citations, do not
+borrow a case name from another citation.
+
+Treat retrieved_case_name as an identity cue from CourtListener, not text to copy.
+It can help you recognize abbreviations or malformed extraction, but case_name
+must still be copied from local_context.
+
+Treat extracted_case_name differently: if it appears as copied text in
+local_context and is bound to locator, return that local text even when it
+conflicts with retrieved_case_name. A retrieved-case mismatch is not a reason to
+set available to false.
+
+Reporter-like citations between a case name and locator can be parallel
+citations for the same authority. Use the copied text and citation structure to
+decide what is bound to locator; do not assume every intervening reporter
+locator starts a different citation.
+
 Set available to false only when local_context contains no identifiable case
 name at all. If extracted_case_name is <NO_EXTRACTED_CASE_NAME>, no prior
 extraction exists. Do not treat locator strings, such as citation numbers, as
 case names.
+
+locator:
+{{locator}}
 
 extracted_case_name:
 {{extracted_case_name}}
@@ -104,6 +126,7 @@ async def _propose_case_name_reextraction(
     session: MelleaSession,
     *,
     local_context: str,
+    locator: str,
     extracted_case_name: str,
     retrieved_case_name: str,
     requirements: list[Requirement],
@@ -115,6 +138,7 @@ async def _propose_case_name_reextraction(
         description=REEXTRACTION_INSTRUCTION,
         grounding_context={"local_context": local_context},
         user_variables={
+            "locator": locator,
             "extracted_case_name": extracted_case_name,
             "retrieved_case_name": retrieved_case_name,
         },
@@ -150,19 +174,51 @@ def _validate_availability_consistency(ctx: Context) -> ValidationResult:
     return ValidationResult(result=False, reason=reason)
 
 
-def _validate_grounding(ctx: Context, document_context: str) -> ValidationResult:
+def _validate_grounding(
+    ctx: Context,
+    document_context: str,
+    *,
+    citation_locator: str | None = None,
+) -> ValidationResult:
     try:
         proposal = _reextraction_proposal_from_context(ctx)
     except ValueError as exc:
         return ValidationResult(result=False, reason=str(exc))
     if not proposal.available:
         return ValidationResult(result=True)
-    if proposal.case_name is not None and is_text_in_context(proposal.case_name, document_context):
-        return ValidationResult(result=True)
-    return ValidationResult(
-        result=False,
-        reason=f"case_name={proposal.case_name!r} was not copied exactly from local_context",
-    )
+    if proposal.case_name is None or not is_text_in_context(proposal.case_name, document_context):
+        return ValidationResult(
+            result=False,
+            reason=f"case_name={proposal.case_name!r} was not copied exactly from local_context",
+        )
+    if citation_locator:
+        locator_start = _locate_text(document_context, citation_locator)
+        case_name_span = _locate_text_span(document_context, proposal.case_name)
+        if locator_start is not None and case_name_span is not None:
+            case_name_start, case_name_end = case_name_span
+            if case_name_end > locator_start:
+                return ValidationResult(
+                    result=False,
+                    reason=f"case_name={proposal.case_name!r} did not appear before the locator",
+                )
+    return ValidationResult(result=True)
+
+
+def _locate_text(text: str, value: str) -> int | None:
+    span = _locate_text_span(text, value)
+    return span[0] if span is not None else None
+
+
+def _locate_text_span(text: str, value: str) -> tuple[int, int] | None:
+    if not value.strip():
+        return None
+    match = re.search(re.escape(value), text)
+    if match is None:
+        pattern = r"\s+".join(re.escape(piece) for piece in value.split())
+        match = re.search(pattern, text)
+    if match is None:
+        return None
+    return match.start(), match.end()
 
 
 def _validate_output_schema(ctx: Context) -> ValidationResult:
@@ -196,7 +252,11 @@ def _reextraction_proposal_from_context(ctx: Context) -> _ReextractionProposal:
     return _reextraction_proposal_from_output(ctx.last_output().value)
 
 
-def _reextraction_requirements(document_context: str) -> list[Requirement]:
+def _reextraction_requirements(
+    document_context: str,
+    *,
+    citation_locator: str | None = None,
+) -> list[Requirement]:
     return [
         req(JSON_OUTPUT_REQUIREMENT, validation_fn=_validate_output_schema),
         check(
@@ -204,8 +264,14 @@ def _reextraction_requirements(document_context: str) -> list[Requirement]:
             validation_fn=_validate_availability_consistency,
         ),
         req(
-            "case_name must be a string copied exactly from local_context",
-            validation_fn=lambda ctx: _validate_grounding(ctx, document_context),
+            "case_name must be copied exactly from local_context and must be bound to locator; "
+            "the relevant case name usually appears before locator; reporter-like citations "
+            "between the case name and locator may be parallel citations for the same authority",
+            validation_fn=lambda ctx: _validate_grounding(
+                ctx,
+                document_context,
+                citation_locator=citation_locator,
+            ),
         ),
     ]
 
@@ -216,15 +282,20 @@ async def reextract_case_name(
     document_context: str,
     extracted_case_name: str | None,
     courtlistener_case_name: str,
+    citation_locator: str | None = None,
 ) -> ReextractionResult:
     """Propose a case name with a deterministic local-grounding requirement."""
     try:
         proposal, final_ctx, success = await _propose_case_name_reextraction(
             session,
             local_context=document_context,
+            locator=citation_locator or "<NO_LOCATOR>",
             extracted_case_name=case_name_for_prompt(extracted_case_name),
             retrieved_case_name=courtlistener_case_name,
-            requirements=_reextraction_requirements(document_context),
+            requirements=_reextraction_requirements(
+                document_context,
+                citation_locator=citation_locator,
+            ),
             strategy=MultiTurnStrategy(loop_budget=3),
             model_options=structured_model_options(max_tokens=REEXTRACTION_MAX_TOKENS),
         )

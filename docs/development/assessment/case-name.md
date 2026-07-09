@@ -14,12 +14,23 @@ that may use Mellea.
 5. Otherwise record `not_semantic_match` and attempt faithful re-extraction from
    the local context.
 6. Ground any proposal to absolute document offsets, then reassess it as
-   `exact_match`, `semantic_match`, `different_case`, or `irregular_form`.
+   `exact_match`, `semantic_match`, or `not_semantic_match`.
+
+The active validation layer intentionally does not decide whether a failed
+semantic match is an “irregular” abbreviation, an incomplete citation form, or a
+lawyer-acceptable short form. For validation, the useful question is only
+whether the local citation name and retrieved candidate semantically identify
+the same proceeding. Style and abbreviation appropriateness belong to a later
+proposition/support or lawyer-facing citation-quality layer.
 
 Re-extraction must copy the text that actually appears in context. It must not
 correct toward the retrieved candidate. The original eyecite citation remains
 unchanged, and failed extraction or reassessment is represented as a typed
 follow-up state rather than hidden.
+
+Legacy snapshots may still contain `different_case` or `irregular_form`; those
+values remain readable for compatibility, but the current workflow no longer
+emits them.
 
 `CaseNameAssessmentRun` retains the initial conclusion and one of
 `not_required`, `reassessed`, `reextraction_failed`, or `reassessment_failed`.

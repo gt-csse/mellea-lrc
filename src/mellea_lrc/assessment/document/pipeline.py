@@ -81,6 +81,7 @@ class _AssessmentJob:
     candidate_id: str
     candidate_index: int | None
     document_text: str
+    citation_locator: str
     extracted_case_name: str | None
     courtlistener_case_name: str | None
     courtlistener_year: str | None
@@ -201,6 +202,7 @@ def _candidate_jobs(
             candidate_id=candidate_id,
             candidate_index=candidate_index,
             document_text=document_text,
+            citation_locator=citation.matched_text,
             extracted_case_name=extracted_case_name,
             courtlistener_case_name=cl_case_name,
             courtlistener_year=cl_year,
@@ -283,6 +285,7 @@ async def _run_job(
         return await assess_found_citation(
             document_text=job.document_text,
             span=job.citation.span,
+            citation_locator=job.citation_locator,
             extracted_case_name=job.extracted_case_name,
             courtlistener_case_name=job.courtlistener_case_name,
             extracted_year=job.citation.citation.year,

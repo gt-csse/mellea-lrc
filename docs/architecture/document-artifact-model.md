@@ -133,11 +133,12 @@ These are execution states. Domain conclusions such as `semantic_match` or
 assessment execution succeeded.
 
 Case-name conclusions are likewise conclusion-only: `exact_match`,
-`semantic_match`, `not_semantic_match`, `different_case`, `irregular_form`, or
-`unassessable`. Workflow markers such as “needs assessment” and re-extraction
-failure are not case-name conclusions. Work that has not run remains `waiting`;
-re-extraction and reassessment failures are represented by their corresponding
-reassessment execution states.
+`semantic_match`, `not_semantic_match`, or `unassessable`. Workflow markers such
+as “needs assessment” and re-extraction failure are not case-name conclusions.
+Work that has not run remains `waiting`; re-extraction and reassessment failures
+are represented by their corresponding reassessment execution states. Legacy
+snapshots may still deserialize `different_case` and `irregular_form`, but the
+active validation path no longer emits those lawyer-facing subclassifications.
 
 Case-name reassessment is field-local and nested within a completed citation
 assessment. The initial assessment and follow-up outcome therefore cannot become

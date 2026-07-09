@@ -6,7 +6,7 @@ created: 2026-06-27
 
 # Mellea Usage
 
-This document covers how we use Mellea in this project, the patterns we discovered, and the design decisions behind them. New direct Mellea IVR workflows should go through `src/mellea_lrc/llm/ivr.py`; older `@generative` notes below are historical guidance for understanding earlier implementation decisions.
+This document covers how we use Mellea in this project, the patterns we discovered, and the design decisions behind them. The current project standard is direct `instruct` IVR through `src/mellea_lrc/llm/ivr.py`. Older `@generative` notes below are historical guidance for understanding earlier implementation decisions, not the preferred pattern for new code.
 
 ---
 
@@ -14,11 +14,13 @@ This document covers how we use Mellea in this project, the patterns we discover
 
 Mellea is a framework for building structured LLM workflows. The core abstraction is the **Instruct → Validate → Repair (IVR) loop**: you define what the model should produce, specify requirements the output must satisfy, and choose a strategy for what happens when requirements are not met. Mellea handles the rest — prompt rendering, output parsing, requirement checking, and repair orchestration.
 
-In this project, Mellea replaces manual retry loops and prompt error appending. We keep project-owned parsing and validation explicit for direct `instruct` workflows so framework artifacts do not leak into the model-facing prompt.
+In this project, Mellea replaces manual retry loops and prompt error appending. We keep project-owned parsing and validation explicit for direct `instruct` workflows so framework artifacts do not leak into the model-facing prompt. In particular, direct `instruct` does not require or impose a `{"result": ...}` wrapper; that wrapper belongs to the old `@generative` pattern.
 
 ---
 
 ## Project Standard: Direct `instruct` IVR
+
+Prefer direct `instruct` for all new Mellea-backed workflows. Use `@generative` only when deliberately maintaining older code or when we explicitly decide its schema wrapper is useful.
 
 For new Mellea-backed nodes, use `mellea_lrc.llm.ivr` as the boundary module:
 
@@ -27,6 +29,7 @@ For new Mellea-backed nodes, use `mellea_lrc.llm.ivr` as the boundary module:
 - `render_instruct_prompt(...)`, `render_instruct_chat_messages(...)`, and `visualize_instruct_chat_messages(...)` visualize the exact instruction used by the call;
 - domain modules parse raw output into their own Pydantic models;
 - Pydantic parsing/schema validation should be the first requirement validation when `instruct` is not using Mellea's `format=` parser.
+- output schemas should be direct domain objects, not framework envelopes. Ask for `{"answer":"..."}`, not `{"result":{"answer":"..."}}`.
 
 Example:
 
@@ -49,7 +52,7 @@ spec = InstructIvrSpec(
     grounding_context={"local_context": local_context},
     user_variables={},
     requirements=[
-        req("Return exactly one JSON object with shape {\"result\":{\"answer\":\"...\"}}.", validation_fn=_validate_schema),
+        req("Return exactly one JSON object with shape {\"answer\":\"...\"}.", validation_fn=_validate_schema),
         check("answer must be copied from local_context", validation_fn=_validate_grounding),
     ],
 )
@@ -68,9 +71,68 @@ Design rules:
 
 - Keep the prompt compact. Put task semantics in `description`; put only useful model-facing postconditions in `req`.
 - Use `check` for hidden deterministic constraints that should not add prompt noise.
-- Do not add post-call “final validation” that duplicates requirements. If a condition decides acceptance, it belongs in the requirement list.
+- Do not add post-call “final validation” that duplicates requirements. If a condition decides acceptance, it belongs in the requirement list. The one exception is checking `result.success` after strategy exhaustion, because Mellea returns a best failed attempt instead of raising.
 - Do not ask the model to return framework or app-derived fields. Return the minimal copied facts; construct derived fields locally.
 - Use `render_instruct_prompt` / `render_instruct_chat_messages` / `visualize_instruct_chat_messages` before changing prompts or tests. If the rendered prompt looks noisy, the implementation is probably noisy too.
+
+### Raw prompt drill
+
+Before debugging model behavior, inspect the exact rendered prompt/messages. Do this before editing task prose, requirements, model options, or tests.
+
+```python
+from mellea_lrc.llm import (
+    render_instruct_prompt,
+    render_instruct_chat_messages,
+    visualize_instruct_chat_messages,
+)
+
+print(visualize_instruct_chat_messages(spec, session=session))
+```
+
+The drill:
+
+1. Render the prompt or chat messages from the exact `InstructIvrSpec` used by the call.
+2. Check for accidental framework artifacts, stale schema wrappers, duplicated hints, noisy field names, or app-derived fields the model should not see.
+3. Confirm each visible `req` is both a useful instruction for the first attempt and useful repair feedback if it fails.
+4. If the rendered prompt is confusing to us, treat the implementation as wrong before blaming the model.
+
+This drill caught the stale `{"result": ...}` wrapper after we moved from `@generative` to direct `instruct`.
+
+### Repair-message engineering
+
+Mellea repair is part of the prompt design. With `MultiTurnStrategy`, failed attempts are followed by a user turn that lists the failed requirement descriptions. In the installed Mellea implementation, `MultiTurnStrategy` does not include `ValidationResult.reason` in that repair turn; it uses the failed `Requirement.description`.
+
+So requirement descriptions must be engineered like compact, actionable exception messages:
+
+- say what failed;
+- say what the model should change on the next turn;
+- include the disambiguating rule when the failure is subtle;
+- avoid vague labels such as “output invalid” when a targeted instruction is available.
+
+Good:
+
+```python
+req(
+    "plaintiff and defendant must be copied from local_context before the locator; "
+    "if a visible 'plaintiff v. defendant' case-name marker appears before the locator, "
+    "return complete_case_name for that citation; do not use parties separated from the "
+    "target locator by another reporter citation",
+    validation_fn=lambda ctx: _validate_grounded_before_locator(ctx, window),
+)
+```
+
+Too weak:
+
+```python
+req(
+    "plaintiff and defendant must be copied from local_context before the locator",
+    validation_fn=lambda ctx: _validate_grounded_before_locator(ctx, window),
+)
+```
+
+The weak version tells the model that something failed, but not enough to repair a multi-citation locator-binding error efficiently.
+
+Use `ValidationResult.reason` for logs and diagnostics, but do not rely on it to steer `MultiTurnStrategy` repair unless we introduce a custom strategy that forwards reasons.
 
 ---
 
@@ -152,7 +214,7 @@ from mellea.core import ValidationResult
 from mellea.core.base import Context
 
 def _validate_grounding(ctx: Context, document_context: str) -> ValidationResult:
-    proposal: MyOutput = ctx.last_output().parsed_repr  # always a valid Pydantic instance here
+    proposal = _proposal_from_output(ctx.last_output().value)
     if not proposal.available:
         return ValidationResult(True)   # grounding only applies when available
     if is_in_context(proposal.case_name, document_context):
@@ -163,7 +225,7 @@ def _validate_grounding(ctx: Context, document_context: str) -> ValidationResult
     )
 ```
 
-`ctx.last_output()` walks backward through the context to find the most recent `ModelOutputThunk`. In a multi-turn conversation, this always returns the latest attempt's output. The `parsed_repr` attribute is the typed Pydantic object.
+`ctx.last_output()` walks backward through the context to find the most recent `ModelOutputThunk`. In a multi-turn conversation, this always returns the latest attempt's output. In our direct-`instruct` pattern, validators should read `ctx.last_output().value` and parse it explicitly. Do not rely on `parsed_repr` unless the call intentionally uses a Mellea parser such as `@generative` or `format=`.
 
 To pass extra arguments (like `document_context` above), use a lambda or `functools.partial` at the call site:
 
@@ -185,7 +247,7 @@ Re-runs the identical prompt from the identical context. At `temperature=0`, the
 
 Appends the failure message to the original prompt via a `{% if repair %}` block in `Instruction.jinja2`. The model retries with a stronger hint but no memory of what it said before. **Does not work with `@generative`** — `GenerativeSlot.jinja2` has no `{% if repair %}` block, so it falls through to identical behaviour as rejection sampling.
 
-### `MultiTurnStrategy` ← correct choice for `@generative`
+### `MultiTurnStrategy` ← default choice for direct `instruct`
 
 On failure, appends a new user turn to the conversation:
 
@@ -203,49 +265,57 @@ The model's prior (wrong) output is already in the conversation context. It can 
 
 ---
 
-## Full Usage Example
+## Current Usage Example
 
-This is the production pattern from `src/mellea_lrc/assessment/llm/reextract.py`.
+This is the current direct-`instruct` pattern. The exact module names may differ by workflow, but the shape should stay the same: compact instruction, direct JSON object, first requirement parses with Pydantic, later requirements enforce deterministic business rules.
 
 ```python
-from mellea import MelleaSession, generative
+import json
+
+from mellea import MelleaSession
 from mellea.core import ValidationResult
-from mellea.core.base import Context, ModelOutputThunk
-from mellea.stdlib.components import Message
-from mellea.stdlib.context import ChatContext
+from mellea.core.base import Context
 from mellea.stdlib.requirements import check, req
 from mellea.stdlib.sampling import MultiTurnStrategy
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, ValidationError
+
+from mellea_lrc.llm import InstructIvrSpec, run_instruct_ivr
 
 
 class _ReextractionProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     available: bool
     case_name: str | None = None
 
 
-@generative
-async def _propose_case_name_reextraction(
-    local_context: str,
-    extracted_case_name: str,
-    retrieved_case_name: str,
-) -> _ReextractionProposal:
-    """Extract the case name that actually appears in local_context.
+JSON_OUTPUT_REQUIREMENT = (
+    'Return exactly one JSON object with shape '
+    '{"available":true_or_false,"case_name":"... or null"}.'
+)
 
-    Your task is faithful extraction — copy whatever case name is present in
-    local_context, even if it differs from retrieved_case_name or
-    extracted_case_name. Do not try to correct toward retrieved_case_name.
-    The downstream system handles whether names match.
 
-    Return exactly one JSON object with key "result" containing two fields:
-      - "available": true if a case name can be identified in local_context
-      - "case_name": copied exactly from local_context, or null
+def _proposal_from_output(output: str) -> _ReextractionProposal:
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"LLM output was not valid JSON: {exc}") from exc
+    try:
+        return _ReextractionProposal.model_validate(payload)
+    except ValidationError as exc:
+        raise ValueError(f"LLM output did not match re-extraction schema: {exc}") from exc
 
-    Example: {"result": {"available": true, "case_name": "Smith v. Jones"}}
-    """
+
+def _validate_output_schema(ctx: Context) -> ValidationResult:
+    try:
+        _proposal_from_output(ctx.last_output().value)
+    except ValueError as exc:
+        return ValidationResult(False, reason=str(exc))
+    return ValidationResult(True)
 
 
 def _validate_availability_consistency(ctx: Context) -> ValidationResult:
-    proposal: _ReextractionProposal = ctx.last_output().parsed_repr
+    proposal = _proposal_from_output(ctx.last_output().value)
     if proposal.available == (proposal.case_name is not None):
         return ValidationResult(True)
     if proposal.available:
@@ -254,7 +324,7 @@ def _validate_availability_consistency(ctx: Context) -> ValidationResult:
 
 
 def _validate_grounding(ctx: Context, document_context: str) -> ValidationResult:
-    proposal: _ReextractionProposal = ctx.last_output().parsed_repr
+    proposal = _proposal_from_output(ctx.last_output().value)
     if not proposal.available:
         return ValidationResult(True)
     if is_in_context(proposal.case_name, document_context):
@@ -266,40 +336,34 @@ def _validate_grounding(ctx: Context, document_context: str) -> ValidationResult
 
 
 async def reextract_case_name(session: MelleaSession, *, document_context: str, ...) -> ...:
-    final_ctx: Context | None = None
-    try:
-        proposal, final_ctx = await _propose_case_name_reextraction(
-            ChatContext(),          # fresh context per call — no state bleed-over
-            session.backend,
-            local_context=document_context,
-            extracted_case_name=...,
-            retrieved_case_name=...,
-            requirements=[
-                # Structural invariant: not expressed in the prompt, purely post-generation.
-                check(
-                    "available must be true when case_name is provided, and false when null",
-                    validation_fn=_validate_availability_consistency,
-                ),
-                # Grounding instruction: appears in prompt AND drives repair messages.
-                req(
-                    "case_name must be a string copied exactly from local_context",
-                    validation_fn=lambda ctx: _validate_grounding(ctx, document_context),
-                ),
-            ],
-            strategy=MultiTurnStrategy(loop_budget=3),
-            model_options=structured_model_options(max_tokens=512),
-        )
-    except Exception as exc:
-        return failed_result(str(exc))
+    spec = InstructIvrSpec(
+        description="Extract the case name that actually appears in local_context.",
+        grounding_context={"local_context": document_context},
+        requirements=[
+            req(JSON_OUTPUT_REQUIREMENT, validation_fn=_validate_output_schema),
+            check(
+                "available must be true when case_name is provided, and false when null",
+                validation_fn=_validate_availability_consistency,
+            ),
+            req(
+                "case_name must be copied exactly from local_context when available is true",
+                validation_fn=lambda ctx: _validate_grounding(ctx, document_context),
+            ),
+        ],
+    )
+    result = await run_instruct_ivr(
+        session,
+        spec,
+        strategy=MultiTurnStrategy(loop_budget=3),
+        model_options=structured_model_options(max_tokens=512),
+    )
+    proposal = _proposal_from_output(result.result.value)
 
     # Strategy exhaustion returns the last attempt — must check acceptance explicitly.
+    if not result.success:
+        return failed_result("exhausted retries", chat_history=_chat_history_from_context(result.result_ctx))
     if not proposal.available:
-        return empty_result(chat_history=_chat_history_from_context(final_ctx))
-    if not is_in_context(proposal.case_name, document_context):
-        return failed_result(
-            f"exhausted retries: {proposal.case_name!r} not grounded",
-            chat_history=_chat_history_from_context(final_ctx),
-        )
+        return empty_result(chat_history=_chat_history_from_context(result.result_ctx))
     return accepted_result(proposal.case_name)
 ```
 
@@ -321,7 +385,7 @@ The grounding rule (`case_name` must be copied exactly from `local_context`) is 
 
 ### `MultiTurnStrategy` over rejection sampling
 
-At `temperature=0`, re-running the same prompt yields the same output. `MultiTurnStrategy` changes the input on each retry by adding a user turn with the failure reason and the model's prior wrong output. The model can compare its mistake against the original instruction and self-correct. This is the only strategy that can repair `@generative` outputs at zero temperature.
+At `temperature=0`, re-running the same prompt yields the same output. `MultiTurnStrategy` changes the input on each retry by adding a user turn with the failed requirement descriptions and the model's prior wrong output. The model can compare its mistake against the original instruction and self-correct. This is the default strategy for direct `instruct` workflows that need repair.
 
 ### Capturing chat history on failure
 
@@ -338,4 +402,4 @@ Not using a SimpleContext with asynchronous requests could cause unexpected resu
 due to stale contexts. Ensure you await between requests.
 ```
 
-This warning is a false positive for our usage pattern. The risk it guards against is sharing a single `ChatContext` across concurrent coroutines — concurrent mutations corrupt the context's linked-list state. We create a **fresh `ChatContext()` per call** and always `await` the full call before returning. There is no shared state and no concurrent mutation. The warning cannot be suppressed through the current genslot API (`silence_context_type_warning` is not exposed as a call-site parameter).
+This warning is a false positive for our usage pattern. The risk it guards against is sharing a single `ChatContext` across concurrent coroutines — concurrent mutations corrupt the context's linked-list state. We create a **fresh `ChatContext()` per call** inside `run_instruct_ivr(...)` and always await the full call before returning. There is no shared state and no concurrent mutation.

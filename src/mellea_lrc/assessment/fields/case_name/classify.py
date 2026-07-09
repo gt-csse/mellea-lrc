@@ -18,7 +18,6 @@ if TYPE_CHECKING:
     from mellea import MelleaSession
 
 SemanticMatchVerdict = Literal["semantic_match", "not_semantic_match"]
-NonSemanticVerdict = Literal["different_case", "irregular_form"]
 CASE_NAME_VERDICT_MAX_TOKENS = 128
 VERDICT_MAX_REPAIR_TURNS = 2
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -37,31 +36,12 @@ extracted_case_name:
 retrieved_case_name:
 {{retrieved_case_name}}
 """.strip()
-NON_SEMANTIC_INSTRUCTION = """
-Classify why extracted_case_name is not a semantic match for retrieved_case_name.
-
-Use "different_case" for unrelated cases. Use "irregular_form" for the same
-case expressed in an incomplete, shortened beyond normal citation practice, or
-garbled form.
-
-extracted_case_name:
-{{extracted_case_name}}
-
-retrieved_case_name:
-{{retrieved_case_name}}
-""".strip()
 
 
 class _SemanticVerdictOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     verdict: SemanticMatchVerdict
-
-
-class _NonSemanticVerdictOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    verdict: NonSemanticVerdict
 
 
 async def semantic_match_case_name(
@@ -92,34 +72,6 @@ async def semantic_match_case_name(
     return _semantic_output_from_text(result.result.value).verdict
 
 
-async def classify_non_semantic_case_name(
-    session: MelleaSession,
-    *,
-    local_context: str,
-    extracted_case_name: str,
-    retrieved_case_name: str,
-    model_options: dict[str, object],
-) -> NonSemanticVerdict:
-    """Classify why a re-extracted case name is not a semantic match."""
-    spec = _verdict_spec(
-        instruction=NON_SEMANTIC_INSTRUCTION,
-        local_context=local_context,
-        extracted_case_name=extracted_case_name,
-        retrieved_case_name=retrieved_case_name,
-        requirements=_non_semantic_requirements(),
-    )
-    result = await run_instruct_ivr(
-        session,
-        spec,
-        strategy=MultiTurnStrategy(loop_budget=VERDICT_MAX_REPAIR_TURNS),
-        model_options=model_options,
-    )
-    if not result.success:
-        msg = "Non-semantic case-name classifier exhausted retries without satisfying requirements."
-        raise ValueError(msg)
-    return _non_semantic_output_from_text(result.result.value).verdict
-
-
 def _verdict_spec(
     *,
     instruction: str,
@@ -148,13 +100,8 @@ def _semantic_requirements() -> list[Requirement]:
     ]
 
 
-def _non_semantic_requirements() -> list[Requirement]:
-    return [
-        req(
-            'Return exactly one JSON object with shape {"verdict":"different_case or irregular_form"}.',
-            validation_fn=_validate_non_semantic_output_schema,
-        ),
-    ]
+def _semantic_output_from_text(output: str | object) -> _SemanticVerdictOutput:
+    return _model_from_output(output, _SemanticVerdictOutput, "semantic verdict")
 
 
 def _validate_semantic_output_schema(ctx: Context) -> ValidationResult:
@@ -163,22 +110,6 @@ def _validate_semantic_output_schema(ctx: Context) -> ValidationResult:
     except ValueError as exc:
         return ValidationResult(result=False, reason=str(exc))
     return ValidationResult(result=True)
-
-
-def _validate_non_semantic_output_schema(ctx: Context) -> ValidationResult:
-    try:
-        _non_semantic_output_from_text(ctx.last_output().value)
-    except ValueError as exc:
-        return ValidationResult(result=False, reason=str(exc))
-    return ValidationResult(result=True)
-
-
-def _semantic_output_from_text(output: str | object) -> _SemanticVerdictOutput:
-    return _model_from_output(output, _SemanticVerdictOutput, "semantic verdict")
-
-
-def _non_semantic_output_from_text(output: str | object) -> _NonSemanticVerdictOutput:
-    return _model_from_output(output, _NonSemanticVerdictOutput, "non-semantic verdict")
 
 
 def _model_from_output(

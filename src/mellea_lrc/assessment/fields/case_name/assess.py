@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from mellea_lrc.assessment.fields.case_name.classify import (
     CASE_NAME_VERDICT_MAX_TOKENS,
-    classify_non_semantic_case_name,
     semantic_match_case_name,
 )
 from mellea_lrc.assessment.fields.case_name.compare import (
@@ -42,6 +41,7 @@ async def assess_case_name_with_mellea(
     extracted_case_name: str | None,
     courtlistener_case_name: str | None,
     document_context: DocumentTextWindow,
+    citation_locator: str | None = None,
 ) -> CaseNameAssessmentRun:
     """Assess one case name: exact, semantic, re-extract, then reassess."""
     exact_result = assess_case_name_exact_match(
@@ -61,6 +61,7 @@ async def assess_case_name_with_mellea(
             extracted_case_name=extracted_case_name,
             courtlistener_case_name=courtlistener_case_name,
             document_context=document_context,
+            citation_locator=citation_locator,
         )
     except RuntimeError:
         raise
@@ -75,6 +76,7 @@ async def _assess_after_exact(
     extracted_case_name: str | None,
     courtlistener_case_name: str,
     document_context: DocumentTextWindow,
+    citation_locator: str | None,
 ) -> CaseNameAssessmentRun:
     if (
         extracted_case_name
@@ -108,6 +110,7 @@ async def _assess_after_exact(
             document_context=document_context.text,
             extracted_case_name=extracted_case_name,
             courtlistener_case_name=courtlistener_case_name,
+            citation_locator=citation_locator,
         )
     except Exception as exc:
         return CaseNameAssessmentRun(
@@ -202,17 +205,8 @@ async def _assess_reextracted_case_name(
             corrected_case_name,
             courtlistener_case_name,
         )
-    status = CaseNameAssessmentStatus(
-        await classify_non_semantic_case_name(
-            session,
-            local_context=document_context,
-            extracted_case_name=corrected_case_name,
-            retrieved_case_name=courtlistener_case_name,
-            model_options=structured_model_options(max_tokens=CASE_NAME_VERDICT_MAX_TOKENS),
-        )
-    )
     return build_case_name_assessment(
-        status,
+        CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH,
         corrected_case_name,
         courtlistener_case_name,
     )

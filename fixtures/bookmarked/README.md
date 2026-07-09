@@ -26,8 +26,28 @@ Update a comment by an unambiguous bookmark-ID prefix so neither JSON nor the
 generated text fixture needs to be edited by hand:
 
 ```bash
+uv run python scripts/bookmark_fixture.py comment citation:43ae974f \
+  $'Finding: opinion 0; RECAP 1.\nEvaluation: the RECAP docket matches the cited parties.'
+```
+
+The legacy shorthand still works:
+
+```bash
 uv run python scripts/bookmark_fixture.py citation:43ae974f \
   $'Finding: opinion 0; RECAP 1.\nEvaluation: the RECAP docket matches the cited parties.'
+```
+
+Add a newly observed citation context through the same hook so bookmark IDs,
+provenance IDs, and the text projection stay synchronized:
+
+```bash
+uv run python scripts/bookmark_fixture.py add \
+  --matched-text "18 F. App'x 744" \
+  --context "Lampe v. United States , 18 F. App'x 744 (10th Cir. 2001)" \
+  --source-path "../local/test_data/13.txt" \
+  --span-start 2481 \
+  --span-end 2635 \
+  --comment $'Identity: LINKAGE DEFECT. ...'
 ```
 
 Run `uv run pytest tests/test_bookmark_fixture.py` after changes.

@@ -10,7 +10,6 @@ import pytest
 
 from mellea_lrc.assessment.fields.case_name.classify import (
     CASE_NAME_VERDICT_MAX_TOKENS,
-    classify_non_semantic_case_name,
     semantic_match_case_name,
 )
 from mellea_lrc.assessment.fields.case_name.reextract import ReextractionStatus, reextract_case_name
@@ -48,29 +47,13 @@ def test_reextract_case_name_live_example() -> None:
             document_context="The court relied on Smith v. Jones, 999 U.S. 999, for the rule.",
             extracted_case_name=None,
             courtlistener_case_name="Smith v. Jones",
+            citation_locator="999 U.S. 999",
         )
     )
 
     assert result.status == ReextractionStatus.ACCEPTED
     assert result.proposal is not None
     assert result.proposal.case_name == "Smith v. Jones"
-
-
-def test_classify_non_semantic_case_name_live_example() -> None:
-    _load_llm_env_or_skip()
-    session = start_mellea_session_from_env()
-
-    verdict = asyncio.run(
-        classify_non_semantic_case_name(
-            session,
-            local_context="The opinion referred only to Brown, 347 U.S. 483, without the opposing party.",
-            extracted_case_name="Brown",
-            retrieved_case_name="Brown v. Board of Education",
-            model_options=structured_model_options(max_tokens=CASE_NAME_VERDICT_MAX_TOKENS),
-        )
-    )
-
-    assert verdict == "irregular_form"
 
 
 def _load_llm_env_or_skip() -> None:
