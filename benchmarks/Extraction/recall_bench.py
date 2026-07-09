@@ -1,6 +1,7 @@
 """Run benchmarks on Mellea models."""
 
 # %%
+import copy
 import hashlib
 from pathlib import Path
 from dataclasses import asdict
@@ -8,9 +9,30 @@ import json
 import difflib
 import unittest
 
-from mellea_lrc.extraction import extract_document_file, extract_citations, ExtractedCitation, ExtractedDocument, ExtractionMetadata, ExtractionBackend
-from mellea_lrc.core import CanonicalCitation, FullCaseCitation, FullLawCitation, FullJournalCitation, ShortCaseCitation, SupraCitation, IdCitation, Span, SourceMetadata, SourceFormat
+from mellea_lrc.extraction import (
+    extract_document_file,
+    extract_citations,
+    ExtractedCitation,
+    ExtractedDocument,
+    ExtractionMetadata,
+    ExtractionBackend,
+)
+from mellea_lrc.core import (
+    FullCaseCitation,
+    FullLawCitation,
+    FullJournalCitation,
+    ShortCaseCitation,
+    SupraCitation,
+    IdCitation,
+    Span,
+    SourceMetadata,
+    SourceFormat,
+    UnknownCitation,
+    ReferenceCitation,
+    CitationKind,
+)
 from mellea_lrc.preprocessing import PreprocessingMetadata, PreprocessingBackend
+
 
 # %%
 # Get a PDF document
@@ -35,20 +57,38 @@ def convert_to_text(file_path: Path) -> str:
     sample_document = extract_document_file(file_path)
     return sample_document.text
 
+
 # %%
 # Save the citations
 def save_citations(path: Path, document: ExtractedDocument) -> None:
     """Save the citions."""
     document_dict = asdict(document)
     # Add `kind` key to each Citation
-    for idx, citation in enumerate(document_dict.get("citations", [])):
-        citation["citation"]["kind"] = document.citations[idx].citation.kind
+    kind_mappings = {item.citation_id: item.citation.kind for item in document.citations}
+    for citation in document_dict.get("citations", []):
+        cite_id = citation["citation_id"]
+        citation["citation"]["kind"] = kind_mappings[cite_id].value
     with path.open("w", encoding="utf-8") as file:
         json.dump(document_dict, file, indent=4)
 
+
 # %%
 # Load the saved citations
-mapping = { citation_type.kind : citation_type for citation_type in (FullCaseCitation, FullJournalCitation, FullLawCitation, ShortCaseCitation, SupraCitation, IdCitation)}
+mapping = {
+    CitationKind(citation_type.kind): citation_type
+    for citation_type in (
+        FullCaseCitation,
+        FullJournalCitation,
+        FullLawCitation,
+        ShortCaseCitation,
+        SupraCitation,
+        IdCitation,
+        UnknownCitation,
+        ReferenceCitation,
+    )
+}
+
+
 def load_citations(path: Path) -> ExtractedDocument:
     """Load the saved citations."""
     data = None
@@ -65,20 +105,22 @@ def load_citations(path: Path) -> ExtractedDocument:
         citations = []
         # Reconstruct all of the `ExtractedCitation` dataclasses
         for citation in data.pop("citations", []):
-            copy = citation
+            citation_copy = copy.deepcopy(citation)
             # Reconstruct `CanonicalCitation`
-            canonical_citation = copy.pop("citation")
-            kind =  canonical_citation.pop("kind") # raise error if key is missing (should be there)
-            citation_type = mapping[kind](**canonical_citation) # Create a citation of 'kind' type
+            canonical_citation = citation_copy.pop("citation")
+            kind = canonical_citation.pop("kind")  # raise error if key is missing (should be there)
+            citation_type = mapping[CitationKind(kind)](
+                **canonical_citation
+            )  # Create a citation of 'kind' type
             # Reconstruct `Span`
-            span = copy.pop("span")
+            span = citation_copy.pop("span")
             span_dc = Span(**span)
-        
-            temp = ExtractedCitation(citation=citation_type, span=span_dc, **copy)
+
+            temp = ExtractedCitation(citation=citation_type, span=span_dc, **citation_copy)
             citations.append(temp)
         citations = tuple(citations)
-        
-        # Reconstruct `PreprocessingMetadata` 
+
+        # Reconstruct `PreprocessingMetadata`
         preprocessed = data.pop("preprocessing_metadata")
         backend = preprocessed.pop("backend")
         backend_dc = PreprocessingBackend(backend)
@@ -96,11 +138,17 @@ def load_citations(path: Path) -> ExtractedDocument:
         format_data_dc = SourceFormat(format_data)
         source_meta_dc = SourceMetadata(format=format_data_dc, **source_meta)
 
-        document = ExtractedDocument(source_metadata=source_meta_dc, citations=citations, preprocessing_metadata=preprocessing_metadata, extraction_metadata=extraction_meta_dc, **data)
-        return document
-    else:
-        msg = f"Couldn't create DocumentExtraction for {path}"
-        raise Exception(msg)
+        return ExtractedDocument(
+            source_metadata=source_meta_dc,
+            citations=citations,
+            preprocessing_metadata=preprocessing_metadata,
+            extraction_metadata=extraction_meta_dc,
+            **data,
+        )
+    msg = f"Couldn't create DocumentExtraction for {path}"
+    raise Exception(msg)
+
+
 # %%
 def main() -> int:
     """Run the mellea benchmark."""
@@ -113,18 +161,16 @@ def main() -> int:
     hash_string = hashlib.sha256(raw).hexdigest()
     text_path = dir_name / str(hash_string + ".txt")
     text = ""
-    if hash_string in list(path.stem for path in dir_name.iterdir()):
+    if hash_string in [path.stem for path in dir_name.iterdir()]:
         text = text_path.read_text(encoding="utf-8")
     else:
         text = convert_to_text(file_path)
         text_path.write_text(text)
 
-
     citations: ExtractedDocument = extract_citations(text)
     saved_document_path = dir_name / str(hash_string + ".json")
     save_citations(saved_document_path, citations)
     citation = load_citations(saved_document_path)
-    #assert(citation == citations)
     separator = "-" * 80
     if citation != citations:
         print("They are not equal")
@@ -148,7 +194,6 @@ def main() -> int:
             second = json.dumps(asdict(citation), indent=4)
             print(len(second))
             diff = difflib.Differ()
-            #difference = diff.compare(first.splitlines(), second.splitlines())
             ht = difflib.HtmlDiff()
             html_output = ht.make_file(first.splitlines(), second.splitlines())
             html_path = saved_document_path.parent / "html-render.html"
@@ -156,13 +201,12 @@ def main() -> int:
                 file.write(html_output)
         if citations.source_metadata != citation.source_metadata:
             print("The source metadata are not equal")
-    
+
             print(separator)
     return 0
 
-# %%
 
+# %%
 if __name__ == "__main__":
     raise SystemExit(main())
-
 # %%
