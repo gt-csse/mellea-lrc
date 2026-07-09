@@ -136,6 +136,7 @@ addopts = "--verbose -vv --capture=no -p no:faker --cov=mellea_lrc --cov-report 
 markers = [
     "heavy: opt-in local integration tests that use heavy dependencies or real document conversion",
     "remote_smoke: opt-in smoke tests that call external services",
+    "llm_remote_sanity: opt-in live sanity tests for configured LLM endpoints and LLM-backed workflows",
 ]
 
 [tool.ruff]

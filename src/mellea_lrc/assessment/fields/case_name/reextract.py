@@ -3,25 +3,23 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from mellea import generative
 from mellea.core import ValidationResult
 from mellea.core.base import Context, ModelOutputThunk
+from mellea.core.requirement import Requirement
 from mellea.stdlib.components import Message
-from mellea.stdlib.context import ChatContext
 from mellea.stdlib.requirements import check, req
 from mellea.stdlib.sampling import MultiTurnStrategy
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
 from mellea_lrc.assessment.context import is_text_in_context
 from mellea_lrc.assessment.model_options import structured_model_options
 from mellea_lrc.assessment.types.case_name import CaseNameProposal
 from mellea_lrc.assessment.types.common import ChatTurn
-from mellea_lrc.llm import LlmResponseFormat, llm_api_config_from_env
+from mellea_lrc.llm import InstructIvrSpec, run_instruct_ivr
 
 if TYPE_CHECKING:
     from mellea import MelleaSession
@@ -71,44 +69,60 @@ class ReextractionResult:
 
 
 class _ReextractionProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     available: bool
     case_name: str | None = None
 
 
-# Passed as output_format_hint when the env selects json_object mode (the schema is
-# then stripped by mellea_call_options, so the prompt must describe the JSON shape and
-# the {"result": ...} wrapper Mellea expects). Under json_schema mode "none" is passed
-# and the schema carries the contract.
-JSON_OBJECT_HINT = (
-    'Return exactly one JSON object with key "result" containing two fields: '
-    '"available" (true when a case name is identifiable in local_context, false otherwise) '
-    'and "case_name" (a string copied exactly from local_context when available is true, '
-    "null otherwise). "
-    'Example - case name found: {"result": {"available": true, "case_name": "Smith v. Jones"}}. '
-    'Example - no case name: {"result": {"available": false, "case_name": null}}.'
+JSON_OUTPUT_REQUIREMENT = (
+    'Return exactly one JSON object with shape '
+    '{"available":true_or_false,"case_name":"... or null"}.'
 )
+REEXTRACTION_INSTRUCTION = """
+Extract the case name that actually appears in local_context.
+
+Your task is faithful extraction: copy whatever case name is present in
+local_context, even if it differs from retrieved_case_name or extracted_case_name.
+Do not correct toward retrieved_case_name. The downstream system handles whether
+names match.
+
+Set available to false only when local_context contains no identifiable case
+name at all. If extracted_case_name is <NO_EXTRACTED_CASE_NAME>, no prior
+extraction exists. Do not treat locator strings, such as citation numbers, as
+case names.
+
+extracted_case_name:
+{{extracted_case_name}}
+
+retrieved_case_name:
+{{retrieved_case_name}}
+""".strip()
 
 
-@generative
 async def _propose_case_name_reextraction(
+    session: MelleaSession,
+    *,
     local_context: str,
     extracted_case_name: str,
     retrieved_case_name: str,
-    output_format_hint: str,
-) -> _ReextractionProposal:
-    """Extract the case name that actually appears in local_context.
-
-    Your task is faithful extraction - copy whatever case name is present in local_context,
-    even if it differs from retrieved_case_name or extracted_case_name. Do not try to
-    correct toward retrieved_case_name. The downstream system handles whether names match.
-
-    Set available to false only when local_context contains no identifiable case name
-    at all. If extracted_case_name is <NO_EXTRACTED_CASE_NAME>, no prior extraction
-    exists. Do not treat locator strings (e.g. citation numbers) as case names.
-
-    If output_format_hint is "none", follow the JSON schema passed to you.
-    Otherwise, return JSON exactly matching the shape described by output_format_hint.
-    """
+    requirements: list[Requirement],
+    strategy: MultiTurnStrategy,
+    model_options: dict[str, object],
+) -> tuple[_ReextractionProposal, Context, bool]:
+    """Propose a grounded case name through direct Mellea instruct IVR."""
+    spec = InstructIvrSpec(
+        description=REEXTRACTION_INSTRUCTION,
+        grounding_context={"local_context": local_context},
+        user_variables={
+            "extracted_case_name": extracted_case_name,
+            "retrieved_case_name": retrieved_case_name,
+        },
+        requirements=requirements,
+    )
+    result = await run_instruct_ivr(session, spec, strategy=strategy, model_options=model_options)
+    proposal = _reextraction_proposal_from_output(result.result.value)
+    return proposal, result.result_ctx, result.success
 
 
 def _chat_history_from_context(ctx: Context) -> tuple[ChatTurn, ...]:
@@ -122,7 +136,10 @@ def _chat_history_from_context(ctx: Context) -> tuple[ChatTurn, ...]:
 
 
 def _validate_availability_consistency(ctx: Context) -> ValidationResult:
-    proposal: _ReextractionProposal = ctx.last_output().parsed_repr
+    try:
+        proposal = _reextraction_proposal_from_context(ctx)
+    except ValueError as exc:
+        return ValidationResult(result=False, reason=str(exc))
     if proposal.available == (proposal.case_name is not None):
         return ValidationResult(result=True)
     reason = (
@@ -134,7 +151,10 @@ def _validate_availability_consistency(ctx: Context) -> ValidationResult:
 
 
 def _validate_grounding(ctx: Context, document_context: str) -> ValidationResult:
-    proposal: _ReextractionProposal = ctx.last_output().parsed_repr
+    try:
+        proposal = _reextraction_proposal_from_context(ctx)
+    except ValueError as exc:
+        return ValidationResult(result=False, reason=str(exc))
     if not proposal.available:
         return ValidationResult(result=True)
     if proposal.case_name is not None and is_text_in_context(proposal.case_name, document_context):
@@ -145,10 +165,49 @@ def _validate_grounding(ctx: Context, document_context: str) -> ValidationResult
     )
 
 
-def _output_format_hint() -> str:
-    """Return the JSON-shape hint to pass into the prompt, or ``"none"`` if schema-enforced."""
-    fmt = llm_api_config_from_env(os.environ).response_format
-    return JSON_OBJECT_HINT if fmt is LlmResponseFormat.JSON_OBJECT else "none"
+def _validate_output_schema(ctx: Context) -> ValidationResult:
+    try:
+        _reextraction_proposal_from_context(ctx)
+    except ValueError as exc:
+        return ValidationResult(result=False, reason=str(exc))
+    return ValidationResult(result=True)
+
+
+def _reextraction_proposal_from_output(output: str | object) -> _ReextractionProposal:
+    if not isinstance(output, str):
+        msg = f"LLM output was not text: {type(output).__name__}"
+        raise ValueError(msg)
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError as exc:
+        msg = f"LLM output was not valid JSON: {exc}"
+        raise ValueError(msg) from exc
+    if not isinstance(payload, dict):
+        msg = "LLM output JSON was not an object"
+        raise ValueError(msg)
+    try:
+        return _ReextractionProposal.model_validate(payload)
+    except ValidationError as exc:
+        msg = f"LLM output did not match re-extraction schema: {exc}"
+        raise ValueError(msg) from exc
+
+
+def _reextraction_proposal_from_context(ctx: Context) -> _ReextractionProposal:
+    return _reextraction_proposal_from_output(ctx.last_output().value)
+
+
+def _reextraction_requirements(document_context: str) -> list[Requirement]:
+    return [
+        req(JSON_OUTPUT_REQUIREMENT, validation_fn=_validate_output_schema),
+        check(
+            "available must be true when case_name is provided, and false when case_name is null",
+            validation_fn=_validate_availability_consistency,
+        ),
+        req(
+            "case_name must be a string copied exactly from local_context",
+            validation_fn=lambda ctx: _validate_grounding(ctx, document_context),
+        ),
+    ]
 
 
 async def reextract_case_name(
@@ -160,23 +219,12 @@ async def reextract_case_name(
 ) -> ReextractionResult:
     """Propose a case name with a deterministic local-grounding requirement."""
     try:
-        proposal, final_ctx = await _propose_case_name_reextraction(
-            ChatContext(),
-            session.backend,
+        proposal, final_ctx, success = await _propose_case_name_reextraction(
+            session,
             local_context=document_context,
             extracted_case_name=case_name_for_prompt(extracted_case_name),
             retrieved_case_name=courtlistener_case_name,
-            output_format_hint=_output_format_hint(),
-            requirements=[
-                check(
-                    "available must be true when case_name is provided, and false when case_name is null",
-                    validation_fn=_validate_availability_consistency,
-                ),
-                req(
-                    "case_name must be a string copied exactly from local_context",
-                    validation_fn=lambda ctx: _validate_grounding(ctx, document_context),
-                ),
-            ],
+            requirements=_reextraction_requirements(document_context),
             strategy=MultiTurnStrategy(loop_budget=3),
             model_options=structured_model_options(max_tokens=REEXTRACTION_MAX_TOKENS),
         )
@@ -184,15 +232,15 @@ async def reextract_case_name(
         return ReextractionResult(ReextractionStatus.FAILED, None, error_message=str(exc))
 
     history = _chat_history_from_context(final_ctx)
-    if not proposal.available or proposal.case_name is None:
-        return ReextractionResult(ReextractionStatus.EMPTY, None, chat_history=history)
-    if not is_text_in_context(proposal.case_name, document_context):
+    if not success:
         return ReextractionResult(
             ReextractionStatus.FAILED,
             None,
-            error_message=f"Re-extraction exhausted retries: {proposal.case_name!r} not grounded",
+            error_message="Re-extraction exhausted retries without satisfying requirements.",
             chat_history=history,
         )
+    if not proposal.available or proposal.case_name is None:
+        return ReextractionResult(ReextractionStatus.EMPTY, None, chat_history=history)
     return ReextractionResult(
         ReextractionStatus.ACCEPTED,
         CaseNameProposal(case_name=proposal.case_name),
@@ -208,9 +256,8 @@ def proposal_from_output(output: str) -> CaseNameProposal | None:
         return None
     if not isinstance(payload, dict):
         return None
-    result = payload.get("result", payload)
     try:
-        return PROPOSAL_ADAPTER.validate_python(result)
+        return PROPOSAL_ADAPTER.validate_python(payload)
     except (ValidationError, ValueError):
         return None
 

@@ -659,6 +659,7 @@ async def _run_retrieval_async(
     *,
     retrieve: bool,
     client: CourtListenerAccessClient | None,
+    mellea_concurrency: int | None = 5,
 ) -> RetrievedDocument | None:
     if not retrieve:
         return None
@@ -667,6 +668,7 @@ async def _run_retrieval_async(
         inferred,
         client_mode="custom" if client is not None else "deployed",
         client=client,
+        mellea_concurrency=mellea_concurrency,
     )
 
 

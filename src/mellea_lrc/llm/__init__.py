@@ -2,14 +2,28 @@
 
 from mellea_lrc.llm.config import (
     LlmApiConfig,
-    LlmResponseFormat,
     llm_api_config_from_env,
     start_mellea_session_from_env,
 )
+from mellea_lrc.llm.ivr import (
+    format_rendered_chat_messages,
+    InstructIvrSpec,
+    RenderedChatMessage,
+    render_instruct_chat_messages,
+    render_instruct_prompt,
+    run_instruct_ivr,
+    visualize_instruct_chat_messages,
+)
 
 __all__ = [
+    "format_rendered_chat_messages",
+    "InstructIvrSpec",
     "LlmApiConfig",
-    "LlmResponseFormat",
+    "RenderedChatMessage",
     "llm_api_config_from_env",
+    "render_instruct_chat_messages",
+    "render_instruct_prompt",
+    "run_instruct_ivr",
     "start_mellea_session_from_env",
+    "visualize_instruct_chat_messages",
 ]

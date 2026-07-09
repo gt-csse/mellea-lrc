@@ -6,7 +6,7 @@ created: 2026-06-27
 
 # Mellea Usage
 
-This document covers how we use Mellea in this project, the patterns we discovered, and the design decisions behind them. The primary reference implementation is the case-name re-extraction workflow in `src/mellea_lrc/assessment/llm/reextract.py`.
+This document covers how we use Mellea in this project, the patterns we discovered, and the design decisions behind them. New direct Mellea IVR workflows should go through `src/mellea_lrc/llm/ivr.py`; older `@generative` notes below are historical guidance for understanding earlier implementation decisions.
 
 ---
 
@@ -14,11 +14,67 @@ This document covers how we use Mellea in this project, the patterns we discover
 
 Mellea is a framework for building structured LLM workflows. The core abstraction is the **Instruct → Validate → Repair (IVR) loop**: you define what the model should produce, specify requirements the output must satisfy, and choose a strategy for what happens when requirements are not met. Mellea handles the rest — prompt rendering, output parsing, requirement checking, and repair orchestration.
 
-In this project, Mellea replaces manual retry loops, prompt error appending, and JSON parsing boilerplate. It gives us typed Pydantic outputs with programmatic grounding checks and automatic multi-turn repair.
+In this project, Mellea replaces manual retry loops and prompt error appending. We keep project-owned parsing and validation explicit for direct `instruct` workflows so framework artifacts do not leak into the model-facing prompt.
 
 ---
 
-## The `@generative` Pattern
+## Project Standard: Direct `instruct` IVR
+
+For new Mellea-backed nodes, use `mellea_lrc.llm.ivr` as the boundary module:
+
+- domain modules build an `InstructIvrSpec`;
+- `run_instruct_ivr(...)` executes with a fresh `ChatContext`;
+- `render_instruct_prompt(...)`, `render_instruct_chat_messages(...)`, and `visualize_instruct_chat_messages(...)` visualize the exact instruction used by the call;
+- domain modules parse raw output into their own Pydantic models;
+- Pydantic parsing/schema validation should be the first requirement validation when `instruct` is not using Mellea's `format=` parser.
+
+Example:
+
+```python
+from mellea.stdlib.requirements import check, req
+from mellea.stdlib.sampling import MultiTurnStrategy
+from pydantic import BaseModel, ConfigDict
+
+from mellea_lrc.llm import InstructIvrSpec, render_instruct_prompt, run_instruct_ivr
+
+
+class MyOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    answer: str
+
+
+spec = InstructIvrSpec(
+    description="Extract the answer from local_context.",
+    grounding_context={"local_context": local_context},
+    user_variables={},
+    requirements=[
+        req("Return exactly one JSON object with shape {\"result\":{\"answer\":\"...\"}}.", validation_fn=_validate_schema),
+        check("answer must be copied from local_context", validation_fn=_validate_grounding),
+    ],
+)
+
+print(render_instruct_prompt(spec))  # debugging/fixture/snapshot helper
+result = await run_instruct_ivr(
+    session,
+    spec,
+    strategy=MultiTurnStrategy(loop_budget=3),
+    model_options=structured_model_options(max_tokens=512),
+)
+proposal = _parse_output(result.result.value)
+```
+
+Design rules:
+
+- Keep the prompt compact. Put task semantics in `description`; put only useful model-facing postconditions in `req`.
+- Use `check` for hidden deterministic constraints that should not add prompt noise.
+- Do not add post-call “final validation” that duplicates requirements. If a condition decides acceptance, it belongs in the requirement list.
+- Do not ask the model to return framework or app-derived fields. Return the minimal copied facts; construct derived fields locally.
+- Use `render_instruct_prompt` / `render_instruct_chat_messages` / `visualize_instruct_chat_messages` before changing prompts or tests. If the rendered prompt looks noisy, the implementation is probably noisy too.
+
+---
+
+## Historical Note: The `@generative` Pattern
 
 `@generative` is the decorator for structured LLM calls that return a Pydantic model. The function body is the docstring — Mellea renders it as the prompt, and the return type annotation drives JSON schema enforcement.
 

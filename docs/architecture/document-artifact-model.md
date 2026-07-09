@@ -108,13 +108,13 @@ boundary-retrieval principle.
 Internally initiated stage objects remain dataclasses. This keeps external parsing,
 schema adaptation, and domain invariants as separate responsibilities.
 
-Mellea classifiers are typed `@generative` functions whose `Literal` return types
-define their structured-output contracts. Orchestration calls those functions
-directly through a `MelleaSession`; it does not add project-owned retry loops or
-inspect exception text. Structured-output failures propagate into the explicit
-assessment failure states. Re-extraction separately uses Mellea requirements and a
-multi-turn repair strategy because its grounding constraint is deterministically
-verifiable against the document context.
+Mellea assessment calls use the project-owned direct IVR wrapper in
+`mellea_lrc.llm.ivr`. Domain modules provide compact instructions and explicit
+Pydantic validation as the first requirement; Mellea owns retry/repair, while the
+domain layer owns parsing and invariants. Structured-output or requirement
+failures propagate into explicit assessment failure states. Re-extraction uses
+the same IVR path with an additional deterministic grounding requirement against
+the document context.
 
 Assessment initialization marks eligible, found full-case citations as `waiting`
 and all ineligible citations as `skipped` with a structured reason. Execution moves

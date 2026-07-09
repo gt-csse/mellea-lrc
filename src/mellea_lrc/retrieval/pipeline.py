@@ -15,6 +15,7 @@ citations in one document.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import TYPE_CHECKING
 
@@ -51,6 +52,8 @@ from mellea_lrc.retrieval.types import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from mellea import MelleaSession
 
     from mellea_lrc.courtlistener.types import CourtListenerCitationRecord
@@ -58,6 +61,7 @@ if TYPE_CHECKING:
 
 SOURCE = "cl-access"
 DEFAULT_CLIENT_MODE: RetrievalClientMode = "deployed"
+DEFAULT_MELLEA_CONCURRENCY = 5
 HTTP_FOUND = 200
 HTTP_MULTIPLE_CHOICES = 300
 HTTP_BAD_REQUEST = 400
@@ -113,24 +117,45 @@ async def run_retrieval_async(
     client_mode: RetrievalClientMode = DEFAULT_CLIENT_MODE,
     client: CitationRetrievalClient | None = None,
     session: MelleaSession | None = None,
+    mellea_concurrency: int | None = DEFAULT_MELLEA_CONCURRENCY,
 ) -> RetrievedDocument:
     """Run retrieval with mandatory LLM case-name preparation for not-found search."""
     if not isinstance(document, InferredDocument):
         document = infer_jurisdiction(document)
+    if mellea_concurrency is not None and mellea_concurrency < 1:
+        msg = "mellea_concurrency must be positive when provided"
+        raise ValueError(msg)
     lookup_client = _lookup_client(client_mode, client)
-    session = session or start_mellea_session_from_env()
+    session_lock = asyncio.Lock()
+    base_session = session
+
+    async def get_session() -> MelleaSession:
+        nonlocal base_session
+        if base_session is not None:
+            return base_session
+        async with session_lock:
+            if base_session is None:
+                base_session = start_mellea_session_from_env()
+            return base_session
+
     docket_court_cache: dict[str, str | None] = {}
+    limit = mellea_concurrency if mellea_concurrency is not None else len(document.citations)
+    effective_concurrency = max(1, min(limit, len(document.citations) or 1))
+    semaphore = asyncio.Semaphore(effective_concurrency)
     started = time.perf_counter()
-    retrievals = [
-        await _retrieve_citation_async(
-            item,
-            document.text,
-            lookup_client,
-            docket_court_cache,
-            session,
-        )
-        for item in document.citations
-    ]
+    retrievals = await asyncio.gather(
+        *[
+            _retrieve_citation_async(
+                item,
+                document.text,
+                lookup_client,
+                docket_court_cache,
+                get_session,
+                semaphore,
+            )
+            for item in document.citations
+        ]
+    )
     duration_ms = (time.perf_counter() - started) * 1000.0
     return RetrievedDocument(
         source_metadata=document.source_metadata,
@@ -205,7 +230,8 @@ async def _retrieve_citation_async(
     document_text: str,
     client: CitationRetrievalClient,
     docket_court_cache: dict[str, str | None],
-    session: MelleaSession,
+    get_session: Callable[[], Awaitable[MelleaSession]],
+    semaphore: asyncio.Semaphore,
 ) -> CitationRetrieval:
     citation = item.citation
     if not isinstance(citation, FullCaseCitation):
@@ -225,11 +251,13 @@ async def _retrieve_citation_async(
     status = _status_from_lookup(lookup.status)
     if status is not RetrievalStatus.NOT_FOUND:
         return _retrieval_from_lookup(item.citation_id, lookup, client, docket_court_cache, citation)
-    preparation = await prepare_case_name_for_search(
-        session,
-        document_text=document_text,
-        citation=item,
-    )
+    async with semaphore:
+        session = await get_session()
+        preparation = await prepare_case_name_for_search(
+            session.clone(),
+            document_text=document_text,
+            citation=item,
+        )
     return _retrieval_from_lookup(
         item.citation_id,
         lookup,

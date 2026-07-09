@@ -1,8 +1,11 @@
 """Tests for first-layer citation retrieval."""
 
+import asyncio
+
 import pytest
 from pydantic import ValidationError
 
+from mellea_lrc.assessment.context import DocumentTextWindow
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation, Reporter
 from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.core.spans import Span
@@ -17,11 +20,22 @@ from mellea_lrc.courtlistener.lookup import (
 from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, RetrievalFailureDetail
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
+from mellea_lrc.retrieval.case_name_prepare import (
+    JSON_OUTPUT_REQUIREMENT,
+    _PreparedCaseName,
+    _case_name_preparation_requirements,
+    _proposal_from_output,
+    _validate_grounded_before_locator,
+    render_case_name_preparation_chat_messages,
+    render_case_name_preparation_prompt,
+)
 from mellea_lrc.retrieval.not_found_search import _case_name_query
-from mellea_lrc.retrieval.pipeline import run_retrieval
+from mellea_lrc.retrieval.pipeline import run_retrieval, run_retrieval_async
 from mellea_lrc.retrieval.types import (
     AmbiguousCitationRetrieval,
+    CaseNamePreparationStatus,
     CaseNameSearchStatus,
+    CaseNameSearchPreparation,
     CourtResolutionSource,
     RetrievalStatus,
 )
@@ -292,6 +306,152 @@ def test_case_name_query_includes_court_when_available() -> None:
     )
 
 
+def test_case_name_preparation_schema_never_asks_llm_for_combined_case_name() -> None:
+    assert "case_name" not in _PreparedCaseName.model_fields
+    assert '"case_name"' not in JSON_OUTPUT_REQUIREMENT
+    assert _PreparedCaseName.model_config["extra"] == "forbid"
+
+
+def test_case_name_preparation_prompt_is_compact_and_requirement_driven() -> None:
+    text = "See Smith v. Jones, 999 U.S. 999."
+    locator_start = text.index("999 U.S. 999")
+    window = DocumentTextWindow.around(
+        text,
+        Span(locator_start, locator_start + len("999 U.S. 999")),
+        before_chars=320,
+        after_chars=0,
+    )
+    requirements = _case_name_preparation_requirements(window)
+    prompt = render_case_name_preparation_prompt(
+        local_context=window.text,
+        locator="999 U.S. 999",
+        extracted_plaintiff="Smith",
+        extracted_defendant="Jones",
+        window=window,
+    )
+    messages = render_case_name_preparation_chat_messages(
+        local_context=window.text,
+        locator="999 U.S. 999",
+        extracted_plaintiff="Smith",
+        extracted_defendant="Jones",
+        window=window,
+    )
+
+    assert requirements[0].description == JSON_OUTPUT_REQUIREMENT
+    assert requirements[0].validation_fn is not None
+    assert [message.role for message in messages] == ["user"]
+    assert messages[0].content == prompt
+    assert "output_format_hint" not in prompt
+    assert prompt.count("Return exactly one JSON object") == 1
+    assert "classification must be consistent" not in prompt
+    assert "plaintiff and defendant must be copied" in prompt
+    assert "[local_context]" in prompt
+    assert "See Smith v. Jones, 999 U.S. 999" in prompt
+
+
+def test_case_name_preparation_parses_unwrapped_instruct_json() -> None:
+    proposal = _proposal_from_output(
+        '{"classification": "complete_case_name", '
+        '"plaintiff": "Smith", "defendant": "Jones", "reason": "copied"}'
+    )
+
+    assert proposal == _PreparedCaseName(
+        classification="complete_case_name",
+        plaintiff="Smith",
+        defendant="Jones",
+        reason="copied",
+    )
+
+
+def test_case_name_preparation_rejects_combined_case_name_field() -> None:
+    with pytest.raises(ValueError, match="case-name preparation schema"):
+        _proposal_from_output(
+            '{"classification": "complete_case_name", '
+            '"plaintiff": "Smith", "defendant": "Jones", "case_name": "Smith v. Jones"}'
+        )
+
+
+def test_case_name_preparation_validation_uses_raw_instruct_output() -> None:
+    text = "See Smith v. Jones, 999 U.S. 999."
+    locator_start = text.index("999 U.S. 999")
+    window = DocumentTextWindow.around(
+        text,
+        Span(locator_start, locator_start + len("999 U.S. 999")),
+        before_chars=320,
+        after_chars=0,
+    )
+
+    class Output:
+        value = (
+            '{"classification": "complete_case_name", '
+            '"plaintiff": "Smith", "defendant": "Jones", "reason": "copied"}'
+        )
+
+        @property
+        def parsed_repr(self) -> object:
+            raise AssertionError("instruct validation must not depend on parsed_repr")
+
+    class Context:
+        def last_output(self) -> Output:
+            return Output()
+
+    assert _validate_grounded_before_locator(Context(), window).as_bool()
+
+
+def test_case_name_preparation_rejects_incomplete_output_when_case_marker_is_visible() -> None:
+    text = "First see Alpha v. Beta, 111 F.3d 222. But see Gamma v. Delta, 999 U.S. 999."
+    locator_start = text.index("999 U.S. 999")
+    window = DocumentTextWindow.around(
+        text,
+        Span(locator_start, locator_start + len("999 U.S. 999")),
+        before_chars=320,
+        after_chars=0,
+    )
+
+    class Output:
+        value = (
+            '{"classification": "partial_case_name", '
+            '"plaintiff": "Gamma", "defendant": null, "reason": "only one party"}'
+        )
+
+    class Context:
+        def last_output(self) -> Output:
+            return Output()
+
+    result = _validate_grounded_before_locator(Context(), window)
+
+    assert not result.as_bool()
+    assert result.reason is not None
+    assert "v. case-name marker" in result.reason
+
+
+def test_case_name_preparation_rejects_party_before_intervening_locator() -> None:
+    text = "First see Alpha v. Beta, 111 F.3d 222. But see Gamma v. Delta, 999 U.S. 999."
+    locator_start = text.index("999 U.S. 999")
+    window = DocumentTextWindow.around(
+        text,
+        Span(locator_start, locator_start + len("999 U.S. 999")),
+        before_chars=320,
+        after_chars=0,
+    )
+
+    class Output:
+        value = (
+            '{"classification": "complete_case_name", '
+            '"plaintiff": "Alpha", "defendant": "Beta", "reason": "parser hint"}'
+        )
+
+    class Context:
+        def last_output(self) -> Output:
+            return Output()
+
+    result = _validate_grounded_before_locator(Context(), window)
+
+    assert not result.as_bool()
+    assert result.reason is not None
+    assert "before another locator" in result.reason
+
+
 def test_not_found_reports_zero_case_name_search_results() -> None:
     client = CourtListenerAccessClient(
         CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
@@ -425,6 +585,89 @@ def test_not_found_skips_search_without_both_parties() -> None:
     assert retrieval.status == RetrievalStatus.NOT_FOUND
     assert retrieval.candidate_search.status == CaseNameSearchStatus.SKIPPED_PARTIAL_CASE_NAME
     assert retrieval.candidate_search.probes == ()
+
+
+def test_async_retrieval_bounds_case_name_preparation_concurrency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    active = 0
+    max_active = 0
+    calls: list[str] = []
+
+    class FakeSession:
+        def clone(self) -> "FakeSession":
+            return self
+
+    async def fake_prepare(
+        _session: object,
+        *,
+        document_text: str,
+        citation: ExtractedCitation,
+    ) -> CaseNameSearchPreparation:
+        nonlocal active, max_active
+        assert document_text
+        active += 1
+        max_active = max(max_active, active)
+        calls.append(citation.citation_id)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return CaseNameSearchPreparation(
+            status=CaseNamePreparationStatus.ACCEPTED,
+            plaintiff=f"P{citation.citation_id}",
+            defendant=f"D{citation.citation_id}",
+            prepared_case_name=f"P{citation.citation_id} v. D{citation.citation_id}",
+            source="llm",
+        )
+
+    monkeypatch.setattr(
+        "mellea_lrc.retrieval.pipeline.prepare_case_name_for_search",
+        fake_prepare,
+    )
+    text = "A, 999 U.S. 999. B, 999 U.S. 999. C, 999 U.S. 999. D, 999 U.S. 999."
+    citations = []
+    start = 0
+    for index in range(4):
+        locator_start = text.index("999 U.S. 999", start)
+        start = locator_start + len("999 U.S. 999")
+        citations.append(
+            ExtractedCitation(
+                citation_id=f"cite-{index}",
+                span=Span(locator_start, start),
+                matched_text="999 U.S. 999",
+                citation=FullCaseCitation(
+                    volume="999",
+                    reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S."),
+                    page="999",
+                ),
+            )
+        )
+    extraction = _extracted_document(
+        preprocessed=preprocess_plain_text_from_string(text),
+        citations=tuple(citations),
+    )
+    client = CourtListenerAccessClient(
+        CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
+        post_json=lambda _url, _data: {
+            "response": {"citation": "999 U.S. 999", "status": 404, "clusters": []},
+        },
+        get_json=lambda _url: {"count": 0, "results": []},
+    )
+
+    result = asyncio.run(
+        run_retrieval_async(
+            extraction,
+            client_mode="custom",
+            client=client,
+            session=FakeSession(),
+            mellea_concurrency=2,
+        )
+    )
+
+    assert max_active == 2
+    assert sorted(calls) == [f"cite-{index}" for index in range(4)]
+    assert [item.candidate_search.preparation.status for item in result.retrievals] == [
+        CaseNamePreparationStatus.ACCEPTED,
+    ] * 4
 
 
 def test_retrieve_surfaces_typed_courtlistener_failure_detail() -> None:

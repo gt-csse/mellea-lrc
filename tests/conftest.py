@@ -8,7 +8,7 @@ import pytest
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    """Register opt-in remote smoke test arguments."""
+    """Register opt-in integration test arguments."""
     parser.addoption(
         "--run-heavy",
         action="store_true",
@@ -20,6 +20,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         default=False,
         help="Run smoke tests that call external services.",
+    )
+    parser.addoption(
+        "--run-llm-remote-sanity",
+        action="store_true",
+        default=False,
+        help="Run LLM remote sanity tests against the configured live LLM endpoint.",
     )
     parser.addoption(
         "--courtlistener-url",
@@ -40,10 +46,19 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     """Skip opt-in tests unless explicitly requested."""
     skip_heavy = pytest.mark.skip(reason="Pass --run-heavy to run heavy tests.")
     skip_remote_smoke = pytest.mark.skip(reason="Pass --run-remote-smoke to run remote smoke tests.")
+    skip_llm_remote_sanity = pytest.mark.skip(
+        reason="Pass --run-llm-remote-sanity to run LLM remote sanity tests."
+    )
+    run_remote_smoke = config.getoption("--run-remote-smoke")
+    run_llm_remote_sanity = config.getoption("--run-llm-remote-sanity")
     for item in items:
         if "heavy" in item.keywords and not config.getoption("--run-heavy"):
             item.add_marker(skip_heavy)
-        if "remote_smoke" in item.keywords and not config.getoption("--run-remote-smoke"):
+        if "llm_remote_sanity" in item.keywords:
+            if not (run_llm_remote_sanity or run_remote_smoke):
+                item.add_marker(skip_llm_remote_sanity)
+            continue
+        if "remote_smoke" in item.keywords and not run_remote_smoke:
             item.add_marker(skip_remote_smoke)
 
 

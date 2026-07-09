@@ -1,4 +1,4 @@
-"""Remote smoke test for the configured OpenAI-compatible API."""
+"""LLM remote sanity test for the configured OpenAI-compatible API."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from openai import RateLimitError
 from mellea_lrc.core.env import read_env_file
 from mellea_lrc.llm import LlmApiConfig, llm_api_config_from_env
 
-pytestmark = pytest.mark.remote_smoke
+pytestmark = [pytest.mark.remote_smoke, pytest.mark.llm_remote_sanity]
 
 
 def test_llm_api_chat_completion(remote_timeout: float) -> None:
@@ -39,7 +39,7 @@ def _llm_config_from_env_file() -> LlmApiConfig:
     try:
         return llm_api_config_from_env(values)
     except RuntimeError as exc:
-        pytest.skip(f"{exc} in .env to run the LLM API smoke test.")
+        pytest.skip(f"{exc} in .env to run the LLM API remote sanity test.")
 
 
 def _is_unset(value: str | None) -> bool:
@@ -48,5 +48,5 @@ def _is_unset(value: str | None) -> bool:
 
 def _read_env_file(path: Path) -> dict[str, str]:
     if not path.exists():
-        pytest.skip("Create .env to run the LLM API smoke test.")
+        pytest.skip("Create .env to run the LLM API remote sanity test.")
     return read_env_file(path)

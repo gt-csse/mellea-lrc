@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -16,17 +15,8 @@ LLM_MODEL_ENV = "MELLEA_LRC_LLM_MODEL"
 LLM_API_BASE_ENV = "MELLEA_LRC_LLM_API_BASE"
 LLM_API_KEY_ENV = "MELLEA_LRC_LLM_API_KEY"
 LLM_TEMPERATURE_ENV = "MELLEA_LRC_LLM_TEMPERATURE"
-LLM_RESPONSE_FORMAT_ENV = "MELLEA_LRC_LLM_RESPONSE_FORMAT"
 LLM_CERT_REQUIRED_ENV = "MELLEA_LRC_LLM_CERT_REQUIRED"
 DEFAULT_TEMPERATURE = 0.0
-JSON_OBJECT_RESPONSE_FORMAT: dict[str, str] = {"type": "json_object"}
-
-
-class LlmResponseFormat(str, Enum):
-    """Structured-output modes supported by the API binding."""
-
-    JSON_SCHEMA = "json_schema"
-    JSON_OBJECT = "json_object"
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,15 +27,11 @@ class LlmApiConfig:
     api_base: str
     api_key: str = field(repr=False)
     temperature: float
-    response_format: LlmResponseFormat
     cert_required: bool
 
     def mellea_call_options(self, *, max_tokens: int, temperature: float = 0) -> dict[str, object]:
         """Build per-call Mellea model options for structured generation."""
-        options: dict[str, object] = {"temperature": temperature, "max_tokens": max_tokens}
-        if self.response_format == LlmResponseFormat.JSON_OBJECT:
-            options["extra_body"] = {"response_format": JSON_OBJECT_RESPONSE_FORMAT}
-        return options
+        return {"temperature": temperature, "max_tokens": max_tokens}
 
     def openai_client(self) -> OpenAI:
         """Create a synchronous client for the configured API binding."""
@@ -69,7 +55,6 @@ def llm_api_config_from_env(environ: Mapping[str, str]) -> LlmApiConfig:
         api_base=_required_env(environ, LLM_API_BASE_ENV).rstrip("/"),
         api_key=_required_env(environ, LLM_API_KEY_ENV),
         temperature=_optional_float_env(environ, LLM_TEMPERATURE_ENV, DEFAULT_TEMPERATURE),
-        response_format=_optional_response_format(environ),
         cert_required=_optional_bool_env(environ, LLM_CERT_REQUIRED_ENV, default=True),
     )
 
@@ -111,18 +96,6 @@ def _optional_float_env(environ: Mapping[str, str], name: str, default: float) -
         return float(value)
     except ValueError as exc:
         msg = f"{name} must be a float-compatible value"
-        raise RuntimeError(msg) from exc
-
-
-def _optional_response_format(environ: Mapping[str, str]) -> LlmResponseFormat:
-    value = environ.get(LLM_RESPONSE_FORMAT_ENV, "").strip()
-    if not value:
-        return LlmResponseFormat.JSON_SCHEMA
-    try:
-        return LlmResponseFormat(value)
-    except ValueError as exc:
-        allowed = ", ".join(item.value for item in LlmResponseFormat)
-        msg = f"{LLM_RESPONSE_FORMAT_ENV} must be one of: {allowed}"
         raise RuntimeError(msg) from exc
 
 

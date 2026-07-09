@@ -2,20 +2,26 @@
 
 from __future__ import annotations
 
-import os
+import json
+import re
 from typing import TYPE_CHECKING
 
-from mellea import generative
 from mellea.core import ValidationResult
-from mellea.stdlib.context import ChatContext
+from mellea.core.requirement import Requirement
 from mellea.stdlib.requirements import check, req
 from mellea.stdlib.sampling import MultiTurnStrategy
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from mellea_lrc.assessment.context import DocumentTextWindow
 from mellea_lrc.assessment.model_options import structured_model_options
 from mellea_lrc.core.citations import FullCaseCitation
-from mellea_lrc.llm import LlmResponseFormat, llm_api_config_from_env
+from mellea_lrc.llm import (
+    InstructIvrSpec,
+    RenderedChatMessage,
+    render_instruct_chat_messages,
+    render_instruct_prompt,
+    run_instruct_ivr,
+)
 from mellea_lrc.retrieval.types import (
     CaseNamePreparationStatus,
     CaseNameSearchPreparation,
@@ -30,58 +36,140 @@ if TYPE_CHECKING:
 PREPARATION_CONTEXT_BEFORE_CHARS = 320
 PREPARATION_MAX_TOKENS = 512
 COMPLETE_PARTY_COUNT = 2
-JSON_OBJECT_HINT = (
-    'Return exactly one JSON object with key "result" containing fields: '
-    '"classification" ("complete_case_name", "partial_case_name", or "no_case_name"), '
-    '"plaintiff" (string copied exactly from local_context or null), '
-    '"defendant" (string copied exactly from local_context or null), '
-    '"case_name" (optional reconstructed "Plaintiff v. Defendant" when both parties are available, otherwise null), '
-    'and "reason" (brief explanation). '
-    'Example: {"result": {"classification": "complete_case_name", '
-    '"plaintiff": "Smith", "defendant": "Jones", '
-    '"case_name": "Smith v. Jones", "reason": "The parties appear immediately before the locator."}}.'
+JSON_OUTPUT_REQUIREMENT = (
+    'Return exactly one JSON object with shape '
+    '{"classification":"...","plaintiff":"... or null","defendant":"... or null","reason":"..."}.'
 )
+CASE_NAME_PREPARATION_INSTRUCTION = """
+Extract party anchors for the citation marked by locator.
+
+Use only parties bound to this locator. The relevant copied case name usually
+appears before the locator. If local_context contains multiple citations, do not
+borrow parties from another citation.
+
+Treat the locator string as the boundary marker inside local_context. Prefer the
+nearest copied "plaintiff v. defendant" name before that locator over parser
+hints. Parser hints may come from a different citation in the same window.
+
+Use classification "complete_case_name" when both parties are present,
+"partial_case_name" when exactly one party is present, and "no_case_name" when
+no bound party is present.
+
+locator:
+{{locator}}
+
+Parser hints, which may be missing or wrong:
+plaintiff={{extracted_plaintiff}}
+defendant={{extracted_defendant}}
+""".strip()
 
 
 class _PreparedCaseName(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     classification: str
     plaintiff: str | None = None
     defendant: str | None = None
-    case_name: str | None = None
     reason: str | None = None
 
 
-@generative
 async def _prepare_case_name(
+    session: MelleaSession,
+    *,
     local_context: str,
     locator: str,
     extracted_plaintiff: str,
     extracted_defendant: str,
-    output_format_hint: str,
-) -> _PreparedCaseName:
-    """Prepare parties for case-name search for the specific locator.
+    requirements: list[Requirement],
+    strategy: MultiTurnStrategy,
+    model_options: dict[str, object],
+) -> tuple[_PreparedCaseName, object]:
+    """Prepare parties for case-name search through Mellea instruct/validate/repair."""
+    spec = _case_name_preparation_spec(
+        local_context=local_context,
+        locator=locator,
+        extracted_plaintiff=extracted_plaintiff,
+        extracted_defendant=extracted_defendant,
+        requirements=requirements,
+    )
+    result = await run_instruct_ivr(session, spec, strategy=strategy, model_options=model_options)
+    proposal = _proposal_from_output(result.result.value)
+    return proposal, result.result_ctx
 
-    The locator marks the citation we are trying to recover after exact lookup
-    failed. Extract only parties that are bound to this locator. The parties or
-    copied case name usually appear before the locator. A local context may
-    contain multiple citations; do not borrow parties from a different citation.
 
-    Prefer returning plaintiff and defendant as separate copied strings. The
-    party strings must be copied from local_context, but case_name may be a
-    reconstruction from those copied parties. Do not invent, normalize, or
-    complete party names. If the case name is broken by whitespace or newlines,
-    copy the party strings as they appear. Return classification
-    "complete_case_name" only when both parties are present. Use
-    "partial_case_name" for exactly one party and "no_case_name" when no
-    parties tied to this locator are present.
+def _case_name_preparation_spec(
+    *,
+    local_context: str,
+    locator: str,
+    extracted_plaintiff: str,
+    extracted_defendant: str,
+    requirements: list[Requirement],
+) -> InstructIvrSpec:
+    return InstructIvrSpec(
+        description=CASE_NAME_PREPARATION_INSTRUCTION,
+        grounding_context={"local_context": local_context},
+        user_variables={
+            "locator": locator,
+            "extracted_plaintiff": extracted_plaintiff or "<EMPTY>",
+            "extracted_defendant": extracted_defendant or "<EMPTY>",
+        },
+        requirements=requirements,
+    )
 
-    extracted_plaintiff and extracted_defendant are weak hints from the parser,
-    not facts. They may be missing or wrong.
 
-    If output_format_hint is "none", follow the JSON schema passed to you.
-    Otherwise, return JSON exactly matching the shape described by
-    output_format_hint.
-    """
+def render_case_name_preparation_prompt(
+    *,
+    local_context: str,
+    locator: str,
+    extracted_plaintiff: str = "",
+    extracted_defendant: str = "",
+    window: DocumentTextWindow,
+) -> str:
+    """Render the raw prompt for a case-name preparation instruction."""
+    spec = _case_name_preparation_spec(
+        local_context=local_context,
+        locator=locator,
+        extracted_plaintiff=extracted_plaintiff,
+        extracted_defendant=extracted_defendant,
+        requirements=_case_name_preparation_requirements(window),
+    )
+    return render_instruct_prompt(spec)
+
+
+def render_case_name_preparation_chat_messages(
+    *,
+    local_context: str,
+    locator: str,
+    extracted_plaintiff: str = "",
+    extracted_defendant: str = "",
+    window: DocumentTextWindow,
+) -> tuple[RenderedChatMessage, ...]:
+    """Render the raw chat messages for a case-name preparation instruction."""
+    spec = _case_name_preparation_spec(
+        local_context=local_context,
+        locator=locator,
+        extracted_plaintiff=extracted_plaintiff,
+        extracted_defendant=extracted_defendant,
+        requirements=_case_name_preparation_requirements(window),
+    )
+    return render_instruct_chat_messages(spec)
+
+
+def _case_name_preparation_requirements(window: DocumentTextWindow) -> list[Requirement]:
+    return [
+        req(JSON_OUTPUT_REQUIREMENT, validation_fn=_validate_output_schema),
+        check(
+            "classification must be consistent with party availability",
+            validation_fn=_validate_classification_consistency,
+        ),
+        req(
+            "plaintiff and defendant must be copied from local_context before the locator; "
+            "if a visible 'plaintiff v. defendant' case-name marker appears before the locator, "
+            "return complete_case_name for that citation; do not use parties separated from the "
+            "target locator by another reporter citation",
+            validation_fn=lambda ctx: _validate_grounded_before_locator(ctx, window),
+        ),
+    ]
 
 
 async def prepare_case_name_for_search(
@@ -103,24 +191,14 @@ async def prepare_case_name_for_search(
     extracted_plaintiff = citation.citation.plaintiff or ""
     extracted_defendant = citation.citation.defendant or ""
     try:
+        requirements = _case_name_preparation_requirements(window)
         proposal, _final_ctx = await _prepare_case_name(
-            ChatContext(),
-            session.backend,
+            session,
             local_context=window.text,
             locator=citation.matched_text,
             extracted_plaintiff=extracted_plaintiff,
             extracted_defendant=extracted_defendant,
-            output_format_hint=_output_format_hint(),
-            requirements=[
-                check(
-                    "classification must be consistent with party availability",
-                    validation_fn=_validate_classification_consistency,
-                ),
-                req(
-                    "plaintiff and defendant must be copied from local_context before the locator",
-                    validation_fn=lambda ctx: _validate_grounded_before_locator(ctx, window),
-                ),
-            ],
+            requirements=requirements,
             strategy=MultiTurnStrategy(loop_budget=3),
             model_options=structured_model_options(max_tokens=PREPARATION_MAX_TOKENS),
         )
@@ -152,13 +230,42 @@ async def prepare_case_name_for_search(
     )
 
 
-def _output_format_hint() -> str:
-    fmt = llm_api_config_from_env(os.environ).response_format
-    return JSON_OBJECT_HINT if fmt is LlmResponseFormat.JSON_OBJECT else "none"
+def _proposal_from_output(output: str | object) -> _PreparedCaseName:
+    if not isinstance(output, str):
+        msg = f"LLM output was not text: {type(output).__name__}"
+        raise ValueError(msg)
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError as exc:
+        msg = f"LLM output was not valid JSON: {exc}"
+        raise ValueError(msg) from exc
+    if not isinstance(payload, dict):
+        msg = "LLM output JSON was not an object"
+        raise ValueError(msg)
+    try:
+        return _PreparedCaseName.model_validate(payload)
+    except ValidationError as exc:
+        msg = f"LLM output did not match case-name preparation schema: {exc}"
+        raise ValueError(msg) from exc
+
+
+def _proposal_from_context(ctx: Context) -> _PreparedCaseName:
+    return _proposal_from_output(ctx.last_output().value)
+
+
+def _validate_output_schema(ctx: Context) -> ValidationResult:
+    try:
+        _proposal_from_context(ctx)
+    except ValueError as exc:
+        return ValidationResult(result=False, reason=str(exc))
+    return ValidationResult(result=True)
 
 
 def _validate_classification_consistency(ctx: Context) -> ValidationResult:
-    proposal: _PreparedCaseName = ctx.last_output().parsed_repr
+    try:
+        proposal = _proposal_from_context(ctx)
+    except ValueError as exc:
+        return ValidationResult(result=False, reason=str(exc))
     party_count = sum(bool(value) for value in (proposal.plaintiff, proposal.defendant))
     if proposal.classification == "complete_case_name" and party_count == COMPLETE_PARTY_COUNT:
         return ValidationResult(result=True)
@@ -176,7 +283,18 @@ def _validate_grounded_before_locator(
     ctx: Context,
     window: DocumentTextWindow,
 ) -> ValidationResult:
-    proposal: _PreparedCaseName = ctx.last_output().parsed_repr
+    try:
+        proposal = _proposal_from_context(ctx)
+    except ValueError as exc:
+        return ValidationResult(result=False, reason=str(exc))
+    if (
+        proposal.classification != "complete_case_name"
+        and _has_case_name_marker_before_locator(window)
+    ):
+        return ValidationResult(
+            result=False,
+            reason="a copied v. case-name marker appears before the locator",
+        )
     for label, value in (("plaintiff", proposal.plaintiff), ("defendant", proposal.defendant)):
         if not value:
             continue
@@ -191,7 +309,28 @@ def _validate_grounded_before_locator(
                 result=False,
                 reason=f"{label}={value!r} did not appear before the locator",
             )
+        between = _window_text_between(window, grounded.span.end, window.anchor_span.start)
+        if _contains_reporter_like_locator(between):
+            return ValidationResult(
+                result=False,
+                reason=f"{label}={value!r} appears before another locator, not the target locator",
+            )
     return ValidationResult(result=True)
+
+
+def _has_case_name_marker_before_locator(window: DocumentTextWindow) -> bool:
+    before_locator = _window_text_between(window, window.span.start, window.anchor_span.start)
+    return bool(re.search(r"\b\S+\s+v\.?\s+\S+", before_locator))
+
+
+def _contains_reporter_like_locator(text: str) -> bool:
+    return bool(re.search(r"\b\d+\s+[A-Z][A-Za-z.0-9]*\s+\d+\b", text))
+
+
+def _window_text_between(window: DocumentTextWindow, start: int, end: int) -> str:
+    local_start = max(0, start - window.span.start)
+    local_end = max(local_start, end - window.span.start)
+    return window.text[local_start:local_end]
 
 
 def _status_from_classification(classification: str) -> CaseNamePreparationStatus:

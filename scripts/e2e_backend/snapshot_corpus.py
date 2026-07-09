@@ -216,7 +216,12 @@ def run_document(path: Path, *, phase: Phase, config: SnapshotConfig) -> None:
     if phase == "inferred":
         return
 
-    retrieval_raw = asyncio.run(run_retrieval_async(inferred))
+    retrieval_raw = asyncio.run(
+        run_retrieval_async(
+            inferred,
+            mellea_concurrency=config.mellea_concurrency,
+        )
+    )
     retrieval = _round_trip(
         snapshot_dir,
         "retrieval",

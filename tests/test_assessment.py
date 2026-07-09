@@ -36,7 +36,16 @@ from mellea_lrc.assessment import (
     run_assessment,
 )
 from mellea_lrc.assessment import ReextractionStatus, validate_proposal
+from mellea_lrc.assessment.fields.case_name.classify import (
+    _non_semantic_output_from_text,
+    _semantic_output_from_text,
+)
 from mellea_lrc.assessment.fields.case_name.reextract import ReextractionResult
+from mellea_lrc.assessment.fields.case_name.reextract import (
+    JSON_OUTPUT_REQUIREMENT as REEXTRACTION_JSON_OUTPUT_REQUIREMENT,
+    _reextraction_requirements,
+    _validate_grounding as _validate_reextraction_grounding,
+)
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation, Reporter
 from mellea_lrc.jurisdiction_inference.leads import evaluate_court_inference, evaluate_reporter_inference
 from mellea_lrc.jurisdiction_inference.types import Jurisdiction, ReporterInference, CourtInference, ReporterInferenceStatus, CourtInferenceStatus
@@ -333,6 +342,45 @@ def test_reextraction_validation_reports_ungrounded_fields() -> None:
 def test_case_name_proposal_rejects_empty_value() -> None:
     with pytest.raises(ValueError, match="must not be empty"):
         CaseNameProposal(case_name="")
+
+
+def test_reextraction_requirements_start_with_pydantic_schema_validation() -> None:
+    requirements = _reextraction_requirements("Smith v. Jones, 999 U.S. 999.")
+
+    assert requirements[0].description == REEXTRACTION_JSON_OUTPUT_REQUIREMENT
+    assert requirements[0].validation_fn is not None
+
+
+def test_reextraction_validation_uses_raw_instruct_output() -> None:
+    class Output:
+        value = '{"available": true, "case_name": "Smith v. Jones"}'
+
+        @property
+        def parsed_repr(self) -> object:
+            raise AssertionError("instruct validation must not depend on parsed_repr")
+
+    class Context:
+        def last_output(self) -> Output:
+            return Output()
+
+    result = _validate_reextraction_grounding(Context(), "Smith v. Jones, 999 U.S. 999.")
+
+    assert result.as_bool()
+
+
+def test_case_name_classifiers_parse_unwrapped_instruct_json() -> None:
+    semantic = _semantic_output_from_text('{"verdict": "semantic_match"}')
+    non_semantic = _non_semantic_output_from_text('{"verdict": "different_case"}')
+
+    assert semantic.verdict == "semantic_match"
+    assert non_semantic.verdict == "different_case"
+
+
+def test_case_name_classifiers_reject_invalid_or_extra_output() -> None:
+    with pytest.raises(ValueError, match="semantic verdict"):
+        _semantic_output_from_text('{"verdict": "maybe"}')
+    with pytest.raises(ValueError, match="non-semantic verdict"):
+        _non_semantic_output_from_text('{"verdict": "different_case", "reason": "extra"}')
 
 
 def test_case_name_followup_preserves_reextracted_value_when_reassessment_fails(

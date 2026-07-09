@@ -104,6 +104,12 @@ preparation fallback so existing deterministic tests and callers remain stable.
 Frontend API routes and snapshot regeneration use the async retrieval path,
 where preparation is mandatory before not-found candidate search.
 
+Async retrieval runs case-name preparation with bounded concurrency. The default
+limit is intentionally conservative, and snapshot regeneration passes the same
+configured `mellea_concurrency` value used by assessment. Exact locator lookup
+still runs first; the concurrency only applies once a citation falls into the
+not-found preparation branch.
+
 ## What is deliberately out of scope for this first slice
 
 - Reporter/dataclass migration.
