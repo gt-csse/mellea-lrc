@@ -93,7 +93,6 @@ markers = [
 
 [tool.ruff]
 line-length = 110
-exclude = ["benchmarks/"]
 
 [tool.ruff.lint]
 exclude = ["tests/**"]
