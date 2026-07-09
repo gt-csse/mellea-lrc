@@ -98,7 +98,8 @@ review payload shape used by the normal staged workflow.
 ## Snapshot Regeneration
 
 Regenerate the same strict stage snapshots as the development notebook without
-running cells manually:
+running cells manually. Full runs also write `citation_nodes.json`, a
+citation-level projection between extraction and jurisdiction inference.
 
 ```bash
 # One configured fixture
@@ -109,10 +110,16 @@ uv run --group pipeline python -m scripts.e2e_backend.snapshot_corpus \
 uv run --group pipeline python -m scripts.e2e_backend.snapshot_corpus \
   --file bookmarked --phase retrieval
 
+# Stop after writing citation_nodes.json
+uv run --group pipeline python -m scripts.e2e_backend.snapshot_corpus \
+  --file bookmarked --phase citation_nodes
+
 # The inclusive numeric text-fixture range configured in snapshot_corpus.py
 uv run --group pipeline python -m scripts.e2e_backend.snapshot_corpus
 ```
 
-The CLI intentionally accepts only `--file` and `--phase`. Configure the env,
-test-data, bookmark, and snapshot paths, numeric batch range, and Mellea
-concurrency through `SnapshotConfig`/`CONFIG` in `snapshot_corpus.py`.
+The CLI intentionally accepts only `--file` and `--phase`. Supported phases are
+`preprocessed`, `extraction`, `citation_nodes`, `inferred`, `retrieval`, and
+`assessment`. Configure the env, test-data, bookmark, and snapshot paths,
+numeric batch range, and Mellea concurrency through `SnapshotConfig`/`CONFIG` in
+`snapshot_corpus.py`.

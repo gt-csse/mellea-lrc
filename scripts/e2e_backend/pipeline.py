@@ -13,6 +13,13 @@ from mellea_lrc.assessment import (
     CitationAssessment,
     run_assessment_async,
 )
+from mellea_lrc.citation_nodes import (
+    citation_node_document_to_json,
+    nodes_from_extracted_document,
+    with_assessment_steps,
+    with_jurisdiction_steps,
+    with_retrieval_steps,
+)
 from mellea_lrc.core.citations import FullCaseCitation, Reporter, UnknownCitation, citation_kind
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.core.spans import Span
@@ -36,7 +43,7 @@ from mellea_lrc.jurisdiction_inference.types import (
     ReporterInference,
     ReporterInferenceStatus,
 )
-from mellea_lrc.retrieval import run_retrieval
+from mellea_lrc.retrieval import run_retrieval, run_retrieval_async
 from mellea_lrc.retrieval.types import (
     CitationRetrieval,
     RetrievedDocument,
@@ -48,6 +55,7 @@ from mellea_lrc.serialization import (
     serialize_citation_assessment,
     serialize_citation_retrieval,
 )
+from mellea_lrc.serialization.json import serialize_jurisdiction
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -92,6 +100,10 @@ class E2EBackend:
         """Run the frontend review API for plain text input."""
         return review_preprocessed(_text_to_preprocessed(text), retrieve=retrieve)
 
+    async def review_text_async(self, text: str, *, retrieve: bool = True) -> dict[str, Any]:
+        """Run the frontend review API with async retrieval preparation."""
+        return await review_preprocessed_async(_text_to_preprocessed(text), retrieve=retrieve)
+
     def review_preprocessed_document(self, preprocessed: PreprocessedDocument) -> dict[str, Any]:
         """Serialize a preprocessed document snapshot for the frontend review UI."""
         return review_preprocessed_document(preprocessed)
@@ -99,6 +111,10 @@ class E2EBackend:
     def review_document_extraction(self, extraction: ExtractedDocument) -> dict[str, Any]:
         """Serialize an extraction snapshot for the frontend review UI."""
         return review_document_extraction(extraction)
+
+    def review_citation_node_document(self, payload: dict[str, object]) -> dict[str, Any]:
+        """Serialize a citation-node snapshot for the frontend review UI."""
+        return review_citation_node_document(payload)
 
     def review_document_inference(self, inferred: InferredDocument) -> dict[str, Any]:
         """Serialize a jurisdiction-inferred document for the frontend review UI."""
@@ -125,6 +141,24 @@ class E2EBackend:
             raise ValueError(msg)
         return review_preprocessed(
             _pdf_to_preprocessed(self._get_converter(), content, filename),
+            retrieve=retrieve,
+        )
+
+    async def review_document_bytes_async(
+        self,
+        content: bytes,
+        filename: str,
+        *,
+        retrieve: bool = True,
+    ) -> dict[str, Any]:
+        """Run the frontend review API for uploaded bytes with async retrieval preparation."""
+        if Path(filename).suffix.lower() == ".txt":
+            return await review_preprocessed_async(
+                _text_file_to_preprocessed(content, filename),
+                retrieve=retrieve,
+            )
+        return await review_preprocessed_async(
+            _document_to_preprocessed(self._get_converter(), content, filename),
             retrieve=retrieve,
         )
 
@@ -168,6 +202,15 @@ class E2EBackend:
         """Attach CourtListener retrieval to an existing frontend review payload."""
         return retrieve_review_payload(payload, client=client)
 
+    async def retrieve_review_payload_async(
+        self,
+        payload: dict[str, object],
+        *,
+        client: CourtListenerAccessClient | None = None,
+    ) -> dict[str, Any]:
+        """Attach retrieval with mandatory async case-name preparation."""
+        return await retrieve_review_payload_async(payload, client=client)
+
     def retrieve_review_citation_payload(
         self,
         payload: dict[str, object],
@@ -176,6 +219,15 @@ class E2EBackend:
     ) -> dict[str, Any]:
         """Retrieve one frontend review citation."""
         return retrieve_review_citation_payload(payload, client=client)
+
+    async def retrieve_review_citation_payload_async(
+        self,
+        payload: dict[str, object],
+        *,
+        client: CourtListenerAccessClient | None = None,
+    ) -> dict[str, Any]:
+        """Retrieve one frontend review citation with mandatory async preparation."""
+        return await retrieve_review_citation_payload_async(payload, client=client)
 
     async def assess_review_payload(self, payload: dict[str, object]) -> dict[str, Any]:
         """Attach Mellea-assisted assessment to an existing retrieved review payload."""
@@ -212,6 +264,33 @@ def review_preprocessed(
         "citations": _citation_payloads(inferred, retrieval),
         "jurisdictions": _jurisdictions_payload(inferred),
         "retrieval": _retrieval_payload(retrieval),
+        "node_graph": _node_graph_payload(inferred, retrieval=retrieval),
+        "stats": _stats(inferred, retrieval),
+    }
+
+
+async def review_preprocessed_async(
+    preprocessed: PreprocessedDocument,
+    *,
+    retrieve: bool = True,
+    client: CourtListenerAccessClient | None = None,
+) -> dict[str, Any]:
+    """Run extraction, inference, and async retrieval with mandatory preparation."""
+    extraction = run_extraction(preprocessed)
+    inferred = infer_jurisdiction(extraction)
+    retrieval = await _run_retrieval_async(inferred, retrieve=retrieve, client=client)
+
+    return {
+        "document": {
+            "text": inferred.text,
+            "source_path": inferred.source_path,
+            "source_format": inferred.source_metadata.format.value,
+            "backend": inferred.preprocessing_metadata.backend.value,
+        },
+        "citations": _citation_payloads(inferred, retrieval),
+        "jurisdictions": _jurisdictions_payload(inferred),
+        "retrieval": _retrieval_payload(retrieval),
+        "node_graph": _node_graph_payload(inferred, retrieval=retrieval),
         "stats": _stats(inferred, retrieval),
     }
 
@@ -228,6 +307,7 @@ def review_preprocessed_document(preprocessed: PreprocessedDocument) -> dict[str
         "citations": [],
         "retrieval": None,
         "assessment": None,
+        "node_graph": None,
         "stats": {
             "chars": len(preprocessed.text),
             "citation_spans": 0,
@@ -238,8 +318,6 @@ def review_preprocessed_document(preprocessed: PreprocessedDocument) -> dict[str
 
 def _jurisdictions_payload(document: InferredDocument) -> list[dict[str, Any]]:
     """Serialize the document's jurisdiction inferences for the frontend."""
-    from mellea_lrc.serialization.json import serialize_jurisdiction
-
     return [serialize_jurisdiction(j) for j in document.jurisdictions]
 
 
@@ -256,7 +334,33 @@ def review_document_extraction(extraction: ExtractedDocument) -> dict[str, Any]:
         "jurisdictions": None,
         "retrieval": None,
         "assessment": None,
+        "node_graph": _node_graph_payload(extraction),
         "stats": _stats(extraction, None),
+    }
+
+
+def review_citation_node_document(payload: dict[str, object]) -> dict[str, Any]:
+    """Serialize a citation-node snapshot as an extraction-level review payload."""
+    text = str(payload.get("text") or "")
+    nodes = _list_field(payload.get("nodes"))
+    citations = [_citation_payload_from_node(node) for node in nodes if isinstance(node, dict)]
+    return {
+        "document": {
+            "text": text,
+            "source_path": None,
+            "source_format": SourceFormat.UNKNOWN.value,
+            "backend": PreprocessingBackend.PLAIN_TEXT.value,
+        },
+        "citations": citations,
+        "jurisdictions": None,
+        "retrieval": None,
+        "assessment": None,
+        "node_graph": payload,
+        "stats": {
+            "chars": len(text),
+            "citation_spans": len(citations),
+            "full_citations": sum(1 for item in citations if str(item.get("kind")).startswith("Full")),
+        },
     }
 
 
@@ -273,6 +377,7 @@ def review_document_inference(inferred: InferredDocument) -> dict[str, Any]:
         "jurisdictions": _jurisdictions_payload(inferred),
         "retrieval": None,
         "assessment": None,
+        "node_graph": _node_graph_payload(inferred),
         "stats": _stats(inferred, None),
     }
 
@@ -290,6 +395,7 @@ def review_document_retrieval(retrieval: RetrievedDocument) -> dict[str, Any]:
         "jurisdictions": _jurisdictions_payload(retrieval),
         "retrieval": _retrieval_payload(retrieval),
         "assessment": None,
+        "node_graph": _node_graph_payload(retrieval, retrieval=retrieval),
         "stats": _stats(retrieval, retrieval),
     }
 
@@ -309,6 +415,27 @@ def retrieve_review_payload(
         citation["retrieval"] = retrieval_by_id.get(str(citation.get("id")))
     output["citations"] = citations
     output["retrieval"] = _retrieval_payload(retrieval)
+    output["node_graph"] = _node_graph_payload(retrieval, retrieval=retrieval)
+    output["stats"] = _merge_stats(output.get("stats"), _stats(extraction, retrieval))
+    return output
+
+
+async def retrieve_review_payload_async(
+    payload: dict[str, object],
+    *,
+    client: CourtListenerAccessClient | None = None,
+) -> dict[str, Any]:
+    """Attach retrieval to an existing frontend review payload with LLM preparation."""
+    extraction = _extraction_from_review_payload(payload)
+    retrieval = await _run_retrieval_async(extraction, retrieve=True, client=client)
+    output = _copy_review_payload(payload)
+    retrieval_by_id = {item.citation_id: _retrieval_item_payload(item) for item in retrieval.retrievals}
+    citations = _review_citations(output)
+    for citation in citations:
+        citation["retrieval"] = retrieval_by_id.get(str(citation.get("id")))
+    output["citations"] = citations
+    output["retrieval"] = _retrieval_payload(retrieval)
+    output["node_graph"] = _node_graph_payload(retrieval, retrieval=retrieval)
     output["stats"] = _merge_stats(output.get("stats"), _stats(extraction, retrieval))
     return output
 
@@ -349,6 +476,42 @@ def retrieve_review_citation_payload(
     return _retrieval_item_payload(retrieval.retrievals[0])
 
 
+async def retrieve_review_citation_payload_async(
+    payload: dict[str, object],
+    *,
+    client: CourtListenerAccessClient | None = None,
+) -> dict[str, Any]:
+    """Retrieve one frontend review citation with LLM preparation."""
+    citation = payload.get("citation")
+    if not isinstance(citation, dict):
+        msg = "citation is required"
+        raise TypeError(msg)
+
+    extracted_citation = _extracted_citation_from_review_item(citation)
+    retrieval_text = extracted_citation.matched_text or "citation"
+    retrieval_citation = ExtractedCitation(
+        citation_id=extracted_citation.citation_id,
+        span=Span(start=0, end=len(retrieval_text)),
+        matched_text=extracted_citation.matched_text,
+        citation=extracted_citation.citation,
+        resolves_to=None,
+    )
+    extraction = ExtractedDocument(
+        source_metadata=SourceMetadata(),
+        text=retrieval_text,
+        preprocessing_metadata=PreprocessingMetadata(
+            backend=PreprocessingBackend.PLAIN_TEXT,
+        ),
+        citations=(retrieval_citation,),
+        extraction_metadata=ExtractionMetadata(),
+    )
+    retrieval = await _run_retrieval_async(extraction, retrieve=True, client=client)
+    if retrieval is None or not retrieval.retrievals:
+        msg = "citation retrieval did not produce a result"
+        raise ValueError(msg)
+    return _retrieval_item_payload(retrieval.retrievals[0])
+
+
 async def assess_review_payload(payload: dict[str, object]) -> dict[str, Any]:
     """Attach Mellea-assisted case-name assessment to an existing review payload."""
     output = _copy_review_payload(payload)
@@ -362,6 +525,11 @@ async def assess_review_payload(payload: dict[str, object]) -> dict[str, Any]:
 
     output["citations"] = citations
     output["assessment"] = _assessment_payload_document(document_assessment)
+    output["node_graph"] = _node_graph_payload(
+        document_assessment,
+        retrieval=document_assessment,
+        assessments=document_assessment.assessments,
+    )
     output["stats"] = _merge_stats(
         output.get("stats"),
         {
@@ -392,6 +560,7 @@ def review_document_assessment(assessment: AssessedDocument) -> dict[str, Any]:
     for citation in citations:
         citation["assessment"] = assessment_by_id.get(str(citation.get("id")))
     output["citations"] = citations
+    output["node_graph"] = _node_graph_payload(assessment, retrieval=assessment, assessments=assessment.assessments)
     return output
 
 
@@ -477,11 +646,24 @@ def _run_retrieval(
 ) -> RetrievedDocument | None:
     if not retrieve:
         return None
-    if isinstance(document, InferredDocument):
-        inferred = document
-    else:
-        inferred = infer_jurisdiction(document)
+    inferred = document if isinstance(document, InferredDocument) else infer_jurisdiction(document)
     return run_retrieval(
+        inferred,
+        client_mode="custom" if client is not None else "deployed",
+        client=client,
+    )
+
+
+async def _run_retrieval_async(
+    document: ExtractedDocument,
+    *,
+    retrieve: bool,
+    client: CourtListenerAccessClient | None,
+) -> RetrievedDocument | None:
+    if not retrieve:
+        return None
+    inferred = document if isinstance(document, InferredDocument) else infer_jurisdiction(document)
+    return await run_retrieval_async(
         inferred,
         client_mode="custom" if client is not None else "deployed",
         client=client,
@@ -506,6 +688,43 @@ def _citation_payloads(
         }
         for item in extraction.citations
     ]
+
+
+def _node_graph_payload(
+    extraction: ExtractedDocument,
+    *,
+    retrieval: RetrievedDocument | None = None,
+    assessments: tuple[CitationAssessment, ...] = (),
+) -> dict[str, object]:
+    node_document = nodes_from_extracted_document(extraction)
+    if isinstance(extraction, InferredDocument):
+        node_document = with_jurisdiction_steps(node_document, extraction)
+    if retrieval is not None:
+        node_document = with_retrieval_steps(node_document, retrieval)
+    if assessments:
+        node_document = with_assessment_steps(node_document, assessments)
+    return citation_node_document_to_json(node_document)
+
+
+def _citation_payload_from_node(node: dict[str, object]) -> dict[str, Any]:
+    node_input = node.get("input") if isinstance(node.get("input"), dict) else {}
+    span = node_input.get("span") if isinstance(node_input.get("span"), dict) else {}
+    citation = node_input.get("citation") if isinstance(node_input.get("citation"), dict) else {}
+    return {
+        "id": str(node_input.get("citation_id") or node.get("citation_id") or ""),
+        "start": _optional_int(span.get("start")) or 0,
+        "end": _optional_int(span.get("end")) or 0,
+        "matched_text": str(node_input.get("matched_text") or ""),
+        "kind": str(citation.get("type") or citation.get("kind") or "UnknownCitation"),
+        "fields": {
+            key: value
+            for key, value in citation.items()
+            if key not in {"type", "kind"} and _has_citation_field_value(value)
+        },
+        "resolves_to": _optional_str(node_input.get("resolves_to")),
+        "retrieval": None,
+        "assessment": None,
+    }
 
 
 def _citation_fields(citation: object) -> dict[str, object]:
@@ -559,8 +778,8 @@ def _retrieval_from_review_payload(
         retrieval_metadata=RetrievalMetadata(client_mode="custom", source="review_payload"),
         jurisdictions=tuple(
             Jurisdiction(
-                reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, 'reporter') else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
-                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, 'court') else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, courts_db_classification=None),
+                reporter_inference=evaluate_reporter_inference(item.citation.reporter) if hasattr(item.citation, "reporter") else ReporterInference(reporter=None, status=ReporterInferenceStatus.MISSING_REPORTER, mlz_jurisdictions=()),
+                court_inference=evaluate_court_inference(item.citation.court) if hasattr(item.citation, "court") else CourtInference(extracted_court=None, status=CourtInferenceStatus.MISSING_COURT, courts_db_classification=None),
             )
             for item in extraction.citations
         ),

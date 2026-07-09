@@ -90,6 +90,38 @@ class CaseNameSearchStatus(str, Enum):
     NOT_ATTEMPTED = "not_attempted"
 
 
+class CaseNamePreparationStatus(str, Enum):
+    """Whether/how case-name search inputs were prepared."""
+
+    ACCEPTED = "accepted"
+    EMPTY = "empty"
+    FAILED = "failed"
+    LEGACY_DETERMINISTIC = "legacy_deterministic"
+    NOT_ATTEMPTED = "not_attempted"
+
+
+@dataclass(frozen=True, slots=True)
+class CaseNameSearchPreparation:
+    """Prepared party evidence used to build a candidate-search query.
+
+    LLM-backed retrieval fills this from local document context before the
+    locator. The sync legacy retrieval path may still fill it from extracted
+    citation parties so older deterministic tests and callers keep working.
+    """
+
+    status: CaseNamePreparationStatus = CaseNamePreparationStatus.NOT_ATTEMPTED
+    original_case_name: str | None = None
+    plaintiff: str | None = None
+    defendant: str | None = None
+    prepared_case_name: str | None = None
+    court: str | None = None
+    locator: str | None = None
+    source: str | None = None
+    llm_classification: str | None = None
+    llm_reason: str | None = None
+    error_message: str | None = None
+
+
 class CaseNameSearchCorpus(str, Enum):
     """CourtListener corpus searched by one case-name probe."""
 
@@ -166,6 +198,7 @@ class CaseNameSearchTrace:
     status: CaseNameSearchStatus = CaseNameSearchStatus.NOT_ATTEMPTED
     query: str | None = None
     probes: tuple[CaseNameSearchProbe, ...] = ()
+    preparation: CaseNameSearchPreparation = field(default_factory=CaseNameSearchPreparation)
 
     def __post_init__(self) -> None:
         corpora = tuple(probe.corpus for probe in self.probes)

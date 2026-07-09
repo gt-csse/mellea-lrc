@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 
 class ArtifactPayload(BaseModel):
@@ -233,6 +233,26 @@ class CaseNameSearchProbePayload(ArtifactPayload):
     candidates: list[CaseNameSearchCandidatePayload] = Field(default_factory=list)
 
 
+class CaseNameSearchPreparationPayload(ArtifactPayload):
+    status: Literal[
+        "accepted",
+        "empty",
+        "failed",
+        "legacy_deterministic",
+        "not_attempted",
+    ]
+    original_case_name: str | None
+    plaintiff: str | None
+    defendant: str | None
+    prepared_case_name: str | None
+    court: str | None
+    locator: str | None
+    source: str | None
+    llm_classification: str | None
+    llm_reason: str | None
+    error_message: str | None
+
+
 class CaseNameSearchTracePayload(ArtifactPayload):
     status: Literal[
         "searched",
@@ -245,6 +265,21 @@ class CaseNameSearchTracePayload(ArtifactPayload):
     ]
     query: str | None
     probes: list[CaseNameSearchProbePayload]
+    preparation: CaseNameSearchPreparationPayload = Field(
+        default_factory=lambda: CaseNameSearchPreparationPayload(
+            status="not_attempted",
+            original_case_name=None,
+            plaintiff=None,
+            defendant=None,
+            prepared_case_name=None,
+            court=None,
+            locator=None,
+            source=None,
+            llm_classification=None,
+            llm_reason=None,
+            error_message=None,
+        )
+    )
 
 
 class NotFoundCitationRetrievalPayload(ArtifactPayload):

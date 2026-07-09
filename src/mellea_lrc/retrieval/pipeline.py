@@ -30,8 +30,11 @@ from mellea_lrc.retrieval.court_resolution import resolve_court
 from mellea_lrc.retrieval.not_found_search import search_case_name_candidates
 from mellea_lrc.jurisdiction_inference.pipeline import infer_jurisdiction
 from mellea_lrc.jurisdiction_inference.types import InferredDocument
+from mellea_lrc.llm import start_mellea_session_from_env
+from mellea_lrc.retrieval.case_name_prepare import prepare_case_name_for_search
 from mellea_lrc.retrieval.types import (
     AmbiguousCitationRetrieval,
+    CaseNameSearchPreparation,
     CitationRetrieval,
     CourtListenerRequestTrace,
     FoundCitationRetrieval,
@@ -48,6 +51,8 @@ from mellea_lrc.retrieval.types import (
 )
 
 if TYPE_CHECKING:
+    from mellea import MelleaSession
+
     from mellea_lrc.courtlistener.types import CourtListenerCitationRecord
     from mellea_lrc.extraction.types import ExtractedCitation
 
@@ -94,6 +99,47 @@ def run_retrieval(
         extraction_metadata=document.extraction_metadata,
         jurisdictions=document.jurisdictions,
         retrievals=retrievals,
+        retrieval_metadata=RetrievalMetadata(
+            client_mode=client_mode,
+            source=SOURCE,
+            duration_ms=duration_ms,
+        ),
+    )
+
+
+async def run_retrieval_async(
+    document: InferredDocument,
+    *,
+    client_mode: RetrievalClientMode = DEFAULT_CLIENT_MODE,
+    client: CitationRetrievalClient | None = None,
+    session: MelleaSession | None = None,
+) -> RetrievedDocument:
+    """Run retrieval with mandatory LLM case-name preparation for not-found search."""
+    if not isinstance(document, InferredDocument):
+        document = infer_jurisdiction(document)
+    lookup_client = _lookup_client(client_mode, client)
+    session = session or start_mellea_session_from_env()
+    docket_court_cache: dict[str, str | None] = {}
+    started = time.perf_counter()
+    retrievals = [
+        await _retrieve_citation_async(
+            item,
+            document.text,
+            lookup_client,
+            docket_court_cache,
+            session,
+        )
+        for item in document.citations
+    ]
+    duration_ms = (time.perf_counter() - started) * 1000.0
+    return RetrievedDocument(
+        source_metadata=document.source_metadata,
+        text=document.text,
+        preprocessing_metadata=document.preprocessing_metadata,
+        citations=document.citations,
+        extraction_metadata=document.extraction_metadata,
+        jurisdictions=document.jurisdictions,
+        retrievals=tuple(retrievals),
         retrieval_metadata=RetrievalMetadata(
             client_mode=client_mode,
             source=SOURCE,
@@ -154,12 +200,54 @@ def _retrieve_citation(
     return _retrieval_from_lookup(item.citation_id, lookup, client, docket_court_cache, citation)
 
 
+async def _retrieve_citation_async(
+    item: ExtractedCitation,
+    document_text: str,
+    client: CitationRetrievalClient,
+    docket_court_cache: dict[str, str | None],
+    session: MelleaSession,
+) -> CitationRetrieval:
+    citation = item.citation
+    if not isinstance(citation, FullCaseCitation):
+        return SkippedCitationRetrieval(
+            citation_id=item.citation_id,
+            source=SOURCE,
+        )
+
+    edition = citation.reporter.edition_short_name if citation.reporter else None
+    if not citation.volume or not edition or not citation.page:
+        return InvalidCitationRetrieval(
+            citation_id=item.citation_id,
+            source=SOURCE,
+        )
+
+    lookup = client.lookup_citation(citation.volume, edition, citation.page)
+    status = _status_from_lookup(lookup.status)
+    if status is not RetrievalStatus.NOT_FOUND:
+        return _retrieval_from_lookup(item.citation_id, lookup, client, docket_court_cache, citation)
+    preparation = await prepare_case_name_for_search(
+        session,
+        document_text=document_text,
+        citation=item,
+    )
+    return _retrieval_from_lookup(
+        item.citation_id,
+        lookup,
+        client,
+        docket_court_cache,
+        citation,
+        preparation=preparation,
+    )
+
+
 def _retrieval_from_lookup(
     citation_id: str,
     lookup: CourtListenerCitationLookup,
     client: CitationRetrievalClient,
     docket_court_cache: dict[str, str | None],
     citation: FullCaseCitation,
+    *,
+    preparation: CaseNameSearchPreparation | None = None,
 ) -> CitationRetrieval:
     status = _status_from_lookup(lookup.status)
     common = {
@@ -218,7 +306,11 @@ def _retrieval_from_lookup(
     if status is RetrievalStatus.NOT_FOUND:
         return NotFoundCitationRetrieval(
             **common,
-            candidate_search=search_case_name_candidates(citation, client=client),
+            candidate_search=search_case_name_candidates(
+                citation,
+                client=client,
+                preparation=preparation,
+            ),
         )
     if status is RetrievalStatus.THROTTLED:
         return ThrottledCitationRetrieval(
@@ -265,4 +357,5 @@ def _status_from_lookup(status: int) -> RetrievalStatus:
 __all__ = [
     "CitationLookupClient",
     "run_retrieval",
+    "run_retrieval_async",
 ]

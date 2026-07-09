@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from scripts.e2e_backend.snapshot_corpus import SnapshotConfig, select_documents
+import json
+
+from scripts.e2e_backend.snapshot_corpus import SnapshotConfig, run_document, select_documents
 
 
 def _config(root: Path, *, batch_start: int = 2, batch_end: int = 4) -> SnapshotConfig:
@@ -52,3 +54,18 @@ def test_select_documents_rejects_unsupported_file_selector(
     """Extensions, ranges, zero, and arbitrary names are not CLI selectors."""
     with pytest.raises(ValueError, match="--file"):
         select_documents(_config(tmp_path), selector)
+
+
+def test_run_document_writes_citation_node_snapshot(tmp_path: Path) -> None:
+    """The snapshot harness exposes the citation-node projection as its own phase."""
+    config = _config(tmp_path)
+    config.test_data_dir.mkdir()
+    source = config.test_data_dir / "1.txt"
+    source.write_text("Norton v. Shelby County, 118 U.S. 425.", encoding="utf-8")
+
+    run_document(source, phase="citation_nodes", config=config)
+
+    snapshot = json.loads((config.snapshot_root / "1" / "citation_nodes.json").read_text())
+    assert snapshot["schema_version"] == 19
+    assert snapshot["artifact_type"] == "citation_node_document"
+    assert snapshot["nodes"][0]["citation_id"] == "cite-0001"

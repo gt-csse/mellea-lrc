@@ -86,8 +86,8 @@ uv run --group preprocessing python -m scripts.e2e_backend.preprocess_test_pdfs 
 ### Regenerate pipeline snapshots
 
 Script equivalent of `notebooks/explore.example.ipynb`. Runs preprocessing →
-extraction → jurisdiction inference → retrieval → assessment, writing strict
-stage JSON under `local/snapshots/<doc>/`.
+extraction → citation-node projection → jurisdiction inference → retrieval →
+assessment, writing strict stage JSON under `local/snapshots/<doc>/`.
 
 ```bash
 # Configured inclusive numeric range (see CONFIG in snapshot_corpus.py)
@@ -100,12 +100,16 @@ uv run --group pipeline python -m scripts.e2e_backend.snapshot_corpus \
 # Bookmarked fixture through retrieval only
 uv run --group pipeline python -m scripts.e2e_backend.snapshot_corpus \
   --file bookmarked --phase retrieval
+
+# Stop after writing the citation-node projection
+uv run --group pipeline python -m scripts.e2e_backend.snapshot_corpus \
+  --file bookmarked --phase citation_nodes
 ```
 
 | Option | Default | Description |
 | --- | --- | --- |
 | `--file` | numeric batch range | `bookmarked` or a numeric text-fixture stem |
-| `--phase` | `assessment` | Stop after `preprocessed`, `extraction`, `inferred`, `retrieval`, or `assessment` |
+| `--phase` | `assessment` | Stop after `preprocessed`, `extraction`, `citation_nodes`, `inferred`, `retrieval`, or `assessment` |
 
 Paths, batch range (`batch_start`/`batch_end`), bookmark path, and Mellea
 concurrency are configured in `SnapshotConfig` / `CONFIG` inside

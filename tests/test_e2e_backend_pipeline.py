@@ -19,6 +19,7 @@ from mellea_lrc.assessment import (
     YearAssessment,
     YearAssessmentStatus,
 )
+from mellea_lrc.citation_nodes import citation_node_document_to_json, nodes_from_extracted_document
 from mellea_lrc.jurisdiction_inference.leads import evaluate_court_inference, evaluate_reporter_inference
 from mellea_lrc.jurisdiction_inference.types import (
     Jurisdiction,
@@ -527,8 +528,23 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
         == "preprocessed"
     )
     assert _review_snapshot_payload(serialize_extracted_document(extraction), backend)["stage"] == "extracted"
+    node_review = _review_snapshot_payload(
+        citation_node_document_to_json(nodes_from_extracted_document(extraction)),
+        backend,
+    )
+    assert node_review["stage"] == "node_graph"
+    assert node_review["result"]["citations"][0]["id"] == "cite-1"
+    assert node_review["result"]["citations"][0]["fields"]["reporter"]["edition_short_name"] == "U.S."
+    assert node_review["result"]["node_graph"]["nodes"][0]["steps"] == []
     assert _review_snapshot_payload(serialize_retrieved_document(retrieval), backend)["stage"] == "retrieved"
-    assert _review_snapshot_payload(serialize_assessed_document(assessment), backend)["stage"] == "assessed"
+    assessed_review = _review_snapshot_payload(serialize_assessed_document(assessment), backend)
+    assert assessed_review["stage"] == "assessed"
+    node_steps = assessed_review["result"]["node_graph"]["nodes"][0]["steps"]
+    assert [step["operation"] for step in node_steps] == [
+        "jurisdiction.inference",
+        "retrieval.exact_lookup",
+        "assessment.field_check",
+    ]
 
 
 def test_llm_api_config_binds_an_explicit_openai_compatible_endpoint() -> None:

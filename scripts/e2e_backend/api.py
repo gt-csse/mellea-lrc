@@ -58,14 +58,14 @@ def create_app(backend: E2EBackend | None = None) -> FastAPI:  # noqa: C901
     @web_app.post("/api/retrieve-review")
     async def retrieve_review(payload: dict[str, object]) -> dict[str, Any]:
         try:
-            return pipeline.retrieve_review_payload(payload)
+            return await pipeline.retrieve_review_payload_async(payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @web_app.post("/api/retrieve-review-citation")
     async def retrieve_review_citation(payload: dict[str, object]) -> dict[str, Any]:
         try:
-            return pipeline.retrieve_review_citation_payload(payload)
+            return await pipeline.retrieve_review_citation_payload_async(payload)
         except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -97,7 +97,7 @@ def create_app(backend: E2EBackend | None = None) -> FastAPI:  # noqa: C901
         if not text.strip():
             raise HTTPException(status_code=400, detail="text is required")
         retrieve = bool(payload.get("retrieve", True))
-        return pipeline.review_text(text, retrieve=retrieve)
+        return await pipeline.review_text_async(text, retrieve=retrieve)
 
     @web_app.post("/api/review-document")
     async def review_document(
@@ -107,7 +107,7 @@ def create_app(backend: E2EBackend | None = None) -> FastAPI:  # noqa: C901
     ) -> dict[str, object]:
         filename = file.filename or "document.pdf"
         try:
-            return pipeline.review_document_bytes(await file.read(), filename, retrieve=retrieve)
+            return await pipeline.review_document_bytes_async(await file.read(), filename, retrieve=retrieve)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -141,6 +141,11 @@ def _review_snapshot_payload(payload: object, pipeline: E2EBackend) -> dict[str,
             "stage": "extracted",
             "result": pipeline.review_document_extraction(deserialize_extracted_document(payload)),
         }
+    if artifact_type == "citation_node_document":
+        return {
+            "stage": "node_graph",
+            "result": pipeline.review_citation_node_document(payload),
+        }
     if artifact_type == "inferred_document":
         return {
             "stage": "inferred",
@@ -153,7 +158,7 @@ def _review_snapshot_payload(payload: object, pipeline: E2EBackend) -> dict[str,
         }
     msg = (
         "Snapshot does not look like a serialized PreprocessedDocument, "
-        "ExtractedDocument, InferredDocument, RetrievedDocument, "
-        "or AssessedDocument."
+        "ExtractedDocument, CitationNodeDocument, InferredDocument, "
+        "RetrievedDocument, or AssessedDocument."
     )
     raise ValueError(msg)

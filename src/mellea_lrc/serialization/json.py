@@ -72,8 +72,10 @@ from mellea_lrc.preprocessing.types import (
 )
 from mellea_lrc.retrieval.types import (
     AmbiguousCitationRetrieval,
+    CaseNamePreparationStatus,
     CaseNameSearchCorpus,
     CaseNameSearchCandidate,
+    CaseNameSearchPreparation,
     CaseNameSearchProbe,
     CaseNameSearchStatus,
     CaseNameSearchTrace,
@@ -102,6 +104,7 @@ from mellea_lrc.jurisdiction_inference.types import (
     ReporterInferenceStatus,
 )
 from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, RetrievalFailureDetail
+from mellea_lrc.courtlistener.taxonomy import CourtsDBClassification
 from mellea_lrc.serialization.transport import (
     AssessedDocumentPayload,
     CanonicalCitationPayload,
@@ -111,7 +114,6 @@ from mellea_lrc.serialization.transport import (
     CaseNameSearchTracePayload,
     CitationAssessmentPayload,
     CitationAssessmentResultPayload,
-    CourtsDBClassificationPayload,
     CourtAssessmentPayload,
     CitationRetrievalPayload,
     CourtResolutionTracePayload,
@@ -466,6 +468,7 @@ def _serialize_case_name_search_trace(item: CaseNameSearchTrace) -> dict[str, Js
     return {
         "status": item.status.value,
         "query": item.query,
+        "preparation": _serialize_case_name_search_preparation(item.preparation),
         "probes": [
             {
                 "corpus": probe.corpus.value,
@@ -487,6 +490,25 @@ def _serialize_case_name_search_trace(item: CaseNameSearchTrace) -> dict[str, Js
             }
             for probe in item.probes
         ],
+    }
+
+
+def _serialize_case_name_search_preparation(
+    item: CaseNameSearchPreparation,
+) -> dict[str, JsonValue]:
+    """Serialize prepared party evidence for candidate search."""
+    return {
+        "status": item.status.value,
+        "original_case_name": item.original_case_name,
+        "plaintiff": item.plaintiff,
+        "defendant": item.defendant,
+        "prepared_case_name": item.prepared_case_name,
+        "court": item.court,
+        "locator": item.locator,
+        "source": item.source,
+        "llm_classification": item.llm_classification,
+        "llm_reason": item.llm_reason,
+        "error_message": item.error_message,
     }
 
 
@@ -525,6 +547,31 @@ def _deserialize_case_name_search_trace(
         status=status,
         query=_optional_str(validated.get("query")),
         probes=probes,
+        preparation=_deserialize_case_name_search_preparation(
+            _required_mapping_field(validated, "preparation")
+        ),
+    )
+
+
+def _deserialize_case_name_search_preparation(
+    payload: Mapping[str, object],
+) -> CaseNameSearchPreparation:
+    """Rebuild prepared party evidence for candidate search."""
+    status = CaseNamePreparationStatus(
+        _required_str(payload.get("status"), "candidate search preparation status")
+    )
+    return CaseNameSearchPreparation(
+        status=status,
+        original_case_name=_optional_str(payload.get("original_case_name")),
+        plaintiff=_optional_str(payload.get("plaintiff")),
+        defendant=_optional_str(payload.get("defendant")),
+        prepared_case_name=_optional_str(payload.get("prepared_case_name")),
+        court=_optional_str(payload.get("court")),
+        locator=_optional_str(payload.get("locator")),
+        source=_optional_str(payload.get("source")),
+        llm_classification=_optional_str(payload.get("llm_classification")),
+        llm_reason=_optional_str(payload.get("llm_reason")),
+        error_message=_optional_str(payload.get("error_message")),
     )
 
 
@@ -865,22 +912,19 @@ def deserialize_jurisdiction(
     payload: Mapping[str, object],
 ) -> Jurisdiction:
     """Rebuild reporter inference context."""
-    validated = JurisdictionPayload.model_validate(payload).model_dump(
-        mode="python"
-    )
-    
+    validated = JurisdictionPayload.model_validate(payload).model_dump(mode="python")
+
     reporter_inference_data = cast("dict[str, object]", validated.get("reporter_inference", {}))
     court_inference_data = cast("dict[str, object]", validated.get("court_inference", {}))
-    
+
     reporter_payload = cast("dict[str, object] | None", reporter_inference_data.get("reporter"))
     reporter: Reporter | None = None
     if reporter_payload:
         reporter = Reporter(**reporter_payload)
-    
+
     tax_payload = cast("dict[str, object] | None", court_inference_data.get("courts_db_classification"))
     classification = None
     if tax_payload:
-        from mellea_lrc.courtlistener.taxonomy import CourtsDBClassification
         classification = CourtsDBClassification(**tax_payload)  # type: ignore[arg-type]
 
     return Jurisdiction(

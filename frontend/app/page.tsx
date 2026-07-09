@@ -45,6 +45,19 @@ type CourtResolutionTracePayload = {
 type CaseNameSearchTracePayload = {
   status: string;
   query: string | null;
+  preparation: {
+    status: string;
+    original_case_name: string | null;
+    plaintiff: string | null;
+    defendant: string | null;
+    prepared_case_name: string | null;
+    court: string | null;
+    locator: string | null;
+    source: string | null;
+    llm_classification: string | null;
+    llm_reason: string | null;
+    error_message: string | null;
+  };
   probes: Array<{
     corpus: "o" | "r";
     status: string;
@@ -152,6 +165,41 @@ type ReviewAssessment = {
   year_counts: Record<string, number>;
 };
 
+type CitationNodeStepPayload = {
+  step_id: string | null;
+  operation: string;
+  status: "succeeded" | "blocked" | "failed" | "skipped";
+  depends_on: string[];
+  lane: string | null;
+  summary: string;
+  data: Record<string, unknown>;
+  error: string | null;
+};
+
+type CitationNodePayload = {
+  citation_id: string;
+  status: "ready" | "running" | "blocked" | "failed" | "complete";
+  input: {
+    citation_id: string;
+    matched_text: string;
+    span: TextSpan;
+    citation: Record<string, unknown>;
+    resolves_to: string | null;
+  };
+  steps: CitationNodeStepPayload[];
+};
+
+type CitationNodeGraphPayload = {
+  schema_version: number;
+  artifact_type: "citation_node_document";
+  text: string;
+  nodes: CitationNodePayload[];
+};
+
+type CitationNodeGraphItem = CitationNodeStepPayload & {
+  key: string;
+};
+
 type ReextractedCaseNamePayload = {
   case_name: string;
   case_name_span: TextSpan;
@@ -232,6 +280,7 @@ type ReviewResult = {
   jurisdictions: JurisdictionPayload[] | null;
   retrieval: ReviewRetrieval | null;
   assessment: ReviewAssessment | null;
+  node_graph?: CitationNodeGraphPayload | null;
   stats: Record<string, number>;
 };
 
@@ -260,7 +309,14 @@ type BookmarkCommentUpdateResult = {
   paths: { json: string; text: string };
 };
 
-type WorkflowStage = "input" | "preprocessed" | "extracted" | "inferred" | "retrieved" | "assessed";
+type WorkflowStage =
+  | "input"
+  | "preprocessed"
+  | "extracted"
+  | "node_graph"
+  | "inferred"
+  | "retrieved"
+  | "assessed";
 type LoadingStage = WorkflowStage | "snapshot";
 type SnapshotReviewResult = {
   stage: Exclude<WorkflowStage, "input">;
@@ -371,6 +427,15 @@ const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
   },
   extracted: {
     label: "Extracted",
+    canEditInput: false,
+    canLoadSnapshot: false,
+    canExtract: false,
+    canRetrieve: true,
+    canAssess: false,
+    canReset: true
+  },
+  node_graph: {
+    label: "Node graph",
     canEditInput: false,
     canLoadSnapshot: false,
     canExtract: false,
@@ -1239,6 +1304,7 @@ export default function Home() {
               extractedAttempts={selectedExtractedAttempts}
               extractedAttemptIndex={selectedExtractedAttemptIndex}
               candidateIndex={selectedClusterIndex}
+              node={result?.node_graph?.nodes.find((node) => node.citation_id === selectedCitation.id) ?? null}
               loadingStage={loadingStage}
               selectedSection={selectedTraceSection}
               onSectionChange={setSelectedTraceSection}
@@ -1273,6 +1339,7 @@ function TraceWorkspace({
   extractedAttempts,
   extractedAttemptIndex,
   candidateIndex,
+  node,
   loadingStage,
   selectedSection,
   onSectionChange,
@@ -1287,6 +1354,7 @@ function TraceWorkspace({
   extractedAttempts: ExtractedCitationAttempt[];
   extractedAttemptIndex: number;
   candidateIndex: number;
+  node: CitationNodePayload | null;
   loadingStage: LoadingStage | null;
   selectedSection: TraceSectionId;
   onSectionChange: (section: TraceSectionId) => void;
@@ -1399,9 +1467,224 @@ function TraceWorkspace({
             <CommentDetails comment={comment} bookmarked={bookmarked} />
           ) : null}
         </div>
+        <CitationNodeGraph
+          node={node}
+          citation={citation}
+          jurisdiction={citationIndex >= 0 && jurisdictions ? jurisdictions[citationIndex] ?? null : null}
+          loadingStage={loadingStage}
+        />
       </section>
     </div>
   );
+}
+
+function CitationNodeGraph({
+  node,
+  citation,
+  jurisdiction,
+  loadingStage
+}: {
+  node: CitationNodePayload | null;
+  citation: ReviewCitation;
+  jurisdiction: JurisdictionPayload | null;
+  loadingStage: LoadingStage | null;
+}) {
+  const steps = effectiveNodeGraphSteps(node, citation, jurisdiction);
+  const graphItems = useMemo<CitationNodeGraphItem[]>(() => {
+    const extractionData = node
+      ? { input: node.input }
+      : {
+          citation_id: citation.id,
+          matched_text: citation.matched_text,
+          citation: citation.fields
+        };
+    return [
+      {
+        key: "extraction.input",
+        step_id: "extraction.input",
+        operation: "extraction.input",
+        status: "succeeded",
+        depends_on: [],
+        lane: null,
+        summary: node?.input.matched_text ?? citation.matched_text,
+        data: extractionData,
+        error: null
+      },
+      ...steps.map((step, index) => ({
+        ...step,
+        key: step.step_id ?? `${step.operation}-${index}`
+      }))
+    ];
+  }, [citation.fields, citation.id, citation.matched_text, node, steps]);
+  const [selectedStepKey, setSelectedStepKey] = useState<string>("extraction.input");
+  useEffect(() => {
+    if (!graphItems.some((item) => item.key === selectedStepKey)) {
+      setSelectedStepKey(graphItems[0]?.key ?? "extraction.input");
+    }
+  }, [graphItems, selectedStepKey]);
+  const selectedStep = graphItems.find((item) => item.key === selectedStepKey) ?? graphItems[0] ?? null;
+  const hasGraph = Boolean(node) || steps.length > 0;
+  const statusLabel = node ? formatNodeStatus(node.status) : steps.length ? "Derived" : null;
+  return (
+    <section className="node-graph-panel" aria-label="Citation node graph">
+      <div className="node-graph-heading">
+        <div>
+          <h3>Node graph</h3>
+          <p>
+            {hasGraph
+              ? `${statusLabel} · ${steps.length} step${steps.length === 1 ? "" : "s"}`
+              : "No node trace is attached to this citation yet."}
+          </p>
+        </div>
+        {node ? <span className={`node-status-pill ${node.status}`}>{formatNodeStatus(node.status)}</span> : null}
+      </div>
+      {hasGraph ? (
+        <div className="node-graph-workspace">
+          <ol className="node-graph">
+            {graphItems.map((item) => (
+              <li
+                className={`node-graph-item ${item.status}${item.key === selectedStep?.key ? " selected" : ""}`}
+                key={item.key}
+              >
+                <button
+                  className="node-graph-button"
+                  type="button"
+                  onClick={() => setSelectedStepKey(item.key)}
+                  aria-current={item.key === selectedStep?.key ? "step" : undefined}
+                >
+                  <span className="node-graph-dot" aria-hidden="true" />
+                  <span>
+                    <strong>{formatNodeOperation(item.operation)}</strong>
+                    <small>{item.summary}</small>
+                    {item.lane ? <em>lane: {item.lane}</em> : null}
+                    {item.error ? <em>{item.error}</em> : null}
+                  </span>
+                </button>
+              </li>
+            ))}
+            {!steps.length && loadingStage ? (
+              <li className="node-graph-item blocked">
+                <button className="node-graph-button" type="button" disabled>
+                  <span className="node-graph-dot" aria-hidden="true" />
+                  <span>
+                    <strong>{loadingStage}.pending</strong>
+                    <small>Waiting for this node to receive its next trace step.</small>
+                  </span>
+                </button>
+              </li>
+            ) : null}
+          </ol>
+          {selectedStep ? <CitationNodeStepInspector step={selectedStep} /> : null}
+        </div>
+      ) : (
+        <p className="node-graph-empty">
+          Load a citation-node snapshot or run a stage that emits node traces.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function CitationNodeStepInspector({ step }: { step: CitationNodeGraphItem }) {
+  return (
+    <aside className="node-step-inspector" aria-label="Selected node step details">
+      <div className="node-step-inspector-heading">
+        <div>
+          <h4>{formatNodeOperation(step.operation)}</h4>
+          <p>{step.summary}</p>
+        </div>
+        <span className={`node-step-chip ${step.status}`}>{formatStatusLabel(step.status)}</span>
+      </div>
+      <dl className="node-step-meta">
+        <div>
+          <dt>Step id</dt>
+          <dd>{step.step_id ?? "derived"}</dd>
+        </div>
+        <div>
+          <dt>Depends on</dt>
+          <dd>{step.depends_on.length ? step.depends_on.join(", ") : "none"}</dd>
+        </div>
+        <div>
+          <dt>Lane</dt>
+          <dd>{step.lane ?? "main"}</dd>
+        </div>
+      </dl>
+      {step.error ? <p className="node-step-error">{step.error}</p> : null}
+      <pre className="node-step-data">{JSON.stringify(step.data, null, 2)}</pre>
+    </aside>
+  );
+}
+
+function effectiveNodeGraphSteps(
+  node: CitationNodePayload | null,
+  citation: ReviewCitation,
+  jurisdiction: JurisdictionPayload | null
+): CitationNodeStepPayload[] {
+  const steps = [...(node?.steps ?? [])];
+  const hasOperation = (operation: string) => steps.some((step) => step.operation === operation);
+  if (jurisdiction && !hasOperation("jurisdiction.inference")) {
+    steps.push({
+      step_id: "derived:jurisdiction",
+      operation: "jurisdiction.inference",
+      status: "succeeded",
+      depends_on: [],
+      lane: null,
+      summary: `Reporter ${jurisdiction.reporter_inference.status}; court ${jurisdiction.court_inference.status}.`,
+      data: { jurisdiction },
+      error: null
+    });
+  }
+  if (citation.retrieval && !hasOperation("retrieval.exact_lookup")) {
+    steps.push({
+      step_id: "derived:retrieval:exact_lookup",
+      operation: "retrieval.exact_lookup",
+      status:
+        citation.retrieval.status === "lookup_failed" || citation.retrieval.status === "throttled"
+          ? "failed"
+          : citation.retrieval.status === "skipped" || citation.retrieval.status === "invalid"
+            ? "skipped"
+            : "succeeded",
+      depends_on: [],
+      lane: null,
+      summary: `Exact locator lookup returned ${citation.retrieval.status}.`,
+      data: { retrieval: citation.retrieval },
+      error: citation.retrieval.request_trace?.error_message ?? null
+    });
+  }
+  if (citation.assessment && !hasOperation("assessment.field_check")) {
+    steps.push({
+      step_id: "derived:assessment",
+      operation: "assessment.field_check",
+      status:
+        citation.assessment.status === "failed"
+          ? "failed"
+          : citation.assessment.status === "waiting"
+            ? "blocked"
+            : citation.assessment.status === "skipped"
+              ? "skipped"
+              : "succeeded",
+      depends_on: [],
+      lane: null,
+      summary: `Assessment status is ${citation.assessment.status}.`,
+      data: { assessment: citation.assessment },
+      error: citation.assessment.status === "failed" ? citation.assessment.error : null
+    });
+  }
+  return steps;
+}
+
+function formatNodeStatus(status: CitationNodePayload["status"]): string {
+  return status
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatNodeOperation(operation: string): string {
+  return operation
+    .split(".")
+    .map((part) => part.replaceAll("_", " "))
+    .join(" → ");
 }
 
 function retrievalOperationStatus(

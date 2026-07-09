@@ -17,8 +17,10 @@ from typing import TYPE_CHECKING
 
 from mellea_lrc.courtlistener.client import CourtListenerError
 from mellea_lrc.retrieval.types import (
+    CaseNamePreparationStatus,
     CaseNameSearchCorpus,
     CaseNameSearchCandidate,
+    CaseNameSearchPreparation,
     CaseNameSearchProbe,
     CaseNameSearchStatus,
     CaseNameSearchTrace,
@@ -62,6 +64,7 @@ def search_case_name_candidates(
     citation: FullCaseCitation,
     *,
     client: CitationRetrievalClient,
+    preparation: CaseNameSearchPreparation | None = None,
 ) -> CaseNameSearchTrace:
     """Count CourtListener opinions matching a not-found citation's case name.
 
@@ -69,17 +72,32 @@ def search_case_name_candidates(
     or no case name yields nothing but noise, so those are skipped. Each search
     path is represented independently, including unavailable client methods.
     """
-    plaintiff = citation.plaintiff
-    defendant = citation.defendant
+    preparation = preparation or deterministic_case_name_preparation(citation)
+    plaintiff = preparation.plaintiff
+    defendant = preparation.defendant
+    if preparation.status is CaseNamePreparationStatus.FAILED:
+        return CaseNameSearchTrace(
+            status=CaseNameSearchStatus.SEARCH_FAILED,
+            preparation=preparation,
+        )
     if not plaintiff and not defendant:
-        return CaseNameSearchTrace(status=CaseNameSearchStatus.SKIPPED_NO_CASE_NAME)
+        return CaseNameSearchTrace(
+            status=CaseNameSearchStatus.SKIPPED_NO_CASE_NAME,
+            preparation=preparation,
+        )
     if not (plaintiff and defendant):
-        return CaseNameSearchTrace(status=CaseNameSearchStatus.SKIPPED_PARTIAL_CASE_NAME)
+        return CaseNameSearchTrace(
+            status=CaseNameSearchStatus.SKIPPED_PARTIAL_CASE_NAME,
+            preparation=preparation,
+        )
 
     try:
-        query = _case_name_query(plaintiff, defendant, court=citation.court)
+        query = _case_name_query(plaintiff, defendant, court=preparation.court or citation.court)
     except ValueError:
-        return CaseNameSearchTrace(status=CaseNameSearchStatus.SEARCH_FAILED)
+        return CaseNameSearchTrace(
+            status=CaseNameSearchStatus.SEARCH_FAILED,
+            preparation=preparation,
+        )
 
     probes = (
         _search_corpus(client, query, CaseNameSearchCorpus.OPINIONS, "search_opinions"),
@@ -94,7 +112,32 @@ def search_case_name_candidates(
         status = CaseNameSearchStatus.SEARCH_UNAVAILABLE
     else:
         status = CaseNameSearchStatus.SEARCH_FAILED
-    return CaseNameSearchTrace(status=status, query=query, probes=probes)
+    return CaseNameSearchTrace(status=status, query=query, probes=probes, preparation=preparation)
+
+
+def deterministic_case_name_preparation(citation: FullCaseCitation) -> CaseNameSearchPreparation:
+    """Legacy preparation from extracted citation parties.
+
+    New LLM-backed paths should pass an explicit preparation. This helper exists
+    so the sync retrieval API and deterministic tests remain stable while the
+    async path becomes the preferred e2e implementation.
+    """
+    plaintiff = citation.plaintiff
+    defendant = citation.defendant
+    original_case_name = (
+        f"{plaintiff} v. {defendant}" if plaintiff and defendant else None
+    )
+    return CaseNameSearchPreparation(
+        status=CaseNamePreparationStatus.LEGACY_DETERMINISTIC
+        if original_case_name
+        else CaseNamePreparationStatus.EMPTY,
+        original_case_name=original_case_name,
+        plaintiff=plaintiff,
+        defendant=defendant,
+        prepared_case_name=original_case_name,
+        court=citation.court,
+        source="extracted_citation",
+    )
 
 
 def _search_corpus(

@@ -32,12 +32,19 @@ from mellea_lrc.assessment import (
     MelleaCallContext,
     run_assessment_async,
 )
+from mellea_lrc.citation_nodes import (
+    citation_node_document_to_json,
+    nodes_from_extracted_document,
+    with_assessment_steps,
+    with_jurisdiction_steps,
+    with_retrieval_steps,
+)
 from mellea_lrc.core.env import load_env_file
 from mellea_lrc.extraction import run_extraction
 from mellea_lrc.jurisdiction_inference import infer_jurisdiction
 from mellea_lrc.llm import llm_api_config_from_env
 from mellea_lrc.preprocessing import run_preprocessing
-from mellea_lrc.retrieval import run_retrieval
+from mellea_lrc.retrieval import run_retrieval_async
 from mellea_lrc.serialization import (
     deserialize_assessed_document,
     deserialize_extracted_document,
@@ -58,11 +65,19 @@ if TYPE_CHECKING:
     from mellea_lrc.assessment.types import AssessedDocument
     from mellea_lrc.retrieval.types import RetrievedDocument
 
-Phase: TypeAlias = Literal["preprocessed", "extraction", "inferred", "retrieval", "assessment"]
+Phase: TypeAlias = Literal[
+    "preprocessed",
+    "extraction",
+    "citation_nodes",
+    "inferred",
+    "retrieval",
+    "assessment",
+]
 T = TypeVar("T")
 PHASES: tuple[Phase, ...] = (
     "preprocessed",
     "extraction",
+    "citation_nodes",
     "inferred",
     "retrieval",
     "assessment",
@@ -174,6 +189,16 @@ def run_document(path: Path, *, phase: Phase, config: SnapshotConfig) -> None:
     if phase == "extraction":
         return
 
+    citation_nodes = nodes_from_extracted_document(extraction)
+    _write_json(
+        snapshot_dir,
+        "citation_nodes",
+        citation_node_document_to_json(citation_nodes),
+    )
+    _emit(f"[{path.name}] citation nodes={len(citation_nodes.nodes)}")
+    if phase == "citation_nodes":
+        return
+
     inferred_raw = infer_jurisdiction(extraction)
     inferred = _round_trip(
         snapshot_dir,
@@ -181,22 +206,40 @@ def run_document(path: Path, *, phase: Phase, config: SnapshotConfig) -> None:
         serialize_inferred_document(inferred_raw),
         deserialize_inferred_document,
     )
+    citation_nodes = with_jurisdiction_steps(citation_nodes, inferred)
+    _write_json(
+        snapshot_dir,
+        "citation_nodes",
+        citation_node_document_to_json(citation_nodes),
+    )
     _emit(f"[{path.name}] inferred jurisdictions={len(inferred.jurisdictions)}")
     if phase == "inferred":
         return
 
-    retrieval_raw = run_retrieval(inferred)
+    retrieval_raw = asyncio.run(run_retrieval_async(inferred))
     retrieval = _round_trip(
         snapshot_dir,
         "retrieval",
         serialize_retrieved_document(retrieval_raw),
         deserialize_retrieved_document,
     )
+    citation_nodes = with_retrieval_steps(citation_nodes, retrieval)
+    _write_json(
+        snapshot_dir,
+        "citation_nodes",
+        citation_node_document_to_json(citation_nodes),
+    )
     _emit_json({"document": path.name, "retrieval": _status_counts(retrieval.retrievals)})
     if phase == "retrieval":
         return
 
     assessment = asyncio.run(_assess(path, retrieval, config=config))
+    citation_nodes = with_assessment_steps(citation_nodes, assessment.assessments)
+    _write_json(
+        snapshot_dir,
+        "citation_nodes",
+        citation_node_document_to_json(citation_nodes),
+    )
     llm_config = llm_api_config_from_env(os.environ)
     _emit_json(
         {
@@ -257,6 +300,15 @@ def _round_trip(
     snapshot_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     restored_payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
     return deserialize(restored_payload)
+
+
+def _write_json(
+    snapshot_dir: Path,
+    stage: str,
+    payload: dict[str, object],
+) -> None:
+    snapshot_path = snapshot_dir / f"{stage}.json"
+    snapshot_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def _path_for_selector(config: SnapshotConfig, selector: str) -> Path:
