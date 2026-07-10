@@ -143,7 +143,7 @@ def render_case_name_preparation_prompt(
         locator=locator,
         extracted_plaintiff=extracted_plaintiff,
         extracted_defendant=extracted_defendant,
-        requirements=_case_name_preparation_requirements(window),
+        requirements=_case_name_preparation_requirements(window, locator),
     )
     return render_instruct_prompt(spec)
 
@@ -162,12 +162,12 @@ def render_case_name_preparation_chat_messages(
         locator=locator,
         extracted_plaintiff=extracted_plaintiff,
         extracted_defendant=extracted_defendant,
-        requirements=_case_name_preparation_requirements(window),
+        requirements=_case_name_preparation_requirements(window, locator),
     )
     return render_instruct_chat_messages(spec)
 
 
-def _case_name_preparation_requirements(window: DocumentTextWindow) -> list[Requirement]:
+def _case_name_preparation_requirements(window: DocumentTextWindow, locator: str) -> list[Requirement]:
     return [
         req(JSON_OUTPUT_REQUIREMENT, validation_fn=_validate_output_schema),
         check(
@@ -176,7 +176,7 @@ def _case_name_preparation_requirements(window: DocumentTextWindow) -> list[Requ
         ),
         req(
             "plaintiff and defendant must be copied from local_context before the locator",
-            validation_fn=lambda ctx: _validate_grounded_before_locator(ctx, window),
+            validation_fn=lambda ctx: _validate_grounded_before_locator(ctx, window, locator),
         ),
     ]
 
@@ -191,20 +191,25 @@ async def prepare_case_name_for_search(
     if not isinstance(citation.citation, FullCaseCitation):
         return CaseNameSearchPreparation(status=CaseNamePreparationStatus.EMPTY)
 
+    # ``ExtractedCitation.citation_span`` is the full eyecite span around the
+    # authority; ``matched_locator_text`` is the reporter/WL locator used for
+    # exact lookup and as the boundary marker inside the local window.
+    citation_span = citation.citation_span
+    matched_locator_text = citation.matched_locator_text
     window = DocumentTextWindow.around(
         document_text,
-        citation.span,
+        citation_span,
         before_chars=PREPARATION_CONTEXT_BEFORE_CHARS,
         after_chars=0,
     )
     extracted_plaintiff = citation.citation.plaintiff or ""
     extracted_defendant = citation.citation.defendant or ""
     try:
-        requirements = _case_name_preparation_requirements(window)
+        requirements = _case_name_preparation_requirements(window, matched_locator_text)
         proposal, _final_ctx = await _prepare_case_name(
             session,
             local_context=window.text,
-            locator=citation.matched_text,
+            locator=matched_locator_text,
             extracted_plaintiff=extracted_plaintiff,
             extracted_defendant=extracted_defendant,
             requirements=requirements,
@@ -219,7 +224,7 @@ async def prepare_case_name_for_search(
             defendant=extracted_defendant or None,
             prepared_case_name=None,
             court=citation.citation.court,
-            locator=citation.matched_text,
+            locator=matched_locator_text,
             source="llm",
             error_message=str(exc),
         )
@@ -232,7 +237,7 @@ async def prepare_case_name_for_search(
         defendant=proposal.defendant,
         prepared_case_name=_prepared_case_name(proposal.plaintiff, proposal.defendant),
         court=citation.citation.court,
-        locator=citation.matched_text,
+        locator=matched_locator_text,
         source="llm",
         llm_classification=proposal.classification,
         llm_reason=proposal.reason,
@@ -291,11 +296,14 @@ def _validate_classification_consistency(ctx: Context) -> ValidationResult:
 def _validate_grounded_before_locator(
     ctx: Context,
     window: DocumentTextWindow,
+    locator: str,
 ) -> ValidationResult:
     try:
         proposal = _proposal_from_context(ctx)
     except ValueError as exc:
         return ValidationResult(result=False, reason=str(exc))
+    locator_grounded = window.locate(locator)
+    locator_start = locator_grounded.span.start if locator_grounded is not None else window.anchor_span.start
     for label, value in (("plaintiff", proposal.plaintiff), ("defendant", proposal.defendant)):
         if not value:
             continue
@@ -305,7 +313,7 @@ def _validate_grounded_before_locator(
                 result=False,
                 reason=f"{label}={value!r} was not copied from local_context",
             )
-        if grounded.span.end > window.anchor_span.start:
+        if grounded.span.end > locator_start:
             return ValidationResult(
                 result=False,
                 reason=f"{label}={value!r} did not appear before the locator",

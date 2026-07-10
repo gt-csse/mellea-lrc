@@ -15,7 +15,7 @@ def test_bookmark_fixture_json_and_text_are_synchronized() -> None:
     store = json.loads((FIXTURE_DIR / "bookmarks.json").read_text(encoding="utf-8"))
     blocks = []
     for bookmark in store["bookmarks"]:
-        lines = [bookmark["citation"]["matched_text"]]
+        lines = [bookmark["citation"]["matched_citation_text"]]
         if bookmark["comment"]:
             lines.extend(("", f"> {bookmark['comment']}"))
         lines.extend(("", f"Context: {bookmark['citation']['context']}"))

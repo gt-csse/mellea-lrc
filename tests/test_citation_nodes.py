@@ -16,7 +16,12 @@ from mellea_lrc.citation_nodes import (
     run_node_operation,
     run_operation_for_each_node,
 )
-from mellea_lrc.citation_nodes.projections import with_retrieval_steps
+from mellea_lrc.assessment import AssessmentSkipReason, SkippedCitationAssessment
+from mellea_lrc.citation_nodes.projections import (
+    with_assessment_steps,
+    with_jurisdiction_steps,
+    with_retrieval_steps,
+)
 from mellea_lrc.core.citations import FullCaseCitation, Reporter
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import ExtractedCitation, ExtractedDocument, ExtractionMetadata
@@ -48,8 +53,9 @@ def _document() -> ExtractedDocument:
     locator_start = preprocessed.text.index("118 U.S. 425")
     citation = ExtractedCitation(
         citation_id="cite-0001",
-        span=Span(locator_start, locator_start + len("118 U.S. 425")),
-        matched_text="118 U.S. 425",
+        citation_span=Span(locator_start, locator_start + len("118 U.S. 425")),
+        matched_locator_text="118 U.S. 425",
+        matched_citation_text="118 U.S. 425",
         citation=FullCaseCitation(
             plaintiff="Norton",
             defendant="Shelby County",
@@ -84,8 +90,11 @@ def test_nodes_from_extracted_document_copies_inputs_without_mutating_extraction
     assert len(node_document.nodes) == len(extracted.citations)
     node = node_document.node_by_id("cite-0001")
     assert node.input.citation_id == extracted.citations[0].citation_id
-    assert node.input.span == extracted.citations[0].span
-    assert node.input.matched_text == extracted.citations[0].matched_text
+    assert node.input.citation_span == extracted.citations[0].citation_span
+    assert node.input.matched_locator_text == extracted.citations[0].matched_locator_text
+    assert node.input.matched_citation_text == extracted.text[
+        extracted.citations[0].citation_span.start : extracted.citations[0].citation_span.end
+    ]
     assert node.input.citation == extracted.citations[0].citation
     assert node.status is CitationNodeStatus.READY
     assert node.steps == ()
@@ -142,8 +151,9 @@ def test_node_document_validates_spans_against_document_text() -> None:
     node = CitationNode(
         input=CitationNodeInput(
             citation_id="cite-1",
-            span=Span(0, 99),
-            matched_text="118 U.S. 425",
+            citation_span=Span(0, 99),
+            matched_locator_text="118 U.S. 425",
+            matched_citation_text="118 U.S. 425",
             citation=FullCaseCitation(
                 volume="118",
                 page="425",
@@ -152,7 +162,7 @@ def test_node_document_validates_spans_against_document_text() -> None:
         )
     )
 
-    with pytest.raises(ValueError, match="span exceeds"):
+    with pytest.raises(ValueError, match="citation_span exceeds"):
         CitationNodeDocument(text="short", nodes=(node,))
 
 
@@ -161,7 +171,7 @@ def test_node_input_is_frozen() -> None:
     node = nodes_from_extracted_document(_document()).node_by_id("cite-0001")
 
     with pytest.raises(FrozenInstanceError):
-        node.input.matched_text = "changed"  # type: ignore[misc]
+        node.input.matched_locator_text = "changed"  # type: ignore[misc]
 
 
 def test_run_node_operation_replaces_only_target_node() -> None:
@@ -197,8 +207,9 @@ def test_run_node_operation_rejects_id_rewriting_operation() -> None:
             return CitationNode(
                 input=CitationNodeInput(
                     citation_id="changed",
-                    span=node.input.span,
-                    matched_text=node.input.matched_text,
+                    citation_span=node.input.citation_span,
+                    matched_locator_text=node.input.matched_locator_text,
+                    matched_citation_text=node.input.matched_citation_text,
                     citation=node.input.citation,
                 )
             )
@@ -253,8 +264,9 @@ def test_citation_node_document_to_json_projects_trace_shape() -> None:
                 "status": "ready",
                 "input": {
                     "citation_id": "cite-0001",
-                    "span": {"start": 25, "end": 37},
-                    "matched_text": "118 U.S. 425",
+                    "citation_span": {"start": 25, "end": 37},
+                    "matched_locator_text": "118 U.S. 425",
+                    "matched_citation_text": "118 U.S. 425",
                     "citation": {
                         "type": "FullCaseCitation",
                         "plaintiff": "Norton",
@@ -402,3 +414,71 @@ def test_not_found_retrieval_projects_granular_case_name_search_chain() -> None:
         "cite-0001:retrieval:corpus_probe:o",
         "cite-0001:retrieval:corpus_probe:r",
     )
+
+
+def test_projected_node_dependencies_keep_jurisdiction_as_terminal_side_branch() -> None:
+    """Assessment consumes retrieval, not always-run jurisdiction inference."""
+    extracted = _document()
+    node_document = nodes_from_extracted_document(extracted)
+    inferred = RetrievedDocument(
+        source_metadata=extracted.source_metadata,
+        text=extracted.text,
+        preprocessing_metadata=extracted.preprocessing_metadata,
+        citations=extracted.citations,
+        extraction_metadata=extracted.extraction_metadata,
+        jurisdictions=(
+            Jurisdiction(
+                reporter_inference=ReporterInference(
+                    reporter=extracted.citations[0].citation.reporter,
+                    status=ReporterInferenceStatus.RECOGNIZED,
+                    mlz_jurisdictions=("us",),
+                ),
+                court_inference=CourtInference(
+                    extracted_court=None,
+                    status=CourtInferenceStatus.MISSING_COURT,
+                    courts_db_classification=None,
+                ),
+            ),
+        ),
+        retrieval_metadata=RetrievalMetadata(client_mode="custom", source="test"),
+        retrievals=(
+            NotFoundCitationRetrieval(
+                citation_id="cite-0001",
+                locator="118 U.S. 425",
+                source="courtlistener",
+                request_trace=CourtListenerRequestTrace(http_status=404),
+                candidate_search=CaseNameSearchTrace(
+                    status=CaseNameSearchStatus.SKIPPED_NO_CASE_NAME,
+                    query=None,
+                    preparation=CaseNameSearchPreparation(
+                        status=CaseNamePreparationStatus.EMPTY,
+                        original_case_name=None,
+                        locator="118 U.S. 425",
+                        source="llm",
+                    ),
+                    probes=(),
+                ),
+            ),
+        ),
+    )
+
+    projected = with_jurisdiction_steps(node_document, inferred)
+    projected = with_retrieval_steps(projected, inferred)
+    projected = with_assessment_steps(
+        projected,
+        (
+            SkippedCitationAssessment(
+                citation_id="cite-0001",
+                reason=AssessmentSkipReason.RETRIEVAL_NOT_ELIGIBLE,
+                message="not found",
+            ),
+        ),
+    )
+
+    node = projected.node_by_id("cite-0001")
+    jurisdiction = next(step for step in node.steps if step.operation == "jurisdiction.inference")
+    assessment = next(step for step in node.steps if step.operation == "assessment.field_check")
+    consumed_dependencies = {dependency for step in node.steps for dependency in step.depends_on}
+
+    assert jurisdiction.step_id not in consumed_dependencies
+    assert assessment.depends_on == ("cite-0001:retrieval:candidate_results",)

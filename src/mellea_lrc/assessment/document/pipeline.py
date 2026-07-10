@@ -62,7 +62,7 @@ class MelleaCallContext:
     """Document context emitted immediately before one semantic assessment call."""
 
     citation_id: str
-    matched_text: str
+    matched_locator_text: str
     extracted_case_name: str | None
     courtlistener_case_name: str | None
     context: str
@@ -188,7 +188,9 @@ def _candidate_jobs(
 ) -> _CandidateJobs:
     assert isinstance(citation.citation, FullCaseCitation)
     extracted_case_name = build_extracted_case_name(citation.citation)
-    context = DocumentTextWindow.around(document_text, citation.span)
+    citation_span = citation.citation_span
+    matched_locator_text = citation.matched_locator_text
+    context = DocumentTextWindow.around(document_text, citation_span)
 
     def job(
         candidate_id: str,
@@ -202,7 +204,7 @@ def _candidate_jobs(
             candidate_id=candidate_id,
             candidate_index=candidate_index,
             document_text=document_text,
-            citation_locator=citation.matched_text,
+            citation_locator=matched_locator_text,
             extracted_case_name=extracted_case_name,
             courtlistener_case_name=cl_case_name,
             courtlistener_year=cl_year,
@@ -284,7 +286,7 @@ async def _run_job(
     try:
         return await assess_found_citation(
             document_text=job.document_text,
-            span=job.citation.span,
+            span=job.citation.citation_span,
             citation_locator=job.citation_locator,
             extracted_case_name=job.extracted_case_name,
             courtlistener_case_name=job.courtlistener_case_name,
@@ -431,7 +433,7 @@ async def _assess_pending_job(
 ) -> CitationAssessmentResult:
     call_context = MelleaCallContext(
         citation_id=job.citation.citation_id,
-        matched_text=job.citation.matched_text,
+        matched_locator_text=job.citation.matched_locator_text,
         extracted_case_name=job.extracted_case_name,
         courtlistener_case_name=job.courtlistener_case_name,
         context=job.context.text,
@@ -442,7 +444,7 @@ async def _assess_pending_job(
             on_mellea_call(call_context)
         result = await assess_found_citation(
             document_text=job.document_text,
-            span=job.citation.span,
+            span=job.citation.citation_span,
             extracted_case_name=job.extracted_case_name,
             courtlistener_case_name=job.courtlistener_case_name,
             extracted_year=job.citation.citation.year,

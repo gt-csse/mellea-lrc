@@ -1,6 +1,20 @@
 "use client";
 
 import {
+  Background,
+  BackgroundVariant,
+  Handle,
+  MarkerType,
+  Position,
+  ReactFlow,
+  type Edge as FlowEdge,
+  type Node as FlowNode,
+  type NodeProps,
+  useEdgesState,
+  useNodesState
+} from "@xyflow/react";
+import ELK from "elkjs/lib/elk.bundled.js";
+import {
   AlertCircle,
   Bookmark,
   BookmarkCheck,
@@ -12,15 +26,12 @@ import {
   FileText,
   Loader2,
   RotateCcw,
-  Search,
-  ShieldCheck,
   Upload
 } from "lucide-react";
 import {
   ChangeEvent,
   DragEvent,
   FormEvent,
-  KeyboardEvent,
   ReactNode,
   useEffect,
   useMemo,
@@ -181,8 +192,9 @@ type CitationNodePayload = {
   status: "ready" | "running" | "blocked" | "failed" | "complete";
   input: {
     citation_id: string;
-    matched_text: string;
-    span: TextSpan;
+    citation_span: TextSpan;
+    matched_locator_text: string;
+    matched_citation_text: string;
     citation: Record<string, unknown>;
     resolves_to: string | null;
   };
@@ -198,6 +210,18 @@ type CitationNodeGraphPayload = {
 
 type CitationNodeGraphItem = CitationNodeStepPayload & {
   key: string;
+};
+type CitationFlowNodeData = {
+  label: string;
+  operation: string;
+  status: CitationNodeStepPayload["status"];
+  lane: string | null;
+};
+type CitationFlowNode = FlowNode<CitationFlowNodeData, "citationStep">;
+type CitationFlowEdge = FlowEdge;
+type CitationFlowLayout = {
+  nodes: CitationFlowNode[];
+  edges: CitationFlowEdge[];
 };
 
 type ReextractedCaseNamePayload = {
@@ -226,9 +250,9 @@ type CaseNameAssessmentRunPayload = {
 
 type ReviewCitation = {
   id: string;
-  start: number;
-  end: number;
-  matched_text: string;
+  citation_span: TextSpan;
+  matched_locator_text: string;
+  matched_citation_text: string;
   kind: string;
   fields: Record<string, string | number | boolean>;
   resolves_to: string | null;
@@ -318,8 +342,8 @@ type WorkflowStage =
   | "retrieved"
   | "assessed";
 type LoadingStage = WorkflowStage | "snapshot";
-type SnapshotReviewResult = {
-  stage: Exclude<WorkflowStage, "input">;
+type ReviewSnapshotResult = {
+  stage: "node_graph";
   result: ReviewResult;
 };
 type CitationStatus = "found" | "ambiguous" | "not_found" | "throttled" | "not_checked";
@@ -339,8 +363,6 @@ type CitationFilter =
   | AssessmentFilter;
 type FilterOption = { label: string; value: CitationFilter };
 type ComparisonMatchType = "perfect" | "exact" | "semantic" | "warning" | "error" | "unchecked";
-type TraceSectionId = "retrieval" | "assessment" | "jurisdiction-inference" | "comment";
-type TraceOperationStatus = "complete" | "running" | "failed" | "not-run" | "unavailable";
 type BibliographicRow = {
   id: string;
   label: string;
@@ -375,7 +397,6 @@ type RenderCitation = ReviewCitation & {
 type WorkflowStageControl = {
   label: string;
   canEditInput: boolean;
-  canLoadSnapshot: boolean;
   canExtract: boolean;
   canRetrieve: boolean;
   canAssess: boolean;
@@ -385,6 +406,12 @@ type WorkflowStageControl = {
 const RETRIEVAL_REQUEST_INTERVAL_MS = 1500;
 const MISSING_EXTRACTED_CASE_NAME_LABEL = "No extracted case name";
 const exampleText = "Brown v. Board, 347 U.S. 483 (1954). See also Roe v. Wade, 410 U.S. 113.";
+const CITATION_NODE_WIDTH = 104;
+const CITATION_NODE_HEIGHT = 48;
+const elk = new ELK();
+const citationNodeTypes = {
+  citationStep: CitationFlowNodeView
+};
 const extractionFilters: FilterOption[] = [
   { label: "All", value: "all" },
   { label: "All citations", value: "all_citations" }
@@ -410,7 +437,6 @@ const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
   input: {
     label: "Input",
     canEditInput: true,
-    canLoadSnapshot: true,
     canExtract: true,
     canRetrieve: false,
     canAssess: false,
@@ -419,7 +445,6 @@ const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
   preprocessed: {
     label: "Preprocessed",
     canEditInput: false,
-    canLoadSnapshot: false,
     canExtract: true,
     canRetrieve: false,
     canAssess: false,
@@ -428,7 +453,6 @@ const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
   extracted: {
     label: "Extracted",
     canEditInput: false,
-    canLoadSnapshot: false,
     canExtract: false,
     canRetrieve: true,
     canAssess: false,
@@ -437,7 +461,6 @@ const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
   node_graph: {
     label: "Node graph",
     canEditInput: false,
-    canLoadSnapshot: false,
     canExtract: false,
     canRetrieve: true,
     canAssess: false,
@@ -446,7 +469,6 @@ const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
   inferred: {
     label: "Inferred",
     canEditInput: false,
-    canLoadSnapshot: false,
     canExtract: false,
     canRetrieve: true,
     canAssess: false,
@@ -455,7 +477,6 @@ const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
   retrieved: {
     label: "Retrieved",
     canEditInput: false,
-    canLoadSnapshot: false,
     canExtract: false,
     canRetrieve: false,
     canAssess: true,
@@ -464,7 +485,6 @@ const workflowStageControls: Record<WorkflowStage, WorkflowStageControl> = {
   assessed: {
     label: "Assessed",
     canEditInput: false,
-    canLoadSnapshot: false,
     canExtract: false,
     canRetrieve: false,
     canAssess: false,
@@ -488,21 +508,21 @@ export default function Home() {
   const [clusterIndexes, setClusterIndexes] = useState<Record<string, number>>({});
   const [extractedAttemptIndexes, setExtractedAttemptIndexes] = useState<Record<string, number>>({});
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
-  const [selectedTraceSection, setSelectedTraceSection] = useState<TraceSectionId>("retrieval");
   const [error, setError] = useState<string | null>(null);
   const [bookmarkStatus, setBookmarkStatus] = useState<string | null>(null);
+  const [selectedBottomTab, setSelectedBottomTab] = useState<"graph" | "comment">("graph");
   const [bookmarkEntries, setBookmarkEntries] = useState<Map<string, BookmarkStatusEntry>>(
     new Map()
   );
   const [bookmarkModal, setBookmarkModal] = useState<{
     citationId: string;
-    matchedText: string;
+    matchedCitationText: string;
     context: string;
     existingComment: string | null;
   } | null>(null);
   const documentPaneRef = useRef<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const snapshotInputRef = useRef<HTMLInputElement | null>(null);
+  const reviewInputRef = useRef<HTMLInputElement | null>(null);
   const retrievalRunIdRef = useRef(0);
   const stageControl = workflowStageControls[workflowStage];
   const isTaskLocked = !stageControl.canEditInput;
@@ -713,7 +733,7 @@ export default function Home() {
   async function runExtraction() {
     retrievalRunIdRef.current += 1;
     setIsLoading(true);
-    setLoadingStage("extracted");
+    setLoadingStage("assessed");
     setRetrievalProgress(null);
     setError(null);
     setBookmarkStatus(null);
@@ -721,16 +741,18 @@ export default function Home() {
 
     try {
       const sourceText = workflowStage === "preprocessed" && result ? result.document.text : text;
-      const response = file ? await extractDocument(file) : await extractText(sourceText);
-      setResult(response);
-      setSelectedId(response.citations[0]?.id ?? null);
+      const reviewed = file ? await reviewDocument(file) : await reviewText(sourceText);
+      const assessed = await assessReview(reviewed);
+      setResult(assessed);
+      setSelectedId(assessed.citations[0]?.id ?? null);
       setCitationFilter("all");
       setClusterIndexes({});
       setExtractedAttemptIndexes({});
-      setWorkflowStage("extracted");
+      setSelectedBottomTab("graph");
+      setWorkflowStage("assessed");
       setIsInputCollapsed(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Extraction failed");
+      setError(err instanceof Error ? err.message : "Review failed");
     } finally {
       setIsLoading(false);
       setLoadingStage(null);
@@ -827,15 +849,16 @@ export default function Home() {
     }
   }
 
-  async function loadSnapshot(file: File) {
+  async function loadReviewSnapshot(file: File) {
     retrievalRunIdRef.current += 1;
     setIsLoading(true);
     setLoadingStage("snapshot");
     setRetrievalProgress(null);
     setError(null);
+    setBookmarkStatus(null);
 
     try {
-      const response = await loadSnapshotReview(file);
+      const response = await loadReviewSnapshotFile(file);
       setResult(response.result);
       setText(response.result.document.text);
       setFile(null);
@@ -843,10 +866,11 @@ export default function Home() {
       setCitationFilter("all");
       setClusterIndexes({});
       setExtractedAttemptIndexes({});
+      setSelectedBottomTab("graph");
       setWorkflowStage(response.stage);
       setIsInputCollapsed(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Snapshot load failed");
+      setError(err instanceof Error ? err.message : "Review load failed");
     } finally {
       setIsLoading(false);
       setLoadingStage(null);
@@ -866,12 +890,14 @@ export default function Home() {
     setRetrievalProgress(null);
     setError(null);
     setBookmarkStatus(null);
+    setSelectedBottomTab("graph");
     setBookmarkEntries(new Map());
   }
 
   function selectCitation(citationId: string) {
     setSelectedId(citationId);
     setBookmarkStatus(null);
+    setSelectedBottomTab("graph");
   }
 
   function selectCourtListenerCandidate(citationId: string, clusterIndex: number) {
@@ -895,7 +921,7 @@ export default function Home() {
     const context = citationContextWindow(result.document.text, selectedCitation);
     setBookmarkModal({
       citationId: selectedCitation.id,
-      matchedText: selectedCitation.matched_text,
+      matchedCitationText: citationDisplayText(selectedCitation),
       context,
       existingComment: selectedCitationComment
     });
@@ -916,7 +942,7 @@ export default function Home() {
       if (isUpdate) {
         const saved = await updateBookmarkCommentAction({
           citation: {
-            matched_text: bookmarkModal.matchedText,
+            matched_citation_text: bookmarkModal.matchedCitationText,
             context: bookmarkModal.context
           },
           comment: trimmed
@@ -941,13 +967,13 @@ export default function Home() {
       } else {
         const saved = await addBookmarkCitation({
           citation: {
-            matched_text: bookmarkModal.matchedText,
+            matched_citation_text: bookmarkModal.matchedCitationText,
             context: bookmarkModal.context
           },
           provenance: {
             source_path: result.document.source_path,
             source_format: result.document.source_format,
-            span: { start: selectedCitation?.start ?? 0, end: selectedCitation?.end ?? 0 }
+            citation_span: selectedCitation ? citationSpan(selectedCitation) : { start: 0, end: 0 }
           },
           comment: trimmed
         });
@@ -981,13 +1007,13 @@ export default function Home() {
     setIsInputCollapsed(false);
   }
 
-  function onSnapshotChange(event: ChangeEvent<HTMLInputElement>) {
+  function onReviewSnapshotChange(event: ChangeEvent<HTMLInputElement>) {
     const snapshot = event.target.files?.[0];
     event.target.value = "";
-    if (!snapshot || isTaskLocked) {
+    if (!snapshot) {
       return;
     }
-    void loadSnapshot(snapshot);
+    void loadReviewSnapshot(snapshot);
   }
 
   function onDrop(event: DragEvent<HTMLButtonElement>) {
@@ -1018,7 +1044,7 @@ export default function Home() {
           <Metric label="Citations" value={citationCount} />
           <Metric label="Found" value={foundCount ?? "-"} />
           <Metric label="Chars" value={result?.stats.chars ?? "-"} />
-          <Metric label="Boundary" value={stageControl.label} />
+          <Metric label="Graph nodes" value={result?.node_graph?.nodes.length ?? "-"} />
         </div>
       </header>
 
@@ -1078,11 +1104,11 @@ export default function Home() {
         )}
         <input ref={fileInputRef} className="hidden-input" type="file" onChange={onFileChange} />
         <input
-          ref={snapshotInputRef}
+          ref={reviewInputRef}
           className="hidden-input"
           type="file"
           accept="application/json,.json"
-          onChange={onSnapshotChange}
+          onChange={onReviewSnapshotChange}
         />
 
         <div className="ingest-actions">
@@ -1092,39 +1118,17 @@ export default function Home() {
             onClick={runExtraction}
             type="button"
           >
-            {loadingStage === "extracted" ? <Loader2 className="spin" size={18} /> : <Search size={18} />}
-            <span>{loadingStage === "extracted" ? "Extracting" : "Extract"}</span>
-          </button>
-          <button
-            className="secondary-action"
-            disabled={isLoading || !result || !stageControl.canRetrieve}
-            onClick={runRetrieval}
-            type="button"
-          >
-            {loadingStage === "retrieved" ? (
-              <Loader2 className="spin" size={18} />
-            ) : (
-              <ShieldCheck size={18} />
-            )}
-            <span>{retrievalLabel}</span>
-          </button>
-          <button
-            className="secondary-action"
-            disabled={isLoading || !result || !stageControl.canAssess}
-            onClick={runAssessment}
-            type="button"
-          >
             {loadingStage === "assessed" ? <Loader2 className="spin" size={18} /> : <Brain size={18} />}
-            <span>{loadingStage === "assessed" ? "Assessing" : "Assess"}</span>
+            <span>{loadingStage === "assessed" ? "Reviewing" : "Run review"}</span>
           </button>
           <button
             className="secondary-action"
-            disabled={isLoading || !stageControl.canLoadSnapshot}
-            onClick={() => snapshotInputRef.current?.click()}
+            disabled={isLoading}
+            onClick={() => reviewInputRef.current?.click()}
             type="button"
           >
             {loadingStage === "snapshot" ? <Loader2 className="spin" size={18} /> : <FileText size={18} />}
-            <span>{loadingStage === "snapshot" ? "Loading" : "Load snapshot"}</span>
+            <span>{loadingStage === "snapshot" ? "Loading" : "Load review"}</span>
           </button>
           <button
             className="icon-action"
@@ -1204,7 +1208,7 @@ export default function Home() {
                   onClick={() => selectCitation(citation.id)}
                   type="button"
                 >
-                  <span className="citation-row-main">{citation.matched_text}</span>
+                  <span className="citation-row-main">{citationDisplayText(citation)}</span>
                   <CitationTags
                     citation={citation}
                     assessment={result?.assessment ?? null}
@@ -1233,7 +1237,7 @@ export default function Home() {
             <div className="details-heading">
               <div>
                 <p className="eyebrow">Selected citation</p>
-                <h2>{selectedCitation.matched_text}</h2>
+                <h2>{citationDisplayText(selectedCitation)}</h2>
                 <CitationTags
                   citation={selectedCitation}
                   assessment={result?.assessment ?? null}
@@ -1297,21 +1301,17 @@ export default function Home() {
                 {bookmarkStatus}
               </p>
             ) : null}
-            <TraceWorkspace
+            <CitationNodeWorkspace
               citation={selectedCitation}
-              citationIndex={selectedCitationIndex}
-              jurisdictions={result?.jurisdictions ?? null}
               extractedAttempts={selectedExtractedAttempts}
               extractedAttemptIndex={selectedExtractedAttemptIndex}
               candidateIndex={selectedClusterIndex}
               node={result?.node_graph?.nodes.find((node) => node.citation_id === selectedCitation.id) ?? null}
-              loadingStage={loadingStage}
-              selectedSection={selectedTraceSection}
-              onSectionChange={setSelectedTraceSection}
+              selectedTab={selectedBottomTab}
+              onTabChange={setSelectedBottomTab}
               onCandidateChange={selectCourtListenerCandidate}
               onExtractedAttemptChange={selectExtractedAttempt}
               comment={selectedCitationComment}
-              bookmarked={selectedCitationIsBookmarked}
             />
           </>
         ) : (
@@ -1320,7 +1320,7 @@ export default function Home() {
       </section>
       {bookmarkModal ? (
         <BookmarkModal
-          matchedText={bookmarkModal.matchedText}
+          matchedCitationText={bookmarkModal.matchedCitationText}
           context={bookmarkModal.context}
           existingComment={bookmarkModal.existingComment}
           saving={bookmarkStatus === "Saving"}
@@ -1332,74 +1332,32 @@ export default function Home() {
   );
 }
 
-function TraceWorkspace({
+function CitationNodeWorkspace({
   citation,
-  citationIndex,
-  jurisdictions,
   extractedAttempts,
   extractedAttemptIndex,
   candidateIndex,
   node,
-  loadingStage,
-  selectedSection,
-  onSectionChange,
+  selectedTab,
+  onTabChange,
   onCandidateChange,
   onExtractedAttemptChange,
-  comment,
-  bookmarked
+  comment
 }: {
   citation: ReviewCitation;
-  citationIndex: number;
-  jurisdictions: JurisdictionPayload[] | null;
   extractedAttempts: ExtractedCitationAttempt[];
   extractedAttemptIndex: number;
   candidateIndex: number;
   node: CitationNodePayload | null;
-  loadingStage: LoadingStage | null;
-  selectedSection: TraceSectionId;
-  onSectionChange: (section: TraceSectionId) => void;
+  selectedTab: "graph" | "comment";
+  onTabChange: (tab: "graph" | "comment") => void;
   onCandidateChange: (citationId: string, candidateIndex: number) => void;
   onExtractedAttemptChange: (citationId: string, attemptIndex: number) => void;
   comment: string | null;
-  bookmarked: boolean;
 }) {
-  const sections: Array<{ id: TraceSectionId; label: string; status: TraceOperationStatus }> = [
-    {
-      id: "retrieval",
-      label: "Retrieval",
-      status: retrievalOperationStatus(citation.retrieval, loadingStage)
-    },
-    {
-      id: "assessment",
-      label: "Assessment",
-      status: assessmentOperationStatus(citation.assessment, loadingStage)
-    },
-    {
-      id: "jurisdiction-inference",
-      label: "Jurisdiction inference",
-      status: citationIndex >= 0 && jurisdictions && citationIndex < jurisdictions.length ? "complete" : "unavailable"
-    },
-    {
-      id: "comment",
-      label: "Comment",
-      status: comment?.trim() ? "complete" : bookmarked ? "not-run" : "unavailable"
-    }
-  ];
-
-  function moveTab(event: KeyboardEvent<HTMLButtonElement>, index: number) {
-    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") {
-      return;
-    }
-    event.preventDefault();
-    const direction = event.key === "ArrowRight" ? 1 : -1;
-    const nextIndex = (index + direction + sections.length) % sections.length;
-    onSectionChange(sections[nextIndex].id);
-    const tabList = event.currentTarget.parentElement;
-    requestAnimationFrame(() => {
-      (tabList?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex])?.focus();
-    });
-  }
-
+  const commentText = comment?.trim() ?? "";
+  const hasComment = Boolean(commentText);
+  const activeTab = selectedTab === "comment" && hasComment ? "comment" : "graph";
   return (
     <div className="trace-workspace">
       <div className="bibliographic-column">
@@ -1413,66 +1371,33 @@ function TraceWorkspace({
         />
       </div>
 
-      <section className="trace-region" aria-label="Citation traces">
-        <div className="trace-nav" role="tablist" aria-label="Trace sections" aria-orientation="horizontal">
-          {sections.map((section, index) => (
+      <section className="trace-region" aria-label="Citation node graph and comment">
+        <div className="node-browser-tabs" role="tablist" aria-label="Citation node panes">
+          <button
+            className={`node-browser-tab${activeTab === "graph" ? " selected" : ""}`}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "graph"}
+            onClick={() => onTabChange("graph")}
+          >
+            Graph
+          </button>
+          {hasComment ? (
             <button
-              key={section.id}
-              id={`trace-tab-${section.id}`}
-              className={`trace-tab ${section.status}${
-                selectedSection === section.id ? " selected" : ""
-              }`}
+              className={`node-browser-tab${activeTab === "comment" ? " selected" : ""}`}
               type="button"
               role="tab"
-              aria-selected={selectedSection === section.id}
-              aria-controls={`trace-panel-${section.id}`}
-              tabIndex={selectedSection === section.id ? 0 : -1}
-              onClick={() => onSectionChange(section.id)}
-              onKeyDown={(event) => moveTab(event, index)}
+              aria-selected={activeTab === "comment"}
+              onClick={() => onTabChange("comment")}
             >
-              <span>{section.label}</span>
-              <small>
-                <i aria-hidden="true" />
-                {formatTraceOperationStatus(section.status)}
-              </small>
+              Comment
             </button>
-          ))}
-        </div>
-        <div
-          id={`trace-panel-${selectedSection}`}
-          className="trace-panel"
-          role="tabpanel"
-          aria-labelledby={`trace-tab-${selectedSection}`}
-          tabIndex={0}
-        >
-          {selectedSection === "retrieval" ? (
-            <RetrievalDetails
-              retrieval={citation.retrieval}
-              citationId={citation.id}
-              candidateIndex={candidateIndex}
-              onCandidateChange={onCandidateChange}
-            />
-          ) : null}
-          {selectedSection === "assessment" ? (
-            <AssessmentDetails
-              assessment={citation.assessment}
-              candidateIndex={candidateIndex}
-              candidateId={candidateIdForIndex(citation.retrieval, candidateIndex)}
-            />
-          ) : null}
-          {selectedSection === "jurisdiction-inference" && citationIndex >= 0 && jurisdictions ? (
-            <JurisdictionDetails inference={jurisdictions[citationIndex] ?? null} />
-          ) : null}
-          {selectedSection === "comment" ? (
-            <CommentDetails comment={comment} bookmarked={bookmarked} />
           ) : null}
         </div>
-        <CitationNodeGraph
-          node={node}
-          citation={citation}
-          jurisdiction={citationIndex >= 0 && jurisdictions ? jurisdictions[citationIndex] ?? null : null}
-          loadingStage={loadingStage}
-        />
+        <div className="node-browser-panel">
+          {activeTab === "graph" ? <CitationNodeGraph node={node} citation={citation} /> : null}
+          {activeTab === "comment" && hasComment ? <CommentDetails comment={commentText} /> : null}
+        </div>
       </section>
     </div>
   );
@@ -1480,24 +1405,16 @@ function TraceWorkspace({
 
 function CitationNodeGraph({
   node,
-  citation,
-  jurisdiction,
-  loadingStage
+  citation
 }: {
   node: CitationNodePayload | null;
   citation: ReviewCitation;
-  jurisdiction: JurisdictionPayload | null;
-  loadingStage: LoadingStage | null;
 }) {
-  const steps = effectiveNodeGraphSteps(node, citation, jurisdiction);
+  const steps = node?.steps ?? [];
   const graphItems = useMemo<CitationNodeGraphItem[]>(() => {
-    const extractionData = node
-      ? { input: node.input }
-      : {
-          citation_id: citation.id,
-          matched_text: citation.matched_text,
-          citation: citation.fields
-        };
+    if (!node) {
+      return [];
+    }
     return [
       {
         key: "extraction.input",
@@ -1506,8 +1423,8 @@ function CitationNodeGraph({
         status: "succeeded",
         depends_on: [],
         lane: null,
-        summary: node?.input.matched_text ?? citation.matched_text,
-        data: extractionData,
+        summary: node.input.matched_citation_text,
+        data: { input: node.input },
         error: null
       },
       ...steps.map((step, index) => ({
@@ -1515,73 +1432,171 @@ function CitationNodeGraph({
         key: step.step_id ?? `${step.operation}-${index}`
       }))
     ];
-  }, [citation.fields, citation.id, citation.matched_text, node, steps]);
+  }, [node, steps]);
   const [selectedStepKey, setSelectedStepKey] = useState<string>("extraction.input");
+  const [flowNodes, setFlowNodes, onNodesChange] = useNodesState<CitationFlowNode>([]);
+  const [flowEdges, setFlowEdges, onEdgesChange] = useEdgesState<CitationFlowEdge>([]);
   useEffect(() => {
     if (!graphItems.some((item) => item.key === selectedStepKey)) {
       setSelectedStepKey(graphItems[0]?.key ?? "extraction.input");
     }
   }, [graphItems, selectedStepKey]);
+  useEffect(() => {
+    let cancelled = false;
+    void layoutCitationFlowGraph(graphItems, selectedStepKey).then((layout) => {
+      if (cancelled) {
+        return;
+      }
+      setFlowNodes(layout.nodes);
+      setFlowEdges(layout.edges);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [graphItems, selectedStepKey, setFlowEdges, setFlowNodes]);
   const selectedStep = graphItems.find((item) => item.key === selectedStepKey) ?? graphItems[0] ?? null;
-  const hasGraph = Boolean(node) || steps.length > 0;
-  const statusLabel = node ? formatNodeStatus(node.status) : steps.length ? "Derived" : null;
+  const nodeStatusLabel = node ? formatNodeStatus(node.status) : null;
   return (
     <section className="node-graph-panel" aria-label="Citation node graph">
       <div className="node-graph-heading">
         <div>
           <h3>Node graph</h3>
           <p>
-            {hasGraph
-              ? `${statusLabel} · ${steps.length} step${steps.length === 1 ? "" : "s"}`
+            {nodeStatusLabel
+              ? `${nodeStatusLabel} · ${steps.length} step${steps.length === 1 ? "" : "s"}`
               : "No node trace is attached to this citation yet."}
           </p>
         </div>
         {node ? <span className={`node-status-pill ${node.status}`}>{formatNodeStatus(node.status)}</span> : null}
       </div>
-      {hasGraph ? (
+      {node ? (
         <div className="node-graph-workspace">
-          <ol className="node-graph">
-            {graphItems.map((item) => (
-              <li
-                className={`node-graph-item ${item.status}${item.key === selectedStep?.key ? " selected" : ""}`}
-                key={item.key}
-              >
-                <button
-                  className="node-graph-button"
-                  type="button"
-                  onClick={() => setSelectedStepKey(item.key)}
-                  aria-current={item.key === selectedStep?.key ? "step" : undefined}
-                >
-                  <span className="node-graph-dot" aria-hidden="true" />
-                  <span>
-                    <strong>{formatNodeOperation(item.operation)}</strong>
-                    <small>{item.summary}</small>
-                    {item.lane ? <em>lane: {item.lane}</em> : null}
-                    {item.error ? <em>{item.error}</em> : null}
-                  </span>
-                </button>
-              </li>
-            ))}
-            {!steps.length && loadingStage ? (
-              <li className="node-graph-item blocked">
-                <button className="node-graph-button" type="button" disabled>
-                  <span className="node-graph-dot" aria-hidden="true" />
-                  <span>
-                    <strong>{loadingStage}.pending</strong>
-                    <small>Waiting for this node to receive its next trace step.</small>
-                  </span>
-                </button>
-              </li>
-            ) : null}
-          </ol>
+          <div className="node-graph" aria-label="Citation node execution graph">
+            <ReactFlow
+              nodes={flowNodes}
+              edges={flowEdges}
+              nodeTypes={citationNodeTypes}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onNodeClick={(_, clickedNode) => setSelectedStepKey(clickedNode.id)}
+              nodesDraggable={false}
+              nodesConnectable={false}
+              zoomOnScroll={false}
+              zoomOnPinch={false}
+              zoomOnDoubleClick={false}
+              panOnScroll
+              elementsSelectable
+              fitView
+              fitViewOptions={{ padding: 0.28 }}
+              proOptions={{ hideAttribution: true }}
+            >
+              <Background variant={BackgroundVariant.Dots} gap={18} size={1.1} />
+            </ReactFlow>
+          </div>
           {selectedStep ? <CitationNodeStepInspector step={selectedStep} /> : null}
         </div>
       ) : (
         <p className="node-graph-empty">
-          Load a citation-node snapshot or run a stage that emits node traces.
+          Load a citation-node snapshot or run a node-backed stage. Legacy stage snapshots are not traced here.
         </p>
       )}
     </section>
+  );
+}
+
+async function layoutCitationFlowGraph(
+  items: CitationNodeGraphItem[],
+  selectedStepKey: string
+): Promise<CitationFlowLayout> {
+  const rootKey = "extraction.input";
+  const keys = new Set(items.map((item) => item.key));
+  const dependenciesByNode = new Map<string, string[]>();
+  const elkNodes = items.map((item, index) => {
+    const explicitDependencies = item.key === rootKey ? [] : item.depends_on.filter((dependency) => keys.has(dependency));
+    const dependencies = item.key === rootKey ? [] : explicitDependencies.length ? explicitDependencies : [rootKey];
+    dependenciesByNode.set(item.key, dependencies);
+    return {
+      id: item.key,
+      width: CITATION_NODE_WIDTH,
+      height: CITATION_NODE_HEIGHT,
+      labels: [{ text: compactNodeOperation(item.operation, index) }]
+    };
+  });
+  const elkEdges = Array.from(dependenciesByNode.entries()).flatMap(([target, dependencies]) =>
+    dependencies.map((source) => ({
+      id: `${source}->${target}`,
+      sources: [source],
+      targets: [target]
+    }))
+  );
+  const layout = await elk.layout({
+    id: "citation-node-graph",
+    layoutOptions: {
+      "elk.algorithm": "layered",
+      "elk.direction": "RIGHT",
+      "elk.layered.spacing.nodeNodeBetweenLayers": "52",
+      "elk.spacing.nodeNode": "28",
+      "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+      "elk.edgeRouting": "ORTHOGONAL"
+    },
+    children: elkNodes,
+    edges: elkEdges
+  });
+  const layoutById = new Map((layout.children ?? []).map((layoutNode) => [layoutNode.id, layoutNode]));
+  return {
+    nodes: items.map((item, index) => {
+      const layoutNode = layoutById.get(item.key);
+      return {
+        id: item.key,
+        type: "citationStep",
+        position: {
+          x: layoutNode?.x ?? 0,
+          y: layoutNode?.y ?? index * (CITATION_NODE_HEIGHT + 24)
+        },
+        data: {
+          label: compactNodeOperation(item.operation, index),
+          operation: item.operation,
+          status: item.status,
+          lane: item.lane
+        },
+        selected: item.key === selectedStepKey,
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+        draggable: false
+      };
+    }),
+    edges: elkEdges.map((edge) => ({
+      id: edge.id,
+      source: edge.sources[0],
+      target: edge.targets[0],
+      type: "smoothstep",
+      animated: false,
+      style: {
+        stroke: "#94a3b8",
+        strokeWidth: 1.7
+      },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: "#94a3b8",
+        width: 14,
+        height: 14
+      }
+    }))
+  };
+}
+
+function CitationFlowNodeView({
+  data,
+  selected
+}: NodeProps<CitationFlowNode>) {
+  return (
+    <div className={`citation-flow-node ${data.status}${selected ? " selected" : ""}`}>
+      <Handle className="citation-flow-handle" type="target" position={Position.Left} />
+      <span className="citation-flow-dot" aria-hidden="true" />
+      <span className="citation-flow-label">{data.label}</span>
+      {data.lane ? <span className="citation-flow-lane">{data.lane}</span> : null}
+      <Handle className="citation-flow-handle" type="source" position={Position.Right} />
+    </div>
   );
 }
 
@@ -1615,64 +1630,6 @@ function CitationNodeStepInspector({ step }: { step: CitationNodeGraphItem }) {
   );
 }
 
-function effectiveNodeGraphSteps(
-  node: CitationNodePayload | null,
-  citation: ReviewCitation,
-  jurisdiction: JurisdictionPayload | null
-): CitationNodeStepPayload[] {
-  const steps = [...(node?.steps ?? [])];
-  const hasOperation = (operation: string) => steps.some((step) => step.operation === operation);
-  if (jurisdiction && !hasOperation("jurisdiction.inference")) {
-    steps.push({
-      step_id: "derived:jurisdiction",
-      operation: "jurisdiction.inference",
-      status: "succeeded",
-      depends_on: [],
-      lane: null,
-      summary: `Reporter ${jurisdiction.reporter_inference.status}; court ${jurisdiction.court_inference.status}.`,
-      data: { jurisdiction },
-      error: null
-    });
-  }
-  if (citation.retrieval && !hasOperation("retrieval.exact_lookup")) {
-    steps.push({
-      step_id: "derived:retrieval:exact_lookup",
-      operation: "retrieval.exact_lookup",
-      status:
-        citation.retrieval.status === "lookup_failed" || citation.retrieval.status === "throttled"
-          ? "failed"
-          : citation.retrieval.status === "skipped" || citation.retrieval.status === "invalid"
-            ? "skipped"
-            : "succeeded",
-      depends_on: [],
-      lane: null,
-      summary: `Exact locator lookup returned ${citation.retrieval.status}.`,
-      data: { retrieval: citation.retrieval },
-      error: citation.retrieval.request_trace?.error_message ?? null
-    });
-  }
-  if (citation.assessment && !hasOperation("assessment.field_check")) {
-    steps.push({
-      step_id: "derived:assessment",
-      operation: "assessment.field_check",
-      status:
-        citation.assessment.status === "failed"
-          ? "failed"
-          : citation.assessment.status === "waiting"
-            ? "blocked"
-            : citation.assessment.status === "skipped"
-              ? "skipped"
-              : "succeeded",
-      depends_on: [],
-      lane: null,
-      summary: `Assessment status is ${citation.assessment.status}.`,
-      data: { assessment: citation.assessment },
-      error: citation.assessment.status === "failed" ? citation.assessment.error : null
-    });
-  }
-  return steps;
-}
-
 function formatNodeStatus(status: CitationNodePayload["status"]): string {
   return status
     .split("_")
@@ -1687,49 +1644,20 @@ function formatNodeOperation(operation: string): string {
     .join(" → ");
 }
 
-function retrievalOperationStatus(
-  retrieval: RetrievalPayload | null,
-  loadingStage: LoadingStage | null
-): TraceOperationStatus {
-  if (retrieval) {
-    return retrieval.status === "lookup_failed" || retrieval.status === "throttled"
-      ? "failed"
-      : "complete";
-  }
-  return loadingStage === "retrieved" ? "running" : "not-run";
+function compactNodeOperation(operation: string, index: number): string {
+  const lastPart = operation.split(".").at(-1)?.replaceAll("_", " ") || `node ${index + 1}`;
+  return lastPart.length > 14 ? `${lastPart.slice(0, 12)}…` : lastPart;
 }
 
-function assessmentOperationStatus(
-  assessment: CitationAssessmentPayload | null,
-  loadingStage: LoadingStage | null
-): TraceOperationStatus {
-  if (assessment) {
-    return assessment.status === "waiting" ? "running" : "complete";
-  }
-  return loadingStage === "assessed" ? "running" : "not-run";
-}
-
-function formatTraceOperationStatus(status: TraceOperationStatus) {
-  return status === "not-run" ? "Not run" : formatStatusLabel(status);
-}
-
-function CommentDetails({ comment, bookmarked }: { comment: string | null; bookmarked: boolean }) {
+function CommentDetails({ comment }: { comment: string }) {
   return (
     <div className="detail-group comment-detail-group">
       <div className="assessment-trace-heading">
         <h3>Review comment</h3>
         <p>Notes saved with this citation context.</p>
       </div>
-      <div className={`comment-note${comment?.trim() ? " has-comment" : ""}`}>
-        {comment?.trim() ? (
-          <p>{comment}</p>
-        ) : (
-          <p>
-            {bookmarked
-              ? "No comment yet. Use Edit bookmark to add one."
-              : "Bookmark this citation context to save a comment."}
-          </p>
-        )}
+      <div className="comment-note has-comment">
+        <p>{comment}</p>
       </div>
     </div>
   );
@@ -2598,7 +2526,7 @@ function extractedCitationAttempts(
     label: "Extracted",
     isReextracted: false,
     fields: citation.fields,
-    locator: citation.retrieval?.locator ?? citation.matched_text,
+    locator: citation.retrieval?.locator ?? citationLocatorText(citation),
     citation,
     reassessment: null,
     span: null
@@ -2615,7 +2543,7 @@ function extractedCitationAttempts(
       label: "Re-extracted",
       isReextracted: true,
       fields: { ...citation.fields, case_name: item.case_name },
-      locator: citation.retrieval?.locator ?? citation.matched_text,
+      locator: citation.retrieval?.locator ?? citationLocatorText(citation),
       citation,
       reassessment: followup.status === "reassessed" ? followup.result : null,
       span: item.case_name_span
@@ -2630,7 +2558,7 @@ function bibliographicRows(
   primaryAssessment: AssessmentPayload | null
 ): BibliographicRow[] {
   const { citation, fields } = extractedAttempt;
-  const citationLocator = extractedAttempt.locator ?? citation.retrieval?.locator ?? citation.matched_text;
+  const citationLocator = extractedAttempt.locator ?? citation.retrieval?.locator ?? citationLocatorText(citation);
   const extractedLocatorParts = splitLocator(citationLocator);
   const courtListenerLocator = cluster ? citation.retrieval?.locator : null;
   const courtListenerLocatorParts = splitLocator(courtListenerLocator);
@@ -3140,7 +3068,19 @@ function renderCitation(
 }
 
 function preferredCitationSpan(citation: ReviewCitation): TextSpan {
-  return citation;
+  return citationSpan(citation);
+}
+
+function citationSpan(citation: ReviewCitation): TextSpan {
+  return citation.citation_span;
+}
+
+function citationLocatorText(citation: ReviewCitation): string {
+  return citation.matched_locator_text;
+}
+
+function citationDisplayText(citation: ReviewCitation): string {
+  return citation.matched_citation_text;
 }
 
 function trimPaintedSpan(text: string, start: number, end: number) {
@@ -3161,8 +3101,8 @@ function isRenderCitation(citation: RenderCitation | null): citation is RenderCi
   return citation !== null;
 }
 
-function isValidSpan(text: string, citation: Pick<ReviewCitation, "start" | "end">) {
-  return citation.start >= 0 && citation.end <= text.length && citation.start < citation.end;
+function isValidSpan(text: string, span: TextSpan) {
+  return span.start >= 0 && span.end <= text.length && span.start < span.end;
 }
 
 function renderSpansOverlap(left: RenderCitation, right: RenderCitation) {
@@ -3499,22 +3439,23 @@ function stageFilterOptions(
   );
 }
 
-async function extractText(text: string): Promise<ReviewResult> {
-  const response = await fetch("/api/e2e/extract-text", {
+async function reviewText(text: string): Promise<ReviewResult> {
+  const response = await fetch("/api/e2e/review-text", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ text })
+    body: JSON.stringify({ text, retrieve: true })
   });
   return parseReviewResponse(response);
 }
 
-async function extractDocument(file: File): Promise<ReviewResult> {
+async function reviewDocument(file: File): Promise<ReviewResult> {
   const form = new FormData();
   form.append("file", file);
+  form.append("retrieve", "true");
 
-  const response = await fetch("/api/e2e/extract-document", {
+  const response = await fetch("/api/e2e/review-document", {
     method: "POST",
     body: form
   });
@@ -3543,7 +3484,7 @@ async function assessReview(result: ReviewResult): Promise<ReviewResult> {
   return parseReviewResponse(response);
 }
 
-async function loadSnapshotReview(file: File): Promise<SnapshotReviewResult> {
+async function loadReviewSnapshotFile(file: File): Promise<ReviewSnapshotResult> {
   const form = new FormData();
   form.append("file", file);
 
@@ -3551,7 +3492,7 @@ async function loadSnapshotReview(file: File): Promise<SnapshotReviewResult> {
     method: "POST",
     body: form
   });
-  return parseJsonResponse<SnapshotReviewResult>(response);
+  return parseJsonResponse<ReviewSnapshotResult>(response);
 }
 
 async function fetchBookmarkStatuses(
@@ -3576,11 +3517,11 @@ async function fetchBookmarkStatuses(
 }
 
 async function addBookmarkCitation(payload: {
-  citation: { matched_text: string; context: string };
+  citation: { matched_citation_text: string; context: string };
   provenance: {
     source_path: string | null;
     source_format: string;
-    span: { start: number; end: number };
+    citation_span: { start: number; end: number };
   };
   comment: string | null;
 }): Promise<BookmarkMutationResult> {
@@ -3595,7 +3536,7 @@ async function addBookmarkCitation(payload: {
 }
 
 async function updateBookmarkCommentAction(payload: {
-  citation: { matched_text: string; context: string };
+  citation: { matched_citation_text: string; context: string };
   comment: string | null;
 }): Promise<BookmarkCommentUpdateResult> {
   const response = await fetch("/api/bookmark", {
@@ -3618,14 +3559,15 @@ function isBookmarkFixturePath(sourcePath: string | null) {
 
 function citationContextWindow(documentText: string, citation: ReviewCitation) {
   const contextChars = 200;
-  const start = Math.max(0, citation.start - contextChars);
-  const end = Math.min(documentText.length, citation.end + contextChars);
+  const span = citationSpan(citation);
+  const start = Math.max(0, span.start - contextChars);
+  const end = Math.min(documentText.length, span.end + contextChars);
   return documentText.slice(start, end);
 }
 
 function bookmarkIdentityForCitation(citation: ReviewCitation, documentText: string) {
   return {
-    matched_text: citation.matched_text,
+    matched_citation_text: citationDisplayText(citation),
     context: citationContextWindow(documentText, citation)
   };
 }
@@ -3671,14 +3613,14 @@ function wait(milliseconds: number) {
 }
 
 function BookmarkModal({
-  matchedText,
+  matchedCitationText,
   context,
   existingComment,
   saving,
   onSave,
   onCancel
 }: {
-  matchedText: string;
+  matchedCitationText: string;
   context: string;
   existingComment: string | null;
   saving: boolean;
@@ -3728,7 +3670,7 @@ function BookmarkModal({
           </button>
         </header>
         <form onSubmit={handleSubmit} className="bookmark-modal-form">
-          <p className="bookmark-modal-citation">{matchedText}</p>
+          <p className="bookmark-modal-citation">{matchedCitationText}</p>
           <details className="bookmark-modal-context">
             <summary>Context window</summary>
             <pre>{context}</pre>

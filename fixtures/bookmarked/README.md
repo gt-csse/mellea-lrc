@@ -3,8 +3,8 @@
 `bookmarks.json` is authoritative. `bookmarked.txt` is its generated,
 human-readable projection and is also used as snapshot input. A bookmark is a
 citation context, not a retrieval verdict: its identity is derived from
-normalized `matched_text` plus the surrounding context. Repeated observations
-belong in `provenances`.
+normalized `matched_citation_text` plus the surrounding context. Repeated
+observations belong in `provenances`.
 
 ## Comments
 
@@ -42,11 +42,11 @@ provenance IDs, and the text projection stay synchronized:
 
 ```bash
 uv run python scripts/bookmark_fixture.py add \
-  --matched-text "18 F. App'x 744" \
+  --matched-citation-text "Lampe v. United States , 18 F. App'x 744 (10th Cir. 2001)" \
   --context "Lampe v. United States , 18 F. App'x 744 (10th Cir. 2001)" \
   --source-path "../local/test_data/13.txt" \
-  --span-start 2481 \
-  --span-end 2635 \
+  --citation-span-start 2481 \
+  --citation-span-end 2635 \
   --comment $'Identity: LINKAGE DEFECT. ...'
 ```
 

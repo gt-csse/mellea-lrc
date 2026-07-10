@@ -115,7 +115,9 @@ def test_document_extraction_serializes_without_ui_assumptions() -> None:
 
     citation = artifact["citations"][0]
     assert citation["citation_id"] == extraction.citations[0].citation_id
-    assert citation["span"]["start"] == extraction.citations[0].span.start
+    assert citation["citation_span"]["start"] == extraction.citations[0].citation_span.start
+    assert citation["matched_locator_text"] == extraction.citations[0].matched_locator_text
+    assert citation["matched_citation_text"] == extraction.citations[0].matched_citation_text
     assert citation["citation"]["type"] == "FullCaseCitation"
     assert "from_name" not in citation
 
@@ -583,8 +585,9 @@ def test_label_studio_uses_full_span_text_not_matched_text() -> None:
     prediction = to_label_studio_prediction(extraction)
 
     label_result = next(item for item in prediction["result"] if item["type"] == "labels")
-    span_text = extraction.text[extraction.citations[0].span.start : extraction.citations[0].span.end]
+    citation_span = extraction.citations[0].citation_span
+    citation_text = extraction.text[citation_span.start : citation_span.end]
 
-    assert extraction.citations[0].matched_text == "444 F. Supp. 3d 593"
-    assert label_result["value"]["text"] == span_text
-    assert label_result["value"]["text"] != extraction.citations[0].matched_text
+    assert extraction.citations[0].matched_locator_text == "444 F. Supp. 3d 593"
+    assert label_result["value"]["text"] == citation_text
+    assert label_result["value"]["text"] != extraction.citations[0].matched_locator_text

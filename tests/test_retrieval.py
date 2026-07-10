@@ -73,8 +73,9 @@ def test_retrieve_full_case_found() -> None:
         citations=(
             ExtractedCitation(
                 citation_id="abc123",
-                span=Span(0, 28),
-                matched_text="347 U.S. 483",
+                citation_span=Span(0, 28),
+                matched_locator_text="347 U.S. 483",
+                matched_citation_text="Brown v. Board, 347 U.S. 483",
                 citation=FullCaseCitation(volume="347", reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483", court="scotus"),
             ),
         ),
@@ -141,8 +142,9 @@ def test_retrieve_found_docket_lookup_is_best_effort_and_deduplicated() -> None:
         citations=(
             ExtractedCitation(
                 citation_id="cite-1",
-                span=Span(0, 18),
-                matched_text="1 F.3d 2",
+                citation_span=Span(0, 18),
+                matched_locator_text="1 F.3d 2",
+                matched_citation_text="Example, 1 F.3d 2.",
                 citation=FullCaseCitation(volume="1", reporter=Reporter(edition_short_name="F.3d", root_short_name="F.", name="Federal Reporter", cite_type="federal", is_scotus=False, source="reporters"), page="2"),
             ),
         ),
@@ -176,8 +178,9 @@ def test_retrieve_ambiguous_resolves_court_for_each_candidate() -> None:
         citations=(
             ExtractedCitation(
                 citation_id="cite-1",
-                span=Span(0, 18),
-                matched_text="1 F.3d 2",
+                citation_span=Span(0, 18),
+                matched_locator_text="1 F.3d 2",
+                matched_citation_text="Example, 1 F.3d 2.",
                 citation=FullCaseCitation(volume="1", reporter=Reporter(edition_short_name="F.3d", root_short_name="F.", name="Federal Reporter", cite_type="federal", is_scotus=False, source="reporters"), page="2"),
             ),
         ),
@@ -227,8 +230,9 @@ def test_retrieve_non_case_citation_is_skipped() -> None:
         citations=(
             ExtractedCitation(
                 citation_id="law",
-                span=Span(4, 20),
-                matched_text="28 U.S.C. § 636",
+                citation_span=Span(4, 20),
+                matched_locator_text="28 U.S.C. § 636",
+                matched_citation_text="28 U.S.C. § 636.",
                 citation=FullLawCitation(volume="28", reporter="U.S.C.", page="636"),
             ),
         ),
@@ -245,8 +249,9 @@ def _not_found_extraction(citation: FullCaseCitation) -> ExtractedDocument:
         citations=(
             ExtractedCitation(
                 citation_id="nf",
-                span=Span(0, 24),
-                matched_text="999 U.S. 999",
+                citation_span=Span(0, 24),
+                matched_locator_text="999 U.S. 999",
+                matched_citation_text="Doe v. Roe, 999 U.S. 999",
                 citation=citation,
             ),
         ),
@@ -321,7 +326,7 @@ def test_case_name_preparation_prompt_is_compact_and_requirement_driven() -> Non
         before_chars=320,
         after_chars=0,
     )
-    requirements = _case_name_preparation_requirements(window)
+    requirements = _case_name_preparation_requirements(window, "999 U.S. 999")
     prompt = render_case_name_preparation_prompt(
         local_context=window.text,
         locator="999 U.S. 999",
@@ -395,7 +400,32 @@ def test_case_name_preparation_validation_uses_raw_instruct_output() -> None:
         def last_output(self) -> Output:
             return Output()
 
-    assert _validate_grounded_before_locator(Context(), window).as_bool()
+    assert _validate_grounded_before_locator(Context(), window, "999 U.S. 999").as_bool()
+
+
+def test_case_name_preparation_validation_uses_locator_not_full_citation_start() -> None:
+    text = "See Smith v. Jones, 999 U.S. 999."
+    citation_start = text.index("Smith")
+    locator = "999 U.S. 999"
+    citation_end = text.index(locator) + len(locator)
+    window = DocumentTextWindow.around(
+        text,
+        Span(citation_start, citation_end),
+        before_chars=320,
+        after_chars=0,
+    )
+
+    class Output:
+        value = (
+            '{"classification": "complete_case_name", '
+            '"plaintiff": "Smith", "defendant": "Jones", "reason": "copied"}'
+        )
+
+    class Context:
+        def last_output(self) -> Output:
+            return Output()
+
+    assert _validate_grounded_before_locator(Context(), window, locator).as_bool()
 
 
 def test_case_name_preparation_allows_incomplete_output_when_only_prompt_can_bind_marker() -> None:
@@ -418,7 +448,7 @@ def test_case_name_preparation_allows_incomplete_output_when_only_prompt_can_bin
         def last_output(self) -> Output:
             return Output()
 
-    assert _validate_grounded_before_locator(Context(), window).as_bool()
+    assert _validate_grounded_before_locator(Context(), window, "999 U.S. 999").as_bool()
 
 
 def test_case_name_preparation_allows_empty_when_only_prior_citation_has_case_marker() -> None:
@@ -441,7 +471,7 @@ def test_case_name_preparation_allows_empty_when_only_prior_citation_has_case_ma
         def last_output(self) -> Output:
             return Output()
 
-    assert _validate_grounded_before_locator(Context(), window).as_bool()
+    assert _validate_grounded_before_locator(Context(), window, "999 U.S. 999").as_bool()
 
 
 def test_case_name_preparation_allows_parties_before_parallel_locator() -> None:
@@ -464,7 +494,7 @@ def test_case_name_preparation_allows_parties_before_parallel_locator() -> None:
         def last_output(self) -> Output:
             return Output()
 
-    assert _validate_grounded_before_locator(Context(), window).as_bool()
+    assert _validate_grounded_before_locator(Context(), window, "85 S.Ct. 209").as_bool()
 
 
 def test_not_found_reports_zero_case_name_search_results() -> None:
@@ -647,8 +677,9 @@ def test_async_retrieval_bounds_case_name_preparation_concurrency(
         citations.append(
             ExtractedCitation(
                 citation_id=f"cite-{index}",
-                span=Span(locator_start, start),
-                matched_text="999 U.S. 999",
+                citation_span=Span(locator_start, start),
+                matched_locator_text="999 U.S. 999",
+                matched_citation_text="999 U.S. 999",
                 citation=FullCaseCitation(
                     volume="999",
                     reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S."),
@@ -691,8 +722,9 @@ def test_retrieve_surfaces_typed_courtlistener_failure_detail() -> None:
         citations=(
             ExtractedCitation(
                 citation_id="limited",
-                span=Span(0, 28),
-                matched_text="347 U.S. 483",
+                citation_span=Span(0, 28),
+                matched_locator_text="347 U.S. 483",
+                matched_citation_text="Brown v. Board, 347 U.S. 483",
                 citation=FullCaseCitation(volume="347", reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483"),
             ),
         ),
@@ -795,8 +827,9 @@ def test_retrieve_missing_locator_is_invalid_without_service_call() -> None:
         citations=(
             ExtractedCitation(
                 citation_id="bad",
-                span=Span(0, 12),
-                matched_text="Bad citation",
+                citation_span=Span(0, 12),
+                matched_locator_text="Bad citation",
+                matched_citation_text="Bad citation",
                 citation=FullCaseCitation(volume="1", reporter=None, page="2"),
             ),
         ),

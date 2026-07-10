@@ -645,8 +645,9 @@ def test_run_assessment_progresses_document_retrieval_to_document_assessment() -
     )
     citation = ExtractedCitation(
         citation_id="cite-1",
-        span=Span(0, 35),
-        matched_text="347 U.S. 483",
+        citation_span=Span(0, 35),
+        matched_locator_text="347 U.S. 483",
+        matched_citation_text="Brown v. Board, 347 U.S. 483 (1954)",
         citation=FullCaseCitation(
             plaintiff="Brown",
             defendant="Board",
@@ -753,8 +754,9 @@ def _ambiguous_retrieval(
 def test_run_assessment_assesses_each_ambiguous_candidate() -> None:
     citation = ExtractedCitation(
         citation_id="cite-1",
-        span=Span(0, 10),
-        matched_text="1 F.3d 2",
+        citation_span=Span(0, 10),
+        matched_locator_text="1 F.3d 2",
+        matched_citation_text="Doe v. Roe",
         citation=FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="1", reporter=Reporter(edition_short_name="F.3d", root_short_name="F.", name="Federal Reporter", cite_type="federal", is_scotus=False, source="reporters"), page="2"),
     )
     # Both candidates take the deterministic (no-Mellea) case-name path: one exact,
@@ -790,8 +792,9 @@ def test_run_assessment_assesses_each_ambiguous_candidate() -> None:
 def test_run_assessment_gates_ambiguous_beyond_candidate_limit() -> None:
     citation = ExtractedCitation(
         citation_id="cite-1",
-        span=Span(0, 10),
-        matched_text="1 F.3d 2",
+        citation_span=Span(0, 10),
+        matched_locator_text="1 F.3d 2",
+        matched_citation_text="Doe v. Roe",
         citation=FullCaseCitation(plaintiff="Doe", defendant="Roe", volume="1", reporter=Reporter(edition_short_name="F.3d", root_short_name="F.", name="Federal Reporter", cite_type="federal", is_scotus=False, source="reporters"), page="2"),
     )
     records = tuple(CourtListenerCitationRecord(case_name=f"Case {i}", docket_id=str(i)) for i in range(6))
@@ -813,8 +816,9 @@ def test_initialize_assessment_marks_eligible_citation_waiting() -> None:
     )
     citation = ExtractedCitation(
         citation_id="cite-1",
-        span=Span(0, 35),
-        matched_text="347 U.S. 483",
+        citation_span=Span(0, 35),
+        matched_locator_text="347 U.S. 483",
+        matched_citation_text="Brown v. Board, 347 U.S. 483 (1954)",
         citation=FullCaseCitation(
             plaintiff="Brown",
             defendant="Board",
@@ -871,8 +875,9 @@ def test_initialize_assessment_marks_unsupported_citation_skipped() -> None:
     )
     citation = ExtractedCitation(
         citation_id="cite-1",
-        span=Span(4, 20),
-        matched_text="28 U.S.C. § 636",
+        citation_span=Span(4, 20),
+        matched_locator_text="28 U.S.C. § 636",
+        matched_citation_text="28 U.S.C. § 636.",
         citation=FullLawCitation(volume="28", reporter="U.S.C.", page="636"),
     )
     retrieval = RetrievedDocument(
@@ -926,8 +931,9 @@ def test_run_assessment_records_per_citation_failure(monkeypatch: pytest.MonkeyP
     )
     citation = ExtractedCitation(
         citation_id="cite-1",
-        span=Span(0, 35),
-        matched_text="347 U.S. 483",
+        citation_span=Span(0, 35),
+        matched_locator_text="347 U.S. 483",
+        matched_citation_text="Brown v. Board, 347 U.S. 483 (1954)",
         citation=FullCaseCitation(
             plaintiff="Brown",
             defendant="Board",

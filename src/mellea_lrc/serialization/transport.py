@@ -142,8 +142,9 @@ CanonicalCitationPayload = Annotated[
 
 class ExtractedCitationPayload(ArtifactPayload):
     citation_id: str
-    span: SpanPayload
-    matched_text: str
+    citation_span: SpanPayload
+    matched_locator_text: str
+    matched_citation_text: str
     citation: CanonicalCitationPayload
     resolves_to: str | None
 

@@ -27,8 +27,13 @@ def nodes_from_extracted_document(document: ExtractedDocument) -> CitationNodeDo
             CitationNode(
                 input=CitationNodeInput(
                     citation_id=citation.citation_id,
-                    span=citation.span,
-                    matched_text=citation.matched_text,
+                    citation_span=citation.citation_span,
+                    # eyecite exposes ``matched_text`` as the locator string;
+                    # keep that meaning explicit once we cross into nodes.
+                    matched_locator_text=citation.matched_locator_text,
+                    matched_citation_text=document.text[
+                        citation.citation_span.start : citation.citation_span.end
+                    ],
                     citation=citation.citation,
                     resolves_to=citation.resolves_to,
                 )

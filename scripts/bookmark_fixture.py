@@ -29,12 +29,12 @@ def main() -> None:
     comment_parser.add_argument("comment", help="Replacement comment; use an empty string to clear it")
 
     add_parser = subparsers.add_parser("add", help="Add a bookmark citation context")
-    add_parser.add_argument("--matched-text", required=True, help="Matched locator text")
+    add_parser.add_argument("--matched-citation-text", required=True, help="Matched full citation text")
     add_parser.add_argument("--context", required=True, help="Local citation context")
     add_parser.add_argument("--comment", required=True, help="Initial bookmark comment")
     add_parser.add_argument("--source-path", required=True, help="Path relative to fixtures/bookmarked")
-    add_parser.add_argument("--span-start", required=True, type=int, help="Source citation span start")
-    add_parser.add_argument("--span-end", required=True, type=int, help="Source citation span end")
+    add_parser.add_argument("--citation-span-start", required=True, type=int, help="Source citation span start")
+    add_parser.add_argument("--citation-span-end", required=True, type=int, help="Source citation span end")
     add_parser.add_argument("--seen-at", default=None, help="UTC ISO timestamp; defaults to now")
     args = parser.parse_args()
 
@@ -48,12 +48,12 @@ def main() -> None:
     elif args.command == "add":
         _add_bookmark(
             store,
-            matched_text=args.matched_text,
+            matched_citation_text=args.matched_citation_text,
             context=args.context,
             comment=args.comment,
             source_path=args.source_path,
-            span_start=args.span_start,
-            span_end=args.span_end,
+            citation_span_start=args.citation_span_start,
+            citation_span_end=args.citation_span_end,
             seen_at=args.seen_at,
         )
     else:
@@ -90,24 +90,30 @@ def _replace_comment(store: dict[str, Any], bookmark_id: str, comment: str) -> N
 def _add_bookmark(
     store: dict[str, Any],
     *,
-    matched_text: str,
+    matched_citation_text: str,
     context: str,
     comment: str,
     source_path: str,
-    span_start: int,
-    span_end: int,
+    citation_span_start: int,
+    citation_span_end: int,
     seen_at: str | None,
 ) -> None:
     timestamp = seen_at or _utc_now()
-    bookmark_id = _identity("citation", matched_text, context)
-    provenance_id = _identity("provenance", source_path, str(span_start), str(span_end), context)
+    bookmark_id = _identity("citation", matched_citation_text, context)
+    provenance_id = _identity(
+        "provenance",
+        source_path,
+        str(citation_span_start),
+        str(citation_span_end),
+        context,
+    )
     if any(item["bookmark_id"] == bookmark_id for item in store["bookmarks"]):
         raise SystemExit(f"Bookmark already exists: {bookmark_id}")
     store["bookmarks"].append(
         {
             "bookmark_id": bookmark_id,
             "citation": {
-                "matched_text": matched_text,
+                "matched_citation_text": matched_citation_text,
                 "context": context,
             },
             "comment": comment.strip() or None,
@@ -115,9 +121,9 @@ def _add_bookmark(
                 {
                     "source_path": source_path,
                     "source_format": "text",
-                    "span": {
-                        "start": span_start,
-                        "end": span_end,
+                    "citation_span": {
+                        "start": citation_span_start,
+                        "end": citation_span_end,
                     },
                     "provenance_id": provenance_id,
                     "seen_at": timestamp,
@@ -146,7 +152,7 @@ def render_text(store: dict[str, object]) -> str:
     """Render the exact aggregate fixture projection."""
     blocks: list[str] = []
     for bookmark in store["bookmarks"]:  # type: ignore[index]
-        lines = [bookmark["citation"]["matched_text"]]  # type: ignore[index]
+        lines = [bookmark["citation"]["matched_citation_text"]]  # type: ignore[index]
         if bookmark["comment"]:  # type: ignore[index]
             lines.extend(("", f"> {bookmark['comment']}"))  # type: ignore[index]
         lines.extend(("", f"Context: {bookmark['citation']['context']}"))  # type: ignore[index]

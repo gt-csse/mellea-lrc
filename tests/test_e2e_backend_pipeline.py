@@ -1,6 +1,9 @@
 """Tests for the standalone E2E backend pipeline helpers."""
 
 import asyncio
+
+import pytest
+
 from mellea_lrc.assessment import (
     AssessmentMetadata,
     AssessedCitationAssessment,
@@ -186,9 +189,9 @@ def test_review_preprocessed_returns_frontend_span_payload() -> None:
 
     citation = output["citations"][0]
     assert output["document"]["text"] == "Brown v. Board, 347 U.S. 483."
-    assert citation["start"] == 0
-    assert citation["end"] == 28
-    assert citation["matched_text"] == "347 U.S. 483"
+    assert citation["citation_span"] == {"start": 0, "end": 28}
+    assert citation["matched_locator_text"] == "347 U.S. 483"
+    assert citation["matched_citation_text"] == "Brown v. Board, 347 U.S. 483"
     assert citation["kind"] == "FullCaseCitation"
     assert citation["fields"]["volume"] == "347"
     assert citation["fields"]["reporter"]["edition_short_name"] == "U.S."
@@ -217,8 +220,8 @@ def test_retrieve_review_payload_reuses_existing_extraction_payload() -> None:
     output = retrieve_review_payload(extracted, client=FakeClient())
 
     citation = output["citations"][0]
-    assert citation["start"] == extracted["citations"][0]["start"]
-    assert citation["end"] == extracted["citations"][0]["end"]
+    assert citation["citation_span"] == extracted["citations"][0]["citation_span"]
+    assert citation["matched_locator_text"] == extracted["citations"][0]["matched_locator_text"]
     assert citation["retrieval"]["status"] == "found"
     assert output["retrieval"]["counts"]["found"] == 1
 
@@ -297,8 +300,9 @@ def test_review_document_assessment_renders_cached_assessment_payload() -> None:
     preprocessed = preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483 (1954).")
     citation = ExtractedCitation(
         citation_id="cite-1",
-        span=Span(0, 35),
-        matched_text="347 U.S. 483",
+        citation_span=Span(0, 35),
+        matched_locator_text="347 U.S. 483",
+        matched_citation_text="Brown v. Board, 347 U.S. 483 (1954)",
         citation=FullCaseCitation(
             plaintiff="Brown",
             defendant="Board",
@@ -369,8 +373,9 @@ def test_review_document_assessment_preserves_waiting_citation() -> None:
     preprocessed = preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483 (1954).")
     citation = ExtractedCitation(
         citation_id="cite-1",
-        span=Span(0, 35),
-        matched_text="347 U.S. 483",
+        citation_span=Span(0, 35),
+        matched_locator_text="347 U.S. 483",
+        matched_citation_text="Brown v. Board, 347 U.S. 483 (1954)",
         citation=FullCaseCitation(volume="347", reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483"),
     )
 
@@ -401,8 +406,9 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
     preprocessed = preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483 (1954).")
     citation = ExtractedCitation(
         citation_id="cite-1",
-        span=Span(0, 35),
-        matched_text="347 U.S. 483",
+        citation_span=Span(0, 35),
+        matched_locator_text="347 U.S. 483",
+        matched_citation_text="Brown v. Board, 347 U.S. 483 (1954)",
         citation=FullCaseCitation(volume="347", reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483"),
     )
     year = YearAssessment(
@@ -462,12 +468,13 @@ def test_review_document_assessment_allows_resolved_reextraction_handoff() -> No
     assert followup["result"]["status"] == "semantic_match"
 
 
-def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> None:
+def test_review_snapshot_payload_accepts_only_citation_node_documents() -> None:
     preprocessed = preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483 (1954).")
     citation = ExtractedCitation(
         citation_id="cite-1",
-        span=Span(0, 35),
-        matched_text="347 U.S. 483",
+        citation_span=Span(0, 35),
+        matched_locator_text="347 U.S. 483",
+        matched_citation_text="Brown v. Board, 347 U.S. 483 (1954)",
         citation=FullCaseCitation(
             plaintiff="Brown",
             defendant="Board",
@@ -478,56 +485,15 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
         ),
     )
     extraction = _extracted_document(preprocessed=preprocessed, citations=(citation,))
-    retrieval = _retrieved_document(
-        preprocessed=preprocessed,
-        citations=(citation,),
-        retrievals=(
-            FoundCitationRetrieval(
-                citation_id="cite-1",
-                locator="347 U.S. 483",
-                source="test",
-                request_trace=CourtListenerRequestTrace(http_status=200),
-                candidate=_retrieved_candidate("cite-1"),
-                extra_data=ExtraData(),
-            ),
-        ),
-    )
-    assessment = _assessed_document(
-        preprocessed=preprocessed,
-        citations=(citation,),
-        retrievals=retrieval.retrievals,
-        assessments=(
-            AssessedCitationAssessment(
-                citation_id="cite-1",
-                candidate_id="cite-1:candidate:0",
-                result=CitationAssessmentResult(
-                    case_name=CaseNameAssessmentRun(
-                        initial=CaseNameAssessment(
-                            status=CaseNameAssessmentStatus.EXACT_MATCH,
-                            extracted_case_name="Brown v. Board",
-                            courtlistener_case_name="Brown v. Board",
-                            message="match",
-                        ),
-                        followup=CaseNameReassessmentNotRequired(),
-                    ),
-                    court=_court_assessment(),
-                    year=YearAssessment(
-                        status=YearAssessmentStatus.EXACT_MATCH,
-                        extracted_year="1954",
-                        courtlistener_year="1954",
-                        message="match",
-                    ),
-                ),
-            ),
-        ),
-    )
     backend = E2EBackend()
 
-    assert (
-        _review_snapshot_payload(serialize_preprocessed_document(preprocessed), backend)["stage"]
-        == "preprocessed"
-    )
-    assert _review_snapshot_payload(serialize_extracted_document(extraction), backend)["stage"] == "extracted"
+    for payload in (
+        serialize_preprocessed_document(preprocessed),
+        serialize_extracted_document(extraction),
+    ):
+        with pytest.raises(ValueError, match="citation_node_document"):
+            _review_snapshot_payload(payload, backend)
+
     node_review = _review_snapshot_payload(
         citation_node_document_to_json(nodes_from_extracted_document(extraction)),
         backend,
@@ -536,15 +502,6 @@ def test_review_snapshot_payload_detects_serialized_interface_boundaries() -> No
     assert node_review["result"]["citations"][0]["id"] == "cite-1"
     assert node_review["result"]["citations"][0]["fields"]["reporter"]["edition_short_name"] == "U.S."
     assert node_review["result"]["node_graph"]["nodes"][0]["steps"] == []
-    assert _review_snapshot_payload(serialize_retrieved_document(retrieval), backend)["stage"] == "retrieved"
-    assessed_review = _review_snapshot_payload(serialize_assessed_document(assessment), backend)
-    assert assessed_review["stage"] == "assessed"
-    node_steps = assessed_review["result"]["node_graph"]["nodes"][0]["steps"]
-    assert [step["operation"] for step in node_steps] == [
-        "jurisdiction.inference",
-        "retrieval.exact_lookup",
-        "assessment.field_check",
-    ]
 
 
 def test_llm_api_config_binds_an_explicit_openai_compatible_endpoint() -> None:

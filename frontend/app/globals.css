@@ -906,8 +906,46 @@ input:focus-visible {
 
 .trace-region {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) minmax(220px, 0.9fr);
-  gap: 10px;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0;
+}
+
+.node-browser-tabs {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: end;
+  gap: 5px;
+  min-width: 0;
+  padding: 0 8px;
+}
+
+.node-browser-tab {
+  min-width: 92px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 9px 9px 0 0;
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  padding: 8px 12px;
+}
+
+.node-browser-tab.selected {
+  margin-bottom: -1px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: inset 0 3px 0 var(--accent);
+}
+
+.node-browser-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
 }
 
 .trace-nav {
@@ -1050,9 +1088,8 @@ input:focus-visible {
 .node-graph-panel {
   min-width: 0;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 10px;
   background:
     radial-gradient(circle at 14px 14px, rgba(59, 130, 246, 0.09), transparent 22px),
     linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
@@ -1105,123 +1142,119 @@ input:focus-visible {
 }
 
 .node-graph {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(155px, 1fr);
-  gap: 8px;
-  min-height: 0;
-  margin: 0;
-  padding: 0 2px 5px;
-  overflow-x: auto;
-  list-style: none;
-  scrollbar-width: thin;
-}
-
-.node-graph-item {
   position: relative;
-  min-height: 82px;
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
-  background: #fff;
-  padding: 0;
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
-}
-
-.node-graph-dot {
-  flex: 0 0 auto;
-  width: 10px;
-  height: 10px;
-  margin-top: 3px;
-  border-radius: 999px;
-  background: #64748b;
-  box-shadow: 0 0 0 3px #e2e8f0;
-}
-
-.node-graph-item.succeeded {
-  border-color: #86efac;
-  background: #f0fdf4;
-}
-
-.node-graph-item.succeeded .node-graph-dot {
-  background: #16a34a;
-  box-shadow: 0 0 0 3px #bbf7d0;
-}
-
-.node-graph-item.failed {
-  border-color: #fca5a5;
-  background: #fef2f2;
-}
-
-.node-graph-item.failed .node-graph-dot {
-  background: #dc2626;
-  box-shadow: 0 0 0 3px #fecaca;
-}
-
-.node-graph-item.blocked {
-  border-color: #fcd34d;
-  background: #fffbeb;
-}
-
-.node-graph-item.blocked .node-graph-dot {
-  background: #d97706;
-  box-shadow: 0 0 0 3px #fde68a;
-}
-
-.node-graph-item.skipped {
-  border-color: #cbd5e1;
+  border: 1px solid #dbe3ef;
+  border-radius: 10px;
   background: #f8fafc;
 }
 
-.node-graph-item.selected {
-  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.14);
-}
-
-.node-graph-button {
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: transparent;
-  color: inherit;
+.node-graph .react-flow__node {
   cursor: pointer;
-  font: inherit;
-  padding: 9px;
-  text-align: left;
 }
 
-.node-graph-button:disabled {
-  cursor: default;
+.node-graph .react-flow__node.selected {
+  outline: none;
+}
+
+.node-graph .react-flow__edge-path {
+  stroke: #94a3b8;
+  stroke-width: 1.7;
 }
 
 .node-graph-workspace {
   display: grid;
-  grid-template-rows: minmax(86px, auto) minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: minmax(300px, 1fr) minmax(320px, 0.9fr);
+  gap: 12px;
   min-height: 0;
+  height: calc(100% - 48px);
 }
 
-.node-graph-item strong {
-  display: block;
-  font-size: 11px;
-  overflow-wrap: anywhere;
+.citation-flow-node {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "dot label"
+    "dot lane";
+  align-items: center;
+  column-gap: 7px;
+  width: 104px;
+  min-height: 48px;
+  border: 1px solid #dbe3ef;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #334155;
+  padding: 7px 8px;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
 }
 
-.node-graph-item small,
-.node-graph-item em {
-  display: block;
-  margin-top: 3px;
-  color: var(--muted);
+.citation-flow-handle {
+  width: 7px;
+  height: 7px;
+  border: 0;
+  background: #94a3b8;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.citation-flow-node.selected {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 4px rgba(37, 99, 235, 0.14),
+    0 10px 22px rgba(15, 23, 42, 0.16);
+}
+
+.citation-flow-dot {
+  grid-area: dot;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #64748b;
+  box-shadow: 0 0 0 4px #e2e8f0;
+}
+
+.citation-flow-node.succeeded .citation-flow-dot {
+  background: #16a34a;
+  box-shadow: 0 0 0 4px #bbf7d0;
+}
+
+.citation-flow-node.failed .citation-flow-dot {
+  background: #dc2626;
+  box-shadow: 0 0 0 4px #fecaca;
+}
+
+.citation-flow-node.blocked .citation-flow-dot {
+  background: #d97706;
+  box-shadow: 0 0 0 4px #fde68a;
+}
+
+.citation-flow-node.skipped .citation-flow-dot {
+  background: #94a3b8;
+  box-shadow: 0 0 0 4px #e2e8f0;
+}
+
+.citation-flow-label {
+  grid-area: label;
+  min-width: 0;
+  color: #1e293b;
   font-size: 10px;
-  line-height: 1.35;
+  font-weight: 850;
+  line-height: 1.16;
   overflow-wrap: anywhere;
 }
 
-.node-graph-item em {
-  color: var(--trace-danger-ink);
-  font-style: normal;
-  font-weight: 750;
+.citation-flow-lane {
+  grid-area: lane;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .node-graph-empty {

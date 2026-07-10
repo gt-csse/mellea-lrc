@@ -452,17 +452,18 @@ def retrieve_review_citation_payload(
         raise TypeError(msg)
 
     extracted_citation = _extracted_citation_from_review_item(citation)
-    retrieval_text = extracted_citation.matched_text or "citation"
+    matched_locator_text = extracted_citation.matched_locator_text or "citation"
     retrieval_citation = ExtractedCitation(
         citation_id=extracted_citation.citation_id,
-        span=Span(start=0, end=len(retrieval_text)),
-        matched_text=extracted_citation.matched_text,
+        citation_span=Span(start=0, end=len(matched_locator_text)),
+        matched_locator_text=matched_locator_text,
+        matched_citation_text=matched_locator_text,
         citation=extracted_citation.citation,
         resolves_to=None,
     )
     extraction = ExtractedDocument(
         source_metadata=SourceMetadata(),
-        text=retrieval_text,
+        text=matched_locator_text,
         preprocessing_metadata=PreprocessingMetadata(
             backend=PreprocessingBackend.PLAIN_TEXT,
         ),
@@ -488,17 +489,18 @@ async def retrieve_review_citation_payload_async(
         raise TypeError(msg)
 
     extracted_citation = _extracted_citation_from_review_item(citation)
-    retrieval_text = extracted_citation.matched_text or "citation"
+    matched_locator_text = extracted_citation.matched_locator_text or "citation"
     retrieval_citation = ExtractedCitation(
         citation_id=extracted_citation.citation_id,
-        span=Span(start=0, end=len(retrieval_text)),
-        matched_text=extracted_citation.matched_text,
+        citation_span=Span(start=0, end=len(matched_locator_text)),
+        matched_locator_text=matched_locator_text,
+        matched_citation_text=matched_locator_text,
         citation=extracted_citation.citation,
         resolves_to=None,
     )
     extraction = ExtractedDocument(
         source_metadata=SourceMetadata(),
-        text=retrieval_text,
+        text=matched_locator_text,
         preprocessing_metadata=PreprocessingMetadata(
             backend=PreprocessingBackend.PLAIN_TEXT,
         ),
@@ -680,9 +682,12 @@ def _citation_payloads(
     return [
         {
             "id": item.citation_id,
-            "start": item.span.start,
-            "end": item.span.end,
-            "matched_text": item.matched_text,
+            "citation_span": {
+                "start": item.citation_span.start,
+                "end": item.citation_span.end,
+            },
+            "matched_locator_text": item.matched_locator_text,
+            "matched_citation_text": item.matched_citation_text,
             "kind": citation_kind(item.citation).value,
             "fields": _citation_fields(item.citation),
             "resolves_to": item.resolves_to,
@@ -710,13 +715,18 @@ def _node_graph_payload(
 
 def _citation_payload_from_node(node: dict[str, object]) -> dict[str, Any]:
     node_input = node.get("input") if isinstance(node.get("input"), dict) else {}
-    span = node_input.get("span") if isinstance(node_input.get("span"), dict) else {}
+    citation_span = node_input.get("citation_span") if isinstance(node_input.get("citation_span"), dict) else {}
     citation = node_input.get("citation") if isinstance(node_input.get("citation"), dict) else {}
+    matched_locator_text = str(node_input.get("matched_locator_text") or "")
+    matched_citation_text = str(node_input.get("matched_citation_text") or "")
     return {
         "id": str(node_input.get("citation_id") or node.get("citation_id") or ""),
-        "start": _optional_int(span.get("start")) or 0,
-        "end": _optional_int(span.get("end")) or 0,
-        "matched_text": str(node_input.get("matched_text") or ""),
+        "citation_span": {
+            "start": _optional_int(citation_span.get("start")) or 0,
+            "end": _optional_int(citation_span.get("end")) or 0,
+        },
+        "matched_locator_text": matched_locator_text,
+        "matched_citation_text": matched_citation_text,
         "kind": str(citation.get("type") or citation.get("kind") or "UnknownCitation"),
         "fields": {
             key: value
@@ -852,10 +862,15 @@ def _extracted_citation_from_review_item(item: JsonDict) -> ExtractedCitation:
         if item.get("kind") == "FullCaseCitation"
         else UnknownCitation()
     )
+    citation_span = item.get("citation_span") if isinstance(item.get("citation_span"), dict) else {}
     return ExtractedCitation(
         citation_id=str(item.get("id") or ""),
-        span=Span(start=_int_field(item.get("start")), end=_int_field(item.get("end"))),
-        matched_text=str(item.get("matched_text") or ""),
+        citation_span=Span(
+            start=_int_field(citation_span.get("start")),
+            end=_int_field(citation_span.get("end")),
+        ),
+        matched_locator_text=str(item.get("matched_locator_text") or ""),
+        matched_citation_text=str(item.get("matched_citation_text") or ""),
         citation=citation,
         resolves_to=_optional_str(item.get("resolves_to")),
     )

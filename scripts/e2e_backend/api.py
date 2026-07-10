@@ -9,13 +9,6 @@ from typing import Annotated, Any
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from mellea_lrc.serialization import (
-    deserialize_assessed_document,
-    deserialize_extracted_document,
-    deserialize_inferred_document,
-    deserialize_retrieved_document,
-    deserialize_preprocessed_document,
-)
 from scripts.e2e_backend.pipeline import E2EBackend
 
 APP_NAME = "mellea-lrc-prototype"
@@ -126,39 +119,10 @@ def _review_snapshot_payload(payload: object, pipeline: E2EBackend) -> dict[str,
         msg = "Snapshot must be a JSON object."
         raise TypeError(msg)
     artifact_type = payload.get("artifact_type")
-    if artifact_type == "assessed_document":
-        return {
-            "stage": "assessed",
-            "result": pipeline.review_document_assessment(deserialize_assessed_document(payload)),
-        }
-    if artifact_type in {"retrieved_document", "validated_document"}:
-        return {
-            "stage": "retrieved",
-            "result": pipeline.review_document_retrieval(deserialize_retrieved_document(payload)),
-        }
-    if artifact_type == "extracted_document":
-        return {
-            "stage": "extracted",
-            "result": pipeline.review_document_extraction(deserialize_extracted_document(payload)),
-        }
     if artifact_type == "citation_node_document":
         return {
             "stage": "node_graph",
             "result": pipeline.review_citation_node_document(payload),
         }
-    if artifact_type == "inferred_document":
-        return {
-            "stage": "inferred",
-            "result": pipeline.review_document_inference(deserialize_inferred_document(payload)),
-        }
-    if artifact_type == "preprocessed_document":
-        return {
-            "stage": "preprocessed",
-            "result": pipeline.review_preprocessed_document(deserialize_preprocessed_document(payload)),
-        }
-    msg = (
-        "Snapshot does not look like a serialized PreprocessedDocument, "
-        "ExtractedDocument, CitationNodeDocument, InferredDocument, "
-        "RetrievedDocument, or AssessedDocument."
-    )
+    msg = "Snapshot review only accepts citation_node_document artifacts."
     raise ValueError(msg)

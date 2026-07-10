@@ -95,13 +95,14 @@ def _append_jurisdiction_step(
     node: CitationNode,
     jurisdiction: Jurisdiction | None,
 ) -> CitationNode:
+    step_id = _step_id(node.citation_id, "jurisdiction")
     if jurisdiction is None:
         return node.append_step(
             CitationStep(
                 operation="jurisdiction.inference",
                 status=CitationStepStatus.SKIPPED,
                 summary="No jurisdiction inference was available for this citation.",
-                step_id=_step_id(node.citation_id, "jurisdiction"),
+                step_id=step_id,
             )
         )
     reporter_status = jurisdiction.reporter_inference.status.value
@@ -111,7 +112,7 @@ def _append_jurisdiction_step(
             operation="jurisdiction.inference",
             status=CitationStepStatus.SUCCEEDED,
             summary=f"Reporter {reporter_status}; court {court_status}.",
-            step_id=_step_id(node.citation_id, "jurisdiction"),
+            step_id=step_id,
             data={"jurisdiction": serialize_jurisdiction(jurisdiction)},
         )
     )
@@ -250,6 +251,7 @@ def _append_assessment_step(
     node: CitationNode,
     assessment: CitationAssessment | None,
 ) -> CitationNode:
+    depends_on = _terminal_dependency_ids(node)
     if assessment is None:
         return node.append_step(
             CitationStep(
@@ -257,6 +259,7 @@ def _append_assessment_step(
                 status=CitationStepStatus.SKIPPED,
                 summary="No assessment result was available for this citation.",
                 step_id=_step_id(node.citation_id, "assessment", "field_check"),
+                depends_on=depends_on,
             )
         )
     return node.append_step(
@@ -265,11 +268,38 @@ def _append_assessment_step(
             status=_assessment_step_status(assessment),
             summary=f"Assessment status is {assessment.status.value}.",
             step_id=_step_id(node.citation_id, "assessment", "field_check"),
+            depends_on=depends_on,
             data={"assessment": serialize_citation_assessment(assessment)},
             error=assessment.error if isinstance(assessment, FailedCitationAssessment) else None,
         ),
         status=_node_status_after_assessment(node, assessment),
     )
+
+
+def _terminal_dependency_ids(node: CitationNode) -> tuple[str, ...]:
+    """Return current terminal retrieval dependencies for the next consumer step.
+
+    Jurisdiction inference is intentionally excluded because it is an always-run
+    side branch at this phase; assessment does not consume its result.
+    """
+    by_id = {step.step_id: step for step in node.steps if step.step_id}
+    consumed = {
+        dependency
+        for step in node.steps
+        for dependency in step.depends_on
+        if dependency in by_id
+    }
+    retrieval_terminals = tuple(
+        step_id
+        for step_id, step in by_id.items()
+        if step_id not in consumed and step.operation.startswith("retrieval.")
+    )
+    if retrieval_terminals:
+        return retrieval_terminals
+    retrieval_steps = tuple(step.step_id for step in node.steps if step.step_id and step.operation.startswith("retrieval."))
+    if retrieval_steps:
+        return (retrieval_steps[-1],)
+    return ()
 
 
 def _retrieval_step_status(retrieval: CitationRetrieval) -> CitationStepStatus:
@@ -351,7 +381,7 @@ def _case_name_evidence(node: CitationNode, preparation: object) -> dict[str, ob
         "plaintiff": plaintiff,
         "defendant": defendant,
         "court": getattr(preparation, "court", None) or getattr(citation, "court", None),
-        "locator": getattr(preparation, "locator", None) or node.input.matched_text,
+        "locator": getattr(preparation, "locator", None) or node.input.matched_locator_text,
         "llm_status": getattr(preparation, "status", None).value
         if getattr(preparation, "status", None) is not None
         else "not_attempted",

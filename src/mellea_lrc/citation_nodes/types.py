@@ -47,8 +47,9 @@ class CitationNodeInput:
     """Stable citation input copied from extraction for independent execution."""
 
     citation_id: str
-    span: Span
-    matched_text: str
+    citation_span: Span
+    matched_locator_text: str
+    matched_citation_text: str
     citation: CanonicalCitation
     resolves_to: str | None = None
 
@@ -56,8 +57,11 @@ class CitationNodeInput:
         if not self.citation_id:
             msg = "Citation node input must have a citation_id"
             raise ValueError(msg)
-        if not self.matched_text:
-            msg = f"Citation node input {self.citation_id!r} must have matched_text"
+        if not self.matched_locator_text:
+            msg = f"Citation node input {self.citation_id!r} must have matched_locator_text"
+            raise ValueError(msg)
+        if not self.matched_citation_text:
+            msg = f"Citation node input {self.citation_id!r} must have matched_citation_text"
             raise ValueError(msg)
 
 
@@ -131,8 +135,8 @@ class CitationNodeDocument:
             msg = "Citation node identifiers must be unique within a document"
             raise ValueError(msg)
         for node in self.nodes:
-            if node.input.span.end > len(self.text):
-                msg = f"Citation node {node.citation_id!r} span exceeds document text"
+            if node.input.citation_span.end > len(self.text):
+                msg = f"Citation node {node.citation_id!r} citation_span exceeds document text"
                 raise ValueError(msg)
 
     def node_by_id(self, citation_id: str) -> CitationNode:

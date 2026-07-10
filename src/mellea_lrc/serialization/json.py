@@ -289,11 +289,16 @@ def _deserialize_citation(payload: Mapping[str, object]) -> CanonicalCitation:
 
 
 def serialize_extracted_citation(item: ExtractedCitation) -> dict[str, JsonValue]:
-    """Serialize one extracted citation into a UI-agnostic JSON-ready dict."""
+    """Serialize one extracted citation into a UI-agnostic JSON-ready dict.
+
+    Names are explicit because eyecite's matched text and full span have
+    different meanings for full citations.
+    """
     return {
         "citation_id": item.citation_id,
-        "span": cast("dict[str, JsonValue]", asdict(item.span)),
-        "matched_text": item.matched_text,
+        "citation_span": cast("dict[str, JsonValue]", asdict(item.citation_span)),
+        "matched_locator_text": item.matched_locator_text,
+        "matched_citation_text": item.matched_citation_text,
         "citation": _serialize_citation(item.citation),
         "resolves_to": item.resolves_to,
     }
@@ -304,8 +309,15 @@ def deserialize_extracted_citation(payload: Mapping[str, object]) -> ExtractedCi
     validated = ExtractedCitationPayload.model_validate(payload).model_dump(mode="python")
     return ExtractedCitation(
         citation_id=_required_str(validated.get("citation_id"), "citation_id"),
-        span=_deserialize_span(_mapping_field(validated.get("span"))),
-        matched_text=_required_str(validated.get("matched_text"), "matched_text"),
+        citation_span=_deserialize_span(_mapping_field(validated.get("citation_span"))),
+        matched_locator_text=_required_str(
+            validated.get("matched_locator_text"),
+            "matched_locator_text",
+        ),
+        matched_citation_text=_required_str(
+            validated.get("matched_citation_text"),
+            "matched_citation_text",
+        ),
         citation=_deserialize_citation(_mapping_field(validated.get("citation"))),
         resolves_to=_optional_str(validated.get("resolves_to")),
     )

@@ -44,11 +44,12 @@ def citation_node_input_to_json(node_input: CitationNodeInput) -> dict[str, obje
     """Project citation-node input into strict JSON-compatible data."""
     return {
         "citation_id": node_input.citation_id,
-        "span": {
-            "start": node_input.span.start,
-            "end": node_input.span.end,
+        "citation_span": {
+            "start": node_input.citation_span.start,
+            "end": node_input.citation_span.end,
         },
-        "matched_text": node_input.matched_text,
+        "matched_locator_text": node_input.matched_locator_text,
+        "matched_citation_text": node_input.matched_citation_text,
         "citation": citation_to_json(node_input.citation),
         "resolves_to": node_input.resolves_to,
     }

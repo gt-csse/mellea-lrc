@@ -154,8 +154,9 @@ def test_extracted_document_rejects_span_outside_text() -> None:
     preprocessed = preprocess_plain_text_from_string("347 U.S. 483")
     citation = ExtractedCitation(
         citation_id="cite-1",
-        span=Span(0, len(preprocessed.text) + 1),
-        matched_text="347 U.S. 483",
+        citation_span=Span(0, len(preprocessed.text) + 1),
+        matched_locator_text="347 U.S. 483",
+        matched_citation_text="347 U.S. 483",
         citation=FullCaseCitation(volume="347", reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483"),
     )
 
@@ -194,8 +195,9 @@ def test_retrieved_document_requires_one_result_per_citation() -> None:
 def _citation(citation_id: str) -> ExtractedCitation:
     return ExtractedCitation(
         citation_id=citation_id,
-        span=Span(0, 12),
-        matched_text="347 U.S. 483",
+        citation_span=Span(0, 12),
+        matched_locator_text="347 U.S. 483",
+        matched_citation_text="347 U.S. 483",
         citation=FullCaseCitation(volume="347", reporter=Reporter(edition_short_name="U.S.", root_short_name="U.S.", name="United States Supreme Court Reports", cite_type="federal", is_scotus=True, source="reporters"), page="483"),
     )
 

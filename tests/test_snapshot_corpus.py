@@ -69,3 +69,6 @@ def test_run_document_writes_citation_node_snapshot(tmp_path: Path) -> None:
     assert snapshot["schema_version"] == 19
     assert snapshot["artifact_type"] == "citation_node_document"
     assert snapshot["nodes"][0]["citation_id"] == "cite-0001"
+    assert sorted(path.name for path in (config.snapshot_root / "1").iterdir()) == [
+        "citation_nodes.json"
+    ]

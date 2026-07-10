@@ -111,7 +111,7 @@ async def _call_prepare_case_name(
     _load_llm_env_or_skip()
     session = start_mellea_session_from_env()
     window = _window_for(text, locator)
-    requirements = [*_case_name_preparation_requirements(window), *(extra_requirements or [])]
+    requirements = [*_case_name_preparation_requirements(window, locator), *(extra_requirements or [])]
     return await _prepare_case_name(
         session,
         local_context=window.text,

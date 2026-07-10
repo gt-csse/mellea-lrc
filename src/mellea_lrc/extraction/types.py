@@ -26,11 +26,21 @@ class ExtractionMetadata:
 
 @dataclass(frozen=True, slots=True)
 class ExtractedCitation:
-    """A canonical citation located in document text."""
+    """A canonical citation located in document text.
+
+    ``citation_span`` is the eyecite full-citation span. For full case
+    citations this can include party names, locator, court/date parenthetical,
+    and pin cites.
+
+    eyecite's ``matched_text()`` is the locator string for full citations, so
+    we persist it as ``matched_locator_text``. ``matched_citation_text`` is the
+    exact document slice covered by ``citation_span``.
+    """
 
     citation_id: str
-    span: Span
-    matched_text: str
+    citation_span: Span
+    matched_locator_text: str
+    matched_citation_text: str
     citation: CanonicalCitation
     resolves_to: str | None = None
 
@@ -59,8 +69,12 @@ class ExtractedDocument(PreprocessedDocument):
 
         known_ids = set(citation_ids)
         for item in self.citations:
-            if item.span.end > len(self.text):
-                msg = f"Citation {item.citation_id!r} span exceeds document text"
+            if item.citation_span.end > len(self.text):
+                msg = f"Citation {item.citation_id!r} citation_span exceeds document text"
+                raise ValueError(msg)
+            source_text = self.text[item.citation_span.start : item.citation_span.end]
+            if source_text != item.matched_citation_text:
+                msg = f"Citation {item.citation_id!r} matched_citation_text does not match citation_span"
                 raise ValueError(msg)
             if item.resolves_to is not None and (
                 item.resolves_to not in known_ids or item.resolves_to == item.citation_id

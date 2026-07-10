@@ -10,12 +10,12 @@ const contextChars = 200;
 type BookmarkProvenance = {
   source_path: string | null;
   source_format: string;
-  span: { start: number; end: number };
+  citation_span: { start: number; end: number };
 };
 
 export type BookmarkCitationInput = {
   citation_id?: string;
-  matched_text: string;
+  matched_citation_text: string;
   context: string;
 };
 
@@ -127,7 +127,7 @@ export async function addBookmark(request: BookmarkAddRequest) {
       store.bookmarks.push({
         bookmark_id: id,
         citation: {
-          matched_text: request.citation.matched_text.trim(),
+          matched_citation_text: request.citation.matched_citation_text.trim(),
           context: request.citation.context.trim()
         },
         comment: request.comment?.trim() ? request.comment.trim() : null,
@@ -202,7 +202,7 @@ function bookmarkId(citation: BookmarkCitationInput) {
 
 function normalizeBookmarkText(citation: BookmarkCitationInput) {
   return stableJson({
-    matched_text: citation.matched_text.trim().replace(/\s+/g, " "),
+    matched_citation_text: citation.matched_citation_text.trim().replace(/\s+/g, " "),
     context: citation.context.trim().replace(/\s+/g, " ")
   });
 }
@@ -211,7 +211,7 @@ function storedProvenance(input: BookmarkProvenance, seenAt: string): StoredProv
   const identity = {
     source_path: input.source_path,
     source_format: input.source_format,
-    span: input.span
+    citation_span: input.citation_span
   };
   return {
     ...input,
@@ -280,7 +280,7 @@ async function writeStoreAndFixture(
 }
 
 function formatBookmarkText(bookmark: BookmarkRecord) {
-  const lines = [bookmark.citation.matched_text];
+  const lines = [bookmark.citation.matched_citation_text];
   if (bookmark.comment) {
     lines.push("", `> ${bookmark.comment}`);
   }
@@ -323,8 +323,8 @@ function digest(value: string) {
 function isCitationInput(value: unknown): value is BookmarkCitationInput {
   return (
     isRecord(value) &&
-    typeof value.matched_text === "string" &&
-    Boolean(value.matched_text.trim()) &&
+    typeof value.matched_citation_text === "string" &&
+    Boolean(value.matched_citation_text.trim()) &&
     typeof value.context === "string" &&
     Boolean(value.context.trim())
   );
@@ -335,7 +335,7 @@ function isProvenance(value: unknown): value is BookmarkProvenance {
     isRecord(value) &&
     (typeof value.source_path === "string" || value.source_path === null) &&
     typeof value.source_format === "string" &&
-    isSpan(value.span)
+    isSpan(value.citation_span)
   );
 }
 
@@ -378,7 +378,7 @@ function isBookmarkRecord(value: unknown): value is BookmarkRecord {
 function isStoredCitation(value: unknown): value is StoredCitation {
   return (
     isRecord(value) &&
-    typeof value.matched_text === "string" &&
+    typeof value.matched_citation_text === "string" &&
     typeof value.context === "string"
   );
 }

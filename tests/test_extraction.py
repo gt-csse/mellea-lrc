@@ -48,8 +48,9 @@ def test_extracted_document_rejects_duplicate_citation_ids() -> None:
     preprocessed = preprocess_plain_text_from_string("347 U.S. 483")
     citation = ExtractedCitation(
         citation_id="cite-1",
-        span=Span(0, len(preprocessed.text)),
-        matched_text=preprocessed.text,
+        citation_span=Span(0, len(preprocessed.text)),
+        matched_locator_text=preprocessed.text,
+        matched_citation_text=preprocessed.text,
         citation=FullCaseCitation(volume="347", reporter="U.S.", page="483"),
     )
 
@@ -67,8 +68,9 @@ def test_extracted_document_rejects_span_outside_text() -> None:
     preprocessed = preprocess_plain_text_from_string("347 U.S. 483")
     citation = ExtractedCitation(
         citation_id="cite-1",
-        span=Span(0, len(preprocessed.text) + 1),
-        matched_text=preprocessed.text,
+        citation_span=Span(0, len(preprocessed.text) + 1),
+        matched_locator_text=preprocessed.text,
+        matched_citation_text=preprocessed.text,
         citation=FullCaseCitation(volume="347", reporter="U.S.", page="483"),
     )
 

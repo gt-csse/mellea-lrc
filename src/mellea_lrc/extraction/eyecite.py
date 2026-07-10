@@ -226,8 +226,11 @@ def _extract_from_text(
         extracted.append(
             ExtractedCitation(
                 citation_id=citation_id,
-                span=Span(start=span_start, end=span_end),
-                matched_text=eyecite_citation.matched_text(),
+                citation_span=Span(start=span_start, end=span_end),
+                # eyecite's matched_text() is locator-shaped for full case
+                # citations; the full citation text is the full_span slice.
+                matched_locator_text=eyecite_citation.matched_text(),
+                matched_citation_text=text[span_start:span_end],
                 citation=_to_canonical(eyecite_citation),
                 resolves_to=antecedent_map.get(citation_id),
             )

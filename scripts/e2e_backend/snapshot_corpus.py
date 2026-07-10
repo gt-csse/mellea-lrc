@@ -1,4 +1,4 @@
-"""Regenerate strict pipeline snapshots without manually running the notebook.
+"""Regenerate citation-node snapshots without manually running the notebook.
 
 Only two CLI options are supported:
 
@@ -9,9 +9,10 @@ Only two CLI options are supported:
     uv run --group pipeline python -m scripts.e2e_backend.snapshot_corpus
 
 ``--file`` accepts ``bookmarked`` or a positive numeric text-fixture stem. When
-it is omitted, the inclusive numeric range in ``CONFIG`` is processed. All
-filesystem paths, the batch range, and assessment concurrency live in config;
-they are deliberately not CLI options.
+it is omitted, the inclusive numeric range in ``CONFIG`` is processed. The
+pipeline still validates intermediate artifacts in memory, but only
+``citation_nodes.json`` is written. All filesystem paths, the batch range, and
+assessment concurrency live in config; they are deliberately not CLI options.
 """
 
 from __future__ import annotations
@@ -300,10 +301,9 @@ def _round_trip(
     payload: dict[str, object],
     deserialize: Callable[[dict[str, object]], T],
 ) -> T:
-    """Write and immediately validate a strict current-schema snapshot."""
-    snapshot_path = snapshot_dir / f"{stage}.json"
-    snapshot_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    restored_payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    """Validate a strict current-schema intermediate artifact without persisting it."""
+    _ = snapshot_dir, stage
+    restored_payload = json.loads(json.dumps(payload))
     return deserialize(restored_payload)
 
 
