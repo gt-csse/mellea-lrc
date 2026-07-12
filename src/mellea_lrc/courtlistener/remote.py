@@ -76,6 +76,30 @@ class CourtListenerAccessClient:
             return {**payload, "http_status": 200}
         return payload
 
+    def search_docket_entries(
+        self,
+        cl_docket_id: int | str,
+        entry_number: int | str | None = None,
+        cursor: str | None = None,
+        order_by: str | None = None,
+    ) -> Mapping[str, object]:
+        """Retrieve docket entries through the remote access service."""
+        params = {
+            "cl_docket_id": str(cl_docket_id),
+            "entry_number": str(entry_number) if entry_number is not None else None,
+            "cursor": cursor,
+            "order_by": order_by,
+        }
+        query = parse.urlencode({key: value for key, value in params.items() if value is not None})
+        url = f"{self.config.base_url.rstrip('/')}/docket-entries/search?{query}"
+        _validate_http_url(url)
+        payload = self._get_json(url)
+        if not isinstance(payload, Mapping):
+            return {"http_status": None, "detail": "Docket-entry response was not a JSON object."}
+        if "http_status" not in payload and "detail" not in payload:
+            return {**payload, "http_status": 200}
+        return payload
+
     def search_opinions(self, q: str) -> Mapping[str, object]:
         """Run an opinion (``type=o``) search through the remote access service."""
         return self._search(q, "o")

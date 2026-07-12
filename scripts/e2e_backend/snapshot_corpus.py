@@ -8,7 +8,8 @@ Only two CLI options are supported:
         --file 3 --phase retrieval
     uv run --group pipeline python -m scripts.e2e_backend.snapshot_corpus
 
-``--file`` accepts ``bookmarked`` or a positive numeric text-fixture stem. When
+``--file`` accepts ``bookmarked``, a positive numeric text-fixture stem, or a
+named fixture from ``fixtures/citation_sets``. When
 it is omitted, the inclusive numeric range in ``CONFIG`` is processed. The
 pipeline still validates intermediate artifacts in memory, but only
 ``citation_nodes.json`` is written. All filesystem paths, the batch range, and
@@ -96,6 +97,7 @@ class SnapshotConfig:
     env_path: Path
     test_data_dir: Path
     bookmarked_path: Path
+    citation_sets_dir: Path
     snapshot_root: Path
     batch_start: int
     batch_end: int
@@ -115,6 +117,7 @@ CONFIG = SnapshotConfig(
     env_path=PROJECT_ROOT / ".env",
     test_data_dir=PROJECT_ROOT / "local/test_data",
     bookmarked_path=PROJECT_ROOT / "fixtures/bookmarked/bookmarked.txt",
+    citation_sets_dir=PROJECT_ROOT / "fixtures/citation_sets",
     snapshot_root=PROJECT_ROOT / "local/snapshots",
     batch_start=1,
     batch_end=10,
@@ -141,7 +144,10 @@ def main() -> None:
 
 def select_documents(config: SnapshotConfig, file_name: str | None) -> tuple[Path, ...]:
     """Resolve one CLI selector or the configured inclusive text-fixture range."""
-    if file_name is not None:
+    curated_dir = config.citation_sets_dir / file_name if file_name is not None else None
+    if curated_dir is not None and curated_dir.is_dir():
+        paths = tuple(sorted(curated_dir.glob("*.txt")))
+    elif file_name is not None:
         paths = (_path_for_selector(config, file_name),)
     else:
         paths = tuple(
@@ -319,8 +325,13 @@ def _write_json(
 def _path_for_selector(config: SnapshotConfig, selector: str) -> Path:
     if selector == "bookmarked":
         return config.bookmarked_path
+    named_bookmark_set = (
+        PROJECT_ROOT / "fixtures" / "bookmarked" / "sets" / f"bookmark-{selector}.txt"
+    )
+    if named_bookmark_set.is_file():
+        return named_bookmark_set
     if not selector.isascii() or not selector.isdecimal() or int(selector) < 1:
-        msg = "--file must be 'bookmarked' or a positive integer such as 1, 2, or 3"
+        msg = "--file must be 'bookmarked', a curated set name, or a positive integer"
         raise ValueError(msg)
     return config.test_data_dir / f"{int(selector)}.txt"
 

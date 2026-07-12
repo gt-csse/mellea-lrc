@@ -12,10 +12,12 @@ existence-lookup orchestrator, mirroring ``retrieval/court_resolution.py``.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 import re
 from typing import TYPE_CHECKING
 
 from mellea_lrc.courtlistener.client import CourtListenerError
+from mellea_lrc.retrieval.docket_evidence import expand_docket_evidence
 from mellea_lrc.retrieval.types import (
     CaseNamePreparationStatus,
     CaseNameSearchCorpus,
@@ -25,6 +27,8 @@ from mellea_lrc.retrieval.types import (
     CaseNameSearchStatus,
     CaseNameSearchTrace,
     CourtListenerRequestTrace,
+    DocketCandidateEvidence,
+    DocketEvidenceStatus,
 )
 
 if TYPE_CHECKING:
@@ -43,6 +47,7 @@ _NON_DISTINCTIVE_PARTY_TOKENS = frozenset(
         "corporation",
         "county",
         "city",
+        "cnty",
         "cty",
         "estate",
         "ex",
@@ -92,16 +97,33 @@ def search_case_name_candidates(
         )
 
     try:
-        query = _case_name_query(plaintiff, defendant, court=preparation.court or citation.court)
+        query = _case_name_query(
+            preparation.query_plaintiff or plaintiff,
+            preparation.query_defendant or defendant,
+            court=preparation.court or citation.court,
+        )
     except ValueError:
         return CaseNameSearchTrace(
             status=CaseNameSearchStatus.SEARCH_FAILED,
             preparation=preparation,
         )
 
-    probes = (
+    initial_probes = (
         _search_corpus(client, query, CaseNameSearchCorpus.OPINIONS, "search_opinions"),
         _search_corpus(client, query, CaseNameSearchCorpus.RECAP, "search_recap"),
+    )
+    probes = tuple(
+        _expand_recap_probe(
+            probe,
+            client=client,
+            cited_year=citation.year,
+            cited_date=preparation.decision_date,
+            plaintiff=plaintiff,
+            defendant=defendant,
+        )
+        if probe.corpus is CaseNameSearchCorpus.RECAP
+        else probe
+        for probe in initial_probes
     )
     successes = sum(probe.status is CaseNameSearchStatus.SEARCHED for probe in probes)
     if successes == len(probes):
@@ -135,6 +157,8 @@ def deterministic_case_name_preparation(citation: FullCaseCitation) -> CaseNameS
         plaintiff=plaintiff,
         defendant=defendant,
         prepared_case_name=original_case_name,
+        query_plaintiff=plaintiff,
+        query_defendant=defendant,
         court=citation.court,
         source="extracted_citation",
     )
@@ -299,6 +323,86 @@ def _search_candidates(payload: object) -> tuple[CaseNameSearchCandidate, ...]:
         )
         for item in results[:5]
         if isinstance(item, Mapping)
+    )
+
+
+def _expand_recap_probe(
+    probe: CaseNameSearchProbe,
+    *,
+    client: CitationRetrievalClient,
+    cited_year: str | None,
+    cited_date: str | None,
+    plaintiff: str,
+    defendant: str,
+) -> CaseNameSearchProbe:
+    """Expand only the already-bounded RECAP summaries with stable docket IDs."""
+    if probe.status is not CaseNameSearchStatus.SEARCHED:
+        return probe
+    return replace(
+        probe,
+        candidates=tuple(
+            replace(
+                candidate,
+                docket_evidence=(
+                    expand_docket_evidence(
+                        client=client,
+                        docket_id=candidate.docket_id,
+                        cited_year=cited_year,
+                        cited_date=cited_date,
+                    )
+                    if _candidate_parties_match(candidate.case_name, plaintiff, defendant)
+                    and _docket_can_contain_cited_year(candidate.date_filed, cited_year)
+                    else DocketCandidateEvidence(
+                        status=(
+                            DocketEvidenceStatus.SKIPPED_PARTY_MISMATCH
+                            if not _candidate_parties_match(
+                                candidate.case_name,
+                                plaintiff,
+                                defendant,
+                            )
+                            else DocketEvidenceStatus.SKIPPED_AFTER_CITED_YEAR
+                        ),
+                        case_name=candidate.case_name,
+                        court_id=candidate.court_id,
+                        docket_number=candidate.docket_number,
+                        date_filed=candidate.date_filed,
+                    )
+                ),
+            )
+            if candidate.docket_id
+            else candidate
+            for candidate in probe.candidates
+        ),
+    )
+
+
+def _candidate_parties_match(
+    case_name: str | None,
+    plaintiff: str,
+    defendant: str,
+) -> bool:
+    """Require both engineered party anchors before spending expansion requests."""
+    if not case_name:
+        return False
+    tokens = {token.lower().replace(".", "") for token in _PARTY_TOKEN.findall(case_name)}
+    return _party_anchor(plaintiff).lower() in tokens and _party_anchor(defendant).lower() in tokens
+
+
+def _docket_can_contain_cited_year(date_filed: str | None, cited_year: str | None) -> bool:
+    """Prune only dockets that begin well after the asserted decision year.
+
+    A docket's ``date_filed`` is the proceeding's opening date, whereas the
+    citation year describes the decision.  A one-year tolerance preserves
+    candidates affected by source/citation metadata disagreement without
+    spending two expansion requests on obviously later, same-name cases.
+    """
+    if not date_filed or not cited_year:
+        return True
+    filed_year = date_filed[:4]
+    return not (
+        filed_year.isdigit()
+        and cited_year.isdigit()
+        and int(filed_year) > int(cited_year) + 1
     )
 
 

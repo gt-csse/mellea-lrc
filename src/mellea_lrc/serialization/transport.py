@@ -146,6 +146,7 @@ class ExtractedCitationPayload(ArtifactPayload):
     matched_locator_text: str
     matched_citation_text: str
     citation: CanonicalCitationPayload
+    asserted_decision_date: str | None = None
     resolves_to: str | None
 
 
@@ -216,6 +217,47 @@ class AmbiguousCitationRetrievalPayload(ArtifactPayload):
     extra_data: dict[str, JsonValue]
 
 
+class DocketDocumentEvidencePayload(ArtifactPayload):
+    docket_entry_id: str | None = None
+    recap_document_id: str | None = None
+    entry_number: str | None = None
+    document_number: str | None = None
+    date_filed: str | None = None
+    entry_description: str | None = None
+    document_description: str | None = None
+    page_count: int | None = Field(default=None, ge=0)
+    pacer_doc_id: str | None = None
+    available: bool
+    absolute_url: str | None = None
+    decisional_cues: list[str] = Field(default_factory=list)
+    year_distance: int | None = Field(default=None, ge=0)
+
+
+class DocketCandidateEvidencePayload(ArtifactPayload):
+    status: Literal[
+        "enriched",
+        "no_decisional_documents",
+        "skipped_after_cited_year",
+        "skipped_party_mismatch",
+        "unavailable",
+        "failed",
+    ]
+    docket_request: CourtListenerRequestTracePayload
+    entries_request: CourtListenerRequestTracePayload
+    case_name: str | None = None
+    court_id: str | None = None
+    docket_number: str | None = None
+    date_filed: str | None = None
+    date_terminated: str | None = None
+    assigned_to: str | None = None
+    referred_to: str | None = None
+    nature_of_suit: str | None = None
+    cause: str | None = None
+    jurisdiction_type: str | None = None
+    documents: list[DocketDocumentEvidencePayload] = Field(default_factory=list)
+    error_message: str | None = None
+
+
 class CaseNameSearchCandidatePayload(ArtifactPayload):
     case_name: str | None = None
     court_id: str | None = None
@@ -224,6 +266,7 @@ class CaseNameSearchCandidatePayload(ArtifactPayload):
     cluster_id: str | None = None
     docket_id: str | None = None
     absolute_url: str | None = None
+    docket_evidence: DocketCandidateEvidencePayload | None = None
 
 
 class CaseNameSearchProbePayload(ArtifactPayload):
@@ -246,6 +289,12 @@ class CaseNameSearchPreparationPayload(ArtifactPayload):
     plaintiff: str | None
     defendant: str | None
     prepared_case_name: str | None
+    extracted_decision_date: str | None
+    decision_date: str | None
+    decision_date_basis: str | None
+    query_plaintiff: str | None
+    query_defendant: str | None
+    query_reason: str | None
     court: str | None
     locator: str | None
     source: str | None
@@ -273,6 +322,12 @@ class CaseNameSearchTracePayload(ArtifactPayload):
             plaintiff=None,
             defendant=None,
             prepared_case_name=None,
+            extracted_decision_date=None,
+            decision_date=None,
+            decision_date_basis=None,
+            query_plaintiff=None,
+            query_defendant=None,
+            query_reason=None,
             court=None,
             locator=None,
             source=None,

@@ -311,6 +311,7 @@ type ReviewResult = {
 type BookmarkStatusEntry = {
   bookmarked: boolean;
   comment: string | null;
+  context: string | null;
 };
 
 type BookmarkStatusResponse = {
@@ -546,6 +547,7 @@ export default function Home() {
     : undefined;
   const selectedCitationIsBookmarked = selectedCitationEntry?.bookmarked ?? false;
   const selectedCitationComment = selectedCitationEntry?.comment ?? null;
+  const selectedCitationBookmarkContext = selectedCitationEntry?.context ?? null;
 
   useEffect(() => {
     const citations = result?.citations ?? [];
@@ -955,7 +957,8 @@ export default function Home() {
           const next = new Map(current);
           next.set(bookmarkModal.citationId, {
             bookmarked: true,
-            comment: saved.comment
+            comment: saved.comment,
+            context: bookmarkModal.context
           });
           return next;
         });
@@ -981,7 +984,8 @@ export default function Home() {
           const next = new Map(current);
           next.set(bookmarkModal.citationId, {
             bookmarked: true,
-            comment: saved.comment
+            comment: saved.comment,
+            context: bookmarkModal.context
           });
           return next;
         });
@@ -1208,7 +1212,8 @@ export default function Home() {
                   onClick={() => selectCitation(citation.id)}
                   type="button"
                 >
-                  <span className="citation-row-main">{citationDisplayText(citation)}</span>
+                  <span className="citation-row-main">{citationCompactTitle(citation)}</span>
+                  <span className="citation-row-locator">{citationLocatorText(citation)}</span>
                   <CitationTags
                     citation={citation}
                     assessment={result?.assessment ?? null}
@@ -1237,7 +1242,8 @@ export default function Home() {
             <div className="details-heading">
               <div>
                 <p className="eyebrow">Selected citation</p>
-                <h2>{citationDisplayText(selectedCitation)}</h2>
+                <h2>{citationCompactTitle(selectedCitation)}</h2>
+                <p className="selected-citation-locator">{citationLocatorText(selectedCitation)}</p>
                 <CitationTags
                   citation={selectedCitation}
                   assessment={result?.assessment ?? null}
@@ -1312,6 +1318,8 @@ export default function Home() {
               onCandidateChange={selectCourtListenerCandidate}
               onExtractedAttemptChange={selectExtractedAttempt}
               comment={selectedCitationComment}
+              bookmarked={selectedCitationIsBookmarked}
+              bookmarkContext={selectedCitationBookmarkContext}
             />
           </>
         ) : (
@@ -1342,7 +1350,9 @@ function CitationNodeWorkspace({
   onTabChange,
   onCandidateChange,
   onExtractedAttemptChange,
-  comment
+  comment,
+  bookmarked,
+  bookmarkContext
 }: {
   citation: ReviewCitation;
   extractedAttempts: ExtractedCitationAttempt[];
@@ -1354,10 +1364,11 @@ function CitationNodeWorkspace({
   onCandidateChange: (citationId: string, candidateIndex: number) => void;
   onExtractedAttemptChange: (citationId: string, attemptIndex: number) => void;
   comment: string | null;
+  bookmarked: boolean;
+  bookmarkContext: string | null;
 }) {
   const commentText = comment?.trim() ?? "";
-  const hasComment = Boolean(commentText);
-  const activeTab = selectedTab === "comment" && hasComment ? "comment" : "graph";
+  const activeTab = selectedTab === "comment" && bookmarked ? "comment" : "graph";
   return (
     <div className="trace-workspace">
       <div className="bibliographic-column">
@@ -1382,7 +1393,7 @@ function CitationNodeWorkspace({
           >
             Graph
           </button>
-          {hasComment ? (
+          {bookmarked ? (
             <button
               className={`node-browser-tab${activeTab === "comment" ? " selected" : ""}`}
               type="button"
@@ -1396,7 +1407,9 @@ function CitationNodeWorkspace({
         </div>
         <div className="node-browser-panel">
           {activeTab === "graph" ? <CitationNodeGraph node={node} citation={citation} /> : null}
-          {activeTab === "comment" && hasComment ? <CommentDetails comment={commentText} /> : null}
+          {activeTab === "comment" && bookmarked ? (
+            <CommentDetails comment={commentText} context={bookmarkContext ?? ""} />
+          ) : null}
         </div>
       </section>
     </div>
@@ -1601,6 +1614,7 @@ function CitationFlowNodeView({
 }
 
 function CitationNodeStepInspector({ step }: { step: CitationNodeGraphItem }) {
+  const summaryItems = summarizeNodeData(step.data);
   return (
     <aside className="node-step-inspector" aria-label="Selected node step details">
       <div className="node-step-inspector-heading">
@@ -1625,9 +1639,57 @@ function CitationNodeStepInspector({ step }: { step: CitationNodeGraphItem }) {
         </div>
       </dl>
       {step.error ? <p className="node-step-error">{step.error}</p> : null}
-      <pre className="node-step-data">{JSON.stringify(step.data, null, 2)}</pre>
+      {summaryItems.length ? (
+        <dl className="node-data-summary">
+          {summaryItems.map((item) => (
+            <div key={item.path}>
+              <dt>{item.path}</dt>
+              <dd>{item.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p className="node-data-empty">No additional result data.</p>
+      )}
+      <details className="node-raw-data">
+        <summary>Raw node data</summary>
+        <pre className="node-step-data">{JSON.stringify(step.data, null, 2)}</pre>
+      </details>
     </aside>
   );
+}
+
+type NodeDataSummaryItem = { path: string; value: string };
+
+function summarizeNodeData(data: Record<string, unknown>): NodeDataSummaryItem[] {
+  const items: NodeDataSummaryItem[] = [];
+  const visit = (value: unknown, path: string, depth: number) => {
+    if (items.length >= 12) {
+      return;
+    }
+    if (value === null || value === undefined || value === "") {
+      return;
+    }
+    if (Array.isArray(value)) {
+      items.push({ path, value: `${value.length} item${value.length === 1 ? "" : "s"}` });
+      return;
+    }
+    if (typeof value === "object") {
+      const entries = Object.entries(value as Record<string, unknown>);
+      if (!entries.length) {
+        return;
+      }
+      if (depth >= 3) {
+        items.push({ path, value: `${entries.length} fields` });
+        return;
+      }
+      entries.forEach(([key, child]) => visit(child, path ? `${path} · ${key}` : key, depth + 1));
+      return;
+    }
+    items.push({ path, value: String(value) });
+  };
+  Object.entries(data).forEach(([key, value]) => visit(value, key, 0));
+  return items;
 }
 
 function formatNodeStatus(status: CitationNodePayload["status"]): string {
@@ -1649,15 +1711,19 @@ function compactNodeOperation(operation: string, index: number): string {
   return lastPart.length > 14 ? `${lastPart.slice(0, 12)}…` : lastPart;
 }
 
-function CommentDetails({ comment }: { comment: string }) {
+function CommentDetails({ comment, context }: { comment: string; context: string }) {
   return (
     <div className="detail-group comment-detail-group">
       <div className="assessment-trace-heading">
         <h3>Review comment</h3>
-        <p>Notes saved with this citation context.</p>
+        <p>This citation is associated with a saved bookmark context.</p>
       </div>
       <div className="comment-note has-comment">
-        <p>{comment}</p>
+        <p>{comment || "No review comment has been added yet."}</p>
+      </div>
+      <div className="bookmark-context-detail">
+        <h4>Bookmarked context</h4>
+        <p>{context || "The saved context is unavailable."}</p>
       </div>
     </div>
   );
@@ -3081,6 +3147,18 @@ function citationLocatorText(citation: ReviewCitation): string {
 
 function citationDisplayText(citation: ReviewCitation): string {
   return citation.matched_citation_text;
+}
+
+function citationCompactTitle(citation: ReviewCitation): string {
+  const plaintiff = citation.fields.plaintiff;
+  const defendant = citation.fields.defendant;
+  if (typeof plaintiff === "string" && plaintiff.trim() && typeof defendant === "string" && defendant.trim()) {
+    return `${plaintiff.trim()} v. ${defendant.trim()}`;
+  }
+  if (typeof defendant === "string" && defendant.trim()) {
+    return defendant.trim();
+  }
+  return citationLocatorText(citation);
 }
 
 function trimPaintedSpan(text: string, start: number, end: number) {

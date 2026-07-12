@@ -26,6 +26,9 @@ from mellea_lrc.retrieval.types import (
     CaseNameSearchStatus,
     CitationRetrieval,
     CourtListenerRequestTrace,
+    DocketCandidateEvidence,
+    DocketDocumentEvidence,
+    DocketEvidenceStatus,
     LookupFailedCitationRetrieval,
     NotFoundCitationRetrieval,
     RetrievedDocument,
@@ -159,8 +162,10 @@ def _append_case_name_search_steps(
 ) -> CitationNode:
     search = retrieval.candidate_search
     fallback_step_id = _step_id(node.citation_id, "retrieval", "fallback_decision")
-    preparation_step_id = _step_id(node.citation_id, "retrieval", "case_name_preparation")
-    query_step_id = _step_id(node.citation_id, "retrieval", "candidate_query")
+    party_step_id = _step_id(node.citation_id, "retrieval", "party_examination")
+    date_step_id = _step_id(node.citation_id, "retrieval", "date_examination")
+    validation_step_id = _step_id(node.citation_id, "retrieval", "preparation_validation")
+    query_step_id = _step_id(node.citation_id, "retrieval", "query_planning")
 
     updated = node.append_step(
         CitationStep(
@@ -180,12 +185,16 @@ def _append_case_name_search_steps(
     evidence = _case_name_evidence(node, search.preparation)
     updated = updated.append_step(
         CitationStep(
-            operation="retrieval.case_name_preparation",
-            status=CitationStepStatus.SUCCEEDED
-            if evidence["prepared_case_name"]
-            else CitationStepStatus.SKIPPED,
+            operation="retrieval.party_examination",
+            status=(
+                CitationStepStatus.FAILED
+                if evidence["llm_status"] == "failed"
+                else CitationStepStatus.SUCCEEDED
+                if evidence["prepared_case_name"]
+                else CitationStepStatus.SKIPPED
+            ),
             summary=_case_name_preparation_summary(evidence),
-            step_id=preparation_step_id,
+            step_id=party_step_id,
             depends_on=(fallback_step_id,),
             data=evidence,
         )
@@ -193,20 +202,61 @@ def _append_case_name_search_steps(
 
     updated = updated.append_step(
         CitationStep(
-            operation="retrieval.candidate_query",
+            operation="retrieval.date_examination",
+            status=CitationStepStatus.SUCCEEDED
+            if evidence["decision_date"]
+            else CitationStepStatus.SKIPPED,
+            summary=_date_preparation_summary(evidence),
+            step_id=date_step_id,
+            depends_on=(party_step_id,),
+            data={
+                "extracted_decision_date": evidence["extracted_decision_date"],
+                "decision_date": evidence["decision_date"],
+                "decision_date_basis": evidence["decision_date_basis"],
+                "locator": evidence["locator"],
+            },
+        )
+    )
+
+    updated = updated.append_step(
+        CitationStep(
+            operation="retrieval.preparation_validation",
+            status=(
+                CitationStepStatus.FAILED
+                if evidence["llm_status"] == "failed"
+                else CitationStepStatus.SUCCEEDED
+                if evidence["prepared_case_name"]
+                else CitationStepStatus.SKIPPED
+            ),
+            summary="String and positional grounding requirements accepted the preparation."
+            if evidence["prepared_case_name"]
+            else "No complete grounded party preparation was available.",
+            step_id=validation_step_id,
+            depends_on=(date_step_id,),
+            data={"validation": "mellea_requirements", "locator": evidence["locator"]},
+        )
+    )
+
+    updated = updated.append_step(
+        CitationStep(
+            operation="retrieval.query_planning",
             status=CitationStepStatus.SUCCEEDED if search.query else CitationStepStatus.SKIPPED,
             summary=f"Prepared query: {search.query}" if search.query else "No candidate query was prepared.",
             step_id=query_step_id,
-            depends_on=(preparation_step_id,),
+            depends_on=(validation_step_id,),
             data={
                 "query": search.query,
                 "candidate_search_status": search.status.value,
-                "query_source": "deterministic_party_anchors" if search.query else None,
+                "query_source": "llm_best_effort_terms" if search.query else None,
+                "query_plaintiff": evidence["query_plaintiff"],
+                "query_defendant": evidence["query_defendant"],
+                "query_reason": evidence["query_reason"],
             },
         )
     )
 
     probe_step_ids: list[str] = []
+    terminal_search_step_ids: list[str] = []
     for probe in search.probes:
         probe_step_id = _step_id(
             node.citation_id,
@@ -227,8 +277,22 @@ def _append_case_name_search_steps(
                 error=probe.request_trace.error_message,
             )
         )
+        docket_expansion = _append_docket_evidence_steps(
+            updated,
+            probe=probe,
+            probe_step_id=probe_step_id,
+        )
+        if docket_expansion is not None:
+            updated, candidate_terminal_ids = docket_expansion
+            terminal_search_step_ids.extend(candidate_terminal_ids or [probe_step_id])
+        else:
+            terminal_search_step_ids.append(probe_step_id)
 
-    result_dependencies = tuple(probe_step_ids) if probe_step_ids else (query_step_id,)
+    result_dependencies = (
+        tuple(terminal_search_step_ids or probe_step_ids)
+        if probe_step_ids
+        else (query_step_id,)
+    )
     return updated.append_step(
         CitationStep(
             operation="retrieval.candidate_results",
@@ -245,6 +309,75 @@ def _append_case_name_search_steps(
             },
         )
     )
+
+
+def _append_docket_evidence_steps(
+    node: CitationNode,
+    *,
+    probe: CaseNameSearchProbe,
+    probe_step_id: str,
+) -> tuple[CitationNode, list[str]] | None:
+    if probe.corpus is not CaseNameSearchCorpus.RECAP:
+        return None
+    updated = node
+    terminal_ids: list[str] = []
+    for index, candidate in enumerate(probe.candidates):
+        evidence = candidate.docket_evidence
+        if evidence is None:
+            continue
+        suffix = str(index + 1)
+        docket_step_id = _step_id(
+            node.citation_id,
+            "retrieval",
+            "docket_metadata",
+            suffix,
+        )
+        document_step_id = _step_id(
+            node.citation_id,
+            "retrieval",
+            "decisional_documents",
+            suffix,
+        )
+        updated = updated.append_step(
+            CitationStep(
+                operation="retrieval.docket_metadata",
+                status=_docket_evidence_step_status(evidence.status),
+                summary=_docket_evidence_summary(candidate, evidence),
+                step_id=docket_step_id,
+                depends_on=(probe_step_id,),
+                lane=f"r{suffix}",
+                data={
+                    "candidate_index": index,
+                    "search_candidate": _candidate_payload(candidate, include_docket_evidence=False),
+                    "docket": _docket_metadata_payload(evidence),
+                    "request_trace": _request_trace_payload(evidence.docket_request),
+                },
+                error=evidence.error_message,
+            )
+        )
+        updated = updated.append_step(
+            CitationStep(
+                operation="retrieval.decisional_documents",
+                status=_docket_documents_step_status(evidence),
+                summary=_docket_documents_summary(evidence),
+                step_id=document_step_id,
+                depends_on=(docket_step_id,),
+                lane=f"r{suffix}",
+                data={
+                    "candidate_index": index,
+                    "ranking_method": [
+                        "decisional_description_cue",
+                        "cited_year_distance",
+                        "available_document",
+                    ],
+                    "request_trace": _request_trace_payload(evidence.entries_request),
+                    "documents": [_docket_document_payload(item) for item in evidence.documents],
+                },
+                error=evidence.error_message,
+            )
+        )
+        terminal_ids.append(document_step_id)
+    return updated, terminal_ids
 
 
 def _append_assessment_step(
@@ -389,6 +522,13 @@ def _case_name_evidence(node: CitationNode, preparation: object) -> dict[str, ob
         "llm_reason": getattr(preparation, "llm_reason", None),
         "preparation_source": getattr(preparation, "source", None),
         "prepared_case_name": prepared_case_name,
+        "extracted_decision_date": getattr(preparation, "extracted_decision_date", None)
+        or node.input.asserted_decision_date,
+        "decision_date": getattr(preparation, "decision_date", None),
+        "decision_date_basis": getattr(preparation, "decision_date_basis", None),
+        "query_plaintiff": getattr(preparation, "query_plaintiff", None),
+        "query_defendant": getattr(preparation, "query_defendant", None),
+        "query_reason": getattr(preparation, "query_reason", None),
         "error_message": getattr(preparation, "error_message", None),
     }
 
@@ -399,6 +539,15 @@ def _case_name_preparation_summary(evidence: dict[str, object]) -> str:
     if evidence["plaintiff"] or evidence["defendant"]:
         return "Case-name preparation found incomplete party evidence."
     return "Case-name preparation found no usable parties for this locator."
+
+
+def _date_preparation_summary(evidence: dict[str, object]) -> str:
+    if evidence["decision_date"]:
+        basis = evidence["decision_date_basis"] or "accepted"
+        return f"Prepared citation-bound decision date {evidence['decision_date']} ({basis})."
+    if evidence["extracted_decision_date"]:
+        return "Extraction supplied a date hint, but preparation did not accept a date."
+    return "No complete citation-bound decision date was available."
 
 
 def _probe_summary(probe: CaseNameSearchProbe) -> str:
@@ -444,8 +593,12 @@ def _request_trace_payload(trace: CourtListenerRequestTrace) -> dict[str, object
     }
 
 
-def _candidate_payload(candidate: CaseNameSearchCandidate) -> dict[str, object]:
-    return {
+def _candidate_payload(
+    candidate: CaseNameSearchCandidate,
+    *,
+    include_docket_evidence: bool = True,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
         "case_name": candidate.case_name,
         "court_id": candidate.court_id,
         "date_filed": candidate.date_filed,
@@ -454,6 +607,109 @@ def _candidate_payload(candidate: CaseNameSearchCandidate) -> dict[str, object]:
         "docket_id": candidate.docket_id,
         "absolute_url": candidate.absolute_url,
     }
+    if include_docket_evidence:
+        payload["docket_evidence"] = (
+            _docket_evidence_payload(candidate.docket_evidence)
+            if candidate.docket_evidence is not None
+            else None
+        )
+    return payload
+
+
+def _docket_evidence_payload(evidence: DocketCandidateEvidence) -> dict[str, object]:
+    return {
+        "status": evidence.status.value,
+        "docket": _docket_metadata_payload(evidence),
+        "docket_request": _request_trace_payload(evidence.docket_request),
+        "entries_request": _request_trace_payload(evidence.entries_request),
+        "documents": [_docket_document_payload(item) for item in evidence.documents],
+        "error_message": evidence.error_message,
+    }
+
+
+def _docket_metadata_payload(evidence: DocketCandidateEvidence) -> dict[str, object]:
+    return {
+        "case_name": evidence.case_name,
+        "court_id": evidence.court_id,
+        "docket_number": evidence.docket_number,
+        "date_filed": evidence.date_filed,
+        "date_terminated": evidence.date_terminated,
+        "assigned_to": evidence.assigned_to,
+        "referred_to": evidence.referred_to,
+        "nature_of_suit": evidence.nature_of_suit,
+        "cause": evidence.cause,
+        "jurisdiction_type": evidence.jurisdiction_type,
+    }
+
+
+def _docket_document_payload(document: DocketDocumentEvidence) -> dict[str, object]:
+    return {
+        "docket_entry_id": document.docket_entry_id,
+        "recap_document_id": document.recap_document_id,
+        "entry_number": document.entry_number,
+        "document_number": document.document_number,
+        "date_filed": document.date_filed,
+        "entry_description": document.entry_description,
+        "document_description": document.document_description,
+        "page_count": document.page_count,
+        "pacer_doc_id": document.pacer_doc_id,
+        "available": document.available,
+        "absolute_url": document.absolute_url,
+        "decisional_cues": list(document.decisional_cues),
+        "year_distance": document.year_distance,
+    }
+
+
+def _docket_evidence_step_status(status: DocketEvidenceStatus) -> CitationStepStatus:
+    if status in {DocketEvidenceStatus.ENRICHED, DocketEvidenceStatus.NO_DECISIONAL_DOCUMENTS}:
+        return CitationStepStatus.SUCCEEDED
+    if status in {
+        DocketEvidenceStatus.SKIPPED_AFTER_CITED_YEAR,
+        DocketEvidenceStatus.SKIPPED_PARTY_MISMATCH,
+        DocketEvidenceStatus.UNAVAILABLE,
+    }:
+        return CitationStepStatus.SKIPPED
+    return CitationStepStatus.FAILED
+
+
+def _docket_documents_step_status(evidence: DocketCandidateEvidence) -> CitationStepStatus:
+    if evidence.status is DocketEvidenceStatus.ENRICHED:
+        return CitationStepStatus.SUCCEEDED
+    if evidence.status is DocketEvidenceStatus.NO_DECISIONAL_DOCUMENTS:
+        return CitationStepStatus.SKIPPED
+    return _docket_evidence_step_status(evidence.status)
+
+
+def _docket_evidence_summary(
+    candidate: CaseNameSearchCandidate,
+    evidence: DocketCandidateEvidence,
+) -> str:
+    if evidence.status is DocketEvidenceStatus.UNAVAILABLE:
+        return f"Docket expansion is unavailable for {candidate.docket_id}."
+    if evidence.status is DocketEvidenceStatus.SKIPPED_AFTER_CITED_YEAR:
+        return "Skipped docket expansion because the proceeding began after the cited year."
+    if evidence.status is DocketEvidenceStatus.SKIPPED_PARTY_MISMATCH:
+        return "Skipped docket expansion because both prepared party anchors did not occur in the candidate name."
+    if evidence.status is DocketEvidenceStatus.FAILED:
+        return f"Docket expansion failed for {candidate.docket_id}."
+    name = evidence.case_name or candidate.case_name or "Unnamed proceeding"
+    number = evidence.docket_number or candidate.docket_number or "unknown docket number"
+    return f"Expanded proceeding {name}, {number}."
+
+
+def _docket_documents_summary(evidence: DocketCandidateEvidence) -> str:
+    if evidence.status is DocketEvidenceStatus.ENRICHED:
+        count = len(evidence.documents)
+        return f"Ranked {count} opinion-like docket document{'s' if count != 1 else ''}."
+    if evidence.status is DocketEvidenceStatus.NO_DECISIONAL_DOCUMENTS:
+        return "The bounded docket-entry page contained no opinion-like RECAP documents."
+    if evidence.status is DocketEvidenceStatus.UNAVAILABLE:
+        return "Docket-entry expansion is unavailable."
+    if evidence.status is DocketEvidenceStatus.SKIPPED_AFTER_CITED_YEAR:
+        return "No document search ran because the proceeding began after the cited year."
+    if evidence.status is DocketEvidenceStatus.SKIPPED_PARTY_MISMATCH:
+        return "No document search ran because the candidate failed the prepared-party gate."
+    return "Docket-entry expansion failed."
 
 
 def _corpus_label(corpus: CaseNameSearchCorpus) -> str:

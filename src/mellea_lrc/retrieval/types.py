@@ -102,7 +102,7 @@ class CaseNamePreparationStatus(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class CaseNameSearchPreparation:
-    """Prepared party evidence used to build a candidate-search query.
+    """Validated party/date evidence and one normalized candidate-search plan.
 
     LLM-backed retrieval fills this from local document context before the
     locator. The sync legacy retrieval path may still fill it from extracted
@@ -114,6 +114,12 @@ class CaseNameSearchPreparation:
     plaintiff: str | None = None
     defendant: str | None = None
     prepared_case_name: str | None = None
+    extracted_decision_date: str | None = None
+    decision_date: str | None = None
+    decision_date_basis: str | None = None
+    query_plaintiff: str | None = None
+    query_defendant: str | None = None
+    query_reason: str | None = None
     court: str | None = None
     locator: str | None = None
     source: str | None = None
@@ -129,6 +135,57 @@ class CaseNameSearchCorpus(str, Enum):
     RECAP = "r"
 
 
+class DocketEvidenceStatus(str, Enum):
+    """Outcome of expanding one RECAP docket candidate."""
+
+    ENRICHED = "enriched"
+    NO_DECISIONAL_DOCUMENTS = "no_decisional_documents"
+    SKIPPED_AFTER_CITED_YEAR = "skipped_after_cited_year"
+    SKIPPED_PARTY_MISMATCH = "skipped_party_mismatch"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class DocketDocumentEvidence:
+    """One bounded docket document that may be the cited decision."""
+
+    docket_entry_id: str | None = None
+    recap_document_id: str | None = None
+    entry_number: str | None = None
+    document_number: str | None = None
+    date_filed: str | None = None
+    entry_description: str | None = None
+    document_description: str | None = None
+    page_count: int | None = None
+    pacer_doc_id: str | None = None
+    available: bool = False
+    absolute_url: str | None = None
+    decisional_cues: tuple[str, ...] = ()
+    year_distance: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DocketCandidateEvidence:
+    """Canonical docket metadata and ranked decisional-document evidence."""
+
+    status: DocketEvidenceStatus
+    docket_request: CourtListenerRequestTrace = field(default_factory=CourtListenerRequestTrace)
+    entries_request: CourtListenerRequestTrace = field(default_factory=CourtListenerRequestTrace)
+    case_name: str | None = None
+    court_id: str | None = None
+    docket_number: str | None = None
+    date_filed: str | None = None
+    date_terminated: str | None = None
+    assigned_to: str | None = None
+    referred_to: str | None = None
+    nature_of_suit: str | None = None
+    cause: str | None = None
+    jurisdiction_type: str | None = None
+    documents: tuple[DocketDocumentEvidence, ...] = ()
+    error_message: str | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class CaseNameSearchCandidate:
     """Small, stable projection of one CourtListener search result."""
@@ -140,6 +197,7 @@ class CaseNameSearchCandidate:
     cluster_id: str | None = None
     docket_id: str | None = None
     absolute_url: str | None = None
+    docket_evidence: DocketCandidateEvidence | None = None
 
 
 @dataclass(frozen=True, slots=True)

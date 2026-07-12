@@ -51,6 +51,7 @@ class CitationNodeInput:
     matched_locator_text: str
     matched_citation_text: str
     citation: CanonicalCitation
+    asserted_decision_date: str | None = None
     resolves_to: str | None = None
 
     def __post_init__(self) -> None:

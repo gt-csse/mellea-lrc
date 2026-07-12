@@ -539,12 +539,12 @@ input:focus-visible {
 
 .citation-row {
   display: grid;
-  gap: 4px;
+  gap: 3px;
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
-  padding: 10px;
+  padding: 9px 10px;
   color: var(--ink);
   text-align: left;
   transition:
@@ -559,8 +559,26 @@ input:focus-visible {
 }
 
 .citation-row-main {
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  font-size: 13px;
   font-weight: 800;
+  line-height: 1.28;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.citation-row-locator,
+.selected-citation-locator {
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.citation-row-locator {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .citation-tags {
@@ -708,7 +726,13 @@ input:focus-visible {
 }
 
 .details-heading h2 {
+  font-size: 17px;
+  line-height: 1.2;
   overflow-wrap: anywhere;
+}
+
+.selected-citation-locator {
+  margin-top: 4px;
 }
 
 .details-actions {
@@ -887,7 +911,7 @@ input:focus-visible {
 
 .trace-workspace {
   display: grid;
-  grid-template-columns: minmax(400px, 0.85fr) minmax(560px, 1.65fr);
+  grid-template-columns: minmax(350px, 0.72fr) minmax(620px, 1.7fr);
   gap: 12px;
   min-height: 0;
   overflow: hidden;
@@ -1166,7 +1190,7 @@ input:focus-visible {
 
 .node-graph-workspace {
   display: grid;
-  grid-template-columns: minmax(300px, 1fr) minmax(320px, 0.9fr);
+  grid-template-columns: minmax(360px, 1.15fr) minmax(300px, 0.85fr);
   gap: 12px;
   min-height: 0;
   height: calc(100% - 48px);
@@ -1268,7 +1292,7 @@ input:focus-visible {
   border: 1px solid #cbd5e1;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.76);
-  padding: 9px;
+  padding: 12px;
   scrollbar-width: thin;
 }
 
@@ -1323,7 +1347,59 @@ input:focus-visible {
   margin: 8px 0;
 }
 
-.node-step-meta div {
+.node-data-summary {
+  display: grid;
+  gap: 0;
+  margin: 2px 0 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.node-step-inspector .node-data-summary > div {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.8fr) minmax(0, 1.2fr);
+  gap: 10px;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 7px 9px;
+}
+
+.node-step-inspector .node-data-summary > div:last-child {
+  border-bottom: 0;
+}
+
+.node-data-summary dt {
+  font-size: 9px;
+  line-height: 1.35;
+  text-transform: none;
+}
+
+.node-data-summary dd {
+  color: #334155;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.node-data-empty {
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.node-raw-data {
+  margin-top: 4px;
+}
+
+.node-raw-data summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.node-step-inspector .node-step-meta > div {
+  display: block;
+  grid-template-columns: none;
   min-width: 0;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -1358,7 +1434,7 @@ input:focus-visible {
 .node-step-data {
   max-height: 150px;
   overflow: auto;
-  margin: 0;
+  margin: 8px 0 0;
   border-radius: 8px;
   background: #0f172a;
   color: #dbeafe;
@@ -1631,6 +1707,33 @@ input:focus-visible {
   line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.bookmark-context-detail {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.bookmark-context-detail h4 {
+  margin: 0 0 8px;
+  color: var(--ink);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.bookmark-context-detail p {
+  max-height: 190px;
+  margin: 0;
+  overflow: auto;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
 }
 
 .assessment-step-note {

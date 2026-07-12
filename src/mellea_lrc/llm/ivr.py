@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from mellea.stdlib import functional as mfuncs
 from mellea.stdlib.components import Instruction
 from mellea.stdlib.context import ChatContext
-from mellea.stdlib.sampling import MultiTurnStrategy
-
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from mellea import MelleaSession
     from mellea.core.requirement import Requirement
     from mellea.core.sampling import SamplingResult
     from mellea.formatters.chat_formatter import ChatFormatter
+    from mellea.stdlib.sampling import MultiTurnStrategy
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +46,20 @@ class InstructIvrSpec:
         )
 
 
+class MelleaRequirementsExhaustedError(RuntimeError):
+    """All IVR repair turns failed; no invalid selected output may be consumed."""
+
+    def __init__(self, result: SamplingResult[str]) -> None:
+        failed = [
+            f"{requirement.description}: {validation.reason or 'requirement not met'}"
+            for requirement, validation in result.result_validations
+            if not validation
+        ]
+        detail = "; ".join(failed) or "Mellea reported unsuccessful sampling."
+        super().__init__(f"Mellea requirements exhausted after repair budget: {detail}")
+        self.result = result
+
+
 async def run_instruct_ivr(
     session: MelleaSession,
     spec: InstructIvrSpec,
@@ -59,7 +73,7 @@ async def run_instruct_ivr(
     ``instruct`` usage. Domain modules should construct an ``InstructIvrSpec``
     and keep parsing/validation domain-specific.
     """
-    return await asyncio.to_thread(
+    result = await asyncio.to_thread(
         mfuncs.instruct,
         spec.description,
         context=ChatContext(),
@@ -71,6 +85,9 @@ async def run_instruct_ivr(
         return_sampling_results=True,
         model_options=model_options,
     )
+    if not result.success:
+        raise MelleaRequirementsExhaustedError(result)
+    return result
 
 
 def render_instruct_prompt(

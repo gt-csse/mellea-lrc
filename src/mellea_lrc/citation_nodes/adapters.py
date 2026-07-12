@@ -35,6 +35,7 @@ def nodes_from_extracted_document(document: ExtractedDocument) -> CitationNodeDo
                         citation.citation_span.start : citation.citation_span.end
                     ],
                     citation=citation.citation,
+                    asserted_decision_date=citation.asserted_decision_date,
                     resolves_to=citation.resolves_to,
                 )
             )

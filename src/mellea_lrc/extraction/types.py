@@ -42,6 +42,10 @@ class ExtractedCitation:
     matched_locator_text: str
     matched_citation_text: str
     citation: CanonicalCitation
+    # Transitional extraction-side projection of eyecite's structured
+    # year/month/day. Date components should eventually move into the
+    # canonical citation model rather than remain beside it.
+    asserted_decision_date: str | None = None
     resolves_to: str | None = None
 
 

@@ -1,30 +1,6 @@
-States v. Smalls , 605 F.3d 765, 787 (10th Cir. 2010) (internal quotations and citations omitted).
-
-The trial court's discretion to balance possible unfair prejudice against probative value is broad. United States v. Begay ,  497 F. Supp. 3d 1025, 1052 (D.N.M. 2020) (citations omitted). While Federal Rule of Evidence 404(a) generally prohibits character evidence to prove conduct in conformity therewith, Rule 405(b) expressly permits evidence of specific instances of conduct when ch
-
-
-
-"  in  defamation  cases). Additionally,  under  Rule  608(b),  specific  instances  of conduct  may  be  inquired  into  on  cross-examination  if  probative  of  truthfulness. New  Mexico  ex  rel.
-
-Balderas v. Real Estate Law Center, P.C ., 409 F.Supp.3d 1122, 1128 (2019) (allowing cross-examination about specific instances of dishonesty).
-
-The Court must balance the probative value of evidence against the danger of unfair prejudice under Rule 403. However, evidence is not unfairly prejudicial merely because it damages a party's case
-
-
-
-Farmington ,  798 F.Supp.2d  1215,  1227  (D.N.M.  2011),  the  court  allowed  evidence  of  prior  substance  abuse  issues  as relevant to emotional distress damages. The District of Colorado in Sanchez v. Duffy , 416 F.Supp.3d 1131 (D. Colo. 2018) permitted evidence of prior mental health treatment to challenge causation in emotional distress claims.
-
-In Boeser v. Sharp , the court recognized that when a plaintiff places mental state at issue
-
-
-
 istress claims.
 
 In Boeser v. Sharp , the court recognized that when a plaintiff places mental state at issue evidence of  pre-existing  conditions  becomes  highly  relevant  to  assessing  damages. Boeser  v.  Sharp ,  No. CIVA03CV00031WDMMEH, 2007 WL 1430100, at *7 (D. Colo. May 14, 2007); see also Solis-Marrufo v. Bd. of Comm'rs for Cnty. of Bernalillo , No. CIV 11-0107 JB/KBM, 2013 WL 1658203, at *20 (D.N.M. Mar.  28,  2013)  (permitting  Defendants  to  contradict  a  plaintiff's
-
-
-
-nditions  becomes  highly  relevant  to  assessing  damages. Boeser  v.  Sharp ,  No. CIVA03CV00031WDMMEH, 2007 WL 1430100, at *7 (D. Colo. May 14, 2007); see also Solis-Marrufo v. Bd. of Comm'rs for Cnty. of Bernalillo , No. CIV 11-0107 JB/KBM, 2013 WL 1658203, at *20 (D.N.M. Mar.  28,  2013)  (permitting  Defendants  to  contradict  a  plaintiff's  asserted  damages  by  inquiring  into previous drug use as admissible where plaintiff's mental and emotional state at issue under Rules 403
 
 
 
@@ -39,22 +15,6 @@ te and reputation); Estate of Martinelli v. City & Cty. of Denver , No. 19cv-027
 B. Religious Beliefs Evidence Under Rule 610.
 
 While  Rule  610  prohibits  evidence  of  religious  beliefs  'to  attack  or  support  the  witness's credibility,' it does not bar such evidence wh
-
-
-
-nstructions because of its clearly probative value); Peterson v. Nelnet Diversified Sols., LLC , 400 F.Supp.3d at 1133 (finding probative value of reputation evidence outweighed potential prejudice); Estate of Martinelli , 2021 WL 4133804 at *8 (allowing evidence critical to damages claims despite prejudicial potential).
-
-VI. Alternatively, the Defendants are Entitled to Individual Analysis or Limiting Instructions Considering the Intersect
-
-
-
-t a reasonable fee for time spent in responding to discovery."
-13. Fed. R. Civ. P. 45(d)(2)(B)(ii): Subpoenaing party must "protect the person subject to the subpoena from significant expense."
-14. ( Lampe v. United States , 18 F. App'x 744 (10th Cir. 2001) (affirming that the deposing party bears the expert fee absent bad faith by the retaining party)
-
-III. ARGUMENT
-
-15. Safeway Issued Subpoena and Must Pay. Safeway issued subpoena August 4, 2025. Safeway noticed deposition. Safeway requested documents. Dr. Echeverry's invoice (Ex. 74-3) documents
 
 
 

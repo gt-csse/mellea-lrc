@@ -1,10 +1,13 @@
 # Bookmark research fixture
 
-`bookmarks.json` is authoritative. `bookmarked.txt` is its generated,
-human-readable projection and is also used as snapshot input. A bookmark is a
+`bookmarks.json` is authoritative and contains the research comments.
+`bookmarked.txt` is its generated extraction-input projection: it contains only
+the copied source contexts, separated by whitespace, so fixture metadata cannot
+be misread as citation text. A bookmark is a
 citation context, not a retrieval verdict: its identity is derived from
 normalized `matched_citation_text` plus the surrounding context. Repeated
-observations belong in `provenances`.
+observations belong in `provenances`. The Python hook and frontend share the
+same sorted-JSON SHA-256 identity contract; the fixture test enforces it.
 
 ## Comments
 
@@ -30,13 +33,6 @@ uv run python scripts/bookmark_fixture.py comment citation:43ae974f \
   $'Finding: opinion 0; RECAP 1.\nEvaluation: the RECAP docket matches the cited parties.'
 ```
 
-The legacy shorthand still works:
-
-```bash
-uv run python scripts/bookmark_fixture.py citation:43ae974f \
-  $'Finding: opinion 0; RECAP 1.\nEvaluation: the RECAP docket matches the cited parties.'
-```
-
 Add a newly observed citation context through the same hook so bookmark IDs,
 provenance IDs, and the text projection stay synchronized:
 
@@ -48,6 +44,24 @@ uv run python scripts/bookmark_fixture.py add \
   --citation-span-start 2481 \
   --citation-span-end 2635 \
   --comment $'Identity: LINKAGE DEFECT. ...'
+```
+
+Named research fixtures are independent bookmark stores. Each has its own
+authoritative `bookmark-<name>.json`, generated `bookmark-<name>.txt`, and
+expected-results README in `sets/`. Add directly to a named set with the same
+hook used for the default store:
+
+```bash
+uv run python scripts/bookmark_fixture.py add --set date-recovery \
+  --matched-citation-text "..." --context "..." --comment "..." \
+  --source-path "../local/test_data/6.txt" --citation-span-start 1 --citation-span-end 2
+```
+
+Run a named fixture as one document, just like the default bookmark fixture:
+
+```bash
+uv run --group pipeline python -m scripts.e2e_backend.snapshot_corpus \
+  --file date-extraction --phase assessment
 ```
 
 Run `uv run pytest tests/test_bookmark_fixture.py` after changes.

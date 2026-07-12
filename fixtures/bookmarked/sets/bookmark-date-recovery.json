@@ -1,0 +1,49 @@
+{
+  "schema_version": 2,
+  "bookmarks": [
+    {
+      "bookmark_id": "citation:54d82b4208ac7854e2b882255a89b0da88b1b5b143c24beaed069a96845e7c91",
+      "citation": {
+        "matched_citation_text": "Solis-Marrufo v. Board of Commissioners for County of Bernalillo, No. CIV 11-0107 JB/KBM, 2013 WL 1658203, at *20 (D.N.M. Mar.  28,  2013)",
+        "context": "Solis-Marrufo v. Board of Commissioners for County of Bernalillo, No. CIV 11-0107 JB/KBM, 2013 WL 1658203, at *20 (D.N.M. Mar.  28,  2013)."
+      },
+      "comment": "Identity: NOT SEARCHED. Evidence: eyecite omits the whitespace-damaged complete date. Expected date recovery: normalize Mar.  28,  2013 to 2013-03-28. Next: verify grounded preparation in a full-document window.",
+      "provenances": [
+        {
+          "source_path": "../local/test_data/1.txt",
+          "source_format": "text",
+          "citation_span": {
+            "start": 11924,
+            "end": 12018
+          },
+          "provenance_id": "provenance:34c0e20c900b8d033ba24cfe603f6ef066e5de2b668fcd6c12f5bc8e6e0c7ea5",
+          "seen_at": "2026-07-11T00:00:00.000Z"
+        }
+      ],
+      "created_at": "2026-07-11T00:00:00.000Z",
+      "updated_at": "2026-07-11T00:00:00.000Z"
+    },
+    {
+      "bookmark_id": "citation:28abee6d97662710daafee78697f8710b41b3266916b5a123e755bf15d04c8c4",
+      "citation": {
+        "matched_citation_text": "Wellv. Pelham (2021 U.S. Dist. LEXIS 52247, S.D.N.Y. Mar. 19, 2021)",
+        "context": "See Wellv. Pelham (2021 U.S. Dist. LEXIS 52247, S.D.N.Y. Mar. 19, 2021)."
+      },
+      "comment": "Identity: NOT SEARCHED. Evidence: copied parenthetical contains Mar. 19, 2021 while eyecite leaves asserted_decision_date empty. Expected date recovery: 2021-03-19. Note: the copied case name is malformed as Wellv.; date recovery must remain independent of authority identity.",
+      "provenances": [
+        {
+          "source_path": "../local/test_data/6.txt",
+          "source_format": "text",
+          "citation_span": {
+            "start": 17017,
+            "end": 17303
+          },
+          "provenance_id": "provenance:dc3f7529d1dea9f699979cfa541e652856c6f858fed1615a4de61ff0f573369d",
+          "seen_at": "2026-07-11T00:00:00.000Z"
+        }
+      ],
+      "created_at": "2026-07-11T00:00:00.000Z",
+      "updated_at": "2026-07-11T00:00:00.000Z"
+    }
+  ]
+}

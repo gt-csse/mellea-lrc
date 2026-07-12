@@ -26,6 +26,8 @@ from mellea_lrc.retrieval.case_name_prepare import (
     _case_name_preparation_requirements,
     _proposal_from_output,
     _validate_grounded_before_locator,
+    _validate_date_grounding,
+    _validate_query_output,
     render_case_name_preparation_chat_messages,
     render_case_name_preparation_prompt,
 )
@@ -426,6 +428,114 @@ def test_case_name_preparation_validation_uses_locator_not_full_citation_start()
             return Output()
 
     assert _validate_grounded_before_locator(Context(), window, locator).as_bool()
+
+
+def test_case_name_preparation_date_validation_requires_copied_date_after_locator() -> None:
+    text = "See Smith v. Jones, 2021 WL 123 (D. Colo. Sept. 10, 2021)."
+    locator = "2021 WL 123"
+    window = DocumentTextWindow.around(text, Span(0, len(text)), before_chars=320, after_chars=0)
+
+    class Output:
+        value = (
+            '{"classification":"complete_case_name","plaintiff":"Smith","defendant":"Jones",'
+            '"decision_date":"2021-09-10"}'
+        )
+
+    class Context:
+        def last_output(self) -> Output:
+            return Output()
+
+    assert _validate_date_grounding(Context(), window, locator).as_bool()
+
+
+def test_case_name_preparation_date_validation_converts_global_locator_offset_to_window() -> None:
+    """A full-document window must not use global offsets to slice local text."""
+    prefix = "x" * 500
+    citation = "Smith v. Jones, 2021 WL 123 (D. Colo. Sept. 10, 2021)."
+    text = f"{prefix}{citation}"
+    locator = "2021 WL 123"
+    citation_global_start = text.index("Smith")
+    window = DocumentTextWindow.around(
+        text,
+        Span(citation_global_start, len(text)),
+        before_chars=40,
+        after_chars=0,
+    )
+
+    class Output:
+        value = (
+            '{"classification":"complete_case_name","plaintiff":"Smith","defendant":"Jones",'
+            '"decision_date":"2021-09-10"}'
+        )
+
+    class Context:
+        def last_output(self) -> Output:
+            return Output()
+
+    assert _validate_date_grounding(Context(), window, locator).as_bool()
+
+
+def test_case_name_preparation_rejects_date_from_before_locator() -> None:
+    text = "On Sept. 10, 2021, see Smith v. Jones, 2021 WL 123 (D. Colo. 2021)."
+    locator = "2021 WL 123"
+    start = text.index(locator)
+    window = DocumentTextWindow.around(text, Span(start, len(text)), before_chars=320, after_chars=0)
+
+    class Output:
+        value = (
+            '{"classification":"complete_case_name","plaintiff":"Smith","defendant":"Jones",'
+            '"decision_date":"2021-09-10"}'
+        )
+
+    class Context:
+        def last_output(self) -> Output:
+            return Output()
+
+    assert not _validate_date_grounding(Context(), window, locator).as_bool()
+
+
+def test_case_name_preparation_accepts_llm_repair_of_bounded_ocr_date() -> None:
+    text = "See Smith v. Jones, 2021 WL 123 (D. Colo. Sept. 1O, 2O21)."
+    locator = "2021 WL 123"
+    window = DocumentTextWindow.around(text, Span(0, len(text)), before_chars=320, after_chars=0)
+
+    class Output:
+        value = (
+            '{"classification":"complete_case_name","plaintiff":"Smith","defendant":"Jones",'
+            '"decision_date":"2021-09-10"}'
+        )
+
+    class Context:
+        def last_output(self) -> Output:
+            return Output()
+
+    assert _validate_date_grounding(Context(), window, locator).as_bool()
+
+
+def test_case_name_preparation_rejects_null_when_complete_copied_date_exists() -> None:
+    text = "See Smith v. Jones, 2021 WL 123 (D. Colo. Sept. 10, 2021)."
+    locator = "2021 WL 123"
+    window = DocumentTextWindow.around(text, Span(0, len(text)), before_chars=320, after_chars=0)
+
+    class Output:
+        value = '{"classification":"complete_case_name","plaintiff":"Smith","defendant":"Jones"}'
+
+    class Context:
+        def last_output(self) -> Output:
+            return Output()
+
+    assert not _validate_date_grounding(Context(), window, locator).as_bool()
+
+
+def test_case_name_query_planning_accepts_only_plain_terms() -> None:
+    class Output:
+        value = '{"query_plaintiff":"Estate of Martinelli","query_defendant":"Denver"}'
+
+    class Context:
+        def last_output(self) -> Output:
+            return Output()
+
+    assert _validate_query_output(Context()).as_bool()
 
 
 def test_case_name_preparation_allows_incomplete_output_when_only_prompt_can_bind_marker() -> None:

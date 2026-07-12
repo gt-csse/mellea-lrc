@@ -8,6 +8,7 @@ from mellea_lrc.llm.config import (
 from mellea_lrc.llm.ivr import (
     format_rendered_chat_messages,
     InstructIvrSpec,
+    MelleaRequirementsExhaustedError,
     RenderedChatMessage,
     render_instruct_chat_messages,
     render_instruct_prompt,
@@ -19,6 +20,7 @@ __all__ = [
     "format_rendered_chat_messages",
     "InstructIvrSpec",
     "LlmApiConfig",
+    "MelleaRequirementsExhaustedError",
     "RenderedChatMessage",
     "llm_api_config_from_env",
     "render_instruct_chat_messages",

@@ -66,9 +66,6 @@ async def semantic_match_case_name(
         strategy=MultiTurnStrategy(loop_budget=VERDICT_MAX_REPAIR_TURNS),
         model_options=model_options,
     )
-    if not result.success:
-        msg = "Semantic case-name classifier exhausted retries without satisfying requirements."
-        raise ValueError(msg)
     return _semantic_output_from_text(result.result.value).verdict
 
 

@@ -3,7 +3,6 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const schemaVersion = 2;
-const separator = "========";
 
 const contextChars = 200;
 
@@ -61,6 +60,7 @@ type BookmarkStore = {
 type BookmarkStatusEntry = {
   bookmarked: boolean;
   comment: string | null;
+  context: string | null;
 };
 
 let operationQueue: Promise<void> = Promise.resolve();
@@ -102,7 +102,8 @@ export async function bookmarkStatuses(citations: BookmarkCitationInput[]) {
           const existing = lookup.get(id);
           const entry: BookmarkStatusEntry = {
             bookmarked: existing !== undefined,
-            comment: existing?.comment ?? null
+            comment: existing?.comment ?? null,
+            context: existing?.citation.context ?? null
           };
           return [citation.citation_id ?? id, entry];
         })
@@ -268,24 +269,16 @@ async function writeStoreAndFixture(
 ) {
   const json = `${JSON.stringify(store, null, 2)}\n`;
   const text = store.bookmarks.length
-    ? `${store.bookmarks
-        .map(
-          (bookmark) =>
-            `${separator}\n${formatBookmarkText(bookmark)}`
-        )
-        .join("\n\n")}\n`
+    ? `${store.bookmarks.map(formatBookmarkText).join("\n\n\n\n")}\n`
     : "";
   await atomicWrite(paths.json, json);
   await atomicWrite(paths.text, text);
 }
 
 function formatBookmarkText(bookmark: BookmarkRecord) {
-  const lines = [bookmark.citation.matched_citation_text];
-  if (bookmark.comment) {
-    lines.push("", `> ${bookmark.comment}`);
-  }
-  lines.push("", `Context: ${bookmark.citation.context}`);
-  return lines.join("\n");
+  // This file is pipeline input. Keep record structure and research prose in
+  // bookmarks.json so neither can be mistaken for copied citation text.
+  return bookmark.citation.context;
 }
 
 async function atomicWrite(destination: string, contents: string) {

@@ -58,11 +58,20 @@ from mellea_lrc.serialization import (
 )
 from mellea_lrc.retrieval.types import (
     AmbiguousCitationRetrieval,
+    CaseNameSearchCandidate,
+    CaseNameSearchCorpus,
+    CaseNameSearchProbe,
+    CaseNameSearchStatus,
+    CaseNameSearchTrace,
     CitationRetrieval,
     CourtListenerRequestTrace,
     CourtResolutionSource,
     CourtResolutionTrace,
+    DocketCandidateEvidence,
+    DocketDocumentEvidence,
+    DocketEvidenceStatus,
     FoundCitationRetrieval,
+    NotFoundCitationRetrieval,
     RetrievedCandidate,
     RetrievedDocument,
     RetrievalMetadata,
@@ -325,6 +334,62 @@ def test_ambiguous_retrieval_candidates_round_trip_with_court_traces() -> None:
     assert len(payload["candidates"]) == 2
     assert payload["candidates"][0]["record"]["case_name"] == "Example A"
     assert payload["candidates"][0]["court_resolution"]["courtlistener_court_id"] == "ca1"
+    assert deserialize_citation_retrieval(payload) == record
+
+
+def test_not_found_docket_evidence_round_trips() -> None:
+    """Document-level RECAP evidence survives the citation snapshot boundary."""
+    evidence = DocketCandidateEvidence(
+        status=DocketEvidenceStatus.ENRICHED,
+        docket_request=CourtListenerRequestTrace(http_status=200, key="docket"),
+        entries_request=CourtListenerRequestTrace(http_status=200, key="documents"),
+        case_name="Doe v. Roe",
+        court_id="nmd",
+        docket_number="1:19-cv-00042",
+        assigned_to="Judge Example",
+        documents=(
+            DocketDocumentEvidence(
+                recap_document_id="12",
+                entry_number="49",
+                date_filed="2020-06-01",
+                document_description="Memorandum Opinion and Order",
+                page_count=24,
+                available=True,
+                decisional_cues=("memorandum_opinion", "opinion", "order"),
+                year_distance=0,
+            ),
+        ),
+    )
+    record = NotFoundCitationRetrieval(
+        citation_id="cite-1",
+        locator="2020 WL 123",
+        source="test",
+        request_trace=CourtListenerRequestTrace(http_status=404),
+        candidate_search=CaseNameSearchTrace(
+            status=CaseNameSearchStatus.PARTIAL,
+            probes=(
+                CaseNameSearchProbe(
+                    corpus=CaseNameSearchCorpus.RECAP,
+                    status=CaseNameSearchStatus.SEARCHED,
+                    request_trace=CourtListenerRequestTrace(http_status=200),
+                    case_count=1,
+                    candidates=(
+                        CaseNameSearchCandidate(
+                            case_name="Doe v. Roe",
+                            docket_id="42",
+                            docket_evidence=evidence,
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    payload = serialize_citation_retrieval(record)
+
+    assert payload["candidate_search"]["probes"][0]["candidates"][0]["docket_evidence"][
+        "documents"
+    ][0]["recap_document_id"] == "12"
     assert deserialize_citation_retrieval(payload) == record
 
 

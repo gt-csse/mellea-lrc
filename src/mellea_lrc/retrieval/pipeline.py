@@ -222,7 +222,13 @@ def _retrieve_citation(
         )
 
     lookup = client.lookup_citation(citation.volume, edition, citation.page)
-    return _retrieval_from_lookup(item.citation_id, lookup, client, docket_court_cache, citation)
+    return _retrieval_from_lookup(
+        item.citation_id,
+        lookup,
+        client,
+        docket_court_cache,
+        citation,
+    )
 
 
 async def _retrieve_citation_async(
@@ -250,7 +256,13 @@ async def _retrieve_citation_async(
     lookup = client.lookup_citation(citation.volume, edition, citation.page)
     status = _status_from_lookup(lookup.status)
     if status is not RetrievalStatus.NOT_FOUND:
-        return _retrieval_from_lookup(item.citation_id, lookup, client, docket_court_cache, citation)
+        return _retrieval_from_lookup(
+            item.citation_id,
+            lookup,
+            client,
+            docket_court_cache,
+            citation,
+        )
     async with semaphore:
         session = await get_session()
         preparation = await prepare_case_name_for_search(
@@ -337,7 +349,7 @@ def _retrieval_from_lookup(
             candidate_search=search_case_name_candidates(
                 citation,
                 client=client,
-                preparation=preparation,
+        preparation=preparation,
             ),
         )
     if status is RetrievalStatus.THROTTLED:

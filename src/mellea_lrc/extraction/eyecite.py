@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from importlib.metadata import PackageNotFoundError, version
 from typing import cast
 
@@ -13,7 +14,6 @@ from eyecite.models import (
     FullLawCitation as EyeciteFullLawCitation,
     IdCitation as EyeciteIdCitation,
     ReferenceCitation as EyeciteReferenceCitation,
-    Reporter as EyeciteReporter,
     Resource,
     ShortCaseCitation as EyeciteShortCaseCitation,
     SupraCitation as EyeciteSupraCitation,
@@ -232,6 +232,7 @@ def _extract_from_text(
                 matched_locator_text=eyecite_citation.matched_text(),
                 matched_citation_text=text[span_start:span_end],
                 citation=_to_canonical(eyecite_citation),
+                asserted_decision_date=_asserted_decision_date(eyecite_citation),
                 resolves_to=antecedent_map.get(citation_id),
             )
         )
@@ -243,6 +244,27 @@ def _extract_from_text(
         citations=tuple(extracted),
         extraction_metadata=ExtractionMetadata(backend_version=_eyecite_version()),
     )
+
+
+def _asserted_decision_date(citation: CitationBase) -> str | None:
+    """Project eyecite's citation-bound complete date to ISO, when valid."""
+    metadata = citation.metadata
+    year = getattr(metadata, "year", None)
+    month = getattr(metadata, "month", None)
+    day = getattr(metadata, "day", None)
+    if not isinstance(year, str) or not isinstance(month, str) or not isinstance(day, str):
+        return None
+    months = {
+        "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
+        "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7, "july": 7,
+        "aug": 8, "august": 8, "sep": 9, "sept": 9, "september": 9, "oct": 10,
+        "october": 10, "nov": 11, "november": 11, "dec": 12, "december": 12,
+    }
+    try:
+        month_number = months[month.lower().rstrip(".")]
+        return date.fromisoformat(f"{year}-{month_number:02d}-{int(day):02d}").isoformat()
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def extract_baseline(preprocessed: PreprocessedDocument) -> ExtractedDocument:

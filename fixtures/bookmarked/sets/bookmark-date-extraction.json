@@ -2,132 +2,44 @@
   "schema_version": 2,
   "bookmarks": [
     {
-      "bookmark_id": "citation:2a80b453011c1ead4adc222dcfe841f4bbc3bbaf978068ee5f62329c18015b4f",
-      "citation": {
-        "context": "States v. Smalls , 605 F.3d 765, 787 (10th Cir. 2010) (internal quotations and citations omitted).\n\nThe trial court's discretion to balance possible unfair prejudice against probative value is broad. United States v. Begay ,  497 F. Supp. 3d 1025, 1052 (D.N.M. 2020) (citations omitted). While Federal Rule of Evidence 404(a) generally prohibits character evidence to prove conduct in conformity therewith, Rule 405(b) expressly permits evidence of specific instances of conduct when ch",
-        "matched_citation_text": "United States v. Begay ,  497 F. Supp. 3d 1025, 1052 (D.N.M. 2020) (citations omitted)"
-      },
-      "comment": "Identity: UNRESOLVED. The cited authority is United States v. Begay, 497 F. Supp. 3d 1025 (D.N.M. 2020), but the 3 surfaced opinion candidates were filed in 2005, 2016, and 2018; none is shown to be that decision. The 324 RECAP results are too broad to resolve identity.\nNext: locate the 2020 decisional document or its docket/document number.",
-      "provenances": [
-        {
-          "source_path": "../local/test_data/1.txt",
-          "source_format": "text",
-          "provenance_id": "provenance:fa2a259054d2b08dae3a526eaa9a8cbb6da85e8a5526fefc6fdc3b03897207f2",
-          "seen_at": "2026-07-07T17:00:07.375Z",
-          "citation_span": {
-            "start": 3022,
-            "end": 3108
-          }
-        }
-      ],
-      "created_at": "2026-07-07T17:00:07.375Z",
-      "updated_at": "2026-07-07T17:00:07.375Z"
-    },
-    {
-      "bookmark_id": "citation:396fbf5bc96548f5a556643d1794f382168a5e7857fba75bc181d1260ac5ac75",
-      "citation": {
-        "context": "\"  in  defamation  cases). Additionally,  under  Rule  608(b),  specific  instances  of conduct  may  be  inquired  into  on  cross-examination  if  probative  of  truthfulness. New  Mexico  ex  rel.\n\nBalderas v. Real Estate Law Center, P.C ., 409 F.Supp.3d 1122, 1128 (2019) (allowing cross-examination about specific instances of dishonesty).\n\nThe Court must balance the probative value of evidence against the danger of unfair prejudice under Rule 403. However, evidence is not unfairly prejudicial merely because it damages a party's case",
-        "matched_citation_text": "Balderas v. Real Estate Law Center, P.C ., 409 F.Supp.3d 1122, 1128 (2019) (allowing cross-examination about specific instances of dishonesty)"
-      },
-      "comment": "Identity: VERIFIED. The sole RECAP result is Balderas v. Real Estate Law Center, PC, D.N.M. No. 1:17-cv-00251. Docket entry 193 is the relevant memorandum opinion reported at 409 F. Supp. 3d 1122.\nEvidence: exact parties, court, docket, decisional document, and reporter locator.",
-      "provenances": [
-        {
-          "source_path": "../local/test_data/1.txt",
-          "source_format": "text",
-          "provenance_id": "provenance:7f13e1492e7f4d1fa42caedbc8892fc8652805cd3435c8f0c3af8cd5f337f90f",
-          "seen_at": "2026-07-07T17:01:09.007Z",
-          "citation_span": {
-            "start": 3888,
-            "end": 4031
-          }
-        }
-      ],
-      "created_at": "2026-07-07T17:01:09.007Z",
-      "updated_at": "2026-07-07T17:01:09.007Z"
-    },
-    {
-      "bookmark_id": "citation:b9ee4abad0a528e10ed783cf4945a348e45440424770e72a801062f1cf8940af",
-      "citation": {
-        "context": "Farmington ,  798 F.Supp.2d  1215,  1227  (D.N.M.  2011),  the  court  allowed  evidence  of  prior  substance  abuse  issues  as relevant to emotional distress damages. The District of Colorado in Sanchez v. Duffy , 416 F.Supp.3d 1131 (D. Colo. 2018) permitted evidence of prior mental health treatment to challenge causation in emotional distress claims.\n\nIn Boeser v. Sharp , the court recognized that when a plaintiff places mental state at issue",
-        "matched_citation_text": "Sanchez v. Duffy , 416 F.Supp.3d 1131 (D. Colo. 2018)"
-      },
-      "comment": "Identity: NO CANDIDATE. Court-filtered opinion and RECAP searches both returned 0 for Sanchez v. Duffy, 416 F. Supp. 3d 1131 (D. Colo. 2018).\nNext: try party-name variants, reporter/page sources outside CourtListener, or classify the citation as likely malformed.",
-      "provenances": [
-        {
-          "source_path": "../local/test_data/1.txt",
-          "source_format": "text",
-          "provenance_id": "provenance:3068ef5f92e357f44fb0a6b67da01dd5f9c0282cdeecd31e6673f87ab7e03885",
-          "seen_at": "2026-07-07T17:01:57.192Z",
-          "citation_span": {
-            "start": 11442,
-            "end": 11495
-          }
-        }
-      ],
-      "created_at": "2026-07-07T17:01:57.192Z",
-      "updated_at": "2026-07-07T17:01:57.192Z"
-    },
-    {
       "bookmark_id": "citation:ae8ab49bd41d34a3621b0e99273eea330fdd9d6472f583d8ae2b6e191832c2e3",
       "citation": {
-        "context": "istress claims.\n\nIn Boeser v. Sharp , the court recognized that when a plaintiff places mental state at issue evidence of  pre-existing  conditions  becomes  highly  relevant  to  assessing  damages. Boeser  v.  Sharp ,  No. CIVA03CV00031WDMMEH, 2007 WL 1430100, at *7 (D. Colo. May 14, 2007); see also Solis-Marrufo v. Bd. of Comm'rs for Cnty. of Bernalillo , No. CIV 11-0107 JB/KBM, 2013 WL 1658203, at *20 (D.N.M. Mar.  28,  2013)  (permitting  Defendants  to  contradict  a  plaintiff's",
-        "matched_citation_text": "Boeser  v.  Sharp ,  No. CIVA03CV00031WDMMEH, 2007 WL 1430100, at *7 (D. Colo. May 14, 2007)"
+        "matched_citation_text": "Boeser  v.  Sharp ,  No. CIVA03CV00031WDMMEH, 2007 WL 1430100, at *7 (D. Colo. May 14, 2007)",
+        "context": "istress claims.\n\nIn Boeser v. Sharp , the court recognized that when a plaintiff places mental state at issue evidence of  pre-existing  conditions  becomes  highly  relevant  to  assessing  damages. Boeser  v.  Sharp ,  No. CIVA03CV00031WDMMEH, 2007 WL 1430100, at *7 (D. Colo. May 14, 2007); see also Solis-Marrufo v. Bd. of Comm'rs for Cnty. of Bernalillo , No. CIV 11-0107 JB/KBM, 2013 WL 1658203, at *20 (D.N.M. Mar.  28,  2013)  (permitting  Defendants  to  contradict  a  plaintiff's"
       },
       "comment": "Identity: VERIFIED. The sole RECAP result is Boeser v. Sharp, D. Colo. No. 1:03-cv-00031. Docket entry 331 is an order filed May 14, 2007, matching 2007 WL 1430100.\nEvidence: exact parties, court, docket number, filing date, and available decisional document.",
       "provenances": [
         {
           "source_path": "../local/test_data/1.txt",
           "source_format": "text",
-          "provenance_id": "provenance:ff635268f0d966b1e54098d3fe373a9c33283c6f502488e926500237aec922dd",
-          "seen_at": "2026-07-07T17:03:13.711Z",
           "citation_span": {
             "start": 11785,
             "end": 11877
-          }
+          },
+          "provenance_id": "provenance:ff635268f0d966b1e54098d3fe373a9c33283c6f502488e926500237aec922dd",
+          "seen_at": "2026-07-07T17:03:13.711Z"
         }
       ],
       "created_at": "2026-07-07T17:03:13.711Z",
       "updated_at": "2026-07-07T17:03:13.711Z"
     },
     {
-      "bookmark_id": "citation:53cd94d28faddd15f53874da687fb4339902d52e8fc2062103270741f359bf40",
-      "citation": {
-        "context": "nditions  becomes  highly  relevant  to  assessing  damages. Boeser  v.  Sharp ,  No. CIVA03CV00031WDMMEH, 2007 WL 1430100, at *7 (D. Colo. May 14, 2007); see also Solis-Marrufo v. Bd. of Comm'rs for Cnty. of Bernalillo , No. CIV 11-0107 JB/KBM, 2013 WL 1658203, at *20 (D.N.M. Mar.  28,  2013)  (permitting  Defendants  to  contradict  a  plaintiff's  asserted  damages  by  inquiring  into previous drug use as admissible where plaintiff's mental and emotional state at issue under Rules 403",
-        "matched_citation_text": "Cnty. of Bernalillo , No. CIV 11-0107 JB/KBM, 2013 WL 1658203, at *20 (D.N.M. Mar.  28,  2013)"
-      },
-      "comment": "Identity: NOT SEARCHED. Extraction did not recover both parties for Solis-Marrufo v. Board of Commissioners, so the candidate-search gate could not run.\nNext: grounded case-name re-extraction, followed by court/date/docket-aware retrieval.",
-      "provenances": [
-        {
-          "source_path": "../local/test_data/1.txt",
-          "source_format": "text",
-          "provenance_id": "provenance:34c0e20c900b8d033ba24cfe603f6ef066e5de2b668fcd6c12f5bc8e6e0c7ea5",
-          "seen_at": "2026-07-07T17:03:57.765Z",
-          "citation_span": {
-            "start": 11924,
-            "end": 12018
-          }
-        }
-      ],
-      "created_at": "2026-07-07T17:03:57.765Z",
-      "updated_at": "2026-07-07T17:03:57.765Z"
-    },
-    {
       "bookmark_id": "citation:12c3dd5685068971a9fd9fb79bc0dd69a8e8b36ba26998d8d645a06bf03787c6",
       "citation": {
-        "context": "y admitted social media evidence in similar contexts. See Sanchez v. Duffy , 416 F.Supp.3d 1131, 1142 (D. Colo. 2018) (allowing Facebook posts as relevant to plaintiff's mental state and reputation); Estate of Martinelli v. City & Cty. of Denver , No. 19cv-02737, 2021 WL 4133804, at *6-7 (D. Colo. Sept. 10, 2021) (admitting social media evidence as relevant to damages claims); Peterson v. Nelnet Diversified Sols., LLC ,  400 F.Supp.3d 1122, 1131 (D. Colo. 2019) (permitting discovery and use of social media posts in emotional distress case).\n\nB. Religious Beliefs Evidence",
-        "matched_citation_text": "Estate of Martinelli v. City & Cty. of Denver , No. 19cv-02737, 2021 WL 4133804, at *6-7 (D. Colo. Sept. 10, 2021) (admitting social media evidence as relevant to damages claims)"
+        "matched_citation_text": "Estate of Martinelli v. City & Cty. of Denver , No. 19cv-02737, 2021 WL 4133804, at *6-7 (D. Colo. Sept. 10, 2021) (admitting social media evidence as relevant to damages claims)",
+        "context": "y admitted social media evidence in similar contexts. See Sanchez v. Duffy , 416 F.Supp.3d 1131, 1142 (D. Colo. 2018) (allowing Facebook posts as relevant to plaintiff's mental state and reputation); Estate of Martinelli v. City & Cty. of Denver , No. 19cv-02737, 2021 WL 4133804, at *6-7 (D. Colo. Sept. 10, 2021) (admitting social media evidence as relevant to damages claims); Peterson v. Nelnet Diversified Sols., LLC ,  400 F.Supp.3d 1122, 1131 (D. Colo. 2019) (permitting discovery and use of social media posts in emotional distress case).\n\nB. Religious Beliefs Evidence"
       },
       "comment": "Identity: NO CANDIDATE. The generic Estate AND City query produced unrelated results; the corrected Martinelli AND Denver + D. Colo. query produced 0 opinion and 0 RECAP results.\nKnown cues: Estate of Martinelli v. City & County of Denver, No. 19-cv-02737, asserted date September 10, 2021.\nNext: search by docket number or another source.",
       "provenances": [
         {
           "source_path": "../local/test_data/1.txt",
           "source_format": "text",
-          "provenance_id": "provenance:50f8cd85215e1154972a8d3f8667e6ab577efa8aaeff51dc3f72585dc4760111",
-          "seen_at": "2026-07-07T17:06:46.505Z",
           "citation_span": {
             "start": 18912,
             "end": 19090
-          }
+          },
+          "provenance_id": "provenance:50f8cd85215e1154972a8d3f8667e6ab577efa8aaeff51dc3f72585dc4760111",
+          "seen_at": "2026-07-07T17:06:46.505Z"
         }
       ],
       "created_at": "2026-07-07T17:06:46.505Z",
@@ -136,68 +48,24 @@
     {
       "bookmark_id": "citation:0d0cc534da1e0b683874dd16c180c0ced64448c099022087df2fa109fd9478dd",
       "citation": {
-        "context": "te and reputation); Estate of Martinelli v. City & Cty. of Denver , No. 19cv-02737, 2021 WL 4133804, at *6-7 (D. Colo. Sept. 10, 2021) (admitting social media evidence as relevant to damages claims); Peterson v. Nelnet Diversified Sols., LLC ,  400 F.Supp.3d 1122, 1131 (D. Colo. 2019) (permitting discovery and use of social media posts in emotional distress case).\n\nB. Religious Beliefs Evidence Under Rule 610.\n\nWhile  Rule  610  prohibits  evidence  of  religious  beliefs  'to  attack  or  support  the  witness's credibility,' it does not bar such evidence wh",
-        "matched_citation_text": "Peterson v. Nelnet Diversified Sols., LLC ,  400 F.Supp.3d 1122, 1131 (D. Colo. 2019) (permitting discovery and use of social media posts in emotional distress case)"
+        "matched_citation_text": "Peterson v. Nelnet Diversified Sols., LLC ,  400 F.Supp.3d 1122, 1131 (D. Colo. 2019) (permitting discovery and use of social media posts in emotional distress case)",
+        "context": "te and reputation); Estate of Martinelli v. City & Cty. of Denver , No. 19cv-02737, 2021 WL 4133804, at *6-7 (D. Colo. Sept. 10, 2021) (admitting social media evidence as relevant to damages claims); Peterson v. Nelnet Diversified Sols., LLC ,  400 F.Supp.3d 1122, 1131 (D. Colo. 2019) (permitting discovery and use of social media posts in emotional distress case).\n\nB. Religious Beliefs Evidence Under Rule 610.\n\nWhile  Rule  610  prohibits  evidence  of  religious  beliefs  'to  attack  or  support  the  witness's credibility,' it does not bar such evidence wh"
       },
       "comment": "Identity: VERIFIED. The sole RECAP result is Peterson v. Nelnet Diversified Solutions, LLC, D. Colo. No. 1:17-cv-01064. Docket entry 186 is the August 23, 2019 memorandum opinion reported at 400 F. Supp. 3d 1122.\nEvidence: exact parties, court, docket, filing date, decisional document, and reporter locator.",
       "provenances": [
         {
           "source_path": "../local/test_data/1.txt",
           "source_format": "text",
-          "provenance_id": "provenance:8c1f7f3e8415c276d1c74725344cf10f8884a9cbccba28bdc93810db7eba1bec",
-          "seen_at": "2026-07-07T17:07:25.546Z",
           "citation_span": {
             "start": 19092,
             "end": 19257
-          }
+          },
+          "provenance_id": "provenance:8c1f7f3e8415c276d1c74725344cf10f8884a9cbccba28bdc93810db7eba1bec",
+          "seen_at": "2026-07-07T17:07:25.546Z"
         }
       ],
       "created_at": "2026-07-07T17:07:25.546Z",
       "updated_at": "2026-07-07T17:07:25.546Z"
-    },
-    {
-      "bookmark_id": "citation:da050305b5c6e62f2b822b3e41688f21a74f7e6e5bc0724e18aff58c417b022e",
-      "citation": {
-        "context": "nstructions because of its clearly probative value); Peterson v. Nelnet Diversified Sols., LLC , 400 F.Supp.3d at 1133 (finding probative value of reputation evidence outweighed potential prejudice); Estate of Martinelli , 2021 WL 4133804 at *8 (allowing evidence critical to damages claims despite prejudicial potential).\n\nVI. Alternatively, the Defendants are Entitled to Individual Analysis or Limiting Instructions Considering the Intersect",
-        "matched_citation_text": "Estate of Martinelli , 2021 WL 4133804 at *8"
-      },
-      "comment": "Identity: LINKAGE DEFECT. This is a repeated short-form reference to Estate of Martinelli, but extraction attached an incomplete case name and incorrect locator/pinpoint. It is not evidence of a second case.\nNext: resolve the short form to the earlier full citation before retrieval.",
-      "provenances": [
-        {
-          "source_path": "../local/test_data/1.txt",
-          "source_format": "text",
-          "provenance_id": "provenance:2e100d57ebcc79ca0ac4e3f5c654ffba21b23891d882bcf16023a2e36ca9c709",
-          "seen_at": "2026-07-07T17:07:57.729Z",
-          "citation_span": {
-            "start": 23891,
-            "end": 23935
-          }
-        }
-      ],
-      "created_at": "2026-07-07T17:07:57.729Z",
-      "updated_at": "2026-07-07T17:07:57.729Z"
-    },
-    {
-      "bookmark_id": "citation:a21322c9ef3c1273d6aa9e37807aca49974740ed10335486b160fae9d0ea9d45",
-      "citation": {
-        "context": "t a reasonable fee for time spent in responding to discovery.\"\n13. Fed. R. Civ. P. 45(d)(2)(B)(ii): Subpoenaing party must \"protect the person subject to the subpoena from significant expense.\"\n14. ( Lampe v. United States , 18 F. App'x 744 (10th Cir. 2001) (affirming that the deposing party bears the expert fee absent bad faith by the retaining party)\n\nIII. ARGUMENT\n\n15. Safeway Issued Subpoena and Must Pay. Safeway issued subpoena August 4, 2025. Safeway noticed deposition. Safeway requested documents. Dr. Echeverry's invoice (Ex. 74-3) documents",
-        "matched_citation_text": "Lampe v. United States , 18 F. App'x 744 (10th Cir. 2001) (affirming that the deposing party bears the expert fee absent bad faith by the retaining party)"
-      },
-      "comment": "Identity: LINKAGE DEFECT. Exact citation lookup for 18 F. App'x 744 surfaced Tri-State Commodities, Inc. v. GSO America, Inc., but the copied citation context is Lampe v. United States, 18 F. App'x 744 (10th Cir. 2001). Assessment re-extraction correctly grounds Lampe and reassessment classifies the surfaced candidate as a different case.\nEvidence: locator, copied parties, year/court parenthetical, and candidate case-name mismatch.\nNext: inspect CourtListener exact-lookup metadata for reporter/page collision or candidate mapping defect.",
-      "provenances": [
-        {
-          "source_path": "../local/test_data/13.txt",
-          "source_format": "text",
-          "provenance_id": "provenance:eddb95069810a369b8f1838c2e929cfc041f76ebd19ca2c08f836e91085ccc29",
-          "seen_at": "2026-07-09T14:57:43.000Z",
-          "citation_span": {
-            "start": 2481,
-            "end": 2635
-          }
-        }
-      ],
-      "created_at": "2026-07-09T14:57:43.000Z",
-      "updated_at": "2026-07-09T14:57:43.000Z"
     },
     {
       "bookmark_id": "citation:54d82b4208ac7854e2b882255a89b0da88b1b5b143c24beaed069a96845e7c91",

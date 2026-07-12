@@ -151,7 +151,7 @@ async def _run_reassessment(
         )
     reextracted = ReextractedCaseName(
         case_name=grounded.text,
-        case_name_span=grounded.span,
+        case_name_span=grounded.global_span,
     )
     try:
         result = await _assess_reextracted_case_name(

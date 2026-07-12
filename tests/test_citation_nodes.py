@@ -267,7 +267,7 @@ def test_citation_node_document_to_json_projects_trace_shape() -> None:
                     "citation_span": {"start": 25, "end": 37},
                     "matched_locator_text": "118 U.S. 425",
                     "matched_citation_text": "118 U.S. 425",
-                    "citation": {
+                        "citation": {
                         "type": "FullCaseCitation",
                         "plaintiff": "Norton",
                         "defendant": "Shelby County",
@@ -285,9 +285,10 @@ def test_citation_node_document_to_json_projects_trace_shape() -> None:
                             "cite_type": "federal",
                             "is_scotus": True,
                             "source": "reporters",
+                            },
                         },
-                    },
-                    "resolves_to": None,
+                        "asserted_decision_date": None,
+                        "resolves_to": None,
                 },
                 "steps": [
                     {
@@ -394,8 +395,10 @@ def test_not_found_retrieval_projects_granular_case_name_search_chain() -> None:
     assert [step.operation for step in node.steps] == [
         "retrieval.exact_lookup",
         "retrieval.fallback_decision",
-        "retrieval.case_name_preparation",
-        "retrieval.candidate_query",
+        "retrieval.party_examination",
+        "retrieval.date_examination",
+        "retrieval.preparation_validation",
+        "retrieval.query_planning",
         "retrieval.corpus_probe",
         "retrieval.corpus_probe",
         "retrieval.candidate_results",
@@ -406,11 +409,11 @@ def test_not_found_retrieval_projects_granular_case_name_search_chain() -> None:
     assert preparation.data["llm_classification"] == "complete_case_name"
     assert preparation.data["prepared_case_name"] == "Norton v. Shelby County"
     assert preparation.depends_on == ("cite-0001:retrieval:fallback_decision",)
-    assert node.steps[4].lane == "o"
-    assert node.steps[4].data["candidates"][0]["case_name"] == "Norton v. Shelby County"
-    assert node.steps[5].lane == "r"
-    assert node.steps[5].status is CitationStepStatus.FAILED
-    assert node.steps[6].depends_on == (
+    assert node.steps[6].lane == "o"
+    assert node.steps[6].data["candidates"][0]["case_name"] == "Norton v. Shelby County"
+    assert node.steps[7].lane == "r"
+    assert node.steps[7].status is CitationStepStatus.FAILED
+    assert node.steps[8].depends_on == (
         "cite-0001:retrieval:corpus_probe:o",
         "cite-0001:retrieval:corpus_probe:r",
     )

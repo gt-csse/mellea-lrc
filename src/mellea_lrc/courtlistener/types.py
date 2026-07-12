@@ -70,6 +70,15 @@ class CitationRetrievalClient(CitationLookupClient, Protocol):
     def get_docket(self, cl_docket_id: int | str) -> Mapping[str, object]:
         """Retrieve one canonical docket record."""
 
+    def search_docket_entries(
+        self,
+        cl_docket_id: int | str,
+        entry_number: int | str | None = None,
+        cursor: str | None = None,
+        order_by: str | None = None,
+    ) -> Mapping[str, object]:
+        """Retrieve one page of docket entries with nested RECAP documents."""
+
     def search_opinions(self, q: str) -> Mapping[str, object]:
         """Run a CourtListener opinion (``type=o``) search; response carries ``count``."""
 

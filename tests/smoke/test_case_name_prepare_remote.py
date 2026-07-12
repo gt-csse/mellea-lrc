@@ -1,5 +1,7 @@
 """LLM remote sanity tests for live case-name search preparation."""
 
+# ruff: noqa: INP001
+
 from __future__ import annotations
 
 import asyncio
@@ -17,7 +19,11 @@ from mellea_lrc.assessment.context import DocumentTextWindow
 from mellea_lrc.assessment.model_options import structured_model_options
 from mellea_lrc.core.env import load_env_file
 from mellea_lrc.core.spans import Span
-from mellea_lrc.llm import llm_api_config_from_env, start_mellea_session_from_env
+from mellea_lrc.llm import (
+    MelleaRequirementsExhaustedError,
+    llm_api_config_from_env,
+    start_mellea_session_from_env,
+)
 from mellea_lrc.retrieval.case_name_prepare import (
     PREPARATION_MAX_TOKENS,
     _case_name_preparation_requirements,
@@ -25,6 +31,7 @@ from mellea_lrc.retrieval.case_name_prepare import (
 )
 
 pytestmark = [pytest.mark.remote_smoke, pytest.mark.llm_remote_sanity]
+MINIMUM_RETRY_OUTPUTS = 2
 
 
 @pytest.mark.parametrize(
@@ -76,27 +83,28 @@ def test_prepare_case_name_live_examples(
 
 
 def test_prepare_case_name_live_context_records_retry_turns() -> None:
-    """Forced requirement failures should leave model outputs and retry feedback in context."""
-    proposal, final_ctx = asyncio.run(
-        _call_prepare_case_name(
-            text="The court discussed Smith v. Jones, 999 U.S. 999, before turning to damages.",
-            locator="999 U.S. 999",
-            extra_requirements=[
-                check(
-                    "forced observability failure",
-                    validation_fn=lambda _ctx: ValidationResult(
-                        result=False,
-                        reason="forced observability failure",
-                    ),
-                )
-            ],
+    """Exhausted IVR records retries but never returns an invalid proposal."""
+    with pytest.raises(MelleaRequirementsExhaustedError) as caught:
+        asyncio.run(
+            _call_prepare_case_name(
+                text="The court discussed Smith v. Jones, 999 U.S. 999, before turning to damages.",
+                locator="999 U.S. 999",
+                extra_requirements=[
+                    check(
+                        "forced observability failure",
+                        validation_fn=lambda _ctx: ValidationResult(
+                            result=False,
+                            reason="forced observability failure",
+                        ),
+                    )
+                ],
+            )
         )
-    )
 
-    outputs = [item for item in final_ctx.as_list() if isinstance(item, ModelOutputThunk)]
-    assert proposal.plaintiff == "Smith"
-    assert proposal.defendant == "Jones"
-    assert len(outputs) >= 2
+    outputs = [
+        item for item in caught.value.result.result_ctx.as_list() if isinstance(item, ModelOutputThunk)
+    ]
+    assert len(outputs) >= MINIMUM_RETRY_OUTPUTS
     assert all('"case_name"' not in str(output.value) for output in outputs)
 
 
@@ -118,6 +126,7 @@ async def _call_prepare_case_name(
         locator=locator,
         extracted_plaintiff=extracted_plaintiff,
         extracted_defendant=extracted_defendant,
+        extracted_decision_date="",
         requirements=requirements,
         strategy=MultiTurnStrategy(loop_budget=3),
         model_options=structured_model_options(max_tokens=PREPARATION_MAX_TOKENS),

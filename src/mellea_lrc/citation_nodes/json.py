@@ -51,6 +51,7 @@ def citation_node_input_to_json(node_input: CitationNodeInput) -> dict[str, obje
         "matched_locator_text": node_input.matched_locator_text,
         "matched_citation_text": node_input.matched_citation_text,
         "citation": citation_to_json(node_input.citation),
+        "asserted_decision_date": node_input.asserted_decision_date,
         "resolves_to": node_input.resolves_to,
     }
 

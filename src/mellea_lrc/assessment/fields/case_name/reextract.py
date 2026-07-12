@@ -132,7 +132,7 @@ async def _propose_case_name_reextraction(
     requirements: list[Requirement],
     strategy: MultiTurnStrategy,
     model_options: dict[str, object],
-) -> tuple[_ReextractionProposal, Context, bool]:
+) -> tuple[_ReextractionProposal, Context]:
     """Propose a grounded case name through direct Mellea instruct IVR."""
     spec = InstructIvrSpec(
         description=REEXTRACTION_INSTRUCTION,
@@ -146,7 +146,7 @@ async def _propose_case_name_reextraction(
     )
     result = await run_instruct_ivr(session, spec, strategy=strategy, model_options=model_options)
     proposal = _reextraction_proposal_from_output(result.result.value)
-    return proposal, result.result_ctx, result.success
+    return proposal, result.result_ctx
 
 
 def _chat_history_from_context(ctx: Context) -> tuple[ChatTurn, ...]:
@@ -286,7 +286,7 @@ async def reextract_case_name(
 ) -> ReextractionResult:
     """Propose a case name with a deterministic local-grounding requirement."""
     try:
-        proposal, final_ctx, success = await _propose_case_name_reextraction(
+        proposal, final_ctx = await _propose_case_name_reextraction(
             session,
             local_context=document_context,
             locator=citation_locator or "<NO_LOCATOR>",
@@ -303,13 +303,6 @@ async def reextract_case_name(
         return ReextractionResult(ReextractionStatus.FAILED, None, error_message=str(exc))
 
     history = _chat_history_from_context(final_ctx)
-    if not success:
-        return ReextractionResult(
-            ReextractionStatus.FAILED,
-            None,
-            error_message="Re-extraction exhausted retries without satisfying requirements.",
-            chat_history=history,
-        )
     if not proposal.available or proposal.case_name is None:
         return ReextractionResult(ReextractionStatus.EMPTY, None, chat_history=history)
     return ReextractionResult(

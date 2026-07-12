@@ -83,6 +83,9 @@ from mellea_lrc.retrieval.types import (
     CourtResolutionSource,
     CourtResolutionTrace,
     CourtListenerRequestTrace,
+    DocketCandidateEvidence,
+    DocketDocumentEvidence,
+    DocketEvidenceStatus,
     FoundCitationRetrieval,
     InvalidCitationRetrieval,
     LookupFailedCitationRetrieval,
@@ -300,6 +303,7 @@ def serialize_extracted_citation(item: ExtractedCitation) -> dict[str, JsonValue
         "matched_locator_text": item.matched_locator_text,
         "matched_citation_text": item.matched_citation_text,
         "citation": _serialize_citation(item.citation),
+        "asserted_decision_date": item.asserted_decision_date,
         "resolves_to": item.resolves_to,
     }
 
@@ -319,6 +323,7 @@ def deserialize_extracted_citation(payload: Mapping[str, object]) -> ExtractedCi
             "matched_citation_text",
         ),
         citation=_deserialize_citation(_mapping_field(validated.get("citation"))),
+        asserted_decision_date=_optional_str(validated.get("asserted_decision_date")),
         resolves_to=_optional_str(validated.get("resolves_to")),
     )
 
@@ -496,6 +501,11 @@ def _serialize_case_name_search_trace(item: CaseNameSearchTrace) -> dict[str, Js
                         "cluster_id": candidate.cluster_id,
                         "docket_id": candidate.docket_id,
                         "absolute_url": candidate.absolute_url,
+                        "docket_evidence": (
+                            _serialize_docket_evidence(candidate.docket_evidence)
+                            if candidate.docket_evidence is not None
+                            else None
+                        ),
                     }
                     for candidate in probe.candidates
                 ],
@@ -515,6 +525,12 @@ def _serialize_case_name_search_preparation(
         "plaintiff": item.plaintiff,
         "defendant": item.defendant,
         "prepared_case_name": item.prepared_case_name,
+        "extracted_decision_date": item.extracted_decision_date,
+        "decision_date": item.decision_date,
+        "decision_date_basis": item.decision_date_basis,
+        "query_plaintiff": item.query_plaintiff,
+        "query_defendant": item.query_defendant,
+        "query_reason": item.query_reason,
         "court": item.court,
         "locator": item.locator,
         "source": item.source,
@@ -549,6 +565,13 @@ def _deserialize_case_name_search_trace(
                     cluster_id=_optional_str(candidate.get("cluster_id")),
                     docket_id=_optional_str(candidate.get("docket_id")),
                     absolute_url=_optional_str(candidate.get("absolute_url")),
+                    docket_evidence=(
+                        _deserialize_docket_evidence(
+                            _required_mapping_field(candidate, "docket_evidence")
+                        )
+                        if candidate.get("docket_evidence") is not None
+                        else None
+                    ),
                 )
                 for candidate in probe.get("candidates", [])
             ),
@@ -565,6 +588,93 @@ def _deserialize_case_name_search_trace(
     )
 
 
+def _serialize_docket_evidence(item: DocketCandidateEvidence) -> dict[str, JsonValue]:
+    return {
+        "status": item.status.value,
+        "docket_request": _serialize_request_trace(item.docket_request),
+        "entries_request": _serialize_request_trace(item.entries_request),
+        "case_name": item.case_name,
+        "court_id": item.court_id,
+        "docket_number": item.docket_number,
+        "date_filed": item.date_filed,
+        "date_terminated": item.date_terminated,
+        "assigned_to": item.assigned_to,
+        "referred_to": item.referred_to,
+        "nature_of_suit": item.nature_of_suit,
+        "cause": item.cause,
+        "jurisdiction_type": item.jurisdiction_type,
+        "documents": [_serialize_docket_document(item) for item in item.documents],
+        "error_message": item.error_message,
+    }
+
+
+def _serialize_docket_document(item: DocketDocumentEvidence) -> dict[str, JsonValue]:
+    return {
+        "docket_entry_id": item.docket_entry_id,
+        "recap_document_id": item.recap_document_id,
+        "entry_number": item.entry_number,
+        "document_number": item.document_number,
+        "date_filed": item.date_filed,
+        "entry_description": item.entry_description,
+        "document_description": item.document_description,
+        "page_count": item.page_count,
+        "pacer_doc_id": item.pacer_doc_id,
+        "available": item.available,
+        "absolute_url": item.absolute_url,
+        "decisional_cues": list(item.decisional_cues),
+        "year_distance": item.year_distance,
+    }
+
+
+def _deserialize_docket_evidence(payload: Mapping[str, object]) -> DocketCandidateEvidence:
+    return DocketCandidateEvidence(
+        status=DocketEvidenceStatus(_required_str(payload.get("status"), "docket evidence status")),
+        docket_request=_deserialize_request_trace(
+            _required_mapping_field(payload, "docket_request")
+        ),
+        entries_request=_deserialize_request_trace(
+            _required_mapping_field(payload, "entries_request")
+        ),
+        case_name=_optional_str(payload.get("case_name")),
+        court_id=_optional_str(payload.get("court_id")),
+        docket_number=_optional_str(payload.get("docket_number")),
+        date_filed=_optional_str(payload.get("date_filed")),
+        date_terminated=_optional_str(payload.get("date_terminated")),
+        assigned_to=_optional_str(payload.get("assigned_to")),
+        referred_to=_optional_str(payload.get("referred_to")),
+        nature_of_suit=_optional_str(payload.get("nature_of_suit")),
+        cause=_optional_str(payload.get("cause")),
+        jurisdiction_type=_optional_str(payload.get("jurisdiction_type")),
+        documents=tuple(
+            _deserialize_docket_document(_mapping_field(item))
+            for item in _list_field(payload.get("documents"))
+        ),
+        error_message=_optional_str(payload.get("error_message")),
+    )
+
+
+def _deserialize_docket_document(payload: Mapping[str, object]) -> DocketDocumentEvidence:
+    available = payload.get("available")
+    if not isinstance(available, bool):
+        msg = "docket document available must be a boolean"
+        raise TypeError(msg)
+    return DocketDocumentEvidence(
+        docket_entry_id=_optional_str(payload.get("docket_entry_id")),
+        recap_document_id=_optional_str(payload.get("recap_document_id")),
+        entry_number=_optional_str(payload.get("entry_number")),
+        document_number=_optional_str(payload.get("document_number")),
+        date_filed=_optional_str(payload.get("date_filed")),
+        entry_description=_optional_str(payload.get("entry_description")),
+        document_description=_optional_str(payload.get("document_description")),
+        page_count=_optional_int(payload.get("page_count")),
+        pacer_doc_id=_optional_str(payload.get("pacer_doc_id")),
+        available=available,
+        absolute_url=_optional_str(payload.get("absolute_url")),
+        decisional_cues=tuple(
+            _required_str(item, "decisional cue") for item in _list_field(payload.get("decisional_cues"))
+        ),
+        year_distance=_optional_int(payload.get("year_distance")),
+    )
 def _deserialize_case_name_search_preparation(
     payload: Mapping[str, object],
 ) -> CaseNameSearchPreparation:
@@ -578,6 +688,12 @@ def _deserialize_case_name_search_preparation(
         plaintiff=_optional_str(payload.get("plaintiff")),
         defendant=_optional_str(payload.get("defendant")),
         prepared_case_name=_optional_str(payload.get("prepared_case_name")),
+        extracted_decision_date=_optional_str(payload.get("extracted_decision_date")),
+        decision_date=_optional_str(payload.get("decision_date")),
+        decision_date_basis=_optional_str(payload.get("decision_date_basis")),
+        query_plaintiff=_optional_str(payload.get("query_plaintiff")),
+        query_defendant=_optional_str(payload.get("query_defendant")),
+        query_reason=_optional_str(payload.get("query_reason")),
         court=_optional_str(payload.get("court")),
         locator=_optional_str(payload.get("locator")),
         source=_optional_str(payload.get("source")),

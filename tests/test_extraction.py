@@ -44,6 +44,21 @@ def test_extract_citations_returns_canonical_types() -> None:
     assert full_law.citation.reporter == "U.S.C."
 
 
+def test_extract_projects_eyecite_complete_decision_date_without_changing_citation_model() -> None:
+    result = extract_citations("Boeser v. Sharp, 2007 WL 1430100 (D. Colo. May 14, 2007).")
+
+    citation = next(item for item in result.citations if isinstance(item.citation, FullCaseCitation))
+    assert citation.asserted_decision_date == "2007-05-14"
+    assert citation.citation.year == "2007"
+
+
+def test_extract_leaves_date_empty_when_eyecite_cannot_bind_whitespace_damaged_date() -> None:
+    result = extract_citations("Solis v. County, 2013 WL 1658203 (D.N.M. Mar.  28,  2013).")
+
+    citation = next(item for item in result.citations if isinstance(item.citation, FullCaseCitation))
+    assert citation.asserted_decision_date is None
+
+
 def test_extracted_document_rejects_duplicate_citation_ids() -> None:
     preprocessed = preprocess_plain_text_from_string("347 U.S. 483")
     citation = ExtractedCitation(
