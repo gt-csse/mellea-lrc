@@ -18,9 +18,6 @@ class MelleaExtractor(BaseExtractor):
 
     load_dotenv(find_dotenv())
     # change the backend to chat-based
-    # backend = mellea.start_backend(
-    #     "ollama", ModelIdentifier=IBM_GRANITE_4_1_3B, context_type="chat", model_options={"temperature": 0}
-    # )
     _mellea_session_granite_3b = mellea.start_session(backend_name="ollama", model_id=IBM_GRANITE_4_1_3B)
 
     def __init__(self) -> None:
