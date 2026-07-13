@@ -96,8 +96,24 @@ class CaseNamePreparationStatus(str, Enum):
     ACCEPTED = "accepted"
     EMPTY = "empty"
     FAILED = "failed"
-    LEGACY_DETERMINISTIC = "legacy_deterministic"
     NOT_ATTEMPTED = "not_attempted"
+
+
+class DateReextractionStatus(str, Enum):
+    """Outcome of locator-bound decision-date re-extraction."""
+
+    ACCEPTED = "accepted"
+    NO_DATE = "no_date"
+    FAILED = "failed"
+    NOT_ATTEMPTED = "not_attempted"
+
+
+class DecisionDatePrecision(str, Enum):
+    """Precision of citation-bound decision-date evidence."""
+
+    COMPLETE_DATE = "complete_date"
+    YEAR_ONLY = "year_only"
+    NO_DATE = "no_date"
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,8 +121,7 @@ class CaseNameSearchPreparation:
     """Validated party/date evidence and one normalized candidate-search plan.
 
     LLM-backed retrieval fills this from local document context before the
-    locator. The sync legacy retrieval path may still fill it from extracted
-    citation parties so older deterministic tests and callers keep working.
+    locator.
     """
 
     status: CaseNamePreparationStatus = CaseNamePreparationStatus.NOT_ATTEMPTED
@@ -117,6 +132,10 @@ class CaseNameSearchPreparation:
     extracted_decision_date: str | None = None
     decision_date: str | None = None
     decision_date_basis: str | None = None
+    decision_year: str | None = None
+    decision_date_precision: DecisionDatePrecision = DecisionDatePrecision.NO_DATE
+    date_reextraction_status: DateReextractionStatus = DateReextractionStatus.NOT_ATTEMPTED
+    date_error_message: str | None = None
     query_plaintiff: str | None = None
     query_defendant: str | None = None
     query_reason: str | None = None

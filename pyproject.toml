@@ -77,12 +77,6 @@ pipeline = [
     { include-group = "scripts" },
 ]
 
-# Label Studio upload tooling.
-label-studio = [
-    { include-group = "extraction" },
-    { include-group = "scripts" },
-]
-
 # CourtListener access HTTP service.
 courtlistener = [
     { include-group = "scripts" },
@@ -94,13 +88,6 @@ courtlistener = [
 courtlistener-r2 = [
     { include-group = "courtlistener" },
     "boto3>=1.34",
-]
-
-# Modal deploy targets (E2E backend and CourtListener access).
-modal = [
-    { include-group = "pipeline" },
-    { include-group = "courtlistener-r2" },
-    "modal>=1.0,<2.0",
 ]
 
 # Default local and CI environment.

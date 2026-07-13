@@ -62,7 +62,7 @@ A manually curated 17-entry mapping from MLZ jurisdiction strings to CL court ID
 
 ### What's missing
 
-No established database provides `reporter → set<court_slug>`. This is the gap our `EXHAUSTIVE_REPORTERS` (now commented out in `registry.py`) was designed to fill. The MLZ field is the closest research input, but it requires:
+No established database provides `reporter → set<court_slug>`. The MLZ field is the closest research input, but it requires:
 1. Filtering observational noise from scope-based data
 2. Translating from MLZ taxonomy to CL court slugs
 3. Manual verification of publication scope per reporter
@@ -196,16 +196,13 @@ unsuitable for direct use:
 
 Current implementation:
 
-- `types.py` owns the immutable result, evidence, coverage, court-class, and
-  compatibility representations;
-- `registry.py` owns curated scopes (`EXHAUSTIVE_REPORTERS` currently commented
-  out, pending research completion; `VALID_REPORTERS` powered by
-  `cl_reporters.json`);
+- `types.py` owns the immutable result, evidence, coverage, and court-class
+  representations;
+- `registry.py` owns `VALID_REPORTERS`, powered by `cl_reporters.json`;
 - `leads.py` evaluates `ReporterLead` (reporter recognition + MLZ lookup) and
   `CourtLead` (CL taxonomy lookup from extracted court string);
 - `translation.py` triangulates via `MLZ_TO_CL_MAP` as fallback (17-entry
   curated bridge);
-- `compatibility.py` compares explicit candidate metadata without resolving
   candidate identity; and
 - the existing assessment helper returns only the exhaustive-singleton
   `exact_court_id` projection.

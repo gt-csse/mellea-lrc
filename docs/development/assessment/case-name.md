@@ -28,9 +28,8 @@ correct toward the retrieved candidate. The original eyecite citation remains
 unchanged, and failed extraction or reassessment is represented as a typed
 follow-up state rather than hidden.
 
-Legacy snapshots may still contain `different_case` or `irregular_form`; those
-values remain readable for compatibility, but the current workflow no longer
-emits them.
+The current workflow uses only `exact_match`, `semantic_match`,
+`not_semantic_match`, and `unassessable` as case-name conclusions.
 
 `CaseNameAssessmentRun` retains the initial conclusion and one of
 `not_required`, `reassessed`, `reextraction_failed`, or `reassessment_failed`.

@@ -38,6 +38,9 @@ from mellea_lrc.retrieval.types import (
 from mellea_lrc.serialization import serialize_citation_assessment, serialize_citation_retrieval
 from mellea_lrc.serialization.json import serialize_jurisdiction
 
+HTTP_THROTTLED = 429
+HTTP_SERVER_ERROR = 500
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -142,7 +145,12 @@ def _append_retrieval_steps(
             status=status,
             summary=f"Exact locator lookup returned {retrieval.status.value}.",
             step_id=exact_step_id,
-            data={"retrieval": serialize_citation_retrieval(retrieval)},
+            data={
+                "retrieval": serialize_citation_retrieval(retrieval),
+                "transport_outcome": _transport_outcome(
+                    getattr(retrieval, "request_trace", CourtListenerRequestTrace())
+                ),
+            },
             error=_retrieval_error(retrieval),
         )
     )
@@ -162,10 +170,10 @@ def _append_case_name_search_steps(
 ) -> CitationNode:
     search = retrieval.candidate_search
     fallback_step_id = _step_id(node.citation_id, "retrieval", "fallback_decision")
-    party_step_id = _step_id(node.citation_id, "retrieval", "party_examination")
-    date_step_id = _step_id(node.citation_id, "retrieval", "date_examination")
+    party_step_id = _step_id(node.citation_id, "retrieval", "case_name_reextraction_before_retrieval")
+    date_step_id = _step_id(node.citation_id, "retrieval", "date_reextraction_before_retrieval")
     validation_step_id = _step_id(node.citation_id, "retrieval", "preparation_validation")
-    query_step_id = _step_id(node.citation_id, "retrieval", "query_planning")
+    query_step_id = _step_id(node.citation_id, "retrieval", "search_query_proposal")
 
     updated = node.append_step(
         CitationStep(
@@ -185,7 +193,7 @@ def _append_case_name_search_steps(
     evidence = _case_name_evidence(node, search.preparation)
     updated = updated.append_step(
         CitationStep(
-            operation="retrieval.party_examination",
+            operation="retrieval.case_name_reextraction_before_retrieval",
             status=(
                 CitationStepStatus.FAILED
                 if evidence["llm_status"] == "failed"
@@ -202,19 +210,28 @@ def _append_case_name_search_steps(
 
     updated = updated.append_step(
         CitationStep(
-            operation="retrieval.date_examination",
-            status=CitationStepStatus.SUCCEEDED
-            if evidence["decision_date"]
-            else CitationStepStatus.SKIPPED,
+            operation="retrieval.date_reextraction_before_retrieval",
+            status=(
+                CitationStepStatus.SUCCEEDED
+                if evidence["decision_date"]
+                else CitationStepStatus.FAILED
+                if evidence["date_reextraction_status"] == "failed"
+                else CitationStepStatus.SKIPPED
+            ),
             summary=_date_preparation_summary(evidence),
             step_id=date_step_id,
-            depends_on=(party_step_id,),
+            depends_on=(fallback_step_id,),
             data={
                 "extracted_decision_date": evidence["extracted_decision_date"],
                 "decision_date": evidence["decision_date"],
                 "decision_date_basis": evidence["decision_date_basis"],
+                "decision_year": evidence["decision_year"],
+                "decision_date_precision": evidence["decision_date_precision"],
+                "date_reextraction_status": evidence["date_reextraction_status"],
+                "date_error_message": evidence["date_error_message"],
                 "locator": evidence["locator"],
             },
+            error=evidence["date_error_message"],
         )
     )
 
@@ -239,7 +256,7 @@ def _append_case_name_search_steps(
 
     updated = updated.append_step(
         CitationStep(
-            operation="retrieval.query_planning",
+            operation="retrieval.search_query_proposal",
             status=CitationStepStatus.SUCCEEDED if search.query else CitationStepStatus.SKIPPED,
             summary=f"Prepared query: {search.query}" if search.query else "No candidate query was prepared.",
             step_id=query_step_id,
@@ -261,13 +278,13 @@ def _append_case_name_search_steps(
         probe_step_id = _step_id(
             node.citation_id,
             "retrieval",
-            "corpus_probe",
+            "search_query_execution",
             probe.corpus.value,
         )
         probe_step_ids.append(probe_step_id)
         updated = updated.append_step(
             CitationStep(
-                operation="retrieval.corpus_probe",
+                operation="retrieval.search_query_execution",
                 status=_candidate_search_step_status(probe.status),
                 summary=_probe_summary(probe),
                 step_id=probe_step_id,
@@ -425,7 +442,13 @@ def _terminal_dependency_ids(node: CitationNode) -> tuple[str, ...]:
     retrieval_terminals = tuple(
         step_id
         for step_id, step in by_id.items()
-        if step_id not in consumed and step.operation.startswith("retrieval.")
+        if step_id not in consumed
+        and step.operation.startswith("retrieval.")
+        and step.operation
+        not in {
+            "retrieval.case_name_reextraction_before_retrieval",
+            "retrieval.date_reextraction_before_retrieval",
+        }
     )
     if retrieval_terminals:
         return retrieval_terminals
@@ -485,6 +508,17 @@ def _retrieval_error(retrieval: CitationRetrieval) -> str | None:
     return None
 
 
+def _transport_outcome(trace: CourtListenerRequestTrace) -> str:
+    """Classify request availability without conflating it with legal evidence."""
+    if trace.http_status == HTTP_THROTTLED:
+        return "retryable_throttle"
+    if trace.http_status is None or (
+        trace.http_status is not None and trace.http_status >= HTTP_SERVER_ERROR
+    ):
+        return "retryable_unavailable"
+    return "terminal_response"
+
+
 def _step_id(citation_id: str, *parts: str) -> str:
     return ":".join((citation_id, *parts))
 
@@ -526,6 +560,14 @@ def _case_name_evidence(node: CitationNode, preparation: object) -> dict[str, ob
         or node.input.asserted_decision_date,
         "decision_date": getattr(preparation, "decision_date", None),
         "decision_date_basis": getattr(preparation, "decision_date_basis", None),
+        "decision_year": getattr(preparation, "decision_year", None),
+        "decision_date_precision": getattr(preparation, "decision_date_precision", None).value
+        if getattr(preparation, "decision_date_precision", None) is not None
+        else "no_date",
+        "date_reextraction_status": getattr(preparation, "date_reextraction_status", None).value
+        if getattr(preparation, "date_reextraction_status", None) is not None
+        else "not_attempted",
+        "date_error_message": getattr(preparation, "date_error_message", None),
         "query_plaintiff": getattr(preparation, "query_plaintiff", None),
         "query_defendant": getattr(preparation, "query_defendant", None),
         "query_reason": getattr(preparation, "query_reason", None),
@@ -544,9 +586,15 @@ def _case_name_preparation_summary(evidence: dict[str, object]) -> str:
 def _date_preparation_summary(evidence: dict[str, object]) -> str:
     if evidence["decision_date"]:
         basis = evidence["decision_date_basis"] or "accepted"
+        if basis == "eyecite_extracted":
+            return f"Using Eyecite-extracted decision date {evidence['decision_date']}; no date re-extraction ran."
         return f"Prepared citation-bound decision date {evidence['decision_date']} ({basis})."
+    if evidence["decision_date_precision"] == "year_only":
+        return f"Prepared citation-bound decision year {evidence['decision_year']}."
+    if evidence["date_reextraction_status"] == "failed":
+        return "Date re-extraction failed; no locator-bound date was accepted."
     if evidence["extracted_decision_date"]:
-        return "Extraction supplied a date hint, but preparation did not accept a date."
+        return "Extraction supplied a date hint, but independent date re-extraction found no date."
     return "No complete citation-bound decision date was available."
 
 
@@ -577,6 +625,7 @@ def _probe_payload(probe: CaseNameSearchProbe) -> dict[str, object]:
     return {
         "corpus": probe.corpus.value,
         "corpus_label": _corpus_label(probe.corpus),
+        "transport_outcome": _transport_outcome(probe.request_trace),
         "status": probe.status.value,
         "case_count": probe.case_count,
         "request_trace": _request_trace_payload(probe.request_trace),

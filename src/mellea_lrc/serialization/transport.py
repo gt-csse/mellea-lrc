@@ -282,7 +282,6 @@ class CaseNameSearchPreparationPayload(ArtifactPayload):
         "accepted",
         "empty",
         "failed",
-        "legacy_deterministic",
         "not_attempted",
     ]
     original_case_name: str | None
@@ -292,6 +291,10 @@ class CaseNameSearchPreparationPayload(ArtifactPayload):
     extracted_decision_date: str | None
     decision_date: str | None
     decision_date_basis: str | None
+    decision_year: str | None
+    decision_date_precision: Literal["complete_date", "year_only", "no_date"]
+    date_reextraction_status: Literal["accepted", "no_date", "failed", "not_attempted"]
+    date_error_message: str | None
     query_plaintiff: str | None
     query_defendant: str | None
     query_reason: str | None
@@ -403,8 +406,6 @@ class CaseNameAssessmentPayload(ArtifactPayload):
         "exact_match",
         "semantic_match",
         "not_semantic_match",
-        "different_case",
-        "irregular_form",
         "unassessable",
     ]
     extracted_case_name: str | None

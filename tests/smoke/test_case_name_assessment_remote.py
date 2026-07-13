@@ -12,7 +12,7 @@ from mellea_lrc.assessment.fields.case_name.classify import (
     CASE_NAME_VERDICT_MAX_TOKENS,
     semantic_match_case_name,
 )
-from mellea_lrc.assessment.fields.case_name.reextract import ReextractionStatus, reextract_case_name
+from mellea_lrc.assessment.fields.case_name.reextract_after_retrieval import ReextractionStatus, reextract_case_name_after_retrieval
 from mellea_lrc.assessment.model_options import structured_model_options
 from mellea_lrc.core.env import load_env_file
 from mellea_lrc.llm import llm_api_config_from_env, start_mellea_session_from_env
@@ -37,12 +37,12 @@ def test_semantic_match_case_name_live_example() -> None:
     assert verdict == "semantic_match"
 
 
-def test_reextract_case_name_live_example() -> None:
+def test_reextract_case_name_after_retrieval_live_example() -> None:
     _load_llm_env_or_skip()
     session = start_mellea_session_from_env()
 
     result = asyncio.run(
-        reextract_case_name(
+        reextract_case_name_after_retrieval(
             session,
             document_context="The court relied on Smith v. Jones, 999 U.S. 999, for the rule.",
             extracted_case_name=None,

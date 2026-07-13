@@ -1,4 +1,4 @@
-"""LLM-backed preparation for not-found case-name candidate search."""
+"""Case-name re-extraction before retrieval."""
 
 from __future__ import annotations
 
@@ -25,6 +25,8 @@ from mellea_lrc.llm import (
 from mellea_lrc.retrieval.types import (
     CaseNamePreparationStatus,
     CaseNameSearchPreparation,
+    DateReextractionStatus,
+    DecisionDatePrecision,
 )
 
 if TYPE_CHECKING:
@@ -51,7 +53,7 @@ JSON_OUTPUT_REQUIREMENT = (
     '"decision_date":"YYYY-MM-DD or null","reason":"..."}.'
 )
 CASE_NAME_PREPARATION_INSTRUCTION = """
-Prepare one bounded case-name search attempt for the citation marked by locator.
+Extract locator-bound case-name parties before retrieval for the citation marked by locator.
 
 First examine and correct the copied parties. Use only parties bound to this
 locator. The relevant copied case name usually appears before the locator. If
@@ -64,6 +66,12 @@ hints. Parser hints may come from a different citation in the same window.
 If parser hints conflict with the nearest copied name attached to locator, ignore
 the hints and return the locator-bound copied parties. A wrong parser hint is not
 a reason to answer no_case_name.
+
+Minor copied formatting damage does not erase otherwise literal parties. For
+an otherwise recognizable ``v.`` separator whose left space was lost, identify
+the literal party text on each side of that separator when both tokens occur
+before this locator. Do not expand, replace, or invent party text; the program
+will verify each returned token against local_context.
 
 When local_context contains an earlier citation and then another copied case name
 right before locator, choose the later copied name bound to locator. For example,
@@ -102,6 +110,22 @@ QUERY_OUTPUT_REQUIREMENT = (
     'Return exactly one JSON object with shape '
     '{"query_plaintiff":"...","query_defendant":"...","reason":"..."}.'
 )
+DATE_OUTPUT_REQUIREMENT = (
+    'Return exactly one JSON object with shape '
+    '{"precision":"complete_date|year_only|no_date",'
+    '"decision_date":"YYYY-MM-DD or null","decision_year":"YYYY or null"}.'
+)
+DATE_REEXTRACTION_INSTRUCTION = """
+For the citation marked by locator, classify the copied date precision in that
+citation's parenthetical after locator. Return complete_date with a normalized
+YYYY-MM-DD only for a complete written month/day/year. Return year_only with a
+four-digit decision_year when only a copied year is available. Return no_date
+when neither is available. Do not borrow from a neighboring citation or infer
+missing components. Never manufacture a month or day from a year.
+
+locator:
+{{locator}}
+""".strip()
 QUERY_PLANNING_INSTRUCTION = """
 Plan exactly one CourtListener case-name search from already validated parties.
 query_plaintiff and query_defendant may normalize harmless formatting, spacing,
@@ -135,7 +159,15 @@ class _PlannedCaseNameQuery(BaseModel):
     reason: str | None = None
 
 
-async def _prepare_case_name(
+class _PreparedDate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    precision: DecisionDatePrecision
+    decision_date: str | None = None
+    decision_year: str | None = None
+
+
+async def _propose_case_name_reextraction_before_retrieval(
     session: MelleaSession,
     *,
     local_context: str,
@@ -256,14 +288,10 @@ def _case_name_preparation_requirements(window: DocumentTextWindow, locator: str
             "plaintiff and defendant must be copied from local_context before the locator",
             validation_fn=lambda ctx: _validate_grounded_before_locator(ctx, window, locator),
         ),
-        req(
-            "decision_date must normalize a copied complete month/day/year after this locator; ISO is not required verbatim",
-            validation_fn=lambda ctx: _validate_date_grounding(ctx, window, locator),
-        ),
     ]
 
 
-async def _plan_case_name_query(
+async def propose_search_query(
     session: MelleaSession,
     *,
     preparation: _PreparedCaseName,
@@ -272,6 +300,7 @@ async def _plan_case_name_query(
     strategy: MultiTurnStrategy,
     model_options: dict[str, object],
 ) -> _PlannedCaseNameQuery:
+    """Propose one plain-text CourtListener query from grounded party evidence."""
     spec = _query_planning_spec(
         preparation=preparation,
         court=court,
@@ -282,7 +311,68 @@ async def _plan_case_name_query(
     return _query_proposal_from_output(result.result.value)
 
 
-async def prepare_case_name_for_search(
+async def reextract_date_before_retrieval(
+    session: MelleaSession,
+    *,
+    window: DocumentTextWindow,
+    locator: str,
+    extracted_decision_date: str | None,
+) -> tuple[
+    str | None,
+    str | None,
+    str | None,
+    DecisionDatePrecision,
+    DateReextractionStatus,
+    str | None,
+]:
+    """Independently recover locator-bound date evidence for retrieval ranking."""
+    spec = InstructIvrSpec(
+        description=DATE_REEXTRACTION_INSTRUCTION,
+        grounding_context={"local_context": window.text},
+        user_variables={"locator": locator},
+        requirements=[
+            req(DATE_OUTPUT_REQUIREMENT, validation_fn=_validate_date_output_schema),
+            req(
+                "decision_date must normalize a copied complete month/day/year after this locator",
+                validation_fn=lambda ctx: _validate_date_output_grounding(ctx, window, locator),
+            ),
+        ],
+    )
+    try:
+        result = await run_instruct_ivr(
+            session,
+            spec,
+            strategy=MultiTurnStrategy(loop_budget=3),
+            model_options=structured_model_options(max_tokens=PREPARATION_MAX_TOKENS),
+        )
+        proposal = _date_proposal_from_output(result.result.value)
+    except Exception as exc:
+        return None, None, None, DecisionDatePrecision.NO_DATE, DateReextractionStatus.FAILED, str(exc)
+    basis = _date_grounding_basis(
+        decision_date=proposal.decision_date,
+        extracted_decision_date=extracted_decision_date,
+        window=window,
+        locator=locator,
+    )
+    if proposal.precision is DecisionDatePrecision.NO_DATE:
+        return None, None, None, proposal.precision, DateReextractionStatus.NO_DATE, None
+    if proposal.precision is DecisionDatePrecision.YEAR_ONLY:
+        if _complete_copied_dates(_citation_parenthetical(window, locator)):
+            return ValidationResult(
+                result=False,
+                reason="a complete copied date exists after the locator; return complete_date instead of year_only",
+            )
+        if proposal.decision_date is not None or not _year_is_copied_after_locator(
+            proposal.decision_year, window, locator
+        ):
+            return None, None, None, proposal.precision, DateReextractionStatus.FAILED, "decision year was not copied after the locator"
+        return None, None, proposal.decision_year, proposal.precision, DateReextractionStatus.ACCEPTED, None
+    if basis is None:
+        return None, None, None, proposal.precision, DateReextractionStatus.FAILED, "decision_date was not copied after the locator"
+    return proposal.decision_date, basis, proposal.decision_date[:4], proposal.precision, DateReextractionStatus.ACCEPTED, None
+
+
+async def reextract_case_name_before_retrieval(
     session: MelleaSession,
     *,
     document_text: str,
@@ -309,9 +399,27 @@ async def prepare_case_name_for_search(
     extracted_plaintiff = citation.citation.plaintiff or ""
     extracted_defendant = citation.citation.defendant or ""
     extracted_decision_date = citation.asserted_decision_date or ""
+    date_result = (
+        (
+            extracted_decision_date,
+            "eyecite_extracted",
+            extracted_decision_date[:4],
+            DecisionDatePrecision.COMPLETE_DATE,
+            DateReextractionStatus.NOT_ATTEMPTED,
+            None,
+        )
+        if extracted_decision_date
+        else await reextract_date_before_retrieval(
+            session.clone(),
+            window=window,
+            locator=matched_locator_text,
+            extracted_decision_date=None,
+        )
+    )
+    decision_date, date_basis, decision_year, date_precision, date_status, date_error_message = date_result
     try:
         requirements = _case_name_preparation_requirements(window, matched_locator_text)
-        proposal, _final_ctx = await _prepare_case_name(
+        proposal, _final_ctx = await _propose_case_name_reextraction_before_retrieval(
             session,
             local_context=window.text,
             locator=matched_locator_text,
@@ -334,15 +442,15 @@ async def prepare_case_name_for_search(
             locator=matched_locator_text,
             source="llm",
             error_message=str(exc),
+            decision_date=decision_date,
+            decision_date_basis=date_basis,
+            decision_year=decision_year,
+            decision_date_precision=date_precision,
+            date_reextraction_status=date_status,
+            date_error_message=date_error_message,
         )
 
     status = _status_from_classification(proposal.classification)
-    date_basis = _date_grounding_basis(
-        decision_date=proposal.decision_date,
-        extracted_decision_date=extracted_decision_date or None,
-        window=window,
-        locator=matched_locator_text,
-    )
     if status is not CaseNamePreparationStatus.ACCEPTED:
         return CaseNameSearchPreparation(
             status=status,
@@ -351,8 +459,12 @@ async def prepare_case_name_for_search(
             defendant=proposal.defendant,
             prepared_case_name=_prepared_case_name(proposal.plaintiff, proposal.defendant),
             extracted_decision_date=extracted_decision_date or None,
-            decision_date=proposal.decision_date,
+            decision_date=decision_date,
             decision_date_basis=date_basis,
+            decision_year=decision_year,
+            decision_date_precision=date_precision,
+            date_reextraction_status=date_status,
+            date_error_message=date_error_message,
             court=citation.citation.court,
             locator=matched_locator_text,
             source="llm",
@@ -360,7 +472,7 @@ async def prepare_case_name_for_search(
             llm_reason=proposal.reason,
         )
     try:
-        query_plan = await _plan_case_name_query(
+        query_plan = await propose_search_query(
             session.clone(),
             preparation=proposal,
             court=citation.citation.court,
@@ -376,8 +488,12 @@ async def prepare_case_name_for_search(
             defendant=proposal.defendant,
             prepared_case_name=_prepared_case_name(proposal.plaintiff, proposal.defendant),
             extracted_decision_date=extracted_decision_date or None,
-            decision_date=proposal.decision_date,
+            decision_date=decision_date,
             decision_date_basis=date_basis,
+            decision_year=decision_year,
+            decision_date_precision=date_precision,
+            date_reextraction_status=date_status,
+            date_error_message=date_error_message,
             court=citation.citation.court,
             locator=matched_locator_text,
             source="llm",
@@ -392,8 +508,12 @@ async def prepare_case_name_for_search(
         defendant=proposal.defendant,
         prepared_case_name=_prepared_case_name(proposal.plaintiff, proposal.defendant),
         extracted_decision_date=extracted_decision_date or None,
-        decision_date=proposal.decision_date,
+        decision_date=decision_date,
         decision_date_basis=date_basis,
+        decision_year=decision_year,
+        decision_date_precision=date_precision,
+        date_reextraction_status=date_status,
+        date_error_message=date_error_message,
         query_plaintiff=query_plan.query_plaintiff,
         query_defendant=query_plan.query_defendant,
         query_reason=query_plan.reason,
@@ -421,6 +541,17 @@ def _proposal_from_output(output: str | object) -> _PreparedCaseName:
         return _PreparedCaseName.model_validate(payload)
     except ValidationError as exc:
         msg = f"LLM output did not match case-name preparation schema: {exc}"
+        raise ValueError(msg) from exc
+
+
+def _date_proposal_from_output(output: str | object) -> _PreparedDate:
+    if not isinstance(output, str):
+        msg = f"LLM date output was not text: {type(output).__name__}"
+        raise TypeError(msg)
+    try:
+        return _PreparedDate.model_validate_json(output)
+    except ValidationError as exc:
+        msg = f"LLM date output did not match schema: {exc}"
         raise ValueError(msg) from exc
 
 
@@ -453,6 +584,14 @@ def _validate_query_output(ctx: Context) -> ValidationResult:
 def _validate_output_schema(ctx: Context) -> ValidationResult:
     try:
         _proposal_from_context(ctx)
+    except (TypeError, ValueError) as exc:
+        return ValidationResult(result=False, reason=str(exc))
+    return ValidationResult(result=True)
+
+
+def _validate_date_output_schema(ctx: Context) -> ValidationResult:
+    try:
+        _date_proposal_from_output(ctx.last_output().value)
     except (TypeError, ValueError) as exc:
         return ValidationResult(result=False, reason=str(exc))
     return ValidationResult(result=True)
@@ -517,13 +656,43 @@ def _validate_date_grounding(
         proposal = _proposal_from_context(ctx)
     except (TypeError, ValueError) as exc:
         return ValidationResult(result=False, reason=str(exc))
+    return _validate_decision_date(proposal.decision_date, window, locator)
+
+
+def _validate_date_output_grounding(
+    ctx: Context,
+    window: DocumentTextWindow,
+    locator: str,
+) -> ValidationResult:
+    try:
+        proposal = _date_proposal_from_output(ctx.last_output().value)
+    except (TypeError, ValueError) as exc:
+        return ValidationResult(result=False, reason=str(exc))
+    if proposal.precision is DecisionDatePrecision.YEAR_ONLY:
+        if proposal.decision_date is not None or not _year_is_copied_after_locator(
+            proposal.decision_year, window, locator
+        ):
+            return ValidationResult(result=False, reason="decision_year was not copied after the locator")
+        return ValidationResult(result=True)
+    if proposal.precision is DecisionDatePrecision.NO_DATE:
+        if proposal.decision_date is not None or proposal.decision_year is not None:
+            return ValidationResult(result=False, reason="no_date output must not include date values")
+        return _validate_decision_date(None, window, locator)
+    return _validate_decision_date(proposal.decision_date, window, locator)
+
+
+def _validate_decision_date(
+    decision_date: str | None,
+    window: DocumentTextWindow,
+    locator: str,
+) -> ValidationResult:
     basis = _date_grounding_basis(
-        decision_date=proposal.decision_date,
+        decision_date=decision_date,
         extracted_decision_date=None,
         window=window,
         locator=locator,
     )
-    if proposal.decision_date is None:
+    if decision_date is None:
         if _complete_copied_dates(_citation_parenthetical(window, locator)):
             return ValidationResult(
                 result=False,
@@ -533,6 +702,18 @@ def _validate_date_grounding(
     if basis is None:
         return ValidationResult(result=False, reason="decision_date was not copied after the locator")
     return ValidationResult(result=True)
+
+
+def _year_is_copied_after_locator(
+    decision_year: str | None,
+    window: DocumentTextWindow,
+    locator: str,
+) -> bool:
+    return bool(
+        decision_year
+        and re.fullmatch(r"\d{4}", decision_year)
+        and re.search(rf"(?<!\d){re.escape(decision_year)}(?!\d)", _citation_parenthetical(window, locator))
+    )
 
 
 def _citation_parenthetical(window: DocumentTextWindow, locator: str) -> str:

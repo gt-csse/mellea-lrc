@@ -20,7 +20,7 @@ from mellea_lrc.courtlistener.lookup import (
 from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, RetrievalFailureDetail
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
-from mellea_lrc.retrieval.case_name_prepare import (
+from mellea_lrc.retrieval.case_name_reextract_before_retrieval import (
     JSON_OUTPUT_REQUIREMENT,
     _PreparedCaseName,
     _case_name_preparation_requirements,
@@ -32,7 +32,7 @@ from mellea_lrc.retrieval.case_name_prepare import (
     render_case_name_preparation_prompt,
 )
 from mellea_lrc.retrieval.not_found_search import _case_name_query
-from mellea_lrc.retrieval.pipeline import run_retrieval, run_retrieval_async
+from mellea_lrc.retrieval.pipeline import run_retrieval_async
 from mellea_lrc.retrieval.types import (
     AmbiguousCitationRetrieval,
     CaseNamePreparationStatus,
@@ -41,6 +41,50 @@ from mellea_lrc.retrieval.types import (
     CourtResolutionSource,
     RetrievalStatus,
 )
+
+
+class _NoopSession:
+    def clone(self) -> "_NoopSession":
+        return self
+
+
+async def _complete_case_name_reextraction(
+    _session: object,
+    **kwargs: object,
+) -> CaseNameSearchPreparation:
+    citation = kwargs["citation"]
+    assert isinstance(citation, ExtractedCitation)
+    case = citation.citation
+    assert isinstance(case, FullCaseCitation)
+    plaintiff = case.plaintiff
+    defendant = case.defendant
+    return CaseNameSearchPreparation(
+        status=CaseNamePreparationStatus.ACCEPTED if plaintiff and defendant else CaseNamePreparationStatus.EMPTY,
+        plaintiff=plaintiff,
+        defendant=defendant,
+        prepared_case_name=f"{plaintiff} v. {defendant}" if plaintiff and defendant else None,
+        query_plaintiff=plaintiff,
+        query_defendant=defendant,
+        court=case.court,
+    )
+
+
+def run_retrieval(
+    document: ExtractedDocument,
+    *,
+    client_mode: str = "deployed",
+    client: CourtListenerAccessClient | None = None,
+) -> object:
+    """Test-only async retrieval adapter; production has no sync retrieval path."""
+    return asyncio.run(
+        run_retrieval_async(
+            document,
+            client_mode=client_mode,
+            client=client,
+            session=_NoopSession(),  # type: ignore[arg-type]
+            reextract_case_name=_complete_case_name_reextraction,
+        )
+    )
 
 
 def _client(
@@ -607,6 +651,47 @@ def test_case_name_preparation_allows_parties_before_parallel_locator() -> None:
     assert _validate_grounded_before_locator(Context(), window, "85 S.Ct. 209").as_bool()
 
 
+def test_case_name_preparation_allows_collapsed_space_around_versus_marker() -> None:
+    """Literal party tokens remain usable when a copied ``v.`` lost its left space."""
+    text = "See Wellv. Pelham, 2021 U.S. Dist. LEXIS 52247 (S.D.N.Y. Mar. 19, 2021)."
+    locator = "2021 U.S. Dist. LEXIS 52247"
+    locator_start = text.index(locator)
+    window = DocumentTextWindow.around(
+        text,
+        Span(locator_start, locator_start + len(locator)),
+        before_chars=320,
+        after_chars=0,
+    )
+
+    class Output:
+        value = (
+            '{"classification":"complete_case_name","plaintiff":"Well","defendant":"Pelham",'
+            '"decision_date":"2021-03-19"}'
+        )
+
+    class Context:
+        def last_output(self) -> Output:
+            return Output()
+
+    assert _validate_grounded_before_locator(Context(), window, locator).as_bool()
+
+
+def test_case_name_preparation_prompt_uses_general_collapsed_separator_rule() -> None:
+    """Prompt guidance must generalize rather than encode a fixture's party names."""
+    text = "See Wellv. Pelham, 2021 U.S. Dist. LEXIS 52247."
+    locator = "2021 U.S. Dist. LEXIS 52247"
+    start = text.index(locator)
+    prompt = render_case_name_preparation_prompt(
+        local_context=text,
+        locator=locator,
+        window=DocumentTextWindow.around(text, Span(start, start + len(locator))),
+    )
+
+    instruction, _grounding_context = prompt.split("Here is some grounding context:", maxsplit=1)
+    assert "recognizable ``v.`` separator" in instruction
+    assert "Wellv. Pelham" not in instruction
+
+
 def test_not_found_reports_zero_case_name_search_results() -> None:
     client = CourtListenerAccessClient(
         CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
@@ -775,7 +860,7 @@ def test_async_retrieval_bounds_case_name_preparation_concurrency(
         )
 
     monkeypatch.setattr(
-        "mellea_lrc.retrieval.pipeline.prepare_case_name_for_search",
+        "mellea_lrc.retrieval.pipeline.reextract_case_name_before_retrieval",
         fake_prepare,
     )
     text = "A, 999 U.S. 999. B, 999 U.S. 999. C, 999 U.S. 999. D, 999 U.S. 999."

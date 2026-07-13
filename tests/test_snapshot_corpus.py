@@ -15,8 +15,7 @@ def _config(root: Path, *, batch_start: int = 2, batch_end: int = 4) -> Snapshot
     return SnapshotConfig(
         env_path=root / ".env",
         test_data_dir=root / "test_data",
-        bookmarked_path=root / "bookmarked.txt",
-        citation_sets_dir=root / "citation_sets",
+        bookmark_sets_dir=root / "bookmark_sets",
         snapshot_root=root / "snapshots",
         batch_start=batch_start,
         batch_end=batch_end,
@@ -35,32 +34,21 @@ def test_select_documents_uses_configured_inclusive_text_range(tmp_path: Path) -
     )
 
 
-def test_select_documents_supports_bookmark_and_numeric_file(tmp_path: Path) -> None:
-    """Single-file mode resolves only the two supported selector forms."""
+def test_select_documents_supports_named_bookmark_set_and_numeric_file(tmp_path: Path) -> None:
+    """Single-file mode resolves one named store projection or one numeric source."""
     config = _config(tmp_path)
     config.test_data_dir.mkdir()
-    config.bookmarked_path.write_text("bookmark", encoding="utf-8")
+    config.bookmark_sets_dir.mkdir()
+    named_set = config.bookmark_sets_dir / "bookmark-research.txt"
+    named_set.write_text("bookmark", encoding="utf-8")
     numbered = config.test_data_dir / "12.txt"
     numbered.write_text("numbered", encoding="utf-8")
 
-    assert select_documents(config, "bookmarked") == (config.bookmarked_path,)
+    assert select_documents(config, "research") == (named_set,)
     assert select_documents(config, "12") == (numbered,)
 
 
-def test_select_documents_supports_named_curated_set(tmp_path: Path) -> None:
-    """A slug resolves every isolated text document in its curated directory."""
-    config = _config(tmp_path)
-    curated_dir = config.citation_sets_dir / "exact-lookup-found"
-    curated_dir.mkdir(parents=True)
-    first = curated_dir / "roe.txt"
-    second = curated_dir / "young.txt"
-    first.write_text("Roe v. Wade, 410 U.S. 113 (1973).", encoding="utf-8")
-    second.write_text("Young v. Hichens, 6 Q.B. 606 (1844).", encoding="utf-8")
-
-    assert select_documents(config, "exact-lookup-found") == (first, second)
-
-
-@pytest.mark.parametrize("selector", ["2.txt", "0", "-1", "all", "1.5"])
+@pytest.mark.parametrize("selector", ["2.txt", "0", "-1", "all", "1.5", "bookmarked"])
 def test_select_documents_rejects_unsupported_file_selector(
     tmp_path: Path,
     selector: str,

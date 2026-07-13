@@ -48,6 +48,7 @@ def evaluate_court_inference(extracted_court: str | None) -> CourtInference:
 def evaluate_reporter_inference(
     reporter: Reporter | None,
 ) -> ReporterInference:
+    """Evaluate whether the extracted reporter is known and map its MLZ leads."""
     if reporter is None:
         return ReporterInference(
             reporter=None,

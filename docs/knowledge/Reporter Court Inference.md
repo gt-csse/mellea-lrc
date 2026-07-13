@@ -75,8 +75,9 @@ court slugs:
   no reporter field (except the vestigial `cites` on 3 entries)
 - **The MLZ-to-CL bridge** (`mlz_to_cl_map.json`) manually maps only 17 MLZ strings
 
-This is why `EXHAUSTIVE_REPORTERS` in `registry.py` was manually curated (and
-ultimately commented out) — the data simply does not exist in any public database.
+The project therefore does not infer an exact CourtListener court from a
+reporter alone. It retains reporter recognition and MLZ evidence without
+turning incomplete publication-scope data into a false exact mapping.
 
 ## Admission rule
 

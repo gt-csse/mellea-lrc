@@ -3632,7 +3632,7 @@ function isBookmarkFixturePath(sourcePath: string | null) {
     return false;
   }
   const filename = sourcePath.replaceAll("\\", "/").split("/").pop()?.toLowerCase();
-  return filename === "bookmarked.txt";
+  return filename?.startsWith("bookmark-") && filename.endsWith(".txt");
 }
 
 function citationContextWindow(documentText: string, citation: ReviewCitation) {

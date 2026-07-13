@@ -16,7 +16,7 @@ def triangulate_court_id(
     reporter_inference: ReporterInference, court_inference: CourtInference
 ) -> TranslationLayerResult:
     """Triangulate the exact CourtListener Court ID based on MLZ and Extracted leads."""
-    
+
     # Heuristic 1: If the CourtInference is resolved, it takes precedence.
     if court_inference.status is CourtInferenceStatus.RESOLVED and court_inference.courts_db_classification:
         return TranslationLayerResult(
@@ -30,13 +30,13 @@ def triangulate_court_id(
         for mlz in reporter_inference.mlz_jurisdictions:
             if courts := MLZ_TO_CL_MAP.get(mlz):
                 possible_courts.update(courts)
-        
+
         if len(possible_courts) == 1:
             return TranslationLayerResult(
                 status=TranslationLayerStatus.RESOLVED,
                 translated_court_id=possible_courts.pop(),
             )
-        elif len(possible_courts) > 1:
+        if len(possible_courts) > 1:
             return TranslationLayerResult(
                 status=TranslationLayerStatus.AMBIGUOUS,
                 translated_court_id=None,

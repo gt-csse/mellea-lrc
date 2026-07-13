@@ -73,6 +73,8 @@ from mellea_lrc.preprocessing.types import (
 from mellea_lrc.retrieval.types import (
     AmbiguousCitationRetrieval,
     CaseNamePreparationStatus,
+    DateReextractionStatus,
+    DecisionDatePrecision,
     CaseNameSearchCorpus,
     CaseNameSearchCandidate,
     CaseNameSearchPreparation,
@@ -528,6 +530,10 @@ def _serialize_case_name_search_preparation(
         "extracted_decision_date": item.extracted_decision_date,
         "decision_date": item.decision_date,
         "decision_date_basis": item.decision_date_basis,
+        "decision_year": item.decision_year,
+        "decision_date_precision": item.decision_date_precision.value,
+        "date_reextraction_status": item.date_reextraction_status.value,
+        "date_error_message": item.date_error_message,
         "query_plaintiff": item.query_plaintiff,
         "query_defendant": item.query_defendant,
         "query_reason": item.query_reason,
@@ -691,6 +697,14 @@ def _deserialize_case_name_search_preparation(
         extracted_decision_date=_optional_str(payload.get("extracted_decision_date")),
         decision_date=_optional_str(payload.get("decision_date")),
         decision_date_basis=_optional_str(payload.get("decision_date_basis")),
+        decision_year=_optional_str(payload.get("decision_year")),
+        decision_date_precision=DecisionDatePrecision(
+            _required_str(payload.get("decision_date_precision"), "decision date precision")
+        ),
+        date_reextraction_status=DateReextractionStatus(
+            _required_str(payload.get("date_reextraction_status"), "date re-extraction status")
+        ),
+        date_error_message=_optional_str(payload.get("date_error_message")),
         query_plaintiff=_optional_str(payload.get("query_plaintiff")),
         query_defendant=_optional_str(payload.get("query_defendant")),
         query_reason=_optional_str(payload.get("query_reason")),

@@ -5,17 +5,11 @@ during normal `uv run pytest`.
 
 Pass `--run-remote-smoke` to acknowledge that the tests call external services.
 
-Run deployed Modal service checks with explicit service URLs:
+Run deployed CourtListener access-service checks with an explicit URL:
 
 ```bash
 uv run pytest tests/smoke --no-cov --run-remote-smoke \
-  --courtlistener-url https://your-courtlistener-service.modal.run
-```
-
-Run the Label Studio upload/extraction smoke test with credentials from `.env`:
-
-```bash
-uv run --group label-studio pytest tests/smoke/test_label_studio_upload_remote.py --no-cov --run-remote-smoke
+  --courtlistener-url https://your-courtlistener-service.example
 ```
 
 ## LLM remote sanity
@@ -41,7 +35,7 @@ uv run --group llm pytest tests/smoke/test_llm_api_remote.py --no-cov --run-llm-
 Run only the live case-name preparation sanity checks:
 
 ```bash
-uv run --group pipeline pytest tests/smoke/test_case_name_prepare_remote.py --no-cov --run-llm-remote-sanity
+uv run --group pipeline pytest tests/smoke/test_case_name_reextract_before_retrieval_remote.py --no-cov --run-llm-remote-sanity
 ```
 
 Use `--remote-timeout <seconds>` to adjust HTTP timeouts for cold starts.

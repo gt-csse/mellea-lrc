@@ -14,6 +14,7 @@ locator will resolve. The only thing it asserts is that the slug exists in
 
 import json
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -27,27 +28,27 @@ class CourtsDBClassification:
     type: str | None
 
 
-_CLASSIFICATION_CACHE: dict[str, CourtsDBClassification] | None = None
+@lru_cache(maxsize=1)
+def _court_classifications() -> dict[str, CourtsDBClassification]:
+    json_path = Path(__file__).parent / "courts_db_classification.json"
+    if not json_path.exists():
+        return {}
+    with json_path.open(encoding="utf-8") as file:
+        data = json.load(file)
+    return {
+        court_id: CourtsDBClassification(
+            court_id=court_id,
+            system=classification.get("system"),
+            jurisdiction=classification.get("jurisdiction"),
+            type=classification.get("type"),
+        )
+        for court_id, classification in data.items()
+    }
 
 
 def get_courts_db_classification(court_id: str) -> CourtsDBClassification | None:
     """Return the `courts-db` classification for a court slug."""
-    global _CLASSIFICATION_CACHE
-    if _CLASSIFICATION_CACHE is None:
-        _CLASSIFICATION_CACHE = {}
-        json_path = Path(__file__).parent / "courts_db_classification.json"
-        if json_path.exists():
-            with json_path.open(encoding="utf-8") as f:
-                data = json.load(f)
-                for cid, cdata in data.items():
-                    _CLASSIFICATION_CACHE[cid] = CourtsDBClassification(
-                        court_id=cid,
-                        system=cdata.get("system"),
-                        jurisdiction=cdata.get("jurisdiction"),
-                        type=cdata.get("type"),
-                    )
-
-    return _CLASSIFICATION_CACHE.get(court_id)
+    return _court_classifications().get(court_id)
 
 
 def is_recognized_court(court_id: str) -> bool:

@@ -1,1 +1,1 @@
-"""End-to-end Modal backend."""
+"""End-to-end local backend."""

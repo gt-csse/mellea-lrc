@@ -1,4 +1,4 @@
-"""Tests for neutral and Label Studio-specific serialization."""
+"""Tests for current typed serialization."""
 
 import json
 
@@ -77,8 +77,6 @@ from mellea_lrc.retrieval.types import (
     RetrievalMetadata,
     RetrievalStatus,
 )
-from scripts.label_studio.label_studio import to_label_studio_prediction
-from scripts.label_studio.pre_annotate import build_task_payload
 
 SAMPLE_TEXT = "Under Norton v. Shelby County, 118 U.S. 425, 442 (1886), an act confers no rights."
 RECAP_TEXT = (
@@ -609,50 +607,3 @@ def test_case_name_followup_round_trips_inside_citation_assessment() -> None:
     payload = serialize_citation_assessment(record)
 
     assert deserialize_citation_assessment(payload) == record
-
-
-def test_label_studio_prediction_shape() -> None:
-    extraction = extract_citations(SAMPLE_TEXT)
-    prediction = to_label_studio_prediction(extraction)
-
-    assert prediction["model_version"] == "eyecite-pre-annotation"
-    assert prediction["score"] == 1.0
-    assert prediction["result"]
-
-    label_results = [item for item in prediction["result"] if item["type"] == "labels"]
-    assert label_results
-    assert label_results[0]["value"]["labels"] == ["FullCaseCitation"]
-
-    textarea_results = [item for item in prediction["result"] if item["type"] == "textarea"]
-    field_names = {item["from_name"] for item in textarea_results}
-    assert "plaintiff" in field_names
-    assert "volume" in field_names
-
-
-def test_label_studio_task_text_matches_prediction_spans() -> None:
-    task = build_task_payload(RECAP_TEXT, source_path="sample.txt")
-    text = task["data"]["text"]
-    prediction = task["predictions"][0]
-
-    assert text.startswith("The Court cites")
-    assert task["data"]["source_path"] == "sample.txt"
-    assert "source_header" in task["data"]
-
-    label_results = [item for item in prediction["result"] if item["type"] == "labels"]
-    assert label_results
-    for result in label_results:
-        value = result["value"]
-        assert text[value["start"] : value["end"]] == value["text"]
-
-
-def test_label_studio_uses_full_span_text_not_matched_text() -> None:
-    extraction = extract_citations(RECAP_TEXT)
-    prediction = to_label_studio_prediction(extraction)
-
-    label_result = next(item for item in prediction["result"] if item["type"] == "labels")
-    citation_span = extraction.citations[0].citation_span
-    citation_text = extraction.text[citation_span.start : citation_span.end]
-
-    assert extraction.citations[0].matched_locator_text == "444 F. Supp. 3d 593"
-    assert label_result["value"]["text"] == citation_text
-    assert label_result["value"]["text"] != extraction.citations[0].matched_locator_text

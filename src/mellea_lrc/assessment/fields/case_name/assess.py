@@ -12,10 +12,10 @@ from mellea_lrc.assessment.fields.case_name.compare import (
     assess_case_name_exact_match,
     build_case_name_assessment,
 )
-from mellea_lrc.assessment.fields.case_name.reextract import (
+from mellea_lrc.assessment.fields.case_name.reextract_after_retrieval import (
     ReextractionResult,
     ReextractionStatus,
-    reextract_case_name,
+    reextract_case_name_after_retrieval,
 )
 from mellea_lrc.assessment.model_options import structured_model_options
 from mellea_lrc.assessment.types.case_name import (
@@ -105,7 +105,7 @@ async def _assess_after_exact(
         message="Case name failed semantic match; re-extraction attempted.",
     )
     try:
-        reextraction = await reextract_case_name(
+        reextraction = await reextract_case_name_after_retrieval(
             session,
             document_context=document_context.text,
             extracted_case_name=extracted_case_name,

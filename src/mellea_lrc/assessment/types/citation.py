@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 
-from dataclasses import dataclass
 
 from mellea_lrc.assessment.types.case_name import CaseNameAssessmentRun
 from mellea_lrc.assessment.types.court import CourtAssessment

@@ -61,8 +61,9 @@ from scripts.e2e_backend.pipeline import (
     assess_review_payload,
     review_document_assessment,
     review_preprocessed,
-    retrieve_review_citation_payload,
-    retrieve_review_payload,
+    review_preprocessed_async,
+    retrieve_review_citation_payload_async,
+    retrieve_review_payload_async,
 )
 
 
@@ -182,9 +183,11 @@ def _assessed_document(
 
 
 def test_review_preprocessed_returns_frontend_span_payload() -> None:
-    output = review_preprocessed(
-        preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483."),
-        client=FakeClient(),
+    output = asyncio.run(
+        review_preprocessed_async(
+            preprocess_plain_text_from_string("Brown v. Board, 347 U.S. 483."),
+            client=FakeClient(),
+        )
     )
 
     citation = output["citations"][0]
@@ -217,7 +220,7 @@ def test_retrieve_review_payload_reuses_existing_extraction_payload() -> None:
         retrieve=False,
     )
 
-    output = retrieve_review_payload(extracted, client=FakeClient())
+    output = asyncio.run(retrieve_review_payload_async(extracted, client=FakeClient()))
 
     citation = output["citations"][0]
     assert citation["citation_span"] == extracted["citations"][0]["citation_span"]
@@ -232,9 +235,11 @@ def test_retrieve_review_citation_payload_returns_single_retrieval() -> None:
         retrieve=False,
     )
 
-    retrieval = retrieve_review_citation_payload(
-        {"citation": extracted["citations"][0]},
-        client=FakeClient(),
+    retrieval = asyncio.run(
+        retrieve_review_citation_payload_async(
+            {"citation": extracted["citations"][0]},
+            client=FakeClient(),
+        )
     )
 
     assert retrieval["citation_id"] == extracted["citations"][0]["id"]

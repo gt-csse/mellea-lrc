@@ -3,10 +3,10 @@
 This subsystem intentionally lives in the frontend demo application rather
 than `src/mellea_lrc`.
 
-It maintains two synchronized, committable artifacts:
+It maintains one named bookmark store, selected by the configured directory:
 
-- `fixtures/bookmarked/bookmarked.txt` is the aggregate plain-text test fixture;
-- `fixtures/bookmarked/bookmarks.json` stores extraction-level citation identity
+- `fixtures/bookmarked/sets/bookmark-research.txt` is the default plain-text fixture;
+- `fixtures/bookmarked/sets/bookmark-research.json` stores extraction-level citation identity
   and one or more provenance observations.
 
 Citation identity is derived from the extracted citation kind and sorted field
@@ -17,5 +17,6 @@ adds provenance without adding another TXT block.
 The schema-versioned JSON file is authoritative. The TXT fixture is regenerated
 from it whenever the store changes; there is no legacy migration path.
 
-Set `MELLEA_LRC_BOOKMARK_DIR` to test against an isolated directory. The default
-fixture should be committed whenever a case or its investigation comment changes.
+Set `MELLEA_LRC_BOOKMARK_DIR` to test against an isolated directory containing
+`bookmark-research.json` and `bookmark-research.txt`. Named fixture sets are
+maintained by `scripts/bookmark_fixture.py`, not this API.

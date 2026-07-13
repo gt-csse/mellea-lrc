@@ -17,7 +17,7 @@ from mellea_lrc.assessment.fields.case_name import (
     assess_case_name_exact_match,
     assess_case_name_with_mellea,
     build_extracted_case_name,
-    reextract_case_name,
+    reextract_case_name_after_retrieval,
     validate_proposal,
 )
 from mellea_lrc.assessment.fields.court import assess_court
@@ -94,7 +94,7 @@ __all__ = [
     "find_text_span_near_full_span",
     "get_extended_span_text",
     "initialize_assessment",
-    "reextract_case_name",
+    "reextract_case_name_after_retrieval",
     "run_assessment",
     "run_assessment_async",
     "validate_proposal",

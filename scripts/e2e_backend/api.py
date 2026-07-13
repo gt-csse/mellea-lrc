@@ -15,7 +15,7 @@ APP_NAME = "mellea-lrc-prototype"
 
 
 def create_app(backend: E2EBackend | None = None) -> FastAPI:  # noqa: C901
-    """Create the E2E backend app for Modal or local serving."""
+    """Create the local E2E backend app."""
     pipeline = backend or E2EBackend()
     web_app = FastAPI(title="Mellea LRC E2E Backend", version="0.1.0")
     web_app.add_middleware(

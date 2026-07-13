@@ -8,10 +8,10 @@ from mellea_lrc.assessment.fields.case_name.compare import (
     case_names_equivalent,
     normalize_case_name,
 )
-from mellea_lrc.assessment.fields.case_name.reextract import (
+from mellea_lrc.assessment.fields.case_name.reextract_after_retrieval import (
     ReextractionResult,
     ReextractionStatus,
-    reextract_case_name,
+    reextract_case_name_after_retrieval,
     validate_proposal,
 )
 
@@ -24,6 +24,6 @@ __all__ = [
     "build_extracted_case_name",
     "case_names_equivalent",
     "normalize_case_name",
-    "reextract_case_name",
+    "reextract_case_name_after_retrieval",
     "validate_proposal",
 ]

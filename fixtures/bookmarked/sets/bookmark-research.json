@@ -208,14 +208,14 @@
       "comment": "Identity: VERIFIED. The bounded date-recovery fixture preserves whitespace-damaged \u201cMar.  28,  2013\u201d; eyecite omits a complete date, while prepared retrieval should normalize it to 2013-03-28.\nEvidence: copied locator-bound parenthetical and the Solis-Marrufo RECAP docket.\nNext: keep this as a date-preparation regression case.",
       "provenances": [
         {
-          "source_path": "../citation_sets/date-recovery/solis-whitespace.txt",
+          "source_path": "../local/test_data/1.txt",
           "source_format": "text",
           "citation_span": {
-            "start": 0,
-            "end": 140
+            "start": 11888,
+            "end": 12018
           },
-          "provenance_id": "provenance:53de571c0faa2234a53306458badf7d13c1887eefa061772201987c541d6a6e2",
-          "seen_at": "2026-07-11T18:16:00.000Z"
+          "provenance_id": "provenance:aef817923e8c50442387704a9fe53c7afa5a1a418406bf3f41ae4b1bed9e4509",
+          "seen_at": "2026-07-11T00:00:00.000Z"
         }
       ],
       "created_at": "2026-07-11T18:16:00.000Z",

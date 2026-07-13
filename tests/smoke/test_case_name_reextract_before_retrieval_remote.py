@@ -24,10 +24,10 @@ from mellea_lrc.llm import (
     llm_api_config_from_env,
     start_mellea_session_from_env,
 )
-from mellea_lrc.retrieval.case_name_prepare import (
+from mellea_lrc.retrieval.case_name_reextract_before_retrieval import (
     PREPARATION_MAX_TOKENS,
     _case_name_preparation_requirements,
-    _prepare_case_name,
+    _propose_case_name_reextraction_before_retrieval,
 )
 
 pytestmark = [pytest.mark.remote_smoke, pytest.mark.llm_remote_sanity]
@@ -60,7 +60,7 @@ MINIMUM_RETRY_OUTPUTS = 2
         ),
     ],
 )
-def test_prepare_case_name_live_examples(
+def test_propose_case_name_reextraction_before_retrieval_live_examples(
     name: str,
     text: str,
     locator: str,
@@ -69,7 +69,7 @@ def test_prepare_case_name_live_examples(
 ) -> None:
     """Exercise the live instruct preparation prompt against representative windows."""
     proposal, _final_ctx = asyncio.run(
-        _call_prepare_case_name(
+        _call_propose_case_name_reextraction_before_retrieval(
             text=text,
             locator=locator,
             extracted_plaintiff="Alpha" if name == "multiple" else "",
@@ -82,11 +82,11 @@ def test_prepare_case_name_live_examples(
     assert proposal.defendant == expected_defendant
 
 
-def test_prepare_case_name_live_context_records_retry_turns() -> None:
+def test_propose_case_name_reextraction_before_retrieval_live_context_records_retry_turns() -> None:
     """Exhausted IVR records retries but never returns an invalid proposal."""
     with pytest.raises(MelleaRequirementsExhaustedError) as caught:
         asyncio.run(
-            _call_prepare_case_name(
+            _call_propose_case_name_reextraction_before_retrieval(
                 text="The court discussed Smith v. Jones, 999 U.S. 999, before turning to damages.",
                 locator="999 U.S. 999",
                 extra_requirements=[
@@ -108,7 +108,7 @@ def test_prepare_case_name_live_context_records_retry_turns() -> None:
     assert all('"case_name"' not in str(output.value) for output in outputs)
 
 
-async def _call_prepare_case_name(
+async def _call_propose_case_name_reextraction_before_retrieval(
     *,
     text: str,
     locator: str,
@@ -120,7 +120,7 @@ async def _call_prepare_case_name(
     session = start_mellea_session_from_env()
     window = _window_for(text, locator)
     requirements = [*_case_name_preparation_requirements(window, locator), *(extra_requirements or [])]
-    return await _prepare_case_name(
+    return await _propose_case_name_reextraction_before_retrieval(
         session,
         local_context=window.text,
         locator=locator,

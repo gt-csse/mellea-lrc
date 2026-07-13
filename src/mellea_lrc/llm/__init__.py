@@ -17,11 +17,11 @@ from mellea_lrc.llm.ivr import (
 )
 
 __all__ = [
-    "format_rendered_chat_messages",
     "InstructIvrSpec",
     "LlmApiConfig",
     "MelleaRequirementsExhaustedError",
     "RenderedChatMessage",
+    "format_rendered_chat_messages",
     "llm_api_config_from_env",
     "render_instruct_chat_messages",
     "render_instruct_prompt",

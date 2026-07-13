@@ -14,7 +14,7 @@ from mellea_lrc.courtlistener.lookup import normalize_citation_lookup_payload
 if TYPE_CHECKING:
     from mellea_lrc.courtlistener.types import CourtListenerCitationLookup
 
-CL_ACCESS_URL_ENV = "CL_ACCESS_MODAL_URL"
+CL_ACCESS_URL_ENV = "CL_ACCESS_URL"
 
 PostJson = Callable[[str, Mapping[str, str]], object]
 GetJson = Callable[[str], object]

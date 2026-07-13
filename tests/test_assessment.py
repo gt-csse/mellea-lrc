@@ -39,8 +39,8 @@ from mellea_lrc.assessment import ReextractionStatus, validate_proposal
 from mellea_lrc.assessment.fields.case_name.classify import (
     _semantic_output_from_text,
 )
-from mellea_lrc.assessment.fields.case_name.reextract import ReextractionResult
-from mellea_lrc.assessment.fields.case_name.reextract import (
+from mellea_lrc.assessment.fields.case_name.reextract_after_retrieval import ReextractionResult
+from mellea_lrc.assessment.fields.case_name.reextract_after_retrieval import (
     JSON_OUTPUT_REQUIREMENT as REEXTRACTION_JSON_OUTPUT_REQUIREMENT,
     _reextraction_requirements,
     _validate_grounding as _validate_reextraction_grounding,
@@ -519,7 +519,7 @@ def test_case_name_run_captures_reassessment_failure_after_accepted_reextraction
         no_semantic_match,
     )
     monkeypatch.setattr(
-        "mellea_lrc.assessment.fields.case_name.assess.reextract_case_name",
+        "mellea_lrc.assessment.fields.case_name.assess.reextract_case_name_after_retrieval",
         accepted_reextraction,
     )
     monkeypatch.setattr(
@@ -566,7 +566,7 @@ def test_case_name_run_uses_native_semantic_classifier_call(
         semantic_match,
     )
     monkeypatch.setattr(
-        "mellea_lrc.assessment.fields.case_name.assess.reextract_case_name",
+        "mellea_lrc.assessment.fields.case_name.assess.reextract_case_name_after_retrieval",
         unexpected_reextraction,
     )
 
@@ -614,7 +614,7 @@ def test_case_name_run_stops_at_not_semantic_after_reextraction(
         no_semantic_match,
     )
     monkeypatch.setattr(
-        "mellea_lrc.assessment.fields.case_name.assess.reextract_case_name",
+        "mellea_lrc.assessment.fields.case_name.assess.reextract_case_name_after_retrieval",
         accepted_reextraction,
     )
 

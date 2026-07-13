@@ -1,4 +1,4 @@
-"""Assembled extraction and retrieval API for the Modal E2E backend."""
+"""Assembled extraction and retrieval API for the local E2E backend."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ from mellea_lrc.jurisdiction_inference.types import (
     ReporterInference,
     ReporterInferenceStatus,
 )
-from mellea_lrc.retrieval import run_retrieval, run_retrieval_async
+from mellea_lrc.retrieval import run_retrieval_async
 from mellea_lrc.retrieval.types import (
     CitationRetrieval,
     RetrievedDocument,
@@ -249,10 +249,14 @@ def review_preprocessed(
     retrieve: bool = True,
     client: CourtListenerAccessClient | None = None,
 ) -> dict[str, Any]:
-    """Run extraction, jurisdiction inference, optional retrieval, and frontend review."""
+    """Run synchronous extraction-only review for frontend inspection."""
+    del client
+    if retrieve:
+        msg = "synchronous retrieval is not supported; use review_preprocessed_async"
+        raise RuntimeError(msg)
     extraction = run_extraction(preprocessed)
     inferred = infer_jurisdiction(extraction)
-    retrieval = _run_retrieval(inferred, retrieve=retrieve, client=client)
+    retrieval = None
 
     return {
         "document": {
@@ -405,19 +409,10 @@ def retrieve_review_payload(
     *,
     client: CourtListenerAccessClient | None = None,
 ) -> dict[str, Any]:
-    """Attach retrieval to an existing frontend review payload without re-extracting."""
-    extraction = _extraction_from_review_payload(payload)
-    retrieval = _run_retrieval(extraction, retrieve=True, client=client)
-    output = _copy_review_payload(payload)
-    retrieval_by_id = {item.citation_id: _retrieval_item_payload(item) for item in retrieval.retrievals}
-    citations = _review_citations(output)
-    for citation in citations:
-        citation["retrieval"] = retrieval_by_id.get(str(citation.get("id")))
-    output["citations"] = citations
-    output["retrieval"] = _retrieval_payload(retrieval)
-    output["node_graph"] = _node_graph_payload(retrieval, retrieval=retrieval)
-    output["stats"] = _merge_stats(output.get("stats"), _stats(extraction, retrieval))
-    return output
+    """Reject the retired synchronous retrieval API."""
+    del payload, client
+    msg = "synchronous retrieval is not supported; use retrieve_review_payload_async"
+    raise RuntimeError(msg)
 
 
 async def retrieve_review_payload_async(
@@ -445,36 +440,10 @@ def retrieve_review_citation_payload(
     *,
     client: CourtListenerAccessClient | None = None,
 ) -> dict[str, Any]:
-    """Retrieve a single frontend review citation payload."""
-    citation = payload.get("citation")
-    if not isinstance(citation, dict):
-        msg = "citation is required"
-        raise TypeError(msg)
-
-    extracted_citation = _extracted_citation_from_review_item(citation)
-    matched_locator_text = extracted_citation.matched_locator_text or "citation"
-    retrieval_citation = ExtractedCitation(
-        citation_id=extracted_citation.citation_id,
-        citation_span=Span(start=0, end=len(matched_locator_text)),
-        matched_locator_text=matched_locator_text,
-        matched_citation_text=matched_locator_text,
-        citation=extracted_citation.citation,
-        resolves_to=None,
-    )
-    extraction = ExtractedDocument(
-        source_metadata=SourceMetadata(),
-        text=matched_locator_text,
-        preprocessing_metadata=PreprocessingMetadata(
-            backend=PreprocessingBackend.PLAIN_TEXT,
-        ),
-        citations=(retrieval_citation,),
-        extraction_metadata=ExtractionMetadata(),
-    )
-    retrieval = _run_retrieval(extraction, retrieve=True, client=client)
-    if retrieval is None or not retrieval.retrievals:
-        msg = "citation retrieval did not produce a result"
-        raise ValueError(msg)
-    return _retrieval_item_payload(retrieval.retrievals[0])
+    """Reject the retired synchronous single-citation retrieval API."""
+    del payload, client
+    msg = "synchronous retrieval is not supported; use retrieve_review_citation_payload_async"
+    raise RuntimeError(msg)
 
 
 async def retrieve_review_citation_payload_async(
@@ -638,22 +607,6 @@ def _source_format(filename: str) -> SourceFormat:
         ".htm": SourceFormat.HTML,
         ".md": SourceFormat.MARKDOWN,
     }.get(suffix, SourceFormat.UNKNOWN)
-
-
-def _run_retrieval(
-    document: ExtractedDocument,
-    *,
-    retrieve: bool,
-    client: CourtListenerAccessClient | None,
-) -> RetrievedDocument | None:
-    if not retrieve:
-        return None
-    inferred = document if isinstance(document, InferredDocument) else infer_jurisdiction(document)
-    return run_retrieval(
-        inferred,
-        client_mode="custom" if client is not None else "deployed",
-        client=client,
-    )
 
 
 async def _run_retrieval_async(

@@ -395,12 +395,12 @@ def test_not_found_retrieval_projects_granular_case_name_search_chain() -> None:
     assert [step.operation for step in node.steps] == [
         "retrieval.exact_lookup",
         "retrieval.fallback_decision",
-        "retrieval.party_examination",
-        "retrieval.date_examination",
+        "retrieval.case_name_reextraction_before_retrieval",
+        "retrieval.date_reextraction_before_retrieval",
         "retrieval.preparation_validation",
-        "retrieval.query_planning",
-        "retrieval.corpus_probe",
-        "retrieval.corpus_probe",
+        "retrieval.search_query_proposal",
+        "retrieval.search_query_execution",
+        "retrieval.search_query_execution",
         "retrieval.candidate_results",
     ]
     preparation = node.steps[2]
@@ -414,8 +414,8 @@ def test_not_found_retrieval_projects_granular_case_name_search_chain() -> None:
     assert node.steps[7].lane == "r"
     assert node.steps[7].status is CitationStepStatus.FAILED
     assert node.steps[8].depends_on == (
-        "cite-0001:retrieval:corpus_probe:o",
-        "cite-0001:retrieval:corpus_probe:r",
+        "cite-0001:retrieval:search_query_execution:o",
+        "cite-0001:retrieval:search_query_execution:r",
     )
 
 

@@ -15,10 +15,6 @@ class CaseNameAssessmentStatus(str, Enum):
     EXACT_MATCH = "exact_match"
     SEMANTIC_MATCH = "semantic_match"
     NOT_SEMANTIC_MATCH = "not_semantic_match"
-    # Legacy read-compatible statuses. The active validation path no longer
-    # emits these lawyer-facing subclassifications; it stops at semantic/not.
-    DIFFERENT_CASE = "different_case"
-    IRREGULAR_FORM = "irregular_form"
     UNASSESSABLE = "unassessable"
 
 
@@ -128,8 +124,6 @@ class CaseNameAssessmentRun:
             CaseNameAssessmentStatus.EXACT_MATCH,
             CaseNameAssessmentStatus.SEMANTIC_MATCH,
             CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH,
-            CaseNameAssessmentStatus.DIFFERENT_CASE,
-            CaseNameAssessmentStatus.IRREGULAR_FORM,
         }:
             msg = "Successful case-name reassessment must contain a terminal conclusion"
             raise ValueError(msg)

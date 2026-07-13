@@ -25,7 +25,6 @@ from mellea_lrc.courtlistener.taxonomy import (
 )
 
 __all__ = [
-    "CourtsDBClassification",
     "CacheEntry",
     "CacheStore",
     "CitationLookupClient",
@@ -39,6 +38,7 @@ __all__ = [
     "CourtListenerError",
     "CourtListenerRateLimitConfig",
     "CourtListenerRateLimiter",
+    "CourtsDBClassification",
     "NullCache",
     "R2Cache",
     "RetrievalFailureDetail",

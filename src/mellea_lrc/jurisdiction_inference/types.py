@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 class ReporterInferenceStatus(str, Enum):
     """Classification of a reporter inference."""
+
     UNSUPPORTED = "unsupported"
     MISSING_REPORTER = "missing_reporter"
     UNRECOGNIZED = "unrecognized"
@@ -23,6 +24,7 @@ class ReporterInferenceStatus(str, Enum):
 
 class CourtInferenceStatus(str, Enum):
     """Classification of an extracted court string."""
+
     UNSUPPORTED = "unsupported"
     MISSING_COURT = "missing_court"
     UNRECOGNIZED = "unrecognized"
@@ -32,6 +34,7 @@ class CourtInferenceStatus(str, Enum):
 @dataclass(frozen=True, slots=True)
 class ReporterInference:
     """Reporter-based jurisdiction inference."""
+
     reporter: Reporter | None
     status: ReporterInferenceStatus
     mlz_jurisdictions: tuple[str, ...]
@@ -40,6 +43,7 @@ class ReporterInference:
 @dataclass(frozen=True, slots=True)
 class CourtInference:
     """Court-based jurisdiction inference."""
+
     extracted_court: str | None
     status: CourtInferenceStatus
     courts_db_classification: CourtsDBClassification | None
@@ -47,6 +51,7 @@ class CourtInference:
 
 class TranslationLayerStatus(str, Enum):
     """Classification of the translation layer output."""
+
     UNAVAILABLE = "unavailable"
     AMBIGUOUS = "ambiguous"
     RESOLVED = "resolved"
@@ -55,6 +60,7 @@ class TranslationLayerStatus(str, Enum):
 @dataclass(frozen=True, slots=True)
 class TranslationLayerResult:
     """The result of triangulating MLZ and Court Leads."""
+
     status: TranslationLayerStatus
     translated_court_id: str | None
 
@@ -62,6 +68,7 @@ class TranslationLayerResult:
 @dataclass(frozen=True, slots=True)
 class Jurisdiction:
     """Combined jurisdiction leads for a citation."""
+
     reporter_inference: ReporterInference
     court_inference: CourtInference
 

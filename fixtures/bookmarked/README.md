@@ -1,7 +1,8 @@
 # Bookmark research fixture
 
-`bookmarks.json` is authoritative and contains the research comments.
-`bookmarked.txt` is its generated extraction-input projection: it contains only
+Each named `sets/bookmark-<name>.json` is authoritative and contains the
+research comments. Its matching `sets/bookmark-<name>.txt` is the generated
+extraction-input projection: it contains only
 the copied source contexts, separated by whitespace, so fixture metadata cannot
 be misread as citation text. A bookmark is a
 citation context, not a retrieval verdict: its identity is derived from
@@ -29,7 +30,7 @@ Update a comment by an unambiguous bookmark-ID prefix so neither JSON nor the
 generated text fixture needs to be edited by hand:
 
 ```bash
-uv run python scripts/bookmark_fixture.py comment citation:43ae974f \
+uv run python scripts/bookmark_fixture.py comment --set research citation:43ae974f \
   $'Finding: opinion 0; RECAP 1.\nEvaluation: the RECAP docket matches the cited parties.'
 ```
 
@@ -48,8 +49,7 @@ uv run python scripts/bookmark_fixture.py add \
 
 Named research fixtures are independent bookmark stores. Each has its own
 authoritative `bookmark-<name>.json`, generated `bookmark-<name>.txt`, and
-expected-results README in `sets/`. Add directly to a named set with the same
-hook used for the default store:
+expected-results README in `sets/`. Add directly to a named set:
 
 ```bash
 uv run python scripts/bookmark_fixture.py add --set date-recovery \
@@ -57,7 +57,7 @@ uv run python scripts/bookmark_fixture.py add --set date-recovery \
   --source-path "../local/test_data/6.txt" --citation-span-start 1 --citation-span-end 2
 ```
 
-Run a named fixture as one document, just like the default bookmark fixture:
+Run a named fixture as one document:
 
 ```bash
 uv run --group pipeline python -m scripts.e2e_backend.snapshot_corpus \

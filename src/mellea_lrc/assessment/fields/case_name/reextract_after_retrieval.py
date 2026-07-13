@@ -1,4 +1,4 @@
-"""Mellea case-name re-extraction."""
+"""Mellea case-name re-extraction after retrieval."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 
 from mellea.core import ValidationResult
 from mellea.core.base import Context, ModelOutputThunk
-from mellea.core.requirement import Requirement
 from mellea.stdlib.components import Message
 from mellea.stdlib.requirements import check, req
 from mellea.stdlib.sampling import MultiTurnStrategy
@@ -24,9 +23,10 @@ from mellea_lrc.llm import InstructIvrSpec, run_instruct_ivr
 
 if TYPE_CHECKING:
     from mellea import MelleaSession
+    from mellea.core.requirement import Requirement
 
 MISSING_EXTRACTED_CASE_NAME_PROMPT = "<NO_EXTRACTED_CASE_NAME>"
-REEXTRACTION_MAX_TOKENS = 512
+CASE_NAME_REEXTRACTION_AFTER_RETRIEVAL_MAX_TOKENS = 512
 PROPOSAL_ADAPTER = TypeAdapter(CaseNameProposal)
 
 
@@ -80,7 +80,7 @@ JSON_OUTPUT_REQUIREMENT = (
     'Return exactly one JSON object with shape '
     '{"available":true_or_false,"case_name":"... or null"}.'
 )
-REEXTRACTION_INSTRUCTION = """
+CASE_NAME_REEXTRACTION_AFTER_RETRIEVAL_INSTRUCTION = """
 Extract the case name that actually appears in local_context.
 
 Your task is faithful extraction: copy whatever case name is present in
@@ -105,6 +105,12 @@ Reporter-like citations between a case name and locator can be parallel
 citations for the same authority. Use the copied text and citation structure to
 decide what is bound to locator; do not assume every intervening reporter
 locator starts a different citation.
+
+Minor copied formatting damage does not erase a locator-bound case name. When
+the copied name has a recognizable collapsed ``v.`` separator, preserve the
+exact copied case-name text rather than expanding or correcting it. The
+retrieval-side workflow uses the same locator and before-locator grounding rule;
+this workflow alone also receives retrieved_case_name as a non-copyable cue.
 
 Set available to false only when local_context contains no identifiable case
 name at all. If extracted_case_name is <NO_EXTRACTED_CASE_NAME>, no prior
@@ -135,7 +141,7 @@ async def _propose_case_name_reextraction(
 ) -> tuple[_ReextractionProposal, Context]:
     """Propose a grounded case name through direct Mellea instruct IVR."""
     spec = InstructIvrSpec(
-        description=REEXTRACTION_INSTRUCTION,
+        description=CASE_NAME_REEXTRACTION_AFTER_RETRIEVAL_INSTRUCTION,
         grounding_context={"local_context": local_context},
         user_variables={
             "locator": locator,
@@ -195,7 +201,7 @@ def _validate_grounding(
         locator_start = _locate_text(document_context, citation_locator)
         case_name_span = _locate_text_span(document_context, proposal.case_name)
         if locator_start is not None and case_name_span is not None:
-            case_name_start, case_name_end = case_name_span
+            _case_name_start, case_name_end = case_name_span
             if case_name_end > locator_start:
                 return ValidationResult(
                     result=False,
@@ -232,7 +238,7 @@ def _validate_output_schema(ctx: Context) -> ValidationResult:
 def _reextraction_proposal_from_output(output: str | object) -> _ReextractionProposal:
     if not isinstance(output, str):
         msg = f"LLM output was not text: {type(output).__name__}"
-        raise ValueError(msg)
+        raise ValueError(msg)  # noqa: TRY004 - validation callers intentionally share this error path
     try:
         payload = json.loads(output)
     except json.JSONDecodeError as exc:
@@ -240,7 +246,7 @@ def _reextraction_proposal_from_output(output: str | object) -> _ReextractionPro
         raise ValueError(msg) from exc
     if not isinstance(payload, dict):
         msg = "LLM output JSON was not an object"
-        raise ValueError(msg)
+        raise ValueError(msg)  # noqa: TRY004 - validation callers intentionally share this error path
     try:
         return _ReextractionProposal.model_validate(payload)
     except ValidationError as exc:
@@ -276,7 +282,7 @@ def _reextraction_requirements(
     ]
 
 
-async def reextract_case_name(
+async def reextract_case_name_after_retrieval(
     session: MelleaSession,
     *,
     document_context: str,
@@ -297,7 +303,7 @@ async def reextract_case_name(
                 citation_locator=citation_locator,
             ),
             strategy=MultiTurnStrategy(loop_budget=3),
-            model_options=structured_model_options(max_tokens=REEXTRACTION_MAX_TOKENS),
+            model_options=structured_model_options(max_tokens=CASE_NAME_REEXTRACTION_AFTER_RETRIEVAL_MAX_TOKENS),
         )
     except Exception as exc:
         return ReextractionResult(ReextractionStatus.FAILED, None, error_message=str(exc))

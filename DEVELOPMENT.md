@@ -17,9 +17,7 @@
 | `pipeline` | Notebook or corpus runs through preprocess → assess (`uv sync --group pipeline`) |
 | `llm` | LLM provider smoke tests only |
 | `preprocessing` | Docling conversion only |
-| `label-studio` | Label Studio upload scripts |
 | `courtlistener` | CourtListener access service locally |
-| `modal` | Deploy or serve Modal apps (includes `pipeline`) |
 
 ## Development Activities
 

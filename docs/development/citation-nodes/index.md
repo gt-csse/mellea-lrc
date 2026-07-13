@@ -77,13 +77,13 @@ Exact lookup remains first because it is cheap and gives strong locator-based
 evidence. LLM-assisted preparation belongs only after exact lookup cannot find a
 candidate.
 
-For the async/e2e path, `case_name_preparation` is now a mandatory LLM-backed
+`case_name_reextraction_before_retrieval` is a mandatory LLM-backed
 gate before candidate search. Its trace should be read literally:
 
 - `original_case_name` records the parser's prior plaintiff/defendant
   reconstruction when available.
-- `llm_status` records the preparation status (`accepted`, `empty`, `failed`,
-  or `legacy_deterministic` for the old sync path).
+- `llm_status` records the re-extraction status (`accepted`, `empty`, or
+  `failed`).
 - `llm_classification` records how the model classified the local window.
 - plaintiff and defendant must be grounded in the local context before the
   locator.
@@ -98,11 +98,6 @@ gate before candidate search. Its trace should be read literally:
 This distinction matters: candidate search can tell us that a plausible case
 was surfaced, but identity and locator correctness remain later deliberation
 nodes.
-
-The synchronous `run_retrieval` API still has a legacy deterministic
-preparation fallback so existing deterministic tests and callers remain stable.
-Frontend API routes and snapshot regeneration use the async retrieval path,
-where preparation is mandatory before not-found candidate search.
 
 Async retrieval runs case-name preparation with bounded concurrency. The default
 limit is intentionally conservative, and snapshot regeneration passes the same
@@ -120,19 +115,10 @@ not-found preparation branch.
 
 Those can layer on after the node substrate is stable.
 
-## Snapshot transition
+## Review serialization
 
-For this branch, `snapshot_corpus.py` still writes the old stage snapshots for
-compatibility:
-
-```text
-preprocessed.json
-extraction.json
-citation_nodes.json
-inferred.json
-retrieval.json
-assessment.json
-```
+`snapshot_corpus.py` writes one final `citation_nodes.json` review artifact per
+input. It is the only snapshot format supported by the frontend and runner.
 
 This is a transition shape, not the final model. The intended destination is:
 

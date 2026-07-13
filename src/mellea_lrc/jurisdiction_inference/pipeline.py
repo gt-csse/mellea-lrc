@@ -1,6 +1,6 @@
 """Jurisdiction inference pipeline stage."""
 
-from mellea_lrc.core.citations import FullCaseCitation, Reporter
+from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.extraction.types import ExtractedDocument
 from mellea_lrc.jurisdiction_inference.leads import evaluate_court_inference, evaluate_reporter_inference
 from mellea_lrc.jurisdiction_inference.types import (

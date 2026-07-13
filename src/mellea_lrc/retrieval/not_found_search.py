@@ -65,7 +65,7 @@ _NON_DISTINCTIVE_PARTY_TOKENS = frozenset(
 )
 
 
-def search_case_name_candidates(
+def execute_search_query(
     citation: FullCaseCitation,
     *,
     client: CitationRetrievalClient,
@@ -77,7 +77,9 @@ def search_case_name_candidates(
     or no case name yields nothing but noise, so those are skipped. Each search
     path is represented independently, including unavailable client methods.
     """
-    preparation = preparation or deterministic_case_name_preparation(citation)
+    if preparation is None:
+        msg = "candidate search requires case-name re-extraction evidence"
+        raise ValueError(msg)
     plaintiff = preparation.plaintiff
     defendant = preparation.defendant
     if preparation.status is CaseNamePreparationStatus.FAILED:
@@ -135,33 +137,6 @@ def search_case_name_candidates(
     else:
         status = CaseNameSearchStatus.SEARCH_FAILED
     return CaseNameSearchTrace(status=status, query=query, probes=probes, preparation=preparation)
-
-
-def deterministic_case_name_preparation(citation: FullCaseCitation) -> CaseNameSearchPreparation:
-    """Legacy preparation from extracted citation parties.
-
-    New LLM-backed paths should pass an explicit preparation. This helper exists
-    so the sync retrieval API and deterministic tests remain stable while the
-    async path becomes the preferred e2e implementation.
-    """
-    plaintiff = citation.plaintiff
-    defendant = citation.defendant
-    original_case_name = (
-        f"{plaintiff} v. {defendant}" if plaintiff and defendant else None
-    )
-    return CaseNameSearchPreparation(
-        status=CaseNamePreparationStatus.LEGACY_DETERMINISTIC
-        if original_case_name
-        else CaseNamePreparationStatus.EMPTY,
-        original_case_name=original_case_name,
-        plaintiff=plaintiff,
-        defendant=defendant,
-        prepared_case_name=original_case_name,
-        query_plaintiff=plaintiff,
-        query_defendant=defendant,
-        court=citation.court,
-        source="extracted_citation",
-    )
 
 
 def _search_corpus(

@@ -227,11 +227,11 @@ function bookmarkPaths() {
     : process.cwd();
   const directory = process.env.MELLEA_LRC_BOOKMARK_DIR
     ? path.resolve(process.env.MELLEA_LRC_BOOKMARK_DIR)
-    : path.join(repoRoot, "fixtures", "bookmarked");
+    : path.join(repoRoot, "fixtures", "bookmarked", "sets");
   return {
     directory,
-    json: path.join(directory, "bookmarks.json"),
-    text: path.join(directory, "bookmarked.txt"),
+    json: path.join(directory, "bookmark-research.json"),
+    text: path.join(directory, "bookmark-research.txt"),
     repoRoot
   };
 }

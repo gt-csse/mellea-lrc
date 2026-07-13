@@ -152,7 +152,7 @@ async def run_assessment_async(
         on_mellea_done=on_mellea_done,
     )
 
-    _assemble(retrieval, assessments_by_id, retrievals_by_id, jobs, outcomes)
+    _assemble(assessments_by_id, retrievals_by_id, jobs, outcomes)
 
     return AssessedDocument(
         source_metadata=retrieval.source_metadata,
@@ -296,7 +296,7 @@ async def _run_job(
             courtlistener_court_id=job.courtlistener_court_id,
             session=session.clone() if session is not None else None,
         )
-    except Exception as exc:  # noqa: BLE001 - surfaced per candidate/citation downstream
+    except Exception as exc:
         return exc
 
 
@@ -312,7 +312,7 @@ async def _run_pending(
         return None
     try:
         session = start_mellea_session_from_env()
-    except Exception as exc:  # noqa: BLE001 - session failure fails each pending candidate
+    except Exception as exc:
         for job in pending:
             outcomes[job.key] = exc
         return None
@@ -339,7 +339,6 @@ async def _run_pending(
 
 
 def _assemble(
-    retrieval: RetrievedDocument,
     assessments_by_id: dict[str, CitationAssessment],
     retrievals_by_id: dict[str, object],
     jobs: list[_AssessmentJob],

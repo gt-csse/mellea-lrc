@@ -14,7 +14,7 @@ FIXTURE_DIR = ROOT / "fixtures" / "bookmarked"
 SET_DIR = FIXTURE_DIR / "sets"
 
 
-def main() -> None:
+def main() -> None:  # noqa: PLR0915 - command dispatch intentionally keeps the hook surface visible
     """Replace one comment or add one bookmark, then regenerate the text projection."""
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command")
@@ -22,7 +22,7 @@ def main() -> None:
     comment_parser = subparsers.add_parser("comment", help="Replace an existing comment")
     comment_parser.add_argument("id", help="Full bookmark ID or an unambiguous prefix")
     comment_parser.add_argument("comment", help="Replacement comment; use an empty string to clear it")
-    comment_parser.add_argument("--set", dest="set_name", help="Named bookmark set; omit for the default store")
+    comment_parser.add_argument("--set", dest="set_name", required=True, help="Named bookmark set")
 
     add_parser = subparsers.add_parser("add", help="Add a bookmark citation context")
     add_parser.add_argument("--matched-citation-text", required=True, help="Matched full citation text")
@@ -32,12 +32,22 @@ def main() -> None:
     add_parser.add_argument("--citation-span-start", required=True, type=int, help="Source citation span start")
     add_parser.add_argument("--citation-span-end", required=True, type=int, help="Source citation span end")
     add_parser.add_argument("--seen-at", default=None, help="UTC ISO timestamp; defaults to now")
-    add_parser.add_argument("--set", dest="set_name", help="Named bookmark set; omit for the default store")
+    add_parser.add_argument("--set", dest="set_name", required=True, help="Named bookmark set")
     readme_parser = subparsers.add_parser(
         "render-set-readme",
         help="Regenerate the per-bookmark expected-results README for one named set",
     )
     readme_parser.add_argument("name", help="Named bookmark set")
+    rebase_parser = subparsers.add_parser(
+        "rebase-provenance",
+        help="Replace a bookmark's sole provenance after a fixture source migration",
+    )
+    rebase_parser.add_argument("--set", dest="set_name", required=True, help="Named bookmark set")
+    rebase_parser.add_argument("id", help="Full bookmark ID or an unambiguous prefix")
+    rebase_parser.add_argument("--source-path", required=True)
+    rebase_parser.add_argument("--citation-span-start", required=True, type=int)
+    rebase_parser.add_argument("--citation-span-end", required=True, type=int)
+    rebase_parser.add_argument("--seen-at", required=True)
     args = parser.parse_args()
 
     selected_set_name = getattr(args, "set_name", None)
@@ -46,7 +56,7 @@ def main() -> None:
     json_path, text_path = _store_paths(selected_set_name)
     if json_path.exists():
         store = json.loads(json_path.read_text(encoding="utf-8"))
-    elif args.command == "add" and getattr(args, "set_name", None) is not None:
+    elif args.command == "add" and selected_set_name is not None:
         store = {"schema_version": 2, "bookmarks": []}
     else:
         message = f"Bookmark store does not exist: {json_path}"
@@ -69,20 +79,25 @@ def main() -> None:
         )
     elif args.command == "render-set-readme":
         _render_named_store_readme(args.name, store)
+    elif args.command == "rebase-provenance":
+        _rebase_provenance(
+            store,
+            args.id,
+            source_path=args.source_path,
+            citation_span_start=args.citation_span_start,
+            citation_span_end=args.citation_span_end,
+            seen_at=args.seen_at,
+        )
     else:
         raise AssertionError(args.command)
 
     json_path.write_text(f"{json.dumps(store, indent=2)}\n", encoding="utf-8")
     text_path.write_text(render_text(store), encoding="utf-8")
-    set_name = selected_set_name
-    if set_name is not None:
-        _render_named_store_readme(set_name, store)
+    _render_named_store_readme(selected_set_name, store)
 
 
-def _store_paths(set_name: str | None) -> tuple[Path, Path]:
+def _store_paths(set_name: str) -> tuple[Path, Path]:
     """Return the JSON/text pair for one bookmark store."""
-    if set_name is None:
-        return FIXTURE_DIR / "bookmarks.json", FIXTURE_DIR / "bookmarked.txt"
     if not set_name.isascii() or not set_name.replace("-", "").isalnum():
         message = f"Unsafe bookmark set name: {set_name}"
         raise SystemExit(message)
@@ -122,6 +137,35 @@ def _replace_comment(store: dict[str, Any], bookmark_id: str, comment: str) -> N
     matches[0]["comment"] = comment.strip() or None
     # Deliberately leave updated_at alone: this command regularizes research notes
     # in a committed fixture and should produce reproducible diffs.
+
+
+def _rebase_provenance(
+    store: dict[str, Any],
+    bookmark_id: str,
+    *,
+    source_path: str,
+    citation_span_start: int,
+    citation_span_end: int,
+    seen_at: str,
+) -> None:
+    """Replace provenance when a fixture source has been intentionally retired."""
+    matches = [item for item in store["bookmarks"] if item["bookmark_id"].startswith(bookmark_id)]
+    if len(matches) != 1:
+        message = f"Expected one bookmark for {bookmark_id!r}; found {len(matches)}"
+        raise SystemExit(message)
+    provenance = {
+        "source_path": source_path,
+        "source_format": "text",
+        "citation_span": {"start": citation_span_start, "end": citation_span_end},
+        "provenance_id": _provenance_identity(
+            source_path=source_path,
+            source_format="text",
+            citation_span_start=citation_span_start,
+            citation_span_end=citation_span_end,
+        ),
+        "seen_at": seen_at,
+    }
+    matches[0]["provenances"] = [provenance]
 
 
 def _add_bookmark(

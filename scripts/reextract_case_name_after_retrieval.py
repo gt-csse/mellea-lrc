@@ -7,8 +7,8 @@ Re-extraction differs only by using CourtListener's retrieved case name as an
 extra identity cue; it is still not allowed to copy text from that cue.
 
 Example:
-    uv run --group llm python scripts/reextract_case_name.py \
-      --context-file fixtures/bookmarked/bookmarked.txt \
+    uv run --group llm python scripts/reextract_case_name_after_retrieval.py \
+      --context-file fixtures/bookmarked/sets/bookmark-research.txt \
       --citation-locator "999 U.S. 999" \
       --extracted-case-name "<NO_EXTRACTED_CASE_NAME>" \
       --courtlistener-case-name "Brown v. Board"
@@ -23,7 +23,7 @@ import json
 import sys
 from pathlib import Path
 
-from mellea_lrc.assessment import reextract_case_name
+from mellea_lrc.assessment import reextract_case_name_after_retrieval
 from mellea_lrc.core.env import load_env_file
 from mellea_lrc.llm import start_mellea_session_from_env
 
@@ -35,7 +35,7 @@ def main() -> None:
     context = _read_context(args.context_file)
     session = start_mellea_session_from_env()
     result = asyncio.run(
-        reextract_case_name(
+        reextract_case_name_after_retrieval(
             session,
             document_context=context,
             extracted_case_name=args.extracted_case_name,

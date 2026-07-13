@@ -24,12 +24,6 @@ _TYPOGRAPHIC_TRANSLATION = str.maketrans(
 _STATUS_MESSAGES = {
     CaseNameAssessmentStatus.EXACT_MATCH: "Extracted case name exactly matches CourtListener.",
     CaseNameAssessmentStatus.SEMANTIC_MATCH: "Extracted case name matches the retrieved case.",
-    CaseNameAssessmentStatus.DIFFERENT_CASE: (
-        "Extracted case name refers to a different case than the retrieved record."
-    ),
-    CaseNameAssessmentStatus.IRREGULAR_FORM: (
-        "Extracted case name uses an unusual or incomplete form for this case."
-    ),
     CaseNameAssessmentStatus.NOT_SEMANTIC_MATCH: (
         "Extracted case name does not semantically match the retrieved case."
     ),

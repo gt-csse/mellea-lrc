@@ -1,4 +1,4 @@
-"""Remote smoke tests for the deployed CourtListener Modal backend."""
+"""Remote smoke tests for a deployed CourtListener access service."""
 
 from __future__ import annotations
 
