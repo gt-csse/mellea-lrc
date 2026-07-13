@@ -6,8 +6,6 @@ import hashlib
 from pathlib import Path
 from dataclasses import asdict
 import json
-import difflib
-import unittest
 
 from mellea_lrc.extraction import (
     extract_document_file,
@@ -170,39 +168,6 @@ def main() -> int:
     citations: ExtractedDocument = extract_citations(text)
     saved_document_path = dir_name / str(hash_string + ".json")
     save_citations(saved_document_path, citations)
-    citation = load_citations(saved_document_path)
-    separator = "-" * 80
-    if citation != citations:
-        print("They are not equal")
-        unittest.TestCase().assertDictEqual(asdict(citation), asdict(citations))
-        print(f"{type(citation.citations)} vs. f{type(citations.citations)}")
-        print(f"{type(citation.extraction_metadata)} vs. f{type(citations.extraction_metadata)}")
-        print(f"{type(citation.text)} vs. f{type(citations.text)}")
-        print(f"{type(citation.preprocessing_metadata)} vs. f{type(citations.preprocessing_metadata)}")
-        if citations.text != citation.text:
-            print("The text are not equal")
-        if citations.preprocessing_metadata != citation.preprocessing_metadata:
-            print("the preprocessing_metadata are not equal!")
-        if citations.extraction_metadata != citation.extraction_metadata:
-            print("The extraction metadata are not equal")
-        if citations.citations != citation.citations:
-            print("The citation are not equal")
-            print(separator)
-            print(type(citation.citations))
-            print(type(citations.citations))
-            first = json.dumps(asdict(citations), indent=4)
-            second = json.dumps(asdict(citation), indent=4)
-            print(len(second))
-            diff = difflib.Differ()
-            ht = difflib.HtmlDiff()
-            html_output = ht.make_file(first.splitlines(), second.splitlines())
-            html_path = saved_document_path.parent / "html-render.html"
-            with html_path.open("w") as file:
-                file.write(html_output)
-        if citations.source_metadata != citation.source_metadata:
-            print("The source metadata are not equal")
-
-            print(separator)
     return 0
 
 
