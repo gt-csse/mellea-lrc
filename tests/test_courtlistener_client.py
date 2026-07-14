@@ -71,6 +71,18 @@ class CourtListenerClientTests(unittest.TestCase):
         self.assertEqual(session.calls[0]["url"], "https://www.courtlistener.com/api/rest/v4/dockets/1/")
         self.assertIn("Mozilla/5.0", session.calls[0]["headers"]["User-Agent"])
 
+    def test_get_cluster_preserves_linked_docket_id(self) -> None:
+        session = FakeSession([FakeResponse({"id": 1969711, "docket_id": 5068645})])
+
+        result = client(session).get_cluster(1969711)
+
+        self.assertEqual(result["cl_cluster_id"], 1969711)
+        self.assertEqual(result["docket_id"], 5068645)
+        self.assertEqual(
+            session.calls[0]["url"],
+            "https://www.courtlistener.com/api/rest/v4/clusters/1969711/",
+        )
+
     def test_resolve_docket_uses_court_and_docket_number(self) -> None:
         """Docket resolution should use CourtListener's official docket filters."""
         session = FakeSession(
@@ -396,6 +408,29 @@ class CourtListenerClientTests(unittest.TestCase):
         self.assertEqual(result["results"][0]["recap_documents"][0]["recap_document_id"], 88)
         self.assertIs(result["results"][0]["recap_documents"][0]["available"], True)
         self.assertEqual(session.calls[0]["params"], {"q": "Example", "type": "r"})
+
+    def test_opinion_search_preserves_linked_docket_id(self) -> None:
+        session = FakeSession(
+            [
+                FakeResponse(
+                    {
+                        "count": 1,
+                        "results": [
+                            {
+                                "id": 1969711,
+                                "docket_id": 5068645,
+                                "caseName": "Koulkina v. City of New York",
+                            }
+                        ],
+                    }
+                )
+            ]
+        )
+
+        result = client(session).search("Koulkina", "o")
+
+        self.assertEqual(result["results"][0]["cluster_id"], 1969711)
+        self.assertEqual(result["results"][0]["docket_id"], 5068645)
 
     def test_search_rejects_unlisted_types(self) -> None:
         """The public search wrapper should not silently accept unsupported types."""

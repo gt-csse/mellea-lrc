@@ -70,6 +70,11 @@ def create_api(client_factory: Callable[[], CourtListenerClient] | None = None) 
     def docket(cl_docket_id: int) -> dict[str, object]:
         return client().get_docket(cl_docket_id)
 
+    @api.get("/clusters/{cl_cluster_id:int}")
+    def cluster(cl_cluster_id: int) -> dict[str, object]:
+        """Retrieve an opinion cluster and its linked docket reference."""
+        return client().get_cluster(cl_cluster_id)
+
     @api.get("/docket-entries/search")
     def docket_entries(
         cl_docket_id: str,

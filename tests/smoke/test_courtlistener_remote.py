@@ -28,3 +28,15 @@ def test_courtlistener_citation_lookup(courtlistener_url: str, remote_timeout: f
     assert payload["response"]["status"] in {200, 300}
     assert isinstance(payload["response"]["clusters"], list)
     assert payload["cache"] in {"hit", "miss"}
+
+
+def test_courtlistener_cluster_exposes_linked_docket(
+    courtlistener_url: str,
+    remote_timeout: float,
+) -> None:
+    response = requests.get(f"{courtlistener_url}/clusters/1969711", timeout=remote_timeout)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cl_cluster_id"] == 1969711
+    assert payload["docket_id"] is not None

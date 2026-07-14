@@ -38,6 +38,11 @@ class CitationClient:
         )
 
 
+class ClusterClient:
+    def get_cluster(self, cl_cluster_id: int) -> dict[str, object]:
+        return {"cl_cluster_id": cl_cluster_id, "docket_id": 5068645}
+
+
 class SearchClient:
     def __init__(self) -> None:
         self.semantic: bool | None = None
@@ -114,6 +119,12 @@ class AppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"detail": "page is required"})
+
+    def test_cluster_route_returns_linked_docket_id(self) -> None:
+        response = TestClient(create_api(client_factory=ClusterClient)).get("/clusters/1969711")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"cl_cluster_id": 1969711, "docket_id": 5068645})
 
     def test_unknown_route_returns_bad_route_failure(self) -> None:
         response = TestClient(create_api(client_factory=CitationClient)).get("/missing-route")

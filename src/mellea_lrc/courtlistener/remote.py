@@ -76,6 +76,17 @@ class CourtListenerAccessClient:
             return {**payload, "http_status": 200}
         return payload
 
+    def get_cluster(self, cl_cluster_id: int | str) -> Mapping[str, object]:
+        """Retrieve one opinion cluster through the remote access service."""
+        url = f"{self.config.base_url.rstrip('/')}/clusters/{cl_cluster_id}"
+        _validate_http_url(url)
+        payload = self._get_json(url)
+        if not isinstance(payload, Mapping):
+            return {}
+        if "http_status" not in payload and "detail" not in payload:
+            return {**payload, "http_status": 200}
+        return payload
+
     def search_docket_entries(
         self,
         cl_docket_id: int | str,

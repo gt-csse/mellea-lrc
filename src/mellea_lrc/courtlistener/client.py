@@ -234,6 +234,18 @@ class CourtListenerClient:
             "raw": raw,
         }
 
+    def get_cluster(self, cl_cluster_id: int | str) -> dict[str, Any]:
+        """Retrieve one opinion cluster, including its linked docket reference."""
+        result = self.get(f"clusters/{cl_cluster_id}")
+        raw = result["response"]
+        return {
+            **_request_metadata(result),
+            "http_status": result["status"],
+            "cl_cluster_id": _coerce_int(cl_cluster_id),
+            "docket_id": _first_present(raw, "docket_id", "docketId"),
+            "raw": raw,
+        }
+
     def search_docket_entries(
         self,
         cl_docket_id: int | str,
@@ -784,6 +796,7 @@ def _normalize_search_result(raw: dict[str, Any], search_type: str) -> dict[str,
 
     return {
         "cluster_id": _first_present(raw, "cluster_id", "clusterId", "id"),
+        "docket_id": _first_present(raw, "docket_id", "docketId"),
         "case_name": _first_present(raw, "caseName", "case_name"),
         "court_id": _first_present(raw, "court_id", "courtId", "court"),
         "date_filed": _first_present(raw, "dateFiled", "date_filed"),

@@ -102,6 +102,22 @@ The shared docket hierarchy does not make coverage uniform across court
 levels. See [Court Level Classification](Court%20Level%20Classification%20%5Bin%20progress%5D.md) for
 the classification model and level-aware corpus routing.
 
+### Cluster-to-docket retrieval
+
+Opinion search candidates retain both their `cluster_id` and, when the Search
+API provides it, their `docket_id`. To resolve the authoritative cluster
+record—including its linked docket reference—our access service exposes:
+
+```text
+GET /clusters/{cl_cluster_id}
+```
+
+Use the returned docket ID to fetch `/dockets/{cl_docket_id}`. A cluster ID and
+a docket ID are different identifiers and must never be treated as
+interchangeable. The endpoint is deployed with the CourtListener Modal access
+service and returns the usual request trace plus `cl_cluster_id`, `docket_id`,
+and the unmodified upstream cluster payload under `raw`.
+
 Live verification on 2026-06-30 found that state supreme and appellate CAP
 dockets for Myers, Redhair, Watkins, and Ford all returned `court_id` from the
 docket endpoint while returning zero docket entries. A RECAP federal comparison
