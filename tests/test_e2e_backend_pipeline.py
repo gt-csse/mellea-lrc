@@ -59,6 +59,7 @@ from scripts.e2e_backend.api import _review_snapshot_payload
 from scripts.e2e_backend.pipeline import (
     E2EBackend,
     assess_review_payload,
+    review_citation_node_document,
     review_document_assessment,
     review_preprocessed,
     review_preprocessed_async,
@@ -507,6 +508,96 @@ def test_review_snapshot_payload_accepts_only_citation_node_documents() -> None:
     assert node_review["result"]["citations"][0]["id"] == "cite-1"
     assert node_review["result"]["citations"][0]["fields"]["reporter"]["edition_short_name"] == "U.S."
     assert node_review["result"]["node_graph"]["nodes"][0]["steps"] == []
+
+
+def test_citation_node_review_projects_fallback_candidates_and_assessment() -> None:
+    """The bibliography UI receives final-node evidence, not extraction-only data."""
+    payload = {
+        "artifact_type": "citation_node_document",
+        "schema_version": 19,
+        "text": "Alpha v. Beta, 2020 WL 123.",
+        "nodes": [
+            {
+                "citation_id": "cite-1",
+                "input": {
+                    "citation_id": "cite-1",
+                    "citation_span": {"start": 0, "end": 26},
+                    "matched_locator_text": "2020 WL 123",
+                    "matched_citation_text": "Alpha v. Beta, 2020 WL 123",
+                    "citation": {
+                        "type": "FullCaseCitation",
+                        "plaintiff": "Alpha",
+                        "defendant": "Beta",
+                        "volume": "2020",
+                        "reporter": {"edition_short_name": "WL"},
+                        "page": "123",
+                        "year": "2020",
+                    },
+                    "resolves_to": None,
+                },
+                "steps": [
+                    {
+                        "operation": "retrieval.exact_lookup",
+                        "data": {
+                            "retrieval": {
+                                "citation_id": "cite-1",
+                                "status": "not_found",
+                                "source": "cl-access",
+                                "locator": "2020 WL 123",
+                                "request_trace": {"http_status": 404, "cache": "miss", "error_message": None},
+                                "candidate": None,
+                                "candidates": [],
+                                "candidate_search": {
+                                    "status": "searched",
+                                    "query": "caseName:(Alpha AND Beta)",
+                                    "preparation": {
+                                        "status": "accepted",
+                                        "prepared_case_name": "Alpha v. Beta",
+                                    },
+                                    "probes": [
+                                        {
+                                            "corpus": "r",
+                                            "candidates": [
+                                                {
+                                                    "case_name": "Alpha v. Beta",
+                                                    "court_id": "nysd",
+                                                    "date_filed": "2020-01-02",
+                                                    "docket_number": "1:20-cv-1",
+                                                    "cluster_id": None,
+                                                    "docket_id": "42",
+                                                    "absolute_url": "/docket/42",
+                                                }
+                                            ],
+                                        }
+                                    ],
+                                },
+                            }
+                        },
+                    },
+                    {
+                        "operation": "assessment.field_check",
+                        "data": {
+                            "assessment": {
+                                "citation_id": "cite-1",
+                                "status": "skipped",
+                                "reason": "retrieval_not_eligible",
+                                "message": "Retrieval status not_found is not eligible.",
+                            }
+                        },
+                    },
+                ],
+            }
+        ],
+    }
+
+    review = review_citation_node_document(payload)
+
+    citation = review["citations"][0]
+    assert citation["retrieval"]["status"] == "not_found"
+    assert citation["retrieval"]["candidates"][0]["record"]["case_name"] == "Alpha v. Beta"
+    assert citation["retrieval"]["candidates"][0]["court_resolution"]["courtlistener_court_id"] == "nysd"
+    assert citation["assessment"]["status"] == "skipped"
+    assert review["retrieval"]["counts"] == {"total": 1, "found": 0}
 
 
 def test_llm_api_config_binds_an_explicit_openai_compatible_endpoint() -> None:

@@ -62,6 +62,11 @@ type CaseNameSearchTracePayload = {
     plaintiff: string | null;
     defendant: string | null;
     prepared_case_name: string | null;
+    extracted_decision_date: string | null;
+    decision_date: string | null;
+    decision_date_basis: string | null;
+    decision_year: string | null;
+    decision_date_precision: string | null;
     court: string | null;
     locator: string | null;
     source: string | null;
@@ -373,7 +378,7 @@ type BibliographicRow = {
 };
 type ExtractedCitationAttempt = {
   label: string;
-  isReextracted: boolean;
+  isModified: boolean;
   fields: Record<string, unknown>;
   locator: string | null;
   citation: ReviewCitation;
@@ -646,18 +651,28 @@ export default function Home() {
   );
   const stageFullCaseTotal =
     workflowStage === "assessed" ? assessmentCandidateCount : fullCaseCitations.length;
+  const hasRetrievalEvidence = Boolean(result?.retrieval?.retrievals.length);
 
   const availableFilters = useMemo(
     () =>
       stageFilterOptions(
         workflowStage,
+        hasRetrievalEvidence,
         statusCounts,
         assessmentCounts,
         stageFullCaseTotal,
         allCitations.length,
         reextractionCount
       ),
-    [allCitations.length, assessmentCounts, stageFullCaseTotal, statusCounts, reextractionCount, workflowStage]
+    [
+      allCitations.length,
+      assessmentCounts,
+      hasRetrievalEvidence,
+      reextractionCount,
+      stageFullCaseTotal,
+      statusCounts,
+      workflowStage
+    ]
   );
 
   const renderCitations = useMemo(
@@ -686,12 +701,12 @@ export default function Home() {
           }
           return citationFilter === "all" && isAssessmentCandidateCitation(citation);
         }
-        if (workflowStage === "retrieved" && isRetrievalStatusFilter(citationFilter)) {
+        if (hasRetrievalEvidence && isRetrievalStatusFilter(citationFilter)) {
           return citationStatus(citation) === citationFilter;
         }
         return citationFilter === "all";
       }),
-    [citationFilter, renderCitations, result, workflowStage]
+    [citationFilter, hasRetrievalEvidence, renderCitations, result, workflowStage]
   );
 
   const selectedClusterIndex = selectedCitation ? clusterIndexes[selectedCitation.id] ?? 0 : 0;
@@ -1893,6 +1908,7 @@ function BibliographicComparison({
   const rows = bibliographicRows(extractedAttempt, cluster, courtResolution, activeResult);
   const hasMultipleClusters = clusters.length > 1;
   const hasMultipleExtractedAttempts = extractedAttempts.length > 1;
+  const comparisonTargetLabel = citation.retrieval?.status === "not_found" ? "Candidate" : "CourtListener";
 
   function changeCluster(direction: -1 | 1) {
     if (!hasMultipleClusters) {
@@ -1925,10 +1941,31 @@ function BibliographicComparison({
         <div className="comparison-header" role="row">
           <span role="columnheader">Field</span>
           <span className="courtlistener-column-header" role="columnheader">
-            <span>Extracted</span>
+            <span>{hasMultipleExtractedAttempts ? extractedAttempt.label : "Extracted"}</span>
+            {hasMultipleExtractedAttempts ? (
+              <span className="case-switcher" aria-label="Extracted value selector">
+                <button
+                  aria-label="Show previous extracted values"
+                  type="button"
+                  onClick={() => changeExtractedAttempt(-1)}
+                >
+                  <ChevronLeft size={14} aria-hidden="true" />
+                </button>
+                <strong>
+                  {safeExtractedAttemptIndex + 1}/{extractedAttempts.length}
+                </strong>
+                <button
+                  aria-label="Show next extracted values"
+                  type="button"
+                  onClick={() => changeExtractedAttempt(1)}
+                >
+                  <ChevronRight size={14} aria-hidden="true" />
+                </button>
+              </span>
+            ) : null}
           </span>
           <span className="courtlistener-column-header" role="columnheader">
-            <span>CourtListener</span>
+            <span>{comparisonTargetLabel}</span>
             {hasMultipleClusters ? (
               <span className="case-switcher" aria-label="CourtListener candidate selector">
                 <button
@@ -1955,29 +1992,7 @@ function BibliographicComparison({
         {rows.map((row) => (
           <div className={`comparison-row ${row.matchType}`} key={row.id} role="row">
             <span role="cell">{row.label}</span>
-            <span role="cell">
-              {row.id === "case_name" && hasMultipleExtractedAttempts ? (
-                <span className="row-attempt-switcher" aria-label="Re-extraction selector">
-                  <button
-                    aria-label="Show previous extracted case name"
-                    type="button"
-                    onClick={() => changeExtractedAttempt(-1)}
-                  >
-                    <ChevronLeft size={13} aria-hidden="true" />
-                  </button>
-                  <span className="row-attempt-value">{formatValue(row.extracted)}</span>
-                  <button
-                    aria-label="Show next extracted case name"
-                    type="button"
-                    onClick={() => changeExtractedAttempt(1)}
-                  >
-                    <ChevronRight size={13} aria-hidden="true" />
-                  </button>
-                </span>
-              ) : (
-                formatValue(row.extracted)
-              )}
-            </span>
+            <span role="cell">{formatValue(row.extracted)}</span>
             <span role="cell">{formatValue(row.courtListener)}</span>
           </div>
         ))}
@@ -2590,24 +2605,44 @@ function extractedCitationAttempts(
 ): ExtractedCitationAttempt[] {
   const original: ExtractedCitationAttempt = {
     label: "Extracted",
-    isReextracted: false,
+    isModified: false,
     fields: citation.fields,
     locator: citation.retrieval?.locator ?? citationLocatorText(citation),
     citation,
     reassessment: null,
     span: null
   };
+  const attempts = [original];
+  const preparation = citation.retrieval?.candidate_search?.preparation;
+  if (preparation?.status === "accepted" && preparation.prepared_case_name) {
+    attempts.push({
+      label: "Prepared for search",
+      isModified: true,
+      fields: {
+        ...citation.fields,
+        plaintiff: preparation.plaintiff ?? citation.fields.plaintiff,
+        defendant: preparation.defendant ?? citation.fields.defendant,
+        case_name: preparation.prepared_case_name,
+        decision_date: preparation.decision_date,
+        year: preparation.decision_year ?? citation.fields.year
+      },
+      locator: preparation.locator ?? citation.retrieval?.locator ?? citationLocatorText(citation),
+      citation,
+      reassessment: null,
+      span: null
+    });
+  }
   const result = completedAssessmentResult(citation.assessment);
   const followup = result?.case_name.followup;
   if (!followup || !("reextracted_case_name" in followup)) {
-    return [original];
+    return attempts;
   }
   const item = followup.reextracted_case_name;
   return [
-    original,
+    ...attempts,
     {
       label: "Re-extracted",
-      isReextracted: true,
+      isModified: true,
       fields: { ...citation.fields, case_name: item.case_name },
       locator: citation.retrieval?.locator ?? citationLocatorText(citation),
       citation,
@@ -2626,7 +2661,12 @@ function bibliographicRows(
   const { citation, fields } = extractedAttempt;
   const citationLocator = extractedAttempt.locator ?? citation.retrieval?.locator ?? citationLocatorText(citation);
   const extractedLocatorParts = splitLocator(citationLocator);
-  const courtListenerLocator = cluster ? citation.retrieval?.locator : null;
+  // A case-name-search hit is a candidate proceeding, not evidence that its
+  // document carries the cited locator.  Only exact-lookup outcomes may fill
+  // the retrieved locator cell.
+  const courtListenerLocator = cluster && citation.retrieval?.status !== "not_found"
+    ? citation.retrieval?.locator
+    : null;
   const courtListenerLocatorParts = splitLocator(courtListenerLocator);
   const extractedCaseName = caseNameFromFields(fields);
   const extractedCaseNameDisplay = extractedCaseName ?? MISSING_EXTRACTED_CASE_NAME_LABEL;
@@ -2657,9 +2697,7 @@ function bibliographicRows(
     },
     {
       id: "case_name",
-      // The re-extraction only revises the case name, so the row itself
-      // (not the whole extracted column) reflects that it is a re-extracted value.
-      label: extractedAttempt.isReextracted ? "Re-extracted case name" : "Case name",
+      label: extractedAttempt.isModified ? `${extractedAttempt.label} case name` : "Case name",
       extracted: extractedCaseNameDisplay,
       courtListener: courtListenerCaseName,
       matchType: caseNameRowMatchType(
@@ -2726,6 +2764,13 @@ function bibliographicRows(
         fields.year,
         courtListenerDate?.slice(0, 4)
       )
+    },
+    {
+      id: "decision_date",
+      label: "Decision date",
+      extracted: fields.decision_date ?? null,
+      courtListener: courtListenerDate,
+      matchType: directRowMatchType(fields.decision_date ?? null, courtListenerDate)
     },
     {
       id: "court",
@@ -3188,19 +3233,11 @@ function renderSpansOverlap(left: RenderCitation, right: RenderCitation) {
 }
 
 function comparableCourtListenerClusters(retrieval: RetrievalPayload | null) {
-  if (!retrieval || !hasCourtListenerCandidate(retrieval)) {
-    return [];
-  }
-  return courtListenerMatches(retrieval);
-}
-
-function hasCourtListenerCandidate(retrieval: RetrievalPayload) {
-  return (retrieval.status === "found" || citationStatusFromRetrieval(retrieval) === "ambiguous") &&
-    courtListenerMatches(retrieval).length > 0;
+  return retrieval ? courtListenerMatches(retrieval) : [];
 }
 
 function courtListenerMatches(retrieval: RetrievalPayload): CourtListenerCitationRecord[] {
-  const candidates = ambiguousRetrievalCandidates(retrieval);
+  const candidates = retrievalCandidates(retrieval);
   if (candidates.length) {
     return candidates.map((candidate) => candidate.record);
   }
@@ -3215,6 +3252,13 @@ function ambiguousRetrievalCandidates(
     : [];
 }
 
+function retrievalCandidates(retrieval: RetrievalPayload | null): RetrievedCandidatePayload[] {
+  if (Array.isArray(retrieval?.candidates) && retrieval.candidates.length) {
+    return retrieval.candidates.slice(0, 5);
+  }
+  return retrieval?.candidate ? [retrieval.candidate] : [];
+}
+
 function courtResolutionForCandidate(
   retrieval: RetrievalPayload | null,
   candidateIndex: number
@@ -3222,7 +3266,7 @@ function courtResolutionForCandidate(
   if (!retrieval) {
     return null;
   }
-  const candidates = ambiguousRetrievalCandidates(retrieval);
+  const candidates = retrievalCandidates(retrieval);
   if (candidates.length) {
     const safeIndex = Math.min(Math.max(candidateIndex, 0), candidates.length - 1);
     return candidates[safeIndex]?.court_resolution ?? null;
@@ -3237,7 +3281,7 @@ function candidateIdForIndex(
   if (!retrieval) {
     return null;
   }
-  const candidates = ambiguousRetrievalCandidates(retrieval);
+  const candidates = retrievalCandidates(retrieval);
   if (candidates.length) {
     const safeIndex = Math.min(Math.max(candidateIndex, 0), candidates.length - 1);
     return candidates[safeIndex]?.candidate_id ?? null;
@@ -3491,13 +3535,14 @@ function filterCount(
 
 function stageFilterOptions(
   stage: WorkflowStage,
+  hasRetrievalEvidence: boolean,
   counts: Record<CitationStatus, number>,
   assessmentCounts: Record<AssessmentStatus, number>,
   fullCaseTotal: number,
   allCitationTotal: number,
   reextractionTotal: number
 ): FilterOption[] {
-  if (stage === "retrieved") {
+  if (stage === "retrieved" || hasRetrievalEvidence) {
     return retrievalFilters;
   }
 

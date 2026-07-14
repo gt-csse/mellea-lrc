@@ -63,6 +63,7 @@ if TYPE_CHECKING:
     from mellea_lrc.retrieval import CourtListenerAccessClient
 
 JsonDict = dict[str, Any]
+MAX_SNAPSHOT_BIBLIOGRAPHIC_CANDIDATES = 5
 
 
 class DoclingDocument(Protocol):
@@ -344,10 +345,18 @@ def review_document_extraction(extraction: ExtractedDocument) -> dict[str, Any]:
 
 
 def review_citation_node_document(payload: dict[str, object]) -> dict[str, Any]:
-    """Serialize a citation-node snapshot as an extraction-level review payload."""
+    """Project a final citation-node snapshot into the frontend review shape.
+
+    The snapshot is the canonical downstream artifact.  Its step data therefore
+    supplies the bibliography panel as well as the graph: exact-lookup records,
+    bounded fallback candidates, and per-candidate assessment results are all
+    retained instead of being replaced by extraction-only placeholders.
+    """
     text = str(payload.get("text") or "")
     nodes = _list_field(payload.get("nodes"))
     citations = [_citation_payload_from_node(node) for node in nodes if isinstance(node, dict)]
+    retrievals = [item["retrieval"] for item in citations if isinstance(item.get("retrieval"), dict)]
+    assessments = [item["assessment"] for item in citations if isinstance(item.get("assessment"), dict)]
     return {
         "document": {
             "text": text,
@@ -357,13 +366,23 @@ def review_citation_node_document(payload: dict[str, object]) -> dict[str, Any]:
         },
         "citations": citations,
         "jurisdictions": None,
-        "retrieval": None,
-        "assessment": None,
+        "retrieval": {
+            "retrievals": retrievals,
+            "counts": {
+                "total": len(retrievals),
+                "found": sum(item.get("status") == "found" for item in retrievals),
+            },
+        }
+        if retrievals
+        else None,
+        "assessment": _snapshot_assessment_payload(assessments),
         "node_graph": payload,
         "stats": {
             "chars": len(text),
             "citation_spans": len(citations),
             "full_citations": sum(1 for item in citations if str(item.get("kind")).startswith("Full")),
+            "retrieved": len(retrievals),
+            "found": sum(item.get("status") == "found" for item in retrievals),
         },
     }
 
@@ -672,8 +691,11 @@ def _citation_payload_from_node(node: dict[str, object]) -> dict[str, Any]:
     citation = node_input.get("citation") if isinstance(node_input.get("citation"), dict) else {}
     matched_locator_text = str(node_input.get("matched_locator_text") or "")
     matched_citation_text = str(node_input.get("matched_citation_text") or "")
+    citation_id = str(node_input.get("citation_id") or node.get("citation_id") or "")
+    retrieval = _snapshot_retrieval_from_node(node, citation_id)
+    assessment = _snapshot_assessment_from_node(node)
     return {
-        "id": str(node_input.get("citation_id") or node.get("citation_id") or ""),
+        "id": citation_id,
         "citation_span": {
             "start": _optional_int(citation_span.get("start")) or 0,
             "end": _optional_int(citation_span.get("end")) or 0,
@@ -687,8 +709,124 @@ def _citation_payload_from_node(node: dict[str, object]) -> dict[str, Any]:
             if key not in {"type", "kind"} and _has_citation_field_value(value)
         },
         "resolves_to": _optional_str(node_input.get("resolves_to")),
-        "retrieval": None,
-        "assessment": None,
+        "retrieval": retrieval,
+        "assessment": assessment,
+    }
+
+
+def _snapshot_retrieval_from_node(node: dict[str, object], citation_id: str) -> dict[str, Any] | None:
+    """Recover the retrieval payload embedded in the exact-lookup graph step.
+
+    A locator miss keeps its ``not_found`` status.  Its shallow search candidates
+    are nevertheless useful bibliography alternatives, so they are normalized
+    into the same bounded candidate shape used by ambiguous locator lookups.
+    """
+    step_data = _node_step_data(node, "retrieval.exact_lookup")
+    retrieval = step_data.get("retrieval") if step_data else None
+    if not isinstance(retrieval, dict):
+        return None
+    projected = dict(retrieval)
+    existing = projected.get("candidates")
+    if not isinstance(existing, list) or not existing:
+        fallback_candidates = _snapshot_search_candidates(
+            citation_id,
+            projected.get("candidate_search"),
+        )
+        if fallback_candidates:
+            projected["candidates"] = fallback_candidates
+    return projected
+
+
+def _snapshot_search_candidates(
+    citation_id: str,
+    candidate_search: object,
+) -> list[dict[str, object]]:
+    """Flatten at most five distinct search candidates for the bibliography UI."""
+    if not isinstance(candidate_search, dict):
+        return []
+    probes = candidate_search.get("probes")
+    if not isinstance(probes, list):
+        return []
+    candidates: list[dict[str, object]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for probe in probes:
+        if not isinstance(probe, dict) or not isinstance(probe.get("candidates"), list):
+            continue
+        for raw_candidate in probe["candidates"]:
+            if not isinstance(raw_candidate, dict):
+                continue
+            key = (
+                str(raw_candidate.get("cluster_id") or ""),
+                str(raw_candidate.get("docket_id") or ""),
+                str(raw_candidate.get("case_name") or ""),
+                str(raw_candidate.get("court_id") or ""),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            record = {
+                field: raw_candidate.get(field)
+                for field in (
+                    "case_name",
+                    "court_id",
+                    "date_filed",
+                    "docket_number",
+                    "cluster_id",
+                    "docket_id",
+                    "absolute_url",
+                )
+            }
+            candidates.append(
+                {
+                    "candidate_id": f"{citation_id}:search-candidate:{len(candidates)}",
+                    "record": record,
+                    "court_resolution": {
+                        "courtlistener_court_id": raw_candidate.get("court_id"),
+                        "resolved_via": "candidate_search",
+                        "docket_id": raw_candidate.get("docket_id"),
+                        "docket_url": raw_candidate.get("absolute_url"),
+                        "request_trace": None,
+                    },
+                }
+            )
+            if len(candidates) == MAX_SNAPSHOT_BIBLIOGRAPHIC_CANDIDATES:
+                return candidates
+    return candidates
+
+
+def _snapshot_assessment_from_node(node: dict[str, object]) -> dict[str, Any] | None:
+    step_data = _node_step_data(node, "assessment.field_check")
+    assessment = step_data.get("assessment") if step_data else None
+    return dict(assessment) if isinstance(assessment, dict) else None
+
+
+def _node_step_data(node: dict[str, object], operation: str) -> dict[str, object]:
+    steps = node.get("steps")
+    if not isinstance(steps, list):
+        return {}
+    for step in steps:
+        if not isinstance(step, dict) or step.get("operation") != operation:
+            continue
+        data = step.get("data")
+        return data if isinstance(data, dict) else {}
+    return {}
+
+
+def _snapshot_assessment_payload(assessments: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not assessments:
+        return None
+    status_counts: dict[str, int] = {}
+    for assessment in assessments:
+        status = str(assessment.get("status") or "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+    return {
+        "assessments": assessments,
+        "assessment_complete": all(item.get("status") != "waiting" for item in assessments),
+        "status_counts": status_counts,
+        "case_name_followup_status_counts": {},
+        "case_name_counts": {},
+        "court_counts": {},
+        "year_counts": {},
     }
 
 
