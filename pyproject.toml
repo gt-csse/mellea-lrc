@@ -15,7 +15,10 @@ authors = [
     { name = "Robert Bates", email = "rbates8@gatech.edu" },
 ]
 requires-python = ">= 3.10"
-dependencies = []
+dependencies = [
+    "pydantic>=2,<3",
+    "requests>=2.32,<3",
+]
 classifiers = [
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
@@ -55,6 +58,9 @@ label-studio = [
     { include-group = "extraction" },
     "requests>=2.32",
     "python-dotenv>=1.0",
+]
+courtlistener-r2 = [
+    "boto3>=1.34",
 ]
 dev = [
     { include-group = "extraction" },

@@ -50,6 +50,7 @@ Additional information can be found at these locations.
 | Code of Conduct | [CODE_OF_CONDUCT.md](https://github.com/gt-csse/mellea-lrc/blob/main/CODE_OF_CONDUCT.md) | Information about the norms, rules, and responsibilities we adhere to when participating in this open source community. |
 | Contributing | [CONTRIBUTING.md](https://github.com/gt-csse/mellea-lrc/blob/main/CONTRIBUTING.md) | Information about contributing to this project. |
 | Development | [DEVELOPMENT.md](https://github.com/gt-csse/mellea-lrc/blob/main/DEVELOPMENT.md) | Information about development activities involved in making changes to this project. |
+| CourtListener clients | [docs/courtlistener-client.md](docs/courtlistener-client.md) | Direct and service-backed CourtListener client usage. |
 | Governance | [GOVERNANCE.md](https://github.com/gt-csse/mellea-lrc/blob/main/GOVERNANCE.md) | Information about how this project is governed. |
 | Maintainers | [MAINTAINERS.md](https://github.com/gt-csse/mellea-lrc/blob/main/MAINTAINERS.md) | Information about individuals who maintain this project. |
 | Security | [SECURITY.md](https://github.com/gt-csse/mellea-lrc/blob/main/SECURITY.md) | Information about how to privately report security issues associated with this project. |
