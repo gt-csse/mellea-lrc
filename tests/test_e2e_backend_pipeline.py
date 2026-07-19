@@ -34,7 +34,7 @@ from mellea_lrc.jurisdiction_inference.types import (
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation, Reporter
 from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.core.spans import Span
-from mellea_lrc.courtlistener.types import CourtListenerCitationLookup, CourtListenerCitationRecord
+from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationLookup, CourtListenerCitationRecord
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
 from mellea_lrc.serialization import (

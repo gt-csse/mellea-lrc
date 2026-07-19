@@ -24,9 +24,9 @@ def test_courtlistener_citation_lookup(courtlistener_url: str, remote_timeout: f
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["response"]["citation"] == "347 U.S. 483"
-    assert payload["response"]["status"] in {200, 300}
-    assert isinstance(payload["response"]["clusters"], list)
+    assert payload["citation"] == "347 U.S. 483"
+    assert payload["status"] in {200, 300}
+    assert isinstance(payload["clusters"], list)
     assert payload["cache"] in {"hit", "miss"}
 
 

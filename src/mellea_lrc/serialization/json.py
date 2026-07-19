@@ -98,6 +98,7 @@ from mellea_lrc.retrieval.types import (
     RetrievedDocument,
     RetrievalClientMode,
     RetrievalMetadata,
+    RetrievalFailureDetail,
     RetrievalStatus,
 )
 from mellea_lrc.jurisdiction_inference.types import (
@@ -108,7 +109,7 @@ from mellea_lrc.jurisdiction_inference.types import (
     ReporterInference,
     ReporterInferenceStatus,
 )
-from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, RetrievalFailureDetail
+from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationRecord
 from mellea_lrc.courtlistener.taxonomy import CourtsDBClassification
 from mellea_lrc.serialization.transport import (
     AssessedDocumentPayload,

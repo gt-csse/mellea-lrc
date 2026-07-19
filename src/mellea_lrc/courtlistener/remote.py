@@ -9,10 +9,15 @@ import os
 from typing import TYPE_CHECKING
 from urllib import error, parse, request
 
-from mellea_lrc.courtlistener.lookup import normalize_citation_lookup_payload
+from pydantic import ValidationError
+
+from mellea_lrc.courtlistener.client import CourtListenerError
+from mellea_lrc.courtlistener.citation_lookup import normalize_citation_lookup_result
+from mellea_lrc.courtlistener.search import normalize_search_payload
 
 if TYPE_CHECKING:
-    from mellea_lrc.courtlistener.types import CourtListenerCitationLookup
+    from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationLookup
+    from mellea_lrc.courtlistener.search_models import CourtListenerSearchResult
 
 CL_ACCESS_URL_ENV = "CL_ACCESS_URL"
 
@@ -63,7 +68,17 @@ class CourtListenerAccessClient:
             url,
             {"volume": volume, "reporter": reporter, "page": page},
         )
-        return normalize_citation_lookup_payload(payload, volume, reporter, page)
+        try:
+            return normalize_citation_lookup_result(payload)
+        except ValidationError as exc:
+            message = "CourtListener access service returned an invalid citation result"
+            raise CourtListenerError(
+                message,
+                failure_type="service_invalid_response",
+                retryable=False,
+                url=url,
+                upstream_detail=exc.errors(include_url=False),
+            ) from exc
 
     def get_docket(self, cl_docket_id: int | str) -> Mapping[str, object]:
         """Retrieve one docket through the remote access service."""
@@ -111,28 +126,22 @@ class CourtListenerAccessClient:
             return {**payload, "http_status": 200}
         return payload
 
-    def search_opinions(self, q: str) -> Mapping[str, object]:
+    def search_opinions(self, q: str) -> CourtListenerSearchResult:
         """Run an opinion (``type=o``) search through the remote access service."""
         return self._search(q, "o")
 
-    def search_recap(self, q: str) -> Mapping[str, object]:
+    def search_recap(self, q: str) -> CourtListenerSearchResult:
         """Run a RECAP (``type=r``) search through the remote access service."""
         return self._search(q, "r")
 
-    def _search(self, q: str, search_type: str) -> Mapping[str, object]:
+    def _search(self, q: str, search_type: str) -> CourtListenerSearchResult:
         query = parse.urlencode({"q": q, "type": search_type})
         url = f"{self.config.base_url.rstrip('/')}/search?{query}"
         _validate_http_url(url)
         payload = self._get_json(url)
         if not isinstance(payload, Mapping):
-            return {"http_status": None, "detail": "Search response was not a JSON object."}
-        if "http_status" in payload:
-            return payload
-        # urllib only returns normally for a successful HTTP response. Older
-        # cl-access deployments did not include their upstream status.
-        if "detail" not in payload:
-            return {**payload, "http_status": 200}
-        return payload
+            payload = {"http_status": None, "detail": "Search response was not a JSON object."}
+        return normalize_search_payload(payload, query=q, search_type=search_type)
 
 
 def _get_json(url: str) -> object:
@@ -166,26 +175,27 @@ def _post_json(url: str, data: Mapping[str, str]) -> object:
         with request.urlopen(req, timeout=45) as response:  # noqa: S310
             return json.loads(response.read().decode("utf-8"))
     except error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        limit_detail = _json_detail(detail)
-        return {
-            "response": {
-                "citation": " ".join(data[key] for key in ("volume", "reporter", "page")),
-                "status": exc.code,
-                "error_message": _error_message(limit_detail, detail),
-                "limit_detail": limit_detail,
-                "clusters": [],
-            }
-        }
+        raw_detail = exc.read().decode("utf-8", errors="replace")
+        detail = _json_detail(raw_detail) or {}
+        raise CourtListenerError(
+            _error_message(detail, raw_detail),
+            failure_type=str(detail.get("failure_type", "service_error")),
+            upstream_status_code=_optional_int(detail.get("upstream_status_code")),
+            retryable=detail.get("retryable") is True,
+            url=url,
+            cache_key=_optional_str(detail.get("key")),
+            retry_after_seconds=_optional_float(detail.get("retry_after_seconds")),
+            upstream_detail=detail.get("upstream_detail"),
+        ) from exc
     except (OSError, json.JSONDecodeError) as exc:
-        return {
-            "response": {
-                "citation": " ".join(data[key] for key in ("volume", "reporter", "page")),
-                "status": 502,
-                "error_message": str(exc),
-                "clusters": [],
-            }
-        }
+        message = "CourtListener access service request failed"
+        raise CourtListenerError(
+            message,
+            failure_type="service_request_error",
+            retryable=True,
+            url=url,
+            upstream_detail=str(exc),
+        ) from exc
 
 
 def _validate_http_url(url: str) -> None:
@@ -216,3 +226,15 @@ def _error_message(detail: dict[str, object] | None, fallback: str) -> str:
     if isinstance(failure_type, str) and failure_type:
         return failure_type
     return fallback
+
+
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _optional_int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _optional_float(value: object) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None

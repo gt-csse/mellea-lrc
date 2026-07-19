@@ -14,6 +14,7 @@ import re
 from typing import TYPE_CHECKING
 
 from mellea_lrc.courtlistener.client import CourtListenerError
+from mellea_lrc.courtlistener.search_models import CourtListenerSearchResult
 from mellea_lrc.retrieval.types import (
     CourtListenerRequestTrace,
     DocketCandidateEvidence,
@@ -22,7 +23,7 @@ from mellea_lrc.retrieval.types import (
 )
 
 if TYPE_CHECKING:
-    from mellea_lrc.courtlistener.types import CitationRetrievalClient
+    from mellea_lrc.courtlistener.protocols import CitationRetrievalClient
 
 HTTP_OK = 200
 MAX_DECISIONAL_DOCUMENTS = 8
@@ -154,6 +155,8 @@ def _ranked_documents(
     cited_year: str | None,
     cited_date: str | None = None,
 ) -> tuple[DocketDocumentEvidence, ...]:
+    if isinstance(payload, CourtListenerSearchResult):
+        return _ranked_search_documents(payload, cited_year=cited_year, cited_date=cited_date)
     if not isinstance(payload, Mapping):
         return ()
     entries = _document_containers(payload)
@@ -188,6 +191,42 @@ def _ranked_documents(
                     pacer_doc_id=_string(document, "pacer_doc_id"),
                     available=document.get("available") is True,
                     absolute_url=_string(document, "absolute_url"),
+                    decisional_cues=cues,
+                    year_distance=_year_distance(document_date, target_year),
+                )
+            )
+    evidence.sort(key=lambda document: _document_rank(document, cited_date=cited_date))
+    return tuple(evidence[:MAX_DECISIONAL_DOCUMENTS])
+
+
+def _ranked_search_documents(
+    result: CourtListenerSearchResult,
+    *,
+    cited_year: str | None,
+    cited_date: str | None,
+) -> tuple[DocketDocumentEvidence, ...]:
+    """Rank documents from the validated CourtListener search boundary."""
+    target_year = _year(cited_year)
+    evidence: list[DocketDocumentEvidence] = []
+    for record in result.records:
+        for document in record.recap_documents:
+            document_description = document.description or document.snippet
+            document_date = document.entry_date_filed or record.date_filed
+            cues = _decisional_cues(record.snippet, document_description)
+            if not cues:
+                continue
+            evidence.append(
+                DocketDocumentEvidence(
+                    recap_document_id=document.recap_document_id,
+                    entry_number=document.entry_number,
+                    document_number=document.document_number,
+                    date_filed=document_date,
+                    entry_description=record.snippet,
+                    document_description=document_description,
+                    page_count=document.page_count,
+                    pacer_doc_id=document.pacer_doc_id,
+                    available=document.available,
+                    absolute_url=document.absolute_url,
                     decisional_cues=cues,
                     year_distance=_year_distance(document_date, target_year),
                 )
@@ -351,6 +390,13 @@ def _docket_with_entries_failure(
 
 
 def _request_trace(payload: object) -> CourtListenerRequestTrace:
+    if isinstance(payload, CourtListenerSearchResult):
+        return CourtListenerRequestTrace(
+            http_status=payload.http_status,
+            cache=payload.cache,
+            key=payload.key,
+            error_message=payload.error_message,
+        )
     if not isinstance(payload, Mapping):
         return CourtListenerRequestTrace(error_message="Response was not an object.")
     status = payload.get("http_status")
@@ -363,6 +409,8 @@ def _request_trace(payload: object) -> CourtListenerRequestTrace:
 
 
 def _error_message(payload: object, fallback: str) -> str:
+    if isinstance(payload, CourtListenerSearchResult):
+        return payload.error_message or fallback
     if isinstance(payload, Mapping):
         detail = payload.get("detail")
         if isinstance(detail, str) and detail:

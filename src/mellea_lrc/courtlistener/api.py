@@ -13,7 +13,8 @@ from mellea_lrc.courtlistener.client import (
     CourtListenerRateLimitConfig,
     CourtListenerRateLimiter,
 )
-from mellea_lrc.courtlistener.lookup import citation_lookup_envelope_dict
+from mellea_lrc.courtlistener.citation_lookup import citation_lookup_result_dict
+from mellea_lrc.courtlistener.search import search_result_dict
 
 HTTP_NOT_FOUND = 404
 HTTP_METHOD_NOT_ALLOWED = 405
@@ -37,7 +38,7 @@ def create_api(client_factory: Callable[[], CourtListenerClient] | None = None) 
     @api.exception_handler(CourtListenerError)
     def courtlistener_error_handler(_: Request, exc: CourtListenerError) -> JSONResponse:
         return JSONResponse(
-            status_code=exc.status_code,
+            status_code=_service_status_for_courtlistener_error(exc),
             content={"detail": exc.to_public_dict()},
         )
 
@@ -133,11 +134,13 @@ def create_api(client_factory: Callable[[], CourtListenerClient] | None = None) 
         semantic: bool = False,
     ) -> dict[str, object]:
         try:
-            return client().search(
-                q=q,
-                search_type=type,
-                cursor=cursor,
-                semantic=semantic,
+            return search_result_dict(
+                client().search(
+                    q=q,
+                    search_type=type,
+                    cursor=cursor,
+                    semantic=semantic,
+                )
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -157,9 +160,22 @@ def create_api(client_factory: Callable[[], CourtListenerClient] | None = None) 
             reporter=require_field("reporter"),
             page=require_field("page"),
         )
-        return citation_lookup_envelope_dict(lookup)
+        return citation_lookup_result_dict(lookup)
 
     return api
+
+
+def _service_status_for_courtlistener_error(error: CourtListenerError) -> int:
+    """Translate an SDK failure into this service's HTTP policy."""
+    if error.failure_type == "api_limit":
+        return 429
+    if error.failure_type == "upstream_bad_request":
+        return 400
+    if error.failure_type == "upstream_not_found":
+        return 404
+    if error.failure_type == "upstream_timeout":
+        return 504
+    return 502
 
 
 def _bad_route_detail(request: Request, status_code: int) -> dict[str, object]:

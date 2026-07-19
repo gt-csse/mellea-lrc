@@ -15,14 +15,17 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 import requests
+from pydantic import ValidationError
 
 from mellea_lrc.courtlistener.cache import CacheEntry, CacheStore, NullCache
-from mellea_lrc.courtlistener.lookup import (
-    normalize_citation_lookup_payload,
+from mellea_lrc.courtlistener.citation_lookup import (
+    normalize_citation_lookup_response,
 )
+from mellea_lrc.courtlistener.search import normalize_search_payload
 
 if TYPE_CHECKING:
-    from mellea_lrc.courtlistener.types import CourtListenerCitationLookup
+    from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationLookup
+    from mellea_lrc.courtlistener.search_models import CourtListenerSearchResult
 
 
 DEFAULT_USER_AGENT = (
@@ -59,7 +62,6 @@ class CourtListenerError(RuntimeError):
         message: str,
         *,
         failure_type: str,
-        status_code: int = 502,
         upstream_status_code: int | None = None,
         retryable: bool = False,
         url: str | None = None,
@@ -70,7 +72,6 @@ class CourtListenerError(RuntimeError):
         super().__init__(message)
         self.message = message
         self.failure_type = failure_type
-        self.status_code = status_code
         self.upstream_status_code = upstream_status_code
         self.retryable = retryable
         self.url = url
@@ -158,7 +159,6 @@ class CourtListenerRateLimiter:
                 raise CourtListenerError(
                     "CourtListener client-side rate limit is currently exhausted",
                     failure_type="api_limit",
-                    status_code=429,
                     retryable=True,
                     url=url,
                     cache_key=cache_key,
@@ -365,31 +365,25 @@ class CourtListenerClient:
         cursor: str | None = None,
         *,
         semantic: bool = False,
-    ) -> dict[str, Any]:
+    ) -> CourtListenerSearchResult:
         if search_type not in {"r", "rd", "d", "o"}:
             raise ValueError("type must be one of: r, rd, d, o")
         params = {"q": q, "type": search_type, "cursor": cursor}
         if semantic:
             params["semantic"] = "true"
         result = self.get("search", params=params)
-        raw = result["response"]
-        return {
-            **_request_metadata(result),
-            "http_status": result["status"],
-            "q": q,
-            "type": search_type,
-            "semantic": semantic,
-            "count": raw.get("count") if isinstance(raw, dict) else None,
-            "results": [_normalize_search_result(item, search_type) for item in _results(raw)],
-            **_pagination_metadata(raw),
-            "raw": raw,
-        }
+        return normalize_search_payload(
+            result,
+            query=q,
+            search_type=search_type,
+            semantic=semantic,
+        )
 
-    def search_opinions(self, q: str) -> dict[str, Any]:
+    def search_opinions(self, q: str) -> CourtListenerSearchResult:
         """Run an opinion (``type=o``) relevance search; response carries ``count``."""
         return self.search(q, "o")
 
-    def search_recap(self, q: str) -> dict[str, Any]:
+    def search_recap(self, q: str) -> CourtListenerSearchResult:
         """Run a RECAP (``type=r``) relevance search; response carries ``count``."""
         return self.search(q, "r")
 
@@ -398,7 +392,21 @@ class CourtListenerClient:
             "citation-lookup",
             data={"volume": volume, "reporter": reporter, "page": page},
         )
-        return normalize_citation_lookup_payload(result, volume, reporter, page)
+        try:
+            return normalize_citation_lookup_response(
+                result["response"],
+                cache=result.get("cache"),
+                key=result.get("key"),
+            )
+        except ValidationError as exc:
+            raise CourtListenerError(
+                "CourtListener returned an invalid citation-lookup response",
+                failure_type="upstream_invalid_response",
+                upstream_status_code=result.get("status"),
+                retryable=False,
+                cache_key=result.get("key"),
+                upstream_detail=exc.errors(include_url=False),
+            ) from exc
 
     def get(self, endpoint: str, params: dict[str, Any] | None = None) -> Any:
         return self._request("GET", endpoint, params=params)
@@ -434,7 +442,6 @@ class CourtListenerClient:
             raise CourtListenerError(
                 "CourtListener returned a non-JSON response",
                 failure_type="upstream_invalid_json",
-                status_code=502,
                 upstream_status_code=response.status_code,
                 retryable=True,
                 url=response.url,
@@ -492,7 +499,6 @@ class CourtListenerClient:
                 raise CourtListenerError(
                     "CourtListener request timed out",
                     failure_type="upstream_timeout",
-                    status_code=504,
                     retryable=True,
                     url=url,
                     cache_key=key,
@@ -501,7 +507,6 @@ class CourtListenerClient:
                 raise CourtListenerError(
                     "CourtListener request failed before a response was received",
                     failure_type="upstream_request_error",
-                    status_code=502,
                     retryable=True,
                     url=url,
                     cache_key=key,
@@ -517,7 +522,6 @@ class CourtListenerClient:
         raise last_error or CourtListenerError(
             f"CourtListener {method} failed",
             failure_type="upstream_error",
-            status_code=502,
             retryable=True,
             url=url,
             cache_key=key,
@@ -569,7 +573,6 @@ def _courtlistener_http_error(
     return CourtListenerError(
         f"CourtListener {method} failed with {response.status_code}",
         failure_type=failure_type,
-        status_code=_public_status_for_failure(failure_type, response.status_code),
         upstream_status_code=response.status_code,
         retryable=failure_type in {"api_limit", "upstream_error"},
         url=response.url,
@@ -588,20 +591,6 @@ def _failure_type_for_status(status_code: int) -> str:
     if 400 <= status_code < 500:
         return "upstream_bad_request"
     return "upstream_error"
-
-
-def _public_status_for_failure(failure_type: str, upstream_status_code: int) -> int:
-    if failure_type == "api_limit":
-        return 429
-    if failure_type == "upstream_bad_request":
-        return 400
-    if failure_type == "upstream_not_found":
-        return 404
-    if failure_type == "upstream_auth":
-        return 502
-    if 500 <= upstream_status_code < 600:
-        return 502
-    return 502
 
 
 def _response_detail(response: requests.Response) -> Any:
@@ -767,62 +756,6 @@ def _download_url_payload(document: dict[str, Any]) -> dict[str, Any]:
         "download_url": None,
         "filepath_local": filepath_local,
         "filepath_ia": filepath_ia,
-    }
-
-
-def _normalize_search_result(raw: dict[str, Any], search_type: str) -> dict[str, Any]:
-    if search_type in {"r", "d"}:
-        normalized = {
-            "cl_docket_id": _first_present(raw, "docket_id", "docketId", "id"),
-            "court_id": _first_present(raw, "court_id", "courtId", "court"),
-            "docket_number": _first_present(raw, "docketNumber", "docket_number"),
-            "case_name": _first_present(raw, "caseName", "case_name"),
-            "date_filed": _first_present(raw, "dateFiled", "date_filed"),
-            "date_terminated": _first_present(raw, "dateTerminated", "date_terminated"),
-            "absolute_url": _first_present(raw, "absolute_url", "absoluteUrl"),
-            "snippet": raw.get("snippet"),
-            "resource_uri": raw.get("resource_uri"),
-        }
-        if search_type == "r":
-            raw_documents = raw.get("recap_documents") or raw.get("recapDocuments") or []
-            normalized["recap_documents"] = [
-                _normalize_search_recap_document(item) for item in raw_documents if isinstance(item, dict)
-            ]
-            normalized["more_docs"] = _first_present(raw, "more_docs", "moreDocs")
-        return normalized
-
-    if search_type == "rd":
-        return _normalize_search_recap_document(raw)
-
-    return {
-        "cluster_id": _first_present(raw, "cluster_id", "clusterId", "id"),
-        "docket_id": _first_present(raw, "docket_id", "docketId"),
-        "case_name": _first_present(raw, "caseName", "case_name"),
-        "court_id": _first_present(raw, "court_id", "courtId", "court"),
-        "date_filed": _first_present(raw, "dateFiled", "date_filed"),
-        "absolute_url": _first_present(raw, "absolute_url", "absoluteUrl"),
-        "snippet": raw.get("snippet"),
-        "resource_uri": raw.get("resource_uri"),
-    }
-
-
-def _normalize_search_recap_document(raw: dict[str, Any]) -> dict[str, Any]:
-    filepath_local = raw.get("filepath_local")
-    filepath_ia = raw.get("filepath_ia")
-    return {
-        "recap_document_id": _first_present(raw, "recap_document_id", "recapDocumentId", "id"),
-        "cl_docket_id": _first_present(raw, "docket_id", "docketId"),
-        "entry_number": _string_or_none(_first_present(raw, "entry_number", "entryNumber")),
-        "document_number": _string_or_none(_first_present(raw, "document_number", "documentNumber")),
-        "attachment_number": _string_or_none(_first_present(raw, "attachment_number", "attachmentNumber")),
-        "description": raw.get("description"),
-        "entry_date_filed": _first_present(raw, "entry_date_filed", "entryDateFiled"),
-        "pacer_doc_id": _first_present(raw, "pacer_doc_id", "pacerDocId"),
-        "filepath_local": filepath_local,
-        "filepath_ia": filepath_ia,
-        "absolute_url": _first_present(raw, "absolute_url", "absoluteUrl"),
-        "snippet": raw.get("snippet"),
-        "available": bool(filepath_local or filepath_ia),
     }
 
 

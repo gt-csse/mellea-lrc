@@ -20,13 +20,10 @@ import time
 from typing import TYPE_CHECKING
 
 from mellea_lrc.core.citations import FullCaseCitation
-from mellea_lrc.courtlistener.client import CourtListenerClient
+from mellea_lrc.core.immutable import ExtraData
+from mellea_lrc.courtlistener.client import CourtListenerClient, CourtListenerError
+from mellea_lrc.courtlistener.protocols import CitationLookupClient, CitationRetrievalClient
 from mellea_lrc.courtlistener.remote import CourtListenerAccessClient
-from mellea_lrc.courtlistener.types import (
-    CitationLookupClient,
-    CitationRetrievalClient,
-    CourtListenerCitationLookup,
-)
 from mellea_lrc.retrieval.court_resolution import resolve_court
 from mellea_lrc.retrieval.not_found_search import execute_search_query
 from mellea_lrc.jurisdiction_inference.pipeline import infer_jurisdiction
@@ -48,6 +45,7 @@ from mellea_lrc.retrieval.types import (
     RetrievedDocument,
     RetrievalClientMode,
     RetrievalMetadata,
+    RetrievalFailureDetail,
     RetrievalStatus,
 )
 
@@ -56,7 +54,8 @@ if TYPE_CHECKING:
 
     from mellea import MelleaSession
 
-    from mellea_lrc.courtlistener.types import CourtListenerCitationRecord
+    from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationLookup
+    from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationRecord
     from mellea_lrc.extraction.types import ExtractedCitation
 
 SOURCE = "cl-access"
@@ -186,7 +185,10 @@ async def _retrieve_citation_async(
             source=SOURCE,
         )
 
-    lookup = client.lookup_citation(citation.volume, edition, citation.page)
+    try:
+        lookup = client.lookup_citation(citation.volume, edition, citation.page)
+    except CourtListenerError as exc:
+        return _retrieval_from_lookup_error(item.citation_id, citation, edition, exc)
     status = _status_from_lookup(lookup.status)
     if status is not RetrievalStatus.NOT_FOUND:
         return _retrieval_from_lookup(
@@ -231,7 +233,6 @@ def _retrieval_from_lookup(
             http_status=lookup.status,
             cache=lookup.cache,
             key=lookup.key,
-            error_message=lookup.error_message,
         ),
         "extra_data": lookup.extra_data,
     }
@@ -250,7 +251,7 @@ def _retrieval_from_lookup(
                     error_message="CourtListener returned HTTP 200 but no records.",
                 ),
                 extra_data=lookup.extra_data,
-                failure_detail=lookup.failure_detail,
+                failure_detail=None,
             )
         return FoundCitationRetrieval(
             **common,
@@ -282,18 +283,54 @@ def _retrieval_from_lookup(
             candidate_search=execute_search_query(
                 citation,
                 client=client,
-        preparation=preparation,
+                preparation=preparation,
             ),
         )
     if status is RetrievalStatus.THROTTLED:
         return ThrottledCitationRetrieval(
             **common,
-            failure_detail=lookup.failure_detail,
+            failure_detail=None,
         )
     return LookupFailedCitationRetrieval(
         **common,
-        failure_detail=lookup.failure_detail,
+        failure_detail=None,
     )
+
+
+def _retrieval_from_lookup_error(
+    citation_id: str,
+    citation: FullCaseCitation,
+    edition: str,
+    error: CourtListenerError,
+) -> CitationRetrieval:
+    """Translate a client transport exception into a retrieval outcome."""
+    locator = f"{citation.volume} {edition} {citation.page}"
+    detail = RetrievalFailureDetail(
+        failure_type=error.failure_type,
+        message=error.message,
+        retryable=error.retryable,
+        upstream_status_code=error.upstream_status_code,
+        key=error.cache_key,
+        url=error.url,
+        retry_after_seconds=error.retry_after_seconds,
+        extra_data=ExtraData({"upstream_detail": error.upstream_detail})
+        if error.upstream_detail is not None
+        else ExtraData(),
+    )
+    common = {
+        "citation_id": citation_id,
+        "locator": locator,
+        "source": SOURCE,
+        "request_trace": CourtListenerRequestTrace(
+            http_status=error.upstream_status_code,
+            key=error.cache_key,
+            error_message=error.message,
+        ),
+        "failure_detail": detail,
+    }
+    if error.failure_type == "api_limit":
+        return ThrottledCitationRetrieval(**common)
+    return LookupFailedCitationRetrieval(**common)
 
 
 def _retrieved_candidate(

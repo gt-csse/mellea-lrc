@@ -24,7 +24,8 @@ from mellea_lrc.retrieval.types import (
 )
 
 if TYPE_CHECKING:
-    from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, CitationRetrievalClient
+    from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationRecord
+    from mellea_lrc.courtlistener.protocols import CitationRetrievalClient
 
 
 def resolve_court(

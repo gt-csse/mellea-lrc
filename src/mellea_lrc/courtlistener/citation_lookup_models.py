@@ -1,6 +1,8 @@
 """Domain models for CourtListener citation lookup."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from mellea_lrc.core.immutable import ExtraData
 
 
 @dataclass(frozen=True, slots=True)
@@ -12,6 +14,7 @@ class CourtListenerCitationRecord:
     court: str | None = None
     court_id: str | None = None
     docket_id: str | None = None
+    extra_data: ExtraData = field(default_factory=ExtraData)
 
     @property
     def year(self) -> str | None:
@@ -21,9 +24,11 @@ class CourtListenerCitationRecord:
 
 @dataclass(frozen=True, slots=True)
 class CourtListenerCitationLookup:
-    """Normalized citation lookup response from CourtListener."""
+    """Normalized citation lookup response from CourtListener access paths."""
 
     citation: str
     status: int
     records: tuple[CourtListenerCitationRecord, ...]
-    error_message: str | None = None
+    cache: str | None = None
+    key: str | None = None
+    extra_data: ExtraData = field(default_factory=ExtraData)

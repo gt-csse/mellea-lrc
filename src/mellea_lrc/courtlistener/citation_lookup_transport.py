@@ -1,9 +1,13 @@
-"""Inbound boundary layer for untrusted CourtListener citation JSON."""
+"""Inbound boundary layer for untrusted CourtListener citation JSON.
+
+Payloads are validated with Pydantic before conversion to immutable domain types.
+"""
 
 from __future__ import annotations
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, RootModel, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, JsonValue, RootModel, model_validator
 
+from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.courtlistener.citation_lookup_models import (
     CourtListenerCitationRecord,
     CourtListenerCitationLookup,
@@ -11,9 +15,16 @@ from mellea_lrc.courtlistener.citation_lookup_models import (
 
 
 class _CitationLookupPayload(BaseModel):
-    # CourtListener may add response fields independently of this package. The
-    # first client boundary validates fields it understands and ignores the rest.
-    model_config = ConfigDict(strict=True, frozen=True, extra="ignore")
+    model_config = ConfigDict(strict=True, frozen=True, extra="allow")
+
+    __pydantic_extra__: dict[str, JsonValue] = Field(init=False)
+    extra_data: dict[str, JsonValue] = Field(default_factory=dict)
+
+    def collected_extra_data(self) -> ExtraData:
+        """Combine explicit and previously unknown external fields."""
+        values: dict[str, object] = dict(self.extra_data)
+        values.update(self.__pydantic_extra__ or {})
+        return ExtraData(values)
 
 
 class CourtListenerCitationLookupRecordPayload(_CitationLookupPayload):
@@ -38,36 +49,45 @@ class CourtListenerCitationLookupRecordPayload(_CitationLookupPayload):
     )
 
     def to_domain(self) -> CourtListenerCitationRecord:
-        """Convert validated transport data into a domain record."""
+        """Convert validated transport data into an immutable domain record."""
         return CourtListenerCitationRecord(
             case_name=self.case_name,
             date_filed=self.date_filed,
             court=self.court,
             court_id=self.court_id,
             docket_id=str(self.docket_id) if self.docket_id is not None else None,
+            extra_data=self.collected_extra_data(),
         )
 
 
 class CourtListenerCitationLookupResultPayload(_CitationLookupPayload):
-    """One citation result inside the external CourtListener response."""
+    """One citation result inside a CourtListener response."""
 
     citation: str
     status: int
     clusters: list[CourtListenerCitationLookupRecordPayload] = Field(default_factory=list)
-    error_message: str = ""
+    cache: str | None = None
+    key: str | None = None
 
-    def to_domain(self) -> CourtListenerCitationLookup:
-        """Convert the validated result into a domain lookup."""
+    def to_domain(
+        self,
+        *,
+        cache: str | None = None,
+        key: str | None = None,
+    ) -> CourtListenerCitationLookup:
+        """Convert the validated result into an immutable domain lookup."""
         return CourtListenerCitationLookup(
             citation=self.citation,
             status=self.status,
             records=tuple(item.to_domain() for item in self.clusters),
-            error_message=self.error_message or None,
+            cache=cache if cache is not None else self.cache,
+            key=key if key is not None else self.key,
+            extra_data=self.collected_extra_data(),
         )
 
 
 class CourtListenerCitationLookupResponsePayload(RootModel[list[CourtListenerCitationLookupResultPayload]]):
-    """External response for one explicit reporter-citation lookup."""
+    """CourtListener response for one explicit reporter-citation lookup."""
 
     model_config = ConfigDict(strict=True, frozen=True)
 
@@ -79,6 +99,11 @@ class CourtListenerCitationLookupResponsePayload(RootModel[list[CourtListenerCit
             raise ValueError(message)
         return self
 
-    def to_domain(self) -> CourtListenerCitationLookup:
+    def to_domain(
+        self,
+        *,
+        cache: str | None = None,
+        key: str | None = None,
+    ) -> CourtListenerCitationLookup:
         """Convert the response's single result into a domain lookup."""
-        return self.root[0].to_domain()
+        return self.root[0].to_domain(cache=cache, key=key)

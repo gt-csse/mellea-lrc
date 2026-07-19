@@ -51,7 +51,7 @@ from mellea_lrc.jurisdiction_inference.types import Jurisdiction, ReporterInfere
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.core.spans import Span
-from mellea_lrc.courtlistener.types import CourtListenerCitationRecord
+from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationRecord
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractionMetadata
 from mellea_lrc.preprocessing.types import (
     PreprocessedDocument,

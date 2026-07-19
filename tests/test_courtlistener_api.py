@@ -12,7 +12,11 @@ from fastapi.testclient import TestClient
 
 from mellea_lrc.courtlistener.api import create_api
 from mellea_lrc.courtlistener.client import CourtListenerError
-from mellea_lrc.courtlistener.types import CourtListenerCitationLookup, CourtListenerCitationRecord
+from mellea_lrc.courtlistener.citation_lookup_models import (
+    CourtListenerCitationLookup,
+    CourtListenerCitationRecord,
+)
+from mellea_lrc.courtlistener.search_models import CourtListenerSearchResult
 
 
 class FailingClient:
@@ -20,7 +24,6 @@ class FailingClient:
         raise CourtListenerError(
             "CourtListener GET failed with 429",
             failure_type="api_limit",
-            status_code=429,
             upstream_status_code=429,
             retryable=True,
             cache_key="cache-key",
@@ -54,9 +57,17 @@ class SearchClient:
         search_type: str,
         cursor: str | None,
         semantic: bool,
-    ) -> dict[str, object]:
+    ) -> CourtListenerSearchResult:
         self.semantic = semantic
-        return {"q": q, "type": search_type, "cursor": cursor, "semantic": semantic}
+        return CourtListenerSearchResult(
+            query=q,
+            search_type=search_type,
+            semantic=semantic,
+            http_status=200,
+            count=0,
+            records=(),
+            next_cursor=cursor,
+        )
 
 
 class AppTests(unittest.TestCase):
@@ -108,8 +119,8 @@ class AppTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["response"]["status"], 200)
-        self.assertEqual(response.json()["response"]["citation"], "347 U.S. 483")
+        self.assertEqual(response.json()["status"], 200)
+        self.assertEqual(response.json()["citation"], "347 U.S. 483")
 
     def test_citation_lookup_route_requires_locator_parts(self) -> None:
         response = TestClient(create_api(client_factory=CitationClient)).post(

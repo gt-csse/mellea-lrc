@@ -19,7 +19,7 @@ from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.jurisdiction_inference.types import InferredDocument
 
 if TYPE_CHECKING:
-    from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, RetrievalFailureDetail
+    from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationRecord
 
 RetrievalClientMode: TypeAlias = Literal["deployed", "sdk", "custom"]
 HTTP_OK = 200
@@ -35,6 +35,20 @@ class CourtListenerRequestTrace:
     cache: str | None = None
     key: str | None = None
     error_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RetrievalFailureDetail:
+    """Transport failure captured by retrieval after a client exception."""
+
+    failure_type: str | None = None
+    message: str | None = None
+    retryable: bool | None = None
+    upstream_status_code: int | None = None
+    key: str | None = None
+    url: str | None = None
+    retry_after_seconds: float | None = None
+    extra_data: ExtraData = field(default_factory=ExtraData)
 
 
 class RetrievalStatus(str, Enum):

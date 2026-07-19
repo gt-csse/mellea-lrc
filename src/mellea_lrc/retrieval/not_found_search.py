@@ -11,12 +11,12 @@ existence-lookup orchestrator, mirroring ``retrieval/court_resolution.py``.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import replace
 import re
 from typing import TYPE_CHECKING
 
 from mellea_lrc.courtlistener.client import CourtListenerError
+from mellea_lrc.courtlistener.search_models import CourtListenerSearchResult
 from mellea_lrc.retrieval.docket_evidence import expand_docket_evidence
 from mellea_lrc.retrieval.types import (
     CaseNamePreparationStatus,
@@ -33,7 +33,7 @@ from mellea_lrc.retrieval.types import (
 
 if TYPE_CHECKING:
     from mellea_lrc.core.citations import FullCaseCitation
-    from mellea_lrc.courtlistener.types import CitationRetrievalClient
+    from mellea_lrc.courtlistener.protocols import CitationRetrievalClient
 
 HTTP_OK = 200
 _PARTY_TOKEN = re.compile(r"(?:[A-Za-z]\.){2,}|[A-Za-z0-9]+")
@@ -153,7 +153,7 @@ def _search_corpus(
             CourtListenerRequestTrace(),
         )
     try:
-        payload = method(query)
+        result = method(query)
     except CourtListenerError as exc:
         return CaseNameSearchProbe(
             corpus,
@@ -170,30 +170,56 @@ def _search_corpus(
             CaseNameSearchStatus.SEARCH_FAILED,
             CourtListenerRequestTrace(error_message=f"{type(exc).__name__}: {exc}"),
         )
-    http_status = _http_status(payload)
-    cache = _cache_status(payload)
-    key = _request_key(payload)
-    if http_status != HTTP_OK:
+    if not isinstance(result, CourtListenerSearchResult):
         return CaseNameSearchProbe(
             corpus,
             CaseNameSearchStatus.SEARCH_FAILED,
             CourtListenerRequestTrace(
-                http_status=http_status,
-                cache=cache,
-                key=key,
-                error_message=_response_error(payload, http_status),
+                error_message="Search client returned an unvalidated result."
             ),
         )
-    case_count = _case_count(payload)
-    if case_count is None:
+    if result.http_status != HTTP_OK:
+        return CaseNameSearchProbe(
+            corpus,
+            CaseNameSearchStatus.SEARCH_FAILED,
+            CourtListenerRequestTrace(
+                http_status=result.http_status,
+                cache=result.cache,
+                key=result.key,
+                error_message=(
+                    result.error_message
+                    or (
+                        "CourtListener search ended without an HTTP response."
+                        if result.http_status is None
+                        else f"CourtListener search returned HTTP {result.http_status}."
+                    )
+                ),
+            ),
+        )
+    if result.count is None:
         msg = "HTTP 200 CourtListener search response omitted count"
         raise ValueError(msg)
     return CaseNameSearchProbe(
         corpus,
         CaseNameSearchStatus.SEARCHED,
-        CourtListenerRequestTrace(http_status=http_status, cache=cache, key=key),
-        case_count=case_count,
-        candidates=_search_candidates(payload),
+        CourtListenerRequestTrace(
+            http_status=result.http_status,
+            cache=result.cache,
+            key=result.key,
+        ),
+        case_count=result.count,
+        candidates=tuple(
+            CaseNameSearchCandidate(
+                case_name=record.case_name,
+                court_id=record.court_id,
+                date_filed=record.date_filed,
+                docket_number=record.docket_number,
+                cluster_id=record.cluster_id,
+                docket_id=record.docket_id,
+                absolute_url=record.absolute_url,
+            )
+            for record in result.records[:5]
+        ),
     )
 
 
@@ -221,84 +247,6 @@ def _party_anchor(party: str) -> str:
         raise ValueError(msg)
     meaningful = [token for token in tokens if token.lower() not in _NON_DISTINCTIVE_PARTY_TOKENS]
     return (meaningful or tokens)[0]
-
-
-def _http_status(payload: object) -> int | None:
-    if not isinstance(payload, Mapping):
-        return None
-    status = payload.get("http_status")
-    if isinstance(status, bool) or not isinstance(status, int):
-        return None
-    return status
-
-
-def _cache_status(payload: object) -> str | None:
-    if not isinstance(payload, Mapping):
-        return None
-    cache = payload.get("cache")
-    return cache if isinstance(cache, str) and cache else None
-
-
-def _request_key(payload: object) -> str | None:
-    if not isinstance(payload, Mapping):
-        return None
-    key = payload.get("key")
-    if key is None:
-        detail = payload.get("detail")
-        key = detail.get("key") if isinstance(detail, Mapping) else None
-    return key if isinstance(key, str) and key else None
-
-
-def _response_error(payload: object, http_status: int | None) -> str:
-    if isinstance(payload, Mapping):
-        detail = payload.get("detail")
-        if isinstance(detail, str) and detail:
-            return detail
-        if isinstance(detail, Mapping):
-            message = detail.get("message")
-            if isinstance(message, str) and message:
-                return message
-            return str(dict(detail))
-    if http_status is None:
-        return "CourtListener search ended without an HTTP response."
-    return f"CourtListener search returned HTTP {http_status}."
-
-
-def _case_count(payload: object) -> int | None:
-    if not isinstance(payload, Mapping):
-        return None
-    count = payload.get("count")
-    if count is None:
-        raw = payload.get("raw")
-        count = raw.get("count") if isinstance(raw, Mapping) else None
-    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
-        return None
-    return count
-
-
-def _search_candidates(payload: object) -> tuple[CaseNameSearchCandidate, ...]:
-    """Keep a bounded, normalized projection instead of copying raw search JSON."""
-    if not isinstance(payload, Mapping):
-        return ()
-    results = payload.get("results")
-    if not isinstance(results, list):
-        raw = payload.get("raw")
-        results = raw.get("results") if isinstance(raw, Mapping) else None
-    if not isinstance(results, list):
-        return ()
-    return tuple(
-        CaseNameSearchCandidate(
-            case_name=_candidate_str(item, "case_name", "caseName"),
-            court_id=_candidate_str(item, "court_id", "courtId", "court"),
-            date_filed=_candidate_str(item, "date_filed", "dateFiled"),
-            docket_number=_candidate_str(item, "docket_number", "docketNumber"),
-            cluster_id=_candidate_str(item, "cluster_id", "clusterId"),
-            docket_id=_candidate_str(item, "cl_docket_id", "docket_id", "docketId"),
-            absolute_url=_candidate_str(item, "absolute_url", "absoluteUrl"),
-        )
-        for item in results[:5]
-        if isinstance(item, Mapping)
-    )
 
 
 def _expand_recap_probe(
@@ -379,13 +327,3 @@ def _docket_can_contain_cited_year(date_filed: str | None, cited_year: str | Non
         and cited_year.isdigit()
         and int(filed_year) > int(cited_year) + 1
     )
-
-
-def _candidate_str(item: Mapping[object, object], *keys: str) -> str | None:
-    for key in keys:
-        value = item.get(key)
-        if isinstance(value, str) and value:
-            return value
-        if isinstance(value, int) and not isinstance(value, bool):
-            return str(value)
-    return None

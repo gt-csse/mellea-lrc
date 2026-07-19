@@ -403,10 +403,10 @@ class CourtListenerClientTests(unittest.TestCase):
 
         result = client(session).search("Example", "r")
 
-        self.assertEqual(result["type"], "r")
-        self.assertEqual(result["results"][0]["cl_docket_id"], 4214664)
-        self.assertEqual(result["results"][0]["recap_documents"][0]["recap_document_id"], 88)
-        self.assertIs(result["results"][0]["recap_documents"][0]["available"], True)
+        self.assertEqual(result.search_type, "r")
+        self.assertEqual(result.records[0].docket_id, "4214664")
+        self.assertEqual(result.records[0].recap_documents[0].recap_document_id, "88")
+        self.assertIs(result.records[0].recap_documents[0].available, True)
         self.assertEqual(session.calls[0]["params"], {"q": "Example", "type": "r"})
 
     def test_opinion_search_preserves_linked_docket_id(self) -> None:
@@ -429,8 +429,8 @@ class CourtListenerClientTests(unittest.TestCase):
 
         result = client(session).search("Koulkina", "o")
 
-        self.assertEqual(result["results"][0]["cluster_id"], 1969711)
-        self.assertEqual(result["results"][0]["docket_id"], 5068645)
+        self.assertEqual(result.records[0].cluster_id, "1969711")
+        self.assertEqual(result.records[0].docket_id, "5068645")
 
     def test_search_rejects_unlisted_types(self) -> None:
         """The public search wrapper should not silently accept unsupported types."""
@@ -443,7 +443,7 @@ class CourtListenerClientTests(unittest.TestCase):
 
         result = client(session).search("Johnson v. City of Shelby", "o", semantic=True)
 
-        self.assertIs(result["semantic"], True)
+        self.assertIs(result.semantic, True)
         self.assertEqual(
             session.calls[0]["params"],
             {"q": "Johnson v. City of Shelby", "type": "o", "semantic": "true"},
@@ -477,8 +477,10 @@ class CourtListenerClientTests(unittest.TestCase):
         )
 
     def test_empty_citation_lookup_is_not_found(self) -> None:
-        """An empty CourtListener citation response should normalize to our 404 object."""
-        result = client(FakeSession([FakeResponse([])])).lookup_citation("1", "U.S.", "9999")
+        """CourtListener's explicit 404 citation result remains distinguishable."""
+        result = client(
+            FakeSession([FakeResponse([{"citation": "1 U.S. 9999", "status": 404}])])
+        ).lookup_citation("1", "U.S.", "9999")
 
         self.assertEqual(result.cache, "miss")
         self.assertEqual(result.status, 404)
@@ -511,7 +513,6 @@ class CourtListenerClientTests(unittest.TestCase):
 
         error = raised.exception
         self.assertEqual(error.failure_type, "api_limit")
-        self.assertEqual(error.status_code, 429)
         self.assertEqual(error.upstream_status_code, 429)
         self.assertIs(error.retryable, True)
         self.assertEqual(error.upstream_detail, {"detail": "rate limited"})
@@ -526,7 +527,6 @@ class CourtListenerClientTests(unittest.TestCase):
 
         error = raised.exception
         self.assertEqual(error.failure_type, "upstream_auth")
-        self.assertEqual(error.status_code, 502)
         self.assertEqual(error.upstream_status_code, 403)
         self.assertIs(error.retryable, False)
 
@@ -590,7 +590,7 @@ class CourtListenerClientTests(unittest.TestCase):
 
         error = raised.exception
         self.assertEqual(error.failure_type, "api_limit")
-        self.assertEqual(error.status_code, 429)
+        self.assertIsNone(error.upstream_status_code)
         self.assertEqual(error.retry_after_seconds, 60.0)
         self.assertEqual(len(session.calls), 1)
 

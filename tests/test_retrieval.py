@@ -13,11 +13,13 @@ from mellea_lrc.courtlistener.remote import (
     CourtListenerAccessClient,
     CourtListenerAccessConfig,
 )
-from mellea_lrc.courtlistener.lookup import (
-    citation_lookup_envelope_dict,
-    normalize_citation_lookup_payload,
+from mellea_lrc.courtlistener.client import CourtListenerError
+from mellea_lrc.courtlistener.citation_lookup import (
+    citation_lookup_result_dict,
+    normalize_citation_lookup_response,
+    normalize_citation_lookup_result,
 )
-from mellea_lrc.courtlistener.types import CourtListenerCitationRecord, RetrievalFailureDetail
+from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationRecord
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
 from mellea_lrc.retrieval.case_name_reextract_before_retrieval import (
@@ -39,6 +41,7 @@ from mellea_lrc.retrieval.types import (
     CaseNameSearchStatus,
     CaseNameSearchPreparation,
     CourtResolutionSource,
+    RetrievalFailureDetail,
     RetrievalStatus,
 )
 
@@ -134,19 +137,17 @@ def test_retrieve_full_case_found() -> None:
             {
                 "cache": "miss",
                 "request_id": "request-1",
-                "response": {
-                    "citation": "347 U.S. 483",
-                    "status": 200,
-                    "clusters": [
-                        {
-                            "case_name": "Brown v. Board of Education",
-                            "date_filed": "1954-05-17",
-                            "docket_id": 191796,
-                            "absolute_url": "/opinion/1/",
-                        }
-                    ],
-                    "query_time_ms": 12,
-                },
+                "citation": "347 U.S. 483",
+                "status": 200,
+                "clusters": [
+                    {
+                        "case_name": "Brown v. Board of Education",
+                        "date_filed": "1954-05-17",
+                        "docket_id": 191796,
+                        "absolute_url": "/opinion/1/",
+                    }
+                ],
+                "query_time_ms": 12,
             },
             docket_response={"id": 191796, "court_id": "scotus"},
         ),
@@ -176,10 +177,7 @@ def test_retrieve_full_case_found() -> None:
     assert retrieval.candidate.court_resolution.request_trace is not None
     assert retrieval.candidate.court_resolution.request_trace.http_status == 200
     assert result.found == (retrieval,)
-    assert retrieval.extra_data.to_dict() == {
-        "response": {"query_time_ms": 12},
-        "envelope": {"request_id": "request-1"},
-    }
+    assert retrieval.extra_data.to_dict() == {"query_time_ms": 12, "request_id": "request-1"}
 
 
 def test_retrieve_found_docket_lookup_is_best_effort_and_deduplicated() -> None:
@@ -199,14 +197,12 @@ def test_retrieve_found_docket_lookup_is_best_effort_and_deduplicated() -> None:
     client = CourtListenerAccessClient(
         CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
         post_json=lambda _url, _data: {
-            "response": {
-                "citation": "1 F.3d 2",
-                "status": 200,
-                "clusters": [
-                    {"case_name": "Example A", "docket_id": 42},
-                    {"case_name": "Example B", "docket_id": 42},
-                ],
-            }
+            "citation": "1 F.3d 2",
+            "status": 200,
+            "clusters": [
+                {"case_name": "Example A", "docket_id": 42},
+                {"case_name": "Example B", "docket_id": 42},
+            ],
         },
         get_json=lambda url: get_urls.append(url) or {"detail": "temporarily unavailable"},
     )
@@ -240,14 +236,12 @@ def test_retrieve_ambiguous_resolves_court_for_each_candidate() -> None:
     client = CourtListenerAccessClient(
         CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
         post_json=lambda _url, _data: {
-            "response": {
-                "citation": "1 F.3d 2",
-                "status": 300,
-                "clusters": [
-                    {"case_name": "Example A", "docket_id": 11},
-                    {"case_name": "Example B", "docket_id": 22},
-                ],
-            }
+            "citation": "1 F.3d 2",
+            "status": 300,
+            "clusters": [
+                {"case_name": "Example A", "docket_id": 11},
+                {"case_name": "Example B", "docket_id": 22},
+            ],
         },
         get_json=get_json,
     )
@@ -307,9 +301,7 @@ def _not_found_extraction(citation: FullCaseCitation) -> ExtractedDocument:
 def test_not_found_reports_case_name_search_count() -> None:
     client = CourtListenerAccessClient(
         CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
-        post_json=lambda _url, _data: {
-            "response": {"citation": "999 U.S. 999", "status": 404, "clusters": []},
-        },
+        post_json=lambda _url, _data: {"citation": "999 U.S. 999", "status": 404, "clusters": []},
         get_json=lambda _url: {
             "cache": "hit",
             "key": "search-key",
@@ -695,9 +687,7 @@ def test_case_name_preparation_prompt_uses_general_collapsed_separator_rule() ->
 def test_not_found_reports_zero_case_name_search_results() -> None:
     client = CourtListenerAccessClient(
         CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
-        post_json=lambda _url, _data: {
-            "response": {"citation": "999 U.S. 999", "status": 404, "clusters": []},
-        },
+        post_json=lambda _url, _data: {"citation": "999 U.S. 999", "status": 404, "clusters": []},
         get_json=lambda _url: {"count": 0, "results": []},
     )
     extraction = _not_found_extraction(
@@ -723,9 +713,7 @@ def test_not_found_preserves_bounded_search_candidate_summaries() -> None:
     ]
     client = CourtListenerAccessClient(
         CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
-        post_json=lambda _url, _data: {
-            "response": {"citation": "999 U.S. 999", "status": 404, "clusters": []},
-        },
+        post_json=lambda _url, _data: {"citation": "999 U.S. 999", "status": 404, "clusters": []},
         get_json=lambda _url: {"count": 7, "results": results},
     )
     extraction = _not_found_extraction(
@@ -742,9 +730,7 @@ def test_not_found_preserves_bounded_search_candidate_summaries() -> None:
 def test_not_found_preserves_failed_search_http_status() -> None:
     client = CourtListenerAccessClient(
         CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
-        post_json=lambda _url, _data: {
-            "response": {"citation": "999 U.S. 999", "status": 404, "clusters": []},
-        },
+        post_json=lambda _url, _data: {"citation": "999 U.S. 999", "status": 404, "clusters": []},
         get_json=lambda _url: {"http_status": 503, "detail": "upstream search unavailable"},
     )
     extraction = _not_found_extraction(
@@ -765,9 +751,7 @@ def test_not_found_preserves_failed_search_http_status() -> None:
 def test_not_found_traces_opinion_and_recap_search_independently() -> None:
     client = CourtListenerAccessClient(
         CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
-        post_json=lambda _url, _data: {
-            "response": {"citation": "999 U.S. 999", "status": 404, "clusters": []},
-        },
+        post_json=lambda _url, _data: {"citation": "999 U.S. 999", "status": 404, "clusters": []},
         get_json=lambda url: (
             {"count": 3, "results": []}
             if "type=o" in url
@@ -789,9 +773,7 @@ def test_not_found_traces_opinion_and_recap_search_independently() -> None:
 def test_not_found_reads_count_from_deployed_service_raw_response() -> None:
     client = CourtListenerAccessClient(
         CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
-        post_json=lambda _url, _data: {
-            "response": {"citation": "999 U.S. 999", "status": 404, "clusters": []},
-        },
+        post_json=lambda _url, _data: {"citation": "999 U.S. 999", "status": 404, "clusters": []},
         get_json=lambda _url: {
             "results": [],
             "raw": {"count": 0, "next": None, "previous": None, "results": []},
@@ -811,9 +793,7 @@ def test_not_found_reads_count_from_deployed_service_raw_response() -> None:
 def test_not_found_skips_search_without_both_parties() -> None:
     client = CourtListenerAccessClient(
         CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
-        post_json=lambda _url, _data: {
-            "response": {"citation": "999 U.S. 999", "status": 404, "clusters": []},
-        },
+        post_json=lambda _url, _data: {"citation": "999 U.S. 999", "status": 404, "clusters": []},
         get_json=lambda _url: pytest.fail("search must not run without both parties"),
     )
     extraction = _not_found_extraction(
@@ -888,9 +868,7 @@ def test_async_retrieval_bounds_case_name_preparation_concurrency(
     )
     client = CourtListenerAccessClient(
         CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
-        post_json=lambda _url, _data: {
-            "response": {"citation": "999 U.S. 999", "status": 404, "clusters": []},
-        },
+        post_json=lambda _url, _data: {"citation": "999 U.S. 999", "status": 404, "clusters": []},
         get_json=lambda _url: {"count": 0, "results": []},
     )
 
@@ -925,26 +903,19 @@ def test_retrieve_surfaces_typed_courtlistener_failure_detail() -> None:
         ),
     )
 
-    result = run_retrieval(
-        extraction,
-        client_mode="custom",
-        client=_client(
-            {
-                "response": {
-                    "citation": "347 U.S. 483",
-                    "status": 429,
-                    "error_message": "CourtListener POST failed with 429",
-                    "limit_detail": {
-                        "failure_type": "api_limit",
-                        "message": "CourtListener POST failed with 429",
-                        "retryable": True,
-                        "upstream_status_code": 429,
-                    },
-                    "clusters": [],
-                },
-            }
-        ),
+    def raise_rate_limit(_url: str, _data: object) -> object:
+        raise CourtListenerError(
+            "CourtListener POST failed with 429",
+            failure_type="api_limit",
+            upstream_status_code=429,
+            retryable=True,
+        )
+
+    client = CourtListenerAccessClient(
+        CourtListenerAccessConfig(base_url="https://cl-access.example.test"),
+        post_json=raise_rate_limit,
     )
+    result = run_retrieval(extraction, client_mode="custom", client=client)
 
     retrieval = result.retrievals[0]
     assert retrieval.status == RetrievalStatus.THROTTLED
@@ -959,52 +930,52 @@ def test_retrieve_surfaces_typed_courtlistener_failure_detail() -> None:
 
 def test_courtlistener_transport_rejects_type_coercion() -> None:
     with pytest.raises(ValidationError):
-        normalize_citation_lookup_payload(
-            {"response": {"citation": "347 U.S. 483", "status": "200"}},
-            "347",
-            "U.S.",
-            "483",
-        )
+        normalize_citation_lookup_result({"citation": "347 U.S. 483", "status": "200"})
 
 
-def test_direct_courtlistener_response_does_not_duplicate_fields_as_envelope_extras() -> None:
-    lookup = normalize_citation_lookup_payload(
-        {
+def test_direct_courtlistener_response_collects_unknown_fields_without_an_envelope() -> None:
+    lookup = normalize_citation_lookup_response(
+        [{
             "citation": "347 U.S. 483",
             "status": 200,
             "clusters": [],
             "query_time_ms": 12,
-        },
-        "347",
-        "U.S.",
-        "483",
+        }]
     )
 
-    assert lookup.extra_data.to_dict() == {"response": {"query_time_ms": 12}}
+    assert lookup.extra_data.to_dict() == {"query_time_ms": 12}
+
+
+def test_lookup_metadata_does_not_mutate_the_upstream_response() -> None:
+    payload: dict[str, object] = {
+        "citation": "347 U.S. 483",
+        "status": 200,
+        "clusters": [],
+    }
+
+    lookup = normalize_citation_lookup_response(
+        [payload],
+        cache="hit",
+        key="lookup-key",
+    )
+
+    assert lookup.cache == "hit"
+    assert lookup.key == "lookup-key"
+    assert payload == {"citation": "347 U.S. 483", "status": 200, "clusters": []}
 
 
 def test_courtlistener_service_round_trip_preserves_explicit_extra_data() -> None:
-    original = normalize_citation_lookup_payload(
+    original = normalize_citation_lookup_result(
         {
             "request_id": "request-1",
-            "response": {
-                "citation": "347 U.S. 483",
-                "status": 200,
-                "query_time_ms": 12,
-                "clusters": [{"case_name": "Brown", "absolute_url": "/opinion/1/"}],
-            },
+            "citation": "347 U.S. 483",
+            "status": 200,
+            "query_time_ms": 12,
+            "clusters": [{"case_name": "Brown", "absolute_url": "/opinion/1/"}],
         },
-        "347",
-        "U.S.",
-        "483",
     )
 
-    restored = normalize_citation_lookup_payload(
-        citation_lookup_envelope_dict(original),
-        "347",
-        "U.S.",
-        "483",
-    )
+    restored = normalize_citation_lookup_result(citation_lookup_result_dict(original))
 
     assert restored == original
 

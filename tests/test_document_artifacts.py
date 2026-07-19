@@ -10,7 +10,7 @@ from mellea_lrc.core.citations import FullCaseCitation, Reporter
 from mellea_lrc.core.documents import SourceMetadata
 from mellea_lrc.core.immutable import ExtraData
 from mellea_lrc.core.spans import Span
-from mellea_lrc.courtlistener.types import CourtListenerCitationRecord
+from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationRecord
 from mellea_lrc.extraction import extract_citations
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import DocumentBase, PreprocessedDocument, preprocess_plain_text_from_string

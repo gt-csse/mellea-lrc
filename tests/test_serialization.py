@@ -31,7 +31,7 @@ from mellea_lrc.assessment import (
 )
 from mellea_lrc.core.spans import Span
 from mellea_lrc.core.immutable import ExtraData
-from mellea_lrc.courtlistener.types import CourtListenerCitationRecord
+from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationRecord
 from mellea_lrc.extraction import extract_citations
 from mellea_lrc.jurisdiction_inference.leads import evaluate_court_inference, evaluate_reporter_inference
 from mellea_lrc.jurisdiction_inference.types import (
