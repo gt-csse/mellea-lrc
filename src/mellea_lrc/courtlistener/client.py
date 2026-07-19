@@ -1,0 +1,183 @@
+"""Direct CourtListener API client."""
+
+# ruff: noqa: ANN401, EM101, PLR2004, TRY003
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+from urllib.parse import urljoin
+
+import requests
+from pydantic import ValidationError
+
+from mellea_lrc.courtlistener.citation_lookup import normalize_citation_lookup_payload
+
+if TYPE_CHECKING:
+    from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationLookup
+
+
+DEFAULT_BASE_URL = "https://www.courtlistener.com/api/rest/v4/"
+DEFAULT_USER_AGENT = "mellea-lrc (+https://github.com/gt-csse/mellea-lrc)"
+
+
+@dataclass(frozen=True, slots=True)
+class CourtListenerConfig:
+    """Configuration for direct CourtListener API access."""
+
+    base_url: str = DEFAULT_BASE_URL
+    tokens: tuple[str, ...] = ()
+
+    @classmethod
+    def from_env(cls) -> CourtListenerConfig:
+        """Load the API base URL and ordered token set from the environment."""
+        tokens = tuple(
+            value.strip()
+            for key, value in sorted(os.environ.items())
+            if key.startswith("COURTLISTENER_API_TOKEN") and value.strip()
+        )
+        return cls(base_url=os.getenv("COURTLISTENER_BASE_URL", DEFAULT_BASE_URL), tokens=tokens)
+
+
+class CourtListenerError(RuntimeError):
+    """Structured failure raised by direct CourtListener requests."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        failure_type: str,
+        upstream_status_code: int | None = None,
+        retryable: bool = False,
+        url: str | None = None,
+        upstream_detail: Any = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.failure_type = failure_type
+        self.upstream_status_code = upstream_status_code
+        self.retryable = retryable
+        self.url = url
+        self.upstream_detail = upstream_detail
+
+
+class CourtListenerClient:
+    """Direct client for the CourtListener API."""
+
+    def __init__(
+        self,
+        config: CourtListenerConfig | None = None,
+        session: requests.Session | None = None,
+    ) -> None:
+        self.config = config or CourtListenerConfig.from_env()
+        self.session = session or requests.Session()
+
+    def lookup_citation(
+        self,
+        volume: str,
+        reporter: str,
+        page: str,
+    ) -> CourtListenerCitationLookup:
+        """Look up one exact reporter citation by volume, reporter, and page."""
+        response = self._send_citation_lookup({"volume": volume, "reporter": reporter, "page": page})
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise CourtListenerError(
+                "CourtListener returned a non-JSON response",
+                failure_type="upstream_invalid_json",
+                upstream_status_code=response.status_code,
+                retryable=True,
+                url=response.url,
+                upstream_detail=response.text[:500],
+            ) from exc
+        try:
+            return normalize_citation_lookup_payload(payload)
+        except ValidationError as exc:
+            raise CourtListenerError(
+                "CourtListener returned an invalid citation-lookup response",
+                failure_type="upstream_invalid_response",
+                upstream_status_code=response.status_code,
+                retryable=False,
+                url=response.url,
+                upstream_detail=exc.errors(include_url=False),
+            ) from exc
+
+    def _send_citation_lookup(self, data: dict[str, str]) -> requests.Response:
+        url = urljoin(self.config.base_url.rstrip("/") + "/", "citation-lookup/")
+        attempts = max(1, len(self.config.tokens))
+        last_error: CourtListenerError | None = None
+        for token_index in range(attempts):
+            try:
+                response = self.session.request(
+                    "POST",
+                    url,
+                    data=data,
+                    headers=self._headers(token_index),
+                    timeout=45,
+                )
+            except requests.Timeout as exc:
+                raise CourtListenerError(
+                    "CourtListener request timed out",
+                    failure_type="upstream_timeout",
+                    retryable=True,
+                    url=url,
+                ) from exc
+            except requests.RequestException as exc:
+                raise CourtListenerError(
+                    "CourtListener request failed before a response was received",
+                    failure_type="upstream_request_error",
+                    retryable=True,
+                    url=url,
+                    upstream_detail=str(exc),
+                ) from exc
+            if response.status_code == 429 and token_index + 1 < attempts:
+                last_error = _courtlistener_http_error(response)
+                continue
+            if response.status_code >= 400:
+                raise _courtlistener_http_error(response)
+            return response
+        raise last_error or CourtListenerError(
+            "CourtListener citation lookup failed",
+            failure_type="upstream_error",
+            retryable=True,
+            url=url,
+        )
+
+    def _headers(self, token_index: int) -> dict[str, str]:
+        headers = {"Accept": "application/json", "User-Agent": DEFAULT_USER_AGENT}
+        if self.config.tokens:
+            headers["Authorization"] = f"Token {self.config.tokens[token_index % len(self.config.tokens)]}"
+        return headers
+
+
+def _courtlistener_http_error(response: requests.Response) -> CourtListenerError:
+    failure_type = _failure_type_for_status(response.status_code)
+    return CourtListenerError(
+        f"CourtListener citation lookup failed with {response.status_code}",
+        failure_type=failure_type,
+        upstream_status_code=response.status_code,
+        retryable=failure_type in {"api_limit", "upstream_error"},
+        url=response.url,
+        upstream_detail=_response_detail(response),
+    )
+
+
+def _failure_type_for_status(status_code: int) -> str:
+    if status_code == 429:
+        return "api_limit"
+    if status_code in {401, 403}:
+        return "upstream_auth"
+    if status_code == 404:
+        return "upstream_not_found"
+    if 400 <= status_code < 500:
+        return "upstream_bad_request"
+    return "upstream_error"
+
+
+def _response_detail(response: requests.Response) -> Any:
+    try:
+        return response.json()
+    except ValueError:
+        return response.text[:500]
