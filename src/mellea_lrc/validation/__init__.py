@@ -1,10 +1,10 @@
 """Post-extraction citation validation."""
 
-from mellea_lrc.validation.model import (
+from mellea_lrc.validation.types import (
     CitationValidation,
     ExactLocatorLookupNode,
     LocatorLookupOutcome,
-    ValidationDocument,
+    ValidatedDocument,
     ValidationNode,
     ValidationNodeStatus,
 )
@@ -14,7 +14,7 @@ __all__ = [
     "CitationValidation",
     "ExactLocatorLookupNode",
     "LocatorLookupOutcome",
-    "ValidationDocument",
+    "ValidatedDocument",
     "ValidationNode",
     "ValidationNodeStatus",
     "initialize_validation",

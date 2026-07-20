@@ -1,4 +1,4 @@
-"""Typed document and node model for post-extraction validation."""
+"""Typed document and node types for post-extraction validation."""
 
 from __future__ import annotations
 
@@ -94,7 +94,7 @@ class CitationValidation:
 
 
 @dataclass(frozen=True, slots=True)
-class ValidationDocument:
+class ValidatedDocument:
     """Post-extraction validation state for every citation in one document."""
 
     source: ExtractedDocument

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.courtlistener import CourtListenerError
-from mellea_lrc.validation.model import (
+from mellea_lrc.validation.types import (
     ExactLocatorLookupNode,
     LocatorLookupOutcome,
     ValidationNodeStatus,
@@ -14,7 +14,7 @@ from mellea_lrc.validation.model import (
 
 if TYPE_CHECKING:
     from mellea_lrc.courtlistener.protocols import CourtListenerServiceClient
-    from mellea_lrc.validation.model import CitationValidation
+    from mellea_lrc.validation.types import CitationValidation
 
 HTTP_OK = 200
 HTTP_NOT_FOUND = 404

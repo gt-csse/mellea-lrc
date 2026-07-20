@@ -8,7 +8,7 @@ from functools import partial
 from typing import TYPE_CHECKING, TypeAlias
 
 from mellea_lrc.validation.citation_lookup import run_exact_locator_lookup
-from mellea_lrc.validation.model import CitationValidation, ValidationNode
+from mellea_lrc.validation.types import CitationValidation, ValidationNode
 
 if TYPE_CHECKING:
     from mellea_lrc.courtlistener.protocols import CourtListenerServiceClient
