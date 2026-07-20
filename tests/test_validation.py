@@ -10,13 +10,11 @@ from mellea_lrc.courtlistener import (
 from mellea_lrc.extraction import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.validation import (
-    ExactLocatorLookupNode,
     LocatorLookupOutcome,
     ValidationNodeStatus,
     initialize_validation,
     validate_document,
 )
-from mellea_lrc.validation.execution import run_citation_loop
 
 
 class LookupClient:
@@ -68,38 +66,6 @@ def test_initialize_validation_instances_one_progression_per_extracted_citation(
     assert validation.text == extracted.text
     assert validation.citations[0].citation is extracted.citations[0]
     assert validation.citations[0].nodes == ()
-
-
-def test_citation_loop_appends_flat_fan_out_in_queue_order() -> None:
-    extracted = _document(FullCaseCitation(volume="347", reporter="U.S.", page="483"))
-    initial = initialize_validation(extracted).citations[0]
-
-    def operation(node_id: str, depends_on: tuple[str, ...] = ()):
-        def run(_validation):
-            return ExactLocatorLookupNode(
-                node_id=node_id,
-                status=ValidationNodeStatus.SKIPPED,
-                outcome=LocatorLookupOutcome.INCOMPLETE_LOCATOR,
-                locator=None,
-                depends_on=depends_on,
-            )
-
-        return run
-
-    def route(node):
-        if node.node_id == "root":
-            return (operation("left", ("root",)), operation("right", ("root",)))
-        return ()
-
-    result = run_citation_loop(
-        initial,
-        initial_operations=(operation("root"),),
-        route=route,
-    )
-
-    assert [node.node_id for node in result.nodes] == ["root", "left", "right"]
-    assert result.nodes[1].depends_on == ("root",)
-    assert result.nodes[2].depends_on == ("root",)
 
 
 def test_exact_locator_found_appends_the_only_implemented_node() -> None:

@@ -2,17 +2,11 @@
 
 from __future__ import annotations
 
-from functools import partial
 from typing import TYPE_CHECKING
 
 from mellea_lrc.courtlistener import CourtListenerClient
-from mellea_lrc.validation.citation_lookup import run_exact_locator_lookup
-from mellea_lrc.validation.execution import ValidationOperation, run_citation_loop
-from mellea_lrc.validation.model import (
-    CitationValidation,
-    ValidationDocument,
-    ValidationNode,
-)
+from mellea_lrc.validation.execution import run_citation_loop
+from mellea_lrc.validation.model import CitationValidation, ValidationDocument
 
 if TYPE_CHECKING:
     from mellea_lrc.courtlistener.protocols import CourtListenerServiceClient
@@ -35,18 +29,5 @@ def validate_document(
     """Run each extracted citation through the configured validation loop."""
     service = client if client is not None else CourtListenerClient()
     initialized = initialize_validation(document)
-    first_operation = partial(run_exact_locator_lookup, client=service)
-    citations = tuple(
-        run_citation_loop(
-            item,
-            initial_operations=(first_operation,),
-            route=_next_operations,
-        )
-        for item in initialized.citations
-    )
+    citations = tuple(run_citation_loop(item, client=service) for item in initialized.citations)
     return ValidationDocument(source=document, citations=citations)
-
-
-def _next_operations(_node: ValidationNode) -> tuple[ValidationOperation, ...]:
-    """Return no follow-up operations until another branch is implemented."""
-    return ()
