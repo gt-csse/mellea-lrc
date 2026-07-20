@@ -1,5 +1,7 @@
 """Tests for the post-extraction validation-node progression."""
 
+import pytest
+
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import (
@@ -158,3 +160,12 @@ def test_service_failure_is_a_terminal_validation_node() -> None:
     assert node.status is ValidationNodeStatus.FAILED
     assert node.outcome is LocatorLookupOutcome.FAILED
     assert node.error == "service unavailable"
+
+
+def test_unexpected_lookup_response_raises() -> None:
+    """Reject a response that violates the expected lookup contract."""
+    extracted = _document(FullCaseCitation(volume="347", reporter="U.S.", page="483"))
+    client = LookupClient(CourtListenerCitationLookup(citation="347 U.S. 483", status=200, records=()))
+
+    with pytest.raises(AssertionError, match="Unexpected CourtListener lookup response"):
+        validate_document(extracted, client=client)

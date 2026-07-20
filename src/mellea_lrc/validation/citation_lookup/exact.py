@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from mellea_lrc.validation.types import CitationValidation
 
 HTTP_OK = 200
+HTTP_MULTIPLE_CHOICES = 300
 HTTP_NOT_FOUND = 404
 
 
@@ -69,14 +70,20 @@ def run_exact_locator_lookup(
             record=lookup.records[0],
             candidate_count=1,
         )
-    if lookup.status == HTTP_NOT_FOUND or not lookup.records:
-        outcome = LocatorLookupOutcome.NOT_FOUND
-    else:
-        outcome = LocatorLookupOutcome.AMBIGUOUS
-    return ExactLocatorLookupNode(
-        node_id=node_id,
-        status=ValidationNodeStatus.SUCCEEDED,
-        outcome=outcome,
-        locator=locator,
-        candidate_count=len(lookup.records),
-    )
+    if lookup.status == HTTP_NOT_FOUND and not lookup.records:
+        return ExactLocatorLookupNode(
+            node_id=node_id,
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=LocatorLookupOutcome.NOT_FOUND,
+            locator=locator,
+        )
+    if lookup.status == HTTP_MULTIPLE_CHOICES and len(lookup.records) > 1:
+        return ExactLocatorLookupNode(
+            node_id=node_id,
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=LocatorLookupOutcome.AMBIGUOUS,
+            locator=locator,
+            candidate_count=len(lookup.records),
+        )
+    msg = f"Unexpected CourtListener lookup response: status={lookup.status}, records={len(lookup.records)}"
+    raise AssertionError(msg)
