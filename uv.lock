@@ -3082,12 +3082,14 @@ pipeline = [
     { name = "httpx" },
     { name = "mellea" },
     { name = "openai" },
+    { name = "pypdfium2" },
     { name = "python-dotenv" },
     { name = "requests" },
 ]
 preprocessing = [
     { name = "charset-normalizer" },
     { name = "docling" },
+    { name = "pypdfium2" },
 ]
 scripts = [
     { name = "python-dotenv" },
@@ -3158,12 +3160,14 @@ pipeline = [
     { name = "mellea", specifier = ">=0.3.2" },
     { name = "mellea", specifier = ">=0.3.2,<0.4" },
     { name = "openai", specifier = ">=2,<3" },
+    { name = "pypdfium2", specifier = ">=4.30" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "requests", specifier = ">=2.32" },
 ]
 preprocessing = [
     { name = "charset-normalizer", specifier = ">=3.4.7" },
     { name = "docling", specifier = ">=2.0" },
+    { name = "pypdfium2", specifier = ">=4.30" },
 ]
 scripts = [
     { name = "python-dotenv", specifier = ">=1.0" },

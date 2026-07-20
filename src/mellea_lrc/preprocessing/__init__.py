@@ -3,6 +3,7 @@
 from mellea_lrc.core.documents import DocumentBase, SourceFormat, SourceMetadata
 from mellea_lrc.preprocessing.docling import (
     build_docling_converter,
+    extract_pdf_pages_with_docling,
     is_docling_supported_format,
     preprocess_with_docling,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "SourceFormat",
     "SourceMetadata",
     "build_docling_converter",
+    "extract_pdf_pages_with_docling",
     "is_docling_supported_format",
     "preprocess_plain_text",
     "preprocess_plain_text_from_string",

@@ -9,6 +9,7 @@ import pytest
 from mellea_lrc.preprocessing import (
     PreprocessingBackend,
     SourceFormat,
+    extract_pdf_pages_with_docling,
     is_docling_supported_format,
     run_preprocessing,
     preprocess_plain_text_from_string,
@@ -110,7 +111,45 @@ def test_preprocess_with_docling_exports_plain_text(monkeypatch: pytest.MonkeyPa
     assert pdf_options.ocr_options.lang == ["eng"]
 
 
+def test_extract_pdf_pages_with_docling_preserves_page_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[int] = []
 
+    class FakeDocumentStream:
+        def __init__(self, *, name: str, stream: object) -> None:
+            self.name = name
+            self.stream = stream
+
+    class FakeDocument:
+        def __init__(self) -> None:
+            self.pages = {2: object(), 1: object()}
+
+        def export_to_text(self, *, page_no: int) -> str:
+            calls.append(page_no)
+            return f"page {page_no}"
+
+    class FakeResult:
+        document = FakeDocument()
+
+    class FakeConverter:
+        def convert(self, stream: FakeDocumentStream) -> FakeResult:
+            assert stream.name == "cited-opinion.pdf"
+            assert stream.stream.read() == b"pdf bytes"
+            return FakeResult()
+
+    fake_base_models_module = types.ModuleType("docling.datamodel.base_models")
+    fake_base_models_module.DocumentStream = FakeDocumentStream
+    monkeypatch.setitem(sys.modules, "docling.datamodel.base_models", fake_base_models_module)
+
+    pages = extract_pdf_pages_with_docling(
+        b"pdf bytes",
+        converter=FakeConverter(),
+        filename="cited-opinion.pdf",
+    )
+
+    assert pages == ("page 1", "page 2")
+    assert calls == [1, 2]
 
 
 @pytest.mark.heavy

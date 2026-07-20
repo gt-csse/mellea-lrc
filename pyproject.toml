@@ -51,6 +51,9 @@ default-groups = ["dev"]
 preprocessing = [
     "charset-normalizer>=3.4.7",
     "docling>=2.0",
+    # Direct dependency for page-preserving opinion-PDF extraction. Docling
+    # also uses pdfium internally, but pin-cite resolution imports it directly.
+    "pypdfium2>=4.30",
 ]
 extraction = [
     "docling>=2.102.2",

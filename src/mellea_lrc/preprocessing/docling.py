@@ -1,5 +1,6 @@
 """Docling-backed preprocessing from raw Layer 3 documents."""
 
+from io import BytesIO
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -79,3 +80,23 @@ def preprocess_with_docling(path: Path | str, *, converter: object | None = None
             backend_version=_docling_version(),
         ),
     )
+
+
+def extract_pdf_pages_with_docling(
+    content: bytes,
+    *,
+    converter: object,
+    filename: str = "opinion.pdf",
+) -> tuple[str, ...]:
+    """OCR/extract a PDF without flattening Docling's physical page boundary.
+
+    This is intentionally separate from ``preprocess_with_docling``: its plain
+    text artifact represents a whole source document, while pin-cite resolution
+    must retain the one-based physical pages exposed by Docling.
+    """
+    from docling.datamodel.base_models import DocumentStream  # noqa: PLC0415
+
+    stream = DocumentStream(name=filename, stream=BytesIO(content))
+    result = converter.convert(stream)  # type: ignore[attr-defined]
+    page_numbers = sorted(result.document.pages)
+    return tuple(result.document.export_to_text(page_no=page_no) for page_no in page_numbers)
