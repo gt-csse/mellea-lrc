@@ -62,7 +62,7 @@ def client(session: FakeSession) -> CourtListenerClient:
     return CourtListenerClient(
         config=CourtListenerConfig(
             base_url="https://www.courtlistener.com/api/rest/v4/",
-            tokens=("token-a", "token-b"),
+            token="token-a",
         ),
         session=session,
     )
@@ -140,29 +140,9 @@ class CourtListenerClientTests(unittest.TestCase):
         self.assertEqual([record.case_name for record in result.records], ["First", "Second"])
         self.assertEqual([record.docket_id for record in result.records], ["10", "20"])
 
-    def test_rate_limit_rotates_token(self) -> None:
-        """An upstream 429 retries with the next configured token."""
-        session = FakeSession(
-            [
-                FakeResponse({"detail": "rate limited"}, status_code=429),
-                FakeResponse([{"citation": "1 U.S. 1", "status": 200, "clusters": []}]),
-            ]
-        )
-
-        result = client(session).lookup_citation("1", "U.S.", "1")
-
-        self.assertEqual(result.status, 200)
-        self.assertEqual(session.calls[0]["headers"]["Authorization"], "Token token-a")
-        self.assertEqual(session.calls[1]["headers"]["Authorization"], "Token token-b")
-
-    def test_exhausted_rate_limit_is_typed(self) -> None:
-        """Exhausting all configured tokens surfaces an API-limit failure."""
-        session = FakeSession(
-            [
-                FakeResponse({"detail": "rate limited"}, status_code=429),
-                FakeResponse({"detail": "rate limited"}, status_code=429),
-            ]
-        )
+    def test_rate_limit_is_typed_after_one_request(self) -> None:
+        """A rate-limit response raises an API-limit error after one request."""
+        session = FakeSession([FakeResponse({"detail": "rate limited"}, status_code=429)])
 
         with self.assertRaises(CourtListenerError) as raised:
             client(session).lookup_citation("1", "U.S.", "1")
@@ -171,6 +151,52 @@ class CourtListenerClientTests(unittest.TestCase):
         self.assertEqual(error.failure_type, "api_limit")
         self.assertEqual(error.upstream_status_code, 429)
         self.assertIs(error.retryable, True)
+        self.assertEqual(len(session.calls), 1)
+        self.assertEqual(session.calls[0]["headers"]["Authorization"], "Token token-a")
+
+    def test_search_uses_get_with_supported_type_and_pagination(self) -> None:
+        """Search forwards the documented query parameters and exposes cursors."""
+        session = FakeSession(
+            [
+                FakeResponse(
+                    {
+                        "count": 1,
+                        "next": "https://example.test/search/?cursor=next-page",
+                        "previous": None,
+                        "results": [{"id": 42, "caseName": "Brown"}],
+                    },
+                    url="https://example.test/search/",
+                )
+            ]
+        )
+
+        result = client(session).search("Brown", "o", cursor="current-page", semantic=True)
+
+        self.assertEqual(result.query, "Brown")
+        self.assertEqual(result.search_type, "o")
+        self.assertIs(result.semantic, True)
+        self.assertEqual(result.count, 1)
+        self.assertEqual(result.results[0]["caseName"], "Brown")
+        self.assertEqual(result.next_cursor, "next-page")
+        self.assertIsNone(result.previous_cursor)
+        self.assertEqual(session.calls[0]["method"], "GET")
+        self.assertEqual(session.calls[0]["url"], "https://www.courtlistener.com/api/rest/v4/search/")
+        self.assertEqual(
+            session.calls[0]["params"],
+            {"q": "Brown", "type": "o", "cursor": "current-page", "semantic": "true"},
+        )
+
+    def test_search_rejects_unsupported_type(self) -> None:
+        """The public wrapper exposes only the CourtListener v4 search corpora."""
+        with self.assertRaises(ValueError):
+            client(FakeSession([])).search("Brown", "p")  # type: ignore[arg-type]
+
+    def test_search_invalid_response_is_typed(self) -> None:
+        """A malformed search response is rejected at the client boundary."""
+        with self.assertRaises(CourtListenerError) as raised:
+            client(FakeSession([FakeResponse({"results": []})])).search("Brown", "o")
+
+        self.assertEqual(raised.exception.failure_type, "upstream_invalid_response")
 
     def test_auth_failure_is_typed(self) -> None:
         """CourtListener authentication failures remain distinguishable."""

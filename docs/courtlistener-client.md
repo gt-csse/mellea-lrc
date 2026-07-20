@@ -1,14 +1,12 @@
 # CourtListener client
 
-`CourtListenerClient` provides direct CourtListener API access. Its first supported operation is the
-exact citation-lookup endpoint, with typed results and token rotation after upstream rate limits.
+`CourtListenerClient` provides direct CourtListener API access for exact citation lookup and search,
+with typed results.
 
-Configure one or more API tokens. Numbered variables are supported so the client can try the next
-token after an upstream `429` response.
+Configure one API token.
 
 ```shell
 export COURTLISTENER_API_TOKEN="..."
-export COURTLISTENER_API_TOKEN_2="..."
 ```
 
 ```python
@@ -16,12 +14,18 @@ from mellea_lrc.courtlistener import CourtListenerClient
 
 client = CourtListenerClient()
 lookup = client.lookup_citation("347", "U.S.", "483")
+search = client.search("Brown v. Board of Education", "o")
 ```
 
 `lookup` is an immutable `CourtListenerCitationLookup`. Its `records` tuple contains
 `CourtListenerCitationRecord` values. A `200` status identifies one match, `300` preserves every
 ambiguous candidate returned by CourtListener, and an explicit `404` result preserves a not-found
 lookup. Responses without exactly one result are rejected as invalid upstream responses.
+
+`search` supports CourtListener's `o` (opinions), `r` (RECAP cases), `rd` (RECAP documents), and
+`d` (dockets) corpora. It returns an immutable `CourtListenerSearchResult`, including the total
+`count`, immutable result records, and pagination cursors. Pass `semantic=True` to opt into
+CourtListener semantic search.
 
 CourtListener JSON is validated at the package boundary by transport-only Pydantic payloads:
 

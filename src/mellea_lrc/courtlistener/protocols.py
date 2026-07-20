@@ -1,16 +1,13 @@
-"""Protocols for CourtListener client implementations."""
+"""Shared interface for CourtListener client implementations."""
 
-from typing import Protocol
+from typing import Literal, Protocol
 
 from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationLookup
+from mellea_lrc.courtlistener.search_models import CourtListenerSearchResult
 
 
-class CitationLookupClient(Protocol):
-    """Retrieve CourtListener citations through the citation-lookup endpoint.
-
-    This capability boundary allows direct and remote-service clients to be
-    wired into retrieval without coupling callers to either transport.
-    """
+class CourtListenerServiceClient(Protocol):
+    """Client interface shared by direct and remote CourtListener access."""
 
     def lookup_citation(
         self,
@@ -19,3 +16,13 @@ class CitationLookupClient(Protocol):
         page: str,
     ) -> CourtListenerCitationLookup:
         """Retrieve one exact reporter citation from CourtListener."""
+
+    def search(
+        self,
+        query: str,
+        search_type: Literal["r", "rd", "d", "o"],
+        cursor: str | None = None,
+        *,
+        semantic: bool = False,
+    ) -> CourtListenerSearchResult:
+        """Search a CourtListener corpus."""
