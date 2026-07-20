@@ -2,16 +2,16 @@
 
 import abc
 
+from mellea_lrc.extraction.types import ExtractedDocument
+
 
 class BaseExtractor(abc.ABC):
     """Abstract base class for extractors."""
 
-    @classmethod
     @abc.abstractmethod
-    def extract_citations(cls, text: str) -> list:
+    def extract_citations(self, text: str) -> ExtractedDocument:
         """Identify, retrieve, and classify case law citations."""
 
-    @classmethod
     @abc.abstractmethod
-    def resolve_citations(cls, citations: list) -> list:
+    def resolve_citations(self, citations: list) -> list:
         """Group citations with the same reference, e.g., document, bried."""
