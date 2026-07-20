@@ -12,8 +12,12 @@ from mellea_lrc.courtlistener import (
 from mellea_lrc.extraction import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.validation import (
+    CaseNameCheckNode,
+    ExactLocatorLookupNode,
+    FieldCheckOutcome,
     LocatorLookupOutcome,
     ValidationNodeStatus,
+    YearCheckNode,
     initialize_validation,
     validate_document,
 )
@@ -70,10 +74,19 @@ def test_initialize_validation_instances_one_progression_per_extracted_citation(
     assert validation.citations[0].nodes == ()
 
 
-def test_exact_locator_found_appends_the_only_implemented_node() -> None:
-    extracted = _document(FullCaseCitation(volume="347", reporter="U.S.", page="483", year="1954"))
+def test_exact_locator_found_fans_out_to_case_name_and_year_checks() -> None:
+    extracted = _document(
+        FullCaseCitation(
+            plaintiff="Brown",
+            defendant="Board",
+            volume="347",
+            reporter="U.S.",
+            page="483",
+            year="1954",
+        )
+    )
     record = CourtListenerCitationRecord(
-        case_name="Brown v. Board of Education",
+        case_name="Brown v. Board",
         date_filed="1954-05-17",
         court_id="scotus",
     )
@@ -89,14 +102,67 @@ def test_exact_locator_found_appends_the_only_implemented_node() -> None:
 
     progression = validation.citation_by_id("cite-0001")
     assert client.calls == [("347", "U.S.", "483")]
-    assert len(progression.nodes) == 1
-    node = progression.nodes[0]
-    assert node.node_id == "cite-0001:exact_locator_lookup"
-    assert node.status is ValidationNodeStatus.SUCCEEDED
-    assert node.outcome is LocatorLookupOutcome.FOUND
-    assert node.locator == "347 U.S. 483"
-    assert node.record is record
-    assert node.candidate_count == 1
+    assert len(progression.nodes) == 3
+    lookup, case_name, year = progression.nodes
+    assert isinstance(lookup, ExactLocatorLookupNode)
+    assert lookup.outcome is LocatorLookupOutcome.FOUND
+    assert lookup.record is record
+    assert isinstance(case_name, CaseNameCheckNode)
+    assert case_name.outcome is FieldCheckOutcome.MATCH
+    assert case_name.depends_on == (lookup.node_id,)
+    assert isinstance(year, YearCheckNode)
+    assert year.outcome is FieldCheckOutcome.MATCH
+    assert year.depends_on == (lookup.node_id,)
+
+
+def test_found_field_checks_record_mismatch_without_failing_execution() -> None:
+    extracted = _document(
+        FullCaseCitation(
+            plaintiff="Brown",
+            defendant="Board",
+            volume="347",
+            reporter="U.S.",
+            page="483",
+            year="1954",
+        )
+    )
+    client = LookupClient(
+        CourtListenerCitationLookup(
+            citation="347 U.S. 483",
+            status=200,
+            records=(
+                CourtListenerCitationRecord(
+                    case_name="Different v. Case",
+                    date_filed="1955-01-01",
+                ),
+            ),
+        )
+    )
+
+    _, case_name, year = validate_document(extracted, client=client).citations[0].nodes
+
+    assert case_name.status is ValidationNodeStatus.SUCCEEDED
+    assert case_name.outcome is FieldCheckOutcome.MISMATCH
+    assert year.status is ValidationNodeStatus.SUCCEEDED
+    assert year.outcome is FieldCheckOutcome.MISMATCH
+
+
+def test_found_field_checks_skip_unavailable_values() -> None:
+    extracted = _document(FullCaseCitation(volume="347", reporter="U.S.", page="483"))
+    client = LookupClient(
+        CourtListenerCitationLookup(
+            citation="347 U.S. 483",
+            status=200,
+            records=(CourtListenerCitationRecord(),),
+        )
+    )
+
+    _, case_name, year = validate_document(extracted, client=client).citations[0].nodes
+
+    assert case_name.status is ValidationNodeStatus.SKIPPED
+    assert case_name.outcome is FieldCheckOutcome.UNAVAILABLE
+    assert year.status is ValidationNodeStatus.SKIPPED
+    assert year.outcome is FieldCheckOutcome.UNAVAILABLE
 
 
 def test_not_found_stops_without_starting_a_fallback_branch() -> None:
