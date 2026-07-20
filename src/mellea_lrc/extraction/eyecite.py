@@ -34,7 +34,6 @@ from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing.plain_text import preprocess_plain_text_from_string
 from mellea_lrc.preprocessing.types import PreprocessedDocument  # noqa: TC001
-from mellea_lrc.extraction.base import BaseExtractor
 
 EYECITE_CITATION_TYPES = frozenset(
     {
@@ -228,27 +227,3 @@ def extract_citations(text: str, *, source_path: str | None = None) -> Extracted
     """Extract citations from raw Layer 2 text."""
     preprocessed = preprocess_plain_text_from_string(text, source_path=source_path)
     return extract_baseline(preprocessed)
-
-
-class EyeciteExtractor(BaseExtractor):
-    """Extractor that uses Mellea."""
-
-    @classmethod
-    def extract_citations(cls, text: str) -> list:
-        """Identify, retrieve, and classify case law citations.
-
-        Args:
-        ----
-            text: The document as a plain-text string.
-
-        Returns:
-        -------
-            A list of citations.
-
-        """
-        return super().extract_citations(text)
-
-    @classmethod
-    def resolve_citations(cls, citations: list) -> list:
-        """Group citations with the same reference, e.g., document, bried."""
-        return super().resolve_citations(citations)
