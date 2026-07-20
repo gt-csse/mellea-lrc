@@ -6,16 +6,19 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urljoin
 
 import requests
 from pydantic import ValidationError
 
 from mellea_lrc.courtlistener.citation_lookup import normalize_citation_lookup_payload
+from mellea_lrc.courtlistener.protocols import CourtListenerServiceClient
+from mellea_lrc.courtlistener.search import normalize_search_payload
 
 if TYPE_CHECKING:
     from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationLookup
+    from mellea_lrc.courtlistener.search_models import CourtListenerSearchResult
 
 
 DEFAULT_BASE_URL = "https://www.courtlistener.com/api/rest/v4/"
@@ -27,17 +30,13 @@ class CourtListenerConfig:
     """Configuration for direct CourtListener API access."""
 
     base_url: str = DEFAULT_BASE_URL
-    tokens: tuple[str, ...] = ()
+    token: str | None = None
 
     @classmethod
     def from_env(cls) -> CourtListenerConfig:
-        """Load the API base URL and ordered token set from the environment."""
-        tokens = tuple(
-            value.strip()
-            for key, value in sorted(os.environ.items())
-            if key.startswith("COURTLISTENER_API_TOKEN") and value.strip()
-        )
-        return cls(base_url=os.getenv("COURTLISTENER_BASE_URL", DEFAULT_BASE_URL), tokens=tokens)
+        """Load the API base URL and single API token from the environment."""
+        token = os.getenv("COURTLISTENER_API_TOKEN", "").strip() or None
+        return cls(base_url=os.getenv("COURTLISTENER_BASE_URL", DEFAULT_BASE_URL), token=token)
 
 
 class CourtListenerError(RuntimeError):
@@ -62,7 +61,7 @@ class CourtListenerError(RuntimeError):
         self.upstream_detail = upstream_detail
 
 
-class CourtListenerClient:
+class CourtListenerClient(CourtListenerServiceClient):
     """Direct client for the CourtListener API."""
 
     def __init__(
@@ -81,17 +80,7 @@ class CourtListenerClient:
     ) -> CourtListenerCitationLookup:
         """Look up one exact reporter citation by volume, reporter, and page."""
         response = self._send_citation_lookup({"volume": volume, "reporter": reporter, "page": page})
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise CourtListenerError(
-                "CourtListener returned a non-JSON response",
-                failure_type="upstream_invalid_json",
-                upstream_status_code=response.status_code,
-                retryable=True,
-                url=response.url,
-                upstream_detail=response.text[:500],
-            ) from exc
+        payload = self._response_payload(response)
         try:
             return normalize_citation_lookup_payload(payload)
         except ValidationError as exc:
@@ -104,51 +93,118 @@ class CourtListenerClient:
                 upstream_detail=exc.errors(include_url=False),
             ) from exc
 
-    def _send_citation_lookup(self, data: dict[str, str]) -> requests.Response:
-        url = urljoin(self.config.base_url.rstrip("/") + "/", "citation-lookup/")
-        attempts = max(1, len(self.config.tokens))
-        last_error: CourtListenerError | None = None
-        for token_index in range(attempts):
-            try:
-                response = self.session.request(
-                    "POST",
-                    url,
-                    data=data,
-                    headers=self._headers(token_index),
-                    timeout=45,
-                )
-            except requests.Timeout as exc:
-                raise CourtListenerError(
-                    "CourtListener request timed out",
-                    failure_type="upstream_timeout",
-                    retryable=True,
-                    url=url,
-                ) from exc
-            except requests.RequestException as exc:
-                raise CourtListenerError(
-                    "CourtListener request failed before a response was received",
-                    failure_type="upstream_request_error",
-                    retryable=True,
-                    url=url,
-                    upstream_detail=str(exc),
-                ) from exc
-            if response.status_code == 429 and token_index + 1 < attempts:
-                last_error = _courtlistener_http_error(response)
-                continue
-            if response.status_code >= 400:
-                raise _courtlistener_http_error(response)
-            return response
-        raise last_error or CourtListenerError(
-            "CourtListener citation lookup failed",
-            failure_type="upstream_error",
-            retryable=True,
-            url=url,
-        )
+    def search(
+        self,
+        query: str,
+        search_type: Literal["r", "rd", "d", "o"],
+        cursor: str | None = None,
+        *,
+        semantic: bool = False,
+    ) -> CourtListenerSearchResult:
+        """Search CourtListener's opinions, RECAP, docket, or document corpus."""
+        if search_type not in {"r", "rd", "d", "o"}:
+            raise ValueError("search_type must be one of: r, rd, d, o")
+        params: dict[str, str] = {"q": query, "type": search_type}
+        if cursor:
+            params["cursor"] = cursor
+        if semantic:
+            params["semantic"] = "true"
+        response = self._send_search(params)
+        payload = self._response_payload(response)
+        try:
+            return normalize_search_payload(
+                payload,
+                query=query,
+                search_type=search_type,
+                semantic=semantic,
+            )
+        except ValidationError as exc:
+            raise CourtListenerError(
+                "CourtListener returned an invalid search response",
+                failure_type="upstream_invalid_response",
+                upstream_status_code=response.status_code,
+                retryable=False,
+                url=response.url,
+                upstream_detail=exc.errors(include_url=False),
+            ) from exc
 
-    def _headers(self, token_index: int) -> dict[str, str]:
+    def _send_citation_lookup(self, data: dict[str, str]) -> requests.Response:
+        """POST one exact citation lookup without altering its established contract."""
+        url = urljoin(self.config.base_url.rstrip("/") + "/", "citation-lookup/")
+        try:
+            response = self.session.request(
+                "POST",
+                url,
+                data=data,
+                headers=self._headers(),
+                timeout=45,
+            )
+        except requests.Timeout as exc:
+            raise CourtListenerError(
+                "CourtListener request timed out",
+                failure_type="upstream_timeout",
+                retryable=True,
+                url=url,
+            ) from exc
+        except requests.RequestException as exc:
+            raise CourtListenerError(
+                "CourtListener request failed before a response was received",
+                failure_type="upstream_request_error",
+                retryable=True,
+                url=url,
+                upstream_detail=str(exc),
+            ) from exc
+        if response.status_code >= 400:
+            raise _courtlistener_http_error(response)
+        return response
+
+    def _send_search(self, params: dict[str, str]) -> requests.Response:
+        """GET CourtListener search without coupling it to citation lookup."""
+        url = urljoin(self.config.base_url.rstrip("/") + "/", "search/")
+        try:
+            response = self.session.request(
+                "GET",
+                url,
+                params=params,
+                headers=self._headers(),
+                timeout=45,
+            )
+        except requests.Timeout as exc:
+            raise CourtListenerError(
+                "CourtListener request timed out",
+                failure_type="upstream_timeout",
+                retryable=True,
+                url=url,
+            ) from exc
+        except requests.RequestException as exc:
+            raise CourtListenerError(
+                "CourtListener request failed before a response was received",
+                failure_type="upstream_request_error",
+                retryable=True,
+                url=url,
+                upstream_detail=str(exc),
+            ) from exc
+        if response.status_code >= 400:
+            raise _courtlistener_http_error(response)
+        return response
+
+    def _response_payload(self, response: requests.Response) -> object:
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise CourtListenerError(
+                "CourtListener returned a non-JSON response",
+                failure_type="upstream_invalid_json",
+                upstream_status_code=response.status_code,
+                retryable=True,
+                url=response.url,
+                upstream_detail=response.text[:500],
+            ) from exc
+
+    def _headers(self) -> dict[str, str]:
         headers = {"Accept": "application/json", "User-Agent": DEFAULT_USER_AGENT}
-        if self.config.tokens:
-            headers["Authorization"] = f"Token {self.config.tokens[token_index % len(self.config.tokens)]}"
+        if self.config.token:
+            headers["Authorization"] = f"Token {self.config.token}"
         return headers
 
 
