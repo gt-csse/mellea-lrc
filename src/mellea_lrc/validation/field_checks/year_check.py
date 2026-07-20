@@ -1,4 +1,4 @@
-"""Decision-year field validation."""
+"""Decision-year validation-node operation."""
 
 from __future__ import annotations
 

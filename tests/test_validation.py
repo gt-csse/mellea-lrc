@@ -1,5 +1,7 @@
 """Tests for the post-extraction validation-node progression."""
 
+import asyncio
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -24,6 +26,7 @@ from mellea_lrc.validation import (
     initialize_validation,
     validate_document,
 )
+from mellea_lrc.validation.field_checks.mellea_case_name import mellea_case_names_match
 
 
 class LookupClient:
@@ -152,13 +155,13 @@ def test_found_case_name_uses_mellea_for_semantic_match(
 
     calls: list[dict[str, Any]] = []
 
-    async def semantic_match(_session: object, **kwargs: Any) -> str:
-        calls.append(kwargs)
-        return "semantic_match"
+    async def semantic_match(extracted: str, retrieved: str, **kwargs: Any) -> bool:
+        calls.append({"extracted": extracted, "retrieved": retrieved, **kwargs})
+        return True
 
     _configure_mellea(monkeypatch)
     monkeypatch.setattr(
-        "mellea_lrc.validation.field_checks.case_name.semantic_match_case_name",
+        "mellea_lrc.validation.execution.mellea_case_names_match",
         semantic_match,
     )
 
@@ -174,11 +177,39 @@ def test_found_case_name_uses_mellea_for_semantic_match(
 
     assert case_name.status is ValidationNodeStatus.SUCCEEDED
     assert case_name.outcome is CaseNameCheckOutcome.SEMANTIC_MATCH
-    assert calls[0]["extracted_case_name"] == "Brown v. Board"
-    assert calls[0]["retrieved_case_name"] == "Brown v. Board of Education"
-    assert "Brown v. Board, 347 U.S. 483" in calls[0]["local_context"]
+    assert calls[0]["extracted"] == "Brown v. Board"
+    assert calls[0]["retrieved"] == "Brown v. Board of Education"
     assert year.status is ValidationNodeStatus.SUCCEEDED
     assert year.outcome is FieldCheckOutcome.MISMATCH
+
+
+def test_case_name_semantic_match_uses_instruct_ivr(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run case-name classification through the direct instruct IVR entrypoint."""
+    calls: list[dict[str, object]] = []
+    _configure_mellea(monkeypatch)
+
+    async def run_instruct(_session: object, spec: object, **kwargs: object) -> SimpleNamespace:
+        calls.append({"spec": spec, **kwargs})
+        return SimpleNamespace(success=True, result=SimpleNamespace(value='{"verdict":"semantic_match"}'))
+
+    monkeypatch.setattr(
+        "mellea_lrc.validation.field_checks.mellea_case_name.run_instruct_ivr",
+        run_instruct,
+    )
+
+    result = asyncio.run(
+        mellea_case_names_match(
+            extracted_case_name="Brown v. Board",
+            retrieved_case_name="Brown v. Board of Education",
+            session=object(),
+        )
+    )
+
+    assert result is True
+    spec = calls[0]["spec"]
+    assert spec.grounding_context == {}
+    assert spec.user_variables["extracted_case_name"] == "Brown v. Board"
+    assert calls[0]["model_options"]["max_tokens"] == 128
 
 
 def test_nonsemantic_case_name_is_available_for_future_follow_up(
@@ -201,12 +232,12 @@ def test_nonsemantic_case_name_is_available_for_future_follow_up(
         )
     )
 
-    async def not_semantic(_session: object, **_kwargs: Any) -> str:
-        return "not_semantic_match"
+    async def not_semantic(*_args: str, **_kwargs: Any) -> bool:
+        return False
 
     _configure_mellea(monkeypatch)
     monkeypatch.setattr(
-        "mellea_lrc.validation.field_checks.case_name.semantic_match_case_name",
+        "mellea_lrc.validation.execution.mellea_case_names_match",
         not_semantic,
     )
 

@@ -1,18 +1,12 @@
-"""Deterministic and Mellea-backed case-name validation."""
+"""Case-name validation-node construction and deterministic comparison."""
 
 from __future__ import annotations
 
-import os
 import unicodedata
-from typing import TYPE_CHECKING
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, TypeAlias
 
 from mellea_lrc.core.citations import FullCaseCitation
-from mellea_lrc.llm import llm_api_config_from_env, start_mellea_session_from_env
-from mellea_lrc.validation.context import DocumentTextWindow
-from mellea_lrc.validation.field_checks.case_name_classifier import (
-    CASE_NAME_VERDICT_MAX_TOKENS,
-    semantic_match_case_name,
-)
 from mellea_lrc.validation.types import (
     CaseNameCheckOutcome,
     CaseNameCheckNode,
@@ -20,9 +14,9 @@ from mellea_lrc.validation.types import (
 )
 
 if TYPE_CHECKING:
-    from mellea import MelleaSession
-
     from mellea_lrc.validation.types import CitationValidation, ExactLocatorLookupNode
+
+SemanticCaseNameMatcher: TypeAlias = Callable[[str, str], Awaitable[bool]]
 
 _TYPOGRAPHIC_TRANSLATION = str.maketrans(
     {
@@ -43,8 +37,7 @@ async def run_case_name_check(
     validation: CitationValidation,
     *,
     lookup: ExactLocatorLookupNode,
-    document_text: str,
-    mellea_session: MelleaSession | None = None,
+    semantic_matcher: SemanticCaseNameMatcher,
 ) -> CaseNameCheckNode:
     """Compare case names exactly, then semantically when needed."""
     citation = validation.citation.citation
@@ -53,9 +46,7 @@ async def run_case_name_check(
     status, outcome, error = await _compare_case_names(
         extracted,
         retrieved,
-        validation=validation,
-        document_text=document_text,
-        mellea_session=mellea_session,
+        semantic_matcher=semantic_matcher,
     )
     return CaseNameCheckNode(
         node_id=f"{validation.citation_id}:case_name_check",
@@ -72,9 +63,7 @@ async def _compare_case_names(
     extracted: str | None,
     retrieved: str | None,
     *,
-    validation: CitationValidation,
-    document_text: str,
-    mellea_session: MelleaSession | None,
+    semantic_matcher: SemanticCaseNameMatcher,
 ) -> tuple[ValidationNodeStatus, CaseNameCheckOutcome, str | None]:
     if not retrieved:
         return ValidationNodeStatus.SKIPPED, CaseNameCheckOutcome.UNASSESSABLE, None
@@ -84,24 +73,13 @@ async def _compare_case_names(
         return ValidationNodeStatus.SUCCEEDED, CaseNameCheckOutcome.NOT_SEMANTIC_MATCH, None
 
     try:
-        session = mellea_session or start_mellea_session_from_env()
-        context = DocumentTextWindow.around(document_text, validation.citation.span)
-        options = llm_api_config_from_env(os.environ).mellea_call_options(
-            max_tokens=CASE_NAME_VERDICT_MAX_TOKENS
-        )
-        verdict = await semantic_match_case_name(
-            session,
-            local_context=context.text,
-            extracted_case_name=extracted,
-            retrieved_case_name=retrieved,
-            model_options=options,
-        )
+        is_semantic_match = await semantic_matcher(extracted, retrieved)
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
         return ValidationNodeStatus.FAILED, CaseNameCheckOutcome.FAILED, error
     outcome = (
         CaseNameCheckOutcome.SEMANTIC_MATCH
-        if verdict == "semantic_match"
+        if is_semantic_match
         else CaseNameCheckOutcome.NOT_SEMANTIC_MATCH
     )
     return ValidationNodeStatus.SUCCEEDED, outcome, None

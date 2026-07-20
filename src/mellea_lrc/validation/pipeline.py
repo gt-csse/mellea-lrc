@@ -51,7 +51,6 @@ async def validate_document_async(
     initialized = initialize_validation(document)
     runner = CitationValidationRunner(
         client=service,
-        document_text=document.text,
         mellea_session=mellea_session,
     )
     citations = [await runner.run(item) for item in initialized.citations]
