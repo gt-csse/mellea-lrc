@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from mellea_lrc.core.citations import FullCaseCitation
-from mellea_lrc.validation.model import FieldCheckOutcome, ValidationNodeStatus, YearCheckNode
+from mellea_lrc.validation.types import FieldCheckOutcome, ValidationNodeStatus, YearCheckNode
 
 if TYPE_CHECKING:
-    from mellea_lrc.validation.model import CitationValidation, ExactLocatorLookupNode
+    from mellea_lrc.validation.types import CitationValidation, ExactLocatorLookupNode
 
 
-def run_year_check(
+async def run_year_check(
     validation: CitationValidation,
     *,
     lookup: ExactLocatorLookupNode,

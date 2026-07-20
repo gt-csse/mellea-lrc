@@ -38,6 +38,16 @@ class FieldCheckOutcome(str, Enum):
     UNAVAILABLE = "unavailable"
 
 
+class CaseNameCheckOutcome(str, Enum):
+    """Outcomes of deterministic and Mellea-backed case-name checking."""
+
+    EXACT_MATCH = "exact_match"
+    SEMANTIC_MATCH = "semantic_match"
+    NOT_SEMANTIC_MATCH = "not_semantic_match"
+    UNASSESSABLE = "unassessable"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True, slots=True)
 class ExactLocatorLookupNode:
     """One exact reporter-locator lookup against CourtListener.
@@ -73,14 +83,15 @@ class ExactLocatorLookupNode:
 
 @dataclass(frozen=True, slots=True)
 class CaseNameCheckNode:
-    """Deterministic case-name comparison after a found locator lookup."""
+    """Case-name comparison after a found locator lookup."""
 
     node_id: str
     status: ValidationNodeStatus
-    outcome: FieldCheckOutcome
+    outcome: CaseNameCheckOutcome
     extracted_case_name: str | None
     retrieved_case_name: str | None
     depends_on: tuple[str, ...]
+    error: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

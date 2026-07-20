@@ -2,6 +2,7 @@
 
 from mellea_lrc.validation.types import (
     CaseNameCheckNode,
+    CaseNameCheckOutcome,
     CitationValidation,
     ExactLocatorLookupNode,
     FieldCheckOutcome,
@@ -11,10 +12,15 @@ from mellea_lrc.validation.types import (
     ValidationNodeStatus,
     YearCheckNode,
 )
-from mellea_lrc.validation.pipeline import initialize_validation, validate_document
+from mellea_lrc.validation.pipeline import (
+    initialize_validation,
+    validate_document,
+    validate_document_async,
+)
 
 __all__ = [
     "CaseNameCheckNode",
+    "CaseNameCheckOutcome",
     "CitationValidation",
     "ExactLocatorLookupNode",
     "FieldCheckOutcome",
@@ -25,4 +31,5 @@ __all__ = [
     "YearCheckNode",
     "initialize_validation",
     "validate_document",
+    "validate_document_async",
 ]

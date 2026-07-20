@@ -1,5 +1,7 @@
 """Tests for the post-extraction validation-node progression."""
 
+from typing import Any
+
 import pytest
 
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
@@ -13,6 +15,7 @@ from mellea_lrc.extraction import ExtractedCitation, ExtractedDocument, Extracti
 from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.validation import (
     CaseNameCheckNode,
+    CaseNameCheckOutcome,
     ExactLocatorLookupNode,
     FieldCheckOutcome,
     LocatorLookupOutcome,
@@ -108,14 +111,22 @@ def test_exact_locator_found_fans_out_to_case_name_and_year_checks() -> None:
     assert lookup.outcome is LocatorLookupOutcome.FOUND
     assert lookup.record is record
     assert isinstance(case_name, CaseNameCheckNode)
-    assert case_name.outcome is FieldCheckOutcome.MATCH
+    assert case_name.outcome is CaseNameCheckOutcome.EXACT_MATCH
     assert case_name.depends_on == (lookup.node_id,)
     assert isinstance(year, YearCheckNode)
     assert year.outcome is FieldCheckOutcome.MATCH
     assert year.depends_on == (lookup.node_id,)
 
 
-def test_found_field_checks_record_mismatch_without_failing_execution() -> None:
+def _configure_mellea(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MELLEA_LRC_LLM_MODEL", "test-model")
+    monkeypatch.setenv("MELLEA_LRC_LLM_API_BASE", "https://example.test/v1")
+    monkeypatch.setenv("MELLEA_LRC_LLM_API_KEY", "test-key")
+
+
+def test_found_case_name_uses_mellea_for_semantic_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     extracted = _document(
         FullCaseCitation(
             plaintiff="Brown",
@@ -132,19 +143,86 @@ def test_found_field_checks_record_mismatch_without_failing_execution() -> None:
             status=200,
             records=(
                 CourtListenerCitationRecord(
-                    case_name="Different v. Case",
+                    case_name="Brown v. Board of Education",
                     date_filed="1955-01-01",
                 ),
             ),
         )
     )
 
-    _, case_name, year = validate_document(extracted, client=client).citations[0].nodes
+    calls: list[dict[str, Any]] = []
+
+    async def semantic_match(_session: object, **kwargs: Any) -> str:
+        calls.append(kwargs)
+        return "semantic_match"
+
+    _configure_mellea(monkeypatch)
+    monkeypatch.setattr(
+        "mellea_lrc.validation.field_checks.case_name.semantic_match_case_name",
+        semantic_match,
+    )
+
+    _, case_name, year = (
+        validate_document(
+            extracted,
+            client=client,
+            mellea_session=object(),
+        )
+        .citations[0]
+        .nodes
+    )
 
     assert case_name.status is ValidationNodeStatus.SUCCEEDED
-    assert case_name.outcome is FieldCheckOutcome.MISMATCH
+    assert case_name.outcome is CaseNameCheckOutcome.SEMANTIC_MATCH
+    assert calls[0]["extracted_case_name"] == "Brown v. Board"
+    assert calls[0]["retrieved_case_name"] == "Brown v. Board of Education"
+    assert "Brown v. Board, 347 U.S. 483" in calls[0]["local_context"]
     assert year.status is ValidationNodeStatus.SUCCEEDED
     assert year.outcome is FieldCheckOutcome.MISMATCH
+
+
+def test_nonsemantic_case_name_is_available_for_future_follow_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extracted = _document(
+        FullCaseCitation(
+            plaintiff="Brown",
+            defendant="Board",
+            volume="347",
+            reporter="U.S.",
+            page="483",
+        )
+    )
+    client = LookupClient(
+        CourtListenerCitationLookup(
+            citation="347 U.S. 483",
+            status=200,
+            records=(CourtListenerCitationRecord(case_name="Different v. Case"),),
+        )
+    )
+
+    async def not_semantic(_session: object, **_kwargs: Any) -> str:
+        return "not_semantic_match"
+
+    _configure_mellea(monkeypatch)
+    monkeypatch.setattr(
+        "mellea_lrc.validation.field_checks.case_name.semantic_match_case_name",
+        not_semantic,
+    )
+
+    _, case_name, _ = (
+        validate_document(
+            extracted,
+            client=client,
+            mellea_session=object(),
+        )
+        .citations[0]
+        .nodes
+    )
+
+    assert case_name.status is ValidationNodeStatus.SUCCEEDED
+    assert case_name.outcome is CaseNameCheckOutcome.NOT_SEMANTIC_MATCH
+    assert case_name.error is None
 
 
 def test_found_field_checks_skip_unavailable_values() -> None:
@@ -160,7 +238,7 @@ def test_found_field_checks_skip_unavailable_values() -> None:
     _, case_name, year = validate_document(extracted, client=client).citations[0].nodes
 
     assert case_name.status is ValidationNodeStatus.SKIPPED
-    assert case_name.outcome is FieldCheckOutcome.UNAVAILABLE
+    assert case_name.outcome is CaseNameCheckOutcome.UNASSESSABLE
     assert year.status is ValidationNodeStatus.SKIPPED
     assert year.outcome is FieldCheckOutcome.UNAVAILABLE
 

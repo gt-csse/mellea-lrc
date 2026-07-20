@@ -21,7 +21,7 @@ HTTP_MULTIPLE_CHOICES = 300
 HTTP_NOT_FOUND = 404
 
 
-def run_exact_locator_lookup(
+async def run_exact_locator_lookup(
     validation: CitationValidation,
     *,
     client: CourtListenerServiceClient,

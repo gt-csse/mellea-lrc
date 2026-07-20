@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from mellea_lrc.courtlistener import CourtListenerClient
@@ -9,6 +10,8 @@ from mellea_lrc.validation.execution import CitationValidationRunner
 from mellea_lrc.validation.types import CitationValidation, ValidatedDocument
 
 if TYPE_CHECKING:
+    from mellea import MelleaSession
+
     from mellea_lrc.courtlistener.protocols import CourtListenerServiceClient
     from mellea_lrc.extraction.types import ExtractedDocument
 
@@ -25,10 +28,31 @@ def validate_document(
     document: ExtractedDocument,
     *,
     client: CourtListenerServiceClient | None = None,
+    mellea_session: MelleaSession | None = None,
 ) -> ValidatedDocument:
-    """Run each extracted citation through the configured validation loop."""
+    """Run each citation synchronously through the validation loop."""
+    return asyncio.run(
+        validate_document_async(
+            document,
+            client=client,
+            mellea_session=mellea_session,
+        )
+    )
+
+
+async def validate_document_async(
+    document: ExtractedDocument,
+    *,
+    client: CourtListenerServiceClient | None = None,
+    mellea_session: MelleaSession | None = None,
+) -> ValidatedDocument:
+    """Run each extracted citation through the validation loop."""
     service = client if client is not None else CourtListenerClient()
     initialized = initialize_validation(document)
-    runner = CitationValidationRunner(client=service)
-    citations = tuple(runner.run(item) for item in initialized.citations)
-    return ValidatedDocument(source=document, citations=citations)
+    runner = CitationValidationRunner(
+        client=service,
+        document_text=document.text,
+        mellea_session=mellea_session,
+    )
+    citations = [await runner.run(item) for item in initialized.citations]
+    return ValidatedDocument(source=document, citations=tuple(citations))
