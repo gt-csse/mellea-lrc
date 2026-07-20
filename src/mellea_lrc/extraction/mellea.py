@@ -1,6 +1,7 @@
 """Use Mellea to extract and label."""
 
 import uuid
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -42,8 +43,6 @@ from mellea_lrc.extraction.types import (
 class MelleaExtractor(BaseExtractor):
     """Extractor that uses Mellea."""
 
-    # TODO: change the backend to chat-based (on feat/mellea-decompose branch)
-
     def __init__(
         self,
         model_id=IBM_GRANITE_4_1_3B,  # noqa: ANN001
@@ -66,6 +65,11 @@ class MelleaExtractor(BaseExtractor):
         matched_text: str,
     ) -> Span | None:
         """Return the span of the citation if found, else none."""
+        pattern = matched_text.encode("unicode_escape").decode("utf-8")
+        match = re.search(pattern, text)
+        if match:
+            return Span(match.start(), match.end())
+        return None
 
     def _assemble_canonical_citation(self, kind: str, **kwargs) -> CanonicalCitation:
         """Return an assembled CanonicalCitation class.
