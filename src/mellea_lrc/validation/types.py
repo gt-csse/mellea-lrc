@@ -30,6 +30,14 @@ class LocatorLookupOutcome(str, Enum):
     FAILED = "failed"
 
 
+class FieldCheckOutcome(str, Enum):
+    """Deterministic comparison outcome for one citation field."""
+
+    MATCH = "match"
+    MISMATCH = "mismatch"
+    UNAVAILABLE = "unavailable"
+
+
 @dataclass(frozen=True, slots=True)
 class ExactLocatorLookupNode:
     """One exact reporter-locator lookup against CourtListener.
@@ -63,10 +71,32 @@ class ExactLocatorLookupNode:
             raise ValueError(msg)
 
 
-# This is intentionally a one-member alias for the first validation slice.
-# Expand it into a union as operation-specific node types are introduced, e.g.
-# ``ExactLocatorLookupNode | CaseIdentityNode | ...``.
-ValidationNode: TypeAlias = ExactLocatorLookupNode
+@dataclass(frozen=True, slots=True)
+class ExactCaseNameCheckNode:
+    """Exact normalized case-name comparison after a found locator lookup."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: FieldCheckOutcome
+    extracted_case_name: str | None
+    retrieved_case_name: str | None
+    depends_on: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class YearCheckNode:
+    """Deterministic decision-year comparison after a found locator lookup."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: FieldCheckOutcome
+    extracted_year: str | None
+    retrieved_year: str | None
+    depends_on: tuple[str, ...]
+
+
+# Expand this union as operation-specific validation nodes are introduced.
+ValidationNode: TypeAlias = ExactLocatorLookupNode | ExactCaseNameCheckNode | YearCheckNode
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +113,9 @@ class CitationValidation:
 
     def append(self, node: ValidationNode) -> CitationValidation:
         """Return a new citation validation with one node appended."""
+        if not node.node_id:
+            msg = "Validation node_id must not be empty"
+            raise ValueError(msg)
         known_ids = {item.node_id for item in self.nodes}
         if node.node_id in known_ids:
             msg = f"Duplicate validation node_id: {node.node_id!r}"

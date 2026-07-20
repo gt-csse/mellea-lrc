@@ -12,8 +12,12 @@ from mellea_lrc.courtlistener import (
 from mellea_lrc.extraction import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.validation import (
+    ExactCaseNameCheckNode,
+    ExactLocatorLookupNode,
+    FieldCheckOutcome,
     LocatorLookupOutcome,
     ValidationNodeStatus,
+    YearCheckNode,
     initialize_validation,
     validate_document,
 )
@@ -70,10 +74,19 @@ def test_initialize_validation_instances_one_progression_per_extracted_citation(
     assert validation.citations[0].nodes == ()
 
 
-def test_exact_locator_found_appends_the_only_implemented_node() -> None:
-    extracted = _document(FullCaseCitation(volume="347", reporter="U.S.", page="483", year="1954"))
+def test_exact_locator_found_fans_out_to_exact_case_name_and_year_checks() -> None:
+    extracted = _document(
+        FullCaseCitation(
+            plaintiff="Brown",
+            defendant="Board",
+            volume="347",
+            reporter="U.S.",
+            page="483",
+            year="1954",
+        )
+    )
     record = CourtListenerCitationRecord(
-        case_name="Brown v. Board of Education",
+        case_name="Brown v. Board",
         date_filed="1954-05-17",
         court_id="scotus",
     )
@@ -89,14 +102,71 @@ def test_exact_locator_found_appends_the_only_implemented_node() -> None:
 
     progression = validation.citation_by_id("cite-0001")
     assert client.calls == [("347", "U.S.", "483")]
-    assert len(progression.nodes) == 1
-    node = progression.nodes[0]
-    assert node.node_id == "cite-0001:exact_locator_lookup"
-    assert node.status is ValidationNodeStatus.SUCCEEDED
-    assert node.outcome is LocatorLookupOutcome.FOUND
-    assert node.locator == "347 U.S. 483"
-    assert node.record is record
-    assert node.candidate_count == 1
+    assert len(progression.nodes) == 3
+    exact_locator_lookup_node, exact_case_name_check_node, year_check_node = progression.nodes
+    assert isinstance(exact_locator_lookup_node, ExactLocatorLookupNode)
+    assert exact_locator_lookup_node.outcome is LocatorLookupOutcome.FOUND
+    assert exact_locator_lookup_node.record is record
+    assert isinstance(exact_case_name_check_node, ExactCaseNameCheckNode)
+    assert exact_case_name_check_node.outcome is FieldCheckOutcome.MATCH
+    assert exact_case_name_check_node.depends_on == (exact_locator_lookup_node.node_id,)
+    assert isinstance(year_check_node, YearCheckNode)
+    assert year_check_node.outcome is FieldCheckOutcome.MATCH
+    assert year_check_node.depends_on == (exact_locator_lookup_node.node_id,)
+
+
+def test_found_field_checks_record_mismatch_without_failing_execution() -> None:
+    extracted = _document(
+        FullCaseCitation(
+            plaintiff="Brown",
+            defendant="Board",
+            volume="347",
+            reporter="U.S.",
+            page="483",
+            year="1954",
+        )
+    )
+    client = LookupClient(
+        CourtListenerCitationLookup(
+            citation="347 U.S. 483",
+            status=200,
+            records=(
+                CourtListenerCitationRecord(
+                    case_name="Different v. Case",
+                    date_filed="1955-01-01",
+                ),
+            ),
+        )
+    )
+
+    _, exact_case_name_check_node, year_check_node = (
+        validate_document(extracted, client=client).citations[0].nodes
+    )
+
+    assert exact_case_name_check_node.status is ValidationNodeStatus.SUCCEEDED
+    assert exact_case_name_check_node.outcome is FieldCheckOutcome.MISMATCH
+    assert year_check_node.status is ValidationNodeStatus.SUCCEEDED
+    assert year_check_node.outcome is FieldCheckOutcome.MISMATCH
+
+
+def test_found_field_checks_skip_unavailable_values() -> None:
+    extracted = _document(FullCaseCitation(volume="347", reporter="U.S.", page="483"))
+    client = LookupClient(
+        CourtListenerCitationLookup(
+            citation="347 U.S. 483",
+            status=200,
+            records=(CourtListenerCitationRecord(),),
+        )
+    )
+
+    _, exact_case_name_check_node, year_check_node = (
+        validate_document(extracted, client=client).citations[0].nodes
+    )
+
+    assert exact_case_name_check_node.status is ValidationNodeStatus.SKIPPED
+    assert exact_case_name_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
+    assert year_check_node.status is ValidationNodeStatus.SKIPPED
+    assert year_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
 
 
 def test_not_found_stops_without_starting_a_fallback_branch() -> None:
