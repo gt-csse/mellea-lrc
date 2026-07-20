@@ -12,6 +12,8 @@ class ExtractionBackend(str, Enum):
     """Engine that produced the extracted citations."""
 
     EYECITE = "eyecite"
+    MELLEA = "mellea"
+    MANUAL = "manual"
 
 
 @dataclass(frozen=True, slots=True)

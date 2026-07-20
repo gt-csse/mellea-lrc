@@ -62,6 +62,7 @@ label-studio = [
 dev = [
     { include-group = "extraction" },
     "autogitsemver>=0.9.13",
+    "openai>=2.42.0",
     "pre-commit>=4.6.0",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
@@ -94,6 +95,7 @@ line-length = 110
 
 [tool.ruff.lint]
 exclude = ["tests/**"]
+
 
 select = ["ALL"]
 

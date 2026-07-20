@@ -50,7 +50,7 @@ def preprocess_with_docling(path: Path | str) -> PreprocessedDocument:
     source_path = Path(path)
     converter = DocumentConverter()
     result = converter.convert(str(source_path))
-    text = result.document.export_to_text()
+    text = result.document.export_to_text()  # Ensure to normalize all characters to Unicode TODO
 
     return PreprocessedDocument(
         source_metadata=SourceMetadata(
