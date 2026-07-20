@@ -8,7 +8,7 @@ from mellea_lrc.validation.model import (
     ValidationNode,
     ValidationNodeStatus,
 )
-from mellea_lrc.validation.pipeline import initialize_validation, validate_exact_locators
+from mellea_lrc.validation.pipeline import initialize_validation, validate_document
 
 __all__ = [
     "CitationValidation",
@@ -18,5 +18,5 @@ __all__ = [
     "ValidationNode",
     "ValidationNodeStatus",
     "initialize_validation",
-    "validate_exact_locators",
+    "validate_document",
 ]

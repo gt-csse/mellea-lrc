@@ -10,11 +10,13 @@ from mellea_lrc.courtlistener import (
 from mellea_lrc.extraction import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.validation import (
+    ExactLocatorLookupNode,
     LocatorLookupOutcome,
     ValidationNodeStatus,
     initialize_validation,
-    validate_exact_locators,
+    validate_document,
 )
+from mellea_lrc.validation.execution import run_citation_loop
 
 
 class LookupClient:
@@ -68,6 +70,38 @@ def test_initialize_validation_instances_one_progression_per_extracted_citation(
     assert validation.citations[0].nodes == ()
 
 
+def test_citation_loop_appends_flat_fan_out_in_queue_order() -> None:
+    extracted = _document(FullCaseCitation(volume="347", reporter="U.S.", page="483"))
+    initial = initialize_validation(extracted).citations[0]
+
+    def operation(node_id: str, depends_on: tuple[str, ...] = ()):
+        def run(_validation):
+            return ExactLocatorLookupNode(
+                node_id=node_id,
+                status=ValidationNodeStatus.SKIPPED,
+                outcome=LocatorLookupOutcome.INCOMPLETE_LOCATOR,
+                locator=None,
+                depends_on=depends_on,
+            )
+
+        return run
+
+    def route(node):
+        if node.node_id == "root":
+            return (operation("left", ("root",)), operation("right", ("root",)))
+        return ()
+
+    result = run_citation_loop(
+        initial,
+        initial_operations=(operation("root"),),
+        route=route,
+    )
+
+    assert [node.node_id for node in result.nodes] == ["root", "left", "right"]
+    assert result.nodes[1].depends_on == ("root",)
+    assert result.nodes[2].depends_on == ("root",)
+
+
 def test_exact_locator_found_appends_the_only_implemented_node() -> None:
     extracted = _document(FullCaseCitation(volume="347", reporter="U.S.", page="483", year="1954"))
     record = CourtListenerCitationRecord(
@@ -83,7 +117,7 @@ def test_exact_locator_found_appends_the_only_implemented_node() -> None:
         )
     )
 
-    validation = validate_exact_locators(extracted, client=client)
+    validation = validate_document(extracted, client=client)
 
     progression = validation.citation_by_id("cite-0001")
     assert client.calls == [("347", "U.S.", "483")]
@@ -107,7 +141,7 @@ def test_not_found_stops_without_starting_a_fallback_branch() -> None:
         )
     )
 
-    validation = validate_exact_locators(extracted, client=client)
+    validation = validate_document(extracted, client=client)
 
     nodes = validation.citations[0].nodes
     assert len(nodes) == 1
@@ -124,7 +158,7 @@ def test_ambiguous_lookup_stops_without_candidate_processing() -> None:
     )
     client = LookupClient(CourtListenerCitationLookup(citation="1 F.2d 2", status=300, records=records))
 
-    node = validate_exact_locators(extracted, client=client).citations[0].nodes[0]
+    node = validate_document(extracted, client=client).citations[0].nodes[0]
 
     assert node.status is ValidationNodeStatus.SUCCEEDED
     assert node.outcome is LocatorLookupOutcome.AMBIGUOUS
@@ -136,7 +170,7 @@ def test_unsupported_citation_is_skipped_without_service_access() -> None:
     extracted = _document(FullLawCitation(volume="28", reporter="U.S.C.", page="636"))
     client = LookupClient(CourtListenerCitationLookup(citation="28 U.S.C. 636", status=200, records=()))
 
-    node = validate_exact_locators(extracted, client=client).citations[0].nodes[0]
+    node = validate_document(extracted, client=client).citations[0].nodes[0]
 
     assert client.calls == []
     assert node.status is ValidationNodeStatus.SKIPPED
@@ -153,7 +187,7 @@ def test_service_failure_is_a_terminal_validation_node() -> None:
         )
     )
 
-    node = validate_exact_locators(extracted, client=client).citations[0].nodes[0]
+    node = validate_document(extracted, client=client).citations[0].nodes[0]
 
     assert node.status is ValidationNodeStatus.FAILED
     assert node.outcome is LocatorLookupOutcome.FAILED
