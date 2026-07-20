@@ -2841,12 +2841,6 @@ wheels = [
 name = "mellea-lrc"
 version = "0.1.9"
 source = { editable = "." }
-dependencies = [
-    { name = "docling" },
-    { name = "eyecite" },
-    { name = "mellea", version = "0.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "mellea", version = "0.6.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-]
 
 [package.dev-dependencies]
 dev = [
@@ -2898,11 +2892,6 @@ preprocessing = [
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "docling", specifier = ">=2.96.1" },
-    { name = "eyecite", specifier = ">=2.7.6" },
-    { name = "mellea", specifier = ">=0.3.2" },
-]
 
 [package.metadata.requires-dev]
 dev = [

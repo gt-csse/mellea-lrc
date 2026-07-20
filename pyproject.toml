@@ -15,11 +15,7 @@ authors = [
     { name = "Robert Bates", email = "rbates8@gatech.edu" },
 ]
 requires-python = ">= 3.10"
-dependencies = [
-    "docling>=2.96.1",
-    "eyecite>=2.7.6",
-    "mellea>=0.3.2",
-]
+dependencies = []
 classifiers = [
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
