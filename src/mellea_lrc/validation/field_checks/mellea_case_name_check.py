@@ -18,8 +18,11 @@ from mellea_lrc.llm import (
 )
 from mellea_lrc.validation.types import (
     ExactCaseNameCheckNode,
+    ExactLocatorLookupNode,
     MelleaCaseNameCheckNode,
     MelleaCaseNameCheckOutcome,
+    MelleaCaseNameReextractionNode,
+    MelleaReextractedCaseNameCheckNode,
     ValidationNodeStatus,
 )
 
@@ -55,8 +58,11 @@ async def run_mellea_case_name_check(
     validation: CitationValidation,
     *,
     session: MelleaSession | None = None,
-) -> MelleaCaseNameCheckNode:
-    """Semantically compare the prior exact-check node's two case names."""
+) -> MelleaCaseNameCheckNode | MelleaReextractedCaseNameCheckNode:
+    """Compare the current case-name evidence against the retrieved case name."""
+    reextraction = _latest_reextraction(validation)
+    if reextraction is not None:
+        return await _run_reextracted_check(validation, reextraction, session=session)
     exact_node = _latest_exact_case_name_check(validation)
     try:
         resolved_session = session or start_mellea_session_from_env()
@@ -130,3 +136,86 @@ def _failed_node(
         depends_on=(exact_node.node_id,),
         error=error,
     )
+
+
+async def _run_reextracted_check(
+    validation: CitationValidation,
+    reextraction: MelleaCaseNameReextractionNode,
+    *,
+    session: MelleaSession | None,
+) -> MelleaReextractedCaseNameCheckNode:
+    extracted = _case_name_from_reextraction(reextraction)
+    lookup = _latest_locator_lookup(validation)
+    retrieved = lookup.record.case_name if lookup.record is not None else None
+    if extracted is None or retrieved is None:
+        return MelleaReextractedCaseNameCheckNode(
+            node_id=f"{validation.citation_id}:mellea_reextracted_case_name_check",
+            status=ValidationNodeStatus.SKIPPED,
+            outcome=MelleaCaseNameCheckOutcome.FAILED,
+            reextracted_case_name=extracted,
+            retrieved_case_name=retrieved,
+            depends_on=(reextraction.node_id,),
+        )
+    status, outcome, error = await _semantic_outcome(extracted, retrieved, session)
+    return MelleaReextractedCaseNameCheckNode(
+        node_id=f"{validation.citation_id}:mellea_reextracted_case_name_check",
+        status=status,
+        outcome=outcome,
+        reextracted_case_name=extracted,
+        retrieved_case_name=retrieved,
+        depends_on=(reextraction.node_id,),
+        error=error,
+    )
+
+
+def _case_name_from_reextraction(node: MelleaCaseNameReextractionNode) -> str | None:
+    if node.plaintiff is None or node.defendant is None:
+        return None
+    return f"{node.plaintiff} v. {node.defendant}"
+
+
+def _latest_reextraction(validation: CitationValidation) -> MelleaCaseNameReextractionNode | None:
+    return next(
+        (node for node in reversed(validation.nodes) if isinstance(node, MelleaCaseNameReextractionNode)),
+        None,
+    )
+
+
+def _latest_locator_lookup(validation: CitationValidation) -> ExactLocatorLookupNode:
+    return next(node for node in reversed(validation.nodes) if isinstance(node, ExactLocatorLookupNode))
+
+
+async def _semantic_outcome(
+    extracted_case_name: str,
+    retrieved_case_name: str,
+    session: MelleaSession | None,
+) -> tuple[ValidationNodeStatus, MelleaCaseNameCheckOutcome, str | None]:
+    try:
+        spec = InstructIvrSpec(
+            description=INSTRUCTION,
+            user_variables={
+                "extracted_case_name": extracted_case_name,
+                "retrieved_case_name": retrieved_case_name,
+            },
+            output_format=_SemanticVerdict,
+            requirements=[req("Return a valid semantic-verdict object.", validation_fn=_valid_schema)],
+        )
+        result = await run_instruct_ivr(
+            session or start_mellea_session_from_env(),
+            spec,
+            strategy=MultiTurnStrategy(loop_budget=MAX_REPAIR_TURNS),
+            model_options=llm_api_config_from_env(os.environ).mellea_call_options(max_tokens=MAX_TOKENS),
+        )
+        if result.success:
+            return (
+                ValidationNodeStatus.SUCCEEDED,
+                MelleaCaseNameCheckOutcome(_parse(result.result.value).verdict),
+                None,
+            )
+        return (
+            ValidationNodeStatus.FAILED,
+            MelleaCaseNameCheckOutcome.FAILED,
+            "Semantic case-name check exhausted its repair budget",
+        )
+    except Exception as exc:
+        return ValidationNodeStatus.FAILED, MelleaCaseNameCheckOutcome.FAILED, f"{type(exc).__name__}: {exc}"

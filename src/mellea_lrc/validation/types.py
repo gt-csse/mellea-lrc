@@ -43,6 +43,7 @@ class MelleaCaseNameCheckOutcome(str, Enum):
 
     MATCH = "match"
     MISMATCH = "mismatch"
+    FAILED = "failed"
 
 
 class MelleaCaseNameReextractionOutcome(str, Enum):
@@ -127,6 +128,19 @@ class MelleaCaseNameReextractionNode:
 
 
 @dataclass(frozen=True, slots=True)
+class MelleaReextractedCaseNameCheckNode:
+    """Semantic comparison using re-extracted plaintiff and defendant evidence."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: MelleaCaseNameCheckOutcome
+    reextracted_case_name: str | None
+    retrieved_case_name: str | None
+    depends_on: tuple[str, ...]
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class YearCheckNode:
     """Deterministic decision-year comparison after a found locator lookup."""
 
@@ -144,6 +158,7 @@ ValidationNode: TypeAlias = (
     | ExactCaseNameCheckNode
     | MelleaCaseNameCheckNode
     | MelleaCaseNameReextractionNode
+    | MelleaReextractedCaseNameCheckNode
     | YearCheckNode
 )
 
