@@ -86,12 +86,10 @@ async def run_mellea_case_name_reextraction(
     start = max(0, span.start - CONTEXT_BEFORE_CHARS)
     end = min(len(document_text), span.end + CONTEXT_AFTER_CHARS)
     local_context = document_text[start:end]
-    before_locator = document_text[start:span.start]
+    before_locator = document_text[start : span.start]
     try:
         resolved_session = session or start_mellea_session_from_env()
-        options = llm_api_config_from_env(os.environ).mellea_call_options(
-            max_tokens=REEXTRACTION_MAX_TOKENS
-        )
+        options = llm_api_config_from_env(os.environ).mellea_call_options(max_tokens=REEXTRACTION_MAX_TOKENS)
         spec = InstructIvrSpec(
             description=REEXTRACTION_INSTRUCTION,
             grounding_context={"local_context": local_context},

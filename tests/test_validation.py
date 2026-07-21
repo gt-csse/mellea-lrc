@@ -231,10 +231,7 @@ def test_mellea_case_name_reextraction_uses_only_local_context(
         return SimpleNamespace(
             success=True,
             result=SimpleNamespace(
-                value=(
-                    '{"classification":"complete_case_name",'
-                    '"plaintiff":"Brown","defendant":"Board"}'
-                )
+                value=('{"classification":"complete_case_name","plaintiff":"Brown","defendant":"Board"}')
             ),
         )
 
