@@ -109,8 +109,11 @@ class MelleaCaseNameCheckNode:
     outcome: MelleaCaseNameCheckOutcome
     extracted_case_name: str
     retrieved_case_name: str
+    depends_on: tuple[str, ...]
+    error: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
 class MelleaCaseNameReextractionNode:
     """Plaintiff and defendant re-extracted from citation-local text by Mellea."""
 
@@ -142,7 +145,6 @@ ValidationNode: TypeAlias = (
     | MelleaCaseNameCheckNode
     | MelleaCaseNameReextractionNode
     | YearCheckNode
-)
 )
 
 
