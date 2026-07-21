@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from mellea_lrc.courtlistener import CourtListenerClient
-from mellea_lrc.validation.execution import run_citation_loop
+from mellea_lrc.validation.execution import CitationValidationRunner
 from mellea_lrc.validation.types import CitationValidation, ValidatedDocument
 
 if TYPE_CHECKING:
@@ -29,5 +29,6 @@ def validate_document(
     """Run each extracted citation through the configured validation loop."""
     service = client if client is not None else CourtListenerClient()
     initialized = initialize_validation(document)
-    citations = tuple(run_citation_loop(item, client=service) for item in initialized.citations)
+    runner = CitationValidationRunner(client=service)
+    citations = tuple(runner.run(item) for item in initialized.citations)
     return ValidatedDocument(source=document, citations=citations)
