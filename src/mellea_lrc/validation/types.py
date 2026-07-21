@@ -43,6 +43,15 @@ class MelleaCaseNameCheckOutcome(str, Enum):
 
     MATCH = "match"
     MISMATCH = "mismatch"
+
+
+class MelleaCaseNameReextractionOutcome(str, Enum):
+    """Results of Mellea re-extracting locally grounded case parties."""
+
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    NOT_FOUND = "not_found"
+    UNAVAILABLE = "unavailable"
     FAILED = "failed"
 
 
@@ -100,6 +109,16 @@ class MelleaCaseNameCheckNode:
     outcome: MelleaCaseNameCheckOutcome
     extracted_case_name: str
     retrieved_case_name: str
+
+
+class MelleaCaseNameReextractionNode:
+    """Plaintiff and defendant re-extracted from citation-local text by Mellea."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: MelleaCaseNameReextractionOutcome
+    plaintiff: str | None
+    defendant: str | None
     depends_on: tuple[str, ...]
     error: str | None = None
 
@@ -118,7 +137,12 @@ class YearCheckNode:
 
 # Expand this union as operation-specific validation nodes are introduced.
 ValidationNode: TypeAlias = (
-    ExactLocatorLookupNode | ExactCaseNameCheckNode | MelleaCaseNameCheckNode | YearCheckNode
+    ExactLocatorLookupNode
+    | ExactCaseNameCheckNode
+    | MelleaCaseNameCheckNode
+    | MelleaCaseNameReextractionNode
+    | YearCheckNode
+)
 )
 
 
