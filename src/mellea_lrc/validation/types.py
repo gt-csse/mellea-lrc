@@ -38,6 +38,14 @@ class FieldCheckOutcome(str, Enum):
     UNAVAILABLE = "unavailable"
 
 
+class MelleaCaseNameCheckOutcome(str, Enum):
+    """Outcomes of semantic comparison after an exact case-name mismatch."""
+
+    MATCH = "match"
+    MISMATCH = "mismatch"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True, slots=True)
 class ExactLocatorLookupNode:
     """One exact reporter-locator lookup against CourtListener.
@@ -84,6 +92,19 @@ class ExactCaseNameCheckNode:
 
 
 @dataclass(frozen=True, slots=True)
+class MelleaCaseNameCheckNode:
+    """Mellea semantic comparison of otherwise unmatched case names."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: MelleaCaseNameCheckOutcome
+    extracted_case_name: str
+    retrieved_case_name: str
+    depends_on: tuple[str, ...]
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class YearCheckNode:
     """Deterministic decision-year comparison after a found locator lookup."""
 
@@ -96,7 +117,9 @@ class YearCheckNode:
 
 
 # Expand this union as operation-specific validation nodes are introduced.
-ValidationNode: TypeAlias = ExactLocatorLookupNode | ExactCaseNameCheckNode | YearCheckNode
+ValidationNode: TypeAlias = (
+    ExactLocatorLookupNode | ExactCaseNameCheckNode | MelleaCaseNameCheckNode | YearCheckNode
+)
 
 
 @dataclass(frozen=True, slots=True)
