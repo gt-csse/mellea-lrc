@@ -1,4 +1,4 @@
-"""Mellea instruct/validate/repair case-name classification."""
+"""Mellea-backed semantic case-name check."""
 
 from __future__ import annotations
 

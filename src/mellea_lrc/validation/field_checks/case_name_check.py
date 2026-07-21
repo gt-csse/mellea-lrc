@@ -10,6 +10,8 @@ from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.validation.types import (
     CaseNameCheckOutcome,
     CaseNameCheckNode,
+    CaseNameReextractionNode,
+    RecheckedCaseNameNode,
     ValidationNodeStatus,
 )
 
@@ -43,7 +45,7 @@ async def run_case_name_check(
     citation = validation.citation.citation
     extracted = build_extracted_case_name(citation) if isinstance(citation, FullCaseCitation) else None
     retrieved = lookup.record.case_name if lookup.record is not None else None
-    status, outcome, error = await _compare_case_names(
+    status, outcome, error = await compare_case_names(
         extracted,
         retrieved,
         semantic_matcher=semantic_matcher,
@@ -59,12 +61,13 @@ async def run_case_name_check(
     )
 
 
-async def _compare_case_names(
+async def compare_case_names(
     extracted: str | None,
     retrieved: str | None,
     *,
     semantic_matcher: SemanticCaseNameMatcher,
 ) -> tuple[ValidationNodeStatus, CaseNameCheckOutcome, str | None]:
+    """Compare two names exactly and then with the injected semantic matcher."""
     if not retrieved:
         return ValidationNodeStatus.SKIPPED, CaseNameCheckOutcome.UNASSESSABLE, None
     if case_names_equivalent(extracted, retrieved):
@@ -85,11 +88,43 @@ async def _compare_case_names(
     return ValidationNodeStatus.SUCCEEDED, outcome, None
 
 
+async def run_rechecked_case_name(
+    validation: CitationValidation,
+    *,
+    reextraction: CaseNameReextractionNode,
+    semantic_matcher: SemanticCaseNameMatcher,
+) -> RecheckedCaseNameNode:
+    """Reuse case-name comparison for one terminal post-re-extraction decision."""
+    initial = next(
+        node for node in reversed(validation.nodes) if isinstance(node, CaseNameCheckNode)
+    )
+    extracted = build_case_name(reextraction.plaintiff, reextraction.defendant)
+    status, outcome, error = await compare_case_names(
+        extracted,
+        initial.retrieved_case_name,
+        semantic_matcher=semantic_matcher,
+    )
+    return RecheckedCaseNameNode(
+        node_id=f"{validation.citation_id}:case_name_recheck",
+        status=status,
+        outcome=outcome,
+        extracted_case_name=extracted,
+        retrieved_case_name=initial.retrieved_case_name,
+        depends_on=(reextraction.node_id,),
+        error=error,
+    )
+
+
 def build_extracted_case_name(citation: FullCaseCitation) -> str | None:
     """Build a display case name from the extracted party fields."""
-    if citation.plaintiff and citation.defendant:
-        return f"{citation.plaintiff} v. {citation.defendant}"
-    return citation.plaintiff or citation.defendant
+    return build_case_name(citation.plaintiff, citation.defendant)
+
+
+def build_case_name(plaintiff: str | None, defendant: str | None) -> str | None:
+    """Build a display case name from separately extracted parties."""
+    if plaintiff and defendant:
+        return f"{plaintiff} v. {defendant}"
+    return plaintiff or defendant
 
 
 def case_names_equivalent(left: str | None, right: str | None) -> bool:

@@ -18,15 +18,20 @@ from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.validation import (
     CaseNameCheckNode,
     CaseNameCheckOutcome,
+    CaseNameReextractionNode,
+    CaseNameReextractionOutcome,
+    CaseSearchNode,
+    CaseSearchOutcome,
     ExactLocatorLookupNode,
     FieldCheckOutcome,
     LocatorLookupOutcome,
+    RecheckedCaseNameNode,
     ValidationNodeStatus,
     YearCheckNode,
     initialize_validation,
     validate_document,
 )
-from mellea_lrc.validation.field_checks.mellea_case_name import mellea_case_names_match
+from mellea_lrc.validation.field_checks.mellea_case_name_check import mellea_case_names_match
 
 
 class LookupClient:
@@ -127,6 +132,30 @@ def _configure_mellea(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MELLEA_LRC_LLM_API_KEY", "test-key")
 
 
+def _mock_reextraction(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def reextract(validation: object, **_kwargs: object) -> CaseNameReextractionNode:
+        trigger = validation.nodes[-1]
+        if not isinstance(trigger, (CaseNameCheckNode, ExactLocatorLookupNode)):
+            trigger = next(
+                node
+                for node in reversed(validation.nodes)
+                if isinstance(node, (CaseNameCheckNode, ExactLocatorLookupNode))
+            )
+        return CaseNameReextractionNode(
+            node_id=f"{validation.citation_id}:case_name_reextract",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=CaseNameReextractionOutcome.ACCEPTED,
+            plaintiff="Brown",
+            defendant="Board of Education",
+            depends_on=(trigger.node_id,),
+        )
+
+    monkeypatch.setattr(
+        "mellea_lrc.validation.execution.run_mellea_case_name_reextract",
+        reextract,
+    )
+
+
 def test_found_case_name_uses_mellea_for_semantic_match(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -193,7 +222,7 @@ def test_case_name_semantic_match_uses_instruct_ivr(monkeypatch: pytest.MonkeyPa
         return SimpleNamespace(success=True, result=SimpleNamespace(value='{"verdict":"semantic_match"}'))
 
     monkeypatch.setattr(
-        "mellea_lrc.validation.field_checks.mellea_case_name.run_instruct_ivr",
+        "mellea_lrc.validation.field_checks.mellea_case_name_check.run_instruct_ivr",
         run_instruct,
     )
 
@@ -235,13 +264,28 @@ def test_nonsemantic_case_name_is_available_for_future_follow_up(
     async def not_semantic(*_args: str, **_kwargs: Any) -> bool:
         return False
 
+    reextraction_calls: list[object] = []
+
+    async def run_reextract(_session: object, spec: object, **_kwargs: object) -> SimpleNamespace:
+        reextraction_calls.append(spec)
+        return SimpleNamespace(
+            success=True,
+            result=SimpleNamespace(
+                value='{"classification":"complete_case_name","plaintiff":"Brown","defendant":"Board"}'
+            ),
+        )
+
     _configure_mellea(monkeypatch)
     monkeypatch.setattr(
         "mellea_lrc.validation.execution.mellea_case_names_match",
         not_semantic,
     )
+    monkeypatch.setattr(
+        "mellea_lrc.validation.field_checks.mellea_case_name_reextract.run_instruct_ivr",
+        run_reextract,
+    )
 
-    _, case_name, _ = (
+    lookup, case_name, year, reextraction, recheck = (
         validate_document(
             extracted,
             client=client,
@@ -254,6 +298,15 @@ def test_nonsemantic_case_name_is_available_for_future_follow_up(
     assert case_name.status is ValidationNodeStatus.SUCCEEDED
     assert case_name.outcome is CaseNameCheckOutcome.NOT_SEMANTIC_MATCH
     assert case_name.error is None
+    assert reextraction.depends_on == (case_name.node_id,)
+    assert isinstance(recheck, RecheckedCaseNameNode)
+    assert recheck.depends_on == (reextraction.node_id,)
+    assert recheck.outcome is CaseNameCheckOutcome.NOT_SEMANTIC_MATCH
+    assert lookup.node_id in year.depends_on
+    spec = reextraction_calls[0]
+    assert spec.user_variables == {"locator": "347 U.S. 483"}
+    assert "retrieved_case_name" not in spec.user_variables
+    assert "Brown v. Board" in spec.grounding_context["local_context"]
 
 
 def test_found_field_checks_skip_unavailable_values() -> None:
@@ -274,7 +327,9 @@ def test_found_field_checks_skip_unavailable_values() -> None:
     assert year.outcome is FieldCheckOutcome.UNAVAILABLE
 
 
-def test_not_found_stops_without_starting_a_fallback_branch() -> None:
+def test_not_found_reextracts_then_routes_to_case_search_placeholder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     extracted = _document(FullCaseCitation(volume="347", reporter="U.S.", page="9999"))
     client = LookupClient(
         CourtListenerCitationLookup(
@@ -284,13 +339,20 @@ def test_not_found_stops_without_starting_a_fallback_branch() -> None:
         )
     )
 
+    _mock_reextraction(monkeypatch)
     validation = validate_document(extracted, client=client)
 
     nodes = validation.citations[0].nodes
-    assert len(nodes) == 1
+    assert len(nodes) == 3
     assert nodes[0].status is ValidationNodeStatus.SUCCEEDED
     assert nodes[0].outcome is LocatorLookupOutcome.NOT_FOUND
     assert nodes[0].record is None
+    assert isinstance(nodes[1], CaseNameReextractionNode)
+    assert nodes[1].depends_on == (nodes[0].node_id,)
+    assert isinstance(nodes[2], CaseSearchNode)
+    assert nodes[2].status is ValidationNodeStatus.SKIPPED
+    assert nodes[2].outcome is CaseSearchOutcome.NOT_IMPLEMENTED
+    assert nodes[2].depends_on == (nodes[0].node_id, nodes[1].node_id)
 
 
 def test_ambiguous_lookup_stops_without_candidate_processing() -> None:

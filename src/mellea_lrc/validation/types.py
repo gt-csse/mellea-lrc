@@ -48,6 +48,20 @@ class CaseNameCheckOutcome(str, Enum):
     FAILED = "failed"
 
 
+class CaseNameReextractionOutcome(str, Enum):
+    """Outcomes of extracting citation-bound parties from local context."""
+
+    ACCEPTED = "accepted"
+    EMPTY = "empty"
+    FAILED = "failed"
+
+
+class CaseSearchOutcome(str, Enum):
+    """Outcomes of searching for a case after exact lookup fails."""
+
+    NOT_IMPLEMENTED = "not_implemented"
+
+
 @dataclass(frozen=True, slots=True)
 class ExactLocatorLookupNode:
     """One exact reporter-locator lookup against CourtListener.
@@ -95,6 +109,44 @@ class CaseNameCheckNode:
 
 
 @dataclass(frozen=True, slots=True)
+class CaseNameReextractionNode:
+    """Grounded plaintiff/defendant evidence extracted from local context."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: CaseNameReextractionOutcome
+    plaintiff: str | None
+    defendant: str | None
+    depends_on: tuple[str, ...]
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CaseSearchNode:
+    """Placeholder for case search using re-extracted party evidence."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: CaseSearchOutcome
+    depends_on: tuple[str, ...]
+    candidate_count: int = 0
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RecheckedCaseNameNode:
+    """Terminal case-name decision using re-extracted parties."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: CaseNameCheckOutcome
+    extracted_case_name: str | None
+    retrieved_case_name: str | None
+    depends_on: tuple[str, ...]
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class YearCheckNode:
     """Deterministic decision-year comparison after a found locator lookup."""
 
@@ -107,7 +159,14 @@ class YearCheckNode:
 
 
 # Expand this union as operation-specific validation nodes are introduced.
-ValidationNode: TypeAlias = ExactLocatorLookupNode | CaseNameCheckNode | YearCheckNode
+ValidationNode: TypeAlias = (
+    ExactLocatorLookupNode
+    | CaseNameCheckNode
+    | CaseNameReextractionNode
+    | CaseSearchNode
+    | RecheckedCaseNameNode
+    | YearCheckNode
+)
 
 
 @dataclass(frozen=True, slots=True)
