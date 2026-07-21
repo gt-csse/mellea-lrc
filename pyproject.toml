@@ -87,6 +87,7 @@ testpaths = ["tests"]
 # " --cov-fail-under=95.0" to addopts below.
 addopts = "--verbose -vv --capture=no --cov=mellea_lrc --cov-report html --cov-report term --cov-report xml:coverage.xml"
 markers = [
+    "llm_evaluation: opt-in live evaluations of configured LLM behavior",
     "remote_smoke: opt-in smoke tests that call external services",
 ]
 
