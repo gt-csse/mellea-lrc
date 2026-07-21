@@ -64,9 +64,7 @@ def test_mellea_case_name_check(
         depends_on=(),
     )
 
-    node = asyncio.run(
-        run_mellea_case_name_check(CitationValidation(citation=citation).append(exact_node))
-    )
+    node = asyncio.run(run_mellea_case_name_check(CitationValidation(citation=citation).append(exact_node)))
 
     assert node.status is ValidationNodeStatus.SUCCEEDED
     assert node.outcome is expected_outcome

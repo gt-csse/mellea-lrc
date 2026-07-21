@@ -24,9 +24,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Skip externally dependent tests unless explicitly requested."""
     skip_remote_smoke = pytest.mark.skip(reason="Pass --run-remote-smoke to run remote smoke tests.")
-    skip_llm_evaluation = pytest.mark.skip(
-        reason="Pass --run-llm-evaluations to run live LLM evaluations."
-    )
+    skip_llm_evaluation = pytest.mark.skip(reason="Pass --run-llm-evaluations to run live LLM evaluations.")
     for item in items:
         if "remote_smoke" in item.keywords and not config.getoption("--run-remote-smoke"):
             item.add_marker(skip_remote_smoke)

@@ -76,7 +76,9 @@ async def run_mellea_case_name_check(
             model_options=llm_api_config_from_env(os.environ).mellea_call_options(max_tokens=MAX_TOKENS),
         )
         if not result.success:
-            return _failed_node(validation, exact_node, "Semantic case-name check exhausted its repair budget")
+            return _failed_node(
+                validation, exact_node, "Semantic case-name check exhausted its repair budget"
+            )
         verdict = _parse(result.result.value).verdict
     except Exception as exc:
         return _failed_node(validation, exact_node, f"{type(exc).__name__}: {exc}")
