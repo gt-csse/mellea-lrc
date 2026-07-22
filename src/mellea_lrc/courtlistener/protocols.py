@@ -3,6 +3,7 @@
 from typing import Literal, Protocol
 
 from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationLookup
+from mellea_lrc.courtlistener.docket_models import CourtListenerDocket
 from mellea_lrc.courtlistener.search_models import CourtListenerSearchResult
 
 
@@ -26,3 +27,6 @@ class CourtListenerServiceClient(Protocol):
         semantic: bool = False,
     ) -> CourtListenerSearchResult:
         """Search a CourtListener corpus."""
+
+    def get_docket(self, docket_id: str) -> CourtListenerDocket:
+        """Retrieve one docket by its CourtListener identifier."""
