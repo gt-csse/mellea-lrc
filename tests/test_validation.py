@@ -1,6 +1,11 @@
 """Tests for the post-extraction validation-node progression."""
 
+import asyncio
+from types import SimpleNamespace
+
 import pytest
+from mellea.stdlib.sampling import MultiTurnStrategy
+from pydantic import BaseModel
 
 from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.spans import Span
@@ -10,16 +15,22 @@ from mellea_lrc.courtlistener import (
     CourtListenerError,
 )
 from mellea_lrc.extraction import ExtractedCitation, ExtractedDocument, ExtractionMetadata
+from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
 from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.validation import (
     ExactCaseNameCheckNode,
     ExactLocatorLookupNode,
     FieldCheckOutcome,
     LocatorLookupOutcome,
+    MelleaCaseNameReextractionNode,
+    MelleaCaseNameReextractionOutcome,
     ValidationNodeStatus,
     YearCheckNode,
     initialize_validation,
     validate_document,
+)
+from mellea_lrc.validation.field_checks.mellea_case_name_reextraction import (
+    run_mellea_case_name_reextraction,
 )
 
 
@@ -61,6 +72,32 @@ def _document(citation: FullCaseCitation | FullLawCitation) -> ExtractedDocument
         citations=(extracted,),
         extraction_metadata=ExtractionMetadata(),
     )
+
+
+def test_instruct_ivr_forwards_the_pydantic_output_format(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Forward the schema through Mellea's structured-output interface."""
+
+    class ExpectedOutput(BaseModel):
+        value: str
+
+    calls: list[dict[str, object]] = []
+
+    def fake_instruct(*_args: object, **kwargs: object) -> str:
+        calls.append(kwargs)
+        return '{"value":"structured"}'
+
+    monkeypatch.setattr("mellea_lrc.llm.ivr.mfuncs.instruct", fake_instruct)
+    result = asyncio.run(
+        run_instruct_ivr(
+            SimpleNamespace(backend=object()),
+            InstructIvrSpec(description="Return a value.", output_format=ExpectedOutput),
+            strategy=MultiTurnStrategy(loop_budget=1),
+            model_options={},
+        )
+    )
+
+    assert result == '{"value":"structured"}'
+    assert calls[0]["format"] is ExpectedOutput
 
 
 def test_initialize_validation_instances_one_progression_per_extracted_citation() -> None:
@@ -167,6 +204,60 @@ def test_found_field_checks_skip_unavailable_values() -> None:
     assert exact_case_name_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
     assert year_check_node.status is ValidationNodeStatus.SKIPPED
     assert year_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
+
+
+def test_mellea_case_name_reextraction_uses_only_local_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ground Mellea re-extraction in local text without a retrieved case name."""
+    document = _document(FullCaseCitation(volume="347", reporter="U.S.", page="483"))
+    validation = initialize_validation(document).citations[0]
+    exact_locator_lookup_node = ExactLocatorLookupNode(
+        node_id="cite-0001:exact_locator_lookup",
+        status=ValidationNodeStatus.SUCCEEDED,
+        outcome=LocatorLookupOutcome.FOUND,
+        locator="347 U.S. 483",
+        record=CourtListenerCitationRecord(case_name="Brown v. Board of Education"),
+        candidate_count=1,
+    )
+    validation = validation.append(exact_locator_lookup_node)
+    monkeypatch.setenv("MELLEA_LRC_LLM_MODEL", "test-model")
+    monkeypatch.setenv("MELLEA_LRC_LLM_API_BASE", "https://example.test/v1")
+    monkeypatch.setenv("MELLEA_LRC_LLM_API_KEY", "test-key")
+    calls: list[object] = []
+
+    async def fake_instruct(_session: object, spec: object, **_kwargs: object) -> SimpleNamespace:
+        calls.append(spec)
+        return SimpleNamespace(
+            success=True,
+            result=SimpleNamespace(
+                value=('{"classification":"complete_case_name","plaintiff":"Brown","defendant":"Board"}')
+            ),
+        )
+
+    monkeypatch.setattr(
+        "mellea_lrc.validation.field_checks.mellea_case_name_reextraction.run_instruct_ivr",
+        fake_instruct,
+    )
+
+    node = asyncio.run(
+        run_mellea_case_name_reextraction(
+            validation,
+            document_text=document.text,
+            session=object(),
+        )
+    )
+
+    assert isinstance(node, MelleaCaseNameReextractionNode)
+    assert node.outcome is MelleaCaseNameReextractionOutcome.COMPLETE
+    assert node.plaintiff == "Brown"
+    assert node.defendant == "Board"
+    assert node.depends_on == (exact_locator_lookup_node.node_id,)
+    spec = calls[0]
+    assert spec.user_variables == {"locator": "347 U.S. 483"}
+    assert spec.grounding_context.keys() == {"local_context"}
+    assert "Brown v. Board" in spec.grounding_context["local_context"]
+    assert spec.output_format.__name__ == "_PartyProposal"
 
 
 def test_not_found_stops_without_starting_a_fallback_branch() -> None:

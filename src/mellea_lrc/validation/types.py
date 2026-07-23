@@ -46,6 +46,16 @@ class MelleaCaseNameCheckOutcome(str, Enum):
     FAILED = "failed"
 
 
+class MelleaCaseNameReextractionOutcome(str, Enum):
+    """Results of Mellea re-extracting locally grounded case parties."""
+
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    NOT_FOUND = "not_found"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True, slots=True)
 class ExactLocatorLookupNode:
     """One exact reporter-locator lookup against CourtListener.
@@ -105,6 +115,32 @@ class MelleaCaseNameCheckNode:
 
 
 @dataclass(frozen=True, slots=True)
+class MelleaCaseNameReextractionNode:
+    """Plaintiff and defendant re-extracted from citation-local text by Mellea."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: MelleaCaseNameReextractionOutcome
+    plaintiff: str | None
+    defendant: str | None
+    depends_on: tuple[str, ...]
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MelleaReextractedCaseNameCheckNode:
+    """Semantic comparison using re-extracted plaintiff and defendant evidence."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: MelleaCaseNameCheckOutcome
+    reextracted_case_name: str | None
+    retrieved_case_name: str | None
+    depends_on: tuple[str, ...]
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class YearCheckNode:
     """Deterministic decision-year comparison after a found locator lookup."""
 
@@ -118,7 +154,12 @@ class YearCheckNode:
 
 # Expand this union as operation-specific validation nodes are introduced.
 ValidationNode: TypeAlias = (
-    ExactLocatorLookupNode | ExactCaseNameCheckNode | MelleaCaseNameCheckNode | YearCheckNode
+    ExactLocatorLookupNode
+    | ExactCaseNameCheckNode
+    | MelleaCaseNameCheckNode
+    | MelleaCaseNameReextractionNode
+    | MelleaReextractedCaseNameCheckNode
+    | YearCheckNode
 )
 
 
