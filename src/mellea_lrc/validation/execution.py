@@ -41,7 +41,15 @@ class CitationValidationRunner:
         document_text: str,
         session: MelleaSession | None = None,
     ) -> CitationValidation:
-        """Run one citation through its explicit locator-outcome progression."""
+        """Run the complete top-level locator-outcome graph.
+
+        Graph:
+            exact locator lookup
+            ├── found -> ``run_locator_found``
+            ├── not found -> ``run_locator_not_found``
+            ├── ambiguous -> ``run_locator_ambiguous``
+            └── unsupported, incomplete, or failed -> end
+        """
         exact_locator_lookup_node = run_exact_locator_lookup(validation, client=self.client)
         validation = validation.append(exact_locator_lookup_node)
 
@@ -66,7 +74,16 @@ class CitationValidationRunner:
         document_text: str,
         session: MelleaSession | None,
     ) -> CitationValidation:
-        """Run the progression rooted in one uniquely resolved locator."""
+        """Run the complete graph rooted in one uniquely resolved locator.
+
+        Graph:
+            found locator
+            ├── exact case-name check + year check
+            │   ├── exact case-name mismatch ->
+            │   │   ``run_locator_found_case_name_mismatch``
+            │   └── match or unavailable -> end
+            └── year result does not alter this progression yet
+        """
         if lookup.outcome is not LocatorLookupOutcome.FOUND:
             msg = "run_locator_found requires a found locator"
             raise ValueError(msg)
@@ -90,7 +107,16 @@ class CitationValidationRunner:
         document_text: str,
         session: MelleaSession | None,
     ) -> CitationValidation:
-        """Recover an exact case-name mismatch through semantic evidence."""
+        """Run the complete case-name recovery graph after an exact mismatch.
+
+        Graph:
+            exact case-name mismatch
+            └── Mellea semantic case-name check
+                ├── match or failed -> end
+                └── mismatch -> Mellea local party re-extraction
+                    ├── complete -> Mellea re-extracted case-name check -> end
+                    └── partial, not found, unavailable, or failed -> end
+        """
         if exact_case_name_check.outcome is not FieldCheckOutcome.MISMATCH:
             return validation
         semantic = await run_mellea_case_name_check(validation, session=session)
@@ -111,7 +137,15 @@ class CitationValidationRunner:
         *,
         lookup: ExactLocatorLookupNode,
     ) -> CitationValidation:
-        """Record a locator miss until its dedicated progression is introduced."""
+        """Run the complete current graph rooted in a locator miss.
+
+        Graph:
+            locator not found
+            └── end
+
+        A later ``run_locator_not_found_*`` decomposition will extend this
+        route without changing the top-level progression selector.
+        """
         if lookup.outcome is not LocatorLookupOutcome.NOT_FOUND:
             msg = "run_locator_not_found requires a not-found locator"
             raise ValueError(msg)
@@ -123,7 +157,15 @@ class CitationValidationRunner:
         *,
         lookup: ExactLocatorLookupNode,
     ) -> CitationValidation:
-        """Record ambiguous locator evidence until candidate handling is introduced."""
+        """Run the complete current graph rooted in an ambiguous locator.
+
+        Graph:
+            ambiguous locator
+            └── end
+
+        A later ``run_locator_ambiguous_*`` decomposition will extend this
+        route without changing the top-level progression selector.
+        """
         if lookup.outcome is not LocatorLookupOutcome.AMBIGUOUS:
             msg = "run_locator_ambiguous requires an ambiguous locator"
             raise ValueError(msg)
