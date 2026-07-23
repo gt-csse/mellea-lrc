@@ -1,0 +1,69 @@
+# deep_hero.mplstyle
+# A matplotlib style sheet approximating the "hero benchmark chart" look used in
+#
+# Usage:
+#   import matplotlib.pyplot as plt
+#   plt.style.use("deep_hero.mplstyle")
+#
+# This file covers everything expressible as rcParams (fonts, spines, grid,
+# tick styling). The per-bar highlighting / value labels / hatched "hero" bar
+# live in hero_charts.py, because a style sheet can't express them.
+
+# --- canvas ---
+figure.figsize      : 11, 4.5
+figure.dpi          : 120
+savefig.dpi         : 200
+savefig.bbox        : tight
+savefig.pad_inches  : 0.05
+figure.facecolor    : white
+axes.facecolor      : white
+
+# --- fonts (DejaVu Sans is matplotlib's default and is exactly what the
+#     deep/MiniMax plots embed, so no font install is needed) ---
+font.family         : sans-serif
+font.sans-serif     : DejaVu Sans, Arial, Helvetica, sans-serif
+font.size           : 9
+axes.titlesize      : 11
+axes.titleweight    : bold
+axes.labelsize      : 9.5
+axes.labelweight    : bold
+axes.labelcolor     : 202124
+
+# --- spines: strip the box, keep only a faint bottom rule ---
+axes.edgecolor      : BDC1C6
+axes.linewidth      : 0.8
+axes.spines.top     : False
+axes.spines.right   : False
+axes.spines.left    : False
+axes.spines.bottom  : True
+
+# --- grid: light horizontal lines only, drawn behind the bars ---
+axes.grid           : True
+axes.grid.axis      : y
+axes.axisbelow      : True
+grid.color          : E8EAED
+grid.linewidth      : 0.8
+grid.linestyle      : -
+
+# --- ticks: no tick marks, muted label colors ---
+xtick.bottom        : True
+xtick.major.size    : 0
+xtick.major.pad     : 6
+ytick.left          : False
+ytick.major.size    : 0
+xtick.labelsize     : 9
+ytick.labelsize     : 8.5
+xtick.color         : 3C4043
+ytick.color         : 5F6368
+
+# --- legend: frameless, compact ---
+legend.frameon      : False
+legend.fontsize     : 8.5
+legend.handlelength : 1.4
+legend.handleheight : 1.1
+legend.columnspacing: 1.4
+legend.borderaxespad: 0.0
+
+# --- bars / hatching defaults ---
+patch.linewidth     : 0
+hatch.linewidth     : 0.7

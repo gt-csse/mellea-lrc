@@ -95,7 +95,8 @@ markers = [
 line-length = 110
 
 [tool.ruff.lint]
-exclude = ["tests/**"]
+exclude = ["benchmarks/Extraction/notebooks", "tests/**"]
+
 
 
 select = ["ALL"]
