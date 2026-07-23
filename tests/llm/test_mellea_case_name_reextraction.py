@@ -88,7 +88,7 @@ def test_mellea_case_name_reextraction(
     node = asyncio.run(
         run_mellea_case_name_reextraction(
             CitationValidation(citation=citation).append(lookup).append(semantic_case_name_check),
-            semantic_case_name_check=semantic_case_name_check,
+            trigger=semantic_case_name_check,
             locator_lookup=lookup,
             document_text=text,
         )

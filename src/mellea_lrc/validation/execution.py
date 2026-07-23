@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from mellea_lrc.validation.case_search import run_mellea_case_name_query_preparation
 from mellea_lrc.validation.citation_lookup import run_exact_locator_lookup
 from mellea_lrc.validation.court_retrieval import run_docket_court_retrieval
 from mellea_lrc.validation.field_checks import (
@@ -150,7 +151,7 @@ class CitationValidationRunner:
             return validation
         reextraction = await run_mellea_case_name_reextraction(
             validation,
-            semantic_case_name_check=semantic,
+            trigger=semantic,
             locator_lookup=lookup,
             document_text=document_text,
             session=session,
@@ -179,15 +180,24 @@ class CitationValidationRunner:
 
         Graph:
             locator not found
-            └── Mellea local party re-extraction -> end
+            └── Mellea local party re-extraction
+                └── Mellea case-name query preparation -> end
         """
         if lookup.outcome is not LocatorLookupOutcome.NOT_FOUND:
             msg = "run_locator_not_found requires a not-found locator"
             raise ValueError(msg)
+        reextraction = await run_mellea_case_name_reextraction(
+            validation,
+            trigger=lookup,
+            locator_lookup=lookup,
+            document_text=document_text,
+            session=session,
+        )
+        validation = validation.append(reextraction)
         return validation.append(
-            await run_mellea_case_name_reextraction(
+            await run_mellea_case_name_query_preparation(
                 validation,
-                document_text=document_text,
+                reextraction=reextraction,
                 session=session,
             )
         )

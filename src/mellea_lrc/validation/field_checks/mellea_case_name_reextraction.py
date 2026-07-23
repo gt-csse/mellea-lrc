@@ -68,16 +68,16 @@ class _PartyProposal(BaseModel):
 async def run_mellea_case_name_reextraction(
     validation: CitationValidation,
     *,
-    semantic_case_name_check: MelleaCaseNameCheckNode,
+    trigger: ExactLocatorLookupNode | MelleaCaseNameCheckNode,
     locator_lookup: ExactLocatorLookupNode,
     document_text: str,
     session: MelleaSession | None = None,
 ) -> MelleaCaseNameReextractionNode:
-    """Re-extract locally grounded parties after a semantic case-name mismatch."""
+    """Re-extract locally grounded parties from an explicit validation trigger."""
     if not locator_lookup.locator:
         return _node(
             validation,
-            semantic_case_name_check,
+            trigger,
             ValidationNodeStatus.SKIPPED,
             MelleaCaseNameReextractionOutcome.UNAVAILABLE,
         )
@@ -116,7 +116,7 @@ async def run_mellea_case_name_reextraction(
         if not result.success:
             return _node(
                 validation,
-                semantic_case_name_check,
+                trigger,
                 ValidationNodeStatus.FAILED,
                 MelleaCaseNameReextractionOutcome.FAILED,
                 error="Case-name re-extraction exhausted its repair budget",
@@ -125,7 +125,7 @@ async def run_mellea_case_name_reextraction(
     except Exception as exc:
         return _node(
             validation,
-            semantic_case_name_check,
+            trigger,
             ValidationNodeStatus.FAILED,
             MelleaCaseNameReextractionOutcome.FAILED,
             error=f"{type(exc).__name__}: {exc}",
@@ -138,7 +138,7 @@ async def run_mellea_case_name_reextraction(
     }[proposal.classification]
     return _node(
         validation,
-        semantic_case_name_check,
+        trigger,
         ValidationNodeStatus.SUCCEEDED,
         outcome,
         plaintiff=proposal.plaintiff,
@@ -148,7 +148,7 @@ async def run_mellea_case_name_reextraction(
 
 def _node(
     validation: CitationValidation,
-    semantic_case_name_check: MelleaCaseNameCheckNode,
+    trigger: ExactLocatorLookupNode | MelleaCaseNameCheckNode,
     status: ValidationNodeStatus,
     outcome: MelleaCaseNameReextractionOutcome,
     *,
@@ -162,7 +162,7 @@ def _node(
         outcome=outcome,
         plaintiff=plaintiff,
         defendant=defendant,
-        depends_on=(semantic_case_name_check.node_id,),
+        depends_on=(trigger.node_id,),
         error=error,
     )
 

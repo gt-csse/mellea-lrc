@@ -56,6 +56,14 @@ class MelleaCaseNameReextractionOutcome(str, Enum):
     FAILED = "failed"
 
 
+class MelleaCaseNameQueryPreparationOutcome(str, Enum):
+    """Results of preparing a CourtListener query from re-extracted parties."""
+
+    PREPARED = "prepared"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
 class DocketCourtRetrievalOutcome(str, Enum):
     """Results of retrieving a CourtListener docket's court identifier."""
 
@@ -136,6 +144,21 @@ class MelleaCaseNameReextractionNode:
 
 
 @dataclass(frozen=True, slots=True)
+class MelleaCaseNameQueryPreparationNode:
+    """Mellea-prepared terms and deterministic query for candidate retrieval."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: MelleaCaseNameQueryPreparationOutcome
+    query: str | None
+    query_plaintiff: str | None
+    query_defendant: str | None
+    court_id: str | None
+    depends_on: tuple[str, ...]
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class MelleaReextractedCaseNameCheckNode:
     """Semantic comparison using re-extracted plaintiff and defendant evidence."""
 
@@ -191,6 +214,7 @@ ValidationNode: TypeAlias = (
     | ExactCaseNameCheckNode
     | MelleaCaseNameCheckNode
     | MelleaCaseNameReextractionNode
+    | MelleaCaseNameQueryPreparationNode
     | MelleaReextractedCaseNameCheckNode
     | DocketCourtRetrievalNode
     | CourtCheckNode

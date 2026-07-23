@@ -26,6 +26,8 @@ from mellea_lrc.validation import (
     LocatorLookupOutcome,
     MelleaCaseNameCheckNode,
     MelleaCaseNameCheckOutcome,
+    MelleaCaseNameQueryPreparationNode,
+    MelleaCaseNameQueryPreparationOutcome,
     MelleaCaseNameReextractionNode,
     MelleaCaseNameReextractionOutcome,
     ValidatedDocument,
@@ -37,6 +39,7 @@ from mellea_lrc.validation import (
 from mellea_lrc.validation.field_checks.mellea_case_name_reextraction import (
     run_mellea_case_name_reextraction,
 )
+from mellea_lrc.validation.case_search import run_mellea_case_name_query_preparation
 
 
 class LookupClient:
@@ -331,7 +334,7 @@ def test_mellea_case_name_reextraction_uses_only_local_context(
     node = asyncio.run(
         run_mellea_case_name_reextraction(
             validation,
-            semantic_case_name_check=semantic_case_name_check_node,
+            trigger=semantic_case_name_check_node,
             locator_lookup=exact_locator_lookup_node,
             document_text=document.text,
             session=object(),
@@ -361,9 +364,12 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
     async def fake_reextraction(
         validation: object,
         *,
+        trigger: ExactLocatorLookupNode,
+        locator_lookup: ExactLocatorLookupNode,
         document_text: str,
         session: object | None,
     ) -> MelleaCaseNameReextractionNode:
+        assert trigger is locator_lookup
         calls.append((validation, document_text, session))
         return MelleaCaseNameReextractionNode(
             node_id="cite-0001:mellea_case_name_reextraction",
@@ -379,14 +385,97 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
         fake_reextraction,
     )
 
+    async def fake_query_preparation(
+        validation: object,
+        *,
+        reextraction: MelleaCaseNameReextractionNode,
+        session: object | None,
+    ) -> MelleaCaseNameQueryPreparationNode:
+        del validation, session
+        return MelleaCaseNameQueryPreparationNode(
+            node_id="cite-0001:mellea_case_name_query_preparation",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaCaseNameQueryPreparationOutcome.PREPARED,
+            query='caseName:("Brown" AND "Board")',
+            query_plaintiff="Brown",
+            query_defendant="Board",
+            court_id=None,
+            depends_on=(reextraction.node_id,),
+        )
+
+    monkeypatch.setattr(
+        "mellea_lrc.validation.execution.run_mellea_case_name_query_preparation",
+        fake_query_preparation,
+    )
+
     session = object()
     progression = asyncio.run(validate_document(extracted, client=client, session=session)).citations[0]
 
-    assert len(progression.nodes) == 2
+    assert len(progression.nodes) == 3
     assert progression.nodes[0].outcome is LocatorLookupOutcome.NOT_FOUND
     assert isinstance(progression.nodes[1], MelleaCaseNameReextractionNode)
     assert progression.nodes[1].outcome is MelleaCaseNameReextractionOutcome.COMPLETE
+    assert isinstance(progression.nodes[2], MelleaCaseNameQueryPreparationNode)
+    assert progression.nodes[2].outcome is MelleaCaseNameQueryPreparationOutcome.PREPARED
     assert calls[0][1:] == (extracted.text, session)
+
+
+def test_mellea_case_name_query_preparation_constructs_the_courtlistener_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep CourtListener syntax in project code, not the Mellea response."""
+    document = _document(FullCaseCitation(volume="347", reporter="U.S.", page="9999", court="scotus"))
+    validation = initialize_validation(document).citations[0]
+    locator = ExactLocatorLookupNode(
+        node_id="cite-0001:exact_locator_lookup",
+        status=ValidationNodeStatus.SUCCEEDED,
+        outcome=LocatorLookupOutcome.NOT_FOUND,
+        locator="347 U.S. 9999",
+    )
+    reextraction = MelleaCaseNameReextractionNode(
+        node_id="cite-0001:mellea_case_name_reextraction",
+        status=ValidationNodeStatus.SUCCEEDED,
+        outcome=MelleaCaseNameReextractionOutcome.COMPLETE,
+        plaintiff="Brown",
+        defendant="Board of Education",
+        depends_on=(locator.node_id,),
+    )
+    validation = validation.append(locator).append(reextraction)
+    monkeypatch.setenv("MELLEA_LRC_LLM_MODEL", "test-model")
+    monkeypatch.setenv("MELLEA_LRC_LLM_API_BASE", "https://example.test/v1")
+    monkeypatch.setenv("MELLEA_LRC_LLM_API_KEY", "test-key")
+    calls: list[object] = []
+
+    async def fake_instruct(_session: object, spec: object, **_kwargs: object) -> SimpleNamespace:
+        calls.append(spec)
+        return SimpleNamespace(
+            success=True,
+            result=SimpleNamespace(
+                value='{"query_plaintiff":"Brown","query_defendant":"Board of Education"}'
+            ),
+        )
+
+    monkeypatch.setattr(
+        "mellea_lrc.validation.case_search.mellea_case_name_query_preparation.run_instruct_ivr",
+        fake_instruct,
+    )
+
+    node = asyncio.run(
+        run_mellea_case_name_query_preparation(
+            validation,
+            reextraction=reextraction,
+            session=object(),
+        )
+    )
+
+    assert node.status is ValidationNodeStatus.SUCCEEDED
+    assert node.outcome is MelleaCaseNameQueryPreparationOutcome.PREPARED
+    assert node.query == 'caseName:("Brown" AND "Board of Education") AND court_id:scotus'
+    assert node.depends_on == (reextraction.node_id,)
+    spec = calls[0]
+    assert spec.user_variables == {"plaintiff": "Brown", "defendant": "Board of Education"}
+    assert spec.grounding_context == {}
+    assert spec.output_format.__name__ == "_QueryTermsProposal"
 
 
 def test_ambiguous_lookup_stops_without_candidate_processing() -> None:
