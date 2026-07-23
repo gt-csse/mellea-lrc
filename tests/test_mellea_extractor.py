@@ -105,7 +105,7 @@ def test_locate_span_find_first_occurrence(
     incorrect_spans_korematsu_citations: dict,
     korematsu_text: str,
 ) -> None:
-    """Test the Mellea's Test function."""
+    """Test the Mellea's span function."""
     for citation, spans in correct_korematsu_citations.items():
         found_span: Span | None = extractor._locate_span(text=korematsu_text, matched_text=citation)
         start, end = spans
