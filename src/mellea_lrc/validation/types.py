@@ -56,6 +56,14 @@ class MelleaCaseNameReextractionOutcome(str, Enum):
     FAILED = "failed"
 
 
+class DocketCourtRetrievalOutcome(str, Enum):
+    """Results of retrieving a CourtListener docket's court identifier."""
+
+    FOUND = "found"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True, slots=True)
 class ExactLocatorLookupNode:
     """One exact reporter-locator lookup against CourtListener.
@@ -141,6 +149,19 @@ class MelleaReextractedCaseNameCheckNode:
 
 
 @dataclass(frozen=True, slots=True)
+class DocketCourtRetrievalNode:
+    """Court identifier retrieved from the docket linked to a found citation."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: DocketCourtRetrievalOutcome
+    docket_id: str | None
+    court_id: str | None
+    depends_on: tuple[str, ...]
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class YearCheckNode:
     """Deterministic decision-year comparison after a found locator lookup."""
 
@@ -159,6 +180,7 @@ ValidationNode: TypeAlias = (
     | MelleaCaseNameCheckNode
     | MelleaCaseNameReextractionNode
     | MelleaReextractedCaseNameCheckNode
+    | DocketCourtRetrievalNode
     | YearCheckNode
 )
 

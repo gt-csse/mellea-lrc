@@ -3,6 +3,8 @@
 from mellea_lrc.validation.types import (
     ExactCaseNameCheckNode,
     CitationValidation,
+    DocketCourtRetrievalNode,
+    DocketCourtRetrievalOutcome,
     ExactLocatorLookupNode,
     FieldCheckOutcome,
     LocatorLookupOutcome,
@@ -20,6 +22,8 @@ from mellea_lrc.validation.pipeline import initialize_validation, validate_docum
 
 __all__ = [
     "CitationValidation",
+    "DocketCourtRetrievalNode",
+    "DocketCourtRetrievalOutcome",
     "ExactCaseNameCheckNode",
     "ExactLocatorLookupNode",
     "FieldCheckOutcome",

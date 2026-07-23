@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from mellea_lrc.validation.citation_lookup import run_exact_locator_lookup
+from mellea_lrc.validation.court_retrieval import run_docket_court_retrieval
 from mellea_lrc.validation.field_checks import (
     run_exact_case_name_check,
     run_mellea_case_name_check,
@@ -78,7 +79,7 @@ class CitationValidationRunner:
 
         Graph:
             found locator
-            ├── exact case-name check + year check
+            ├── exact case-name check + year check + docket court retrieval
             │   ├── exact case-name mismatch ->
             │   │   ``run_locator_found_case_name_mismatch``
             │   └── match or unavailable -> end
@@ -89,7 +90,16 @@ class CitationValidationRunner:
             raise ValueError(msg)
         exact_case_name_check_node = run_exact_case_name_check(validation, lookup=lookup)
         year_check_node = run_year_check(validation, lookup=lookup)
-        validation = validation.append(exact_case_name_check_node).append(year_check_node)
+        docket_court_retrieval_node = run_docket_court_retrieval(
+            validation,
+            lookup=lookup,
+            client=self.client,
+        )
+        validation = (
+            validation.append(exact_case_name_check_node)
+            .append(year_check_node)
+            .append(docket_court_retrieval_node)
+        )
         if exact_case_name_check_node.outcome is not FieldCheckOutcome.MISMATCH:
             return validation
         return await self.run_locator_found_case_name_mismatch(
