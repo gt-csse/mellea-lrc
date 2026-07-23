@@ -12,12 +12,14 @@ from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import (
     CourtListenerCitationLookup,
     CourtListenerCitationRecord,
+    CourtListenerDocket,
     CourtListenerError,
 )
 from mellea_lrc.extraction import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
 from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.validation import (
+    CourtCheckNode,
     ExactCaseNameCheckNode,
     ExactLocatorLookupNode,
     FieldCheckOutcome,
@@ -40,9 +42,15 @@ from mellea_lrc.validation.field_checks.mellea_case_name_reextraction import (
 class LookupClient:
     """Minimal deterministic exact-lookup client for pipeline tests."""
 
-    def __init__(self, response: CourtListenerCitationLookup | CourtListenerError) -> None:
+    def __init__(
+        self,
+        response: CourtListenerCitationLookup | CourtListenerError,
+        docket_response: CourtListenerDocket | CourtListenerError | None = None,
+    ) -> None:
         self.response = response
+        self.docket_response = docket_response
         self.calls: list[tuple[str, str, str]] = []
+        self.docket_calls: list[str] = []
 
     def lookup_citation(
         self,
@@ -55,6 +63,16 @@ class LookupClient:
         if isinstance(self.response, CourtListenerError):
             raise self.response
         return self.response
+
+    def get_docket(self, docket_id: str) -> CourtListenerDocket:
+        """Record the docket identifier and return the configured result."""
+        self.docket_calls.append(docket_id)
+        if isinstance(self.docket_response, CourtListenerError):
+            raise self.docket_response
+        if self.docket_response is None:
+            msg = "No docket response configured"
+            raise AssertionError(msg)
+        return self.docket_response
 
 
 def _validate(document: ExtractedDocument, client: LookupClient) -> ValidatedDocument:
@@ -119,7 +137,7 @@ def test_initialize_validation_instances_one_progression_per_extracted_citation(
     assert validation.citations[0].nodes == ()
 
 
-def test_exact_locator_found_fans_out_to_exact_case_name_and_year_checks() -> None:
+def test_exact_locator_found_fans_out_to_field_checks() -> None:
     extracted = _document(
         FullCaseCitation(
             plaintiff="Brown",
@@ -128,29 +146,36 @@ def test_exact_locator_found_fans_out_to_exact_case_name_and_year_checks() -> No
             reporter="U.S.",
             page="483",
             year="1954",
+            court="scotus",
         )
     )
     record = CourtListenerCitationRecord(
         case_name="Brown v. Board",
         date_filed="1954-05-17",
         court_id="scotus",
+        docket_id="84657",
     )
     client = LookupClient(
         CourtListenerCitationLookup(
             citation="347 U.S. 483",
             status=200,
             records=(record,),
-        )
+        ),
+        docket_response=CourtListenerDocket(docket_id="84657", court_id="scotus"),
     )
 
     validation = _validate(extracted, client)
 
     progression = validation.citation_by_id("cite-0001")
     assert client.calls == [("347", "U.S.", "483")]
-    assert len(progression.nodes) == 4
-    exact_locator_lookup_node, exact_case_name_check_node, year_check_node, docket_court_retrieval_node = (
-        progression.nodes
-    )
+    assert len(progression.nodes) == 5
+    (
+        exact_locator_lookup_node,
+        exact_case_name_check_node,
+        year_check_node,
+        docket_court_retrieval_node,
+        court_check_node,
+    ) = progression.nodes
     assert isinstance(exact_locator_lookup_node, ExactLocatorLookupNode)
     assert exact_locator_lookup_node.outcome is LocatorLookupOutcome.FOUND
     assert exact_locator_lookup_node.record is record
@@ -160,7 +185,11 @@ def test_exact_locator_found_fans_out_to_exact_case_name_and_year_checks() -> No
     assert isinstance(year_check_node, YearCheckNode)
     assert year_check_node.outcome is FieldCheckOutcome.MATCH
     assert year_check_node.depends_on == (exact_locator_lookup_node.node_id,)
-    assert docket_court_retrieval_node.status is ValidationNodeStatus.SKIPPED
+    assert docket_court_retrieval_node.status is ValidationNodeStatus.SUCCEEDED
+    assert client.docket_calls == ["84657"]
+    assert isinstance(court_check_node, CourtCheckNode)
+    assert court_check_node.outcome is FieldCheckOutcome.MATCH
+    assert court_check_node.depends_on == (docket_court_retrieval_node.node_id,)
 
 
 def test_found_field_checks_record_mismatch_without_failing_execution(
@@ -174,6 +203,7 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
             reporter="U.S.",
             page="483",
             year="1954",
+            court="ca10",
         )
     )
     client = LookupClient(
@@ -184,9 +214,11 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
                 CourtListenerCitationRecord(
                     case_name="Different v. Case",
                     date_filed="1955-01-01",
+                    docket_id="98765",
                 ),
             ),
-        )
+        ),
+        docket_response=CourtListenerDocket(docket_id="98765", court_id="ca9"),
     )
 
     async def fake_semantic_check(
@@ -209,9 +241,14 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
         fake_semantic_check,
     )
 
-    _, exact_case_name_check_node, year_check_node, _, semantic_case_name_check_node = (
-        _validate(extracted, client).citations[0].nodes
-    )
+    (
+        _,
+        exact_case_name_check_node,
+        year_check_node,
+        _,
+        court_check_node,
+        semantic_case_name_check_node,
+    ) = _validate(extracted, client).citations[0].nodes
 
     assert exact_case_name_check_node.status is ValidationNodeStatus.SUCCEEDED
     assert exact_case_name_check_node.outcome is FieldCheckOutcome.MISMATCH
@@ -219,6 +256,8 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
     assert year_check_node.outcome is FieldCheckOutcome.MISMATCH
     assert semantic_case_name_check_node.status is ValidationNodeStatus.SUCCEEDED
     assert semantic_case_name_check_node.outcome is MelleaCaseNameCheckOutcome.MATCH
+    assert court_check_node.status is ValidationNodeStatus.SUCCEEDED
+    assert court_check_node.outcome is FieldCheckOutcome.MISMATCH
 
 
 def test_found_field_checks_skip_unavailable_values() -> None:
@@ -231,12 +270,16 @@ def test_found_field_checks_skip_unavailable_values() -> None:
         )
     )
 
-    _, exact_case_name_check_node, year_check_node, _ = _validate(extracted, client).citations[0].nodes
+    _, exact_case_name_check_node, year_check_node, _, court_check_node = (
+        _validate(extracted, client).citations[0].nodes
+    )
 
     assert exact_case_name_check_node.status is ValidationNodeStatus.SKIPPED
     assert exact_case_name_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
     assert year_check_node.status is ValidationNodeStatus.SKIPPED
     assert year_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
+    assert court_check_node.status is ValidationNodeStatus.SKIPPED
+    assert court_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
 
 
 def test_mellea_case_name_reextraction_uses_only_local_context(
