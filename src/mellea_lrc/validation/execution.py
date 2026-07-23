@@ -108,6 +108,7 @@ class CitationValidationRunner:
             return validation
         return await self.run_locator_found_case_name_mismatch(
             validation,
+            lookup=lookup,
             exact_case_name_check=exact_case_name_check_node,
             document_text=document_text,
             session=session,
@@ -117,6 +118,7 @@ class CitationValidationRunner:
         self,
         validation: CitationValidation,
         *,
+        lookup: ExactLocatorLookupNode,
         exact_case_name_check: ExactCaseNameCheckNode,
         document_text: str,
         session: MelleaSession | None,
@@ -133,17 +135,32 @@ class CitationValidationRunner:
         """
         if exact_case_name_check.outcome is not FieldCheckOutcome.MISMATCH:
             return validation
-        semantic = await run_mellea_case_name_check(validation, session=session)
+        semantic = await run_mellea_case_name_check(
+            validation,
+            case_name_evidence=exact_case_name_check,
+            session=session,
+        )
         validation = validation.append(semantic)
         if semantic.outcome is not MelleaCaseNameCheckOutcome.MISMATCH:
             return validation
         reextraction = await run_mellea_case_name_reextraction(
-            validation, document_text=document_text, session=session
+            validation,
+            semantic_case_name_check=semantic,
+            locator_lookup=lookup,
+            document_text=document_text,
+            session=session,
         )
         validation = validation.append(reextraction)
         if reextraction.outcome is not MelleaCaseNameReextractionOutcome.COMPLETE:
             return validation
-        return validation.append(await run_mellea_case_name_check(validation, session=session))
+        return validation.append(
+            await run_mellea_case_name_check(
+                validation,
+                case_name_evidence=reextraction,
+                locator_lookup=lookup,
+                session=session,
+            )
+        )
 
     async def run_locator_not_found(
         self,

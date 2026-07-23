@@ -87,7 +87,8 @@ def _document(citation: FullCaseCitation | FullLawCitation) -> ExtractedDocument
     start = text.index(locator)
     extracted = ExtractedCitation(
         citation_id="cite-0001",
-        span=Span(start, start + len(locator)),
+        span=Span(0, len(text)),
+        locator_span=Span(start, start + len(locator)),
         matched_text=locator,
         citation=citation,
     )
@@ -224,8 +225,10 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
     async def fake_semantic_check(
         _validation: object,
         *,
+        case_name_evidence: ExactCaseNameCheckNode,
         session: object | None = None,
     ) -> MelleaCaseNameCheckNode:
+        del case_name_evidence
         del session
         return MelleaCaseNameCheckNode(
             node_id="cite-0001:mellea_case_name_check",
@@ -297,6 +300,15 @@ def test_mellea_case_name_reextraction_uses_only_local_context(
         candidate_count=1,
     )
     validation = validation.append(exact_locator_lookup_node)
+    semantic_case_name_check_node = MelleaCaseNameCheckNode(
+        node_id="cite-0001:mellea_case_name_check",
+        status=ValidationNodeStatus.SUCCEEDED,
+        outcome=MelleaCaseNameCheckOutcome.MISMATCH,
+        extracted_case_name="Brown v. Board",
+        retrieved_case_name="Brown v. Board of Education",
+        depends_on=(exact_locator_lookup_node.node_id,),
+    )
+    validation = validation.append(semantic_case_name_check_node)
     monkeypatch.setenv("MELLEA_LRC_LLM_MODEL", "test-model")
     monkeypatch.setenv("MELLEA_LRC_LLM_API_BASE", "https://example.test/v1")
     monkeypatch.setenv("MELLEA_LRC_LLM_API_KEY", "test-key")
@@ -319,6 +331,8 @@ def test_mellea_case_name_reextraction_uses_only_local_context(
     node = asyncio.run(
         run_mellea_case_name_reextraction(
             validation,
+            semantic_case_name_check=semantic_case_name_check_node,
+            locator_lookup=exact_locator_lookup_node,
             document_text=document.text,
             session=object(),
         )
@@ -328,7 +342,7 @@ def test_mellea_case_name_reextraction_uses_only_local_context(
     assert node.outcome is MelleaCaseNameReextractionOutcome.COMPLETE
     assert node.plaintiff == "Brown"
     assert node.defendant == "Board"
-    assert node.depends_on == (exact_locator_lookup_node.node_id,)
+    assert node.depends_on == (semantic_case_name_check_node.node_id,)
     spec = calls[0]
     assert spec.user_variables == {"locator": "347 U.S. 483"}
     assert spec.grounding_context.keys() == {"local_context"}

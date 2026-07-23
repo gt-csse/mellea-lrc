@@ -57,13 +57,23 @@ class _SemanticVerdict(BaseModel):
 async def run_mellea_case_name_check(
     validation: CitationValidation,
     *,
+    case_name_evidence: ExactCaseNameCheckNode | MelleaCaseNameReextractionNode,
+    locator_lookup: ExactLocatorLookupNode | None = None,
     session: MelleaSession | None = None,
 ) -> MelleaCaseNameCheckNode | MelleaReextractedCaseNameCheckNode:
-    """Compare the current case-name evidence against the retrieved case name."""
-    reextraction = _latest_reextraction(validation)
-    if reextraction is not None:
-        return await _run_reextracted_check(validation, reextraction, session=session)
-    exact_node = _latest_exact_case_name_check(validation)
+    """Compare explicitly supplied case-name evidence against the retrieved name."""
+    if isinstance(case_name_evidence, MelleaCaseNameReextractionNode):
+        if locator_lookup is None:
+            msg = "Re-extracted case-name evidence requires its locator lookup"
+            raise ValueError(msg)
+        return await _run_reextracted_check(
+            validation,
+            case_name_evidence,
+            locator_lookup=locator_lookup,
+            session=session,
+        )
+
+    exact_node = case_name_evidence
     try:
         resolved_session = session or start_mellea_session_from_env()
         spec = InstructIvrSpec(
@@ -114,14 +124,6 @@ def _valid_schema(ctx: Context) -> ValidationResult:
     return ValidationResult(result=True)
 
 
-def _latest_exact_case_name_check(validation: CitationValidation) -> ExactCaseNameCheckNode:
-    try:
-        return next(node for node in reversed(validation.nodes) if isinstance(node, ExactCaseNameCheckNode))
-    except StopIteration as exc:
-        msg = "Mellea case-name check requires an exact case-name check"
-        raise RuntimeError(msg) from exc
-
-
 def _failed_node(
     validation: CitationValidation,
     exact_node: ExactCaseNameCheckNode,
@@ -142,11 +144,11 @@ async def _run_reextracted_check(
     validation: CitationValidation,
     reextraction: MelleaCaseNameReextractionNode,
     *,
+    locator_lookup: ExactLocatorLookupNode,
     session: MelleaSession | None,
 ) -> MelleaReextractedCaseNameCheckNode:
     extracted = _case_name_from_reextraction(reextraction)
-    lookup = _latest_locator_lookup(validation)
-    retrieved = lookup.record.case_name if lookup.record is not None else None
+    retrieved = locator_lookup.record.case_name if locator_lookup.record is not None else None
     if extracted is None or retrieved is None:
         return MelleaReextractedCaseNameCheckNode(
             node_id=f"{validation.citation_id}:mellea_reextracted_case_name_check",
@@ -172,17 +174,6 @@ def _case_name_from_reextraction(node: MelleaCaseNameReextractionNode) -> str | 
     if node.plaintiff is None or node.defendant is None:
         return None
     return f"{node.plaintiff} v. {node.defendant}"
-
-
-def _latest_reextraction(validation: CitationValidation) -> MelleaCaseNameReextractionNode | None:
-    return next(
-        (node for node in reversed(validation.nodes) if isinstance(node, MelleaCaseNameReextractionNode)),
-        None,
-    )
-
-
-def _latest_locator_lookup(validation: CitationValidation) -> ExactLocatorLookupNode:
-    return next(node for node in reversed(validation.nodes) if isinstance(node, ExactLocatorLookupNode))
 
 
 async def _semantic_outcome(
