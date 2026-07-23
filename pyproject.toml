@@ -14,7 +14,7 @@ authors = [
     { name = "Adrian Lozada", email = "alozada7@gatech.edu" },
     { name = "Robert Bates", email = "rbates8@gatech.edu" },
 ]
-requires-python = ">= 3.10"
+requires-python = ">= 3.11"
 dependencies = [
     "pydantic>=2,<3",
     "requests>=2.32,<3",
