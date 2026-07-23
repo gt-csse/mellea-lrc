@@ -18,10 +18,9 @@ def korematsu_text() -> str:
     return path.read_text()
 
 
-@pytest.fixture
-def incorrect_korematsu_citations() -> dict:
+def extract_citations(file_name: Path | str) -> list[tuple[str, list[int]]]:
     """Return a dict with all full-case citations and their spans."""
-    path = Path(__file__).parent / "data" / "Incorrect_Citations_Korematsu_v_US.txt"
+    path = Path(__file__).parent / "data" / file_name
     if not (path.exists() and path.is_file()):
         msg = f"The Korematsu file with citations doesn't exist or is not a file: {path}"
         raise Exception(msg)
@@ -32,53 +31,31 @@ def incorrect_korematsu_citations() -> dict:
         msg = "No citations found"
         raise Exception(msg)
     citations_components: list[list[str]] = [
-        [item.strip() for item in citation.split("---")] for citation in citations.splitlines() if citation
+        [item.strip() for item in citation.split(sep="---")]
+        for citation in citations.splitlines()
+        if citation
     ]
-    return {
-        citation: [int(span.strip()) for span in spans.split()] for citation, spans in citations_components
-    }
+    return [
+        (citation, [int(span.strip()) for span in spans.split()]) for citation, spans in citations_components
+    ]
 
 
 @pytest.fixture
-def incorrect_spans_korematsu_citations() -> dict:
+def incorrect_korematsu_citations() -> list:
     """Return a dict with all full-case citations and their spans."""
-    path = Path(__file__).parent / "data" / "Incorrect_Span_Korematsu_v_US.txt"
-    if not (path.exists() and path.is_file()):
-        msg = f"The Korematsu file with citations doesn't exist or is not a file: {path}"
-        raise Exception(msg)
-    citations = None
-    with path.open(mode="r") as file:
-        citations = file.read()
-    if citations is None:
-        msg = "No citations found"
-        raise Exception(msg)
-    citations_components: list[list[str]] = [
-        [item.strip() for item in citation.split("---")] for citation in citations.splitlines() if citation
-    ]
-    return {
-        citation: [int(span.strip()) for span in spans.split()] for citation, spans in citations_components
-    }
+    return extract_citations("Incorrect_Citations_Korematsu_v_US.txt")
 
 
 @pytest.fixture
-def correct_korematsu_citations() -> dict:
+def incorrect_spans_korematsu_citations() -> list:
     """Return a dict with all full-case citations and their spans."""
-    path = Path(__file__).parent / "data" / "Correct_Citations_Korematsu_v_US.txt"
-    if not (path.exists() and path.is_file()):
-        msg = f"The Korematsu file with citations doesn't exist or is not a file: {path}"
-        raise Exception(msg)
-    citations = None
-    with path.open(mode="r") as file:
-        citations = file.read()
-    if citations is None:
-        msg = "No citations found"
-        raise Exception(msg)
-    citations_components: list[list[str]] = [
-        [item.strip() for item in citation.split("---")] for citation in citations.splitlines() if citation
-    ]
-    return {
-        citation: [int(span.strip()) for span in spans.split()] for citation, spans in citations_components
-    }
+    return extract_citations("Incorrect_Span_Korematsu_v_US.txt")
+
+
+@pytest.fixture
+def correct_korematsu_citations() -> list:
+    """Return a dict with all full-case citations and their spans."""
+    return extract_citations("Correct_Citations_Korematsu_v_US.txt")
 
 
 @pytest.fixture
@@ -106,17 +83,17 @@ def test_locate_span_find_first_occurrence(
     korematsu_text: str,
 ) -> None:
     """Test the Mellea's span function."""
-    for citation, spans in correct_korematsu_citations.items():
+    for citation, spans in correct_korematsu_citations:
         found_span: Span | None = extractor._locate_span(text=korematsu_text, matched_text=citation)
         start, end = spans
         assert found_span is not None
         assert found_span == Span(start=start, end=end)
 
-    for citation, spans in incorrect_korematsu_citations.items():
+    for citation, spans in incorrect_korematsu_citations:
         found_span: Span | None = extractor._locate_span(text=korematsu_text, matched_text=citation)
         assert found_span is None
 
-    for citation, spans in incorrect_spans_korematsu_citations.items():
+    for citation, spans in incorrect_spans_korematsu_citations:
         found_span: Span | None = extractor._locate_span(text=korematsu_text, matched_text=citation)
         start, end = spans
         assert found_span != Span(start=start, end=end)
