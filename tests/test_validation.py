@@ -231,9 +231,7 @@ def test_found_field_checks_skip_unavailable_values() -> None:
         )
     )
 
-    _, exact_case_name_check_node, year_check_node, _ = (
-        _validate(extracted, client).citations[0].nodes
-    )
+    _, exact_case_name_check_node, year_check_node, _ = _validate(extracted, client).citations[0].nodes
 
     assert exact_case_name_check_node.status is ValidationNodeStatus.SKIPPED
     assert exact_case_name_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
