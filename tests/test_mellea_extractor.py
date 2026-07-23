@@ -13,7 +13,7 @@ def korematsu_text() -> str:
     """Return the Korematsu text."""
     path = Path(__file__).parent / "data" / "Korematsu_v_US.txt"
     if not (path.exists() and path.is_file()):
-        msg = f"The Korematsu file doesn't exists or is not a file: {path}"
+        msg = f"The Korematsu file doesn't exist or is not a file: {path}"
         raise Exception(msg)
     return path.read_text()
 
