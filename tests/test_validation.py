@@ -32,7 +32,6 @@ from mellea_lrc.validation import (
     initialize_validation,
     validate_document,
 )
-from mellea_lrc.validation.execution import CitationValidationRunner
 from mellea_lrc.validation.field_checks.mellea_case_name_reextraction import (
     run_mellea_case_name_reextraction,
 )
@@ -291,25 +290,6 @@ def test_mellea_case_name_reextraction_uses_only_local_context(
     assert spec.output_format.__name__ == "_PartyProposal"
 
 
-def test_not_found_stops_without_starting_a_fallback_branch() -> None:
-    extracted = _document(FullCaseCitation(volume="347", reporter="U.S.", page="9999"))
-    client = LookupClient(
-        CourtListenerCitationLookup(
-            citation="347 U.S. 9999",
-            status=404,
-            records=(),
-        )
-    )
-
-    validation = _validate(extracted, client)
-
-    nodes = validation.citations[0].nodes
-    assert len(nodes) == 1
-    assert nodes[0].status is ValidationNodeStatus.SUCCEEDED
-    assert nodes[0].outcome is LocatorLookupOutcome.NOT_FOUND
-    assert nodes[0].record is None
-
-
 def test_not_found_reextracts_case_parties_in_the_mellea_progression(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -322,7 +302,7 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
         validation: object,
         *,
         document_text: str,
-        session: object,
+        session: object | None,
     ) -> MelleaCaseNameReextractionNode:
         calls.append((validation, document_text, session))
         return MelleaCaseNameReextractionNode(
@@ -340,14 +320,7 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
     )
 
     session = object()
-    initial = initialize_validation(extracted).citations[0]
-    progression = asyncio.run(
-        CitationValidationRunner(client=client).run_with_mellea(
-            initial,
-            document_text=extracted.text,
-            session=session,
-        )
-    )
+    progression = asyncio.run(validate_document(extracted, client=client, session=session)).citations[0]
 
     assert len(progression.nodes) == 2
     assert progression.nodes[0].outcome is LocatorLookupOutcome.NOT_FOUND
