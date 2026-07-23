@@ -350,23 +350,43 @@ def test_mellea_case_name_reextraction_uses_only_local_context(
     assert spec.output_format.__name__ == "_PartyProposal"
 
 
-def test_not_found_stops_without_starting_a_fallback_branch() -> None:
+def test_not_found_reextracts_case_parties_in_the_mellea_progression(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Route a locator miss to local party re-extraction before candidate search."""
     extracted = _document(FullCaseCitation(volume="347", reporter="U.S.", page="9999"))
-    client = LookupClient(
-        CourtListenerCitationLookup(
-            citation="347 U.S. 9999",
-            status=404,
-            records=(),
+    client = LookupClient(CourtListenerCitationLookup(citation="347 U.S. 9999", status=404, records=()))
+    calls: list[tuple[object, str, object]] = []
+
+    async def fake_reextraction(
+        validation: object,
+        *,
+        document_text: str,
+        session: object | None,
+    ) -> MelleaCaseNameReextractionNode:
+        calls.append((validation, document_text, session))
+        return MelleaCaseNameReextractionNode(
+            node_id="cite-0001:mellea_case_name_reextraction",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaCaseNameReextractionOutcome.COMPLETE,
+            plaintiff="Brown",
+            defendant="Board",
+            depends_on=("cite-0001:exact_locator_lookup",),
         )
+
+    monkeypatch.setattr(
+        "mellea_lrc.validation.execution.run_mellea_case_name_reextraction",
+        fake_reextraction,
     )
 
-    validation = _validate(extracted, client)
+    session = object()
+    progression = asyncio.run(validate_document(extracted, client=client, session=session)).citations[0]
 
-    nodes = validation.citations[0].nodes
-    assert len(nodes) == 1
-    assert nodes[0].status is ValidationNodeStatus.SUCCEEDED
-    assert nodes[0].outcome is LocatorLookupOutcome.NOT_FOUND
-    assert nodes[0].record is None
+    assert len(progression.nodes) == 2
+    assert progression.nodes[0].outcome is LocatorLookupOutcome.NOT_FOUND
+    assert isinstance(progression.nodes[1], MelleaCaseNameReextractionNode)
+    assert progression.nodes[1].outcome is MelleaCaseNameReextractionOutcome.COMPLETE
+    assert calls[0][1:] == (extracted.text, session)
 
 
 def test_ambiguous_lookup_stops_without_candidate_processing() -> None:
