@@ -9,6 +9,8 @@ from mellea_lrc.validation.execution import CitationValidationRunner
 from mellea_lrc.validation.types import CitationValidation, ValidatedDocument
 
 if TYPE_CHECKING:
+    from mellea import MelleaSession
+
     from mellea_lrc.courtlistener.protocols import CourtListenerServiceClient
     from mellea_lrc.extraction.types import ExtractedDocument
 
@@ -21,14 +23,22 @@ def initialize_validation(document: ExtractedDocument) -> ValidatedDocument:
     )
 
 
-def validate_document(
+async def validate_document(
     document: ExtractedDocument,
     *,
     client: CourtListenerServiceClient | None = None,
+    session: MelleaSession | None = None,
 ) -> ValidatedDocument:
-    """Run each extracted citation through the configured validation loop."""
+    """Run each extracted citation through the common validation progression."""
     service = client if client is not None else CourtListenerClient()
     initialized = initialize_validation(document)
     runner = CitationValidationRunner(client=service)
-    citations = tuple(runner.run(item) for item in initialized.citations)
-    return ValidatedDocument(source=document, citations=citations)
+    citations = [
+        await runner.run_validation(
+            citation,
+            document_text=document.text,
+            session=session,
+        )
+        for citation in initialized.citations
+    ]
+    return ValidatedDocument(source=document, citations=tuple(citations))
