@@ -162,6 +162,18 @@ class DocketCourtRetrievalNode:
 
 
 @dataclass(frozen=True, slots=True)
+class CourtCheckNode:
+    """Exact comparison of Eyecite and CourtListener court identifiers."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: FieldCheckOutcome
+    extracted_court_id: str | None
+    retrieved_court_id: str | None
+    depends_on: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class YearCheckNode:
     """Deterministic decision-year comparison after a found locator lookup."""
 
@@ -181,6 +193,7 @@ ValidationNode: TypeAlias = (
     | MelleaCaseNameReextractionNode
     | MelleaReextractedCaseNameCheckNode
     | DocketCourtRetrievalNode
+    | CourtCheckNode
     | YearCheckNode
 )
 

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from mellea_lrc.validation.citation_lookup import run_exact_locator_lookup
 from mellea_lrc.validation.court_retrieval import run_docket_court_retrieval
 from mellea_lrc.validation.field_checks import (
+    run_court_check,
     run_exact_case_name_check,
     run_mellea_case_name_check,
     run_mellea_case_name_reextraction,
@@ -83,7 +84,8 @@ class CitationValidationRunner:
             │   ├── exact case-name mismatch ->
             │   │   ``run_locator_found_case_name_mismatch``
             │   └── match or unavailable -> end
-            └── year result does not alter this progression yet
+            ├── docket court retrieval -> court check
+            └── year and court results do not alter this progression yet
         """
         if lookup.outcome is not LocatorLookupOutcome.FOUND:
             msg = "run_locator_found requires a found locator"
@@ -95,10 +97,12 @@ class CitationValidationRunner:
             lookup=lookup,
             client=self.client,
         )
+        court_check_node = run_court_check(validation, retrieval=docket_court_retrieval_node)
         validation = (
             validation.append(exact_case_name_check_node)
             .append(year_check_node)
             .append(docket_court_retrieval_node)
+            .append(court_check_node)
         )
         if exact_case_name_check_node.outcome is not FieldCheckOutcome.MISMATCH:
             return validation
