@@ -14,7 +14,7 @@ authors = [
     { name = "Adrian Lozada", email = "alozada7@gatech.edu" },
     { name = "Robert Bates", email = "rbates8@gatech.edu" },
 ]
-requires-python = ">= 3.10"
+requires-python = ">= 3.11"
 dependencies = [
     "pydantic>=2,<3",
     "requests>=2.32,<3",
@@ -52,7 +52,7 @@ extraction = [
     "docling>=2.102.2",
     "dotenv>=0.9.9",
     "eyecite>=2.6",
-    "mellea>=0.3.2",
+    "mellea>=0.6",
 ]
 label-studio = [
     { include-group = "extraction" },
@@ -95,7 +95,8 @@ markers = [
 line-length = 110
 
 [tool.ruff.lint]
-exclude = ["tests/**"]
+exclude = ["benchmarks/Extraction/notebooks", "tests/**"]
+
 
 
 select = ["ALL"]
@@ -123,6 +124,8 @@ ignore = [
     "UP032", # Use f-string instead of `format` call
     "D203", # Incorrect blank lines before class
     "D213", # Multiline line summary second line
+    "CPY001", # Ignore Copyright header check for now
+    "UP042", # Ignore Ruff's recommendation to use `class(StrEnum)` instead of `class(str, Enum)`
 ]
 
 [tool.ruff.lint.mccabe]
