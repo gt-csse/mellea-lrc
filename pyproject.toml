@@ -125,6 +125,7 @@ ignore = [
     "D203", # Incorrect blank lines before class
     "D213", # Multiline line summary second line
     "CPY001", # Ignore Copyright header check for now
+    "UP042", # Ignore Ruff's recommendation to use `class(StrEnum)` instead of `class(str, Enum)`
 ]
 
 [tool.ruff.lint.mccabe]
