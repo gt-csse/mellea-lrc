@@ -3,7 +3,6 @@
 import uuid
 import re
 from pathlib import Path
-from typing import Literal
 
 import mellea
 from mellea import MelleaSession
@@ -206,30 +205,3 @@ class MelleaExtractor(BaseExtractor):
         ).value
 
         return response.splitlines()
-
-    def _divide_and_conquer_strategy(self, text: str) -> list[str]:  # noqa: ARG002
-        """Breakdown the input and extract the citations."""
-        return []
-
-    def _seperate_by_paragraph(self) -> list[str]:
-        """Return a list of all paragraphs."""
-
-    @mellea.generative
-    def _check_for_citation(self) -> Literal["yes", "no"]:
-        """Return `yes` if there is a case-law citation in the paragraph. Otherwise, return `no`."""
-
-    @mellea.generative
-    def _return_citation(self) -> str:
-        """Return the citation within the paragrah."""
-
-    @mellea.generative
-    def _classify_citation(
-        self, matched_text: str
-    ) -> Literal[
-        CitationKind.FULL_CASE,
-        CitationKind.SHORT_CASE,
-        CitationKind.SUPRA,
-        CitationKind.ID,
-        CitationKind.UNKNOWN,
-    ]:
-        """Return the citation type from the given options."""
