@@ -124,6 +124,7 @@ ignore = [
     "UP032", # Use f-string instead of `format` call
     "D203", # Incorrect blank lines before class
     "D213", # Multiline line summary second line
+    "CPY001", # Ignore Copyright header check for now
 ]
 
 [tool.ruff.lint.mccabe]
