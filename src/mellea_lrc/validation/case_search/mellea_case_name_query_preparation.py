@@ -33,16 +33,44 @@ if TYPE_CHECKING:
 MAX_TOKENS = 128
 MAX_REPAIR_TURNS = 2
 INSTRUCTION = """
-Prepare one CourtListener case-name search term for each already re-extracted
-party. Terms may normalize harmless spacing, punctuation, or a clear legal
-abbreviation expansion, but must still identify the same party. Do not correct,
-invent, combine, or omit parties. Do not emit CourtListener syntax, operators,
-quotes, a court identifier, or alternative queries.
+Prepare broad but faithful party-name search terms for a legal case search.
 
-reextracted plaintiff:
+You receive the plaintiff and defendant names from one case citation. A downstream
+program will add search syntax and a court filter. Your only task is to provide
+one term for each party in the structured output fields ``query_plaintiff`` and
+``query_defendant``.
+
+Prefer the shortest distinctive term likely to retrieve the same party. You may:
+
+- normalize whitespace or punctuation;
+- expand an unambiguous legal abbreviation;
+- remove generic organizational or governmental wording when the remaining term
+  preserves the party's identifying core;
+- simplify reordered forms of the same identifying core.
+
+Example:
+
+- plaintiff: "City of New York"
+- defendant: "New York City"
+- query_plaintiff: "New York"
+- query_defendant: "New York"
+
+Another example:
+
+- plaintiff: "Methodist Hosp. of Sacramento"
+- defendant: "Shalala"
+- query_plaintiff: "Methodist Hospital of Sacramento"
+- query_defendant: "Shalala"
+
+Do not use outside knowledge to correct or replace a name. Do not invent missing
+words, combine the two parties, omit either party, add alternative terms, or
+include quotes, operators, field names, court identifiers, or search-query
+syntax. Return exactly one non-empty term for each output field.
+
+plaintiff:
 {{plaintiff}}
 
-reextracted defendant:
+defendant:
 {{defendant}}
 """.strip()
 

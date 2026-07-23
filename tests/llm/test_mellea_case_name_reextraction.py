@@ -45,11 +45,11 @@ load_dotenv(".env")
             "Bd. of Regents of Univ. of N.M.",
         ),
         (
-            "See Methodist Hosp. of Sacramento v. Shalala, 38 F.3d 1225, "
-            "1230 (9th Cir. 1994), for the controlling analysis.",
-            "38 F.3d 1225",
-            "Methodist Hosp. of Sacramento",
-            "Shalala",
+            "See Deutsche Bank Natl. Trust Co. v. White, 110 A.D.3d 759, "
+            "760 (2d Dep't 2013), for the controlling analysis.",
+            "110 A.D.3d 759",
+            "Deutsche Bank Natl. Trust Co.",
+            "White",
         ),
     ],
 )
@@ -68,14 +68,6 @@ def test_mellea_case_name_reextraction(
         matched_text=locator,
         citation=FullCaseCitation(),
     )
-    semantic_case_name_check = MelleaCaseNameCheckNode(
-        node_id="live-case-name:mellea_case_name_check",
-        status=ValidationNodeStatus.SUCCEEDED,
-        outcome=MelleaCaseNameCheckOutcome.MISMATCH,
-        extracted_case_name="not used",
-        retrieved_case_name="not used",
-        depends_on=(lookup.node_id,),
-    )
     lookup = ExactLocatorLookupNode(
         node_id="live-case-name:exact_locator_lookup",
         status=ValidationNodeStatus.SUCCEEDED,
@@ -83,6 +75,14 @@ def test_mellea_case_name_reextraction(
         locator=locator,
         record=CourtListenerCitationRecord(case_name="not used by re-extraction"),
         candidate_count=1,
+    )
+    semantic_case_name_check = MelleaCaseNameCheckNode(
+        node_id="live-case-name:mellea_case_name_check",
+        status=ValidationNodeStatus.SUCCEEDED,
+        outcome=MelleaCaseNameCheckOutcome.MISMATCH,
+        extracted_case_name="not used",
+        retrieved_case_name="not used",
+        depends_on=(lookup.node_id,),
     )
 
     node = asyncio.run(

@@ -32,8 +32,8 @@ load_dotenv(".env")
             MelleaCaseNameCheckOutcome.MATCH,
         ),
         (
-            "Methodist Hospital of Sacramento v. Shalala",
-            "Methodist Hosp. of Sacramento v. Shalala",
+            "Deutsche Bank National Trust Company v. White",
+            "Deutsche Bank Natl. Trust Co. v. White",
             MelleaCaseNameCheckOutcome.MATCH,
         ),
         (
