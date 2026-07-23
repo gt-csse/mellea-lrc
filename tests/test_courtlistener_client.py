@@ -115,6 +115,19 @@ class CourtListenerClientTests(unittest.TestCase):
         self.assertEqual(result.citation, "1 U.S. 9999")
         self.assertEqual(result.records, ())
 
+    def test_get_docket_returns_court_id(self) -> None:
+        """The docket endpoint exposes the authoritative CourtListener court ID."""
+        session = FakeSession(
+            [FakeResponse({"id": 123, "court": "https://www.courtlistener.com/api/rest/v4/courts/ca2/"})]
+        )
+
+        result = client(session).get_docket("123")
+
+        self.assertEqual(result.docket_id, "123")
+        self.assertEqual(result.court_id, "ca2")
+        self.assertEqual(session.calls[0]["method"], "GET")
+        self.assertEqual(session.calls[0]["url"], "https://www.courtlistener.com/api/rest/v4/dockets/123/")
+
     def test_ambiguous_lookup_preserves_each_candidate(self) -> None:
         """A 300 response retains every candidate returned for the locator."""
         result = client(
