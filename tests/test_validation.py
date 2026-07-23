@@ -147,8 +147,10 @@ def test_exact_locator_found_fans_out_to_exact_case_name_and_year_checks() -> No
 
     progression = validation.citation_by_id("cite-0001")
     assert client.calls == [("347", "U.S.", "483")]
-    assert len(progression.nodes) == 3
-    exact_locator_lookup_node, exact_case_name_check_node, year_check_node = progression.nodes
+    assert len(progression.nodes) == 4
+    exact_locator_lookup_node, exact_case_name_check_node, year_check_node, docket_court_retrieval_node = (
+        progression.nodes
+    )
     assert isinstance(exact_locator_lookup_node, ExactLocatorLookupNode)
     assert exact_locator_lookup_node.outcome is LocatorLookupOutcome.FOUND
     assert exact_locator_lookup_node.record is record
@@ -158,6 +160,7 @@ def test_exact_locator_found_fans_out_to_exact_case_name_and_year_checks() -> No
     assert isinstance(year_check_node, YearCheckNode)
     assert year_check_node.outcome is FieldCheckOutcome.MATCH
     assert year_check_node.depends_on == (exact_locator_lookup_node.node_id,)
+    assert docket_court_retrieval_node.status is ValidationNodeStatus.SKIPPED
 
 
 def test_found_field_checks_record_mismatch_without_failing_execution(
@@ -206,7 +209,7 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
         fake_semantic_check,
     )
 
-    _, exact_case_name_check_node, year_check_node, semantic_case_name_check_node = (
+    _, exact_case_name_check_node, year_check_node, _, semantic_case_name_check_node = (
         _validate(extracted, client).citations[0].nodes
     )
 
@@ -228,7 +231,7 @@ def test_found_field_checks_skip_unavailable_values() -> None:
         )
     )
 
-    _, exact_case_name_check_node, year_check_node = _validate(extracted, client).citations[0].nodes
+    _, exact_case_name_check_node, year_check_node, _ = _validate(extracted, client).citations[0].nodes
 
     assert exact_case_name_check_node.status is ValidationNodeStatus.SKIPPED
     assert exact_case_name_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
