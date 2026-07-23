@@ -63,7 +63,12 @@ class CitationValidationRunner:
                 session=session,
             )
         if exact_locator_lookup_node.outcome is LocatorLookupOutcome.NOT_FOUND:
-            return await self.run_locator_not_found(validation, lookup=exact_locator_lookup_node)
+            return await self.run_locator_not_found(
+                validation,
+                lookup=exact_locator_lookup_node,
+                document_text=document_text,
+                session=session,
+            )
         if exact_locator_lookup_node.outcome is LocatorLookupOutcome.AMBIGUOUS:
             return await self.run_locator_ambiguous(validation, lookup=exact_locator_lookup_node)
         return validation
@@ -167,20 +172,25 @@ class CitationValidationRunner:
         validation: CitationValidation,
         *,
         lookup: ExactLocatorLookupNode,
+        document_text: str,
+        session: MelleaSession | None,
     ) -> CitationValidation:
-        """Run the complete current graph rooted in a locator miss.
+        """Run the complete local re-extraction graph rooted in a locator miss.
 
         Graph:
             locator not found
-            └── end
-
-        A later ``run_locator_not_found_*`` decomposition will extend this
-        route without changing the top-level progression selector.
+            └── Mellea local party re-extraction -> end
         """
         if lookup.outcome is not LocatorLookupOutcome.NOT_FOUND:
             msg = "run_locator_not_found requires a not-found locator"
             raise ValueError(msg)
-        return validation
+        return validation.append(
+            await run_mellea_case_name_reextraction(
+                validation,
+                document_text=document_text,
+                session=session,
+            )
+        )
 
     async def run_locator_ambiguous(
         self,
