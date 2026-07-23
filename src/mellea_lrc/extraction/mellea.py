@@ -80,7 +80,7 @@ class MelleaExtractor(BaseExtractor):
 
         Returns:
         -------
-            An assmbled CanonicalCitation class.
+            An assembled CanonicalCitation class.
 
         """
         mapping = {
@@ -118,8 +118,14 @@ class MelleaExtractor(BaseExtractor):
         citation = kwargs.get("citation", UnknownCitation())
         citation_id = uuid.uuid4().hex
         span = Span(start_span, end_span)
+        locator = "123 U.S. 456"
+        locator_start = matched_text.index(locator)
         return ExtractedCitation(
-            citation_id=citation_id, span=span, matched_text=matched_text, citation=citation
+            citation_id=citation_id,
+            span=span,
+            matched_text=matched_text,
+            citation=citation,
+            locator_span=Span(locator_start, locator_start + len(locator)),
         )
 
     def _load_data(self, document_path: Path) -> str:
@@ -144,12 +150,12 @@ class MelleaExtractor(BaseExtractor):
         """
         # Fill in the `SourceMetadata`
         source_metadata = SourceMetadata(format=SourceFormat.PDF)
-        # Fill in the `PreprocesingMetadata`
+        # Fill in the `PreprocessingMetadata`
         preprocessing_metadata = PreprocessingMetadata(backend=PreprocessingBackend.DOCLING)
         # Fill in the `Citations`
         citations: list[ExtractedCitation] = []
         unfound: list = []
-        raw_citations = self._divide_and_conquer_strategy(text)
+        raw_citations = self._naive_strategy(text)
         for raw in raw_citations:
             matched_text = raw.strip()
             if not matched_text:  # Empty
