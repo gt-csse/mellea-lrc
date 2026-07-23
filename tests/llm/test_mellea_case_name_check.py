@@ -52,6 +52,7 @@ def test_mellea_case_name_check(
     citation = ExtractedCitation(
         citation_id="live-semantic-case-name",
         span=Span(0, 1),
+        locator_span=Span(0, 1),
         matched_text="x",
         citation=FullCaseCitation(),
     )
@@ -64,7 +65,12 @@ def test_mellea_case_name_check(
         depends_on=(),
     )
 
-    node = asyncio.run(run_mellea_case_name_check(CitationValidation(citation=citation).append(exact_node)))
+    node = asyncio.run(
+        run_mellea_case_name_check(
+            CitationValidation(citation=citation).append(exact_node),
+            case_name_evidence=exact_node,
+        )
+    )
 
     assert node.status is ValidationNodeStatus.SUCCEEDED
     assert node.outcome is expected_outcome

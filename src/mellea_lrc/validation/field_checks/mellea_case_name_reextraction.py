@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import TYPE_CHECKING, Literal, TypeVar
+from typing import TYPE_CHECKING, Literal
 
 from mellea.core import ValidationResult
 from mellea.stdlib.requirements import check, req
@@ -20,9 +20,9 @@ from mellea_lrc.llm import (
 from mellea_lrc.validation.types import (
     CitationValidation,
     ExactLocatorLookupNode,
+    MelleaCaseNameCheckNode,
     MelleaCaseNameReextractionNode,
     MelleaCaseNameReextractionOutcome,
-    ValidationNode,
     ValidationNodeStatus,
 )
 
@@ -30,7 +30,6 @@ if TYPE_CHECKING:
     from mellea import MelleaSession
     from mellea.core.base import Context
 
-NodeT = TypeVar("NodeT", bound=ValidationNode)
 CONTEXT_BEFORE_CHARS = 320
 CONTEXT_AFTER_CHARS = 160
 REEXTRACTION_MAX_TOKENS = 256
@@ -69,20 +68,21 @@ class _PartyProposal(BaseModel):
 async def run_mellea_case_name_reextraction(
     validation: CitationValidation,
     *,
+    semantic_case_name_check: MelleaCaseNameCheckNode,
+    locator_lookup: ExactLocatorLookupNode,
     document_text: str,
     session: MelleaSession | None = None,
 ) -> MelleaCaseNameReextractionNode:
-    """Re-extract locally grounded plaintiff and defendant for one citation."""
-    exact_locator_lookup_node = _latest(validation, ExactLocatorLookupNode)
-    if not exact_locator_lookup_node.locator:
+    """Re-extract locally grounded parties after a semantic case-name mismatch."""
+    if not locator_lookup.locator:
         return _node(
             validation,
-            exact_locator_lookup_node,
+            semantic_case_name_check,
             ValidationNodeStatus.SKIPPED,
             MelleaCaseNameReextractionOutcome.UNAVAILABLE,
         )
 
-    span = validation.citation.span
+    span = validation.citation.locator_span
     start = max(0, span.start - CONTEXT_BEFORE_CHARS)
     end = min(len(document_text), span.end + CONTEXT_AFTER_CHARS)
     local_context = document_text[start:end]
@@ -93,7 +93,7 @@ async def run_mellea_case_name_reextraction(
         spec = InstructIvrSpec(
             description=REEXTRACTION_INSTRUCTION,
             grounding_context={"local_context": local_context},
-            user_variables={"locator": exact_locator_lookup_node.locator},
+            user_variables={"locator": locator_lookup.locator},
             output_format=_PartyProposal,
             requirements=[
                 req("Return a valid plaintiff/defendant JSON object.", validation_fn=_validate_schema),
@@ -116,7 +116,7 @@ async def run_mellea_case_name_reextraction(
         if not result.success:
             return _node(
                 validation,
-                exact_locator_lookup_node,
+                semantic_case_name_check,
                 ValidationNodeStatus.FAILED,
                 MelleaCaseNameReextractionOutcome.FAILED,
                 error="Case-name re-extraction exhausted its repair budget",
@@ -125,7 +125,7 @@ async def run_mellea_case_name_reextraction(
     except Exception as exc:
         return _node(
             validation,
-            exact_locator_lookup_node,
+            semantic_case_name_check,
             ValidationNodeStatus.FAILED,
             MelleaCaseNameReextractionOutcome.FAILED,
             error=f"{type(exc).__name__}: {exc}",
@@ -138,7 +138,7 @@ async def run_mellea_case_name_reextraction(
     }[proposal.classification]
     return _node(
         validation,
-        exact_locator_lookup_node,
+        semantic_case_name_check,
         ValidationNodeStatus.SUCCEEDED,
         outcome,
         plaintiff=proposal.plaintiff,
@@ -148,7 +148,7 @@ async def run_mellea_case_name_reextraction(
 
 def _node(
     validation: CitationValidation,
-    exact_locator_lookup_node: ExactLocatorLookupNode,
+    semantic_case_name_check: MelleaCaseNameCheckNode,
     status: ValidationNodeStatus,
     outcome: MelleaCaseNameReextractionOutcome,
     *,
@@ -162,7 +162,7 @@ def _node(
         outcome=outcome,
         plaintiff=plaintiff,
         defendant=defendant,
-        depends_on=(exact_locator_lookup_node.node_id,),
+        depends_on=(semantic_case_name_check.node_id,),
         error=error,
     )
 
@@ -210,11 +210,3 @@ def _is_grounded(value: str, context: str) -> bool:
     """Return whether copied text occurs with exact tokens and flexible whitespace."""
     pattern = r"\s+".join(re.escape(piece) for piece in value.split())
     return re.search(pattern, context) is not None
-
-
-def _latest(validation: CitationValidation, node_type: type[NodeT]) -> NodeT:
-    try:
-        return next(node for node in reversed(validation.nodes) if isinstance(node, node_type))
-    except StopIteration as exc:
-        msg = f"Mellea re-extraction requires prior {node_type.__name__}"
-        raise RuntimeError(msg) from exc

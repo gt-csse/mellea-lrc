@@ -190,10 +190,12 @@ def _extract_from_text(
     extracted: list[ExtractedCitation] = []
     for eyecite_citation, citation_id in citation_ids:
         span_start, span_end = eyecite_citation.full_span()
+        locator_start, locator_end = eyecite_citation.span()
         extracted.append(
             ExtractedCitation(
                 citation_id=citation_id,
                 span=Span(start=span_start, end=span_end),
+                locator_span=Span(start=locator_start, end=locator_end),
                 matched_text=eyecite_citation.matched_text(),
                 citation=_to_canonical(eyecite_citation),
                 resolves_to=antecedent_map.get(citation_id),

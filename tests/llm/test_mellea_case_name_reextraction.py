@@ -15,6 +15,8 @@ from mellea_lrc.validation import (
     CitationValidation,
     ExactLocatorLookupNode,
     LocatorLookupOutcome,
+    MelleaCaseNameCheckNode,
+    MelleaCaseNameCheckOutcome,
     ValidationNodeStatus,
 )
 from mellea_lrc.validation.field_checks.mellea_case_name_reextraction import (
@@ -61,9 +63,18 @@ def test_mellea_case_name_reextraction(
     start = text.index(locator)
     citation = ExtractedCitation(
         citation_id="live-case-name",
-        span=Span(start, start + len(locator)),
+        span=Span(0, len(text)),
+        locator_span=Span(start, start + len(locator)),
         matched_text=locator,
         citation=FullCaseCitation(),
+    )
+    semantic_case_name_check = MelleaCaseNameCheckNode(
+        node_id="live-case-name:mellea_case_name_check",
+        status=ValidationNodeStatus.SUCCEEDED,
+        outcome=MelleaCaseNameCheckOutcome.MISMATCH,
+        extracted_case_name="not used",
+        retrieved_case_name="not used",
+        depends_on=(lookup.node_id,),
     )
     lookup = ExactLocatorLookupNode(
         node_id="live-case-name:exact_locator_lookup",
@@ -76,7 +87,9 @@ def test_mellea_case_name_reextraction(
 
     node = asyncio.run(
         run_mellea_case_name_reextraction(
-            CitationValidation(citation=citation).append(lookup),
+            CitationValidation(citation=citation).append(lookup).append(semantic_case_name_check),
+            semantic_case_name_check=semantic_case_name_check,
+            locator_lookup=lookup,
             document_text=text,
         )
     )

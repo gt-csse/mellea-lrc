@@ -26,10 +26,11 @@ class ExtractionMetadata:
 
 @dataclass(frozen=True, slots=True)
 class ExtractedCitation:
-    """A canonical citation located in document text."""
+    """A canonical citation with full and matched-locator spans in document text."""
 
     citation_id: str
     span: Span
+    locator_span: Span
     matched_text: str
     citation: CanonicalCitation
     resolves_to: str | None = None
@@ -61,6 +62,12 @@ class ExtractedDocument(PreprocessedDocument):
         for item in self.citations:
             if item.span.end > len(self.text):
                 msg = f"Citation {item.citation_id!r} span exceeds document text"
+                raise ValueError(msg)
+            if item.locator_span.end > len(self.text):
+                msg = f"Citation {item.citation_id!r} locator span exceeds document text"
+                raise ValueError(msg)
+            if item.locator_span.start < item.span.start or item.locator_span.end > item.span.end:
+                msg = f"Citation {item.citation_id!r} locator span must be within its full span"
                 raise ValueError(msg)
             if item.resolves_to is not None and (
                 item.resolves_to not in known_ids or item.resolves_to == item.citation_id
