@@ -22,8 +22,11 @@ from mellea_lrc.validation import (
     ExactLocatorLookupNode,
     FieldCheckOutcome,
     LocatorLookupOutcome,
+    MelleaCaseNameCheckNode,
+    MelleaCaseNameCheckOutcome,
     MelleaCaseNameReextractionNode,
     MelleaCaseNameReextractionOutcome,
+    ValidatedDocument,
     ValidationNodeStatus,
     YearCheckNode,
     initialize_validation,
@@ -52,6 +55,11 @@ class LookupClient:
         if isinstance(self.response, CourtListenerError):
             raise self.response
         return self.response
+
+
+def _validate(document: ExtractedDocument, client: LookupClient) -> ValidatedDocument:
+    """Run the sole document-level validation entrypoint synchronously in tests."""
+    return asyncio.run(validate_document(document, client=client))
 
 
 def _document(citation: FullCaseCitation | FullLawCitation) -> ExtractedDocument:
@@ -135,7 +143,7 @@ def test_exact_locator_found_fans_out_to_exact_case_name_and_year_checks() -> No
         )
     )
 
-    validation = validate_document(extracted, client=client)
+    validation = _validate(extracted, client)
 
     progression = validation.citation_by_id("cite-0001")
     assert client.calls == [("347", "U.S.", "483")]
@@ -152,7 +160,9 @@ def test_exact_locator_found_fans_out_to_exact_case_name_and_year_checks() -> No
     assert year_check_node.depends_on == (exact_locator_lookup_node.node_id,)
 
 
-def test_found_field_checks_record_mismatch_without_failing_execution() -> None:
+def test_found_field_checks_record_mismatch_without_failing_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     extracted = _document(
         FullCaseCitation(
             plaintiff="Brown",
@@ -176,14 +186,36 @@ def test_found_field_checks_record_mismatch_without_failing_execution() -> None:
         )
     )
 
-    _, exact_case_name_check_node, year_check_node = (
-        validate_document(extracted, client=client).citations[0].nodes
+    async def fake_semantic_check(
+        _validation: object,
+        *,
+        session: object | None = None,
+    ) -> MelleaCaseNameCheckNode:
+        del session
+        return MelleaCaseNameCheckNode(
+            node_id="cite-0001:mellea_case_name_check",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaCaseNameCheckOutcome.MATCH,
+            extracted_case_name="Brown v. Board",
+            retrieved_case_name="Different v. Case",
+            depends_on=("cite-0001:exact_case_name_check",),
+        )
+
+    monkeypatch.setattr(
+        "mellea_lrc.validation.execution.run_mellea_case_name_check",
+        fake_semantic_check,
+    )
+
+    _, exact_case_name_check_node, year_check_node, semantic_case_name_check_node = (
+        _validate(extracted, client).citations[0].nodes
     )
 
     assert exact_case_name_check_node.status is ValidationNodeStatus.SUCCEEDED
     assert exact_case_name_check_node.outcome is FieldCheckOutcome.MISMATCH
     assert year_check_node.status is ValidationNodeStatus.SUCCEEDED
     assert year_check_node.outcome is FieldCheckOutcome.MISMATCH
+    assert semantic_case_name_check_node.status is ValidationNodeStatus.SUCCEEDED
+    assert semantic_case_name_check_node.outcome is MelleaCaseNameCheckOutcome.MATCH
 
 
 def test_found_field_checks_skip_unavailable_values() -> None:
@@ -196,9 +228,7 @@ def test_found_field_checks_skip_unavailable_values() -> None:
         )
     )
 
-    _, exact_case_name_check_node, year_check_node = (
-        validate_document(extracted, client=client).citations[0].nodes
-    )
+    _, exact_case_name_check_node, year_check_node = _validate(extracted, client).citations[0].nodes
 
     assert exact_case_name_check_node.status is ValidationNodeStatus.SKIPPED
     assert exact_case_name_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
@@ -270,7 +300,7 @@ def test_not_found_stops_without_starting_a_fallback_branch() -> None:
         )
     )
 
-    validation = validate_document(extracted, client=client)
+    validation = _validate(extracted, client)
 
     nodes = validation.citations[0].nodes
     assert len(nodes) == 1
@@ -287,7 +317,7 @@ def test_ambiguous_lookup_stops_without_candidate_processing() -> None:
     )
     client = LookupClient(CourtListenerCitationLookup(citation="1 F.2d 2", status=300, records=records))
 
-    node = validate_document(extracted, client=client).citations[0].nodes[0]
+    node = _validate(extracted, client).citations[0].nodes[0]
 
     assert node.status is ValidationNodeStatus.SUCCEEDED
     assert node.outcome is LocatorLookupOutcome.AMBIGUOUS
@@ -299,7 +329,7 @@ def test_unsupported_citation_is_skipped_without_service_access() -> None:
     extracted = _document(FullLawCitation(volume="28", reporter="U.S.C.", page="636"))
     client = LookupClient(CourtListenerCitationLookup(citation="28 U.S.C. 636", status=200, records=()))
 
-    node = validate_document(extracted, client=client).citations[0].nodes[0]
+    node = _validate(extracted, client).citations[0].nodes[0]
 
     assert client.calls == []
     assert node.status is ValidationNodeStatus.SKIPPED
@@ -316,7 +346,7 @@ def test_service_failure_is_a_terminal_validation_node() -> None:
         )
     )
 
-    node = validate_document(extracted, client=client).citations[0].nodes[0]
+    node = _validate(extracted, client).citations[0].nodes[0]
 
     assert node.status is ValidationNodeStatus.FAILED
     assert node.outcome is LocatorLookupOutcome.FAILED
@@ -329,4 +359,4 @@ def test_unexpected_lookup_response_raises() -> None:
     client = LookupClient(CourtListenerCitationLookup(citation="347 U.S. 483", status=200, records=()))
 
     with pytest.raises(AssertionError, match="Unexpected CourtListener lookup response"):
-        validate_document(extracted, client=client)
+        _validate(extracted, client)
