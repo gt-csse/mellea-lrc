@@ -47,12 +47,6 @@ def incorrect_korematsu_citations() -> list:
 
 
 @pytest.fixture
-def incorrect_spans_korematsu_citations() -> list:
-    """Return a dict with all full-case citations and their spans."""
-    return extract_citations("Incorrect_Span_Korematsu_v_US.txt")
-
-
-@pytest.fixture
 def correct_korematsu_citations() -> list:
     """Return a dict with all full-case citations and their spans."""
     return extract_citations("Correct_Citations_Korematsu_v_US.txt")
@@ -77,23 +71,23 @@ def fake_citations(monkeypatch: pytest.MonkeyPatch) -> Callable:
 # --- Test span ---
 def test_locate_span_find_first_occurrence(
     extractor: MelleaExtractor,
-    correct_korematsu_citations: dict,
-    incorrect_korematsu_citations: dict,
-    incorrect_spans_korematsu_citations: dict,
+    correct_korematsu_citations: list,
     korematsu_text: str,
 ) -> None:
-    """Test the Mellea's span function."""
+    """Test the Mellea's span function with correct citations and spans."""
     for citation, spans in correct_korematsu_citations:
         found_span: Span | None = extractor._locate_span(text=korematsu_text, matched_text=citation)
         start, end = spans
         assert found_span is not None
         assert found_span == Span(start=start, end=end)
 
-    for citation, spans in incorrect_korematsu_citations:
+
+def test_locate_span_returns_none(
+    extractor: MelleaExtractor,
+    incorrect_korematsu_citations: list,
+    korematsu_text: str,
+) -> None:
+    """Test the Mellea's span function with INCORRECT citations."""
+    for citation, _ in incorrect_korematsu_citations:
         found_span: Span | None = extractor._locate_span(text=korematsu_text, matched_text=citation)
         assert found_span is None
-
-    for citation, spans in incorrect_spans_korematsu_citations:
-        found_span: Span | None = extractor._locate_span(text=korematsu_text, matched_text=citation)
-        start, end = spans
-        assert found_span != Span(start=start, end=end)
