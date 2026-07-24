@@ -118,6 +118,8 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
                         "docket_id": None,
                     },
                     "candidate_count": 1,
+                    "status_message": None,
+                    "outcome_message": None,
                     "error": None,
                     "depends_on": [],
                 }

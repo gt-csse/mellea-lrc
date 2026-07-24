@@ -34,6 +34,8 @@ def run_opinion_search(
             ValidationNodeStatus.SKIPPED,
             OpinionSearchOutcome.UNAVAILABLE,
             query=preparation.query,
+            status_message="Skipped opinion search because no prepared query is available.",
+            outcome_message="Opinion search is unavailable without a prepared query.",
         )
     try:
         result = client.search(preparation.query, "o")
@@ -44,6 +46,8 @@ def run_opinion_search(
             ValidationNodeStatus.FAILED,
             OpinionSearchOutcome.FAILED,
             query=preparation.query,
+            status_message="Opinion search failed while calling CourtListener.",
+            outcome_message="CourtListener opinion search could not be completed.",
             error=exc.message,
         )
     return _node(
@@ -55,10 +59,12 @@ def run_opinion_search(
         result_count=result.count,
         results=result.results,
         next_cursor=result.next_cursor,
+        status_message="Opinion search completed.",
+        outcome_message=f"CourtListener returned {result.count} opinion search results.",
     )
 
 
-def _node(
+def _node(  # noqa: PLR0913
     validation: CitationValidation,
     preparation: MelleaCaseNameQueryPreparationNode,
     status: ValidationNodeStatus,
@@ -68,6 +74,8 @@ def _node(
     result_count: int | None = None,
     results: tuple[Mapping[str, object], ...] = (),
     next_cursor: str | None = None,
+    status_message: str | None = None,
+    outcome_message: str | None = None,
     error: str | None = None,
 ) -> OpinionSearchNode:
     """Build one terminal opinion-search node."""
@@ -80,5 +88,7 @@ def _node(
         results=results,
         next_cursor=next_cursor,
         depends_on=(preparation.node_id,),
+        status_message=status_message,
+        outcome_message=outcome_message,
         error=error,
     )

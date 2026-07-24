@@ -27,7 +27,12 @@ def run_docket_court_retrieval(
     docket_id = lookup.record.docket_id if lookup.record is not None else None
     if not docket_id:
         return _node(
-            validation, lookup, ValidationNodeStatus.SKIPPED, DocketCourtRetrievalOutcome.UNAVAILABLE
+            validation,
+            lookup,
+            ValidationNodeStatus.SKIPPED,
+            DocketCourtRetrievalOutcome.UNAVAILABLE,
+            status_message="Skipped docket court retrieval because the citation record has no docket identifier.",
+            outcome_message="Court retrieval is unavailable because the citation record has no docket identifier.",
         )
     try:
         docket = client.get_docket(docket_id)
@@ -37,11 +42,18 @@ def run_docket_court_retrieval(
             lookup,
             ValidationNodeStatus.FAILED,
             DocketCourtRetrievalOutcome.FAILED,
+            status_message="Docket court retrieval failed while calling CourtListener.",
+            outcome_message="Court retrieval from the docket could not be completed.",
             error=exc.message,
         )
     if not docket.court_id:
         return _node(
-            validation, lookup, ValidationNodeStatus.SUCCEEDED, DocketCourtRetrievalOutcome.UNAVAILABLE
+            validation,
+            lookup,
+            ValidationNodeStatus.SUCCEEDED,
+            DocketCourtRetrievalOutcome.UNAVAILABLE,
+            status_message="Docket court retrieval completed.",
+            outcome_message="The retrieved docket does not provide a court identifier.",
         )
     return _node(
         validation,
@@ -49,6 +61,8 @@ def run_docket_court_retrieval(
         ValidationNodeStatus.SUCCEEDED,
         DocketCourtRetrievalOutcome.FOUND,
         court_id=docket.court_id,
+        status_message="Docket court retrieval completed.",
+        outcome_message="Retrieved a court identifier from the citation docket.",
     )
 
 
@@ -59,6 +73,8 @@ def _node(
     outcome: DocketCourtRetrievalOutcome,
     *,
     court_id: str | None = None,
+    status_message: str | None = None,
+    outcome_message: str | None = None,
     error: str | None = None,
 ) -> DocketCourtRetrievalNode:
     return DocketCourtRetrievalNode(
@@ -68,5 +84,7 @@ def _node(
         docket_id=lookup.record.docket_id if lookup.record is not None else None,
         court_id=court_id,
         depends_on=(lookup.node_id,),
+        status_message=status_message,
+        outcome_message=outcome_message,
         error=error,
     )

@@ -45,6 +45,7 @@ class MelleaCaseNameCheckOutcome(str, Enum):
 
     MATCH = "match"
     MISMATCH = "mismatch"
+    UNAVAILABLE = "unavailable"
     FAILED = "failed"
 
 
@@ -104,6 +105,8 @@ class ExactLocatorLookupNode:
     locator: str | None
     record: CourtListenerCitationRecord | None = None
     candidate_count: int = 0
+    status_message: str | None = None
+    outcome_message: str | None = None
     error: str | None = None
     depends_on: tuple[str, ...] = ()
 
@@ -133,6 +136,8 @@ class ExactCaseNameCheckNode:
     extracted_case_name: str | None
     retrieved_case_name: str | None
     depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +150,8 @@ class MelleaCaseNameCheckNode:
     extracted_case_name: str
     retrieved_case_name: str
     depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
     error: str | None = None
 
 
@@ -158,6 +165,8 @@ class MelleaCaseNameReextractionNode:
     plaintiff: str | None
     defendant: str | None
     depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
     error: str | None = None
 
 
@@ -173,6 +182,8 @@ class MelleaCaseNameQueryPreparationNode:
     query_defendant: str | None
     court_id: str | None
     depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
     error: str | None = None
 
 
@@ -188,6 +199,8 @@ class OpinionSearchNode:
     results: tuple[Mapping[str, object], ...]
     next_cursor: str | None
     depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
     error: str | None = None
 
 
@@ -218,6 +231,8 @@ class MelleaReextractedCaseNameCheckNode:
     reextracted_case_name: str | None
     retrieved_case_name: str | None
     depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
     error: str | None = None
 
 
@@ -231,6 +246,8 @@ class DocketCourtRetrievalNode:
     docket_id: str | None
     court_id: str | None
     depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
     error: str | None = None
 
 
@@ -244,6 +261,8 @@ class CourtCheckNode:
     extracted_court_id: str | None
     retrieved_court_id: str | None
     depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,6 +275,8 @@ class YearCheckNode:
     extracted_year: str | None
     retrieved_year: str | None
     depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
 
 
 # Expand this union as operation-specific validation nodes are introduced.

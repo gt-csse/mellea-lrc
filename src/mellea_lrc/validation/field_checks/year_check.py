@@ -22,10 +22,18 @@ def run_year_check(
     retrieved = lookup.record.year if lookup.record is not None else None
     if extracted is None or retrieved is None:
         status = ValidationNodeStatus.SKIPPED
+        status_message = "Skipped year comparison because required evidence is missing."
         outcome = FieldCheckOutcome.UNAVAILABLE
+        outcome_message = "Year comparison is unavailable because one year is missing."
     else:
         status = ValidationNodeStatus.SUCCEEDED
+        status_message = "Year comparison completed."
         outcome = FieldCheckOutcome.MATCH if extracted == retrieved else FieldCheckOutcome.MISMATCH
+        outcome_message = (
+            "Extracted and retrieved years match."
+            if outcome is FieldCheckOutcome.MATCH
+            else "Extracted and retrieved years differ."
+        )
     return YearCheckNode(
         node_id=f"{validation.citation_id}:year_check",
         status=status,
@@ -33,4 +41,6 @@ def run_year_check(
         extracted_year=extracted,
         retrieved_year=retrieved,
         depends_on=(lookup.node_id,),
+        status_message=status_message,
+        outcome_message=outcome_message,
     )

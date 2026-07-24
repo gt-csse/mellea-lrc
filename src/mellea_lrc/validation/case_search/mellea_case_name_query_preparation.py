@@ -102,6 +102,8 @@ async def run_mellea_case_name_query_preparation(
             ValidationNodeStatus.SKIPPED,
             MelleaCaseNameQueryPreparationOutcome.UNAVAILABLE,
             court_id=court_id,
+            status_message="Skipped case-name query preparation because required search evidence is missing.",
+            outcome_message="Search query is unavailable without both re-extracted parties and a court identifier.",
         )
     try:
         resolved_session = session or start_mellea_session_from_env()
@@ -127,6 +129,8 @@ async def run_mellea_case_name_query_preparation(
                 ValidationNodeStatus.FAILED,
                 MelleaCaseNameQueryPreparationOutcome.FAILED,
                 court_id=court_id,
+                status_message="Case-name query preparation exhausted its repair attempts.",
+                outcome_message="No CourtListener case-name query is available.",
                 error="Case-name query preparation exhausted its repair budget",
             )
         terms = _proposal(result.result.value)
@@ -138,6 +142,8 @@ async def run_mellea_case_name_query_preparation(
             ValidationNodeStatus.FAILED,
             MelleaCaseNameQueryPreparationOutcome.FAILED,
             court_id=court_id,
+            status_message="Case-name query preparation failed during execution.",
+            outcome_message="No CourtListener case-name query is available.",
             error=f"{type(exc).__name__}: {exc}",
         )
     return _node(
@@ -149,10 +155,12 @@ async def run_mellea_case_name_query_preparation(
         query=query,
         query_plaintiff=terms.query_plaintiff,
         query_defendant=terms.query_defendant,
+        status_message="Case-name query preparation completed.",
+        outcome_message="Prepared one CourtListener case-name query from both re-extracted parties.",
     )
 
 
-def _node(
+def _node(  # noqa: PLR0913
     validation: CitationValidation,
     reextraction: MelleaCaseNameReextractionNode,
     status: ValidationNodeStatus,
@@ -162,6 +170,8 @@ def _node(
     query: str | None = None,
     query_plaintiff: str | None = None,
     query_defendant: str | None = None,
+    status_message: str | None = None,
+    outcome_message: str | None = None,
     error: str | None = None,
 ) -> MelleaCaseNameQueryPreparationNode:
     return MelleaCaseNameQueryPreparationNode(
@@ -173,6 +183,8 @@ def _node(
         query_defendant=query_defendant,
         court_id=court_id,
         depends_on=(reextraction.node_id,),
+        status_message=status_message,
+        outcome_message=outcome_message,
         error=error,
     )
 

@@ -93,11 +93,19 @@ async def run_mellea_case_name_check(
         )
         if not result.success:
             return _failed_node(
-                validation, exact_node, "Semantic case-name check exhausted its repair budget"
+                validation,
+                exact_node,
+                "Semantic case-name check exhausted its repair budget",
+                status_message="Mellea semantic case-name comparison exhausted its repair attempts.",
             )
         verdict = _parse(result.result.value).verdict
     except Exception as exc:
-        return _failed_node(validation, exact_node, f"{type(exc).__name__}: {exc}")
+        return _failed_node(
+            validation,
+            exact_node,
+            f"{type(exc).__name__}: {exc}",
+            status_message="Mellea semantic case-name comparison failed during execution.",
+        )
     return MelleaCaseNameCheckNode(
         node_id=f"{validation.citation_id}:mellea_case_name_check",
         status=ValidationNodeStatus.SUCCEEDED,
@@ -105,6 +113,12 @@ async def run_mellea_case_name_check(
         extracted_case_name=exact_node.extracted_case_name,
         retrieved_case_name=exact_node.retrieved_case_name,
         depends_on=(exact_node.node_id,),
+        status_message="Mellea semantic case-name comparison completed.",
+        outcome_message=(
+            "Mellea judged the extracted and retrieved case names to identify the same case."
+            if verdict == "match"
+            else "Mellea judged the extracted and retrieved case names to identify different cases."
+        ),
     )
 
 
@@ -128,6 +142,8 @@ def _failed_node(
     validation: CitationValidation,
     exact_node: ExactCaseNameCheckNode,
     error: str,
+    *,
+    status_message: str,
 ) -> MelleaCaseNameCheckNode:
     return MelleaCaseNameCheckNode(
         node_id=f"{validation.citation_id}:mellea_case_name_check",
@@ -136,6 +152,8 @@ def _failed_node(
         extracted_case_name=exact_node.extracted_case_name,
         retrieved_case_name=exact_node.retrieved_case_name,
         depends_on=(exact_node.node_id,),
+        status_message=status_message,
+        outcome_message="No semantic case-name verdict is available.",
         error=error,
     )
 
@@ -153,12 +171,23 @@ async def _run_reextracted_check(
         return MelleaReextractedCaseNameCheckNode(
             node_id=f"{validation.citation_id}:mellea_reextracted_case_name_check",
             status=ValidationNodeStatus.SKIPPED,
-            outcome=MelleaCaseNameCheckOutcome.FAILED,
+            outcome=MelleaCaseNameCheckOutcome.UNAVAILABLE,
             reextracted_case_name=extracted,
             retrieved_case_name=retrieved,
             depends_on=(reextraction.node_id,),
+            status_message="Skipped semantic comparison because re-extracted or retrieved evidence is missing.",
+            outcome_message="Semantic case-name comparison is unavailable because one case name is missing.",
         )
-    status, outcome, error = await _semantic_outcome(extracted, retrieved, session)
+    status, outcome, status_message, outcome_message, error = await _semantic_outcome(
+        extracted,
+        retrieved,
+        session,
+        debug_context={
+            "citation_id": validation.citation_id,
+            "node_id": f"{validation.citation_id}:mellea_reextracted_case_name_check",
+            "operation": "mellea_reextracted_case_name_check",
+        },
+    )
     return MelleaReextractedCaseNameCheckNode(
         node_id=f"{validation.citation_id}:mellea_reextracted_case_name_check",
         status=status,
@@ -166,6 +195,8 @@ async def _run_reextracted_check(
         reextracted_case_name=extracted,
         retrieved_case_name=retrieved,
         depends_on=(reextraction.node_id,),
+        status_message=status_message,
+        outcome_message=outcome_message,
         error=error,
     )
 
@@ -180,7 +211,15 @@ async def _semantic_outcome(
     extracted_case_name: str,
     retrieved_case_name: str,
     session: MelleaSession | None,
-) -> tuple[ValidationNodeStatus, MelleaCaseNameCheckOutcome, str | None]:
+    *,
+    debug_context: dict[str, str],
+) -> tuple[
+    ValidationNodeStatus,
+    MelleaCaseNameCheckOutcome,
+    str,
+    str,
+    str | None,
+]:
     try:
         spec = InstructIvrSpec(
             description=INSTRUCTION,
@@ -188,6 +227,7 @@ async def _semantic_outcome(
                 "extracted_case_name": extracted_case_name,
                 "retrieved_case_name": retrieved_case_name,
             },
+            debug_context=debug_context,
             output_format=_SemanticVerdict,
             requirements=[req("Return a valid semantic-verdict object.", validation_fn=_valid_schema)],
         )
@@ -198,15 +238,30 @@ async def _semantic_outcome(
             model_options=llm_api_config_from_env(os.environ).mellea_call_options(max_tokens=MAX_TOKENS),
         )
         if result.success:
+            verdict = _parse(result.result.value).verdict
             return (
                 ValidationNodeStatus.SUCCEEDED,
-                MelleaCaseNameCheckOutcome(_parse(result.result.value).verdict),
+                MelleaCaseNameCheckOutcome(verdict),
+                "Mellea semantic case-name comparison completed.",
+                (
+                    "Mellea judged the re-extracted and retrieved case names to identify the same case."
+                    if verdict == "match"
+                    else "Mellea judged the re-extracted and retrieved case names to identify different cases."
+                ),
                 None,
             )
         return (
             ValidationNodeStatus.FAILED,
             MelleaCaseNameCheckOutcome.FAILED,
+            "Mellea semantic case-name comparison exhausted its repair attempts.",
+            "No semantic case-name verdict is available.",
             "Semantic case-name check exhausted its repair budget",
         )
     except Exception as exc:
-        return ValidationNodeStatus.FAILED, MelleaCaseNameCheckOutcome.FAILED, f"{type(exc).__name__}: {exc}"
+        return (
+            ValidationNodeStatus.FAILED,
+            MelleaCaseNameCheckOutcome.FAILED,
+            "Mellea semantic case-name comparison failed during execution.",
+            "No semantic case-name verdict is available.",
+            f"{type(exc).__name__}: {exc}",
+        )

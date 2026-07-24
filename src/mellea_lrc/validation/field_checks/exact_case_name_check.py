@@ -26,13 +26,21 @@ def run_exact_case_name_check(
     retrieved = lookup.record.case_name if lookup.record is not None else None
     if extracted is None or retrieved is None:
         status = ValidationNodeStatus.SKIPPED
+        status_message = "Skipped exact case-name comparison because required evidence is missing."
         outcome = FieldCheckOutcome.UNAVAILABLE
+        outcome_message = "Case-name comparison is unavailable because one case name is missing."
     else:
         status = ValidationNodeStatus.SUCCEEDED
+        status_message = "Exact case-name comparison completed."
         outcome = (
             FieldCheckOutcome.MATCH
             if _normalize_case_name(extracted) == _normalize_case_name(retrieved)
             else FieldCheckOutcome.MISMATCH
+        )
+        outcome_message = (
+            "Extracted and retrieved case names match after whitespace normalization."
+            if outcome is FieldCheckOutcome.MATCH
+            else "Extracted and retrieved case names differ after whitespace normalization."
         )
     return ExactCaseNameCheckNode(
         node_id=f"{validation.citation_id}:exact_case_name_check",
@@ -41,6 +49,8 @@ def run_exact_case_name_check(
         extracted_case_name=extracted,
         retrieved_case_name=retrieved,
         depends_on=(lookup.node_id,),
+        status_message=status_message,
+        outcome_message=outcome_message,
     )
 
 

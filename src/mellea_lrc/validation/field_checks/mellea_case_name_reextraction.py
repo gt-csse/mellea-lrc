@@ -80,6 +80,8 @@ async def run_mellea_case_name_reextraction(
             trigger,
             ValidationNodeStatus.SKIPPED,
             MelleaCaseNameReextractionOutcome.UNAVAILABLE,
+            status_message="Skipped local case-name re-extraction because the locator is missing.",
+            outcome_message="Local case-name re-extraction is unavailable because the locator is missing.",
         )
 
     span = validation.citation.locator_span
@@ -119,6 +121,8 @@ async def run_mellea_case_name_reextraction(
                 trigger,
                 ValidationNodeStatus.FAILED,
                 MelleaCaseNameReextractionOutcome.FAILED,
+                status_message="Local case-name re-extraction exhausted its repair attempts.",
+                outcome_message="Local case-name re-extraction did not satisfy its grounding requirements.",
                 error="Case-name re-extraction exhausted its repair budget",
             )
         proposal = _proposal(result.result.value)
@@ -128,6 +132,8 @@ async def run_mellea_case_name_reextraction(
             trigger,
             ValidationNodeStatus.FAILED,
             MelleaCaseNameReextractionOutcome.FAILED,
+            status_message="Local case-name re-extraction failed during execution.",
+            outcome_message="Local case-name re-extraction could not be completed.",
             error=f"{type(exc).__name__}: {exc}",
         )
 
@@ -141,8 +147,14 @@ async def run_mellea_case_name_reextraction(
         trigger,
         ValidationNodeStatus.SUCCEEDED,
         outcome,
+        status_message="Local case-name re-extraction completed.",
         plaintiff=proposal.plaintiff,
         defendant=proposal.defendant,
+        outcome_message={
+            MelleaCaseNameReextractionOutcome.COMPLETE: "Re-extracted both case parties from local context.",
+            MelleaCaseNameReextractionOutcome.PARTIAL: "Re-extracted one case party from local context.",
+            MelleaCaseNameReextractionOutcome.NOT_FOUND: "No case parties were found before the locator.",
+        }[outcome],
     )
 
 
@@ -154,6 +166,8 @@ def _node(
     *,
     plaintiff: str | None = None,
     defendant: str | None = None,
+    status_message: str | None = None,
+    outcome_message: str | None = None,
     error: str | None = None,
 ) -> MelleaCaseNameReextractionNode:
     return MelleaCaseNameReextractionNode(
@@ -163,6 +177,8 @@ def _node(
         plaintiff=plaintiff,
         defendant=defendant,
         depends_on=(trigger.node_id,),
+        status_message=status_message,
+        outcome_message=outcome_message,
         error=error,
     )
 

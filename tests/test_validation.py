@@ -467,11 +467,15 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
     assert progression.nodes[3].result_count == 1
     assert progression.nodes[3].results[0]["cluster_id"] == 123
     assert progression.nodes[3].depends_on == (progression.nodes[2].node_id,)
+    assert progression.nodes[3].status_message == "Opinion search completed."
+    assert progression.nodes[3].outcome_message == "CourtListener returned 1 opinion search results."
     assert isinstance(progression.nodes[4], RecapSearchNode)
     assert progression.nodes[4].outcome is RecapSearchOutcome.SEARCHED
     assert progression.nodes[4].result_count == 2
     assert progression.nodes[4].results[0]["docket_id"] == 789
     assert progression.nodes[4].depends_on == (progression.nodes[2].node_id,)
+    assert progression.nodes[4].status_message == "RECAP search completed."
+    assert progression.nodes[4].outcome_message == "CourtListener returned 2 RECAP search results."
     assert client.search_calls == [(prepared_query, "o"), (prepared_query, "r")]
     assert calls[0][1:] == (extracted.text, session)
 

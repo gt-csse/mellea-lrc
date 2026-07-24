@@ -22,10 +22,18 @@ def run_court_check(
     retrieved = retrieval.court_id
     if extracted is None or retrieved is None:
         status = ValidationNodeStatus.SKIPPED
+        status_message = "Skipped court comparison because required evidence is missing."
         outcome = FieldCheckOutcome.UNAVAILABLE
+        outcome_message = "Court comparison is unavailable because one court identifier is missing."
     else:
         status = ValidationNodeStatus.SUCCEEDED
+        status_message = "Court comparison completed."
         outcome = FieldCheckOutcome.MATCH if extracted == retrieved else FieldCheckOutcome.MISMATCH
+        outcome_message = (
+            "Extracted and retrieved court identifiers match."
+            if outcome is FieldCheckOutcome.MATCH
+            else "Extracted and retrieved court identifiers differ."
+        )
     return CourtCheckNode(
         node_id=f"{validation.citation_id}:court_check",
         status=status,
@@ -33,4 +41,6 @@ def run_court_check(
         extracted_court_id=extracted,
         retrieved_court_id=retrieved,
         depends_on=(retrieval.node_id,),
+        status_message=status_message,
+        outcome_message=outcome_message,
     )

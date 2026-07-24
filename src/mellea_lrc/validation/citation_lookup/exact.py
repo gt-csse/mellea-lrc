@@ -36,6 +36,8 @@ def run_exact_locator_lookup(
             status=ValidationNodeStatus.SKIPPED,
             outcome=LocatorLookupOutcome.UNSUPPORTED_CITATION,
             locator=None,
+            status_message="Skipped exact locator lookup because this is not a full case citation.",
+            outcome_message="Citation is not a full case citation with a reporter locator.",
         )
 
     volume = citation.volume
@@ -47,6 +49,8 @@ def run_exact_locator_lookup(
             status=ValidationNodeStatus.SKIPPED,
             outcome=LocatorLookupOutcome.INCOMPLETE_LOCATOR,
             locator=None,
+            status_message="Skipped exact locator lookup because the locator is incomplete.",
+            outcome_message="Citation is missing volume, reporter, or page needed for locator lookup.",
         )
 
     locator = f"{volume} {reporter} {page}"
@@ -58,6 +62,8 @@ def run_exact_locator_lookup(
             status=ValidationNodeStatus.FAILED,
             outcome=LocatorLookupOutcome.FAILED,
             locator=locator,
+            status_message="Exact locator lookup failed while calling CourtListener.",
+            outcome_message="CourtListener locator lookup could not be completed.",
             error=str(exc),
         )
 
@@ -69,6 +75,8 @@ def run_exact_locator_lookup(
             locator=locator,
             record=lookup.records[0],
             candidate_count=1,
+            status_message="Exact locator lookup completed.",
+            outcome_message="CourtListener returned one citation record for the locator.",
         )
     if lookup.status == HTTP_NOT_FOUND and not lookup.records:
         return ExactLocatorLookupNode(
@@ -76,6 +84,8 @@ def run_exact_locator_lookup(
             status=ValidationNodeStatus.SUCCEEDED,
             outcome=LocatorLookupOutcome.NOT_FOUND,
             locator=locator,
+            status_message="Exact locator lookup completed.",
+            outcome_message="CourtListener returned no citation records for the locator.",
         )
     if lookup.status == HTTP_MULTIPLE_CHOICES and len(lookup.records) > 1:
         return ExactLocatorLookupNode(
@@ -84,6 +94,10 @@ def run_exact_locator_lookup(
             outcome=LocatorLookupOutcome.AMBIGUOUS,
             locator=locator,
             candidate_count=len(lookup.records),
+            status_message="Exact locator lookup completed.",
+            outcome_message=(
+                f"CourtListener returned {len(lookup.records)} citation records for the locator."
+            ),
         )
     msg = f"Unexpected CourtListener lookup response: status={lookup.status}, records={len(lookup.records)}"
     raise AssertionError(msg)
