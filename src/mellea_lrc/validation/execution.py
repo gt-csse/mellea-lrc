@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from mellea_lrc.validation.case_search import (
     run_mellea_case_name_query_preparation,
     run_opinion_search,
+    run_recap_search,
 )
 from mellea_lrc.validation.citation_lookup import run_exact_locator_lookup
 from mellea_lrc.validation.court_retrieval import run_docket_court_retrieval
@@ -185,7 +186,8 @@ class CitationValidationRunner:
             locator not found
             └── Mellea local party re-extraction
                 └── Mellea case-name query preparation
-                    └── CourtListener opinion search -> end
+                    ├── CourtListener opinion search -> end
+                    └── CourtListener RECAP search -> end
         """
         if lookup.outcome is not LocatorLookupOutcome.NOT_FOUND:
             msg = "run_locator_not_found requires a not-found locator"
@@ -204,7 +206,9 @@ class CitationValidationRunner:
             session=session,
         )
         validation = validation.append(preparation)
-        return validation.append(run_opinion_search(validation, preparation=preparation, client=self.client))
+        opinion_search = run_opinion_search(validation, preparation=preparation, client=self.client)
+        recap_search = run_recap_search(validation, preparation=preparation, client=self.client)
+        return validation.append(opinion_search).append(recap_search)
 
     async def run_locator_ambiguous(
         self,

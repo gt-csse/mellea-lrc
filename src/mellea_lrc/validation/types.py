@@ -74,6 +74,14 @@ class OpinionSearchOutcome(str, Enum):
     FAILED = "failed"
 
 
+class RecapSearchOutcome(str, Enum):
+    """Results of searching CourtListener's RECAP corpus."""
+
+    SEARCHED = "searched"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
 class DocketCourtRetrievalOutcome(str, Enum):
     """Results of retrieving a CourtListener docket's court identifier."""
 
@@ -184,6 +192,23 @@ class OpinionSearchNode:
 
 
 @dataclass(frozen=True, slots=True)
+class RecapSearchNode:
+    """One CourtListener RECAP-corpus search from prepared case-name terms."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: RecapSearchOutcome
+    query: str | None
+    result_count: int | None
+    results: tuple[Mapping[str, object], ...]
+    next_cursor: str | None
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class MelleaReextractedCaseNameCheckNode:
     """Semantic comparison using re-extracted plaintiff and defendant evidence."""
 
@@ -241,6 +266,7 @@ ValidationNode: TypeAlias = (
     | MelleaCaseNameReextractionNode
     | MelleaCaseNameQueryPreparationNode
     | OpinionSearchNode
+    | RecapSearchNode
     | MelleaReextractedCaseNameCheckNode
     | DocketCourtRetrievalNode
     | CourtCheckNode

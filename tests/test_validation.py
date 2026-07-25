@@ -33,6 +33,8 @@ from mellea_lrc.validation import (
     MelleaCaseNameReextractionOutcome,
     OpinionSearchNode,
     OpinionSearchOutcome,
+    RecapSearchNode,
+    RecapSearchOutcome,
     ValidatedDocument,
     ValidationNodeStatus,
     YearCheckNode,
@@ -52,11 +54,13 @@ class LookupClient:
         self,
         response: CourtListenerCitationLookup | CourtListenerError,
         docket_response: CourtListenerDocket | CourtListenerError | None = None,
-        search_response: CourtListenerSearchResult | CourtListenerError | None = None,
+        opinion_search_response: CourtListenerSearchResult | CourtListenerError | None = None,
+        recap_search_response: CourtListenerSearchResult | CourtListenerError | None = None,
     ) -> None:
         self.response = response
         self.docket_response = docket_response
-        self.search_response = search_response
+        self.opinion_search_response = opinion_search_response
+        self.recap_search_response = recap_search_response
         self.calls: list[tuple[str, str, str]] = []
         self.docket_calls: list[str] = []
         self.search_calls: list[tuple[str, str]] = []
@@ -86,12 +90,16 @@ class LookupClient:
     def search(self, query: str, search_type: str) -> CourtListenerSearchResult:
         """Record the query and return the configured search outcome."""
         self.search_calls.append((query, search_type))
-        if isinstance(self.search_response, CourtListenerError):
-            raise self.search_response
-        if self.search_response is None:
+        response = {
+            "o": self.opinion_search_response,
+            "r": self.recap_search_response,
+        }.get(search_type)
+        if isinstance(response, CourtListenerError):
+            raise response
+        if response is None:
             msg = "No search response configured"
             raise AssertionError(msg)
-        return self.search_response
+        return response
 
 
 def _validate(document: ExtractedDocument, client: LookupClient) -> ValidatedDocument:
@@ -377,12 +385,21 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
     prepared_query = 'caseName:("Brown" AND "Board")'
     client = LookupClient(
         CourtListenerCitationLookup(citation="347 U.S. 9999", status=404, records=()),
-        search_response=CourtListenerSearchResult.from_payload(
+        opinion_search_response=CourtListenerSearchResult.from_payload(
             query=prepared_query,
             search_type="o",
             semantic=False,
             count=1,
             results=[{"cluster_id": 123, "caseName": "Brown v. Board"}],
+            next_cursor=None,
+            previous_cursor=None,
+        ),
+        recap_search_response=CourtListenerSearchResult.from_payload(
+            query=prepared_query,
+            search_type="r",
+            semantic=False,
+            count=2,
+            results=[{"docket_id": 789, "caseName": "Brown v. Board"}],
             next_cursor=None,
             previous_cursor=None,
         ),
@@ -439,7 +456,7 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
     session = object()
     progression = asyncio.run(validate_document(extracted, client=client, session=session)).citations[0]
 
-    assert len(progression.nodes) == 4
+    assert len(progression.nodes) == 5
     assert progression.nodes[0].outcome is LocatorLookupOutcome.NOT_FOUND
     assert isinstance(progression.nodes[1], MelleaCaseNameReextractionNode)
     assert progression.nodes[1].outcome is MelleaCaseNameReextractionOutcome.COMPLETE
@@ -450,7 +467,12 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
     assert progression.nodes[3].result_count == 1
     assert progression.nodes[3].results[0]["cluster_id"] == 123
     assert progression.nodes[3].depends_on == (progression.nodes[2].node_id,)
-    assert client.search_calls == [(prepared_query, "o")]
+    assert isinstance(progression.nodes[4], RecapSearchNode)
+    assert progression.nodes[4].outcome is RecapSearchOutcome.SEARCHED
+    assert progression.nodes[4].result_count == 2
+    assert progression.nodes[4].results[0]["docket_id"] == 789
+    assert progression.nodes[4].depends_on == (progression.nodes[2].node_id,)
+    assert client.search_calls == [(prepared_query, "o"), (prepared_query, "r")]
     assert calls[0][1:] == (extracted.text, session)
 
 
