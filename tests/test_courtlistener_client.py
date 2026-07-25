@@ -80,7 +80,7 @@ class CourtListenerClientTests(unittest.TestCase):
                         {
                             "citation": "347 U.S. 483",
                             "status": 200,
-                            "clusters": [{"case_name": "Brown"}],
+                            "clusters": [{"id": 123, "case_name": "Brown"}],
                         }
                     ]
                 )
@@ -90,6 +90,7 @@ class CourtListenerClientTests(unittest.TestCase):
         result = client(session).lookup_citation("347", "U.S.", "483")
 
         self.assertEqual(result.status, 200)
+        self.assertEqual(result.records[0].cluster_id, "123")
         self.assertEqual(result.records[0].case_name, "Brown")
         self.assertEqual(session.calls[0]["method"], "POST")
         self.assertEqual(
@@ -139,8 +140,8 @@ class CourtListenerClientTests(unittest.TestCase):
                                 "citation": "1 F.2d 2",
                                 "status": 300,
                                 "clusters": [
-                                    {"caseName": "First", "docketId": 10},
-                                    {"caseName": "Second", "docketId": 20},
+                                    {"id": 11, "caseName": "First", "docketId": 10},
+                                    {"id": 22, "caseName": "Second", "docketId": 20},
                                 ],
                             }
                         ]
@@ -150,6 +151,7 @@ class CourtListenerClientTests(unittest.TestCase):
         ).lookup_citation("1", "F.2d", "2")
 
         self.assertEqual(result.status, 300)
+        self.assertEqual([record.cluster_id for record in result.records], ["11", "22"])
         self.assertEqual([record.case_name for record in result.records], ["First", "Second"])
         self.assertEqual([record.docket_id for record in result.records], ["10", "20"])
 

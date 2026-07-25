@@ -19,6 +19,12 @@ class _CitationLookupPayload(BaseModel):
 class CourtListenerCitationLookupRecordPayload(_CitationLookupPayload):
     """External CourtListener cluster payload."""
 
+    # Citation lookup calls the opinion-cluster identifier ``id``; opinion
+    # search calls the same identifier ``cluster_id``.
+    cluster_id: int | str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("cluster_id", "clusterId", "id"),
+    )
     case_name: str | None = Field(
         default=None,
         validation_alias=AliasChoices("case_name", "caseName"),
@@ -40,6 +46,7 @@ class CourtListenerCitationLookupRecordPayload(_CitationLookupPayload):
     def to_domain(self) -> CourtListenerCitationRecord:
         """Convert validated transport data into a domain record."""
         return CourtListenerCitationRecord(
+            cluster_id=str(self.cluster_id) if self.cluster_id is not None else None,
             case_name=self.case_name,
             date_filed=self.date_filed,
             court=self.court,

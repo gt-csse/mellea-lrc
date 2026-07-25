@@ -7,6 +7,7 @@ from dataclasses import dataclass
 class CourtListenerCitationRecord:
     """One CourtListener record retrieved by a reporter citation lookup."""
 
+    cluster_id: str | None = None
     case_name: str | None = None
     date_filed: str | None = None
     court: str | None = None

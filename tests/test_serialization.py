@@ -110,6 +110,7 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
                     "outcome": "found",
                     "locator": "347 U.S. 483",
                     "record": {
+                        "cluster_id": None,
                         "case_name": "Brown v. Board of Education",
                         "date_filed": None,
                         "court": None,
