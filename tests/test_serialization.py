@@ -30,6 +30,7 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
             ExtractedCitation(
                 citation_id="cite-0001",
                 span=Span(start, start + len(matched_text)),
+                locator_span=Span(start, start + len(matched_text)),
                 matched_text=matched_text,
                 citation=FullCaseCitation(
                     plaintiff="Brown",
