@@ -5,7 +5,7 @@ from pathlib import Path
 from collections.abc import Callable
 
 from mellea_lrc.core import Span
-from mellea_lrc.extraction.mellea import MelleaExtractor
+from mellea_lrc.extraction.mellea_extractor import MelleaExtractor
 
 
 @pytest.fixture

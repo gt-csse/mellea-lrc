@@ -1,6 +1,6 @@
 """Citation extraction from Layer 2 preprocessed legal text."""
 
-from mellea_lrc.extraction.eyecite import extract, extract_baseline, extract_citations
+from mellea_lrc.extraction.eyecite_extractor import extract, extract_baseline, extract_citations
 from mellea_lrc.extraction.pipeline import (
     extract_document_file,
     extract_documents,

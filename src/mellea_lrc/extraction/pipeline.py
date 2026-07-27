@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from mellea_lrc.extraction.eyecite import extract_baseline
+from mellea_lrc.extraction.eyecite_extractor import extract_baseline
 from mellea_lrc.extraction.types import ExtractedDocument
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.preprocessing.plain_text import preprocess_plain_text_from_string

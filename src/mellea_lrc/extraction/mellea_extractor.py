@@ -1,5 +1,6 @@
 """Use Mellea to extract and label."""
 
+# %%
 import uuid
 import re
 from pathlib import Path
@@ -7,6 +8,7 @@ from pathlib import Path
 import mellea
 from mellea import MelleaSession
 from mellea.backends.model_ids import IBM_GRANITE_4_1_3B
+from mellea.backends.model_ids import ModelIdentifier
 from dotenv import load_dotenv, find_dotenv
 
 from mellea_lrc.extraction.base import BaseExtractor
@@ -38,13 +40,14 @@ from mellea_lrc.extraction.types import (
     ExtractionMetadata,
 )
 
+# %%
 
 class MelleaExtractor(BaseExtractor):
     """Extractor that uses Mellea."""
 
     def __init__(
         self,
-        model_id=IBM_GRANITE_4_1_3B,  # noqa: ANN001
+        model_id: ModelIdentifier=IBM_GRANITE_4_1_3B,
     ) -> None:
         """Initialize a Mellea session."""
         self._model_id = model_id
@@ -113,8 +116,8 @@ class MelleaExtractor(BaseExtractor):
 
         """
         matched_text = kwargs.get("matched_text", "")
-        start_span = kwargs.get("start_span", -1)
-        end_span = kwargs.get("end_span", -1)
+        start_span = kwargs.get("start_span", 0)
+        end_span = kwargs.get("end_span", 0)
         citation = kwargs.get("citation", UnknownCitation())
         citation_id = uuid.uuid4().hex
         span = Span(start_span, end_span)
@@ -134,6 +137,9 @@ class MelleaExtractor(BaseExtractor):
         if document_path.exists() and document_path.is_file():
             with document_path.open("r") as file:
                 file_content = file.read()
+        else:
+            msg = f"The document path doesn't exist or isn't a file: {document_path}"
+            raise FileNotFoundError(msg)
         return file_content
 
     def extract_citations(self, text: str) -> ExtractedDocument:
@@ -163,12 +169,12 @@ class MelleaExtractor(BaseExtractor):
             span = self._locate_span(text, matched_text)
             if span is None:
                 unfound.append(matched_text)
+                continue
             citation = self._assemble_canonical_citation(CitationKind.UNKNOWN)  # TODO: Implement classifier
-            arguments = {"citation": citation, "matched_text": matched_text}
+            arguments = {"citation": citation, "matched_text": matched_text, "start_span": span.start, "end_span": span.end}
             citations.append(self._assemble_extractor_citation(text, **arguments))
         # Fill in the `ExtractedMetadata`
         extraction_metadata = ExtractionMetadata(backend=ExtractionBackend.MELLEA)
-
         return ExtractedDocument(
             text=text,
             preprocessing_metadata=preprocessing_metadata,
@@ -187,7 +193,7 @@ class MelleaExtractor(BaseExtractor):
         file_path = Path(file_path)
         if not file_path.exists() or not file_path.is_file():
             message = f"{file_path} doesn't exists or isn't a file.\n"
-            raise Exception(message)
+            raise FileNotFoundError(message)
         document = preprocess(file_path)
         return document.text
 
