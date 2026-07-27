@@ -18,7 +18,11 @@ post_generation_instructions.html
 # Local development artifacts
 .env
 .envrc
+.env.deploy
 local/
+
+# Local project presentation artifacts
+Mellea-LRC-*.pptx
 docs/.obsidian/**
 
 # Frontend-generated files
