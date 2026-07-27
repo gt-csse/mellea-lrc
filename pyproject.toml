@@ -126,6 +126,7 @@ ignore = [
     "D213", # Multiline line summary second line
     "CPY001", # Ignore Copyright header check for now
     "UP042", # Ignore Ruff's recommendation to use `class(StrEnum)` instead of `class(str, Enum)`
+    "RUF036", # Move `None` to the end of an union.
 ]
 
 [tool.ruff.lint.mccabe]
