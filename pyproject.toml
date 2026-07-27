@@ -66,7 +66,7 @@ dev = [
     "pre-commit>=4.6.0",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
-    "ruff>=0.15.15",
+    "ruff~=0.16.0",
     "typer<0.26",
 ]
 eval = [
@@ -97,36 +97,10 @@ line-length = 110
 [tool.ruff.lint]
 exclude = ["benchmarks/Extraction/notebooks", "tests/**"]
 
-
-
-select = ["ALL"]
-
 ignore = [
-    "ANN002", # Missing type annotation for `*args`
-    "ANN003", # Missing type annotation for `**kwargs`
-    "BLE001", # Do not catch blind exception: `Exception`
-    "COM812", # Trailing comma missing
-    "D105", # Missing docstring in magic method
-    "D107", # Missing docstring in `__init__` method
-    "D202", # No blank lines allowed after function docstring
-    "E501", # Line too long
-    "FIX002", # Line contains TODO, consider resolving the issue
-    "I001", # Import block is un-sorted or un-formatted
-    "N802", # Function name `xxx` should be lowercase
-    "N999", # Invalid module name
-    "RSE102", # Unnecessary parentheses on raise exception
-    "S101", # Use of assert detected
-    "TC006", # Add quotes to type expression in `typing.cast()`
-    "TD002", # Missing author in TODO
-    "TD003", # Missing issue link for this TODO
-    "TRY002", # Create your own exception
-    "TRY300", # Consider moving this statement to an `else` block
-    "UP032", # Use f-string instead of `format` call
-    "D203", # Incorrect blank lines before class
-    "D213", # Multiline line summary second line
-    "CPY001", # Ignore Copyright header check for now
-    "UP042", # Ignore Ruff's recommendation to use `class(StrEnum)` instead of `class(str, Enum)`
-    "RUF036", # Move `None` to the end of an union.
+    "BLE001",
+    "I001",
+    "TRY002",
 ]
 
 [tool.ruff.lint.mccabe]

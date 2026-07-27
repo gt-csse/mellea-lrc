@@ -24,13 +24,13 @@ def main(argv: list[str] | None = None) -> int:
     if command == "upload-tasks":
         return upload_tasks_main(command_args)
 
-    print(f"Unknown command: {command}")  # noqa: T201
+    print(f"Unknown command: {command}")
     _print_usage()
     return 1
 
 
 def _print_usage() -> None:
-    print(  # noqa: T201
+    print(
         "Usage: uv run --group label-studio python -m scripts.label_studio.cli "
         "<upload-schema|upload-tasks> [paths...]"
     )

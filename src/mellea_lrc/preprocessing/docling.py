@@ -40,7 +40,7 @@ def _source_format(path: Path) -> SourceFormat:
 def preprocess_with_docling(path: Path | str) -> PreprocessedDocument:
     """Convert a raw document to plain text using Docling."""
     try:
-        from docling.document_converter import DocumentConverter  # noqa: PLC0415
+        from docling.document_converter import DocumentConverter
     except ImportError as exc:
         msg = (
             "Docling is required for raw document preprocessing. Install with: uv sync --group preprocessing"

@@ -1,7 +1,5 @@
 """Direct CourtListener API client."""
 
-# ruff: noqa: ANN401, EM101, PLR2004, TRY003
-
 from __future__ import annotations
 
 import os

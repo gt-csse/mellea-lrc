@@ -103,7 +103,7 @@ class MelleaExtractor(BaseExtractor):
         kind = CitationKind(kind)
         return mapping[kind](**kwargs)
 
-    def _assemble_extractor_citation(self, text: str, **kwargs) -> ExtractedCitation:  # noqa: ARG002
+    def _assemble_extractor_citation(self, text: str, **kwargs) -> ExtractedCitation:
         """Build and return a ExtractedCitation class.
 
         Args:

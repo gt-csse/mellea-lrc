@@ -59,7 +59,7 @@ def main(paths: list[str] | None = None) -> int:
     load_dotenv(dotenv_path=Path(".env"))
     document_paths = paths if paths is not None else sys.argv[1:]
     if not document_paths:
-        print(  # noqa: T201
+        print(
             "Usage: uv run --group label-studio "
             "python -m scripts.label_studio.cli upload-tasks <file1.txt> [file2.txt ...]"
         )
@@ -81,7 +81,7 @@ def main(paths: list[str] | None = None) -> int:
             text,
             source_path=document_path,
         )
-        print(f"{document_path}: {result['task_count']} task, {result['prediction_count']} prediction")  # noqa: T201
+        print(f"{document_path}: {result['task_count']} task, {result['prediction_count']} prediction")
     return 0
 
 

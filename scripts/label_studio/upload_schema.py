@@ -45,7 +45,7 @@ def main() -> int:
     session = get_session(ls_url, os.environ["LS_EMAIL"], os.environ["LS_PASSWORD"])
 
     result = upload_schema(session, ls_url, project_id, CONFIG_PATH.read_text(encoding="utf-8"))
-    print(f"Schema updated for project {result['id']}: {result['title']}")  # noqa: T201
+    print(f"Schema updated for project {result['id']}: {result['title']}")
     return 0
 
 

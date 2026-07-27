@@ -33,7 +33,7 @@ from mellea_lrc.core.citations import (
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing.plain_text import preprocess_plain_text_from_string
-from mellea_lrc.preprocessing.types import PreprocessedDocument  # noqa: TC001
+from mellea_lrc.preprocessing.types import PreprocessedDocument
 
 EYECITE_CITATION_TYPES = frozenset(
     {

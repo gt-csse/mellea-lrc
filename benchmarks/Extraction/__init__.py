@@ -1,1 +1,1 @@
-"""Run benchmarks on extraction."""
+"""Run benchmarks on extraction."""  # noqa N999

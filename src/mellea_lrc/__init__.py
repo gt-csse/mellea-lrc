@@ -6,7 +6,7 @@ def hello() -> str:
     return "Hello from mellea-lrc!"
 
 
-from importlib.metadata import version  # noqa: E402
+from importlib.metadata import version
 
 
 __version__ = version("mellea_lrc")
