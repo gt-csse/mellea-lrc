@@ -7,6 +7,8 @@ from enum import Enum
 from typing import TYPE_CHECKING, TypeAlias
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationRecord
     from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
 
@@ -60,6 +62,14 @@ class MelleaCaseNameQueryPreparationOutcome(str, Enum):
     """Results of preparing a CourtListener query from re-extracted parties."""
 
     PREPARED = "prepared"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
+class OpinionSearchOutcome(str, Enum):
+    """Results of searching CourtListener's opinion corpus."""
+
+    SEARCHED = "searched"
     UNAVAILABLE = "unavailable"
     FAILED = "failed"
 
@@ -159,6 +169,21 @@ class MelleaCaseNameQueryPreparationNode:
 
 
 @dataclass(frozen=True, slots=True)
+class OpinionSearchNode:
+    """One CourtListener opinion-corpus search from prepared case-name terms."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: OpinionSearchOutcome
+    query: str | None
+    result_count: int | None
+    results: tuple[Mapping[str, object], ...]
+    next_cursor: str | None
+    depends_on: tuple[str, ...]
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class MelleaReextractedCaseNameCheckNode:
     """Semantic comparison using re-extracted plaintiff and defendant evidence."""
 
@@ -215,6 +240,7 @@ ValidationNode: TypeAlias = (
     | MelleaCaseNameCheckNode
     | MelleaCaseNameReextractionNode
     | MelleaCaseNameQueryPreparationNode
+    | OpinionSearchNode
     | MelleaReextractedCaseNameCheckNode
     | DocketCourtRetrievalNode
     | CourtCheckNode
