@@ -16,6 +16,11 @@ from mellea_lrc.validation.candidate_selection import (
     run_opinion_search_candidate_selection,
     run_recap_search_candidate_selection,
 )
+from mellea_lrc.validation.candidate_evaluation import (
+    run_locator_candidate_evaluation,
+    run_opinion_search_candidate_evaluation,
+    run_recap_search_candidate_evaluation,
+)
 from mellea_lrc.validation.court_retrieval import run_docket_court_retrieval
 from mellea_lrc.validation.field_checks import (
     run_court_check,
@@ -26,6 +31,7 @@ from mellea_lrc.validation.field_checks import (
 )
 from mellea_lrc.validation.types import (
     ExactCaseNameCheckNode,
+    CandidateEvaluationNode,
     ExactLocatorLookupNode,
     FieldCheckOutcome,
     LocatorLookupOutcome,
@@ -97,21 +103,32 @@ class CitationValidationRunner:
 
         Graph:
             found locator
-            ├── exact case-name check + year check + docket court retrieval
-            │   ├── exact case-name mismatch ->
-            │   │   ``run_locator_found_case_name_mismatch``
-            │   └── match or unavailable -> end
-            ├── docket court retrieval -> court check
-            └── year and court results do not alter this progression yet
+            └── locator candidate evaluation
+                ├── exact case-name check + year check + docket court retrieval
+                │   ├── exact case-name mismatch ->
+                │   │   ``run_locator_found_case_name_mismatch``
+                │   └── match or unavailable -> end
+                ├── docket court retrieval -> court check
+                └── year and court results do not alter this progression yet
         """
         if lookup.outcome is not LocatorLookupOutcome.FOUND:
             msg = "run_locator_found requires a found locator"
             raise ValueError(msg)
-        exact_case_name_check_node = run_exact_case_name_check(validation, lookup=lookup)
-        year_check_node = run_year_check(validation, lookup=lookup)
+        if lookup.record is None:
+            msg = "Found locator requires one citation record"
+            raise ValueError(msg)
+        candidate = run_locator_candidate_evaluation(
+            validation,
+            record=lookup.record,
+            candidate_index=1,
+            depends_on=(lookup.node_id,),
+        )
+        validation = validation.append(candidate)
+        exact_case_name_check_node = run_exact_case_name_check(validation, candidate=candidate)
+        year_check_node = run_year_check(validation, candidate=candidate)
         docket_court_retrieval_node = run_docket_court_retrieval(
             validation,
-            lookup=lookup,
+            candidate=candidate,
             client=self.client,
         )
         court_check_node = run_court_check(validation, retrieval=docket_court_retrieval_node)
@@ -126,6 +143,7 @@ class CitationValidationRunner:
         return await self.run_locator_found_case_name_mismatch(
             validation,
             lookup=lookup,
+            candidate=candidate,
             exact_case_name_check=exact_case_name_check_node,
             document_text=document_text,
             session=session,
@@ -136,6 +154,7 @@ class CitationValidationRunner:
         validation: CitationValidation,
         *,
         lookup: ExactLocatorLookupNode,
+        candidate: CandidateEvaluationNode,
         exact_case_name_check: ExactCaseNameCheckNode,
         document_text: str,
         session: MelleaSession | None,
@@ -174,7 +193,7 @@ class CitationValidationRunner:
             await run_mellea_case_name_check(
                 validation,
                 case_name_evidence=reextraction,
-                locator_lookup=lookup,
+                candidate=candidate,
                 session=session,
             )
         )
@@ -193,8 +212,8 @@ class CitationValidationRunner:
             locator not found
             └── Mellea local party re-extraction
                 └── Mellea case-name query preparation
-                    ├── CourtListener opinion search -> candidate selection
-                    └── CourtListener RECAP search -> candidate selection
+                    ├── CourtListener opinion search -> candidate selection -> evaluation x selected candidate
+                    └── CourtListener RECAP search -> candidate selection -> evaluation x selected candidate
         """
         if lookup.outcome is not LocatorLookupOutcome.NOT_FOUND:
             msg = "run_locator_not_found requires a not-found locator"
@@ -217,13 +236,42 @@ class CitationValidationRunner:
         recap_search = run_recap_search(validation, preparation=preparation, client=self.client)
         validation = validation.append(opinion_search).append(recap_search)
         if opinion_search.outcome is OpinionSearchOutcome.SEARCHED:
-            validation = validation.append(
-                run_opinion_search_candidate_selection(validation, search=opinion_search)
+            opinion_selection = run_opinion_search_candidate_selection(
+                validation,
+                search=opinion_search,
             )
+            validation = validation.append(opinion_selection)
+            if opinion_selection.selected_candidate_count:
+                results = opinion_search.results[: opinion_selection.selected_candidate_count]
+                if len(results) != opinion_selection.selected_candidate_count:
+                    msg = "Opinion-search result payload is shorter than its selected candidate count"
+                    raise ValueError(msg)
+                for candidate_index, result in enumerate(results, start=1):
+                    validation = validation.append(
+                        run_opinion_search_candidate_evaluation(
+                            validation,
+                            result=result,
+                            candidate_index=candidate_index,
+                            depends_on=(opinion_selection.node_id,),
+                        )
+                    )
         if recap_search.outcome is RecapSearchOutcome.SEARCHED:
-            validation = validation.append(
-                run_recap_search_candidate_selection(validation, search=recap_search)
-            )
+            recap_selection = run_recap_search_candidate_selection(validation, search=recap_search)
+            validation = validation.append(recap_selection)
+            if recap_selection.selected_candidate_count:
+                results = recap_search.results[: recap_selection.selected_candidate_count]
+                if len(results) != recap_selection.selected_candidate_count:
+                    msg = "RECAP-search result payload is shorter than its selected candidate count"
+                    raise ValueError(msg)
+                for candidate_index, result in enumerate(results, start=1):
+                    validation = validation.append(
+                        run_recap_search_candidate_evaluation(
+                            validation,
+                            result=result,
+                            candidate_index=candidate_index,
+                            depends_on=(recap_selection.node_id,),
+                        )
+                    )
         return validation
 
     async def run_locator_ambiguous(
@@ -236,7 +284,7 @@ class CitationValidationRunner:
 
         Graph:
             ambiguous locator
-            └── candidate-selection guard -> end
+            └── candidate-selection guard -> candidate evaluation x selected candidate
 
         A later ``run_locator_ambiguous_*`` decomposition will extend this
         route without changing the top-level progression selector.
@@ -244,4 +292,21 @@ class CitationValidationRunner:
         if lookup.outcome is not LocatorLookupOutcome.AMBIGUOUS:
             msg = "run_locator_ambiguous requires an ambiguous locator"
             raise ValueError(msg)
-        return validation.append(run_locator_candidate_selection(validation, lookup=lookup))
+        selection = run_locator_candidate_selection(validation, lookup=lookup)
+        validation = validation.append(selection)
+        if not selection.selected_candidate_count:
+            return validation
+        candidates = lookup.candidates[: selection.selected_candidate_count]
+        if len(candidates) != selection.selected_candidate_count:
+            msg = "Locator candidate payload is shorter than its selected candidate count"
+            raise ValueError(msg)
+        for candidate_index, record in enumerate(candidates, start=1):
+            validation = validation.append(
+                run_locator_candidate_evaluation(
+                    validation,
+                    record=record,
+                    candidate_index=candidate_index,
+                    depends_on=(selection.node_id,),
+                )
+            )
+        return validation

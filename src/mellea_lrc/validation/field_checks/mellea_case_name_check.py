@@ -18,7 +18,7 @@ from mellea_lrc.llm import (
 )
 from mellea_lrc.validation.types import (
     ExactCaseNameCheckNode,
-    ExactLocatorLookupNode,
+    CandidateEvaluationNode,
     MelleaCaseNameCheckNode,
     MelleaCaseNameCheckOutcome,
     MelleaCaseNameReextractionNode,
@@ -58,18 +58,18 @@ async def run_mellea_case_name_check(
     validation: CitationValidation,
     *,
     case_name_evidence: ExactCaseNameCheckNode | MelleaCaseNameReextractionNode,
-    locator_lookup: ExactLocatorLookupNode | None = None,
+    candidate: CandidateEvaluationNode | None = None,
     session: MelleaSession | None = None,
 ) -> MelleaCaseNameCheckNode | MelleaReextractedCaseNameCheckNode:
     """Compare explicitly supplied case-name evidence against the retrieved name."""
     if isinstance(case_name_evidence, MelleaCaseNameReextractionNode):
-        if locator_lookup is None:
-            msg = "Re-extracted case-name evidence requires its locator lookup"
+        if candidate is None:
+            msg = "Re-extracted case-name evidence requires its candidate"
             raise ValueError(msg)
         return await _run_reextracted_check(
             validation,
             case_name_evidence,
-            locator_lookup=locator_lookup,
+            candidate=candidate,
             session=session,
         )
 
@@ -162,11 +162,11 @@ async def _run_reextracted_check(
     validation: CitationValidation,
     reextraction: MelleaCaseNameReextractionNode,
     *,
-    locator_lookup: ExactLocatorLookupNode,
+    candidate: CandidateEvaluationNode,
     session: MelleaSession | None,
 ) -> MelleaReextractedCaseNameCheckNode:
     extracted = _case_name_from_reextraction(reextraction)
-    retrieved = locator_lookup.record.case_name if locator_lookup.record is not None else None
+    retrieved = candidate.case_name
     if extracted is None or retrieved is None:
         return MelleaReextractedCaseNameCheckNode(
             node_id=f"{validation.citation_id}:mellea_reextracted_case_name_check",

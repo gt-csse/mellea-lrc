@@ -98,6 +98,20 @@ class CandidateSelectionOutcome(str, Enum):
     DEFERRED_OVER_LIMIT = "deferred_over_limit"
 
 
+class CandidateEvaluationOutcome(str, Enum):
+    """Readiness of one independently evaluable retrieved candidate."""
+
+    READY = "ready"
+
+
+class CandidateEvaluationSource(str, Enum):
+    """Retrieval route that produced a candidate evaluation node."""
+
+    LOCATOR_LOOKUP = "locator_lookup"
+    OPINION_SEARCH = "opinion_search"
+    RECAP_SEARCH = "recap_search"
+
+
 MIN_AMBIGUOUS_CANDIDATE_COUNT = 2
 
 
@@ -257,6 +271,31 @@ class CandidateSelectionNode:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateEvaluationNode:
+    """One selected retrieved candidate made ready for field-check subtrees."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: CandidateEvaluationOutcome
+    source: CandidateEvaluationSource
+    candidate_index: int
+    cluster_id: str | None
+    case_name: str | None
+    date_filed: str | None
+    court_id: str | None
+    docket_id: str | None
+    record: CourtListenerCitationRecord | Mapping[str, object]
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+
+    @property
+    def year(self) -> str | None:
+        """Return the filed-year prefix when the opinion result provides one."""
+        return self.date_filed[:4] if self.date_filed else None
+
+
+@dataclass(frozen=True, slots=True)
 class MelleaReextractedCaseNameCheckNode:
     """Semantic comparison using re-extracted plaintiff and defendant evidence."""
 
@@ -324,6 +363,7 @@ ValidationNode: TypeAlias = (
     | OpinionSearchNode
     | RecapSearchNode
     | CandidateSelectionNode
+    | CandidateEvaluationNode
     | MelleaReextractedCaseNameCheckNode
     | DocketCourtRetrievalNode
     | CourtCheckNode

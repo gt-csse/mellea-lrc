@@ -1,6 +1,9 @@
 """Post-extraction citation validation."""
 
 from mellea_lrc.validation.types import (
+    CandidateEvaluationNode,
+    CandidateEvaluationOutcome,
+    CandidateEvaluationSource,
     CourtCheckNode,
     CandidateSelectionNode,
     CandidateSelectionOutcome,
@@ -30,6 +33,9 @@ from mellea_lrc.validation.types import (
 from mellea_lrc.validation.pipeline import initialize_validation, validate_document
 
 __all__ = [
+    "CandidateEvaluationNode",
+    "CandidateEvaluationOutcome",
+    "CandidateEvaluationSource",
     "CandidateSelectionNode",
     "CandidateSelectionOutcome",
     "CitationValidation",

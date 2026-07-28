@@ -20,6 +20,9 @@ from mellea_lrc.extraction import ExtractedCitation, ExtractedDocument, Extracti
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
 from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.validation import (
+    CandidateEvaluationNode,
+    CandidateEvaluationOutcome,
+    CandidateEvaluationSource,
     CandidateSelectionNode,
     CandidateSelectionOutcome,
     CourtCheckNode,
@@ -198,9 +201,10 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
 
     progression = validation.citation_by_id("cite-0001")
     assert client.calls == [("347", "U.S.", "483")]
-    assert len(progression.nodes) == 5
+    assert len(progression.nodes) == 6
     (
         exact_locator_lookup_node,
+        candidate_evaluation_node,
         exact_case_name_check_node,
         year_check_node,
         docket_court_retrieval_node,
@@ -209,12 +213,17 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
     assert isinstance(exact_locator_lookup_node, ExactLocatorLookupNode)
     assert exact_locator_lookup_node.outcome is LocatorLookupOutcome.FOUND
     assert exact_locator_lookup_node.record is record
+    assert isinstance(candidate_evaluation_node, CandidateEvaluationNode)
+    assert candidate_evaluation_node.outcome is CandidateEvaluationOutcome.READY
+    assert candidate_evaluation_node.source is CandidateEvaluationSource.LOCATOR_LOOKUP
+    assert candidate_evaluation_node.record is record
+    assert candidate_evaluation_node.depends_on == (exact_locator_lookup_node.node_id,)
     assert isinstance(exact_case_name_check_node, ExactCaseNameCheckNode)
     assert exact_case_name_check_node.outcome is FieldCheckOutcome.MATCH
-    assert exact_case_name_check_node.depends_on == (exact_locator_lookup_node.node_id,)
+    assert exact_case_name_check_node.depends_on == (candidate_evaluation_node.node_id,)
     assert isinstance(year_check_node, YearCheckNode)
     assert year_check_node.outcome is FieldCheckOutcome.MATCH
-    assert year_check_node.depends_on == (exact_locator_lookup_node.node_id,)
+    assert year_check_node.depends_on == (candidate_evaluation_node.node_id,)
     assert docket_court_retrieval_node.status is ValidationNodeStatus.SUCCEEDED
     assert client.docket_calls == ["84657"]
     assert isinstance(court_check_node, CourtCheckNode)
@@ -275,6 +284,7 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
 
     (
         _,
+        _,
         exact_case_name_check_node,
         year_check_node,
         _,
@@ -302,7 +312,7 @@ def test_found_field_checks_skip_unavailable_values() -> None:
         )
     )
 
-    _, exact_case_name_check_node, year_check_node, _, court_check_node = (
+    _, _, exact_case_name_check_node, year_check_node, _, court_check_node = (
         _validate(extracted, client).citations[0].nodes
     )
 
@@ -401,7 +411,10 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
             search_type="r",
             semantic=False,
             count=2,
-            results=[{"docket_id": 789, "caseName": "Brown v. Board"}],
+            results=[
+                {"docket_id": 789, "caseName": "Brown v. Board"},
+                {"docket_id": 790, "caseName": "Brown v. Board"},
+            ],
             next_cursor=None,
             previous_cursor=None,
         ),
@@ -458,7 +471,7 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
     session = object()
     progression = asyncio.run(validate_document(extracted, client=client, session=session)).citations[0]
 
-    assert len(progression.nodes) == 7
+    assert len(progression.nodes) == 10
     assert progression.nodes[0].outcome is LocatorLookupOutcome.NOT_FOUND
     assert isinstance(progression.nodes[1], MelleaCaseNameReextractionNode)
     assert progression.nodes[1].outcome is MelleaCaseNameReextractionOutcome.COMPLETE
@@ -482,10 +495,28 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
     assert progression.nodes[5].outcome is CandidateSelectionOutcome.ALL_SELECTED
     assert progression.nodes[5].total_candidate_count == 1
     assert progression.nodes[5].depends_on == (progression.nodes[3].node_id,)
-    assert isinstance(progression.nodes[6], CandidateSelectionNode)
-    assert progression.nodes[6].outcome is CandidateSelectionOutcome.ALL_SELECTED
-    assert progression.nodes[6].total_candidate_count == 2
-    assert progression.nodes[6].depends_on == (progression.nodes[4].node_id,)
+    assert isinstance(progression.nodes[6], CandidateEvaluationNode)
+    assert progression.nodes[6].outcome is CandidateEvaluationOutcome.READY
+    assert progression.nodes[6].source is CandidateEvaluationSource.OPINION_SEARCH
+    assert progression.nodes[6].candidate_index == 1
+    assert progression.nodes[6].cluster_id == "123"
+    assert progression.nodes[6].case_name == "Brown v. Board"
+    assert progression.nodes[6].depends_on == (progression.nodes[5].node_id,)
+    assert progression.nodes[6].record == progression.nodes[3].results[0]
+    assert isinstance(progression.nodes[7], CandidateSelectionNode)
+    assert progression.nodes[7].outcome is CandidateSelectionOutcome.ALL_SELECTED
+    assert progression.nodes[7].total_candidate_count == 2
+    assert progression.nodes[7].depends_on == (progression.nodes[4].node_id,)
+    assert isinstance(progression.nodes[8], CandidateEvaluationNode)
+    assert progression.nodes[8].source is CandidateEvaluationSource.RECAP_SEARCH
+    assert progression.nodes[8].candidate_index == 1
+    assert progression.nodes[8].docket_id == "789"
+    assert progression.nodes[8].depends_on == (progression.nodes[7].node_id,)
+    assert progression.nodes[8].record == progression.nodes[4].results[0]
+    assert isinstance(progression.nodes[9], CandidateEvaluationNode)
+    assert progression.nodes[9].source is CandidateEvaluationSource.RECAP_SEARCH
+    assert progression.nodes[9].candidate_index == 2
+    assert progression.nodes[9].depends_on == (progression.nodes[7].node_id,)
     assert client.search_calls == [(prepared_query, "o"), (prepared_query, "r")]
     assert calls[0][1:] == (extracted.text, session)
 
@@ -556,7 +587,7 @@ def test_ambiguous_lookup_records_a_bounded_candidate_selection() -> None:
     )
     client = LookupClient(CourtListenerCitationLookup(citation="1 F.2d 2", status=300, records=records))
 
-    lookup, selection = _validate(extracted, client).citations[0].nodes
+    lookup, selection, first_candidate, second_candidate = _validate(extracted, client).citations[0].nodes
 
     assert lookup.status is ValidationNodeStatus.SUCCEEDED
     assert lookup.outcome is LocatorLookupOutcome.AMBIGUOUS
@@ -568,6 +599,13 @@ def test_ambiguous_lookup_records_a_bounded_candidate_selection() -> None:
     assert selection.total_candidate_count == 2
     assert selection.selected_candidate_count == 2
     assert selection.depends_on == (lookup.node_id,)
+    assert isinstance(first_candidate, CandidateEvaluationNode)
+    assert first_candidate.source is CandidateEvaluationSource.LOCATOR_LOOKUP
+    assert first_candidate.record is records[0]
+    assert first_candidate.depends_on == (selection.node_id,)
+    assert isinstance(second_candidate, CandidateEvaluationNode)
+    assert second_candidate.record is records[1]
+    assert second_candidate.depends_on == (selection.node_id,)
 
 
 def test_ambiguous_lookup_defers_candidate_selection_over_the_limit() -> None:

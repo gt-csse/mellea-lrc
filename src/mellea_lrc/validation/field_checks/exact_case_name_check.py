@@ -12,18 +12,18 @@ from mellea_lrc.validation.types import (
 )
 
 if TYPE_CHECKING:
-    from mellea_lrc.validation.types import CitationValidation, ExactLocatorLookupNode
+    from mellea_lrc.validation.types import CandidateEvaluationNode, CitationValidation
 
 
 def run_exact_case_name_check(
     validation: CitationValidation,
     *,
-    lookup: ExactLocatorLookupNode,
+    candidate: CandidateEvaluationNode,
 ) -> ExactCaseNameCheckNode:
     """Compare normalized extracted and retrieved case names exactly."""
     citation = validation.citation.citation
     extracted = _extracted_case_name(citation) if isinstance(citation, FullCaseCitation) else None
-    retrieved = lookup.record.case_name if lookup.record is not None else None
+    retrieved = candidate.case_name
     if extracted is None or retrieved is None:
         status = ValidationNodeStatus.SKIPPED
         status_message = "Skipped exact case-name comparison because required evidence is missing."
@@ -48,7 +48,7 @@ def run_exact_case_name_check(
         outcome=outcome,
         extracted_case_name=extracted,
         retrieved_case_name=retrieved,
-        depends_on=(lookup.node_id,),
+        depends_on=(candidate.node_id,),
         status_message=status_message,
         outcome_message=outcome_message,
     )

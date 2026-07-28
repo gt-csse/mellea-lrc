@@ -8,18 +8,18 @@ from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.validation.types import FieldCheckOutcome, ValidationNodeStatus, YearCheckNode
 
 if TYPE_CHECKING:
-    from mellea_lrc.validation.types import CitationValidation, ExactLocatorLookupNode
+    from mellea_lrc.validation.types import CandidateEvaluationNode, CitationValidation
 
 
 def run_year_check(
     validation: CitationValidation,
     *,
-    lookup: ExactLocatorLookupNode,
+    candidate: CandidateEvaluationNode,
 ) -> YearCheckNode:
     """Compare extracted and retrieved decision years for one found locator."""
     citation = validation.citation.citation
     extracted = citation.year if isinstance(citation, FullCaseCitation) else None
-    retrieved = lookup.record.year if lookup.record is not None else None
+    retrieved = candidate.year
     if extracted is None or retrieved is None:
         status = ValidationNodeStatus.SKIPPED
         status_message = "Skipped year comparison because required evidence is missing."
@@ -40,7 +40,7 @@ def run_year_check(
         outcome=outcome,
         extracted_year=extracted,
         retrieved_year=retrieved,
-        depends_on=(lookup.node_id,),
+        depends_on=(candidate.node_id,),
         status_message=status_message,
         outcome_message=outcome_message,
     )

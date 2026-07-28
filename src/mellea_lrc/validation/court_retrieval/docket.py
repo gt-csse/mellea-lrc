@@ -8,7 +8,7 @@ from mellea_lrc.courtlistener import CourtListenerError
 from mellea_lrc.validation.types import (
     DocketCourtRetrievalNode,
     DocketCourtRetrievalOutcome,
-    ExactLocatorLookupNode,
+    CandidateEvaluationNode,
     ValidationNodeStatus,
 )
 
@@ -20,15 +20,15 @@ if TYPE_CHECKING:
 def run_docket_court_retrieval(
     validation: CitationValidation,
     *,
-    lookup: ExactLocatorLookupNode,
+    candidate: CandidateEvaluationNode,
     client: CourtListenerServiceClient,
 ) -> DocketCourtRetrievalNode:
     """Retrieve the court ID for the exact lookup's linked docket."""
-    docket_id = lookup.record.docket_id if lookup.record is not None else None
+    docket_id = candidate.docket_id
     if not docket_id:
         return _node(
             validation,
-            lookup,
+            candidate,
             ValidationNodeStatus.SKIPPED,
             DocketCourtRetrievalOutcome.UNAVAILABLE,
             status_message="Skipped docket court retrieval because the citation record has no docket identifier.",
@@ -39,7 +39,7 @@ def run_docket_court_retrieval(
     except CourtListenerError as exc:
         return _node(
             validation,
-            lookup,
+            candidate,
             ValidationNodeStatus.FAILED,
             DocketCourtRetrievalOutcome.FAILED,
             status_message="Docket court retrieval failed while calling CourtListener.",
@@ -49,7 +49,7 @@ def run_docket_court_retrieval(
     if not docket.court_id:
         return _node(
             validation,
-            lookup,
+            candidate,
             ValidationNodeStatus.SUCCEEDED,
             DocketCourtRetrievalOutcome.UNAVAILABLE,
             status_message="Docket court retrieval completed.",
@@ -57,7 +57,7 @@ def run_docket_court_retrieval(
         )
     return _node(
         validation,
-        lookup,
+        candidate,
         ValidationNodeStatus.SUCCEEDED,
         DocketCourtRetrievalOutcome.FOUND,
         court_id=docket.court_id,
@@ -68,7 +68,7 @@ def run_docket_court_retrieval(
 
 def _node(
     validation: CitationValidation,
-    lookup: ExactLocatorLookupNode,
+    candidate: CandidateEvaluationNode,
     status: ValidationNodeStatus,
     outcome: DocketCourtRetrievalOutcome,
     *,
@@ -81,9 +81,9 @@ def _node(
         node_id=f"{validation.citation_id}:docket_court_retrieval",
         status=status,
         outcome=outcome,
-        docket_id=lookup.record.docket_id if lookup.record is not None else None,
+        docket_id=candidate.docket_id,
         court_id=court_id,
-        depends_on=(lookup.node_id,),
+        depends_on=(candidate.node_id,),
         status_message=status_message,
         outcome_message=outcome_message,
         error=error,
