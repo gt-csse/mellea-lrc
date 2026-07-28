@@ -12,7 +12,7 @@ from mellea_lrc.core.citations import citation_kind
 if TYPE_CHECKING:
     from mellea_lrc.validation.types import ValidatedDocument
 
-JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
 SCHEMA_VERSION = 1
 
 

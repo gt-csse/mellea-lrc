@@ -14,6 +14,7 @@ from mellea_lrc.courtlistener import (
     CourtListenerCitationRecord,
     CourtListenerDocket,
     CourtListenerError,
+    CourtListenerSearchResult,
 )
 from mellea_lrc.extraction import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
@@ -30,6 +31,8 @@ from mellea_lrc.validation import (
     MelleaCaseNameQueryPreparationOutcome,
     MelleaCaseNameReextractionNode,
     MelleaCaseNameReextractionOutcome,
+    OpinionSearchNode,
+    OpinionSearchOutcome,
     ValidatedDocument,
     ValidationNodeStatus,
     YearCheckNode,
@@ -49,11 +52,14 @@ class LookupClient:
         self,
         response: CourtListenerCitationLookup | CourtListenerError,
         docket_response: CourtListenerDocket | CourtListenerError | None = None,
+        search_response: CourtListenerSearchResult | CourtListenerError | None = None,
     ) -> None:
         self.response = response
         self.docket_response = docket_response
+        self.search_response = search_response
         self.calls: list[tuple[str, str, str]] = []
         self.docket_calls: list[str] = []
+        self.search_calls: list[tuple[str, str]] = []
 
     def lookup_citation(
         self,
@@ -76,6 +82,16 @@ class LookupClient:
             msg = "No docket response configured"
             raise AssertionError(msg)
         return self.docket_response
+
+    def search(self, query: str, search_type: str) -> CourtListenerSearchResult:
+        """Record the query and return the configured search outcome."""
+        self.search_calls.append((query, search_type))
+        if isinstance(self.search_response, CourtListenerError):
+            raise self.search_response
+        if self.search_response is None:
+            msg = "No search response configured"
+            raise AssertionError(msg)
+        return self.search_response
 
 
 def _validate(document: ExtractedDocument, client: LookupClient) -> ValidatedDocument:
@@ -358,7 +374,19 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
 ) -> None:
     """Route a locator miss to local party re-extraction before candidate search."""
     extracted = _document(FullCaseCitation(volume="347", reporter="U.S.", page="9999"))
-    client = LookupClient(CourtListenerCitationLookup(citation="347 U.S. 9999", status=404, records=()))
+    prepared_query = 'caseName:("Brown" AND "Board")'
+    client = LookupClient(
+        CourtListenerCitationLookup(citation="347 U.S. 9999", status=404, records=()),
+        search_response=CourtListenerSearchResult.from_payload(
+            query=prepared_query,
+            search_type="o",
+            semantic=False,
+            count=1,
+            results=[{"cluster_id": 123, "caseName": "Brown v. Board"}],
+            next_cursor=None,
+            previous_cursor=None,
+        ),
+    )
     calls: list[tuple[object, str, object]] = []
 
     async def fake_reextraction(
@@ -396,7 +424,7 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
             node_id="cite-0001:mellea_case_name_query_preparation",
             status=ValidationNodeStatus.SUCCEEDED,
             outcome=MelleaCaseNameQueryPreparationOutcome.PREPARED,
-            query='caseName:("Brown" AND "Board")',
+            query=prepared_query,
             query_plaintiff="Brown",
             query_defendant="Board",
             court_id=None,
@@ -411,12 +439,18 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
     session = object()
     progression = asyncio.run(validate_document(extracted, client=client, session=session)).citations[0]
 
-    assert len(progression.nodes) == 3
+    assert len(progression.nodes) == 4
     assert progression.nodes[0].outcome is LocatorLookupOutcome.NOT_FOUND
     assert isinstance(progression.nodes[1], MelleaCaseNameReextractionNode)
     assert progression.nodes[1].outcome is MelleaCaseNameReextractionOutcome.COMPLETE
     assert isinstance(progression.nodes[2], MelleaCaseNameQueryPreparationNode)
     assert progression.nodes[2].outcome is MelleaCaseNameQueryPreparationOutcome.PREPARED
+    assert isinstance(progression.nodes[3], OpinionSearchNode)
+    assert progression.nodes[3].outcome is OpinionSearchOutcome.SEARCHED
+    assert progression.nodes[3].result_count == 1
+    assert progression.nodes[3].results[0]["cluster_id"] == 123
+    assert progression.nodes[3].depends_on == (progression.nodes[2].node_id,)
+    assert client.search_calls == [(prepared_query, "o")]
     assert calls[0][1:] == (extracted.text, session)
 
 
