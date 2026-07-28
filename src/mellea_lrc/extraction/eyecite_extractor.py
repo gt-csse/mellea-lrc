@@ -8,14 +8,30 @@ from typing import cast
 from eyecite import get_citations, resolve_citations
 from eyecite.models import (
     CitationBase,
-    FullCaseCitation as EyeciteFullCaseCitation,
-    FullJournalCitation as EyeciteFullJournalCitation,
-    FullLawCitation as EyeciteFullLawCitation,
-    IdCitation as EyeciteIdCitation,
-    ReferenceCitation as EyeciteReferenceCitation,
     Resource,
+)
+from eyecite.models import (
+    FullCaseCitation as EyeciteFullCaseCitation,
+)
+from eyecite.models import (
+    FullJournalCitation as EyeciteFullJournalCitation,
+)
+from eyecite.models import (
+    FullLawCitation as EyeciteFullLawCitation,
+)
+from eyecite.models import (
+    IdCitation as EyeciteIdCitation,
+)
+from eyecite.models import (
+    ReferenceCitation as EyeciteReferenceCitation,
+)
+from eyecite.models import (
     ShortCaseCitation as EyeciteShortCaseCitation,
+)
+from eyecite.models import (
     SupraCitation as EyeciteSupraCitation,
+)
+from eyecite.models import (
     UnknownCitation as EyeciteUnknownCitation,
 )
 

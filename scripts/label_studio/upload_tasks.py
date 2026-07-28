@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 
 import requests
-from dotenv import load_dotenv
 from charset_normalizer import from_path
+from dotenv import load_dotenv
 
 from .pre_annotate import build_task_payload
 

@@ -52,6 +52,7 @@ class CourtListenerError(RuntimeError):
         url: str | None = None,
         upstream_detail: Any = None,
     ) -> None:
+        """Initialize the error with its message and structured failure details."""
         super().__init__(message)
         self.message = message
         self.failure_type = failure_type
@@ -69,6 +70,7 @@ class CourtListenerClient(CourtListenerServiceClient):
         config: CourtListenerConfig | None = None,
         session: requests.Session | None = None,
     ) -> None:
+        """Initialize the client with its config and HTTP session."""
         self.config = config or CourtListenerConfig.from_env()
         self.session = session or requests.Session()
 

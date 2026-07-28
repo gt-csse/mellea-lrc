@@ -5,8 +5,8 @@ from __future__ import annotations
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, RootModel, model_validator
 
 from mellea_lrc.courtlistener.citation_lookup_models import (
-    CourtListenerCitationRecord,
     CourtListenerCitationLookup,
+    CourtListenerCitationRecord,
 )
 
 
