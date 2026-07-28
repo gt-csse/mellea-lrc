@@ -2,6 +2,8 @@
 
 from mellea_lrc.validation.types import (
     CourtCheckNode,
+    CandidateSelectionNode,
+    CandidateSelectionOutcome,
     ExactCaseNameCheckNode,
     CitationValidation,
     DocketCourtRetrievalNode,
@@ -28,6 +30,8 @@ from mellea_lrc.validation.types import (
 from mellea_lrc.validation.pipeline import initialize_validation, validate_document
 
 __all__ = [
+    "CandidateSelectionNode",
+    "CandidateSelectionOutcome",
     "CitationValidation",
     "CourtCheckNode",
     "DocketCourtRetrievalNode",

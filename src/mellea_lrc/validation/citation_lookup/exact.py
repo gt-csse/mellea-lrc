@@ -93,6 +93,7 @@ def run_exact_locator_lookup(
             status=ValidationNodeStatus.SUCCEEDED,
             outcome=LocatorLookupOutcome.AMBIGUOUS,
             locator=locator,
+            candidates=lookup.records,
             candidate_count=len(lookup.records),
             status_message="Exact locator lookup completed.",
             outcome_message=(

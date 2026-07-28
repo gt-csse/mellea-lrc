@@ -20,6 +20,8 @@ from mellea_lrc.extraction import ExtractedCitation, ExtractedDocument, Extracti
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
 from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.validation import (
+    CandidateSelectionNode,
+    CandidateSelectionOutcome,
     CourtCheckNode,
     ExactCaseNameCheckNode,
     ExactLocatorLookupNode,
@@ -456,7 +458,7 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
     session = object()
     progression = asyncio.run(validate_document(extracted, client=client, session=session)).citations[0]
 
-    assert len(progression.nodes) == 5
+    assert len(progression.nodes) == 7
     assert progression.nodes[0].outcome is LocatorLookupOutcome.NOT_FOUND
     assert isinstance(progression.nodes[1], MelleaCaseNameReextractionNode)
     assert progression.nodes[1].outcome is MelleaCaseNameReextractionOutcome.COMPLETE
@@ -476,6 +478,14 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
     assert progression.nodes[4].depends_on == (progression.nodes[2].node_id,)
     assert progression.nodes[4].status_message == "RECAP search completed."
     assert progression.nodes[4].outcome_message == "CourtListener returned 2 RECAP search results."
+    assert isinstance(progression.nodes[5], CandidateSelectionNode)
+    assert progression.nodes[5].outcome is CandidateSelectionOutcome.ALL_SELECTED
+    assert progression.nodes[5].total_candidate_count == 1
+    assert progression.nodes[5].depends_on == (progression.nodes[3].node_id,)
+    assert isinstance(progression.nodes[6], CandidateSelectionNode)
+    assert progression.nodes[6].outcome is CandidateSelectionOutcome.ALL_SELECTED
+    assert progression.nodes[6].total_candidate_count == 2
+    assert progression.nodes[6].depends_on == (progression.nodes[4].node_id,)
     assert client.search_calls == [(prepared_query, "o"), (prepared_query, "r")]
     assert calls[0][1:] == (extracted.text, session)
 
@@ -538,7 +548,7 @@ def test_mellea_case_name_query_preparation_constructs_the_courtlistener_query(
     assert spec.output_format.__name__ == "_QueryTermsProposal"
 
 
-def test_ambiguous_lookup_stops_without_candidate_processing() -> None:
+def test_ambiguous_lookup_records_a_bounded_candidate_selection() -> None:
     extracted = _document(FullCaseCitation(volume="1", reporter="F.2d", page="2"))
     records = (
         CourtListenerCitationRecord(case_name="First"),
@@ -546,12 +556,36 @@ def test_ambiguous_lookup_stops_without_candidate_processing() -> None:
     )
     client = LookupClient(CourtListenerCitationLookup(citation="1 F.2d 2", status=300, records=records))
 
-    node = _validate(extracted, client).citations[0].nodes[0]
+    lookup, selection = _validate(extracted, client).citations[0].nodes
 
-    assert node.status is ValidationNodeStatus.SUCCEEDED
-    assert node.outcome is LocatorLookupOutcome.AMBIGUOUS
-    assert node.candidate_count == 2
-    assert node.record is None
+    assert lookup.status is ValidationNodeStatus.SUCCEEDED
+    assert lookup.outcome is LocatorLookupOutcome.AMBIGUOUS
+    assert lookup.candidate_count == 2
+    assert lookup.candidates == records
+    assert lookup.record is None
+    assert isinstance(selection, CandidateSelectionNode)
+    assert selection.outcome is CandidateSelectionOutcome.ALL_SELECTED
+    assert selection.total_candidate_count == 2
+    assert selection.selected_candidate_count == 2
+    assert selection.depends_on == (lookup.node_id,)
+
+
+def test_ambiguous_lookup_defers_candidate_selection_over_the_limit() -> None:
+    extracted = _document(FullCaseCitation(volume="1", reporter="F.2d", page="2"))
+    records = tuple(CourtListenerCitationRecord(case_name=f"Case {index}") for index in range(4))
+    client = LookupClient(CourtListenerCitationLookup(citation="1 F.2d 2", status=300, records=records))
+
+    lookup, selection = _validate(extracted, client).citations[0].nodes
+
+    assert lookup.outcome is LocatorLookupOutcome.AMBIGUOUS
+    assert isinstance(selection, CandidateSelectionNode)
+    assert selection.outcome is CandidateSelectionOutcome.DEFERRED_OVER_LIMIT
+    assert selection.total_candidate_count == 4
+    assert selection.selected_candidate_count == 0
+    assert selection.outcome_message == (
+        "Candidate validation is deferred because 4 returned candidates exceed the current scope of 3; "
+        "further refinement is needed before selecting candidates."
+    )
 
 
 def test_unsupported_citation_is_skipped_without_service_access() -> None:

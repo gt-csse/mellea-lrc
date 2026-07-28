@@ -11,6 +11,11 @@ from mellea_lrc.validation.case_search import (
     run_recap_search,
 )
 from mellea_lrc.validation.citation_lookup import run_exact_locator_lookup
+from mellea_lrc.validation.candidate_selection import (
+    run_locator_candidate_selection,
+    run_opinion_search_candidate_selection,
+    run_recap_search_candidate_selection,
+)
 from mellea_lrc.validation.court_retrieval import run_docket_court_retrieval
 from mellea_lrc.validation.field_checks import (
     run_court_check,
@@ -26,6 +31,8 @@ from mellea_lrc.validation.types import (
     LocatorLookupOutcome,
     MelleaCaseNameCheckOutcome,
     MelleaCaseNameReextractionOutcome,
+    OpinionSearchOutcome,
+    RecapSearchOutcome,
 )
 
 if TYPE_CHECKING:
@@ -186,8 +193,8 @@ class CitationValidationRunner:
             locator not found
             └── Mellea local party re-extraction
                 └── Mellea case-name query preparation
-                    ├── CourtListener opinion search -> end
-                    └── CourtListener RECAP search -> end
+                    ├── CourtListener opinion search -> candidate selection
+                    └── CourtListener RECAP search -> candidate selection
         """
         if lookup.outcome is not LocatorLookupOutcome.NOT_FOUND:
             msg = "run_locator_not_found requires a not-found locator"
@@ -208,7 +215,16 @@ class CitationValidationRunner:
         validation = validation.append(preparation)
         opinion_search = run_opinion_search(validation, preparation=preparation, client=self.client)
         recap_search = run_recap_search(validation, preparation=preparation, client=self.client)
-        return validation.append(opinion_search).append(recap_search)
+        validation = validation.append(opinion_search).append(recap_search)
+        if opinion_search.outcome is OpinionSearchOutcome.SEARCHED:
+            validation = validation.append(
+                run_opinion_search_candidate_selection(validation, search=opinion_search)
+            )
+        if recap_search.outcome is RecapSearchOutcome.SEARCHED:
+            validation = validation.append(
+                run_recap_search_candidate_selection(validation, search=recap_search)
+            )
+        return validation
 
     async def run_locator_ambiguous(
         self,
@@ -220,7 +236,7 @@ class CitationValidationRunner:
 
         Graph:
             ambiguous locator
-            └── end
+            └── candidate-selection guard -> end
 
         A later ``run_locator_ambiguous_*`` decomposition will extend this
         route without changing the top-level progression selector.
@@ -228,4 +244,4 @@ class CitationValidationRunner:
         if lookup.outcome is not LocatorLookupOutcome.AMBIGUOUS:
             msg = "run_locator_ambiguous requires an ambiguous locator"
             raise ValueError(msg)
-        return validation
+        return validation.append(run_locator_candidate_selection(validation, lookup=lookup))

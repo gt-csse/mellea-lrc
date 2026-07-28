@@ -117,6 +117,7 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
                         "court_id": None,
                         "docket_id": None,
                     },
+                    "candidates": [],
                     "candidate_count": 1,
                     "status_message": None,
                     "outcome_message": None,

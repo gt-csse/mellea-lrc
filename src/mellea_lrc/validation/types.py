@@ -91,6 +91,16 @@ class DocketCourtRetrievalOutcome(str, Enum):
     FAILED = "failed"
 
 
+class CandidateSelectionOutcome(str, Enum):
+    """Results of applying the bounded candidate-validation guard."""
+
+    ALL_SELECTED = "all_selected"
+    DEFERRED_OVER_LIMIT = "deferred_over_limit"
+
+
+MIN_AMBIGUOUS_CANDIDATE_COUNT = 2
+
+
 @dataclass(frozen=True, slots=True)
 class ExactLocatorLookupNode:
     """One exact reporter-locator lookup against CourtListener.
@@ -104,6 +114,7 @@ class ExactLocatorLookupNode:
     outcome: LocatorLookupOutcome
     locator: str | None
     record: CourtListenerCitationRecord | None = None
+    candidates: tuple[CourtListenerCitationRecord, ...] = ()
     candidate_count: int = 0
     status_message: str | None = None
     outcome_message: str | None = None
@@ -121,8 +132,17 @@ class ExactLocatorLookupNode:
             if self.candidate_count != 1:
                 msg = "A found locator node requires candidate_count=1"
                 raise ValueError(msg)
-        elif self.record is not None:
-            msg = "Only a found locator node may carry a record"
+        elif self.outcome is LocatorLookupOutcome.AMBIGUOUS:
+            if (
+                self.status is not ValidationNodeStatus.SUCCEEDED
+                or self.record is not None
+                or self.candidate_count < MIN_AMBIGUOUS_CANDIDATE_COUNT
+                or len(self.candidates) != self.candidate_count
+            ):
+                msg = "An ambiguous locator node requires its complete candidate records"
+                raise ValueError(msg)
+        elif self.record is not None or self.candidates:
+            msg = "Only a found or ambiguous locator node may carry candidate records"
             raise ValueError(msg)
 
 
@@ -222,6 +242,21 @@ class RecapSearchNode:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateSelectionNode:
+    """Bounded decision on whether one retrieval result set may be evaluated."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: CandidateSelectionOutcome
+    total_candidate_count: int
+    selected_candidate_count: int
+    selection_limit: int
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class MelleaReextractedCaseNameCheckNode:
     """Semantic comparison using re-extracted plaintiff and defendant evidence."""
 
@@ -288,6 +323,7 @@ ValidationNode: TypeAlias = (
     | MelleaCaseNameQueryPreparationNode
     | OpinionSearchNode
     | RecapSearchNode
+    | CandidateSelectionNode
     | MelleaReextractedCaseNameCheckNode
     | DocketCourtRetrievalNode
     | CourtCheckNode
