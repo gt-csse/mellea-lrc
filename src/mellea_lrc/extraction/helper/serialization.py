@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import copy
 from dataclasses import asdict
+from collections.abc import Mapping
 
 from mellea_lrc.extraction import (
     ExtractedCitation,
@@ -27,7 +28,7 @@ from mellea_lrc.core import (
 )
 from mellea_lrc.preprocessing import PreprocessingMetadata, PreprocessingBackend
 
-mapping = {
+mapping: Mapping[CitationKind, type] = {
     CitationKind(citation_type.kind): citation_type
     for citation_type in (
         FullCaseCitation,
