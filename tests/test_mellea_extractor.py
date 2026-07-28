@@ -14,7 +14,7 @@ def korematsu_text() -> str:
     path = Path(__file__).parent / "data" / "Korematsu_v_US.txt"
     if not (path.exists() and path.is_file()):
         msg = f"The Korematsu file doesn't exist or is not a file: {path}"
-        raise Exception(msg)
+        raise FileNotFoundError(msg)
     return path.read_text()
 
 
@@ -23,13 +23,13 @@ def extract_citations(file_name: Path | str) -> list[tuple[str, list[int]]]:
     path = Path(__file__).parent / "data" / file_name
     if not (path.exists() and path.is_file()):
         msg = f"The Korematsu file with citations doesn't exist or is not a file: {path}"
-        raise Exception(msg)
+        raise FileNotFoundError(msg)
     citations = None
     with path.open(mode="r") as file:
         citations = file.read()
     if citations is None:
         msg = "No citations found"
-        raise Exception(msg)
+        raise FileNotFoundError(msg)
     citations_components: list[list[str]] = [
         [item.strip() for item in citation.split(sep="---")]
         for citation in citations.splitlines()

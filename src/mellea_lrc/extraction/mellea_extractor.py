@@ -42,12 +42,13 @@ from mellea_lrc.extraction.types import (
 
 # %%
 
+
 class MelleaExtractor(BaseExtractor):
     """Extractor that uses Mellea."""
 
     def __init__(
         self,
-        model_id: ModelIdentifier=IBM_GRANITE_4_1_3B,
+        model_id: ModelIdentifier = IBM_GRANITE_4_1_3B,
     ) -> None:
         """Initialize a Mellea session."""
         self._model_id = model_id
@@ -171,7 +172,12 @@ class MelleaExtractor(BaseExtractor):
                 unfound.append(matched_text)
                 continue
             citation = self._assemble_canonical_citation(CitationKind.UNKNOWN)  # TODO: Implement classifier
-            arguments = {"citation": citation, "matched_text": matched_text, "start_span": span.start, "end_span": span.end}
+            arguments = {
+                "citation": citation,
+                "matched_text": matched_text,
+                "start_span": span.start,
+                "end_span": span.end,
+            }
             citations.append(self._assemble_extractor_citation(text, **arguments))
         # Fill in the `ExtractedMetadata`
         extraction_metadata = ExtractionMetadata(backend=ExtractionBackend.MELLEA)
