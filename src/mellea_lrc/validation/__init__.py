@@ -28,7 +28,6 @@ from mellea_lrc.validation.types import (
     OpinionSearchOutcome,
     RecapSearchNode,
     RecapSearchOutcome,
-    MelleaReextractedCaseNameCheckNode,
     ValidatedDocument,
     ValidationNode,
     ValidationNodeStatus,

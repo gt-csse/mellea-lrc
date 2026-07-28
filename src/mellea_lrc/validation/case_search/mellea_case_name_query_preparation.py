@@ -160,7 +160,7 @@ async def run_mellea_case_name_query_preparation(
     )
 
 
-def _node(  # noqa: PLR0913
+def _node(
     validation: CitationValidation,
     reextraction: MelleaCaseNameReextractionNode,
     status: ValidationNodeStatus,

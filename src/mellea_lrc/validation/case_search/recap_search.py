@@ -64,7 +64,7 @@ def run_recap_search(
     )
 
 
-def _node(  # noqa: PLR0913
+def _node(
     validation: CitationValidation,
     preparation: MelleaCaseNameQueryPreparationNode,
     status: ValidationNodeStatus,
