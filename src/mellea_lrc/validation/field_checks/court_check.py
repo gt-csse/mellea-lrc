@@ -5,21 +5,27 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from mellea_lrc.core.citations import FullCaseCitation
-from mellea_lrc.validation.types import CourtCheckNode, FieldCheckOutcome, ValidationNodeStatus
+from mellea_lrc.validation.types import (
+    CandidateEvaluationNode,
+    CourtCheckNode,
+    DocketCourtRetrievalNode,
+    FieldCheckOutcome,
+    ValidationNodeStatus,
+)
 
 if TYPE_CHECKING:
-    from mellea_lrc.validation.types import CitationValidation, DocketCourtRetrievalNode
+    from mellea_lrc.validation.types import CitationValidation
 
 
 def run_court_check(
     validation: CitationValidation,
     *,
-    retrieval: DocketCourtRetrievalNode,
+    evidence: CandidateEvaluationNode | DocketCourtRetrievalNode,
 ) -> CourtCheckNode:
-    """Compare Eyecite's normalized court ID with the docket's court ID."""
+    """Compare Eyecite's normalized court ID with retrieved candidate evidence."""
     citation = validation.citation.citation
     extracted = citation.court if isinstance(citation, FullCaseCitation) else None
-    retrieved = retrieval.court_id
+    retrieved = evidence.court_id
     if extracted is None or retrieved is None:
         status = ValidationNodeStatus.SKIPPED
         status_message = "Skipped court comparison because required evidence is missing."
@@ -35,12 +41,12 @@ def run_court_check(
             else "Extracted and retrieved court identifiers differ."
         )
     return CourtCheckNode(
-        node_id=f"{validation.citation_id}:court_check",
+        node_id=f"{evidence.node_id}:court_check",
         status=status,
         outcome=outcome,
         extracted_court_id=extracted,
         retrieved_court_id=retrieved,
-        depends_on=(retrieval.node_id,),
+        depends_on=(evidence.node_id,),
         status_message=status_message,
         outcome_message=outcome_message,
     )

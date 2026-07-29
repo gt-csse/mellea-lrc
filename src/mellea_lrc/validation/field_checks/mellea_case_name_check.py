@@ -108,7 +108,7 @@ async def run_mellea_case_name_check(
             status_message="Mellea semantic case-name comparison failed during execution.",
         )
     return MelleaCaseNameCheckNode(
-        node_id=f"{validation.citation_id}:mellea_case_name_check",
+        node_id=f"{exact_node.node_id}:mellea_case_name_check",
         status=ValidationNodeStatus.SUCCEEDED,
         outcome=MelleaCaseNameCheckOutcome(verdict),
         extracted_case_name=exact_node.extracted_case_name,
@@ -147,7 +147,7 @@ def _failed_node(
     status_message: str,
 ) -> MelleaCaseNameCheckNode:
     return MelleaCaseNameCheckNode(
-        node_id=f"{validation.citation_id}:mellea_case_name_check",
+        node_id=f"{exact_node.node_id}:mellea_case_name_check",
         status=ValidationNodeStatus.FAILED,
         outcome=MelleaCaseNameCheckOutcome.FAILED,
         extracted_case_name=exact_node.extracted_case_name,

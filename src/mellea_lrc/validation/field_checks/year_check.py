@@ -35,7 +35,7 @@ def run_year_check(
             else "Extracted and retrieved years differ."
         )
     return YearCheckNode(
-        node_id=f"{validation.citation_id}:year_check",
+        node_id=f"{candidate.node_id}:year_check",
         status=status,
         outcome=outcome,
         extracted_year=extracted,

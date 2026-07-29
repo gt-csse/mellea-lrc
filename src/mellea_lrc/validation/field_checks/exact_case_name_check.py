@@ -43,7 +43,7 @@ def run_exact_case_name_check(
             else "Extracted and retrieved case names differ after whitespace normalization."
         )
     return ExactCaseNameCheckNode(
-        node_id=f"{validation.citation_id}:exact_case_name_check",
+        node_id=f"{candidate.node_id}:exact_case_name_check",
         status=status,
         outcome=outcome,
         extracted_case_name=extracted,
