@@ -148,5 +148,5 @@ def load_citations(path: Path) -> ExtractedDocument:
             extraction_metadata=extraction_meta_dc,
             **data,
         )
-    msg = f"Couldn't create DocumentExtraction for {path}"
+    msg = f"Couldn't create ExtractedDocument for {path}"
     raise Exception(msg)
