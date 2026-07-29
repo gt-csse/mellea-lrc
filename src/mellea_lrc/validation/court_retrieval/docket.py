@@ -78,7 +78,7 @@ def _node(
     error: str | None = None,
 ) -> DocketCourtRetrievalNode:
     return DocketCourtRetrievalNode(
-        node_id=f"{validation.citation_id}:docket_court_retrieval",
+        node_id=f"{candidate.node_id}:docket_court_retrieval",
         status=status,
         outcome=outcome,
         docket_id=candidate.docket_id,

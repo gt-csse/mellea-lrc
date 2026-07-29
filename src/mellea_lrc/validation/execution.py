@@ -131,7 +131,7 @@ class CitationValidationRunner:
             candidate=candidate,
             client=self.client,
         )
-        court_check_node = run_court_check(validation, retrieval=docket_court_retrieval_node)
+        court_check_node = run_court_check(validation, evidence=docket_court_retrieval_node)
         validation = (
             validation.append(exact_case_name_check_node)
             .append(year_check_node)
@@ -247,13 +247,17 @@ class CitationValidationRunner:
                     msg = "Opinion-search result payload is shorter than its selected candidate count"
                     raise ValueError(msg)
                 for candidate_index, result in enumerate(results, start=1):
-                    validation = validation.append(
-                        run_opinion_search_candidate_evaluation(
-                            validation,
-                            result=result,
-                            candidate_index=candidate_index,
-                            depends_on=(opinion_selection.node_id,),
-                        )
+                    candidate = run_opinion_search_candidate_evaluation(
+                        validation,
+                        result=result,
+                        candidate_index=candidate_index,
+                        depends_on=(opinion_selection.node_id,),
+                    )
+                    validation = validation.append(candidate)
+                    validation = await self.run_opinion_search_candidate_validation(
+                        validation,
+                        candidate=candidate,
+                        session=session,
                     )
         if recap_search.outcome is RecapSearchOutcome.SEARCHED:
             recap_selection = run_recap_search_candidate_selection(validation, search=recap_search)
@@ -273,6 +277,40 @@ class CitationValidationRunner:
                         )
                     )
         return validation
+
+    async def run_opinion_search_candidate_validation(
+        self,
+        validation: CitationValidation,
+        *,
+        candidate: CandidateEvaluationNode,
+        session: MelleaSession | None,
+    ) -> CitationValidation:
+        """Complete the reusable field-check subtree for one opinion-search candidate.
+
+        The locator-not-found route already re-extracted citation-local parties
+        before searching. A selected opinion result therefore receives exact
+        then semantic case-name checks, but never a second local re-extraction.
+
+        Graph:
+            opinion-search candidate evaluation
+            ├── exact case-name check
+            │   └── mismatch -> Mellea semantic case-name check
+            ├── direct court check
+            └── year check
+        """
+        exact_case_name_check = run_exact_case_name_check(validation, candidate=candidate)
+        year_check = run_year_check(validation, candidate=candidate)
+        court_check = run_court_check(validation, evidence=candidate)
+        validation = validation.append(exact_case_name_check).append(year_check).append(court_check)
+        if exact_case_name_check.outcome is not FieldCheckOutcome.MISMATCH:
+            return validation
+        return validation.append(
+            await run_mellea_case_name_check(
+                validation,
+                case_name_evidence=exact_case_name_check,
+                session=session,
+            )
+        )
 
     async def run_locator_ambiguous(
         self,
