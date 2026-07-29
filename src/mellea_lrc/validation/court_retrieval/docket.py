@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING
 
 from mellea_lrc.courtlistener import CourtListenerError
 from mellea_lrc.validation.types import (
+    CandidateEvaluationNode,
     DocketCourtRetrievalNode,
     DocketCourtRetrievalOutcome,
-    CandidateEvaluationNode,
     ValidationNodeStatus,
 )
 

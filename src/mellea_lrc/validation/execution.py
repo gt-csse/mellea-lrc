@@ -5,22 +5,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from mellea_lrc.validation.candidate_evaluation import (
+    run_locator_candidate_evaluation,
+    run_opinion_search_candidate_evaluation,
+    run_recap_search_candidate_evaluation,
+)
+from mellea_lrc.validation.candidate_selection import (
+    run_locator_candidate_selection,
+    run_opinion_search_candidate_selection,
+    run_recap_search_candidate_selection,
+)
 from mellea_lrc.validation.case_search import (
     run_mellea_case_name_query_preparation,
     run_opinion_search,
     run_recap_search,
 )
 from mellea_lrc.validation.citation_lookup import run_exact_locator_lookup
-from mellea_lrc.validation.candidate_selection import (
-    run_locator_candidate_selection,
-    run_opinion_search_candidate_selection,
-    run_recap_search_candidate_selection,
-)
-from mellea_lrc.validation.candidate_evaluation import (
-    run_locator_candidate_evaluation,
-    run_opinion_search_candidate_evaluation,
-    run_recap_search_candidate_evaluation,
-)
 from mellea_lrc.validation.court_retrieval import run_docket_court_retrieval
 from mellea_lrc.validation.field_checks import (
     run_court_check,
@@ -30,8 +30,8 @@ from mellea_lrc.validation.field_checks import (
     run_year_check,
 )
 from mellea_lrc.validation.types import (
-    ExactCaseNameCheckNode,
     CandidateEvaluationNode,
+    ExactCaseNameCheckNode,
     ExactLocatorLookupNode,
     FieldCheckOutcome,
     LocatorLookupOutcome,

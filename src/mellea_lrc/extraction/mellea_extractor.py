@@ -8,9 +8,7 @@ from pathlib import Path
 import mellea
 from dotenv import find_dotenv, load_dotenv
 from mellea import MelleaSession
-from mellea.backends.model_ids import IBM_GRANITE_4_1_3B
-from mellea.backends.model_ids import ModelIdentifier
-from dotenv import load_dotenv, find_dotenv
+from mellea.backends.model_ids import IBM_GRANITE_4_1_3B, ModelIdentifier
 
 from mellea_lrc.core import (
     CanonicalCitation,
