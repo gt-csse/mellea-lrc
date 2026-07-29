@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.core.spans import Span
-from mellea_lrc.courtlistener import CourtListenerCitationRecord
+from mellea_lrc.courtlistener import CourtListenerOpinionCluster
 from mellea_lrc.extraction import ExtractedCitation
 from mellea_lrc.validation import (
     CitationValidation,
@@ -73,7 +73,7 @@ def test_mellea_case_name_reextraction(
         status=ValidationNodeStatus.SUCCEEDED,
         outcome=LocatorLookupOutcome.FOUND,
         locator=locator,
-        record=CourtListenerCitationRecord(case_name="not used by re-extraction"),
+        cluster=CourtListenerOpinionCluster(case_name="not used by re-extraction"),
         candidate_count=1,
     )
     semantic_case_name_check = MelleaCaseNameCheckNode(

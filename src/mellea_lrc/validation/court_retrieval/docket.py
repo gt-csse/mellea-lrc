@@ -23,7 +23,7 @@ def run_docket_court_retrieval(
     candidate: CandidateEvaluationNode,
     client: CourtListenerServiceClient,
 ) -> DocketCourtRetrievalNode:
-    """Retrieve the court ID for the exact lookup's linked docket."""
+    """Retrieve the court ID for the exact lookup's linked cluster docket."""
     docket_id = candidate.docket_id
     if not docket_id:
         return _node(
@@ -31,8 +31,8 @@ def run_docket_court_retrieval(
             candidate,
             ValidationNodeStatus.SKIPPED,
             DocketCourtRetrievalOutcome.UNAVAILABLE,
-            status_message="Skipped docket court retrieval because the citation record has no docket identifier.",
-            outcome_message="Court retrieval is unavailable because the citation record has no docket identifier.",
+            status_message="Skipped docket court retrieval because the opinion cluster has no docket identifier.",
+            outcome_message="Court retrieval is unavailable because the opinion cluster has no docket identifier.",
         )
     try:
         docket = client.get_docket(docket_id)

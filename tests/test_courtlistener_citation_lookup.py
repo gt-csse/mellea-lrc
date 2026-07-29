@@ -31,10 +31,10 @@ class CourtListenerLookupTests(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(lookup.records[0].case_name, "Brown v. Board of Education")
-        self.assertEqual(lookup.records[0].docket_id, "123")
+        self.assertEqual(lookup.clusters[0].case_name, "Brown v. Board of Education")
+        self.assertEqual(lookup.clusters[0].docket_id, "123")
         self.assertFalse(hasattr(lookup, "extra_data"))
-        self.assertFalse(hasattr(lookup.records[0], "extra_data"))
+        self.assertFalse(hasattr(lookup.clusters[0], "extra_data"))
 
     def test_invalid_known_field_type_is_rejected(self) -> None:
         payload = [{"citation": "347 U.S. 483", "status": "200", "clusters": []}]
@@ -49,7 +49,7 @@ class CourtListenerLookupTests(unittest.TestCase):
 
         self.assertEqual(lookup.citation, "1 U.S. 9999")
         self.assertEqual(lookup.status, 404)
-        self.assertEqual(lookup.records, ())
+        self.assertEqual(lookup.clusters, ())
 
     def test_response_requires_exactly_one_result(self) -> None:
         for payload in (

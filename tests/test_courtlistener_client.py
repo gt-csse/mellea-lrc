@@ -90,8 +90,8 @@ class CourtListenerClientTests(unittest.TestCase):
         result = client(session).lookup_citation("347", "U.S.", "483")
 
         self.assertEqual(result.status, 200)
-        self.assertEqual(result.records[0].cluster_id, "123")
-        self.assertEqual(result.records[0].case_name, "Brown")
+        self.assertEqual(result.clusters[0].cluster_id, "123")
+        self.assertEqual(result.clusters[0].case_name, "Brown")
         self.assertEqual(session.calls[0]["method"], "POST")
         self.assertEqual(
             session.calls[0]["url"],
@@ -114,7 +114,7 @@ class CourtListenerClientTests(unittest.TestCase):
 
         self.assertEqual(result.status, 404)
         self.assertEqual(result.citation, "1 U.S. 9999")
-        self.assertEqual(result.records, ())
+        self.assertEqual(result.clusters, ())
 
     def test_get_docket_returns_court_id(self) -> None:
         """The docket endpoint exposes the authoritative CourtListener court ID."""
@@ -151,9 +151,9 @@ class CourtListenerClientTests(unittest.TestCase):
         ).lookup_citation("1", "F.2d", "2")
 
         self.assertEqual(result.status, 300)
-        self.assertEqual([record.cluster_id for record in result.records], ["11", "22"])
-        self.assertEqual([record.case_name for record in result.records], ["First", "Second"])
-        self.assertEqual([record.docket_id for record in result.records], ["10", "20"])
+        self.assertEqual([cluster.cluster_id for cluster in result.clusters], ["11", "22"])
+        self.assertEqual([cluster.case_name for cluster in result.clusters], ["First", "Second"])
+        self.assertEqual([cluster.docket_id for cluster in result.clusters], ["10", "20"])
 
     def test_rate_limit_is_typed_after_one_request(self) -> None:
         """A rate-limit response raises an API-limit error after one request."""

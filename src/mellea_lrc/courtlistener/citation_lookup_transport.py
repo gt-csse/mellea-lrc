@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, RootModel, model_validator
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
-from mellea_lrc.courtlistener.citation_lookup_models import (
-    CourtListenerCitationLookup,
-    CourtListenerCitationRecord,
-)
+from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationLookup
+from mellea_lrc.courtlistener.opinion_transport import CourtListenerOpinionClusterPayload
 
 
 class _CitationLookupPayload(BaseModel):
@@ -16,51 +14,12 @@ class _CitationLookupPayload(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True, extra="ignore")
 
 
-class CourtListenerCitationLookupRecordPayload(_CitationLookupPayload):
-    """External CourtListener cluster payload."""
-
-    # Citation lookup calls the opinion-cluster identifier ``id``; opinion
-    # search calls the same identifier ``cluster_id``.
-    cluster_id: int | str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("cluster_id", "clusterId", "id"),
-    )
-    case_name: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("case_name", "caseName"),
-    )
-    date_filed: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("date_filed", "dateFiled"),
-    )
-    court: str | None = None
-    court_id: str | None = None
-    # CourtListener returns docket_id as an int; keep it structured (str) for all
-    # lookups — a stable case-identity key and, for ambiguous 300s, a per-candidate
-    # discriminator worth analyzing.
-    docket_id: int | str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("docket_id", "docketId"),
-    )
-
-    def to_domain(self) -> CourtListenerCitationRecord:
-        """Convert validated transport data into a domain record."""
-        return CourtListenerCitationRecord(
-            cluster_id=str(self.cluster_id) if self.cluster_id is not None else None,
-            case_name=self.case_name,
-            date_filed=self.date_filed,
-            court=self.court,
-            court_id=self.court_id,
-            docket_id=str(self.docket_id) if self.docket_id is not None else None,
-        )
-
-
 class CourtListenerCitationLookupResultPayload(_CitationLookupPayload):
     """One citation result inside the external CourtListener response."""
 
     citation: str
     status: int
-    clusters: list[CourtListenerCitationLookupRecordPayload] = Field(default_factory=list)
+    clusters: list[CourtListenerOpinionClusterPayload] = Field(default_factory=list)
     error_message: str = ""
 
     def to_domain(self) -> CourtListenerCitationLookup:
@@ -68,7 +27,7 @@ class CourtListenerCitationLookupResultPayload(_CitationLookupPayload):
         return CourtListenerCitationLookup(
             citation=self.citation,
             status=self.status,
-            records=tuple(item.to_domain() for item in self.clusters),
+            clusters=tuple(item.to_domain() for item in self.clusters),
             error_message=self.error_message or None,
         )
 

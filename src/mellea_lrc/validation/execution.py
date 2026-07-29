@@ -114,12 +114,12 @@ class CitationValidationRunner:
         if lookup.outcome is not LocatorLookupOutcome.FOUND:
             msg = "run_locator_found requires a found locator"
             raise ValueError(msg)
-        if lookup.record is None:
-            msg = "Found locator requires one citation record"
+        if lookup.cluster is None:
+            msg = "Found locator requires one opinion cluster"
             raise ValueError(msg)
         candidate = run_locator_candidate_evaluation(
             validation,
-            record=lookup.record,
+            cluster=lookup.cluster,
             candidate_index=1,
             depends_on=(lookup.node_id,),
         )
@@ -296,15 +296,15 @@ class CitationValidationRunner:
         validation = validation.append(selection)
         if not selection.selected_candidate_count:
             return validation
-        candidates = lookup.candidates[: selection.selected_candidate_count]
+        candidates = lookup.candidate_clusters[: selection.selected_candidate_count]
         if len(candidates) != selection.selected_candidate_count:
             msg = "Locator candidate payload is shorter than its selected candidate count"
             raise ValueError(msg)
-        for candidate_index, record in enumerate(candidates, start=1):
+        for candidate_index, cluster in enumerate(candidates, start=1):
             validation = validation.append(
                 run_locator_candidate_evaluation(
                     validation,
-                    record=record,
+                    cluster=cluster,
                     candidate_index=candidate_index,
                     depends_on=(selection.node_id,),
                 )

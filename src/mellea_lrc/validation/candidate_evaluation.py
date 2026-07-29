@@ -14,14 +14,14 @@ from mellea_lrc.validation.types import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationRecord
+    from mellea_lrc.courtlistener.opinion_models import CourtListenerOpinionCluster
     from mellea_lrc.validation.types import CitationValidation
 
 
 def run_locator_candidate_evaluation(
     validation: CitationValidation,
     *,
-    record: CourtListenerCitationRecord,
+    cluster: CourtListenerOpinionCluster,
     candidate_index: int,
     depends_on: tuple[str, ...],
 ) -> CandidateEvaluationNode:
@@ -32,12 +32,12 @@ def run_locator_candidate_evaluation(
         outcome=CandidateEvaluationOutcome.READY,
         source=CandidateEvaluationSource.LOCATOR_LOOKUP,
         candidate_index=candidate_index,
-        cluster_id=record.cluster_id,
-        case_name=record.case_name,
-        date_filed=record.date_filed,
-        court_id=record.court_id,
-        docket_id=record.docket_id,
-        record=record,
+        cluster_id=cluster.cluster_id,
+        case_name=cluster.case_name,
+        date_filed=cluster.date_filed,
+        court_id=cluster.court_id,
+        docket_id=cluster.docket_id,
+        record=cluster,
         depends_on=depends_on,
         status_message="Locator candidate evaluation branch initialized.",
         outcome_message="Candidate is ready for independent validation checks.",

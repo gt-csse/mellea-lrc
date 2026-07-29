@@ -11,7 +11,7 @@ from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import (
     CourtListenerCitationLookup,
-    CourtListenerCitationRecord,
+    CourtListenerOpinionCluster,
     CourtListenerDocket,
     CourtListenerError,
     CourtListenerSearchResult,
@@ -182,7 +182,7 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
             court="scotus",
         )
     )
-    record = CourtListenerCitationRecord(
+    cluster = CourtListenerOpinionCluster(
         case_name="Brown v. Board",
         date_filed="1954-05-17",
         court_id="scotus",
@@ -192,7 +192,7 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
         CourtListenerCitationLookup(
             citation="347 U.S. 483",
             status=200,
-            records=(record,),
+            clusters=(cluster,),
         ),
         docket_response=CourtListenerDocket(docket_id="84657", court_id="scotus"),
     )
@@ -212,11 +212,11 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
     ) = progression.nodes
     assert isinstance(exact_locator_lookup_node, ExactLocatorLookupNode)
     assert exact_locator_lookup_node.outcome is LocatorLookupOutcome.FOUND
-    assert exact_locator_lookup_node.record is record
+    assert exact_locator_lookup_node.cluster is cluster
     assert isinstance(candidate_evaluation_node, CandidateEvaluationNode)
     assert candidate_evaluation_node.outcome is CandidateEvaluationOutcome.READY
     assert candidate_evaluation_node.source is CandidateEvaluationSource.LOCATOR_LOOKUP
-    assert candidate_evaluation_node.record is record
+    assert candidate_evaluation_node.record is cluster
     assert candidate_evaluation_node.depends_on == (exact_locator_lookup_node.node_id,)
     assert isinstance(exact_case_name_check_node, ExactCaseNameCheckNode)
     assert exact_case_name_check_node.outcome is FieldCheckOutcome.MATCH
@@ -249,8 +249,8 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
         CourtListenerCitationLookup(
             citation="347 U.S. 483",
             status=200,
-            records=(
-                CourtListenerCitationRecord(
+            clusters=(
+                CourtListenerOpinionCluster(
                     case_name="Different v. Case",
                     date_filed="1955-01-01",
                     docket_id="98765",
@@ -308,7 +308,7 @@ def test_found_field_checks_skip_unavailable_values() -> None:
         CourtListenerCitationLookup(
             citation="347 U.S. 483",
             status=200,
-            records=(CourtListenerCitationRecord(),),
+            clusters=(CourtListenerOpinionCluster(),),
         )
     )
 
@@ -335,7 +335,7 @@ def test_mellea_case_name_reextraction_uses_only_local_context(
         status=ValidationNodeStatus.SUCCEEDED,
         outcome=LocatorLookupOutcome.FOUND,
         locator="347 U.S. 483",
-        record=CourtListenerCitationRecord(case_name="Brown v. Board of Education"),
+        cluster=CourtListenerOpinionCluster(case_name="Brown v. Board of Education"),
         candidate_count=1,
     )
     validation = validation.append(exact_locator_lookup_node)
@@ -396,7 +396,7 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
     extracted = _document(FullCaseCitation(volume="347", reporter="U.S.", page="9999"))
     prepared_query = 'caseName:("Brown" AND "Board")'
     client = LookupClient(
-        CourtListenerCitationLookup(citation="347 U.S. 9999", status=404, records=()),
+        CourtListenerCitationLookup(citation="347 U.S. 9999", status=404, clusters=()),
         opinion_search_response=CourtListenerSearchResult.from_payload(
             query=prepared_query,
             search_type="o",
@@ -581,19 +581,19 @@ def test_mellea_case_name_query_preparation_constructs_the_courtlistener_query(
 
 def test_ambiguous_lookup_records_a_bounded_candidate_selection() -> None:
     extracted = _document(FullCaseCitation(volume="1", reporter="F.2d", page="2"))
-    records = (
-        CourtListenerCitationRecord(case_name="First"),
-        CourtListenerCitationRecord(case_name="Second"),
+    clusters = (
+        CourtListenerOpinionCluster(case_name="First"),
+        CourtListenerOpinionCluster(case_name="Second"),
     )
-    client = LookupClient(CourtListenerCitationLookup(citation="1 F.2d 2", status=300, records=records))
+    client = LookupClient(CourtListenerCitationLookup(citation="1 F.2d 2", status=300, clusters=clusters))
 
     lookup, selection, first_candidate, second_candidate = _validate(extracted, client).citations[0].nodes
 
     assert lookup.status is ValidationNodeStatus.SUCCEEDED
     assert lookup.outcome is LocatorLookupOutcome.AMBIGUOUS
     assert lookup.candidate_count == 2
-    assert lookup.candidates == records
-    assert lookup.record is None
+    assert lookup.candidate_clusters == clusters
+    assert lookup.cluster is None
     assert isinstance(selection, CandidateSelectionNode)
     assert selection.outcome is CandidateSelectionOutcome.ALL_SELECTED
     assert selection.total_candidate_count == 2
@@ -601,17 +601,17 @@ def test_ambiguous_lookup_records_a_bounded_candidate_selection() -> None:
     assert selection.depends_on == (lookup.node_id,)
     assert isinstance(first_candidate, CandidateEvaluationNode)
     assert first_candidate.source is CandidateEvaluationSource.LOCATOR_LOOKUP
-    assert first_candidate.record is records[0]
+    assert first_candidate.record is clusters[0]
     assert first_candidate.depends_on == (selection.node_id,)
     assert isinstance(second_candidate, CandidateEvaluationNode)
-    assert second_candidate.record is records[1]
+    assert second_candidate.record is clusters[1]
     assert second_candidate.depends_on == (selection.node_id,)
 
 
 def test_ambiguous_lookup_defers_candidate_selection_over_the_limit() -> None:
     extracted = _document(FullCaseCitation(volume="1", reporter="F.2d", page="2"))
-    records = tuple(CourtListenerCitationRecord(case_name=f"Case {index}") for index in range(4))
-    client = LookupClient(CourtListenerCitationLookup(citation="1 F.2d 2", status=300, records=records))
+    clusters = tuple(CourtListenerOpinionCluster(case_name=f"Case {index}") for index in range(4))
+    client = LookupClient(CourtListenerCitationLookup(citation="1 F.2d 2", status=300, clusters=clusters))
 
     lookup, selection = _validate(extracted, client).citations[0].nodes
 
@@ -628,7 +628,7 @@ def test_ambiguous_lookup_defers_candidate_selection_over_the_limit() -> None:
 
 def test_unsupported_citation_is_skipped_without_service_access() -> None:
     extracted = _document(FullLawCitation(volume="28", reporter="U.S.C.", page="636"))
-    client = LookupClient(CourtListenerCitationLookup(citation="28 U.S.C. 636", status=200, records=()))
+    client = LookupClient(CourtListenerCitationLookup(citation="28 U.S.C. 636", status=200, clusters=()))
 
     node = _validate(extracted, client).citations[0].nodes[0]
 
@@ -657,7 +657,7 @@ def test_service_failure_is_a_terminal_validation_node() -> None:
 def test_unexpected_lookup_response_raises() -> None:
     """Reject a response that violates the expected lookup contract."""
     extracted = _document(FullCaseCitation(volume="347", reporter="U.S.", page="483"))
-    client = LookupClient(CourtListenerCitationLookup(citation="347 U.S. 483", status=200, records=()))
+    client = LookupClient(CourtListenerCitationLookup(citation="347 U.S. 483", status=200, clusters=()))
 
     with pytest.raises(AssertionError, match="Unexpected CourtListener lookup response"):
         _validate(extracted, client)

@@ -9,6 +9,6 @@ from mellea_lrc.courtlistener.citation_lookup_transport import (
 def normalize_citation_lookup_payload(
     payload: object,
 ) -> CourtListenerCitationLookup:
-    """Validate an external lookup payload and convert it to domain records."""
+    """Validate an external lookup payload and convert it to opinion clusters."""
     validated = CourtListenerCitationLookupResponsePayload.model_validate(payload)
     return validated.to_domain()

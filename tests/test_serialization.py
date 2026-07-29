@@ -4,7 +4,7 @@ import json
 
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.core.spans import Span
-from mellea_lrc.courtlistener import CourtListenerCitationRecord, CourtListenerSearchResult
+from mellea_lrc.courtlistener import CourtListenerOpinionCluster, CourtListenerSearchResult
 from mellea_lrc.extraction import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.serialization import serialize_validated_document
@@ -86,7 +86,7 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
         status=ValidationNodeStatus.SUCCEEDED,
         outcome=LocatorLookupOutcome.FOUND,
         locator=matched_text,
-        record=CourtListenerCitationRecord(case_name="Brown v. Board of Education"),
+        cluster=CourtListenerOpinionCluster(case_name="Brown v. Board of Education"),
         candidate_count=1,
     )
     validated = type(initialized)(
@@ -109,7 +109,7 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
                     "status": "succeeded",
                     "outcome": "found",
                     "locator": "347 U.S. 483",
-                    "record": {
+                    "cluster": {
                         "cluster_id": None,
                         "case_name": "Brown v. Board of Education",
                         "date_filed": None,
@@ -117,7 +117,7 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
                         "court_id": None,
                         "docket_id": None,
                     },
-                    "candidates": [],
+                    "candidate_clusters": [],
                     "candidate_count": 1,
                     "status_message": None,
                     "outcome_message": None,

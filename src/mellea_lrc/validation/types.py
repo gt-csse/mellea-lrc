@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, TypeAlias
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationRecord
+    from mellea_lrc.courtlistener.opinion_models import CourtListenerOpinionCluster
     from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
 
 
@@ -120,15 +120,15 @@ class ExactLocatorLookupNode:
     """One exact reporter-locator lookup against CourtListener.
 
     Only ``FOUND`` continues into the currently implemented branch. Other
-    outcomes are explicit terminal records, not implicit fallback behavior.
+    outcomes are explicit terminal nodes, not implicit fallback behavior.
     """
 
     node_id: str
     status: ValidationNodeStatus
     outcome: LocatorLookupOutcome
     locator: str | None
-    record: CourtListenerCitationRecord | None = None
-    candidates: tuple[CourtListenerCitationRecord, ...] = ()
+    cluster: CourtListenerOpinionCluster | None = None
+    candidate_clusters: tuple[CourtListenerOpinionCluster, ...] = ()
     candidate_count: int = 0
     status_message: str | None = None
     outcome_message: str | None = None
@@ -140,8 +140,8 @@ class ExactLocatorLookupNode:
             msg = "Validation node_id must not be empty"
             raise ValueError(msg)
         if self.outcome is LocatorLookupOutcome.FOUND:
-            if self.status is not ValidationNodeStatus.SUCCEEDED or self.record is None:
-                msg = "A found locator node requires a succeeded status and one record"
+            if self.status is not ValidationNodeStatus.SUCCEEDED or self.cluster is None:
+                msg = "A found locator node requires a succeeded status and one cluster"
                 raise ValueError(msg)
             if self.candidate_count != 1:
                 msg = "A found locator node requires candidate_count=1"
@@ -149,14 +149,14 @@ class ExactLocatorLookupNode:
         elif self.outcome is LocatorLookupOutcome.AMBIGUOUS:
             if (
                 self.status is not ValidationNodeStatus.SUCCEEDED
-                or self.record is not None
+                or self.cluster is not None
                 or self.candidate_count < MIN_AMBIGUOUS_CANDIDATE_COUNT
-                or len(self.candidates) != self.candidate_count
+                or len(self.candidate_clusters) != self.candidate_count
             ):
-                msg = "An ambiguous locator node requires its complete candidate records"
+                msg = "An ambiguous locator node requires its complete candidate clusters"
                 raise ValueError(msg)
-        elif self.record is not None or self.candidates:
-            msg = "Only a found or ambiguous locator node may carry candidate records"
+        elif self.cluster is not None or self.candidate_clusters:
+            msg = "Only a found or ambiguous locator node may carry candidate clusters"
             raise ValueError(msg)
 
 
@@ -284,7 +284,7 @@ class CandidateEvaluationNode:
     date_filed: str | None
     court_id: str | None
     docket_id: str | None
-    record: CourtListenerCitationRecord | Mapping[str, object]
+    record: CourtListenerOpinionCluster | Mapping[str, object]
     depends_on: tuple[str, ...]
     status_message: str | None = None
     outcome_message: str | None = None

@@ -67,38 +67,38 @@ def run_exact_locator_lookup(
             error=str(exc),
         )
 
-    if lookup.status == HTTP_OK and len(lookup.records) == 1:
+    if lookup.status == HTTP_OK and len(lookup.clusters) == 1:
         return ExactLocatorLookupNode(
             node_id=node_id,
             status=ValidationNodeStatus.SUCCEEDED,
             outcome=LocatorLookupOutcome.FOUND,
             locator=locator,
-            record=lookup.records[0],
+            cluster=lookup.clusters[0],
             candidate_count=1,
             status_message="Exact locator lookup completed.",
-            outcome_message="CourtListener returned one citation record for the locator.",
+            outcome_message="CourtListener returned one opinion cluster for the locator.",
         )
-    if lookup.status == HTTP_NOT_FOUND and not lookup.records:
+    if lookup.status == HTTP_NOT_FOUND and not lookup.clusters:
         return ExactLocatorLookupNode(
             node_id=node_id,
             status=ValidationNodeStatus.SUCCEEDED,
             outcome=LocatorLookupOutcome.NOT_FOUND,
             locator=locator,
             status_message="Exact locator lookup completed.",
-            outcome_message="CourtListener returned no citation records for the locator.",
+            outcome_message="CourtListener returned no opinion clusters for the locator.",
         )
-    if lookup.status == HTTP_MULTIPLE_CHOICES and len(lookup.records) > 1:
+    if lookup.status == HTTP_MULTIPLE_CHOICES and len(lookup.clusters) > 1:
         return ExactLocatorLookupNode(
             node_id=node_id,
             status=ValidationNodeStatus.SUCCEEDED,
             outcome=LocatorLookupOutcome.AMBIGUOUS,
             locator=locator,
-            candidates=lookup.records,
-            candidate_count=len(lookup.records),
+            candidate_clusters=lookup.clusters,
+            candidate_count=len(lookup.clusters),
             status_message="Exact locator lookup completed.",
             outcome_message=(
-                f"CourtListener returned {len(lookup.records)} citation records for the locator."
+                f"CourtListener returned {len(lookup.clusters)} opinion clusters for the locator."
             ),
         )
-    msg = f"Unexpected CourtListener lookup response: status={lookup.status}, records={len(lookup.records)}"
+    msg = f"Unexpected CourtListener lookup response: status={lookup.status}, clusters={len(lookup.clusters)}"
     raise AssertionError(msg)
