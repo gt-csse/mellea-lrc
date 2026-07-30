@@ -254,7 +254,7 @@ class CitationValidationRunner:
                         depends_on=(opinion_selection.node_id,),
                     )
                     validation = validation.append(candidate)
-                    validation = await self.run_opinion_search_candidate_validation(
+                    validation = await self.run_search_candidate_validation(
                         validation,
                         candidate=candidate,
                         session=session,
@@ -268,31 +268,35 @@ class CitationValidationRunner:
                     msg = "RECAP-search result payload is shorter than its selected candidate count"
                     raise ValueError(msg)
                 for candidate_index, result in enumerate(results, start=1):
-                    validation = validation.append(
-                        run_recap_search_candidate_evaluation(
-                            validation,
-                            result=result,
-                            candidate_index=candidate_index,
-                            depends_on=(recap_selection.node_id,),
-                        )
+                    candidate = run_recap_search_candidate_evaluation(
+                        validation,
+                        result=result,
+                        candidate_index=candidate_index,
+                        depends_on=(recap_selection.node_id,),
+                    )
+                    validation = validation.append(candidate)
+                    validation = await self.run_search_candidate_validation(
+                        validation,
+                        candidate=candidate,
+                        session=session,
                     )
         return validation
 
-    async def run_opinion_search_candidate_validation(
+    async def run_search_candidate_validation(
         self,
         validation: CitationValidation,
         *,
         candidate: CandidateEvaluationNode,
         session: MelleaSession | None,
     ) -> CitationValidation:
-        """Complete the reusable field-check subtree for one opinion-search candidate.
+        """Complete the reusable field-check subtree for one selected search candidate.
 
         The locator-not-found route already re-extracted citation-local parties
-        before searching. A selected opinion result therefore receives exact
+        before searching. A selected result therefore receives exact
         then semantic case-name checks, but never a second local re-extraction.
 
         Graph:
-            opinion-search candidate evaluation
+            selected search candidate evaluation
             ├── exact case-name check
             │   └── mismatch -> Mellea semantic case-name check
             ├── direct court check
