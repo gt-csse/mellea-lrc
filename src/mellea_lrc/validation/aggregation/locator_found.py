@@ -4,12 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from mellea_lrc.validation.aggregation.citation_summary_candidate import (
-    citation_summary_candidate,
-)
-from mellea_lrc.validation.aggregation.citation_summary_outcome import (
-    overall_citation_outcome,
-)
+from mellea_lrc.validation.aggregation.citation_summary_candidate import citation_summary_candidate
+from mellea_lrc.validation.aggregation.citation_summary_outcome import overall_citation_outcome
 from mellea_lrc.validation.types import (
     AggregatedFieldOutcome,
     CandidateEvaluationNode,

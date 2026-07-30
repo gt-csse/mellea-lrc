@@ -180,28 +180,28 @@ class SearchCandidateAssessmentOutcome(str, Enum):
 CandidateAssessmentOutcome: TypeAlias = LocatorCandidateAssessmentOutcome | SearchCandidateAssessmentOutcome
 
 
-class CandidateProvenance(str, Enum):
-    """CourtListener corpus that produced a summarized candidate."""
-
-    OPINION = "opinion"
-    RECAP = "recap"
+MIN_AMBIGUOUS_CANDIDATE_COUNT = 2
 
 
 class CitationSummaryAssessmentOutcome(str, Enum):
-    """Strongest candidate conclusion exposed at citation scope."""
+    """Overall conclusion reduced from all assessed citation candidates."""
 
     MATCH = "match"
     POSSIBLE_MATCH = "possible_match"
     MISMATCH = "mismatch"
 
 
+class CandidateProvenance(str, Enum):
+    """CourtListener corpus that supplied a candidate assessment."""
+
+    OPINION = "opinion"
+    RECAP = "recap"
+
+
 class SearchCitationSummaryOutcome(str, Enum):
-    """Completion state of a search-derived citation summary."""
+    """Completion state for the list of evaluated search candidates."""
 
     COMPLETE = "complete"
-
-
-MIN_AMBIGUOUS_CANDIDATE_COUNT = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -415,20 +415,6 @@ class DocketCourtRetrievalNode:
 
 
 @dataclass(frozen=True, slots=True)
-class CourtCheckNode:
-    """Exact comparison of Eyecite and CourtListener court identifiers."""
-
-    node_id: str
-    status: ValidationNodeStatus
-    outcome: FieldCheckOutcome
-    extracted_court_id: str | None
-    retrieved_court_id: str | None
-    depends_on: tuple[str, ...]
-    status_message: str | None = None
-    outcome_message: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class ReporterPageEvidence:
     """One reporter page recovered from a CourtListener sub-opinion."""
 
@@ -456,6 +442,24 @@ class ReporterPageRetrievalNode:
 
 
 @dataclass(frozen=True, slots=True)
+class MelleaPinpointCheckNode:
+    """Semantic judgment with evidence offsets into its retrieval dependency's page text."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: MelleaPinpointCheckOutcome
+    reasoning: str | None
+    evidence_quote: str | None
+    evidence_span: Span | None
+    evidence_match_method: EvidenceQuoteMatchMethod | None
+    evidence_match_score: float | None
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class MelleaCitingPropositionExtractionNode:
     """Grounded citing proposition and its offsets in the source document."""
 
@@ -475,21 +479,17 @@ class MelleaCitingPropositionExtractionNode:
 
 
 @dataclass(frozen=True, slots=True)
-class MelleaPinpointCheckNode:
-    """Semantic judgment with evidence offsets into its retrieval dependency's page text."""
+class CourtCheckNode:
+    """Exact comparison of Eyecite and CourtListener court identifiers."""
 
     node_id: str
     status: ValidationNodeStatus
-    outcome: MelleaPinpointCheckOutcome
-    reasoning: str | None
-    evidence_quote: str | None
-    evidence_span: Span | None
-    evidence_match_method: EvidenceQuoteMatchMethod | None
-    evidence_match_score: float | None
+    outcome: FieldCheckOutcome
+    extracted_court_id: str | None
+    retrieved_court_id: str | None
     depends_on: tuple[str, ...]
     status_message: str | None = None
     outcome_message: str | None = None
-    error: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -499,6 +499,56 @@ class LocatorCandidateAssessmentNode:
     node_id: str
     status: ValidationNodeStatus
     outcome: LocatorCandidateAssessmentOutcome
+    candidate_index: int
+    extracted_citation: str | None
+    extracted_case_name: str | None
+    retrieved_case_name: str | None
+    case_name_outcome: AggregatedFieldOutcome
+    case_name_evidence: str
+    extracted_year: str | None
+    retrieved_year: str | None
+    year_outcome: AggregatedFieldOutcome
+    extracted_court_id: str | None
+    retrieved_court_id: str | None
+    court_outcome: AggregatedFieldOutcome
+    docket_id: str | None
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class OpinionSearchCandidateAssessmentNode:
+    """Serialization-ready conclusion for one opinion-search candidate."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: SearchCandidateAssessmentOutcome
+    candidate_index: int
+    extracted_citation: str | None
+    extracted_case_name: str | None
+    retrieved_case_name: str | None
+    case_name_outcome: AggregatedFieldOutcome
+    case_name_evidence: str
+    extracted_year: str | None
+    retrieved_year: str | None
+    year_outcome: AggregatedFieldOutcome
+    extracted_court_id: str | None
+    retrieved_court_id: str | None
+    court_outcome: AggregatedFieldOutcome
+    docket_id: str | None
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RecapSearchCandidateAssessmentNode:
+    """Serialization-ready conclusion for one RECAP-search candidate."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: SearchCandidateAssessmentOutcome
     candidate_index: int
     extracted_citation: str | None
     extracted_case_name: str | None
@@ -583,58 +633,8 @@ class LocatorCitationSummaryNode:
 
 
 @dataclass(frozen=True, slots=True)
-class OpinionSearchCandidateAssessmentNode:
-    """Serialization-ready conclusion for one opinion-search candidate."""
-
-    node_id: str
-    status: ValidationNodeStatus
-    outcome: SearchCandidateAssessmentOutcome
-    candidate_index: int
-    extracted_citation: str | None
-    extracted_case_name: str | None
-    retrieved_case_name: str | None
-    case_name_outcome: AggregatedFieldOutcome
-    case_name_evidence: str
-    extracted_year: str | None
-    retrieved_year: str | None
-    year_outcome: AggregatedFieldOutcome
-    extracted_court_id: str | None
-    retrieved_court_id: str | None
-    court_outcome: AggregatedFieldOutcome
-    docket_id: str | None
-    depends_on: tuple[str, ...]
-    status_message: str | None = None
-    outcome_message: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class RecapSearchCandidateAssessmentNode:
-    """Serialization-ready conclusion for one RECAP-search candidate."""
-
-    node_id: str
-    status: ValidationNodeStatus
-    outcome: SearchCandidateAssessmentOutcome
-    candidate_index: int
-    extracted_citation: str | None
-    extracted_case_name: str | None
-    retrieved_case_name: str | None
-    case_name_outcome: AggregatedFieldOutcome
-    case_name_evidence: str
-    extracted_year: str | None
-    retrieved_year: str | None
-    year_outcome: AggregatedFieldOutcome
-    extracted_court_id: str | None
-    retrieved_court_id: str | None
-    court_outcome: AggregatedFieldOutcome
-    docket_id: str | None
-    depends_on: tuple[str, ...]
-    status_message: str | None = None
-    outcome_message: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class SearchCitationSummaryNode:
-    """Terminal list of assessed candidates from both search corpora."""
+    """Terminal list of every assessed candidate from both search corpora."""
 
     node_id: str
     status: ValidationNodeStatus
@@ -679,9 +679,9 @@ ValidationNode: TypeAlias = (
     | CourtCheckNode
     | LocatorCandidateAssessmentNode
     | LocatorCitationSummaryNode
+    | SearchCitationSummaryNode
     | OpinionSearchCandidateAssessmentNode
     | RecapSearchCandidateAssessmentNode
-    | SearchCitationSummaryNode
     | YearCheckNode
 )
 
@@ -714,7 +714,7 @@ class CitationValidation:
 
     @property
     def aggregation(self) -> LocatorCitationSummaryNode | SearchCitationSummaryNode | None:
-        """Return the route's terminal citation summary when one was produced."""
+        """Return the route's explicit terminal summary when one was reached."""
         summaries = tuple(
             node
             for node in self.nodes

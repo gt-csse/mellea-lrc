@@ -96,9 +96,9 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
         CourtCheckNode,
         LocatorCandidateAssessmentNode,
         LocatorCitationSummaryNode,
+        SearchCitationSummaryNode,
         OpinionSearchCandidateAssessmentNode,
         RecapSearchCandidateAssessmentNode,
-        SearchCitationSummaryNode,
         YearCheckNode,
     )
 }
@@ -121,9 +121,9 @@ _OUTCOME_TYPES = {
     CourtCheckNode: FieldCheckOutcome,
     LocatorCandidateAssessmentNode: LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode: LocatorCitationSummaryOutcome,
+    SearchCitationSummaryNode: SearchCitationSummaryOutcome,
     OpinionSearchCandidateAssessmentNode: SearchCandidateAssessmentOutcome,
     RecapSearchCandidateAssessmentNode: SearchCandidateAssessmentOutcome,
-    SearchCitationSummaryNode: SearchCitationSummaryOutcome,
     YearCheckNode: FieldCheckOutcome,
 }
 

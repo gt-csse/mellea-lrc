@@ -18,7 +18,11 @@ if TYPE_CHECKING:
 def overall_citation_outcome(
     candidate_outcomes: Iterable[CandidateAssessmentOutcome],
 ) -> CitationSummaryAssessmentOutcome | None:
-    """Return the strongest conclusion across all assessed candidates."""
+    """Return the strongest conclusion across all assessed candidates.
+
+    Locator ``partial_match`` and search ``possible_match`` both express a
+    possible match at citation-summary scope.
+    """
     normalized = tuple(_normalize_candidate_outcome(outcome) for outcome in candidate_outcomes)
     if not normalized:
         return None
@@ -30,10 +34,9 @@ def _normalize_candidate_outcome(
 ) -> CitationSummaryAssessmentOutcome:
     if outcome is LocatorCandidateAssessmentOutcome.MATCH:
         return CitationSummaryAssessmentOutcome.MATCH
-    if outcome in (
-        LocatorCandidateAssessmentOutcome.PARTIAL_MATCH,
-        SearchCandidateAssessmentOutcome.POSSIBLE_MATCH,
-    ):
+    if outcome is LocatorCandidateAssessmentOutcome.PARTIAL_MATCH:
+        return CitationSummaryAssessmentOutcome.POSSIBLE_MATCH
+    if outcome is SearchCandidateAssessmentOutcome.POSSIBLE_MATCH:
         return CitationSummaryAssessmentOutcome.POSSIBLE_MATCH
     return CitationSummaryAssessmentOutcome.MISMATCH
 
