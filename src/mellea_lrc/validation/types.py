@@ -136,6 +136,13 @@ class LocatorCitationSummaryOutcome(str, Enum):
     COMPLETE = "complete"
 
 
+class SearchCandidateAssessmentOutcome(str, Enum):
+    """Limited conclusion for one candidate returned by a search."""
+
+    POSSIBLE_MATCH = "possible_match"
+    MISMATCH = "mismatch"
+
+
 MIN_AMBIGUOUS_CANDIDATE_COUNT = 2
 
 
@@ -402,6 +409,31 @@ class LocatorCitationSummaryNode:
 
 
 @dataclass(frozen=True, slots=True)
+class OpinionSearchCandidateAssessmentNode:
+    """Serialization-ready conclusion for one opinion-search candidate."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: SearchCandidateAssessmentOutcome
+    candidate_index: int
+    extracted_citation: str | None
+    extracted_case_name: str | None
+    retrieved_case_name: str | None
+    case_name_outcome: AggregatedFieldOutcome
+    case_name_evidence: str
+    extracted_year: str | None
+    retrieved_year: str | None
+    year_outcome: AggregatedFieldOutcome
+    extracted_court_id: str | None
+    retrieved_court_id: str | None
+    court_outcome: AggregatedFieldOutcome
+    docket_id: str | None
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class YearCheckNode:
     """Deterministic decision-year comparison after a found locator lookup."""
 
@@ -431,6 +463,7 @@ ValidationNode: TypeAlias = (
     | CourtCheckNode
     | LocatorCandidateAssessmentNode
     | LocatorCitationSummaryNode
+    | OpinionSearchCandidateAssessmentNode
     | YearCheckNode
 )
 

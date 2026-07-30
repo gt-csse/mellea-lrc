@@ -13,6 +13,7 @@ from mellea_lrc.serialization.extracted_document import (
     serialize_extracted_document,
 )
 from mellea_lrc.validation.types import (
+    AggregatedFieldOutcome,
     CandidateEvaluationNode,
     CandidateEvaluationOutcome,
     CandidateEvaluationSource,
@@ -25,6 +26,10 @@ from mellea_lrc.validation.types import (
     ExactCaseNameCheckNode,
     ExactLocatorLookupNode,
     FieldCheckOutcome,
+    LocatorCandidateAssessmentNode,
+    LocatorCandidateAssessmentOutcome,
+    LocatorCitationSummaryNode,
+    LocatorCitationSummaryOutcome,
     LocatorLookupOutcome,
     MelleaCaseNameCheckNode,
     MelleaCaseNameCheckOutcome,
@@ -33,10 +38,12 @@ from mellea_lrc.validation.types import (
     MelleaCaseNameReextractionNode,
     MelleaCaseNameReextractionOutcome,
     MelleaReextractedCaseNameCheckNode,
+    OpinionSearchCandidateAssessmentNode,
     OpinionSearchNode,
     OpinionSearchOutcome,
     RecapSearchNode,
     RecapSearchOutcome,
+    SearchCandidateAssessmentOutcome,
     ValidatedDocument,
     ValidationNode,
     ValidationNodeStatus,
@@ -60,6 +67,9 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
         MelleaReextractedCaseNameCheckNode,
         DocketCourtRetrievalNode,
         CourtCheckNode,
+        LocatorCandidateAssessmentNode,
+        LocatorCitationSummaryNode,
+        OpinionSearchCandidateAssessmentNode,
         YearCheckNode,
     )
 }
@@ -77,6 +87,9 @@ _OUTCOME_TYPES = {
     MelleaReextractedCaseNameCheckNode: MelleaCaseNameCheckOutcome,
     DocketCourtRetrievalNode: DocketCourtRetrievalOutcome,
     CourtCheckNode: FieldCheckOutcome,
+    LocatorCandidateAssessmentNode: LocatorCandidateAssessmentOutcome,
+    LocatorCitationSummaryNode: LocatorCitationSummaryOutcome,
+    OpinionSearchCandidateAssessmentNode: SearchCandidateAssessmentOutcome,
     YearCheckNode: FieldCheckOutcome,
 }
 
@@ -152,6 +165,9 @@ def _deserialize_node(value: object) -> ValidationNode:
             fields["record"] = _deserialize_cluster(fields["record"])
         else:
             fields["record"] = _freeze_search_results([fields["record"]])[0]
+    elif node_type in (LocatorCandidateAssessmentNode, OpinionSearchCandidateAssessmentNode):
+        for field_name in ("case_name_outcome", "year_outcome", "court_outcome"):
+            fields[field_name] = AggregatedFieldOutcome(fields[field_name])
     return node_type(**fields)
 
 

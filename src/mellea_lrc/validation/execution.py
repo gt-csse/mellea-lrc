@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from mellea_lrc.validation.aggregation import (
     run_locator_candidate_assessment,
     run_locator_citation_summary,
+    run_opinion_search_candidate_assessment,
 )
 from mellea_lrc.validation.candidate_evaluation import (
     run_locator_candidate_evaluation,
@@ -35,6 +36,7 @@ from mellea_lrc.validation.field_checks import (
 )
 from mellea_lrc.validation.types import (
     CandidateEvaluationNode,
+    CandidateEvaluationSource,
     ExactCaseNameCheckNode,
     ExactLocatorLookupNode,
     FieldCheckOutcome,
@@ -307,20 +309,23 @@ class CitationValidationRunner:
             │   └── mismatch -> Mellea semantic case-name check
             ├── direct court check
             └── year check
+                └── opinion-search candidate -> candidate assessment
         """
         exact_case_name_check = run_exact_case_name_check(validation, candidate=candidate)
         year_check = run_year_check(validation, candidate=candidate)
         court_check = run_court_check(validation, evidence=candidate)
         validation = validation.append(exact_case_name_check).append(year_check).append(court_check)
-        if exact_case_name_check.outcome is not FieldCheckOutcome.MISMATCH:
-            return validation
-        return validation.append(
-            await run_mellea_case_name_check(
-                validation,
-                case_name_evidence=exact_case_name_check,
-                session=session,
+        if exact_case_name_check.outcome is FieldCheckOutcome.MISMATCH:
+            validation = validation.append(
+                await run_mellea_case_name_check(
+                    validation,
+                    case_name_evidence=exact_case_name_check,
+                    session=session,
+                )
             )
-        )
+        if candidate.source is CandidateEvaluationSource.OPINION_SEARCH:
+            return validation.append(run_opinion_search_candidate_assessment(validation, candidate=candidate))
+        return validation
 
     async def run_locator_ambiguous(
         self,
