@@ -1,0 +1,2783 @@
+{
+  "schema_version": 2,
+  "artifact_type": "validated_document",
+  "source": {
+    "source_metadata": {
+      "path": "/Users/woodygoodenough/CodingProjects/mellea-lrc/fixtures/curated_validation_examples.txt",
+      "format": "text",
+      "header": null
+    },
+    "text": "========================================================================================\nsource: 26.txt | locator-found -> exact case-name match -> pinpoint supports\n========================================================================================\n\nssociated\n\nremedies should be dismissed with prejudice.\n\nto  their  clients\n\n,  not  the  other  way\n\nCivil Action No:\n\n2:25-cv-02623-SHL-atc\n\nBACKGROUND\n\nBaker Donelson's Counterclaim alleges that RLF failed to pay invoices under an August 2022  engagement  letter  and  attached  'Terms  of  Engagement.'  The  Counterclaim  asserts  (1) Breach of Agreement, and (2) Unjust Enrichment, seeking $170,921.09 plus contractual interest, attorneys' fees, and costs.\n\nCount II, however, attempts to repackage these allegations as a breach of fiduciary duty claim by the firm against its client. Specifically, Baker Donelson contends RLF acted disloyally by pressing for trial tactics the firm opposed and by resisting its advice. No Tennessee case law supports such a theory.\n\nSTANDARD OF REVIEW\n\nA claim must contain sufficient factual matter to 'state a claim to relief that is plausible on its face.' Ashcroft v. Iqbal , 556 U.S. 662, 678 (2009);                                                       .  Legal  conclusions  masquerading  as  factual  allegations  are  not  accepted  as  true.                                             . Where a claim fails as a matter of law, dismissal under Rule\u200b\n\n========================================================================================\nsource: 16.txt | locator-found -> exact mismatch -> semantic case-name match\n========================================================================================\n\ns informed by the front-desk secretary that the Defendants were in a meeting but physically present in the building.\n\n3. Server asked the secretary to accept the documents, and the secretary agreed and did so. Plaintiff filed this Proof of Service with the Court.\n4. Service is valid when made at a defendant's usual place of business and delivered to an individual who appears to be authorized to accept documents.\n\nSupporting Sixth Circuit Case Law\n\n- e                                                                                    \u2014 service rules should be applied in a manner consistent with due process; defects are excused when defendant receives actual notice.\n- e Tokio Marine &                                                                                          \u2014 substantial compliance with service rules is sufficient when service is reasonably calculated to provide notice.\n- e Salyers v. City of Portsmouth, 534 Fed. App'x 454, 459 (6th Cir. 2013) \u2014 service may be upheld where defendant received actual notice even if service was not technically perfect.\n\nMichigan Case Law (for completeness):\n\n- e                                             .\n- e\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\n\n========================================================================================\nsource: 16.txt | locator-found -> exact mismatch -> semantic mismatch -> local re-extraction -> re-extracted case-name mismatch\n========================================================================================\n\n                                                     .\n\nThese cases support service through an apparent office agent.\n\nll. DEFENDANT JACK McINTYRE WAS ALSO PROPERLY SERVED\n\n5. Plaintiff's server, Marcus Kelley also independently attempted personal service on Defendant Jack Mcintyre by going directly to his office.\n\n6. Defendant was not present and his office door was locked.\n7. Defendant Mclintyre's assistant, Clarence Cohan, clearly instructed server, Marcus Kelley, to slide the Summons and Complaint under Defendant Mclintyre's door, indicating that this method was acceptable.\n8. Server complied and filed the corresponding Proof of Service.\n\nSupporting Sixth Circuit Case Law\n\n- e                                                                          \u2014 service upheld where documents were delivered in a manner reasonably calculated to provide notice at defendant's business address.\n- e United States v. Robinson, 305 F.3d 732, 735 (6th Cir. 2002) \u2014 service rules must be interpreted in light of their core purpose: providing notice.\n- e                                                                    \u2014 the Sixth Circuit emphasizes that actual notice strongly weighs in favor of find\n\n========================================================================================\nsource: 5.txt | locator-not-found -> local re-extraction -> opinion and RECAP search\n========================================================================================\n\ny confirmations, demonstrates full compliance.\n\nA. Delivery to the Supervising Clerk Constitutes Proper Service\n\nOn November 18,  2024,  Manuel  Gomez  delivered  the  summons  and  complaint  to  the supervising clerk at the Rockland County Supreme Court, the usual place of business for both judges (ECF No. 38-2). The clerk confirmed her authority to receive service, as recorded on video (Exhibit A). Gomez, a Desert Storm veteran with the highest security clearance levels, has served hundreds of documents  over twelve (12) years,  ensuring  reliability  (Exhibit  A).  This  delivery satisfies                       , which permits service on a person of suitable age and discretion at the defendant's place of business.                                                                           .  Courts  uphold  service  on  clerks  designated  to  receive  process  for  judicial officers. Koulkina v. City of New York, No . 06 Civ. 11357, 2009 WL 2103627, at *3 (S.D.N.Y. July 14, 2009).                       , governing service on state officers, allows delivery to a designated person, and the clerk's confirmation satisfies this standard.\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\u200b\n",
+    "preprocessing_metadata": {
+      "backend": "plain_text",
+      "backend_version": null
+    },
+    "citations": [
+      {
+        "citation_id": "8ebd4409",
+        "span": {
+          "start": 1156,
+          "end": 1200
+        },
+        "locator_span": {
+          "start": 1176,
+          "end": 1188
+        },
+        "matched_text": "556 U.S. 662",
+        "citation": {
+          "citation_type": "FullCaseCitation",
+          "plaintiff": "Ashcroft",
+          "defendant": "Iqbal",
+          "volume": "556",
+          "reporter": "U.S.",
+          "page": "662",
+          "pin_cite": "678",
+          "extra": null,
+          "year": "2009",
+          "court": "scotus",
+          "parenthetical": null
+        },
+        "resolves_to": null
+      },
+      {
+        "citation_id": "1956ef2b",
+        "span": {
+          "start": 2614,
+          "end": 2684
+        },
+        "locator_span": {
+          "start": 2645,
+          "end": 2663
+        },
+        "matched_text": "534 Fed. App'x 454",
+        "citation": {
+          "citation_type": "FullCaseCitation",
+          "plaintiff": "Salyers",
+          "defendant": "City of Portsmouth",
+          "volume": "534",
+          "reporter": "Fed. App'x",
+          "page": "454",
+          "pin_cite": "459",
+          "extra": null,
+          "year": "2013",
+          "court": "ca6",
+          "parenthetical": null
+        },
+        "resolves_to": null
+      },
+      {
+        "citation_id": "c3c206c0",
+        "span": {
+          "start": 4123,
+          "end": 4183
+        },
+        "locator_span": {
+          "start": 4150,
+          "end": 4162
+        },
+        "matched_text": "305 F.3d 732",
+        "citation": {
+          "citation_type": "FullCaseCitation",
+          "plaintiff": "United States",
+          "defendant": "Robinson",
+          "volume": "305",
+          "reporter": "F.3d",
+          "page": "732",
+          "pin_cite": "735",
+          "extra": null,
+          "year": "2002",
+          "court": "ca6",
+          "parenthetical": null
+        },
+        "resolves_to": null
+      },
+      {
+        "citation_id": "f7489749",
+        "span": {
+          "start": 5589,
+          "end": 5686
+        },
+        "locator_span": {
+          "start": 5639,
+          "end": 5654
+        },
+        "matched_text": "2009 WL 2103627",
+        "citation": {
+          "citation_type": "FullCaseCitation",
+          "plaintiff": "Koulkina",
+          "defendant": "City of New York, No . 06 Civ. 11357",
+          "volume": "2009",
+          "reporter": "WL",
+          "page": "2103627",
+          "pin_cite": "at *3",
+          "extra": null,
+          "year": "2009",
+          "court": "nysd",
+          "parenthetical": null
+        },
+        "resolves_to": null
+      }
+    ],
+    "extraction_metadata": {
+      "backend": "eyecite",
+      "backend_version": null
+    }
+  },
+  "citations": [
+    {
+      "citation_id": "8ebd4409",
+      "aggregation": {
+        "node_type": "LocatorCitationSummaryNode",
+        "node_id": "8ebd4409:locator_citation_summary",
+        "status": "succeeded",
+        "outcome": "complete",
+        "overall_outcome": "match",
+        "pinpoint_requires_review": false,
+        "candidates": [
+          {
+            "provenance": "opinion",
+            "candidate_index": 1,
+            "assessment_node_id": "8ebd4409:candidate_evaluation:1:locator_candidate_assessment",
+            "outcome": "match",
+            "extracted_citation": "556 U.S. 662",
+            "extracted_case_name": "Ashcroft v. Iqbal",
+            "retrieved_case_name": "Ashcroft v. Iqbal",
+            "case_name_outcome": "match",
+            "case_name_evidence": "exact",
+            "extracted_year": "2009",
+            "retrieved_year": "2009",
+            "year_outcome": "match",
+            "extracted_court_id": "scotus",
+            "retrieved_court_id": "scotus",
+            "court_outcome": "match",
+            "docket_id": "191796",
+            "opinion_url": "https://www.courtlistener.com/opinion/145875/ashcroft-v-iqbal/",
+            "pinpoint": {
+              "node_id": "8ebd4409:candidate_evaluation:1:reporter_page_retrieval:mellea_pinpoint_check",
+              "status": "succeeded",
+              "outcome": "supports",
+              "reporter_citation": "556 U.S. 662",
+              "pin_cite": "678",
+              "opinion_id": "9435339",
+              "opinion_type": "020lead",
+              "reporter_page_text": "*678entitled to relief.\u201d As the Court held in Twombly, 550 U. S. 544, the pleading standard Rule 8 announces does not require \u201cdetailed factual allegations,\u201d but it demands more than an unadorned, the-defendant-unlawfully-harmed-me accusation. Id., at 555 (citing Papasan v. Allain, 478 U. S. 265, 286 (1986)). A pleading that offers \u201clabels and conclusions\u201d or \u201ca formulaic recitation of the elements of a cause of action will not do.\u201d 550 U. S., at 555. Nor does a complaint suffice if it tenders \u201cnaked assertion[s]\u201d devoid of \u201cfurther factual enhancement.\u201d Id., at 557. To survive a motion to dismiss, a complaint must contain sufficient factual matter, accepted as true, to \u201cstate a claim to relief that is plausible on its face.\u201d Id., at 570. A claim has facial plausibility when the plaintiff pleads factual content that allows the court to draw the reasonable inference that the defendant is liable for the misconduct alleged. Id., at 556. The plausibility standard is not akin to a \u201cprobability requirement,\u201d but it asks for more than a sheer possibility that a defendant has acted unlawfully. Ibid. Where a complaint pleads facts that are \u201cmerely consistent with\u201d a defendant\u2019s liability, it \u201cstops short of the line between possibility and plausibility of \u2018entitlement to relief.\u2019 \u201d Id., at 557 (brackets omitted). Two working principles underlie our decision in Twombly. First, the tenet that a court must accept as true all of the allegations contained in a complaint is inapplicable to legal conclusions. Threadbare recitals of the elements of a cause of action, supported by mere conclusory statements, do not suffice. Id., at 555 (Although for the purposes of a motion to dismiss we must take all of the factual allegations in the complaint as true, we \u201care not bound to accept as true a legal conclusion couched as a factual allegation\u201d (internal quotation marks omitted)). Rule 8 marks a notable and generous departure from the hyperteehnical, code-pleading regime of a prior era, but it does not unlock the doors of discovery for",
+              "citing_context_span": {
+                "start": 256,
+                "end": 1456
+              },
+              "citation_span": {
+                "start": 1156,
+                "end": 1200
+              },
+              "proposition": "A claim must contain sufficient factual matter to 'state a claim to relief that is plausible on its face.",
+              "proposition_span": {
+                "start": 1049,
+                "end": 1154
+              },
+              "reasoning": "The cited reporter page explicitly states the standard for a claim to survive a motion to dismiss: 'To survive a motion to dismiss, a complaint must contain sufficient factual matter, accepted as true, to 'state a claim to relief that is plausible on its face.'' This directly aligns with and substantively supports the given proposition.",
+              "evidence_quote": "To survive a motion to dismiss, a complaint must contain sufficient factual matter, accepted as true, to \u201cstate a claim to relief that is plausible on its face.\u201d",
+              "evidence_span": {
+                "start": 574,
+                "end": 735
+              },
+              "evidence_match_method": "normalized",
+              "evidence_match_score": 1.0,
+              "status_message": "Mellea pinpoint inference completed.",
+              "outcome_message": "The cited reporter page supports the proposition attributed by the citing text.",
+              "error": null
+            }
+          }
+        ],
+        "depends_on": [
+          "8ebd4409:candidate_evaluation:1:locator_candidate_assessment",
+          "8ebd4409:candidate_evaluation:1:reporter_page_retrieval:mellea_pinpoint_check"
+        ],
+        "status_message": "Locator candidate summary completed.",
+        "outcome_message": "Listed 1 evaluated locator candidate(s) without selecting one."
+      },
+      "nodes": [
+        {
+          "node_type": "ExactLocatorLookupNode",
+          "node_id": "8ebd4409:exact_locator_lookup",
+          "status": "succeeded",
+          "outcome": "found",
+          "locator": "556 U.S. 662",
+          "cluster": {
+            "cluster_id": "145875",
+            "opinion_url": "https://www.courtlistener.com/opinion/145875/ashcroft-v-iqbal/",
+            "case_name": "Ashcroft v. Iqbal",
+            "date_filed": "2009-05-18",
+            "court": null,
+            "court_id": null,
+            "docket_id": "191796",
+            "citations": [
+              {
+                "volume": "556",
+                "reporter": "U.S.",
+                "page": "662"
+              },
+              {
+                "volume": "129",
+                "reporter": "S. Ct.",
+                "page": "1937"
+              },
+              {
+                "volume": "173",
+                "reporter": "L. Ed. 2d",
+                "page": "868"
+              },
+              {
+                "volume": "2009",
+                "reporter": "U.S. LEXIS",
+                "page": "3472"
+              }
+            ],
+            "sub_opinion_ids": [
+              "9435340",
+              "145875",
+              "9435339"
+            ]
+          },
+          "candidate_clusters": [
+            {
+              "cluster_id": "145875",
+              "opinion_url": "https://www.courtlistener.com/opinion/145875/ashcroft-v-iqbal/",
+              "case_name": "Ashcroft v. Iqbal",
+              "date_filed": "2009-05-18",
+              "court": null,
+              "court_id": null,
+              "docket_id": "191796",
+              "citations": [
+                {
+                  "volume": "556",
+                  "reporter": "U.S.",
+                  "page": "662"
+                },
+                {
+                  "volume": "129",
+                  "reporter": "S. Ct.",
+                  "page": "1937"
+                },
+                {
+                  "volume": "173",
+                  "reporter": "L. Ed. 2d",
+                  "page": "868"
+                },
+                {
+                  "volume": "2009",
+                  "reporter": "U.S. LEXIS",
+                  "page": "3472"
+                }
+              ],
+              "sub_opinion_ids": [
+                "9435340",
+                "145875",
+                "9435339"
+              ]
+            }
+          ],
+          "candidate_count": 1,
+          "status_message": "Exact locator lookup completed.",
+          "outcome_message": "CourtListener returned one opinion cluster for the locator.",
+          "error": null,
+          "depends_on": []
+        },
+        {
+          "node_type": "OpinionCandidateEvaluationNode",
+          "node_id": "8ebd4409:candidate_evaluation:1",
+          "status": "succeeded",
+          "outcome": "ready",
+          "candidate_index": 1,
+          "cluster": {
+            "cluster_id": "145875",
+            "opinion_url": "https://www.courtlistener.com/opinion/145875/ashcroft-v-iqbal/",
+            "case_name": "Ashcroft v. Iqbal",
+            "date_filed": "2009-05-18",
+            "court": null,
+            "court_id": null,
+            "docket_id": "191796",
+            "citations": [
+              {
+                "volume": "556",
+                "reporter": "U.S.",
+                "page": "662"
+              },
+              {
+                "volume": "129",
+                "reporter": "S. Ct.",
+                "page": "1937"
+              },
+              {
+                "volume": "173",
+                "reporter": "L. Ed. 2d",
+                "page": "868"
+              },
+              {
+                "volume": "2009",
+                "reporter": "U.S. LEXIS",
+                "page": "3472"
+              }
+            ],
+            "sub_opinion_ids": [
+              "9435340",
+              "145875",
+              "9435339"
+            ]
+          },
+          "depends_on": [
+            "8ebd4409:exact_locator_lookup"
+          ],
+          "status_message": "Candidate evaluation branch initialized.",
+          "outcome_message": "Candidate is ready for independent validation checks."
+        },
+        {
+          "node_type": "ExactCaseNameCheckNode",
+          "node_id": "8ebd4409:candidate_evaluation:1:exact_case_name_check",
+          "status": "succeeded",
+          "outcome": "match",
+          "extracted_case_name": "Ashcroft v. Iqbal",
+          "retrieved_case_name": "Ashcroft v. Iqbal",
+          "depends_on": [
+            "8ebd4409:candidate_evaluation:1"
+          ],
+          "status_message": "Exact case-name comparison completed.",
+          "outcome_message": "Extracted and retrieved case names match after whitespace normalization."
+        },
+        {
+          "node_type": "DocketCourtRetrievalNode",
+          "node_id": "8ebd4409:candidate_evaluation:1:docket_court_retrieval",
+          "status": "succeeded",
+          "outcome": "found",
+          "docket_id": "191796",
+          "court_id": "scotus",
+          "depends_on": [
+            "8ebd4409:candidate_evaluation:1"
+          ],
+          "status_message": "Docket court retrieval completed.",
+          "outcome_message": "Retrieved a court identifier from the citation docket.",
+          "error": null
+        },
+        {
+          "node_type": "YearCheckNode",
+          "node_id": "8ebd4409:candidate_evaluation:1:year_check",
+          "status": "succeeded",
+          "outcome": "match",
+          "extracted_year": "2009",
+          "retrieved_year": "2009",
+          "depends_on": [
+            "8ebd4409:candidate_evaluation:1"
+          ],
+          "status_message": "Year comparison completed.",
+          "outcome_message": "Extracted and retrieved years match."
+        },
+        {
+          "node_type": "CourtCheckNode",
+          "node_id": "8ebd4409:candidate_evaluation:1:docket_court_retrieval:court_check",
+          "status": "succeeded",
+          "outcome": "match",
+          "extracted_court_id": "scotus",
+          "retrieved_court_id": "scotus",
+          "depends_on": [
+            "8ebd4409:candidate_evaluation:1:docket_court_retrieval"
+          ],
+          "status_message": "Court comparison completed.",
+          "outcome_message": "Extracted and retrieved court identifiers match."
+        },
+        {
+          "node_type": "LocatorCandidateAssessmentNode",
+          "node_id": "8ebd4409:candidate_evaluation:1:locator_candidate_assessment",
+          "status": "succeeded",
+          "outcome": "match",
+          "candidate_index": 1,
+          "extracted_citation": "556 U.S. 662",
+          "extracted_case_name": "Ashcroft v. Iqbal",
+          "retrieved_case_name": "Ashcroft v. Iqbal",
+          "case_name_outcome": "match",
+          "case_name_evidence": "exact",
+          "extracted_year": "2009",
+          "retrieved_year": "2009",
+          "year_outcome": "match",
+          "extracted_court_id": "scotus",
+          "retrieved_court_id": "scotus",
+          "court_outcome": "match",
+          "docket_id": "191796",
+          "depends_on": [
+            "8ebd4409:candidate_evaluation:1:exact_case_name_check",
+            "8ebd4409:candidate_evaluation:1:year_check",
+            "8ebd4409:candidate_evaluation:1:docket_court_retrieval:court_check"
+          ],
+          "status_message": "Candidate citation assessment completed.",
+          "outcome_message": "Case name, year, and court do not disagree with this retrieved candidate."
+        },
+        {
+          "node_type": "ReporterPageRetrievalNode",
+          "node_id": "8ebd4409:candidate_evaluation:1:reporter_page_retrieval",
+          "status": "succeeded",
+          "outcome": "found",
+          "cluster_id": "145875",
+          "reporter_citation": "556 U.S. 662",
+          "pin_cite": "678",
+          "citation_index": 1,
+          "evidence": {
+            "opinion_id": "9435339",
+            "opinion_type": "020lead",
+            "text": "*678entitled to relief.\u201d As the Court held in Twombly, 550 U. S. 544, the pleading standard Rule 8 announces does not require \u201cdetailed factual allegations,\u201d but it demands more than an unadorned, the-defendant-unlawfully-harmed-me accusation. Id., at 555 (citing Papasan v. Allain, 478 U. S. 265, 286 (1986)). A pleading that offers \u201clabels and conclusions\u201d or \u201ca formulaic recitation of the elements of a cause of action will not do.\u201d 550 U. S., at 555. Nor does a complaint suffice if it tenders \u201cnaked assertion[s]\u201d devoid of \u201cfurther factual enhancement.\u201d Id., at 557. To survive a motion to dismiss, a complaint must contain sufficient factual matter, accepted as true, to \u201cstate a claim to relief that is plausible on its face.\u201d Id., at 570. A claim has facial plausibility when the plaintiff pleads factual content that allows the court to draw the reasonable inference that the defendant is liable for the misconduct alleged. Id., at 556. The plausibility standard is not akin to a \u201cprobability requirement,\u201d but it asks for more than a sheer possibility that a defendant has acted unlawfully. Ibid. Where a complaint pleads facts that are \u201cmerely consistent with\u201d a defendant\u2019s liability, it \u201cstops short of the line between possibility and plausibility of \u2018entitlement to relief.\u2019 \u201d Id., at 557 (brackets omitted). Two working principles underlie our decision in Twombly. First, the tenet that a court must accept as true all of the allegations contained in a complaint is inapplicable to legal conclusions. Threadbare recitals of the elements of a cause of action, supported by mere conclusory statements, do not suffice. Id., at 555 (Although for the purposes of a motion to dismiss we must take all of the factual allegations in the complaint as true, we \u201care not bound to accept as true a legal conclusion couched as a factual allegation\u201d (internal quotation marks omitted)). Rule 8 marks a notable and generous departure from the hyperteehnical, code-pleading regime of a prior era, but it does not unlock the doors of discovery for"
+          },
+          "depends_on": [
+            "8ebd4409:candidate_evaluation:1"
+          ],
+          "status_message": "Reporter-page retrieval completed.",
+          "outcome_message": "Recovered reporter page 678 from selected 020lead opinion 9435339.",
+          "error": null
+        },
+        {
+          "node_type": "MelleaCitingPropositionExtractionNode",
+          "node_id": "8ebd4409:candidate_evaluation:1:reporter_page_retrieval:mellea_citing_proposition_extraction",
+          "status": "succeeded",
+          "outcome": "identified",
+          "context_span": {
+            "start": 256,
+            "end": 1456
+          },
+          "reasoning": "The citation 'Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009)' is followed by the explanatory text '(678) \"a claim must contain sufficient factual matter to 'state a claim to relief that is plausible on its face.'\" This parenthetical directly attributes the quoted proposition to the cited case.",
+          "proposition": "A claim must contain sufficient factual matter to 'state a claim to relief that is plausible on its face.",
+          "proposition_span": {
+            "start": 1049,
+            "end": 1154
+          },
+          "proposition_match_method": "normalized",
+          "proposition_match_score": 1.0,
+          "depends_on": [
+            "8ebd4409:candidate_evaluation:1:reporter_page_retrieval"
+          ],
+          "status_message": "Citing-proposition extraction completed.",
+          "outcome_message": "Identified a grounded proposition attributed to the citation.",
+          "error": null
+        },
+        {
+          "node_type": "MelleaPinpointCheckNode",
+          "node_id": "8ebd4409:candidate_evaluation:1:reporter_page_retrieval:mellea_pinpoint_check",
+          "status": "succeeded",
+          "outcome": "supports",
+          "reasoning": "The cited reporter page explicitly states the standard for a claim to survive a motion to dismiss: 'To survive a motion to dismiss, a complaint must contain sufficient factual matter, accepted as true, to 'state a claim to relief that is plausible on its face.'' This directly aligns with and substantively supports the given proposition.",
+          "evidence_quote": "To survive a motion to dismiss, a complaint must contain sufficient factual matter, accepted as true, to \u201cstate a claim to relief that is plausible on its face.\u201d",
+          "evidence_span": {
+            "start": 574,
+            "end": 735
+          },
+          "evidence_match_method": "normalized",
+          "evidence_match_score": 1.0,
+          "depends_on": [
+            "8ebd4409:candidate_evaluation:1:reporter_page_retrieval",
+            "8ebd4409:candidate_evaluation:1:reporter_page_retrieval:mellea_citing_proposition_extraction"
+          ],
+          "status_message": "Mellea pinpoint inference completed.",
+          "outcome_message": "The cited reporter page supports the proposition attributed by the citing text.",
+          "error": null
+        },
+        {
+          "node_type": "LocatorCitationSummaryNode",
+          "node_id": "8ebd4409:locator_citation_summary",
+          "status": "succeeded",
+          "outcome": "complete",
+          "overall_outcome": "match",
+          "pinpoint_requires_review": false,
+          "candidates": [
+            {
+              "provenance": "opinion",
+              "candidate_index": 1,
+              "assessment_node_id": "8ebd4409:candidate_evaluation:1:locator_candidate_assessment",
+              "outcome": "match",
+              "extracted_citation": "556 U.S. 662",
+              "extracted_case_name": "Ashcroft v. Iqbal",
+              "retrieved_case_name": "Ashcroft v. Iqbal",
+              "case_name_outcome": "match",
+              "case_name_evidence": "exact",
+              "extracted_year": "2009",
+              "retrieved_year": "2009",
+              "year_outcome": "match",
+              "extracted_court_id": "scotus",
+              "retrieved_court_id": "scotus",
+              "court_outcome": "match",
+              "docket_id": "191796",
+              "opinion_url": "https://www.courtlistener.com/opinion/145875/ashcroft-v-iqbal/",
+              "pinpoint": {
+                "node_id": "8ebd4409:candidate_evaluation:1:reporter_page_retrieval:mellea_pinpoint_check",
+                "status": "succeeded",
+                "outcome": "supports",
+                "reporter_citation": "556 U.S. 662",
+                "pin_cite": "678",
+                "opinion_id": "9435339",
+                "opinion_type": "020lead",
+                "reporter_page_text": "*678entitled to relief.\u201d As the Court held in Twombly, 550 U. S. 544, the pleading standard Rule 8 announces does not require \u201cdetailed factual allegations,\u201d but it demands more than an unadorned, the-defendant-unlawfully-harmed-me accusation. Id., at 555 (citing Papasan v. Allain, 478 U. S. 265, 286 (1986)). A pleading that offers \u201clabels and conclusions\u201d or \u201ca formulaic recitation of the elements of a cause of action will not do.\u201d 550 U. S., at 555. Nor does a complaint suffice if it tenders \u201cnaked assertion[s]\u201d devoid of \u201cfurther factual enhancement.\u201d Id., at 557. To survive a motion to dismiss, a complaint must contain sufficient factual matter, accepted as true, to \u201cstate a claim to relief that is plausible on its face.\u201d Id., at 570. A claim has facial plausibility when the plaintiff pleads factual content that allows the court to draw the reasonable inference that the defendant is liable for the misconduct alleged. Id., at 556. The plausibility standard is not akin to a \u201cprobability requirement,\u201d but it asks for more than a sheer possibility that a defendant has acted unlawfully. Ibid. Where a complaint pleads facts that are \u201cmerely consistent with\u201d a defendant\u2019s liability, it \u201cstops short of the line between possibility and plausibility of \u2018entitlement to relief.\u2019 \u201d Id., at 557 (brackets omitted). Two working principles underlie our decision in Twombly. First, the tenet that a court must accept as true all of the allegations contained in a complaint is inapplicable to legal conclusions. Threadbare recitals of the elements of a cause of action, supported by mere conclusory statements, do not suffice. Id., at 555 (Although for the purposes of a motion to dismiss we must take all of the factual allegations in the complaint as true, we \u201care not bound to accept as true a legal conclusion couched as a factual allegation\u201d (internal quotation marks omitted)). Rule 8 marks a notable and generous departure from the hyperteehnical, code-pleading regime of a prior era, but it does not unlock the doors of discovery for",
+                "citing_context_span": {
+                  "start": 256,
+                  "end": 1456
+                },
+                "citation_span": {
+                  "start": 1156,
+                  "end": 1200
+                },
+                "proposition": "A claim must contain sufficient factual matter to 'state a claim to relief that is plausible on its face.",
+                "proposition_span": {
+                  "start": 1049,
+                  "end": 1154
+                },
+                "reasoning": "The cited reporter page explicitly states the standard for a claim to survive a motion to dismiss: 'To survive a motion to dismiss, a complaint must contain sufficient factual matter, accepted as true, to 'state a claim to relief that is plausible on its face.'' This directly aligns with and substantively supports the given proposition.",
+                "evidence_quote": "To survive a motion to dismiss, a complaint must contain sufficient factual matter, accepted as true, to \u201cstate a claim to relief that is plausible on its face.\u201d",
+                "evidence_span": {
+                  "start": 574,
+                  "end": 735
+                },
+                "evidence_match_method": "normalized",
+                "evidence_match_score": 1.0,
+                "status_message": "Mellea pinpoint inference completed.",
+                "outcome_message": "The cited reporter page supports the proposition attributed by the citing text.",
+                "error": null
+              }
+            }
+          ],
+          "depends_on": [
+            "8ebd4409:candidate_evaluation:1:locator_candidate_assessment",
+            "8ebd4409:candidate_evaluation:1:reporter_page_retrieval:mellea_pinpoint_check"
+          ],
+          "status_message": "Locator candidate summary completed.",
+          "outcome_message": "Listed 1 evaluated locator candidate(s) without selecting one."
+        }
+      ]
+    },
+    {
+      "citation_id": "1956ef2b",
+      "aggregation": {
+        "node_type": "LocatorCitationSummaryNode",
+        "node_id": "1956ef2b:locator_citation_summary",
+        "status": "succeeded",
+        "outcome": "complete",
+        "overall_outcome": "match",
+        "pinpoint_requires_review": true,
+        "candidates": [
+          {
+            "provenance": "opinion",
+            "candidate_index": 1,
+            "assessment_node_id": "1956ef2b:candidate_evaluation:1:locator_candidate_assessment",
+            "outcome": "match",
+            "extracted_citation": "534 Fed. App'x 454",
+            "extracted_case_name": "Salyers v. City of Portsmouth",
+            "retrieved_case_name": "Salyers Ex Rel. Estate of Salyers v. City of Portsmouth",
+            "case_name_outcome": "match",
+            "case_name_evidence": "mellea",
+            "extracted_year": "2013",
+            "retrieved_year": "2013",
+            "year_outcome": "match",
+            "extracted_court_id": "ca6",
+            "retrieved_court_id": "ca6",
+            "court_outcome": "match",
+            "docket_id": "1113207",
+            "opinion_url": "https://www.courtlistener.com/opinion/1038151/salyers-ex-rel-estate-of-salyers-v-city-of-portsmouth/",
+            "pinpoint": {
+              "node_id": "1956ef2b:candidate_evaluation:1:reporter_page_retrieval:mellea_pinpoint_check",
+              "status": "succeeded",
+              "outcome": "inconclusive",
+              "reporter_citation": "534 Fed. App'x 454",
+              "pin_cite": "459",
+              "opinion_id": "1038151",
+              "opinion_type": "010combined",
+              "reporter_page_text": "*459 self.\u201d Id. Disregarding those orders, the officers took Davis to a road outside the city limits and left him there against his will. Davis alleged that the officers threw him out of the car, forced him to the ground, and verbally insulted him. Id. Abandoned on the side of the road, Davis walked to a nearby house and called a third officer for a ride back to town, to no avail. Within minutes of the third officer\u2019s departure, a car struck Davis, paralyzing him from the waist down. This court applied DeShaney\u2019s custodial exception, underscoring the fact that the officers \u201cdropped Davis off on a dark, busy highway and left him there against his will.\u201d Id. at 1024. Having taken the \u201caffirmative act of restraining Davis\u2019s freedom to act on his own behalf, [the officers] ... imposed upon themselves a duty to ensure they were not placing him in danger.\u201d Id. at 1025. In Davis, as in Stemler, the court\u2019s custody assessment relied heavily on the willfulness of the claimant. In this case, Sal-yers was free to choose where to go, and exercised that freedom by refusing Davis\u2019s alternative suggestions. Plaintiff offers no evidence to the contrary. Instead, he argues that Davis\u2019s call to dispatch, suggesting that they inform South Shore, Kentucky, police about the incident with Salyers, shows he lied about dropping Sal-yers off by the road with consent. Plaintiffs strained reading of this message does little to advance his argument. Davis\u2019s words, \u201cYou know, it might be an idea to let South Shore know he\u2019s headed their way, [and that] we had dealings with him over here,\u201d do not conflict with his account of that night. Nor do they support Plaintiffs claim that Davis \u201cknew [Salyers] would have no choice but to walk down the highway towards South Shore\u201d after Davis dropped him off in Kentucky. At best, the statements suggest Davis either a) was concerned that Salyers may disregard his instructions to stay behind the guard rail, or b) wanted to alert South Shore in case Salyers lied about getting picked up to end the police encounter. Neither interpretation undercuts Davis\u2019s testimony that he dropped off Salyers just beyond the bridge and that he encountered Salyers as a result of vandalism complaints. The uncontroverted record shows that Davis did not drop Salyers off against his will, distinguishing this case from both Stemler and Davis. This case more closely resembles Cartwright v. City of Marine City, 336 F.3d 487 (6th Cir.2003). In that case, officers found Cartwright walking on the shoulder of a road on a dark, foggy night. He accepted their ride, getting as far as a nearby gas station before the officers took another individual into custody. The officers informed Cartwright that, in order to have him in the backseat with the prisoner, they needed to frisk him for weapons. Cartwright, who reeked of alcohol and appeared disoriented, refused the pat-down and left the gas station on foot. Id. at 489. About two hours later, a truck struck and killed him. The court concluded that De-Shaney \u2019s custodial exception did not apply because the officers never restrained Cartwright\u2019s liberty or rendered him unable to care for himself. Id. at 492. Our reasoning in Stemler, Davis, and Cartwright demonstrates that Salyers was not in custody at the time of his death, such that Davis owed him no duty to protect against private violence. 2. No Duty Violation Even if Salyers could establish a custodial duty, he fails to show that the officers breached it. To support a breach, Plaintiff must show that \u201cthe injury occurred as a result of the state\u2019s deliberate indifference to the risk of such an injury.\u201d",
+              "citing_context_span": {
+                "start": 1714,
+                "end": 2914
+              },
+              "citation_span": {
+                "start": 2614,
+                "end": 2684
+              },
+              "proposition": "service may be upheld where defendant received actual notice even if service was not technically perfect",
+              "proposition_span": {
+                "start": 2687,
+                "end": 2791
+              },
+              "reasoning": "The provided cited_reporter_page discusses custody, duty to protect, and breach of duty in the context of police officers' actions toward individuals. It does not contain any discussion or analysis related to service of process, actual notice, or technical perfection of service. Therefore, there is no substantive support for the proposition about upholding service where actual notice was received even if service was not technically perfect.",
+              "evidence_quote": null,
+              "evidence_span": null,
+              "evidence_match_method": null,
+              "evidence_match_score": null,
+              "status_message": "Mellea pinpoint inference completed.",
+              "outcome_message": "The available text does not permit a reliable pinpoint judgment.",
+              "error": null
+            }
+          }
+        ],
+        "depends_on": [
+          "1956ef2b:candidate_evaluation:1:locator_candidate_assessment",
+          "1956ef2b:candidate_evaluation:1:reporter_page_retrieval:mellea_pinpoint_check"
+        ],
+        "status_message": "Locator candidate summary completed.",
+        "outcome_message": "Listed 1 evaluated locator candidate(s) without selecting one."
+      },
+      "nodes": [
+        {
+          "node_type": "ExactLocatorLookupNode",
+          "node_id": "1956ef2b:exact_locator_lookup",
+          "status": "succeeded",
+          "outcome": "found",
+          "locator": "534 Fed. App'x 454",
+          "cluster": {
+            "cluster_id": "1038151",
+            "opinion_url": "https://www.courtlistener.com/opinion/1038151/salyers-ex-rel-estate-of-salyers-v-city-of-portsmouth/",
+            "case_name": "Salyers Ex Rel. Estate of Salyers v. City of Portsmouth",
+            "date_filed": "2013-08-21",
+            "court": null,
+            "court_id": null,
+            "docket_id": "1113207",
+            "citations": [
+              {
+                "volume": "534",
+                "reporter": "F. App'x",
+                "page": "454"
+              }
+            ],
+            "sub_opinion_ids": [
+              "1038151"
+            ]
+          },
+          "candidate_clusters": [
+            {
+              "cluster_id": "1038151",
+              "opinion_url": "https://www.courtlistener.com/opinion/1038151/salyers-ex-rel-estate-of-salyers-v-city-of-portsmouth/",
+              "case_name": "Salyers Ex Rel. Estate of Salyers v. City of Portsmouth",
+              "date_filed": "2013-08-21",
+              "court": null,
+              "court_id": null,
+              "docket_id": "1113207",
+              "citations": [
+                {
+                  "volume": "534",
+                  "reporter": "F. App'x",
+                  "page": "454"
+                }
+              ],
+              "sub_opinion_ids": [
+                "1038151"
+              ]
+            }
+          ],
+          "candidate_count": 1,
+          "status_message": "Exact locator lookup completed.",
+          "outcome_message": "CourtListener returned one opinion cluster for the locator.",
+          "error": null,
+          "depends_on": []
+        },
+        {
+          "node_type": "OpinionCandidateEvaluationNode",
+          "node_id": "1956ef2b:candidate_evaluation:1",
+          "status": "succeeded",
+          "outcome": "ready",
+          "candidate_index": 1,
+          "cluster": {
+            "cluster_id": "1038151",
+            "opinion_url": "https://www.courtlistener.com/opinion/1038151/salyers-ex-rel-estate-of-salyers-v-city-of-portsmouth/",
+            "case_name": "Salyers Ex Rel. Estate of Salyers v. City of Portsmouth",
+            "date_filed": "2013-08-21",
+            "court": null,
+            "court_id": null,
+            "docket_id": "1113207",
+            "citations": [
+              {
+                "volume": "534",
+                "reporter": "F. App'x",
+                "page": "454"
+              }
+            ],
+            "sub_opinion_ids": [
+              "1038151"
+            ]
+          },
+          "depends_on": [
+            "1956ef2b:exact_locator_lookup"
+          ],
+          "status_message": "Candidate evaluation branch initialized.",
+          "outcome_message": "Candidate is ready for independent validation checks."
+        },
+        {
+          "node_type": "ExactCaseNameCheckNode",
+          "node_id": "1956ef2b:candidate_evaluation:1:exact_case_name_check",
+          "status": "succeeded",
+          "outcome": "mismatch",
+          "extracted_case_name": "Salyers v. City of Portsmouth",
+          "retrieved_case_name": "Salyers Ex Rel. Estate of Salyers v. City of Portsmouth",
+          "depends_on": [
+            "1956ef2b:candidate_evaluation:1"
+          ],
+          "status_message": "Exact case-name comparison completed.",
+          "outcome_message": "Extracted and retrieved case names differ after whitespace normalization."
+        },
+        {
+          "node_type": "DocketCourtRetrievalNode",
+          "node_id": "1956ef2b:candidate_evaluation:1:docket_court_retrieval",
+          "status": "succeeded",
+          "outcome": "found",
+          "docket_id": "1113207",
+          "court_id": "ca6",
+          "depends_on": [
+            "1956ef2b:candidate_evaluation:1"
+          ],
+          "status_message": "Docket court retrieval completed.",
+          "outcome_message": "Retrieved a court identifier from the citation docket.",
+          "error": null
+        },
+        {
+          "node_type": "YearCheckNode",
+          "node_id": "1956ef2b:candidate_evaluation:1:year_check",
+          "status": "succeeded",
+          "outcome": "match",
+          "extracted_year": "2013",
+          "retrieved_year": "2013",
+          "depends_on": [
+            "1956ef2b:candidate_evaluation:1"
+          ],
+          "status_message": "Year comparison completed.",
+          "outcome_message": "Extracted and retrieved years match."
+        },
+        {
+          "node_type": "CourtCheckNode",
+          "node_id": "1956ef2b:candidate_evaluation:1:docket_court_retrieval:court_check",
+          "status": "succeeded",
+          "outcome": "match",
+          "extracted_court_id": "ca6",
+          "retrieved_court_id": "ca6",
+          "depends_on": [
+            "1956ef2b:candidate_evaluation:1:docket_court_retrieval"
+          ],
+          "status_message": "Court comparison completed.",
+          "outcome_message": "Extracted and retrieved court identifiers match."
+        },
+        {
+          "node_type": "MelleaCaseNameCheckNode",
+          "node_id": "1956ef2b:candidate_evaluation:1:exact_case_name_check:mellea_case_name_check",
+          "status": "succeeded",
+          "outcome": "match",
+          "extracted_case_name": "Salyers v. City of Portsmouth",
+          "retrieved_case_name": "Salyers Ex Rel. Estate of Salyers v. City of Portsmouth",
+          "depends_on": [
+            "1956ef2b:candidate_evaluation:1:exact_case_name_check"
+          ],
+          "status_message": "Mellea semantic case-name comparison completed.",
+          "outcome_message": "Mellea judged the extracted and retrieved case names to identify the same case.",
+          "error": null
+        },
+        {
+          "node_type": "LocatorCandidateAssessmentNode",
+          "node_id": "1956ef2b:candidate_evaluation:1:locator_candidate_assessment",
+          "status": "succeeded",
+          "outcome": "match",
+          "candidate_index": 1,
+          "extracted_citation": "534 Fed. App'x 454",
+          "extracted_case_name": "Salyers v. City of Portsmouth",
+          "retrieved_case_name": "Salyers Ex Rel. Estate of Salyers v. City of Portsmouth",
+          "case_name_outcome": "match",
+          "case_name_evidence": "mellea",
+          "extracted_year": "2013",
+          "retrieved_year": "2013",
+          "year_outcome": "match",
+          "extracted_court_id": "ca6",
+          "retrieved_court_id": "ca6",
+          "court_outcome": "match",
+          "docket_id": "1113207",
+          "depends_on": [
+            "1956ef2b:candidate_evaluation:1:exact_case_name_check:mellea_case_name_check",
+            "1956ef2b:candidate_evaluation:1:year_check",
+            "1956ef2b:candidate_evaluation:1:docket_court_retrieval:court_check"
+          ],
+          "status_message": "Candidate citation assessment completed.",
+          "outcome_message": "Case name, year, and court do not disagree with this retrieved candidate."
+        },
+        {
+          "node_type": "ReporterPageRetrievalNode",
+          "node_id": "1956ef2b:candidate_evaluation:1:reporter_page_retrieval",
+          "status": "succeeded",
+          "outcome": "found",
+          "cluster_id": "1038151",
+          "reporter_citation": "534 Fed. App'x 454",
+          "pin_cite": "459",
+          "citation_index": 1,
+          "evidence": {
+            "opinion_id": "1038151",
+            "opinion_type": "010combined",
+            "text": "*459 self.\u201d Id. Disregarding those orders, the officers took Davis to a road outside the city limits and left him there against his will. Davis alleged that the officers threw him out of the car, forced him to the ground, and verbally insulted him. Id. Abandoned on the side of the road, Davis walked to a nearby house and called a third officer for a ride back to town, to no avail. Within minutes of the third officer\u2019s departure, a car struck Davis, paralyzing him from the waist down. This court applied DeShaney\u2019s custodial exception, underscoring the fact that the officers \u201cdropped Davis off on a dark, busy highway and left him there against his will.\u201d Id. at 1024. Having taken the \u201caffirmative act of restraining Davis\u2019s freedom to act on his own behalf, [the officers] ... imposed upon themselves a duty to ensure they were not placing him in danger.\u201d Id. at 1025. In Davis, as in Stemler, the court\u2019s custody assessment relied heavily on the willfulness of the claimant. In this case, Sal-yers was free to choose where to go, and exercised that freedom by refusing Davis\u2019s alternative suggestions. Plaintiff offers no evidence to the contrary. Instead, he argues that Davis\u2019s call to dispatch, suggesting that they inform South Shore, Kentucky, police about the incident with Salyers, shows he lied about dropping Sal-yers off by the road with consent. Plaintiffs strained reading of this message does little to advance his argument. Davis\u2019s words, \u201cYou know, it might be an idea to let South Shore know he\u2019s headed their way, [and that] we had dealings with him over here,\u201d do not conflict with his account of that night. Nor do they support Plaintiffs claim that Davis \u201cknew [Salyers] would have no choice but to walk down the highway towards South Shore\u201d after Davis dropped him off in Kentucky. At best, the statements suggest Davis either a) was concerned that Salyers may disregard his instructions to stay behind the guard rail, or b) wanted to alert South Shore in case Salyers lied about getting picked up to end the police encounter. Neither interpretation undercuts Davis\u2019s testimony that he dropped off Salyers just beyond the bridge and that he encountered Salyers as a result of vandalism complaints. The uncontroverted record shows that Davis did not drop Salyers off against his will, distinguishing this case from both Stemler and Davis. This case more closely resembles Cartwright v. City of Marine City, 336 F.3d 487 (6th Cir.2003). In that case, officers found Cartwright walking on the shoulder of a road on a dark, foggy night. He accepted their ride, getting as far as a nearby gas station before the officers took another individual into custody. The officers informed Cartwright that, in order to have him in the backseat with the prisoner, they needed to frisk him for weapons. Cartwright, who reeked of alcohol and appeared disoriented, refused the pat-down and left the gas station on foot. Id. at 489. About two hours later, a truck struck and killed him. The court concluded that De-Shaney \u2019s custodial exception did not apply because the officers never restrained Cartwright\u2019s liberty or rendered him unable to care for himself. Id. at 492. Our reasoning in Stemler, Davis, and Cartwright demonstrates that Salyers was not in custody at the time of his death, such that Davis owed him no duty to protect against private violence. 2. No Duty Violation Even if Salyers could establish a custodial duty, he fails to show that the officers breached it. To support a breach, Plaintiff must show that \u201cthe injury occurred as a result of the state\u2019s deliberate indifference to the risk of such an injury.\u201d"
+          },
+          "depends_on": [
+            "1956ef2b:candidate_evaluation:1"
+          ],
+          "status_message": "Reporter-page retrieval completed.",
+          "outcome_message": "Recovered reporter page 459 from selected 010combined opinion 1038151.",
+          "error": null
+        },
+        {
+          "node_type": "MelleaCitingPropositionExtractionNode",
+          "node_id": "1956ef2b:candidate_evaluation:1:reporter_page_retrieval:mellea_citing_proposition_extraction",
+          "status": "succeeded",
+          "outcome": "identified",
+          "context_span": {
+            "start": 1714,
+            "end": 2914
+          },
+          "reasoning": "The citation 'Salyers v. City of Portsmouth, 534 Fed. App'x 454, 459 (6th Cir. 2013)' is followed by an explanatory parenthetical that directly attributes a proposition to the case: '(service may be upheld where defendant received actual notice even if service was not technically perfect)'. This parenthetical is tied specifically to the target citation and provides a clear, contiguous statement of the legal principle supported by the case.",
+          "proposition": "service may be upheld where defendant received actual notice even if service was not technically perfect",
+          "proposition_span": {
+            "start": 2687,
+            "end": 2791
+          },
+          "proposition_match_method": "exact",
+          "proposition_match_score": 1.0,
+          "depends_on": [
+            "1956ef2b:candidate_evaluation:1:reporter_page_retrieval"
+          ],
+          "status_message": "Citing-proposition extraction completed.",
+          "outcome_message": "Identified a grounded proposition attributed to the citation.",
+          "error": null
+        },
+        {
+          "node_type": "MelleaPinpointCheckNode",
+          "node_id": "1956ef2b:candidate_evaluation:1:reporter_page_retrieval:mellea_pinpoint_check",
+          "status": "succeeded",
+          "outcome": "inconclusive",
+          "reasoning": "The provided cited_reporter_page discusses custody, duty to protect, and breach of duty in the context of police officers' actions toward individuals. It does not contain any discussion or analysis related to service of process, actual notice, or technical perfection of service. Therefore, there is no substantive support for the proposition about upholding service where actual notice was received even if service was not technically perfect.",
+          "evidence_quote": null,
+          "evidence_span": null,
+          "evidence_match_method": null,
+          "evidence_match_score": null,
+          "depends_on": [
+            "1956ef2b:candidate_evaluation:1:reporter_page_retrieval",
+            "1956ef2b:candidate_evaluation:1:reporter_page_retrieval:mellea_citing_proposition_extraction"
+          ],
+          "status_message": "Mellea pinpoint inference completed.",
+          "outcome_message": "The available text does not permit a reliable pinpoint judgment.",
+          "error": null
+        },
+        {
+          "node_type": "LocatorCitationSummaryNode",
+          "node_id": "1956ef2b:locator_citation_summary",
+          "status": "succeeded",
+          "outcome": "complete",
+          "overall_outcome": "match",
+          "pinpoint_requires_review": true,
+          "candidates": [
+            {
+              "provenance": "opinion",
+              "candidate_index": 1,
+              "assessment_node_id": "1956ef2b:candidate_evaluation:1:locator_candidate_assessment",
+              "outcome": "match",
+              "extracted_citation": "534 Fed. App'x 454",
+              "extracted_case_name": "Salyers v. City of Portsmouth",
+              "retrieved_case_name": "Salyers Ex Rel. Estate of Salyers v. City of Portsmouth",
+              "case_name_outcome": "match",
+              "case_name_evidence": "mellea",
+              "extracted_year": "2013",
+              "retrieved_year": "2013",
+              "year_outcome": "match",
+              "extracted_court_id": "ca6",
+              "retrieved_court_id": "ca6",
+              "court_outcome": "match",
+              "docket_id": "1113207",
+              "opinion_url": "https://www.courtlistener.com/opinion/1038151/salyers-ex-rel-estate-of-salyers-v-city-of-portsmouth/",
+              "pinpoint": {
+                "node_id": "1956ef2b:candidate_evaluation:1:reporter_page_retrieval:mellea_pinpoint_check",
+                "status": "succeeded",
+                "outcome": "inconclusive",
+                "reporter_citation": "534 Fed. App'x 454",
+                "pin_cite": "459",
+                "opinion_id": "1038151",
+                "opinion_type": "010combined",
+                "reporter_page_text": "*459 self.\u201d Id. Disregarding those orders, the officers took Davis to a road outside the city limits and left him there against his will. Davis alleged that the officers threw him out of the car, forced him to the ground, and verbally insulted him. Id. Abandoned on the side of the road, Davis walked to a nearby house and called a third officer for a ride back to town, to no avail. Within minutes of the third officer\u2019s departure, a car struck Davis, paralyzing him from the waist down. This court applied DeShaney\u2019s custodial exception, underscoring the fact that the officers \u201cdropped Davis off on a dark, busy highway and left him there against his will.\u201d Id. at 1024. Having taken the \u201caffirmative act of restraining Davis\u2019s freedom to act on his own behalf, [the officers] ... imposed upon themselves a duty to ensure they were not placing him in danger.\u201d Id. at 1025. In Davis, as in Stemler, the court\u2019s custody assessment relied heavily on the willfulness of the claimant. In this case, Sal-yers was free to choose where to go, and exercised that freedom by refusing Davis\u2019s alternative suggestions. Plaintiff offers no evidence to the contrary. Instead, he argues that Davis\u2019s call to dispatch, suggesting that they inform South Shore, Kentucky, police about the incident with Salyers, shows he lied about dropping Sal-yers off by the road with consent. Plaintiffs strained reading of this message does little to advance his argument. Davis\u2019s words, \u201cYou know, it might be an idea to let South Shore know he\u2019s headed their way, [and that] we had dealings with him over here,\u201d do not conflict with his account of that night. Nor do they support Plaintiffs claim that Davis \u201cknew [Salyers] would have no choice but to walk down the highway towards South Shore\u201d after Davis dropped him off in Kentucky. At best, the statements suggest Davis either a) was concerned that Salyers may disregard his instructions to stay behind the guard rail, or b) wanted to alert South Shore in case Salyers lied about getting picked up to end the police encounter. Neither interpretation undercuts Davis\u2019s testimony that he dropped off Salyers just beyond the bridge and that he encountered Salyers as a result of vandalism complaints. The uncontroverted record shows that Davis did not drop Salyers off against his will, distinguishing this case from both Stemler and Davis. This case more closely resembles Cartwright v. City of Marine City, 336 F.3d 487 (6th Cir.2003). In that case, officers found Cartwright walking on the shoulder of a road on a dark, foggy night. He accepted their ride, getting as far as a nearby gas station before the officers took another individual into custody. The officers informed Cartwright that, in order to have him in the backseat with the prisoner, they needed to frisk him for weapons. Cartwright, who reeked of alcohol and appeared disoriented, refused the pat-down and left the gas station on foot. Id. at 489. About two hours later, a truck struck and killed him. The court concluded that De-Shaney \u2019s custodial exception did not apply because the officers never restrained Cartwright\u2019s liberty or rendered him unable to care for himself. Id. at 492. Our reasoning in Stemler, Davis, and Cartwright demonstrates that Salyers was not in custody at the time of his death, such that Davis owed him no duty to protect against private violence. 2. No Duty Violation Even if Salyers could establish a custodial duty, he fails to show that the officers breached it. To support a breach, Plaintiff must show that \u201cthe injury occurred as a result of the state\u2019s deliberate indifference to the risk of such an injury.\u201d",
+                "citing_context_span": {
+                  "start": 1714,
+                  "end": 2914
+                },
+                "citation_span": {
+                  "start": 2614,
+                  "end": 2684
+                },
+                "proposition": "service may be upheld where defendant received actual notice even if service was not technically perfect",
+                "proposition_span": {
+                  "start": 2687,
+                  "end": 2791
+                },
+                "reasoning": "The provided cited_reporter_page discusses custody, duty to protect, and breach of duty in the context of police officers' actions toward individuals. It does not contain any discussion or analysis related to service of process, actual notice, or technical perfection of service. Therefore, there is no substantive support for the proposition about upholding service where actual notice was received even if service was not technically perfect.",
+                "evidence_quote": null,
+                "evidence_span": null,
+                "evidence_match_method": null,
+                "evidence_match_score": null,
+                "status_message": "Mellea pinpoint inference completed.",
+                "outcome_message": "The available text does not permit a reliable pinpoint judgment.",
+                "error": null
+              }
+            }
+          ],
+          "depends_on": [
+            "1956ef2b:candidate_evaluation:1:locator_candidate_assessment",
+            "1956ef2b:candidate_evaluation:1:reporter_page_retrieval:mellea_pinpoint_check"
+          ],
+          "status_message": "Locator candidate summary completed.",
+          "outcome_message": "Listed 1 evaluated locator candidate(s) without selecting one."
+        }
+      ]
+    },
+    {
+      "citation_id": "c3c206c0",
+      "aggregation": {
+        "node_type": "LocatorCitationSummaryNode",
+        "node_id": "c3c206c0:locator_citation_summary",
+        "status": "succeeded",
+        "outcome": "complete",
+        "overall_outcome": "mismatch",
+        "pinpoint_requires_review": null,
+        "candidates": [
+          {
+            "provenance": "opinion",
+            "candidate_index": 1,
+            "assessment_node_id": "c3c206c0:candidate_evaluation:1:locator_candidate_assessment",
+            "outcome": "mismatch",
+            "extracted_citation": "305 F.3d 732",
+            "extracted_case_name": "United States v. Robinson",
+            "retrieved_case_name": "Ilah M. Tinder v. Pinkerton Security",
+            "case_name_outcome": "mismatch",
+            "case_name_evidence": "mellea_reextracted",
+            "extracted_year": "2002",
+            "retrieved_year": "2002",
+            "year_outcome": "match",
+            "extracted_court_id": "ca6",
+            "retrieved_court_id": "ca7",
+            "court_outcome": "mismatch",
+            "docket_id": "964055",
+            "opinion_url": "https://www.courtlistener.com/opinion/779315/ilah-m-tinder-v-pinkerton-security/",
+            "pinpoint": {
+              "node_id": "c3c206c0:candidate_evaluation:1:reporter_page_retrieval:mellea_pinpoint_check",
+              "status": "succeeded",
+              "outcome": "inconclusive",
+              "reporter_citation": "305 F.3d 732",
+              "pin_cite": "735",
+              "opinion_id": "779315",
+              "opinion_type": "010combined",
+              "reporter_page_text": "*735 where Wisconsin\u2019s intermediate appellate court concluded that a covenant not to compete, executed after employment began, was unenforceable for lack of consideration. But Pilarski does not support Tinder\u2019s position. The employer in Pilar-ski could identify no clear policy whether employees were required to sign covenants not-to-compete in exchange for employment \u2014 the company\u2019s president stated that he did not know what he would do if an employee refused to sign the agreement. See id. at 97. In contrast, the policy in this case was conditioned explicitly on continued employment, and applied to all employees. Tinder next maintains that she did not receive the brochure announcing Pinkerton\u2019s arbitration program and did not know that the program existed until she sued. In her 'view, because Pinkerton failed to make adequate efforts to ensure that she knew about the program, she never promised to do anything and should have been allowed to proceed to trial on her discrimination claims. Pinkerton argues that Tinder\u2019s claim that she does not recall receiving or seeing the arbitration brochure does not place any facts concerning the agreement at issue. Pinkerton also contends that it submitted sufficient evidence demonstrating that Tinder did in fact receive the brochure. Since Tinder failed to controvert its evidence, Pinkerton asserts that the district court properly discounted Tinder\u2019s claims and ordered arbitration. A district court must promptly compel arbitration once it is satisfied that the parties agreed to arbitrate. 9 U.S.C. \u00a7 4. But if the district court determines that the making of the arbitration agreement is s'eriously disputed, \u201cthe court shall proceed summarily to the trial thereof.\u201d Id. The issue then is not whether Tinder\u2019s denial of having received notice of the policy is sufficient to avoid arbitration, but whether she produced sufficient evidence to raise a factual issue concerning whether she and Pinkerton are bound by a contract to arbitrate. The party opposing arbitration must identify a triable issue of fact concerning the existence of the agreement in order to obtain a trial on the merits of the contract. Saturday Evening Post Co. v. Rumbleseat Press, Inc., 816 F.2d 1191, 1196 (7th Cir.1987). The FAA does not expressly identify the evidentiary standard a party seeking to avoid compelled arbitration must meet. But courts that have addressed the question have analogized the standard to that required of a party opposing summary judgment under Rule 56(e) of the Federal Rules of Civil Procedure: the opposing party must demonstrate that a genuine issue of material fact warranting a trial exists. See Doctor\u2019s Associates, Inc. v. Distajo, 107 F.3d 126, 129-30 (2d Cir.1997); Great Western Mortgage Corp. v. Peacock, 110 F.3d 222, 231 n. 36 (3d Cir.1997); Dillard v. Merrill Lynch, Pierce, Fenner & Smith, Inc., 961 F.2d 1148, 1154 (5th Cir.1992). Just as in summary judgment proceedings, a party cannot avoid compelled arbitration by generally denying the facts upon which the right to arbitration rests; the party must identify specific evidence in the record demonstrating a material factual dispute for trial. Oppenheimer & Co., Inc. v. Neidhardt, 56 F.3d 352, 358 (2d Cir.1995). In deciding whether the party opposing summary judgment (and by analogy compelled arbitration) has identified a genuine issue of material fact for trial, \u201cthe evidence of the non-movant is to be believed and all justifiable inferences are to be drawn in his favor.\u201d Anderson v. Liberty Lobby, Inc., 477 U.S. 242, 255, 106 S.Ct. 2505, 91 L.Ed.2d 202 (1986). But Tinder\u2019s only evidence that she never received no",
+              "citing_context_span": {
+                "start": 3223,
+                "end": 4423
+              },
+              "citation_span": {
+                "start": 4123,
+                "end": 4183
+              },
+              "proposition": "service rules must be interpreted in light of their core purpose: providing notice",
+              "proposition_span": {
+                "start": 4186,
+                "end": 4268
+              },
+              "reasoning": "The provided excerpt does not contain any discussion about interpreting service rules in light of their core purpose of providing notice. The text focuses on issues related to arbitration agreements, enforceability of covenants not to compete, and the procedural standards for compelling arbitration under the Federal Arbitration Act. There is no mention or implication of principles concerning the interpretation of service rules based on their purpose.",
+              "evidence_quote": null,
+              "evidence_span": null,
+              "evidence_match_method": null,
+              "evidence_match_score": null,
+              "status_message": "Mellea pinpoint inference completed.",
+              "outcome_message": "The available text does not permit a reliable pinpoint judgment.",
+              "error": null
+            }
+          }
+        ],
+        "depends_on": [
+          "c3c206c0:candidate_evaluation:1:locator_candidate_assessment",
+          "c3c206c0:candidate_evaluation:1:reporter_page_retrieval:mellea_pinpoint_check"
+        ],
+        "status_message": "Locator candidate summary completed.",
+        "outcome_message": "Listed 1 evaluated locator candidate(s) without selecting one."
+      },
+      "nodes": [
+        {
+          "node_type": "ExactLocatorLookupNode",
+          "node_id": "c3c206c0:exact_locator_lookup",
+          "status": "succeeded",
+          "outcome": "found",
+          "locator": "305 F.3d 732",
+          "cluster": {
+            "cluster_id": "779315",
+            "opinion_url": "https://www.courtlistener.com/opinion/779315/ilah-m-tinder-v-pinkerton-security/",
+            "case_name": "Ilah M. Tinder v. Pinkerton Security",
+            "date_filed": "2002-09-17",
+            "court": null,
+            "court_id": null,
+            "docket_id": "964055",
+            "citations": [
+              {
+                "volume": "305",
+                "reporter": "F.3d",
+                "page": "728"
+              },
+              {
+                "volume": "2002",
+                "reporter": "U.S. App. LEXIS",
+                "page": "19106"
+              },
+              {
+                "volume": "83",
+                "reporter": "Empl. Prac. Dec. (CCH)",
+                "page": "41,193"
+              },
+              {
+                "volume": "89",
+                "reporter": "Fair Empl. Prac. Cas. (BNA)",
+                "page": "1537"
+              },
+              {
+                "volume": "2002",
+                "reporter": "WL",
+                "page": "31056991"
+              }
+            ],
+            "sub_opinion_ids": [
+              "779315"
+            ]
+          },
+          "candidate_clusters": [
+            {
+              "cluster_id": "779315",
+              "opinion_url": "https://www.courtlistener.com/opinion/779315/ilah-m-tinder-v-pinkerton-security/",
+              "case_name": "Ilah M. Tinder v. Pinkerton Security",
+              "date_filed": "2002-09-17",
+              "court": null,
+              "court_id": null,
+              "docket_id": "964055",
+              "citations": [
+                {
+                  "volume": "305",
+                  "reporter": "F.3d",
+                  "page": "728"
+                },
+                {
+                  "volume": "2002",
+                  "reporter": "U.S. App. LEXIS",
+                  "page": "19106"
+                },
+                {
+                  "volume": "83",
+                  "reporter": "Empl. Prac. Dec. (CCH)",
+                  "page": "41,193"
+                },
+                {
+                  "volume": "89",
+                  "reporter": "Fair Empl. Prac. Cas. (BNA)",
+                  "page": "1537"
+                },
+                {
+                  "volume": "2002",
+                  "reporter": "WL",
+                  "page": "31056991"
+                }
+              ],
+              "sub_opinion_ids": [
+                "779315"
+              ]
+            }
+          ],
+          "candidate_count": 1,
+          "status_message": "Exact locator lookup completed.",
+          "outcome_message": "CourtListener returned one opinion cluster for the locator.",
+          "error": null,
+          "depends_on": []
+        },
+        {
+          "node_type": "OpinionCandidateEvaluationNode",
+          "node_id": "c3c206c0:candidate_evaluation:1",
+          "status": "succeeded",
+          "outcome": "ready",
+          "candidate_index": 1,
+          "cluster": {
+            "cluster_id": "779315",
+            "opinion_url": "https://www.courtlistener.com/opinion/779315/ilah-m-tinder-v-pinkerton-security/",
+            "case_name": "Ilah M. Tinder v. Pinkerton Security",
+            "date_filed": "2002-09-17",
+            "court": null,
+            "court_id": null,
+            "docket_id": "964055",
+            "citations": [
+              {
+                "volume": "305",
+                "reporter": "F.3d",
+                "page": "728"
+              },
+              {
+                "volume": "2002",
+                "reporter": "U.S. App. LEXIS",
+                "page": "19106"
+              },
+              {
+                "volume": "83",
+                "reporter": "Empl. Prac. Dec. (CCH)",
+                "page": "41,193"
+              },
+              {
+                "volume": "89",
+                "reporter": "Fair Empl. Prac. Cas. (BNA)",
+                "page": "1537"
+              },
+              {
+                "volume": "2002",
+                "reporter": "WL",
+                "page": "31056991"
+              }
+            ],
+            "sub_opinion_ids": [
+              "779315"
+            ]
+          },
+          "depends_on": [
+            "c3c206c0:exact_locator_lookup"
+          ],
+          "status_message": "Candidate evaluation branch initialized.",
+          "outcome_message": "Candidate is ready for independent validation checks."
+        },
+        {
+          "node_type": "ExactCaseNameCheckNode",
+          "node_id": "c3c206c0:candidate_evaluation:1:exact_case_name_check",
+          "status": "succeeded",
+          "outcome": "mismatch",
+          "extracted_case_name": "United States v. Robinson",
+          "retrieved_case_name": "Ilah M. Tinder v. Pinkerton Security",
+          "depends_on": [
+            "c3c206c0:candidate_evaluation:1"
+          ],
+          "status_message": "Exact case-name comparison completed.",
+          "outcome_message": "Extracted and retrieved case names differ after whitespace normalization."
+        },
+        {
+          "node_type": "DocketCourtRetrievalNode",
+          "node_id": "c3c206c0:candidate_evaluation:1:docket_court_retrieval",
+          "status": "succeeded",
+          "outcome": "found",
+          "docket_id": "964055",
+          "court_id": "ca7",
+          "depends_on": [
+            "c3c206c0:candidate_evaluation:1"
+          ],
+          "status_message": "Docket court retrieval completed.",
+          "outcome_message": "Retrieved a court identifier from the citation docket.",
+          "error": null
+        },
+        {
+          "node_type": "YearCheckNode",
+          "node_id": "c3c206c0:candidate_evaluation:1:year_check",
+          "status": "succeeded",
+          "outcome": "match",
+          "extracted_year": "2002",
+          "retrieved_year": "2002",
+          "depends_on": [
+            "c3c206c0:candidate_evaluation:1"
+          ],
+          "status_message": "Year comparison completed.",
+          "outcome_message": "Extracted and retrieved years match."
+        },
+        {
+          "node_type": "CourtCheckNode",
+          "node_id": "c3c206c0:candidate_evaluation:1:docket_court_retrieval:court_check",
+          "status": "succeeded",
+          "outcome": "mismatch",
+          "extracted_court_id": "ca6",
+          "retrieved_court_id": "ca7",
+          "depends_on": [
+            "c3c206c0:candidate_evaluation:1:docket_court_retrieval"
+          ],
+          "status_message": "Court comparison completed.",
+          "outcome_message": "Extracted and retrieved court identifiers differ."
+        },
+        {
+          "node_type": "MelleaCaseNameCheckNode",
+          "node_id": "c3c206c0:candidate_evaluation:1:exact_case_name_check:mellea_case_name_check",
+          "status": "succeeded",
+          "outcome": "mismatch",
+          "extracted_case_name": "United States v. Robinson",
+          "retrieved_case_name": "Ilah M. Tinder v. Pinkerton Security",
+          "depends_on": [
+            "c3c206c0:candidate_evaluation:1:exact_case_name_check"
+          ],
+          "status_message": "Mellea semantic case-name comparison completed.",
+          "outcome_message": "Mellea judged the extracted and retrieved case names to identify different cases.",
+          "error": null
+        },
+        {
+          "node_type": "MelleaCaseNameReextractionNode",
+          "node_id": "c3c206c0:candidate_evaluation:1:exact_case_name_check:mellea_case_name_check:mellea_case_name_reextraction",
+          "status": "succeeded",
+          "outcome": "complete",
+          "plaintiff": "United States",
+          "defendant": "Robinson",
+          "depends_on": [
+            "c3c206c0:candidate_evaluation:1:exact_case_name_check:mellea_case_name_check"
+          ],
+          "status_message": "Local case-name re-extraction completed.",
+          "outcome_message": "Re-extracted both case parties from local context.",
+          "error": null
+        },
+        {
+          "node_type": "MelleaReextractedCaseNameCheckNode",
+          "node_id": "c3c206c0:candidate_evaluation:1:exact_case_name_check:mellea_case_name_check:mellea_case_name_reextraction:mellea_reextracted_case_name_check",
+          "status": "succeeded",
+          "outcome": "mismatch",
+          "reextracted_case_name": "United States v. Robinson",
+          "retrieved_case_name": "Ilah M. Tinder v. Pinkerton Security",
+          "depends_on": [
+            "c3c206c0:candidate_evaluation:1:exact_case_name_check:mellea_case_name_check:mellea_case_name_reextraction"
+          ],
+          "status_message": "Mellea semantic case-name comparison completed.",
+          "outcome_message": "Mellea judged the re-extracted and retrieved case names to identify different cases.",
+          "error": null
+        },
+        {
+          "node_type": "LocatorCandidateAssessmentNode",
+          "node_id": "c3c206c0:candidate_evaluation:1:locator_candidate_assessment",
+          "status": "succeeded",
+          "outcome": "mismatch",
+          "candidate_index": 1,
+          "extracted_citation": "305 F.3d 732",
+          "extracted_case_name": "United States v. Robinson",
+          "retrieved_case_name": "Ilah M. Tinder v. Pinkerton Security",
+          "case_name_outcome": "mismatch",
+          "case_name_evidence": "mellea_reextracted",
+          "extracted_year": "2002",
+          "retrieved_year": "2002",
+          "year_outcome": "match",
+          "extracted_court_id": "ca6",
+          "retrieved_court_id": "ca7",
+          "court_outcome": "mismatch",
+          "docket_id": "964055",
+          "depends_on": [
+            "c3c206c0:candidate_evaluation:1:exact_case_name_check:mellea_case_name_check:mellea_case_name_reextraction:mellea_reextracted_case_name_check",
+            "c3c206c0:candidate_evaluation:1:year_check",
+            "c3c206c0:candidate_evaluation:1:docket_court_retrieval:court_check"
+          ],
+          "status_message": "Candidate citation assessment completed.",
+          "outcome_message": "Retrieved candidate appears to be a different case because the case name does not match."
+        },
+        {
+          "node_type": "ReporterPageRetrievalNode",
+          "node_id": "c3c206c0:candidate_evaluation:1:reporter_page_retrieval",
+          "status": "succeeded",
+          "outcome": "found",
+          "cluster_id": "779315",
+          "reporter_citation": "305 F.3d 732",
+          "pin_cite": "735",
+          "citation_index": 1,
+          "evidence": {
+            "opinion_id": "779315",
+            "opinion_type": "010combined",
+            "text": "*735 where Wisconsin\u2019s intermediate appellate court concluded that a covenant not to compete, executed after employment began, was unenforceable for lack of consideration. But Pilarski does not support Tinder\u2019s position. The employer in Pilar-ski could identify no clear policy whether employees were required to sign covenants not-to-compete in exchange for employment \u2014 the company\u2019s president stated that he did not know what he would do if an employee refused to sign the agreement. See id. at 97. In contrast, the policy in this case was conditioned explicitly on continued employment, and applied to all employees. Tinder next maintains that she did not receive the brochure announcing Pinkerton\u2019s arbitration program and did not know that the program existed until she sued. In her 'view, because Pinkerton failed to make adequate efforts to ensure that she knew about the program, she never promised to do anything and should have been allowed to proceed to trial on her discrimination claims. Pinkerton argues that Tinder\u2019s claim that she does not recall receiving or seeing the arbitration brochure does not place any facts concerning the agreement at issue. Pinkerton also contends that it submitted sufficient evidence demonstrating that Tinder did in fact receive the brochure. Since Tinder failed to controvert its evidence, Pinkerton asserts that the district court properly discounted Tinder\u2019s claims and ordered arbitration. A district court must promptly compel arbitration once it is satisfied that the parties agreed to arbitrate. 9 U.S.C. \u00a7 4. But if the district court determines that the making of the arbitration agreement is s'eriously disputed, \u201cthe court shall proceed summarily to the trial thereof.\u201d Id. The issue then is not whether Tinder\u2019s denial of having received notice of the policy is sufficient to avoid arbitration, but whether she produced sufficient evidence to raise a factual issue concerning whether she and Pinkerton are bound by a contract to arbitrate. The party opposing arbitration must identify a triable issue of fact concerning the existence of the agreement in order to obtain a trial on the merits of the contract. Saturday Evening Post Co. v. Rumbleseat Press, Inc., 816 F.2d 1191, 1196 (7th Cir.1987). The FAA does not expressly identify the evidentiary standard a party seeking to avoid compelled arbitration must meet. But courts that have addressed the question have analogized the standard to that required of a party opposing summary judgment under Rule 56(e) of the Federal Rules of Civil Procedure: the opposing party must demonstrate that a genuine issue of material fact warranting a trial exists. See Doctor\u2019s Associates, Inc. v. Distajo, 107 F.3d 126, 129-30 (2d Cir.1997); Great Western Mortgage Corp. v. Peacock, 110 F.3d 222, 231 n. 36 (3d Cir.1997); Dillard v. Merrill Lynch, Pierce, Fenner & Smith, Inc., 961 F.2d 1148, 1154 (5th Cir.1992). Just as in summary judgment proceedings, a party cannot avoid compelled arbitration by generally denying the facts upon which the right to arbitration rests; the party must identify specific evidence in the record demonstrating a material factual dispute for trial. Oppenheimer & Co., Inc. v. Neidhardt, 56 F.3d 352, 358 (2d Cir.1995). In deciding whether the party opposing summary judgment (and by analogy compelled arbitration) has identified a genuine issue of material fact for trial, \u201cthe evidence of the non-movant is to be believed and all justifiable inferences are to be drawn in his favor.\u201d Anderson v. Liberty Lobby, Inc., 477 U.S. 242, 255, 106 S.Ct. 2505, 91 L.Ed.2d 202 (1986). But Tinder\u2019s only evidence that she never received no"
+          },
+          "depends_on": [
+            "c3c206c0:candidate_evaluation:1"
+          ],
+          "status_message": "Reporter-page retrieval completed.",
+          "outcome_message": "Recovered reporter page 735 from selected 010combined opinion 779315.",
+          "error": null
+        },
+        {
+          "node_type": "MelleaCitingPropositionExtractionNode",
+          "node_id": "c3c206c0:candidate_evaluation:1:reporter_page_retrieval:mellea_citing_proposition_extraction",
+          "status": "succeeded",
+          "outcome": "identified",
+          "context_span": {
+            "start": 3223,
+            "end": 4423
+          },
+          "reasoning": "The citation 'United States v. Robinson, 305 F.3d 732, 735 (6th Cir. 2002)' is followed by the explanatory parenthetical '(service rules must be interpreted in light of their core purpose: providing notice)', which directly attributes this proposition to the cited case.",
+          "proposition": "service rules must be interpreted in light of their core purpose: providing notice",
+          "proposition_span": {
+            "start": 4186,
+            "end": 4268
+          },
+          "proposition_match_method": "exact",
+          "proposition_match_score": 1.0,
+          "depends_on": [
+            "c3c206c0:candidate_evaluation:1:reporter_page_retrieval"
+          ],
+          "status_message": "Citing-proposition extraction completed.",
+          "outcome_message": "Identified a grounded proposition attributed to the citation.",
+          "error": null
+        },
+        {
+          "node_type": "MelleaPinpointCheckNode",
+          "node_id": "c3c206c0:candidate_evaluation:1:reporter_page_retrieval:mellea_pinpoint_check",
+          "status": "succeeded",
+          "outcome": "inconclusive",
+          "reasoning": "The provided excerpt does not contain any discussion about interpreting service rules in light of their core purpose of providing notice. The text focuses on issues related to arbitration agreements, enforceability of covenants not to compete, and the procedural standards for compelling arbitration under the Federal Arbitration Act. There is no mention or implication of principles concerning the interpretation of service rules based on their purpose.",
+          "evidence_quote": null,
+          "evidence_span": null,
+          "evidence_match_method": null,
+          "evidence_match_score": null,
+          "depends_on": [
+            "c3c206c0:candidate_evaluation:1:reporter_page_retrieval",
+            "c3c206c0:candidate_evaluation:1:reporter_page_retrieval:mellea_citing_proposition_extraction"
+          ],
+          "status_message": "Mellea pinpoint inference completed.",
+          "outcome_message": "The available text does not permit a reliable pinpoint judgment.",
+          "error": null
+        },
+        {
+          "node_type": "LocatorCitationSummaryNode",
+          "node_id": "c3c206c0:locator_citation_summary",
+          "status": "succeeded",
+          "outcome": "complete",
+          "overall_outcome": "mismatch",
+          "pinpoint_requires_review": null,
+          "candidates": [
+            {
+              "provenance": "opinion",
+              "candidate_index": 1,
+              "assessment_node_id": "c3c206c0:candidate_evaluation:1:locator_candidate_assessment",
+              "outcome": "mismatch",
+              "extracted_citation": "305 F.3d 732",
+              "extracted_case_name": "United States v. Robinson",
+              "retrieved_case_name": "Ilah M. Tinder v. Pinkerton Security",
+              "case_name_outcome": "mismatch",
+              "case_name_evidence": "mellea_reextracted",
+              "extracted_year": "2002",
+              "retrieved_year": "2002",
+              "year_outcome": "match",
+              "extracted_court_id": "ca6",
+              "retrieved_court_id": "ca7",
+              "court_outcome": "mismatch",
+              "docket_id": "964055",
+              "opinion_url": "https://www.courtlistener.com/opinion/779315/ilah-m-tinder-v-pinkerton-security/",
+              "pinpoint": {
+                "node_id": "c3c206c0:candidate_evaluation:1:reporter_page_retrieval:mellea_pinpoint_check",
+                "status": "succeeded",
+                "outcome": "inconclusive",
+                "reporter_citation": "305 F.3d 732",
+                "pin_cite": "735",
+                "opinion_id": "779315",
+                "opinion_type": "010combined",
+                "reporter_page_text": "*735 where Wisconsin\u2019s intermediate appellate court concluded that a covenant not to compete, executed after employment began, was unenforceable for lack of consideration. But Pilarski does not support Tinder\u2019s position. The employer in Pilar-ski could identify no clear policy whether employees were required to sign covenants not-to-compete in exchange for employment \u2014 the company\u2019s president stated that he did not know what he would do if an employee refused to sign the agreement. See id. at 97. In contrast, the policy in this case was conditioned explicitly on continued employment, and applied to all employees. Tinder next maintains that she did not receive the brochure announcing Pinkerton\u2019s arbitration program and did not know that the program existed until she sued. In her 'view, because Pinkerton failed to make adequate efforts to ensure that she knew about the program, she never promised to do anything and should have been allowed to proceed to trial on her discrimination claims. Pinkerton argues that Tinder\u2019s claim that she does not recall receiving or seeing the arbitration brochure does not place any facts concerning the agreement at issue. Pinkerton also contends that it submitted sufficient evidence demonstrating that Tinder did in fact receive the brochure. Since Tinder failed to controvert its evidence, Pinkerton asserts that the district court properly discounted Tinder\u2019s claims and ordered arbitration. A district court must promptly compel arbitration once it is satisfied that the parties agreed to arbitrate. 9 U.S.C. \u00a7 4. But if the district court determines that the making of the arbitration agreement is s'eriously disputed, \u201cthe court shall proceed summarily to the trial thereof.\u201d Id. The issue then is not whether Tinder\u2019s denial of having received notice of the policy is sufficient to avoid arbitration, but whether she produced sufficient evidence to raise a factual issue concerning whether she and Pinkerton are bound by a contract to arbitrate. The party opposing arbitration must identify a triable issue of fact concerning the existence of the agreement in order to obtain a trial on the merits of the contract. Saturday Evening Post Co. v. Rumbleseat Press, Inc., 816 F.2d 1191, 1196 (7th Cir.1987). The FAA does not expressly identify the evidentiary standard a party seeking to avoid compelled arbitration must meet. But courts that have addressed the question have analogized the standard to that required of a party opposing summary judgment under Rule 56(e) of the Federal Rules of Civil Procedure: the opposing party must demonstrate that a genuine issue of material fact warranting a trial exists. See Doctor\u2019s Associates, Inc. v. Distajo, 107 F.3d 126, 129-30 (2d Cir.1997); Great Western Mortgage Corp. v. Peacock, 110 F.3d 222, 231 n. 36 (3d Cir.1997); Dillard v. Merrill Lynch, Pierce, Fenner & Smith, Inc., 961 F.2d 1148, 1154 (5th Cir.1992). Just as in summary judgment proceedings, a party cannot avoid compelled arbitration by generally denying the facts upon which the right to arbitration rests; the party must identify specific evidence in the record demonstrating a material factual dispute for trial. Oppenheimer & Co., Inc. v. Neidhardt, 56 F.3d 352, 358 (2d Cir.1995). In deciding whether the party opposing summary judgment (and by analogy compelled arbitration) has identified a genuine issue of material fact for trial, \u201cthe evidence of the non-movant is to be believed and all justifiable inferences are to be drawn in his favor.\u201d Anderson v. Liberty Lobby, Inc., 477 U.S. 242, 255, 106 S.Ct. 2505, 91 L.Ed.2d 202 (1986). But Tinder\u2019s only evidence that she never received no",
+                "citing_context_span": {
+                  "start": 3223,
+                  "end": 4423
+                },
+                "citation_span": {
+                  "start": 4123,
+                  "end": 4183
+                },
+                "proposition": "service rules must be interpreted in light of their core purpose: providing notice",
+                "proposition_span": {
+                  "start": 4186,
+                  "end": 4268
+                },
+                "reasoning": "The provided excerpt does not contain any discussion about interpreting service rules in light of their core purpose of providing notice. The text focuses on issues related to arbitration agreements, enforceability of covenants not to compete, and the procedural standards for compelling arbitration under the Federal Arbitration Act. There is no mention or implication of principles concerning the interpretation of service rules based on their purpose.",
+                "evidence_quote": null,
+                "evidence_span": null,
+                "evidence_match_method": null,
+                "evidence_match_score": null,
+                "status_message": "Mellea pinpoint inference completed.",
+                "outcome_message": "The available text does not permit a reliable pinpoint judgment.",
+                "error": null
+              }
+            }
+          ],
+          "depends_on": [
+            "c3c206c0:candidate_evaluation:1:locator_candidate_assessment",
+            "c3c206c0:candidate_evaluation:1:reporter_page_retrieval:mellea_pinpoint_check"
+          ],
+          "status_message": "Locator candidate summary completed.",
+          "outcome_message": "Listed 1 evaluated locator candidate(s) without selecting one."
+        }
+      ]
+    },
+    {
+      "citation_id": "f7489749",
+      "aggregation": {
+        "node_type": "SearchCitationSummaryNode",
+        "node_id": "f7489749:search_citation_summary",
+        "status": "succeeded",
+        "outcome": "complete",
+        "overall_outcome": "possible_match",
+        "candidates": [
+          {
+            "provenance": "opinion",
+            "candidate_index": 1,
+            "assessment_node_id": "f7489749:opinion_search_candidate_evaluation:1:opinion_search_candidate_assessment",
+            "outcome": "mismatch",
+            "extracted_citation": "2009 WL 2103627",
+            "extracted_case_name": "Koulkina v. City of New York",
+            "retrieved_case_name": "Koulkina v. City of New York",
+            "case_name_outcome": "match",
+            "case_name_evidence": "mellea",
+            "extracted_year": "2009",
+            "retrieved_year": "2008",
+            "year_outcome": "mismatch",
+            "extracted_court_id": "nysd",
+            "retrieved_court_id": "nysd",
+            "court_outcome": "match",
+            "docket_id": "1820051",
+            "opinion_url": "https://www.courtlistener.com/opinion/1969711/koulkina-v-city-of-new-york/",
+            "pinpoint": null
+          },
+          {
+            "provenance": "recap",
+            "candidate_index": 1,
+            "assessment_node_id": "f7489749:recap_search_candidate_evaluation:1:recap_search_candidate_assessment",
+            "outcome": "possible_match",
+            "extracted_citation": "2009 WL 2103627",
+            "extracted_case_name": "Koulkina v. City of New York",
+            "retrieved_case_name": "Koulkina v. The City of New York",
+            "case_name_outcome": "match",
+            "case_name_evidence": "mellea",
+            "extracted_year": "2009",
+            "retrieved_year": null,
+            "year_outcome": "unavailable",
+            "extracted_court_id": "nysd",
+            "retrieved_court_id": "nysd",
+            "court_outcome": "match",
+            "docket_id": "5068645",
+            "opinion_url": null,
+            "pinpoint": null
+          },
+          {
+            "provenance": "recap",
+            "candidate_index": 2,
+            "assessment_node_id": "f7489749:recap_search_candidate_evaluation:2:recap_search_candidate_assessment",
+            "outcome": "mismatch",
+            "extracted_citation": "2009 WL 2103627",
+            "extracted_case_name": "Koulkina v. City of New York",
+            "retrieved_case_name": "Koulkina v. New York City Housing Authority",
+            "case_name_outcome": "mismatch",
+            "case_name_evidence": "mellea",
+            "extracted_year": "2009",
+            "retrieved_year": null,
+            "year_outcome": "unavailable",
+            "extracted_court_id": "nysd",
+            "retrieved_court_id": "nysd",
+            "court_outcome": "match",
+            "docket_id": "12216173",
+            "opinion_url": null,
+            "pinpoint": null
+          }
+        ],
+        "depends_on": [
+          "f7489749:opinion_search_candidate_evaluation:1:opinion_search_candidate_assessment",
+          "f7489749:recap_search_candidate_evaluation:1:recap_search_candidate_assessment",
+          "f7489749:recap_search_candidate_evaluation:2:recap_search_candidate_assessment"
+        ],
+        "status_message": "Search-candidate summary completed.",
+        "outcome_message": "Listed 1 opinion-search and 2 RECAP-search candidate assessments without selecting a final citation."
+      },
+      "nodes": [
+        {
+          "node_type": "ExactLocatorLookupNode",
+          "node_id": "f7489749:exact_locator_lookup",
+          "status": "succeeded",
+          "outcome": "not_found",
+          "locator": "2009 WL 2103627",
+          "cluster": null,
+          "candidate_clusters": [],
+          "candidate_count": 0,
+          "status_message": "Exact locator lookup completed.",
+          "outcome_message": "CourtListener returned no opinion clusters for the locator.",
+          "error": null,
+          "depends_on": []
+        },
+        {
+          "node_type": "MelleaCaseNameReextractionNode",
+          "node_id": "f7489749:exact_locator_lookup:mellea_case_name_reextraction",
+          "status": "succeeded",
+          "outcome": "complete",
+          "plaintiff": "Koulkina",
+          "defendant": "City of New York",
+          "depends_on": [
+            "f7489749:exact_locator_lookup"
+          ],
+          "status_message": "Local case-name re-extraction completed.",
+          "outcome_message": "Re-extracted both case parties from local context.",
+          "error": null
+        },
+        {
+          "node_type": "MelleaCaseNameQueryPreparationNode",
+          "node_id": "f7489749:mellea_case_name_query_preparation",
+          "status": "succeeded",
+          "outcome": "prepared",
+          "query": "caseName:(\"Koulkina\" AND \"New York\") AND court_id:nysd",
+          "query_plaintiff": "Koulkina",
+          "query_defendant": "New York",
+          "court_id": "nysd",
+          "depends_on": [
+            "f7489749:exact_locator_lookup:mellea_case_name_reextraction"
+          ],
+          "status_message": "Case-name query preparation completed.",
+          "outcome_message": "Prepared one CourtListener case-name query from both re-extracted parties.",
+          "error": null
+        },
+        {
+          "node_type": "OpinionSearchNode",
+          "node_id": "f7489749:opinion_search",
+          "status": "succeeded",
+          "outcome": "searched",
+          "query": "caseName:(\"Koulkina\" AND \"New York\") AND court_id:nysd",
+          "result_count": 1,
+          "results": [
+            {
+              "absolute_url": "/opinion/1969711/koulkina-v-city-of-new-york/",
+              "attorney": "Oxana Alexandrovna Koulkina, New York City, Pro se., Nina Vasilievna Koulikova, New York City, Pro se., Jessica Talia Cohen, NYC Law Department, Richard E. Lerner, Shelowitz Broder LLP, Jessica Talia Cohen, NYC Law Department, New York City, Andrew N. Squire, Andrew Squire, ESQ., Brooklyn, NY, Gregory John Radomisli, Martin Clearwater & Bell LLP, Jonathan B. Bruno, Kaufman, Borgeest & Ryan, LLP, Ares Demetrius Axiotis, Axiotis, Michalovits & Huebner, LLP, William Goldman Scher, Garbarini & Scher, P.C., New York City, for Defendants.",
+              "caseName": "Koulkina v. City of New York",
+              "caseNameFull": "Oxana Alexandrovna KOULKINA, Et Al., Plaintiffs, v. the CITY OF NEW YORK, Et Al., Defendants",
+              "citation": [
+                "559 F. Supp. 2d 300",
+                "42 A.L.R. 6th 735",
+                "2008 U.S. Dist. LEXIS 11863",
+                "2008 WL 463726"
+              ],
+              "citeCount": 60,
+              "cluster_id": 1969711,
+              "court": "District Court, S.D. New York",
+              "court_citation_string": "S.D.N.Y.",
+              "court_id": "nysd",
+              "court_jurisdiction": null,
+              "dateArgued": null,
+              "dateFiled": "2008-02-19",
+              "dateReargued": null,
+              "dateReargumentDenied": null,
+              "docketNumber": "06 Civ. 11357(SHS)(HBP)",
+              "docket_id": 1820051,
+              "judge": "Pitman, Stein",
+              "lexisCite": "2008 U.S. Dist. LEXIS 11863",
+              "meta": {
+                "timestamp": "2024-06-21T07:42:35.890214Z",
+                "date_created": "2016-01-04T23:47:13.654066Z",
+                "score": {
+                  "bm25": 64.210754
+                }
+              },
+              "neutralCite": "",
+              "non_participating_judge_ids": [],
+              "opinions": [
+                {
+                  "author_id": 3095,
+                  "cites": [
+                    2716,
+                    105573,
+                    109715,
+                    109881,
+                    110353,
+                    110589,
+                    110766,
+                    110768,
+                    111555,
+                    111679,
+                    118268,
+                    145730,
+                    261260,
+                    292235,
+                    415493,
+                    423506,
+                    463298,
+                    468731,
+                    586315,
+                    611587,
+                    664638,
+                    667579,
+                    701313,
+                    761238,
+                    765736,
+                    767095,
+                    767198,
+                    774271,
+                    777872,
+                    780500,
+                    789915,
+                    794387,
+                    798079,
+                    1393580,
+                    1411606,
+                    1446953,
+                    1466320,
+                    1579759,
+                    1614005,
+                    1625969,
+                    1692173,
+                    1692718,
+                    2008548,
+                    2034386,
+                    2139109,
+                    2291527,
+                    2339880,
+                    2345232,
+                    2348693,
+                    2349797,
+                    2377968,
+                    2400371,
+                    2410987,
+                    2413783,
+                    2416104,
+                    2421033,
+                    2424022,
+                    2424287,
+                    2426027,
+                    2438047,
+                    2440506,
+                    2454425,
+                    2500386,
+                    2503783,
+                    2527093,
+                    2528209,
+                    2568276,
+                    2573655,
+                    2593131,
+                    5535250,
+                    5540560,
+                    5542781,
+                    5674727,
+                    5677002,
+                    5679801,
+                    5733104,
+                    5733106,
+                    5903026,
+                    5924472,
+                    5974683,
+                    6004589,
+                    6009501,
+                    6010453,
+                    6017210,
+                    6027655,
+                    6039757,
+                    6046269,
+                    6080385,
+                    6095485,
+                    6929280,
+                    6929478,
+                    6931764,
+                    6935235,
+                    6938181,
+                    6949577,
+                    6989282,
+                    7017074,
+                    8407378,
+                    8408657,
+                    8408775,
+                    8410148,
+                    8733574,
+                    8946550,
+                    8949255,
+                    8994878,
+                    8996218,
+                    9007036,
+                    9032800,
+                    9430238
+                  ],
+                  "download_url": "",
+                  "id": 1969711,
+                  "joined_by_ids": [],
+                  "local_path": null,
+                  "meta": {
+                    "timestamp": "2025-10-24T15:00:04.039690Z",
+                    "date_created": "2013-10-30T07:56:46.543773Z"
+                  },
+                  "ordering_key": null,
+                  "per_curiam": false,
+                  "sha1": "66032986581771b83b36a967d67caccc6552b9d6",
+                  "snippet": "\r\n(2008)\r\nOxana Alexandrovna KOULKINA, et al., Plaintiffs,\r\nv.\r\nThe CITY OF NEW YORK, et al., Defendants.\r\nNo. 06 Civ. 11357(SHS)(HBP).\r\nUnited States District Court, S.D. New York.\r\nFebruary 19, 2008.\r\n\r\nORDER\r\nSIDNEY H. STEIN, District Judge.\r\nOn January 23, 2008, Magistrate Judge Henry Pitman issued a thorough 68 page Report and Recom",
+                  "type": "combined-opinion"
+                }
+              ],
+              "panel_ids": [],
+              "panel_names": [],
+              "posture": "",
+              "procedural_history": "",
+              "scdb_id": "",
+              "sibling_ids": [
+                1969711
+              ],
+              "source": "LU",
+              "status": "Published",
+              "suitNature": "",
+              "syllabus": ""
+            }
+          ],
+          "next_cursor": null,
+          "depends_on": [
+            "f7489749:mellea_case_name_query_preparation"
+          ],
+          "status_message": "Opinion search completed.",
+          "outcome_message": "CourtListener returned 1 opinion search results.",
+          "error": null
+        },
+        {
+          "node_type": "RecapSearchNode",
+          "node_id": "f7489749:recap_search",
+          "status": "succeeded",
+          "outcome": "searched",
+          "query": "caseName:(\"Koulkina\" AND \"New York\") AND court_id:nysd",
+          "result_count": 2,
+          "results": [
+            {
+              "assignedTo": "Sidney H. Stein",
+              "assigned_to_id": 3095,
+              "attorney": [
+                "Dan Brecher",
+                "Gregory John Radomisli",
+                "Oxana Alexandrovna Koulkina",
+                "Jonathan Robert Harwood",
+                "Andrew N. Squire",
+                "Alexander Peltz",
+                "Richard E. Lerner",
+                "William Goldman Scher",
+                "Ryan Glenn Shaffer",
+                "Nina Vasilievna Koulikova",
+                "Jonathan B. Bruno",
+                "Gregg Douglas Weinstock",
+                "Jessica Talia Cohen",
+                "Ares Demetrius Axiotis"
+              ],
+              "attorney_id": [
+                1562077,
+                1562080,
+                931202,
+                577508,
+                971909,
+                1562078,
+                1562079,
+                1127216,
+                1081501,
+                999223,
+                626108,
+                626109,
+                626110,
+                684543
+              ],
+              "caseName": "Koulkina v. The City of New York",
+              "case_name_full": "",
+              "cause": "42:1983 Civil Rights Act",
+              "chapter": null,
+              "court": "District Court, S.D. New York",
+              "court_citation_string": "S.D.N.Y.",
+              "court_id": "nysd",
+              "dateArgued": null,
+              "dateFiled": "2006-10-25",
+              "dateTerminated": "2011-01-03",
+              "docketNumber": "1:06-cv-11357",
+              "docket_absolute_url": "/docket/5068645/koulkina-v-the-city-of-new-york/",
+              "docket_id": 5068645,
+              "firm": [
+                "Martin Clearwater & Bell LLP (NYC)",
+                "Garbarini & Scher, P.C.",
+                "Oxana Alexandrovna Koulkina",
+                "Scarini & Hollenbeck LLC",
+                "Wilson Elser Moskowitz Edelman & Dicker LLP",
+                "Peltz & Walker",
+                "Traub Lieberman Straus & Shrewsbury LLP",
+                "New York City Law Department",
+                "NYC Law Department",
+                "Nina Vasilievna Koulikova",
+                "Axiotis, Michalovits & Huebner, LLP",
+                "Kaufman, Borgeest & Ryan, LLP (NYC)",
+                "Andrew Squire, Esq."
+              ],
+              "firm_id": [
+                158656,
+                159141,
+                162630,
+                164646,
+                252517,
+                275949,
+                275950,
+                36143,
+                275951,
+                226133,
+                159705,
+                141819,
+                158909
+              ],
+              "jurisdictionType": "Federal Question",
+              "juryDemand": "Defendant",
+              "meta": {
+                "timestamp": "2025-03-03T12:58:31.867977Z",
+                "date_created": "2017-04-21T10:08:48.698482Z",
+                "score": {
+                  "bm25": 97.1897
+                },
+                "more_docs": true
+              },
+              "pacer_case_id": "292173",
+              "party": [
+                "Victoria Bobrovskaya",
+                "Police Officer  John Doe",
+                "Victor Kuznetsoff",
+                "Marina Zaharatos",
+                "The City of New York",
+                "Gaudio Favio Giovanni",
+                "Attorney  John Doe",
+                "Paru Pandya",
+                "Allen Jay Charne",
+                "New York City Police Department",
+                "Nina Vasilievna Koulikova",
+                "Victor Muzzin",
+                "Bryan T. Kelly",
+                "Executive Director  John Doe",
+                "Investigator  John Doe",
+                "EDWARD SMOCK, ESQ. s/h/a NED SMOCK and ANNE CALLAGY s/h/a ANN CALLEGY",
+                "Laura Kramer",
+                "Florence L. Finkle",
+                "Agustin Melendez",
+                "Oxana Alexandrovna Koulkina",
+                "Heath Buzin",
+                "Robert J. Barsch",
+                "Shaun Jaikissoon",
+                "Ned Smock",
+                "Ann Callegy",
+                "Administration agency No. 47"
+              ],
+              "party_id": [
+                644225,
+                747573,
+                1387702,
+                1387703,
+                1387704,
+                1387705,
+                1387706,
+                1387707,
+                1387708,
+                1387709,
+                1387710,
+                1387711,
+                1387712,
+                1387713,
+                1387714,
+                1387715,
+                1387716,
+                1387717,
+                1387718,
+                499399,
+                1387719,
+                1387720,
+                1387721,
+                1387722,
+                1387723,
+                643804
+              ],
+              "recap_documents": [
+                {
+                  "absolute_url": "/docket/5068645/25/koulkina-v-the-city-of-new-york/",
+                  "attachment_number": null,
+                  "cites": [],
+                  "description": "ENDORSED LETTER addressed to Magistrate Judge Henry B. Pitman from Rachel A. Seligman dated 3/1/07 re: Defendant city of New York requests that its time to respond to the complaint be extended to May 7, 2007. Additionally, without making any representation as to the adequacy of service or otherwise, I write to respectfully request that defendant Finkle's time to respond to the complaint also be extended to May 7, 2007. ENDORSEMENT:The City's and Finkle's time to answer or move is extended to 5/7/07. (Signed by Judge Henry B. Pitman on 3/2/07) (js) (Entered: 03/13/2007)",
+                  "docket_entry_id": 23570633,
+                  "document_number": 25,
+                  "document_type": "PACER Document",
+                  "entry_date_filed": "2007-03-09",
+                  "entry_number": 25,
+                  "filepath_local": null,
+                  "id": 24922506,
+                  "is_available": false,
+                  "meta": {
+                    "timestamp": "2024-04-19T13:18:39.024802Z",
+                    "date_created": "2018-02-22T20:14:15.804441Z"
+                  },
+                  "pacer_doc_id": "",
+                  "page_count": null,
+                  "short_description": "",
+                  "snippet": ""
+                },
+                {
+                  "absolute_url": "/docket/5068645/26/koulkina-v-the-city-of-new-york/",
+                  "attachment_number": null,
+                  "cites": [],
+                  "description": "FILING ERROR - ELECTRONIC FILING IN NON-ECF CASE - AMENDED ANSWER to. Document filed by Gaudio Favio Giovanni. (Attachments: # 1 Affidavit Affidavit of Service)(Radomisli, Gregory) Modified on 3/15/2007 (KA). (Entered: 03/13/2007)",
+                  "docket_entry_id": 23570635,
+                  "document_number": 26,
+                  "document_type": "PACER Document",
+                  "entry_date_filed": "2007-03-13",
+                  "entry_number": 26,
+                  "filepath_local": null,
+                  "id": 24922508,
+                  "is_available": false,
+                  "meta": {
+                    "timestamp": "2024-04-19T13:18:39.040999Z",
+                    "date_created": "2018-02-22T20:14:15.845596Z"
+                  },
+                  "pacer_doc_id": "12701669614",
+                  "page_count": null,
+                  "short_description": "",
+                  "snippet": ""
+                },
+                {
+                  "absolute_url": "/docket/5068645/27/koulkina-v-the-city-of-new-york/",
+                  "attachment_number": null,
+                  "cites": [],
+                  "description": "FILING ERROR - ELECTRONIC FILING IN NON-ECF CASE - AMENDED ANSWER to. Document filed by Laura Kramer. (Attachments: # 1 Affidavit Affidavit of Service)(Radomisli, Gregory) Modified on 3/15/2007 (KA). (Entered: 03/13/2007)",
+                  "docket_entry_id": 23570636,
+                  "document_number": 27,
+                  "document_type": "PACER Document",
+                  "entry_date_filed": "2007-03-13",
+                  "entry_number": 27,
+                  "filepath_local": null,
+                  "id": 24922509,
+                  "is_available": false,
+                  "meta": {
+                    "timestamp": "2024-04-19T13:18:39.053113Z",
+                    "date_created": "2018-02-22T20:14:15.864441Z"
+                  },
+                  "pacer_doc_id": "12703762441",
+                  "page_count": null,
+                  "short_description": "",
+                  "snippet": ""
+                }
+              ],
+              "referredTo": "Henry B. Pitman",
+              "referred_to_id": 9450,
+              "suitNature": "440 Civil Rights: Other",
+              "trustee_str": null
+            },
+            {
+              "assignedTo": "Kimba Maureen Wood",
+              "assigned_to_id": 3539,
+              "attorney": [],
+              "attorney_id": [],
+              "caseName": "Koulkina v. New York City Housing Authority",
+              "case_name_full": "",
+              "cause": "",
+              "chapter": null,
+              "court": "District Court, S.D. New York",
+              "court_citation_string": "S.D.N.Y.",
+              "court_id": "nysd",
+              "dateArgued": null,
+              "dateFiled": "2006-12-13",
+              "dateTerminated": "2006-12-13",
+              "docketNumber": "1:06-cv-14393",
+              "docket_absolute_url": "/docket/12216173/koulkina-v-new-york-city-housing-authority/",
+              "docket_id": 12216173,
+              "firm": [],
+              "firm_id": [],
+              "jurisdictionType": "Federal question",
+              "juryDemand": "",
+              "meta": {
+                "timestamp": "2025-03-06T07:30:21.767445Z",
+                "date_created": "2019-01-21T15:13:30.575922Z",
+                "score": {
+                  "bm25": 57.325294
+                },
+                "more_docs": false
+              },
+              "pacer_case_id": "296864",
+              "party": [
+                "Koulkina",
+                "New York City Housing Authority"
+              ],
+              "party_id": [],
+              "recap_documents": [],
+              "referredTo": null,
+              "referred_to_id": null,
+              "suitNature": "440 Civil rights other",
+              "trustee_str": null
+            }
+          ],
+          "next_cursor": null,
+          "depends_on": [
+            "f7489749:mellea_case_name_query_preparation"
+          ],
+          "status_message": "RECAP search completed.",
+          "outcome_message": "CourtListener returned 2 RECAP search results.",
+          "error": null
+        },
+        {
+          "node_type": "CandidateSelectionNode",
+          "node_id": "f7489749:opinion_search_candidate_selection",
+          "status": "succeeded",
+          "outcome": "all_selected",
+          "total_candidate_count": 1,
+          "selected_candidate_count": 1,
+          "selection_limit": 3,
+          "depends_on": [
+            "f7489749:opinion_search"
+          ],
+          "status_message": "Candidate selection completed.",
+          "outcome_message": "All 1 returned candidates are within the current validation scope of 3."
+        },
+        {
+          "node_type": "OpinionSearchCandidateEvaluationNode",
+          "node_id": "f7489749:opinion_search_candidate_evaluation:1",
+          "status": "succeeded",
+          "outcome": "ready",
+          "candidate_index": 1,
+          "cluster_id": "1969711",
+          "case_name": "Koulkina v. City of New York",
+          "date_filed": "2008-02-19",
+          "court_id": "nysd",
+          "docket_id": "1820051",
+          "result": {
+            "absolute_url": "/opinion/1969711/koulkina-v-city-of-new-york/",
+            "attorney": "Oxana Alexandrovna Koulkina, New York City, Pro se., Nina Vasilievna Koulikova, New York City, Pro se., Jessica Talia Cohen, NYC Law Department, Richard E. Lerner, Shelowitz Broder LLP, Jessica Talia Cohen, NYC Law Department, New York City, Andrew N. Squire, Andrew Squire, ESQ., Brooklyn, NY, Gregory John Radomisli, Martin Clearwater & Bell LLP, Jonathan B. Bruno, Kaufman, Borgeest & Ryan, LLP, Ares Demetrius Axiotis, Axiotis, Michalovits & Huebner, LLP, William Goldman Scher, Garbarini & Scher, P.C., New York City, for Defendants.",
+            "caseName": "Koulkina v. City of New York",
+            "caseNameFull": "Oxana Alexandrovna KOULKINA, Et Al., Plaintiffs, v. the CITY OF NEW YORK, Et Al., Defendants",
+            "citation": [
+              "559 F. Supp. 2d 300",
+              "42 A.L.R. 6th 735",
+              "2008 U.S. Dist. LEXIS 11863",
+              "2008 WL 463726"
+            ],
+            "citeCount": 60,
+            "cluster_id": 1969711,
+            "court": "District Court, S.D. New York",
+            "court_citation_string": "S.D.N.Y.",
+            "court_id": "nysd",
+            "court_jurisdiction": null,
+            "dateArgued": null,
+            "dateFiled": "2008-02-19",
+            "dateReargued": null,
+            "dateReargumentDenied": null,
+            "docketNumber": "06 Civ. 11357(SHS)(HBP)",
+            "docket_id": 1820051,
+            "judge": "Pitman, Stein",
+            "lexisCite": "2008 U.S. Dist. LEXIS 11863",
+            "meta": {
+              "timestamp": "2024-06-21T07:42:35.890214Z",
+              "date_created": "2016-01-04T23:47:13.654066Z",
+              "score": {
+                "bm25": 64.210754
+              }
+            },
+            "neutralCite": "",
+            "non_participating_judge_ids": [],
+            "opinions": [
+              {
+                "author_id": 3095,
+                "cites": [
+                  2716,
+                  105573,
+                  109715,
+                  109881,
+                  110353,
+                  110589,
+                  110766,
+                  110768,
+                  111555,
+                  111679,
+                  118268,
+                  145730,
+                  261260,
+                  292235,
+                  415493,
+                  423506,
+                  463298,
+                  468731,
+                  586315,
+                  611587,
+                  664638,
+                  667579,
+                  701313,
+                  761238,
+                  765736,
+                  767095,
+                  767198,
+                  774271,
+                  777872,
+                  780500,
+                  789915,
+                  794387,
+                  798079,
+                  1393580,
+                  1411606,
+                  1446953,
+                  1466320,
+                  1579759,
+                  1614005,
+                  1625969,
+                  1692173,
+                  1692718,
+                  2008548,
+                  2034386,
+                  2139109,
+                  2291527,
+                  2339880,
+                  2345232,
+                  2348693,
+                  2349797,
+                  2377968,
+                  2400371,
+                  2410987,
+                  2413783,
+                  2416104,
+                  2421033,
+                  2424022,
+                  2424287,
+                  2426027,
+                  2438047,
+                  2440506,
+                  2454425,
+                  2500386,
+                  2503783,
+                  2527093,
+                  2528209,
+                  2568276,
+                  2573655,
+                  2593131,
+                  5535250,
+                  5540560,
+                  5542781,
+                  5674727,
+                  5677002,
+                  5679801,
+                  5733104,
+                  5733106,
+                  5903026,
+                  5924472,
+                  5974683,
+                  6004589,
+                  6009501,
+                  6010453,
+                  6017210,
+                  6027655,
+                  6039757,
+                  6046269,
+                  6080385,
+                  6095485,
+                  6929280,
+                  6929478,
+                  6931764,
+                  6935235,
+                  6938181,
+                  6949577,
+                  6989282,
+                  7017074,
+                  8407378,
+                  8408657,
+                  8408775,
+                  8410148,
+                  8733574,
+                  8946550,
+                  8949255,
+                  8994878,
+                  8996218,
+                  9007036,
+                  9032800,
+                  9430238
+                ],
+                "download_url": "",
+                "id": 1969711,
+                "joined_by_ids": [],
+                "local_path": null,
+                "meta": {
+                  "timestamp": "2025-10-24T15:00:04.039690Z",
+                  "date_created": "2013-10-30T07:56:46.543773Z"
+                },
+                "ordering_key": null,
+                "per_curiam": false,
+                "sha1": "66032986581771b83b36a967d67caccc6552b9d6",
+                "snippet": "\r\n(2008)\r\nOxana Alexandrovna KOULKINA, et al., Plaintiffs,\r\nv.\r\nThe CITY OF NEW YORK, et al., Defendants.\r\nNo. 06 Civ. 11357(SHS)(HBP).\r\nUnited States District Court, S.D. New York.\r\nFebruary 19, 2008.\r\n\r\nORDER\r\nSIDNEY H. STEIN, District Judge.\r\nOn January 23, 2008, Magistrate Judge Henry Pitman issued a thorough 68 page Report and Recom",
+                "type": "combined-opinion"
+              }
+            ],
+            "panel_ids": [],
+            "panel_names": [],
+            "posture": "",
+            "procedural_history": "",
+            "scdb_id": "",
+            "sibling_ids": [
+              1969711
+            ],
+            "source": "LU",
+            "status": "Published",
+            "suitNature": "",
+            "syllabus": ""
+          },
+          "depends_on": [
+            "f7489749:opinion_search_candidate_selection"
+          ],
+          "status_message": "Opinion-search candidate evaluation branch initialized.",
+          "outcome_message": "Candidate is ready for independent validation checks."
+        },
+        {
+          "node_type": "ExactCaseNameCheckNode",
+          "node_id": "f7489749:opinion_search_candidate_evaluation:1:exact_case_name_check",
+          "status": "succeeded",
+          "outcome": "mismatch",
+          "extracted_case_name": "Koulkina v. City of New York, No . 06 Civ. 11357",
+          "retrieved_case_name": "Koulkina v. City of New York",
+          "depends_on": [
+            "f7489749:opinion_search_candidate_evaluation:1"
+          ],
+          "status_message": "Exact case-name comparison completed.",
+          "outcome_message": "Extracted and retrieved case names differ after whitespace normalization."
+        },
+        {
+          "node_type": "YearCheckNode",
+          "node_id": "f7489749:opinion_search_candidate_evaluation:1:year_check",
+          "status": "succeeded",
+          "outcome": "mismatch",
+          "extracted_year": "2009",
+          "retrieved_year": "2008",
+          "depends_on": [
+            "f7489749:opinion_search_candidate_evaluation:1"
+          ],
+          "status_message": "Year comparison completed.",
+          "outcome_message": "Extracted and retrieved years differ."
+        },
+        {
+          "node_type": "CourtCheckNode",
+          "node_id": "f7489749:opinion_search_candidate_evaluation:1:court_check",
+          "status": "succeeded",
+          "outcome": "match",
+          "extracted_court_id": "nysd",
+          "retrieved_court_id": "nysd",
+          "depends_on": [
+            "f7489749:opinion_search_candidate_evaluation:1"
+          ],
+          "status_message": "Court comparison completed.",
+          "outcome_message": "Extracted and retrieved court identifiers match."
+        },
+        {
+          "node_type": "MelleaCaseNameCheckNode",
+          "node_id": "f7489749:opinion_search_candidate_evaluation:1:exact_case_name_check:mellea_case_name_check",
+          "status": "succeeded",
+          "outcome": "match",
+          "extracted_case_name": "Koulkina v. City of New York, No . 06 Civ. 11357",
+          "retrieved_case_name": "Koulkina v. City of New York",
+          "depends_on": [
+            "f7489749:opinion_search_candidate_evaluation:1:exact_case_name_check"
+          ],
+          "status_message": "Mellea semantic case-name comparison completed.",
+          "outcome_message": "Mellea judged the extracted and retrieved case names to identify the same case.",
+          "error": null
+        },
+        {
+          "node_type": "OpinionSearchCandidateAssessmentNode",
+          "node_id": "f7489749:opinion_search_candidate_evaluation:1:opinion_search_candidate_assessment",
+          "status": "succeeded",
+          "outcome": "mismatch",
+          "candidate_index": 1,
+          "extracted_citation": "2009 WL 2103627",
+          "extracted_case_name": "Koulkina v. City of New York",
+          "retrieved_case_name": "Koulkina v. City of New York",
+          "case_name_outcome": "match",
+          "case_name_evidence": "mellea",
+          "extracted_year": "2009",
+          "retrieved_year": "2008",
+          "year_outcome": "mismatch",
+          "extracted_court_id": "nysd",
+          "retrieved_court_id": "nysd",
+          "court_outcome": "match",
+          "docket_id": "1820051",
+          "depends_on": [
+            "f7489749:opinion_search_candidate_evaluation:1:exact_case_name_check:mellea_case_name_check",
+            "f7489749:opinion_search_candidate_evaluation:1:year_check",
+            "f7489749:opinion_search_candidate_evaluation:1:court_check"
+          ],
+          "status_message": "Opinion-search candidate assessment completed.",
+          "outcome_message": "Available search evidence does not support this candidate as a possible match."
+        },
+        {
+          "node_type": "CandidateSelectionNode",
+          "node_id": "f7489749:recap_search_candidate_selection",
+          "status": "succeeded",
+          "outcome": "all_selected",
+          "total_candidate_count": 2,
+          "selected_candidate_count": 2,
+          "selection_limit": 3,
+          "depends_on": [
+            "f7489749:recap_search"
+          ],
+          "status_message": "Candidate selection completed.",
+          "outcome_message": "All 2 returned candidates are within the current validation scope of 3."
+        },
+        {
+          "node_type": "RecapSearchCandidateEvaluationNode",
+          "node_id": "f7489749:recap_search_candidate_evaluation:1",
+          "status": "succeeded",
+          "outcome": "ready",
+          "candidate_index": 1,
+          "case_name": "Koulkina v. The City of New York",
+          "case_open_year": "2006",
+          "court_id": "nysd",
+          "docket_id": "5068645",
+          "result": {
+            "assignedTo": "Sidney H. Stein",
+            "assigned_to_id": 3095,
+            "attorney": [
+              "Dan Brecher",
+              "Gregory John Radomisli",
+              "Oxana Alexandrovna Koulkina",
+              "Jonathan Robert Harwood",
+              "Andrew N. Squire",
+              "Alexander Peltz",
+              "Richard E. Lerner",
+              "William Goldman Scher",
+              "Ryan Glenn Shaffer",
+              "Nina Vasilievna Koulikova",
+              "Jonathan B. Bruno",
+              "Gregg Douglas Weinstock",
+              "Jessica Talia Cohen",
+              "Ares Demetrius Axiotis"
+            ],
+            "attorney_id": [
+              1562077,
+              1562080,
+              931202,
+              577508,
+              971909,
+              1562078,
+              1562079,
+              1127216,
+              1081501,
+              999223,
+              626108,
+              626109,
+              626110,
+              684543
+            ],
+            "caseName": "Koulkina v. The City of New York",
+            "case_name_full": "",
+            "cause": "42:1983 Civil Rights Act",
+            "chapter": null,
+            "court": "District Court, S.D. New York",
+            "court_citation_string": "S.D.N.Y.",
+            "court_id": "nysd",
+            "dateArgued": null,
+            "dateFiled": "2006-10-25",
+            "dateTerminated": "2011-01-03",
+            "docketNumber": "1:06-cv-11357",
+            "docket_absolute_url": "/docket/5068645/koulkina-v-the-city-of-new-york/",
+            "docket_id": 5068645,
+            "firm": [
+              "Martin Clearwater & Bell LLP (NYC)",
+              "Garbarini & Scher, P.C.",
+              "Oxana Alexandrovna Koulkina",
+              "Scarini & Hollenbeck LLC",
+              "Wilson Elser Moskowitz Edelman & Dicker LLP",
+              "Peltz & Walker",
+              "Traub Lieberman Straus & Shrewsbury LLP",
+              "New York City Law Department",
+              "NYC Law Department",
+              "Nina Vasilievna Koulikova",
+              "Axiotis, Michalovits & Huebner, LLP",
+              "Kaufman, Borgeest & Ryan, LLP (NYC)",
+              "Andrew Squire, Esq."
+            ],
+            "firm_id": [
+              158656,
+              159141,
+              162630,
+              164646,
+              252517,
+              275949,
+              275950,
+              36143,
+              275951,
+              226133,
+              159705,
+              141819,
+              158909
+            ],
+            "jurisdictionType": "Federal Question",
+            "juryDemand": "Defendant",
+            "meta": {
+              "timestamp": "2025-03-03T12:58:31.867977Z",
+              "date_created": "2017-04-21T10:08:48.698482Z",
+              "score": {
+                "bm25": 97.1897
+              },
+              "more_docs": true
+            },
+            "pacer_case_id": "292173",
+            "party": [
+              "Victoria Bobrovskaya",
+              "Police Officer  John Doe",
+              "Victor Kuznetsoff",
+              "Marina Zaharatos",
+              "The City of New York",
+              "Gaudio Favio Giovanni",
+              "Attorney  John Doe",
+              "Paru Pandya",
+              "Allen Jay Charne",
+              "New York City Police Department",
+              "Nina Vasilievna Koulikova",
+              "Victor Muzzin",
+              "Bryan T. Kelly",
+              "Executive Director  John Doe",
+              "Investigator  John Doe",
+              "EDWARD SMOCK, ESQ. s/h/a NED SMOCK and ANNE CALLAGY s/h/a ANN CALLEGY",
+              "Laura Kramer",
+              "Florence L. Finkle",
+              "Agustin Melendez",
+              "Oxana Alexandrovna Koulkina",
+              "Heath Buzin",
+              "Robert J. Barsch",
+              "Shaun Jaikissoon",
+              "Ned Smock",
+              "Ann Callegy",
+              "Administration agency No. 47"
+            ],
+            "party_id": [
+              644225,
+              747573,
+              1387702,
+              1387703,
+              1387704,
+              1387705,
+              1387706,
+              1387707,
+              1387708,
+              1387709,
+              1387710,
+              1387711,
+              1387712,
+              1387713,
+              1387714,
+              1387715,
+              1387716,
+              1387717,
+              1387718,
+              499399,
+              1387719,
+              1387720,
+              1387721,
+              1387722,
+              1387723,
+              643804
+            ],
+            "recap_documents": [
+              {
+                "absolute_url": "/docket/5068645/25/koulkina-v-the-city-of-new-york/",
+                "attachment_number": null,
+                "cites": [],
+                "description": "ENDORSED LETTER addressed to Magistrate Judge Henry B. Pitman from Rachel A. Seligman dated 3/1/07 re: Defendant city of New York requests that its time to respond to the complaint be extended to May 7, 2007. Additionally, without making any representation as to the adequacy of service or otherwise, I write to respectfully request that defendant Finkle's time to respond to the complaint also be extended to May 7, 2007. ENDORSEMENT:The City's and Finkle's time to answer or move is extended to 5/7/07. (Signed by Judge Henry B. Pitman on 3/2/07) (js) (Entered: 03/13/2007)",
+                "docket_entry_id": 23570633,
+                "document_number": 25,
+                "document_type": "PACER Document",
+                "entry_date_filed": "2007-03-09",
+                "entry_number": 25,
+                "filepath_local": null,
+                "id": 24922506,
+                "is_available": false,
+                "meta": {
+                  "timestamp": "2024-04-19T13:18:39.024802Z",
+                  "date_created": "2018-02-22T20:14:15.804441Z"
+                },
+                "pacer_doc_id": "",
+                "page_count": null,
+                "short_description": "",
+                "snippet": ""
+              },
+              {
+                "absolute_url": "/docket/5068645/26/koulkina-v-the-city-of-new-york/",
+                "attachment_number": null,
+                "cites": [],
+                "description": "FILING ERROR - ELECTRONIC FILING IN NON-ECF CASE - AMENDED ANSWER to. Document filed by Gaudio Favio Giovanni. (Attachments: # 1 Affidavit Affidavit of Service)(Radomisli, Gregory) Modified on 3/15/2007 (KA). (Entered: 03/13/2007)",
+                "docket_entry_id": 23570635,
+                "document_number": 26,
+                "document_type": "PACER Document",
+                "entry_date_filed": "2007-03-13",
+                "entry_number": 26,
+                "filepath_local": null,
+                "id": 24922508,
+                "is_available": false,
+                "meta": {
+                  "timestamp": "2024-04-19T13:18:39.040999Z",
+                  "date_created": "2018-02-22T20:14:15.845596Z"
+                },
+                "pacer_doc_id": "12701669614",
+                "page_count": null,
+                "short_description": "",
+                "snippet": ""
+              },
+              {
+                "absolute_url": "/docket/5068645/27/koulkina-v-the-city-of-new-york/",
+                "attachment_number": null,
+                "cites": [],
+                "description": "FILING ERROR - ELECTRONIC FILING IN NON-ECF CASE - AMENDED ANSWER to. Document filed by Laura Kramer. (Attachments: # 1 Affidavit Affidavit of Service)(Radomisli, Gregory) Modified on 3/15/2007 (KA). (Entered: 03/13/2007)",
+                "docket_entry_id": 23570636,
+                "document_number": 27,
+                "document_type": "PACER Document",
+                "entry_date_filed": "2007-03-13",
+                "entry_number": 27,
+                "filepath_local": null,
+                "id": 24922509,
+                "is_available": false,
+                "meta": {
+                  "timestamp": "2024-04-19T13:18:39.053113Z",
+                  "date_created": "2018-02-22T20:14:15.864441Z"
+                },
+                "pacer_doc_id": "12703762441",
+                "page_count": null,
+                "short_description": "",
+                "snippet": ""
+              }
+            ],
+            "referredTo": "Henry B. Pitman",
+            "referred_to_id": 9450,
+            "suitNature": "440 Civil Rights: Other",
+            "trustee_str": null
+          },
+          "depends_on": [
+            "f7489749:recap_search_candidate_selection"
+          ],
+          "status_message": "RECAP-search candidate evaluation branch initialized.",
+          "outcome_message": "Candidate is ready for independent validation checks."
+        },
+        {
+          "node_type": "ExactCaseNameCheckNode",
+          "node_id": "f7489749:recap_search_candidate_evaluation:1:exact_case_name_check",
+          "status": "succeeded",
+          "outcome": "mismatch",
+          "extracted_case_name": "Koulkina v. City of New York, No . 06 Civ. 11357",
+          "retrieved_case_name": "Koulkina v. The City of New York",
+          "depends_on": [
+            "f7489749:recap_search_candidate_evaluation:1"
+          ],
+          "status_message": "Exact case-name comparison completed.",
+          "outcome_message": "Extracted and retrieved case names differ after whitespace normalization."
+        },
+        {
+          "node_type": "CourtCheckNode",
+          "node_id": "f7489749:recap_search_candidate_evaluation:1:court_check",
+          "status": "succeeded",
+          "outcome": "match",
+          "extracted_court_id": "nysd",
+          "retrieved_court_id": "nysd",
+          "depends_on": [
+            "f7489749:recap_search_candidate_evaluation:1"
+          ],
+          "status_message": "Court comparison completed.",
+          "outcome_message": "Extracted and retrieved court identifiers match."
+        },
+        {
+          "node_type": "MelleaCaseNameCheckNode",
+          "node_id": "f7489749:recap_search_candidate_evaluation:1:exact_case_name_check:mellea_case_name_check",
+          "status": "succeeded",
+          "outcome": "match",
+          "extracted_case_name": "Koulkina v. City of New York, No . 06 Civ. 11357",
+          "retrieved_case_name": "Koulkina v. The City of New York",
+          "depends_on": [
+            "f7489749:recap_search_candidate_evaluation:1:exact_case_name_check"
+          ],
+          "status_message": "Mellea semantic case-name comparison completed.",
+          "outcome_message": "Mellea judged the extracted and retrieved case names to identify the same case.",
+          "error": null
+        },
+        {
+          "node_type": "RecapSearchCandidateAssessmentNode",
+          "node_id": "f7489749:recap_search_candidate_evaluation:1:recap_search_candidate_assessment",
+          "status": "succeeded",
+          "outcome": "possible_match",
+          "candidate_index": 1,
+          "extracted_citation": "2009 WL 2103627",
+          "extracted_case_name": "Koulkina v. City of New York",
+          "retrieved_case_name": "Koulkina v. The City of New York",
+          "case_name_outcome": "match",
+          "case_name_evidence": "mellea",
+          "extracted_year": "2009",
+          "retrieved_year": null,
+          "year_outcome": "unavailable",
+          "extracted_court_id": "nysd",
+          "retrieved_court_id": "nysd",
+          "court_outcome": "match",
+          "docket_id": "5068645",
+          "depends_on": [
+            "f7489749:recap_search_candidate_evaluation:1:exact_case_name_check:mellea_case_name_check",
+            "f7489749:recap_search_candidate_evaluation:1:court_check"
+          ],
+          "status_message": "RECAP-search candidate assessment completed.",
+          "outcome_message": "Available search evidence supports this as a possible match."
+        },
+        {
+          "node_type": "RecapSearchCandidateEvaluationNode",
+          "node_id": "f7489749:recap_search_candidate_evaluation:2",
+          "status": "succeeded",
+          "outcome": "ready",
+          "candidate_index": 2,
+          "case_name": "Koulkina v. New York City Housing Authority",
+          "case_open_year": "2006",
+          "court_id": "nysd",
+          "docket_id": "12216173",
+          "result": {
+            "assignedTo": "Kimba Maureen Wood",
+            "assigned_to_id": 3539,
+            "attorney": [],
+            "attorney_id": [],
+            "caseName": "Koulkina v. New York City Housing Authority",
+            "case_name_full": "",
+            "cause": "",
+            "chapter": null,
+            "court": "District Court, S.D. New York",
+            "court_citation_string": "S.D.N.Y.",
+            "court_id": "nysd",
+            "dateArgued": null,
+            "dateFiled": "2006-12-13",
+            "dateTerminated": "2006-12-13",
+            "docketNumber": "1:06-cv-14393",
+            "docket_absolute_url": "/docket/12216173/koulkina-v-new-york-city-housing-authority/",
+            "docket_id": 12216173,
+            "firm": [],
+            "firm_id": [],
+            "jurisdictionType": "Federal question",
+            "juryDemand": "",
+            "meta": {
+              "timestamp": "2025-03-06T07:30:21.767445Z",
+              "date_created": "2019-01-21T15:13:30.575922Z",
+              "score": {
+                "bm25": 57.325294
+              },
+              "more_docs": false
+            },
+            "pacer_case_id": "296864",
+            "party": [
+              "Koulkina",
+              "New York City Housing Authority"
+            ],
+            "party_id": [],
+            "recap_documents": [],
+            "referredTo": null,
+            "referred_to_id": null,
+            "suitNature": "440 Civil rights other",
+            "trustee_str": null
+          },
+          "depends_on": [
+            "f7489749:recap_search_candidate_selection"
+          ],
+          "status_message": "RECAP-search candidate evaluation branch initialized.",
+          "outcome_message": "Candidate is ready for independent validation checks."
+        },
+        {
+          "node_type": "ExactCaseNameCheckNode",
+          "node_id": "f7489749:recap_search_candidate_evaluation:2:exact_case_name_check",
+          "status": "succeeded",
+          "outcome": "mismatch",
+          "extracted_case_name": "Koulkina v. City of New York, No . 06 Civ. 11357",
+          "retrieved_case_name": "Koulkina v. New York City Housing Authority",
+          "depends_on": [
+            "f7489749:recap_search_candidate_evaluation:2"
+          ],
+          "status_message": "Exact case-name comparison completed.",
+          "outcome_message": "Extracted and retrieved case names differ after whitespace normalization."
+        },
+        {
+          "node_type": "CourtCheckNode",
+          "node_id": "f7489749:recap_search_candidate_evaluation:2:court_check",
+          "status": "succeeded",
+          "outcome": "match",
+          "extracted_court_id": "nysd",
+          "retrieved_court_id": "nysd",
+          "depends_on": [
+            "f7489749:recap_search_candidate_evaluation:2"
+          ],
+          "status_message": "Court comparison completed.",
+          "outcome_message": "Extracted and retrieved court identifiers match."
+        },
+        {
+          "node_type": "MelleaCaseNameCheckNode",
+          "node_id": "f7489749:recap_search_candidate_evaluation:2:exact_case_name_check:mellea_case_name_check",
+          "status": "succeeded",
+          "outcome": "mismatch",
+          "extracted_case_name": "Koulkina v. City of New York, No . 06 Civ. 11357",
+          "retrieved_case_name": "Koulkina v. New York City Housing Authority",
+          "depends_on": [
+            "f7489749:recap_search_candidate_evaluation:2:exact_case_name_check"
+          ],
+          "status_message": "Mellea semantic case-name comparison completed.",
+          "outcome_message": "Mellea judged the extracted and retrieved case names to identify different cases.",
+          "error": null
+        },
+        {
+          "node_type": "RecapSearchCandidateAssessmentNode",
+          "node_id": "f7489749:recap_search_candidate_evaluation:2:recap_search_candidate_assessment",
+          "status": "succeeded",
+          "outcome": "mismatch",
+          "candidate_index": 2,
+          "extracted_citation": "2009 WL 2103627",
+          "extracted_case_name": "Koulkina v. City of New York",
+          "retrieved_case_name": "Koulkina v. New York City Housing Authority",
+          "case_name_outcome": "mismatch",
+          "case_name_evidence": "mellea",
+          "extracted_year": "2009",
+          "retrieved_year": null,
+          "year_outcome": "unavailable",
+          "extracted_court_id": "nysd",
+          "retrieved_court_id": "nysd",
+          "court_outcome": "match",
+          "docket_id": "12216173",
+          "depends_on": [
+            "f7489749:recap_search_candidate_evaluation:2:exact_case_name_check:mellea_case_name_check",
+            "f7489749:recap_search_candidate_evaluation:2:court_check"
+          ],
+          "status_message": "RECAP-search candidate assessment completed.",
+          "outcome_message": "Available search evidence does not support this candidate as a possible match."
+        },
+        {
+          "node_type": "SearchCitationSummaryNode",
+          "node_id": "f7489749:search_citation_summary",
+          "status": "succeeded",
+          "outcome": "complete",
+          "overall_outcome": "possible_match",
+          "candidates": [
+            {
+              "provenance": "opinion",
+              "candidate_index": 1,
+              "assessment_node_id": "f7489749:opinion_search_candidate_evaluation:1:opinion_search_candidate_assessment",
+              "outcome": "mismatch",
+              "extracted_citation": "2009 WL 2103627",
+              "extracted_case_name": "Koulkina v. City of New York",
+              "retrieved_case_name": "Koulkina v. City of New York",
+              "case_name_outcome": "match",
+              "case_name_evidence": "mellea",
+              "extracted_year": "2009",
+              "retrieved_year": "2008",
+              "year_outcome": "mismatch",
+              "extracted_court_id": "nysd",
+              "retrieved_court_id": "nysd",
+              "court_outcome": "match",
+              "docket_id": "1820051",
+              "opinion_url": "https://www.courtlistener.com/opinion/1969711/koulkina-v-city-of-new-york/",
+              "pinpoint": null
+            },
+            {
+              "provenance": "recap",
+              "candidate_index": 1,
+              "assessment_node_id": "f7489749:recap_search_candidate_evaluation:1:recap_search_candidate_assessment",
+              "outcome": "possible_match",
+              "extracted_citation": "2009 WL 2103627",
+              "extracted_case_name": "Koulkina v. City of New York",
+              "retrieved_case_name": "Koulkina v. The City of New York",
+              "case_name_outcome": "match",
+              "case_name_evidence": "mellea",
+              "extracted_year": "2009",
+              "retrieved_year": null,
+              "year_outcome": "unavailable",
+              "extracted_court_id": "nysd",
+              "retrieved_court_id": "nysd",
+              "court_outcome": "match",
+              "docket_id": "5068645",
+              "opinion_url": null,
+              "pinpoint": null
+            },
+            {
+              "provenance": "recap",
+              "candidate_index": 2,
+              "assessment_node_id": "f7489749:recap_search_candidate_evaluation:2:recap_search_candidate_assessment",
+              "outcome": "mismatch",
+              "extracted_citation": "2009 WL 2103627",
+              "extracted_case_name": "Koulkina v. City of New York",
+              "retrieved_case_name": "Koulkina v. New York City Housing Authority",
+              "case_name_outcome": "mismatch",
+              "case_name_evidence": "mellea",
+              "extracted_year": "2009",
+              "retrieved_year": null,
+              "year_outcome": "unavailable",
+              "extracted_court_id": "nysd",
+              "retrieved_court_id": "nysd",
+              "court_outcome": "match",
+              "docket_id": "12216173",
+              "opinion_url": null,
+              "pinpoint": null
+            }
+          ],
+          "depends_on": [
+            "f7489749:opinion_search_candidate_evaluation:1:opinion_search_candidate_assessment",
+            "f7489749:recap_search_candidate_evaluation:1:recap_search_candidate_assessment",
+            "f7489749:recap_search_candidate_evaluation:2:recap_search_candidate_assessment"
+          ],
+          "status_message": "Search-candidate summary completed.",
+          "outcome_message": "Listed 1 opinion-search and 2 RECAP-search candidate assessments without selecting a final citation."
+        }
+      ]
+    }
+  ]
+}

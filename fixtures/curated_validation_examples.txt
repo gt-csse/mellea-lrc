@@ -1,0 +1,77 @@
+========================================================================================
+source: 26.txt | locator-found -> exact case-name match -> pinpoint supports
+========================================================================================
+
+ssociated
+
+remedies should be dismissed with prejudice.
+
+to  their  clients
+
+,  not  the  other  way
+
+Civil Action No:
+
+2:25-cv-02623-SHL-atc
+
+BACKGROUND
+
+Baker Donelson's Counterclaim alleges that RLF failed to pay invoices under an August 2022  engagement  letter  and  attached  'Terms  of  Engagement.'  The  Counterclaim  asserts  (1) Breach of Agreement, and (2) Unjust Enrichment, seeking $170,921.09 plus contractual interest, attorneys' fees, and costs.
+
+Count II, however, attempts to repackage these allegations as a breach of fiduciary duty claim by the firm against its client. Specifically, Baker Donelson contends RLF acted disloyally by pressing for trial tactics the firm opposed and by resisting its advice. No Tennessee case law supports such a theory.
+
+STANDARD OF REVIEW
+
+A claim must contain sufficient factual matter to 'state a claim to relief that is plausible on its face.' Ashcroft v. Iqbal , 556 U.S. 662, 678 (2009);                                                       .  Legal  conclusions  masquerading  as  factual  allegations  are  not  accepted  as  true.                                             . Where a claim fails as a matter of law, dismissal under Rule​
+
+========================================================================================
+source: 16.txt | locator-found -> exact mismatch -> semantic case-name match
+========================================================================================
+
+s informed by the front-desk secretary that the Defendants were in a meeting but physically present in the building.
+
+3. Server asked the secretary to accept the documents, and the secretary agreed and did so. Plaintiff filed this Proof of Service with the Court.
+4. Service is valid when made at a defendant's usual place of business and delivered to an individual who appears to be authorized to accept documents.
+
+Supporting Sixth Circuit Case Law
+
+- e                                                                                    — service rules should be applied in a manner consistent with due process; defects are excused when defendant receives actual notice.
+- e Tokio Marine &                                                                                          — substantial compliance with service rules is sufficient when service is reasonably calculated to provide notice.
+- e Salyers v. City of Portsmouth, 534 Fed. App'x 454, 459 (6th Cir. 2013) — service may be upheld where defendant received actual notice even if service was not technically perfect.
+
+Michigan Case Law (for completeness):
+
+- e                                             .
+- e​​​​​​​​​​​​​​​​​​​​​​​​​​​​
+
+========================================================================================
+source: 16.txt | locator-found -> exact mismatch -> semantic mismatch -> local re-extraction -> re-extracted case-name mismatch
+========================================================================================
+
+                                                     .
+
+These cases support service through an apparent office agent.
+
+ll. DEFENDANT JACK McINTYRE WAS ALSO PROPERLY SERVED
+
+5. Plaintiff's server, Marcus Kelley also independently attempted personal service on Defendant Jack Mcintyre by going directly to his office.
+
+6. Defendant was not present and his office door was locked.
+7. Defendant Mclintyre's assistant, Clarence Cohan, clearly instructed server, Marcus Kelley, to slide the Summons and Complaint under Defendant Mclintyre's door, indicating that this method was acceptable.
+8. Server complied and filed the corresponding Proof of Service.
+
+Supporting Sixth Circuit Case Law
+
+- e                                                                          — service upheld where documents were delivered in a manner reasonably calculated to provide notice at defendant's business address.
+- e United States v. Robinson, 305 F.3d 732, 735 (6th Cir. 2002) — service rules must be interpreted in light of their core purpose: providing notice.
+- e                                                                    — the Sixth Circuit emphasizes that actual notice strongly weighs in favor of find
+
+========================================================================================
+source: 5.txt | locator-not-found -> local re-extraction -> opinion and RECAP search
+========================================================================================
+
+y confirmations, demonstrates full compliance.
+
+A. Delivery to the Supervising Clerk Constitutes Proper Service
+
+On November 18,  2024,  Manuel  Gomez  delivered  the  summons  and  complaint  to  the supervising clerk at the Rockland County Supreme Court, the usual place of business for both judges (ECF No. 38-2). The clerk confirmed her authority to receive service, as recorded on video (Exhibit A). Gomez, a Desert Storm veteran with the highest security clearance levels, has served hundreds of documents  over twelve (12) years,  ensuring  reliability  (Exhibit  A).  This  delivery satisfies                       , which permits service on a person of suitable age and discretion at the defendant's place of business.                                                                           .  Courts  uphold  service  on  clerks  designated  to  receive  process  for  judicial officers. Koulkina v. City of New York, No . 06 Civ. 11357, 2009 WL 2103627, at *3 (S.D.N.Y. July 14, 2009).                       , governing service on state officers, allows delivery to a designated person, and the clerk's confirmation satisfies this standard.​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​

@@ -10,6 +10,7 @@ from mellea_lrc.validation.aggregation import (
     run_locator_citation_summary,
     run_opinion_search_candidate_assessment,
     run_recap_search_candidate_assessment,
+    run_search_citation_summary,
 )
 from mellea_lrc.validation.candidate_evaluation import (
     run_locator_candidate_evaluation,
@@ -34,6 +35,11 @@ from mellea_lrc.validation.field_checks import (
     run_mellea_case_name_check,
     run_mellea_case_name_reextraction,
     run_year_check,
+)
+from mellea_lrc.validation.pinpoint_retrieval import (
+    run_mellea_citing_proposition_extraction,
+    run_mellea_pinpoint_check,
+    run_reporter_page_retrieval,
 )
 from mellea_lrc.validation.types import (
     CandidateEvaluationNode,
@@ -116,6 +122,7 @@ class CitationValidationRunner:
                 │   │   ``run_locator_found_case_name_mismatch``
                 │   └── match or unavailable -> locator candidate assessment
                 ├── docket court retrieval -> court check
+                ├── reporter-page retrieval -> citing-proposition extraction -> pinpoint check
                 └── completed checks -> locator candidate assessment -> citation summary
         """
         if lookup.outcome is not LocatorLookupOutcome.FOUND:
@@ -154,6 +161,26 @@ class CitationValidationRunner:
                 document_text=document_text,
                 session=session,
             )
+        # MVE scope: reporter-page retrieval belongs only to the unique
+        # exact-locator FOUND route. Ambiguous and search-derived candidates
+        # intentionally wait for broader candidate/opinion scope semantics.
+        retrieval = run_reporter_page_retrieval(validation, evaluation=candidate, client=self.client)
+        validation = validation.append(retrieval)
+        proposition = await run_mellea_citing_proposition_extraction(
+            validation,
+            trigger=retrieval,
+            document_text=document_text,
+            session=session,
+        )
+        validation = validation.append(proposition)
+        validation = validation.append(
+            await run_mellea_pinpoint_check(
+                validation,
+                retrieval=retrieval,
+                proposition=proposition,
+                session=session,
+            )
+        )
         assessment = run_locator_candidate_assessment(validation, candidate=candidate)
         validation = validation.append(assessment)
         return validation.append(run_locator_citation_summary(validation, assessment=assessment))
@@ -289,7 +316,7 @@ class CitationValidationRunner:
                         candidate=candidate,
                         session=session,
                     )
-        return validation
+        return validation.append(run_search_citation_summary(validation))
 
     async def run_search_candidate_validation(
         self,

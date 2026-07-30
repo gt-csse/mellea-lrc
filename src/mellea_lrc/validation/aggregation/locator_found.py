@@ -4,19 +4,26 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from mellea_lrc.validation.aggregation.citation_summary_candidate import citation_summary_candidate
+from mellea_lrc.validation.aggregation.citation_summary_outcome import overall_citation_outcome
 from mellea_lrc.validation.types import (
     AggregatedFieldOutcome,
     CandidateEvaluationNode,
+    CandidateProvenance,
+    CitationSummaryCandidate,
     CourtCheckNode,
     DocketCourtRetrievalNode,
     ExactCaseNameCheckNode,
+    ExactLocatorLookupNode,
     FieldCheckOutcome,
     LocatorCandidateAssessmentNode,
     LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode,
     LocatorCitationSummaryOutcome,
+    LocatorLookupOutcome,
     MelleaCaseNameCheckNode,
     MelleaCaseNameCheckOutcome,
+    MelleaPinpointCheckOutcome,
     MelleaReextractedCaseNameCheckNode,
     ValidationNodeStatus,
     YearCheckNode,
@@ -68,14 +75,49 @@ def run_locator_citation_summary(
     assessment: LocatorCandidateAssessmentNode,
 ) -> LocatorCitationSummaryNode:
     """Expose the candidate assessment as the terminal found-locator summary."""
+    candidate = citation_summary_candidate(
+        validation,
+        assessment,
+        provenance=CandidateProvenance.OPINION,
+    )
     return LocatorCitationSummaryNode(
         node_id=f"{validation.citation_id}:locator_citation_summary",
         status=ValidationNodeStatus.SUCCEEDED,
         outcome=LocatorCitationSummaryOutcome.COMPLETE,
-        assessment_node_id=assessment.node_id,
-        depends_on=(assessment.node_id,),
+        overall_outcome=overall_citation_outcome((candidate.outcome,)),
+        pinpoint_requires_review=_pinpoint_requires_review(validation, (candidate,)),
+        candidates=(candidate,),
+        depends_on=(
+            assessment.node_id,
+            *((candidate.pinpoint.node_id,) if candidate.pinpoint is not None else ()),
+        ),
         status_message="Locator citation summary completed.",
         outcome_message="Listed the one fully evaluated locator candidate.",
+    )
+
+
+def _pinpoint_requires_review(
+    validation: CitationValidation,
+    candidates: tuple[CitationSummaryCandidate, ...],
+) -> bool | None:
+    """Flag a matched unique locator whose pinpoint check did not support it."""
+    lookup = next(
+        (node for node in validation.nodes if isinstance(node, ExactLocatorLookupNode)),
+        None,
+    )
+    # Temporary found-route-only aggregation: reporter-page and pinpoint work
+    # currently run only below one exact locator result. Revisit this signal
+    # when candidate aggregation gains pinpoint semantics for other routes.
+    if lookup is None or lookup.outcome is not LocatorLookupOutcome.FOUND:
+        return None
+    matched = tuple(
+        candidate for candidate in candidates if candidate.outcome is LocatorCandidateAssessmentOutcome.MATCH
+    )
+    if not matched:
+        return None
+    return any(
+        candidate.pinpoint is None or candidate.pinpoint.outcome is not MelleaPinpointCheckOutcome.SUPPORTS
+        for candidate in matched
     )
 
 

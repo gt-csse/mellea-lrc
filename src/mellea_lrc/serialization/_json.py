@@ -20,10 +20,10 @@ def serialize_dataclass(value: object) -> dict[str, JsonValue]:
 
 def serialize_value(value: object) -> JsonValue:
     """Convert supported immutable domain values into JSON-compatible values."""
-    if value is None or isinstance(value, str | int | float | bool):
-        return value
     if isinstance(value, Enum):
         return serialize_value(value.value)
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
     if is_dataclass(value) and not isinstance(value, type):
         return serialize_dataclass(value)
     if isinstance(value, Mapping):

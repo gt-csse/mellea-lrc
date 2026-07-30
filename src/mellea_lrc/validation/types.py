@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, TypeAlias
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from mellea_lrc.core.spans import Span
     from mellea_lrc.courtlistener.opinion_models import CourtListenerOpinionCluster
     from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
 
@@ -91,6 +92,40 @@ class DocketCourtRetrievalOutcome(str, Enum):
     FAILED = "failed"
 
 
+class ReporterPageRetrievalOutcome(str, Enum):
+    """Results of retrieving a reporter page from citation-aware opinion HTML."""
+
+    FOUND = "found"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
+class MelleaPinpointCheckOutcome(str, Enum):
+    """Semantic support findings from one retrieved reporter page."""
+
+    SUPPORTS = "supports"
+    INCONCLUSIVE = "inconclusive"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
+class MelleaCitingPropositionExtractionOutcome(str, Enum):
+    """Results of identifying the proposition attributed to one citation."""
+
+    IDENTIFIED = "identified"
+    INCONCLUSIVE = "inconclusive"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
+class EvidenceQuoteMatchMethod(str, Enum):
+    """How a model-proposed quote was grounded in retrieved page text."""
+
+    EXACT = "exact"
+    NORMALIZED = "normalized"
+    FUZZY = "fuzzy"
+
+
 class CandidateSelectionOutcome(str, Enum):
     """Results of applying the bounded candidate-validation guard."""
 
@@ -144,6 +179,29 @@ class SearchCandidateAssessmentOutcome(str, Enum):
 
 
 MIN_AMBIGUOUS_CANDIDATE_COUNT = 2
+
+CandidateAssessmentOutcome: TypeAlias = LocatorCandidateAssessmentOutcome | SearchCandidateAssessmentOutcome
+
+
+class CitationSummaryAssessmentOutcome(str, Enum):
+    """Overall conclusion reduced from all assessed citation candidates."""
+
+    MATCH = "match"
+    POSSIBLE_MATCH = "possible_match"
+    MISMATCH = "mismatch"
+
+
+class CandidateProvenance(str, Enum):
+    """CourtListener corpus that supplied a candidate assessment."""
+
+    OPINION = "opinion"
+    RECAP = "recap"
+
+
+class SearchCitationSummaryOutcome(str, Enum):
+    """Completion state for the list of evaluated search candidates."""
+
+    COMPLETE = "complete"
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,6 +415,70 @@ class DocketCourtRetrievalNode:
 
 
 @dataclass(frozen=True, slots=True)
+class ReporterPageEvidence:
+    """One reporter page recovered from a CourtListener sub-opinion."""
+
+    opinion_id: str
+    opinion_type: str
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReporterPageRetrievalNode:
+    """Serialization-ready reporter-page evidence for one opinion candidate."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: ReporterPageRetrievalOutcome
+    cluster_id: str | None
+    reporter_citation: str | None
+    pin_cite: str | None
+    citation_index: int | None
+    evidence: ReporterPageEvidence | None
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MelleaPinpointCheckNode:
+    """Semantic judgment with evidence offsets into its retrieval dependency's page text."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: MelleaPinpointCheckOutcome
+    reasoning: str | None
+    evidence_quote: str | None
+    evidence_span: Span | None
+    evidence_match_method: EvidenceQuoteMatchMethod | None
+    evidence_match_score: float | None
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MelleaCitingPropositionExtractionNode:
+    """Grounded citing proposition and its offsets in the source document."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: MelleaCitingPropositionExtractionOutcome
+    context_span: Span
+    reasoning: str | None
+    proposition: str | None
+    proposition_span: Span | None
+    proposition_match_method: EvidenceQuoteMatchMethod | None
+    proposition_match_score: float | None
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class CourtCheckNode:
     """Exact comparison of Eyecite and CourtListener court identifiers."""
 
@@ -390,19 +512,6 @@ class LocatorCandidateAssessmentNode:
     retrieved_court_id: str | None
     court_outcome: AggregatedFieldOutcome
     docket_id: str | None
-    depends_on: tuple[str, ...]
-    status_message: str | None = None
-    outcome_message: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class LocatorCitationSummaryNode:
-    """Terminal summary for the fully validated unique-locator route."""
-
-    node_id: str
-    status: ValidationNodeStatus
-    outcome: LocatorCitationSummaryOutcome
-    assessment_node_id: str
     depends_on: tuple[str, ...]
     status_message: str | None = None
     outcome_message: str | None = None
@@ -459,6 +568,85 @@ class RecapSearchCandidateAssessmentNode:
 
 
 @dataclass(frozen=True, slots=True)
+class CitationSummaryPinpoint:
+    """Frontend-ready projection of one candidate's pinpoint comparison."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: MelleaPinpointCheckOutcome
+    reporter_citation: str | None
+    pin_cite: str | None
+    opinion_id: str | None
+    opinion_type: str | None
+    reporter_page_text: str | None
+    citing_context_span: Span
+    citation_span: Span
+    proposition: str | None
+    proposition_span: Span | None
+    reasoning: str | None
+    evidence_quote: str | None
+    evidence_span: Span | None
+    evidence_match_method: EvidenceQuoteMatchMethod | None
+    evidence_match_score: float | None
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CitationSummaryCandidate:
+    """Frontend-ready, provenance-tagged candidate exposed by a citation summary."""
+
+    provenance: CandidateProvenance
+    candidate_index: int
+    assessment_node_id: str
+    outcome: CandidateAssessmentOutcome
+    extracted_citation: str | None
+    extracted_case_name: str | None
+    retrieved_case_name: str | None
+    case_name_outcome: AggregatedFieldOutcome
+    case_name_evidence: str
+    extracted_year: str | None
+    retrieved_year: str | None
+    year_outcome: AggregatedFieldOutcome
+    extracted_court_id: str | None
+    retrieved_court_id: str | None
+    court_outcome: AggregatedFieldOutcome
+    docket_id: str | None
+    opinion_url: str | None = None
+    pinpoint: CitationSummaryPinpoint | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LocatorCitationSummaryNode:
+    """Terminal list of every fully evaluated candidate from one locator route."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: LocatorCitationSummaryOutcome
+    overall_outcome: CitationSummaryAssessmentOutcome | None
+    pinpoint_requires_review: bool | None
+    candidates: tuple[CitationSummaryCandidate, ...]
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SearchCitationSummaryNode:
+    """Terminal list of every assessed candidate from both search corpora."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: SearchCitationSummaryOutcome
+    overall_outcome: CitationSummaryAssessmentOutcome | None
+    candidates: tuple[CitationSummaryCandidate, ...]
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class YearCheckNode:
     """Deterministic decision-year comparison after a found locator lookup."""
 
@@ -485,9 +673,13 @@ ValidationNode: TypeAlias = (
     | CandidateEvaluationNode
     | MelleaReextractedCaseNameCheckNode
     | DocketCourtRetrievalNode
+    | ReporterPageRetrievalNode
+    | MelleaCitingPropositionExtractionNode
+    | MelleaPinpointCheckNode
     | CourtCheckNode
     | LocatorCandidateAssessmentNode
     | LocatorCitationSummaryNode
+    | SearchCitationSummaryNode
     | OpinionSearchCandidateAssessmentNode
     | RecapSearchCandidateAssessmentNode
     | YearCheckNode
@@ -521,9 +713,13 @@ class CitationValidation:
         return replace(self, nodes=(*self.nodes, node))
 
     @property
-    def aggregation(self) -> LocatorCitationSummaryNode | None:
-        """Return the unique-locator summary when this route reached aggregation."""
-        summaries = tuple(node for node in self.nodes if isinstance(node, LocatorCitationSummaryNode))
+    def aggregation(self) -> LocatorCitationSummaryNode | SearchCitationSummaryNode | None:
+        """Return the route's explicit terminal summary when one was reached."""
+        summaries = tuple(
+            node
+            for node in self.nodes
+            if isinstance(node, (LocatorCitationSummaryNode, SearchCitationSummaryNode))
+        )
         return summaries[0] if len(summaries) == 1 else None
 
 

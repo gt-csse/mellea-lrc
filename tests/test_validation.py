@@ -41,13 +41,17 @@ from mellea_lrc.validation import (
     MelleaCaseNameQueryPreparationOutcome,
     MelleaCaseNameReextractionNode,
     MelleaCaseNameReextractionOutcome,
+    MelleaCitingPropositionExtractionNode,
+    MelleaPinpointCheckNode,
     OpinionSearchCandidateAssessmentNode,
     OpinionSearchNode,
     OpinionSearchOutcome,
     RecapSearchCandidateAssessmentNode,
     RecapSearchNode,
     RecapSearchOutcome,
+    ReporterPageRetrievalNode,
     SearchCandidateAssessmentOutcome,
+    SearchCitationSummaryNode,
     ValidatedDocument,
     ValidationNodeStatus,
     YearCheckNode,
@@ -210,7 +214,7 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
 
     progression = validation.citation_by_id("cite-0001")
     assert client.calls == [("347", "U.S.", "483")]
-    assert len(progression.nodes) == 8
+    assert len(progression.nodes) == 11
     (
         exact_locator_lookup_node,
         candidate_evaluation_node,
@@ -218,6 +222,9 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
         year_check_node,
         docket_court_retrieval_node,
         court_check_node,
+        reporter_page_retrieval_node,
+        citing_proposition_node,
+        pinpoint_check_node,
         assessment_node,
         summary_node,
     ) = progression.nodes
@@ -240,6 +247,9 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
     assert isinstance(court_check_node, CourtCheckNode)
     assert court_check_node.outcome is FieldCheckOutcome.MATCH
     assert court_check_node.depends_on == (docket_court_retrieval_node.node_id,)
+    assert isinstance(reporter_page_retrieval_node, ReporterPageRetrievalNode)
+    assert isinstance(citing_proposition_node, MelleaCitingPropositionExtractionNode)
+    assert isinstance(pinpoint_check_node, MelleaPinpointCheckNode)
     assert isinstance(assessment_node, LocatorCandidateAssessmentNode)
     assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.MATCH
     assert assessment_node.case_name_outcome is AggregatedFieldOutcome.MATCH
@@ -247,7 +257,7 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
     assert assessment_node.court_outcome is AggregatedFieldOutcome.MATCH
     assert isinstance(summary_node, LocatorCitationSummaryNode)
     assert summary_node.outcome is LocatorCitationSummaryOutcome.COMPLETE
-    assert summary_node.assessment_node_id == assessment_node.node_id
+    assert summary_node.candidates[0].assessment_node_id == assessment_node.node_id
     assert progression.aggregation is summary_node
 
 
@@ -309,6 +319,9 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
         _,
         court_check_node,
         semantic_case_name_check_node,
+        _,
+        _,
+        _,
         assessment_node,
         summary_node,
     ) = _validate(extracted, client).citations[0].nodes
@@ -322,7 +335,7 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
     assert court_check_node.status is ValidationNodeStatus.SUCCEEDED
     assert court_check_node.outcome is FieldCheckOutcome.MISMATCH
     assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
-    assert summary_node.assessment_node_id == assessment_node.node_id
+    assert summary_node.candidates[0].assessment_node_id == assessment_node.node_id
 
 
 def test_found_field_checks_skip_unavailable_values() -> None:
@@ -335,9 +348,19 @@ def test_found_field_checks_skip_unavailable_values() -> None:
         )
     )
 
-    _, _, exact_case_name_check_node, year_check_node, _, court_check_node, assessment_node, summary_node = (
-        _validate(extracted, client).citations[0].nodes
-    )
+    (
+        _,
+        _,
+        exact_case_name_check_node,
+        year_check_node,
+        _,
+        court_check_node,
+        _,
+        _,
+        _,
+        assessment_node,
+        summary_node,
+    ) = _validate(extracted, client).citations[0].nodes
 
     assert exact_case_name_check_node.status is ValidationNodeStatus.SKIPPED
     assert exact_case_name_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
@@ -346,7 +369,7 @@ def test_found_field_checks_skip_unavailable_values() -> None:
     assert court_check_node.status is ValidationNodeStatus.SKIPPED
     assert court_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
     assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.INCONCLUSIVE
-    assert summary_node.assessment_node_id == assessment_node.node_id
+    assert summary_node.candidates[0].assessment_node_id == assessment_node.node_id
 
 
 def test_mellea_case_name_reextraction_uses_only_local_context(
@@ -496,7 +519,7 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
     session = object()
     progression = asyncio.run(validate_document(extracted, client=client, session=session)).citations[0]
 
-    assert len(progression.nodes) == 22
+    assert len(progression.nodes) == 23
     assert progression.nodes[0].outcome is LocatorLookupOutcome.NOT_FOUND
     assert isinstance(progression.nodes[1], MelleaCaseNameReextractionNode)
     assert progression.nodes[1].outcome is MelleaCaseNameReextractionOutcome.COMPLETE
@@ -584,6 +607,8 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
         progression.nodes[19].node_id,
         progression.nodes[20].node_id,
     )
+    assert isinstance(progression.nodes[22], SearchCitationSummaryNode)
+    assert progression.aggregation is progression.nodes[22]
     assert client.search_calls == [(prepared_query, "o"), (prepared_query, "r")]
     assert calls[0][1:] == (extracted.text, session)
 
