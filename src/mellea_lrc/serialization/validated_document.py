@@ -75,6 +75,7 @@ from mellea_lrc.validation.types import (
 EnumT = TypeVar("EnumT", bound=Enum)
 
 _ARTIFACT_TYPE = "validated_document"
+EnumT = TypeVar("EnumT", bound=Enum)
 
 _NODE_TYPES: dict[str, type[ValidationNode]] = {
     node_type.__name__: node_type
@@ -96,9 +97,9 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
         CourtCheckNode,
         LocatorCandidateAssessmentNode,
         LocatorCitationSummaryNode,
+        SearchCitationSummaryNode,
         OpinionSearchCandidateAssessmentNode,
         RecapSearchCandidateAssessmentNode,
-        SearchCitationSummaryNode,
         YearCheckNode,
     )
 }
@@ -121,9 +122,9 @@ _OUTCOME_TYPES = {
     CourtCheckNode: FieldCheckOutcome,
     LocatorCandidateAssessmentNode: LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode: LocatorCitationSummaryOutcome,
+    SearchCitationSummaryNode: SearchCitationSummaryOutcome,
     OpinionSearchCandidateAssessmentNode: SearchCandidateAssessmentOutcome,
     RecapSearchCandidateAssessmentNode: SearchCandidateAssessmentOutcome,
-    SearchCitationSummaryNode: SearchCitationSummaryOutcome,
     YearCheckNode: FieldCheckOutcome,
 }
 

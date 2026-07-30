@@ -1,15 +1,11 @@
-"""Terminal citation summary across opinion and RECAP search candidates."""
+"""Terminal aggregation for candidates assessed from CourtListener searches."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from mellea_lrc.validation.aggregation.citation_summary_candidate import (
-    citation_summary_candidate,
-)
-from mellea_lrc.validation.aggregation.citation_summary_outcome import (
-    overall_citation_outcome,
-)
+from mellea_lrc.validation.aggregation.citation_summary_candidate import citation_summary_candidate
+from mellea_lrc.validation.aggregation.citation_summary_outcome import overall_citation_outcome
 from mellea_lrc.validation.types import (
     CandidateProvenance,
     OpinionSearchCandidateAssessmentNode,
@@ -51,17 +47,18 @@ def run_search_citation_summary(
             for assessment in recap_assessments
         ),
     )
+    opinion_count = sum(entry.provenance is CandidateProvenance.OPINION for entry in candidates)
+    recap_count = len(candidates) - opinion_count
     return SearchCitationSummaryNode(
         node_id=f"{validation.citation_id}:search_citation_summary",
         status=ValidationNodeStatus.SUCCEEDED,
         outcome=SearchCitationSummaryOutcome.COMPLETE,
-        overall_outcome=overall_citation_outcome(candidate.outcome for candidate in candidates),
+        overall_outcome=overall_citation_outcome(entry.outcome for entry in candidates),
         candidates=candidates,
-        depends_on=tuple(candidate.assessment_node_id for candidate in candidates),
+        depends_on=tuple(entry.assessment_node_id for entry in candidates),
         status_message="Search-candidate summary completed.",
         outcome_message=(
-            f"Listed {len(opinion_assessments)} opinion-search and "
-            f"{len(recap_assessments)} RECAP-search candidate assessments "
-            "without selecting a final citation."
+            f"Listed {opinion_count} opinion-search and {recap_count} RECAP-search candidate "
+            "assessments without selecting a final citation."
         ),
     )
