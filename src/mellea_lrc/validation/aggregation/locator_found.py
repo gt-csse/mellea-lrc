@@ -136,7 +136,11 @@ def _required_child(
     node_type: type[ExactCaseNameCheckNode] | type[YearCheckNode],
     candidate_node_id: str,
 ) -> ExactCaseNameCheckNode | YearCheckNode:
-    matches = [node for node in validation.nodes if isinstance(node, node_type) and candidate_node_id in node.depends_on]
+    matches = [
+        node
+        for node in validation.nodes
+        if isinstance(node, node_type) and candidate_node_id in node.depends_on
+    ]
     if len(matches) != 1:
         msg = f"Locator candidate assessment requires one {node_type.__name__} below {candidate_node_id!r}"
         raise ValueError(msg)
@@ -145,7 +149,11 @@ def _required_child(
 
 def _required_court_check(validation: CitationValidation, candidate_node_id: str) -> CourtCheckNode:
     docket = _required_child(validation, DocketCourtRetrievalNode, candidate_node_id)
-    matches = [node for node in validation.nodes if isinstance(node, CourtCheckNode) and docket.node_id in node.depends_on]
+    matches = [
+        node
+        for node in validation.nodes
+        if isinstance(node, CourtCheckNode) and docket.node_id in node.depends_on
+    ]
     if len(matches) != 1:
         msg = f"Locator candidate assessment requires one court check below {candidate_node_id!r}"
         raise ValueError(msg)
