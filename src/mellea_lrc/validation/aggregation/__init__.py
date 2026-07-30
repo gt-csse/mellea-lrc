@@ -7,9 +7,13 @@ from mellea_lrc.validation.aggregation.locator_found import (
 from mellea_lrc.validation.aggregation.opinion_search import (
     run_opinion_search_candidate_assessment,
 )
+from mellea_lrc.validation.aggregation.recap_search import (
+    run_recap_search_candidate_assessment,
+)
 
 __all__ = [
     "run_locator_candidate_assessment",
     "run_locator_citation_summary",
     "run_opinion_search_candidate_assessment",
+    "run_recap_search_candidate_assessment",
 ]

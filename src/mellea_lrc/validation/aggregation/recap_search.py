@@ -1,4 +1,4 @@
-"""Assessment projection for one completed opinion-search candidate."""
+"""Assessment projection for one completed RECAP-search candidate."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from mellea_lrc.validation.aggregation.search_candidate import (
 from mellea_lrc.validation.types import (
     CandidateEvaluationNode,
     CandidateEvaluationSource,
-    OpinionSearchCandidateAssessmentNode,
+    RecapSearchCandidateAssessmentNode,
     ValidationNodeStatus,
 )
 
@@ -19,18 +19,18 @@ if TYPE_CHECKING:
     from mellea_lrc.validation.types import CitationValidation
 
 
-def run_opinion_search_candidate_assessment(
+def run_recap_search_candidate_assessment(
     validation: CitationValidation,
     *,
     candidate: CandidateEvaluationNode,
-) -> OpinionSearchCandidateAssessmentNode:
-    """Reduce one completed opinion-search subtree into a candidate conclusion."""
-    if candidate.source is not CandidateEvaluationSource.OPINION_SEARCH:
-        msg = "Opinion-search assessment requires an opinion-search candidate"
+) -> RecapSearchCandidateAssessmentNode:
+    """Reduce one completed RECAP-search subtree into a candidate conclusion."""
+    if candidate.source is not CandidateEvaluationSource.RECAP_SEARCH:
+        msg = "RECAP-search assessment requires a RECAP-search candidate"
         raise ValueError(msg)
     assessment = evaluate_search_candidate(validation, candidate=candidate)
-    return OpinionSearchCandidateAssessmentNode(
-        node_id=f"{candidate.node_id}:opinion_search_candidate_assessment",
+    return RecapSearchCandidateAssessmentNode(
+        node_id=f"{candidate.node_id}:recap_search_candidate_assessment",
         status=ValidationNodeStatus.SUCCEEDED,
         outcome=assessment.outcome,
         candidate_index=candidate.candidate_index,
@@ -47,6 +47,6 @@ def run_opinion_search_candidate_assessment(
         court_outcome=assessment.court_outcome,
         docket_id=candidate.docket_id,
         depends_on=assessment.depends_on,
-        status_message="Opinion-search candidate assessment completed.",
+        status_message="RECAP-search candidate assessment completed.",
         outcome_message=assessment_message(candidate, assessment.outcome),
     )

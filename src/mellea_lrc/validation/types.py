@@ -434,6 +434,31 @@ class OpinionSearchCandidateAssessmentNode:
 
 
 @dataclass(frozen=True, slots=True)
+class RecapSearchCandidateAssessmentNode:
+    """Serialization-ready conclusion for one RECAP-search candidate."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: SearchCandidateAssessmentOutcome
+    candidate_index: int
+    extracted_citation: str | None
+    extracted_case_name: str | None
+    retrieved_case_name: str | None
+    case_name_outcome: AggregatedFieldOutcome
+    case_name_evidence: str
+    extracted_year: str | None
+    retrieved_year: str | None
+    year_outcome: AggregatedFieldOutcome
+    extracted_court_id: str | None
+    retrieved_court_id: str | None
+    court_outcome: AggregatedFieldOutcome
+    docket_id: str | None
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class YearCheckNode:
     """Deterministic decision-year comparison after a found locator lookup."""
 
@@ -464,6 +489,7 @@ ValidationNode: TypeAlias = (
     | LocatorCandidateAssessmentNode
     | LocatorCitationSummaryNode
     | OpinionSearchCandidateAssessmentNode
+    | RecapSearchCandidateAssessmentNode
     | YearCheckNode
 )
 

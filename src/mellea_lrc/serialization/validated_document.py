@@ -41,6 +41,7 @@ from mellea_lrc.validation.types import (
     OpinionSearchCandidateAssessmentNode,
     OpinionSearchNode,
     OpinionSearchOutcome,
+    RecapSearchCandidateAssessmentNode,
     RecapSearchNode,
     RecapSearchOutcome,
     SearchCandidateAssessmentOutcome,
@@ -70,6 +71,7 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
         LocatorCandidateAssessmentNode,
         LocatorCitationSummaryNode,
         OpinionSearchCandidateAssessmentNode,
+        RecapSearchCandidateAssessmentNode,
         YearCheckNode,
     )
 }
@@ -90,6 +92,7 @@ _OUTCOME_TYPES = {
     LocatorCandidateAssessmentNode: LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode: LocatorCitationSummaryOutcome,
     OpinionSearchCandidateAssessmentNode: SearchCandidateAssessmentOutcome,
+    RecapSearchCandidateAssessmentNode: SearchCandidateAssessmentOutcome,
     YearCheckNode: FieldCheckOutcome,
 }
 
@@ -165,7 +168,11 @@ def _deserialize_node(value: object) -> ValidationNode:
             fields["record"] = _deserialize_cluster(fields["record"])
         else:
             fields["record"] = _freeze_search_results([fields["record"]])[0]
-    elif node_type in (LocatorCandidateAssessmentNode, OpinionSearchCandidateAssessmentNode):
+    elif node_type in (
+        LocatorCandidateAssessmentNode,
+        OpinionSearchCandidateAssessmentNode,
+        RecapSearchCandidateAssessmentNode,
+    ):
         for field_name in ("case_name_outcome", "year_outcome", "court_outcome"):
             fields[field_name] = AggregatedFieldOutcome(fields[field_name])
     return node_type(**fields)

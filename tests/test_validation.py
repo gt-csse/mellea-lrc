@@ -11,9 +11,9 @@ from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import (
     CourtListenerCitationLookup,
-    CourtListenerOpinionCluster,
     CourtListenerDocket,
     CourtListenerError,
+    CourtListenerOpinionCluster,
     CourtListenerSearchResult,
 )
 from mellea_lrc.extraction import ExtractedCitation, ExtractedDocument, ExtractionMetadata
@@ -30,11 +30,11 @@ from mellea_lrc.validation import (
     ExactCaseNameCheckNode,
     ExactLocatorLookupNode,
     FieldCheckOutcome,
-    LocatorLookupOutcome,
     LocatorCandidateAssessmentNode,
     LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode,
     LocatorCitationSummaryOutcome,
+    LocatorLookupOutcome,
     MelleaCaseNameCheckNode,
     MelleaCaseNameCheckOutcome,
     MelleaCaseNameQueryPreparationNode,
@@ -44,6 +44,7 @@ from mellea_lrc.validation import (
     OpinionSearchCandidateAssessmentNode,
     OpinionSearchNode,
     OpinionSearchOutcome,
+    RecapSearchCandidateAssessmentNode,
     RecapSearchNode,
     RecapSearchOutcome,
     SearchCandidateAssessmentOutcome,
@@ -495,7 +496,7 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
     session = object()
     progression = asyncio.run(validate_document(extracted, client=client, session=session)).citations[0]
 
-    assert len(progression.nodes) == 20
+    assert len(progression.nodes) == 22
     assert progression.nodes[0].outcome is LocatorLookupOutcome.NOT_FOUND
     assert isinstance(progression.nodes[1], MelleaCaseNameReextractionNode)
     assert progression.nodes[1].outcome is MelleaCaseNameReextractionOutcome.COMPLETE
@@ -558,17 +559,31 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
     assert isinstance(progression.nodes[15], CourtCheckNode)
     assert progression.nodes[15].outcome is FieldCheckOutcome.UNAVAILABLE
     assert progression.nodes[15].depends_on == (progression.nodes[12].node_id,)
-    assert isinstance(progression.nodes[16], CandidateEvaluationNode)
-    assert progression.nodes[16].source is CandidateEvaluationSource.RECAP_SEARCH
-    assert progression.nodes[16].candidate_index == 2
-    assert progression.nodes[16].depends_on == (progression.nodes[11].node_id,)
-    assert isinstance(progression.nodes[17], ExactCaseNameCheckNode)
-    assert progression.nodes[17].outcome is FieldCheckOutcome.UNAVAILABLE
-    assert isinstance(progression.nodes[18], YearCheckNode)
+    assert isinstance(progression.nodes[16], RecapSearchCandidateAssessmentNode)
+    assert progression.nodes[16].outcome is SearchCandidateAssessmentOutcome.MISMATCH
+    assert progression.nodes[16].depends_on == (
+        progression.nodes[13].node_id,
+        progression.nodes[14].node_id,
+        progression.nodes[15].node_id,
+    )
+    assert isinstance(progression.nodes[17], CandidateEvaluationNode)
+    assert progression.nodes[17].source is CandidateEvaluationSource.RECAP_SEARCH
+    assert progression.nodes[17].candidate_index == 2
+    assert progression.nodes[17].depends_on == (progression.nodes[11].node_id,)
+    assert isinstance(progression.nodes[18], ExactCaseNameCheckNode)
     assert progression.nodes[18].outcome is FieldCheckOutcome.UNAVAILABLE
-    assert isinstance(progression.nodes[19], CourtCheckNode)
+    assert isinstance(progression.nodes[19], YearCheckNode)
     assert progression.nodes[19].outcome is FieldCheckOutcome.UNAVAILABLE
-    assert progression.nodes[19].depends_on == (progression.nodes[16].node_id,)
+    assert isinstance(progression.nodes[20], CourtCheckNode)
+    assert progression.nodes[20].outcome is FieldCheckOutcome.UNAVAILABLE
+    assert progression.nodes[20].depends_on == (progression.nodes[17].node_id,)
+    assert isinstance(progression.nodes[21], RecapSearchCandidateAssessmentNode)
+    assert progression.nodes[21].outcome is SearchCandidateAssessmentOutcome.MISMATCH
+    assert progression.nodes[21].depends_on == (
+        progression.nodes[18].node_id,
+        progression.nodes[19].node_id,
+        progression.nodes[20].node_id,
+    )
     assert client.search_calls == [(prepared_query, "o"), (prepared_query, "r")]
     assert calls[0][1:] == (extracted.text, session)
 
@@ -653,14 +668,22 @@ def test_search_candidate_uses_semantic_check_without_reextracting(
     ]
     if source is CandidateEvaluationSource.OPINION_SEARCH:
         expected_types.append(OpinionSearchCandidateAssessmentNode)
+    if source is CandidateEvaluationSource.RECAP_SEARCH:
+        expected_types.append(RecapSearchCandidateAssessmentNode)
     assert [type(node) for node in progression.nodes] == expected_types
     assert progression.nodes[1].outcome is FieldCheckOutcome.MISMATCH
     assert progression.nodes[2].outcome is FieldCheckOutcome.MATCH
     assert progression.nodes[3].outcome is FieldCheckOutcome.MATCH
     assert calls[0].depends_on == (candidate.node_id,)
-    if source is CandidateEvaluationSource.OPINION_SEARCH:
+    if source in {
+        CandidateEvaluationSource.OPINION_SEARCH,
+        CandidateEvaluationSource.RECAP_SEARCH,
+    }:
         assessment = progression.nodes[-1]
-        assert isinstance(assessment, OpinionSearchCandidateAssessmentNode)
+        assert isinstance(
+            assessment,
+            OpinionSearchCandidateAssessmentNode | RecapSearchCandidateAssessmentNode,
+        )
         assert assessment.outcome is SearchCandidateAssessmentOutcome.POSSIBLE_MATCH
         assert assessment.depends_on == (
             progression.nodes[4].node_id,
@@ -718,6 +741,53 @@ def test_opinion_search_candidate_assessment_requires_every_field_to_match() -> 
     assert assessment.year_outcome is AggregatedFieldOutcome.MISMATCH
     assert assessment.court_outcome is AggregatedFieldOutcome.MATCH
     assert assessment.outcome is SearchCandidateAssessmentOutcome.MISMATCH
+
+
+def test_recap_search_candidate_assessment_does_not_treat_docket_year_as_a_mismatch() -> None:
+    """RECAP dates describe a docket, not necessarily the cited opinion's publication year."""
+    extracted = _document(
+        FullCaseCitation(
+            plaintiff="Brown",
+            defendant="Board of Education",
+            volume="347",
+            reporter="U.S.",
+            page="9999",
+            year="1954",
+            court="scotus",
+        )
+    )
+    validation = initialize_validation(extracted).citations[0]
+    candidate = CandidateEvaluationNode(
+        node_id="cite-0001:recap_search_candidate_evaluation:1",
+        status=ValidationNodeStatus.SUCCEEDED,
+        outcome=CandidateEvaluationOutcome.READY,
+        source=CandidateEvaluationSource.RECAP_SEARCH,
+        candidate_index=1,
+        cluster_id=None,
+        case_name="Brown v. Board of Education",
+        date_filed="1955-05-17",
+        court_id="scotus",
+        docket_id="123",
+        record={},
+        depends_on=(),
+    )
+
+    progression = asyncio.run(
+        CitationValidationRunner(
+            client=LookupClient(
+                CourtListenerCitationLookup(citation="347 U.S. 9999", status=404, clusters=())
+            )
+        ).run_search_candidate_validation(
+            validation.append(candidate),
+            candidate=candidate,
+            session=None,
+        )
+    )
+
+    assessment = progression.nodes[-1]
+    assert isinstance(assessment, RecapSearchCandidateAssessmentNode)
+    assert assessment.year_outcome is AggregatedFieldOutcome.MISMATCH
+    assert assessment.outcome is SearchCandidateAssessmentOutcome.POSSIBLE_MATCH
 
 
 def test_mellea_case_name_query_preparation_constructs_the_courtlistener_query(
