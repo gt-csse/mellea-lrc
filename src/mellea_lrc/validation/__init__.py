@@ -2,6 +2,7 @@
 
 from mellea_lrc.validation.pipeline import initialize_validation, validate_document
 from mellea_lrc.validation.types import (
+    AggregatedFieldOutcome,
     CandidateEvaluationNode,
     CandidateEvaluationOutcome,
     CandidateEvaluationSource,
@@ -14,6 +15,10 @@ from mellea_lrc.validation.types import (
     ExactCaseNameCheckNode,
     ExactLocatorLookupNode,
     FieldCheckOutcome,
+    LocatorCandidateAssessmentNode,
+    LocatorCandidateAssessmentOutcome,
+    LocatorCitationSummaryNode,
+    LocatorCitationSummaryOutcome,
     LocatorLookupOutcome,
     MelleaCaseNameCheckNode,
     MelleaCaseNameCheckOutcome,
@@ -33,6 +38,7 @@ from mellea_lrc.validation.types import (
 )
 
 __all__ = [
+    "AggregatedFieldOutcome",
     "CandidateEvaluationNode",
     "CandidateEvaluationOutcome",
     "CandidateEvaluationSource",
@@ -45,6 +51,10 @@ __all__ = [
     "ExactCaseNameCheckNode",
     "ExactLocatorLookupNode",
     "FieldCheckOutcome",
+    "LocatorCandidateAssessmentNode",
+    "LocatorCandidateAssessmentOutcome",
+    "LocatorCitationSummaryNode",
+    "LocatorCitationSummaryOutcome",
     "LocatorLookupOutcome",
     "MelleaCaseNameCheckNode",
     "MelleaCaseNameCheckOutcome",

@@ -112,6 +112,30 @@ class CandidateEvaluationSource(str, Enum):
     RECAP_SEARCH = "recap_search"
 
 
+class AggregatedFieldOutcome(str, Enum):
+    """Field-level outcome projected into a candidate assessment."""
+
+    MATCH = "match"
+    MISMATCH = "mismatch"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
+class LocatorCandidateAssessmentOutcome(str, Enum):
+    """Overall conclusion for one uniquely located opinion candidate."""
+
+    MATCH = "match"
+    MISMATCH = "mismatch"
+    PARTIAL_MATCH = "partial_match"
+    INCONCLUSIVE = "inconclusive"
+
+
+class LocatorCitationSummaryOutcome(str, Enum):
+    """Completion state of the unique-locator citation summary."""
+
+    COMPLETE = "complete"
+
+
 MIN_AMBIGUOUS_CANDIDATE_COUNT = 2
 
 
@@ -340,6 +364,44 @@ class CourtCheckNode:
 
 
 @dataclass(frozen=True, slots=True)
+class LocatorCandidateAssessmentNode:
+    """Table-ready conclusion for the one candidate from a found locator."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: LocatorCandidateAssessmentOutcome
+    candidate_index: int
+    extracted_citation: str | None
+    extracted_case_name: str | None
+    retrieved_case_name: str | None
+    case_name_outcome: AggregatedFieldOutcome
+    case_name_evidence: str
+    extracted_year: str | None
+    retrieved_year: str | None
+    year_outcome: AggregatedFieldOutcome
+    extracted_court_id: str | None
+    retrieved_court_id: str | None
+    court_outcome: AggregatedFieldOutcome
+    docket_id: str | None
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LocatorCitationSummaryNode:
+    """Terminal summary for the fully validated unique-locator route."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: LocatorCitationSummaryOutcome
+    assessment_node_id: str
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class YearCheckNode:
     """Deterministic decision-year comparison after a found locator lookup."""
 
@@ -367,6 +429,8 @@ ValidationNode: TypeAlias = (
     | MelleaReextractedCaseNameCheckNode
     | DocketCourtRetrievalNode
     | CourtCheckNode
+    | LocatorCandidateAssessmentNode
+    | LocatorCitationSummaryNode
     | YearCheckNode
 )
 
@@ -396,6 +460,12 @@ class CitationValidation:
             msg = f"Validation node {node.node_id!r} has an unknown dependency"
             raise ValueError(msg)
         return replace(self, nodes=(*self.nodes, node))
+
+    @property
+    def aggregation(self) -> LocatorCitationSummaryNode | None:
+        """Return the unique-locator summary when this route reached aggregation."""
+        summaries = tuple(node for node in self.nodes if isinstance(node, LocatorCitationSummaryNode))
+        return summaries[0] if len(summaries) == 1 else None
 
 
 @dataclass(frozen=True, slots=True)

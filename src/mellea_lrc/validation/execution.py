@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from mellea_lrc.validation.aggregation import (
+    run_locator_candidate_assessment,
+    run_locator_citation_summary,
+)
 from mellea_lrc.validation.candidate_evaluation import (
     run_locator_candidate_evaluation,
     run_opinion_search_candidate_evaluation,
@@ -107,9 +111,9 @@ class CitationValidationRunner:
                 ├── exact case-name check + year check + docket court retrieval
                 │   ├── exact case-name mismatch ->
                 │   │   ``run_locator_found_case_name_mismatch``
-                │   └── match or unavailable -> end
+                │   └── match or unavailable -> locator candidate assessment
                 ├── docket court retrieval -> court check
-                └── year and court results do not alter this progression yet
+                └── completed checks -> locator candidate assessment -> citation summary
         """
         if lookup.outcome is not LocatorLookupOutcome.FOUND:
             msg = "run_locator_found requires a found locator"
@@ -138,16 +142,18 @@ class CitationValidationRunner:
             .append(docket_court_retrieval_node)
             .append(court_check_node)
         )
-        if exact_case_name_check_node.outcome is not FieldCheckOutcome.MISMATCH:
-            return validation
-        return await self.run_locator_found_case_name_mismatch(
-            validation,
-            lookup=lookup,
-            candidate=candidate,
-            exact_case_name_check=exact_case_name_check_node,
-            document_text=document_text,
-            session=session,
-        )
+        if exact_case_name_check_node.outcome is FieldCheckOutcome.MISMATCH:
+            validation = await self.run_locator_found_case_name_mismatch(
+                validation,
+                lookup=lookup,
+                candidate=candidate,
+                exact_case_name_check=exact_case_name_check_node,
+                document_text=document_text,
+                session=session,
+            )
+        assessment = run_locator_candidate_assessment(validation, candidate=candidate)
+        validation = validation.append(assessment)
+        return validation.append(run_locator_citation_summary(validation, assessment=assessment))
 
     async def run_locator_found_case_name_mismatch(
         self,

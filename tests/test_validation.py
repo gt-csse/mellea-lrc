@@ -20,6 +20,7 @@ from mellea_lrc.extraction import ExtractedCitation, ExtractedDocument, Extracti
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
 from mellea_lrc.preprocessing import preprocess_plain_text_from_string
 from mellea_lrc.validation import (
+    AggregatedFieldOutcome,
     CandidateEvaluationNode,
     CandidateEvaluationOutcome,
     CandidateEvaluationSource,
@@ -30,6 +31,10 @@ from mellea_lrc.validation import (
     ExactLocatorLookupNode,
     FieldCheckOutcome,
     LocatorLookupOutcome,
+    LocatorCandidateAssessmentNode,
+    LocatorCandidateAssessmentOutcome,
+    LocatorCitationSummaryNode,
+    LocatorCitationSummaryOutcome,
     MelleaCaseNameCheckNode,
     MelleaCaseNameCheckOutcome,
     MelleaCaseNameQueryPreparationNode,
@@ -202,7 +207,7 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
 
     progression = validation.citation_by_id("cite-0001")
     assert client.calls == [("347", "U.S.", "483")]
-    assert len(progression.nodes) == 6
+    assert len(progression.nodes) == 8
     (
         exact_locator_lookup_node,
         candidate_evaluation_node,
@@ -210,6 +215,8 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
         year_check_node,
         docket_court_retrieval_node,
         court_check_node,
+        assessment_node,
+        summary_node,
     ) = progression.nodes
     assert isinstance(exact_locator_lookup_node, ExactLocatorLookupNode)
     assert exact_locator_lookup_node.outcome is LocatorLookupOutcome.FOUND
@@ -230,6 +237,15 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
     assert isinstance(court_check_node, CourtCheckNode)
     assert court_check_node.outcome is FieldCheckOutcome.MATCH
     assert court_check_node.depends_on == (docket_court_retrieval_node.node_id,)
+    assert isinstance(assessment_node, LocatorCandidateAssessmentNode)
+    assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.MATCH
+    assert assessment_node.case_name_outcome is AggregatedFieldOutcome.MATCH
+    assert assessment_node.year_outcome is AggregatedFieldOutcome.MATCH
+    assert assessment_node.court_outcome is AggregatedFieldOutcome.MATCH
+    assert isinstance(summary_node, LocatorCitationSummaryNode)
+    assert summary_node.outcome is LocatorCitationSummaryOutcome.COMPLETE
+    assert summary_node.assessment_node_id == assessment_node.node_id
+    assert progression.aggregation is summary_node
 
 
 def test_found_field_checks_record_mismatch_without_failing_execution(
@@ -290,6 +306,8 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
         _,
         court_check_node,
         semantic_case_name_check_node,
+        assessment_node,
+        summary_node,
     ) = _validate(extracted, client).citations[0].nodes
 
     assert exact_case_name_check_node.status is ValidationNodeStatus.SUCCEEDED
@@ -300,6 +318,8 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
     assert semantic_case_name_check_node.outcome is MelleaCaseNameCheckOutcome.MATCH
     assert court_check_node.status is ValidationNodeStatus.SUCCEEDED
     assert court_check_node.outcome is FieldCheckOutcome.MISMATCH
+    assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
+    assert summary_node.assessment_node_id == assessment_node.node_id
 
 
 def test_found_field_checks_skip_unavailable_values() -> None:
@@ -312,7 +332,7 @@ def test_found_field_checks_skip_unavailable_values() -> None:
         )
     )
 
-    _, _, exact_case_name_check_node, year_check_node, _, court_check_node = (
+    _, _, exact_case_name_check_node, year_check_node, _, court_check_node, assessment_node, summary_node = (
         _validate(extracted, client).citations[0].nodes
     )
 
@@ -322,6 +342,8 @@ def test_found_field_checks_skip_unavailable_values() -> None:
     assert year_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
     assert court_check_node.status is ValidationNodeStatus.SKIPPED
     assert court_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
+    assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.INCONCLUSIVE
+    assert summary_node.assessment_node_id == assessment_node.node_id
 
 
 def test_mellea_case_name_reextraction_uses_only_local_context(
