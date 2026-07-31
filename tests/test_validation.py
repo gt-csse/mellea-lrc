@@ -48,6 +48,7 @@ from mellea_lrc.validation import (
     RecapSearchNode,
     RecapSearchOutcome,
     SearchCandidateAssessmentOutcome,
+    SearchCitationSummaryNode,
     ValidatedDocument,
     ValidationNodeStatus,
     YearCheckNode,
@@ -55,6 +56,7 @@ from mellea_lrc.validation import (
     validate_document,
 )
 from mellea_lrc.validation.case_search import run_mellea_case_name_query_preparation
+from mellea_lrc.validation.candidate_state import CandidateValidationState
 from mellea_lrc.validation.execution import CitationValidationRunner
 from mellea_lrc.validation.field_checks.mellea_case_name_reextraction import (
     run_mellea_case_name_reextraction,
@@ -247,7 +249,7 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
     assert assessment_node.court_outcome is AggregatedFieldOutcome.MATCH
     assert isinstance(summary_node, LocatorCitationSummaryNode)
     assert summary_node.outcome is LocatorCitationSummaryOutcome.COMPLETE
-    assert summary_node.assessment_node_id == assessment_node.node_id
+    assert summary_node.candidates[0].assessment_node_id == assessment_node.node_id
     assert progression.aggregation is summary_node
 
 
@@ -322,7 +324,7 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
     assert court_check_node.status is ValidationNodeStatus.SUCCEEDED
     assert court_check_node.outcome is FieldCheckOutcome.MISMATCH
     assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
-    assert summary_node.assessment_node_id == assessment_node.node_id
+    assert summary_node.candidates[0].assessment_node_id == assessment_node.node_id
 
 
 def test_found_field_checks_skip_unavailable_values() -> None:
@@ -345,8 +347,8 @@ def test_found_field_checks_skip_unavailable_values() -> None:
     assert year_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
     assert court_check_node.status is ValidationNodeStatus.SKIPPED
     assert court_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
-    assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.INCONCLUSIVE
-    assert summary_node.assessment_node_id == assessment_node.node_id
+    assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.MISMATCH
+    assert summary_node.candidates[0].assessment_node_id == assessment_node.node_id
 
 
 def test_mellea_case_name_reextraction_uses_only_local_context(
@@ -496,7 +498,7 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
     session = object()
     progression = asyncio.run(validate_document(extracted, client=client, session=session)).citations[0]
 
-    assert len(progression.nodes) == 22
+    assert len(progression.nodes) == 23
     assert progression.nodes[0].outcome is LocatorLookupOutcome.NOT_FOUND
     assert isinstance(progression.nodes[1], MelleaCaseNameReextractionNode)
     assert progression.nodes[1].outcome is MelleaCaseNameReextractionOutcome.COMPLETE
@@ -584,6 +586,8 @@ def test_not_found_reextracts_case_parties_in_the_mellea_progression(
         progression.nodes[19].node_id,
         progression.nodes[20].node_id,
     )
+    assert isinstance(progression.nodes[22], SearchCitationSummaryNode)
+    assert progression.aggregation is progression.nodes[22]
     assert client.search_calls == [(prepared_query, "o"), (prepared_query, "r")]
     assert calls[0][1:] == (extracted.text, session)
 
@@ -656,6 +660,7 @@ def test_search_candidate_uses_semantic_check_without_reextracting(
             validation.append(candidate),
             candidate=candidate,
             session=object(),
+            state=CandidateValidationState(),
         )
     )
 
@@ -732,6 +737,7 @@ def test_opinion_search_candidate_assessment_requires_every_field_to_match() -> 
             validation.append(candidate),
             candidate=candidate,
             session=None,
+            state=CandidateValidationState(),
         )
     )
 
@@ -781,6 +787,7 @@ def test_recap_search_candidate_assessment_does_not_treat_docket_year_as_a_misma
             validation.append(candidate),
             candidate=candidate,
             session=None,
+            state=CandidateValidationState(),
         )
     )
 
@@ -856,7 +863,13 @@ def test_ambiguous_lookup_records_a_bounded_candidate_selection() -> None:
     )
     client = LookupClient(CourtListenerCitationLookup(citation="1 F.2d 2", status=300, clusters=clusters))
 
-    lookup, selection, first_candidate, second_candidate = _validate(extracted, client).citations[0].nodes
+    progression = _validate(extracted, client).citations[0]
+    lookup, selection = progression.nodes[:2]
+    candidates = tuple(node for node in progression.nodes if isinstance(node, CandidateEvaluationNode))
+    assessments = tuple(
+        node for node in progression.nodes if isinstance(node, LocatorCandidateAssessmentNode)
+    )
+    summary = progression.nodes[-1]
 
     assert lookup.status is ValidationNodeStatus.SUCCEEDED
     assert lookup.outcome is LocatorLookupOutcome.AMBIGUOUS
@@ -868,13 +881,16 @@ def test_ambiguous_lookup_records_a_bounded_candidate_selection() -> None:
     assert selection.total_candidate_count == 2
     assert selection.selected_candidate_count == 2
     assert selection.depends_on == (lookup.node_id,)
-    assert isinstance(first_candidate, CandidateEvaluationNode)
+    first_candidate, second_candidate = candidates
     assert first_candidate.source is CandidateEvaluationSource.LOCATOR_LOOKUP
     assert first_candidate.record is clusters[0]
     assert first_candidate.depends_on == (selection.node_id,)
-    assert isinstance(second_candidate, CandidateEvaluationNode)
     assert second_candidate.record is clusters[1]
     assert second_candidate.depends_on == (selection.node_id,)
+    assert len(assessments) == 2
+    assert isinstance(summary, LocatorCitationSummaryNode)
+    assert summary.depends_on == tuple(node.node_id for node in assessments)
+    assert progression.aggregation is summary
 
 
 def test_ambiguous_lookup_defers_candidate_selection_over_the_limit() -> None:

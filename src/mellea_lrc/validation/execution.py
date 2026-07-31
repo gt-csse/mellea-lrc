@@ -10,6 +10,7 @@ from mellea_lrc.validation.aggregation import (
     run_locator_citation_summary,
     run_opinion_search_candidate_assessment,
     run_recap_search_candidate_assessment,
+    run_search_citation_summary,
 )
 from mellea_lrc.validation.candidate_evaluation import (
     run_locator_candidate_evaluation,
@@ -21,6 +22,7 @@ from mellea_lrc.validation.candidate_selection import (
     run_opinion_search_candidate_selection,
     run_recap_search_candidate_selection,
 )
+from mellea_lrc.validation.candidate_state import CandidateValidationState
 from mellea_lrc.validation.case_search import (
     run_mellea_case_name_query_preparation,
     run_opinion_search,
@@ -36,6 +38,7 @@ from mellea_lrc.validation.field_checks import (
     run_year_check,
 )
 from mellea_lrc.validation.types import (
+    AggregatedFieldOutcome,
     CandidateEvaluationNode,
     CandidateEvaluationSource,
     ExactCaseNameCheckNode,
@@ -95,7 +98,12 @@ class CitationValidationRunner:
                 session=session,
             )
         if exact_locator_lookup_node.outcome is LocatorLookupOutcome.AMBIGUOUS:
-            return await self.run_locator_ambiguous(validation, lookup=exact_locator_lookup_node)
+            return await self.run_locator_ambiguous(
+                validation,
+                lookup=exact_locator_lookup_node,
+                document_text=document_text,
+                session=session,
+            )
         return validation
 
     async def run_locator_found(
@@ -112,9 +120,8 @@ class CitationValidationRunner:
             found locator
             └── locator candidate evaluation
                 ├── exact case-name check + year check + docket court retrieval
-                │   ├── exact case-name mismatch ->
-                │   │   ``run_locator_found_case_name_mismatch``
-                │   └── match or unavailable -> locator candidate assessment
+                │   └── exact case-name mismatch ->
+                │       ``run_locator_candidate_case_name_recovery``
                 ├── docket court retrieval -> court check
                 └── completed checks -> locator candidate assessment -> citation summary
         """
@@ -131,6 +138,36 @@ class CitationValidationRunner:
             depends_on=(lookup.node_id,),
         )
         validation = validation.append(candidate)
+        validation = await self.run_locator_candidate_validation(
+            validation,
+            lookup=lookup,
+            candidate=candidate,
+            document_text=document_text,
+            session=session,
+            state=CandidateValidationState(),
+        )
+        return validation.append(run_locator_citation_summary(validation))
+
+    async def run_locator_candidate_validation(
+        self,
+        validation: CitationValidation,
+        *,
+        lookup: ExactLocatorLookupNode,
+        candidate: CandidateEvaluationNode,
+        document_text: str,
+        session: MelleaSession | None,
+        state: CandidateValidationState,
+    ) -> CitationValidation:
+        """Complete the reusable validation subtree for one locator candidate.
+
+        Graph:
+            locator candidate evaluation
+            ├── exact case-name check
+            │   └── non-match -> ``run_locator_candidate_case_name_recovery``
+            ├── year check
+            ├── docket court retrieval -> court check
+            └── locator candidate assessment
+        """
         exact_case_name_check_node = run_exact_case_name_check(validation, candidate=candidate)
         year_check_node = run_year_check(validation, candidate=candidate)
         docket_court_retrieval_node = run_docket_court_retrieval(
@@ -145,20 +182,26 @@ class CitationValidationRunner:
             .append(docket_court_retrieval_node)
             .append(court_check_node)
         )
-        if exact_case_name_check_node.outcome is FieldCheckOutcome.MISMATCH:
-            validation = await self.run_locator_found_case_name_mismatch(
+        state = _with_exact_case_name_result(state, exact_case_name_check_node)
+        if exact_case_name_check_node.outcome is not FieldCheckOutcome.MATCH:
+            validation, state = await self.run_locator_candidate_case_name_recovery(
                 validation,
                 lookup=lookup,
                 candidate=candidate,
                 exact_case_name_check=exact_case_name_check_node,
                 document_text=document_text,
                 session=session,
+                state=state,
             )
-        assessment = run_locator_candidate_assessment(validation, candidate=candidate)
-        validation = validation.append(assessment)
-        return validation.append(run_locator_citation_summary(validation, assessment=assessment))
+        return validation.append(
+            run_locator_candidate_assessment(
+                validation,
+                candidate=candidate,
+                state=state,
+            )
+        )
 
-    async def run_locator_found_case_name_mismatch(
+    async def run_locator_candidate_case_name_recovery(
         self,
         validation: CitationValidation,
         *,
@@ -167,7 +210,8 @@ class CitationValidationRunner:
         exact_case_name_check: ExactCaseNameCheckNode,
         document_text: str,
         session: MelleaSession | None,
-    ) -> CitationValidation:
+        state: CandidateValidationState,
+    ) -> tuple[CitationValidation, CandidateValidationState]:
         """Run the complete case-name recovery graph after an exact mismatch.
 
         Graph:
@@ -179,15 +223,20 @@ class CitationValidationRunner:
                     └── partial, not found, unavailable, or failed -> end
         """
         if exact_case_name_check.outcome is not FieldCheckOutcome.MISMATCH:
-            return validation
+            return validation, state
         semantic = await run_mellea_case_name_check(
             validation,
             case_name_evidence=exact_case_name_check,
             session=session,
         )
         validation = validation.append(semantic)
+        state = state.with_case_name_result(
+            outcome=_aggregated_mellea_outcome(semantic.outcome),
+            evidence="mellea",
+            dependency_id=semantic.node_id,
+        )
         if semantic.outcome is not MelleaCaseNameCheckOutcome.MISMATCH:
-            return validation
+            return validation, state
         reextraction = await run_mellea_case_name_reextraction(
             validation,
             trigger=semantic,
@@ -196,16 +245,22 @@ class CitationValidationRunner:
             session=session,
         )
         validation = validation.append(reextraction)
+        state = state.with_reextraction(reextraction)
         if reextraction.outcome is not MelleaCaseNameReextractionOutcome.COMPLETE:
-            return validation
-        return validation.append(
-            await run_mellea_case_name_check(
-                validation,
-                case_name_evidence=reextraction,
-                candidate=candidate,
-                session=session,
-            )
+            return validation, state
+        reextracted_check = await run_mellea_case_name_check(
+            validation,
+            case_name_evidence=reextraction,
+            candidate=candidate,
+            session=session,
         )
+        validation = validation.append(reextracted_check)
+        state = state.with_case_name_result(
+            outcome=_aggregated_mellea_outcome(reextracted_check.outcome),
+            evidence="mellea_reextracted",
+            dependency_id=reextracted_check.node_id,
+        )
+        return validation, state
 
     async def run_locator_not_found(
         self,
@@ -235,6 +290,7 @@ class CitationValidationRunner:
             session=session,
         )
         validation = validation.append(reextraction)
+        search_state = CandidateValidationState().with_reextraction(reextraction)
         preparation = await run_mellea_case_name_query_preparation(
             validation,
             reextraction=reextraction,
@@ -267,6 +323,7 @@ class CitationValidationRunner:
                         validation,
                         candidate=candidate,
                         session=session,
+                        state=search_state,
                     )
         if recap_search.outcome is RecapSearchOutcome.SEARCHED:
             recap_selection = run_recap_search_candidate_selection(validation, search=recap_search)
@@ -288,8 +345,9 @@ class CitationValidationRunner:
                         validation,
                         candidate=candidate,
                         session=session,
+                        state=search_state,
                     )
-        return validation
+        return validation.append(run_search_citation_summary(validation))
 
     async def run_search_candidate_validation(
         self,
@@ -297,6 +355,7 @@ class CitationValidationRunner:
         *,
         candidate: CandidateEvaluationNode,
         session: MelleaSession | None,
+        state: CandidateValidationState,
     ) -> CitationValidation:
         """Complete the reusable field-check subtree for one selected search candidate.
 
@@ -316,18 +375,35 @@ class CitationValidationRunner:
         year_check = run_year_check(validation, candidate=candidate)
         court_check = run_court_check(validation, evidence=candidate)
         validation = validation.append(exact_case_name_check).append(year_check).append(court_check)
+        state = _with_exact_case_name_result(state, exact_case_name_check)
         if exact_case_name_check.outcome is FieldCheckOutcome.MISMATCH:
-            validation = validation.append(
-                await run_mellea_case_name_check(
-                    validation,
-                    case_name_evidence=exact_case_name_check,
-                    session=session,
-                )
+            semantic = await run_mellea_case_name_check(
+                validation,
+                case_name_evidence=exact_case_name_check,
+                session=session,
+            )
+            validation = validation.append(semantic)
+            state = state.with_case_name_result(
+                outcome=_aggregated_mellea_outcome(semantic.outcome),
+                evidence="mellea",
+                dependency_id=semantic.node_id,
             )
         if candidate.source is CandidateEvaluationSource.OPINION_SEARCH:
-            return validation.append(run_opinion_search_candidate_assessment(validation, candidate=candidate))
+            return validation.append(
+                run_opinion_search_candidate_assessment(
+                    validation,
+                    candidate=candidate,
+                    state=state,
+                )
+            )
         if candidate.source is CandidateEvaluationSource.RECAP_SEARCH:
-            return validation.append(run_recap_search_candidate_assessment(validation, candidate=candidate))
+            return validation.append(
+                run_recap_search_candidate_assessment(
+                    validation,
+                    candidate=candidate,
+                    state=state,
+                )
+            )
         msg = "Search-candidate validation requires an opinion- or RECAP-search candidate"
         raise ValueError(msg)
 
@@ -336,15 +412,18 @@ class CitationValidationRunner:
         validation: CitationValidation,
         *,
         lookup: ExactLocatorLookupNode,
+        document_text: str,
+        session: MelleaSession | None,
     ) -> CitationValidation:
         """Run the complete current graph rooted in an ambiguous locator.
 
         Graph:
             ambiguous locator
-            └── candidate-selection guard -> candidate evaluation x selected candidate
-
-        A later ``run_locator_ambiguous_*`` decomposition will extend this
-        route without changing the top-level progression selector.
+            └── candidate-selection guard
+                ├── deferred over limit -> end
+                └── candidate evaluation x selected candidate
+                    └── ``run_locator_candidate_validation``
+                        └── locator citation summary
         """
         if lookup.outcome is not LocatorLookupOutcome.AMBIGUOUS:
             msg = "run_locator_ambiguous requires an ambiguous locator"
@@ -358,12 +437,44 @@ class CitationValidationRunner:
             msg = "Locator candidate payload is shorter than its selected candidate count"
             raise ValueError(msg)
         for candidate_index, cluster in enumerate(candidates, start=1):
-            validation = validation.append(
-                run_locator_candidate_evaluation(
-                    validation,
-                    cluster=cluster,
-                    candidate_index=candidate_index,
-                    depends_on=(selection.node_id,),
-                )
+            candidate = run_locator_candidate_evaluation(
+                validation,
+                cluster=cluster,
+                candidate_index=candidate_index,
+                depends_on=(selection.node_id,),
             )
-        return validation
+            validation = validation.append(candidate)
+            validation = await self.run_locator_candidate_validation(
+                validation,
+                lookup=lookup,
+                candidate=candidate,
+                document_text=document_text,
+                session=session,
+                state=CandidateValidationState(),
+            )
+        return validation.append(run_locator_citation_summary(validation))
+
+
+def _with_exact_case_name_result(
+    state: CandidateValidationState,
+    exact: ExactCaseNameCheckNode,
+) -> CandidateValidationState:
+    """Record the deterministic case-name result before optional recovery."""
+    return state.with_case_name_result(
+        outcome=AggregatedFieldOutcome(exact.outcome.value),
+        evidence="exact",
+        dependency_id=exact.node_id,
+    )
+
+
+def _aggregated_mellea_outcome(
+    outcome: MelleaCaseNameCheckOutcome,
+) -> AggregatedFieldOutcome:
+    """Project a semantic check into candidate-assessment vocabulary."""
+    if outcome is MelleaCaseNameCheckOutcome.MATCH:
+        return AggregatedFieldOutcome.MATCH
+    if outcome is MelleaCaseNameCheckOutcome.MISMATCH:
+        return AggregatedFieldOutcome.MISMATCH
+    if outcome is MelleaCaseNameCheckOutcome.UNAVAILABLE:
+        return AggregatedFieldOutcome.UNAVAILABLE
+    return AggregatedFieldOutcome.FAILED

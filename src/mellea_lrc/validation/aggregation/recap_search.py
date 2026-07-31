@@ -16,6 +16,7 @@ from mellea_lrc.validation.types import (
 )
 
 if TYPE_CHECKING:
+    from mellea_lrc.validation.candidate_state import CandidateValidationState
     from mellea_lrc.validation.types import CitationValidation
 
 
@@ -23,12 +24,17 @@ def run_recap_search_candidate_assessment(
     validation: CitationValidation,
     *,
     candidate: CandidateEvaluationNode,
+    state: CandidateValidationState,
 ) -> RecapSearchCandidateAssessmentNode:
     """Reduce one completed RECAP-search subtree into a candidate conclusion."""
     if candidate.source is not CandidateEvaluationSource.RECAP_SEARCH:
         msg = "RECAP-search assessment requires a RECAP-search candidate"
         raise ValueError(msg)
-    assessment = evaluate_search_candidate(validation, candidate=candidate)
+    assessment = evaluate_search_candidate(
+        validation,
+        candidate=candidate,
+        state=state,
+    )
     return RecapSearchCandidateAssessmentNode(
         node_id=f"{candidate.node_id}:recap_search_candidate_assessment",
         status=ValidationNodeStatus.SUCCEEDED,

@@ -10,10 +10,14 @@ from mellea_lrc.validation.aggregation.opinion_search import (
 from mellea_lrc.validation.aggregation.recap_search import (
     run_recap_search_candidate_assessment,
 )
+from mellea_lrc.validation.aggregation.search_citation_summary import (
+    run_search_citation_summary,
+)
 
 __all__ = [
     "run_locator_candidate_assessment",
     "run_locator_citation_summary",
     "run_opinion_search_candidate_assessment",
     "run_recap_search_candidate_assessment",
+    "run_search_citation_summary",
 ]

@@ -183,11 +183,6 @@ async def _run_reextracted_check(
         extracted,
         retrieved,
         session,
-        debug_context={
-            "citation_id": validation.citation_id,
-            "node_id": f"{validation.citation_id}:mellea_reextracted_case_name_check",
-            "operation": "mellea_reextracted_case_name_check",
-        },
     )
     return MelleaReextractedCaseNameCheckNode(
         node_id=f"{validation.citation_id}:mellea_reextracted_case_name_check",
@@ -212,8 +207,6 @@ async def _semantic_outcome(
     extracted_case_name: str,
     retrieved_case_name: str,
     session: MelleaSession | None,
-    *,
-    debug_context: dict[str, str],
 ) -> tuple[
     ValidationNodeStatus,
     MelleaCaseNameCheckOutcome,
@@ -228,7 +221,6 @@ async def _semantic_outcome(
                 "extracted_case_name": extracted_case_name,
                 "retrieved_case_name": retrieved_case_name,
             },
-            debug_context=debug_context,
             output_format=_SemanticVerdict,
             requirements=[req("Return a valid semantic-verdict object.", validation_fn=_valid_schema)],
         )

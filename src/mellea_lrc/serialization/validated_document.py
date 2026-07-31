@@ -17,8 +17,11 @@ from mellea_lrc.validation.types import (
     CandidateEvaluationNode,
     CandidateEvaluationOutcome,
     CandidateEvaluationSource,
+    CandidateProvenance,
     CandidateSelectionNode,
     CandidateSelectionOutcome,
+    CitationSummaryAssessmentOutcome,
+    CitationSummaryCandidate,
     CitationValidation,
     CourtCheckNode,
     DocketCourtRetrievalNode,
@@ -45,6 +48,8 @@ from mellea_lrc.validation.types import (
     RecapSearchNode,
     RecapSearchOutcome,
     SearchCandidateAssessmentOutcome,
+    SearchCitationSummaryNode,
+    SearchCitationSummaryOutcome,
     ValidatedDocument,
     ValidationNode,
     ValidationNodeStatus,
@@ -72,6 +77,7 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
         LocatorCitationSummaryNode,
         OpinionSearchCandidateAssessmentNode,
         RecapSearchCandidateAssessmentNode,
+        SearchCitationSummaryNode,
         YearCheckNode,
     )
 }
@@ -93,6 +99,7 @@ _OUTCOME_TYPES = {
     LocatorCitationSummaryNode: LocatorCitationSummaryOutcome,
     OpinionSearchCandidateAssessmentNode: SearchCandidateAssessmentOutcome,
     RecapSearchCandidateAssessmentNode: SearchCandidateAssessmentOutcome,
+    SearchCitationSummaryNode: SearchCitationSummaryOutcome,
     YearCheckNode: FieldCheckOutcome,
 }
 
@@ -106,6 +113,14 @@ def serialize_validated_document(document: ValidatedDocument) -> dict[str, JsonV
         "citations": [
             {
                 "citation_id": progression.citation_id,
+                "aggregation": (
+                    {
+                        "node_type": type(progression.aggregation).__name__,
+                        **serialize_dataclass(progression.aggregation),
+                    }
+                    if progression.aggregation is not None
+                    else None
+                ),
                 "nodes": [
                     {
                         "node_type": type(node).__name__,
@@ -175,7 +190,34 @@ def _deserialize_node(value: object) -> ValidationNode:
     ):
         for field_name in ("case_name_outcome", "year_outcome", "court_outcome"):
             fields[field_name] = AggregatedFieldOutcome(fields[field_name])
+    elif node_type in (LocatorCitationSummaryNode, SearchCitationSummaryNode):
+        overall_outcome = fields["overall_outcome"]
+        fields["overall_outcome"] = (
+            CitationSummaryAssessmentOutcome(overall_outcome) if overall_outcome is not None else None
+        )
+        candidate_outcome_type = (
+            LocatorCandidateAssessmentOutcome
+            if node_type is LocatorCitationSummaryNode
+            else SearchCandidateAssessmentOutcome
+        )
+        fields["candidates"] = tuple(
+            _deserialize_summary_candidate(item, outcome_type=candidate_outcome_type)
+            for item in require_list(fields["candidates"], name="node.candidates")
+        )
     return node_type(**fields)
+
+
+def _deserialize_summary_candidate(
+    value: object,
+    *,
+    outcome_type: type[LocatorCandidateAssessmentOutcome] | type[SearchCandidateAssessmentOutcome],
+) -> CitationSummaryCandidate:
+    fields = dict(require_mapping(value, name="summary candidate"))
+    fields["provenance"] = CandidateProvenance(fields["provenance"])
+    fields["outcome"] = outcome_type(fields["outcome"])
+    for field_name in ("case_name_outcome", "year_outcome", "court_outcome"):
+        fields[field_name] = AggregatedFieldOutcome(fields[field_name])
+    return CitationSummaryCandidate(**fields)
 
 
 def _deserialize_cluster(value: object) -> CourtListenerOpinionCluster:

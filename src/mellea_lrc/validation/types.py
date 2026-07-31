@@ -127,7 +127,6 @@ class LocatorCandidateAssessmentOutcome(str, Enum):
     MATCH = "match"
     MISMATCH = "mismatch"
     PARTIAL_MATCH = "partial_match"
-    INCONCLUSIVE = "inconclusive"
 
 
 class LocatorCitationSummaryOutcome(str, Enum):
@@ -141,6 +140,30 @@ class SearchCandidateAssessmentOutcome(str, Enum):
 
     POSSIBLE_MATCH = "possible_match"
     MISMATCH = "mismatch"
+
+
+CandidateAssessmentOutcome: TypeAlias = LocatorCandidateAssessmentOutcome | SearchCandidateAssessmentOutcome
+
+
+class CandidateProvenance(str, Enum):
+    """CourtListener corpus that produced a summarized candidate."""
+
+    OPINION = "opinion"
+    RECAP = "recap"
+
+
+class CitationSummaryAssessmentOutcome(str, Enum):
+    """Strongest candidate conclusion exposed at citation scope."""
+
+    MATCH = "match"
+    POSSIBLE_MATCH = "possible_match"
+    MISMATCH = "mismatch"
+
+
+class SearchCitationSummaryOutcome(str, Enum):
+    """Completion state of a search-derived citation summary."""
+
+    COMPLETE = "complete"
 
 
 MIN_AMBIGUOUS_CANDIDATE_COUNT = 2
@@ -396,13 +419,36 @@ class LocatorCandidateAssessmentNode:
 
 
 @dataclass(frozen=True, slots=True)
+class CitationSummaryCandidate:
+    """Flat, provenance-tagged candidate exposed by a terminal summary."""
+
+    provenance: CandidateProvenance
+    candidate_index: int
+    assessment_node_id: str
+    outcome: CandidateAssessmentOutcome
+    extracted_citation: str | None
+    extracted_case_name: str | None
+    retrieved_case_name: str | None
+    case_name_outcome: AggregatedFieldOutcome
+    case_name_evidence: str
+    extracted_year: str | None
+    retrieved_year: str | None
+    year_outcome: AggregatedFieldOutcome
+    extracted_court_id: str | None
+    retrieved_court_id: str | None
+    court_outcome: AggregatedFieldOutcome
+    docket_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class LocatorCitationSummaryNode:
-    """Terminal summary for the fully validated unique-locator route."""
+    """Terminal list of every fully evaluated locator candidate."""
 
     node_id: str
     status: ValidationNodeStatus
     outcome: LocatorCitationSummaryOutcome
-    assessment_node_id: str
+    overall_outcome: CitationSummaryAssessmentOutcome | None
+    candidates: tuple[CitationSummaryCandidate, ...]
     depends_on: tuple[str, ...]
     status_message: str | None = None
     outcome_message: str | None = None
@@ -459,6 +505,20 @@ class RecapSearchCandidateAssessmentNode:
 
 
 @dataclass(frozen=True, slots=True)
+class SearchCitationSummaryNode:
+    """Terminal list of assessed candidates from both search corpora."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: SearchCitationSummaryOutcome
+    overall_outcome: CitationSummaryAssessmentOutcome | None
+    candidates: tuple[CitationSummaryCandidate, ...]
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class YearCheckNode:
     """Deterministic decision-year comparison after a found locator lookup."""
 
@@ -490,6 +550,7 @@ ValidationNode: TypeAlias = (
     | LocatorCitationSummaryNode
     | OpinionSearchCandidateAssessmentNode
     | RecapSearchCandidateAssessmentNode
+    | SearchCitationSummaryNode
     | YearCheckNode
 )
 
@@ -521,9 +582,13 @@ class CitationValidation:
         return replace(self, nodes=(*self.nodes, node))
 
     @property
-    def aggregation(self) -> LocatorCitationSummaryNode | None:
-        """Return the unique-locator summary when this route reached aggregation."""
-        summaries = tuple(node for node in self.nodes if isinstance(node, LocatorCitationSummaryNode))
+    def aggregation(self) -> LocatorCitationSummaryNode | SearchCitationSummaryNode | None:
+        """Return the route's terminal citation summary when one was produced."""
+        summaries = tuple(
+            node
+            for node in self.nodes
+            if isinstance(node, (LocatorCitationSummaryNode, SearchCitationSummaryNode))
+        )
         return summaries[0] if len(summaries) == 1 else None
 
 

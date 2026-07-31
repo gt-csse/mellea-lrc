@@ -16,6 +16,7 @@ from mellea_lrc.validation.types import (
 )
 
 if TYPE_CHECKING:
+    from mellea_lrc.validation.candidate_state import CandidateValidationState
     from mellea_lrc.validation.types import CitationValidation
 
 
@@ -23,12 +24,17 @@ def run_opinion_search_candidate_assessment(
     validation: CitationValidation,
     *,
     candidate: CandidateEvaluationNode,
+    state: CandidateValidationState,
 ) -> OpinionSearchCandidateAssessmentNode:
     """Reduce one completed opinion-search subtree into a candidate conclusion."""
     if candidate.source is not CandidateEvaluationSource.OPINION_SEARCH:
         msg = "Opinion-search assessment requires an opinion-search candidate"
         raise ValueError(msg)
-    assessment = evaluate_search_candidate(validation, candidate=candidate)
+    assessment = evaluate_search_candidate(
+        validation,
+        candidate=candidate,
+        state=state,
+    )
     return OpinionSearchCandidateAssessmentNode(
         node_id=f"{candidate.node_id}:opinion_search_candidate_assessment",
         status=ValidationNodeStatus.SUCCEEDED,

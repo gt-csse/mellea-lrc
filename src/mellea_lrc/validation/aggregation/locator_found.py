@@ -4,9 +4,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from mellea_lrc.validation.aggregation.citation_summary_candidate import (
+    citation_summary_candidate,
+)
+from mellea_lrc.validation.aggregation.citation_summary_outcome import (
+    overall_citation_outcome,
+)
 from mellea_lrc.validation.types import (
     AggregatedFieldOutcome,
     CandidateEvaluationNode,
+    CandidateProvenance,
     CourtCheckNode,
     DocketCourtRetrievalNode,
     ExactCaseNameCheckNode,
@@ -15,14 +22,12 @@ from mellea_lrc.validation.types import (
     LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode,
     LocatorCitationSummaryOutcome,
-    MelleaCaseNameCheckNode,
-    MelleaCaseNameCheckOutcome,
-    MelleaReextractedCaseNameCheckNode,
     ValidationNodeStatus,
     YearCheckNode,
 )
 
 if TYPE_CHECKING:
+    from mellea_lrc.validation.candidate_state import CandidateValidationState
     from mellea_lrc.validation.types import CitationValidation
 
 
@@ -30,25 +35,26 @@ def run_locator_candidate_assessment(
     validation: CitationValidation,
     *,
     candidate: CandidateEvaluationNode,
+    state: CandidateValidationState,
 ) -> LocatorCandidateAssessmentNode:
-    """Reduce one complete unique-locator candidate subtree into a conclusion."""
+    """Reduce one completed locator candidate subtree into a conclusion."""
     exact = _required_child(validation, ExactCaseNameCheckNode, candidate.node_id)
     year = _required_child(validation, YearCheckNode, candidate.node_id)
     court = _required_court_check(validation, candidate.node_id)
-    case_name_outcome, evidence, case_name_node_id = _case_name_conclusion(validation, exact)
+    case_name = state.require_case_name_result()
     year_outcome = _field_outcome(year.outcome)
     court_outcome = _field_outcome(court.outcome)
-    outcome = _assessment_outcome(case_name_outcome, year_outcome, court_outcome)
+    outcome = _assessment_outcome(case_name.outcome, year_outcome, court_outcome)
     return LocatorCandidateAssessmentNode(
         node_id=f"{candidate.node_id}:locator_candidate_assessment",
         status=ValidationNodeStatus.SUCCEEDED,
         outcome=outcome,
         candidate_index=candidate.candidate_index,
         extracted_citation=validation.citation.matched_text,
-        extracted_case_name=exact.extracted_case_name,
+        extracted_case_name=state.displayed_case_name(exact.extracted_case_name),
         retrieved_case_name=exact.retrieved_case_name,
-        case_name_outcome=case_name_outcome,
-        case_name_evidence=evidence,
+        case_name_outcome=case_name.outcome,
+        case_name_evidence=case_name.evidence,
         extracted_year=year.extracted_year,
         retrieved_year=year.retrieved_year,
         year_outcome=year_outcome,
@@ -56,44 +62,35 @@ def run_locator_candidate_assessment(
         retrieved_court_id=court.retrieved_court_id,
         court_outcome=court_outcome,
         docket_id=candidate.docket_id,
-        depends_on=(case_name_node_id, year.node_id, court.node_id),
+        depends_on=(case_name.dependency_id, year.node_id, court.node_id),
         status_message="Locator candidate assessment completed.",
         outcome_message=_assessment_message(outcome),
     )
 
 
-def run_locator_citation_summary(
-    validation: CitationValidation,
-    *,
-    assessment: LocatorCandidateAssessmentNode,
-) -> LocatorCitationSummaryNode:
-    """Expose the candidate assessment as the terminal found-locator summary."""
+def run_locator_citation_summary(validation: CitationValidation) -> LocatorCitationSummaryNode:
+    """List every evaluated locator candidate without selecting one."""
+    assessments = tuple(node for node in validation.nodes if isinstance(node, LocatorCandidateAssessmentNode))
+    if not assessments:
+        msg = "Locator citation summary requires at least one candidate assessment"
+        raise ValueError(msg)
+    candidates = tuple(
+        citation_summary_candidate(
+            assessment,
+            provenance=CandidateProvenance.OPINION,
+        )
+        for assessment in assessments
+    )
     return LocatorCitationSummaryNode(
         node_id=f"{validation.citation_id}:locator_citation_summary",
         status=ValidationNodeStatus.SUCCEEDED,
         outcome=LocatorCitationSummaryOutcome.COMPLETE,
-        assessment_node_id=assessment.node_id,
-        depends_on=(assessment.node_id,),
+        overall_outcome=overall_citation_outcome(candidate.outcome for candidate in candidates),
+        candidates=candidates,
+        depends_on=tuple(candidate.assessment_node_id for candidate in candidates),
         status_message="Locator citation summary completed.",
-        outcome_message="Listed the one fully evaluated locator candidate.",
+        outcome_message=(f"Listed {len(candidates)} evaluated locator candidates without selecting one."),
     )
-
-
-def _case_name_conclusion(
-    validation: CitationValidation,
-    exact: ExactCaseNameCheckNode,
-) -> tuple[AggregatedFieldOutcome, str, str]:
-    if exact.outcome is FieldCheckOutcome.MATCH:
-        return AggregatedFieldOutcome.MATCH, "exact", exact.node_id
-    if exact.outcome is FieldCheckOutcome.UNAVAILABLE:
-        return AggregatedFieldOutcome.UNAVAILABLE, "exact", exact.node_id
-    reextracted = _last_node(validation, MelleaReextractedCaseNameCheckNode)
-    if reextracted is not None:
-        return _mellea_outcome(reextracted.outcome), "mellea_reextracted", reextracted.node_id
-    semantic = _last_node(validation, MelleaCaseNameCheckNode)
-    if semantic is not None:
-        return _mellea_outcome(semantic.outcome), "mellea", semantic.node_id
-    return AggregatedFieldOutcome.MISMATCH, "exact", exact.node_id
 
 
 def _assessment_outcome(
@@ -104,7 +101,7 @@ def _assessment_outcome(
     if case_name is AggregatedFieldOutcome.MISMATCH:
         return LocatorCandidateAssessmentOutcome.MISMATCH
     if case_name is not AggregatedFieldOutcome.MATCH:
-        return LocatorCandidateAssessmentOutcome.INCONCLUSIVE
+        return LocatorCandidateAssessmentOutcome.MISMATCH
     if AggregatedFieldOutcome.MISMATCH in (year, court):
         return LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
     return LocatorCandidateAssessmentOutcome.MATCH
@@ -115,20 +112,11 @@ def _assessment_message(outcome: LocatorCandidateAssessmentOutcome) -> str:
         LocatorCandidateAssessmentOutcome.MATCH: "Case name, year, and court do not disagree with this candidate.",
         LocatorCandidateAssessmentOutcome.MISMATCH: "The retrieved candidate has a different case name.",
         LocatorCandidateAssessmentOutcome.PARTIAL_MATCH: "Case name matches; verify the differing year or court.",
-        LocatorCandidateAssessmentOutcome.INCONCLUSIVE: "Available evidence does not permit a candidate conclusion.",
     }[outcome]
 
 
 def _field_outcome(outcome: FieldCheckOutcome) -> AggregatedFieldOutcome:
     return AggregatedFieldOutcome(outcome.value)
-
-
-def _mellea_outcome(outcome: MelleaCaseNameCheckOutcome) -> AggregatedFieldOutcome:
-    if outcome is MelleaCaseNameCheckOutcome.MATCH:
-        return AggregatedFieldOutcome.MATCH
-    if outcome is MelleaCaseNameCheckOutcome.MISMATCH:
-        return AggregatedFieldOutcome.MISMATCH
-    return AggregatedFieldOutcome.FAILED
 
 
 def _required_child(
@@ -158,10 +146,3 @@ def _required_court_check(validation: CitationValidation, candidate_node_id: str
         msg = f"Locator candidate assessment requires one court check below {candidate_node_id!r}"
         raise ValueError(msg)
     return matches[0]
-
-
-def _last_node(
-    validation: CitationValidation,
-    node_type: type[MelleaCaseNameCheckNode] | type[MelleaReextractedCaseNameCheckNode],
-) -> MelleaCaseNameCheckNode | MelleaReextractedCaseNameCheckNode | None:
-    return next((node for node in reversed(validation.nodes) if isinstance(node, node_type)), None)

@@ -27,8 +27,11 @@ from mellea_lrc.validation import (
     CandidateEvaluationNode,
     CandidateEvaluationOutcome,
     CandidateEvaluationSource,
+    CandidateProvenance,
     CandidateSelectionNode,
     CandidateSelectionOutcome,
+    CitationSummaryAssessmentOutcome,
+    CitationSummaryCandidate,
     CourtCheckNode,
     DocketCourtRetrievalNode,
     DocketCourtRetrievalOutcome,
@@ -190,6 +193,7 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
     assert payload["citations"] == [
         {
             "citation_id": "cite-0001",
+            "aggregation": None,
             "nodes": [
                 {
                     "node_type": "ExactLocatorLookupNode",
@@ -475,7 +479,27 @@ def test_validated_document_round_trip_supports_every_current_node_type() -> Non
             node_id=f"{citation_id}:locator_citation_summary",
             status=ValidationNodeStatus.SUCCEEDED,
             outcome=LocatorCitationSummaryOutcome.COMPLETE,
-            assessment_node_id=f"{candidate_id}:locator_candidate_assessment",
+            overall_outcome=CitationSummaryAssessmentOutcome.MATCH,
+            candidates=(
+                CitationSummaryCandidate(
+                    provenance=CandidateProvenance.OPINION,
+                    candidate_index=0,
+                    assessment_node_id=f"{candidate_id}:locator_candidate_assessment",
+                    outcome=LocatorCandidateAssessmentOutcome.MATCH,
+                    extracted_citation="347 U.S. 483",
+                    extracted_case_name="Brown v. Board",
+                    retrieved_case_name=cluster.case_name,
+                    case_name_outcome=AggregatedFieldOutcome.MATCH,
+                    case_name_evidence="mellea",
+                    extracted_year="1954",
+                    retrieved_year="1954",
+                    year_outcome=AggregatedFieldOutcome.MATCH,
+                    extracted_court_id="scotus",
+                    retrieved_court_id="scotus",
+                    court_outcome=AggregatedFieldOutcome.MATCH,
+                    docket_id="42",
+                ),
+            ),
             depends_on=(f"{candidate_id}:locator_candidate_assessment",),
         ),
     )
