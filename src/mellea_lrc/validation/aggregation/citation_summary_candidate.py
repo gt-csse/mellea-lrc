@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, TypeVar
 
+from mellea_lrc.courtlistener.docket_models import courtlistener_docket_url
 from mellea_lrc.courtlistener.opinion_models import CourtListenerOpinionCluster, courtlistener_opinion_url
 from mellea_lrc.validation.types import (
     CandidateEvaluationNode,
@@ -54,6 +55,7 @@ def citation_summary_candidate(
         court_outcome=assessment.court_outcome,
         docket_id=assessment.docket_id,
         opinion_url=_opinion_url(validation, assessment, provenance=provenance),
+        docket_url=_docket_url(validation, assessment, provenance=provenance),
         pinpoint=_pinpoint_summary(validation, assessment),
     )
 
@@ -92,6 +94,31 @@ def _opinion_url(
         )
         return courtlistener_opinion_url(absolute_url if isinstance(absolute_url, str) else None)
     return None
+
+
+def _docket_url(
+    validation: CitationValidation,
+    assessment: CandidateAssessmentNode,
+    *,
+    provenance: CandidateProvenance,
+) -> str | None:
+    """Expose CourtListener's canonical docket URL for RECAP candidates."""
+    if provenance is not CandidateProvenance.RECAP:
+        return None
+    evaluation = next(
+        (
+            node
+            for node in validation.nodes
+            if isinstance(node, CandidateEvaluationNode)
+            and node.source is CandidateEvaluationSource.RECAP_SEARCH
+            and _is_ancestor(validation, node.node_id, assessment.node_id)
+        ),
+        None,
+    )
+    if evaluation is None or isinstance(evaluation.record, CourtListenerOpinionCluster):
+        return None
+    absolute_url = evaluation.record.get("docket_absolute_url")
+    return courtlistener_docket_url(absolute_url if isinstance(absolute_url, str) else None)
 
 
 def _pinpoint_summary(

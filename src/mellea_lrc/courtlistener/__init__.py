@@ -10,7 +10,7 @@ from mellea_lrc.courtlistener.client import (
     CourtListenerError,
 )
 from mellea_lrc.courtlistener.docket import normalize_docket_payload
-from mellea_lrc.courtlistener.docket_models import CourtListenerDocket
+from mellea_lrc.courtlistener.docket_models import CourtListenerDocket, courtlistener_docket_url
 from mellea_lrc.courtlistener.opinion import normalize_opinion_payload
 from mellea_lrc.courtlistener.opinion_models import (
     CourtListenerOpinion,
@@ -32,6 +32,7 @@ __all__ = [
     "CourtListenerOpinionClusterCitation",
     "CourtListenerSearchResult",
     "CourtListenerServiceClient",
+    "courtlistener_docket_url",
     "normalize_citation_lookup_payload",
     "normalize_docket_payload",
     "normalize_opinion_payload",

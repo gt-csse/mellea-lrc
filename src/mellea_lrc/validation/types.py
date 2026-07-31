@@ -564,6 +564,7 @@ class CitationSummaryCandidate:
     court_outcome: AggregatedFieldOutcome
     docket_id: str | None
     opinion_url: str | None = None
+    docket_url: str | None = None
     pinpoint: CitationSummaryPinpoint | None = None
 
 

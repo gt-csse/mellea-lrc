@@ -24,6 +24,7 @@ from mellea_lrc.validation import (
     CandidateEvaluationNode,
     CandidateEvaluationOutcome,
     CandidateEvaluationSource,
+    CandidateProvenance,
     CandidateSelectionNode,
     CandidateSelectionOutcome,
     CourtCheckNode,
@@ -59,6 +60,7 @@ from mellea_lrc.validation import (
     initialize_validation,
     validate_document,
 )
+from mellea_lrc.validation.aggregation.citation_summary_candidate import citation_summary_candidate
 from mellea_lrc.validation.candidate_state import CandidateValidationState
 from mellea_lrc.validation.case_search import run_mellea_case_name_query_preparation
 from mellea_lrc.validation.execution import CitationValidationRunner
@@ -819,6 +821,55 @@ def test_recap_search_candidate_assessment_does_not_treat_docket_year_as_a_misma
     assert isinstance(assessment, RecapSearchCandidateAssessmentNode)
     assert assessment.year_outcome is AggregatedFieldOutcome.MISMATCH
     assert assessment.outcome is SearchCandidateAssessmentOutcome.POSSIBLE_MATCH
+
+
+def test_recap_candidate_summary_exposes_canonical_docket_url() -> None:
+    """Carry CourtListener's raw docket path into the terminal summary candidate."""
+    validation = initialize_validation(
+        _document(FullCaseCitation(volume="347", reporter="U.S.", page="9999"))
+    ).citations[0]
+    candidate = CandidateEvaluationNode(
+        node_id="cite-0001:recap_search_candidate_evaluation:1",
+        status=ValidationNodeStatus.SUCCEEDED,
+        outcome=CandidateEvaluationOutcome.READY,
+        source=CandidateEvaluationSource.RECAP_SEARCH,
+        candidate_index=1,
+        cluster_id=None,
+        case_name="Brown v. Board of Education",
+        date_filed="2006-10-25",
+        court_id="scotus",
+        docket_id="5068645",
+        record={"docket_absolute_url": "/docket/5068645/brown-v-board-of-education/"},
+        depends_on=(),
+    )
+    assessment = RecapSearchCandidateAssessmentNode(
+        node_id=f"{candidate.node_id}:recap_search_candidate_assessment",
+        status=ValidationNodeStatus.SUCCEEDED,
+        outcome=SearchCandidateAssessmentOutcome.POSSIBLE_MATCH,
+        candidate_index=1,
+        extracted_citation="347 U.S. 9999",
+        extracted_case_name="Brown v. Board of Education",
+        retrieved_case_name=candidate.case_name,
+        case_name_outcome=AggregatedFieldOutcome.MATCH,
+        case_name_evidence="exact",
+        extracted_year=None,
+        retrieved_year=None,
+        year_outcome=AggregatedFieldOutcome.UNAVAILABLE,
+        extracted_court_id="scotus",
+        retrieved_court_id="scotus",
+        court_outcome=AggregatedFieldOutcome.MATCH,
+        docket_id=candidate.docket_id,
+        depends_on=(candidate.node_id,),
+    )
+    validation = validation.append(candidate).append(assessment)
+
+    summary = citation_summary_candidate(
+        validation,
+        assessment,
+        provenance=CandidateProvenance.RECAP,
+    )
+
+    assert summary.docket_url == "https://www.courtlistener.com/docket/5068645/brown-v-board-of-education/"
 
 
 def test_mellea_case_name_query_preparation_constructs_the_courtlistener_query(
