@@ -37,6 +37,7 @@ from mellea_lrc.validation.field_checks import (
     run_mellea_case_name_reextraction,
     run_year_check,
 )
+from mellea_lrc.validation.pinpoint_retrieval import run_reporter_page_retrieval
 from mellea_lrc.validation.types import (
     AggregatedFieldOutcome,
     CandidateEvaluationNode,
@@ -123,6 +124,7 @@ class CitationValidationRunner:
                 │   └── exact case-name mismatch ->
                 │       ``run_locator_candidate_case_name_recovery``
                 ├── docket court retrieval -> court check
+                ├── reporter-page retrieval
                 └── completed checks -> locator candidate assessment -> citation summary
         """
         if lookup.outcome is not LocatorLookupOutcome.FOUND:
@@ -146,6 +148,11 @@ class CitationValidationRunner:
             session=session,
             state=CandidateValidationState(),
         )
+        # MVE scope: reporter-page retrieval belongs only to the unique
+        # exact-locator FOUND route. Ambiguous and search-derived candidates
+        # intentionally wait for broader candidate/opinion scope semantics.
+        retrieval = run_reporter_page_retrieval(validation, evaluation=candidate, client=self.client)
+        validation = validation.append(retrieval)
         return validation.append(run_locator_citation_summary(validation))
 
     async def run_locator_candidate_validation(

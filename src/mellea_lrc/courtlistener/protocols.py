@@ -4,6 +4,7 @@ from typing import Literal, Protocol
 
 from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationLookup
 from mellea_lrc.courtlistener.docket_models import CourtListenerDocket
+from mellea_lrc.courtlistener.opinion_models import CourtListenerOpinion
 from mellea_lrc.courtlistener.search_models import CourtListenerSearchResult
 
 
@@ -30,3 +31,6 @@ class CourtListenerServiceClient(Protocol):
 
     def get_docket(self, docket_id: str) -> CourtListenerDocket:
         """Retrieve one docket by its CourtListener identifier."""
+
+    def get_opinion(self, opinion_id: str) -> CourtListenerOpinion:
+        """Retrieve one sub-opinion by its CourtListener identifier."""

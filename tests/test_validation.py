@@ -47,6 +47,8 @@ from mellea_lrc.validation import (
     RecapSearchCandidateAssessmentNode,
     RecapSearchNode,
     RecapSearchOutcome,
+    ReporterPageRetrievalNode,
+    ReporterPageRetrievalOutcome,
     SearchCandidateAssessmentOutcome,
     SearchCitationSummaryNode,
     ValidatedDocument,
@@ -212,7 +214,7 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
 
     progression = validation.citation_by_id("cite-0001")
     assert client.calls == [("347", "U.S.", "483")]
-    assert len(progression.nodes) == 8
+    assert len(progression.nodes) == 9
     (
         exact_locator_lookup_node,
         candidate_evaluation_node,
@@ -221,6 +223,7 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
         docket_court_retrieval_node,
         court_check_node,
         assessment_node,
+        reporter_page_retrieval_node,
         summary_node,
     ) = progression.nodes
     assert isinstance(exact_locator_lookup_node, ExactLocatorLookupNode)
@@ -247,6 +250,8 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
     assert assessment_node.case_name_outcome is AggregatedFieldOutcome.MATCH
     assert assessment_node.year_outcome is AggregatedFieldOutcome.MATCH
     assert assessment_node.court_outcome is AggregatedFieldOutcome.MATCH
+    assert isinstance(reporter_page_retrieval_node, ReporterPageRetrievalNode)
+    assert reporter_page_retrieval_node.outcome is ReporterPageRetrievalOutcome.UNAVAILABLE
     assert isinstance(summary_node, LocatorCitationSummaryNode)
     assert summary_node.outcome is LocatorCitationSummaryOutcome.COMPLETE
     assert summary_node.candidates[0].assessment_node_id == assessment_node.node_id
@@ -312,6 +317,7 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
         court_check_node,
         semantic_case_name_check_node,
         assessment_node,
+        _,
         summary_node,
     ) = _validate(extracted, client).citations[0].nodes
 
@@ -337,9 +343,17 @@ def test_found_field_checks_skip_unavailable_values() -> None:
         )
     )
 
-    _, _, exact_case_name_check_node, year_check_node, _, court_check_node, assessment_node, summary_node = (
-        _validate(extracted, client).citations[0].nodes
-    )
+    (
+        _,
+        _,
+        exact_case_name_check_node,
+        year_check_node,
+        _,
+        court_check_node,
+        assessment_node,
+        _,
+        summary_node,
+    ) = _validate(extracted, client).citations[0].nodes
 
     assert exact_case_name_check_node.status is ValidationNodeStatus.SKIPPED
     assert exact_case_name_check_node.outcome is FieldCheckOutcome.UNAVAILABLE

@@ -91,6 +91,14 @@ class DocketCourtRetrievalOutcome(str, Enum):
     FAILED = "failed"
 
 
+class ReporterPageRetrievalOutcome(str, Enum):
+    """Results of retrieving a reporter page from citation-aware opinion HTML."""
+
+    FOUND = "found"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
 class CandidateSelectionOutcome(str, Enum):
     """Results of applying the bounded candidate-validation guard."""
 
@@ -394,6 +402,33 @@ class CourtCheckNode:
 
 
 @dataclass(frozen=True, slots=True)
+class ReporterPageEvidence:
+    """One reporter page recovered from a CourtListener sub-opinion."""
+
+    opinion_id: str
+    opinion_type: str
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReporterPageRetrievalNode:
+    """Serialization-ready reporter-page evidence for one opinion candidate."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: ReporterPageRetrievalOutcome
+    cluster_id: str | None
+    reporter_citation: str | None
+    pin_cite: str | None
+    citation_index: int | None
+    evidence: ReporterPageEvidence | None
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class LocatorCandidateAssessmentNode:
     """Table-ready conclusion for the one candidate from a found locator."""
 
@@ -545,6 +580,7 @@ ValidationNode: TypeAlias = (
     | CandidateEvaluationNode
     | MelleaReextractedCaseNameCheckNode
     | DocketCourtRetrievalNode
+    | ReporterPageRetrievalNode
     | CourtCheckNode
     | LocatorCandidateAssessmentNode
     | LocatorCitationSummaryNode

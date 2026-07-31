@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from mellea_lrc.courtlistener import CourtListenerOpinionCluster, CourtListenerSearchResult
+from mellea_lrc.courtlistener import (
+    CourtListenerOpinionCluster,
+    CourtListenerOpinionClusterCitation,
+    CourtListenerSearchResult,
+)
 from mellea_lrc.serialization._json import JsonValue, require_list, require_mapping, serialize_dataclass
 from mellea_lrc.serialization.extracted_document import (
     SCHEMA_VERSION,
@@ -47,6 +51,9 @@ from mellea_lrc.validation.types import (
     RecapSearchCandidateAssessmentNode,
     RecapSearchNode,
     RecapSearchOutcome,
+    ReporterPageEvidence,
+    ReporterPageRetrievalNode,
+    ReporterPageRetrievalOutcome,
     SearchCandidateAssessmentOutcome,
     SearchCitationSummaryNode,
     SearchCitationSummaryOutcome,
@@ -72,6 +79,7 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
         CandidateEvaluationNode,
         MelleaReextractedCaseNameCheckNode,
         DocketCourtRetrievalNode,
+        ReporterPageRetrievalNode,
         CourtCheckNode,
         LocatorCandidateAssessmentNode,
         LocatorCitationSummaryNode,
@@ -94,6 +102,7 @@ _OUTCOME_TYPES = {
     CandidateEvaluationNode: CandidateEvaluationOutcome,
     MelleaReextractedCaseNameCheckNode: MelleaCaseNameCheckOutcome,
     DocketCourtRetrievalNode: DocketCourtRetrievalOutcome,
+    ReporterPageRetrievalNode: ReporterPageRetrievalOutcome,
     CourtCheckNode: FieldCheckOutcome,
     LocatorCandidateAssessmentNode: LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode: LocatorCitationSummaryOutcome,
@@ -183,6 +192,12 @@ def _deserialize_node(value: object) -> ValidationNode:
             fields["record"] = _deserialize_cluster(fields["record"])
         else:
             fields["record"] = _freeze_search_results([fields["record"]])[0]
+    elif node_type is ReporterPageRetrievalNode:
+        fields["evidence"] = (
+            ReporterPageEvidence(**require_mapping(fields["evidence"], name="node.evidence"))
+            if fields["evidence"] is not None
+            else None
+        )
     elif node_type in (
         LocatorCandidateAssessmentNode,
         OpinionSearchCandidateAssessmentNode,
@@ -229,6 +244,19 @@ def _deserialize_cluster(value: object) -> CourtListenerOpinionCluster:
         court=_optional_string(payload.get("court"), name="cluster.court"),
         court_id=_optional_string(payload.get("court_id"), name="cluster.court_id"),
         docket_id=_optional_string(payload.get("docket_id"), name="cluster.docket_id"),
+        citations=tuple(
+            CourtListenerOpinionClusterCitation(
+                volume=_required_string(item.get("volume"), name="cluster.citations.volume"),
+                reporter=_required_string(item.get("reporter"), name="cluster.citations.reporter"),
+                page=_required_string(item.get("page"), name="cluster.citations.page"),
+            )
+            for value in require_list(payload.get("citations", []), name="cluster.citations")
+            for item in (require_mapping(value, name="cluster citation"),)
+        ),
+        sub_opinion_ids=tuple(
+            _required_string(value, name="cluster.sub_opinion_ids")
+            for value in require_list(payload.get("sub_opinion_ids", []), name="cluster.sub_opinion_ids")
+        ),
     )
 
 
@@ -250,5 +278,12 @@ def _optional_string(value: object, *, name: str) -> str | None:
         return None
     if not isinstance(value, str):
         msg = f"{name} must be a string or null"
+        raise ValueError(msg)
+    return value
+
+
+def _required_string(value: object, *, name: str) -> str:
+    if not isinstance(value, str):
+        msg = f"{name} must be a string"
         raise ValueError(msg)
     return value

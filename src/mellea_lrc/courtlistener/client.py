@@ -12,12 +12,14 @@ from pydantic import ValidationError
 
 from mellea_lrc.courtlistener.citation_lookup import normalize_citation_lookup_payload
 from mellea_lrc.courtlistener.docket import normalize_docket_payload
+from mellea_lrc.courtlistener.opinion import normalize_opinion_payload
 from mellea_lrc.courtlistener.protocols import CourtListenerServiceClient
 from mellea_lrc.courtlistener.search import normalize_search_payload
 
 if TYPE_CHECKING:
     from mellea_lrc.courtlistener.citation_lookup_models import CourtListenerCitationLookup
     from mellea_lrc.courtlistener.docket_models import CourtListenerDocket
+    from mellea_lrc.courtlistener.opinion_models import CourtListenerOpinion
     from mellea_lrc.courtlistener.search_models import CourtListenerSearchResult
 
 
@@ -146,6 +148,22 @@ class CourtListenerClient(CourtListenerServiceClient):
                 upstream_detail=exc.errors(include_url=False),
             ) from exc
 
+    def get_opinion(self, opinion_id: str) -> CourtListenerOpinion:
+        """Retrieve one sub-opinion by its CourtListener identifier."""
+        response = self._send_resource("opinions", opinion_id)
+        payload = self._response_payload(response)
+        try:
+            return normalize_opinion_payload(payload)
+        except ValidationError as exc:
+            raise CourtListenerError(
+                "CourtListener returned an invalid opinion response",
+                failure_type="upstream_invalid_response",
+                upstream_status_code=response.status_code,
+                retryable=False,
+                url=response.url,
+                upstream_detail=exc.errors(include_url=False),
+            ) from exc
+
     def _send_citation_lookup(self, data: dict[str, str]) -> requests.Response:
         """POST one exact citation lookup without altering its established contract."""
         url = urljoin(self.config.base_url.rstrip("/") + "/", "citation-lookup/")
@@ -227,6 +245,33 @@ class CourtListenerClient(CourtListenerServiceClient):
             raise _courtlistener_http_error(response)
         return response
 
+    def _send_resource(self, resource: str, resource_id: str) -> requests.Response:
+        """GET one identifier-addressed CourtListener resource."""
+        url = urljoin(
+            self.config.base_url.rstrip("/") + "/",
+            f"{resource}/{resource_id}/",
+        )
+        try:
+            response = self.session.request("GET", url, headers=self._headers(), timeout=45)
+        except requests.Timeout as exc:
+            raise CourtListenerError(
+                "CourtListener request timed out",
+                failure_type="upstream_timeout",
+                retryable=True,
+                url=url,
+            ) from exc
+        except requests.RequestException as exc:
+            raise CourtListenerError(
+                "CourtListener request failed before a response was received",
+                failure_type="upstream_request_error",
+                retryable=True,
+                url=url,
+                upstream_detail=str(exc),
+            ) from exc
+        if response.status_code >= 400:
+            raise _courtlistener_http_error(response)
+        return response
+
     def _response_payload(self, response: requests.Response) -> object:
         try:
             return response.json()
@@ -250,7 +295,7 @@ class CourtListenerClient(CourtListenerServiceClient):
 def _courtlistener_http_error(response: requests.Response) -> CourtListenerError:
     failure_type = _failure_type_for_status(response.status_code)
     return CourtListenerError(
-        f"CourtListener citation lookup failed with {response.status_code}",
+        f"CourtListener request failed with {response.status_code}",
         failure_type=failure_type,
         upstream_status_code=response.status_code,
         retryable=failure_type in {"api_limit", "upstream_error"},
