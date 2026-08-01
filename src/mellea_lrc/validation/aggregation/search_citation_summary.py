@@ -36,6 +36,7 @@ def run_search_citation_summary(
     candidates = (
         *(
             citation_summary_candidate(
+                validation,
                 assessment,
                 provenance=CandidateProvenance.OPINION,
             )
@@ -43,6 +44,7 @@ def run_search_citation_summary(
         ),
         *(
             citation_summary_candidate(
+                validation,
                 assessment,
                 provenance=CandidateProvenance.RECAP,
             )

@@ -8,6 +8,7 @@ from mellea_lrc.courtlistener.opinion_models import (
     CourtListenerOpinion,
     CourtListenerOpinionCluster,
     CourtListenerOpinionClusterCitation,
+    courtlistener_opinion_url,
 )
 
 MIN_RESOURCE_URL_PARTS = 2
@@ -38,6 +39,7 @@ class CourtListenerOpinionClusterPayload(BaseModel):
         default=None,
         validation_alias=AliasChoices("cluster_id", "clusterId", "id"),
     )
+    absolute_url: str | None = None
     case_name: str | None = Field(
         default=None,
         validation_alias=AliasChoices("case_name", "caseName"),
@@ -59,6 +61,7 @@ class CourtListenerOpinionClusterPayload(BaseModel):
         """Convert transport scalars to the stable opinion-cluster model."""
         return CourtListenerOpinionCluster(
             cluster_id=str(self.cluster_id) if self.cluster_id is not None else None,
+            opinion_url=courtlistener_opinion_url(self.absolute_url),
             case_name=self.case_name,
             date_filed=self.date_filed,
             court=self.court,

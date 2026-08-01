@@ -1,6 +1,14 @@
 """Domain models for CourtListener opinion clusters."""
 
 from dataclasses import dataclass
+from urllib.parse import urljoin
+
+COURTLISTENER_PUBLIC_ORIGIN = "https://www.courtlistener.com/"
+
+
+def courtlistener_opinion_url(absolute_url: str | None) -> str | None:
+    """Resolve CourtListener's public opinion path to its canonical absolute URL."""
+    return urljoin(COURTLISTENER_PUBLIC_ORIGIN, absolute_url) if absolute_url else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +25,7 @@ class CourtListenerOpinionCluster:
     """One CourtListener opinion cluster returned by a retrieval route."""
 
     cluster_id: str | None = None
+    opinion_url: str | None = None
     case_name: str | None = None
     date_filed: str | None = None
     court: str | None = None

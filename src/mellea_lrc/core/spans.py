@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class Span:
-    """Character offsets in Layer 2 preprocessed text."""
+    """Character offsets whose owning field identifies the referenced text."""
 
     start: int
     end: int

@@ -41,6 +41,8 @@ from mellea_lrc.validation import (
     MelleaCaseNameQueryPreparationOutcome,
     MelleaCaseNameReextractionNode,
     MelleaCaseNameReextractionOutcome,
+    MelleaCitingPropositionExtractionNode,
+    MelleaPinpointCheckNode,
     OpinionSearchCandidateAssessmentNode,
     OpinionSearchNode,
     OpinionSearchOutcome,
@@ -57,8 +59,8 @@ from mellea_lrc.validation import (
     initialize_validation,
     validate_document,
 )
-from mellea_lrc.validation.case_search import run_mellea_case_name_query_preparation
 from mellea_lrc.validation.candidate_state import CandidateValidationState
+from mellea_lrc.validation.case_search import run_mellea_case_name_query_preparation
 from mellea_lrc.validation.execution import CitationValidationRunner
 from mellea_lrc.validation.field_checks.mellea_case_name_reextraction import (
     run_mellea_case_name_reextraction,
@@ -214,7 +216,7 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
 
     progression = validation.citation_by_id("cite-0001")
     assert client.calls == [("347", "U.S.", "483")]
-    assert len(progression.nodes) == 9
+    assert len(progression.nodes) == 11
     (
         exact_locator_lookup_node,
         candidate_evaluation_node,
@@ -224,6 +226,8 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
         court_check_node,
         assessment_node,
         reporter_page_retrieval_node,
+        citing_proposition_node,
+        pinpoint_check_node,
         summary_node,
     ) = progression.nodes
     assert isinstance(exact_locator_lookup_node, ExactLocatorLookupNode)
@@ -252,6 +256,8 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
     assert assessment_node.court_outcome is AggregatedFieldOutcome.MATCH
     assert isinstance(reporter_page_retrieval_node, ReporterPageRetrievalNode)
     assert reporter_page_retrieval_node.outcome is ReporterPageRetrievalOutcome.UNAVAILABLE
+    assert isinstance(citing_proposition_node, MelleaCitingPropositionExtractionNode)
+    assert isinstance(pinpoint_check_node, MelleaPinpointCheckNode)
     assert isinstance(summary_node, LocatorCitationSummaryNode)
     assert summary_node.outcome is LocatorCitationSummaryOutcome.COMPLETE
     assert summary_node.candidates[0].assessment_node_id == assessment_node.node_id
@@ -318,6 +324,8 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
         semantic_case_name_check_node,
         assessment_node,
         _,
+        _,
+        _,
         summary_node,
     ) = _validate(extracted, client).citations[0].nodes
 
@@ -351,6 +359,8 @@ def test_found_field_checks_skip_unavailable_values() -> None:
         _,
         court_check_node,
         assessment_node,
+        _,
+        _,
         _,
         summary_node,
     ) = _validate(extracted, client).citations[0].nodes

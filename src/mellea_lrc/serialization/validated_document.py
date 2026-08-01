@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from enum import Enum
+from typing import TypeVar
 
+from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import (
     CourtListenerOpinionCluster,
     CourtListenerOpinionClusterCitation,
@@ -26,10 +29,12 @@ from mellea_lrc.validation.types import (
     CandidateSelectionOutcome,
     CitationSummaryAssessmentOutcome,
     CitationSummaryCandidate,
+    CitationSummaryPinpoint,
     CitationValidation,
     CourtCheckNode,
     DocketCourtRetrievalNode,
     DocketCourtRetrievalOutcome,
+    EvidenceQuoteMatchMethod,
     ExactCaseNameCheckNode,
     ExactLocatorLookupNode,
     FieldCheckOutcome,
@@ -44,6 +49,10 @@ from mellea_lrc.validation.types import (
     MelleaCaseNameQueryPreparationOutcome,
     MelleaCaseNameReextractionNode,
     MelleaCaseNameReextractionOutcome,
+    MelleaCitingPropositionExtractionNode,
+    MelleaCitingPropositionExtractionOutcome,
+    MelleaPinpointCheckNode,
+    MelleaPinpointCheckOutcome,
     MelleaReextractedCaseNameCheckNode,
     OpinionSearchCandidateAssessmentNode,
     OpinionSearchNode,
@@ -63,6 +72,8 @@ from mellea_lrc.validation.types import (
     YearCheckNode,
 )
 
+EnumT = TypeVar("EnumT", bound=Enum)
+
 _ARTIFACT_TYPE = "validated_document"
 
 _NODE_TYPES: dict[str, type[ValidationNode]] = {
@@ -80,6 +91,8 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
         MelleaReextractedCaseNameCheckNode,
         DocketCourtRetrievalNode,
         ReporterPageRetrievalNode,
+        MelleaCitingPropositionExtractionNode,
+        MelleaPinpointCheckNode,
         CourtCheckNode,
         LocatorCandidateAssessmentNode,
         LocatorCitationSummaryNode,
@@ -103,6 +116,8 @@ _OUTCOME_TYPES = {
     MelleaReextractedCaseNameCheckNode: MelleaCaseNameCheckOutcome,
     DocketCourtRetrievalNode: DocketCourtRetrievalOutcome,
     ReporterPageRetrievalNode: ReporterPageRetrievalOutcome,
+    MelleaCitingPropositionExtractionNode: MelleaCitingPropositionExtractionOutcome,
+    MelleaPinpointCheckNode: MelleaPinpointCheckOutcome,
     CourtCheckNode: FieldCheckOutcome,
     LocatorCandidateAssessmentNode: LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode: LocatorCitationSummaryOutcome,
@@ -198,6 +213,22 @@ def _deserialize_node(value: object) -> ValidationNode:
             if fields["evidence"] is not None
             else None
         )
+    elif node_type is MelleaCitingPropositionExtractionNode:
+        fields["context_span"] = _deserialize_span(fields["context_span"], name="node.context_span")
+        fields["proposition_span"] = _optional_span(
+            fields["proposition_span"],
+            name="node.proposition_span",
+        )
+        fields["proposition_match_method"] = _optional_enum(
+            EvidenceQuoteMatchMethod,
+            fields["proposition_match_method"],
+        )
+    elif node_type is MelleaPinpointCheckNode:
+        fields["evidence_span"] = _optional_span(fields["evidence_span"], name="node.evidence_span")
+        fields["evidence_match_method"] = _optional_enum(
+            EvidenceQuoteMatchMethod,
+            fields["evidence_match_method"],
+        )
     elif node_type in (
         LocatorCandidateAssessmentNode,
         OpinionSearchCandidateAssessmentNode,
@@ -232,13 +263,59 @@ def _deserialize_summary_candidate(
     fields["outcome"] = outcome_type(fields["outcome"])
     for field_name in ("case_name_outcome", "year_outcome", "court_outcome"):
         fields[field_name] = AggregatedFieldOutcome(fields[field_name])
+    pinpoint = fields.get("pinpoint")
+    fields["pinpoint"] = _deserialize_summary_pinpoint(pinpoint) if pinpoint is not None else None
     return CitationSummaryCandidate(**fields)
+
+
+def _deserialize_summary_pinpoint(value: object) -> CitationSummaryPinpoint:
+    fields = dict(require_mapping(value, name="summary pinpoint"))
+    fields["status"] = ValidationNodeStatus(fields["status"])
+    fields["outcome"] = MelleaPinpointCheckOutcome(fields["outcome"])
+    fields["citing_context_span"] = _deserialize_span(
+        fields["citing_context_span"],
+        name="summary pinpoint.citing_context_span",
+    )
+    fields["citation_span"] = _deserialize_span(
+        fields["citation_span"],
+        name="summary pinpoint.citation_span",
+    )
+    fields["proposition_span"] = _optional_span(
+        fields["proposition_span"],
+        name="summary pinpoint.proposition_span",
+    )
+    fields["evidence_span"] = _optional_span(
+        fields["evidence_span"],
+        name="summary pinpoint.evidence_span",
+    )
+    fields["evidence_match_method"] = _optional_enum(
+        EvidenceQuoteMatchMethod,
+        fields["evidence_match_method"],
+    )
+    return CitationSummaryPinpoint(**fields)
+
+
+def _deserialize_span(value: object, *, name: str) -> Span:
+    payload = require_mapping(value, name=name)
+    return Span(
+        start=_required_integer(payload.get("start"), name=f"{name}.start"),
+        end=_required_integer(payload.get("end"), name=f"{name}.end"),
+    )
+
+
+def _optional_span(value: object, *, name: str) -> Span | None:
+    return None if value is None else _deserialize_span(value, name=name)
+
+
+def _optional_enum(enum_type: type[EnumT], value: object) -> EnumT | None:
+    return None if value is None else enum_type(value)
 
 
 def _deserialize_cluster(value: object) -> CourtListenerOpinionCluster:
     payload = require_mapping(value, name="opinion cluster")
     return CourtListenerOpinionCluster(
         cluster_id=_optional_string(payload.get("cluster_id"), name="cluster.cluster_id"),
+        opinion_url=_optional_string(payload.get("opinion_url"), name="cluster.opinion_url"),
         case_name=_optional_string(payload.get("case_name"), name="cluster.case_name"),
         date_filed=_optional_string(payload.get("date_filed"), name="cluster.date_filed"),
         court=_optional_string(payload.get("court"), name="cluster.court"),
@@ -285,5 +362,12 @@ def _optional_string(value: object, *, name: str) -> str | None:
 def _required_string(value: object, *, name: str) -> str:
     if not isinstance(value, str):
         msg = f"{name} must be a string"
+        raise ValueError(msg)
+    return value
+
+
+def _required_integer(value: object, *, name: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        msg = f"{name} must be an integer"
         raise ValueError(msg)
     return value

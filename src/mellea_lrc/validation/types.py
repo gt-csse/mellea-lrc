@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, TypeAlias
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from mellea_lrc.core.spans import Span
     from mellea_lrc.courtlistener.opinion_models import CourtListenerOpinionCluster
     from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
 
@@ -97,6 +98,32 @@ class ReporterPageRetrievalOutcome(str, Enum):
     FOUND = "found"
     UNAVAILABLE = "unavailable"
     FAILED = "failed"
+
+
+class MelleaPinpointCheckOutcome(str, Enum):
+    """Semantic support findings from one retrieved reporter page."""
+
+    SUPPORTS = "supports"
+    INCONCLUSIVE = "inconclusive"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
+class MelleaCitingPropositionExtractionOutcome(str, Enum):
+    """Results of identifying the proposition attributed to one citation."""
+
+    IDENTIFIED = "identified"
+    INCONCLUSIVE = "inconclusive"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
+class EvidenceQuoteMatchMethod(str, Enum):
+    """How a model-proposed quote was grounded in retrieved page text."""
+
+    EXACT = "exact"
+    NORMALIZED = "normalized"
+    FUZZY = "fuzzy"
 
 
 class CandidateSelectionOutcome(str, Enum):
@@ -429,6 +456,43 @@ class ReporterPageRetrievalNode:
 
 
 @dataclass(frozen=True, slots=True)
+class MelleaCitingPropositionExtractionNode:
+    """Grounded citing proposition and its offsets in the source document."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: MelleaCitingPropositionExtractionOutcome
+    context_span: Span
+    reasoning: str | None
+    proposition: str | None
+    proposition_span: Span | None
+    proposition_match_method: EvidenceQuoteMatchMethod | None
+    proposition_match_score: float | None
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MelleaPinpointCheckNode:
+    """Semantic judgment with evidence offsets into its retrieval dependency's page text."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: MelleaPinpointCheckOutcome
+    reasoning: str | None
+    evidence_quote: str | None
+    evidence_span: Span | None
+    evidence_match_method: EvidenceQuoteMatchMethod | None
+    evidence_match_score: float | None
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class LocatorCandidateAssessmentNode:
     """Table-ready conclusion for the one candidate from a found locator."""
 
@@ -454,8 +518,34 @@ class LocatorCandidateAssessmentNode:
 
 
 @dataclass(frozen=True, slots=True)
+class CitationSummaryPinpoint:
+    """Frontend-ready projection of one candidate's pinpoint comparison."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: MelleaPinpointCheckOutcome
+    reporter_citation: str | None
+    pin_cite: str | None
+    opinion_id: str | None
+    opinion_type: str | None
+    reporter_page_text: str | None
+    citing_context_span: Span
+    citation_span: Span
+    proposition: str | None
+    proposition_span: Span | None
+    reasoning: str | None
+    evidence_quote: str | None
+    evidence_span: Span | None
+    evidence_match_method: EvidenceQuoteMatchMethod | None
+    evidence_match_score: float | None
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class CitationSummaryCandidate:
-    """Flat, provenance-tagged candidate exposed by a terminal summary."""
+    """Frontend-ready, provenance-tagged candidate exposed by a citation summary."""
 
     provenance: CandidateProvenance
     candidate_index: int
@@ -473,16 +563,19 @@ class CitationSummaryCandidate:
     retrieved_court_id: str | None
     court_outcome: AggregatedFieldOutcome
     docket_id: str | None
+    opinion_url: str | None = None
+    pinpoint: CitationSummaryPinpoint | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class LocatorCitationSummaryNode:
-    """Terminal list of every fully evaluated locator candidate."""
+    """Terminal list of every fully evaluated candidate from one locator route."""
 
     node_id: str
     status: ValidationNodeStatus
     outcome: LocatorCitationSummaryOutcome
     overall_outcome: CitationSummaryAssessmentOutcome | None
+    pinpoint_requires_review: bool | None
     candidates: tuple[CitationSummaryCandidate, ...]
     depends_on: tuple[str, ...]
     status_message: str | None = None
@@ -581,6 +674,8 @@ ValidationNode: TypeAlias = (
     | MelleaReextractedCaseNameCheckNode
     | DocketCourtRetrievalNode
     | ReporterPageRetrievalNode
+    | MelleaCitingPropositionExtractionNode
+    | MelleaPinpointCheckNode
     | CourtCheckNode
     | LocatorCandidateAssessmentNode
     | LocatorCitationSummaryNode
