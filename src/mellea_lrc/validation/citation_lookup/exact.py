@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 HTTP_OK = 200
 HTTP_MULTIPLE_CHOICES = 300
+HTTP_BAD_REQUEST = 400
 HTTP_NOT_FOUND = 404
 
 
@@ -86,6 +87,15 @@ def run_exact_locator_lookup(
             locator=locator,
             status_message="Exact locator lookup completed.",
             outcome_message="CourtListener returned no opinion clusters for the locator.",
+        )
+    if lookup.status == HTTP_BAD_REQUEST and not lookup.clusters:
+        return ExactLocatorLookupNode(
+            node_id=node_id,
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=LocatorLookupOutcome.NOT_FOUND,
+            locator=locator,
+            status_message="Exact locator lookup completed.",
+            outcome_message="CourtListener could not parse the locator as a citation.",
         )
     if lookup.status == HTTP_MULTIPLE_CHOICES and len(lookup.clusters) > 1:
         return ExactLocatorLookupNode(
