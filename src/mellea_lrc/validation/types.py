@@ -193,6 +193,7 @@ class CitationSummaryAssessmentOutcome(str, Enum):
     MATCH = "match"
     POSSIBLE_MATCH = "possible_match"
     MISMATCH = "mismatch"
+    NOT_FOUND = "not_found"
 
 
 class SearchCitationSummaryOutcome(str, Enum):

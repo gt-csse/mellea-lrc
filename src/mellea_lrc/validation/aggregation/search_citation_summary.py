@@ -8,7 +8,7 @@ from mellea_lrc.validation.aggregation.citation_summary_candidate import (
     citation_summary_candidate,
 )
 from mellea_lrc.validation.aggregation.citation_summary_outcome import (
-    overall_citation_outcome,
+    overall_search_citation_outcome,
 )
 from mellea_lrc.validation.types import (
     CandidateProvenance,
@@ -55,7 +55,7 @@ def run_search_citation_summary(
         node_id=f"{validation.citation_id}:search_citation_summary",
         status=ValidationNodeStatus.SUCCEEDED,
         outcome=SearchCitationSummaryOutcome.COMPLETE,
-        overall_outcome=overall_citation_outcome(candidate.outcome for candidate in candidates),
+        overall_outcome=overall_search_citation_outcome(candidate.outcome for candidate in candidates),
         candidates=candidates,
         depends_on=tuple(candidate.assessment_node_id for candidate in candidates),
         status_message="Search-candidate summary completed.",

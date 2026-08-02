@@ -8,7 +8,7 @@ from mellea_lrc.validation.aggregation.citation_summary_candidate import (
     citation_summary_candidate,
 )
 from mellea_lrc.validation.aggregation.citation_summary_outcome import (
-    overall_citation_outcome,
+    overall_locator_citation_outcome,
 )
 from mellea_lrc.validation.types import (
     AggregatedFieldOutcome,
@@ -90,7 +90,7 @@ def run_locator_citation_summary(validation: CitationValidation) -> LocatorCitat
         node_id=f"{validation.citation_id}:locator_citation_summary",
         status=ValidationNodeStatus.SUCCEEDED,
         outcome=LocatorCitationSummaryOutcome.COMPLETE,
-        overall_outcome=overall_citation_outcome(candidate.outcome for candidate in candidates),
+        overall_outcome=overall_locator_citation_outcome(candidate.outcome for candidate in candidates),
         pinpoint_requires_review=_pinpoint_requires_review(validation, candidates),
         candidates=candidates,
         depends_on=tuple(
