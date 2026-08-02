@@ -60,7 +60,7 @@ if TYPE_CHECKING:
     from mellea import MelleaSession
 
     from mellea_lrc.courtlistener.protocols import CourtListenerServiceClient
-    from mellea_lrc.validation.types import CitationValidation
+    from mellea_lrc.validation.types import CitationValidation, MelleaCaseNameCheckNode
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,34 +238,51 @@ class CitationValidationRunner:
         session: MelleaSession | None,
         state: CandidateValidationState,
     ) -> tuple[CitationValidation, CandidateValidationState]:
-        """Run the complete case-name recovery graph after an exact mismatch.
+        """Run the complete case-name recovery graph after a mismatch or a missing extraction.
 
         Graph:
-            exact case-name mismatch
-            └── Mellea semantic case-name check
+            exact case-name check
+            ├── match -> end
+            ├── unavailable, no retrieved case name either -> end
+            ├── unavailable, retrieved case name present -> Mellea local party re-extraction
+            │   ├── complete -> Mellea re-extracted case-name check -> end
+            │   └── partial, not found, unavailable, or failed -> end
+            └── mismatch -> Mellea semantic case-name check
                 ├── match or failed -> end
                 └── mismatch -> Mellea local party re-extraction
                     ├── complete -> Mellea re-extracted case-name check -> end
                     └── partial, not found, unavailable, or failed -> end
         """
-        if exact_case_name_check.outcome is not FieldCheckOutcome.MISMATCH:
+        if exact_case_name_check.outcome is FieldCheckOutcome.MATCH:
             return validation, state
-        semantic = await run_mellea_case_name_check(
-            validation,
-            case_name_evidence=exact_case_name_check,
-            session=session,
-        )
-        validation = validation.append(semantic)
-        state = state.with_case_name_result(
-            outcome=_aggregated_mellea_outcome(semantic.outcome),
-            evidence="mellea",
-            dependency_id=semantic.node_id,
-        )
-        if semantic.outcome is not MelleaCaseNameCheckOutcome.MISMATCH:
+        if (
+            exact_case_name_check.outcome is FieldCheckOutcome.UNAVAILABLE
+            and exact_case_name_check.retrieved_case_name is None
+        ):
+            # Nothing to eventually compare a recovered name against.
             return validation, state
+        reextraction_trigger: ExactCaseNameCheckNode | MelleaCaseNameCheckNode = exact_case_name_check
+        if exact_case_name_check.outcome is FieldCheckOutcome.MISMATCH:
+            semantic = await run_mellea_case_name_check(
+                validation,
+                case_name_evidence=exact_case_name_check,
+                session=session,
+            )
+            validation = validation.append(semantic)
+            state = state.with_case_name_result(
+                outcome=_aggregated_mellea_outcome(semantic.outcome),
+                evidence="mellea",
+                dependency_id=semantic.node_id,
+            )
+            if semantic.outcome is not MelleaCaseNameCheckOutcome.MISMATCH:
+                return validation, state
+            reextraction_trigger = semantic
+        # A genuinely unavailable extraction still deserves a recovery attempt:
+        # local re-extraction reads document text directly and may succeed
+        # where the deterministic extractor found nothing at all.
         reextraction = await run_mellea_case_name_reextraction(
             validation,
-            trigger=semantic,
+            trigger=reextraction_trigger,
             locator_lookup=lookup,
             document_text=document_text,
             session=session,

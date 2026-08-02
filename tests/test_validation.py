@@ -377,6 +377,65 @@ def test_found_field_checks_skip_unavailable_values() -> None:
     assert summary_node.candidates[0].assessment_node_id == assessment_node.node_id
 
 
+def test_found_unavailable_extraction_with_retrieved_name_still_reextracts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing local extraction with a retrieved name to compare against still recovers."""
+    extracted = _document(FullCaseCitation(volume="503", reporter="B.R.", page="571"))
+    client = LookupClient(
+        CourtListenerCitationLookup(
+            citation="503 B.R. 571",
+            status=200,
+            clusters=(
+                CourtListenerOpinionCluster(
+                    case_name="In re Soundview Elite, Ltd.",
+                    docket_id="65785838",
+                ),
+            ),
+        ),
+        docket_response=CourtListenerDocket(docket_id="65785838", court_id="nysb"),
+    )
+
+    calls: list[object] = []
+
+    async def fake_reextraction(
+        validation: object,
+        *,
+        trigger: ExactCaseNameCheckNode,
+        locator_lookup: ExactLocatorLookupNode,
+        document_text: str,
+        session: object | None,
+    ) -> MelleaCaseNameReextractionNode:
+        del locator_lookup, document_text, session
+        assert isinstance(trigger, ExactCaseNameCheckNode)
+        calls.append(trigger)
+        return MelleaCaseNameReextractionNode(
+            node_id=f"{trigger.node_id}:mellea_case_name_reextraction",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaCaseNameReextractionOutcome.COMPLETE,
+            plaintiff=None,
+            defendant="Soundview Elite Ltd.",
+            depends_on=(trigger.node_id,),
+        )
+
+    monkeypatch.setattr(
+        "mellea_lrc.validation.execution.run_mellea_case_name_reextraction",
+        fake_reextraction,
+    )
+
+    (
+        _,
+        _,
+        exact_case_name_check_node,
+        *_rest,
+    ) = _validate(extracted, client).citations[0].nodes
+
+    assert exact_case_name_check_node.status is ValidationNodeStatus.SKIPPED
+    assert exact_case_name_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
+    assert len(calls) == 1
+    assert calls[0] is exact_case_name_check_node
+
+
 def test_mellea_case_name_reextraction_uses_only_local_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

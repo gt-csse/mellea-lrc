@@ -19,6 +19,7 @@ from mellea_lrc.llm import (
 )
 from mellea_lrc.validation.types import (
     CitationValidation,
+    ExactCaseNameCheckNode,
     ExactLocatorLookupNode,
     MelleaCaseNameCheckNode,
     MelleaCaseNameReextractionNode,
@@ -68,7 +69,7 @@ class _PartyProposal(BaseModel):
 async def run_mellea_case_name_reextraction(
     validation: CitationValidation,
     *,
-    trigger: ExactLocatorLookupNode | MelleaCaseNameCheckNode,
+    trigger: ExactLocatorLookupNode | ExactCaseNameCheckNode | MelleaCaseNameCheckNode,
     locator_lookup: ExactLocatorLookupNode,
     document_text: str,
     session: MelleaSession | None = None,
@@ -160,7 +161,7 @@ async def run_mellea_case_name_reextraction(
 
 def _node(
     validation: CitationValidation,
-    trigger: ExactLocatorLookupNode | MelleaCaseNameCheckNode,
+    trigger: ExactLocatorLookupNode | ExactCaseNameCheckNode | MelleaCaseNameCheckNode,
     status: ValidationNodeStatus,
     outcome: MelleaCaseNameReextractionOutcome,
     *,
