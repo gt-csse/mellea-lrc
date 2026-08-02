@@ -55,9 +55,15 @@ def run_exact_case_name_check(
 
 
 def _extracted_case_name(citation: FullCaseCitation) -> str | None:
-    if not citation.plaintiff or not citation.defendant:
-        return None
-    return f"{citation.plaintiff} v. {citation.defendant}"
+    """Build the extracted case name, tolerating single-party captions.
+
+    Most citations have both a plaintiff and a defendant, but single-party
+    captions (``In re X``, ``Ex parte X``) are legitimate case names too - use
+    whichever party is present instead of requiring both.
+    """
+    if citation.plaintiff and citation.defendant:
+        return f"{citation.plaintiff} v. {citation.defendant}"
+    return citation.plaintiff or citation.defendant or None
 
 
 def _normalize_case_name(value: str) -> str:
