@@ -171,7 +171,7 @@ def _node(
     error: str | None = None,
 ) -> MelleaCaseNameReextractionNode:
     return MelleaCaseNameReextractionNode(
-        node_id=f"{validation.citation_id}:mellea_case_name_reextraction",
+        node_id=f"{trigger.node_id}:mellea_case_name_reextraction",
         status=status,
         outcome=outcome,
         plaintiff=plaintiff,
