@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import re
 import uuid
+from bisect import bisect_left, bisect_right
 from typing import cast
 
 from eyecite import get_citations, resolve_citations
+from eyecite.annotate import SpanUpdater
 from eyecite.models import (
     CitationBase,
     Resource,
@@ -50,6 +53,42 @@ from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing.plain_text import preprocess_plain_text_from_string
 from mellea_lrc.preprocessing.types import PreprocessedDocument
+
+_REPEATED_INLINE_WHITESPACE = re.compile(r"[ \t]{2,}")
+
+
+def _get_citations_with_recovered_spans(text: str) -> list[CitationBase]:
+    """Extract citations from whitespace-collapsed text, then remap spans back to `text`.
+
+    Docling PDF extraction leaves runs of repeated spaces/tabs (e.g. from
+    justified-text columns) that break eyecite's tokenizer and silently drop
+    otherwise well-formed citations. Collapsing those runs before extraction
+    recovers them; `SpanUpdater` then maps each citation's offsets from the
+    collapsed text back to `text` so downstream span-based text slicing is
+    unaffected.
+    """
+    cleaned = _REPEATED_INLINE_WHITESPACE.sub(" ", text)
+    citations = get_citations(cleaned)
+    if cleaned == text:
+        return citations
+
+    # Collapsing repeated whitespace is a net insertion going cleaned -> text
+    # (each run gains its extra characters back), the opposite of eyecite's
+    # own plain/markup mapping (a net deletion). bisect_right on the start and
+    # bisect_left on the end is what lands exactly on citation boundaries for
+    # an insertion-direction diff; the reverse pairing off-by-ones by one
+    # collapsed space at segment boundaries.
+    updater = SpanUpdater(cleaned, text)
+    for citation in citations:
+        start, end = citation.span()
+        citation.span_start = updater.update(start, bisect_right)
+        citation.span_end = updater.update(end, bisect_left)
+        if citation.full_span_start is not None:
+            citation.full_span_start = updater.update(citation.full_span_start, bisect_right)
+        if citation.full_span_end is not None:
+            citation.full_span_end = updater.update(citation.full_span_end, bisect_left)
+    return citations
+
 
 EYECITE_CITATION_TYPES = frozenset(
     {
@@ -195,7 +234,7 @@ def _extract_from_text(
 ) -> ExtractedDocument:
     """Extract canonical citations from a preprocessed document."""
     text = preprocessed.text
-    eyecite_citations = get_citations(text)
+    eyecite_citations = _get_citations_with_recovered_spans(text)
     resolutions = cast(
         dict[Resource, list[CitationBase]],
         resolve_citations(eyecite_citations),
