@@ -339,7 +339,7 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
     assert semantic_case_name_check_node.outcome is MelleaCaseNameCheckOutcome.MATCH
     assert court_check_node.status is ValidationNodeStatus.SUCCEEDED
     assert court_check_node.outcome is FieldCheckOutcome.MISMATCH
-    assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
+    assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.MISMATCH
     assert summary_node.candidates[0].assessment_node_id == assessment_node.node_id
 
 
