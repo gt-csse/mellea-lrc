@@ -44,7 +44,9 @@ def _candidate(case_name: str | None) -> CandidateEvaluationNode:
 
 def test_single_party_defendant_only_uses_that_party_directly() -> None:
     """An 'In re' style caption has only one party - use it, don't call the check unavailable."""
-    citation = FullCaseCitation(plaintiff="", defendant="Soundview Elite Ltd.", volume="503", reporter="B.R.", page="571")
+    citation = FullCaseCitation(
+        plaintiff="", defendant="Soundview Elite Ltd.", volume="503", reporter="B.R.", page="571"
+    )
     validation = _validation_with_citation(citation)
     candidate = _candidate("In re Soundview Elite, Ltd.")
 
@@ -57,7 +59,9 @@ def test_single_party_defendant_only_uses_that_party_directly() -> None:
 
 def test_single_party_plaintiff_only_uses_that_party_directly() -> None:
     """The same holds when only the plaintiff field is populated."""
-    citation = FullCaseCitation(plaintiff="Ex Parte Young", defendant="", volume="209", reporter="U.S.", page="123")
+    citation = FullCaseCitation(
+        plaintiff="Ex Parte Young", defendant="", volume="209", reporter="U.S.", page="123"
+    )
     validation = _validation_with_citation(citation)
     candidate = _candidate("Ex Parte Young")
 
