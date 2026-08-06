@@ -266,6 +266,57 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
     assert progression.aggregation is summary_node
 
 
+def test_found_field_checks_treat_unavailable_year_as_a_full_match() -> None:
+    """Eyecite often can't parse a year; that shouldn't downgrade an otherwise-confirmed match."""
+    extracted = _document(
+        FullCaseCitation(
+            plaintiff="Brown",
+            defendant="Board",
+            volume="347",
+            reporter="U.S.",
+            page="483",
+            year=None,
+            court="scotus",
+        )
+    )
+    cluster = CourtListenerOpinionCluster(
+        case_name="Brown v. Board",
+        date_filed="1954-05-17",
+        court_id="scotus",
+        docket_id="84657",
+    )
+    client = LookupClient(
+        CourtListenerCitationLookup(
+            citation="347 U.S. 483",
+            status=200,
+            clusters=(cluster,),
+        ),
+        docket_response=CourtListenerDocket(docket_id="84657", court_id="scotus"),
+    )
+
+    validation = _validate(extracted, client)
+
+    progression = validation.citation_by_id("cite-0001")
+    (
+        _,
+        _,
+        exact_case_name_check_node,
+        year_check_node,
+        _,
+        court_check_node,
+        assessment_node,
+        _,
+        _,
+        _,
+        summary_node,
+    ) = progression.nodes
+    assert exact_case_name_check_node.outcome is FieldCheckOutcome.MATCH
+    assert year_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
+    assert court_check_node.outcome is FieldCheckOutcome.MATCH
+    assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.MATCH
+    assert summary_node.outcome is LocatorCitationSummaryOutcome.COMPLETE
+
+
 def test_found_field_checks_record_mismatch_without_failing_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -373,7 +424,10 @@ def test_found_field_checks_skip_unavailable_values() -> None:
     assert year_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
     assert court_check_node.status is ValidationNodeStatus.SKIPPED
     assert court_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
-    assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.MISMATCH
+    # Unavailable case-name evidence is not a confirmed disagreement, so it
+    # doesn't downgrade all the way to a mismatch - only an outright case-name
+    # or court mismatch does that.
+    assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
     assert summary_node.candidates[0].assessment_node_id == assessment_node.node_id
 
 

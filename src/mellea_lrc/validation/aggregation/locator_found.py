@@ -139,16 +139,18 @@ def _assessment_outcome(
 ) -> LocatorCandidateAssessmentOutcome:
     """Reduce case name, year, and court into one candidate conclusion.
 
-    Case name must match outright, and court - when it was checked at all -
-    must not disagree; either failing that is a mismatch. Otherwise the
-    candidate is a confirmed match only if the year also matches, and a
-    possible match if the year is unmatched or unavailable.
+    An outright case-name or court disagreement is a mismatch. Case name
+    must be affirmatively confirmed to match - it is the identity anchor.
+    Year and court only need to not actively disagree: eyecite often can't
+    parse a year, and court isn't always checked, so unavailable or failed
+    evidence for either should not by itself downgrade a confirmed match
+    into a mismatch.
     """
-    if case_name is not AggregatedFieldOutcome.MATCH:
+    if case_name is AggregatedFieldOutcome.MISMATCH:
         return LocatorCandidateAssessmentOutcome.MISMATCH
     if court is AggregatedFieldOutcome.MISMATCH:
         return LocatorCandidateAssessmentOutcome.MISMATCH
-    if year is AggregatedFieldOutcome.MATCH:
+    if case_name is AggregatedFieldOutcome.MATCH and year is not AggregatedFieldOutcome.MISMATCH:
         return LocatorCandidateAssessmentOutcome.MATCH
     return LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
 
@@ -162,14 +164,14 @@ def _assessment_message(
     if outcome is LocatorCandidateAssessmentOutcome.MATCH:
         return "Case name, year, and court do not disagree with this candidate."
     if outcome is LocatorCandidateAssessmentOutcome.PARTIAL_MATCH:
+        if case_name is not AggregatedFieldOutcome.MATCH:
+            return "The retrieved candidate's case name could not be confirmed."
         return "Case name and court do not disagree; verify the differing year."
     if case_name is AggregatedFieldOutcome.MISMATCH and court is AggregatedFieldOutcome.MISMATCH:
         return "The retrieved candidate has a different case name and court."
     if case_name is AggregatedFieldOutcome.MISMATCH:
         return "The retrieved candidate has a different case name."
-    if court is AggregatedFieldOutcome.MISMATCH:
-        return "The retrieved candidate has a different court."
-    return "The retrieved candidate's case name could not be confirmed."
+    return "The retrieved candidate has a different court."
 
 
 def _field_outcome(outcome: FieldCheckOutcome) -> AggregatedFieldOutcome:
