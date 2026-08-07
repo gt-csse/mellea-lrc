@@ -37,6 +37,7 @@ from eyecite.models import (
 from eyecite.models import (
     UnknownCitation as EyeciteUnknownCitation,
 )
+from eyecite.tokenizers import Tokenizer, default_tokenizer
 
 from mellea_lrc.core.citations import (
     CanonicalCitation,
@@ -57,7 +58,11 @@ from mellea_lrc.preprocessing.types import PreprocessedDocument
 _REPEATED_INLINE_WHITESPACE = re.compile(r"[ \t]{2,}")
 
 
-def _get_citations_with_recovered_spans(text: str) -> list[CitationBase]:
+def _get_citations_with_recovered_spans(
+    text: str,
+    *,
+    tokenizer: Tokenizer = default_tokenizer,
+) -> list[CitationBase]:
     """Extract citations from whitespace-collapsed text, then remap spans back to `text`.
 
     Docling PDF extraction leaves runs of repeated spaces/tabs (e.g. from
@@ -66,9 +71,12 @@ def _get_citations_with_recovered_spans(text: str) -> list[CitationBase]:
     recovers them; `SpanUpdater` then maps each citation's offsets from the
     collapsed text back to `text` so downstream span-based text slicing is
     unaffected.
+
+    `tokenizer` exists so alternative extraction backends can reuse this
+    collapse-and-remap step rather than reimplement the span mapping below.
     """
     cleaned = _REPEATED_INLINE_WHITESPACE.sub(" ", text)
-    citations = get_citations(cleaned)
+    citations = get_citations(cleaned, tokenizer=tokenizer)
     if cleaned == text:
         return citations
 
