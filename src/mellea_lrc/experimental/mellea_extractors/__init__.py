@@ -1,6 +1,6 @@
 """Mellea-backed citation extraction strategies.
 
-Every strategy implements the `MelleaBase` contract
+Every strategy implements the `MelleaExtractorBase` contract.
 """
 
 from mellea_lrc.experimental.mellea_extractors.base import MelleaExtractorBase
