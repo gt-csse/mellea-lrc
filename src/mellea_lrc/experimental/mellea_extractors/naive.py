@@ -1,13 +1,9 @@
 """Use Mellea to extract and label."""
 
-# %%
 import re
 import uuid
 from pathlib import Path
 
-import mellea
-from dotenv import find_dotenv, load_dotenv
-from mellea import MelleaSession
 from mellea.backends.model_ids import IBM_GRANITE_4_1_3B, ModelIdentifier
 
 from mellea_lrc.core import (
@@ -25,7 +21,7 @@ from mellea_lrc.core import (
     SupraCitation,
     UnknownCitation,
 )
-from mellea_lrc.extraction.base import BaseExtractor
+from mellea_lrc.experimental.mellea_extractors.base import FoundCitation, MelleaExtractorBase
 from mellea_lrc.extraction.types import (
     ExtractedCitation,
     ExtractedDocument,
@@ -38,39 +34,16 @@ from mellea_lrc.preprocessing import (
     preprocess,
 )
 
-# %%
 
-
-class MelleaExtractor(BaseExtractor):
+class MelleaNaive(MelleaExtractorBase):
     """Extractor that uses Mellea."""
 
     def __init__(
         self,
         model_id: ModelIdentifier = IBM_GRANITE_4_1_3B,
     ) -> None:
-        """Initialize a Mellea session."""
-        self._model_id = model_id
-        self._session = None
-
-    @property
-    def session(self) -> MelleaSession:
-        """Return an initialized Mellea session."""
-        if self._session is None:
-            load_dotenv(find_dotenv())
-            self._session = mellea.start_session(backend_name="ollama", model_id=self._model_id)
-        return self._session
-
-    def _locate_span(
-        self,
-        text: str,
-        matched_text: str,
-    ) -> Span | None:
-        """Return the span of the citation if found, else none."""
-        pattern = re.escape(matched_text)
-        match: re.Match[str] | None = re.search(pattern, text)
-        if match:
-            return Span(match.start(), match.end())
-        return None
+        """Keep the 3B default; session creation and host policy come from the base."""
+        super().__init__(model_id)
 
     def _assemble_canonical_citation(self, kind: str, **kwargs) -> CanonicalCitation:
         """Return an assembled CanonicalCitation class.
@@ -141,8 +114,8 @@ class MelleaExtractor(BaseExtractor):
             raise FileNotFoundError(msg)
         return file_content
 
-    def extract_citations(self, text: str) -> ExtractedDocument:
-        """Identify, retrieve, and classify case law citations.
+    def _find_citations(self, text: str) -> list[FoundCitation]:
+        """Identify, retrieve case law citations.
 
         Args:
         ----
@@ -153,12 +126,7 @@ class MelleaExtractor(BaseExtractor):
             A list of citations.
 
         """
-        # Fill in the `SourceMetadata`
-        source_metadata = SourceMetadata(format=SourceFormat.PDF)
-        # Fill in the `PreprocessingMetadata`
-        preprocessing_metadata = PreprocessingMetadata(backend=PreprocessingBackend.DOCLING)
-        # Fill in the `Citations`
-        citations: list[ExtractedCitation] = []
+        citations: list[FoundCitation] = []
         unfound: list = []
         raw_citations = self._naive_strategy(text)
         for raw in raw_citations:
@@ -169,27 +137,8 @@ class MelleaExtractor(BaseExtractor):
             if span is None:
                 unfound.append(matched_text)
                 continue
-            citation = self._assemble_canonical_citation(CitationKind.UNKNOWN)  # TODO: Implement classifier
-            arguments = {
-                "citation": citation,
-                "matched_text": matched_text,
-                "start_span": span.start,
-                "end_span": span.end,
-            }
-            citations.append(self._assemble_extractor_citation(text, **arguments))
-        # Fill in the `ExtractedMetadata`
-        extraction_metadata = ExtractionMetadata(backend=ExtractionBackend.MELLEA)
-        return ExtractedDocument(
-            text=text,
-            preprocessing_metadata=preprocessing_metadata,
-            source_metadata=source_metadata,
-            citations=tuple(citations),
-            extraction_metadata=extraction_metadata,
-        )
-
-    def resolve_citations(self, citations: list) -> list:
-        """Group citations with the same reference, e.g., document, bried."""
-        return super().resolve_citations(citations)
+            citations.append(FoundCitation(matched_text=matched_text, span=span))
+        return citations
 
     @classmethod
     def extract_structured_text(cls, file_path: Path | str) -> str:
