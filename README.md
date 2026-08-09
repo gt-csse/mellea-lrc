@@ -17,6 +17,7 @@
 
 ## Contents
 - [Overview](#overview)
+- [Evaluations](#evaluations)
 - [Installation](#installation)
 - [Development](#development)
 - [Additional Information](#additional-information)
@@ -27,6 +28,13 @@ TODO: Complete this section
 
 ### How to use `mellea-lrc`
 TODO: Complete this section
+
+## Evaluations
+
+Extraction and validation are evaluated separately against the frozen
+[false-citation-bench](https://huggingface.co/datasets/gt-csse/false-citation-bench)
+dataset. Each evaluator reads a small JSONL run artifact, so any system can be
+scored, not only this one. See [evaluations/](evaluations/README.md).
 
 <!-- Content below this delimiter will be copied to the generated README.md file. DO NOT REMOVE THIS COMMENT, as it will cause regeneration to fail. -->
 
