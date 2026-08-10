@@ -57,29 +57,9 @@ workflow retries under a requirement loop, and a nonzero temperature makes a
 score irreproducible run to run.
 
 ```bash
-uv run --env-file .env python - data/false-citation-bench/documents_txt run-validation <<'PY'
-import asyncio, json, sys
-from pathlib import Path
-from mellea_lrc.courtlistener import CourtListenerClient
-from mellea_lrc.extraction import run_extraction_from_text
-from mellea_lrc.llm import start_mellea_session_from_env
-from mellea_lrc.serialization.validated_document import serialize_validated_document
-from mellea_lrc.validation import validate_document
-
-source, output = Path(sys.argv[1]), Path(sys.argv[2])
-output.mkdir(parents=True, exist_ok=True)
-client, session = CourtListenerClient(), start_mellea_session_from_env()
-
-async def main() -> None:
-    for path in sorted(source.glob("*.txt")):
-        extracted = run_extraction_from_text(path.read_text(encoding="utf-8"), source_path=str(path))
-        validated = await validate_document(extracted, client=client, session=session)
-        (output / f"{path.stem}.json").write_text(
-            json.dumps(serialize_validated_document(validated), indent=2), encoding="utf-8"
-        )
-
-asyncio.run(main())
-PY
+uv run --env-file .env python -m evaluations.validation.run_mellea_lrc \
+  --documents data/false-citation-bench/documents_txt \
+  --output run-validation
 
 uv run python evaluations/validation/export_mellea_lrc_artifact.py \
   --artifact-dir run-validation \

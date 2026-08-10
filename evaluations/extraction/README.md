@@ -46,6 +46,28 @@ a docket prediction its court. Matching is greedy and each benchmark occurrence
 is claimed once, so one citation reported twice earns one true positive and one
 false positive.
 
+## Run an arm
+
+Mellea-LRC's own extraction, over the benchmark corpus:
+
+```bash
+uv run python -m evaluations.extraction.run \
+  --arm production \
+  --documents data/false-citation-bench/documents_txt \
+  --output run-artifact.jsonl
+```
+
+| arm | components |
+|---|---|
+| `eyecite` | eyecite as published |
+| `production` | eyecite + whitespace repair — what Mellea-LRC ships |
+
+Eyecite writes `Unknown overlap case…` to stderr as it runs. That is its own
+diagnostic about overlapping citation tokens, not an error in your run.
+
+To score a system of your own, either register it in `ARMS` or skip the runner
+and write the JSONL directly, as below.
+
 ## Write a run artifact
 
 One JSON object per line:
