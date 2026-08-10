@@ -34,3 +34,9 @@ frontend/tsconfig.tsbuildinfo
 
 # notebooks
 notebooks/
+
+# Evaluation working files: the downloaded dataset and anything a run writes.
+data/
+run-artifact.jsonl
+run-validation/
+evaluation-result/

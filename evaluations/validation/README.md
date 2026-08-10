@@ -6,6 +6,20 @@ Validation (CourtListener Heuristics)** set: 423 occurrences, 387 `match` and
 
 Read [the shared setup](../README.md) first.
 
+## Get the dataset
+
+```bash
+uv sync
+
+uv run hf auth login
+
+uv run hf download gt-csse/false-citation-bench --repo-type dataset \
+  --local-dir data/false-citation-bench
+```
+
+The dataset repository is private, so the download needs a Hugging Face account
+with access to the `gt-csse` organisation.
+
 ## What is scored
 
 Given a citation that has **already been extracted**, does the authority

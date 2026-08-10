@@ -6,6 +6,25 @@ Extraction** set: 594 identifiers across 26 filings.
 Read [the shared setup](../README.md) first, in particular the coordinate
 space.
 
+## End to end
+
+```bash
+uv run hf auth login
+
+uv run hf download gt-csse/false-citation-bench --repo-type dataset \
+  --local-dir data/false-citation-bench
+
+uv run python -m evaluations.extraction.run --arm production \
+  --documents data/false-citation-bench/documents_txt --output run-artifact.jsonl
+
+uv run python evaluations/extraction/evaluate.py \
+  --benchmark data/false-citation-bench/derived/extraction.jsonl \
+  --artifact run-artifact.jsonl --output-dir evaluation-result
+```
+
+Expect 563 occurrences, 100.0% precision and 94.8% recall. The sections below
+cover what each step does and how to score a system of your own.
+
 ## What is scored
 
 One occurrence is one **citation identifier** at one place:
@@ -45,6 +64,20 @@ A locator prediction must therefore carry `volume`, `reporter` and `page`, and
 a docket prediction its court. Matching is greedy and each benchmark occurrence
 is claimed once, so one citation reported twice earns one true positive and one
 false positive.
+
+## Get the dataset
+
+```bash
+uv sync
+
+uv run hf auth login
+
+uv run hf download gt-csse/false-citation-bench --repo-type dataset \
+  --local-dir data/false-citation-bench
+```
+
+The dataset repository is private, so the download needs a Hugging Face account
+with access to the `gt-csse` organisation.
 
 ## Run an arm
 
