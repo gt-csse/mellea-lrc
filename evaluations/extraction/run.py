@@ -56,7 +56,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="arms:\n" + "\n".join(f"  {name:<12} {spec.components}" for name, spec in ARMS.items()),
+        epilog="arms:\n" + "\n".join(f"  {name:<26} {spec.components}" for name, spec in ARMS.items()),
     )
     parser.add_argument("--arm", required=True, choices=list(ARMS), help="Which arm to run.")
     parser.add_argument(
@@ -65,7 +65,10 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True, help="Destination JSONL run artifact.")
     args = parser.parse_args()
 
-    print(f"{args.arm}: {ARMS[args.arm].components}")
+    spec = ARMS[args.arm]
+    print(f"{args.arm}: {spec.components}")
+    if spec.needs_model:
+        print("  this arm calls a model; set MELLEA_LRC_LLM_* in the environment")
     occurrences = run_corpus(args.arm, read_corpus(args.documents))
     count = write_run_artifact(args.output, occurrences)
     print(f"Wrote {count} occurrences to {args.output}")
