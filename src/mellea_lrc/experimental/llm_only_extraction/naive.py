@@ -21,7 +21,7 @@ from mellea_lrc.core import (
     SupraCitation,
     UnknownCitation,
 )
-from mellea_lrc.experimental.mellea_extractors.base import FoundCitation, MelleaExtractorBase
+from mellea_lrc.experimental.llm_only_extraction.base import FoundCitation, MelleaExtractorBase
 from mellea_lrc.extraction.types import (
     ExtractedCitation,
     ExtractedDocument,

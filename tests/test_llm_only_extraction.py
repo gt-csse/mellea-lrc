@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from mellea_lrc.core import Span
-from mellea_lrc.experimental.mellea_extractors import MelleaNaive
+from mellea_lrc.experimental.llm_only_extraction import MelleaNaive
 
 
 @pytest.fixture
@@ -105,7 +105,7 @@ def test_extract_citations(
 # --- session policy (shared base behavior) ---
 def test_session_requires_ollama_host(monkeypatch: pytest.MonkeyPatch) -> None:
     """The session fails loudly instead of silently falling back to localhost."""
-    import mellea_lrc.experimental.mellea_extractors.base as base
+    import mellea_lrc.experimental.llm_only_extraction.base as base
 
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
     monkeypatch.setattr(base, "find_dotenv", lambda: "")

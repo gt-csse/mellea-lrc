@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, ClassVar
 from mellea import generative
 
 from mellea_lrc.core import Span
-from mellea_lrc.experimental.mellea_extractors.base import (
+from mellea_lrc.experimental.llm_only_extraction.base import (
     DEFAULT_MODEL_ID,
     LOCATOR,
     TRAILING_YEAR,
