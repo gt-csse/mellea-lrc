@@ -6,6 +6,29 @@ Validation (CourtListener Heuristics)** set: 423 occurrences, 387 `match` and
 
 Read [the shared setup](../README.md) first.
 
+## End to end
+
+```bash
+uv run hf auth login
+
+uv run hf download gt-csse/false-citation-bench --repo-type dataset \
+  --local-dir data/false-citation-bench
+
+uv run --env-file .env python -m evaluations.validation.run_mellea_lrc \
+  --documents data/false-citation-bench/documents_txt --output run-validation
+
+uv run python evaluations/validation/export_mellea_lrc_artifact.py \
+  --artifact-dir run-validation --output run-artifact.jsonl
+
+uv run python evaluations/validation/evaluate.py \
+  --benchmark data/false-citation-bench/derived/validation-courtlistener-heuristics.jsonl \
+  --artifact run-artifact.jsonl --output-dir evaluation-result
+```
+
+The third step is the expensive one — it calls CourtListener and a model for
+every citation in 26 filings, and it needs the credentials set up below. The
+sections that follow cover what each step does.
+
 ## Get the dataset
 
 ```bash
@@ -19,6 +42,28 @@ uv run hf download gt-csse/false-citation-bench --repo-type dataset \
 
 The dataset repository is private, so the download needs a Hugging Face account
 with access to the `gt-csse` organisation.
+
+## Configure the environment
+
+Only the run step needs credentials; converting and scoring a run need none.
+
+```bash
+cp .env.example .env
+```
+
+| variable | required | what it is |
+|---|---|---|
+| `COURTLISTENER_API_TOKEN` | yes | citation-lookup answers `401` without one — [get a token](https://www.courtlistener.com/help/api/rest/) |
+| `MELLEA_LRC_LLM_MODEL` | yes | model id as the endpoint names it |
+| `MELLEA_LRC_LLM_API_BASE` | yes | OpenAI-compatible base URL, ending in `/v1` |
+| `MELLEA_LRC_LLM_API_KEY` | yes | key for that endpoint |
+| `MELLEA_LRC_LLM_TEMPERATURE` | no | defaults to `0.0`; leave it there |
+
+Leave the temperature at zero for evaluation: the workflow retries under a
+requirement loop, and any other value makes a score irreproducible run to run.
+
+Nothing reads `.env` implicitly — `uv run --env-file .env` is what loads it, so
+the run command below carries that flag and the others do not.
 
 ## What is scored
 
@@ -63,12 +108,6 @@ The benchmark's `matched_text` is stored whitespace-collapsed, not verbatim —
 evaluator does not compare it; do not use it for an exact string check.
 
 ### Producing one with Mellea-LRC
-
-Needs a CourtListener token and an OpenAI-compatible endpoint in `.env`
-(`COURTLISTENER_API_TOKEN`, `MELLEA_LRC_LLM_MODEL`, `MELLEA_LRC_LLM_API_BASE`,
-`MELLEA_LRC_LLM_API_KEY`). Leave `MELLEA_LRC_LLM_TEMPERATURE` at `0.0`: the
-workflow retries under a requirement loop, and a nonzero temperature makes a
-score irreproducible run to run.
 
 ```bash
 uv run --env-file .env python -m evaluations.validation.run_mellea_lrc \
