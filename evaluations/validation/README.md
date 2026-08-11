@@ -26,8 +26,10 @@ uv run python evaluations/validation/evaluate.py \
 ```
 
 The third step is the expensive one — it calls CourtListener and a model for
-every citation in 26 filings, and it needs the credentials set up below. The
-sections that follow cover what each step does.
+every citation in 26 filings. It needs the credentials set up below, and it
+will not finish on a free CourtListener key: read *Rate limits* first. Expect
+it to take **up to two hours**, depending on the inference model and HTTP
+latency; ours runs on an Nvidia Spark.
 
 ## Get the dataset
 
@@ -53,7 +55,7 @@ cp .env.example .env
 
 | variable | required | what it is |
 |---|---|---|
-| `COURTLISTENER_API_TOKEN` | yes | citation-lookup answers `401` without one — [get a token](https://www.courtlistener.com/help/api/rest/) |
+| `COURTLISTENER_API_TOKEN` | yes | citation-lookup answers `401` without one, and a free-tier quota will not finish a run — see *Rate limits* |
 | `MELLEA_LRC_LLM_MODEL` | yes | model id as the endpoint names it |
 | `MELLEA_LRC_LLM_API_BASE` | yes | OpenAI-compatible base URL, ending in `/v1` |
 | `MELLEA_LRC_LLM_API_KEY` | yes | key for that endpoint |
@@ -64,6 +66,22 @@ requirement loop, and any other value makes a score irreproducible run to run.
 
 Nothing reads `.env` implicitly — `uv run --env-file .env` is what loads it, so
 the run command below carries that flag and the others do not.
+
+## Rate limits
+
+**A free-tier CourtListener key is not enough.** As of 10 August 2026 its quota
+runs out before the first document finishes, so the run step cannot complete.
+You need one of:
+
+1. **A key with a lenient limit.** Ask CourtListener to raise the quota on your
+   account.
+2. **A cache in front of CourtListener.** A thin layer that stores responses and
+   replays them is enough, since the run repeats many lookups.
+
+If you cache, fill it for the whole corpus before trusting a final artifact —
+the simplest way is to rerun the run step until it stops fetching anything new.
+Each pass gets further before the quota stops it, and the finished artifact is
+only meaningful once every document has been through.
 
 ## What is scored
 
