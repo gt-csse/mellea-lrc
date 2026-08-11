@@ -27,14 +27,9 @@ it, so any system can be scored.
 ```bash
 uv sync
 
-uv run hf auth login
-
 uv run hf download gt-csse/false-citation-bench --repo-type dataset \
   --local-dir data/false-citation-bench
 ```
-
-The dataset repository is private, so the download needs a Hugging Face account
-with access to the `gt-csse` organisation.
 
 ## Spans index the document body, not the file
 
