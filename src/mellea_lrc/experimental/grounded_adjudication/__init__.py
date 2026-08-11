@@ -36,26 +36,26 @@ from mellea_lrc.experimental.grounded_adjudication.docket_hunting import (
     docket_context,
     suspected_dockets,
 )
-from mellea_lrc.experimental.grounded_adjudication.masking import mask_full_spans, mask_locator_spans
-from mellea_lrc.experimental.grounded_adjudication.site_adjudication import (
+from mellea_lrc.experimental.grounded_adjudication.locator_adjudication import (
     AdjudicatedLocator,
-    adjudicate_site,
+    adjudicate_locator,
     reporter_context,
 )
-from mellea_lrc.experimental.grounded_adjudication.site_hunting import SuspectedSite, suspected_sites
+from mellea_lrc.experimental.grounded_adjudication.locator_hunting import SuspectedLocator, suspected_locators
+from mellea_lrc.experimental.grounded_adjudication.masking import mask_full_spans, mask_locator_spans
 
 __all__ = [
     "AdjudicatedDocket",
     "AdjudicatedLocator",
     "CourtCandidate",
     "SuspectedDocket",
-    "SuspectedSite",
+    "SuspectedLocator",
     "adjudicate_docket",
-    "adjudicate_site",
+    "adjudicate_locator",
     "docket_context",
     "mask_full_spans",
     "mask_locator_spans",
     "reporter_context",
     "suspected_dockets",
-    "suspected_sites",
+    "suspected_locators",
 ]

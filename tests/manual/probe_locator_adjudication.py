@@ -2,7 +2,7 @@
 
 Not a pytest test: this calls a live model, so it is run by hand.
 
-    uv run --env-file .env python tests/manual/probe_site_adjudication.py
+    uv run --env-file .env python tests/manual/probe_locator_adjudication.py
 
 Every case here is invented. No text, citation or span comes from the
 benchmark, so a passing run says the layer handles a damage class rather than
@@ -14,8 +14,8 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from mellea_lrc.experimental.grounded_adjudication.site_adjudication import adjudicate_site
-from mellea_lrc.experimental.grounded_adjudication.site_hunting import SuspectedSite
+from mellea_lrc.experimental.grounded_adjudication.locator_adjudication import adjudicate_locator
+from mellea_lrc.experimental.grounded_adjudication.locator_hunting import SuspectedLocator
 
 # (label, window text, reporter flagged by the hunter, expected triple or None)
 CASES: list[tuple[str, str, str, tuple[str, str, str] | None]] = [
@@ -79,8 +79,8 @@ CASES: list[tuple[str, str, str, tuple[str, str, str] | None]] = [
 async def main() -> int:
     failures = 0
     for label, window, reporter, expected in CASES:
-        site = SuspectedSite(span_start=0, span_end=len(window), reporter=reporter, window=window)
-        found = await adjudicate_site(window, site, context=0)
+        site = SuspectedLocator(span_start=0, span_end=len(window), reporter=reporter, window=window)
+        found = await adjudicate_locator(window, site, context=0)
         got = [(f.volume, f.reporter, f.page) for f in found]
         if expected is None:
             ok = not found

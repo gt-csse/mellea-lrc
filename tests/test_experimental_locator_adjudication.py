@@ -5,7 +5,7 @@ guards it: the shapes rejected before grounding, and the mapping that turns a
 quote against collapsed text back into a document offset.
 """
 
-from mellea_lrc.experimental.grounded_adjudication.site_adjudication import _ground, implausible_locator
+from mellea_lrc.experimental.grounded_adjudication.locator_adjudication import _ground, implausible_locator
 
 
 class TestImplausibleLocator:

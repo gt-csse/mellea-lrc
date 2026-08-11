@@ -21,9 +21,9 @@ from eyecite.models import CitationBase
 from evaluations.extraction.occurrences import Occurrence, deduplicate
 from mellea_lrc.experimental.grounded_adjudication import (
     adjudicate_docket,
-    adjudicate_site,
+    adjudicate_locator,
     suspected_dockets,
-    suspected_sites,
+    suspected_locators,
 )
 from mellea_lrc.experimental.relaxed_eyecite_extractor import extract_relaxed_citations
 from mellea_lrc.extraction import extract_citations
@@ -118,8 +118,8 @@ def _recover_locators(document: str, extracted: ExtractedDocument) -> list[Occur
     grounded back to the source before it is believed.
     """
     recovered = []
-    for site in suspected_sites(extracted):
-        for locator in _adjudicated(adjudicate_site(extracted.text, site)):
+    for site in suspected_locators(extracted):
+        for locator in _adjudicated(adjudicate_locator(extracted.text, site)):
             recovered.append(
                 Occurrence(
                     document=document,
@@ -131,7 +131,7 @@ def _recover_locators(document: str, extracted: ExtractedDocument) -> list[Occur
                         "reporter": locator.reporter,
                         "page": locator.page,
                         "match_method": locator.match_method,
-                        "stage": "llm_site_recovery",
+                        "stage": "llm_locator_recovery",
                     },
                 )
             )

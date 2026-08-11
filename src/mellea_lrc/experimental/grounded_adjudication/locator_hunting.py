@@ -32,7 +32,7 @@ _MAX_NESTED_LOOKBACK = 6
 
 
 @dataclass(frozen=True, slots=True)
-class SuspectedSite:
+class SuspectedLocator:
     """One position where a reporter appears but no citation was produced."""
 
     span_start: int
@@ -72,7 +72,7 @@ def _maximal_hits(text: str) -> list[tuple[int, int, str]]:
     return kept
 
 
-def suspected_sites(document: ExtractedDocument) -> tuple[SuspectedSite, ...]:
+def suspected_locators(document: ExtractedDocument) -> tuple[SuspectedLocator, ...]:
     """Report reporter occurrences that look like locators but were not parsed.
 
     A position qualifies when the reporter string is not embedded in a word and
@@ -81,7 +81,7 @@ def suspected_sites(document: ExtractedDocument) -> tuple[SuspectedSite, ...]:
     whose output a judge is expected to reject freely.
     """
     masked = mask_full_spans(document)
-    sites: list[SuspectedSite] = []
+    sites: list[SuspectedLocator] = []
     for start, end, reporter in _maximal_hits(masked):
         before = masked[start - 1] if start else " "
         after = masked[end] if end < len(masked) else " "
@@ -92,7 +92,7 @@ def suspected_sites(document: ExtractedDocument) -> tuple[SuspectedSite, ...]:
         if not (has_volume and has_page):
             continue
         sites.append(
-            SuspectedSite(
+            SuspectedLocator(
                 span_start=start,
                 span_end=end,
                 reporter=reporter,

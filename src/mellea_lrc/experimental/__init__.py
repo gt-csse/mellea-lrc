@@ -29,10 +29,10 @@ Three approaches live side by side, and they differ in where the model sits:
 """
 
 from mellea_lrc.experimental.grounded_adjudication import (
-    SuspectedSite,
+    SuspectedLocator,
     mask_full_spans,
     mask_locator_spans,
-    suspected_sites,
+    suspected_locators,
 )
 from mellea_lrc.experimental.relaxed_eyecite_extractor import (
     extract_relaxed,
@@ -41,11 +41,11 @@ from mellea_lrc.experimental.relaxed_eyecite_extractor import (
 )
 
 __all__ = [
-    "SuspectedSite",
+    "SuspectedLocator",
     "extract_relaxed",
     "extract_relaxed_citations",
     "mask_full_spans",
     "mask_locator_spans",
     "relaxed_tokenizer",
-    "suspected_sites",
+    "suspected_locators",
 ]

@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from mellea import MelleaSession
     from mellea.core.base import Context
 
-    from mellea_lrc.experimental.grounded_adjudication.site_hunting import SuspectedSite
+    from mellea_lrc.experimental.grounded_adjudication.locator_hunting import SuspectedLocator
 
 MAX_TOKENS = 320
 MAX_REPAIR_TURNS = 2
@@ -374,9 +374,9 @@ def _ground(window: str, collapsed: str, offset: int, quote: str) -> tuple[Span,
     return Span(start=offset + start, end=offset + end), window[start:end], method
 
 
-async def adjudicate_site(
+async def adjudicate_locator(
     document_text: str,
-    site: SuspectedSite,
+    site: SuspectedLocator,
     *,
     session: MelleaSession | None = None,
     context: int = 170,

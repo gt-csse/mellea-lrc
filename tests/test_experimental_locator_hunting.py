@@ -3,7 +3,7 @@
 from mellea_lrc.experimental import (
     mask_full_spans,
     mask_locator_spans,
-    suspected_sites,
+    suspected_locators,
 )
 from mellea_lrc.extraction import extract_citations
 
@@ -43,7 +43,7 @@ def test_hunting_reports_a_reporter_that_produced_no_citation() -> None:
     judge is expected to reject freely.
     """
     document = extract_citations(_DAMAGED)
-    sites = suspected_sites(document)
+    sites = suspected_locators(document)
     reporters = [site.reporter for site in sites]
     assert "WL" in reporters
     wl = next(site for site in sites if site.reporter == "WL")
@@ -52,18 +52,18 @@ def test_hunting_reports_a_reporter_that_produced_no_citation() -> None:
 
 def test_hunting_ignores_what_was_already_extracted() -> None:
     document = extract_citations(_WELL_FORMED)
-    assert suspected_sites(document) == ()
+    assert suspected_locators(document) == ()
 
 
 def test_hunting_requires_digits_on_both_sides() -> None:
     """A reporter string in prose is not a locator candidate."""
     document = extract_citations("The U.S. Supreme Court declined to hear the matter.")
-    assert suspected_sites(document) == ()
+    assert suspected_locators(document) == ()
 
 
 def test_a_reported_span_indexes_the_original_document() -> None:
     """Offsets survive masking, so a judge can read the real text at that position."""
     document = extract_citations(_DAMAGED)
-    site = next(s for s in suspected_sites(document) if s.reporter == "WL")
+    site = next(s for s in suspected_locators(document) if s.reporter == "WL")
     assert document.text[site.span_start : site.span_end] == site.reporter
     assert "WL1448829" in site.window
