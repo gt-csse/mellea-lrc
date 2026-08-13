@@ -25,7 +25,8 @@ uv run python evaluations/validation/evaluate.py \
 
 The third step is the expensive one — it calls CourtListener and a model for
 every citation in 26 filings. It needs the credentials set up below, and it
-will not finish on a free CourtListener key: read *Rate limits* first. Expect
+will not finish on a free CourtListener token: read [Rate limits](#rate-limits)
+first. Expect
 it to take **up to two hours**, depending on the inference model and HTTP
 latency; ours runs on an Nvidia Spark.
 
@@ -48,7 +49,7 @@ cp .env.example .env
 
 | variable | required | what it is |
 |---|---|---|
-| `COURTLISTENER_API_TOKEN` | yes | citation-lookup answers `401` without one, and a free-tier quota will not finish a run — see *Rate limits* |
+| `COURTLISTENER_API_TOKEN` | yes | citation-lookup answers `401` without one; [how to get one](../../docs/courtlistener-client.md#getting-an-api-token) |
 | `MELLEA_LRC_LLM_MODEL` | yes | model id as the endpoint names it |
 | `MELLEA_LRC_LLM_API_BASE` | yes | OpenAI-compatible base URL, ending in `/v1` |
 | `MELLEA_LRC_LLM_API_KEY` | yes | key for that endpoint |
@@ -62,18 +63,14 @@ the run command below carries that flag and the others do not.
 
 ## Rate limits
 
-**A free-tier CourtListener key is not enough.** As of 10 August 2026 its quota
-runs out before the first document finishes, so the run step cannot complete.
-You need one of:
+**A free-tier CourtListener token will not finish this run.** Raising your quota
+or putting a cache in front of the API are the two ways through, and both are
+covered in
+[the client's rate-limit notes](../../docs/courtlistener-client.md#rate-limits).
 
-1. **A key with a lenient limit.** Ask CourtListener to raise the quota on your
-   account.
-2. **A cache in front of CourtListener.** A thin layer that stores responses and
-   replays them is enough, since the run repeats many lookups.
-
-If you cache, fill it for the whole corpus before trusting a final artifact —
-the simplest way is to rerun the run step until it stops fetching anything new.
-Each pass gets further before the quota stops it, and the finished artifact is
+One point specific to evaluation: if you cache, fill it for the whole corpus
+before trusting a final artifact. Rerun the run step until it stops fetching
+anything new — each pass gets further before the quota stops it, and a score is
 only meaningful once every document has been through.
 
 ## What is scored
