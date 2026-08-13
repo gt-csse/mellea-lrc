@@ -9,7 +9,7 @@ Extraction is the middle stage. It takes the plain text a document was
 preprocessed into, finds every citation in it, and returns each one as a typed
 object with an offset back into that text. It decides nothing about whether a
 citation is *real* — a fabricated case and a genuine one are extracted alike.
-Judging them is [validation](./Validation%20Model%20Development.md)'s job.
+Judging them is [validation](./Validation.md)'s job.
 
 This document walks through the whole stage: the preprocessing that feeds it,
 how to run it, what comes back, what the engine is, where it fails, and what is
