@@ -16,10 +16,3 @@ def preprocess(path: Path | str) -> PreprocessedDocument:
         msg = f"Unsupported document format: {source_path.suffix or '<none>'}"
         raise ValueError(msg)
     return preprocess_with_docling(source_path)
-
-
-def preprocess_directory(directory: Path | str) -> list[PreprocessedDocument]:
-    """Preprocess every file in a directory."""
-    source_dir = Path(directory)
-    paths = sorted(p for p in source_dir.iterdir() if p.is_file())
-    return [preprocess(path) for path in paths]

@@ -1,7 +1,6 @@
 """Canonical domain models shared across mellea-lrc."""
 
 from mellea_lrc.core.citations import (
-    FULL_CITATION_KINDS,
     CanonicalCitation,
     CitationKind,
     FullCaseCitation,
@@ -19,7 +18,6 @@ from mellea_lrc.core.documents import DocumentBase, SourceFormat, SourceMetadata
 from mellea_lrc.core.spans import Span
 
 __all__ = [
-    "FULL_CITATION_KINDS",
     "CanonicalCitation",
     "CitationKind",
     "DocumentBase",
