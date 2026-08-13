@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import TYPE_CHECKING, Literal
 
 from mellea.core import ValidationResult
@@ -36,6 +37,9 @@ if TYPE_CHECKING:
 
     from mellea_lrc.validation.types import CitationValidation
 
+_ELLIPSIS = re.compile(r"\.\s*\.\s*\.|\u2026")
+_QUOTE_MARKS = frozenset("\"'\u201c\u201d\u2018\u2019")
+
 MAX_TOKENS = 384
 MAX_REPAIR_TURNS = 2
 INSTRUCTION = """
@@ -51,9 +55,13 @@ the proposition. One retrieved page is not sufficient evidence for this operatio
 to make a negative judgment about the citation.
 
 For a supports judgment, copy one short, sufficiently distinctive evidence_quote
-from cited_reporter_page. Copy it verbatim whenever possible. Give only a concise
-evidence-based explanation, not hidden chain-of-thought. For inconclusive,
-evidence_quote may be null.
+from cited_reporter_page. It must be a single unbroken run of characters copied
+exactly as it appears there: never stand an ellipsis in for omitted words, never
+join text from two places, and never add quotation marks around it. A shorter
+quote that is exact is worth more than a longer one that is abridged, so when a
+passage is too long to copy whole, quote the one sentence that carries it. Give
+only a concise evidence-based explanation, not hidden chain-of-thought. For
+inconclusive, evidence_quote may be null.
 
 citing_proposition:
 {{citing_proposition}}
@@ -187,11 +195,33 @@ def _validate_grounding(ctx: Context, page_text: str) -> ValidationResult:
     resolved = resolve_evidence_quote(page_text, quote)
     return ValidationResult(
         result=resolved is not None,
-        reason=(
-            None
-            if resolved is not None
-            else "evidence_quote does not resolve uniquely to cited_reporter_page"
-        ),
+        reason=None if resolved is not None else _grounding_failure(quote),
+    )
+
+
+def _grounding_failure(quote: str) -> str:
+    """Say why a quote did not ground, so a repair turn has something to act on.
+
+    A bare "does not resolve" tells the model nothing, and it re-sends the same
+    quote. The two ways it goes wrong -- eliding with an ellipsis, and wrapping
+    the passage in quotation marks the page does not have -- are both visible in
+    the string itself, so name them.
+    """
+    if _ELLIPSIS.search(quote):
+        return (
+            "evidence_quote stands an ellipsis in for omitted words, so it is not one "
+            "run of characters from cited_reporter_page. Quote a single unbroken "
+            "passage exactly as it appears, even if that means quoting less of it."
+        )
+    stripped = quote.strip()
+    if stripped[:1] in _QUOTE_MARKS or stripped[-1:] in _QUOTE_MARKS:
+        return (
+            "evidence_quote is wrapped in quotation marks that are not around it in "
+            "cited_reporter_page. Copy only the characters that appear there."
+        )
+    return (
+        "evidence_quote does not appear in cited_reporter_page exactly once. Copy a "
+        "distinctive passage from it verbatim."
     )
 
 
