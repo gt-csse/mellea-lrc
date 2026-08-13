@@ -26,7 +26,7 @@ from mellea_lrc.experimental.grounded_adjudication import (
     suspected_locators,
 )
 from mellea_lrc.experimental.relaxed_eyecite_extractor import extract_relaxed_citations
-from mellea_lrc.extraction import extract_citations
+from mellea_lrc.extraction import extract_from_plain_text
 from mellea_lrc.extraction.types import ExtractedDocument
 
 Arm = Callable[[str, str], list[Occurrence]]
@@ -106,7 +106,7 @@ def production(document: str, text: str) -> list[Occurrence]:
     Collapsing those runs before parsing and mapping the spans back costs
     nothing and moves no offsets.
     """
-    return _from_extracted_document(document, extract_citations(text))
+    return _from_extracted_document(document, extract_from_plain_text(text))
 
 
 def _recover_locators(document: str, extracted: ExtractedDocument) -> list[Occurrence]:
@@ -173,7 +173,7 @@ def _recover_dockets(document: str, extracted: ExtractedDocument) -> list[Occurr
 
 def production_with_recovery(document: str, text: str) -> list[Occurrence]:
     """Production, then model recovery of the locators and dockets it missed."""
-    extracted = extract_citations(text)
+    extracted = extract_from_plain_text(text)
     return deduplicate(
         [
             *_from_extracted_document(document, extracted),

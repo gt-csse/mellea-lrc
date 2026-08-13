@@ -19,7 +19,7 @@ from pathlib import Path
 
 from evaluations.extraction.run import read_body
 from mellea_lrc.courtlistener import CourtListenerClient
-from mellea_lrc.extraction import run_extraction_from_text
+from mellea_lrc.extraction import extract_from_plain_text
 from mellea_lrc.llm import start_mellea_session_from_env
 from mellea_lrc.serialization.validated_document import serialize_validated_document
 from mellea_lrc.validation import validate_document
@@ -39,7 +39,7 @@ async def validate_corpus(corpus: list[tuple[str, str]]) -> list[tuple[str, dict
     session = start_mellea_session_from_env()
     runs: list[tuple[str, dict]] = []
     for stem, body in corpus:
-        extracted = run_extraction_from_text(body, source_path=stem)
+        extracted = extract_from_plain_text(body, source_path=stem)
         validated = await validate_document(extracted, client=client, session=session)
         runs.append((stem, serialize_validated_document(validated)))
         print(f"  {stem[:40]:<40} {len(validated.citations):>4} citations")

@@ -2,38 +2,30 @@
 
 from pathlib import Path
 
-from mellea_lrc.extraction.eyecite_extractor import extract_baseline
+from mellea_lrc.extraction.eyecite_extractor import _extract_from_text, extract_from_plain_text
 from mellea_lrc.extraction.types import ExtractedDocument
 from mellea_lrc.preprocessing import preprocess
-from mellea_lrc.preprocessing.plain_text import preprocess_plain_text_from_string
-from mellea_lrc.preprocessing.types import PreprocessedDocument
 
 
-def run_extraction(
-    preprocessed: PreprocessedDocument,
-) -> ExtractedDocument:
-    """Run extraction on a preprocessed document."""
-    return extract_baseline(preprocessed)
+def extract_from_raw_document(path: Path) -> ExtractedDocument:
+    """Preprocess a document off disk, then extract its citations.
 
-
-def run_extraction_from_text(
-    text: str,
-    *,
-    source_path: str | None = None,
-) -> ExtractedDocument:
-    """Run the extraction pipeline on raw Layer 2 text."""
-    preprocessed = preprocess_plain_text_from_string(text, source_path=source_path)
-    return run_extraction(preprocessed)
-
-
-def extract_document_file(path: Path | str) -> ExtractedDocument:
-    """Preprocess and extract citations from a document file."""
+    The backend follows the file's format: plain text is read directly, and
+    everything else goes through Docling. Spans index into the *preprocessed*
+    text, which for anything but ``.txt`` is not the bytes on disk.
+    """
     preprocessed = preprocess(path)
-    return run_extraction(preprocessed)
+    return _extract_from_text(preprocessed)
 
 
-def extract_documents(directory: Path | str) -> list[ExtractedDocument]:
-    """Preprocess and extract citations from every text file in a directory."""
-    source_dir = Path(directory)
-    paths = sorted(source_dir.glob("*.txt"))
-    return [extract_document_file(path) for path in paths]
+def extract(source: str | Path) -> ExtractedDocument:
+    """Extract citations from plain text or from a document on disk.
+
+    The argument's type chooses the route: a :class:`str` is content, a
+    :class:`~pathlib.Path` is a location. Passing a filename as a string
+    extracts from the filename, so reach for :func:`extract_from_raw_document`
+    when the path arrives as text.
+    """
+    if isinstance(source, Path):
+        return extract_from_raw_document(source)
+    return extract_from_plain_text(source)

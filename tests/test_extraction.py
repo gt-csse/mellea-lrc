@@ -1,5 +1,7 @@
 """Tests for citation extraction."""
 
+from pathlib import Path
+
 from mellea_lrc.core.citations import CitationKind, FullCaseCitation, FullLawCitation
 import pytest
 
@@ -9,7 +11,7 @@ from mellea_lrc.extraction import (
     ExtractedDocument,
     ExtractionMetadata,
     extract,
-    extract_citations,
+    extract_from_plain_text,
 )
 from mellea_lrc.preprocessing import PreprocessedDocument, preprocess_plain_text_from_string
 
@@ -19,18 +21,35 @@ SAMPLE_TEXT = (
 )
 
 
-def test_extract_accepts_preprocessed_document() -> None:
-    preprocessed = preprocess_plain_text_from_string(SAMPLE_TEXT)
-    result = extract(preprocessed)
+def test_extract_from_plain_text_carries_the_preprocessing_through() -> None:
+    reference = preprocess_plain_text_from_string(SAMPLE_TEXT)
+    result = extract_from_plain_text(SAMPLE_TEXT)
     assert isinstance(result, PreprocessedDocument)
-    assert result.source_metadata is preprocessed.source_metadata
-    assert result.preprocessing_metadata is preprocessed.preprocessing_metadata
+    assert result.source_metadata == reference.source_metadata
+    assert result.preprocessing_metadata == reference.preprocessing_metadata
     assert result.text == SAMPLE_TEXT
     assert result.citations
 
 
-def test_extract_citations_returns_canonical_types() -> None:
-    result = extract_citations(SAMPLE_TEXT)
+def test_extract_reads_a_string_as_content() -> None:
+    assert extract(SAMPLE_TEXT).text == SAMPLE_TEXT
+
+
+def test_extract_reads_a_path_as_a_location(tmp_path: Path) -> None:
+    """A ``Path`` is opened; the same text as a ``str`` would be extracted from."""
+    path = tmp_path / "filing.txt"
+    path.write_text(SAMPLE_TEXT, encoding="utf-8")
+
+    from_disk = extract(path)
+
+    assert from_disk.text == SAMPLE_TEXT
+    assert {item.citation.kind for item in from_disk.citations} == {
+        item.citation.kind for item in extract(SAMPLE_TEXT).citations
+    }
+
+
+def test_extract_from_plain_text_returns_canonical_types() -> None:
+    result = extract_from_plain_text(SAMPLE_TEXT)
     kinds = {item.citation.kind for item in result.citations}
 
     assert CitationKind.FULL_CASE in kinds
@@ -97,7 +116,7 @@ def test_extract_recovers_citation_broken_by_repeated_whitespace() -> None:
         "The court in Cracker Barrel Old  Country  Store,  Inc.  v.  Epperson ,  "
         "284  S.W.3d  303,  312 (Tenn. 2009) held as much."
     )
-    result = extract_citations(text)
+    result = extract_from_plain_text(text)
 
     assert len(result.citations) == 1
     citation = result.citations[0]

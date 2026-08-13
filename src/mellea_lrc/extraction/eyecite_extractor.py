@@ -274,21 +274,11 @@ def _extract_from_text(
     )
 
 
-def extract_baseline(preprocessed: PreprocessedDocument) -> ExtractedDocument:
-    """Extract canonical citations using eyecite as the baseline engine."""
-    return _extract_from_text(preprocessed)
+def extract_from_plain_text(text: str, *, source_path: str | None = None) -> ExtractedDocument:
+    """Extract citations from Layer 2 plain text.
 
-
-def extract(preprocessed: PreprocessedDocument) -> ExtractedDocument:
-    """Extract canonical citations from a preprocessed document.
-
-    Alias for :func:`extract_baseline`. Prefer :func:`run_extraction` for the
-    layer-level pipeline entrypoint.
+    Spans index into ``text`` as given, so a caller that already holds the text
+    can map results straight back onto it.
     """
-    return extract_baseline(preprocessed)
-
-
-def extract_citations(text: str, *, source_path: str | None = None) -> ExtractedDocument:
-    """Extract citations from raw Layer 2 text."""
     preprocessed = preprocess_plain_text_from_string(text, source_path=source_path)
-    return extract_baseline(preprocessed)
+    return _extract_from_text(preprocessed)

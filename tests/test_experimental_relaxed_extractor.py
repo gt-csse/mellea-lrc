@@ -2,7 +2,7 @@
 
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.experimental import extract_relaxed_citations
-from mellea_lrc.extraction import ExtractedDocument, extract_citations
+from mellea_lrc.extraction import ExtractedDocument, extract_from_plain_text
 
 
 def _locators(document: ExtractedDocument) -> set[str]:
@@ -16,13 +16,13 @@ def _locators(document: ExtractedDocument) -> set[str]:
 def test_recovers_a_space_lost_between_reporter_and_page() -> None:
     """PDF table extraction drops the space; the baseline extractor sees nothing."""
     text = "Doe v. Colgate Univ. , 2016 WL1448829, at *2 (N.D.N.Y. Apr. 12, 2016)"
-    assert _locators(extract_citations(text)) == set()
+    assert _locators(extract_from_plain_text(text)) == set()
     assert "2016 WL 1448829" in _locators(extract_relaxed_citations(text))
 
 
 def test_recovers_a_volume_split_from_its_reporter_by_a_page_break() -> None:
     text = "See also White v. McBride , 937\n\nS.W.2d  796,  800  (Tenn.  1996)"
-    assert _locators(extract_citations(text)) == set()
+    assert _locators(extract_from_plain_text(text)) == set()
     assert "937 S.W.2d 796" in _locators(extract_relaxed_citations(text))
 
 
@@ -33,7 +33,7 @@ def test_recovers_doubled_whitespace_without_rewriting_the_text() -> None:
 
 def test_leaves_well_formed_citations_unchanged() -> None:
     text = "Norton v. Shelby County, 118 U.S. 425, 442 (1886)"
-    assert _locators(extract_relaxed_citations(text)) == _locators(extract_citations(text))
+    assert _locators(extract_relaxed_citations(text)) == _locators(extract_from_plain_text(text))
 
 
 def test_reporter_groups_are_not_left_with_absorbed_whitespace() -> None:
@@ -55,7 +55,7 @@ def test_returns_a_plain_extracted_document_with_usable_spans() -> None:
     assert isinstance(document, ExtractedDocument)
     citation = next(c for c in document.citations if isinstance(c.citation, FullCaseCitation))
     assert document.text[citation.locator_span.start : citation.locator_span.end] == "2016 WL1448829"
-    assert document.text == extract_citations(text).text
+    assert document.text == extract_from_plain_text(text).text
 
 
 def test_a_page_break_before_margin_line_numbers_yields_a_wrong_page() -> None:
