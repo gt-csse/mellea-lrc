@@ -12,25 +12,17 @@ wheels/
 .DS_Store
 .vscode
 coverage.xml
-minisign_key.pri
-post_generation_instructions.html
 
 # Local development artifacts
 .env
 .envrc
 .env.deploy
 local/
+.claude/
 
 # Local project presentation artifacts
 Mellea-LRC-*.pptx
 docs/.obsidian/**
-
-# Frontend-generated files
-frontend/.env*.local
-frontend/.next/
-frontend/node_modules/
-frontend/tsconfig.tsbuildinfo
-.claude/
 
 # Evaluation working files: the downloaded dataset and anything a run writes.
 data/
