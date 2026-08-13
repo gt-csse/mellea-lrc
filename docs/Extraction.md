@@ -70,10 +70,6 @@ recoverable:
   page boundaries. Not repairable without also creating false matches, which is
   what the experimental work is about.
 
-A third is open: Docling's text export does not normalise characters to a single
-Unicode form, so visually identical punctuation can arrive in more than one
-encoding.
-
 ---
 
 ## Running extraction
