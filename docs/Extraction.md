@@ -266,4 +266,9 @@ themselves established by the layout-tolerant tokenizer, so these arms share
 lineage with the labels they are scored against. The number measures agreement
 with a benchmark these tools helped build, not performance on unseen filings.
 
-To reproduce any row, see [the extraction evaluation](../evaluations/extraction/README.md).
+The benchmark itself — what an occurrence is, how a prediction is matched
+against one, what the arms are, and how to reproduce any row above — is
+documented with the code that runs it, in
+[the extraction evaluation](../evaluations/extraction/README.md). Its contents
+and provenance are described on
+[the dataset card](https://huggingface.co/datasets/gt-csse/false-citation-bench).
