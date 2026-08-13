@@ -62,6 +62,13 @@ cp .env.example .env    # then fill in the values below
 Nothing reads `.env` implicitly, so the commands below are run through
 `uv run --env-file .env`. Exporting the variables into your shell works too.
 
+To obtain a CourtListener API token, refer to
+[Getting an API token](docs/courtlistener-client.md#getting-an-api-token).
+
+To use the application in any serious manner, or to reproduce the evaluations,
+refer to [Rate limits](docs/courtlistener-client.md#rate-limits) — a free-tier
+token will not carry a full run.
+
 Installing the package provides a `mellea-lrc` command. It parses the citations
 out of a source and validates each one. `examples/sample-filing.txt` is a
 paragraph to try it on — one citation, stating one proposition the cited page
