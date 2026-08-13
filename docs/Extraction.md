@@ -11,13 +11,72 @@ object with an offset back into that text. It decides nothing about whether a
 citation is *real* — a fabricated case and a genuine one are extracted alike.
 Judging them is [validation](./Validation%20Model%20Development.md)'s job.
 
-This document walks through the whole stage: how to run it, what comes back,
-what the engine is, where it fails, and what is being built to reach the
-citations it misses.
+This document walks through the whole stage: the preprocessing that feeds it,
+how to run it, what comes back, what the engine is, where it fails, and what is
+being built to reach the citations it misses.
 
 ---
 
-## Running it
+## Preprocessing: where the text comes from
+
+Extraction never sees a PDF. It reads the plain text a document was turned into
+first, and the quality of that conversion sets a ceiling on everything after it.
+A citation broken by the converter cannot be found by any parser downstream, so
+a large share of what looks like extraction failure originates here.
+
+`preprocess(path)` picks a backend from the file's suffix:
+
+| suffix | backend | what happens |
+|---|---|---|
+| `.txt` | `plain_text` | read as-is, no conversion |
+| `.pdf` `.docx` `.pptx` `.xlsx` `.html` `.htm` `.md` | `docling` | converted with [Docling](https://github.com/docling-project/docling) |
+| anything else | — | `ValueError` |
+
+Docling is an optional dependency: `uv sync --group preprocessing`. Importing
+the backend without it raises with that instruction rather than failing
+obscurely.
+
+The result is a `PreprocessedDocument`:
+
+| field | what it is |
+|---|---|
+| `text` | the converted text; every later offset indexes this, never the original file |
+| `source_metadata` | original path, `SourceFormat`, and any header split off |
+| `preprocessing_metadata` | which backend ran, and its version |
+
+`text` may not be empty — a conversion that produced nothing raises rather than
+handing an empty document downstream.
+
+### The plain-text header
+
+A `.txt` file may be a RECAP-style export whose docket metadata sits above a
+`--- Plain text ---` marker. `preprocess_plain_text` splits on it: the header
+goes to `source_metadata.header`, and **`text` begins after the marker**.
+
+This matters more than it looks. Every span produced downstream is an offset
+into the body, not into the file. Reading such a file whole and matching offsets
+against it shifts every span by the header's length, which scores zero rather
+than scoring badly. `preprocess_plain_text_from_string` does the same split for
+text already in memory.
+
+### What the converter does to citations
+
+Two artefacts account for most of the damage, and they are not equally
+recoverable:
+
+- **Repeated spaces**, left behind when justified text is flattened. Cheap to
+  repair, and the shipping pipeline does — see below.
+- **Line and page breaks falling inside a citation**, from column layouts and
+  page boundaries. Not repairable without also creating false matches, which is
+  what the experimental work is about.
+
+A third is open: Docling's text export does not normalise characters to a single
+Unicode form, so visually identical punctuation can arrive in more than one
+encoding.
+
+---
+
+## Running extraction
 
 Three entrypoints, differing only in where the text comes from:
 
@@ -238,37 +297,13 @@ rejects freely costs far less than a citation never surfaced.
 
 ---
 
-## What it scores
+---
 
-Measured against the frozen extraction benchmark: 594 identifiers across 26
-filings.
+## How it is measured
 
-| arm | predicted | TP | FP | FN | precision | recall | F1 |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| eyecite as published | 526 | 526 | 0 | 68 | 100.0% | 88.6% | 93.9% |
-| **+ whitespace repair** (ships) | 563 | 563 | 0 | 31 | 100.0% | 94.8% | 97.3% |
-| + hunting and adjudication | 594 | 594 | 0 | 0 | **100.0%** | **100.0%** | **100.0%** |
-| + layout-tolerant tokenizer | 595 | 594 | 1 | 0 | 99.8% | 100.0% | 99.9% |
-
-The last two both find everything, and they are not equally good. The
-layout-tolerant arm also reports `214 F.3d 1`, reading margin line numbers after
-a page break as a page, where the true citation is `214 F.3d` **1058**. It buys
-nothing the model does not already recover and pays with a well-formed locator
-naming the wrong case — the worst failure available here, because nothing
-downstream can tell it is wrong.
-
-What it does buy is cost: 19 more citations resolved by pattern means 36 fewer
-sites reach the model, 63 calls against 99. If model calls are the constraint
-that may be worth it. If correctness is, it is not.
-
-**Read the perfect score carefully.** 581 of the benchmark's 594 records were
-themselves established by the layout-tolerant tokenizer, so these arms share
-lineage with the labels they are scored against. The number measures agreement
-with a benchmark these tools helped build, not performance on unseen filings.
-
-The benchmark itself — what an occurrence is, how a prediction is matched
-against one, what the arms are, and how to reproduce any row above — is
-documented with the code that runs it, in
-[the extraction evaluation](../evaluations/extraction/README.md). Its contents
-and provenance are described on
+Nothing above says how well any of it works, deliberately. What an occurrence
+is, how a prediction is matched against one, what each arm scores, and how to
+reproduce a number are documented with the code that runs them, in
+[the extraction evaluation](../evaluations/extraction/README.md). The benchmark's
+contents and provenance are on
 [the dataset card](https://huggingface.co/datasets/gt-csse/false-citation-bench).
