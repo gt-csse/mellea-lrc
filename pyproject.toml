@@ -39,6 +39,9 @@ Homepage = "https://github.com/gt-csse/mellea-lrc"
 Documentation = "https://github.com/gt-csse/mellea-lrc"
 Repository = "https://github.com/gt-csse/mellea-lrc"
 
+[project.scripts]
+mellea-lrc = "mellea_lrc.cli:main"
+
 [build-system]
 requires = ["uv_build>=0.11.16,<0.12.0"]
 build-backend = "uv_build"
