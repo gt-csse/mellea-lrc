@@ -24,10 +24,51 @@
 - [License](#license)
 
 ## Overview
-TODO: Complete this section
+
+`mellea-lrc` checks whether the citations in a legal filing hold up. It reads a
+document, finds every citation in it, and asks CourtListener whether the
+authority each one names exists and matches how the filing cites it — case name,
+court, year, and the proposition a pinpoint is offered for.
+
+Three layers run in order, each consuming what the last produced:
+
+| Layer | Input | Output |
+| --- | --- | --- |
+| Preprocessing | PDF or DOCX via [Docling](https://github.com/docling-project/docling), or plain text | `PreprocessedDocument` |
+| Extraction | preprocessed text | `ExtractedDocument` |
+| Validation | extracted citations | `ValidatedDocument` |
+
+Every citation keeps a span into the preprocessed text, and each validation step
+is recorded as its own node, so a verdict can be traced back to the characters
+that produced it. Extraction is deterministic and offline; only validation needs
+a CourtListener key and a model endpoint.
 
 ### How to use `mellea-lrc`
-TODO: Complete this section
+
+Extraction takes a `str` as content or a `Path` as a location:
+
+```python
+from pathlib import Path
+
+from mellea_lrc.extraction import extract
+
+document = extract(Path("filing.pdf"))
+for citation in document.full_citations:
+    print(citation.matched_text, citation.locator_span)
+```
+
+Validation is async, and reads `COURTLISTENER_API_TOKEN` and `MELLEA_LRC_LLM_*`
+from the environment:
+
+```python
+import asyncio
+
+from mellea_lrc.validation import validate_document
+
+validated = asyncio.run(validate_document(document))
+for entry in validated.citations:
+    print(entry.citation_id, entry.aggregation)
+```
 
 ## Evaluations
 
