@@ -1,1 +1,0 @@
-"""Run benchmarks on extraction."""
