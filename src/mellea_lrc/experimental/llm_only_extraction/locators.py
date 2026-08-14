@@ -54,7 +54,11 @@ class Locator:
 
 
 def parse_locator(value: str) -> Locator | None:
-    """Return the first locator in value, or None when it contains none."""
+    """Return the first locator in `value`, or None when it contains none.
+
+    Reporter locators win over docket numbers when both are present, since a
+    reported citation is the stronger identifier.
+    """
     reporter_match = _REPORTER_LOCATOR.search(value)
     if reporter_match is not None:
         return Locator(
