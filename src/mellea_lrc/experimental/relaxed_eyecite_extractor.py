@@ -60,10 +60,24 @@ _JOINS: tuple[tuple[str, str], ...] = (
 )
 
 
+# Eyecite allows whitespace after a period inside a reporter, but not before
+# one, and it keeps apostrophes tight on both sides. Extraction can introduce
+# whitespace in either position, so relax only those punctuation tokens inside
+# the generated reporter group.
+_REPORTER_GROUP = re.compile(r"\(\?P<reporter>((?:[^()\\]|\\.)*)\)")
+_TIGHT_PUNCTUATION = re.compile(r"\\\.|['\u2019]")
+
+
 def _relax(regex: str) -> str:
     for old, new in _JOINS:
         regex = regex.replace(old, new)
-    return regex
+    return _REPORTER_GROUP.sub(_relax_reporter_punctuation, regex)
+
+
+def _relax_reporter_punctuation(match: re.Match[str]) -> str:
+    """Allow whitespace on either side of punctuation inside a reporter."""
+    body = _TIGHT_PUNCTUATION.sub(lambda found: rf"\s*{found.group()}\s*", match.group(1))
+    return f"(?P<reporter>{body})"
 
 
 class _RelaxedTokenizer(AhocorasickTokenizer):

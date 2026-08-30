@@ -48,6 +48,18 @@ def test_reporter_groups_are_not_left_with_absorbed_whitespace() -> None:
     assert all(r == r.strip() for r in reporters if r)
 
 
+def test_tolerates_whitespace_before_a_period_inside_a_reporter() -> None:
+    text = "See 58 N.Y .2d 916 (1983)."
+
+    assert "58 N.Y .2d 916" in _locators(extract_relaxed_citations(text))
+
+
+def test_tolerates_whitespace_around_an_apostrophe_inside_a_reporter() -> None:
+    text = "See 777 F. App ' x 516 (Fed. Cir. 2019)."
+
+    assert "777 F. App ' x 516" in _locators(extract_relaxed_citations(text))
+
+
 def test_returns_a_plain_extracted_document_with_usable_spans() -> None:
     """No text is rewritten, so spans index directly into document.text."""
     text = "Doe v. Colgate Univ. , 2016 WL1448829, at *2 (N.D.N.Y. Apr. 12, 2016)"
