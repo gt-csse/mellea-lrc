@@ -69,11 +69,16 @@ def header(source: Path, backend_version: str | None) -> str:
     return f"Source PDF: {source}\nBackend: docling\nBackend version: {backend_version}\n\n{BODY_MARKER}"
 
 
-README = """# false-citation-bench, margin-adjusted (v2.0)
+MARGIN_README = """# false-citation-bench, margin-adjusted (v2.0)
 
 `documents_txt/` re-exported from `../false-citation-bench/documents_pdf/` with
-`mellea_lrc.preprocessing.margin_line_numbers` on, which the published v1 text
-predates.
+`mellea_lrc.preprocessing.margin_line_numbers` on.
+
+**Compare it against v1.1, not against v1.** The published v1 text was produced
+by an older Docling, so a v1-to-v2.0 difference confounds the margin rule with
+ten minor versions of the converter -- which showed up as 25 statute citations
+disappearing in documents the margin rule never touched. v1.1 is this same
+converter with the rule off, and is the only control that isolates it.
 
 **The annotations do not transfer.** Removing a pleading-paper margin moves the
 offset of everything after it, so every span in
@@ -86,14 +91,43 @@ Produced by `scripts/regenerate_bench_text.py` on branch
 what the rule removed and what it left.
 """
 
+CONTROL_README = """# false-citation-bench, reconverted (v1.1)
+
+`documents_txt/` re-exported from `../false-citation-bench/documents_pdf/` with
+the margin rule **off**, so its only difference from the published v1 is the
+Docling version that produced it.
+
+This exists to be the control for v2.0. v1 was converted with Docling 2.105.0
+and everything since with a later one, so a v1-to-v2.0 comparison cannot say
+whether a change came from the margin rule or from the converter. v1.1 splits
+that: v1 to v1.1 is the converter alone, v1.1 to v2.0 is the margin rule alone.
+
+The annotations do not transfer to this either -- a converter changes offsets
+as readily as a margin rule does. Nothing here is published.
+
+Produced by `scripts/regenerate_bench_text.py --no-margin` on branch
+`preprocess/margin-line-numbers`.
+"""
+
 
 def main() -> int:
     """Reconvert the corpus and report on the margins."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pdfs", type=Path, default=Path("data/false-citation-bench/documents_pdf"))
     parser.add_argument("--v1", type=Path, default=Path("data/false-citation-bench/documents_txt"))
-    parser.add_argument("--out", type=Path, default=Path("data/false-citation-bench-v2.0"))
+    parser.add_argument("--out", type=Path, help="default depends on --no-margin")
+    parser.add_argument(
+        "--no-margin",
+        action="store_true",
+        help="leave the margin in, producing the v1.1 control: same converter, rule off",
+    )
     args = parser.parse_args()
+
+    drop_margins = not args.no_margin
+    if args.out is None:
+        args.out = Path(
+            "data/false-citation-bench-v2.0" if drop_margins else "data/false-citation-bench-v1.1"
+        )
 
     sources = sorted(args.pdfs.glob("*.pdf"))
     if not sources:
@@ -102,12 +136,12 @@ def main() -> int:
 
     text_dir = args.out / "documents_txt"
     text_dir.mkdir(parents=True, exist_ok=True)
-    (args.out / "README.md").write_text(README, encoding="utf-8")
+    (args.out / "README.md").write_text(MARGIN_README if drop_margins else CONTROL_README, encoding="utf-8")
 
     rows = []
     for index, source in enumerate(sources, start=1):
         print(f"[{index}/{len(sources)}] {source.name}", file=sys.stderr, flush=True)
-        document = preprocess_with_docling(source, drop_margin_line_numbers=True)
+        document = preprocess_with_docling(source, drop_margin_line_numbers=drop_margins)
 
         destination = text_dir / f"{source.stem}.txt"
         destination.write_text(
