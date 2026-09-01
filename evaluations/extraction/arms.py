@@ -183,6 +183,17 @@ def production_with_recovery(document: str, text: str) -> list[Occurrence]:
     )
 
 
+def layout_tolerant(document: str, text: str) -> list[Occurrence]:
+    """Fully relaxed separators, and nothing else. No model.
+
+    The counterpart to `production`, differing in one join: reporter to page
+    may cross a blank line. Having it model-free is what makes BOUNDED and FULL
+    comparable on a bench -- the only other arm using FULL also runs model
+    recovery, so its score cannot say which of the two produced a difference.
+    """
+    return _from_extracted_document(document, extract_from_plain_text(text, relaxation=Relaxation.FULL))
+
+
 def layout_tolerant_with_recovery(document: str, text: str) -> list[Occurrence]:
     """Fully relaxed separators, then model recovery of what they still missed.
 
@@ -212,6 +223,7 @@ class ArmSpec:
 ARMS: dict[str, ArmSpec] = {
     "eyecite": ArmSpec(run=eyecite_as_published, components="eyecite as published"),
     "production": ArmSpec(run=production, components="eyecite + bounded separator relaxation"),
+    "layout-tolerant": ArmSpec(run=layout_tolerant, components="eyecite + full separator relaxation"),
     "production+recovery": ArmSpec(
         run=production_with_recovery,
         components="production + site hunting + model adjudication",
