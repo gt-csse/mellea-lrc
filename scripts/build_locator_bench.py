@@ -124,6 +124,74 @@ def anchor(records: list[dict], text: str) -> tuple[list[dict], list[str]]:
     return anchored, problems
 
 
+# Locators the published bench omitted because a page margin interrupts them.
+# Its README calls these occurrences where "the filing states no complete
+# identifier", and that reading is wrong: every character of the identifier is
+# on the page, with a column of line numbers standing between the reporter and
+# its page. Leaving them out takes the citation out of the denominator, so an
+# extractor that never finds it still scores full recall -- which is exactly
+# what happened before this list existed.
+#
+# Each is anchored at build time by the shape of the interruption rather than
+# by a stored offset, so the record survives the text being regenerated.
+INTERRUPTED = [
+    {
+        "document_prefix": "022",
+        "volume": "214",
+        "reporter": "F.3d",
+        "page": "1058",
+        "note": "the pleading-paper margin falls between the reporter and the page",
+    },
+]
+
+
+def gutter_pattern(volume: str, reporter: str, page: str) -> re.Pattern[str]:
+    """Volume, reporter, a run of line numbers, then the page.
+
+    Only whitespace and standalone integers may intervene. That is what a
+    margin is; prose is not, so this cannot join two unrelated citations.
+    """
+    reporter_chars = r"\s*".join(re.escape(c) for c in reporter if not c.isspace())
+    return re.compile(rf"{re.escape(volume)}\s*{reporter_chars}(?:\s+\d{{1,3}})+\s+{re.escape(page)}")
+
+
+def interrupted_records(text_dir: Path) -> tuple[list[dict], list[str]]:
+    """Anchor each known margin-interrupted locator in the text."""
+    found: list[dict] = []
+    problems: list[str] = []
+    for entry in INTERRUPTED:
+        matches = sorted(text_dir.glob(f"{entry['document_prefix']}*.txt"))
+        if len(matches) != 1:
+            problems.append(f"{entry['document_prefix']}*: matched {len(matches)} documents")
+            continue
+        document = matches[0]
+        hits = list(
+            gutter_pattern(entry["volume"], entry["reporter"], entry["page"]).finditer(body(document))
+        )
+        if len(hits) != 1:
+            problems.append(
+                f"{document.name[:40]}: {entry['volume']} {entry['reporter']} {entry['page']} "
+                f"interrupted by a margin -- expected 1, found {len(hits)}"
+            )
+            continue
+        hit = hits[0]
+        found.append(
+            {
+                "id": f"{entry['document_prefix']}:{hit.start()}-{hit.end()}",
+                "document": document.name,
+                "kind": "locator",
+                "span": {"start": hit.start(), "end": hit.end()},
+                "matched_text": hit.group(),
+                "volume": entry["volume"],
+                "reporter": entry["reporter"],
+                "page": entry["page"],
+                "source": "margin_interrupted",
+                "note": entry["note"],
+            }
+        )
+    return found, problems
+
+
 README = """# false-citation-bench, locator only (v1.0)
 
 The same text as `../false-citation-bench-v1.1/`, with a ground truth that
@@ -145,7 +213,18 @@ Docling versions, so no offset from the published bench transfers.
 
 A locator the filing states is ground truth even when no tokenizer reaches it.
 An extractor that does not find it has missed it, and the bench says so rather
-than excusing it. Two such cases are carried over from the published bench:
+than excusing it.
+
+That principle is why this bench carries one record the published one does not.
+Document 022 states `214 F.3d 1058` twice: once in its table of authorities,
+where it reads cleanly, and once in the argument, where the pleading-paper
+margin falls between the reporter and the page. The published bench held only
+the first, on the grounds that the second states no complete identifier -- but
+every character of it is on the page, with a column of line numbers standing in
+the middle. With it out of the denominator, an extractor that never finds it
+scored 100% recall.
+
+Two further cases are carried over from the published bench:
 
 - `759\\n\\nF.2d 1032` -- split across a blank line
 - `455 US. 363` -- a reporter written without the period after `US`
@@ -195,6 +274,10 @@ def main() -> int:
         anchored.extend(found)
         problems.extend(issues)
 
+    extra, extra_problems = interrupted_records(args.text)
+    anchored.extend(extra)
+    problems.extend(extra_problems)
+
     anchored.sort(key=lambda r: (r["document"], r["span"]["start"]))
 
     text_out = args.out / "documents_txt"
@@ -214,8 +297,9 @@ def main() -> int:
         f"- published records: **{len(records)}**",
         f"- docket records dropped: **{dropped}**",
         f"- locators to anchor: **{len(locators)}**",
+        f"- margin-interrupted locators added: **{len(extra)}**",
         f"- locators anchored: **{len(anchored)}**",
-        f"- unanchored: **{len(locators) - len(anchored)}**",
+        f"- unanchored: **{len(locators) + len(extra) - len(anchored)}**",
         "",
     ]
     if problems:
