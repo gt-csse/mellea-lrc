@@ -105,11 +105,22 @@ def anchor(records: list[dict], text: str) -> tuple[list[dict], list[str]]:
             if len(relaxed) >= len(ordered):
                 hits = relaxed
                 note = "anchored on the locator rather than the written text"
-        if len(hits) != len(ordered):
+        if len(hits) < len(ordered):
             problems.append(
-                f"{ordered[0]['document'][:40]}: {ordered[0]['matched_text']!r} "
-                f"expected {len(ordered)} occurrence(s), found {len(hits)} "
-                f"-- {min(len(ordered), len(hits))} kept, {len(ordered) - len(hits)} dropped"
+                f"**dropped** {ordered[0]['document'][:40]}: {ordered[0]['matched_text']!r} "
+                f"— the bench has {len(ordered)} occurrence(s), the text has {len(hits)}. "
+                f"{len(ordered) - len(hits)} record(s) describe text that is not there."
+            )
+        elif len(hits) > len(ordered):
+            # Not a loss. The text states this citation more often than the
+            # published bench recorded it -- which is what happens once a margin
+            # is removed and an interrupted occurrence reads cleanly, so the
+            # same characters now match twice. Any surplus an INTERRUPTED entry
+            # claims is added back below; the count at the end is what settles it.
+            problems.append(
+                f"surplus {ordered[0]['document'][:40]}: {ordered[0]['matched_text']!r} "
+                f"— the text has {len(hits)} occurrence(s), the bench recorded {len(ordered)}. "
+                f"{len(hits) - len(ordered)} left for an interrupted-locator entry to claim."
             )
         for record, hit in zip(ordered, hits, strict=False):
             anchored.append(
@@ -132,8 +143,10 @@ def anchor(records: list[dict], text: str) -> tuple[list[dict], list[str]]:
 # extractor that never finds it still scores full recall -- which is exactly
 # what happened before this list existed.
 #
-# Each is anchored at build time by the shape of the interruption rather than
-# by a stored offset, so the record survives the text being regenerated.
+# Each is anchored at build time by the shape of the citation rather than by a
+# stored offset, so the record survives the text being regenerated -- including
+# being regenerated with the margin rule on, where the same citation is no
+# longer interrupted at all and only a blank line separates the two halves.
 INTERRUPTED = [
     {
         "document_prefix": "022",
@@ -146,17 +159,31 @@ INTERRUPTED = [
 
 
 def gutter_pattern(volume: str, reporter: str, page: str) -> re.Pattern[str]:
-    """Volume, reporter, a run of line numbers, then the page.
+    """Volume, reporter, any run of line numbers, then the page.
 
     Only whitespace and standalone integers may intervene. That is what a
     margin is; prose is not, so this cannot join two unrelated citations.
+
+    The run may be empty, so the same entry anchors on text whose margin has
+    been removed -- there the two halves are separated by the blank line the
+    numbers used to sit in. Requiring at least one number would silently drop
+    the record from a margin-adjusted bench, which is the failure this whole
+    list exists to prevent.
     """
     reporter_chars = r"\s*".join(re.escape(c) for c in reporter if not c.isspace())
-    return re.compile(rf"{re.escape(volume)}\s*{reporter_chars}(?:\s+\d{{1,3}})+\s+{re.escape(page)}")
+    return re.compile(rf"{re.escape(volume)}\s*{reporter_chars}(?:\s+\d{{1,3}})*\s+{re.escape(page)}")
 
 
-def interrupted_records(text_dir: Path) -> tuple[list[dict], list[str]]:
-    """Anchor each known margin-interrupted locator in the text."""
+def interrupted_records(text_dir: Path, already: list[dict]) -> tuple[list[dict], list[str]]:
+    """Anchor each known margin-interrupted locator in the text.
+
+    `already` is what the published records anchored to, and any hit overlapping
+    one of those is that same occurrence rather than this one. The filing states
+    this citation twice -- once in its table of authorities, where it reads
+    cleanly and the published bench already carries it -- so without that check
+    the loosened pattern would match the clean one too and the entry would be
+    reported as ambiguous.
+    """
     found: list[dict] = []
     problems: list[str] = []
     for entry in INTERRUPTED:
@@ -165,9 +192,16 @@ def interrupted_records(text_dir: Path) -> tuple[list[dict], list[str]]:
             problems.append(f"{entry['document_prefix']}*: matched {len(matches)} documents")
             continue
         document = matches[0]
-        hits = list(
-            gutter_pattern(entry["volume"], entry["reporter"], entry["page"]).finditer(body(document))
-        )
+        covered = [
+            (r["span"]["start"], r["span"]["end"]) for r in already if r["document"] == document.name
+        ]
+        hits = [
+            hit
+            for hit in gutter_pattern(entry["volume"], entry["reporter"], entry["page"]).finditer(
+                body(document)
+            )
+            if not any(hit.start() < end and start < hit.end() for start, end in covered)
+        ]
         if len(hits) != 1:
             problems.append(
                 f"{document.name[:40]}: {entry['volume']} {entry['reporter']} {entry['page']} "
@@ -274,7 +308,7 @@ def main() -> int:
         anchored.extend(found)
         problems.extend(issues)
 
-    extra, extra_problems = interrupted_records(args.text)
+    extra, extra_problems = interrupted_records(args.text, anchored)
     anchored.extend(extra)
     problems.extend(extra_problems)
 
