@@ -121,12 +121,18 @@ def identity(citation: ExtractedCitation) -> str:
 
     Offsets cannot be used: removing a margin moves every offset after it, so
     two versions of one document are different coordinate spaces. A locator
-    identifies itself; anything else falls back to its text with whitespace
-    flattened, which is what survives a re-render.
+    identifies itself; anything else falls back to its text.
+
+    Whitespace inside the reporter is removed, not merely collapsed. Docling
+    versions disagree about it -- one writes `N.C.App.` where the other writes
+    `N.C. App.`, and `NYSlip Op` against `NY Slip Op` -- and left in, each
+    disagreement reports as one citation lost and another gained, which buries
+    the real differences under a list of citations that never changed.
     """
     parts = locator(citation)
     if parts:
-        return "|".join(parts)
+        volume, reporter, page = parts
+        return f"{volume}|{''.join(reporter.split())}|{page}"
     return " ".join(citation.matched_text.split())
 
 
@@ -238,8 +244,16 @@ def value_changes(results: dict[Arm, dict[str, list[ExtractedCitation]]], baseli
 def membership_changes(
     results: dict[Arm, dict[str, list[ExtractedCitation]]], baseline: Arm, limit: int
 ) -> None:
-    """What each arm gains and loses against the baseline, by kind."""
-    print(f"\n=== gained and lost against {baseline}, by kind ===")
+    """What each arm gains and loses against the baseline, by kind.
+
+    Counted as a multiset, not a set. A brief cites the same authority in its
+    table of authorities and again in its argument, so both occurrences carry
+    one identity -- and comparing sets reports nothing when an arm recovers the
+    second one. That is not a corner case: it hid the whole effect of the
+    margin rule, whose entire job is to repair the body occurrence of a
+    citation the index already listed intact.
+    """
+    print(f"\n=== gained and lost against {baseline}, by kind (occurrences) ===")
     base = results[baseline]
     for arm, documents in results.items():
         if arm == baseline:
@@ -247,12 +261,17 @@ def membership_changes(
         gained: dict[str, list[str]] = defaultdict(list)
         lost: dict[str, list[str]] = defaultdict(list)
         for document, citations in documents.items():
-            before = {identity(c): c for c in base.get(document, [])}
-            after = {identity(c): c for c in citations}
-            for key in after.keys() - before.keys():
-                gained[kind(after[key])].append(f"{document[:22]}: {key[:52]}")
-            for key in before.keys() - after.keys():
-                lost[kind(before[key])].append(f"{document[:22]}: {key[:52]}")
+            before = Counter(identity(c) for c in base.get(document, []))
+            after = Counter(identity(c) for c in citations)
+            example = {identity(c): c for c in [*base.get(document, []), *citations]}
+            for key in set(before) | set(after):
+                delta = after[key] - before[key]
+                if not delta:
+                    continue
+                label = f"{document[:22]}: {key[:48]}"
+                if abs(delta) > 1:
+                    label += f"  (x{abs(delta)})"
+                (gained if delta > 0 else lost)[kind(example[key])].append(label)
         print(f"\n  --- {arm} ---")
         for label, table in (("gained", gained), ("lost", lost)):
             if not table:
