@@ -157,6 +157,40 @@ INTERRUPTED = [
     },
 ]
 
+# Locators whose reporter and page are on the page but whose volume is not in
+# front of them. In a table of authorities the table reader can emit the
+# columns out of order, and a Westlaw citation's volume is its year, so the row
+# reads `WL 9137645, at 3 (C.D. Cal. July 25, 2016)` -- the year present, in the
+# date parenthetical, and nowhere eyecite can use it.
+#
+# These are extraction misses, not absences. The filing states the citation;
+# the converter delivered its parts in the wrong order.
+# `exploration/notes/arm-disagreements-23aug.md` on the explorations branch
+# reaches the same conclusion about the first of these and records that the gold
+# keeps it. The published bench does not carry either.
+#
+# The span covers what is written -- the reporter and page -- because that is
+# where an extractor that found this would report it. The volume is asserted
+# from the row, so each entry names the year that has to be within `context`
+# characters for the record to be built at all.
+STRANDED_VOLUME = [
+    {
+        "document_prefix": "022",
+        "volume": "2016",
+        "reporter": "WL",
+        "page": "9137645",
+        "note": "table of authorities: the year sits in the date parenthetical, not before WL",
+    },
+    {
+        "document_prefix": "025",
+        "volume": "2023",
+        "reporter": "WL",
+        "page": "6200979",
+        "note": "table of authorities: the year sits in the date parenthetical, not before WL",
+    },
+]
+STRANDED_CONTEXT = 120
+
 
 def gutter_pattern(volume: str, reporter: str, page: str) -> re.Pattern[str]:
     """Volume, reporter, any run of line numbers, then the page.
@@ -192,9 +226,7 @@ def interrupted_records(text_dir: Path, already: list[dict]) -> tuple[list[dict]
             problems.append(f"{entry['document_prefix']}*: matched {len(matches)} documents")
             continue
         document = matches[0]
-        covered = [
-            (r["span"]["start"], r["span"]["end"]) for r in already if r["document"] == document.name
-        ]
+        covered = [(r["span"]["start"], r["span"]["end"]) for r in already if r["document"] == document.name]
         hits = [
             hit
             for hit in gutter_pattern(entry["volume"], entry["reporter"], entry["page"]).finditer(
@@ -220,6 +252,60 @@ def interrupted_records(text_dir: Path, already: list[dict]) -> tuple[list[dict]
                 "reporter": entry["reporter"],
                 "page": entry["page"],
                 "source": "margin_interrupted",
+                "note": entry["note"],
+            }
+        )
+    return found, problems
+
+
+def stranded_records(text_dir: Path, already: list[dict]) -> tuple[list[dict], list[str]]:
+    """Anchor each locator whose volume is not in front of its reporter.
+
+    The volume is only asserted when it is actually written nearby, so a record
+    is built for a citation the filing states and refused for one it does not.
+    """
+    found: list[dict] = []
+    problems: list[str] = []
+    for entry in STRANDED_VOLUME:
+        matches = sorted(text_dir.glob(f"{entry['document_prefix']}*.txt"))
+        if len(matches) != 1:
+            problems.append(f"{entry['document_prefix']}*: matched {len(matches)} documents")
+            continue
+        document = matches[0]
+        text = body(document)
+        covered = [(r["span"]["start"], r["span"]["end"]) for r in already if r["document"] == document.name]
+        pattern = re.compile(rf"\b{re.escape(entry['reporter'])}\s+{re.escape(entry['page'])}\b")
+        hits = [
+            hit
+            for hit in pattern.finditer(text)
+            if not any(hit.start() < end and start < hit.end() for start, end in covered)
+        ]
+        if len(hits) != 1:
+            problems.append(
+                f"stranded-volume {document.name[:34]}: {entry['reporter']} {entry['page']} "
+                f"— expected 1 unclaimed occurrence, found {len(hits)}"
+            )
+            continue
+        hit = hits[0]
+        window = text[max(0, hit.start() - STRANDED_CONTEXT) : hit.end() + STRANDED_CONTEXT]
+        if entry["volume"] not in window:
+            problems.append(
+                f"stranded-volume {document.name[:34]}: {entry['reporter']} {entry['page']} "
+                f"— volume {entry['volume']} not written within {STRANDED_CONTEXT} characters; "
+                f"not treated as stated"
+            )
+            continue
+        found.append(
+            {
+                "id": f"{entry['document_prefix']}:{hit.start()}-{hit.end()}",
+                "document": document.name,
+                "kind": "locator",
+                "span": {"start": hit.start(), "end": hit.end()},
+                "matched_text": hit.group(),
+                "volume": entry["volume"],
+                "reporter": entry["reporter"],
+                "page": entry["page"],
+                "source": "stranded_volume",
                 "note": entry["note"],
             }
         )
@@ -312,6 +398,10 @@ def main() -> int:
     anchored.extend(extra)
     problems.extend(extra_problems)
 
+    stranded, stranded_problems = stranded_records(args.text, anchored)
+    anchored.extend(stranded)
+    problems.extend(stranded_problems)
+
     anchored.sort(key=lambda r: (r["document"], r["span"]["start"]))
 
     text_out = args.out / "documents_txt"
@@ -332,8 +422,9 @@ def main() -> int:
         f"- docket records dropped: **{dropped}**",
         f"- locators to anchor: **{len(locators)}**",
         f"- margin-interrupted locators added: **{len(extra)}**",
+        f"- stranded-volume locators added: **{len(stranded)}**",
         f"- locators anchored: **{len(anchored)}**",
-        f"- unanchored: **{len(locators) + len(extra) - len(anchored)}**",
+        f"- unanchored: **{len(locators) + len(extra) + len(stranded) - len(anchored)}**",
         "",
     ]
     if problems:
