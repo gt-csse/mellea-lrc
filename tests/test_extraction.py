@@ -111,7 +111,9 @@ def test_extracted_document_rejects_span_outside_text() -> None:
 
 def test_extract_recovers_citation_broken_by_repeated_whitespace() -> None:
     # Docling PDF extraction leaves runs of repeated spaces (justified-text
-    # artifacts) that break eyecite's tokenizer outright when unnormalized.
+    # artifacts) that eyecite's literal single spaces break on outright. The
+    # shipped relaxation matches them where they are, so the text is never
+    # rewritten and the span needs no remapping.
     text = (
         "The court in Cracker Barrel Old  Country  Store,  Inc.  v.  Epperson ,  "
         "284  S.W.3d  303,  312 (Tenn. 2009) held as much."
@@ -123,6 +125,4 @@ def test_extract_recovers_citation_broken_by_repeated_whitespace() -> None:
     assert isinstance(citation.citation, FullCaseCitation)
     assert citation.citation.volume == "284"
     assert citation.citation.reporter == "S.W.3d"
-    # Span must land back in the ORIGINAL (double-spaced) text, not the
-    # whitespace-collapsed text eyecite actually tokenized.
     assert text[citation.locator_span.start : citation.locator_span.end] == "284  S.W.3d  303"

@@ -19,6 +19,7 @@ from mellea_lrc.core.citations import (
 )
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.core.spans import Span
+from mellea_lrc.extraction.relaxation import Relaxation
 from mellea_lrc.extraction.types import (
     ExtractedCitation,
     ExtractedDocument,
@@ -109,6 +110,9 @@ def deserialize_extracted_document(payload: Mapping[str, object]) -> ExtractedDo
             ),
             backend_version=_optional_string(
                 extraction_metadata.get("backend_version"), name="extraction_metadata.backend_version"
+            ),
+            relaxation=Relaxation(
+                _required_string(extraction_metadata.get("relaxation"), name="extraction_metadata.relaxation")
             ),
         ),
     )

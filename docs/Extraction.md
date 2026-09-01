@@ -64,11 +64,12 @@ text already in memory.
 Two artefacts account for most of the damage, and they are not equally
 recoverable:
 
-- **Repeated spaces**, left behind when justified text is flattened. Cheap to
-  repair, and the shipping pipeline does — see below.
+- **Repeated spaces**, left behind when justified text is flattened. The
+  shipping pipeline reads straight through them — see below.
 - **Line and page breaks falling inside a citation**, from column layouts and
-  page boundaries. Not repairable without also creating false matches, which is
-  what the experimental work is about.
+  page boundaries. A line break is read through as well; a *blank* line is not,
+  because crossing one cannot be done without also creating false matches. That
+  boundary is the subject of the level table below.
 
 ---
 
@@ -89,6 +90,9 @@ a location** — and hands off to one of the two explicit forms,
 `extract_from_plain_text(text)` and `extract_from_raw_document(path)`. Use those
 directly when the distinction matters; a filename that arrives as a string would
 otherwise be extracted *from*, rather than opened.
+
+All three take a `relaxation` keyword and nothing else that changes what is
+found. There is one extractor, not a production one and a relaxed one.
 
 There is deliberately no entrypoint taking a `PreprocessedDocument`. Nothing
 serializes one, so it cannot cross a process boundary, and a caller holding one
@@ -209,22 +213,55 @@ drawn from `reporters-db` — and then runs the generated regex for whichever
 strings appear. This is fast and precise, and it is also the source of both
 failure modes below.
 
-### Whitespace repair
+### Separator relaxation
 
-The one addition in the shipping pipeline. eyecite's generated patterns join
-volume, reporter and page with a **literal single space**, so one doubled space
-makes a citation vanish outright rather than parse imperfectly — and doubled
-spaces are exactly what PDF extraction of justified text leaves behind.
+The one addition in the shipping pipeline, and the only knob extraction has.
+eyecite's generated patterns join volume, reporter and page with a **literal
+single space**, so one doubled space makes a citation vanish outright rather
+than parse imperfectly — and doubled spaces are exactly what PDF extraction of
+justified text leaves behind.
 
-So the text is collapsed on `[ \t]{2,}` before parsing, and every resulting span
-is mapped back onto the original text with eyecite's `SpanUpdater`. Offsets
-still index the text as it was; nothing downstream sees the collapsed copy.
+Rather than repair the text, the patterns are rebuilt so those joins match
+whatever whitespace is actually there. The text is never rewritten and no span
+is ever remapped: every offset indexes the document as it was given.
 
-It is a small change that is worth **37 citations** on the benchmark — the
-distance between 88.6% and 94.8% recall, with no cleverness in between.
+`Relaxation` names three levels, and every entrypoint takes it:
 
-Note what it deliberately does not do: it collapses spaces and tabs, not
-newlines. Widening it to `\s+` was measured and rejected. See the trade below.
+| level | volume → reporter | reporter → page | punctuation inside the reporter |
+|---|---|---|---|
+| `NONE` | literal space | literal space | as eyecite generates it |
+| `BOUNDED` **(default)** | any whitespace | any, stopping at a blank line | relaxed |
+| `FULL` | any whitespace | any whitespace | relaxed |
+
+```python
+from mellea_lrc.extraction import Relaxation, extract
+
+document = extract(text, relaxation=Relaxation.FULL)
+```
+
+The two joins are treated differently at `BOUNDED`, which is the point of the
+level. A break between volume and reporter leaves reporter and page still
+adjacent on the far side, so the page captured is the citation's own; blank
+lines are always safe there. A break between reporter and page puts the page
+number beyond the break — which on pleading paper is where the margin line
+numbers are, so `214 F.3d\n\n1\n\n2` reads as page 1 when the citation is
+`214 F.3d 1058`. That is a wrong page, not a missing one, and it sends
+validation to a different case.
+
+`FULL` takes that risk deliberately. Measured over 103 documents and 2,603
+citations, widening that one join changed the parse in six of them: two correct
+recoveries and four errors, two of which destroyed a citation that had parsed
+correctly before. Only one of the four involved a page margin, so removing the
+margin upstream would not make `FULL` safe.
+
+Relaxing the pattern also covers the opposite defect, which repairing the text
+never could: `846F.2d746`, written without separators at all by OCR or by the
+filer's own word processor.
+
+Which level ran is recorded on the result, in
+`extraction_metadata.relaxation`. Two levels disagree about whether a given
+citation is in the document at all, so a result that does not say which one
+produced it cannot be compared with another.
 
 ---
 
@@ -238,28 +275,19 @@ read wrongly. eyecite parses the plaintiff of
 text is not damaged; the rule is. Fixes here transfer to any corpus.
 
 **Non-recognition of damaged text.** The citation is never seen at all, because
-a line break, a page break, or an OCR artefact falls inside it. `937\n\nS.W.2d
-796` matches no pattern that joins volume to reporter with a space. This is an
-upstream failure surfacing as an extraction failure, and it is what the
-experimental work below targets.
+a page break or an OCR artefact falls inside it in a way no level will cross.
+This is an upstream failure surfacing as an extraction failure, and it is what
+the experimental work below targets.
 
-A practical consequence: **keep a citation on one line.** A break between the
-reporter and the page means the citation is missed rather than misread, which is
-the quieter of the two problems but not the smaller one.
+A practical consequence: **do not let a blank line fall between a reporter and
+its page.** That is the one break the default will not join, and joining it is
+not free — see the level table above.
 
 ---
 
 ## Reaching the rest: experimental work
 
 Both live in `mellea_lrc.experimental` and neither is in the shipping pipeline.
-
-### Layout-tolerant tokenizer
-
-Rebuilds eyecite's patterns so the separators between volume, reporter and page
-tolerate any whitespace, newlines included. This recovers citations split across
-a page break — and, because `\s*` cannot tell a page break from a margin, also
-lets PDF line numbers be read as a page. It is the same trade as widening
-whitespace repair, in a different place.
 
 ### Grounded adjudication
 

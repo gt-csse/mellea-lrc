@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import re
 import uuid
-from bisect import bisect_left, bisect_right
 from typing import cast
 
 from eyecite import get_citations, resolve_citations
-from eyecite.annotate import SpanUpdater
 from eyecite.models import (
     CitationBase,
     Resource,
@@ -37,7 +34,6 @@ from eyecite.models import (
 from eyecite.models import (
     UnknownCitation as EyeciteUnknownCitation,
 )
-from eyecite.tokenizers import Tokenizer, default_tokenizer
 
 from mellea_lrc.core.citations import (
     CanonicalCitation,
@@ -51,52 +47,10 @@ from mellea_lrc.core.citations import (
     UnknownCitation,
 )
 from mellea_lrc.core.spans import Span
+from mellea_lrc.extraction.relaxation import Relaxation, tokenizer_for
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.preprocessing.types import PreprocessedDocument
-
-_REPEATED_INLINE_WHITESPACE = re.compile(r"[ \t]{2,}")
-
-
-def _get_citations_with_recovered_spans(
-    text: str,
-    *,
-    tokenizer: Tokenizer = default_tokenizer,
-) -> list[CitationBase]:
-    """Extract citations from whitespace-collapsed text, then remap spans back to `text`.
-
-    Docling PDF extraction leaves runs of repeated spaces/tabs (e.g. from
-    justified-text columns) that break eyecite's tokenizer and silently drop
-    otherwise well-formed citations. Collapsing those runs before extraction
-    recovers them; `SpanUpdater` then maps each citation's offsets from the
-    collapsed text back to `text` so downstream span-based text slicing is
-    unaffected.
-
-    `tokenizer` exists so alternative extraction backends can reuse this
-    collapse-and-remap step rather than reimplement the span mapping below.
-    """
-    cleaned = _REPEATED_INLINE_WHITESPACE.sub(" ", text)
-    citations = get_citations(cleaned, tokenizer=tokenizer)
-    if cleaned == text:
-        return citations
-
-    # Collapsing repeated whitespace is a net insertion going cleaned -> text
-    # (each run gains its extra characters back), the opposite of eyecite's
-    # own plain/markup mapping (a net deletion). bisect_right on the start and
-    # bisect_left on the end is what lands exactly on citation boundaries for
-    # an insertion-direction diff; the reverse pairing off-by-ones by one
-    # collapsed space at segment boundaries.
-    updater = SpanUpdater(cleaned, text)
-    for citation in citations:
-        start, end = citation.span()
-        citation.span_start = updater.update(start, bisect_right)
-        citation.span_end = updater.update(end, bisect_left)
-        if citation.full_span_start is not None:
-            citation.full_span_start = updater.update(citation.full_span_start, bisect_right)
-        if citation.full_span_end is not None:
-            citation.full_span_end = updater.update(citation.full_span_end, bisect_left)
-    return citations
-
 
 EYECITE_CITATION_TYPES = frozenset(
     {
@@ -239,10 +193,18 @@ def _build_antecedent_map(
 
 def _extract_from_text(
     preprocessed: PreprocessedDocument,
+    *,
+    relaxation: Relaxation = Relaxation.BOUNDED,
 ) -> ExtractedDocument:
-    """Extract canonical citations from a preprocessed document."""
+    """Extract canonical citations from a preprocessed document.
+
+    The text is tokenized as it stands. Nothing is rewritten before parsing and
+    no span is remapped afterwards, so every offset indexes straight into
+    ``preprocessed.text``: how much separator damage a citation may carry is
+    entirely a property of ``relaxation``, and of nothing else.
+    """
     text = preprocessed.text
-    eyecite_citations = _get_citations_with_recovered_spans(text)
+    eyecite_citations = get_citations(text, tokenizer=tokenizer_for(relaxation))
     resolutions = cast(
         dict[Resource, list[CitationBase]],
         resolve_citations(eyecite_citations),
@@ -270,15 +232,23 @@ def _extract_from_text(
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=tuple(extracted),
-        extraction_metadata=ExtractionMetadata(),
+        extraction_metadata=ExtractionMetadata(relaxation=relaxation),
     )
 
 
-def extract_from_plain_text(text: str, *, source_path: str | None = None) -> ExtractedDocument:
+def extract_from_plain_text(
+    text: str,
+    *,
+    source_path: str | None = None,
+    relaxation: Relaxation = Relaxation.BOUNDED,
+) -> ExtractedDocument:
     """Extract citations from Layer 2 plain text.
 
     Spans index into ``text`` as given, so a caller that already holds the text
     can map results straight back onto it.
+
+    ``relaxation`` chooses how much separator damage a citation may carry and
+    still be found; see :class:`~mellea_lrc.extraction.relaxation.Relaxation`.
     """
     preprocessed = preprocess(text)
-    return _extract_from_text(preprocessed)
+    return _extract_from_text(preprocessed, relaxation=relaxation)

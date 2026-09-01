@@ -5,10 +5,21 @@ from mellea_lrc.experimental import (
     mask_locator_spans,
     suspected_locators,
 )
-from mellea_lrc.extraction import extract_from_plain_text
+from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 
 _WELL_FORMED = "Norton v. Shelby County, 118 U.S. 425, 442 (1886), an unconstitutional act."
 _DAMAGED = "Doe v. Colgate Univ. , 2016 WL1448829, at *2 (N.D.N.Y. Apr. 12, 2016)"
+
+
+def _unrelaxed(text: str):
+    """Extract without relaxing the separators.
+
+    Hunting exists for locators no pattern reached, so these tests need a
+    citation the extractor misses. The shipped `BOUNDED` setting now finds the
+    damaged one, which is the point of it -- so the miss has to be produced
+    deliberately rather than found.
+    """
+    return extract_from_plain_text(text, relaxation=Relaxation.NONE)
 
 
 def test_masking_preserves_every_offset() -> None:
@@ -42,7 +53,7 @@ def test_hunting_reports_a_reporter_that_produced_no_citation() -> None:
     qualifies. That is the intended trade: the filter is recall-oriented and a
     judge is expected to reject freely.
     """
-    document = extract_from_plain_text(_DAMAGED)
+    document = _unrelaxed(_DAMAGED)
     sites = suspected_locators(document)
     reporters = [site.reporter for site in sites]
     assert "WL" in reporters
@@ -63,7 +74,7 @@ def test_hunting_requires_digits_on_both_sides() -> None:
 
 def test_a_reported_span_indexes_the_original_document() -> None:
     """Offsets survive masking, so a judge can read the real text at that position."""
-    document = extract_from_plain_text(_DAMAGED)
+    document = _unrelaxed(_DAMAGED)
     site = next(s for s in suspected_locators(document) if s.reporter == "WL")
     assert document.text[site.span_start : site.span_end] == site.reporter
     assert "WL1448829" in site.window
