@@ -9,11 +9,12 @@ record's span out of the text it is anchored to and compares.
 from __future__ import annotations
 
 import json
+import sys
 from collections import Counter
 from itertools import pairwise
 from pathlib import Path
 
-BENCH = Path("data/false-citation-bench-locator-only-v1.0")
+BENCH = Path(sys.argv[1] if len(sys.argv) > 1 else "data/false-citation-bench-locator-only-v1.0")
 BODY_MARKER = "--- Plain text ---\n"
 
 
