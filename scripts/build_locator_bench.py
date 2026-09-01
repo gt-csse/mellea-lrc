@@ -169,16 +169,19 @@ INTERRUPTED = [
 # reaches the same conclusion about the first of these and records that the gold
 # keeps it. The published bench does not carry either.
 #
-# The span covers what is written -- the reporter and page -- because that is
-# where an extractor that found this would report it. The volume is asserted
-# from the row, so each entry names the year that has to be within `context`
-# characters for the record to be built at all.
+# `anchor` is the fragment that is written where the citation belongs, and the
+# span covers it, because that is where an extractor finding this would report
+# one. `requires` names the parts that are displaced: each must appear within
+# `STRANDED_CONTEXT` characters or no record is built, so an entry can never
+# assert a citation the filing does not state.
 STRANDED_VOLUME = [
     {
         "document_prefix": "022",
         "volume": "2016",
         "reporter": "WL",
         "page": "9137645",
+        "anchor": r"\bWL\s+9137645\b",
+        "requires": ["2016"],
         "note": "table of authorities: the year sits in the date parenthetical, not before WL",
     },
     {
@@ -186,7 +189,27 @@ STRANDED_VOLUME = [
         "volume": "2023",
         "reporter": "WL",
         "page": "6200979",
+        "anchor": r"\bWL\s+6200979\b",
+        "requires": ["2023"],
         "note": "table of authorities: the year sits in the date parenthetical, not before WL",
+    },
+    # The same defect, one column further along: here the page arrives first and
+    # the volume and reporter follow on the next row, so the text reads
+    # `Loos v. Lowe's 1013, 1023 (D. Ariz. 2011) | ) | 796 F. Supp. 2d`. Every
+    # part is present and adjacent; only the order is wrong. The filing states
+    # this case a second time in its argument, completely, and that occurrence
+    # is already in the bench -- this is the table row, and it is stated too.
+    {
+        "document_prefix": "021",
+        "volume": "796",
+        "reporter": "F. Supp. 2d",
+        "page": "1013",
+        "anchor": r"1013,\s*1023\s*\(D\.\s*Ariz\.\s*2011\)",
+        "requires": ["796 F. Supp. 2d"],
+        "note": (
+            "table of authorities: the page comes first and the volume and reporter "
+            "follow on the next row"
+        ),
     },
 ]
 STRANDED_CONTEXT = 120
@@ -259,10 +282,11 @@ def interrupted_records(text_dir: Path, already: list[dict]) -> tuple[list[dict]
 
 
 def stranded_records(text_dir: Path, already: list[dict]) -> tuple[list[dict], list[str]]:
-    """Anchor each locator whose volume is not in front of its reporter.
+    """Anchor each locator whose parts the converter delivered out of order.
 
-    The volume is only asserted when it is actually written nearby, so a record
-    is built for a citation the filing states and refused for one it does not.
+    The displaced parts are only asserted when they are actually written nearby,
+    so a record is built for a citation the filing states and refused for one it
+    does not.
     """
     found: list[dict] = []
     problems: list[str] = []
@@ -274,7 +298,7 @@ def stranded_records(text_dir: Path, already: list[dict]) -> tuple[list[dict], l
         document = matches[0]
         text = body(document)
         covered = [(r["span"]["start"], r["span"]["end"]) for r in already if r["document"] == document.name]
-        pattern = re.compile(rf"\b{re.escape(entry['reporter'])}\s+{re.escape(entry['page'])}\b")
+        pattern = re.compile(entry["anchor"])
         hits = [
             hit
             for hit in pattern.finditer(text)
@@ -282,16 +306,17 @@ def stranded_records(text_dir: Path, already: list[dict]) -> tuple[list[dict], l
         ]
         if len(hits) != 1:
             problems.append(
-                f"stranded-volume {document.name[:34]}: {entry['reporter']} {entry['page']} "
-                f"— expected 1 unclaimed occurrence, found {len(hits)}"
+                f"stranded {document.name[:34]}: {entry['reporter']} {entry['page']} "
+                f"— expected 1 unclaimed occurrence of its anchor, found {len(hits)}"
             )
             continue
         hit = hits[0]
         window = text[max(0, hit.start() - STRANDED_CONTEXT) : hit.end() + STRANDED_CONTEXT]
-        if entry["volume"] not in window:
+        absent = [needed for needed in entry["requires"] if needed not in window]
+        if absent:
             problems.append(
-                f"stranded-volume {document.name[:34]}: {entry['reporter']} {entry['page']} "
-                f"— volume {entry['volume']} not written within {STRANDED_CONTEXT} characters; "
+                f"stranded {document.name[:34]}: {entry['reporter']} {entry['page']} "
+                f"— {absent} not written within {STRANDED_CONTEXT} characters of the anchor; "
                 f"not treated as stated"
             )
             continue
@@ -305,7 +330,7 @@ def stranded_records(text_dir: Path, already: list[dict]) -> tuple[list[dict], l
                 "volume": entry["volume"],
                 "reporter": entry["reporter"],
                 "page": entry["page"],
-                "source": "stranded_volume",
+                "source": "stranded_parts",
                 "note": entry["note"],
             }
         )
@@ -402,6 +427,20 @@ def main() -> int:
     anchored.extend(stranded)
     problems.extend(stranded_problems)
 
+    for record in anchored:
+        if record.get("anchor_note") and record.get("source") == "manual":
+            # The defect this record exists for is in the published rendering,
+            # not in this one: Docling 2.105.0 wrote `455 US. 363` and 2.115.0
+            # writes `455 U.S. 363`. Keeping only the original note would say
+            # no tokenizer reaches it, which is no longer true of this text.
+            record["published_text"] = "455 US. 363"
+            record["note"] = (
+                "written `455 US. 363` in the published v1 rendering -- a reporter missing "
+                "the period after US, outside the gazetteer, which no tokenizer reached. "
+                "Docling 2.115.0 renders it `455 U.S. 363`, so on this text it parses "
+                "normally. The record is the same citation; the converter changed under it."
+            )
+
     anchored.sort(key=lambda r: (r["document"], r["span"]["start"]))
 
     text_out = args.out / "documents_txt"
@@ -422,7 +461,7 @@ def main() -> int:
         f"- docket records dropped: **{dropped}**",
         f"- locators to anchor: **{len(locators)}**",
         f"- margin-interrupted locators added: **{len(extra)}**",
-        f"- stranded-volume locators added: **{len(stranded)}**",
+        f"- out-of-order locators added: **{len(stranded)}**",
         f"- locators anchored: **{len(anchored)}**",
         f"- unanchored: **{len(locators) + len(extra) + len(stranded) - len(anchored)}**",
         "",
