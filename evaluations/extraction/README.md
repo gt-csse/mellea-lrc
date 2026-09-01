@@ -12,7 +12,7 @@ space.
 uv run hf download gt-csse/false-citation-bench --repo-type dataset \
   --local-dir data/false-citation-bench
 
-uv run python -m evaluations.extraction.run --arm production \
+uv run python -m evaluations.extraction.run --arm bounded \
   --documents data/false-citation-bench/documents_txt --output run-artifact.jsonl
 
 uv run python evaluations/extraction/evaluate.py \
@@ -113,11 +113,16 @@ case. On this corpus it costs precision 100.0% → 99.8% for one extra citation.
 | arm | components | model |
 |---|---|:--:|
 | `eyecite` | eyecite as published | — |
-| `production` | + bounded relaxation | — |
-| `production+recovery` | + site hunting + model adjudication | yes |
-| `layout-tolerant+recovery` | full relaxation instead of bounded, + both | yes |
+| `bounded` | + bounded separator relaxation | — |
+| `full` | full separator relaxation instead | — |
+| `bounded+recovery` | + site hunting + model adjudication | yes |
+| `full+recovery` | full relaxation, + both | yes |
 
-**`production` is what Mellea-LRC ships.** Everything past it is experimental,
+**Arms are named for the mechanism they run, not for a status.** None of them
+is "what ships": the library on `main` is still eyecite plus a whitespace
+repair, which this branch removes, and `bounded` is not the intended
+destination either — it is the control `full` is read against. Everything from
+`bounded+recovery` on is experimental,
 and has no domain-object form yet: an `AdjudicatedLocator` is not an
 `ExtractedCitation`, so the experimental arms emit public occurrences directly
 rather than a serialized `ExtractedDocument`.
@@ -128,7 +133,7 @@ Mellea-LRC's own extraction, over the benchmark corpus:
 
 ```bash
 uv run python -m evaluations.extraction.run \
-  --arm production \
+  --arm bounded \
   --documents data/false-citation-bench/documents_txt \
   --output run-artifact.jsonl
 ```
@@ -136,14 +141,15 @@ uv run python -m evaluations.extraction.run \
 | arm | components |
 |---|---|
 | `eyecite` | eyecite as published |
-| `production` | eyecite + bounded relaxation — what Mellea-LRC ships |
+| `bounded` | eyecite + bounded separator relaxation |
+| `full` | eyecite + full separator relaxation |
 
 The two model arms need an OpenAI-compatible endpoint. Point `uv` at your
 `.env`, as the validation page describes:
 
 ```bash
 uv run --env-file .env python -m evaluations.extraction.run \
-  --arm production+recovery \
+  --arm bounded+recovery \
   --documents data/false-citation-bench/documents_txt --output run-artifact.jsonl
 ```
 
@@ -202,11 +208,11 @@ Measured against this benchmark, on the 26 published documents.
 | arm | predicted | TP | FP | FN | precision | recall | F1 |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | `eyecite` | 526 | 526 | 0 | 68 | 100.0% | 88.6% | 93.9% |
-| `production` | 582 | 582 | 0 | 12 | 100.0% | 98.0% | 99.0% |
-| `production+recovery` | 594 | 594 | 0 | 0 | **100.0%** | **100.0%** | **100.0%** |
-| `layout-tolerant+recovery` | 595 | 594 | 1 | 0 | 99.8% | 100.0% | 99.9% |
+| `bounded` | 582 | 582 | 0 | 12 | 100.0% | 98.0% | 99.0% |
+| `bounded+recovery` | 594 | 594 | 0 | 0 | **100.0%** | **100.0%** | **100.0%** |
+| `full+recovery` | 595 | 594 | 1 | 0 | 99.8% | 100.0% | 99.9% |
 
-The two model arms were measured when `production` was eyecite plus a
+The two model arms were measured when `bounded` was eyecite plus a
 whitespace repair rather than the bounded relaxation, and have not been
 re-measured since. Their totals are unlikely to move — both already reach every
 identifier — but the split between what the pattern finds and what the model
@@ -216,20 +222,20 @@ recovers has, and so has the number of model calls.
 the patterns simply match the whitespace that is there. That is the size of the
 problem a literal single space in a generated pattern creates.
 
-**`production` now sits one citation off its own ceiling.** Eleven of its twelve
+**`bounded` now sits one citation off its own ceiling.** Eleven of its twelve
 misses are docket numbers, which eyecite does not attempt at all — the floor
 noted below. The twelfth is `455 US. 363`, a reporter missing the period after
 `US`, which is a different defect from the one relaxation addresses.
 
 **Both recovery arms find everything**, and they are not equally good. The
-layout-tolerant one also reports `214 F.3d\n\n1` — margin line numbers after a
+full one also reports `214 F.3d\n\n1` — margin line numbers after a
 page break read as a page, where the true citation is 214 F.3d **1058**. Full
 relaxation buys nothing the model does not already recover, and pays for it with
 a well-formed locator naming the wrong case: the worst failure available here,
 because nothing downstream can tell it is wrong.
 
 What it does buy is cost, by resolving more citations before the model is asked.
-**Prefer `production+recovery`.**
+**Prefer `bounded+recovery`.**
 
 ### A caveat on the perfect score
 
