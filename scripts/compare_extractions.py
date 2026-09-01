@@ -2,9 +2,15 @@
 
 Two things change what comes out of a filing: how the text was produced, and how
 tolerant the tokenizer was. This runs every combination of the two, on every
-document, and reports where they disagree -- **across all eight citation kinds,
-not just full case citations**, because a change that fixes a full citation can
-silently strand the short forms that refer to it.
+document, and reports where they disagree.
+
+**Case law only, and every kind of it.** Statutes, regulations, journals and the
+bare section symbols eyecite reports as unknown are filtered out -- they are not
+what this project verifies, and a hundred rows of `§` bury everything else.
+Within case law nothing is dropped: short forms, `id.`, `supra` and references
+are reported alongside full citations, because a change that recovers a full
+citation can strand the short forms pointing at it, and a full-case count cannot
+show that. `--kinds all` restores the rest.
 
 Three questions, in the order they are worth asking:
 
@@ -146,10 +152,10 @@ def suspicions(citation: ExtractedCitation) -> list[str]:
         flags.append("spans a blank line")
     if parts and parts[2].isdigit() and int(parts[2]) <= MARGIN_PAGE_CEILING and _BLANK_LINE.search(text):
         flags.append(f"page {parts[2]} reached across a break")
-    if parts and parts[1] != parts[1].strip():
-        flags.append("reporter kept whitespace")
-    inner = citation.citation
-    reporter = getattr(inner, "reporter", None)
+    # Read off the citation rather than off `locator`, which strips before
+    # returning: a reporter group that absorbed the space before the page is
+    # exactly what the relaxation's lookbehind exists to prevent.
+    reporter = getattr(citation.citation, "reporter", None)
     if reporter and reporter != reporter.strip():
         flags.append("reporter kept whitespace")
     if kind(citation) == "UnknownCitation":
@@ -163,7 +169,30 @@ def suspicions(citation: ExtractedCitation) -> list[str]:
     return flags
 
 
-def run(paths: dict[str, Path], levels: list[Relaxation]) -> dict[Arm, dict[str, list[ExtractedCitation]]]:
+# Case law and the ways a document returns to it. A statute, a regulation, a
+# journal article and the bare section symbols eyecite reports as unknown are
+# out of scope here: this tool exists to compare how well case citations
+# survive preprocessing and relaxation, and a hundred rows of `§` crowd that
+# out. `--kinds all` puts them back.
+#
+# The back-reference kinds stay in. An `Id.` can stand in for a statute, so a
+# few of these are not case law -- but a short form stranded by a misparsed
+# full citation is the clearest evidence that FULL corrupted something, and
+# dropping them would remove the signal this tool is most needed for.
+CASE_LAW_KINDS = frozenset(
+    {
+        "FullCaseCitation",
+        "ShortCaseCitation",
+        "IdCitation",
+        "SupraCitation",
+        "ReferenceCitation",
+    }
+)
+
+
+def run(
+    paths: dict[str, Path], levels: list[Relaxation], *, case_law_only: bool = True
+) -> dict[Arm, dict[str, list[ExtractedCitation]]]:
     """Extract every document under every arm."""
     results: dict[Arm, dict[str, list[ExtractedCitation]]] = {}
     for dataset, directory in paths.items():
@@ -174,7 +203,9 @@ def run(paths: dict[str, Path], levels: list[Relaxation]) -> dict[Arm, dict[str,
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                 for path in documents:
                     extracted = extract_from_plain_text(body(path), relaxation=level)
-                    per_document[path.stem] = list(extracted.citations)
+                    per_document[path.stem] = [
+                        c for c in extracted.citations if not case_law_only or kind(c) in CASE_LAW_KINDS
+                    ]
             results[arm] = per_document
     return results
 
@@ -332,6 +363,12 @@ def main() -> int:
             "(default: bounded,full -- the pair whose disagreement is the point)"
         ),
     )
+    parser.add_argument(
+        "--kinds",
+        choices=("case", "all"),
+        default="case",
+        help="'case' (default) reports case law only; 'all' adds statutes, journals and unknowns",
+    )
     parser.add_argument("--baseline", help="arm to compare against, as dataset/level (default: the first)")
     parser.add_argument("--document", help="print every citation of the documents matching this substring")
     parser.add_argument("--limit", type=int, default=8, help="rows to show per section (default: 8)")
@@ -357,9 +394,10 @@ def main() -> int:
     )
 
     print("datasets: " + ", ".join(f"{k} ({len(list(v.glob('*.txt')))} docs)" for k, v in paths.items()))
-    print("levels:   " + ", ".join(level.value for level in levels) + "\n")
+    print("levels:   " + ", ".join(level.value for level in levels))
+    print("kinds:    " + ("case law only" if args.kinds == "case" else "every kind") + "\n")
 
-    results = run(paths, levels)
+    results = run(paths, levels, case_law_only=args.kinds == "case")
     census(results)
 
     baseline = next(iter(results))
