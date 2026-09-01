@@ -14,9 +14,8 @@ wheels/
 coverage.xml
 
 # Local development artifacts
-.env
-.envrc
-.env.deploy
+.env*
+!.env.example
 local/
 .claude/
 
