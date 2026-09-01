@@ -21,7 +21,19 @@ Three questions, in the order they are worth asking:
    a page that looks like a margin line number. These are suspicions, not
    verdicts, and they are printed with their text so they can be read.
 
-    # every dataset on disk, at the default relaxation
+The default pair of levels is `bounded,full`, and that comparison is what the
+tool exists for. `BOUNDED` is not a destination -- it is the instrument. It is
+the widest relaxation with no known false positive, so anything `FULL` finds
+that it does not is either a citation only `FULL` can reach or an error only
+`FULL` makes, and there is nowhere else to see which. When `FULL` stops
+producing disagreements worth keeping `BOUNDED` for, the level has done its job.
+
+Datasets isolate the other factor. `v1` to `v1.1` is the Docling version alone;
+`v1.1` to `v2.0` is the margin rule alone. Comparing `v1` to `v2.0` conflates
+them, which is how 25 statute citations once looked like a margin-rule
+regression in documents the margin rule had not touched.
+
+    # every dataset on disk, at bounded and full
     uv run python scripts/compare_extractions.py
 
     # one dataset across all three relaxation levels
@@ -54,8 +66,13 @@ from mellea_lrc.extraction import ExtractedCitation, Relaxation, extract_from_pl
 
 BODY_MARKER = "--- Plain text ---\n"
 
+# In the order that isolates one factor at a time: v1 to v1.1 is the Docling
+# version alone, v1.1 to v2.0 is the margin rule alone. Comparing v1 to v2.0
+# directly confounds the two, which is how 25 statute citations came to look
+# like a margin-rule regression when the converter had changed underneath.
 DEFAULT_DATASETS = {
     "v1": Path("data/false-citation-bench/documents_txt"),
+    "v1.1": Path("data/false-citation-bench-v1.1/documents_txt"),
     "v2.0": Path("data/false-citation-bench-v2.0/documents_txt"),
 }
 
@@ -290,8 +307,11 @@ def main() -> int:
     )
     parser.add_argument(
         "--levels",
-        default="bounded",
-        help="'all', or a comma-separated subset of none,bounded,full (default: bounded)",
+        default="bounded,full",
+        help=(
+            "'all', or a comma-separated subset of none,bounded,full "
+            "(default: bounded,full -- the pair whose disagreement is the point)"
+        ),
     )
     parser.add_argument("--baseline", help="arm to compare against, as dataset/level (default: the first)")
     parser.add_argument("--document", help="print every citation of the documents matching this substring")
