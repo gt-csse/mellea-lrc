@@ -5,6 +5,7 @@ from enum import Enum
 
 from mellea_lrc.core.citations import CanonicalCitation, is_full_citation
 from mellea_lrc.core.spans import Span
+from mellea_lrc.extraction.relaxation import Relaxation
 from mellea_lrc.preprocessing.types import PreprocessedDocument
 
 
@@ -22,6 +23,12 @@ class ExtractionMetadata:
 
     backend: ExtractionBackend = ExtractionBackend.EYECITE
     backend_version: str | None = None
+    relaxation: Relaxation = Relaxation.BOUNDED
+    """Which tokenizer read the text.
+
+    Two levels disagree about whether a given citation is there at all, so a
+    document that does not say which one ran cannot be compared with another.
+    """
 
 
 @dataclass(frozen=True, slots=True)

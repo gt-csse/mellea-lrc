@@ -15,12 +15,17 @@ The existing extraction entrypoints differ in where the text comes from:
 The native ``find_full_reporter_locators`` and ``find_docket_locators``
 substages take an immutable :class:`mellea_lrc.model.Document` and return a new
 document with source-grounded locator occurrences and a replayable checkpoint.
+
+The existing extraction entrypoints take the same ``relaxation`` keyword,
+which decides how much whitespace damage a citation may carry and still be
+found. See :class:`Relaxation` for the available levels.
 """
 
 from mellea_lrc.extraction.eyecite_extractor import extract_from_plain_text
 from mellea_lrc.extraction.find_docket_locators import find_docket_locators
 from mellea_lrc.extraction.find_full_reporter_locators import find_full_reporter_locators
 from mellea_lrc.extraction.pipeline import extract, extract_from_raw_document
+from mellea_lrc.extraction.relaxation import Relaxation
 from mellea_lrc.extraction.resolve_colocations import resolve_colocations
 from mellea_lrc.extraction.types import (
     ExtractedCitation,
@@ -34,6 +39,7 @@ __all__ = [
     "ExtractedDocument",
     "ExtractionBackend",
     "ExtractionMetadata",
+    "Relaxation",
     "extract",
     "extract_from_plain_text",
     "extract_from_raw_document",

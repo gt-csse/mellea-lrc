@@ -38,7 +38,6 @@ from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
 
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.eyecite_extractor import _REPEATED_INLINE_WHITESPACE
 from mellea_lrc.llm import (
     InstructIvrSpec,
     llm_api_config_from_env,
@@ -151,6 +150,11 @@ class AdjudicatedLocator:
     page: str
     match_method: str
 
+
+# The prompt window is collapsed before the model sees it, which is a
+# presentation choice and not a repair: nothing here changes what extraction
+# reads, and every span is mapped back before it leaves this module.
+_REPEATED_INLINE_WHITESPACE = re.compile(r"[ \t]{2,}")
 
 _NON_CASE_CITE_TYPES = frozenset({"leg_statute", "leg_session", "admin_compilation", "admin_docket"})
 _NON_ALPHANUMERIC = re.compile(r"[^a-z0-9]+")
