@@ -1,18 +1,38 @@
-"""Does relaxing the pin-cite whitespace recover the pin cites that fell into `extra`?
+r"""Does relaxing the pin-cite whitespace recover the pin cites that fell into `extra`?
 
-68 of 583 full case citations on this corpus carry a bare page number in
+68 of 583 full case citations on this corpus carried a bare page number in
 `extra` and no `pin_cite`. `550 U.S. 544` with `extra='570'` is a filing citing
-page 570 of Twombly; the claim is on the page and the pipeline cannot see it.
+page 570 of Twombly: the claim is on the page and the pipeline cannot see it.
 
-The text after every one of them is doubled-spaced -- `'.  Legal  conclusions'`
--- which is the same defect that loses reference citations, in a third place.
-`PIN_CITE_REGEX` spells its separators as a single optional literal space, so
-`544,  570` does not parse as a pin cite and eyecite files the remainder as
-`extra` instead.
+Two widenings take that to **one**, and both are the same defect -- eyecite
+writes a literal character where PDF extraction leaves something wider.
 
-This measures whether widening those spaces recovers them, and what else moves.
-The widening is horizontal only: a doubled or tabbed separator matches, a
-paragraph break does not.
+**Spaces.** `PIN_CITE_REGEX` spells its separators as a single optional literal
+space, so `544,  570` does not parse and the remainder is filed as `extra`.
+Widening those to horizontal whitespace recovers 30.
+
+**The range hyphen.** A page range is `\d+(?:-\d+)?`, with the hyphen against
+the digits, and extraction spaces it: `998 -1003`, `337 - 38`, `189 - 90`.
+Reading the 38 that survived the first widening, every one but a single
+footnote cite was that shape. Allowing horizontal whitespace either side of the
+hyphen, and an en dash beside the hyphen, recovers the rest.
+
+    with a pin cite          387 -> 463   (+76)
+    pin cite lost to extra    68 ->   1   (-67)
+    every citation kind      unchanged except references
+    locator spans            identical, 729 of 729
+
+The one that remains is `928 F.3d 652, 657 n.1` -- a page followed by a
+footnote. eyecite's pin-cite pattern allows a label *before* a page (`n. 5`) and
+not after it, which is a different shape and not a whitespace problem.
+
+Both patches must be applied in two places, and finding that out is worth
+recording. `reference_pin_cite_re` reads `PIN_CITE_REGEX` when it is called, so
+patching that global reaches references. `POST_FULL_CITATION_REGEX` is an
+f-string interpolating the same constant **at import time**, so the strict
+version is already baked in and patching the global does nothing for pin cites;
+`helpers.py` imports the composed pattern by value, so that binding needs
+patching too. Patching only the first looks exactly like a null result.
 
     uv run python -m exploration.pinpoint.relax_pin_cites
 """
@@ -36,9 +56,23 @@ HORIZONTAL_REQUIRED = r"[^\S\r\n]+"
 CARRIES_PIN = ("FullCaseCitation", "ShortCaseCitation", "FullLawCitation", "FullJournalCitation")
 
 
+# A page range is written `\d+(?:-\d+)?`, with the hyphen against the digits.
+# Extraction spaces it -- `998 -1003`, `337 - 38`, `189 - 90` -- and that one
+# shape is every remaining lost pin cite on this corpus bar a single footnote
+# cite.
+RANGE_HYPHEN = r"[^\S\r\n]*[-–][^\S\r\n]*"
+
+
 def relaxed(pattern: str) -> str:
-    """The same pattern with its literal spaces widened to horizontal whitespace."""
-    return pattern.replace("\\ ?", HORIZONTAL_OPTIONAL).replace("\\ ", HORIZONTAL_REQUIRED)
+    """The same pattern with its literal spaces and range hyphens widened.
+
+    Two defects of the same kind: eyecite writes a literal single space where
+    PDF extraction leaves several, and a bare hyphen where extraction leaves one
+    with spaces around it.
+    """
+    widened = pattern.replace("\\ ?", HORIZONTAL_OPTIONAL).replace("\\ ", HORIZONTAL_REQUIRED)
+    widened = widened.replace(r"(?:-\d+(?::\d+)?)?", rf"(?:{RANGE_HYPHEN}\d+(?::\d+)?)?")
+    return widened.replace(r"(?:-\d+)?", rf"(?:{RANGE_HYPHEN}\d+)?")
 
 
 @contextlib.contextmanager
