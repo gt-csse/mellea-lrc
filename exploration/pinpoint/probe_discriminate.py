@@ -1,49 +1,51 @@
 """What separates a parallel citation from two cases written side by side.
 
-The parallel-citation problem is a grouping problem: every reporter of a
-parallel cite is extracted, but as its own authority, so one case becomes
-three. Combining them is the right shape of fix -- a post-eyecite step reading
-`extra` -- but the discriminator is harder than it looks, and three candidate
-signals were tried before one held.
+**And the answer is that extraction should not try.** This file argued its way
+to the wrong conclusion first, and the correction is the useful part.
 
-**Coinciding full spans do not discriminate.** They coincide for a parallel
-cite and equally for two different cases separated by a comma:
+The evidence below is real. Coinciding full spans do not tell a parallel cite
+from two different cases:
 
     parallel, one case         11-78, 11-78, 12-78
-    two cases, same reporter    4-44,  4-44
+    two cases, same reporter    4-44,  4-44      <- Brown I and Brown II
     two cases, diff reporters   4-61,  4-61
-    two cases, semicolon        0-24, 26-51     <- only this one separates
+    two cases, semicolon        0-24, 26-51
 
-Merging on span overlap would have merged `347 U.S. 483` with `349 U.S. 294`:
-Brown I and Brown II, different cases, different years, different holdings.
+`See Brown, 347 U.S. 483, 349 U.S. 294 (1955)` has one case name, one year
+parenthetical, identical spans, and an `extra` holding nothing but a citation.
+It is structurally identical to a parallel cite and is two decisions.
 
-**Shared courts from reporters_db do not discriminate.** `U.S.` lists
-`us;supreme.court` and also `us:c9;court.appeals`, `us:c10;court.appeals` and
-more, so it intersects `F.` and the rule admits Iqbal and Starr as one case.
-The jurisdiction lists are far too broad to carry this weight.
+From that this file concluded span coincidence was unusable. That was judging
+it against the wrong job. It is a poor rule for deciding **identity** and a good
+signal for reporting **candidacy**, and those are different layers:
 
-**Party metadata does not discriminate, and is actively misleading.**
+- **Extraction reports co-location.** Citations whose full spans coincide are a
+  candidate parallel group. Deterministic, no lookup, no claim about whether
+  they name the same case. It has no false negatives -- a parallel cite always
+  co-locates -- which is the property a candidate signal needs.
+- **Validation decides identity**, because it is the layer with the data.
+  `CourtListenerOpinionCluster` carries a `cluster_id` and its own list of
+  reporter citations, so two citations resolving to one cluster are one
+  authority and two clusters are two. Brown I and Brown II separate there, on
+  evidence, rather than here on a regex.
+
+That also disposes of the two rules this file previously proposed. Reading
+`extra` and checking reporter jurisdictions were both attempts to settle
+identity during extraction, which is not extraction's question. Neither is
+needed if the group is only a candidate.
+
+Two findings from the failed attempts are still worth keeping.
+
+**Party metadata is corrupted and must not be trusted.**
 `is_parallel_citation` fires whenever two adjacent full citations share a
-full-span start, and copies plaintiff, defendant and year onto the later one --
-without checking that they are parallel at all. So `652 F.3d 1202` is labelled
-`defendant='Iqbal'` when it is Starr. Every one of the four shapes reports a
-single party set, because eyecite has overwritten the difference.
+full-span start and copies plaintiff, defendant and year onto the later one --
+without checking they are parallel. `652 F.3d 1202` is labelled
+`defendant='Iqbal'` when it is Starr. Anything keyed on that field inherits the
+error, here or elsewhere.
 
-**What does hold: never merge citations sharing a reporter.** A case has one
-first page in one reporter, so two `U.S.` cites are two cases. That refuses
-Brown I/II and the string cite, needs no external data, and cannot be wrong.
-
-**What is still open** is the case it does not decide: two different cases in
-different reporters, side by side. `extra` carries the evidence -- Iqbal's is
-`'and Starr, 652 F.3d 1202'`, with a case name in it, where a parallel cite's is
-`'88 S.Ct. 1323, 20 L.Ed.2d 262'` and is nothing but citations. Asking eyecite
-to decompose `extra` and checking what is left over gets three of the four
-shapes right and still merges Iqbal with Starr, because the leftover test is
-not yet reading the case name as disqualifying.
-
-So the combine step should be built refusing by default: merge only on a
-positive signal, and treat an `extra` containing anything that is not a
-citation -- including a party name -- as a refusal to merge.
+**Reporters_db jurisdiction lists are too broad to carry weight.** `U.S.` lists
+`us;supreme.court` and also the 9th, 10th and other circuits, so it intersects
+`F.` and would admit Iqbal and Starr as one case.
 
     uv run python -m exploration.pinpoint.probe_discriminate
 """
