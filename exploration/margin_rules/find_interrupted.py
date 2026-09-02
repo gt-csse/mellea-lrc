@@ -58,7 +58,9 @@ def gutter_pattern(volume: str, reporter: str, page: str) -> re.Pattern[str]:
 
 
 def main() -> None:
-    records = [json.loads(line) for line in (BENCH / "extraction.jsonl").read_text().splitlines() if line.strip()]
+    records = [
+        json.loads(line) for line in (BENCH / "extraction.jsonl").read_text().splitlines() if line.strip()
+    ]
     expected: dict[str, Counter] = {}
     for record in records:
         expected.setdefault(record["document"], Counter())[
@@ -86,7 +88,9 @@ def main() -> None:
             volume, reporter, page = identifier.split("|")
             hits = list(gutter_pattern(volume, reporter, page).finditer(v11))
             total += count
-            print(f"  {identifier:<24} v2.0 has {count} more than the bench; gutter hits in v1.1: {len(hits)}")
+            print(
+                f"  {identifier:<24} v2.0 has {count} more than the bench; gutter hits in v1.1: {len(hits)}"
+            )
             for hit in hits:
                 shown = hit.group()[:38].replace("\n", "\\n")
                 print(f"      {hit.start()}-{hit.end()}  {shown!r}...")

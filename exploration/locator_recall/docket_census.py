@@ -33,9 +33,7 @@ DOCKET = re.compile(
 def main() -> int:
     """Count docket-shaped strings per document, and compare with the bench."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--bench", type=Path, default=Path("data/false-citation-bench-locator-only-v2.0")
-    )
+    parser.add_argument("--bench", type=Path, default=Path("data/false-citation-bench-locator-only-v2.0"))
     parser.add_argument(
         "--published",
         type=Path,
@@ -91,8 +89,7 @@ def main() -> int:
     print(f"documents citing another case's docket:           {len(citing)} of 26")
     print(f"documents holding any docket number at all:       {len(holding)} of 26")
     print(
-        f"occurrences: bench {sum(recorded.values())}, "
-        f"cited {sum(cited.values())}, all {sum(found.values())}"
+        f"occurrences: bench {sum(recorded.values())}, cited {sum(cited.values())}, all {sum(found.values())}"
     )
     return 0
 
