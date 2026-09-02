@@ -23,6 +23,37 @@ This counts how often a citation's span reaches back across one, and prints the
 party names it came away with, because unlike a year a case name has no
 arithmetic check -- whether it is the right name has to be read.
 
+## Crossing is deliberate, and necessary
+
+A parallel citation carries its case name once, in front of the *first* of the
+parallel forms, so every later member has to read back across it. All 16
+non-first members of a parallel group on this corpus get their name that way.
+Stopping at a citation would cost all 16 to save the 2, so the behaviour stays.
+
+(`BACKWARD_SEEK` is a different thing. Its own comment says 28 is the median
+case name length in the CourtListener database -- a budget for how long a name
+may be, not a statement about crossing.)
+
+## What the same measurement found instead
+
+Case names are unreliable well beyond the two crossings::
+
+    both parties            475 of 583
+    defendant only           80
+    neither                  28
+    plaintiff is `""`        11   -- an empty string rather than None
+
+And they can be silently wrong. `citing St. Amant v. Thompson, 390 U.S. 727` is
+recorded with `plaintiff=""` and `defendant="St. Amant"`: the plaintiff is in
+the defendant field and Thompson is gone. `Garrison v. Louisiana` in the very
+next sentence parses correctly, so what breaks it is the period inside `St.
+Amant` rather than anything about the sentence.
+
+That is roughly 18% incomplete before counting the swaps, which is the evidence
+for annotating a pin cite before a case name: a pin cite is a fact about the
+text, and a case name is already wrong here often enough to need checking on its
+own terms.
+
     uv run python -m exploration.court_and_date.survey_backward
 """
 
