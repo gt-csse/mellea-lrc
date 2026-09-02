@@ -13,7 +13,11 @@ import io
 
 from mellea_lrc.core.citations import CitationKind
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
-from scripts.build_tree_bench import pin_cite_limits, pin_cite_written
+from scripts.build_tree_bench import (
+    pin_cite_limits,
+    pin_cite_written,
+    returns_to_a_statute,
+)
 
 
 def _pin(text: str, kind: CitationKind = CitationKind.FULL_CASE) -> str | None:
@@ -72,3 +76,27 @@ def test_a_section_is_not_a_page() -> None:
     text = "Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009). Id. § 1231(g)(1)."
 
     assert _pin(text, CitationKind.ID) is None
+
+
+def test_a_section_sign_is_evidence_of_a_statute_rather_than_nothing() -> None:
+    """`§` is never skipped over: it says the page is not a page.
+
+    An occurrence with no pin cite means the document stated no page. One with a
+    section sign means it stated something that is not a page, and recording the
+    two the same way would lose the evidence that this returns to a statute.
+    """
+    text = "Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009). Id. § 1231(g)(1)."
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        document = extract_from_plain_text(text, relaxation=Relaxation.FULL)
+    citation = next(item for item in document.citations if item.citation.kind is CitationKind.ID)
+
+    assert returns_to_a_statute(text, citation)
+
+
+def test_a_missing_pin_cite_is_not_read_as_a_statute() -> None:
+    text = "Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009). Id. The rest follows."
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        document = extract_from_plain_text(text, relaxation=Relaxation.FULL)
+    citation = next(item for item in document.citations if item.citation.kind is CitationKind.ID)
+
+    assert not returns_to_a_statute(text, citation)

@@ -19,7 +19,11 @@ from mellea_lrc.experimental.llm_only_extraction.locators import parse_locator
 MIN_FUZZY_TOKENS = 3
 MIN_FUZZY_SCORE = 0.9
 
-_WORD = re.compile(r"[^\W_]+", flags=re.UNICODE)
+# Alphanumeric runs, and the two marks that change what a number means.
+# `§` and `¶` are not decoration: `42 U.S.C. § 1983` names a statute
+# section and `1983` alone names a page or a year, so folding the mark away
+# makes a quotation that dropped it score as an exact match on the token path.
+_WORD = re.compile(r"[^\W_]+|[§¶]", flags=re.UNICODE)
 _PUNCTUATION_EQUIVALENTS = str.maketrans(
     {
         "\N{LEFT SINGLE QUOTATION MARK}": "'",

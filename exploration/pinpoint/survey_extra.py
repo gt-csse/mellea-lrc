@@ -28,7 +28,12 @@ from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 BODY_MARKER = "--- Plain text ---\n"
 # A pin cite is a page of the same reporter: digits, ranges, star pages,
 # paragraph and section marks. Nothing else.
-PIN_SHAPED = re.compile(r"^[*¶§]?\s*\d[\d\s,\-–*¶§n.]*$")
+PIN_SHAPED = re.compile(r"^[*¶]?\s*\d[\d\s,\-–*¶n.]*$")
+# A section sign is not a page marker. `§ 1231` in `extra` is a return to a
+# statute, so counting it as a lost pin cite would report a pinpoint failure
+# where the filing made no pinpoint claim. Counted separately, and on this
+# corpus it never fired -- the 68-to-1 figures are unaffected either way.
+SECTION_SHAPED = re.compile(r"^§+\s*\d")
 # A parallel citation is also digits-first and is *not* a pin cite -- it is the
 # same case in another reporter. `88 S.Ct. 1323, 20 L.Ed.2d 262` beside
 # `390 U.S. 727` is correct behaviour, not a lost pin cite.

@@ -83,6 +83,13 @@ SECONDARY_KINDS = frozenset(
 # Deliberately narrow -- it decides ground truth, so it reads only shapes that
 # are unambiguously a pin cite and stops at the first thing that is not.
 _PAGE = r"(?:\*\s*\d+|¶{1,2}\s*\d+|\d+)"
+# A section sign is deliberately absent from `_PAGE` and is never skipped over
+# silently. A case is paginated; a statute is sectioned. `Id. § 1231` returns to
+# a statute, and reading `1231` as a page would attach a pinpoint claim about a
+# case to a number that names something else entirely. Where one stands in the
+# pin-cite position the occurrence is recorded out of scope with that as the
+# reason, so the evidence is kept rather than dropped.
+_SECTION_AHEAD = re.compile(r"[^\S\r\n]*(?:,[^\S\r\n]*)?§")
 _RANGE = rf"{_PAGE}(?:[^\S\r\n]*[-–][^\S\r\n]*\d+)?"
 PIN_FROM_TEXT = re.compile(
     rf"""
@@ -219,6 +226,24 @@ def pin_cite_written(
     if not pin.strip():
         return None
     return pin, match.start("pin"), match.end("pin")
+
+
+def returns_to_a_statute(text: str, citation: ExtractedCitation) -> bool:
+    """Whether a section sign stands where this occurrence's page would be.
+
+    Positive evidence that the citation returns to a statute rather than to the
+    case it was attributed to, and the reason the occurrence is recorded out of
+    scope instead of merely having no pin cite. Absence of a pin cite means the
+    document stated no page; a section sign means it stated something that is
+    not a page, and the two must not be recorded the same way.
+
+    Unlike the pin cite, this is not bounded by where the next citation begins.
+    eyecite emits a token of its own for a bare `§`, so the boundary would fall
+    immediately before the very character that is the evidence. Only the first
+    non-space character is examined, so the look cannot reach into a following
+    citation's content: `Id. See 8 U.S.C. § 1231` finds `S`, not `§`.
+    """
+    return bool(_SECTION_AHEAD.match(text, citation.locator_span.end))
 
 
 def pin_cite_limits(citations: Sequence[ExtractedCitation], length: int) -> dict[str, int]:
@@ -358,6 +383,21 @@ def build_document(
             citation = occurrence.citation
             decision = decision_for(number, citation)
             if decision is None:
+                if citation.citation.kind in SECONDARY_KINDS and returns_to_a_statute(text, citation):
+                    record(
+                        citation,
+                        authority_id=None,
+                        depth=occurrence.depth,
+                        scope="out_of_scope",
+                        reason="statute_reference",
+                        note="A section sign stands where its page would be.",
+                    )
+                    notes.append(
+                        f"{number}: the {citation.citation.kind.value} at "
+                        f"{citation.span.start} states a section, not a page, so it "
+                        f"returns to a statute rather than to the case the tree gave it"
+                    )
+                    continue
                 record(
                     citation,
                     authority_id=record_id,
