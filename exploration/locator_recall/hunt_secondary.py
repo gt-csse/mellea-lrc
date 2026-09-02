@@ -39,6 +39,13 @@ from mellea_lrc.experimental import mask_full_spans
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 
 BACK_REFERENCE = re.compile(r"\b(?:[Ii]d\.|[Ii]bid\.|supra)", re.MULTILINE)
+# A back-reference carrying a paragraph pin cite points into a document's
+# numbered allegations, not at a page of a reporter. Those are record
+# references -- the filing's own complaint, the opposing brief, an ECF entry --
+# and they are out of scope: they identify nothing to anyone outside this
+# case's docket, so there is no authority to attach them to and nothing to
+# verify them against. Labelled rather than dropped, so the count stays honest.
+RECORD_REFERENCE = re.compile(r"^[\s.,)]*(?:\u00b6|\bat\s+\u00b6)", re.MULTILINE)
 SHORT_FORM = re.compile(r"\b\d{1,4}\s+[A-Z][A-Za-z.'’ ]{0,18}[A-Za-z.]\s+at\s+\*?\d{1,5}")
 # Corporate and procedural tails carry no identity of their own, and a party
 # referred to later is referred to without them.
@@ -85,9 +92,14 @@ def main() -> int:
 
         for label, pattern in (("back-reference", BACK_REFERENCE), ("short form", SHORT_FORM)):
             for match in pattern.finditer(masked):
-                totals[label] += 1
+                shown = label
+                if label == "back-reference" and RECORD_REFERENCE.match(
+                    masked[match.end() : match.end() + 12]
+                ):
+                    shown = "record reference (out of scope)"
+                totals[shown] += 1
                 window = " ".join(text[max(0, match.start() - 90) : match.end() + 60].split())
-                findings.append((stem, label, match.group(), window))
+                findings.append((stem, shown, match.group(), window))
 
         for name in sorted(party_names(document)):
             for match in re.finditer(rf"(?<![A-Za-z]){re.escape(name)}(?![A-Za-z])", masked):
@@ -105,7 +117,13 @@ def main() -> int:
 
     print("| shape surviving the mask | count |")
     print("|---|---:|")
-    for label in ("back-reference", "short form", "party name + pin cite", "party name"):
+    for label in (
+        "back-reference",
+        "record reference (out of scope)",
+        "short form",
+        "party name + pin cite",
+        "party name",
+    ):
         print(f"| {label} | {totals[label]} |")
     print(f"\ntotal: {sum(totals.values())}\n")
 
