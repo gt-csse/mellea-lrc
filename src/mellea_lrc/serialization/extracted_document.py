@@ -6,6 +6,7 @@ from collections.abc import Mapping
 
 from mellea_lrc.core.citations import (
     CanonicalCitation,
+    CitationDate,
     CitationKind,
     FullCaseCitation,
     FullJournalCitation,
@@ -129,6 +130,9 @@ def _deserialize_citation(value: object) -> ExtractedCitation:
     )
     citation_type = _CITATION_TYPES[kind]
     citation_fields = {key: value for key, value in citation_payload.items() if key != "citation_type"}
+    # `date` is the one nested value a citation carries, so it has to be rebuilt.
+    if isinstance(citation_fields.get("date"), Mapping):
+        citation_fields["date"] = _deserialize_date(citation_fields["date"])
     return ExtractedCitation(
         citation_id=_required_string(payload.get("citation_id"), name="citation.citation_id"),
         span=Span(
@@ -143,6 +147,14 @@ def _deserialize_citation(value: object) -> ExtractedCitation:
         citation=citation_type(**citation_fields),
         resolves_to=_optional_string(payload.get("resolves_to"), name="citation.resolves_to"),
         colocation_id=_optional_string(payload.get("colocation_id"), name="citation.colocation_id"),
+    )
+
+
+def _deserialize_date(payload: Mapping[str, object]) -> CitationDate:
+    return CitationDate(
+        year=_required_string(payload.get("year"), name="citation.date.year"),
+        month=_optional_string(payload.get("month"), name="citation.date.month"),
+        day=_optional_string(payload.get("day"), name="citation.date.day"),
     )
 
 
