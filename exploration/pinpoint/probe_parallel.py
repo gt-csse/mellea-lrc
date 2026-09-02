@@ -1,4 +1,19 @@
-"""Does the tree treat a parallel citation as one authority or three?"""
+"""Does the tree treat a parallel citation as one authority or three?
+
+Three. And eyecite already holds the evidence needed to say otherwise.
+
+`FullCaseCitation.is_parallel_citation` fires on these: each parallel reporter
+takes the plaintiff, defendant and year from the citation before it, which is
+why all three below carry `defendant='St. Amant'`. But it is a metadata helper,
+not a data model -- it copies names and returns None. Nothing links the three
+objects, and the tree, resolving each on its own identifier, makes three
+authorities out of one case.
+
+Their **full spans are the signal**: 11-78, 11-78, 12-78 for the same sentence.
+Citations whose full spans coincide are one authority, and that is cheaper and
+firmer evidence than reading a parallel reporter out of another citation's
+`extra`.
+"""
 
 import contextlib
 import io
