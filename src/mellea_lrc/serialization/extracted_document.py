@@ -66,6 +66,7 @@ def serialize_extracted_document(document: ExtractedDocument) -> dict[str, JsonV
                     **serialize_dataclass(citation.citation),
                 },
                 "resolves_to": citation.resolves_to,
+                "colocation_id": citation.colocation_id,
             }
             for citation in document.citations
         ],
@@ -141,6 +142,7 @@ def _deserialize_citation(value: object) -> ExtractedCitation:
         matched_text=_required_string(payload.get("matched_text"), name="citation.matched_text"),
         citation=citation_type(**citation_fields),
         resolves_to=_optional_string(payload.get("resolves_to"), name="citation.resolves_to"),
+        colocation_id=_optional_string(payload.get("colocation_id"), name="citation.colocation_id"),
     )
 
 

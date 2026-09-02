@@ -47,6 +47,7 @@ from mellea_lrc.core.citations import (
     UnknownCitation,
 )
 from mellea_lrc.core.spans import Span
+from mellea_lrc.extraction.colocation import assign_colocation
 from mellea_lrc.extraction.relaxation import Relaxation, tokenizer_for
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess
@@ -231,7 +232,7 @@ def _extract_from_text(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
-        citations=tuple(extracted),
+        citations=assign_colocation(extracted),
         extraction_metadata=ExtractionMetadata(relaxation=relaxation),
     )
 
