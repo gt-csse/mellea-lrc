@@ -67,21 +67,24 @@ number from the ones it cites:
 | | documents | occurrences |
 |---|---:|---:|
 | the bench records a docket citation | **4** of 26 | 11 |
-| cite another case's docket | **8** of 26 | 15 |
-| hold a docket number at all | **21** of 26 | 35 |
+| cite another case's docket | **5** of 26 | **12** |
+| hold a docket number at all | 21 of 26 | 47 |
 
-Three readings, and the middle one is the answer to "how many documents contain
-docket citations": **8 of 26**, about a third.
+The middle row is the answer to "how many documents contain docket citations":
+**5 of 26**.
 
-The gap between 4 and 8 is what the hunt did not find or the bench did not
-accept -- `2:25-cv-02623-SHL-atc` in 001, `No. 2:25-cv-00804` in 004,
-`2:25-cv-10681` in 014, `4:25-cv- 00175` in 022, that last one with a space
-inside the number.
+An earlier draft of this note said 8 of 26 and 15 occurrences, from a sweep
+that separated a filing's own docket from the ones it cites by looking for
+`Case No:` before the number. Three of those 15 are the filing's own caption,
+written in forms that test does not match -- `Civil Action No: 2:25-cv-02623`
+in 001, `Civil Action No. 2:25-cv-00804` in 004, `CaseNo. 2:25-cv-10681` in
+014. The sweep is a proxy with errors in both directions and is not ground
+truth; the extractor built for section 6 finds all 12 real ones and is.
 
-The gap between 8 and 21 is not a gap at all. It is the filing's own case
-number, in the caption and in every ECF page stamp. Document 020 carries twenty
-of them, all identical, all reading `Case 2:25-cv-01295-GMS Document 1 Filed
-04/18/25`. Nobody should count those as citations.
+The remaining gap between 5 and 21 is the filing's own case number, in the
+caption and in every ECF page stamp. Document 020 alone carries twenty of them,
+all identical, all reading `Case 2:25-cv-01295-GMS Document 1 Filed 04/18/25`,
+and the corpus carries 35 in total. Nobody should count those as citations.
 
 **Those stamps should not be in the text.** They are page furniture, and their
 being there is the failure `preprocess/repeated-furniture` addresses: Docling
@@ -120,7 +123,43 @@ authority in the tree, and cannot be masked as found. That is why the
 evaluation arms emit public occurrences directly rather than a serialized
 document.
 
-## 6. What to do about it, in order
+## 6. What was done about it
+
+Built on `extraction/docket-locator`, stacked on this branch.
+
+`src/mellea_lrc/extraction/dockets.py` registers a `TokenExtractor` that emits
+an ordinary `CitationToken` with a synthetic edition, so eyecite builds the
+citation itself and does the rest of its work unchanged -- case name in front,
+pin cite and year behind, resource grouping, `Id.` resolution. The docket is
+the locator, which is exactly the shape the rest of the pipeline already knows
+how to carry.
+
+A brand-new citation *class* turned out to be impossible without patching
+eyecite: `get_citations` dispatches on the exact token type, so a new `Token`
+subclass reaches `citation_tokens` and is then silently dropped. That is worth
+knowing before anyone tries it again.
+
+| | before | after |
+|---|---:|---:|
+| secondary citations attributed | 53 of 75 (70.7%) | **69 of 76 (90.8%)** |
+| unattributed | 17 | **2** |
+| bench docket records found | 0 of 11 | **11 of 11** |
+| docket citations read | 0 | 12, in 5 documents |
+| extracted from an ECF page stamp | — | **0 of 35** |
+| locator score, `full` arm | 583 / 0 / 3 | unchanged, artifact byte-identical |
+
+The two that remain unattributed are the two this note already accounted for:
+an `Id. ¶¶26-28` pointing at the opposing brief, and `383 U.S. at 85` quoted
+inside another case's citation, whose antecedent is in the quoted case and not
+in the filing. Against case-law authorities the tree is now complete.
+
+Proximity to a court proved insufficient as a rule, which section 4 of an
+earlier draft implied it might be: document 022 stamps its own number 40
+characters after another case's `(N.D. Cal. May 13, 2011)`. What works is
+requiring the court in a bracket *after* the number with no paragraph break
+between -- the same block-boundary rule the relaxation uses.
+
+## 7. What is still open
 
 1. **Make a docket a citation kind the core can hold.** Until then everything
    else is a workaround. It is a type-level change to `core.citations` and
@@ -136,7 +175,7 @@ document.
    the text holds 15; whether the other four are misses or correct rejections
    has not been read.
 
-## 7. What this says about the relaxation work
+## 8. What this says about the relaxation work
 
 Nothing, and that is the point worth recording. The unattributed count is
 identical at every relaxation level, the docket census does not vary with it,
