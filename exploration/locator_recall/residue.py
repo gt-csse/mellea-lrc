@@ -50,10 +50,25 @@ FUZZY_MIN_LETTERS = 4
 def main() -> int:
     """Mask what was found, hunt what is left, and report both hunters."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--bench", type=Path, default=Path("data/false-citation-bench-locator-only-v2.0"))
+    parser.add_argument(
+        "--documents",
+        type=Path,
+        help=(
+            "a directory of .txt filings. Ground truth is neither needed nor read: "
+            "what the hunters put in front of a model is a property of the text "
+            "alone. Defaults to the locator-only v2.0 corpus."
+        ),
+    )
     parser.add_argument("--threshold", type=float, default=0.67)
     parser.add_argument("--show", type=int, default=20)
     args = parser.parse_args()
+
+    documents = args.documents or Path("data/false-citation-bench-locator-only-v2.0/documents_txt")
+    paths = sorted(documents.glob("*.txt"))
+    if not paths:
+        print(f"{documents}: no .txt documents found")
+        return 1
+    print(f"{len(paths)} documents from {documents}\n")
 
     known = gazetteer()
     keys = list(known)
@@ -62,7 +77,7 @@ def main() -> int:
     shapes: Counter = Counter()
     candidates: list[tuple[str, str, str, str]] = []
 
-    for path in sorted((args.bench / "documents_txt").glob("*.txt")):
+    for path in paths:
         text = body(path)
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             document = extract_from_plain_text(text, relaxation=Relaxation.FULL)
