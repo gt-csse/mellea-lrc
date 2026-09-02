@@ -44,6 +44,7 @@ from mellea_lrc.core.citations import (
     FullLawCitation,
     IdCitation,
     ReferenceCitation,
+    Reporter,
     ShortCaseCitation,
     SupraCitation,
     UnknownCitation,
@@ -71,6 +72,27 @@ EYECITE_CITATION_TYPES = frozenset(
 )
 
 
+def _reporter(citation: CitationBase) -> Reporter | None:
+    """The reporter this citation names, with what reporters-db knows about it.
+
+    `corrected_reporter` and `edition_guess` are eyecite's, and this project
+    used to discard both and keep the raw spelling -- so two spellings of one
+    reporter compared as two reporters.
+    """
+    as_written = citation.groups.get("reporter")
+    if not as_written:
+        return None
+    edition = getattr(citation, "edition_guess", None)
+    reporter = getattr(edition, "reporter", None)
+    return Reporter(
+        as_written=as_written,
+        short_name=citation.corrected_reporter(),
+        name=getattr(reporter, "name", None),
+        cite_type=getattr(reporter, "cite_type", None),
+        is_scotus=bool(getattr(reporter, "is_scotus", False)),
+    )
+
+
 def _date(citation: CitationBase) -> CitationDate | None:
     """The decision date the citation states, or None when it states none.
 
@@ -93,7 +115,7 @@ def _to_full_case(citation: EyeciteFullCaseCitation) -> FullCaseCitation:
         plaintiff=citation.metadata.plaintiff,
         defendant=citation.metadata.defendant,
         volume=citation.groups.get("volume"),
-        reporter=citation.groups.get("reporter"),
+        reporter=_reporter(citation),
         page=citation.groups.get("page"),
         pin_cite=citation.metadata.pin_cite,
         extra=citation.metadata.extra,
@@ -106,7 +128,7 @@ def _to_full_case(citation: EyeciteFullCaseCitation) -> FullCaseCitation:
 def _to_full_law(citation: EyeciteFullLawCitation) -> FullLawCitation:
     return FullLawCitation(
         volume=citation.groups.get("title"),
-        reporter=citation.groups.get("reporter"),
+        reporter=_reporter(citation),
         page=citation.groups.get("section"),
         pin_cite=citation.metadata.pin_cite,
         date=_date(citation),
@@ -118,7 +140,7 @@ def _to_full_law(citation: EyeciteFullLawCitation) -> FullLawCitation:
 def _to_full_journal(citation: EyeciteFullJournalCitation) -> FullJournalCitation:
     return FullJournalCitation(
         volume=citation.groups.get("volume"),
-        reporter=citation.groups.get("reporter"),
+        reporter=_reporter(citation),
         page=citation.groups.get("page"),
         pin_cite=citation.metadata.pin_cite,
         date=_date(citation),
@@ -129,7 +151,7 @@ def _to_full_journal(citation: EyeciteFullJournalCitation) -> FullJournalCitatio
 def _to_short_case(citation: EyeciteShortCaseCitation) -> ShortCaseCitation:
     return ShortCaseCitation(
         volume=citation.groups.get("volume"),
-        reporter=citation.groups.get("reporter"),
+        reporter=_reporter(citation),
         page=citation.groups.get("page"),
         pin_cite=citation.metadata.pin_cite,
         court=citation.metadata.court,

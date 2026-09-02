@@ -13,6 +13,7 @@ from mellea_lrc.core.citations import (
     FullLawCitation,
     IdCitation,
     ReferenceCitation,
+    Reporter,
     ShortCaseCitation,
     SupraCitation,
     UnknownCitation,
@@ -130,9 +131,11 @@ def _deserialize_citation(value: object) -> ExtractedCitation:
     )
     citation_type = _CITATION_TYPES[kind]
     citation_fields = {key: value for key, value in citation_payload.items() if key != "citation_type"}
-    # `date` is the one nested value a citation carries, so it has to be rebuilt.
+    # Two fields hold objects rather than strings, so both have to be rebuilt.
     if isinstance(citation_fields.get("date"), Mapping):
         citation_fields["date"] = _deserialize_date(citation_fields["date"])
+    if isinstance(citation_fields.get("reporter"), Mapping):
+        citation_fields["reporter"] = _deserialize_reporter(citation_fields["reporter"])
     return ExtractedCitation(
         citation_id=_required_string(payload.get("citation_id"), name="citation.citation_id"),
         span=Span(
@@ -155,6 +158,17 @@ def _deserialize_date(payload: Mapping[str, object]) -> CitationDate:
         year=_required_string(payload.get("year"), name="citation.date.year"),
         month=_optional_string(payload.get("month"), name="citation.date.month"),
         day=_optional_string(payload.get("day"), name="citation.date.day"),
+    )
+
+
+def _deserialize_reporter(payload: Mapping[str, object]) -> Reporter:
+    is_scotus = payload.get("is_scotus")
+    return Reporter(
+        as_written=_required_string(payload.get("as_written"), name="citation.reporter.as_written"),
+        short_name=_optional_string(payload.get("short_name"), name="citation.reporter.short_name"),
+        name=_optional_string(payload.get("name"), name="citation.reporter.name"),
+        cite_type=_optional_string(payload.get("cite_type"), name="citation.reporter.cite_type"),
+        is_scotus=bool(is_scotus),
     )
 
 

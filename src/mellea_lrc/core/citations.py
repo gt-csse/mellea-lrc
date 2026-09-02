@@ -34,6 +34,46 @@ FULL_CITATION_KINDS = frozenset(
 
 
 @dataclass(frozen=True, slots=True)
+class Reporter:
+    """The reporter a citation names, as written and as the databases know it.
+
+    A filing writes one reporter several ways and extraction adds more. Across
+    the 26 documents of `false-citation-bench` there are **47 distinct reporter
+    spellings for 35 reporters**: `F.Supp.2d`, `F. Supp. 2d` and `F.  Supp.  2d`
+    are one thing, so are `N.C.App.` and `N.C. App.`, and so are `Fed. Appx.`,
+    `Fed. App'x` and `F. App'x` -- the last three being the filer's choice
+    rather than converter damage, which no amount of whitespace repair would
+    reconcile.
+
+    So the field is a reporter rather than a string. `as_written` is what the
+    document says, kept because this project records what was written; the rest
+    is what reporters-db knows about it, by way of the edition eyecite matched.
+
+    `cite_type` is worth having beyond tidiness: it says `federal`, `state`,
+    `journal` or `leg_statute`, which is a sourced answer to "is this a case at
+    all" in place of the reporter-name guessing done elsewhere.
+
+    `short_name` is None when no edition matched -- an unknown reporter is
+    recorded as written and not invented.
+    """
+
+    as_written: str
+    short_name: str | None = None
+    name: str | None = None
+    cite_type: str | None = None
+    is_scotus: bool = False
+
+    @property
+    def canonical(self) -> str:
+        """The spelling to compare on: the database's, or ours if it has none."""
+        return self.short_name or self.as_written
+
+    def __str__(self) -> str:
+        """The reporter as the document wrote it."""
+        return self.as_written
+
+
+@dataclass(frozen=True, slots=True)
 class CitationDate:
     """The decision date a citation states, to whatever precision it states it.
 
@@ -61,6 +101,12 @@ class CitationDate:
         """Whether this names a single day rather than a year."""
         return self.month is not None and self.day is not None
 
+    def __str__(self) -> str:
+        """The date roughly as a citation writes it."""
+        if self.is_exact:
+            return f"{self.month} {self.day}, {self.year}"
+        return self.year
+
 
 @dataclass(frozen=True, slots=True)
 class FullCaseCitation:
@@ -71,7 +117,7 @@ class FullCaseCitation:
     plaintiff: str | None = None
     defendant: str | None = None
     volume: str | None = None
-    reporter: str | None = None
+    reporter: Reporter | None = None
     page: str | None = None
     pin_cite: str | None = None
     extra: str | None = None
@@ -87,7 +133,7 @@ class FullLawCitation:
     kind: ClassVar[CitationKind] = CitationKind.FULL_LAW
 
     volume: str | None = None
-    reporter: str | None = None
+    reporter: Reporter | None = None
     page: str | None = None
     pin_cite: str | None = None
     date: CitationDate | None = None
@@ -102,7 +148,7 @@ class FullJournalCitation:
     kind: ClassVar[CitationKind] = CitationKind.FULL_JOURNAL
 
     volume: str | None = None
-    reporter: str | None = None
+    reporter: Reporter | None = None
     page: str | None = None
     pin_cite: str | None = None
     date: CitationDate | None = None
@@ -116,7 +162,7 @@ class ShortCaseCitation:
     kind: ClassVar[CitationKind] = CitationKind.SHORT_CASE
 
     volume: str | None = None
-    reporter: str | None = None
+    reporter: Reporter | None = None
     page: str | None = None
     pin_cite: str | None = None
     court: str | None = None

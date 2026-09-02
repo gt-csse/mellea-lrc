@@ -59,14 +59,14 @@ def test_extract_from_plain_text_returns_canonical_types() -> None:
     full_case = next(item for item in result.citations if isinstance(item.citation, FullCaseCitation))
     assert full_case.citation.defendant == "Shelby County"
     assert full_case.citation.volume == "118"
-    assert full_case.citation.reporter == "U.S."
+    assert full_case.citation.reporter.as_written == "U.S."
     assert SAMPLE_TEXT[full_case.locator_span.start : full_case.locator_span.end] == "118 U.S. 425"
     assert full_case.span.start < full_case.locator_span.start
     assert full_case.resolves_to is None
 
     full_law = next(item for item in result.citations if isinstance(item.citation, FullLawCitation))
     assert full_law.citation.volume == "28"
-    assert full_law.citation.reporter == "U.S.C."
+    assert full_law.citation.reporter.as_written == "U.S.C."
 
 
 def test_extracted_document_rejects_duplicate_citation_ids() -> None:
@@ -124,5 +124,5 @@ def test_extract_recovers_citation_broken_by_repeated_whitespace() -> None:
     citation = result.citations[0]
     assert isinstance(citation.citation, FullCaseCitation)
     assert citation.citation.volume == "284"
-    assert citation.citation.reporter == "S.W.3d"
+    assert citation.citation.reporter.as_written == "S.W.3d"
     assert text[citation.locator_span.start : citation.locator_span.end] == "284  S.W.3d  303"
