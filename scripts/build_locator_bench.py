@@ -430,15 +430,20 @@ def main() -> int:
     for record in anchored:
         if record.get("anchor_note") and record.get("source") == "manual":
             # The defect this record exists for is in the published rendering,
-            # not in this one: Docling 2.105.0 wrote `455 US. 363` and 2.115.0
-            # writes `455 U.S. 363`. Keeping only the original note would say
-            # no tokenizer reaches it, which is no longer true of this text.
+            # not in the filing. Document 013 is scanned -- its PDF text layer
+            # holds only the 70 ECF stamp lines and no body text at all -- so
+            # both spellings are OCR output. Docling 2.105.0 read `455 US. 363`
+            # and dropped a period; 2.115.0 reads `455 U.S. 363`, which is what
+            # Havens Realty Corp. v. Coleman is actually cited as. The inherited
+            # note called this a reporter the filing wrote without its period,
+            # and that is not what happened.
             record["published_text"] = "455 US. 363"
             record["note"] = (
-                "written `455 US. 363` in the published v1 rendering -- a reporter missing "
-                "the period after US, outside the gazetteer, which no tokenizer reached. "
-                "Docling 2.115.0 renders it `455 U.S. 363`, so on this text it parses "
-                "normally. The record is the same citation; the converter changed under it."
+                "document 013 is scanned and has no body text layer, so every rendering of "
+                "this citation is OCR. Docling 2.105.0 read `455 US. 363`, dropping the "
+                "period after US and putting the reporter outside the gazetteer, which no "
+                "tokenizer could reach; 2.115.0 reads `455 U.S. 363`, which is correct for "
+                "Havens Realty Corp. v. Coleman. The defect was the OCR, not the filing."
             )
 
     anchored.sort(key=lambda r: (r["document"], r["span"]["start"]))
