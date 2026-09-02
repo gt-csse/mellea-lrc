@@ -51,6 +51,7 @@ from mellea_lrc.core.citations import (
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.colocation import assign_colocation
 from mellea_lrc.extraction.pin_cites import relaxed_pin_cites
+from mellea_lrc.extraction.post_citation import reread_post_citation
 from mellea_lrc.extraction.relaxation import Relaxation, tokenizer_for
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess
@@ -256,11 +257,14 @@ def _extract_from_text(
             )
         )
 
+    # Order matters. Co-location is decided from the spans eyecite produced, and
+    # the re-read then uses that answer to know how far each citation may look
+    # for its court and date -- so grouping has to happen first.
     return ExtractedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
-        citations=assign_colocation(extracted),
+        citations=reread_post_citation(text, assign_colocation(extracted)),
         extraction_metadata=ExtractionMetadata(relaxation=relaxation),
     )
 
