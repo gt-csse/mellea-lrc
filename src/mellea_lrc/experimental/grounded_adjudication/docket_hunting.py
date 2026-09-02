@@ -17,7 +17,17 @@ service, and folding it in here would mean discarding one of them.
 Court strings are recognised from ``courts-db``, the same database
 CourtListener uses, rather than a hand-written pattern. That yields the court's
 identifier and full name, which downstream can use as a cue instead of guessing
-what a given abbreviation means.
+what a given abbreviation means. The index lives in
+:mod:`mellea_lrc.extraction.dockets`, which reads dockets deterministically;
+this module and that one must agree about what a court is, or a site the
+extractor declined would be offered to a model with a different set of
+candidates.
+
+The two do not share a docket *shape*, and deliberately. This one insists on
+the `No.` that introduces a docket number, because a site here costs a model
+call and a filing's own number appears in every ECF page stamp. The extractor
+can afford the looser shape because it decides for itself, from the court
+written alongside, whether what it found is a citation.
 """
 
 from __future__ import annotations
@@ -26,8 +36,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import ahocorasick
-from courts_db import courts
+from mellea_lrc.extraction.dockets import CourtCandidate, courts_near
 
 if TYPE_CHECKING:
     from mellea_lrc.extraction.types import ExtractedDocument
@@ -42,21 +51,7 @@ _DOCKET = re.compile(
     re.I,
 )
 
-_COURT_SEARCH_BEFORE = 90
-_COURT_SEARCH_AFTER = 140
 _CONTEXT = 170
-_MIN_COURT_STRING = 4
-
-
-@dataclass(frozen=True, slots=True)
-class CourtCandidate:
-    """One court string found near a docket number, resolved against courts-db."""
-
-    span_start: int
-    span_end: int
-    text: str
-    court_id: str
-    court_name: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,70 +65,6 @@ class SuspectedDocket:
     window: str
 
 
-def _normalize(value: str) -> str:
-    """Compare court strings ignoring case and trailing punctuation.
-
-    courts-db is not internally consistent about the final period -- the Eastern
-    District of New York is stored as ``E.D.N.Y`` while the Southern District is
-    ``S.D.N.Y.`` -- so an exact match would silently miss whole courts.
-    """
-    return value.casefold().rstrip(". ")
-
-
-def _build_court_index() -> tuple[ahocorasick.Automaton, dict[str, tuple[str, str]]]:
-    """Index every court citation string courts-db knows."""
-    lookup: dict[str, tuple[str, str]] = {}
-    for court in courts:
-        citation_string = court.get("citation_string")
-        if not citation_string or len(citation_string) < _MIN_COURT_STRING:
-            continue
-        lookup.setdefault(_normalize(citation_string), (court["id"], court["name"]))
-    automaton = ahocorasick.Automaton()
-    for normalized in lookup:
-        automaton.add_word(normalized, normalized)
-    automaton.make_automaton()
-    return automaton, lookup
-
-
-_COURT_AUTOMATON, _COURT_LOOKUP = _build_court_index()
-
-
-def _courts_near(text: str, start: int, end: int) -> tuple[CourtCandidate, ...]:
-    """Return court strings written close enough to identify this docket."""
-    left = max(0, start - _COURT_SEARCH_BEFORE)
-    region = text[left : end + _COURT_SEARCH_AFTER]
-    normalized = region.casefold()
-    found: dict[tuple[int, int], CourtCandidate] = {}
-    for finish, matched in _COURT_AUTOMATON.iter(normalized):
-        begin = finish - len(matched) + 1
-        before = normalized[begin - 1] if begin else " "
-        after = normalized[finish + 1] if finish + 1 < len(normalized) else " "
-        if before.isalnum() or after.isalnum():
-            continue
-        court_id, court_name = _COURT_LOOKUP[matched]
-        found[(left + begin, left + finish + 1)] = CourtCandidate(
-            span_start=left + begin,
-            span_end=left + finish + 1,
-            text=text[left + begin : left + finish + 1],
-            court_id=court_id,
-            court_name=court_name,
-        )
-    # Court abbreviations nest: "N.C" sits inside "D.N.C" inside "M.D.N.C", and
-    # each is a real courts-db entry. Only the longest reading is the court
-    # actually written, so drop any candidate contained in another.
-    maximal = [
-        candidate
-        for candidate in found.values()
-        if not any(
-            other.span_start <= candidate.span_start
-            and candidate.span_end <= other.span_end
-            and (other.span_end - other.span_start) > (candidate.span_end - candidate.span_start)
-            for other in found.values()
-        )
-    ]
-    return tuple(sorted(maximal, key=lambda candidate: candidate.span_start))
-
-
 def suspected_dockets(document: ExtractedDocument) -> tuple[SuspectedDocket, ...]:
     """Report every docket-shaped string, with the courts written near it."""
     text = document.text
@@ -145,7 +76,7 @@ def suspected_dockets(document: ExtractedDocument) -> tuple[SuspectedDocket, ...
                 span_start=start,
                 span_end=end,
                 docket_text=match.group(0),
-                courts=_courts_near(text, start, end),
+                courts=courts_near(text, start, end),
                 window=text[max(0, start - _CONTEXT) : end + _CONTEXT],
             )
         )

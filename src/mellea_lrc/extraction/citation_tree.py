@@ -33,30 +33,34 @@ look alike in a count mean opposite things:
   than a case: it is a statute or a journal article, it is a span eyecite could
   not parse as a citation at all, or it is an `id.` that resolved to one of
   those. There is no case authority for these to belong to, and grouping them
-  under one would be wrong. On false-citation-bench this is 252 of 894, and
+  under one would be wrong. On false-citation-bench this is 252 of 917, and
   every one is correct behaviour.
 - **unattributed** -- no such evidence. Either a case citation that could not
   be traced to the full citation introducing it, or a reference that needed an
   antecedent and reached none, so its kind is unknown. This is the number that
-  measures the tree, and on the same corpus it is 20.
+  measures the tree, and on the same corpus it is 2.
 
 Only positive evidence sends a citation out of scope, which is the same rule
 the rest of the project applies to absence: not knowing what something refers
 to is not evidence that it refers to a statute.
 
-Read individually, the 20 are:
+Read individually, the 2 are:
 
 - one `ShortCaseCitation`, and it is real -- `Rosenblatt v. Baer, 383 U.S. at
   85`, quoted inside another case's parenthetical and never given in full
   anywhere in the document. There is no antecedent, so declining is right.
-- nineteen `Id.`, of which seventeen carry a paragraph pin cite (`Id. ¶ 33`).
-  Those are almost certainly references into a pleading's own numbered
-  allegations rather than to a case. That evidence is deliberately not acted
-  on: several state courts number opinion paragraphs in the public-domain
-  citation format, so a paragraph pin cite does not by itself establish that a
-  reference is not to a case.
+- one `Id. ¶¶26-28`, pointing into the opposing party's motions rather than
+  into any case. There is no authority for it because it is not citing one.
 
-Reporting all of this as one figure would read as a 30% failure rate for what
+An authority may be introduced by a docket number as well as by a reporter
+locator, and that is what the second figure measures. Without it the same
+corpus strands 17 rather than 2, fifteen of them one chain of `Id. ¶ N` in a
+declaration, every one pointing at a paragraph of an indictment cited as
+`No. 1:25-cr-00312-RPK (E.D.N.Y.)`. An earlier reading of this file guessed
+those were references into the filing's own numbered allegations. They were
+not; they were an authority the extractor had no type for.
+
+Reporting all of this as one figure would read as a 28% failure rate for what
 is, in case citations, one.
 """
 
@@ -65,7 +69,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from mellea_lrc.core.citations import CitationKind, FullCaseCitation, ShortCaseCitation
+from mellea_lrc.core.citations import (
+    CitationKind,
+    DocketCitation,
+    FullCaseCitation,
+    ShortCaseCitation,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -78,6 +87,15 @@ MAX_RESOLUTION_DEPTH = 24
 # Citations that carry no identity of their own and mean whatever they point at.
 # One of these that resolves to nothing is a resolution failure, not a statute.
 _REFERRING_KINDS = frozenset({CitationKind.ID, CitationKind.SUPRA, CitationKind.REFERENCE})
+
+# What can stand at the head of a chain of references. A docket citation is
+# here for the same reason a full case citation is: it names one case, once,
+# and every later `Id.` is another claim about that same document.
+_AUTHORITY_KINDS = (FullCaseCitation, DocketCitation)
+
+# Citations that name a case, whether or not they name it completely. These are
+# never out of scope: what a short form or a docket points at is a case.
+_CASE_KINDS = (FullCaseCitation, ShortCaseCitation, DocketCitation)
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,7 +183,7 @@ def build_citation_tree(document: ExtractedDocument) -> CitationTree:
     for item in document.citations:
         root_id, depth = _resolve_root(item, by_id)
         root = by_id.get(root_id) if root_id else None
-        if root is not None and isinstance(root.citation, FullCaseCitation):
+        if root is not None and isinstance(root.citation, _AUTHORITY_KINDS):
             roots.setdefault(root_id or "", []).append(
                 CitationOccurrence(citation=item, depth=depth, pin_cite=_pin_cite(item))
             )
@@ -199,14 +217,14 @@ def _is_out_of_scope(item: ExtractedCitation, root: ExtractedCitation | None) ->
     `unattributed` where it will be counted. Calling it out of scope would
     assert that it did not name a case, which is precisely what is unknown.
     """
-    if isinstance(item.citation, FullCaseCitation | ShortCaseCitation):
+    if isinstance(item.citation, _CASE_KINDS):
         return False
     if not _needs_an_antecedent(item):
         return True
     reached_something_else = root is not None and root.citation_id != item.citation_id
     if not reached_something_else:
         return False
-    return not isinstance(root.citation, FullCaseCitation | ShortCaseCitation)
+    return not isinstance(root.citation, _CASE_KINDS)
 
 
 def _needs_an_antecedent(item: ExtractedCitation) -> bool:

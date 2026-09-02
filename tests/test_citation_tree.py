@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from mellea_lrc.core.citations import (
+    DocketCitation,
     FullCaseCitation,
     FullLawCitation,
     IdCitation,
@@ -206,3 +207,45 @@ def test_a_short_form_with_no_antecedent_is_a_real_failure() -> None:
 
     assert [c.citation_id for c in tree.unattributed] == ["c9"]
     assert tree.out_of_scope == ()
+
+
+def _docket(citation_id: str, start: int, resolves_to: str | None = None) -> ExtractedCitation:
+    return ExtractedCitation(
+        citation_id=citation_id,
+        span=Span(start, start + 21),
+        locator_span=Span(start, start + 21),
+        matched_text="No. 1:25-cr-00312-RPK",
+        citation=DocketCitation(defendant="Chen Zhi", docket_number="1:25-cr-00312-RPK", court="nyed"),
+        resolves_to=resolves_to,
+    )
+
+
+def test_a_docket_can_stand_at_the_head_of_a_chain() -> None:
+    """A case cited by docket is an authority, not a citation of some other kind.
+
+    Some cases are cited by docket and by nothing else -- too recent or too
+    minor for a reporter -- and that is the population where a fabricated
+    citation is hardest to catch. If the tree cannot root on one, every return
+    visit to it is stranded and every claim those visits make goes unchecked.
+    """
+    document = _document(_docket("d1", 0), _id("c2", "34", "d1", 200))
+
+    tree = build_citation_tree(document)
+
+    (authority,) = tree.authorities
+    assert authority.authority_id == "d1"
+    assert authority.pin_cites == ("at 34",)
+    assert tree.unattributed == ()
+
+
+def test_a_docket_is_never_out_of_scope() -> None:
+    """What a docket number names is a case, so there is nothing to send out of scope.
+
+    `out_of_scope` is for positive evidence that a citation names something
+    other than a case -- a statute, a journal article. A docket is the opposite
+    of that evidence.
+    """
+    tree = build_citation_tree(_document(_docket("d1", 0)))
+
+    assert tree.out_of_scope == ()
+    assert [a.authority_id for a in tree.authorities] == ["d1"]
