@@ -4,6 +4,7 @@ import json
 
 from mellea_lrc.core.citations import (
     CitationDate,
+    Reporter,
     FullCaseCitation,
     FullJournalCitation,
     FullLawCitation,
@@ -92,7 +93,7 @@ def _document_with_one_citation() -> ExtractedDocument:
                     plaintiff="Brown",
                     defendant="Board of Education",
                     volume="347",
-                    reporter="U.S.",
+                    reporter=Reporter(as_written="U.S.", short_name="U.S.", is_scotus=True),
                     page="483",
                     date=CitationDate(year="1954"),
                     court="scotus",
@@ -120,10 +121,18 @@ def test_extracted_document_round_trip_preserves_recoverable_fields() -> None:
 def test_extracted_document_round_trip_supports_every_canonical_citation_type() -> None:
     """Keep each canonical citation shape recoverable from an extracted artifact."""
     citations = (
-        FullCaseCitation(plaintiff="A", defendant="B", volume="1", reporter="U.S.", page="2"),
-        FullLawCitation(volume="1", reporter="U.S.C.", page="2"),
+        FullCaseCitation(
+            plaintiff="A",
+            defendant="B",
+            volume="1",
+            reporter=Reporter(as_written="U.S.", short_name="U.S.", is_scotus=True),
+            page="2",
+        ),
+        FullLawCitation(volume="1", reporter=Reporter(as_written="U.S.C.", short_name="U.S.C."), page="2"),
         FullJournalCitation(volume="1", reporter="Harv. L. Rev.", page="2"),
-        ShortCaseCitation(volume="1", reporter="U.S.", page="2"),
+        ShortCaseCitation(
+            volume="1", reporter=Reporter(as_written="U.S.", short_name="U.S.", is_scotus=True), page="2"
+        ),
         SupraCitation(pin_cite="2"),
         IdCitation(pin_cite="2"),
         ReferenceCitation(plaintiff="A", defendant="B"),
@@ -170,7 +179,7 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
                     plaintiff="Brown",
                     defendant="Board of Education",
                     volume="347",
-                    reporter="U.S.",
+                    reporter=Reporter(as_written="U.S.", short_name="U.S.", is_scotus=True),
                     page="483",
                     date=CitationDate(year="1954"),
                     court="scotus",

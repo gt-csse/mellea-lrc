@@ -233,7 +233,7 @@ def test_reporter_groups_are_not_left_with_absorbed_whitespace(relaxation: Relax
     r"""Relaxed separators let alternation branches ending in \s* keep a space."""
     text = "United States v. Rucker , 188 Fed. Appx. 772, 778 (10th Cir. 2006)"
     reporters = {
-        c.citation.reporter
+        c.citation.reporter.as_written
         for c in _extract(text, relaxation).citations
         if isinstance(c.citation, FullCaseCitation)
     }
