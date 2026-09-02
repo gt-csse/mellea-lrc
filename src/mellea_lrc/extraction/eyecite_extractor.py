@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from typing import cast
 
@@ -48,6 +49,7 @@ from mellea_lrc.core.citations import (
 )
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.colocation import assign_colocation
+from mellea_lrc.extraction.pin_cites import relaxed_pin_cites
 from mellea_lrc.extraction.relaxation import Relaxation, tokenizer_for
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess
@@ -205,7 +207,15 @@ def _extract_from_text(
     entirely a property of ``relaxation``, and of nothing else.
     """
     text = preprocessed.text
-    eyecite_citations = get_citations(text, tokenizer=tokenizer_for(relaxation))
+    # A relaxed level reads pin cites tolerantly as well as reporter joins: the
+    # same literal single space breaks both, and losing a pin cite loses the
+    # page a filing argues from. NONE is left strict so it stays eyecite exactly
+    # as published, which is what the evaluation baseline means by the name.
+    # See :mod:`mellea_lrc.extraction.pin_cites`.
+    with contextlib.ExitStack() as stack:
+        if relaxation is not Relaxation.NONE:
+            stack.enter_context(relaxed_pin_cites())
+        eyecite_citations = get_citations(text, tokenizer=tokenizer_for(relaxation))
     resolutions = cast(
         dict[Resource, list[CitationBase]],
         resolve_citations(eyecite_citations),
