@@ -78,3 +78,29 @@ def test_a_reported_span_indexes_the_original_document() -> None:
     site = next(s for s in suspected_locators(document) if s.reporter == "WL")
     assert document.text[site.span_start : site.span_end] == site.reporter
     assert "WL1448829" in site.window
+
+
+def test_hunting_declines_a_section_rather_than_offering_it_as_a_page() -> None:
+    """A section sign between the reporter and the number means it is not a page.
+
+    `100 U.S. § 45` has the volume-and-page shape a cheap filter looks for, and
+    a site sent to a judge as a suspected case locator is a statute offered up
+    for a case-law verdict. On false-citation-bench this drops 16 of 65 sites,
+    every one of them a statute eyecite had failed to parse and so had not
+    masked.
+    """
+    document = _unrelaxed("The report cites 100 U.S. § 45 in passing.")
+
+    assert suspected_locators(document) == ()
+
+
+def test_the_section_sign_is_read_before_masking_can_erase_it() -> None:
+    """eyecite emits a token for a bare `§`, and masking blanks whatever it emits.
+
+    Read from the masked copy, the one character that says "section, not page"
+    is gone by the time the filter looks for it.
+    """
+    document = _unrelaxed("The report cites 100 U.S. § 45 in passing.")
+
+    assert "§" not in mask_full_spans(document)
+    assert "§" in document.text

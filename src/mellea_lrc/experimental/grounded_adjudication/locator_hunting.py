@@ -28,6 +28,12 @@ _MIN_GAZETTEER_LENGTH = 2
 _DIGIT_WINDOW = 12
 _CONTEXT = 170
 _DIGIT = re.compile(r"\d")
+# A section sign between the reporter and the number means the number is a
+# statute section, not a page: `28 U.S.C. § 1927` has the volume-and-page shape
+# and is not a case. The mark is never skipped over as punctuation -- it is the
+# evidence that this site is out of scope, and a site sent to a judge as a
+# suspected case locator is a statute offered up for a case-law verdict.
+_SECTION = re.compile(r"§")
 _MAX_NESTED_LOOKBACK = 6
 
 
@@ -88,8 +94,16 @@ def suspected_locators(document: ExtractedDocument) -> tuple[SuspectedLocator, .
         if before.isalnum() or after.isalpha():
             continue
         has_volume = _DIGIT.search(masked[max(0, start - _DIGIT_WINDOW) : start])
-        has_page = _DIGIT.search(masked[end : end + _DIGIT_WINDOW])
+        ahead = masked[end : end + _DIGIT_WINDOW]
+        has_page = _DIGIT.search(ahead)
         if not (has_volume and has_page):
+            continue
+        # The section sign is read from the original text, not the masked copy.
+        # eyecite emits a token of its own for a bare `§`, so masking blanks the
+        # one character that says this number is a section rather than a page --
+        # and the site would then be offered to a judge as a case locator.
+        written = document.text[end : end + _DIGIT_WINDOW]
+        if _SECTION.search(written[: has_page.start()]):
             continue
         sites.append(
             SuspectedLocator(

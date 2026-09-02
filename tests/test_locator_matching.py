@@ -258,3 +258,22 @@ def test_rendered_examples_carry_every_pair() -> None:
     for example in LOCATOR_EXAMPLES:
         assert example.locator in rendered
     assert rendered.count("Locator:") == len(LOCATOR_EXAMPLES)
+
+
+def test_a_section_sign_is_a_token_of_its_own() -> None:
+    """`§ 1983` and `1983` must not tokenize alike.
+
+    The section sign changes what the number after it names: a statute section
+    rather than a page or a year. Folding it away lets a quotation that dropped
+    it score as a match.
+    """
+    from mellea_lrc.experimental.llm_only_extraction.matching import _WORD
+
+    assert [m.group() for m in _WORD.finditer("42 U.S.C. § 1983")] == [
+        "42",
+        "U",
+        "S",
+        "C",
+        "§",
+        "1983",
+    ]
