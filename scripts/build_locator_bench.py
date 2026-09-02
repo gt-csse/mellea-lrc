@@ -157,17 +157,27 @@ INTERRUPTED = [
     },
 ]
 
-# Locators whose reporter and page are on the page but whose volume is not in
-# front of them. In a table of authorities the table reader can emit the
-# columns out of order, and a Westlaw citation's volume is its year, so the row
-# reads `WL 9137645, at 3 (C.D. Cal. July 25, 2016)` -- the year present, in the
-# date parenthetical, and nowhere eyecite can use it.
+# Locators the text states with their parts in the wrong places. All three sit
+# in a table of authorities, and reading the PDFs with `pdftotext` shows they do
+# not have a single cause:
 #
-# These are extraction misses, not absences. The filing states the citation;
-# the converter delivered its parts in the wrong order.
+#   021, 022   the filing is correct and Docling breaks it. `pdftotext` reads
+#              `796 F. Supp. 2d 1013, 1023 (D. Ariz. 2011)` and
+#              `2016 WL 9137645, at 3 (C.D. Cal. July 25, 2016)`, each on its own
+#              line under its case name. Docling decides the region is a table
+#              and reassembles the cells out of order.
+#   025        the filing itself is wrong. Its table of authorities reads
+#              `Watson v. New York, WL 6200979 (S.D.N.Y. Sept. 2023)` in the PDF
+#              text layer, with no year in front of the reporter. The argument
+#              states the same case correctly as `2023 WL 6200979`, and that
+#              occurrence is in the bench separately.
+#
+# Either way the citation is identifiable from what is written, so an extractor
+# that does not find it has missed it. But only the first two are a table-
+# handling problem, and no improvement to table handling will fix the third.
 # `exploration/notes/arm-disagreements-23aug.md` on the explorations branch
-# reaches the same conclusion about the first of these and records that the gold
-# keeps it. The published bench does not carry either.
+# reaches the same conclusion about 021 and 022 and records that the gold keeps
+# them. The published bench carries none of the three.
 #
 # `anchor` is the fragment that is written where the citation belongs, and the
 # span covers it, because that is where an extractor finding this would report
@@ -182,7 +192,10 @@ STRANDED_VOLUME = [
         "page": "9137645",
         "anchor": r"\bWL\s+9137645\b",
         "requires": ["2016"],
-        "note": "table of authorities: the year sits in the date parenthetical, not before WL",
+        "note": (
+            "the filing reads `2016 WL 9137645, at 3 (C.D. Cal. July 25, 2016)`; Docling "
+            "reassembles the table row and leaves the year behind the reporter"
+        ),
     },
     {
         "document_prefix": "025",
@@ -191,7 +204,11 @@ STRANDED_VOLUME = [
         "page": "6200979",
         "anchor": r"\bWL\s+6200979\b",
         "requires": ["2023"],
-        "note": "table of authorities: the year sits in the date parenthetical, not before WL",
+        "note": (
+            "the filing itself omits the year here, writing `Watson v. New York, WL 6200979 "
+            "(S.D.N.Y. Sept. 2023)` in its own text layer. Not a converter artefact; the "
+            "argument states the same case correctly and that occurrence is recorded separately"
+        ),
     },
     # The same defect, one column further along: here the page arrives first and
     # the volume and reporter follow on the next row, so the text reads
@@ -207,8 +224,9 @@ STRANDED_VOLUME = [
         "anchor": r"1013,\s*1023\s*\(D\.\s*Ariz\.\s*2011\)",
         "requires": ["796 F. Supp. 2d"],
         "note": (
-            "table of authorities: the page comes first and the volume and reporter "
-            "follow on the next row"
+            "the filing reads `796 F. Supp. 2d 1013, 1023 (D. Ariz. 2011)` under its case "
+            "name; Docling reassembles the table row so the page comes first and the volume "
+            "and reporter follow on the next row"
         ),
     },
 ]
