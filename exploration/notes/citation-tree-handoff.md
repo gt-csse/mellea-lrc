@@ -286,6 +286,33 @@ Reassignment needs none of that. The prose mentioning "Advanced Textile" is
 *context for the model to read*, not a citation to be extracted. The candidate
 set comes from citations the document undeniably makes.
 
+### A bare `Id.` inherits its pin cite, so it is checkable too
+
+A bare `Id.` means the same authority *and the same page* as the citation
+before it, so it carries a pin cite even though it does not write one. That
+removes what looked like a hole: 34 of 34 short forms carry their own pin cite
+and 23 of 33 `Id.` do, and the remaining 10 are not unverifiable after all.
+Inheriting takes the checkable population on this corpus from 36 to 47.
+
+It flags nothing extra here, and the reason bounds what it can ever do.
+
+**Where it works.** A bare `Id.` following a wrong attribution inherits that
+attribution's pin cite, so the same arithmetic rejects it too. A chain running
+off a bad head is flagged along its whole length, and repairing the head
+repairs the tail — which is the argument for treating an authority's
+occurrences as one list rather than as independent claims.
+
+**Where it cannot.** A bare `Id.` that should have switched authority — the
+prose moves to a different case and gives no page — inherits the *previous*
+case's page, which passes trivially against the previous case. Arithmetic has
+nothing to catch there. That case needs the context read, or nothing; it is not
+a gap the detector can close by being cleverer.
+
+So the trigger is: an occurrence whose pin cite, its own or inherited, falls
+outside its authority's page range. Everything else proceeds unchecked, and the
+honest statement is that association errors invisible to that test are invisible
+full stop.
+
 Three properties worth stating before anyone builds it:
 
 - **It is invoked on failure, so the cost is bounded.** One call per rejected
