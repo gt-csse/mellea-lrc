@@ -62,11 +62,15 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from mellea_lrc.core.citations import CitationKind, FullCaseCitation
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.citation_tree import build_citation_tree
 from mellea_lrc.extraction.types import ExtractedCitation
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 BODY_MARKER = "--- Plain text ---\n"
 
@@ -105,14 +109,6 @@ _PIN_INSIDE = {
     CitationKind.SUPRA: re.compile(r"\bat\b|[*\u00b6]|\d"),
     CitationKind.REFERENCE: re.compile(r"\bat\b|[*\u00b6]|\d"),
 }
-
-# A reporter standing immediately after the supposed pin cite means the number
-# read was a volume, not a page: `390 U.S. 727, 88 S.Ct. 1323` is one case in
-# two reporters, and reading `88` as a pin cite invents a claim about page 88.
-_REPORTER_AHEAD = re.compile(r"[^\S\r\n]*[A-Z][A-Za-z.'\u2019]*[^\S\r\n]*\d*[a-z.]*[^\S\r\n]+\d")
-
-# The last page in a list, so it can be dropped when a reporter follows it.
-_LAST_PAGE = re.compile(rf"(?:[^\S\r\n]*,)?[^\S\r\n]*{_RANGE}\Z")
 
 
 @dataclass(frozen=True)
@@ -183,7 +179,11 @@ def document_number(path: Path) -> str:
     return path.stem.split("__", 1)[0]
 
 
-def pin_cite_written(text: str, citation: ExtractedCitation) -> tuple[str, int, int] | None:
+def pin_cite_written(
+    text: str,
+    citation: ExtractedCitation,
+    limit: int,
+) -> tuple[str, int, int] | None:
     """The pin cite this occurrence states, verbatim, with its span.
 
     Read from the text rather than from the parse. Two reasons, both learned the
@@ -191,6 +191,14 @@ def pin_cite_written(text: str, citation: ExtractedCitation) -> tuple[str, int, 
     attribution, so a label taken from its output cannot see its own mistakes;
     and our canonical `ReferenceCitation` carries no pin cite at all, so
     `Rafiyev at 861` would lose its page.
+
+    ``limit`` is where the next citation begins, and reading stops there. That
+    boundary is what keeps a parallel citation from being read as a page: a
+    filing giving one case in two reporters writes `390 U.S. 727, 88 S.Ct.
+    1323`, and to a regex over raw text the `88` is a second pin cite. It is not
+    ambiguous to the extractor, which has already tokenized `88 S.Ct. 1323` as a
+    citation of its own -- so the boundary is taken from there rather than
+    guessed at from the characters ahead.
 
     A short form writes the page inside the identifier (`556 U.S. at 678`), so
     the scan starts at that `at`. Everything else states it afterwards.
@@ -202,30 +210,32 @@ def pin_cite_written(text: str, citation: ExtractedCitation) -> tuple[str, int, 
         inside = pattern.search(locator)
         if inside:
             start = citation.locator_span.start + inside.start()
-    match = PIN_FROM_TEXT.match(text, start)
+    if limit <= start:
+        return None
+    match = PIN_FROM_TEXT.match(text, start, limit)
     if not match:
         return None
-    return _without_parallel_volumes(text, match.start("pin"), match.end("pin"))
-
-
-def _without_parallel_volumes(text: str, start: int, end: int) -> tuple[str, int, int] | None:
-    """Drop trailing numbers that turn out to be the volume of a parallel citation.
-
-    A filing giving one case in two reporters writes `390 U.S. 727, 731, 88
-    S.Ct. 1323`. Read left to right the `88` is indistinguishable from a second
-    pin cite until the reporter after it is seen, so each trailing page is
-    dropped while a reporter stands directly behind it. `13 How. 363, 14 L.Ed.
-    181` loses its whole pin cite this way, which is right: it never had one.
-    """
-    while end > start and _REPORTER_AHEAD.match(text, end):
-        trailing = _LAST_PAGE.search(text, start, end)
-        if trailing is None or trailing.start() <= start:
-            return None
-        end = trailing.start()
-    pin = text[start:end]
+    pin = match.group("pin")
     if not pin.strip():
         return None
-    return pin, start, end
+    return pin, match.start("pin"), match.end("pin")
+
+
+def pin_cite_limits(citations: Sequence[ExtractedCitation], length: int) -> dict[str, int]:
+    """Where each citation's pin cite must stop: the start of the next citation.
+
+    Keyed by citation id. Citations are sorted by where their text begins, and
+    each one's limit is the earliest start after it -- `min` rather than the
+    next element, because eyecite nests spans (a parallel citation opens inside
+    the full span of the one before it).
+    """
+    ordered = sorted(citations, key=lambda item: item.locator_span.start)
+    limits: dict[str, int] = {}
+    boundary = length
+    for item in reversed(ordered):
+        limits[item.citation_id] = boundary
+        boundary = min(boundary, item.locator_span.start)
+    return limits
 
 
 def locator_of(citation: ExtractedCitation) -> tuple[str, str, str] | None:
@@ -272,6 +282,7 @@ def build_document(
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         document = extract_from_plain_text(text, relaxation=Relaxation.FULL)
     tree = build_citation_tree(document)
+    limits = pin_cite_limits(document.citations, len(text))
     notes: list[str] = []
 
     authorities: dict[str, dict] = {}
@@ -318,7 +329,7 @@ def build_document(
         reason: str | None = None,
         note: str | None = None,
     ) -> None:
-        pin = pin_cite_written(text, citation)
+        pin = pin_cite_written(text, citation, limits[citation.citation_id])
         occurrences.append(
             {
                 "occurrence_id": f"{number}:{citation.locator_span.start}-{citation.locator_span.end}",
@@ -468,7 +479,14 @@ def build_document(
                 "found_by_extraction": False,
                 **{k: record[k] for k in ("region", "in_table", "note") if k in record},
             }
-        pin = PIN_FROM_TEXT.match(text, key[1])
+        # This locator is not one of the extracted citations, so it has no
+        # entry in `limits`; its boundary is the nearest citation starting after
+        # it, or the end of the text.
+        boundary = min(
+            (item.locator_span.start for item in document.citations if item.locator_span.start >= key[1]),
+            default=len(text),
+        )
+        pin = PIN_FROM_TEXT.match(text, key[1], boundary)
         occurrences.append(
             {
                 "occurrence_id": f"{number}:{key[0]}-{key[1]}",
