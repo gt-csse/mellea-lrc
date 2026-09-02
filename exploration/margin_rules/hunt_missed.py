@@ -65,7 +65,9 @@ def main() -> None:
             window = " ".join(text[start : site.span_end + WINDOW].split())
             interesting.append((path.stem[:22], site.reporter, window))
 
-    print(f"sites hunted: {total_sites} across {len(list((BENCH / 'documents_txt').glob('*.txt')))} documents")
+    print(
+        f"sites hunted: {total_sites} across {len(list((BENCH / 'documents_txt').glob('*.txt')))} documents"
+    )
     print(f"reporters flagged: {dict(reporters.most_common(12))}")
     print(f"\nsites not inside any ground-truth span: {len(interesting)}\n")
 
