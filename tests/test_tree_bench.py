@@ -13,14 +13,15 @@ import io
 
 from mellea_lrc.core.citations import CitationKind
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
-from scripts.build_tree_bench import pin_cite_written
+from scripts.build_tree_bench import pin_cite_limits, pin_cite_written
 
 
 def _pin(text: str, kind: CitationKind = CitationKind.FULL_CASE) -> str | None:
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         document = extract_from_plain_text(text, relaxation=Relaxation.FULL)
     citation = next(item for item in document.citations if item.citation.kind is kind)
-    written = pin_cite_written(text, citation)
+    limits = pin_cite_limits(document.citations, len(text))
+    written = pin_cite_written(text, citation, limits[citation.citation_id])
     return None if written is None else written[0]
 
 
