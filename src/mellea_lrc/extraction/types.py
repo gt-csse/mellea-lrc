@@ -41,6 +41,16 @@ class ExtractedCitation:
     matched_text: str
     citation: CanonicalCitation
     resolves_to: str | None = None
+    colocation_id: str | None = None
+    """Shared by citations occupying the same place in the text.
+
+    A filing citing an authority in parallel writes several identifiers for one
+    citation, and eyecite extracts each separately. Citations carrying the same
+    `colocation_id` are candidates for being one authority -- **candidates, not
+    a finding**: whether they name the same case is settled by resolving them,
+    not by where they sit. `None` means the citation stands alone, which is the
+    common case. See :mod:`mellea_lrc.extraction.colocation`.
+    """
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
