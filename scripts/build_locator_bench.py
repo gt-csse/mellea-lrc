@@ -349,6 +349,14 @@ def stranded_records(text_dir: Path, already: list[dict]) -> tuple[list[dict], l
                 "reporter": entry["reporter"],
                 "page": entry["page"],
                 "source": "stranded_parts",
+                "region": "table_of_authorities",
+                # Every one of these is inside a table, and nothing else in the
+                # bench is. Whether a table of authorities should be scored at
+                # all is a separate question -- it lists cases rather than
+                # arguing from them, and excluding it would be defensible --
+                # and this field is what lets that be decided later without
+                # rebuilding anything. Until then they are scored like the rest.
+                "in_table": True,
                 "note": entry["note"],
             }
         )
