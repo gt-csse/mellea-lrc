@@ -168,6 +168,90 @@ bench. Until it is, "the tree detects relaxation corruption" is a hypothesis.
 Reproducing any of this needs both branches in one tree; they compose without
 modification, and the combined test suites pass together.
 
+## 5a. Every attribution, read by hand
+
+All 70 attributed secondary citations on `locator-only-v2.0` were read against
+the authority the tree gave them. **Sixty-eight are right.** Two are not, and
+they are different failures.
+
+**A misattribution, document 022.** The filing reads:
+
+```
+The cited case, Doe v. Commonwealth's Attorney, 403 F. Supp. 1199
+(E.D. Va. 1975), is inapposite ... Moreover, Advanced Textile itself
+granted anonymity for civil labor claims ... Id. at 1072-73.
+```
+
+The claim is about Advanced Textile, `214 F.3d 1058`; it lands on
+`403 F. Supp. 1199`. Page 1072 is 127 *below* that case's first page and sits
+inside Advanced Textile, whose other pin cites in this filing are 1068 and
+1071-72.
+
+**The cause is a missing reference, not a broken `Id.`** Between the two, the
+prose names "Advanced Textile" — a party-name reference to `214 F.3d 1058` —
+and eyecite extracts nothing there. Had that reference been produced it would
+have been the nearest preceding citation and the chain would have been right.
+`Id.` resolution is positional, so it silently absorbs the miss.
+
+That miss looks systematic rather than incidental. The document names Advanced
+Textile **eleven times**; the whole corpus holds **two** `ReferenceCitation`s,
+neither in this document. The captured defendant is "Advanced Textile **Corp.**"
+and the prose writes "Advanced Textile", which is the likely reason the
+reference matcher never fires.
+
+**A spurious reference, document 016.** `Chen Zhi 32` is a section heading
+followed by a numbered paragraph — `D. The Arrest and Extradition of Chen Zhi`
+then `32.` — read as a reference to the case's own defendant. It attaches to
+the right authority, so it costs nothing here, but it is not a citation.
+
+The 15 docket-rooted `Id.` chains were checked in document order rather than by
+authority, because that is where an error would hide. The Indictment at 13237
+owns the eleven that follow it, the Forfeiture Complaint at 16999 takes the
+next seven, and the switch happens exactly where the second docket is
+introduced.
+
+### The detector, and what it cost to get right
+
+`exploration/locator_recall/check_pin_range.py` finds this arithmetically: a
+pin cite below the authority's first page cannot be a page of it. 36
+occurrences carry a comparable pin cite and exactly one fails.
+
+Two things had to be right, and both were wrong on the first attempt:
+
+- **It must not run on Westlaw or LEXIS.** Their page is a document number and
+  their pin cite is a star page; `2024 WL 1076736, at *6` is not page 6 of
+  anything. Before that test it flagged 36 sound citations.
+- **It must read the pin cite from the text, not from the parse.** On this very
+  case eyecite records `pin_cite=None`, having discarded `at 1072 -73` while
+  still making the attribution. A check on the parser's own output cannot see
+  the parser's own mistake.
+
+### Backward re-checking, proposed and not built
+
+The detector says an attribution is impossible. It does not say what the right
+answer is, and the tree currently has no way to ask.
+
+**When an `Id.` attribution fails a check like this, re-read the context and
+look for the antecedent that fits.** Here the answer is present and cheap: a
+case is named by party in the intervening prose, another authority in the same
+filing has a page range that contains 1072, and both point at `214 F.3d 1058`.
+A backward pass over the preceding text — party names, and authorities whose
+page range admits the pin cite — would recover it.
+
+This is worth doing carefully rather than soon. Rewriting an attribution on a
+heuristic risks turning one wrong answer into a different wrong answer, and the
+failure is rare: one in seventy here. What makes it worth building anyway is
+that the *mechanism* is ordinary — a brief discussing two cases in succession
+and returning to the first by name is normal legal writing — so the rate on
+this corpus is probably not the rate everywhere. Measure it on a larger corpus
+before deciding how hard to try.
+
+The safe intermediate is to report rather than repair: mark the occurrence as
+suspect, leave it attributed where it is, and let a consumer decline to make a
+pinpoint claim on it. A wrong page sent to verification returns a confident
+verdict about the wrong case, which is the failure this project exists to
+prevent.
+
 ## 6. What to build
 
 1. **Wire the tree into extraction**, so a `ValidatedDocument` carries
@@ -178,6 +262,13 @@ modification, and the combined test suites pass together.
 3. **Measure what that adds.** How many additional checkable claims does a real
    filing contain once short forms are counted? On the corpus, how many of them
    fail? That number has not been measured and is a finding either way.
+4. **Extract party-name references properly.** Section 5a: eleven mentions of
+   "Advanced Textile" in one filing produce no `ReferenceCitation`, and the
+   corpus holds two in total. That gap is what makes `Id.` fall through, so it
+   is upstream of the misattribution and probably of others not yet found.
+5. **Then consider backward re-checking**, on the terms in section 5a: report
+   the suspect attribution first, repair it only once the rate is known on a
+   corpus larger than this one.
 
 ## 7. What conflicts with main, and what does not
 
