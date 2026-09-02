@@ -252,6 +252,52 @@ pinpoint claim on it. A wrong page sent to verification returns a confident
 verdict about the wrong case, which is the failure this project exists to
 prevent.
 
+### Reassignment over a closed set
+
+A design for the repair, and it is better than the heuristic pass above.
+
+**Attach every occurrence to the first primary.** An authority is introduced
+once, by the first full citation that names it; everything after — a repeated
+full citation, a short form, an `id.`, a party reference — is an occurrence
+hanging off that one. The tree already has this shape: `Authority.root` *is*
+the first primary and `Authority.occurrences` *is* the list. Nothing new has to
+be built to hold it.
+
+**Then a failed attribution becomes a choice, not a search.** When the pin-cite
+range check rejects an `Id.`, the question put to a model is not "what does this
+refer to" but "which of these authorities does this refer to", over the
+first primaries the document has already established. It reads the context and
+picks one, or declines.
+
+That is the contract `adjudicate_docket` already uses: courts written near a
+docket are resolved against courts-db and offered as a closed set, so the model
+picks or declines and cannot invent a court. The same shape applies here, and
+it inherits the same property — **the model never decides what is in the
+document, only which of the things already in it a reference points at.**
+
+**And it avoids the trap the other route walks into.** Recovering the document
+022 case by extracting name references would mean treating `Advanced Textile` in
+running prose as a citation. It carries no pin cite; eyecite is right not to
+make one. Sometimes a name is just a name — a party discussed, a company in the
+facts, a person — and a rule that turns prose names into citations buys this one
+attribution at the cost of a false-positive class with no natural bound.
+
+Reassignment needs none of that. The prose mentioning "Advanced Textile" is
+*context for the model to read*, not a citation to be extracted. The candidate
+set comes from citations the document undeniably makes.
+
+Three properties worth stating before anyone builds it:
+
+- **It is invoked on failure, so the cost is bounded.** One call per rejected
+  attribution, and the corpus has one.
+- **It is checkable.** The answer must be one of the offered first primaries,
+  and the pin cite must fall within that authority's page range — the same
+  arithmetic that raised the flag can confirm the repair.
+- **Declining must be a real option.** An `Id.` whose antecedent is out of
+  scope — the opposing brief, the filing's own complaint — has no right answer
+  in the candidate set, and the model must be able to say so rather than pick
+  the nearest case.
+
 ## 6. What to build
 
 1. **Wire the tree into extraction**, so a `ValidatedDocument` carries
@@ -266,9 +312,11 @@ prevent.
    "Advanced Textile" in one filing produce no `ReferenceCitation`, and the
    corpus holds two in total. That gap is what makes `Id.` fall through, so it
    is upstream of the misattribution and probably of others not yet found.
-5. **Then consider backward re-checking**, on the terms in section 5a: report
-   the suspect attribution first, repair it only once the rate is known on a
-   corpus larger than this one.
+5. **Then backward re-checking as reassignment over a closed set**, on the
+   terms in section 5a. Report the suspect attribution first; repair it by
+   asking a model to choose among the first primaries the document already
+   establishes, with declining allowed. That needs no name references to be
+   invented, which is what makes it safe.
 
 ## 7. What conflicts with main, and what does not
 
