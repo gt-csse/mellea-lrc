@@ -3,6 +3,7 @@
 import json
 
 from mellea_lrc.core.citations import (
+    CitationDate,
     FullCaseCitation,
     FullJournalCitation,
     FullLawCitation,
@@ -93,7 +94,7 @@ def _document_with_one_citation() -> ExtractedDocument:
                     volume="347",
                     reporter="U.S.",
                     page="483",
-                    year="1954",
+                    date=CitationDate(year="1954"),
                     court="scotus",
                 ),
             ),
@@ -171,7 +172,7 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
                     volume="347",
                     reporter="U.S.",
                     page="483",
-                    year="1954",
+                    date=CitationDate(year="1954"),
                     court="scotus",
                 ),
             ),

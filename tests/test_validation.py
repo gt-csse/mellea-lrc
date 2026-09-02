@@ -7,7 +7,7 @@ import pytest
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import BaseModel
 
-from mellea_lrc.core.citations import FullCaseCitation, FullLawCitation
+from mellea_lrc.core.citations import CitationDate, FullCaseCitation, FullLawCitation
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import (
     CourtListenerCitationLookup,
@@ -223,7 +223,7 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
             volume="347",
             reporter="U.S.",
             page="483",
-            year="1954",
+            date=CitationDate(year="1954"),
             court="scotus",
         )
     )
@@ -303,7 +303,7 @@ def test_found_field_checks_treat_unavailable_year_as_a_full_match() -> None:
             volume="347",
             reporter="U.S.",
             page="483",
-            year=None,
+            date=None,
             court="scotus",
         )
     )
@@ -355,7 +355,7 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
             volume="347",
             reporter="U.S.",
             page="483",
-            year="1954",
+            date=CitationDate(year="1954"),
             court="ca10",
         )
     )
@@ -775,7 +775,7 @@ def test_search_candidate_uses_semantic_check_without_reextracting(
             volume="347",
             reporter="U.S.",
             page="9999",
-            year="1954",
+            date=CitationDate(year="1954"),
             court="scotus",
         )
     )
@@ -875,7 +875,7 @@ def test_opinion_search_candidate_assessment_requires_every_field_to_match() -> 
             volume="347",
             reporter="U.S.",
             page="9999",
-            year="1954",
+            date=CitationDate(year="1954"),
             court="scotus",
         )
     )
@@ -925,7 +925,7 @@ def test_recap_search_candidate_assessment_does_not_treat_docket_year_as_a_misma
             volume="347",
             reporter="U.S.",
             page="9999",
-            year="1954",
+            date=CitationDate(year="1954"),
             court="scotus",
         )
     )

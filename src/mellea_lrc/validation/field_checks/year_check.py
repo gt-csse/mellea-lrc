@@ -18,7 +18,9 @@ def run_year_check(
 ) -> YearCheckNode:
     """Compare extracted and retrieved decision years for one found locator."""
     citation = validation.citation.citation
-    extracted = citation.year if isinstance(citation, FullCaseCitation) else None
+    date = citation.date if isinstance(citation, FullCaseCitation) else None
+    # The check compares years; a citation stating a full date states its year too.
+    extracted = date.year if date else None
     retrieved = candidate.year
     if extracted is None or retrieved is None:
         status = ValidationNodeStatus.SKIPPED

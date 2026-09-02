@@ -34,6 +34,35 @@ FULL_CITATION_KINDS = frozenset(
 
 
 @dataclass(frozen=True, slots=True)
+class CitationDate:
+    """The decision date a citation states, to whatever precision it states it.
+
+    A filing writes `(2007)` for a reported case and `(D. Ariz. Oct. 31, 2024)`
+    for an unpublished one, and the difference carries information: 58 of the
+    583 case citations on `false-citation-bench` give a full date, and they are
+    disproportionately the Westlaw and LEXIS citations, which are exactly the
+    ones a year alone cannot tell apart.
+
+    So the field is a date rather than a year. `year` is always present -- a
+    date without one identifies nothing -- and `month` and `day` come together
+    or not at all, which is what the corpus shows: no citation there states a
+    month without a day.
+
+    Values are kept as the citation wrote them. Comparing them to a retrieved
+    opinion is a separate step that has to be testable on its own.
+    """
+
+    year: str
+    month: str | None = None
+    day: str | None = None
+
+    @property
+    def is_exact(self) -> bool:
+        """Whether this names a single day rather than a year."""
+        return self.month is not None and self.day is not None
+
+
+@dataclass(frozen=True, slots=True)
 class FullCaseCitation:
     """Complete citation to a reported case."""
 
@@ -46,7 +75,7 @@ class FullCaseCitation:
     page: str | None = None
     pin_cite: str | None = None
     extra: str | None = None
-    year: str | None = None
+    date: CitationDate | None = None
     court: str | None = None
     parenthetical: str | None = None
 
@@ -61,7 +90,7 @@ class FullLawCitation:
     reporter: str | None = None
     page: str | None = None
     pin_cite: str | None = None
-    year: str | None = None
+    date: CitationDate | None = None
     publisher: str | None = None
     parenthetical: str | None = None
 
@@ -76,7 +105,7 @@ class FullJournalCitation:
     reporter: str | None = None
     page: str | None = None
     pin_cite: str | None = None
-    year: str | None = None
+    date: CitationDate | None = None
     parenthetical: str | None = None
 
 

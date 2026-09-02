@@ -38,6 +38,7 @@ from eyecite.models import (
 
 from mellea_lrc.core.citations import (
     CanonicalCitation,
+    CitationDate,
     FullCaseCitation,
     FullJournalCitation,
     FullLawCitation,
@@ -69,6 +70,23 @@ EYECITE_CITATION_TYPES = frozenset(
 )
 
 
+def _date(citation: CitationBase) -> CitationDate | None:
+    """The decision date the citation states, or None when it states none.
+
+    eyecite parses the month and day of a full date and this project used to
+    drop both, keeping only the year.
+    """
+    metadata = citation.metadata
+    year = getattr(metadata, "year", None)
+    if not year:
+        return None
+    return CitationDate(
+        year=str(year),
+        month=getattr(metadata, "month", None),
+        day=getattr(metadata, "day", None),
+    )
+
+
 def _to_full_case(citation: EyeciteFullCaseCitation) -> FullCaseCitation:
     return FullCaseCitation(
         plaintiff=citation.metadata.plaintiff,
@@ -78,7 +96,7 @@ def _to_full_case(citation: EyeciteFullCaseCitation) -> FullCaseCitation:
         page=citation.groups.get("page"),
         pin_cite=citation.metadata.pin_cite,
         extra=citation.metadata.extra,
-        year=citation.metadata.year,
+        date=_date(citation),
         court=citation.metadata.court,
         parenthetical=citation.metadata.parenthetical,
     )
@@ -90,7 +108,7 @@ def _to_full_law(citation: EyeciteFullLawCitation) -> FullLawCitation:
         reporter=citation.groups.get("reporter"),
         page=citation.groups.get("section"),
         pin_cite=citation.metadata.pin_cite,
-        year=citation.metadata.year,
+        date=_date(citation),
         publisher=citation.metadata.publisher,
         parenthetical=citation.metadata.parenthetical,
     )
@@ -102,7 +120,7 @@ def _to_full_journal(citation: EyeciteFullJournalCitation) -> FullJournalCitatio
         reporter=citation.groups.get("reporter"),
         page=citation.groups.get("page"),
         pin_cite=citation.metadata.pin_cite,
-        year=citation.metadata.year,
+        date=_date(citation),
         parenthetical=citation.metadata.parenthetical,
     )
 
