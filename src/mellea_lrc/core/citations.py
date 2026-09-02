@@ -15,6 +15,7 @@ class CitationKind(str, Enum):
     FULL_CASE = "FullCaseCitation"
     FULL_LAW = "FullLawCitation"
     FULL_JOURNAL = "FullJournalCitation"
+    DOCKET = "DocketCitation"
     SHORT_CASE = "ShortCaseCitation"
     SUPRA = "SupraCitation"
     ID = "IdCitation"
@@ -22,13 +23,18 @@ class CitationKind(str, Enum):
     UNKNOWN = "UnknownCitation"
 
 
-# Full citations are self-contained enough for validation against case search;
-# short citations generally need an antecedent before they can be validated.
+# Full citations identify what they cite on their own; short citations
+# generally need an antecedent before they can be validated. A docket citation
+# belongs here on that test -- a docket number and its court name a case with
+# no help from the text around them -- even though the reporter-keyed case
+# search cannot look one up, which is a fact about that service and not about
+# the citation.
 FULL_CITATION_KINDS = frozenset(
     {
         CitationKind.FULL_CASE,
         CitationKind.FULL_LAW,
         CitationKind.FULL_JOURNAL,
+        CitationKind.DOCKET,
     }
 )
 
@@ -156,6 +162,37 @@ class FullJournalCitation:
 
 
 @dataclass(frozen=True, slots=True)
+class DocketCitation:
+    """A case identified by its docket number rather than by a reporter page.
+
+    The court is not decoration here, it is half of the identifier: the same
+    docket number exists in every district, and only the pair names a case. So
+    both are on the citation, and a docket read without a court is not read at
+    all.
+
+    ``docket_number`` is kept as the filing wrote it, damage included --
+    ``1:25cv-05745-RPK`` is a real citation in false-citation-bench, missing the
+    hyphen its converter dropped. Normalizing it here would hide from a reader
+    what the document actually says, which is the one thing a verification tool
+    must not do.
+    """
+
+    kind: ClassVar[CitationKind] = CitationKind.DOCKET
+
+    plaintiff: str | None = None
+    defendant: str | None = None
+    docket_number: str | None = None
+    court: str | None = None
+    """The courts-db identifier, e.g. ``nyed``."""
+    court_name: str | None = None
+    court_text: str | None = None
+    """The court exactly as the filing wrote it, e.g. ``E.D.N.Y.``."""
+    pin_cite: str | None = None
+    date: CitationDate | None = None
+    parenthetical: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ShortCaseCitation:
     """Subsequent reference using volume + reporter + pin cite."""
 
@@ -210,6 +247,7 @@ CanonicalCitation: TypeAlias = (
     FullCaseCitation
     | FullLawCitation
     | FullJournalCitation
+    | DocketCitation
     | ShortCaseCitation
     | SupraCitation
     | IdCitation

@@ -3,6 +3,7 @@
 from mellea_lrc.core.citations import (
     CanonicalCitation,
     CitationKind,
+    DocketCitation,
     FullCaseCitation,
     FullJournalCitation,
     FullLawCitation,
@@ -20,6 +21,7 @@ from mellea_lrc.core.spans import Span
 __all__ = [
     "CanonicalCitation",
     "CitationKind",
+    "DocketCitation",
     "DocumentBase",
     "FullCaseCitation",
     "FullJournalCitation",
