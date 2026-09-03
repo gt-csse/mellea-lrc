@@ -207,7 +207,13 @@ def _to_unknown(_citation: EyeciteUnknownCitation) -> UnknownCitation:
     return UnknownCitation()
 
 
-def _to_canonical(citation: CitationBase) -> CanonicalCitation:
+def to_canonical(citation: CitationBase) -> CanonicalCitation:
+    """Convert one eyecite citation into this project's canonical representation.
+
+    Public because the adjudication layer re-reads a confirmed candidate through
+    eyecite and needs this same conversion rather than a second one that would
+    drift from it.
+    """
     # Tested before the case branch, not instead of it: a docket citation *is*
     # an eyecite full case citation, and only the group written by the docket
     # extractor tells the two apart.
@@ -284,9 +290,7 @@ def _extract_from_text(
     with contextlib.ExitStack() as stack:
         if relaxation is not Relaxation.NONE:
             stack.enter_context(relaxed_pin_cites())
-        eyecite_citations = get_citations(
-            text, tokenizer=with_dockets(tokenizer_for(relaxation))
-        )
+        eyecite_citations = get_citations(text, tokenizer=with_dockets(tokenizer_for(relaxation)))
     resolutions = cast(
         dict[Resource, list[CitationBase]],
         resolve_citations(eyecite_citations),
@@ -304,7 +308,7 @@ def _extract_from_text(
                 span=Span(start=span_start, end=span_end),
                 locator_span=Span(start=locator_start, end=locator_end),
                 matched_text=eyecite_citation.matched_text(),
-                citation=_to_canonical(eyecite_citation),
+                citation=to_canonical(eyecite_citation),
                 resolves_to=antecedent_map.get(citation_id),
             )
         )

@@ -41,7 +41,7 @@ from collections import Counter
 from pathlib import Path
 
 from exploration.locator_recall.fuzzy_sites import SITE, body, gazetteer, letters_only, shape
-from mellea_lrc.experimental import mask_full_spans, suspected_locators
+from mellea_lrc.adjudication import mask_full_spans, suspected_locators
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 
 FUZZY_MIN_LETTERS = 4

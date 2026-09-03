@@ -19,7 +19,7 @@ from eyecite import get_citations
 from eyecite.models import CitationBase
 
 from evaluations.extraction.occurrences import Occurrence, deduplicate
-from mellea_lrc.experimental.grounded_adjudication import (
+from mellea_lrc.adjudication import (
     adjudicate_docket,
     adjudicate_locator,
     suspected_dockets,

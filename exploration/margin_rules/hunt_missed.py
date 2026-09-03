@@ -23,7 +23,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
-from mellea_lrc.experimental import suspected_locators
+from mellea_lrc.adjudication import suspected_locators
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 
 BENCH = Path("data/false-citation-bench-locator-only-v2.0")
