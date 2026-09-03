@@ -147,6 +147,7 @@ def _measure(text: str, document: ExtractedDocument) -> dict[str, int]:
             "date taken from another case",
             "with a court",
             "court written, not recorded",
+            "reporter with no edition",
         ),
         0,
     )
@@ -161,6 +162,10 @@ def _measure(text: str, document: ExtractedDocument) -> dict[str, int]:
         counts["with a pin cite"] += bool(citation.pin_cite)
         counts["with a date"] += bool(citation.date)
         counts["with a court"] += bool(citation.court)
+        # No edition means no canonical name, cite type or scotus flag, and it
+        # is silent: eyecite leaves `edition_guess` unset when the year filter
+        # empties a list of candidates rather than falling back to it.
+        counts["reporter with no edition"] += bool(citation.reporter and citation.reporter.short_name is None)
 
         extra = (citation.extra or "").strip()
         if extra and not PARALLEL.search(extra) and PIN_SHAPED.match(extra):
@@ -242,6 +247,7 @@ def main() -> int:
             "date taken from another case",
             "with a court",
             "court written, not recorded",
+            "reporter with no edition",
         ]
         header = f"{'arm':<38}" + "".join(f"{c[:13]:>15}" for c in columns)
         print(header)
