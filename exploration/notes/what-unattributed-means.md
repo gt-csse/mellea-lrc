@@ -107,3 +107,50 @@ cases.
 without annotating them.** If the association rate is going to be claimed
 anywhere, a sample of that corpus has to be read the way §5a of the citation-tree
 handoff read the bench -- occurrence by occurrence, against the text.
+
+## Bounds, since a point estimate is not available
+
+The rate is
+
+    occurrences the tree got wrong or could not attribute
+    -----------------------------------------------------
+    occurrences that refer to a case authority
+
+On the mined corpus both parts are uncertain, but both are bounded. What is
+counted:
+
+    attributed occurrences                        2,486   (426 of them secondary)
+    unattributed                                    252
+      of those, carrying record evidence             98   (`¶ 34`, `at 23:5-10`)
+
+**Lower bound.** Every unattributed occurrence is out of scope, and
+misattribution among the attributed runs at the bench's rate of 1 in 61:
+
+    7 / 2,486  =  0.3%
+
+**Upper bound.** Every unattributed occurrence is in scope and is a failure:
+
+    259 / 2,738  =  9.5%
+
+**Narrowed upper bound.** A paragraph or page-and-line pin cite is positive
+evidence of a record reference, so those 98 come out of the denominator:
+
+    161 / 2,640  =  6.1%
+
+So **0.3% to 6.1%**, and the honest reading is that the band is too wide to
+support a claim in either direction. Two things widen it:
+
+- 154 unattributed occurrences whose scope nobody has decided.
+- The misattribution term rests on **one** observation. 1 of 61 has a 95% upper
+  bound near 8.8%, which alone would push the top of the range to 7.2%.
+
+## What would collapse the band
+
+Reading the 154, not the 2,738. Deciding in-scope or out-of-scope for each is a
+sentence-level judgement -- does this `Id.` point at a case or at the record --
+and it removes almost all the width, leaving only the misattribution term.
+Constraining that needs a sample of attributed returns read the same way; a
+hundred would bring it from one observation to an interval worth quoting.
+
+That is the whole annotation cost of turning a 20-fold band into a number, and
+it is why the bound is worth stating rather than the proxy.
