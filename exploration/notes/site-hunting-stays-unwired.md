@@ -52,10 +52,14 @@ Downstream of detection, and still inside extraction rather than validation:
 | occurrences that could not be attributed | 2.7% | **9.3%** |
 | case citations with an incomplete name | 18.5% | 17.3% |
 
-Attribution is the larger of the two and three times worse than the bench
-suggested, 210 of its 251 failures being bare `Id.` That is the citation tree's
-problem, not the validator's: validation can check a claim once it knows which
-authority the claim is about.
+Attribution looks three times worse than on the bench, but most of it is not an
+attribution failure: 153 of the 251 have no case citation within reach at all,
+because the `Id.` refers to a transcript, a pleading, a court order or a
+secondary source. Separating those leaves 2.6%, which is the bench's rate. See
+[what-unattributed-means.md](what-unattributed-means.md).
+
+Both remaining problems are the extraction layer's rather than the validator's:
+validation can check a claim once it knows which authority the claim is about.
 
 One qualification on "detection is solved". It was not free -- the docket
 extractor added this session is a detection change, and it is what lets document
