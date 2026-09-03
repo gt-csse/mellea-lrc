@@ -14,8 +14,8 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from mellea_lrc.adjudication.review.locator import adjudicate_locator
-from mellea_lrc.adjudication.candidates.reporter_sites import SuspectedLocator
+from mellea_lrc.extraction.adjudication.review.locator import adjudicate_locator
+from mellea_lrc.extraction.adjudication.candidates.reporter_sites import SuspectedLocator
 
 # (label, window text, reporter flagged by the hunter, expected triple or None)
 CASES: list[tuple[str, str, str, tuple[str, str, str] | None]] = [

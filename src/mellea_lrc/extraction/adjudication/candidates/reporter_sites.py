@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 import ahocorasick
 from eyecite.tokenizers import EXTRACTORS
 
-from mellea_lrc.adjudication.masking import mask_full_spans
+from mellea_lrc.extraction.adjudication.masking import mask_full_spans
 
 if TYPE_CHECKING:
     from mellea_lrc.extraction.types import ExtractedDocument

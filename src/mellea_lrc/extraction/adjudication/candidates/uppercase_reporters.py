@@ -24,8 +24,8 @@ import re
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
-from mellea_lrc.adjudication.types import Candidate, CandidateKind
 from mellea_lrc.core.spans import Span
+from mellea_lrc.extraction.adjudication.types import Candidate, CandidateKind
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

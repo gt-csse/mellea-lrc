@@ -50,7 +50,7 @@ if TYPE_CHECKING:
     from mellea import MelleaSession
     from mellea.core.base import Context
 
-    from mellea_lrc.adjudication.candidates.reporter_sites import SuspectedLocator
+    from mellea_lrc.extraction.adjudication.candidates.reporter_sites import SuspectedLocator
 
 MAX_TOKENS = 320
 MAX_REPAIR_TURNS = 2

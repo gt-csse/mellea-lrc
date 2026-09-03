@@ -19,13 +19,13 @@ from eyecite import get_citations
 from eyecite.models import CitationBase
 
 from evaluations.extraction.occurrences import Occurrence, deduplicate
-from mellea_lrc.adjudication import (
+from mellea_lrc.extraction import Relaxation, extract_from_plain_text
+from mellea_lrc.extraction.adjudication import (
     adjudicate_docket,
     adjudicate_locator,
     suspected_dockets,
     suspected_locators,
 )
-from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.types import ExtractedDocument
 
 Arm = Callable[[str, str], list[Occurrence]]

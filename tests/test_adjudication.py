@@ -11,9 +11,9 @@ from __future__ import annotations
 import contextlib
 import io
 
-from mellea_lrc.adjudication import promote
-from mellea_lrc.adjudication.candidates import orphan_short_forms, uppercase_reporters
-from mellea_lrc.adjudication.types import CandidateKind
+from mellea_lrc.extraction.adjudication import promote
+from mellea_lrc.extraction.adjudication.candidates import orphan_short_forms, uppercase_reporters
+from mellea_lrc.extraction.adjudication.types import CandidateKind
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 

@@ -1,6 +1,6 @@
 """Tests for offset-preserving masking and masked-text site hunting."""
 
-from mellea_lrc.adjudication import (
+from mellea_lrc.extraction.adjudication import (
     mask_full_spans,
     mask_locator_spans,
     suspected_locators,

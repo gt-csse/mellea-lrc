@@ -39,8 +39,8 @@ import re
 from collections import Counter
 from pathlib import Path
 
-from mellea_lrc.adjudication import suspected_locators
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
+from mellea_lrc.extraction.adjudication import suspected_locators
 
 BODY_MARKER = "--- Plain text ---\n"
 

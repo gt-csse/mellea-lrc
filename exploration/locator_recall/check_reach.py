@@ -20,8 +20,8 @@ from pathlib import Path
 
 from exploration.locator_recall.fuzzy_sites import SITE, body, gazetteer, letters_only
 from exploration.locator_recall.residue import FUZZY_MIN_LETTERS
-from mellea_lrc.adjudication import mask_full_spans, suspected_locators
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
+from mellea_lrc.extraction.adjudication import mask_full_spans, suspected_locators
 
 
 def overlaps(a: tuple[int, int], b: tuple[int, int]) -> bool:
