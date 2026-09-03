@@ -208,21 +208,30 @@ model reading context.
       17   of those state a pin cite of their own
       10   state nothing to check with
 
-**The 22 need a lookup, not an association.** `DCD Programs, 833 F.2d at 186`
-gives a volume, a reporter and a page; that is enough to resolve against
-CourtListener without knowing anything about the rest of the document. And in
-every one checked, the full citation is simply **not in the filing** -- document
-69197386_173 writes `DCD Programs, 833 F.2d at 18687`, `at 187` and `at 186`,
-three short forms, and never introduces the case. So the resolver did not fail;
-there was no antecedent to find.
+**The 22 cannot be looked up, and the field name is why it looks as if they
+can.** A short form carries a volume, a reporter and a `page` -- but that `page`
+is the **pin cite**, not the first page a lookup needs::
 
-That is worth flagging on its own terms. A short form for a case the filing
-never introduced is a shape a false-citation tool should notice, not a defect in
-attribution.
+    DCD Programs, Inc. v. Leighton, 833 F.2d 183, 186   page='183'  pin_cite='186'
+    DCD Programs, 833 F.2d at 186                       page='186'  pin_cite='186'
 
-It does mean one assumption in `core.citations` has to be revisited: "short
-citations generally need an antecedent before they can be validated" is not true
-of a short form carrying its own locator, and 22 of the 49 are that.
+Same field, different meaning. CourtListener resolves a citation by volume,
+reporter and *first* page, so `833 F.2d 186` either finds nothing or -- if some
+other case happens to begin on that page of that volume -- returns a confident
+answer about the wrong case. `FULL_CITATION_KINDS` already excludes short
+citations from validation, and that guard is what prevents this. It should stay.
+
+What identifies these is the party name plus the volume and reporter --
+`DCD Programs`, `833 F.2d`, page somewhere at or before 186 -- which is a search,
+or a reader, and not a lookup.
+
+The rest of the finding stands: in every one checked the full citation is simply
+**not in the filing**. Document 69197386_173 writes `DCD Programs, 833 F.2d at
+18687`, `at 187` and `at 186`, three short forms, and never introduces the case.
+The resolver did not fail; there was no antecedent to find. A short form for a
+case a filing never introduced is a shape a false-citation tool should notice,
+and it is one a reader settles from the party name -- which is the field this
+project already knows to be unreliable 17% of the time.
 
 **The 17 are what pinpoint checking is for.** A bare `Id.` inherits its
 antecedent's pin cite, so the page can be retrieved and tested against the
@@ -236,9 +245,17 @@ supports the proposition is the answer.
 makes no claim about a page, so there is nothing to verify and no reason to
 insist on placing it.
 
-So validation does take the association work over, and by two different routes
-rather than one. A model whose job is "which authority does this `Id.` mean",
-answered from context alone, is not justified by this: 39 of the 49 are reached
-by a lookup or by a page, and the remaining 10 do not matter. What the tree is
-still needed for is what it was built for -- carrying the pin cite down a chain,
-and holding the closed set of authorities a failed check can be re-tried against.
+So the 49 split three ways, not two:
+
+    17   answered by pinpoint checking over the document's closed set
+    22   need the case identified from a party name -- a reader, not a lookup
+    10   make no checkable claim
+
+Pinpoint validation takes over the 17. It does not reach the 22, because a short
+form with no antecedent states no first page, and the only thing identifying it
+is the party name. That is the same field the case-name work is about, and it is
+the second place a model is justified in extraction rather than the first.
+
+What the tree is still needed for is what it was built for -- carrying the pin
+cite down a chain, and holding the closed set of authorities a failed check can
+be re-tried against.
