@@ -13,7 +13,7 @@ from mellea_lrc.core.citations import (
 )
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import ExtractedCitation
-from mellea_lrc.extraction.citation_tree import build_citation_tree
+from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 from mellea_lrc.extraction.types import ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing.plain_text import preprocess_plain_text_from_string
 

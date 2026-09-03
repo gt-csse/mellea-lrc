@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, ".")
 from exploration.pinpoint.survey_extra import body
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
-from mellea_lrc.extraction.citation_tree import build_citation_tree
+from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 
 TEXT = "St. Amant v. Thompson, 390 U.S. 727, 731, 88 S.Ct. 1323, 20 L.Ed.2d 262 (1968). Id. at 733."
 

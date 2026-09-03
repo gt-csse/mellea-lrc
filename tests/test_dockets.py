@@ -22,7 +22,7 @@ import pytest
 
 from mellea_lrc.core.citations import DocketCitation, FullCaseCitation
 from mellea_lrc.extraction import ExtractedDocument, Relaxation, extract_from_plain_text
-from mellea_lrc.extraction.citation_tree import build_citation_tree
+from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 from mellea_lrc.serialization.extracted_document import (
     deserialize_extracted_document,
     serialize_extracted_document,

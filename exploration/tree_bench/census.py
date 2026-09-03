@@ -14,7 +14,7 @@ from collections import Counter
 from pathlib import Path
 
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
-from mellea_lrc.extraction.citation_tree import build_citation_tree
+from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 
 BODY_MARKER = "--- Plain text ---\n"
 DOCS = Path("data/false-citation-bench-locator-only-v2.0/documents_txt")

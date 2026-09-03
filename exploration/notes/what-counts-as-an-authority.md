@@ -82,7 +82,7 @@ which spells its separators as a single optional literal space, `\ ?`. PDF
 extraction of justified text leaves doubled spaces, and the reference vanishes —
 exactly as a reporter citation used to vanish before the joins were relaxed.
 
-**The relaxation does not reach this.** `mellea_lrc.extraction.relaxation`
+**The relaxation does not reach this.** `mellea_lrc.extraction.reading.relaxation`
 rebuilds the *reporter* extractors' regexes; reference extraction happens later,
 in `find.py`, against a regex the tokenizer never sees. So the corpus has one
 class of citation still failing for the reason every other class has stopped

@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from mellea_lrc.extraction.eyecite_extractor import _extract_from_text, extract_from_plain_text
-from mellea_lrc.extraction.relaxation import Relaxation
+from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.extraction.types import ExtractedDocument
 from mellea_lrc.preprocessing import preprocess
 
@@ -36,7 +36,7 @@ def extract(
     when the path arrives as text.
 
     ``relaxation`` chooses how much separator damage a citation may carry and
-    still be found; see :class:`~mellea_lrc.extraction.relaxation.Relaxation`.
+    still be found; see :class:`~mellea_lrc.extraction.reading.relaxation.Relaxation`.
     """
     if isinstance(source, Path):
         return extract_from_raw_document(source, relaxation=relaxation)

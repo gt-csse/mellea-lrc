@@ -5,7 +5,7 @@ from enum import Enum
 
 from mellea_lrc.core.citations import CanonicalCitation, is_full_citation
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.relaxation import Relaxation
+from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.preprocessing.types import PreprocessedDocument
 
 
@@ -49,7 +49,7 @@ class ExtractedCitation:
     `colocation_id` are candidates for being one authority -- **candidates, not
     a finding**: whether they name the same case is settled by resolving them,
     not by where they sit. `None` means the citation stands alone, which is the
-    common case. See :mod:`mellea_lrc.extraction.colocation`.
+    common case. See :mod:`mellea_lrc.extraction.structure.colocation`.
     """
 
 

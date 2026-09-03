@@ -22,7 +22,7 @@ from pathlib import Path
 
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
-from mellea_lrc.extraction.colocation import colocation_groups
+from mellea_lrc.extraction.structure.colocation import colocation_groups
 
 BODY_MARKER = "--- Plain text ---\n"
 BENCH = Path("data/false-citation-bench-locator-only-v2.0/documents_txt")

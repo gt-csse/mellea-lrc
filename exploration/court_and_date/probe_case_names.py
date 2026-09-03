@@ -56,7 +56,7 @@ import io
 
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
-from mellea_lrc.extraction.relaxation import tokenizer_for
+from mellea_lrc.extraction.reading.relaxation import tokenizer_for
 
 CASES = [
     (

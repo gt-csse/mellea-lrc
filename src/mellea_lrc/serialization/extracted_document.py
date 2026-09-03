@@ -22,7 +22,7 @@ from mellea_lrc.core.citations import (
 )
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.relaxation import Relaxation
+from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.extraction.types import (
     ExtractedCitation,
     ExtractedDocument,

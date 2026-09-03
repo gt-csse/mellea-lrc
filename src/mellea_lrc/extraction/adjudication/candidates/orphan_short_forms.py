@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING
 from mellea_lrc.core.citations import CitationKind
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.adjudication.types import Candidate, CandidateKind
-from mellea_lrc.extraction.citation_tree import build_citation_tree
+from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

@@ -50,7 +50,7 @@ after another case's ``(N.D. Cal. May 13, 2011)``, and document 006 has its own
 caption number sitting a blank line before an unrelated ``(10th Cir. 1994)``.
 Both are excluded by insisting the court parenthesis follow the number without
 a paragraph break between them -- the same block-boundary rule
-:mod:`~mellea_lrc.extraction.relaxation` applies to a broken reporter citation,
+:mod:`~mellea_lrc.extraction.reading.relaxation` applies to a broken reporter citation,
 for the same reason: what lies beyond a blank line belongs to something else.
 
 Measured on the 26 documents of false-citation-bench, this reads twelve docket
