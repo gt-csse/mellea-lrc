@@ -264,13 +264,18 @@ def pin_cite_limits(citations: Sequence[ExtractedCitation], length: int) -> dict
 
 
 def locator_of(citation: ExtractedCitation) -> tuple[str, str, str] | None:
-    """The volume, reporter and page a full case citation names."""
+    """The volume, reporter and page a full case citation names.
+
+    The reporter is the canonical spelling, so that two spellings of one
+    reporter key one authority. What the document wrote is kept beside it in the
+    record.
+    """
     inner = citation.citation
     if not isinstance(inner, FullCaseCitation):
         return None
     if not (inner.volume and inner.reporter and inner.page):
         return None
-    return (inner.volume, inner.reporter, inner.page)
+    return (inner.volume, inner.reporter.canonical, inner.page)
 
 
 def decision_for(number: str, citation: ExtractedCitation) -> Decision | None:
@@ -327,6 +332,7 @@ def build_document(
                 "kind": "reporter",
                 "volume": locator[0],
                 "reporter": locator[1],
+                "reporter_as_written": inner.reporter.as_written,
                 "page": locator[2],
             },
             # Recorded, but the least reliable field here: a filing writes party
