@@ -85,7 +85,9 @@ def extra_is_only_citations(extra: str) -> bool:
         found = extract_from_plain_text(extra, relaxation=Relaxation.FULL)
     remaining = list(extra)
     for citation in found.citations:
-        remaining[citation.span.start : citation.span.end] = " " * (citation.span.end - citation.span.start)
+        remaining[citation.full_span.start : citation.full_span.end] = " " * (
+            citation.full_span.end - citation.full_span.start
+        )
     return bool(found.citations) and not LEFTOVER.search("".join(remaining))
 
 
@@ -94,14 +96,14 @@ def main() -> None:
     for label, text in CASES:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             document = extract_from_plain_text(text, relaxation=Relaxation.FULL)
-        found = sorted(document.citations, key=lambda c: c.span.start)
+        found = sorted(document.citations, key=lambda c: c.full_span.start)
         print(f"--- {label}\n    {text}")
         for citation in found:
             inner = citation.citation
             extra = str(getattr(inner, "extra", "") or "")
             print(
                 f"      {' '.join(citation.matched_text.split())!r:<20}"
-                f" span={citation.span.start}-{citation.span.end}"
+                f" span={citation.full_span.start}-{citation.full_span.end}"
                 f" reporter={getattr(inner, 'reporter', None)!r:<10}"
                 f" extra_is_pure={extra_is_only_citations(extra)}"
             )

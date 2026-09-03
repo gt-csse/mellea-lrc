@@ -49,7 +49,7 @@ def test_mellea_case_name_query_preparation(
     """Prepare concise, faithful search terms from two case parties."""
     citation = ExtractedCitation(
         citation_id="live-case-name-query",
-        span=Span(0, 1),
+        full_span=Span(0, 1),
         locator_span=Span(0, 1),
         matched_text="x",
         citation=FullCaseCitation(court="scotus"),

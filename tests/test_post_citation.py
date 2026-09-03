@@ -92,4 +92,4 @@ def test_the_span_no_longer_covers_the_following_citation() -> None:
         document = extract_from_plain_text(text, relaxation=Relaxation.FULL)
     first = next(item for item in document.citations if item.matched_text == "2009 WL 2103627")
 
-    assert "Spector" not in text[first.span.start : first.span.end]
+    assert "Spector" not in text[first.full_span.start : first.full_span.end]

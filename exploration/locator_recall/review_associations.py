@@ -66,8 +66,8 @@ def main() -> int:
             for occurrence in secondary:
                 total += 1
                 citation = occurrence.citation
-                start = citation.span.start
-                window = " ".join(text[max(0, start - CONTEXT) : citation.span.end + 40].split())
+                start = citation.full_span.start
+                window = " ".join(text[max(0, start - CONTEXT) : citation.full_span.end + 40].split())
                 print(
                     f"    [{total:>3}] {kind(citation):<18}"
                     f"{' '.join(citation.matched_text.split())!r:<22} depth={occurrence.depth}"

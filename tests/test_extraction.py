@@ -61,7 +61,7 @@ def test_extract_from_plain_text_returns_canonical_types() -> None:
     assert full_case.citation.volume == "118"
     assert full_case.citation.reporter.as_written == "U.S."
     assert SAMPLE_TEXT[full_case.locator_span.start : full_case.locator_span.end] == "118 U.S. 425"
-    assert full_case.span.start < full_case.locator_span.start
+    assert full_case.full_span.start < full_case.locator_span.start
     assert full_case.resolves_to is None
 
     full_law = next(item for item in result.citations if isinstance(item.citation, FullLawCitation))
@@ -73,7 +73,7 @@ def test_extracted_document_rejects_duplicate_citation_ids() -> None:
     preprocessed = preprocess("347 U.S. 483")
     citation = ExtractedCitation(
         citation_id="cite-1",
-        span=Span(0, len(preprocessed.text)),
+        full_span=Span(0, len(preprocessed.text)),
         locator_span=Span(0, len(preprocessed.text)),
         matched_text=preprocessed.text,
         citation=FullCaseCitation(volume="347", reporter="U.S.", page="483"),
@@ -93,7 +93,7 @@ def test_extracted_document_rejects_span_outside_text() -> None:
     preprocessed = preprocess("347 U.S. 483")
     citation = ExtractedCitation(
         citation_id="cite-1",
-        span=Span(0, len(preprocessed.text) + 1),
+        full_span=Span(0, len(preprocessed.text) + 1),
         locator_span=Span(0, len(preprocessed.text) + 1),
         matched_text=preprocessed.text,
         citation=FullCaseCitation(volume="347", reporter="U.S.", page="483"),

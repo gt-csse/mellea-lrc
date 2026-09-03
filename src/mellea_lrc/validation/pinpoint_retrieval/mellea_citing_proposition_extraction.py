@@ -88,7 +88,7 @@ async def run_mellea_citing_proposition_extraction(
     session: MelleaSession | None = None,
 ) -> MelleaCitingPropositionExtractionNode:
     """Extract one grounded citing proposition inside a bounded source window."""
-    context_span = citing_context_span(document_text, validation.citation.span)
+    context_span = citing_context_span(document_text, validation.citation.full_span)
     if trigger.outcome is not ReporterPageRetrievalOutcome.FOUND:
         return _node(
             trigger,
@@ -102,7 +102,7 @@ async def run_mellea_citing_proposition_extraction(
         )
 
     citing_context = document_text[context_span.start : context_span.end]
-    citation_span = validation.citation.span
+    citation_span = validation.citation.full_span
     target_citation = document_text[citation_span.start : citation_span.end]
     try:
         spec = InstructIvrSpec(

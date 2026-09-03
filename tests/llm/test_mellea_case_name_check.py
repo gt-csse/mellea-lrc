@@ -51,7 +51,7 @@ def test_mellea_case_name_check(
     """Classify normal legal abbreviation as match and distinct cases as mismatch."""
     citation = ExtractedCitation(
         citation_id="live-semantic-case-name",
-        span=Span(0, 1),
+        full_span=Span(0, 1),
         locator_span=Span(0, 1),
         matched_text="x",
         citation=FullCaseCitation(),

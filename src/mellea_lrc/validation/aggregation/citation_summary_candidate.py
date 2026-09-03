@@ -163,7 +163,7 @@ def _pinpoint_summary(
         opinion_type=evidence.opinion_type if evidence is not None else None,
         reporter_page_text=evidence.text if evidence is not None else None,
         citing_context_span=proposition.context_span,
-        citation_span=validation.citation.span,
+        citation_span=validation.citation.full_span,
         proposition=proposition.proposition,
         proposition_span=proposition.proposition_span,
         reasoning=pinpoint.reasoning,

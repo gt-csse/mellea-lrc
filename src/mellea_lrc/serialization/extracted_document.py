@@ -35,7 +35,7 @@ from mellea_lrc.preprocessing.types import (
 )
 from mellea_lrc.serialization._json import JsonValue, require_list, require_mapping, serialize_dataclass
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 _ARTIFACT_TYPE = "extracted_document"
 
 _CITATION_TYPES: dict[CitationKind, type[CanonicalCitation]] = {
@@ -62,7 +62,7 @@ def serialize_extracted_document(document: ExtractedDocument) -> dict[str, JsonV
         "citations": [
             {
                 "citation_id": citation.citation_id,
-                "span": serialize_dataclass(citation.span),
+                "full_span": serialize_dataclass(citation.full_span),
                 "locator_span": serialize_dataclass(citation.locator_span),
                 "matched_text": citation.matched_text,
                 "citation": {
@@ -125,7 +125,7 @@ def deserialize_extracted_document(payload: Mapping[str, object]) -> ExtractedDo
 
 def _deserialize_citation(value: object) -> ExtractedCitation:
     payload = require_mapping(value, name="citation")
-    span = require_mapping(payload.get("span"), name="citation.span")
+    full_span = require_mapping(payload.get("full_span"), name="citation.full_span")
     locator_span = require_mapping(payload.get("locator_span"), name="citation.locator_span")
     citation_payload = require_mapping(payload.get("citation"), name="citation.citation")
     kind = CitationKind(
@@ -140,9 +140,9 @@ def _deserialize_citation(value: object) -> ExtractedCitation:
         citation_fields["reporter"] = _deserialize_reporter(citation_fields["reporter"])
     return ExtractedCitation(
         citation_id=_required_string(payload.get("citation_id"), name="citation.citation_id"),
-        span=Span(
-            start=_required_integer(span.get("start"), name="citation.span.start"),
-            end=_required_integer(span.get("end"), name="citation.span.end"),
+        full_span=Span(
+            start=_required_integer(full_span.get("start"), name="citation.full_span.start"),
+            end=_required_integer(full_span.get("end"), name="citation.full_span.end"),
         ),
         locator_span=Span(
             start=_required_integer(locator_span.get("start"), name="citation.locator_span.start"),

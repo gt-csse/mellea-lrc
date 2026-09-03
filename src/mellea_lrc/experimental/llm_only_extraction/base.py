@@ -87,7 +87,7 @@ class MelleaExtractorBase(abc.ABC):
         """Wrap a located citation in an `ExtractedCitation` (classification pending)."""
         return ExtractedCitation(
             citation_id=uuid.uuid4().hex,
-            span=found.span,
+            full_span=found.span,
             locator_span=found.span,
             matched_text=found.matched_text,
             citation=UnknownCitation(),

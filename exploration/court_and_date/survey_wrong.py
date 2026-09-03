@@ -63,8 +63,8 @@ def main() -> int:
                 other
                 for other in citations
                 if other is not item
-                and item.span.start < other.locator_span.start
-                and other.locator_span.end <= item.span.end
+                and item.full_span.start < other.locator_span.start
+                and other.locator_span.end <= item.full_span.end
                 and isinstance(other.citation, FullCaseCitation)
             ]
             if not swallowed:

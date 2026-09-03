@@ -76,7 +76,7 @@ def promote(text: str, candidate: Candidate) -> ExtractedCitation | None:
         full_start, full_end = citation.full_span()
         return ExtractedCitation(
             citation_id=str(uuid.uuid4())[:8],
-            span=Span(
+            full_span=Span(
                 start=candidate.window.start + full_start,
                 end=candidate.window.start + full_end,
             ),

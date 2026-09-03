@@ -280,11 +280,11 @@ def locator_of(citation: ExtractedCitation) -> tuple[str, str, str] | None:
 
 def decision_for(number: str, citation: ExtractedCitation) -> Decision | None:
     """The annotation that applies to this occurrence, if one was recorded."""
-    keyed = DECISIONS.get((number, citation.span.start))
+    keyed = DECISIONS.get((number, citation.full_span.start))
     if keyed is not None:
         return keyed
     document, low, high = RECORD_REFERENCE_RANGE
-    if number == document and low <= citation.span.start <= high:
+    if number == document and low <= citation.full_span.start <= high:
         return Decision(
             action="out_of_scope",
             reason="record_reference",
@@ -321,7 +321,7 @@ def build_document(
         root = authority.root
         locator = locator_of(root)
         if locator is None:
-            notes.append(f"{number}: authority root at {root.span.start} states no full locator")
+            notes.append(f"{number}: authority root at {root.full_span.start} states no full locator")
             continue
         authority_id = f"{number}:{root.locator_span.start}-{root.locator_span.end}"
         inner = root.citation
@@ -368,7 +368,7 @@ def build_document(
                 "authority_id": authority_id,
                 "kind": citation.citation.kind.value,
                 "role": "first_primary" if depth == 0 else "return",
-                "span": {"start": citation.span.start, "end": citation.span.end},
+                "span": {"start": citation.full_span.start, "end": citation.full_span.end},
                 "locator_span": {
                     "start": citation.locator_span.start,
                     "end": citation.locator_span.end,
@@ -400,7 +400,7 @@ def build_document(
                     )
                     notes.append(
                         f"{number}: the {citation.citation.kind.value} at "
-                        f"{citation.span.start} states a section, not a page, so it "
+                        f"{citation.full_span.start} states a section, not a page, so it "
                         f"returns to a statute rather than to the case the tree gave it"
                     )
                     continue
@@ -415,7 +415,7 @@ def build_document(
                 target = by_locator.get(decision.to_locator)
                 if target is None:
                     notes.append(
-                        f"{number}: cannot reattribute the citation at {citation.span.start}; "
+                        f"{number}: cannot reattribute the citation at {citation.full_span.start}; "
                         f"{' '.join(decision.to_locator)} is not an authority in this document"
                     )
                     target = record_id
@@ -427,7 +427,7 @@ def build_document(
                     note=decision.why,
                 )
                 notes.append(
-                    f"{number}: the {citation.citation.kind.value} at {citation.span.start} is "
+                    f"{number}: the {citation.citation.kind.value} at {citation.full_span.start} is "
                     f"recorded under {' '.join(decision.to_locator)}; the tree gave it "
                     f"{authorities.get(authority.authority_id, {}).get('identifier')}. {decision.why}"
                 )
@@ -441,7 +441,7 @@ def build_document(
                     note=decision.why,
                 )
                 notes.append(
-                    f"{number}: the {citation.citation.kind.value} at {citation.span.start} is "
+                    f"{number}: the {citation.citation.kind.value} at {citation.full_span.start} is "
                     f"recorded out of scope ({decision.reason}), though the tree attributed it. "
                     f"{decision.why}"
                 )
@@ -458,8 +458,8 @@ def build_document(
                 note="Neither attributed by the tree nor settled by reading.",
             )
             notes.append(
-                f"{number}: the {citation.citation.kind.value} at {citation.span.start} "
-                f"({text[citation.span.start : citation.span.end]!r}) is unresolved"
+                f"{number}: the {citation.citation.kind.value} at {citation.full_span.start} "
+                f"({text[citation.full_span.start : citation.full_span.end]!r}) is unresolved"
             )
         elif decision.action == "no_authority":
             record(

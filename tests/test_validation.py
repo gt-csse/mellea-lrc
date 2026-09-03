@@ -136,7 +136,7 @@ def _document(citation: FullCaseCitation | FullLawCitation) -> ExtractedDocument
     start = text.index(locator)
     extracted = ExtractedCitation(
         citation_id="cite-0001",
-        span=Span(0, len(text)),
+        full_span=Span(0, len(text)),
         locator_span=Span(start, start + len(locator)),
         matched_text=locator,
         citation=citation,

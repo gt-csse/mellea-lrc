@@ -72,8 +72,8 @@ _SPAN_SLACK = 2
 def _co_located(left: ExtractedCitation, right: ExtractedCitation) -> bool:
     """Whether two citations occupy the same span, to within a character or two."""
     return (
-        abs(left.span.start - right.span.start) <= _SPAN_SLACK
-        and abs(left.span.end - right.span.end) <= _SPAN_SLACK
+        abs(left.full_span.start - right.full_span.start) <= _SPAN_SLACK
+        and abs(left.full_span.end - right.full_span.end) <= _SPAN_SLACK
     )
 
 
@@ -85,7 +85,7 @@ def colocation_groups(citations: Sequence[ExtractedCitation]) -> list[list[Extra
     one authority.
     """
     eligible = [c for c in citations if type(c.citation).__name__ in _COLOCATABLE]
-    ordered = sorted(eligible, key=lambda c: (c.span.start, c.span.end))
+    ordered = sorted(eligible, key=lambda c: (c.full_span.start, c.full_span.end))
 
     groups: list[list[ExtractedCitation]] = []
     for citation in ordered:

@@ -52,7 +52,7 @@ def main() -> int:
             if shown >= args.show:
                 break
             shown += 1
-            start = citation.span.start
+            start = citation.full_span.start
             preceding = " ".join(text[max(0, start - BEFORE) : start].split())
             pin = getattr(citation.citation, "pin_cite", None)
             print(f"  {type(citation.citation).__name__} {citation.matched_text!r}  pin={pin!r}")

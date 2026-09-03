@@ -96,7 +96,7 @@ def main() -> int:
                 if other is not item
                 # Entirely before this citation's locator, and inside its span.
                 and other.locator_span.end <= item.locator_span.start
-                and other.locator_span.start >= item.span.start
+                and other.locator_span.start >= item.full_span.start
                 and not (item.colocation_id and other.colocation_id == item.colocation_id)
             ]
             if not crossed:
@@ -107,7 +107,7 @@ def main() -> int:
                     path.stem[:10],
                     item.matched_text[:20],
                     f"{citation.plaintiff} v. {citation.defendant}",
-                    " ".join(text[item.span.start : item.locator_span.start].split())[-72:],
+                    " ".join(text[item.full_span.start : item.locator_span.start].split())[-72:],
                 )
             )
 

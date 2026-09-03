@@ -49,8 +49,8 @@ def ambiguous_editions(document: ExtractedDocument) -> Iterator[Candidate]:
             kind=CandidateKind.EDITION,
             span=item.locator_span,
             window=Span(
-                start=max(0, item.span.start - WINDOW),
-                end=min(len(text), item.span.end + WINDOW),
+                start=max(0, item.full_span.start - WINDOW),
+                end=min(len(text), item.full_span.end + WINDOW),
             ),
             note=(f"{reporter.as_written!r} names " + " or ".join(repr(n) for n in reporter.editions)),
         )

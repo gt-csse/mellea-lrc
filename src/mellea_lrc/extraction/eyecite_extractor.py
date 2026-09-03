@@ -323,7 +323,7 @@ def _extract_from_text(
         extracted.append(
             ExtractedCitation(
                 citation_id=citation_id,
-                span=Span(start=span_start, end=span_end),
+                full_span=Span(start=span_start, end=span_end),
                 locator_span=Span(start=locator_start, end=locator_end),
                 matched_text=eyecite_citation.matched_text(),
                 citation=to_canonical(eyecite_citation),

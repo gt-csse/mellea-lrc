@@ -97,7 +97,7 @@ class MelleaNaive(MelleaExtractorBase):
         locator_start = matched_text.index(locator)
         return ExtractedCitation(
             citation_id=citation_id,
-            span=span,
+            full_span=span,
             matched_text=matched_text,
             citation=citation,
             locator_span=Span(locator_start, locator_start + len(locator)),

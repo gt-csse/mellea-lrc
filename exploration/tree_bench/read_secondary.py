@@ -41,15 +41,15 @@ def main() -> int:
                     continue
                 n += 1
                 c = occ.citation
-                lo = max(0, c.span.start - BEFORE)
+                lo = max(0, c.full_span.start - BEFORE)
                 print(
-                    f"\n[{n:>3}] {path.stem[:14]} @{c.span.start} {c.citation.kind.value} depth={occ.depth}"
+                    f"\n[{n:>3}] {path.stem[:14]} @{c.full_span.start} {c.citation.kind.value} depth={occ.depth}"
                 )
                 print(f"      authority: {label}  ({root.plaintiff} v. {root.defendant})")
                 print(f"      parsed pin: {occ.pin_cite!r}")
-                print(f"      ...{' '.join(text[lo : c.span.start].split())[-BEFORE:]}")
-                print(f"      >>>{text[c.span.start : c.span.end]}<<<")
-                print(f"      {' '.join(text[c.span.end : c.span.end + AFTER].split())}")
+                print(f"      ...{' '.join(text[lo : c.full_span.start].split())[-BEFORE:]}")
+                print(f"      >>>{text[c.full_span.start : c.full_span.end]}<<<")
+                print(f"      {' '.join(text[c.full_span.end : c.full_span.end + AFTER].split())}")
     print(f"\n{n} secondary occurrences attributed")
     return 0
 

@@ -42,7 +42,7 @@ def _validation(
 ) -> tuple[CitationValidation, CandidateEvaluationNode]:
     extracted = ExtractedCitation(
         citation_id="cite-1",
-        span=Span(0, 20),
+        full_span=Span(0, 20),
         locator_span=Span(0, 14),
         matched_text="376 F.3d 615",
         citation=FullCaseCitation(
