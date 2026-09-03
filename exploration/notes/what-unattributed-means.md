@@ -197,3 +197,48 @@ by 0.3 points. It is the misattribution term, which still rests on the bench's
 single observation, and which spans 7 to 38 of the same denominator. Narrowing
 *that* is the annotation still worth doing: a hundred attributed returns read
 the way these 154 were.
+
+## The 49 do not need an association model
+
+Split by what each carries, the answer to "who fixes these" is mostly not a
+model reading context.
+
+    22   self-identifying short forms   volume + reporter + page
+    27   need an antecedent             `Id.`, supra, reference
+      17   of those state a pin cite of their own
+      10   state nothing to check with
+
+**The 22 need a lookup, not an association.** `DCD Programs, 833 F.2d at 186`
+gives a volume, a reporter and a page; that is enough to resolve against
+CourtListener without knowing anything about the rest of the document. And in
+every one checked, the full citation is simply **not in the filing** -- document
+69197386_173 writes `DCD Programs, 833 F.2d at 18687`, `at 187` and `at 186`,
+three short forms, and never introduces the case. So the resolver did not fail;
+there was no antecedent to find.
+
+That is worth flagging on its own terms. A short form for a case the filing
+never introduced is a shape a false-citation tool should notice, not a defect in
+attribution.
+
+It does mean one assumption in `core.citations` has to be revisited: "short
+citations generally need an antecedent before they can be validated" is not true
+of a short form carrying its own locator, and 22 of the 49 are that.
+
+**The 17 are what pinpoint checking is for.** A bare `Id.` inherits its
+antecedent's pin cite, so the page can be retrieved and tested against the
+proposition. That is what caught the single misattribution the bench annotation
+found: page 1072 cannot be a page of a case beginning at 1199, and the check
+said so before anyone read the sentence. Where the page fails, the other
+authorities in the document are a closed set to try, and the one whose page
+supports the proposition is the answer.
+
+**The 10 are neither checkable nor consequential.** An `Id.` stating no page
+makes no claim about a page, so there is nothing to verify and no reason to
+insist on placing it.
+
+So validation does take the association work over, and by two different routes
+rather than one. A model whose job is "which authority does this `Id.` mean",
+answered from context alone, is not justified by this: 39 of the 49 are reached
+by a lookup or by a page, and the remaining 10 do not matter. What the tree is
+still needed for is what it was built for -- carrying the pin cite down a chain,
+and holding the closed set of authorities a failed check can be re-tried against.
