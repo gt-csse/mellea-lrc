@@ -44,7 +44,7 @@ rather than to a measurement.
     + reporter joins (full)       2024        0 1140       158  1864         134   1562           130
     + pin cites                   2024        0 1318         9  1864         139   1590           104
     + court and date boundary     2024        0 1318         9  1840           0   1580           105
-    + court resolution            2024        0 1318         9  1636*         0   1636            49
+    + court resolution            2024        0 1318         9  1840           0   1636            49
     + docket locators             2024       36 1318         9  1840           0   1636            49
 
 Read down the defect columns. **Relaxation buys citations and costs defects**:
