@@ -1,7 +1,7 @@
 """Extraction work that is not wired into the pipeline.
 
 What used to live here in two halves now lives in one place each.
-:mod:`~mellea_lrc.adjudication` is the layer that follows the deterministic
+:mod:`~mellea_lrc.extraction.adjudication` is the layer that follows the deterministic
 rules -- candidate generators and the reviewers that judge them -- and is no
 longer experimental in the sense this package means.
 

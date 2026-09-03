@@ -39,7 +39,7 @@ from mellea_lrc.extraction.eyecite_extractor import to_canonical
 from mellea_lrc.extraction.types import ExtractedCitation
 
 if TYPE_CHECKING:
-    from mellea_lrc.adjudication.types import Candidate
+    from mellea_lrc.extraction.adjudication.types import Candidate
 
 
 @lru_cache(maxsize=1)

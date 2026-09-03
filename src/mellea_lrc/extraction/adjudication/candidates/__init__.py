@@ -1,7 +1,7 @@
 """Generators: cheap, deterministic, and each answering one question.
 
 Every generator takes an :class:`~mellea_lrc.extraction.types.ExtractedDocument`
-and yields :class:`~mellea_lrc.adjudication.types.Candidate` objects. None of
+and yields :class:`~mellea_lrc.extraction.adjudication.types.Candidate` objects. None of
 them decides anything -- deciding is the reviewer's job, and a generator that
 decides is a rule that should have been in extraction instead.
 
@@ -13,7 +13,7 @@ all of them letterheads. See
 `exploration/notes/candidates-and-adjudication.md`.
 """
 
-from mellea_lrc.adjudication.candidates.orphan_short_forms import orphan_short_forms
-from mellea_lrc.adjudication.candidates.uppercase_reporters import uppercase_reporters
+from mellea_lrc.extraction.adjudication.candidates.orphan_short_forms import orphan_short_forms
+from mellea_lrc.extraction.adjudication.candidates.uppercase_reporters import uppercase_reporters
 
 __all__ = ["orphan_short_forms", "uppercase_reporters"]

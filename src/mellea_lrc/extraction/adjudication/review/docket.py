@@ -25,8 +25,8 @@ from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from mellea_lrc.adjudication.candidates.docket_sites import docket_context
 from mellea_lrc.core.spans import Span
+from mellea_lrc.extraction.adjudication.candidates.docket_sites import docket_context
 from mellea_lrc.llm import (
     InstructIvrSpec,
     llm_api_config_from_env,
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from mellea import MelleaSession
     from mellea.core.base import Context
 
-    from mellea_lrc.adjudication.candidates.docket_sites import SuspectedDocket
+    from mellea_lrc.extraction.adjudication.candidates.docket_sites import SuspectedDocket
 
 MAX_TOKENS = 260
 MAX_REPAIR_TURNS = 2
