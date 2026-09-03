@@ -68,6 +68,23 @@ class Reporter:
     name: str | None = None
     cite_type: str | None = None
     is_scotus: bool = False
+    editions: tuple[str, ...] = ()
+    """Every reporter whose edition the abbreviation could name.
+
+    One entry is an answer and `short_name` carries it. More than one is an
+    **ambiguity left undecided**: `5 Cranch 137` is United States Reports and it
+    is also District of Columbia Reports, and nothing on the page says which.
+    eyecite settles that by asking which edition's years contain the citation's
+    year, and the two ways that goes wrong are both visible in one reporter --
+    `5 Cranch 137 (1803)`, which is Marbury, falls inside both ranges and gets no
+    edition at all, while `5 Cranch 137 (1830)` falls in only one and gets a
+    confident answer naming the wrong court.
+
+    So the tie is not broken here. `short_name` stays unset, `cite_type` and
+    `is_scotus` are kept only where every candidate agrees, and the choice is
+    reported to
+    :mod:`~mellea_lrc.extraction.adjudication.candidates.ambiguous_editions`.
+    """
 
     @property
     def canonical(self) -> str:
