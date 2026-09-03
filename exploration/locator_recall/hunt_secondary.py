@@ -35,7 +35,7 @@ from collections import Counter
 from pathlib import Path
 
 from exploration.locator_recall.fuzzy_sites import body
-from mellea_lrc.experimental import mask_full_spans
+from mellea_lrc.adjudication import mask_full_spans
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 
 BACK_REFERENCE = re.compile(r"\b(?:[Ii]d\.|[Ii]bid\.|supra)", re.MULTILINE)

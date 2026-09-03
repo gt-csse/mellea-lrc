@@ -34,8 +34,8 @@ from collections import Counter
 from pathlib import Path
 
 from exploration.generality.survey import BENCH, MINED, body
+from mellea_lrc.adjudication import suspected_locators
 from mellea_lrc.core.citations import FullCaseCitation
-from mellea_lrc.experimental import suspected_locators
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.citation_tree import build_citation_tree
 
