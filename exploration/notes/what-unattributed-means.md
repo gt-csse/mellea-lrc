@@ -259,3 +259,40 @@ the second place a model is justified in extraction rather than the first.
 What the tree is still needed for is what it was built for -- carrying the pin
 cite down a chain, and holding the closed set of authorities a failed check can
 be re-tried against.
+
+## Why `DCD Programs, 833 F.2d at 186` resolves to nothing
+
+Because there is nothing to resolve it to. The filing writes that case three
+times -- `at 18687`, `at 187`, `at 186` -- and never introduces it. The word
+"Leighton" does not appear in the document and every occurrence of `833` is one
+of those three short forms.
+
+eyecite's rule is `_resolve_shortcase_citation`: collect the full citations
+already resolved whose **corrected reporter and volume** match, accept if exactly
+one resource remains, otherwise refine by the antecedent guess. With no full
+citation at volume 833 in F.2d the candidate list is empty and it returns None.
+Correctly.
+
+Two properties of that rule are worth naming.
+
+**It never looks at the page.** eyecite itself does not treat a short form's
+`page` as a first page, which is the same conclusion the CourtListener lookup
+forces from the other direction.
+
+**It is forward-only.** The docstring says the citation list is assumed to be in
+document order, and resolved full citations accumulate as it walks, so a full
+citation appearing *after* the short form cannot rescue it either.
+
+Checking the rest of the 22 the same way: **20 have no full form anywhere in the
+document.** The resolver is right about all of them.
+
+The two exceptions are one passage, duplicated across two filings, and they are
+a different failure. The full citation is there --
+
+    Dalla-Longa v. Magnetar Capital LLC , 33 F.4TH 693 (2D CIR. 2022)
+
+-- in a table of authorities set in capitals. eyecite's reporter extractors are
+case-sensitive, so `F.4TH` is not a reporter, the full citation is never
+extracted, and `33 F.4th at 695` in the argument has nothing to attach to. That
+is the only resolver-side failure among the 22, and it is a tokenizer gap rather
+than an attribution one: 2 occurrences in 103 documents, both the same table row.
