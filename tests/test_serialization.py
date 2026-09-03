@@ -86,7 +86,7 @@ def _document_with_one_citation() -> ExtractedDocument:
         citations=(
             ExtractedCitation(
                 citation_id="cite-0001",
-                span=Span(0, len(text) - 1),
+                full_span=Span(0, len(text) - 1),
                 locator_span=Span(start, start + len(matched_text)),
                 matched_text=matched_text,
                 citation=FullCaseCitation(
@@ -110,9 +110,9 @@ def test_extracted_document_round_trip_preserves_recoverable_fields() -> None:
 
     payload = serialize_extracted_document(document)
 
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert payload["artifact_type"] == "extracted_document"
-    assert payload["citations"][0]["span"] == {"start": 0, "end": len(document.text) - 1}
+    assert payload["citations"][0]["full_span"] == {"start": 0, "end": len(document.text) - 1}
     assert payload["citations"][0]["locator_span"] == {"start": 29, "end": 41}
     assert deserialize_extracted_document(payload) == document
     assert json.loads(json.dumps(payload)) == payload
@@ -146,7 +146,7 @@ def test_extracted_document_round_trip_supports_every_canonical_citation_type() 
         citations=tuple(
             ExtractedCitation(
                 citation_id=f"cite-{index}",
-                span=Span(index, index + 1),
+                full_span=Span(index, index + 1),
                 locator_span=Span(index, index + 1),
                 matched_text="x",
                 citation=citation,
@@ -172,7 +172,7 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
         citations=(
             ExtractedCitation(
                 citation_id="cite-0001",
-                span=Span(start, start + len(matched_text)),
+                full_span=Span(start, start + len(matched_text)),
                 locator_span=Span(start, start + len(matched_text)),
                 matched_text=matched_text,
                 citation=FullCaseCitation(
@@ -204,7 +204,7 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
 
     payload = serialize_validated_document(validated)
 
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert payload["artifact_type"] == "validated_document"
     assert payload["source"]["artifact_type"] == "extracted_document"
     assert payload["source"]["citations"][0]["citation"]["citation_type"] == "FullCaseCitation"

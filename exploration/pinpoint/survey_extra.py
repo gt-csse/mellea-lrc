@@ -79,7 +79,7 @@ def main() -> int:
                 continue
             if PIN_SHAPED.match(written):
                 totals["extra is a bare page -- a lost pin cite"] += 1
-                following = repr(text[citation.span.end : citation.span.end + 26])
+                following = repr(text[citation.full_span.end : citation.full_span.end + 26])
                 rows.append(
                     (
                         path.stem[:18],

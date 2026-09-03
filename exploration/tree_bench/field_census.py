@@ -41,7 +41,7 @@ def main() -> int:
             counts["plaintiff"] += bool(citation.plaintiff)
             counts["defendant"] += bool(citation.defendant)
             counts["both parties"] += bool(citation.plaintiff and citation.defendant)
-            tail = text[item.span.end : item.span.end + AFTER]
+            tail = text[item.full_span.end : item.full_span.end + AFTER]
             if citation.year:
                 year_shapes[str(citation.year)[:2] + "xx"] += 1
             else:

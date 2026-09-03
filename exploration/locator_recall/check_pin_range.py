@@ -96,7 +96,7 @@ def main() -> int:
                 if type(occurrence.citation.citation).__name__ == "ShortCaseCitation" and inner:
                     written, pin = str(inner), page_of(inner)
                 else:
-                    after = text[occurrence.citation.span.end : occurrence.citation.span.end + 24]
+                    after = text[occurrence.citation.full_span.end : occurrence.citation.full_span.end + 24]
                     match = WRITTEN_PIN.match(after)
                     if match is None or match.group(1):
                         continue
@@ -107,8 +107,8 @@ def main() -> int:
                 if pin >= first:
                     continue
                 flagged += 1
-                start = occurrence.citation.span.start
-                window = " ".join(text[max(0, start - 170) : occurrence.citation.span.end + 30].split())
+                start = occurrence.citation.full_span.start
+                window = " ".join(text[max(0, start - 170) : occurrence.citation.full_span.end + 30].split())
                 print(f"{path.stem[:30]}")
                 print(f"  authority {' '.join(authority.root.matched_text.split())!r} first page {first}")
                 print(

@@ -70,8 +70,8 @@ def orphan_short_forms(document: ExtractedDocument) -> Iterator[Candidate]:
             kind=CandidateKind.ORPHAN_SHORT_FORM,
             span=item.locator_span,
             window=Span(
-                start=max(0, item.span.start - WINDOW),
-                end=min(len(text), item.span.end + WINDOW),
+                start=max(0, item.full_span.start - WINDOW),
+                end=min(len(text), item.full_span.end + WINDOW),
             ),
             note=(
                 "the volume and reporter appear elsewhere with another page, so the full "

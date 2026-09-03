@@ -82,7 +82,7 @@ def survey(directory: Path) -> tuple[Counter, list[tuple[str, str, str]]]:
                 for other in citations
                 if other is not item
                 and item.locator_span.end <= other.locator_span.start
-                and other.locator_span.end <= item.span.end
+                and other.locator_span.end <= item.full_span.end
                 and not (item.colocation_id and other.colocation_id == item.colocation_id)
             ]
             backward = [
@@ -90,7 +90,7 @@ def survey(directory: Path) -> tuple[Counter, list[tuple[str, str, str]]]:
                 for other in citations
                 if other is not item
                 and other.locator_span.end <= item.locator_span.start
-                and other.locator_span.start >= item.span.start
+                and other.locator_span.start >= item.full_span.start
                 and not (item.colocation_id and other.colocation_id == item.colocation_id)
             ]
             if forward:

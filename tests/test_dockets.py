@@ -77,7 +77,7 @@ def test_the_spans_point_at_the_docket_and_at_the_whole_citation() -> None:
     """
     (item,) = [c for c in _extract(INDICTMENT).citations if isinstance(c.citation, DocketCitation)]
 
-    full = INDICTMENT[item.span.start : item.span.end]
+    full = INDICTMENT[item.full_span.start : item.full_span.end]
 
     assert INDICTMENT[item.locator_span.start : item.locator_span.end] == "No. 1:25-cr-00312-RPK"
     assert item.matched_text == "No. 1:25-cr-00312-RPK"

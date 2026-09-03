@@ -42,7 +42,10 @@ def main() -> int:
             document = extract_from_plain_text(text, relaxation=Relaxation.FULL)
         undecided = []
         for item in build_citation_tree(document).unattributed:
-            window = text[item.span.start : item.span.end] + text[item.span.end : item.span.end + 22]
+            window = (
+                text[item.full_span.start : item.full_span.end]
+                + text[item.full_span.end : item.full_span.end + 22]
+            )
             if not args.all and RECORD_EVIDENCE.search(window):
                 continue
             undecided.append(item)
@@ -51,9 +54,9 @@ def main() -> int:
         print(f"\n### {path.stem}  ({len(undecided)})")
         for item in undecided:
             n += 1
-            start = max(0, item.span.start - BEFORE)
-            before = " ".join(text[start : item.span.start].split())[-BEFORE:]
-            after = " ".join(text[item.span.end : item.span.end + AFTER].split())
+            start = max(0, item.full_span.start - BEFORE)
+            before = " ".join(text[start : item.full_span.start].split())[-BEFORE:]
+            after = " ".join(text[item.full_span.end : item.full_span.end + AFTER].split())
             print(f"[{n:>3}] {item.citation.kind.value[:9]:<10}{item.matched_text[:22]!r}")
             print(f"      ...{before}  >>>{item.matched_text}<<<  {after}")
     print(f"\n{n} undecided occurrences")

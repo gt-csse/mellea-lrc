@@ -36,8 +36,14 @@ class ExtractedCitation:
     """A canonical citation with full and matched-locator spans in document text."""
 
     citation_id: str
-    span: Span
+    full_span: Span
+    """The citation's whole extent: party names, locator, pin cite, parenthetical."""
     locator_span: Span
+    """The minimum sufficient identifier -- volume, reporter and page.
+
+    Named apart from `full_span` because the two answer different questions: this
+    is what a lookup resolves, that is what a reader is shown.
+    """
     matched_text: str
     citation: CanonicalCitation
     resolves_to: str | None = None
@@ -77,13 +83,13 @@ class ExtractedDocument(PreprocessedDocument):
 
         known_ids = set(citation_ids)
         for item in self.citations:
-            if item.span.end > len(self.text):
+            if item.full_span.end > len(self.text):
                 msg = f"Citation {item.citation_id!r} span exceeds document text"
                 raise ValueError(msg)
             if item.locator_span.end > len(self.text):
                 msg = f"Citation {item.citation_id!r} locator span exceeds document text"
                 raise ValueError(msg)
-            if item.locator_span.start < item.span.start or item.locator_span.end > item.span.end:
+            if item.locator_span.start < item.full_span.start or item.locator_span.end > item.full_span.end:
                 msg = f"Citation {item.citation_id!r} locator span must be within its full span"
                 raise ValueError(msg)
             if item.resolves_to is not None and (

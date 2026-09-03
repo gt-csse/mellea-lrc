@@ -45,7 +45,7 @@ def test_the_group_survives_spans_that_do_not_coincide_exactly() -> None:
     of its own group, which is the reason the rule is written on overlap.
     """
     document = _extract("St. Amant v. Thompson, 390 U.S. 727, 88 S.Ct. 1323 (1968).")
-    spans = {(c.span.start, c.span.end) for c in document.citations}
+    spans = {(c.full_span.start, c.full_span.end) for c in document.citations}
 
     assert len(spans) > 1, "this test is pointless if the spans are already identical"
     assert _groups(document) == [{"390 U.S. 727", "88 S.Ct. 1323"}]

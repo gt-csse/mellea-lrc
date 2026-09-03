@@ -92,7 +92,7 @@ def survey(documents: list[Path], level: Relaxation) -> tuple[Counter, list[tupl
         totals["unattributed"] += len(tree.unattributed)
         for authority in tree.authorities:
             for occurrence in authority.occurrences:
-                key = (path.stem[:12], occurrence.citation.span.start)
+                key = (path.stem[:12], occurrence.citation.full_span.start)
                 attribution[key] = " ".join(authority.root.matched_text.split())[:30]
     return totals, references, attribution
 

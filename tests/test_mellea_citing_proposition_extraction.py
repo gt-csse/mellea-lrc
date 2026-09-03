@@ -54,7 +54,7 @@ def test_citing_proposition_node_stores_original_document_span(monkeypatch: obje
     validation = CitationValidation(
         citation=ExtractedCitation(
             citation_id="citation-1",
-            span=Span(citation_start, citation_start + len(citation_text)),
+            full_span=Span(citation_start, citation_start + len(citation_text)),
             locator_span=Span(
                 citation_start + len("United States v. Golden, "),
                 citation_start + len("United States v. Golden, 671 F.2d 369"),

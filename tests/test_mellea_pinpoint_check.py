@@ -123,7 +123,7 @@ def test_mellea_pinpoint_check_stores_the_canonical_source_slice(monkeypatch: ob
     validation = CitationValidation(
         citation=ExtractedCitation(
             citation_id="citation-1",
-            span=Span(start, start + len(matched)),
+            full_span=Span(start, start + len(matched)),
             locator_span=Span(start + len("Example v. Case, "), start + len("Example v. Case, 10 F.3d 20")),
             matched_text="10 F.3d 20",
             citation=FullCaseCitation(

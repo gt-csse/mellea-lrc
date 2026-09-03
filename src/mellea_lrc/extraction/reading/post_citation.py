@@ -125,8 +125,8 @@ def reread_post_citation(
                     date=date,
                     court="scotus" if item.citation.court == "scotus" else resolve_court(court_text),
                 ),
-                span=Span(
-                    start=item.span.start,
+                full_span=Span(
+                    start=item.full_span.start,
                     end=item.locator_span.end + found.end() if found else item.locator_span.end,
                 ),
             )

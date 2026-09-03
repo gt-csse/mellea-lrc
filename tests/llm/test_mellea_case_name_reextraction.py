@@ -63,7 +63,7 @@ def test_mellea_case_name_reextraction(
     start = text.index(locator)
     citation = ExtractedCitation(
         citation_id="live-case-name",
-        span=Span(0, len(text)),
+        full_span=Span(0, len(text)),
         locator_span=Span(start, start + len(locator)),
         matched_text=locator,
         citation=FullCaseCitation(),

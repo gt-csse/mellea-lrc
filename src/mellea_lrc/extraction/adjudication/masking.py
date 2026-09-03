@@ -37,6 +37,6 @@ def mask_full_spans(document: ExtractedDocument) -> str:
     """
     characters = list(document.text)
     for citation in document.citations:
-        span = citation.span
+        span = citation.full_span
         characters[span.start : span.end] = " " * (span.end - span.start)
     return "".join(characters)

@@ -17,7 +17,7 @@ from mellea_lrc.validation.types import (
 def _validation_with_citation(citation: FullCaseCitation) -> CitationValidation:
     extracted = ExtractedCitation(
         citation_id="cite-0001",
-        span=Span(0, 10),
+        full_span=Span(0, 10),
         locator_span=Span(0, 10),
         matched_text="347 U.S. 483",
         citation=citation,

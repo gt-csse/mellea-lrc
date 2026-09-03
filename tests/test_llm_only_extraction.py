@@ -99,7 +99,7 @@ def test_extract_citations(
     expected = [citation for citation, _ in correct_korematsu_citations]
     assert [c.matched_text for c in extracted.citations] == expected
     for citation in extracted.citations:
-        assert korematsu_text[citation.span.start : citation.span.end] == citation.matched_text
+        assert korematsu_text[citation.full_span.start : citation.full_span.end] == citation.matched_text
 
 
 # --- session policy (shared base behavior) ---

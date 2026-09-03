@@ -35,7 +35,7 @@ def groups(citations: list) -> list[list]:
     """Citations sharing a full span, as groups of two or more."""
     by_span: dict[tuple[int, int], list] = {}
     for citation in citations:
-        by_span.setdefault((citation.span.start, citation.span.end), []).append(citation)
+        by_span.setdefault((citation.full_span.start, citation.full_span.end), []).append(citation)
     return [group for group in by_span.values() if len(group) > 1]
 
 
