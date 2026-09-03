@@ -51,6 +51,36 @@ pin cite below the authority's own first page contradicts two numbers the
 document itself states. It says an attribution is impossible, not that a writer
 erred.
 
+### What the edition range actually detects
+
+Every flag it raises was read. On the mined corpus there are nine, and in all
+nine the reporter **as written matches the reporter recorded**::
+
+    167 F.R.D. 649 (S.D.N.Y. 1996)     F.R.D.    db range 2001-
+    94 F.R.D. 631, 637 (D. Kan. 1982)  F.R.D.    db range 2001-
+    807 F. Supp. 109, 110 (D. Kan. 1992)  F. Supp.  db range 1932-1988
+    960 F.Supp. 253 (D. Kan. 1997)     F. Supp.  db range 1932-1988
+
+F.R.D. began in the 1930s and F. Supp. ran to 1998. The citations are sound and
+the ranges are wrong, so the signal is about reporters-db rather than about any
+document. There is nothing here for this layer to capture, and nothing a
+reviewer could be usefully asked.
+
+### The version of this that would be ours, and why it is empty
+
+A **misread reporter** is an extraction defect: if `695 F. Supp. 2d 1149` lost
+its `2d`, the recorded reporter would be wrong, and a year outside the edition's
+range would be the clue.
+
+The year is not needed to see it. The unread `2d` would still be sitting between
+the reporter and the page, on the same line, in the document -- so the check is
+document-internal and needs neither a database nor a reader. Run across all
+2,607 case citations in both corpora: **zero reporter suffixes left unread.**
+
+So the answer to "can only a reviewer catch this" is no, in both directions. The
+extraction-relevant version has a deterministic check, and it finds nothing. The
+other version is not extraction's question.
+
 ## What this means for annotation
 
 Extraction annotation records **what the page states** -- the locator spans of
