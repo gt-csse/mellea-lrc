@@ -296,3 +296,40 @@ case-sensitive, so `F.4TH` is not a reporter, the full citation is never
 extracted, and `33 F.4th at 695` in the argument has nothing to attach to. That
 is the only resolver-side failure among the 22, and it is a tokenizer gap rather
 than an attribution one: 2 occurrences in 103 documents, both the same table row.
+
+## No, it does not conform to the Bluebook -- and that is the point
+
+Rule 10.9 permits a short form only after the case has been given in full in the
+same document. `Twombly, 550 U.S. at 555` with no `550 U.S. 544` anywhere is
+nonconforming, so the claim deserved checking rather than accepting.
+
+It survives checking. The search was made whitespace-tolerant and
+case-insensitive, and run for the first page as a bare string as well as for
+volume-reporter-page. It is sensitive enough to have found the one full citation
+that *was* present, `33 F.4TH 693`, hidden in capitals.
+
+The hardest case to believe is document 70764936_25: 53,793 characters, Twombly
+cited five times and Iqbal three, always as `550 U.S. at 555` or `556 U.S. at
+678`, and the strings **`544` and `662` do not occur in the document at all.**
+The two most-cited cases in federal civil practice, and neither is ever given in
+full.
+
+## How common it is
+
+    bench    1 of 35 short forms   (2.9%)   in  1 of 26 documents
+    mined   27 of 304 short forms  (8.9%)   in 16 of 77 documents
+
+So conforming practice dominates -- roughly nine short forms in ten do resolve --
+and the defect is concentrated: a fifth of the mined filings carry one.
+
+That both corpora show it at all, and that the mined set shows it three times as
+often, is what should be expected of them. Neither is a random sample of federal
+filings. Both are filings whose citations drew enough scrutiny to be collected,
+and a short form for a case never introduced is one of the things that draws it.
+
+**This is a finding rather than a defect in extraction.** It is deterministically
+detectable -- a short case citation that resolves to no full citation, where the
+document contains no volume-and-reporter match for it -- and it needs no model,
+no lookup and no judgement. For a tool that exists to find false citations, a
+brief quoting a page of a case it never identified is worth reporting on its own,
+before anything is verified against the reporter.
