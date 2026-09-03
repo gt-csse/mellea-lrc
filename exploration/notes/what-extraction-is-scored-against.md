@@ -93,3 +93,45 @@ suggest a model should see a retrieved case name beside the filing's rendering,
 that is a suggestion about validation's design and about when the case-name
 problem becomes tractable -- not a proposal to score extraction against a
 retrieval.
+
+## Does the wrong range cost us anything? No, and here is the mechanism
+
+`ResourceCitation.guess_edition` reads::
+
+    editions = self.exact_editions or self.variation_editions
+    if len(editions) > 1 and self.year:
+        editions = [e for e in editions if e.includes_year(self.year)]
+    if len(editions) == 1:
+        self.edition_guess = editions[0]
+
+The range is consulted **only to break a tie**. With one candidate edition it is
+never reached, which is why `807 F. Supp. 109 (1992)` keeps its edition despite
+the database claiming F. Supp. ended in 1988.
+
+Measured across both corpora:
+
+    candidate editions per citation   {1: 2607}
+    edition_guess set                 {True: 2607}
+
+Every citation has exactly one candidate, so the tie-break never runs and the
+wrong ranges cost nothing. Every `Reporter` carries its canonical name, its
+`cite_type` and its scotus flag.
+
+### The failure this would cause elsewhere, and the shape of the fix
+
+It is silent, which is the part worth knowing. If a reporter abbreviation maps
+to several editions and the database misranges the right one, the filter empties
+the list, `len(editions) == 1` fails, and `edition_guess` is left **unset** --
+so the citation loses its canonical name and cite type with no error and no
+column reporting it.
+
+The safe relaxation is a **fallback rather than a widening**: if the year filter
+leaves nothing, use the unfiltered list. That can only add an edition, never
+remove one, so it has no precision cost -- unlike the case-insensitive reporter
+matching, which is why the two get different answers.
+
+It is not built. Zero instances in 2,607 citations, and it would mean patching a
+method rather than swapping a pattern. What is built is a **column**: the matrix
+now counts `reporter with no edition`, so if this ever starts happening on
+another corpus it is visible rather than silent. That is the cheaper half of the
+answer and the one worth having first.
