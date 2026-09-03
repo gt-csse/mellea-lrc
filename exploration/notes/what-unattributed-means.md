@@ -154,3 +154,46 @@ hundred would bring it from one observation to an interval worth quoting.
 
 That is the whole annotation cost of turning a 20-fold band into a number, and
 it is why the bound is worth stating rather than the proxy.
+
+## The 154, read
+
+Each was read against the text and asked one question: does this refer to a
+court case? Recorded in `exploration/generality/scope_annotation.py`.
+
+    out of scope     97
+    in scope         49
+    uncertain         8
+
+**The out-of-scope 97 are the record, and they concentrate.** Two sanctions
+proceedings account for 61 on their own -- `( Id. )` following `(Doc. 17.)`,
+meaning counsel's response and its exhibits -- and one First Amendment brief
+runs 28 `Id.` off expert declarations and the complaint. The rest are opposition
+briefs cited as `Opp. 21`, a book the filing quotes, and `supra` pointing at the
+filing's own argument sections.
+
+**The in-scope 49 are real failures.** Short forms whose full citation is
+elsewhere in the document (`833 F.2d at 186`, `33 F.4th at 695`), `Id.` chains
+discussing a case (`Id. at *15`, `Id., 153 P.3d at 1240`), and one case
+identified only by docket, which has no reporter authority to attach to.
+
+**The 8 uncertain are kept separate rather than forced**, and they are one kind
+of hard: a case citation quoted from inside another party's brief, where whether
+the filing cites it or reproduces it is a judgement rather than a reading.
+
+## The rate
+
+    attributed occurrences                    2,487   (427 secondary)
+    unattributed and in scope                    49 to 57
+    unattributed and out of scope                97
+
+    lower   (49 + 7 misattributed) / 2,536  =  2.2%
+    upper   (57 + 38 misattributed) / 2,544  =  3.7%
+
+**2.2% to 3.7%**, against the band of 0.3% to 6.1% before the reading, and
+against the bench's 2.7%. Attribution generalises.
+
+The width that remains is not the 8 uncertain readings -- they move the answer
+by 0.3 points. It is the misattribution term, which still rests on the bench's
+single observation, and which spans 7 to 38 of the same denominator. Narrowing
+*that* is the annotation still worth doing: a hundred attributed returns read
+the way these 154 were.
