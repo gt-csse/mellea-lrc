@@ -333,3 +333,42 @@ document contains no volume-and-reporter match for it -- and it needs no model,
 no lookup and no judgement. For a tool that exists to find false citations, a
 brief quoting a page of a case it never identified is worth reporting on its own,
 before anything is verified against the reporter.
+
+## Unattributed is an outcome, not a residue
+
+The decision: leave these where they are. The tree declines to guess, and for
+most of them declining is the **right answer** -- so the job of a later stage is
+not to drive the count to zero but to confirm that each one deserves to be
+there. "Not attributable" correctly reached is a success.
+
+That changes what to measure. Not a recall number over attributions, but a
+confusion matrix over a classification: of the occurrences the tree left
+unattributed, which should have been attributed?
+
+Against the 154 read:
+
+    97   out of scope -- the record, a book, the filing's own sections
+    20   a short form for a case the filing never introduces
+     5   an `Id.` chain hanging off one of those 20
+    ---
+    122  correctly unattributed
+
+    21   an `Id.` or supra with an attributed case citation nearby
+     2   a short form whose full citation is present, in capitals
+    ---
+     23  candidates for attachment, of which 2 are an extraction gap
+
+      8  uncertain
+
+Ten of the 21 state no pin cite of their own, so nothing turns on where they
+land: an `Id.` naming no page makes no checkable claim.
+
+So the ideal result is not 154 attributions. It is **122 confirmations, about 21
+attachments, and 2 reported as a tokenizer miss** -- and the 20 reported as what
+they are, a filing quoting pages of cases it never identified.
+
+Reading it that way also makes the earlier framing wrong in a useful direction.
+The number worth quoting is not an attribution failure rate at all. It is how
+often the tree declines when it should not, and on this reading that is 23 of
+2,738 occurrences -- under 1%, and a third of that is one table row set in
+capitals.
