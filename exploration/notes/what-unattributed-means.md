@@ -64,3 +64,46 @@ recites a pleading is an allegation. Together they account for 97 of the 251.
 The paragraph signal alone is not sufficient -- some state courts number opinion
 paragraphs -- which is why it needs the document's own subject matter, and that
 is the part worth asking a model.
+
+## The 2.6% is a proxy, not a ground truth
+
+Worth saying plainly, because it is the kind of number that gets quoted.
+
+The denominator is right in principle: an `Id.` pointing at a transcript is not
+a citation this project checks, so it is out of scope and belongs outside the
+denominator rather than inside the numerator. That is the same rule the bench
+already applies to record references.
+
+But 2.6% was not measured against ground truth. It counts occurrences with a
+full case citation within 1,200 characters, which is a heuristic standing in for
+"refers to a case", and it can be wrong both ways: an `Id.` in the deepfake
+chain that happens to sit near a case is counted as a candidate failure, and one
+whose real antecedent is a case cited further back than 1,200 characters is
+excluded from the count entirely.
+
+The rate we care about is
+
+    attributions the annotation disagrees with
+    ----------------------------------------------
+    occurrences that refer to a case authority
+
+and it can only be had from an annotated corpus.
+
+## What ground truth actually says, where we have it
+
+`false-citation-bench-tree-v2.0` is annotated, and there the denominator is
+real: 255 in-scope returns, of which 61 are secondary -- 34 short forms, 15
+`Id.`, 7 party-name references and 5 dockets.
+
+    misattributions the annotation moved off the tree's answer    1 of 61
+
+Document 022's `Id. at 1072-73`, filed under Advanced Textile where the tree
+gave it Doe v. Commonwealth's Attorney. Seven further returns have no authority
+recorded, but that is the bench's limit rather than the tree's: their authority
+is identified by docket, and this bench's authority set is reporter-identified
+cases.
+
+**For the 77 mined filings there is no such number, and there cannot be one
+without annotating them.** If the association rate is going to be claimed
+anywhere, a sample of that corpus has to be read the way §5a of the citation-tree
+handoff read the bench -- occurrence by occurrence, against the text.
