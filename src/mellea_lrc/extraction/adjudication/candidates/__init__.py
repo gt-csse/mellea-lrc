@@ -13,7 +13,8 @@ all of them letterheads. See
 `exploration/notes/candidates-and-adjudication.md`.
 """
 
+from mellea_lrc.extraction.adjudication.candidates.ambiguous_editions import ambiguous_editions
 from mellea_lrc.extraction.adjudication.candidates.orphan_short_forms import orphan_short_forms
 from mellea_lrc.extraction.adjudication.candidates.uppercase_reporters import uppercase_reporters
 
-__all__ = ["orphan_short_forms", "uppercase_reporters"]
+__all__ = ["ambiguous_editions", "orphan_short_forms", "uppercase_reporters"]

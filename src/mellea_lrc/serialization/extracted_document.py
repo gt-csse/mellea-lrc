@@ -171,6 +171,10 @@ def _deserialize_reporter(payload: Mapping[str, object]) -> Reporter:
         name=_optional_string(payload.get("name"), name="citation.reporter.name"),
         cite_type=_optional_string(payload.get("cite_type"), name="citation.reporter.cite_type"),
         is_scotus=bool(is_scotus),
+        editions=tuple(
+            _required_string(value, name="citation.reporter.editions")
+            for value in require_list(payload.get("editions", []), name="citation.reporter.editions")
+        ),
     )
 
 

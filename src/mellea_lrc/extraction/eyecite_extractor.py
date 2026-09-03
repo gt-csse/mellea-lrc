@@ -76,21 +76,40 @@ EYECITE_CITATION_TYPES = frozenset(
 def _reporter(citation: CitationBase) -> Reporter | None:
     """The reporter this citation names, with what reporters-db knows about it.
 
-    `corrected_reporter` and `edition_guess` are eyecite's, and this project
-    used to discard both and keep the raw spelling -- so two spellings of one
-    reporter compared as two reporters.
+    The edition is taken only when the abbreviation names exactly one. eyecite
+    would break a tie by year, which fails in both directions -- see
+    :class:`~mellea_lrc.core.citations.Reporter` -- so an ambiguous abbreviation
+    is recorded as ambiguous and left for a reviewer.
     """
     as_written = citation.groups.get("reporter")
     if not as_written:
         return None
-    edition = getattr(citation, "edition_guess", None)
-    reporter = getattr(edition, "reporter", None)
+    candidates = list(getattr(citation, "exact_editions", ()) or getattr(citation, "variation_editions", ()))
+    reporters = [getattr(edition, "reporter", None) for edition in candidates]
+    names = tuple(getattr(reporter, "name", "") or "" for reporter in reporters)
+
+    def agreed(attribute: str, default: object) -> object:
+        """The value every candidate gives, or the default when they differ."""
+        values = {getattr(reporter, attribute, None) for reporter in reporters if reporter}
+        return values.pop() if len(values) == 1 else default
+
+    if len(candidates) == 1:
+        edition, reporter = candidates[0], reporters[0]
+        return Reporter(
+            as_written=as_written,
+            short_name=edition.short_name,
+            name=getattr(reporter, "name", None),
+            cite_type=getattr(reporter, "cite_type", None),
+            is_scotus=bool(getattr(reporter, "is_scotus", False)),
+            editions=names,
+        )
     return Reporter(
         as_written=as_written,
-        short_name=citation.corrected_reporter(),
-        name=getattr(reporter, "name", None),
-        cite_type=getattr(reporter, "cite_type", None),
-        is_scotus=bool(getattr(reporter, "is_scotus", False)),
+        short_name=None,
+        name=None,
+        cite_type=agreed("cite_type", None),
+        is_scotus=bool(agreed("is_scotus", False)),
+        editions=names,
     )
 
 

@@ -102,3 +102,24 @@ def test_a_generator_decides_nothing() -> None:
     assert candidate.generator == "uppercase_reporters"
     assert candidate.window.start <= candidate.span.start
     assert candidate.window.end >= candidate.span.end
+
+
+def test_an_ambiguous_reporter_is_proposed() -> None:
+    """Extraction records the ambiguity; this layer asks someone to settle it."""
+    from mellea_lrc.extraction.adjudication.candidates import ambiguous_editions
+
+    text = "Marbury v. Madison, 5 Cranch 137 (1803), established judicial review."
+    document = _extract(text)
+    candidates = list(ambiguous_editions(document))
+
+    assert len(candidates) == 1
+    assert candidates[0].kind is CandidateKind.EDITION
+    assert "Cranch" in candidates[0].note
+
+
+def test_an_unambiguous_reporter_is_not_proposed() -> None:
+    from mellea_lrc.extraction.adjudication.candidates import ambiguous_editions
+
+    document = _extract("Doe v. Roe, 695 F.Supp.2d 1149 (D. Colo. 2010).")
+
+    assert list(ambiguous_editions(document)) == []

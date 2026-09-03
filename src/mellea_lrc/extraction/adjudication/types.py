@@ -25,6 +25,13 @@ class CandidateKind(str, Enum):
     DOCKET = "docket"
     """A docket number naming a case."""
 
+    EDITION = "edition"
+    """A reporter abbreviation naming more than one reporter.
+
+    Not a missing citation. The citation was read; which reporter it names is
+    what nobody can settle from the page alone.
+    """
+
     ORPHAN_SHORT_FORM = "orphan_short_form"
     """A short form for a case the filing never gives in full.
 

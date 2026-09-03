@@ -67,3 +67,43 @@ def test_the_reporter_reads_back_as_the_document_wrote_it() -> None:
     citation = _first("Doe v. Roe, 695 F.Supp.2d 1149 (D. Colo. 2010).")
 
     assert str(citation.reporter) == "F.Supp.2d"
+
+
+def test_an_ambiguous_abbreviation_is_left_undecided() -> None:
+    """`5 Cranch 137` is United States Reports and also District of Columbia.
+
+    eyecite breaks that tie by year, which fails both ways on this one reporter:
+    Marbury's 1803 is inside both ranges and yields no edition at all, while a
+    year inside only one yields a confident answer naming the wrong court.
+    """
+    citation = _first("Marbury v. Madison, 5 Cranch 137 (1803).")
+
+    assert citation.reporter.short_name is None
+    assert len(citation.reporter.editions) == 2
+    assert citation.reporter.canonical == "Cranch"
+
+
+def test_the_tie_is_not_broken_by_the_year() -> None:
+    """A year inside only one range must not decide it either."""
+    inside_both = _first("Marbury v. Madison, 5 Cranch 137 (1803).")
+    inside_one = _first("Doe v. Roe, 5 Cranch 137 (1830).")
+
+    assert inside_both.reporter.editions == inside_one.reporter.editions
+    assert inside_one.reporter.short_name is None
+
+
+def test_what_the_candidates_agree_on_is_still_recorded() -> None:
+    """Undecided is not the same as unknown: agreement survives, difference does not."""
+    citation = _first("Marbury v. Madison, 5 Cranch 137 (1803).")
+
+    # The two Cranch reporters are different courts, so neither is asserted.
+    assert citation.reporter.cite_type is None
+    assert citation.reporter.is_scotus is False
+
+
+def test_an_unambiguous_reporter_keeps_everything() -> None:
+    citation = _first("Doe v. Roe, 695 F.Supp.2d 1149 (D. Colo. 2010).")
+
+    assert citation.reporter.short_name == "F. Supp. 2d"
+    assert citation.reporter.cite_type == "federal"
+    assert citation.reporter.editions == ("Federal Supplement",)
