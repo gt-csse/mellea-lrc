@@ -21,7 +21,7 @@ from pathlib import Path
 
 from exploration.locator_recall.fuzzy_sites import body
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
-from mellea_lrc.extraction.citation_tree import build_citation_tree
+from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 
 SECONDARY = frozenset({"ShortCaseCitation", "SupraCitation", "IdCitation", "ReferenceCitation"})
 CONTEXT = 110

@@ -9,7 +9,7 @@ of justified text leaves doubled spaces, so a reference vanishes:
     'Bell at 546.'          single    matches
 
 This is the same defect the reporter joins had, in a place the existing
-relaxation does not reach: `mellea_lrc.extraction.relaxation` rebuilds the
+relaxation does not reach: `mellea_lrc.extraction.reading.relaxation` rebuilds the
 reporter *extractors*, while reference extraction runs later in `find.py`
 against a regex the tokenizer never sees.
 
@@ -41,7 +41,7 @@ import eyecite.regexes
 
 from exploration.locator_recall.fuzzy_sites import body
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
-from mellea_lrc.extraction.citation_tree import build_citation_tree
+from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 
 HORIZONTAL_OPTIONAL = r"[^\S\r\n]*"
 HORIZONTAL_REQUIRED = r"[^\S\r\n]+"

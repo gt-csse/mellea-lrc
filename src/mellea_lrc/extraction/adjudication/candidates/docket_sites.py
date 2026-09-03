@@ -18,7 +18,7 @@ Court strings are recognised from ``courts-db``, the same database
 CourtListener uses, rather than a hand-written pattern. That yields the court's
 identifier and full name, which downstream can use as a cue instead of guessing
 what a given abbreviation means. The index lives in
-:mod:`mellea_lrc.extraction.dockets`, which reads dockets deterministically;
+:mod:`mellea_lrc.extraction.reading.dockets`, which reads dockets deterministically;
 this module and that one must agree about what a court is, or a site the
 extractor declined would be offered to a model with a different set of
 candidates.
@@ -36,7 +36,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from mellea_lrc.extraction.dockets import CourtCandidate, courts_near
+from mellea_lrc.extraction.reading.dockets import CourtCandidate, courts_near
 
 if TYPE_CHECKING:
     from mellea_lrc.extraction.types import ExtractedDocument

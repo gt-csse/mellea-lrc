@@ -7,7 +7,7 @@ real briefs, and the fallback fails by answering rather than by declining.
 
 from __future__ import annotations
 
-from mellea_lrc.extraction.courts import resolve_court
+from mellea_lrc.extraction.reading.courts import resolve_court
 
 
 def test_the_bluebook_ordinal_resolves() -> None:

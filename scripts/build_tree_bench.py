@@ -66,7 +66,7 @@ from typing import TYPE_CHECKING
 
 from mellea_lrc.core.citations import CitationKind, FullCaseCitation
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
-from mellea_lrc.extraction.citation_tree import build_citation_tree
+from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 from mellea_lrc.extraction.types import ExtractedCitation
 
 if TYPE_CHECKING:

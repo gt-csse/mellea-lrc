@@ -22,7 +22,7 @@ from pathlib import Path
 
 from exploration.generality.survey import MINED, body
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
-from mellea_lrc.extraction.citation_tree import build_citation_tree
+from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 
 RECORD_EVIDENCE = re.compile(r"\d+\s*:\s*\d+|¶")
 BEFORE, AFTER = 150, 40

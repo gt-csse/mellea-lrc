@@ -37,7 +37,7 @@ from exploration.generality.survey import BENCH, MINED, body
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.adjudication import suspected_locators
-from mellea_lrc.extraction.citation_tree import build_citation_tree
+from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 
 # A letterhead, not a citation: `Corrales, NM 87048 (505) 220-5691`.
 CONTACT = re.compile(r"\b\d{5}(?:-\d{4})?\b|\(?\d{3}\)?[ -]\d{3}-\d{4}|@|https?://|www\.")

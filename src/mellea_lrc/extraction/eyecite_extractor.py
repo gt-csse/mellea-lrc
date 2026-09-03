@@ -51,11 +51,11 @@ from mellea_lrc.core.citations import (
     UnknownCitation,
 )
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.colocation import assign_colocation
-from mellea_lrc.extraction.dockets import DOCKET_GROUP, with_dockets
-from mellea_lrc.extraction.pin_cites import relaxed_pin_cites
-from mellea_lrc.extraction.post_citation import reread_post_citation
-from mellea_lrc.extraction.relaxation import Relaxation, tokenizer_for
+from mellea_lrc.extraction.reading.dockets import DOCKET_GROUP, with_dockets
+from mellea_lrc.extraction.reading.pin_cites import relaxed_pin_cites
+from mellea_lrc.extraction.reading.post_citation import reread_post_citation
+from mellea_lrc.extraction.reading.relaxation import Relaxation, tokenizer_for
+from mellea_lrc.extraction.structure.colocation import assign_colocation
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.preprocessing.types import PreprocessedDocument
@@ -286,7 +286,7 @@ def _extract_from_text(
     # same literal single space breaks both, and losing a pin cite loses the
     # page a filing argues from. NONE is left strict so it stays eyecite exactly
     # as published, which is what the evaluation baseline means by the name.
-    # See :mod:`mellea_lrc.extraction.pin_cites`.
+    # See :mod:`mellea_lrc.extraction.reading.pin_cites`.
     with contextlib.ExitStack() as stack:
         if relaxation is not Relaxation.NONE:
             stack.enter_context(relaxed_pin_cites())
@@ -337,7 +337,7 @@ def extract_from_plain_text(
     can map results straight back onto it.
 
     ``relaxation`` chooses how much separator damage a citation may carry and
-    still be found; see :class:`~mellea_lrc.extraction.relaxation.Relaxation`.
+    still be found; see :class:`~mellea_lrc.extraction.reading.relaxation.Relaxation`.
     """
     preprocessed = preprocess(text)
     return _extract_from_text(preprocessed, relaxation=relaxation)

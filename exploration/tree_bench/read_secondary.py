@@ -17,7 +17,7 @@ from pathlib import Path
 from exploration.tree_bench.census import DOCS, body
 from mellea_lrc.core.citations import CitationKind
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
-from mellea_lrc.extraction.citation_tree import build_citation_tree
+from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 
 SECONDARY = {CitationKind.SHORT_CASE, CitationKind.ID, CitationKind.SUPRA, CitationKind.REFERENCE}
 BEFORE, AFTER = 180, 90

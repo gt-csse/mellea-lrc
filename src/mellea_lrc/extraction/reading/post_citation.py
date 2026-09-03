@@ -27,7 +27,7 @@ comma-separated run with a single date at the end::
 ``390 U.S. 727`` *has* to read across the other two to find 1968, and 30
 citations here do exactly that. So the scan stops at the next citation **that is
 not co-located with this one** -- co-located meaning another identifier for the
-same place in the text, which :mod:`mellea_lrc.extraction.colocation` reports.
+same place in the text, which :mod:`mellea_lrc.extraction.structure.colocation` reports.
 
 Measured over the corpus, that boundary gives::
 
@@ -59,8 +59,8 @@ from eyecite.helpers import MAX_MATCH_CHARS
 
 from mellea_lrc.core.citations import CitationDate, FullCaseCitation
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.courts import resolve_court
-from mellea_lrc.extraction.pin_cites import relax
+from mellea_lrc.extraction.reading.courts import resolve_court
+from mellea_lrc.extraction.reading.pin_cites import relax
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

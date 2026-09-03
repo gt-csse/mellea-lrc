@@ -27,7 +27,7 @@ from eyecite.helpers import MAX_MATCH_CHARS, get_court_by_paren
 from exploration.court_and_date.survey_missing import DOCS, body
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
-from mellea_lrc.extraction.pin_cites import relax
+from mellea_lrc.extraction.reading.pin_cites import relax
 from mellea_lrc.extraction.types import ExtractedCitation
 
 # The same pattern eyecite matches after a citation, widened the way extraction
