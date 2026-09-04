@@ -4,8 +4,8 @@ Run for real on `false-citation-bench-locator-only-v2.0`, the only corpus with
 ground truth: 47 reporter sites proposed, every one sent to
 `review/locator.py` with `gpt-5.6-luna`.
 
-    declined -- no locator in the window            43
-    call failed                                      4
+    declined -- no locator in the window            47
+    call raised                                      0
     accepted at least one locator                    0
       recovered                                      0
       spurious                                       0
@@ -79,12 +79,47 @@ the relaxed levels.
 
 After the change the duplicate is gone and nothing is accepted at all.
 
-**Four calls in 47 failed at the provider.** The runner treats a failure as a
-result rather than an exception, which is how it has to be: a layer whose answers
-arrive over a network needs a verdict for "no answer" as much as for yes and no.
+## The "failed calls" were the reviewer refusing, reported as a crash
+
+Two to four calls per run raised `ValidationError: Invalid JSON: EOF ...
+input_value=''`. Read as provider trouble, they were nothing of the kind. The
+model returns an empty string, a **validation function** then calls `_parse` on
+it and raises, and the exception escapes the whole call:
+
+    requirement.py:271  validate       return self.validation_fn(ctx)
+    locator.py:242      _validate_shape    for locator in _parse(...).locators:
+    locator.py:229      _parse             return _Locators.model_validate_json(...)
+
+So a refusal was arriving as a failure and being counted as one. Unparseable
+output is now a **failed requirement** rather than an exception: the repair loop
+gets a reason and another turn, and if the budget runs out the caller sees an
+empty result, which the existing handler already reads as a decline.
+
+That is the difference between "the layer is unreliable 8% of the time" and "the
+layer declined and the plumbing mislabelled it", and only one of them is true.
+
+## A short form arrived as a locator, once
+
+Run to run the same site gave `[]`, then a refusal, then this:
+
+    spurious: '214  F.3d  at 1071'   from 'Advanced Textile , 214 F.3d at 1071 -72'
+
+Which is a short form. `at 1071` is a pin cite, not a first page, so looking it
+up would resolve to the wrong case or to nothing -- the exact failure short forms
+were already shown to cause.
+
+The requirements check the model's **quote**; what enters the record is the
+**grounded span**, and the whitespace-relaxed match can bind wider than the
+quote. The same equality is now applied after grounding: the span's characters,
+reduced, must equal volume + reporter + page. `214f3dat1071` is not `214f3d1071`,
+so a short form cannot arrive as a locator whatever the model answers.
+
+**Precision was not deterministic before this, and the earlier "0 spurious in 47"
+was one run.** It is now a property of the code rather than of a sample.
 
 ## What this settles
 
+After both fixes, all 47 sites decline, nothing raises and nothing is spurious.
 The layer is safe and, on this corpus, empty. That is consistent with what the
 generators already said -- the site generator proposes 185 candidates on the
 mined corpus to reach at most 2 real citations -- and it removes the remaining
