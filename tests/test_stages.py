@@ -26,7 +26,7 @@ def _citations(text: str):
 
 
 def test_the_sequence_is_the_one_the_docstring_describes() -> None:
-    assert [stage.name for stage in STAGES] == ["colocation", "post_citation"]
+    assert [stage.name for stage in STAGES] == ["colocation", "post_citation", "authority"]
 
 
 def test_every_stage_says_why_it_runs_where_it_does() -> None:
@@ -75,3 +75,22 @@ def test_refine_runs_every_stage() -> None:
         stepped = stage.run(_PARALLEL, stepped)
 
     assert refine(_PARALLEL, raw) == stepped
+
+
+def test_the_authority_is_written_onto_every_citation_that_has_one() -> None:
+    """The chain's answer, recorded rather than left to be recomputed."""
+    text = "Doe v. Megless, 654 F.3d 404, 408 (3d Cir. 2011). Id. at 409."
+    citations = _citations(text)
+    full = next(c for c in citations if isinstance(c.citation, FullCaseCitation))
+    reference = next(c for c in citations if c.citation.kind.value == "IdCitation")
+
+    assert full.authority_id == full.citation_id
+    assert reference.authority_id == full.citation_id
+
+
+def test_a_reference_with_no_authority_keeps_none() -> None:
+    """Not attributed is an answer, and the field says so rather than guessing."""
+    citations = _citations("The rule is settled. Id. at 409.")
+    reference = next(c for c in citations if c.citation.kind.value == "IdCitation")
+
+    assert reference.authority_id is None

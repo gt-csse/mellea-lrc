@@ -66,7 +66,7 @@ is, in case citations, one.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from mellea_lrc.core.citations import (
@@ -171,6 +171,27 @@ class CitationTree:
         for a second proposition, which is most of the time.
         """
         return sum(len(authority.pin_cites) for authority in self.authorities)
+
+
+def assign_authority(citations: Sequence[ExtractedCitation]) -> tuple[ExtractedCitation, ...]:
+    """Return the citations, each carrying the authority it refers to.
+
+    The same resolution `build_citation_tree` performs, written onto the
+    citations so the answer survives serialization and so a consumer need not
+    rebuild the chain. A citation the resolution cannot place keeps `None`,
+    which is the tree's answer too.
+    """
+    by_id = {item.citation_id: item for item in citations}
+    assigned: dict[str, str | None] = {}
+    for item in citations:
+        root_id, _ = _resolve_root(item, by_id)
+        root = by_id.get(root_id) if root_id else None
+        placed = root is not None and isinstance(root.citation, _AUTHORITY_KINDS)
+        assigned[item.citation_id] = root_id if placed else None
+    return tuple(
+        replace(item, authority_id=assigned[item.citation_id]) if assigned[item.citation_id] else item
+        for item in citations
+    )
 
 
 def build_citation_tree(document: ExtractedDocument) -> CitationTree:
