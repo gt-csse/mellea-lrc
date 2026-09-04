@@ -47,6 +47,23 @@ class ExtractedCitation:
     matched_text: str
     citation: CanonicalCitation
     resolves_to: str | None = None
+    authority_id: str | None = None
+    """The citation that introduced the authority this one refers to.
+
+    An authority is cited once in full and returned to as `Id. at 570`,
+    `550 U.S. at 563` or by party name, and each return is its own claim about
+    its own page. This carries which authority, so a consumer does not have to
+    rebuild the chain -- and so a corrected attribution survives, which a chain
+    of `resolves_to` cannot express: document 022's `Id. at 1072-73` belongs to
+    Advanced Textile because a reader said so, not because anything points there.
+
+    `None` means **not attributed**, which is a real answer and usually the right
+    one. Why it is absent -- the reference is to the record rather than to a
+    case, or the chain reached nothing -- is
+    :mod:`~mellea_lrc.extraction.structure.citation_tree`'s to explain, exactly
+    as `colocation.py` explains why an id is shared.
+    """
+
     colocation_id: str | None = None
     """Shared by citations occupying the same place in the text.
 

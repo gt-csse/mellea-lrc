@@ -10,7 +10,7 @@ So the order is a named sequence rather than a line of nested calls. Each stage
 carries the reason it sits where it does, and a test asserts the constraints
 those reasons state.
 
-## The constraint that exists today
+## The constraints that exist today
 
 ``colocation`` before ``post_citation``. Co-location is decided from the spans
 eyecite produced. The post-citation re-read then bounds each citation's search
@@ -19,6 +19,11 @@ because a parallel citation is one decision in several reporters and its first
 member has to read across the others to reach the single date at the end. Run
 the re-read first and there are no co-location ids to bound it with, so 30
 parallel citations lose the year they legitimately reach for.
+
+``authority`` last, though not because anything forces it. It reads
+``resolves_to``, which no earlier stage writes or changes, so its position is a
+choice: running it after the spans and dates are settled means the citations it
+writes onto are final.
 
 ## What is not a stage
 
@@ -35,6 +40,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from mellea_lrc.extraction.reading.post_citation import reread_post_citation
+from mellea_lrc.extraction.structure.citation_tree import assign_authority
 from mellea_lrc.extraction.structure.colocation import assign_colocation
 
 if TYPE_CHECKING:
@@ -60,6 +66,12 @@ def _colocation(text: str, citations: Sequence[ExtractedCitation]) -> tuple[Extr
 def _post_citation(text: str, citations: Sequence[ExtractedCitation]) -> tuple[ExtractedCitation, ...]:
     """Re-read each case citation's court and date inside its own boundary."""
     return reread_post_citation(text, citations)
+
+
+def _authority(text: str, citations: Sequence[ExtractedCitation]) -> tuple[ExtractedCitation, ...]:
+    """Write onto each citation the authority it refers to. Does not read the text."""
+    del text
+    return assign_authority(citations)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +100,15 @@ STAGES: tuple[Stage, ...] = (
             "Needs co-location ids: a citation may read past a co-located neighbour for "
             "the single date a parallel citation puts at the end, and must stop at any "
             "other citation. It also trims spans, so it runs after anything reading them."
+        ),
+    ),
+    Stage(
+        name="authority",
+        run=_authority,
+        why=(
+            "Last, and only because there is no reason to be earlier: it reads "
+            "`resolves_to`, which nothing before it touches. Running it after the spans "
+            "and dates are settled keeps the citations it writes onto final."
         ),
     ),
 )
