@@ -338,6 +338,38 @@ def _validate_parts(ctx: Context) -> ValidationResult:
     return ValidationResult(result=True)
 
 
+# `at`, `p.` and `page` are how a short form writes its pin cite. None belongs
+# inside a locator, and no reporter carries one as a whole word.
+_PIN_CITE_MARKER = re.compile(r"\b(?:at|p|page)\b\.?", re.IGNORECASE)
+
+
+def _grounded_more_than_a_locator(text: str, locator: _Locator) -> bool:
+    """Whether the span that would enter the record holds more than the locator.
+
+    The requirements check the model's **quote**; what is recorded is the
+    **grounded span**, and the whitespace-relaxed match binds to real characters
+    in the window, so the two can differ. `214 F.3d at 1071` arrived that way
+    once -- a short form, whose `at 1071` is a pin cite and not a first page, and
+    which would resolve to the wrong case or to none.
+
+    Two things are refused. A pin-cite marker in the span is a short form. A
+    span whose characters do not *count* the same as the three parts has gained
+    or lost something, which an insertion does and a substitution does not.
+
+    The second condition is written to admit a substitution -- `833 F.2d l83`
+    reported as page 183 -- but nothing reaches here to be admitted, because
+    `_validate_parts` requires the quote to reduce exactly to the parts and a
+    letter-for-digit repair breaks that equality upstream. Recovering OCR damage
+    inside a number would mean relaxing *that* rule, which is the rule stopping
+    invention, so it is a decision and not an oversight. See
+    `exploration/notes/what-the-layer-cannot-repair.md`.
+    """
+    if _PIN_CITE_MARKER.search(text):
+        return True
+    parts = _identifier(locator.volume) + _identifier(locator.reporter) + _identifier(locator.page)
+    return len(_identifier(text)) != len(parts)
+
+
 def _validate_grounding(ctx: Context, window: str) -> ValidationResult:
     """Require every quoted locator to be findable verbatim in the window.
 
@@ -494,14 +526,7 @@ async def adjudicate_locator(
         if grounded is None:
             continue
         span, text, method = grounded
-        # The grounded span is what enters the record, and it can be wider than
-        # the quote the requirements checked: the whitespace-relaxed match binds
-        # to real characters in the window. Applying the same equality here
-        # closes that gap -- `214 F.3d at 1071` reduces to more than
-        # volume+reporter+page, so a short form cannot arrive as a locator.
-        if _identifier(text) != _identifier(locator.volume) + _identifier(locator.reporter) + _identifier(
-            locator.page
-        ):
+        if _grounded_more_than_a_locator(text, locator):
             continue
         if (span.start, span.end) in seen:
             continue
