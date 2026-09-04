@@ -5,9 +5,8 @@ ground truth: 47 reporter sites proposed, every one sent to
 `review/locator.py` with `gpt-5.6-luna`.
 
     declined -- no locator in the window            43
-    call failed                                      3
-    accepted at least one locator                    1
-      already extracted                              1
+    call failed                                      4
+    accepted at least one locator                    0
       recovered                                      0
       spurious                                       0
 
@@ -53,15 +52,34 @@ will be by the stranded-parts reconstruction already written in
 `scripts/build_locator_bench.py`, which works on table structure and not on
 meaning.
 
-## Two smaller findings
+## The window now hides what has already been read
 
-**The one acceptance was not a mistake.** It landed on a citation extraction had
-already found. The site generator masks extracted spans, but the reviewer's
-window extends 170 characters past the site into unmasked text, so a neighbouring
-citation is visible and quoting it is correct behaviour. Harmless, and worth
-knowing before someone reads a duplicate as a bug.
+The first run accepted one locator, and it was a citation extraction had already
+found. Not a hallucination -- the reviewer's window ran 170 characters past the
+site into text that was never masked, so a neighbouring citation was simply
+there to be quoted.
 
-**Three calls in 47 failed at the provider.** The runner treats a failure as a
+The window is now built from the masked copy, and the choice of mask matters
+more than it looks:
+
+    full-span mask : '                                                    ...'
+    locator mask   : 'Norton v. Shelby County,             , 442 (1886). Doe v. Colgate Univ. , 2016 WL1448829, ...'
+
+**Blanking full spans would hide the candidates.** A full span covers text that
+is not a citation, and at `Relaxation.NONE` one span reaches across a whole
+sentence -- in the example above it swallows the unread `2016 WL1448829` that a
+reviewer exists to find. Blanking **locators** is enough for the purpose: a
+locator quote needs a volume, a reporter and a page, and with those characters
+gone a neighbour cannot be quoted, while everything unread stays visible.
+
+Hit detection keeps the full-span mask, which is a different job -- not flagging
+a reporter that sits inside a citation's party name or court parenthetical --
+and is safe there because the court-and-date boundary keeps full spans tight at
+the relaxed levels.
+
+After the change the duplicate is gone and nothing is accepted at all.
+
+**Four calls in 47 failed at the provider.** The runner treats a failure as a
 result rather than an exception, which is how it has to be: a layer whose answers
 arrive over a network needs a verdict for "no answer" as much as for yes and no.
 

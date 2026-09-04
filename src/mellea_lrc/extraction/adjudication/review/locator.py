@@ -379,15 +379,32 @@ def _ground(window: str, collapsed: str, offset: int, quote: str) -> tuple[Span,
 
 
 async def adjudicate_locator(
-    document_text: str,
+    masked_text: str,
     site: SuspectedLocator,
     *,
     session: MelleaSession | None = None,
     context: int = 170,
 ) -> tuple[AdjudicatedLocator, ...]:
-    """Return every locator the model finds in one suspected site's window."""
+    """Return every locator the model finds in one suspected site's window.
+
+    ``masked_text`` is the document with every already-extracted **locator**
+    blanked by
+    :func:`~mellea_lrc.extraction.adjudication.masking.mask_locator_spans`, which
+    preserves every offset, so the spans returned here still index the original.
+
+    Masked because the question is about *this* site and nothing else. A reviewer
+    shown a neighbouring citation quotes it and returns a locator the record
+    already holds, which is what happened when this was run against the bench.
+    Blanking the locator is enough: a quote must carry a volume, a reporter and a
+    page, and those characters are gone. Grounding is checked against the same
+    window, so a masked citation cannot be quoted even if the model recalls it.
+
+    Locators rather than full spans, because a full span covers text that is not
+    a citation -- at `Relaxation.NONE` one span can reach across a whole sentence
+    -- and blanking it would hide the very candidates this layer exists to
+    find."""
     offset = max(0, site.span_start - context)
-    window = document_text[offset : site.span_end + context // 2]
+    window = masked_text[offset : site.span_end + context // 2]
     collapsed = _REPEATED_INLINE_WHITESPACE.sub(" ", window)
 
     resolved_session = session or start_mellea_session_from_env()

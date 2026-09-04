@@ -39,7 +39,11 @@ from pathlib import Path
 from evaluations.extraction.matrix import BENCH, BENCH_TRUTH, body
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
-from mellea_lrc.extraction.adjudication import adjudicate_locator, suspected_locators
+from mellea_lrc.extraction.adjudication import (
+    adjudicate_locator,
+    mask_locator_spans,
+    suspected_locators,
+)
 from mellea_lrc.extraction.adjudication.candidates import orphan_short_forms, uppercase_reporters
 from mellea_lrc.llm import start_mellea_session_from_env
 
@@ -98,7 +102,10 @@ async def main_async(limit: int | None) -> int:
         proposals["reporter sites"] += len(sites)
         proposals["uppercase reporters"] += len(list(uppercase_reporters(document)))
         proposals["orphan short forms"] += len(list(orphan_short_forms(document)))
-        jobs.extend((path.name, text, site) for site in sites)
+        # The reviewer sees every other citation blanked, so it cannot quote
+        # one the record already holds.
+        masked = mask_locator_spans(document)
+        jobs.extend((path.name, masked, site) for site in sites)
 
     if limit:
         jobs = jobs[:limit]
