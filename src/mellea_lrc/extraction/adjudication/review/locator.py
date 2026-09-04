@@ -237,9 +237,36 @@ def _validate_schema(ctx: Context) -> ValidationResult:
     return ValidationResult(result=True)
 
 
+_UNPARSEABLE = ValidationResult(
+    result=False,
+    reason=(
+        "Return a JSON object with a `locators` list, and an empty list when the window "
+        "holds no complete locator. An empty response is not an answer."
+    ),
+)
+
+
+def _proposed(ctx: Context) -> tuple[_Locators | None, ValidationResult | None]:
+    """The parsed sample, or the failure to report when there is not one.
+
+    A validator that raises takes the whole call down with it, and the model
+    does sometimes return an empty string -- which is how a refusal arrived as
+    a crash and was counted as a provider failure. Unparseable output is a
+    failed requirement: the repair loop gets a reason and another turn, and if
+    the budget runs out the caller sees an empty result, which is a decline.
+    """
+    try:
+        return _parse(ctx.last_output().value), None
+    except ValidationError:
+        return None, _UNPARSEABLE
+
+
 def _validate_shape(ctx: Context) -> ValidationResult:
     """Reject shapes a locator cannot have, naming the one that failed."""
-    for locator in _parse(ctx.last_output().value).locators:
+    proposed, failure = _proposed(ctx)
+    if failure is not None:
+        return failure
+    for locator in proposed.locators:
         if implausible_locator(locator.text):
             return ValidationResult(
                 result=False,
@@ -272,7 +299,10 @@ def _validate_parts(ctx: Context) -> ValidationResult:
     916" reduce to the same characters, so the model may repair the parts while
     quoting the damage verbatim -- which is exactly what it is asked to do.
     """
-    for locator in _parse(ctx.last_output().value).locators:
+    proposed, failure = _proposed(ctx)
+    if failure is not None:
+        return failure
+    for locator in proposed.locators:
         missing = [
             name
             for name, value in (
@@ -316,7 +346,10 @@ def _validate_grounding(ctx: Context, window: str) -> ValidationResult:
     answering "2016 WL 1448829" for a window reading "2016 WL1448829" -- and it
     can only correct that if told which quote failed to resolve.
     """
-    for locator in _parse(ctx.last_output().value).locators:
+    proposed, failure = _proposed(ctx)
+    if failure is not None:
+        return failure
+    for locator in proposed.locators:
         if _locate(window, locator.text) is None:
             return ValidationResult(
                 result=False,
@@ -461,6 +494,15 @@ async def adjudicate_locator(
         if grounded is None:
             continue
         span, text, method = grounded
+        # The grounded span is what enters the record, and it can be wider than
+        # the quote the requirements checked: the whitespace-relaxed match binds
+        # to real characters in the window. Applying the same equality here
+        # closes that gap -- `214 F.3d at 1071` reduces to more than
+        # volume+reporter+page, so a short form cannot arrive as a locator.
+        if _identifier(text) != _identifier(locator.volume) + _identifier(locator.reporter) + _identifier(
+            locator.page
+        ):
+            continue
         if (span.start, span.end) in seen:
             continue
         seen.add((span.start, span.end))

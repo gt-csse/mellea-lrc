@@ -118,10 +118,11 @@ async def main_async(limit: int | None) -> int:
     )
 
     counts: Counter = Counter()
-    recovered, spurious = [], []
+    recovered, spurious, failures = [], [], []
     for name, site, outcome in results:
         if isinstance(outcome, Exception):
-            counts["call failed"] += 1
+            counts["call raised"] += 1
+            failures.append((name[:12], site.reporter, type(outcome).__name__, str(outcome)[:300]))
             continue
         if not outcome:
             counts["declined -- no locator in the window"] += 1
@@ -153,6 +154,10 @@ async def main_async(limit: int | None) -> int:
     for name, start, end in missed:
         print(f"    {name[:14]} [{start}:{end}] {texts[name][start:end]!r}")
     print(f"\nrecovered: {recovered}")
+    if failures:
+        print("\nevery failed call:")
+        for row in failures:
+            print(f"    {row[0]:<14}{row[1]!r:<12}{row[2]}: {row[3]}")
     print("\nspurious, all of them:")
     for row in spurious:
         print(f"    {row[0]:<14}{row[1]!r:<28}{row[2][:74]!r}")
