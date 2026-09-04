@@ -96,10 +96,25 @@ _WITHIN_BLOCK = r"[^\S\r\n]*(?:\r?\n[^\S\r\n]*)?"
 # alternation-shaped groups, where lifting a trailing ``\s*`` out of the group
 # body by string surgery cannot cover every branch.
 def _joins(relaxation: Relaxation) -> tuple[tuple[str, str], ...]:
-    """The two substitutions that relax a generated reporter pattern."""
+    """The substitutions that relax a generated reporter pattern.
+
+    Three, because eyecite generates two shapes from the same source. A full
+    citation joins reporter to page directly; a short citation puts `at` between
+    them, and `short_cite_re` builds it by rewriting the page group -- so the
+    full citation's join no longer appears in it and the substitution for it
+    silently does nothing. That left `367  P.3d  at  74` unread while
+    `367 P.3d at 74` parsed, and 23 of the 184 candidate sites on the mined
+    corpus were short forms lost exactly that way.
+    """
     page_gap = _ACROSS_BLOCKS if relaxation is Relaxation.FULL else _WITHIN_BLOCK
     return (
         (r") (?P<reporter>", rf"){_ACROSS_BLOCKS}(?P<reporter>"),
+        # The short citation, matched before the full one so the shared prefix
+        # `),? ` is still intact when this runs.
+        (
+            r"),? at\s?(p(\.|age)?)? (?P<page>",
+            rf")(?<!\s),?{_ACROSS_BLOCKS}at{_ACROSS_BLOCKS}(p(\.|age)?)?{page_gap}(?P<page>",
+        ),
         (r"),? (?P<page>", rf")(?<!\s),?{page_gap}(?P<page>"),
     )
 

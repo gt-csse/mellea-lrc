@@ -24,7 +24,7 @@ import io
 
 import pytest
 
-from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.core.citations import FullCaseCitation, ShortCaseCitation
 from mellea_lrc.extraction import ExtractedDocument, Relaxation, extract_from_plain_text
 
 
@@ -268,3 +268,29 @@ def test_the_default_is_bounded() -> None:
     """The shipped setting, asserted so a change to it is a deliberate edit."""
     document = extract_from_plain_text("Norton v. Shelby County, 118 U.S. 425 (1886)")
     assert document.extraction_metadata.relaxation is Relaxation.BOUNDED
+
+
+@pytest.mark.parametrize("relaxation", [Relaxation.BOUNDED, Relaxation.FULL])
+def test_a_short_form_is_read_through_doubled_spaces(relaxation: Relaxation) -> None:
+    """`short_cite_re` rewrites the page group, so the full citation's join misses it.
+
+    eyecite builds a short citation by turning `(?P<page>` into
+    `at\\s?(p(\\.|age)?)? (?P<page>`, which leaves a literal space between the
+    reporter and `at` that the reporter-to-page substitution no longer matches.
+    `367  P.3d  at  74` was unread while `367 P.3d at 74` parsed.
+    """
+    citations = _extract("See Watkins ,  367  P.3d  at  74 -75.", relaxation).citations
+    short = [c for c in citations if isinstance(c.citation, ShortCaseCitation)]
+
+    assert len(short) == 1
+    assert short[0].citation.volume == "367"
+    assert short[0].citation.reporter.canonical == "P.3d"
+
+
+def test_an_undamaged_short_form_still_reads() -> None:
+    """The widening must not cost the ordinary case."""
+    citations = _extract("Iqbal, 556 U.S. at 678.", Relaxation.FULL).citations
+    short = [c for c in citations if isinstance(c.citation, ShortCaseCitation)]
+
+    assert len(short) == 1
+    assert short[0].matched_text == "556 U.S. at 678"
