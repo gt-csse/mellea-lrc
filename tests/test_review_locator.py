@@ -57,3 +57,32 @@ class TestGrounding:
         """A hallucinated locator must fail rather than yield a plausible span."""
         window = "Doe v. Colgate Univ. , 2016 WL1448829, at *2"
         assert _ground(window, window, 0, "999 F.3d 12345") is None
+
+
+def test_a_scanner_confusion_is_repairable_but_a_wrong_page_is_not() -> None:
+    """The rules read damage between a citation's parts; this is damage inside one.
+
+    `833 F.2d l83` is a citation only a reader recovers, and the reader may only
+    swap a character for the digit it is shaped like -- never for a different
+    number, and never by adding a word, which changes the length no folding
+    hides.
+    """
+    from mellea_lrc.extraction.adjudication.review.locator import _repairable
+
+    assert _repairable("833 F.2d l83") == _repairable("833" + "F.2d" + "183")
+    assert _repairable("32O N.C. 1") == _repairable("320" + "N.C." + "1")
+    assert _repairable("833 F.2d l83") != _repairable("833" + "F.2d" + "999")
+
+
+def test_a_short_form_is_refused_however_it_is_grounded() -> None:
+    """`at 1071` is a pin cite, and a locator quoting one resolves to the wrong case."""
+    from mellea_lrc.extraction.adjudication.review.locator import (
+        _Locator,
+        _grounded_more_than_a_locator,
+    )
+
+    short = _Locator(text="214  F.3d  at 1071", volume="214", reporter="F.3d", page="1071")
+    repaired = _Locator(text="833 F.2d l83", volume="833", reporter="F.2d", page="183")
+
+    assert _grounded_more_than_a_locator(short.text, short)
+    assert not _grounded_more_than_a_locator(repaired.text, repaired)
