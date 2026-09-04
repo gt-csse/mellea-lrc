@@ -149,6 +149,14 @@ class AdjudicatedLocator:
     reporter: str
     page: str
     match_method: str
+    repaired: bool = False
+    """Whether a character was read back, rather than only spacing forgiven.
+
+    `833 F.2d l83` reported as page 183 is a **judgement**, not a parse: the
+    document does not say 183 anywhere. Recorded so a consumer can tell a
+    citation the rules read from one a reviewer repaired, and decline the second
+    if it wants to.
+    """
 
 
 # The prompt window is collapsed before the model sees it, which is a
@@ -284,6 +292,23 @@ def _identifier(value: str) -> str:
     return _NON_ALPHANUMERIC.sub("", value.lower())
 
 
+# Letters a scanner reads for digits, and the digits they are read for. Only
+# pairs that arise from shape -- `l` for one, `O` for zero -- and no pair that
+# would let one reporter become another.
+_CONFUSABLE = str.maketrans({"o": "0", "l": "1", "i": "1", "s": "5", "b": "8", "z": "2", "g": "9"})
+
+
+def _repairable(value: str) -> str:
+    """The identifier with every confusable character folded onto one side.
+
+    So `833f2dl83` and `833f2d183` compare equal, and `833f2dl83` and
+    `833f2d999` still do not. Folding is applied to both the quote and the
+    parts, so it admits a *substitution* and never an insertion: the two must
+    already be the same length to survive `_validate_parts`.
+    """
+    return _identifier(value).translate(_CONFUSABLE)
+
+
 def _validate_parts(ctx: Context) -> ValidationResult:
     """Require the quote to be exactly its own volume, reporter and page.
 
@@ -324,7 +349,15 @@ def _validate_parts(ctx: Context) -> ValidationResult:
             )
         quoted = _identifier(locator.text)
         parts = _identifier(locator.volume) + _identifier(locator.reporter) + _identifier(locator.page)
-        if quoted != parts:
+        # Equal outright, or equal once the characters a scanner confuses are
+        # folded together. That second reading is why this layer exists: the
+        # rules read damage between the parts of a citation and cannot read
+        # damage inside one, so `833 F.2d l83` is a citation only a reader
+        # recovers. Admitting it here admits a substitution and nothing else --
+        # an inserted word changes the length, which no folding hides.
+        if quoted != parts and _repairable(locator.text) != _repairable(
+            locator.volume + locator.reporter + locator.page
+        ):
             return ValidationResult(
                 result=False,
                 reason=(
@@ -352,17 +385,11 @@ def _grounded_more_than_a_locator(text: str, locator: _Locator) -> bool:
     once -- a short form, whose `at 1071` is a pin cite and not a first page, and
     which would resolve to the wrong case or to none.
 
-    Two things are refused. A pin-cite marker in the span is a short form. A
-    span whose characters do not *count* the same as the three parts has gained
-    or lost something, which an insertion does and a substitution does not.
-
-    The second condition is written to admit a substitution -- `833 F.2d l83`
-    reported as page 183 -- but nothing reaches here to be admitted, because
-    `_validate_parts` requires the quote to reduce exactly to the parts and a
-    letter-for-digit repair breaks that equality upstream. Recovering OCR damage
-    inside a number would mean relaxing *that* rule, which is the rule stopping
-    invention, so it is a decision and not an oversight. See
-    `exploration/notes/what-the-layer-cannot-repair.md`.
+    Two things are refused, and neither refuses a repair. A pin-cite marker in
+    the span is a short form. A span whose characters do not *count* the same as
+    the three parts has gained or lost something, which an insertion does and a
+    substitution does not -- so `833 F.2d l83` reported as page 183 survives,
+    which is what `_validate_parts` now also allows over the confusable set.
     """
     if _PIN_CITE_MARKER.search(text):
         return True
@@ -539,6 +566,8 @@ async def adjudicate_locator(
                 reporter=locator.reporter,
                 page=locator.page,
                 match_method=method,
+                repaired=_identifier(text)
+                != _identifier(locator.volume) + _identifier(locator.reporter) + _identifier(locator.page),
             )
         )
     return tuple(found)

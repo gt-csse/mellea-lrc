@@ -36,7 +36,7 @@ reporter strings, and `U,S,` is not one. No reviewer can be asked about a
 citation nobody proposed. This is a property of candidate generation, not of the
 model, and no prompt improves it.
 
-**Damage inside a number reaches a reviewer and still cannot be recovered.**
+**Damage inside a number reaches a reviewer, and now it is recovered.**
 `833 F.2d l83` proposes a candidate, and the model answers it correctly --
 
     {"text":"833 F.2d l83","volume":"833","reporter":"F.2d","page":"183"}
@@ -47,15 +47,33 @@ the quote, reduced, must equal the three parts concatenated, and `833f2dl83` is
 not `833f2d183`.
 
 That rule is what stops invention -- a model cannot report a part that is not in
-the window, because the quote would contradict it. It also forbids repairing a
-character, and those are the same rule seen from two sides. **The layer as
-specified can repair spacing and punctuation and cannot repair a character.**
+the window, because the quote would contradict it. It also forbade repairing a
+character, and those were the same rule seen from two sides.
 
-Recovering the second would mean admitting a substitution into `_validate_parts`
--- narrowly, say a known OCR confusion set where `l` may become `1` and `O` may
-become `0`, at the same length. That is a real design change to the rule that
-makes the layer safe, so it is left as a decision to take rather than a fix to
-slip in.
+`_validate_parts` now accepts a second reading: the quote and the parts may also
+match once the characters a scanner confuses are folded together -- `l` onto
+`1`, `O` onto `0`, `S` onto `5` and four more. Folding is applied to both sides,
+so it admits a **substitution** and nothing else. `833f2dl83` matches
+`833f2d183`; it does not match `833f2d999`, and an inserted word changes the
+length, which no folding hides.
+
+    letter l for 1 in the page   833 F.2d l83   ->  ['833 F.2d 183 [repaired]']
+    letter O for 0 in the volume 32O N.C. 1     ->  ['320 N.C. 1 [repaired]']
+
+**The rules are untouched.** A citation with a character damaged is still missed
+by extraction, still becomes a candidate, and is recovered only where a reviewer
+confirms it -- which is the point of putting the repair here rather than in the
+tokenizer. It cannot be proved general, so it proposes and is reviewed instead of
+being hardened.
+
+`AdjudicatedLocator.repaired` records which citations arrived that way. Reading a
+letter back as a digit is a judgement and not a parse: the document does not say
+`183` anywhere. A consumer that wants only what the page states can decline
+them, and one that does not can tell the two apart.
+
+On the bench nothing changes: 41 sites, 41 declined, nothing recovered and
+nothing spurious. The confusion set costs no precision there because no
+candidate on that corpus is a damaged locator.
 
 ## The refusals are correct
 

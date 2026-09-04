@@ -148,7 +148,9 @@ async def main_async() -> int:
             except Exception as error:
                 recovered.setdefault(label, []).append(f"<raised {type(error).__name__}>")
                 continue
-            recovered.setdefault(label, []).extend(f"{f.volume} {f.reporter} {f.page}" for f in found)
+            recovered.setdefault(label, []).extend(
+                f"{f.volume} {f.reporter} {f.page}" + (" [repaired]" if f.repaired else "") for f in found
+            )
 
     print(f"{'case':<32}{'expected':<20}{'rules read':<20}{'proposed':>9}  reviewer")
     print("-" * 104)
