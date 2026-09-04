@@ -1,14 +1,21 @@
 # Does the adjudication layer find more, and does it reject the rest?
 
 Run for real on `false-citation-bench-locator-only-v2.0`, the only corpus with
-ground truth: 47 reporter sites proposed, every one sent to
-`review/locator.py` with `gpt-5.6-luna`.
+ground truth: every proposed site sent to `review/locator.py` with
+`gpt-5.6-luna`.
 
-    declined -- no locator in the window            47
+    declined -- no locator in the window            41
     call raised                                      0
     accepted at least one locator                    0
       recovered                                      0
       spurious                                       0
+
+The first runs proposed 47. Six of those turned out to be short-form citations
+nobody had read -- `Advanced Textile ,  214  F.3d  at 1071` -- lost to a literal
+space the reporter joins never reached because `short_cite_re` rewrites the page
+group. Relaxing that join reads them as citations, and the sites disappear with
+them. **Asking a model about a citation the tokenizer should have read is the
+wrong question**, and the candidate count is where that showed up.
 
 ## It rejects the noise, and that is the result worth having
 
