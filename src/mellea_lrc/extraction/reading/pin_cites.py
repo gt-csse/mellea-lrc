@@ -64,25 +64,46 @@ def relax(pattern: str) -> str:
     return widened.replace(r"(?:-\d+)?", rf"(?:{_RANGE_HYPHEN}\d+)?")
 
 
+# Every pattern that embeds `PIN_CITE_REGEX` at import time. Widening the
+# constant alone reaches only what reads it at call time, which is references.
+_BAKED = (
+    "POST_FULL_CITATION_REGEX",
+    "POST_SHORT_CITATION_REGEX",
+    "POST_LAW_CITATION_REGEX",
+    "POST_JOURNAL_CITATION_REGEX",
+)
+
+
 @contextlib.contextmanager
 def relaxed_pin_cites() -> Iterator[None]:
     """Read pin cites tolerantly for the duration of the block.
 
-    Both names have to be swapped. `reference_pin_cite_re` reads
-    `PIN_CITE_REGEX` when it is called, so that global reaches reference
-    citations; `POST_FULL_CITATION_REGEX` already contains the strict version,
-    baked in when it was composed, so it has to be widened separately. Patching
-    only the first changes nothing about pin cites and looks exactly like a
-    null result.
+    Several names have to be swapped, and finding that out is the point of this
+    module. `reference_pin_cite_re` reads `PIN_CITE_REGEX` when it is called, so
+    that global reaches reference citations. The four `POST_*` patterns are
+    f-strings that interpolated the same constant **at import time**, so the
+    strict version is already baked into each and the global does nothing for
+    them; `helpers.py` then imports the composed results by value, so those
+    bindings need patching too.
+
+    All four, not just the full-citation one. A short form writes its page the
+    same way -- `556 U.S. at 678` -- and breaks on the same doubled space, and
+    an `Id.` takes its pin cite through the short-citation pattern. Widening
+    only the full path leaves `645  B.R.  at  181` and `Id. at  547` unread,
+    which is 15 pin cites on the bench and its own citation entirely where the
+    damage falls between the reporter and the `at`.
     """
     pin = eyecite.regexes.PIN_CITE_REGEX
-    post = eyecite.helpers.POST_FULL_CITATION_REGEX
+    baked = {name: getattr(eyecite.helpers, name) for name in _BAKED}
     eyecite.regexes.PIN_CITE_REGEX = relax(pin)
-    eyecite.regexes.POST_FULL_CITATION_REGEX = relax(post)
-    eyecite.helpers.POST_FULL_CITATION_REGEX = relax(post)
+    for name, pattern in baked.items():
+        widened = relax(pattern)
+        setattr(eyecite.regexes, name, widened)
+        setattr(eyecite.helpers, name, widened)
     try:
         yield
     finally:
         eyecite.regexes.PIN_CITE_REGEX = pin
-        eyecite.regexes.POST_FULL_CITATION_REGEX = post
-        eyecite.helpers.POST_FULL_CITATION_REGEX = post
+        for name, pattern in baked.items():
+            setattr(eyecite.regexes, name, pattern)
+            setattr(eyecite.helpers, name, pattern)
