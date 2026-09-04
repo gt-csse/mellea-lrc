@@ -135,7 +135,7 @@ def _validate_court(ctx: Context, site: SuspectedDocket) -> ValidationResult:
 
 
 async def adjudicate_docket(
-    document_text: str,
+    masked_text: str,
     site: SuspectedDocket,
     *,
     session: MelleaSession | None = None,

@@ -23,6 +23,7 @@ from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.adjudication import (
     adjudicate_docket,
     adjudicate_locator,
+    mask_locator_spans,
     suspected_dockets,
     suspected_locators,
 )
@@ -125,7 +126,7 @@ def _recover_locators(document: str, extracted: ExtractedDocument) -> list[Occur
     """
     recovered = []
     for site in suspected_locators(extracted):
-        for locator in _adjudicated(adjudicate_locator(extracted.text, site)):
+        for locator in _adjudicated(adjudicate_locator(mask_locator_spans(extracted), site)):
             recovered.append(
                 Occurrence(
                     document=document,
@@ -153,7 +154,7 @@ def _recover_dockets(document: str, extracted: ExtractedDocument) -> list[Occurr
     """
     recovered = []
     for site in suspected_dockets(extracted):
-        docket = _adjudicated(adjudicate_docket(extracted.text, site))
+        docket = _adjudicated(adjudicate_docket(mask_locator_spans(extracted), site))
         if docket is None:
             continue
         recovered.append(

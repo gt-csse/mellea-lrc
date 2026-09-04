@@ -104,3 +104,29 @@ def test_the_section_sign_is_read_before_masking_can_erase_it() -> None:
 
     assert "§" not in mask_full_spans(document)
     assert "§" in document.text
+
+
+def test_a_sites_window_hides_the_citations_already_read() -> None:
+    """The question is about this site, so a neighbour must not be quotable.
+
+    Left visible, a reviewer reads the citation beside the candidate and returns
+    a locator the record already holds -- which is what happened when the whole
+    layer was run against the bench.
+    """
+    text = "Doe v. Roe, 550 U.S. 544, 570 (2007). Offices at 1301 McKinney, Suite 5100 Houston, Texas 77010."
+    document = extract_from_plain_text(text, relaxation=Relaxation.FULL)
+    site = next(s for s in suspected_locators(document) if s.reporter == "Houston")
+
+    # The locator that was read is gone, so it cannot be quoted back.
+    assert "550 U.S. 544" not in site.window
+    # Everything unread is untouched, including the letterhead this site is.
+    assert "Houston, Texas 77010" in site.window
+
+
+def test_the_site_itself_is_never_hidden() -> None:
+    """Masking removes what was extracted, and a candidate is what was not."""
+    document = _unrelaxed(_DAMAGED)
+    site = next(s for s in suspected_locators(document) if s.reporter == "WL")
+
+    assert site.reporter in site.window
+    assert document.text[site.span_start : site.span_end] == site.reporter

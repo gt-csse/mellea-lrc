@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 import ahocorasick
 from eyecite.tokenizers import EXTRACTORS
 
-from mellea_lrc.extraction.adjudication.masking import mask_full_spans
+from mellea_lrc.extraction.adjudication.masking import mask_full_spans, mask_locator_spans
 
 if TYPE_CHECKING:
     from mellea_lrc.extraction.types import ExtractedDocument
@@ -87,6 +87,16 @@ def suspected_locators(document: ExtractedDocument) -> tuple[SuspectedLocator, .
     whose output a judge is expected to reject freely.
     """
     masked = mask_full_spans(document)
+    # Two masks, for two different jobs. Hits are found in the full-span copy,
+    # so a reporter inside a citation already read is not flagged again. The
+    # window a reviewer reads blanks only the **locators**, because a locator
+    # quote needs a volume, a reporter and a page, and with those characters
+    # gone a neighbour cannot be quoted -- while its party names and the prose
+    # around it stay, and, more importantly, so does any citation that was never
+    # read. Masking full spans here would hide those: an over-reaching full span
+    # covers text that is not a citation at all, and at `Relaxation.NONE` one
+    # citation's span can cover the entire sentence.
+    reading = mask_locator_spans(document)
     sites: list[SuspectedLocator] = []
     for start, end, reporter in _maximal_hits(masked):
         before = masked[start - 1] if start else " "
@@ -110,9 +120,15 @@ def suspected_locators(document: ExtractedDocument) -> tuple[SuspectedLocator, .
                 span_start=start,
                 span_end=end,
                 reporter=reporter,
-                # Context comes from the original text, not the masked copy: a
-                # judge should read what is actually written at this position.
-                window=document.text[max(0, start - _CONTEXT) : end + _CONTEXT // 2],
+                # From the masked copy, not the original. The site itself is
+                # never masked -- it produced no citation, which is why it is a
+                # candidate -- so what a reviewer reads at this position is
+                # exactly what is written there. What is hidden is every
+                # *other* citation in the window, which has already been read
+                # and is not the question being asked. Left visible, a reviewer
+                # quotes one of them and returns a locator the record already
+                # holds.
+                window=reading[max(0, start - _CONTEXT) : end + _CONTEXT // 2],
             )
         )
     return tuple(sites)
