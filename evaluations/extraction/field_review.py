@@ -1,12 +1,19 @@
-r"""The matrix column a rule cannot fill: is a recorded field what the page says?
+r"""A screening pass: show a model the recorded fields and ask if the page says them.
 
-Every column in `matrix.py` is presence, absence, or a defect a rule can detect
-from the document's own structure. None of them checks that a field which *is*
-recorded matches the text it was read from. Nothing deterministic can: there is
-no annotated field-level ground truth for either corpus.
+**This does not measure accuracy.** To judge whether `plaintiff="Med. Progress"`
+matches the window, the model must work out what the plaintiff is, so it is
+extracting and reporting whether it agrees. What comes out is agreement between
+eyecite and a model, and two extractors agreeing proves neither right.
 
-A reader can, cheaply, on a sample. This asks one, and the question is kept
-strictly inside what extraction is scored against.
+What it is for is locating **candidate defects for a person to confirm** -- the
+same propose-then-review shape the adjudication layer uses, applied to fields
+instead of spans. Run it, read the disagreements with `--show`, and check them
+against the text yourself; the number is a pointer, the examples are the output.
+
+Before reaching for it, look for the deterministic version of the question. The
+only durable finding from the first run -- that `court` mixes a court the filing
+stated with one inferred from the reporter -- was a regex over the parenthetical
+away, and answerable over every citation rather than a sample.
 
 ## The question, and the line it does not cross
 

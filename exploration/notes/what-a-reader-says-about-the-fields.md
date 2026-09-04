@@ -1,12 +1,20 @@
-# What a reader says about the recorded fields
+# A screening pass over the recorded fields, and what it is not
 
-The one column `matrix.py` cannot fill. Every metric there is presence, absence,
-or a defect a rule can detect from the document's own structure; none of them
-checks that a field which *is* recorded matches the text it was read from, and
-nothing deterministic can, because neither corpus has field-level annotation.
+`evaluations/extraction/field_review.py` shows a model our recorded values and a
+window of the document and asks whether the window states each value. Run on a
+seeded sample of 40 citations per corpus with `gpt-5.6-luna`: 80 calls, none
+unusable.
 
-`evaluations/extraction/field_review.py` asks a reader instead, on a seeded
-sample of 40 citations per corpus, with `gpt-5.6-luna`. 80 calls, none unusable.
+**It does not measure accuracy, and calling it that was wrong.** To judge whether
+`plaintiff="Med. Progress"` matches the window, the model has to work out what
+the plaintiff is -- so it is extracting, silently, and reporting whether it
+agrees. The number below is agreement between eyecite and a model, and two
+extractors agreeing proves neither right.
+
+What it is worth is narrower and still worth having: **a screening pass that
+locates candidate defects for a person to confirm**, which is the same
+propose-then-review shape the adjudication layer uses. Five of the thirteen
+disagreements were then read against the text by hand and were real.
 
 ## The question, and the line it does not cross
 
@@ -49,11 +57,17 @@ side and with the silent swaps included.
 
 ## The finding worth acting on: `court` mixes two things
 
-Every one of the six "absent" verdicts is `scotus`, and every one is **correct**.
-`(2007)` states no court. `scotus` is inferred from the reporter being `U.S.`,
-by eyecite, and it is a sound inference -- but the record does not say it is an
-inference, so a consumer cannot tell a court the filing wrote from one the
-library concluded.
+The six "absent" verdicts were all `scotus`, and the screening pass was right --
+but this one needed no model at all, and checking it deterministically gives the
+real size of it:
+
+    bench    458 citations carry a court   376 named in the parenthetical    81 not named
+    mined   1636 citations carry a court  1337 named in the parenthetical   299 not named
+
+**About 18% of recorded courts on each corpus are inferred rather than stated.**
+`(2007)` names no court; `scotus` comes from the reporter being `U.S.`. It is a
+sound inference, but the record does not say it is one, so a consumer cannot
+tell a court the filing wrote from one the library concluded.
 
 That matters here more than usual: a court *stated* is evidence about the
 document, and a court *inferred* is evidence about the reporter. Extraction is
@@ -63,7 +77,16 @@ reason and `FullCaseCitation` has no equivalent.
 
 ## What this does not establish
 
-The reader is one fallible annotator, not ground truth. Its party verdicts were
-spot-checked against the text by hand and held, but only five of the thirteen.
-A field-level ground truth is still a separate piece of annotation, and this
-review is evidence about where to spend it -- on party names, and nowhere else.
+Not accuracy, for the reason above. Not a party-name error rate either: 13
+disagreements in 126 judgements is how often two extractors differ, and the five
+verified by hand are a lower bound on how many of those are ours.
+
+A field-level ground truth is still a separate piece of annotation. What this
+run is good for is choosing where to spend it -- on party names, and nowhere
+else, since 240 judgements on the locator and 129 on the date and pin cite
+produced no disagreement at all.
+
+**And the lesson for the next one: look for the deterministic version first.**
+The only finding here that survived scrutiny was reachable by a regex over the
+parenthetical, on all 2,094 citations rather than 80, with no model and no
+sampling error.
