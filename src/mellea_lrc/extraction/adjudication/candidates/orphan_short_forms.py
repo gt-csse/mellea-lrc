@@ -14,7 +14,7 @@ reviewer's job**, which is why this generator proposes rather than decides:
     strings `544` and `662` do not occur in its 53,793 characters. Nothing is
     recoverable here. The candidate is the finding.
 *   Extraction missed the full citation. 2 of the 27, both the same table row
-    set in capitals, which `uppercase_reporters` proposes separately. Here the
+    set in capitals, which `reporter_sites` proposes separately. Here the
     candidate is recoverable, and promoting it fixes the short form too.
 
 A short form states a **pin cite**, not a first page, so neither kind can be

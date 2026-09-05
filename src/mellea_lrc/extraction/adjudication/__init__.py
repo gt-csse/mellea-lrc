@@ -37,9 +37,13 @@ is the wrong trade; proposing those two is the right one. See
 """
 
 from mellea_lrc.extraction.adjudication.candidates.docket_sites import SuspectedDocket, suspected_dockets
-from mellea_lrc.extraction.adjudication.candidates.reporter_sites import SuspectedLocator, suspected_locators
+from mellea_lrc.extraction.adjudication.candidates.reporter_sites import (
+    SiteStage,
+    SuspectedLocator,
+    suspected_locators,
+)
 from mellea_lrc.extraction.adjudication.masking import mask_full_spans, mask_locator_spans
-from mellea_lrc.extraction.adjudication.promotion import promote
+from mellea_lrc.extraction.adjudication.promotion import promote, promote_locator, reread_site
 from mellea_lrc.extraction.adjudication.review.docket import adjudicate_docket
 from mellea_lrc.extraction.adjudication.review.locator import adjudicate_locator
 from mellea_lrc.extraction.adjudication.types import Adjudication, Candidate, CandidateKind, Verdict
@@ -48,6 +52,7 @@ __all__ = [
     "Adjudication",
     "Candidate",
     "CandidateKind",
+    "SiteStage",
     "SuspectedDocket",
     "SuspectedLocator",
     "Verdict",
@@ -56,6 +61,8 @@ __all__ = [
     "mask_full_spans",
     "mask_locator_spans",
     "promote",
+    "promote_locator",
+    "reread_site",
     "suspected_dockets",
     "suspected_locators",
 ]

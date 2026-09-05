@@ -11,8 +11,12 @@ from __future__ import annotations
 import contextlib
 import io
 
-from mellea_lrc.extraction.adjudication import promote
-from mellea_lrc.extraction.adjudication.candidates import orphan_short_forms, uppercase_reporters
+from mellea_lrc.extraction.adjudication import reread_site
+from mellea_lrc.extraction.adjudication.candidates import (
+    SiteStage,
+    orphan_short_forms,
+    suspected_locators,
+)
 from mellea_lrc.extraction.adjudication.types import CandidateKind
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
@@ -29,29 +33,31 @@ def _extract(text: str):
         return extract_from_plain_text(text, relaxation=Relaxation.FULL)
 
 
+def _site(text: str, reporter: str):
+    document = _extract(text)
+    return next(site for site in suspected_locators(document) if site.reporter == reporter)
+
+
 def test_a_reporter_in_capitals_is_proposed() -> None:
     """eyecite's reporter extractors are case-sensitive, so this is not a citation."""
-    document = _extract(_CAPS)
-    candidates = list(uppercase_reporters(document))
+    site = _site(_CAPS, "F.4TH")
 
-    assert len(candidates) == 1
-    assert candidates[0].kind is CandidateKind.LOCATOR
-    assert _CAPS[candidates[0].span.start : candidates[0].span.end] == "33 F.4TH 693"
+    assert site.stage is SiteStage.STRICT
+    assert site.matched_reporter == "F.4th"
+    assert _CAPS[site.span_start : site.span_end] == "F.4TH"
 
 
 def test_the_reporters_that_were_read_are_not_proposed_again() -> None:
     """`886 F.2d 497` beside it parses, so nothing should be proposed for it."""
     document = _extract(_CAPS)
-    proposed = [_CAPS[c.span.start : c.span.end] for c in uppercase_reporters(document)]
+    proposed = [_CAPS[s.span_start : s.span_end] for s in suspected_locators(document)]
 
-    assert "886 F.2d 497" not in proposed
+    assert "F.2d" not in proposed
 
 
-def test_promoting_a_candidate_reads_it_with_the_real_pipeline() -> None:
+def test_a_site_needing_only_a_re_read_costs_no_call() -> None:
     """Not a hand-built object: the court and date come from eyecite as usual."""
-    document = _extract(_CAPS)
-    candidate = next(iter(uppercase_reporters(document)))
-    citation = promote(_CAPS, candidate)
+    citation = reread_site(_CAPS, _site(_CAPS, "F.4TH"))
 
     assert citation is not None
     assert isinstance(citation.citation, FullCaseCitation)
@@ -62,14 +68,65 @@ def test_promoting_a_candidate_reads_it_with_the_real_pipeline() -> None:
     assert citation.citation.court == "ca2"
 
 
-def test_a_promoted_span_indexes_the_original_document() -> None:
+def test_a_re_read_span_indexes_the_original_document() -> None:
     """Offsets add rather than remap, because the window is a slice of the text."""
-    document = _extract(_CAPS)
-    candidate = next(iter(uppercase_reporters(document)))
-    citation = promote(_CAPS, candidate)
+    citation = reread_site(_CAPS, _site(_CAPS, "F.4TH"))
 
     assert _CAPS[citation.locator_span.start : citation.locator_span.end] == "33 F.4TH 693"
     assert citation.matched_text == "33 F.4TH 693"
+
+
+_OPTICAL = "Compare Smith v. Jones, 930 S0. 2d 128, 131 (Fla. 2006) (per curiam)."
+_PUNCTUATION = "See Ashcroft v. Iqbal, 556 U,S, 662, 678 (2009) (pleading standard)."
+
+
+def test_an_optically_damaged_reporter_is_a_strict_site() -> None:
+    """`S0.` is one confusable character away from a spelling the gazetteer holds."""
+    site = _site(_OPTICAL, "S0. 2d")
+
+    assert site.stage is SiteStage.STRICT
+    assert site.canonical_reporter == "So. 2d"
+
+
+def test_optical_damage_is_not_something_a_re_read_can_forgive() -> None:
+    """A widened rule closes gaps between characters; it cannot put one back."""
+    assert reread_site(_OPTICAL, _site(_OPTICAL, "S0. 2d")) is None
+
+
+def test_a_reporter_the_gazetteer_cannot_spell_is_a_fuzzy_site() -> None:
+    """`U,S,` matches no spelling, but reduces to one and has numbers either side."""
+    site = _site(_PUNCTUATION, "U,S")
+
+    assert site.stage is SiteStage.FUZZY
+    assert site.canonical_reporter == "US"
+
+
+def test_promoting_a_reviewed_locator_repairs_it_and_parses_the_result() -> None:
+    """The reviewer's repaired parts stand in for the damage, then eyecite reads it."""
+    from mellea_lrc.core.spans import Span
+    from mellea_lrc.extraction.adjudication import promote_locator
+    from mellea_lrc.extraction.adjudication.review.locator import AdjudicatedLocator
+
+    start = _PUNCTUATION.index("556 U,S, 662")
+    citation = promote_locator(
+        _PUNCTUATION,
+        AdjudicatedLocator(
+            span=Span(start=start, end=start + len("556 U,S, 662")),
+            text="556 U,S, 662",
+            volume="556",
+            reporter="U.S.",
+            page="662",
+            match_method="exact",
+        ),
+    )
+
+    assert citation is not None
+    assert isinstance(citation.citation, FullCaseCitation)
+    assert citation.citation.page == "662"
+    assert citation.citation.date.year == "2009"
+    # The record points at the characters the document holds, never at a repair.
+    assert _PUNCTUATION[citation.locator_span.start : citation.locator_span.end] == "556 U,S, 662"
+    assert citation.matched_text == "556 U,S, 662"
 
 
 def test_a_short_form_with_no_full_citation_is_proposed() -> None:
@@ -94,14 +151,11 @@ def test_a_short_form_with_its_full_citation_is_not_proposed() -> None:
 
 
 def test_a_generator_decides_nothing() -> None:
-    """A candidate carries a span, a window and a reason -- never a verdict."""
-    document = _extract(_CAPS)
-    candidate = next(iter(uppercase_reporters(document)))
+    """A site carries a span, a window and a reason -- never a verdict."""
+    site = _site(_CAPS, "F.4TH")
 
-    assert not hasattr(candidate, "verdict")
-    assert candidate.generator == "uppercase_reporters"
-    assert candidate.window.start <= candidate.span.start
-    assert candidate.window.end >= candidate.span.end
+    assert not hasattr(site, "verdict")
+    assert site.window
 
 
 def test_an_ambiguous_reporter_is_proposed() -> None:
