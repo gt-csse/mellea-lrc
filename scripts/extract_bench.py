@@ -12,9 +12,9 @@ authority ids -- rather than re-parsing text. Every artifact is read back and
 compared with what produced it before the run is reported, because an artifact
 that does not round-trip is worse than no artifact.
 
-Spans index the document **body**: the plain-text loader splits the RECAP-style
-header off and keeps it in ``source_metadata.header``, which is the same text the
-annotations in ``data/extraction-v2.0`` are anchored to.
+Spans index the text as it sits on disk. ``data/extraction-v2.0/documents_txt``
+is body only -- no RECAP-style header -- so an offset needs nothing skipped, and
+it is the same text the annotations beside it are anchored to.
 
     uv run python -m scripts.extract_bench
     uv run python -m scripts.extract_bench --relaxation bounded --out data/runs/extraction-bounded
