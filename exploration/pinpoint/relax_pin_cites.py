@@ -134,7 +134,7 @@ def main() -> int:
     parser.add_argument("--show", type=int, default=12)
     args = parser.parse_args()
 
-    directory = args.documents or Path("data/false-citation-bench-locator-only-v2.0/documents_txt")
+    directory = args.documents or Path("data/extraction-v2.0/documents_txt")
     documents = sorted(directory.glob("*.txt"))
     level = Relaxation(args.level)
     print(f"{len(documents)} documents, relaxation={level.value}\n")

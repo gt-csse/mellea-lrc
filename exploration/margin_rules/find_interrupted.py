@@ -30,7 +30,7 @@ from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 
 BENCH = Path("data/false-citation-bench-locator-only-v1.0")
-CLEAN = Path("data/false-citation-bench-v2.0/documents_txt")
+CLEAN = Path("data/extraction-v2.0/documents_txt")
 BODY_MARKER = "--- Plain text ---\n"
 
 

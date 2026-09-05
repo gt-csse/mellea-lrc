@@ -598,14 +598,14 @@ def main() -> int:
     parser.add_argument(
         "--text",
         type=Path,
-        default=Path("data/false-citation-bench-locator-only-v2.0/documents_txt"),
+        default=Path("data/extraction-v2.0/documents_txt"),
     )
     parser.add_argument(
         "--locator-bench",
         type=Path,
-        default=Path("data/false-citation-bench-locator-only-v2.0/extraction.jsonl"),
+        default=Path("data/extraction-v2.0/locators.jsonl"),
     )
-    parser.add_argument("--out", type=Path, default=Path("data/false-citation-bench-tree-v2.0"))
+    parser.add_argument("--out", type=Path, default=Path("data/runs/tree-rebuild"))
     args = parser.parse_args()
 
     all_authorities: list[dict] = []

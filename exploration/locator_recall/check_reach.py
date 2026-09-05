@@ -48,7 +48,7 @@ def net_spans(masked: str, known: dict[str, str], keys: list[str], threshold: fl
 def main() -> int:
     """For every ground-truth locator the extractor misses, say who reaches it."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--bench", type=Path, default=Path("data/false-citation-bench-locator-only-v2.0"))
+    parser.add_argument("--bench", type=Path, default=Path("data/extraction-v2.0"))
     parser.add_argument("--threshold", type=float, default=0.67)
     args = parser.parse_args()
 

@@ -41,8 +41,8 @@ from mellea_lrc.extraction.reading import post_citation as post_citation_module
 from mellea_lrc.extraction.types import ExtractedDocument
 
 BODY_MARKER = "--- Plain text ---\n"
-BENCH = Path("data/false-citation-bench-locator-only-v2.0/documents_txt")
-BENCH_TRUTH = Path("data/false-citation-bench-locator-only-v2.0/extraction.jsonl")
+BENCH = Path("data/extraction-v2.0/documents_txt")
+BENCH_TRUTH = Path("data/extraction-v2.0/locators.jsonl")
 MINED = Path.home() / "CodingProjects/mellea-lrc/local/mined-corpus"
 
 # A pin cite eyecite could not place: digits, star pages, paragraph marks in

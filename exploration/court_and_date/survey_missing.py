@@ -25,7 +25,7 @@ from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 
 BODY_MARKER = "--- Plain text ---\n"
-DOCS = Path("data/false-citation-bench-locator-only-v2.0/documents_txt")
+DOCS = Path("data/extraction-v2.0/documents_txt")
 AFTER = 54
 YEAR = re.compile(r"\b(1[7-9]\d\d|20\d\d)\b")
 

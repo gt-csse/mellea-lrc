@@ -22,7 +22,7 @@ import json
 import re
 from pathlib import Path
 
-BENCH = Path("data/false-citation-bench-locator-only-v2.0")
+BENCH = Path("data/extraction-v2.0")
 BODY_MARKER = "--- Plain text ---\n"
 
 # `WL` with a number after it and no four-digit year immediately before it.

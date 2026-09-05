@@ -25,7 +25,7 @@ from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.structure.colocation import colocation_groups
 
 BODY_MARKER = "--- Plain text ---\n"
-BENCH = Path("data/false-citation-bench-locator-only-v2.0/documents_txt")
+BENCH = Path("data/extraction-v2.0/documents_txt")
 MINED = Path.home() / "CodingProjects/mellea-lrc/local/mined-corpus"
 
 # A pin cite that landed in `extra`: digits, star pages, paragraph marks. Not a

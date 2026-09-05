@@ -17,7 +17,7 @@ from pathlib import Path
 
 from exploration.tree_bench.census import body
 
-BENCH = Path("data/false-citation-bench-tree-v2.0")
+BENCH = Path("data/extraction-v2.0")
 # A reporter directly after the supposed pin cite: the pin cite is a volume.
 LOOKS_LIKE_REPORTER = re.compile(r"^[^\S\r\n]*[A-Z][A-Za-z.’'’]*\s*\d*[a-z.]*\s+\d+")
 RARE = re.compile(r"[§,n]")

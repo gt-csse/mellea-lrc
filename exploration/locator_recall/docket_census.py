@@ -33,7 +33,7 @@ DOCKET = re.compile(
 def main() -> int:
     """Count docket-shaped strings per document, and compare with the bench."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--bench", type=Path, default=Path("data/false-citation-bench-locator-only-v2.0"))
+    parser.add_argument("--bench", type=Path, default=Path("data/extraction-v2.0"))
     parser.add_argument(
         "--published",
         type=Path,

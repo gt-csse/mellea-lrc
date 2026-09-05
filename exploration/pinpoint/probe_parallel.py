@@ -37,7 +37,7 @@ for authority in tree.authorities:
     print(f"  authority {authority.root.matched_text!r}  occurrences={len(authority.occurrences)}")
 
 print("\n--- the corpus: is the third parallel reporter extracted? ---")
-path = next(Path("data/false-citation-bench-locator-only-v2.0/documents_txt").glob("006*.txt"))
+path = next(Path("data/extraction-v2.0/documents_txt").glob("006*.txt"))
 text = body(path)
 with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
     document = extract_from_plain_text(text, relaxation=Relaxation.FULL)

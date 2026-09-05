@@ -34,7 +34,7 @@ def main() -> int:
     parser.add_argument("--show", type=int, default=20)
     args = parser.parse_args()
 
-    documents = args.documents or Path("data/false-citation-bench-locator-only-v2.0/documents_txt")
+    documents = args.documents or Path("data/extraction-v2.0/documents_txt")
     shown = 0
     per_document: Counter = Counter()
 

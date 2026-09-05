@@ -34,7 +34,7 @@ def main() -> int:
     parser.add_argument("--show", type=int, default=60)
     args = parser.parse_args()
 
-    documents = args.documents or Path("data/false-citation-bench-locator-only-v2.0/documents_txt")
+    documents = args.documents or Path("data/extraction-v2.0/documents_txt")
     rows: list[tuple[str, str, str, str]] = []
     reporters: Counter = Counter()
 
