@@ -24,7 +24,9 @@ Mellea-LRC-*.pptx
 docs/.obsidian/**
 
 # Evaluation working files: the downloaded dataset and anything a run writes.
-data/
+# A symlink to ../mellea-lrc-datasets, so no trailing slash: that matches
+# directories only and would leave the link itself untracked-but-visible.
+data
 run-artifact.jsonl
 run-validation/
 evaluation-result/
