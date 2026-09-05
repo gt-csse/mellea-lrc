@@ -46,7 +46,7 @@ def main() -> int:
     parser.add_argument("--documents", type=Path)
     args = parser.parse_args()
 
-    documents = args.documents or Path("data/false-citation-bench-locator-only-v2.0/documents_txt")
+    documents = args.documents or Path("data/extraction-v2.0/documents_txt")
     paths = sorted(documents.glob("*.txt"))
     if not paths:
         print(f"{documents}: no .txt documents found")

@@ -20,7 +20,7 @@ from pathlib import Path
 VERSIONS = {
     "v1": Path("data/false-citation-bench/documents_txt"),
     "v1.1": Path("data/false-citation-bench-v1.1/documents_txt"),
-    "v2.0": Path("data/false-citation-bench-v2.0/documents_txt"),
+    "v2.0": Path("data/extraction-v2.0/documents_txt"),
 }
 BODY_MARKER = "--- Plain text ---\n"
 

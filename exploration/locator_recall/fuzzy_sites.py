@@ -128,7 +128,7 @@ def body(path: Path) -> str:
 def main() -> int:
     """Cast the net, and say what it holds that the other methods do not."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--bench", type=Path, default=Path("data/false-citation-bench-locator-only-v2.0"))
+    parser.add_argument("--bench", type=Path, default=Path("data/extraction-v2.0"))
     parser.add_argument("--threshold", type=float, default=0.67)
     parser.add_argument(
         "--fuzzy-min-letters",

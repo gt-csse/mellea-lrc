@@ -14,10 +14,10 @@ that does not round-trip is worse than no artifact.
 
 Spans index the document **body**: the plain-text loader splits the RECAP-style
 header off and keeps it in ``source_metadata.header``, which is the same text the
-bench annotations are anchored to.
+annotations in ``data/extraction-v2.0`` are anchored to.
 
     uv run python -m scripts.extract_bench
-    uv run python -m scripts.extract_bench --relaxation bounded --out data/extraction-bounded
+    uv run python -m scripts.extract_bench --relaxation bounded --out data/runs/extraction-bounded
 """
 
 from __future__ import annotations
@@ -39,15 +39,12 @@ from mellea_lrc.extraction.types import ExtractedDocument
 from mellea_lrc.serialization import deserialize_extracted_document, serialize_extracted_document
 from mellea_lrc.serialization.extracted_document import SCHEMA_VERSION
 
-BENCH = Path("data/false-citation-bench-v2.0/documents_txt")
-OUT = Path("data/extraction-v2.0")
-TREE = Path("data/false-citation-bench-tree-v2.0")
-"""Citation-tree ground truth over the same text, used for the build report.
-
-Optional. The artifact is the same either way -- this only lets the directory
-say how the run scored, so a consumer does not have to find that out for
-itself.
-"""
+BENCH = Path("data/extraction-v2.0")
+"""The extraction evaluation dataset: the text, and the ground truth beside it."""
+OUT = Path("data/runs/extraction-v2.0")
+"""Where a run is written. Never inside `BENCH`: a directory is either something
+to score against or something that was scored, and one that is both cannot say
+which of its files a number came from."""
 
 
 def _package_version(name: str) -> str | None:
@@ -72,7 +69,7 @@ def _digest(text: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--bench", type=Path, default=BENCH, help="directory of .txt documents")
+    parser.add_argument("--bench", type=Path, default=BENCH, help="the evaluation dataset")
     parser.add_argument("--out", type=Path, default=OUT, help="directory to write artifacts into")
     parser.add_argument(
         "--relaxation",
@@ -83,7 +80,7 @@ def main() -> int:
     args = parser.parse_args()
     relaxation = Relaxation(args.relaxation)
 
-    paths = sorted(args.bench.glob("*.txt"))
+    paths = sorted((args.bench / "documents_txt").glob("*.txt"))
     if not paths:
         print(f"no documents in {args.bench}")
         return 1
@@ -156,8 +153,8 @@ def main() -> int:
     return 0
 
 
-def _score_against_tree(documents: dict[str, ExtractedDocument]) -> str:
-    """How the run reads against the citation-tree ground truth, when it is there.
+def _score_against_truth(documents: dict[str, ExtractedDocument]) -> str:
+    """How the run reads against the ground truth sitting beside the text.
 
     Two questions, and they are separate. **Did extraction find the occurrence?**
     -- an annotated locator span matched exactly. **Did it attribute it to the
@@ -166,8 +163,8 @@ def _score_against_tree(documents: dict[str, ExtractedDocument]) -> str:
     and files half of them under the wrong case is not doing better than one
     that finds fewer.
     """
-    occurrences = TREE / "occurrences.jsonl"
-    authorities = TREE / "authorities.jsonl"
+    occurrences = BENCH / "occurrences.jsonl"
+    authorities = BENCH / "authorities.jsonl"
     if not (occurrences.exists() and authorities.exists()):
         return ""
 
@@ -258,7 +255,7 @@ annotations are anchored to the same body.
 
 `manifest.json` lists every artifact with the SHA-256 prefix of the text it was
 built from, so a consumer can tell whether the text under it has changed.
-{_score_against_tree(documents)}"""
+{_score_against_truth(documents)}"""
 
 
 if __name__ == "__main__":

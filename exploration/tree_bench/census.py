@@ -17,7 +17,7 @@ from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 
 BODY_MARKER = "--- Plain text ---\n"
-DOCS = Path("data/false-citation-bench-locator-only-v2.0/documents_txt")
+DOCS = Path("data/extraction-v2.0/documents_txt")
 
 
 def body(path: Path) -> str:

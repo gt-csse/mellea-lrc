@@ -126,7 +126,9 @@ def main() -> int:
     drop_margins = not args.no_margin
     if args.out is None:
         args.out = Path(
-            "data/false-citation-bench-v2.0" if drop_margins else "data/false-citation-bench-v1.1"
+            "data/renderings/false-citation-bench-v2.0"
+            if drop_margins
+            else "data/renderings/false-citation-bench-v1.1"
         )
 
     sources = sorted(args.pdfs.glob("*.pdf"))

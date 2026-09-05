@@ -26,7 +26,7 @@ from pathlib import Path
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.adjudication import suspected_locators
 
-BENCH = Path("data/false-citation-bench-locator-only-v2.0")
+BENCH = Path("data/extraction-v2.0")
 BODY_MARKER = "--- Plain text ---\n"
 WINDOW = 90
 

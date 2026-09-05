@@ -43,7 +43,7 @@ regression in documents the margin rule had not touched.
     uv run python scripts/compare_extractions.py
 
     # one dataset across all three relaxation levels
-    uv run python scripts/compare_extractions.py --dataset v2=data/false-citation-bench-v2.0/documents_txt --levels all
+    uv run python scripts/compare_extractions.py --dataset v2=data/extraction-v2.0/documents_txt --levels all
 
     # everything, then read one document in full
     uv run python scripts/compare_extractions.py --levels all --document 022
@@ -79,7 +79,7 @@ BODY_MARKER = "--- Plain text ---\n"
 DEFAULT_DATASETS = {
     "v1": Path("data/false-citation-bench/documents_txt"),
     "v1.1": Path("data/false-citation-bench-v1.1/documents_txt"),
-    "v2.0": Path("data/false-citation-bench-v2.0/documents_txt"),
+    "v2.0": Path("data/extraction-v2.0/documents_txt"),
 }
 
 # A page number this small, reached across a page break, is the pleading-paper
