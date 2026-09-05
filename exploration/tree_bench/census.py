@@ -16,13 +16,12 @@ from pathlib import Path
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 
-BODY_MARKER = "--- Plain text ---\n"
 DOCS = Path("data/extraction-v2.0/documents_txt")
 
 
 def body(path: Path) -> str:
-    _, marker, rest = path.read_text(encoding="utf-8").partition(BODY_MARKER)
-    return rest if marker else path.read_text(encoding="utf-8")
+    """The document text spans index into."""
+    return path.read_text(encoding="utf-8")
 
 
 def main() -> int:

@@ -23,7 +23,6 @@ import re
 from pathlib import Path
 
 BENCH = Path("data/extraction-v2.0")
-BODY_MARKER = "--- Plain text ---\n"
 
 # `WL` with a number after it and no four-digit year immediately before it.
 HEADLESS_WL = re.compile(r"(?<![\d\s]\d{3})(?<!\d)\s*\bWL\s+(\d{4,9})\b")
@@ -31,8 +30,8 @@ YEAR_BEFORE = re.compile(r"\b(19|20)\d{2}\s*$")
 
 
 def body(path: Path) -> str:
-    _, marker, text = path.read_text(encoding="utf-8").partition(BODY_MARKER)
-    return text if marker else path.read_text(encoding="utf-8")
+    """The document text spans index into."""
+    return path.read_text(encoding="utf-8")
 
 
 def main() -> None:

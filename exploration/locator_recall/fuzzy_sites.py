@@ -42,8 +42,6 @@ from pathlib import Path
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.adjudication import suspected_locators
 
-BODY_MARKER = "--- Plain text ---\n"
-
 # A number, a run of separators, some letters, a run of separators, a number.
 # The letter run may carry its own punctuation and spaces -- that is what makes
 # `F. Supp. 2d` one string rather than three -- but it may not carry a digit,
@@ -121,8 +119,8 @@ def gazetteer() -> dict[str, str]:
 
 
 def body(path: Path) -> str:
-    _, marker, text = path.read_text(encoding="utf-8").partition(BODY_MARKER)
-    return text if marker else path.read_text(encoding="utf-8")
+    """The document text spans index into."""
+    return path.read_text(encoding="utf-8")
 
 
 def main() -> int:

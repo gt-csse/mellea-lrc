@@ -14,17 +14,15 @@ from pathlib import Path
 
 VERSIONS = {
     "v1": Path("data/false-citation-bench/documents_txt"),
-    "v1.1": Path("data/false-citation-bench-v1.1/documents_txt"),
+    "v1.1": Path("data/corpus/renderings/v1.1"),
     "v2.0": Path("data/extraction-v2.0/documents_txt"),
 }
-BODY_MARKER = "--- Plain text ---\n"
 NEEDLE = re.compile(r"455[^\n]{0,12}?\b(?:US|U\.\s?S)\.?[^\n]{0,12}?363|455\s*U\s*\.?\s*S\.?\s*363")
 
 
 def body(directory: Path, stem: str) -> str:
-    path = next(directory.glob(f"{stem}*.txt"))
-    _, marker, text = path.read_text(encoding="utf-8").partition(BODY_MARKER)
-    return text if marker else path.read_text(encoding="utf-8")
+    """The document text spans index into."""
+    return next(directory.glob(f"{stem}*.txt")).read_text(encoding="utf-8")
 
 
 def main() -> None:

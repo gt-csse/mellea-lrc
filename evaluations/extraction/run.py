@@ -17,19 +17,10 @@ from pathlib import Path
 from evaluations.extraction.arms import ARMS
 from evaluations.extraction.occurrences import Occurrence, write_run_artifact
 
-BODY_MARKER = "--- Plain text ---\n"
-
 
 def read_body(path: Path) -> str:
-    """Return the document body: the text after the provenance header.
-
-    Benchmark offsets are measured from the first character after this marker.
-    Reading the file whole shifts every span by the length of the header, which
-    scores zero rather than scoring badly.
-    """
-    text = path.read_text(encoding="utf-8")
-    _, marker, body = text.partition(BODY_MARKER)
-    return body if marker else text
+    """Return the document text. A file is its text, so an offset is an offset."""
+    return path.read_text(encoding="utf-8")
 
 
 def read_corpus(documents: Path) -> list[tuple[str, str]]:

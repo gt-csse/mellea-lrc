@@ -34,6 +34,12 @@ filing never cites, giving only a court and a year; they are their own data
 points with no authority, because inheriting a neighbour's would file a finding
 under the wrong case.
 
+**This ran once and cannot run again.** Its input was the v1 rendering and the
+annotations anchored to it, and both are gone: the re-anchored output is the
+source of record now, maintained directly the way `extraction-v2.0` is. The
+script is kept because it is the record of how the offsets moved, and it refuses
+to run rather than writing an empty dataset over a good one.
+
     uv run python -m scripts.build_validation_bench
 """
 
@@ -102,6 +108,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=OUT)
     args = parser.parse_args()
+
+    if not (V1 / "documents_txt").exists() or not _annotations():
+        msg = (
+            f"{V1} is gone, so there is nothing to re-anchor. "
+            f"{OUT}/annotations.json is the source of record and is maintained directly; "
+            f"this script is kept as the record of how the offsets moved."
+        )
+        raise SystemExit(msg)
 
     authorities = {
         a["authority_id"]: a

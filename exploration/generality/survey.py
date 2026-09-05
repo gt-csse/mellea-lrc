@@ -24,7 +24,6 @@ from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.structure.colocation import colocation_groups
 
-BODY_MARKER = "--- Plain text ---\n"
 BENCH = Path("data/extraction-v2.0/documents_txt")
 MINED = Path.home() / "CodingProjects/mellea-lrc/local/mined-corpus"
 
@@ -35,10 +34,8 @@ PARALLEL = re.compile(r"\d+\s+[A-Z][A-Za-z.'’ ]*\d*\s+\d+")
 
 
 def body(path: Path) -> str:
-    """The document text, past the header some corpora carry."""
-    text = path.read_text(encoding="utf-8")
-    _, marker, rest = text.partition(BODY_MARKER)
-    return rest if marker else text
+    """The document text spans index into."""
+    return path.read_text(encoding="utf-8")
 
 
 def survey(directory: Path) -> tuple[Counter, list[tuple[str, str, str]]]:

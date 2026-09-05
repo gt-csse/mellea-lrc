@@ -24,17 +24,14 @@ from pathlib import Path
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 
-BODY_MARKER = "--- Plain text ---\n"
 DOCS = Path("data/extraction-v2.0/documents_txt")
 AFTER = 54
 YEAR = re.compile(r"\b(1[7-9]\d\d|20\d\d)\b")
 
 
 def body(path: Path) -> str:
-    """The document text the bench spans index into."""
-    text = path.read_text(encoding="utf-8")
-    _, marker, rest = text.partition(BODY_MARKER)
-    return rest if marker else text
+    """The document text spans index into."""
+    return path.read_text(encoding="utf-8")
 
 
 def cause(tail: str) -> str:

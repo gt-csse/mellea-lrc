@@ -40,7 +40,6 @@ from mellea_lrc.extraction.reading import pin_cites as pin_cites_module
 from mellea_lrc.extraction.reading import post_citation as post_citation_module
 from mellea_lrc.extraction.types import ExtractedDocument
 
-BODY_MARKER = "--- Plain text ---\n"
 BENCH = Path("data/extraction-v2.0/documents_txt")
 BENCH_TRUTH = Path("data/extraction-v2.0/locators.jsonl")
 MINED = Path.home() / "CodingProjects/mellea-lrc/local/mined-corpus"
@@ -55,9 +54,7 @@ COURT_IN_PAREN = re.compile(r"\(([^)]{2,40}?)[^\S\r\n]+(?:1[7-9]\d\d|20\d\d)[^\S
 
 def body(path: Path) -> str:
     """The document text spans index into."""
-    text = path.read_text(encoding="utf-8")
-    _, marker, rest = text.partition(BODY_MARKER)
-    return rest if marker else text
+    return path.read_text(encoding="utf-8")
 
 
 @dataclass(frozen=True, slots=True)
