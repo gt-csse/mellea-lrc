@@ -38,6 +38,7 @@ from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
 
 from mellea_lrc.core.spans import Span
+from mellea_lrc.extraction.adjudication import ocr
 from mellea_lrc.llm import (
     InstructIvrSpec,
     llm_api_config_from_env,
@@ -193,7 +194,7 @@ def implausible_locator(text: str) -> bool:
     return numeric >= _MAX_NUMERIC_TOKENS + 1
 
 
-def reporter_context(reporter: str) -> str:
+def reporter_context(reporter: str, as_written: str = "") -> str:
     """Describe the flagged reporter using eyecite's own reporter database.
 
     A model told only "here is some text" must infer what counts as a locator.
@@ -201,6 +202,13 @@ def reporter_context(reporter: str) -> str:
     read ``<volume> S.W.2d <page>``, it has the shape to look for -- which is
     what lets it recognise an occurrence too damaged for the regex that flagged
     the site in the first place.
+
+    ``reporter`` is the gazetteer spelling, not the characters at the site. A
+    fuzzy site is flagged precisely because what is written there -- ``U,S,`` --
+    is not a spelling the database holds, and describing *that* would answer
+    only that the database has never heard of it. ``as_written`` names the
+    damaged form separately when it differs, so the model is told which
+    characters to expect and still quotes them verbatim.
     """
     editions = EDITIONS_LOOKUP.get(reporter)
     if not editions:
@@ -226,9 +234,15 @@ def reporter_context(reporter: str) -> str:
     # it and invites the model to treat a four-digit year as something other
     # than the volume. Show the shape this reporter actually uses.
     example = f"1998 {canonical} 7654321" if cite_type == "specialty_west" else f"731 {canonical} 902"
+    damaged = (
+        f' It appears in this window written "{as_written}", which is how the extraction damaged it;'
+        f" quote what is written, not the repaired spelling."
+        if as_written and as_written != reporter
+        else ""
+    )
     return (
         f"{described}. Its citations are written "
-        f'"<volume> {canonical} <page>", for example "{example}". '
+        f'"<volume> {canonical} <page>", for example "{example}".{damaged} '
         f"Report a locator here only if the window actually shows that shape."
     )
 
@@ -292,12 +306,6 @@ def _identifier(value: str) -> str:
     return _NON_ALPHANUMERIC.sub("", value.lower())
 
 
-# Letters a scanner reads for digits, and the digits they are read for. Only
-# pairs that arise from shape -- `l` for one, `O` for zero -- and no pair that
-# would let one reporter become another.
-_CONFUSABLE = str.maketrans({"o": "0", "l": "1", "i": "1", "s": "5", "b": "8", "z": "2", "g": "9"})
-
-
 def _repairable(value: str) -> str:
     """The identifier with every confusable character folded onto one side.
 
@@ -306,7 +314,7 @@ def _repairable(value: str) -> str:
     parts, so it admits a *substitution* and never an insertion: the two must
     already be the same length to survive `_validate_parts`.
     """
-    return _identifier(value).translate(_CONFUSABLE)
+    return ocr.fold(_identifier(value))
 
 
 def _validate_parts(ctx: Context) -> ValidationResult:
@@ -506,7 +514,7 @@ async def adjudicate_locator(
             description=INSTRUCTION,
             user_variables={
                 "window": collapsed,
-                "reporter_context": reporter_context(site.reporter),
+                "reporter_context": reporter_context(site.canonical_reporter, site.reporter),
             },
             output_format=_Locators,
             requirements=[

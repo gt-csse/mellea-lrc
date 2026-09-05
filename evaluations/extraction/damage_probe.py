@@ -11,13 +11,19 @@ are asked of every case, in the order the pipeline asks them:
 
 1.  **Does extraction miss it?** If not, the case is not testing what it claims,
     and the probe says so rather than scoring a rule that already works.
-2.  **Is a candidate proposed?** The site generator searches for reporter
-    strings from eyecite's gazetteer, so damage *inside the reporter* makes a
-    citation invisible to it. A case that reaches no reviewer cannot be
-    recovered however good the reviewer is, and that is a property of the
-    layer worth stating plainly.
-3.  **Does the reviewer recover it?** And, for the cases that are not citations
-    at all, does it refuse?
+2.  **Is a candidate proposed, and by which stage?** The strict stage searches
+    for the gazetteer's own spellings, so damage *inside* a reporter is
+    invisible to it; the fuzzy stage catches what reduces to a reporter once
+    punctuation stops mattering. A case that reaches no stage cannot be
+    recovered however good the reviewer is, and that is a property of the layer
+    worth stating plainly.
+3.  **Does a re-read settle it without a call?** Capitalisation is the only
+    damage a widened rule can still forgive, and those sites never reach a
+    reviewer.
+4.  **Does the reviewer recover it, and does eyecite then parse it?** A
+    recovered locator is only worth having if it becomes an ordinary citation,
+    so the reviewer's repaired parts are substituted back and re-read. And, for
+    the cases that are not citations at all, does the reviewer refuse?
 
 The document is small and hand-made. It measures what the layer *can* do, not
 how often that happens -- for how often, see
@@ -43,6 +49,8 @@ from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.adjudication import (
     adjudicate_locator,
     mask_locator_spans,
+    promote_locator,
+    reread_site,
     suspected_locators,
 )
 from mellea_lrc.llm import start_mellea_session_from_env
@@ -141,25 +149,38 @@ async def main_async() -> int:
 
     session = start_mellea_session_from_env()
     recovered: dict[str, list[str]] = {}
+    reread: dict[str, list[str]] = {}
     for label, group in proposed.items():
         for site in group:
+            settled = reread_site(DOCUMENT, site)
+            if settled is not None:
+                reread.setdefault(label, []).append(settled.matched_text)
+                continue
             try:
                 found = await adjudicate_locator(masked, site, session=session)
             except Exception as error:
                 recovered.setdefault(label, []).append(f"<raised {type(error).__name__}>")
                 continue
-            recovered.setdefault(label, []).extend(
-                f"{f.volume} {f.reporter} {f.page}" + (" [repaired]" if f.repaired else "") for f in found
-            )
+            for item in found:
+                # The reviewer's answer is not the end of it: what enters a
+                # record is a citation object, and only eyecite makes one.
+                citation = promote_locator(DOCUMENT, item)
+                parsed = "parsed" if citation is not None else "UNPARSED"
+                repaired = " [repaired]" if item.repaired else ""
+                recovered.setdefault(label, []).append(
+                    f"{item.volume} {item.reporter} {item.page}{repaired} -> {parsed}"
+                )
 
-    print(f"{'case':<32}{'expected':<20}{'rules read':<20}{'proposed':>9}  reviewer")
-    print("-" * 104)
+    print(f"{'case':<32}{'expected':<20}{'rules read':<18}{'stages':<16}{'re-read':<14}reviewer")
+    print("-" * 132)
     for case in CASES:
         expected = " ".join(case.expect) if case.expect else "-- not a citation --"
-        found = recovered.get(case.label, [])
+        group = proposed.get(case.label, [])
+        stages = ",".join(sorted({site.stage.value for site in group})) or "none"
         print(
-            f"{case.label:<32}{expected:<20}{read.get(case.label, '')!s:<20}"
-            f"{len(proposed.get(case.label, [])):>9}  {found}"
+            f"{case.label:<32}{expected:<20}{read.get(case.label, '')!s:<18}"
+            f"{f'{stages} ({len(group)})':<16}{reread.get(case.label, '') or ''!s:<14}"
+            f"{recovered.get(case.label, [])}"
         )
     return 0
 

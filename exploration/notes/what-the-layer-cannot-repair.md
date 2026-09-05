@@ -2,23 +2,24 @@
 
 The relaxations widen separators, so they read damage *between* the parts of a
 citation. `evaluations/extraction/damage_probe.py` is a small hand-made document
-of damage *inside* a part, which no gap-widening can reach, and it asks three
+of damage *inside* a part, which no gap-widening can reach, and it asks four
 questions of each case in the order the pipeline asks them: do the rules miss
-it, is a candidate proposed, does the reviewer recover it.
+it, does a stage propose it, does a re-read settle it without a call, and does
+the reviewer recover it as something eyecite can then parse.
 
-    case                            expected            rules read       proposed  reviewer
-    periods gone from the reporter  410 US 113          410 US 113              0  []
-    commas for periods              556 U,S, 662                                0  []
-    period gone from the series     654 F3d 404         654 F3d 404             0  []
-    letter l for 1 in the page      833 F.2d l83                                1  []
-    letter O for 0 in the volume    32O N.C. 1                                  1  []
-    short form, periods gone        556 US 678          556 US at 678           0  []
-    clean, a control                347 U.S. 483        347 U.S. 483            0  []
-    doubled spaces, a control       550 U.S. 544        550  U.S.  544          0  []
-    a statute                       -- not a citation --                        0  []
-    a letterhead                    -- not a citation --                        1  []
-    a procedural rule               -- not a citation --                        0  []
-    a docket number                 -- not a citation --                        0  []
+    case                            expected            rules read      stages     reviewer
+    periods gone from the reporter  410 US 113          410 US 113      none       []
+    commas for periods              556 U,S, 662                        fuzzy (1)  ['556 U.S. 662 -> parsed']
+    period gone from the series     654 F3d 404         654 F3d 404     none       []
+    letter l for 1 in the page      833 F.2d l83                        strict (1) ['833 F.2d 183 [repaired] -> parsed']
+    letter O for 0 in the volume    32O N.C. 1                          strict (1) ['320 N.C. 1 [repaired] -> parsed']
+    short form, periods gone        556 US 678          556 US at 678   none       []
+    clean, a control                347 U.S. 483        347 U.S. 483    none       []
+    doubled spaces, a control       550 U.S. 544        550  U.S.  544  none       []
+    a statute                       -- not a citation --                none       []
+    a letterhead                    -- not a citation --                strict (1) []
+    a procedural rule               -- not a citation --                none       []
+    a docket number                 -- not a citation --                none       []
 
 ## Missing punctuation is not a gap at all
 
@@ -28,15 +29,29 @@ by any relaxation of ours -- reporters-db carries punctuation-free spellings as
 the cases written to be hard turned out not to be, which is the probe doing its
 job.
 
-## Two structural limits, and they are different
+## The limit that was structural, and how it was removed
 
-**A reporter the gazetteer cannot see produces no candidate.** `556 U,S, 662`
-is missed by the rules *and* proposes nothing: the generator searches for
-reporter strings, and `U,S,` is not one. No reviewer can be asked about a
-citation nobody proposed. This is a property of candidate generation, not of the
-model, and no prompt improves it.
+**A reporter the gazetteer cannot see used to produce no candidate.** `556 U,S,
+662` is missed by the rules, and for as long as the generator searched only for
+gazetteer spellings it proposed nothing either: `U,S,` is not one of them. No
+reviewer can be asked about a citation nobody proposed, and no prompt improves
+that.
 
-**Damage inside a number reaches a reviewer, and now it is recovered.**
+The fuzzy stage is what closed it. It matches a number, a short letter run and a
+number, and asks whether the letters reduce to a reporter once punctuation stops
+mattering -- `U,S,` reduces to the same characters as `U.S.` and as `US`. The
+site then goes to the reviewer like any other, and the reviewer is told about
+`U.S.` rather than about `U,S,`, because a description built from the damage
+says only that the database has never heard of it.
+
+What comes back is a locator, not a citation, so it is substituted back into the
+window and re-read: `promote_locator` puts `556 U.S. 662` where `556 U,S, 662`
+is written, hands the window to eyecite, and maps the resulting full span back
+through a `SpanUpdater`. The `locator_span` on the record is the **damaged**
+span -- the record points at the characters the filing contains, never at a
+repair -- and the date and party names come from the real parser.
+
+**Damage inside a number reaches a reviewer, and is recovered.**
 `833 F.2d l83` proposes a candidate, and the model answers it correctly --
 
     {"text":"833 F.2d l83","volume":"833","reporter":"F.2d","page":"183"}
@@ -71,9 +86,23 @@ letter back as a digit is a judgement and not a parse: the document does not say
 `183` anywhere. A consumer that wants only what the page states can decline
 them, and one that does not can tell the two apart.
 
-On the bench nothing changes: 41 sites, 41 declined, nothing recovered and
-nothing spurious. The confusion set costs no precision there because no
-candidate on that corpus is a damaged locator.
+On the bench nothing changes: 42 sites, 6 settled by a re-read and 36 declined,
+nothing recovered and nothing spurious. The confusion set costs no precision
+there because no candidate on that corpus is a damaged locator.
+
+## What is recovered is not yet stable
+
+Four runs of the probe, same prompt, same temperature:
+
+    556 U,S, 662    recovered 4 of 4
+    833 F.2d l83    recovered 4 of 4
+    32O N.C. 1      recovered 2 of 4
+    a letterhead    declined  4 of 4
+
+The provider routes across backends, so a run is not reproducible. Punctuation
+damage and a damaged page are recovered reliably; a damaged **volume** is not,
+and `32O N.C. 1` is the case that fails. The refusals are stable, which is the
+half that would be expensive to get wrong.
 
 ## The refusals are correct
 

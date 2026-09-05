@@ -11,10 +11,14 @@ misses are the only citations there are to recover, so a recovered locator is
 one of those three and nothing else can count.
 
 **Does it reject the rest?** Most candidates are not citations. On the bench the
-site generator proposes 65 windows, and the ones it proposes are dominated by
+site generator proposes 42 windows, and the ones it proposes are dominated by
 letterheads, procedural rules and legislative journals. A reviewer that accepts
 those is worse than no reviewer, because a spurious locator enters the record
 looking exactly like a parsed one.
+
+Sites are counted by stage, and the ones a re-read settles are taken out of the
+queue before any call: a reporter set in capitals is a citation the unfiltered
+tokenizer reads on its own, and nobody needs to be asked about it.
 
 Both are scored against the same ground truth, so a proposal is exactly one of:
 recovered (in the annotation, not extracted), spurious (not in the annotation),
@@ -42,9 +46,11 @@ from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.adjudication import (
     adjudicate_locator,
     mask_locator_spans,
+    promote_locator,
+    reread_site,
     suspected_locators,
 )
-from mellea_lrc.extraction.adjudication.candidates import orphan_short_forms, uppercase_reporters
+from mellea_lrc.extraction.adjudication.candidates import orphan_short_forms
 from mellea_lrc.llm import start_mellea_session_from_env
 
 CONCURRENCY = 6
@@ -90,6 +96,7 @@ async def main_async(limit: int | None) -> int:
     semaphore = asyncio.Semaphore(CONCURRENCY)
 
     jobs, texts, extracted, proposals = [], {}, set(), Counter()
+    # Ground truth first: the re-read pass is scored against it as it runs.
     for path in sorted(BENCH.glob("*.txt")):
         text = body(path)
         texts[path.name] = text
@@ -98,14 +105,22 @@ async def main_async(limit: int | None) -> int:
         for item in document.citations:
             if isinstance(item.citation, FullCaseCitation):
                 extracted.add((path.name, item.locator_span.start, item.locator_span.end))
-        sites = list(suspected_locators(document))
-        proposals["reporter sites"] += len(sites)
-        proposals["uppercase reporters"] += len(list(uppercase_reporters(document)))
         proposals["orphan short forms"] += len(list(orphan_short_forms(document)))
         # The reviewer sees every other citation blanked, so it cannot quote
         # one the record already holds.
         masked = mask_locator_spans(document)
-        jobs.extend((path.name, masked, site) for site in sites)
+        for site in suspected_locators(document):
+            proposals[f"{site.stage.value} sites"] += 1
+            # Capitalisation is the one damage a widened rule still forgives,
+            # so those sites are settled here and never cost a call.
+            settled = reread_site(text, site)
+            if settled is not None:
+                proposals["  settled by a re-read, no call"] += 1
+                key = (path.name, settled.locator_span.start, settled.locator_span.end)
+                if key in truth and key not in extracted:
+                    proposals["    re-read recovered a stated locator"] += 1
+                continue
+            jobs.append((path.name, masked, site))
 
     if limit:
         jobs = jobs[:limit]
@@ -131,6 +146,10 @@ async def main_async(limit: int | None) -> int:
         for found in outcome:
             key = (name, found.span.start, found.span.end)
             text = texts[name]
+            # An accepted locator is only worth having if eyecite can read it:
+            # the repaired parts are substituted for the damage and re-parsed.
+            if promote_locator(text, found) is None:
+                counts["  accepted but unparseable"] += 1
             if key in truth and key not in extracted:
                 counts["  recovered a stated locator"] += 1
                 recovered.append((name, found.text))
