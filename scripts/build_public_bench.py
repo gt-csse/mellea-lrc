@@ -24,6 +24,13 @@ grouping comes from this project's own citation tree rather than from string
 matching: `556 F.3d 177` and `556 F.3d at 201` name one case and eyecite's
 resolver is what knows it.
 
+**Provenance is a type, not an assumption.** Every entry says what document its
+evidence was quoted from and who wrote it: a judge's order, an appendix in the
+court's own voice, or a party's brief. Party filings are kept -- a brief naming
+a fabricated citation is often the first document to name one -- but a reader
+counting findings has to be able to tell an accusation from an adjudication, so
+`source.adjudicated` says which it is.
+
 The source's four kinds fold in as their evidence:
 
     non_existent            -> WRONG_IDENTITY
@@ -31,8 +38,12 @@ The source's four kinds fold in as their evidence:
     misrepresented_holding  -> WRONG_PINPOINT
     fabricated_quote        -> WRONG_PINPOINT
 
+`annotations.json` beside the corpus is the source of record: one entry per
+finding, as a court or a party wrote it. `dataset.json` is what this builds from
+it, and is overwritten on every run.
+
     uv run python -m scripts.build_public_bench
-    uv run python -m scripts.build_public_bench --out data/runs/public-bench
+    uv run python -m scripts.build_public_bench --out data/runs/public-bench/dataset.json
 """
 
 from __future__ import annotations
@@ -48,6 +59,64 @@ from pathlib import Path
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 
 SOURCE = Path("data/false-citation-bench-plus")
+
+COURT_ORDER = "court_order"
+COURT_EXHIBIT = "court_exhibit"
+PARTY_FILING = "party_filing"
+
+# Who wrote the document a finding is quoted from, decided by reading each one.
+# A judge's signature block settles it; where both a judge and counsel sign, the
+# closing signature is the author and the other is quoted or captioned.
+#
+# The distinction is recorded rather than used to exclude anything. A party's
+# brief naming a fabricated citation is evidence worth having -- it is often the
+# first document to name one, and the court that later rules is ruling on it --
+# but it is an accusation, and a reader counting findings has to be able to tell
+# an accusation from an adjudication.
+SOURCE_TYPES: dict[str, str] = {
+    "68658788_462710593": COURT_EXHIBIT,
+    "62980057_439813347": PARTY_FILING,
+    "67272743_433616756": PARTY_FILING,
+    "69393999_460258234": PARTY_FILING,
+    "69412014_446417376": PARTY_FILING,
+    "69713591_440567315": PARTY_FILING,
+    "70655948_457426024": PARTY_FILING,
+}
+"""Every document that is not a judge's own order. The other 41 are."""
+
+GRANTED_BY_COURT = frozenset({"69412014_446417376"})
+"""A party filing the same document's order granted.
+
+`69412014_446417376` is a one-paragraph order granting a Rule 11 motion with the
+movant's brief attached as Exhibit A. The findings are quoted from the brief --
+the one that resolves sits 80,000 characters before the order begins -- so the
+words are counsel's, and the court adopted the motion they support.
+"""
+
+SOURCE_NOTES: dict[str, str] = {
+    "68658788_462710593": (
+        "An exhibit, not an order: a table headed 'Fabricated Case / Plaintiff's Use / "
+        "Court's Research', filed as Doc 79-1. The third column is in the court's voice. "
+        "The order it was attached to is not in this corpus."
+    ),
+}
+
+
+def _source(document: str) -> dict[str, object]:
+    """What a finding was quoted from, and whether it was adjudicated."""
+    kind = SOURCE_TYPES.get(document, COURT_ORDER)
+    source: dict[str, object] = {
+        "document": document,
+        "type": kind,
+        "adjudicated": kind != PARTY_FILING,
+    }
+    if document in GRANTED_BY_COURT:
+        source["granted_by_court"] = True
+    if document in SOURCE_NOTES:
+        source["note"] = SOURCE_NOTES[document]
+    return source
+
+
 IDENTITY_KINDS = frozenset({"non_existent"})
 PINPOINT_KINDS = frozenset({"wrong_pincite", "misrepresented_holding", "fabricated_quote"})
 WRONG_IDENTITY = "WRONG_IDENTITY"
@@ -140,8 +209,19 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=None, help="default: overwrite the source's dataset.json")
     args = parser.parse_args()
 
-    source = json.loads((args.source / "dataset.json").read_text(encoding="utf-8"))
-    filings = next(value for value in source.values() if isinstance(value, list))
+    source = json.loads((args.source / "annotations.json").read_text(encoding="utf-8"))
+    filings = (
+        source["documents"]
+        if "documents" in source
+        else next(
+            value
+            for key, value in source.items()
+            if isinstance(value, list)
+            and value
+            and isinstance(value[0], dict)
+            and "false_citations" in value[0]
+        )
+    )
 
     entries: list[dict] = []
     counts: Counter = Counter()
@@ -194,7 +274,7 @@ def main() -> int:
                     "filing": filing["filing"],
                     "case_name": filing["case_name"],
                     "court_id": filing["court_id"],
-                    "order": filing["order"],
+                    "source": _source(filing["source_document"]),
                     "split": filing["split"],
                     "label": label,
                     "cited_authority": findings[0]["cited_authority"],
@@ -223,6 +303,7 @@ def main() -> int:
         "filing_count": len(filings),
         "entry_count": len(entries),
         "label_counts": {WRONG_IDENTITY: counts[WRONG_IDENTITY], WRONG_PINPOINT: counts[WRONG_PINPOINT]},
+        "source_counts": dict(sorted(Counter(entry["source"]["type"] for entry in entries).items())),
         "entries": entries,
     }
     out = args.out or (args.source / "dataset.json")
@@ -233,6 +314,9 @@ def main() -> int:
     print(f"-> {len(entries)} entries at {out}")
     for label, count in sorted(counts.items(), key=lambda item: -item[1]):
         print(f"  {label:<58}{count:>5}")
+    print("  --")
+    for kind, count in sorted(dataset["source_counts"].items()):
+        print(f"  {kind:<58}{count:>5}")
     return 0
 
 
