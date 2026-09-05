@@ -11,8 +11,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-V11 = Path("data/false-citation-bench-v1.1/documents_txt")
-BODY_MARKER = "--- Plain text ---\n"
+V11 = Path("data/corpus/renderings/v1.1")
 
 PROBES = [
     ("008", "2010 WL4722279"),
@@ -24,9 +23,8 @@ PROBES = [
 
 
 def body(stem: str) -> str:
-    path = next(V11.glob(f"{stem}*.txt"))
-    _, marker, text = path.read_text(encoding="utf-8").partition(BODY_MARKER)
-    return text if marker else path.read_text(encoding="utf-8")
+    """The document text spans index into."""
+    return next(V11.glob(f"{stem}*.txt")).read_text(encoding="utf-8")
 
 
 def flexible(literal: str) -> re.Pattern[str]:

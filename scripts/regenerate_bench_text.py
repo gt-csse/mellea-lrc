@@ -1,6 +1,6 @@
 """Re-export the benchmark's plain text with the margin rule on.
 
-`data/false-citation-bench/documents_txt/` was exported by a Docling run that
+The corpus text was exported by a Docling run that
 predates `reclassify_margin_line_numbers`. The rule works on the Docling
 document during conversion and cannot reach an already-exported `.txt`, so the
 published text still carries every pleading-paper margin.
@@ -23,13 +23,12 @@ Docling reconversion is slow -- minutes for the corpus, not seconds.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
 
 from mellea_lrc.preprocessing import preprocess_with_docling
-
-BODY_MARKER = "--- Plain text ---\n"
 
 # A surviving gutter, read off the text rather than the layout: four or more
 # consecutive ascending integers, each alone on its own line. Four is enough to
@@ -41,10 +40,8 @@ _MIN_RUN = 4
 
 
 def body_of(path: Path) -> str:
-    """The document body: the text after the provenance header."""
-    text = path.read_text(encoding="utf-8")
-    _, marker, body = text.partition(BODY_MARKER)
-    return body if marker else text
+    """The document text. A file is its text; nothing is stripped from the front."""
+    return path.read_text(encoding="utf-8")
 
 
 def gutter_runs(text: str) -> list[list[int]]:
@@ -64,14 +61,19 @@ def gutter_runs(text: str) -> list[list[int]]:
     return runs
 
 
-def header(source: Path, backend_version: str | None) -> str:
-    """The provenance header the published corpus writes above its body."""
-    return f"Source PDF: {source}\nBackend: docling\nBackend version: {backend_version}\n\n{BODY_MARKER}"
+def provenance(source: Path, backend_version: str | None) -> dict[str, str | None]:
+    """How one file was produced, for the sidecar beside the rendering.
+
+    Beside it and not above it: a header inside the text makes every reader
+    strip it, and a reader that forgets is silently off by its length. Court
+    records arrive with enough furniture of their own.
+    """
+    return {"source_pdf": str(source), "backend": "docling", "backend_version": backend_version}
 
 
 MARGIN_README = """# false-citation-bench, margin-adjusted (v2.0)
 
-`documents_txt/` re-exported from `../false-citation-bench/documents_pdf/` with
+`documents_txt/` re-exported from `../corpus/documents_pdf/` with
 `mellea_lrc.preprocessing.margin_line_numbers` on.
 
 **Compare it against v1.1, not against v1.** The published v1 text was produced
@@ -93,7 +95,7 @@ what the rule removed and what it left.
 
 CONTROL_README = """# false-citation-bench, reconverted (v1.1)
 
-`documents_txt/` re-exported from `../false-citation-bench/documents_pdf/` with
+`documents_txt/` re-exported from `../corpus/documents_pdf/` with
 the margin rule **off**, so its only difference from the published v1 is the
 Docling version that produced it.
 
@@ -113,8 +115,8 @@ Produced by `scripts/regenerate_bench_text.py --no-margin` on branch
 def main() -> int:
     """Reconvert the corpus and report on the margins."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pdfs", type=Path, default=Path("data/false-citation-bench/documents_pdf"))
-    parser.add_argument("--v1", type=Path, default=Path("data/false-citation-bench/documents_txt"))
+    parser.add_argument("--pdfs", type=Path, default=Path("data/corpus/documents_pdf"))
+    parser.add_argument("--before", type=Path, default=None, help="a rendering to compare against")
     parser.add_argument("--out", type=Path, help="default depends on --no-margin")
     parser.add_argument(
         "--no-margin",
@@ -125,11 +127,7 @@ def main() -> int:
 
     drop_margins = not args.no_margin
     if args.out is None:
-        args.out = Path(
-            "data/renderings/false-citation-bench-v2.0"
-            if drop_margins
-            else "data/renderings/false-citation-bench-v1.1"
-        )
+        args.out = Path("data/runs/rendering-v2.0" if drop_margins else "data/corpus/renderings/v1.1")
 
     sources = sorted(args.pdfs.glob("*.pdf"))
     if not sources:
@@ -141,26 +139,38 @@ def main() -> int:
     (args.out / "README.md").write_text(MARGIN_README if drop_margins else CONTROL_README, encoding="utf-8")
 
     rows = []
+    rendered: dict[str, dict[str, str | None]] = {}
     for index, source in enumerate(sources, start=1):
         print(f"[{index}/{len(sources)}] {source.name}", file=sys.stderr, flush=True)
         document = preprocess_with_docling(source, drop_margin_line_numbers=drop_margins)
 
         destination = text_dir / f"{source.stem}.txt"
-        destination.write_text(
-            header(source, document.preprocessing_metadata.backend_version) + document.text,
-            encoding="utf-8",
-        )
+        destination.write_text(document.text, encoding="utf-8")
+        rendered[destination.name] = provenance(source, document.preprocessing_metadata.backend_version)
 
-        before = args.v1 / f"{source.stem}.txt"
+        before = (args.before / f"{source.stem}.txt") if args.before else None
         rows.append(
             {
                 "document": source.stem,
                 "dropped": document.preprocessing_metadata.margin_line_numbers_dropped,
-                "before": gutter_runs(body_of(before)) if before.exists() else None,
+                "before": gutter_runs(body_of(before)) if before and before.exists() else None,
                 "after": gutter_runs(document.text),
             }
         )
 
+    (args.out / "documents.json").write_text(
+        json.dumps(
+            {
+                "note": "How each file here was produced. The files are text only: nothing "
+                "above the document, so a span indexes the file directly.",
+                "documents": rendered,
+            },
+            indent=1,
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     write_report(args.out / "gutter-report.md", rows)
     return 0
 

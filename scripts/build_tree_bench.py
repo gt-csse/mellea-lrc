@@ -72,7 +72,6 @@ from mellea_lrc.extraction.types import ExtractedCitation
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-BODY_MARKER = "--- Plain text ---\n"
 
 SECONDARY_KINDS = frozenset(
     {CitationKind.SHORT_CASE, CitationKind.ID, CitationKind.SUPRA, CitationKind.REFERENCE}
@@ -175,10 +174,8 @@ RECORD_REFERENCE_RANGE = ("016", 13700, 20400)
 
 
 def body(path: Path) -> str:
-    """The document text the bench spans index into."""
-    text = path.read_text(encoding="utf-8")
-    _, marker, rest = text.partition(BODY_MARKER)
-    return rest if marker else text
+    """The document text spans index into."""
+    return path.read_text(encoding="utf-8")
 
 
 def document_number(path: Path) -> str:

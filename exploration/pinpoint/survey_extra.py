@@ -25,7 +25,6 @@ from pathlib import Path
 
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 
-BODY_MARKER = "--- Plain text ---\n"
 # A pin cite is a page of the same reporter: digits, ranges, star pages,
 # paragraph and section marks. Nothing else.
 PIN_SHAPED = re.compile(r"^[*¶]?\s*\d[\d\s,\-–*¶n.]*$")
@@ -42,8 +41,8 @@ CARRIES_PIN = ("FullCaseCitation", "ShortCaseCitation", "FullLawCitation", "Full
 
 
 def body(path: Path) -> str:
-    _, marker, text = path.read_text(encoding="utf-8").partition(BODY_MARKER)
-    return text if marker else path.read_text(encoding="utf-8")
+    """The document text spans index into."""
+    return path.read_text(encoding="utf-8")
 
 
 def main() -> int:

@@ -15,12 +15,11 @@ from itertools import pairwise
 from pathlib import Path
 
 BENCH = Path(sys.argv[1] if len(sys.argv) > 1 else "data/false-citation-bench-locator-only-v1.0")
-BODY_MARKER = "--- Plain text ---\n"
 
 
 def body(path: Path) -> str:
-    _, marker, text = path.read_text(encoding="utf-8").partition(BODY_MARKER)
-    return text if marker else path.read_text(encoding="utf-8")
+    """The document text spans index into."""
+    return path.read_text(encoding="utf-8")
 
 
 def main() -> None:

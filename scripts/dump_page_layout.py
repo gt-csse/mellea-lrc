@@ -48,7 +48,7 @@ def _items(document: object) -> list[dict]:
 def main() -> int:
     """Convert every PDF once and record its layout."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pdfs", type=Path, default=Path("data/false-citation-bench/documents_pdf"))
+    parser.add_argument("--pdfs", type=Path, default=Path("data/corpus/documents_pdf"))
     parser.add_argument("--out", type=Path, default=Path("data/page-layout-cache.json"))
     args = parser.parse_args()
 

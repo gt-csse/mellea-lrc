@@ -34,10 +34,11 @@ that it does not is either a citation only `FULL` can reach or an error only
 `FULL` makes, and there is nowhere else to see which. When `FULL` stops
 producing disagreements worth keeping `BOUNDED` for, the level has done its job.
 
-Datasets isolate the other factor. `v1` to `v1.1` is the Docling version alone;
-`v1.1` to `v2.0` is the margin rule alone. Comparing `v1` to `v2.0` conflates
-them, which is how 25 statute citations once looked like a margin-rule
-regression in documents the margin rule had not touched.
+Datasets isolate the other factor. `v1.1` to `v2` is the margin and furniture
+rules; `v1.1` to `v2.0` is the margin rule alone. The original `v1` rendering is
+gone, and with it the arm that conflated a Docling upgrade with a layout rule --
+which is how 25 statute citations once looked like a margin-rule regression in
+documents the margin rule had not touched.
 
     # every dataset on disk, at bounded and full
     uv run python scripts/compare_extractions.py
@@ -70,15 +71,12 @@ from mellea_lrc.core.citations import (
 )
 from mellea_lrc.extraction import ExtractedCitation, Relaxation, extract_from_plain_text
 
-BODY_MARKER = "--- Plain text ---\n"
-
 # In the order that isolates one factor at a time: v1 to v1.1 is the Docling
 # version alone, v1.1 to v2.0 is the margin rule alone. Comparing v1 to v2.0
 # directly confounds the two, which is how 25 statute citations came to look
 # like a margin-rule regression when the converter had changed underneath.
 DEFAULT_DATASETS = {
-    "v1": Path("data/false-citation-bench/documents_txt"),
-    "v1.1": Path("data/false-citation-bench-v1.1/documents_txt"),
+    "v1.1": Path("data/corpus/renderings/v1.1"),
     "v2.0": Path("data/extraction-v2.0/documents_txt"),
 }
 
@@ -100,10 +98,8 @@ class Arm:
 
 
 def body(path: Path) -> str:
-    """The document body: the text after the provenance header, if there is one."""
-    text = path.read_text(encoding="utf-8")
-    _, marker, rest = text.partition(BODY_MARKER)
-    return rest if marker else text
+    """The document text spans index into."""
+    return path.read_text(encoding="utf-8")
 
 
 def kind(citation: ExtractedCitation) -> str:

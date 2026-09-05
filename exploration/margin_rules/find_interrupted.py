@@ -31,12 +31,11 @@ from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 
 BENCH = Path("data/false-citation-bench-locator-only-v1.0")
 CLEAN = Path("data/extraction-v2.0/documents_txt")
-BODY_MARKER = "--- Plain text ---\n"
 
 
 def body(path: Path) -> str:
-    _, marker, text = path.read_text(encoding="utf-8").partition(BODY_MARKER)
-    return text if marker else path.read_text(encoding="utf-8")
+    """The document text spans index into."""
+    return path.read_text(encoding="utf-8")
 
 
 def key(volume: str, reporter: str, page: str) -> str:
