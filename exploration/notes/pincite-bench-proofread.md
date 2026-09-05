@@ -22,31 +22,39 @@ Two filings are complete and accurately quoted: `72299304_24_1` (9 entries, 9
 table rows in the order) and `72299304_28` (7 entries, 7 rows). `70607460_15`
 records all six findings in the order's footnote 10.
 
-## 1. Three filings have no court order behind them
+## 1. Not every source is a court order, and now the data says which
 
-This is the finding that matters, because the README's first sentence about the
-data is that `orders_txt/` holds "the court orders: the ground truth", and its
-first check is "Does the order say it? `ruling_evidence` should be the court's
-words."
+Three of the eleven filings are judged by a document a party wrote, not a judge:
 
-| file | what it actually is |
+| file | what it is |
 |---|---|
-| `62980057_439813347` | **Plaintiff Frankie Johnson's Response** to the motion (Doc 186), signed by plaintiff's counsel |
-| `69412014_446417376` | **A Rule 11 letter from opposing counsel**, filed as "Exhibit A" (Doc 57-2) |
-| `69713591_440567315` | **Plaintiffs' Notification of Non-Existent Legal Authority and Rule 12(f) Motion to Strike** (Doc 24) |
+| `62980057_439813347` | Plaintiff's Response to the motion (Doc 186), signed by plaintiff's counsel |
+| `69412014_446417376` | a one-paragraph order granting a Rule 11 motion, with the movant's brief attached as Exhibit A |
+| `69713591_440567315` | Plaintiffs' Notification and Rule 12(f) Motion to Strike (Doc 24) |
 
-None is signed by a judge and none adjudicates anything. **9 of the 62 entries**
-— every entry for `62980057_174`, `69412014_46` and `69713591_23` — rest on an
-adversary's accusation rather than a court's finding. That is not a weaker
-version of the same ground truth; it is a different kind of claim, and a bench
-built on it measures whether a party alleged a defect, not whether one was found.
+A fourth, `68658788_462710593`, is Doc 79-**1**: a table headed *Fabricated Case
+/ Plaintiff's Use / Court's Research*, written in the court's voice, whose parent
+order is not in the corpus.
 
-A fourth is a partial case. `68658788_462710593` is Doc 79-**1**, an exhibit: a
-three-column table headed *Fabricated Case / Plaintiff's Use / Court's Research*.
-The third column is written in the court's voice ("the Court cannot find", "as
-cited by Billups"), so it is very likely the court's own work product — but the
-order it was attached to is not in the corpus, and nothing in the dataset says
-which document Doc 79 is.
+`69412014` is the interesting one. The file does end with a judge's signature and
+`IT IS HEREBY ORDERED that the Motion is GRANTED` — but that order is the last
+paragraph of 150,000 characters, and the one evidence quote that resolves sits at
+offset 70,026, deep inside counsel's brief. The words are counsel's; the court
+granted the motion they support.
+
+**This is recorded rather than repaired.** A party's brief is often the first
+document to name a fabricated citation, and excluding those would drop real
+defects and bias the corpus toward courts that write at length. What was wrong
+was not using them — it was calling every source an `order` and leaving a reader
+no way to tell an accusation from an adjudication. Each entry now carries:
+
+    source.document      which file in sources_txt/
+    source.type          court_order | court_exhibit | party_filing
+    source.adjudicated   false for exactly the party filings
+    source.granted_by_court   on 69412014, where an order granted the motion
+
+Across the whole `-plus` corpus the same reading gives 41 court orders, 6 party
+filings and 1 court exhibit — 202, 19 and 2 of the 223 published entries.
 
 ## 2. `ruling_evidence` is composed, not quoted
 
@@ -179,14 +187,12 @@ The dataset is usable for **extraction** work as it stands: the text is v2.0, th
 spans verify exactly, and 62 real citations with hand-checked offsets is worth
 having. Nothing in findings 1–4 touches whether a span is where it says it is.
 
-It is not yet usable as **validation ground truth**. Findings 1 and 3 are the
-blockers — 9 entries are an adversary's allegation rather than an adjudication,
-and five filings record between a third and a half of what their source names, so
-neither precision nor recall against it means what it appears to mean. Finding 2
-makes every entry unverifiable without re-reading the source by hand, which is
+It is not yet usable as **validation ground truth**, and finding 3 is now the
+blocker on its own: five filings record between a third and a half of what their
+source names, so recall against it does not mean what it appears to mean. Finding
+2 makes an entry unverifiable without re-reading the source by hand, which is
 what this pass had to do.
 
-The cheapest repair order: replace or relabel the three party filings; add a
-`source_type` field so the distinction cannot be lost again; requote every
-`ruling_evidence` from its source with ellipses where text is elided; record the
-unrecorded defects, or add a field saying the annotation is a subset and of what.
+What remains: requote every `ruling_evidence` from its source with ellipses where
+text is elided; record the unrecorded defects, or add a field saying the
+annotation is a subset and of what.
