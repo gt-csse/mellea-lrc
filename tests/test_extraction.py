@@ -126,3 +126,20 @@ def test_extract_recovers_citation_broken_by_repeated_whitespace() -> None:
     assert citation.citation.volume == "284"
     assert citation.citation.reporter.as_written == "S.W.3d"
     assert text[citation.locator_span.start : citation.locator_span.end] == "284  S.W.3d  303"
+
+
+def test_a_citation_id_is_decided_by_the_citation(tmp_path: Path) -> None:
+    """Read the same text twice and the ids are the same, so downstream keys hold."""
+    once = extract_from_plain_text(SAMPLE_TEXT)
+    twice = extract_from_plain_text(SAMPLE_TEXT)
+
+    assert [item.citation_id for item in once.citations] == [item.citation_id for item in twice.citations]
+    assert all(item.citation_id for item in once.citations)
+
+
+def test_a_citation_id_changes_when_the_text_does() -> None:
+    """A different offset is a different citation, and must not keep the old key."""
+    moved = extract_from_plain_text("A preface. " + SAMPLE_TEXT)
+    original = {item.citation_id for item in extract_from_plain_text(SAMPLE_TEXT).citations}
+
+    assert original.isdisjoint({item.citation_id for item in moved.citations})
