@@ -27,7 +27,6 @@ import contextlib
 import dataclasses
 import io
 import re
-import uuid
 from bisect import bisect_left, bisect_right
 from functools import lru_cache
 from typing import TYPE_CHECKING
@@ -38,6 +37,7 @@ from eyecite.tokenizers import EXTRACTORS, Tokenizer
 
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.eyecite_extractor import to_canonical
+from mellea_lrc.extraction.identity import citation_id as citation_id_for
 from mellea_lrc.extraction.types import ExtractedCitation
 
 if TYPE_CHECKING:
@@ -79,7 +79,10 @@ def promote(text: str, candidate: Candidate) -> ExtractedCitation | None:
             continue
         full_start, full_end = citation.full_span()
         return ExtractedCitation(
-            citation_id=str(uuid.uuid4())[:8],
+            citation_id=citation_id_for(
+                Span(start=candidate.window.start + start, end=candidate.window.start + end),
+                citation.matched_text(),
+            ),
             full_span=Span(
                 start=candidate.window.start + full_start,
                 end=candidate.window.start + full_end,
@@ -154,7 +157,7 @@ def promote_locator(text: str, locator: AdjudicatedLocator) -> ExtractedCitation
             full_start = updater.update(full_start, bisect_right)
             full_end = updater.update(full_end, bisect_left)
         return ExtractedCitation(
-            citation_id=str(uuid.uuid4())[:8],
+            citation_id=citation_id_for(Span(start=locator.span.start, end=locator.span.end), locator.text),
             full_span=Span(start=start + full_start, end=start + full_end),
             locator_span=Span(start=locator.span.start, end=locator.span.end),
             # The characters the document holds, not the ones that were parsed.
@@ -214,7 +217,9 @@ def reread_site(text: str, site: SuspectedLocator) -> ExtractedCitation | None:
             continue
         full_start, full_end = citation.full_span()
         return ExtractedCitation(
-            citation_id=str(uuid.uuid4())[:8],
+            citation_id=citation_id_for(
+                Span(start=start + local_start, end=start + local_end), citation.matched_text()
+            ),
             full_span=Span(start=start + full_start, end=start + full_end),
             locator_span=Span(start=start + local_start, end=start + local_end),
             matched_text=citation.matched_text(),

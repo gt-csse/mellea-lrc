@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import uuid
 from typing import cast
 
 from eyecite import get_citations, resolve_citations
@@ -51,6 +50,7 @@ from mellea_lrc.core.citations import (
     UnknownCitation,
 )
 from mellea_lrc.core.spans import Span
+from mellea_lrc.extraction.identity import citation_id as citation_id_for
 from mellea_lrc.extraction.reading.dockets import DOCKET_GROUP, with_dockets
 from mellea_lrc.extraction.reading.pin_cites import relaxed_pin_cites
 from mellea_lrc.extraction.reading.relaxation import Relaxation, tokenizer_for
@@ -268,7 +268,8 @@ def _assign_citation_ids(
                 "All citation types must be handled explicitly."
             )
             raise ValueError(msg)
-        citation_ids.append((citation, str(uuid.uuid4())[:8]))
+        start, end = citation.span()
+        citation_ids.append((citation, citation_id_for(Span(start=start, end=end), citation.matched_text())))
     return citation_ids
 
 
