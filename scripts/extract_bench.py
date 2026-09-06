@@ -33,9 +33,9 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from mellea_lrc.core.citations import citation_kind
-from mellea_lrc.extraction import Relaxation
-from mellea_lrc.extraction.pipeline import extract_from_raw_document
+from mellea_lrc.extraction import Relaxation, extract_citations
 from mellea_lrc.extraction.types import ExtractedDocument
+from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.serialization import deserialize_extracted_document, serialize_extracted_document
 from mellea_lrc.serialization.extracted_document import SCHEMA_VERSION
 
@@ -94,7 +94,7 @@ def main() -> int:
     for path in paths:
         # eyecite writes to stdout on some inputs; the artifact is the output.
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            document = extract_from_raw_document(path, relaxation=relaxation)
+            document = extract_citations(preprocess(path), relaxation=relaxation)
         payload = serialize_extracted_document(document)
 
         # An artifact nobody can load is not an artifact. Reading it back here

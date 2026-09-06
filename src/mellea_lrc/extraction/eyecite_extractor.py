@@ -287,12 +287,17 @@ def _build_antecedent_map(
     return antecedent_map
 
 
-def _extract_from_text(
+def extract_citations(
     preprocessed: PreprocessedDocument,
     *,
     relaxation: Relaxation = Relaxation.BOUNDED,
 ) -> ExtractedDocument:
     """Extract canonical citations from a preprocessed document.
+
+    This is the extraction stage's entry point. Preprocessing is a stage of its
+    own and runs first: converting a PDF, deciding which page furniture is not
+    the document's text, settling the coordinate space every span will index.
+    Extraction takes what that produced and reads citations out of it.
 
     The text is tokenized as it stands. Nothing is rewritten before parsing and
     no span is remapped afterwards, so every offset indexes straight into
@@ -358,4 +363,4 @@ def extract_from_plain_text(
     still be found; see :class:`~mellea_lrc.extraction.reading.relaxation.Relaxation`.
     """
     preprocessed = preprocess(text)
-    return _extract_from_text(preprocessed, relaxation=relaxation)
+    return extract_citations(preprocessed, relaxation=relaxation)
