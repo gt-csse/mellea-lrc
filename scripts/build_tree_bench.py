@@ -589,6 +589,29 @@ def check_against_locator_bench(occurrences: list[dict], bench: Path) -> list[st
     return notes
 
 
+def _refuse_to_rebuild(out: Path) -> None:
+    """Stop before overwriting a bench that is now maintained directly.
+
+    Two things make a rebuild wrong rather than merely redundant. The bench
+    carries hand corrections made since it was built -- attributions read from
+    the text, labels the audit changed -- and a rebuild reverts them. And its
+    ids are ordinals assigned once, `008-a09` and the like, deliberately not
+    derived from anything: a rebuild renumbers from scratch, which is the one
+    thing an assigned-once id must never do, and every record keyed by one
+    would silently point somewhere else.
+
+    The script is kept because it is the record of how the bench was first
+    built. Pass `--out` somewhere else to build a comparison copy.
+    """
+    if (out / "occurrences.jsonl").exists():
+        msg = (
+            f"{out} already holds a bench. It is maintained directly now, not rebuilt: a "
+            f"rebuild reverts hand corrections and renumbers ids that are assigned once. "
+            f"Pass --out to build a comparison copy somewhere else."
+        )
+        raise SystemExit(msg)
+
+
 def main() -> int:
     """Write the tree bench and the report of what it could not settle."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -604,6 +627,7 @@ def main() -> int:
     )
     parser.add_argument("--out", type=Path, default=Path("data/runs/tree-rebuild"))
     args = parser.parse_args()
+    _refuse_to_rebuild(args.out)
 
     all_authorities: list[dict] = []
     all_occurrences: list[dict] = []
