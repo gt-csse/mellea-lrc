@@ -19,9 +19,19 @@ why there is no longer a separate generator for a reporter set in capitals --
 that is a strict site whose written form differs from the gazetteer's, and
 :func:`~mellea_lrc.extraction.adjudication.promotion.reread_site` recovers it
 without asking anyone.
+
+:mod:`~mellea_lrc.extraction.adjudication.candidates.nonconforming_citations` is
+the only one that proposes a span the record does not hold. The others disagree
+with extraction about something it read; that one finds a case cited with no
+locator at all, which no relaxation reaches because there is nothing to relax.
+It proposes 18 spans over the 26 bench filings, 9 documents, so it is affordable
+to review for the same reason the narrow generators are.
 """
 
 from mellea_lrc.extraction.adjudication.candidates.ambiguous_editions import ambiguous_editions
+from mellea_lrc.extraction.adjudication.candidates.nonconforming_citations import (
+    nonconforming_citations,
+)
 from mellea_lrc.extraction.adjudication.candidates.orphan_short_forms import orphan_short_forms
 from mellea_lrc.extraction.adjudication.candidates.reporter_sites import (
     SiteStage,
@@ -33,6 +43,7 @@ __all__ = [
     "SiteStage",
     "SuspectedLocator",
     "ambiguous_editions",
+    "nonconforming_citations",
     "orphan_short_forms",
     "suspected_locators",
 ]
