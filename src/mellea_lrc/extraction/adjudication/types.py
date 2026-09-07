@@ -39,6 +39,16 @@ class CandidateKind(str, Enum):
     reporting whether or not anything is recovered from it.
     """
 
+    NONCONFORMING = "nonconforming"
+    """A case cited in a form that locates nothing.
+
+    The class, not one shape of it. What its generators have in common is that
+    the citation is outside the form Bluebook Rule 10 gives, in a way that leaves
+    the extractor with nothing to key on -- so unlike every other kind here, the
+    candidate is not a span the record holds and disagrees about, it is a span
+    the record does not have.
+    """
+
 
 @dataclass(frozen=True, slots=True)
 class Candidate:
