@@ -35,7 +35,7 @@ from mellea_lrc.preprocessing.types import (
 )
 from mellea_lrc.serialization._json import JsonValue, require_list, require_mapping, serialize_dataclass
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 _ARTIFACT_TYPE = "extracted_document"
 
 _CITATION_TYPES: dict[CitationKind, type[CanonicalCitation]] = {
@@ -65,6 +65,9 @@ def serialize_extracted_document(document: ExtractedDocument) -> dict[str, JsonV
                 "full_span": serialize_dataclass(citation.full_span),
                 "locator_span": serialize_dataclass(citation.locator_span),
                 "matched_text": citation.matched_text,
+                "pin_cite_span": (
+                    serialize_dataclass(citation.pin_cite_span) if citation.pin_cite_span else None
+                ),
                 "citation": {
                     "citation_type": citation_kind(citation.citation).value,
                     **serialize_dataclass(citation.citation),
@@ -151,9 +154,20 @@ def _deserialize_citation(value: object) -> ExtractedCitation:
         ),
         matched_text=_required_string(payload.get("matched_text"), name="citation.matched_text"),
         citation=citation_type(**citation_fields),
+        pin_cite_span=_optional_span(payload.get("pin_cite_span"), name="citation.pin_cite_span"),
         resolves_to=_optional_string(payload.get("resolves_to"), name="citation.resolves_to"),
         authority_id=_optional_string(payload.get("authority_id"), name="citation.authority_id"),
         colocation_id=_optional_string(payload.get("colocation_id"), name="citation.colocation_id"),
+    )
+
+
+def _optional_span(value: object, *, name: str) -> Span | None:
+    if value is None:
+        return None
+    span = require_mapping(value, name=name)
+    return Span(
+        start=_required_integer(span.get("start"), name=f"{name}.start"),
+        end=_required_integer(span.get("end"), name=f"{name}.end"),
     )
 
 

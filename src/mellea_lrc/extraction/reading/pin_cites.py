@@ -1,4 +1,10 @@
-r"""Relax the whitespace eyecite requires inside a pin cite.
+r"""Read a pin cite through the whitespace extraction leaves, and record the page.
+
+Two jobs, because a pin cite arrives damaged in two different ways: the pattern
+that finds it is too strict about spaces, and the string it hands back spells
+the same page four ways depending on which citation kind it came from.
+
+# I. Relaxing the pattern
 
 The reporter joins were relaxed because eyecite writes a literal single space
 between volume, reporter and page, and PDF extraction leaves several. Its
@@ -40,15 +46,77 @@ afterwards. Two consequences worth stating plainly:
     thread would see the relaxed patterns while it is in effect. Extraction is
     synchronous and the window is one call, but it is a global and should be
     read as one.
+
+# II. Stripping the connector
+
+eyecite spells the same claim four ways, and all four are what it intends::
+
+    550 U.S. 544, 570      FullCaseCitation    pin_cite='570'
+    556 U.S. at 678        ShortCaseCitation   pin_cite='678'
+    Id. at 547             IdCitation          pin_cite='at 547'
+    Caraway , at 1301      ReferenceCitation   pin_cite=',  at  1301'
+
+The first two are bare because the words before the page belong to something
+else: a full citation's `, ` is punctuation the post-citation pattern consumes,
+and a short form's `at` is part of the *locator* regex -- eyecite reads the page
+straight out of `groups["page"]` and passes it back through `extract_pin_cite`
+as a prefix. `Id.` and supra keep their `at` because they have no locator page
+for it to belong to; that pairing is documented in eyecite's README.
+
+The reference's leading comma is not intended. Both `ReferenceCitation`
+construction sites in `find.py` build the object from `match.groupdict()`
+directly, and `clean_pin_cite` -- which every path through `helpers.py` calls,
+and which is only `pin_cite.strip(", ")` -- is not imported in that file at all.
+The type arrived in 2.6.5 (January 2025) on a new extractor, four years after
+the pin-cite handling it did not reuse, and `Bar at 7` and `Bar , at 9` in one
+sentence still come back as `at 7` and `, at 9` on current `main`.
+
+None of that survives to a scored column. The question a pin cite is scored on
+is *which page*, and a connector that varies by citation kind is noise in an
+equality test. So a leading comma, `at`, `p.`, `pp.` or `pg.` is removed and
+every kind reads the same.
+
+What is **not** removed is a label: `¶`, `§`, `*`, `n.`, `note` and `fn.` stay
+where they are written, because they change what is being pointed at. `n. 1` is
+not page 1 and `*3` is not page 3, so stripping them would not normalise a
+spelling, it would assert something the document does not say.
+
+The direction is forced rather than chosen. Adding a connector is impossible:
+`550 U.S. 544, 570` contains no `at` anywhere, so there are no characters for a
+span to cover. Removing one is always available.
 """
 
 from __future__ import annotations
 
 import contextlib
+import re
 from collections.abc import Iterator
 
 import eyecite.helpers
 import eyecite.regexes
+
+# A comma, an `at`, or a page abbreviation standing in front of the page. Only
+# what joins the pin cite to the citation -- `¶`, `§`, `*` and `n.` are labels
+# that change the page's meaning and are left alone.
+# The lookahead is what keeps `pt. 3` intact: without it `p` matches and the
+# strip leaves `t. 3`, which reads as a page and is not one.
+_CONNECTOR = re.compile(
+    r"^[,\s]*(?:at[^\S\r\n]+)?(?:(?:pp?|pg)\.?(?=[\s\d]))?[^\S\r\n]*",
+    re.I,
+)
+
+
+def strip_connector(pin_cite: str | None) -> str | None:
+    """The page a pin cite states, without the words joining it to the citation.
+
+    ``None`` when there is no pin cite, and also when nothing survives the strip
+    -- a pin cite that is only a connector states no page.
+    """
+    if pin_cite is None:
+        return None
+    stripped = _CONNECTOR.sub("", pin_cite).strip(", \t")
+    return stripped or None
+
 
 _HORIZONTAL_OPTIONAL = r"[^\S\r\n]*"
 _HORIZONTAL_REQUIRED = r"[^\S\r\n]+"

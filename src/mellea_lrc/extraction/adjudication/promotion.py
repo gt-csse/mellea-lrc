@@ -19,6 +19,18 @@ Offsets add rather than remap. The window is a slice of the document's own text,
 so a citation found at local offset `n` sits at `window.start + n`, and
 ``matched_text`` is still the source text as written. Nothing is rewritten,
 which is the same property the extraction layer keeps.
+
+"The same pipeline" includes how tolerantly a pin cite is read. The tokenizer
+here is widened past anything extraction runs, so leaving
+:func:`~mellea_lrc.extraction.reading.pin_cites.relaxed_pin_cites` off would
+have produced the one combination nothing wants: a locator recovered from
+damage severe enough to need a reader, and then its page dropped for a doubled
+space. Every re-read below runs inside it.
+
+The pin cite's own span is located afterwards, against the *document* and from
+the spans already mapped back into it, so it is never in window coordinates and
+never in repaired ones. See
+:mod:`mellea_lrc.extraction.reading.pin_cite_spans`.
 """
 
 from __future__ import annotations
@@ -38,6 +50,8 @@ from eyecite.tokenizers import EXTRACTORS, Tokenizer
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.eyecite_extractor import to_canonical
 from mellea_lrc.extraction.identity import citation_id as citation_id_for
+from mellea_lrc.extraction.reading.pin_cite_spans import locate_pin_cite
+from mellea_lrc.extraction.reading.pin_cites import relaxed_pin_cites
 from mellea_lrc.extraction.types import ExtractedCitation
 
 if TYPE_CHECKING:
@@ -66,7 +80,11 @@ def promote(text: str, candidate: Candidate) -> ExtractedCitation | None:
     represent, and inventing a citation object would hide that.
     """
     window = text[candidate.window.start : candidate.window.end]
-    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+    with (
+        relaxed_pin_cites(),
+        contextlib.redirect_stdout(io.StringIO()),
+        contextlib.redirect_stderr(io.StringIO()),
+    ):
         found = get_citations(window, tokenizer=_forgiving_tokenizer())
 
     wanted = (
@@ -78,21 +96,22 @@ def promote(text: str, candidate: Candidate) -> ExtractedCitation | None:
         if (start, end) != wanted:
             continue
         full_start, full_end = citation.full_span()
+        full_span = Span(
+            start=candidate.window.start + full_start,
+            end=candidate.window.start + full_end,
+        )
+        locator_span = Span(
+            start=candidate.window.start + start,
+            end=candidate.window.start + end,
+        )
+        canonical = to_canonical(citation)
         return ExtractedCitation(
-            citation_id=citation_id_for(
-                Span(start=candidate.window.start + start, end=candidate.window.start + end),
-                citation.matched_text(),
-            ),
-            full_span=Span(
-                start=candidate.window.start + full_start,
-                end=candidate.window.start + full_end,
-            ),
-            locator_span=Span(
-                start=candidate.window.start + start,
-                end=candidate.window.start + end,
-            ),
+            citation_id=citation_id_for(locator_span, citation.matched_text()),
+            full_span=full_span,
+            locator_span=locator_span,
             matched_text=citation.matched_text(),
-            citation=to_canonical(citation),
+            citation=canonical,
+            pin_cite_span=locate_pin_cite(text, canonical, locator_span=locator_span, full_span=full_span),
         )
     return None
 
@@ -142,7 +161,11 @@ def promote_locator(text: str, locator: AdjudicatedLocator) -> ExtractedCitation
 
     canonical = f"{locator.volume} {locator.reporter} {locator.page}"
     repaired = original[:local_start] + canonical + original[local_end:]
-    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+    with (
+        relaxed_pin_cites(),
+        contextlib.redirect_stdout(io.StringIO()),
+        contextlib.redirect_stderr(io.StringIO()),
+    ):
         found = get_citations(repaired, tokenizer=_forgiving_tokenizer())
 
     wanted = (local_start, local_start + len(canonical))
@@ -156,13 +179,19 @@ def promote_locator(text: str, locator: AdjudicatedLocator) -> ExtractedCitation
             # end binds left, the same pairing the reviewer's grounding uses.
             full_start = updater.update(full_start, bisect_right)
             full_end = updater.update(full_end, bisect_left)
+        full_span = Span(start=start + full_start, end=start + full_end)
+        locator_span = Span(start=locator.span.start, end=locator.span.end)
+        promoted = to_canonical(citation)
         return ExtractedCitation(
-            citation_id=citation_id_for(Span(start=locator.span.start, end=locator.span.end), locator.text),
-            full_span=Span(start=start + full_start, end=start + full_end),
-            locator_span=Span(start=locator.span.start, end=locator.span.end),
+            citation_id=citation_id_for(locator_span, locator.text),
+            full_span=full_span,
+            locator_span=locator_span,
             # The characters the document holds, not the ones that were parsed.
             matched_text=locator.text,
-            citation=to_canonical(citation),
+            citation=promoted,
+            # Located in the document, where the pin cite is undamaged: only the
+            # locator was repaired, and the pin cite lies past its end.
+            pin_cite_span=locate_pin_cite(text, promoted, locator_span=locator_span, full_span=full_span),
         )
     return None
 
@@ -204,7 +233,11 @@ def reread_site(text: str, site: SuspectedLocator) -> ExtractedCitation | None:
     """
     start = max(0, site.span_start - PROMOTION_WINDOW)
     end = min(len(text), site.span_end + PROMOTION_WINDOW)
-    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+    with (
+        relaxed_pin_cites(),
+        contextlib.redirect_stdout(io.StringIO()),
+        contextlib.redirect_stderr(io.StringIO()),
+    ):
         found = get_citations(text[start:end], tokenizer=_forgiving_tokenizer())
 
     wanted_start = site.span_start - start
@@ -216,13 +249,15 @@ def reread_site(text: str, site: SuspectedLocator) -> ExtractedCitation | None:
         if _lettered_page(citation):
             continue
         full_start, full_end = citation.full_span()
+        full_span = Span(start=start + full_start, end=start + full_end)
+        locator_span = Span(start=start + local_start, end=start + local_end)
+        canonical = to_canonical(citation)
         return ExtractedCitation(
-            citation_id=citation_id_for(
-                Span(start=start + local_start, end=start + local_end), citation.matched_text()
-            ),
-            full_span=Span(start=start + full_start, end=start + full_end),
-            locator_span=Span(start=start + local_start, end=start + local_end),
+            citation_id=citation_id_for(locator_span, citation.matched_text()),
+            full_span=full_span,
+            locator_span=locator_span,
             matched_text=citation.matched_text(),
-            citation=to_canonical(citation),
+            citation=canonical,
+            pin_cite_span=locate_pin_cite(text, canonical, locator_span=locator_span, full_span=full_span),
         )
     return None

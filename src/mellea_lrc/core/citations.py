@@ -147,6 +147,14 @@ class FullCaseCitation:
     date: CitationDate | None = None
     court: str | None = None
     parenthetical: str | None = None
+    antecedent: str | None = None
+    """A party name read from the text when the case name would not parse.
+
+    Normally a full citation has `plaintiff` and `defendant` and this is unset.
+    It fills in for them when the name ahead of the locator is not a `v.` pair:
+    document 007 writes `Electromedicina , 369 F.3d 645 (2 nd Cir. 2004)`, and
+    without this field that citation carries no party name at all.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,7 +228,17 @@ class ShortCaseCitation:
     page: str | None = None
     pin_cite: str | None = None
     court: str | None = None
+    date: CitationDate | None = None
     parenthetical: str | None = None
+    antecedent: str | None = None
+    """The party name the short form is written under, e.g. `Iqbal`.
+
+    A short citation states a volume, a reporter and a page, and no case name;
+    on `false-citation-bench` 32 of 33 of them are written next to one anyway.
+    That name is the only identity the occurrence carries on its own, so a
+    reader checking `695 F.Supp.2d at 1154` against the authority it was
+    attributed to has nothing else to compare.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,8 +247,12 @@ class SupraCitation:
 
     kind: ClassVar[CitationKind] = CitationKind.SUPRA
 
+    volume: str | None = None
+    """The volume a numbered supra states, as in `Smith, 5 supra, at 10`."""
     pin_cite: str | None = None
     parenthetical: str | None = None
+    antecedent: str | None = None
+    """The party name ahead of `supra`, which is the whole of its identity."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,6 +273,14 @@ class ReferenceCitation:
 
     plaintiff: str | None = None
     defendant: str | None = None
+    pin_cite: str | None = None
+    """The page a bare-name reference points at, as in `Bell at 546`.
+
+    A reference states no reporter, so the page is the only thing about it that
+    can be wrong on its own terms -- and it is stated on every reference
+    `false-citation-bench` contains.
+    """
+    parenthetical: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

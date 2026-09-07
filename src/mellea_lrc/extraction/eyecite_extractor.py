@@ -52,7 +52,8 @@ from mellea_lrc.core.citations import (
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.identity import citation_id as citation_id_for
 from mellea_lrc.extraction.reading.dockets import DOCKET_GROUP, with_dockets
-from mellea_lrc.extraction.reading.pin_cites import relaxed_pin_cites
+from mellea_lrc.extraction.reading.pin_cite_spans import locate_pin_cite
+from mellea_lrc.extraction.reading.pin_cites import relaxed_pin_cites, strip_connector
 from mellea_lrc.extraction.reading.relaxation import Relaxation, tokenizer_for
 from mellea_lrc.extraction.stages import refine
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
@@ -145,7 +146,7 @@ def _to_docket(citation: EyeciteFullCaseCitation) -> DocketCitation:
         court=citation.groups.get("court"),
         court_name=citation.groups.get("court_name"),
         court_text=citation.groups.get("court_text"),
-        pin_cite=citation.metadata.pin_cite,
+        pin_cite=strip_connector(citation.metadata.pin_cite),
         date=_date(citation),
         parenthetical=citation.metadata.parenthetical,
     )
@@ -158,11 +159,12 @@ def _to_full_case(citation: EyeciteFullCaseCitation) -> FullCaseCitation:
         volume=citation.groups.get("volume"),
         reporter=_reporter(citation),
         page=citation.groups.get("page"),
-        pin_cite=citation.metadata.pin_cite,
+        pin_cite=strip_connector(citation.metadata.pin_cite),
         extra=citation.metadata.extra,
         date=_date(citation),
         court=citation.metadata.court,
         parenthetical=citation.metadata.parenthetical,
+        antecedent=citation.metadata.antecedent_guess,
     )
 
 
@@ -171,7 +173,7 @@ def _to_full_law(citation: EyeciteFullLawCitation) -> FullLawCitation:
         volume=citation.groups.get("title"),
         reporter=_reporter(citation),
         page=citation.groups.get("section"),
-        pin_cite=citation.metadata.pin_cite,
+        pin_cite=strip_connector(citation.metadata.pin_cite),
         date=_date(citation),
         publisher=citation.metadata.publisher,
         parenthetical=citation.metadata.parenthetical,
@@ -183,7 +185,7 @@ def _to_full_journal(citation: EyeciteFullJournalCitation) -> FullJournalCitatio
         volume=citation.groups.get("volume"),
         reporter=_reporter(citation),
         page=citation.groups.get("page"),
-        pin_cite=citation.metadata.pin_cite,
+        pin_cite=strip_connector(citation.metadata.pin_cite),
         date=_date(citation),
         parenthetical=citation.metadata.parenthetical,
     )
@@ -194,22 +196,26 @@ def _to_short_case(citation: EyeciteShortCaseCitation) -> ShortCaseCitation:
         volume=citation.groups.get("volume"),
         reporter=_reporter(citation),
         page=citation.groups.get("page"),
-        pin_cite=citation.metadata.pin_cite,
+        pin_cite=strip_connector(citation.metadata.pin_cite),
         court=citation.metadata.court,
+        date=_date(citation),
         parenthetical=citation.metadata.parenthetical,
+        antecedent=citation.metadata.antecedent_guess,
     )
 
 
 def _to_supra(citation: EyeciteSupraCitation) -> SupraCitation:
     return SupraCitation(
-        pin_cite=citation.metadata.pin_cite,
+        volume=citation.metadata.volume,
+        pin_cite=strip_connector(citation.metadata.pin_cite),
         parenthetical=citation.metadata.parenthetical,
+        antecedent=citation.metadata.antecedent_guess,
     )
 
 
 def _to_id(citation: EyeciteIdCitation) -> IdCitation:
     return IdCitation(
-        pin_cite=citation.metadata.pin_cite,
+        pin_cite=strip_connector(citation.metadata.pin_cite),
         parenthetical=citation.metadata.parenthetical,
     )
 
@@ -218,6 +224,8 @@ def _to_reference(citation: EyeciteReferenceCitation) -> ReferenceCitation:
     return ReferenceCitation(
         plaintiff=citation.metadata.plaintiff,
         defendant=citation.metadata.defendant,
+        pin_cite=strip_connector(citation.metadata.pin_cite),
+        parenthetical=citation.metadata.parenthetical,
     )
 
 
@@ -326,13 +334,19 @@ def extract_citations(
     for eyecite_citation, citation_id in citation_ids:
         span_start, span_end = eyecite_citation.full_span()
         locator_start, locator_end = eyecite_citation.span()
+        full_span = Span(start=span_start, end=span_end)
+        locator_span = Span(start=locator_start, end=locator_end)
+        canonical = to_canonical(eyecite_citation)
         extracted.append(
             ExtractedCitation(
                 citation_id=citation_id,
-                full_span=Span(start=span_start, end=span_end),
-                locator_span=Span(start=locator_start, end=locator_end),
+                full_span=full_span,
+                locator_span=locator_span,
                 matched_text=eyecite_citation.matched_text(),
-                citation=to_canonical(eyecite_citation),
+                citation=canonical,
+                pin_cite_span=locate_pin_cite(
+                    text, canonical, locator_span=locator_span, full_span=full_span
+                ),
                 resolves_to=antecedent_map.get(citation_id),
             )
         )
