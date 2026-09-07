@@ -46,6 +46,16 @@ class ExtractedCitation:
     """
     matched_text: str
     citation: CanonicalCitation
+    pin_cite_span: Span | None = None
+    """Where the pin cite was read from, or `None` when the citation states none.
+
+    The page a filing argues from is not part of the authority's identity -- a
+    retrieval settles the case name and the court, and cannot settle the page --
+    so it is scored on its own, and scoring it needs somewhere to point.
+
+    eyecite supplies this for full case citations only; every other kind is
+    located by :mod:`mellea_lrc.extraction.reading.pin_cite_spans`.
+    """
     resolves_to: str | None = None
     authority_id: str | None = None
     """The citation that introduced the authority this one refers to.

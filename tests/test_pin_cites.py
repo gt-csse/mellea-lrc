@@ -13,6 +13,8 @@ import io
 
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
+from mellea_lrc.extraction.adjudication.candidates.reporter_sites import SuspectedLocator
+from mellea_lrc.extraction.adjudication.promotion import reread_site
 
 
 def _first(text: str, relaxation: Relaxation = Relaxation.BOUNDED):
@@ -98,3 +100,30 @@ def test_the_patch_is_restored_after_extraction() -> None:
     _first("Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009).")
 
     assert (eyecite.regexes.PIN_CITE_REGEX, eyecite.helpers.POST_FULL_CITATION_REGEX) == before
+
+
+def test_a_re_read_site_reads_its_pin_cite_as_tolerantly_as_extraction() -> None:
+    """The re-read paths widen the reporter rule; they must widen this one too.
+
+    A site reaches `reread_site` because the extractor found nothing there, so
+    it is damaged text by definition -- and text damaged enough to lose a
+    reporter to capitalisation is text whose pin cite is spaced as well.
+    Reading the locator and then dropping its page for a doubled space is the
+    one outcome nothing wants: eyecite files the page under `extra`, where
+    nothing looks for it, and reports no loss.
+    """
+    text = "See Doe v. Roe, 33 F.4TH 693,  701  (6th Cir. 2022), for the rule."
+    start = text.index("F.4TH")
+    site = SuspectedLocator(
+        span_start=start,
+        span_end=start + len("F.4TH"),
+        reporter="F.4TH",
+        window=text,
+    )
+
+    citation = reread_site(text, site)
+
+    assert citation is not None
+    assert citation.citation.pin_cite == "701"
+    assert citation.pin_cite_span is not None
+    assert text[citation.pin_cite_span.start : citation.pin_cite_span.end] == "701"

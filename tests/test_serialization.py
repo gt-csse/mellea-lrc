@@ -110,7 +110,7 @@ def test_extracted_document_round_trip_preserves_recoverable_fields() -> None:
 
     payload = serialize_extracted_document(document)
 
-    assert payload["schema_version"] == 3
+    assert payload["schema_version"] == 4
     assert payload["artifact_type"] == "extracted_document"
     assert payload["citations"][0]["full_span"] == {"start": 0, "end": len(document.text) - 1}
     assert payload["citations"][0]["locator_span"] == {"start": 29, "end": 41}
@@ -133,9 +133,9 @@ def test_extracted_document_round_trip_supports_every_canonical_citation_type() 
         ShortCaseCitation(
             volume="1", reporter=Reporter(as_written="U.S.", short_name="U.S.", is_scotus=True), page="2"
         ),
-        SupraCitation(pin_cite="2"),
+        SupraCitation(pin_cite="2", antecedent="A"),
         IdCitation(pin_cite="2"),
-        ReferenceCitation(plaintiff="A", defendant="B"),
+        ReferenceCitation(plaintiff="A", defendant="B", pin_cite="at 2"),
         UnknownCitation(),
     )
     source = preprocess("x" * len(citations))
@@ -150,6 +150,9 @@ def test_extracted_document_round_trip_supports_every_canonical_citation_type() 
                 locator_span=Span(index, index + 1),
                 matched_text="x",
                 citation=citation,
+                # A pin cite is scored on its own, so its span has to survive
+                # the round trip like any other offset.
+                pin_cite_span=Span(index, index + 1) if getattr(citation, "pin_cite", None) else None,
             )
             for index, citation in enumerate(citations)
         ),
@@ -204,7 +207,7 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
 
     payload = serialize_validated_document(validated)
 
-    assert payload["schema_version"] == 3
+    assert payload["schema_version"] == 4
     assert payload["artifact_type"] == "validated_document"
     assert payload["source"]["artifact_type"] == "extracted_document"
     assert payload["source"]["citations"][0]["citation"]["citation_type"] == "FullCaseCitation"
