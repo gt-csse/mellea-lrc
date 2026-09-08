@@ -20,17 +20,12 @@ that is a strict site whose written form differs from the gazetteer's, and
 :func:`~mellea_lrc.extraction.adjudication.promotion.reread_site` recovers it
 without asking anyone.
 
-:mod:`~mellea_lrc.extraction.adjudication.candidates.bare_case_names` is the only
-one that proposes a span the record does not hold. The others disagree with
-extraction about something it read; that one finds a case named with no locator
-at all, which no relaxation reaches because there is nothing to relax. It is also
-the only one that reports rather than filters: a bare name may be a defect or may
-be a short form the filing is entitled to, so what was observed goes in the note
-and nothing is dropped for failing a rule about citation form.
+A case named where nothing was read is not here. That is not a disagreement
+about a citation, it is the absence of one, and extraction reports it directly:
+see :mod:`mellea_lrc.extraction.reading.unread_names`.
 """
 
 from mellea_lrc.extraction.adjudication.candidates.ambiguous_editions import ambiguous_editions
-from mellea_lrc.extraction.adjudication.candidates.bare_case_names import bare_case_names
 from mellea_lrc.extraction.adjudication.candidates.orphan_short_forms import orphan_short_forms
 from mellea_lrc.extraction.adjudication.candidates.reporter_sites import (
     SiteStage,
@@ -42,7 +37,6 @@ __all__ = [
     "SiteStage",
     "SuspectedLocator",
     "ambiguous_editions",
-    "bare_case_names",
     "orphan_short_forms",
     "suspected_locators",
 ]

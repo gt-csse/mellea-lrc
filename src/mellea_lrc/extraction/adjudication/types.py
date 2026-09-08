@@ -39,19 +39,6 @@ class CandidateKind(str, Enum):
     reporting whether or not anything is recovered from it.
     """
 
-    BARE_CASE_NAME = "bare_case_name"
-    """A case named with no volume, reporter, page or docket number attached.
-
-    Unlike every other kind here, the candidate is not a span the record holds
-    and disagrees about; it is a span the record does not have, because a
-    reporter-driven tokenizer produces nothing where there is no locator.
-
-    Deliberately a description and not a verdict. A bare name may be a citation
-    that locates nothing, a short form the filing is entitled to under Bluebook
-    Rule 10.9, or the caption naming the filing's own parties, and telling those
-    apart is a reading rather than a rule.
-    """
-
 
 @dataclass(frozen=True, slots=True)
 class Candidate:

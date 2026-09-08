@@ -35,7 +35,7 @@ from mellea_lrc.preprocessing.types import (
 )
 from mellea_lrc.serialization._json import JsonValue, require_list, require_mapping, serialize_dataclass
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 _ARTIFACT_TYPE = "extracted_document"
 
 _CITATION_TYPES: dict[CitationKind, type[CanonicalCitation]] = {
@@ -78,6 +78,7 @@ def serialize_extracted_document(document: ExtractedDocument) -> dict[str, JsonV
             }
             for citation in document.citations
         ],
+        "unread_case_names": [serialize_dataclass(span) for span in document.unread_case_names],
         "extraction_metadata": serialize_dataclass(document.extraction_metadata),
     }
 
@@ -113,6 +114,11 @@ def deserialize_extracted_document(payload: Mapping[str, object]) -> ExtractedDo
             ),
         ),
         citations=tuple(_deserialize_citation(item) for item in citations),
+        unread_case_names=tuple(
+            _optional_span(item, name="unread_case_names")
+            for item in require_list(payload.get("unread_case_names", []), name="unread_case_names")
+            if item is not None
+        ),
         extraction_metadata=ExtractionMetadata(
             backend=ExtractionBackend(
                 _required_string(extraction_metadata.get("backend"), name="extraction_metadata.backend")

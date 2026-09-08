@@ -55,6 +55,7 @@ from mellea_lrc.extraction.reading.dockets import DOCKET_GROUP, with_dockets
 from mellea_lrc.extraction.reading.pin_cite_spans import locate_pin_cite
 from mellea_lrc.extraction.reading.pin_cites import relaxed_pin_cites, strip_connector
 from mellea_lrc.extraction.reading.relaxation import Relaxation, tokenizer_for
+from mellea_lrc.extraction.reading.unread_names import unread_case_names
 from mellea_lrc.extraction.stages import refine
 from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess
@@ -354,11 +355,13 @@ def extract_citations(
     # The passes over the citation list are ordered, and one reads what another
     # writes. See :mod:`mellea_lrc.extraction.stages` for the sequence and the
     # constraint behind it.
+    refined = refine(text, extracted)
     return ExtractedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
-        citations=refine(text, extracted),
+        citations=refined,
+        unread_case_names=unread_case_names(text, refined),
         extraction_metadata=ExtractionMetadata(relaxation=relaxation),
     )
 

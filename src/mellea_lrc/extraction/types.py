@@ -91,6 +91,15 @@ class ExtractedDocument(PreprocessedDocument):
     """A preprocessed document with canonical extracted citations."""
 
     citations: tuple[ExtractedCitation, ...]
+    unread_case_names: tuple[Span, ...] = ()
+    """Text naming a case that no citation covers.
+
+    Read last, from the document with every citation blanked, so it holds what
+    nothing else read: a case cited with no locator, which a reporter-driven
+    tokenizer cannot see at all, and a case whose citation *was* read but whose
+    name was not reached. See
+    :mod:`mellea_lrc.extraction.reading.unread_names`.
+    """
     extraction_metadata: ExtractionMetadata
 
     @property
