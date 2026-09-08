@@ -23,6 +23,8 @@ Extraction never sees a PDF. It reads the plain text a document was turned into
 first, and the quality of that conversion sets a ceiling on everything after it.
 A citation broken by the converter cannot be found by any parser downstream, so
 a large share of what looks like extraction failure originates here.
+[Preprocessing](./Preprocessing.md) documents that stage in full; what follows
+is what extraction depends on.
 
 `preprocess(path)` picks a backend from the file's suffix:
 
@@ -41,23 +43,18 @@ The result is a `PreprocessedDocument`:
 | field | what it is |
 |---|---|
 | `text` | the converted text; every later offset indexes this, never the original file |
-| `source_metadata` | original path, `SourceFormat`, and any header split off |
+| `source_metadata` | original path and `SourceFormat` |
 | `preprocessing_metadata` | which backend ran, and its version |
 
 `text` may not be empty — a conversion that produced nothing raises rather than
 handing an empty document downstream.
 
-### The plain-text header
+### A text file is its text
 
-A `.txt` file may be a RECAP-style export whose docket metadata sits above a
-`--- Plain text ---` marker. `preprocess_plain_text` splits on it: the header
-goes to `source_metadata.header`, and **`text` begins after the marker**.
-
-This matters more than it looks. Every span produced downstream is an offset
-into the body, not into the file. Reading such a file whole and matching offsets
-against it shifts every span by the header's length, which scores zero rather
-than scoring badly. `preprocess_plain_text_from_string` does the same split for
-text already in memory.
+A `.txt` file is read whole. Nothing is split off the front, so an offset into
+the file and an offset into the document are the same number, and provenance
+lives beside the text rather than inside it.
+`preprocess_plain_text_from_string` does the same for text already in memory.
 
 ### What the converter does to citations
 
