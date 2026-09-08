@@ -32,8 +32,7 @@ produces.
 the data cannot show generalises should not be hardened -- it should propose and
 be reviewed, and the thinness of the evidence is exactly what makes the review
 affordable. Making 67 reporter spellings case-insensitive to catch two citations
-is the wrong trade; proposing those two is the right one. See
-`exploration/notes/candidates-and-adjudication.md`.
+is the wrong trade; proposing those two is the right one.
 """
 
 from mellea_lrc.extraction.adjudication.candidates.docket_sites import SuspectedDocket, suspected_dockets

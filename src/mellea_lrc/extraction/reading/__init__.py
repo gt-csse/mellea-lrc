@@ -28,7 +28,7 @@ is not deciding what several citations *mean together*.
     Not a correction but an addition: a case identified by docket number rather
     than by a reporter page, taught to eyecite as an extractor of its own.
 
-Each is measured against the corpora in `exploration/notes/`, and none of them
-rewrites the text. Spans index the document as written, which is what makes the
+Each is measured against an annotated corpus, and none of them rewrites the
+text. Spans index the document as written, which is what makes the
 result checkable.
 """

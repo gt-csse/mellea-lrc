@@ -26,9 +26,8 @@ are asked of every case, in the order the pipeline asks them:
     the cases that are not citations at all, does the reviewer refuse?
 
 The document is small and hand-made. It measures what the layer *can* do, not
-how often that happens -- for how often, see
-`exploration/notes/does-adjudication-earn-its-place.md`, which runs the same
-layer over a corpus with annotated ground truth.
+how often that happens. For how often, run the same layer over a corpus with
+annotated ground truth.
 
     uv run python -m evaluations.extraction.damage_probe
 """
