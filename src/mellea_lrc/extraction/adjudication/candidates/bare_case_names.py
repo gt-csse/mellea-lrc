@@ -62,7 +62,11 @@ _GENERATOR = "bare_case_names"
 # A party name: capitalised words, the punctuation a company name carries, and
 # the lowercase words that sit inside one -- `U.S. Department of the Interior`,
 # `Chugach Natives, Inc.`, `Bell Atl. Sys. Leasing Int'l, Inc.`
-_TOKEN = r"[A-Z][\w.'’&\-]*"
+# A word of a party name, and the possessive or contraction extraction spaces
+# out of it. `BYJU's Alpha` and `Int'l` reach the text as `BYJU ' s Alpha` and
+# `Int ' l`, and a token that stops at the apostrophe reports half a name and
+# loses the citation standing after the other half.
+_TOKEN = r"[A-Z][\w.'’&\-]*(?:[^\S\r\n]*['’][^\S\r\n]*\w[\w.'’&\-]*)*"
 # `and` is deliberately absent: it joins two case names far more often than it
 # sits inside one, and including it merges `Romano v. SLS Residential, Inc. and
 # Chime v. Peak Sec. Plus, Inc.` into a single candidate.
