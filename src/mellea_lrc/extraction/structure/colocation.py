@@ -27,16 +27,17 @@ citations sharing a reporter are two cases**, since a case has one first page
 in one reporter. That is what separates Brown I from Brown II, and it is
 deliberately the only judgement made here.
 
-Measured over the 26 documents of `false-citation-bench`: **14 groups covering
-30 of 694 full citations**, every one a genuine parallel citation -- a state
-reporter beside its regional reporter, or the three Supreme Court reporters
-together. Thirteen of the fourteen are in two filings, because citing the
+Measured over the 26 documents of `false-citation-bench`: **31 groups covering
+64 citations**, every one a genuine parallel citation. Sixteen pair a docket
+number with the reporter or database page written beside it; the rest are a
+state reporter beside its regional reporter, or the three Supreme Court
+reporters together, and are concentrated in two filings, because citing the
 official and regional reporter together is a jurisdiction's house style rather
-than a property of briefs in general, so the rate here says little about the
-rate elsewhere.
+than a property of briefs in general.
 
-The locator output is unaffected: adding this leaves the run artifact
-byte-identical. Nothing about which citations are found, or where, changes.
+The locator output is unaffected: this reads the spans extraction produced and
+writes an id onto each citation. Nothing about which citations are found, or
+where, changes.
 """
 
 from __future__ import annotations
@@ -48,10 +49,20 @@ if TYPE_CHECKING:
 
     from mellea_lrc.extraction.types import ExtractedCitation
 
-# Only a citation that names an authority by volume, reporter and page can be
-# one of several identifiers for it. A short form or an `id.` is a reference to
-# an authority, not another name for one.
-_COLOCATABLE = frozenset({"FullCaseCitation", "FullLawCitation", "FullJournalCitation"})
+# What kind of thing a citation names. Only a citation that names an authority
+# outright can be one of several identifiers for it -- a short form or an `id.`
+# is a reference to an authority, not another name for one.
+#
+# A docket citation names a case, which is why it sits with the reporter ones.
+# `In re Iovate Health Scis. Int'l Inc. , No. 25-11958 (MG), 2025 Bankr. LEXIS
+# 2284` is one authority written twice, and seven citations on this corpus are
+# that shape; without this each was counted as two authorities.
+_NAMES = {
+    "FullCaseCitation": "case",
+    "DocketCitation": "case",
+    "FullLawCitation": "law",
+    "FullJournalCitation": "journal",
+}
 
 
 def _reporter(citation: ExtractedCitation) -> str:
@@ -84,7 +95,7 @@ def colocation_groups(citations: Sequence[ExtractedCitation]) -> list[list[Extra
     in it, so a group is always a set of distinct identifiers for what may be
     one authority.
     """
-    eligible = [c for c in citations if type(c.citation).__name__ in _COLOCATABLE]
+    eligible = [c for c in citations if type(c.citation).__name__ in _NAMES]
     ordered = sorted(eligible, key=lambda c: (c.full_span.start, c.full_span.end))
 
     groups: list[list[ExtractedCitation]] = []
@@ -101,9 +112,11 @@ def colocation_groups(citations: Sequence[ExtractedCitation]) -> list[list[Extra
         # Distinct reporters: a case has one first page in one reporter, so a
         # repeat means two authorities, not two names for one.
         and len({_reporter(member) for member in group}) == len(group)
-        # One kind: a statute is not another name for a case, however close it
-        # sits. Overlap grouped the two before this test existed.
-        and len({type(member.citation).__name__ for member in group}) == 1
+        # One kind of thing named: a statute is not another name for a case,
+        # however close it sits, and overlap grouped the two before this test
+        # existed. A docket and a reporter page *are* two names for one case, so
+        # the test is on what is named rather than on the citation's type.
+        and len({_NAMES[type(member.citation).__name__] for member in group}) == 1
     ]
 
 

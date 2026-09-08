@@ -95,3 +95,31 @@ def test_the_group_id_is_a_citation_id_from_the_group() -> None:
 
     assert grouped
     assert {c.colocation_id for c in grouped} <= identifiers
+
+
+def test_a_docket_and_a_reporter_page_are_one_authority() -> None:
+    """Two identifiers for one case, which is what a parallel citation is.
+
+    `In re Iovate Health Scis. Int'l Inc. , No. 25-11958 (MG), 2025 Bankr. LEXIS
+    2284` names one authority twice. Grouping by citation *type* refused this,
+    because a docket citation and a reporter citation are different types; what
+    matters is that both name a case.
+    """
+    text = (
+        "See, e.g. , In re Giftcraft Ltd. , No. 25-11030 (MG), 2025 Bankr. LEXIS 1350 "
+        "(Bankr. S.D.N.Y. Jun. 4, 2025) (granting provisional relief)."
+    )
+
+    document = _extract(text)
+
+    assert _groups(document) == [{"No. 25-11030", "2025 Bankr. LEXIS 1350"}]
+
+
+def test_a_statute_beside_a_case_is_still_not_one_authority() -> None:
+    """Widening the rule to what is named must not widen it to anything."""
+    text = "Chambers v. NASCO, Inc., 501 U.S. 32, 44 (1989); 28 U.S.C. § 1927."
+
+    document = _extract(text)
+
+    for group in _groups(document):
+        assert "28 U.S.C. \u00a7 1927" not in group
