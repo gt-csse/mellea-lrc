@@ -16,8 +16,8 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from mellea_lrc.experimental.grounded_adjudication.docket_adjudication import _DocketProposal
-from mellea_lrc.experimental.grounded_adjudication.locator_adjudication import _Locator, _Locators
+from mellea_lrc.extraction.adjudication.review.docket import _DocketProposal
+from mellea_lrc.extraction.adjudication.review.locator import _Locator, _Locators
 from mellea_lrc.validation.case_search.mellea_case_name_query_preparation import _QueryTermsProposal
 from mellea_lrc.validation.field_checks.mellea_case_name_check import _SemanticVerdict
 from mellea_lrc.validation.field_checks.mellea_case_name_reextraction import _PartyProposal
