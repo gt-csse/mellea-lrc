@@ -303,3 +303,51 @@ def test_a_docket_is_a_full_citation_and_a_reporter_locator_is_still_its_own() -
 
     assert isinstance(full.citation, DocketCitation)
     assert not isinstance(full.citation, FullCaseCitation)
+
+
+def test_a_bankruptcy_docket_number_is_a_locator() -> None:
+    """`No. 06-01147 (JMP) (Bankr. S.D.N.Y. …)` is a citation under Rule 10.8.1.
+
+    A bankruptcy court numbers a case with a year and a sequence and nothing
+    else. Documents 015 and 016 cite eighteen cases that way and every one was
+    read as no citation at all.
+    """
+    text = (
+        "See also In re Muscletech Research and Dev. Inc. , No. 06-01147 (JMP) "
+        "(Bankr. S.D.N.Y. Jan. 18, 2006) (entering a temporary restraining order)."
+    )
+
+    (citation,) = [c for c in _extract(text).citations if isinstance(c.citation, DocketCitation)]
+
+    assert citation.citation.docket_number == "06-01147"
+    assert citation.citation.court_text == "Bankr. S.D.N.Y."
+
+
+def test_a_bankruptcy_number_whose_hyphen_extraction_dropped_is_still_read() -> None:
+    """`No. 2010712` is `20-10712` with the hyphen lost in conversion."""
+    text = "See, e.g ., In re Olinda Star Ltd. , No. 2010712 (MG) [D.I. 23] (Bankr. S.D.N.Y. Apr. 3, 2020)."
+
+    (citation,) = [c for c in _extract(text).citations if isinstance(c.citation, DocketCitation)]
+
+    assert citation.citation.docket_number == "2010712"
+
+
+def test_a_number_of_that_shape_with_no_court_is_not_a_citation() -> None:
+    """Nothing in the digits says what they are, so the court has to say it.
+
+    `1124201` is an attorney's bar number in document 005's signature block and
+    `26-10769` is document 015's own case number in its caption. Both are the
+    bankruptcy shape and neither is a citation.
+    """
+    bar_number = "Jennifer Smith (State Bar No. 1124201) 361 Falls Rd, Suite 610 Grafton, WI 53024"
+    own_caption = "Chapter 15 Case No. 26-10769 (MG) (Joint Administration Requested)"
+
+    assert [c for c in _extract(bar_number).citations if isinstance(c.citation, DocketCitation)] == []
+    assert [c for c in _extract(own_caption).citations if isinstance(c.citation, DocketCitation)] == []
+
+
+def test_the_bankruptcy_shape_needs_the_signal_in_front_of_it() -> None:
+    """A bare year and sequence is a page range as often as a docket number."""
+    text = "The discussion runs from 06-01147 in the appendix (Bankr. S.D.N.Y. 2006)."
+
+    assert [c for c in _extract(text).citations if isinstance(c.citation, DocketCitation)] == []

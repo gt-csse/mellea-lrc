@@ -53,15 +53,24 @@ a paragraph break between them -- the same block-boundary rule
 :mod:`~mellea_lrc.extraction.reading.relaxation` applies to a broken reporter citation,
 for the same reason: what lies beyond a blank line belongs to something else.
 
-Measured on the 26 documents of false-citation-bench, this reads twelve docket
-citations in five documents, finds all eleven the model-assisted hunt found and
-one it missed, and picks up none of the twenty ECF stamps.
+**Two shapes, and the looser one earns it from the court.** A district number
+is ``office:year-type-sequence`` and says what it is; a bankruptcy number is a
+year and a sequence and says nothing -- ``06-01147`` is the same shape as an
+attorney's bar number, a state index number and a page range. Documents 015 and
+016 cite eighteen cases that way, correctly, under Bluebook Rule 10.8.1, and
+every one of them used to be read as no citation at all. What makes the loose
+shape safe is not the digits but the two rules already here: the signal is
+required in front of it rather than optional, and the court must still be
+written alongside. Document 015's own ``Case No. 26-10769 (MG) (Joint
+Administration Requested)`` is declined by the second, as ECF stamps are.
 
-What it does not read is stated rather than hidden: the federal
-``office:year-type-sequence`` shape only. State docket numbers, appellate
-``No. 23-1234`` and administrative numbers have no shape this strict, and a
-pattern loose enough to catch them also catches statutory subsections and phone
-numbers.
+Measured on the 26 documents of false-citation-bench, this reads twenty-nine
+docket citations in seven documents and picks up none of the twenty ECF stamps,
+no bar number and no state index number.
+
+What it does not read is stated rather than hidden: a docket number with no
+court written beside it, and a state or appellate number in a shape neither of
+these covers.
 """
 
 from __future__ import annotations
@@ -91,19 +100,41 @@ _JOIN = r"-?[^\S\r\n]{0,2}"
 # ends where it should -- without it eyecite reads `GEICO Gen. Ins. Co., No.`
 # as the defendant -- and so that spans line up with how the bench records a
 # docket occurrence.
-_SIGNAL = (
+_REQUIRED_SIGNAL = (
     r"(?:\b(?:Case|Civil[^\S\r\n]+Action|Civ\.?[^\S\r\n]*A\.?|Docket)?[^\S\r\n]*"
-    r"No\.?[^\S\r\n]*:?[^\S\r\n]*|\bCase[^\S\r\n]+)?"
+    r"No\.?[^\S\r\n]*:?[^\S\r\n]*|\bCase[^\S\r\n]+)"
 )
+_SIGNAL = rf"{_REQUIRED_SIGNAL}?"
 
-DOCKET_NUMBER = (
-    rf"{_SIGNAL}"
+# The district shape: office, year, case type, sequence. Self-identifying enough
+# that the signal in front of it is optional.
+_DISTRICT = (
     r"\b(?P<office>\d{1,2}):(?P<year>\d{2})"
     rf"{_JOIN}(?P<case_type>" + "|".join(CASE_TYPES) + rf"){_JOIN}"
     r"(?P<sequence>\d{3,6})"
     r"(?P<suffix>(?:-[A-Za-z]{2,4})+)?\b"
 )
-"""The shape of a federal docket number, with the signal that introduces it."""
+
+# The bankruptcy shape: a year and a sequence, and nothing else. `No. 06-01147
+# (JMP) (Bankr. S.D.N.Y. Jan. 18, 2006)` is how a bankruptcy court numbers a
+# case, and documents 015 and 016 cite eighteen cases that way -- correctly,
+# under Bluebook Rule 10.8.1, and every one of them was read as no citation at
+# all.
+#
+# Nothing in the number itself says it is one. `1124201` is an attorney's bar
+# number in document 005's signature block and `035547/2021` a state index
+# number in document 009, and both are this shape. Two things keep it honest,
+# and neither is about the digits: the signal is **required** here rather than
+# optional, and the court must still be written alongside. The filing's own
+# `Case No. 26-10769 (MG) (Joint Administration Requested)` is declined by the
+# second of those, which is the same rule that already declines ECF stamps.
+_BANKRUPTCY = rf"\b(?P<year>\d{{2}}){_JOIN}(?P<sequence>\d{{4,5}})(?P<suffix>(?:-[A-Za-z]{{2,4}})+)?\b"
+
+DOCKET_NUMBER = rf"{_SIGNAL}{_DISTRICT}"
+"""A district docket number, with the optional signal that introduces it."""
+
+BANKRUPTCY_DOCKET_NUMBER = rf"{_REQUIRED_SIGNAL}{_BANKRUPTCY}"
+"""A bankruptcy docket number, which is only one where a signal introduces it."""
 
 # How far past the number the court may be written, and how much of a gap is
 # still the same citation. One line ending is a citation broken by the page;
@@ -331,16 +362,22 @@ def docket_token(match: re.Match[str], extra: dict, offset: int = 0) -> Citation
         msg = "a docket number is only a citation when its court is written with it"
         raise ValueError(msg)
     groups = match.groupdict()
-    case_type = groups["case_type"].lower()
+    # A bankruptcy number carries neither an office nor a case type: it is a
+    # year and a sequence, and the court it is written beside is the bankruptcy
+    # court. The year stands in for the office so that eyecite has a volume, and
+    # the type is the one such a court hears.
+    case_type = (groups.get("case_type") or "bk").lower()
+    office = groups.get("office") or groups["year"]
+    begins = "office" if groups.get("office") else "year"
     return CitationToken(
         match.group(0),
         match.start() + offset,
         match.end() + offset,
         groups={
-            "volume": groups["office"],
+            "volume": office,
             "reporter": f"{court.court_id} {case_type}",
             "page": f"{groups['year']}-{groups['sequence']}",
-            DOCKET_GROUP: match.string[match.start("office") : match.end()],
+            DOCKET_GROUP: match.string[match.start(begins) : match.end()],
             "court": court.court_id,
             "court_name": court.court_name,
             "court_text": court.text,
@@ -374,13 +411,18 @@ def docket_extractors() -> tuple[TokenExtractor, ...]:
     the case-type code is already in the pattern -- and one more regex per
     document is not a cost worth a prefilter.
     """
-    return (
+    return tuple(
         _DocketExtractor(
-            regex=DOCKET_NUMBER,
+            regex=pattern,
             constructor=docket_token,
             flags=re.IGNORECASE,
             strings=[],
-        ),
+        )
+        # Two extractors rather than one alternation: eyecite compiles these
+        # with the standard library's `re`, which will not let two branches of
+        # a pattern name the same group, and both shapes have a year and a
+        # sequence.
+        for pattern in (DOCKET_NUMBER, BANKRUPTCY_DOCKET_NUMBER)
     )
 
 
