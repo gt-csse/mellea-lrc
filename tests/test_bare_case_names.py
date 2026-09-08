@@ -109,3 +109,19 @@ def test_an_in_re_case_named_with_no_locator_is_found() -> None:
     text = "A full stay is not required under In re Flint Water Cases, and Plaintiffs suffer."
 
     assert _named(text) == ["In re Flint Water Cases"]
+
+
+def test_a_name_broken_by_a_spaced_apostrophe_reaches_its_citation() -> None:
+    """`BYJU's Alpha` reaches the text as `BYJU ' s Alpha`, and both halves are name.
+
+    A token stopping at the apostrophe reports half a name and does not see the
+    citation standing after the other half, so a correctly cited case is
+    reported as having no locator. Eleven of document 015's `In re` citations
+    were read that way, and they are the same case cited eleven times.
+    """
+    text = (
+        "See In re BYJU ' s Alpha, Inc. , 2024 WL 1455586, at *5 "
+        "(Bankr. D. Del. Apr. 3, 2024) (granting relief)."
+    )
+
+    assert _named(text) == []
