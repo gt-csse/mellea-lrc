@@ -26,6 +26,7 @@ import argparse
 import json
 import re
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 from mellea_lrc.preprocessing import preprocess_with_docling
@@ -61,14 +62,28 @@ def gutter_runs(text: str) -> list[list[int]]:
     return runs
 
 
-def provenance(source: Path, backend_version: str | None) -> dict[str, str | None]:
+def provenance(
+    source: Path,
+    backend_version: str | None,
+    rules: Sequence[LayoutRule],
+) -> dict[str, object]:
     """How one file was produced, for the sidecar beside the rendering.
 
     Beside it and not above it: a header inside the text makes every reader
     strip it, and a reader that forgets is silently off by its length. Court
     records arrive with enough furniture of their own.
+
+    The layout rules are recorded because they decide every offset in the file.
+    A sidecar that names the converter and not what was removed says how the
+    text was made in the one respect that cannot be reproduced from it.
     """
-    return {"source_pdf": str(source), "backend": "docling", "backend_version": backend_version}
+    return {
+        "source_pdf": source.name,
+        "backend": "docling",
+        "backend_version": backend_version,
+        "layout_rules": [rule.value for rule in rules],
+        "table_structure": False,
+    }
 
 
 MARGIN_README = """# false-citation-bench, margin-adjusted (v2.0)
@@ -146,7 +161,9 @@ def main() -> int:
 
         destination = text_dir / f"{source.stem}.txt"
         destination.write_text(document.text, encoding="utf-8")
-        rendered[destination.name] = provenance(source, document.preprocessing_metadata.backend_version)
+        rendered[destination.name] = provenance(
+            source, document.preprocessing_metadata.backend_version, rules
+        )
 
         before = (args.before / f"{source.stem}.txt") if args.before else None
         rows.append(
