@@ -23,11 +23,11 @@ this module and that one must agree about what a court is, or a site the
 extractor declined would be offered to a model with a different set of
 candidates.
 
-The two do not share a docket *shape*, and deliberately. This one insists on
-the `No.` that introduces a docket number, because a site here costs a model
-call and a filing's own number appears in every ECF page stamp. The extractor
-can afford the looser shape because it decides for itself, from the court
-written alongside, whether what it found is a citation.
+Both insist on the `No.` that introduces a docket number, because a site here
+costs a model call and a filing's own number appears in every ECF page stamp.
+Where they differ is what they do with a number that has no court beside it: the
+extractor declines it, and this offers it, with whatever court strings are
+written near it, so that a reader can decline it instead.
 """
 
 from __future__ import annotations
@@ -45,9 +45,15 @@ if TYPE_CHECKING:
 # The office/party suffix ("-RPK", "-PAB-SBP") is optional, and the separator
 # after the year is allowed to be missing entirely: PDF extraction drops it, as
 # in "No. 1:25cv-05745-RPK".
+# Both shapes the extractor reads. The district one carries a case-type code and
+# the bankruptcy one is a year and a sequence -- `No. 06-01147 (JMP) (Bankr.
+# S.D.N.Y. Jan. 18, 2006)`. The looser shape is affordable here for the same
+# reason it is there: the `No.` is required, and a site is offered with the
+# courts written near it so a reader can decline one that has none.
 _DOCKET = re.compile(
     r"\b(?:No|Case No|Civil Action No|Civ\.? A\.? No|Docket No)\.?\s*"
-    r"\d{1,2}[:\-]\d{2}[-\s]?[a-zA-Z]{2,4}[-\s]?\d{2,6}(?:-[A-Za-z]{2,4})*",
+    r"(?:\d{1,2}[:\-]\d{2}[-\s]?[a-zA-Z]{2,4}[-\s]?\d{2,6}(?:-[A-Za-z]{2,4})*"
+    r"|\d{2}[-\s]?\d{4,5}(?:-[A-Za-z]{2,4})*)",
     re.I,
 )
 
