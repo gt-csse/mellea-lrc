@@ -351,3 +351,33 @@ def test_the_bankruptcy_shape_needs_the_signal_in_front_of_it() -> None:
     text = "The discussion runs from 06-01147 in the appendix (Bankr. S.D.N.Y. 2006)."
 
     assert [c for c in _extract(text).citations if isinstance(c.citation, DocketCitation)] == []
+
+
+def test_a_docket_number_with_no_office_is_still_a_locator() -> None:
+    """Most courts write no office. `No. 22-cv-1231` is the ordinary form."""
+    text = (
+        "For example, in Doe v. Amazon.com, Inc. , No. 22-cv-1231, 2023 WL 3568691, "
+        "at *3 (W.D. Wash. May 19, 2023), the court granted anonymity."
+    )
+
+    (citation,) = [c for c in _extract(text).citations if isinstance(c.citation, DocketCitation)]
+
+    assert citation.citation.docket_number == "22-cv-1231"
+    assert citation.citation.court_text == "W.D. Wash."
+
+
+def test_reading_the_docket_keeps_it_out_of_the_case_name() -> None:
+    """A docket number nothing reads is one the next citation's name absorbs.
+
+    eyecite searches backward from `2023 WL 3568691` for a case name and stops
+    at whatever it does not recognise. With the docket unread the defendant came
+    back as `Amazon.com, Inc. , No. 22-cv-1231`.
+    """
+    text = (
+        "For example, in Doe v. Amazon.com, Inc. , No. 22-cv-1231, 2023 WL 3568691, "
+        "at *3 (W.D. Wash. May 19, 2023), the court granted anonymity."
+    )
+
+    reporter = next(c for c in _extract(text).citations if isinstance(c.citation, FullCaseCitation))
+
+    assert reporter.citation.defendant == "Amazon.com, Inc."

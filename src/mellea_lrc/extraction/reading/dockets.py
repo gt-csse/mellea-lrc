@@ -106,10 +106,18 @@ _REQUIRED_SIGNAL = (
 )
 _SIGNAL = rf"{_REQUIRED_SIGNAL}?"
 
-# The district shape: office, year, case type, sequence. Self-identifying enough
-# that the signal in front of it is optional.
+# The district shape: an optional office, then year, case type and sequence.
+# Self-identifying enough that the signal in front of it is optional.
+#
+# The office is optional because most courts do not write one. `No. 22-cv-1231`
+# (W.D. Wash.), `No. 24-cv-8760` (S.D.N.Y.) and `No. 25-CV-2463` (D.D.C.) are
+# the ordinary form, and requiring `1:` in front cost eleven citations on this
+# corpus -- and cost them twice over, because a docket number the extractor
+# does not take is one the *next* citation's case-name search runs over:
+# `Doe v. Amazon.com, Inc. , No. 22-cv-1231, 2023 WL 3568691` came back with the
+# defendant as `Amazon.com, Inc. , No. 22-cv-1231`.
 _DISTRICT = (
-    r"\b(?P<office>\d{1,2}):(?P<year>\d{2})"
+    r"\b(?:(?P<office>\d{1,2}):)?(?P<year>\d{2})"
     rf"{_JOIN}(?P<case_type>" + "|".join(CASE_TYPES) + rf"){_JOIN}"
     r"(?P<sequence>\d{3,6})"
     r"(?P<suffix>(?:-[A-Za-z]{2,4})+)?\b"

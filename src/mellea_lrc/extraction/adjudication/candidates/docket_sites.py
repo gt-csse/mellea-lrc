@@ -52,7 +52,7 @@ if TYPE_CHECKING:
 # courts written near it so a reader can decline one that has none.
 _DOCKET = re.compile(
     r"\b(?:No|Case No|Civil Action No|Civ\.? A\.? No|Docket No)\.?\s*"
-    r"(?:\d{1,2}[:\-]\d{2}[-\s]?[a-zA-Z]{2,4}[-\s]?\d{2,6}(?:-[A-Za-z]{2,4})*"
+    r"(?:(?:\d{1,2}[:\-])?\d{2}[-\s]?[a-zA-Z]{2,4}[-\s]?\d{2,6}(?:-[A-Za-z]{2,4})*"
     r"|\d{2}[-\s]?\d{4,5}(?:-[A-Za-z]{2,4})*)",
     re.I,
 )
