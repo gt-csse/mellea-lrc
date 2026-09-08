@@ -8,8 +8,7 @@ extraction instead.
 They differ enormously in yield, and the difference is the design. A narrow
 generator built from a pattern we cannot prove general is affordable to review
 *because* it is narrow. A broad one is not: `reporter_sites` proposed 185
-candidates across 77 mined documents, nearly all of them letterheads. See
-`exploration/notes/candidates-and-adjudication.md`.
+candidates across 77 mined documents, nearly all of them letterheads.
 
 :mod:`~mellea_lrc.extraction.adjudication.candidates.reporter_sites` is the only
 one with more than one stage, because "there is a reporter here" has more than
