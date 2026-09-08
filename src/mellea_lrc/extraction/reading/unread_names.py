@@ -53,6 +53,14 @@ _NAMES = (
     re.compile(rf"\b(?P<name>(?:In\s+re|Ex\s+parte)\s+{_PARTY})"),
 )
 
+# A comma inside a party name and a comma between two case names look the same:
+# `Chugach Natives, Inc.` and `Breest v. Haggis, Friedman v. Bartell`. What tells
+# them apart is what follows -- a name running straight into another `v.` has
+# taken the next case's plaintiff with it, so the last comma-separated fragment
+# is given back.
+_ANOTHER_CASE = re.compile(r"\s*(?:v\.|vs\.|v\b)")
+_LAST_FRAGMENT = re.compile(r",[^,]*$")
+
 
 def unread_case_names(text: str, citations: Sequence[ExtractedCitation]) -> tuple[Span, ...]:
     """Spans of `text` that name a case and lie outside every citation read."""
@@ -62,13 +70,21 @@ def unread_case_names(text: str, citations: Sequence[ExtractedCitation]) -> tupl
         blanked[span.start : span.end] = " " * (span.end - span.start)
     masked = "".join(blanked)
 
-    found: list[tuple[int, int]] = []
-    for pattern in _NAMES:
-        found.extend(match.span("name") for match in pattern.finditer(masked))
-
     kept: list[Span] = []
-    for start, end in sorted(found):
-        if kept and start < kept[-1].end:
-            continue
+    position = 0
+    while position < len(masked):
+        found = [m for m in (pattern.search(masked, position) for pattern in _NAMES) if m]
+        if not found:
+            break
+        match = min(found, key=lambda m: m.start("name"))
+        start, end = match.span("name")
+        # A name running straight into another `v.` has taken the next case's
+        # plaintiff with it. Give the fragment back and look again from there,
+        # so the case it belongs to is found in its own right.
+        if _ANOTHER_CASE.match(masked, end):
+            fragment = _LAST_FRAGMENT.search(text[start:end])
+            if fragment:
+                end = start + fragment.start()
         kept.append(Span(start=start, end=end))
+        position = end
     return tuple(kept)

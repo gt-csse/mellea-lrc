@@ -83,3 +83,27 @@ def test_a_document_that_cites_cleanly_leaves_nothing() -> None:
     )
 
     assert _unread(text) == []
+
+
+def test_three_case_names_in_one_clause_are_three() -> None:
+    """A comma inside a party name and a comma between two cases look the same.
+
+    `Chugach Natives, Inc.` and `Breest v. Haggis, Friedman v. Bartell` differ
+    only in what follows: a name running straight into another `v.` has taken
+    the next case's plaintiff with it. Without giving that fragment back, the
+    middle case of a three-case clause is reported as part of the first and
+    never found on its own.
+    """
+    text = (
+        "confirmed by case law spanning Breest v. Haggis, Friedman v. Bartell, "
+        "and M.D. v. OPWDD , among others."
+    )
+
+    assert _unread(text) == ["Breest v. Haggis", "Friedman v. Bartell", "M.D. v. OPWDD"]
+
+
+def test_a_comma_inside_one_party_name_is_kept() -> None:
+    """`Chugach Natives, Inc.` is one party, and nothing follows it that says otherwise."""
+    text = "Key among them are: Chugach Natives, Inc. v. Doyon, Ltd. (D. Alaska 1984)."
+
+    assert _unread(text) == ["Chugach Natives, Inc. v. Doyon, Ltd."]
