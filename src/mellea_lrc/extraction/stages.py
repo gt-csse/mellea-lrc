@@ -20,7 +20,7 @@ member has to read across the others to reach the single date at the end. Run
 the re-read first and there are no co-location ids to bound it with, so 30
 parallel citations lose the year they legitimately reach for.
 
-``authority`` last, though not because anything forces it. It reads
+``root`` last, though not because anything forces it. It reads
 ``resolves_to``, which no earlier stage writes or changes, so its position is a
 choice: running it after the spans and dates are settled means the citations it
 writes onto are final.
@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from mellea_lrc.extraction.reading.post_citation import reread_post_citation
-from mellea_lrc.extraction.structure.citation_tree import assign_authority
+from mellea_lrc.extraction.structure.citation_tree import assign_roots
 from mellea_lrc.extraction.structure.colocation import assign_colocation
 
 if TYPE_CHECKING:
@@ -67,10 +67,10 @@ def _post_citation(text: str, citations: Sequence[ExtractedCitation]) -> tuple[E
     return reread_post_citation(text, citations)
 
 
-def _authority(text: str, citations: Sequence[ExtractedCitation]) -> tuple[ExtractedCitation, ...]:
-    """Write onto each citation the authority it refers to. Does not read the text."""
+def _root(text: str, citations: Sequence[ExtractedCitation]) -> tuple[ExtractedCitation, ...]:
+    """Write onto each citation the root it refers to. Does not read the text."""
     del text
-    return assign_authority(citations)
+    return assign_roots(citations)
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,8 +102,8 @@ STAGES: tuple[Stage, ...] = (
         ),
     ),
     Stage(
-        name="authority",
-        run=_authority,
+        name="root",
+        run=_root,
         why=(
             "Last, and only because there is no reason to be earlier: it reads "
             "`resolves_to`, which nothing before it touches. Running it after the spans "

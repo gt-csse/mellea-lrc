@@ -26,7 +26,7 @@ def _citations(text: str):
 
 
 def test_the_sequence_is_the_one_the_docstring_describes() -> None:
-    assert [stage.name for stage in STAGES] == ["colocation", "post_citation", "authority"]
+    assert [stage.name for stage in STAGES] == ["colocation", "post_citation", "root"]
 
 
 def test_every_stage_says_why_it_runs_where_it_does() -> None:
@@ -84,8 +84,8 @@ def test_the_authority_is_written_onto_every_citation_that_has_one() -> None:
     full = next(c for c in citations if isinstance(c.citation, FullCaseCitation))
     reference = next(c for c in citations if c.citation.kind.value == "IdCitation")
 
-    assert full.authority_id == full.citation_id
-    assert reference.authority_id == full.citation_id
+    assert full.root_id == full.citation_id
+    assert reference.root_id == full.citation_id
 
 
 def test_a_reference_with_no_authority_keeps_none() -> None:
@@ -93,4 +93,4 @@ def test_a_reference_with_no_authority_keeps_none() -> None:
     citations = _citations("The rule is settled. Id. at 409.")
     reference = next(c for c in citations if c.citation.kind.value == "IdCitation")
 
-    assert reference.authority_id is None
+    assert reference.root_id is None
