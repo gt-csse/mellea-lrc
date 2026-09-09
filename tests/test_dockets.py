@@ -381,3 +381,20 @@ def test_reading_the_docket_keeps_it_out_of_the_case_name() -> None:
     reporter = next(c for c in _extract(text).citations if isinstance(c.citation, FullCaseCitation))
 
     assert reporter.citation.defendant == "Amazon.com, Inc."
+
+
+def test_a_bankruptcy_docket_reads_its_court_however_the_filing_abbreviates_it() -> None:
+    """The docket reader knows the courts the resolver knows, and no fewer.
+
+    courts-db spells the Southern District of Florida's bankruptcy court out as
+    `Bankr. S.D. Florida`. Document 016 writes `Bankr. S.D. Fla.`, and with the
+    court unread the whole citation went unread with it -- case name included,
+    which is what left the name loose in the text.
+    """
+    text = "In re FCI Mkts ., No. 21-14743 (CL) (Bankr. S.D. Fla., May 14, 2021)."
+
+    citation = next(c for c in _extract(text).citations if isinstance(c.citation, DocketCitation))
+
+    assert citation.citation.docket_number == "21-14743"
+    assert citation.citation.court == "flsb"
+    assert text[citation.full_span.start : citation.full_span.end].startswith("FCI Mkts")
