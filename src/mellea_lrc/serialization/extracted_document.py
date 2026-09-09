@@ -35,7 +35,7 @@ from mellea_lrc.preprocessing.types import (
 )
 from mellea_lrc.serialization._json import JsonValue, require_list, require_mapping, serialize_dataclass
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 _ARTIFACT_TYPE = "extracted_document"
 
 _CITATION_TYPES: dict[CitationKind, type[CanonicalCitation]] = {
@@ -73,7 +73,7 @@ def serialize_extracted_document(document: ExtractedDocument) -> dict[str, JsonV
                     **serialize_dataclass(citation.citation),
                 },
                 "resolves_to": citation.resolves_to,
-                "authority_id": citation.authority_id,
+                "root_id": citation.root_id,
                 "colocation_id": citation.colocation_id,
             }
             for citation in document.citations
@@ -162,7 +162,7 @@ def _deserialize_citation(value: object) -> ExtractedCitation:
         citation=citation_type(**citation_fields),
         pin_cite_span=_optional_span(payload.get("pin_cite_span"), name="citation.pin_cite_span"),
         resolves_to=_optional_string(payload.get("resolves_to"), name="citation.resolves_to"),
-        authority_id=_optional_string(payload.get("authority_id"), name="citation.authority_id"),
+        root_id=_optional_string(payload.get("root_id"), name="citation.root_id"),
         colocation_id=_optional_string(payload.get("colocation_id"), name="citation.colocation_id"),
     )
 

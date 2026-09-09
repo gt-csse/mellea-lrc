@@ -2,7 +2,7 @@
 
 A citation's id used to be a fresh UUID, so reading the same document twice
 produced two sets of ids for the same citations. That is not merely untidy: the
-id is what `resolves_to` and `authority_id` point at, and what a later stage
+id is what `resolves_to` and `root_id` point at, and what a later stage
 keys its own records by, so re-running extraction silently orphaned everything
 downstream of it -- an identity run over 26 filings, in this project's case,
 three times.

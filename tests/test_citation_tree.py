@@ -71,8 +71,8 @@ def test_every_reference_gathers_under_the_authority_it_cites() -> None:
 
     tree = build_citation_tree(document)
 
-    (authority,) = tree.authorities
-    assert authority.authority_id == "c1"
+    (authority,) = tree.roots
+    assert authority.root_id == "c1"
     assert [o.citation_id for o in authority.occurrences] == ["c1", "c2", "c3"]
     assert tree.unattributed == ()
 
@@ -83,7 +83,7 @@ def test_resolution_is_followed_through_a_short_form() -> None:
         _full("c1", "544", None, 0), _short("c2", "563", "c1", 100), _id("c3", "570", "c2", 200)
     )
 
-    (authority,) = build_citation_tree(document).authorities
+    (authority,) = build_citation_tree(document).roots
     depths = {o.citation_id: o.depth for o in authority.occurrences}
 
     assert depths == {"c1": 0, "c2": 1, "c3": 2}
@@ -101,7 +101,7 @@ def test_each_reference_keeps_the_page_it_names() -> None:
         _id("c3", "570", "c2", 200),
     )
 
-    (authority,) = build_citation_tree(document).authorities
+    (authority,) = build_citation_tree(document).roots
 
     assert authority.pin_cites == ("555", "at 563", "at 570")
     assert build_citation_tree(document).pinpoint_claim_count == 3
@@ -111,7 +111,7 @@ def test_one_page_cited_twice_is_one_claim() -> None:
     """Returning to the same page does not create a second thing to verify."""
     document = _document(_full("c1", "544", "555", 0), _short("c2", "555", "c1", 100))
 
-    (authority,) = build_citation_tree(document).authorities
+    (authority,) = build_citation_tree(document).roots
 
     assert authority.pin_cites == ("555", "at 555")
 
@@ -134,7 +134,7 @@ def test_a_resolution_cycle_does_not_hang_or_attribute() -> None:
     tree = build_citation_tree(_document(first, second))
 
     assert {c.citation_id for c in tree.unattributed} == {"c1", "c2"}
-    assert tree.authorities == ()
+    assert tree.roots == ()
 
 
 def test_a_dangling_antecedent_cannot_reach_the_tree_at_all() -> None:
@@ -232,8 +232,8 @@ def test_a_docket_can_stand_at_the_head_of_a_chain() -> None:
 
     tree = build_citation_tree(document)
 
-    (authority,) = tree.authorities
-    assert authority.authority_id == "d1"
+    (authority,) = tree.roots
+    assert authority.root_id == "d1"
     assert authority.pin_cites == ("at 34",)
     assert tree.unattributed == ()
 
@@ -248,4 +248,4 @@ def test_a_docket_is_never_out_of_scope() -> None:
     tree = build_citation_tree(_document(_docket("d1", 0)))
 
     assert tree.out_of_scope == ()
-    assert [a.authority_id for a in tree.authorities] == ["d1"]
+    assert [a.root_id for a in tree.roots] == ["d1"]

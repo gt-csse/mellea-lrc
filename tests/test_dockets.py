@@ -239,7 +239,7 @@ def test_an_id_chain_attributes_to_the_docket_it_heads() -> None:
     """
     tree = build_citation_tree(_extract(INDICTMENT))
 
-    (authority,) = tree.authorities
+    (authority,) = tree.roots
 
     assert isinstance(authority.root.citation, DocketCitation)
     assert authority.pin_cites == ("¶¶ 30-31", "¶ 34")
@@ -260,7 +260,7 @@ def test_one_docket_written_two_ways_is_one_authority() -> None:
         "127,271 Bitcoin , No. 1:25cv-05745-RPK (E.D.N.Y. filed Oct. 14, 2025)."
     )
 
-    (authority,) = build_citation_tree(_extract(text)).authorities
+    (authority,) = build_citation_tree(_extract(text)).roots
 
     assert len(authority.occurrences) == 2
 
@@ -278,7 +278,7 @@ def test_two_courts_sharing_a_docket_number_are_two_authorities() -> None:
 
     tree = build_citation_tree(_extract(text))
 
-    assert {a.root.citation.court for a in tree.authorities} == {"ncmd", "nvd"}
+    assert {a.root.citation.court for a in tree.roots} == {"ncmd", "nvd"}
 
 
 def test_a_docket_citation_survives_a_serialization_round_trip() -> None:
