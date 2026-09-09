@@ -66,3 +66,23 @@ def test_nothing_resolves_to_nothing() -> None:
     assert resolve_court("") is None
     assert resolve_court(None) is None
     assert resolve_court("   ") is None
+
+
+def test_a_court_the_database_spells_out_still_resolves_from_its_abbreviation() -> None:
+    """courts-db stores `Bankr. S.D. Florida`; a filing writes `Bankr. S.D. Fla.`.
+
+    That is not a prefix -- `fla` does not begin `florida` -- so neither exact
+    nor prefix matching reaches it, and eighteen bankruptcy citations in this
+    corpus name their court that way.
+    """
+    assert resolve_court("Bankr. S.D. Fla.") == "flsb"
+    assert resolve_court("Bankr. S.D. Florida") == "flsb"
+
+
+def test_an_abbreviation_that_fits_two_courts_still_declines() -> None:
+    """The abbreviation reading is a last resort, and it declines like the rest.
+
+    `Bankr. D. Ill.` could be read as any of the three Illinois bankruptcy
+    courts, and none of them is more right than the others.
+    """
+    assert resolve_court("Bankr. D. Ill.") is None

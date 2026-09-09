@@ -50,6 +50,15 @@ eyecite does not record -- the largest group by far.
     itself left in the text for whatever wants it. The reporter already says as
     much -- ``155 A.D.3d 781`` is an Appellate Division citation whatever the
     parenthetical holds.
+*   **An abbreviation is read as an abbreviation.** courts-db spells some courts
+    out where a filing abbreviates: it holds ``Bankr. S.D. Florida`` and the
+    filing writes ``Bankr. S.D. Fla.``. That is not a prefix -- ``fla`` is not
+    the start of ``florida`` -- so neither exact nor prefix matching reaches it.
+    A legal abbreviation drops letters from the inside and keeps the rest in
+    order, so a written word matches a stored word when it begins with the same
+    letter and its letters appear in the stored word in order. Word counts must
+    agree and the match must be unique; two candidates decline, as everywhere
+    else here.
 """
 
 from __future__ import annotations
@@ -70,6 +79,21 @@ _NEW_YORK_DEPARTMENT = re.compile(r"^\s*\d+[^\S\r\n]*(?:st|nd|rd|d|th)?\s*dep'?t
 _NEW_YORK_APPELLATE_DIVISION = "nyappdiv"
 
 
+def _words(value: str) -> tuple[str, ...]:
+    """The court string as words, ordinals normalised: `Bankr. S.D. Fla.` -> four."""
+    return tuple(word for word in _NOT_WORD.split(_ORDINAL.sub(r"\1", value or "").lower()) if word)
+
+
+def _abbreviates(written: str, stored: str) -> bool:
+    """Whether one word is the other written short: same first letter, letters in order."""
+    if written == stored:
+        return True
+    if not stored.startswith(written[:1]):
+        return False
+    remaining = iter(stored)
+    return all(letter in remaining for letter in written)
+
+
 def normalize(value: str) -> str:
     """The comparison key for a court string: no ordinal suffix, no punctuation."""
     return _NOT_WORD.sub("", _ORDINAL.sub(r"\1", value or "")).lower()
@@ -84,6 +108,18 @@ def _index() -> dict[str, frozenset[str]]:
         if not citation_string:
             continue
         grouped[normalize(citation_string)].add(str(court["id"]))
+    return {key: frozenset(ids) for key, ids in grouped.items()}
+
+
+@lru_cache(maxsize=1)
+def _word_index() -> dict[tuple[str, ...], frozenset[str]]:
+    """Every court in courts-db, keyed by the words of its citation string."""
+    grouped: defaultdict[tuple[str, ...], set[str]] = defaultdict(set)
+    for court in courts:
+        citation_string = court.get("citation_string")
+        if not citation_string:
+            continue
+        grouped[_words(citation_string)].add(str(court["id"]))
     return {key: frozenset(ids) for key, ids in grouped.items()}
 
 
@@ -110,4 +146,14 @@ def resolve_court(paren: str | None) -> str | None:
     prefixed = {court for stored, ids in index.items() if stored.startswith(key) for court in ids}
     if len(prefixed) == 1:
         return next(iter(prefixed))
+    written = _words(paren)
+    abbreviated = {
+        court
+        for stored, ids in _word_index().items()
+        if len(stored) == len(written)
+        and all(_abbreviates(word, held) for word, held in zip(written, stored, strict=True))
+        for court in ids
+    }
+    if len(abbreviated) == 1:
+        return next(iter(abbreviated))
     return None

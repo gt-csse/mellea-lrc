@@ -84,6 +84,8 @@ from courts_db import courts
 from eyecite.models import CitationToken, Edition, Reporter, TokenExtractor
 from eyecite.tokenizers import Tokenizer, default_tokenizer
 
+from mellea_lrc.extraction.reading.courts import resolve_court
+
 # The case-type codes a federal docket number carries. Spelled out rather than
 # written as `[a-z]{2,4}` so that the pattern cannot drift onto an arbitrary
 # `12:30-am-1234`.
@@ -224,6 +226,7 @@ def _build_court_index() -> tuple[
 
 
 _COURT_AUTOMATON, _COURT_LOOKUP, _COURT_TIGHT = _build_court_index()
+_COURT_NAMES = {str(court["id"]): court["name"] for court in courts}
 
 
 def courts_in(text: str, start: int, end: int) -> tuple[CourtCandidate, ...]:
@@ -297,8 +300,17 @@ def _court_opening(text: str, start: int, end: int) -> CourtCandidate | None:
     words = list(_WORD.finditer(text, start, end))
     for count in range(min(_MAX_COURT_WORDS, len(words)), 0, -1):
         opening = text[words[0].start() : words[count - 1].end()]
+        if not _is_written_as_a_court(opening):
+            continue
         entry = _COURT_TIGHT.get(_tight(opening))
-        if entry is None or not _is_written_as_a_court(opening):
+        if entry is None:
+            # courts-db spells some courts out where a filing abbreviates:
+            # `Bankr. S.D. Florida` is stored and `Bankr. S.D. Fla.` is written.
+            # `resolve_court` reads the abbreviation; it decides nothing this
+            # index would have decided differently.
+            resolved = resolve_court(opening)
+            entry = (resolved, _COURT_NAMES[resolved]) if resolved else None
+        if entry is None:
             continue
         court_id, court_name = entry
         return CourtCandidate(
