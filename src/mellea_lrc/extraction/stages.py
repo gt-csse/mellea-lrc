@@ -58,9 +58,8 @@ class Pass(Protocol):
 
 
 def _colocation(text: str, citations: Sequence[ExtractedCitation]) -> tuple[ExtractedCitation, ...]:
-    """Group citations occupying the same span. Does not read the text."""
-    del text
-    return assign_colocation(citations)
+    """Group citations occupying the same span and written with nothing between."""
+    return assign_colocation(text, citations)
 
 
 def _post_citation(text: str, citations: Sequence[ExtractedCitation]) -> tuple[ExtractedCitation, ...]:
