@@ -27,6 +27,20 @@ citations sharing a reporter are two cases**, since a case has one first page
 in one reporter. That is what separates Brown I from Brown II, and it is
 deliberately the only judgement made here.
 
+A second refusal is about the text rather than about the cases. In a table of
+authorities eyecite gives every entry a full span running to the end of the
+table, so two entries coincide by span while the page shows them on different
+lines::
+
+    Donovan v. City of Dallas , 377 U.S. 408 (1964)……… 6  Gucci America , 768 F.3d 122
+
+Those are two cases, and nothing about the identifiers says so. What says so is
+what lies between them: a leader, a page number and another case name. So the
+locators of a co-located set must have nothing between them that begins another
+citation -- no leader dots, no `v.`. In a real parallel citation the locators
+are separated by a comma, a pin cite, a judge's initials or a short
+parenthetical, never by more than that.
+
 Measured over the 26 documents of `false-citation-bench`: **31 groups covering
 64 citations**, every one a genuine parallel citation. Sixteen pair a docket
 number with the reporter or database page written beside it; the rest are a
@@ -42,6 +56,7 @@ where, changes.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -80,15 +95,26 @@ def _reporter(citation: ExtractedCitation) -> str:
 _SPAN_SLACK = 2
 
 
-def _co_located(left: ExtractedCitation, right: ExtractedCitation) -> bool:
+# What separates one citation from the next: the leader dots of an index, or the
+# `v.` of another case name. Between two identifiers for one case there is a
+# comma, a pin cite, a judge's initials or a short parenthetical, and nothing of
+# this kind.
+_ANOTHER_CITATION = re.compile(r"…|\.{2,}|\bvs?\.")
+
+
+def _co_located(text: str, left: ExtractedCitation, right: ExtractedCitation) -> bool:
     """Whether two citations occupy the same span, to within a character or two."""
-    return (
-        abs(left.full_span.start - right.full_span.start) <= _SPAN_SLACK
-        and abs(left.full_span.end - right.full_span.end) <= _SPAN_SLACK
-    )
+    if (
+        abs(left.full_span.start - right.full_span.start) > _SPAN_SLACK
+        or abs(left.full_span.end - right.full_span.end) > _SPAN_SLACK
+    ):
+        return False
+    first, second = sorted((left, right), key=lambda c: c.locator_span.start)
+    between = text[first.locator_span.end : second.locator_span.start]
+    return not _ANOTHER_CITATION.search(between)
 
 
-def colocation_groups(citations: Sequence[ExtractedCitation]) -> list[list[ExtractedCitation]]:
+def colocation_groups(text: str, citations: Sequence[ExtractedCitation]) -> list[list[ExtractedCitation]]:
     """Return each set of two or more citations occupying the same place.
 
     A group is built by overlap and then rejected if any reporter appears twice
@@ -100,7 +126,7 @@ def colocation_groups(citations: Sequence[ExtractedCitation]) -> list[list[Extra
 
     groups: list[list[ExtractedCitation]] = []
     for citation in ordered:
-        if groups and any(_co_located(citation, member) for member in groups[-1]):
+        if groups and any(_co_located(text, citation, member) for member in groups[-1]):
             groups[-1].append(citation)
         else:
             groups.append([citation])
@@ -120,7 +146,7 @@ def colocation_groups(citations: Sequence[ExtractedCitation]) -> list[list[Extra
     ]
 
 
-def assign_colocation(citations: Sequence[ExtractedCitation]) -> tuple[ExtractedCitation, ...]:
+def assign_colocation(text: str, citations: Sequence[ExtractedCitation]) -> tuple[ExtractedCitation, ...]:
     """Return the citations with a shared `colocation_id` on each co-located set.
 
     The id is the citation id of the group's first member, which makes it stable
@@ -130,7 +156,7 @@ def assign_colocation(citations: Sequence[ExtractedCitation]) -> tuple[Extracted
     from dataclasses import replace
 
     assigned: dict[str, str] = {}
-    for group in colocation_groups(citations):
+    for group in colocation_groups(text, citations):
         identifier = group[0].citation_id
         for member in group:
             assigned[member.citation_id] = identifier

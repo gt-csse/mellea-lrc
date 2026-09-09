@@ -123,3 +123,26 @@ def test_a_statute_beside_a_case_is_still_not_one_authority() -> None:
 
     for group in _groups(document):
         assert "28 U.S.C. \u00a7 1927" not in group
+
+
+def test_a_table_of_authorities_does_not_co_locate_its_entries() -> None:
+    """Two index entries coincide by span and are two cases.
+
+    eyecite gives every entry in a table of authorities a full span running to
+    the end of the table, so `377 U.S. 408` and `768 F.3d 122` differ by one
+    character at both ends. What separates them is on the page: a leader, a page
+    number and another case name.
+    """
+    text = (
+        "Donovan v. City of Dallas  , 377 U.S. 408 (1964)………………………………...  6  "
+        "Gucci America  , 768 F.3d 122 (2 nd  Cir. 2014)……………………………………...  7"
+    )
+
+    assert _groups(_extract(text)) == []
+
+
+def test_a_parallel_citation_still_groups_across_a_judge_and_a_pin_cite() -> None:
+    """What sits between two identifiers for one case is punctuation, not a citation."""
+    text = "St. Amant v. Thompson, 390 U.S. 727, 731, 88 S.Ct. 1323, 20 L.Ed.2d 262 (1968)."
+
+    assert _groups(_extract(text)) == [{"390 U.S. 727", "88 S.Ct. 1323", "20 L.Ed.2d 262"}]
