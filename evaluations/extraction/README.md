@@ -72,7 +72,7 @@ page each one claims -- and it scores three arms against it.
 
 | arm | what it runs |
 |---|---|
-| `eyecite` | eyecite as published. The floor, and what a result is read up from |
+| `eyecite` | eyecite as published, with no docket reader. The floor, and what a result is read up from |
 | `augmented` | the same, with this project's rules: the separator relaxation, the docket reader, the pin cite reader, the case name locator |
 | `mellea` | the augmented rules, then the model layers. Today that is the case-name layer; more land here as they are built |
 
@@ -89,44 +89,65 @@ prints every disagreement under the tables.
 counts, recall · precision
 
               eyecite            augmented          mellea
-citations     644/721 · 644/664  710/721 · 710/717  720/721 · 720/727
-- roots       408/428 · 408/411  426/428 · 426/426  426/428 · 426/426
-- short forms 232/293 · 232/253  283/293 · 283/291  293/293 · 293/301
+citations     602/721 · 602/622  710/721 · 710/717  719/721 · 719/726
+- roots       374/428 · 374/377  426/428 · 426/426  426/428 · 426/426
+- short forms 224/293 · 224/245  283/293 · 283/291  292/293 · 292/300
 pin cites     351/463 · 351/357  460/463 · 460/462  460/463 · 460/462
-docket courts 42/42 · 42/42      42/42 · 42/42      42/42 · 42/42
-attribution   640/644 · 640/657  707/710 · 707/709  717/720 · 717/719
+docket courts 0/42 · 0/0         42/42 · 42/42      42/42 · 42/42
+attribution   218/293 · 218/238  281/293 · 281/283  290/293 · 290/292
 
 percentages, recall · precision
 
               eyecite            augmented          mellea
-citations     89.3% · 97.0%      98.5% · 99.0%      99.9% · 99.0%
-- roots       95.3% · 99.3%      99.5% · 100.0%     99.5% · 100.0%
-- short forms 79.2% · 91.7%      96.6% · 97.3%      100.0% · 97.3%
+citations     83.5% · 96.8%      98.5% · 99.0%      99.7% · 99.0%
+- roots       87.4% · 99.2%      99.5% · 100.0%     99.5% · 100.0%
+- short forms 76.5% · 91.4%      96.6% · 97.3%      99.7% · 97.3%
 pin cites     75.8% · 98.3%      99.4% · 99.6%      99.4% · 99.6%
-docket courts 100.0% · 100.0%    100.0% · 100.0%    100.0% · 100.0%
-attribution   99.4% · 97.4%      99.6% · 99.7%      99.6% · 99.7%
+docket courts 0.0% · --          100.0% · 100.0%    100.0% · 100.0%
+attribution   74.4% · 91.6%      95.9% · 99.3%      99.0% · 99.3%
 
 by kind, recall
 
                         eyecite            augmented          mellea
-- DocketCitation        42/42              42/42              42/42
+- DocketCitation        0/42               42/42              42/42
 - FullCaseCitation      548/590            589/590            589/590
 - IdCitation            22/32              32/32              32/32
-- ReferenceCitation     2/16               6/16               16/16
+- ReferenceCitation     2/16               6/16               15/16
 - ShortCaseCitation     30/41              41/41              41/41
 ```
 
-**What each arm is worth.** The rules are worth 66 citations and 109 pin cites
-over eyecite as published, and they cost nothing: precision rises with recall,
-because most of what they add is a citation eyecite read at the wrong edges or
-did not read at all. The model layer is worth the last 10, which are the bare
-names -- a case named with no identifier at all, which no reporter-driven
-tokenizer can see because there is nothing there to tokenize. It takes
-`ReferenceCitation` recall from 6/16 to 16/16 and leaves every other measure
-where it was.
+**What each arm is worth.** The rules are worth 108 citations and 109 pin
+cites over eyecite as published, and they cost nothing: precision rises with
+recall, because most of what they add is a citation eyecite read at the wrong
+edges or did not read at all. 42 of the 108 are docket citations, which eyecite
+attempts none of -- its tokenizer is built from a reporter gazetteer and a
+docket number names no reporter. The model layer is worth the last 9, which are
+bare names: a case named with no identifier at all, which no reporter-driven
+tokenizer can see because there is nothing there to tokenize.
 
-The one citation still missed at `mellea` is the one whose volume the filing
-never wrote.
+The two citations still missed at `mellea` are the one whose volume the filing
+never wrote, and one bare name the layer read as a defect rather than a short
+form.
+
+**Every denominator is what the filings state.** Recall is out of the 721
+citations, the 428 roots, the 293 short forms, the 463 pin cites, the 42 docket
+courts -- never out of the part of the corpus the arm happened to reach. A
+denominator that shrinks with the run hides what the run missed, which is how
+`attribution` once read 99.6% while it was scored over the citations an arm
+found.
+
+**Attribution is a short form pointing at its root**, so it is counted over the
+293 short forms. A root points at itself and there is nothing there to get
+wrong.
+
+**Identification is exact; everything else is scored over an overlap.** A
+citation is found when the arm produces one at exactly its span, because the
+identifier is what a lookup resolves and nothing partial counts. But a run that
+reads `673 F.2d at ` where the filing writes `673 F.2d at 57` *has* that
+citation, with the wrong edges, and whether it then attributed it to the right
+case is a separate question -- so a reported citation is associated with the
+annotated one it overlaps most, and attribution, the pin cite and the docket
+court are read through that association.
 
 **`docket courts` is the one field checked beside the span.** A docket number
 names a case in no district on its own -- `1:19-cv-362` exists in every one of
@@ -137,9 +158,9 @@ lookup takes; the spelling the filing used is the document's characters, like
 `reporter_as_written`. A short form of a docket states the number again and not
 the court, so it is scored against its root's.
 
-Every arm reads all 42, including eyecite as published -- the docket reader is
-this project's and runs at every relaxation. The row exists so that a
-regression would show, which before it nothing would have.
+`eyecite` reads none of the 42, so its recall is 0% and it has no precision to
+state: an arm that reports nothing of a kind cannot be right or wrong about it,
+and the two sides of a cell say so separately.
 
 **What costs precision**, and it is the same seven at every arm: spans read as a
 case citation that refer to no case at all -- two `Id.` into motions filed in
