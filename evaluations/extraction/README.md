@@ -164,6 +164,25 @@ not a citation to a case.
 nobody read was missed rather than misattributed, and charging it here would
 count one failure twice.
 
+### Not measured yet
+
+Two whole columns of the ground truth have no reading here.
+
+**Case names.** Every citation now carries `case_name_span`, located rather
+than rebuilt, and `extraction-v3.0` annotates 682 of them as spans. Nothing
+compares the two. It is the one field where the stages could be read against
+each other -- what the rules locate, what a model patches, what a lookup later
+confirms -- which is most of the reason to score it at all. The dataset says in
+writing that it does not score case names, so that sentence moves first.
+
+**The normalized half of every field.** A citation carries both what the filing
+wrote and what it means: `reporter` beside `reporter_as_written`, `court`
+beside `court_text`, `pin_cite.normalized` beside the damaged string. Only the
+pin cite's normalization is checked, inside the pin cite measure. Whether
+`F.Supp.2d` resolved to the right reporter and `Bankr. S.D. Fla.` to the right
+courts-db id is not scored anywhere, and those are exactly the halves a lookup
+uses.
+
 `BOUNDED` is not an arm. It was the control full relaxation was read against,
 and full relaxation is now at least as good on every measure here. It remains
 the library's default and an arm of the published flat bench above.
