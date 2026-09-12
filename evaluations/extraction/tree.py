@@ -166,9 +166,17 @@ def score(dataset: Path, corpus: Path, relaxation: Relaxation) -> tuple[Counter[
             found = parsed.get(row["id"])
             group = "root" if row["is_root"] else "short_form"
             counts[f"{group}:stated"] += 1
+            # Counted before the citation is looked for, so a pin cite stays in
+            # the denominator when the citation carrying it was missed. A
+            # denominator that shrinks with the run hides what the run missed.
+            want = row.get("pin_cite")
+            if want is not None:
+                counts["pincite:stated"] += 1
             if found is None:
                 detail["citation"].append(f"{row['id']} {row['kind']} {row['cited_as']['quote'][:48]!r}")
                 detail[group].append(f"{row['id']} {row['cited_as']['quote'][:48]!r} not read")
+                if want is not None:
+                    detail["pincite"].append(f"{row['id']} {want['quote']!r} not read, nor was its citation")
                 continue
             counts["citation:right"] += 1
             by_kind[f"{row['kind']}:right"] += 1
@@ -186,8 +194,6 @@ def score(dataset: Path, corpus: Path, relaxation: Relaxation) -> tuple[Counter[
             # and charging it here would count one failure twice.
             if found is not None:
                 counts["attribution:stated"] += 1
-                if found["root"] is not None:
-                    counts["attribution:reported"] += 1
                 expected = parsed.get(row["root_id"])
                 if expected is not None and found["root"] == expected["span"]:
                     counts["attribution:right"] += 1
@@ -196,12 +202,7 @@ def score(dataset: Path, corpus: Path, relaxation: Relaxation) -> tuple[Counter[
                 else:
                     detail["attribution"].append(f"{row['id']} left unattributed, states {row['root_id']}")
 
-            want = row.get("pin_cite")
             got = found["pin_cite"] if found else None
-            if want is not None:
-                counts["pincite:stated"] += 1
-            if got is not None:
-                counts["pincite:reported"] += 1
             if want is None:
                 if got is not None:
                     detail["pincite"].append(f"{row['id']} reads a pin cite the filing does not state")
@@ -222,6 +223,14 @@ def score(dataset: Path, corpus: Path, relaxation: Relaxation) -> tuple[Counter[
                 counts["root:reported"] += 1
             else:
                 counts["short_form:reported"] += 1
+            # Precision counts every attribution the run made, not only those
+            # on citations the dataset annotates. An `Id.` pointing at a motion
+            # is attributed to whatever case eyecite reaches back to, and that
+            # is an attribution the filing never made.
+            if reported["root"] is not None:
+                counts["attribution:reported"] += 1
+            if reported["pin_cite"] is not None:
+                counts["pincite:reported"] += 1
             if span in claimed:
                 continue
             row = next((r for start, end, r in noncase if start <= span[0] and span[1] <= end), None)
@@ -229,6 +238,18 @@ def score(dataset: Path, corpus: Path, relaxation: Relaxation) -> tuple[Counter[
             detail["citation"].append(
                 f"{header['document'][:3]} {reported['kind']} {text[span[0] : span[1]][:44]!r} {where}"
             )
+            if reported["pin_cite"] is not None:
+                pin = reported["pin_cite"]
+                detail["pincite"].append(
+                    f"{header['document'][:3]} {text[pin['start'] : pin['end']]!r} claimed at "
+                    f"{text[span[0] : span[1]][:32]!r}, which is not a citation to a case"
+                )
+            if reported["root"] is not None:
+                root = text[reported["root"]["start"] : reported["root"]["end"]]
+                detail["attribution"].append(
+                    f"{header['document'][:3]} {text[span[0] : span[1]][:32]!r} attributed to "
+                    f"{root!r}, and it is not a citation to a case"
+                )
     counts.update(by_kind)
     return counts, detail
 
