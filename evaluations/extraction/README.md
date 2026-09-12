@@ -63,6 +63,56 @@ a docket prediction its court. Matching is greedy and each benchmark occurrence
 is claimed once, so one citation reported twice earns one true positive and one
 false positive.
 
+## The citation tree
+
+`evaluate.py` scores a flat list of identifiers: whether a citation was found,
+and nothing else. `tree.py` scores against `extraction-v3.0`, which is a tree --
+every place a filing cites a case, which place introduced the case, and which
+page each one claims:
+
+```bash
+uv run python -m evaluations.extraction.tree \
+  --dataset  <store>/extraction-v3.0/documents \
+  --documents <store>/corpus/documents_txt \
+  --relaxation FULL
+```
+
+```text
+citation_parsed   690/703
+- DocketCitation      41/41
+- FullCaseCitation    589/590
+- IdCitation          14/14
+- ReferenceCitation   6/18
+- ShortCaseCitation   40/40
+- 006-s04 ReferenceCitation 'Boeser v. Sharp'
+  …
+pincite_parsed    442/446
+- 015-o45 '184' not read
+- 021-o08 '11' not read
+- 022-o15 '657 n.1' not read
+- 023-o20 '895 -96' not read
+root_attributed   688/703
+- 022-o35 root 022-o01 not reached
+- 022-o38 root 022-o23 not reached
+```
+
+**Every metric is counted against the ground truth's own denominator.**
+`pincite_parsed` is out of the 446 pin cites the filings state, not out of the
+citations this run found -- a denominator that shrank with the run would hide
+what the run missed. Detail lines are indented with `- `.
+
+| relaxation | citation_parsed | pincite_parsed | root_attributed |
+|---|---:|---:|---:|
+| `NONE` | 630/703 | 339/446 | 627/703 |
+| `BOUNDED` | 689/703 | 442/446 | 686/703 |
+| `FULL` | **690/703** | **442/446** | **688/703** |
+
+Thirteen of the thirteen misses at `FULL` are citations no reader can reach:
+twelve bare names, which state no identifier at all, and document 025's
+`WL 6200979`, which states no volume. The four pin cites are one shape and a
+half -- three carry a footnote marker eyecite's pattern does not admit, and the
+fourth is a named short cite whose page eyecite files under `extra`.
+
 ## Get the dataset
 
 ```bash
