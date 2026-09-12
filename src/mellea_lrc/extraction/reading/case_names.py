@@ -58,6 +58,11 @@ _NO_PARTY = re.compile(r"(?:In\s+re|In\s+the\s+Matter\s+of|Matter\s+of|Ex\s+part
 # that run to the page number, and the rules of the table itself. A span that
 # opens above one of these has run through a neighbouring entry.
 _ENTRY_BREAK = re.compile(r"[….]{2,}|\|")
+# A located name that begins at the `v.` has lost its first party.
+_OPENS_AT_VERSUS = re.compile(r"^vs?\.?(?=\s)", re.I)
+# The word in front of it, and the punctuation a filing puts before a name: a
+# quotation dash, an opening bracket, the space after a signal.
+_PARTY_BEHIND = re.compile(r"[A-Z][\w.'’&-]*[^\S\r\n]*$")
 _OPENING = " \t\n,.;:|·•()"
 # A period is not trimmed off the end. The window closes at the locator rather
 # than at a sentence, so a name ending in one ends in an abbreviation --
@@ -103,4 +108,12 @@ def locate_case_name(text: str, citation: CitationBase, locator: Span) -> Span |
     opener = _NO_PARTY.search(text[max(0, start - 30) : start])
     if opener:
         start -= len(opener.group())
+    elif _OPENS_AT_VERSUS.match(text[start:end]):
+        # eyecite's span begins at `v.` when the party in front of it did not
+        # parse -- after a quotation dash, or where the converter spaced the
+        # name. The party is written right there, and one capitalised word back
+        # is the whole of what is missing in every instance on this corpus.
+        behind = _PARTY_BEHIND.search(text[max(0, start - 40) : start])
+        if behind:
+            start -= len(behind.group())
     return Span(start=start, end=end)
