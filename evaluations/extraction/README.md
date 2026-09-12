@@ -183,6 +183,18 @@ pin cite's normalization is checked, inside the pin cite measure. Whether
 courts-db id is not scored anywhere, and those are exactly the halves a lookup
 uses.
 
+**A docket citation's court is unchecked, and it is half the identifier.**
+`PROTOCOL.md` puts it plainly -- `1:19-cv-362` exists in every district and
+names a case in none of them alone -- and `evaluate.py` refuses a docket
+prediction whose court does not match. This table matches on span alone, so all
+42 docket citations count as found whether or not the court resolved. They all
+do today, which is exactly why nothing here would notice if they stopped.
+
+The **date** is a different case and is deliberately absent: it is not part of
+any identifier, and the year a filing states against the year on the record is
+a misrepresentation question, which belongs to validation. The same goes for
+the court in a reporter citation's parenthetical, which no lookup needs.
+
 `BOUNDED` is not an arm. It was the control full relaxation was read against,
 and full relaxation is now at least as good on every measure here. It remains
 the library's default and an arm of the published flat bench above.
