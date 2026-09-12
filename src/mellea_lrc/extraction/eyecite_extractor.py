@@ -51,6 +51,7 @@ from mellea_lrc.core.citations import (
 )
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.identity import citation_id as citation_id_for
+from mellea_lrc.extraction.reading.case_names import locate_case_name
 from mellea_lrc.extraction.reading.dockets import DOCKET_GROUP, with_dockets
 from mellea_lrc.extraction.reading.pin_cite_spans import locate_pin_cite
 from mellea_lrc.extraction.reading.pin_cites import relaxed_pin_cites, strip_connector
@@ -383,6 +384,7 @@ def extract_citations(
                 pin_cite_span=locate_pin_cite(
                     text, canonical, locator_span=locator_span, full_span=full_span
                 ),
+                case_name_span=locate_case_name(text, eyecite_citation, locator_span),
                 resolves_to=antecedent_map.get(citation_id),
             )
         )
