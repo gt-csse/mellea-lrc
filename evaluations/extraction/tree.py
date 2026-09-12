@@ -117,6 +117,8 @@ def run_document(text: str, relaxation: Relaxation) -> list[dict[str, Any]]:
                 "kind": citation_kind(citation.citation).value,
                 "span": {"start": citation.locator_span.start, "end": citation.locator_span.end},
                 "root": {"start": root.start, "end": root.end} if root else None,
+                "is_root": root is not None
+                and (root.start, root.end) == (citation.locator_span.start, citation.locator_span.end),
                 "pin_cite": (
                     {
                         "start": citation.pin_cite_span.start,
@@ -135,101 +137,138 @@ def run_document(text: str, relaxation: Relaxation) -> list[dict[str, Any]]:
 
 
 def score(dataset: Path, corpus: Path, relaxation: Relaxation) -> tuple[Counter[str], dict[str, list[str]]]:
-    """Score one relaxation over the whole corpus."""
+    """Score one relaxation over the whole corpus.
+
+    Each measure is counted twice. **Recall** is out of what the filings state,
+    so it says what a run misses. **Precision** is out of what the run reports,
+    so it says what a run makes up. One without the other hides half of a pass:
+    a reader that reports every span in the document has perfect recall.
+    """
     counts: Counter[str] = Counter()
     by_kind: Counter[str] = Counter()
     detail: dict[str, list[str]] = {
-        "citation_parsed": [],
-        "root_parsed": [],
-        "pincite_parsed": [],
-        "root_attributed": [],
-        "citation_misparsed": [],
+        key: [] for key in ("citation", "root", "short_form", "pincite", "attribution")
     }
     for header, body in read_documents(dataset):
         text = (corpus / header["document"]).read_text(encoding="utf-8")
         run = {(row["span"]["start"], row["span"]["end"]): row for row in run_document(text, relaxation)}
         annotated = [row for row in body if row["unit"] == "citation"]
         parsed = {row["id"]: run[anchor(row)] for row in annotated if anchor(row) in run}
-        for row in annotated:
-            counts["citation"] += 1
-            by_kind[f"{row['kind']}:of"] += 1
-            found = parsed.get(row["id"])
-            if found is None:
-                detail["citation_parsed"].append(
-                    f"{row['id']} {row['kind']} {row['cited_as']['quote'][:48]!r}"
-                )
-            else:
-                counts["citation_parsed"] += 1
-                by_kind[f"{row['kind']}:parsed"] += 1
-            if row["is_root"]:
-                counts["root"] += 1
-                if found is None:
-                    detail["root_parsed"].append(
-                        f"{row['id']} {row['kind']} {row['cited_as']['quote'][:48]!r}"
-                    )
-                else:
-                    counts["root_parsed"] += 1
-
-            counts["citation_with_root"] += 1
-            expected = parsed.get(row["root_id"])
-            if found is not None and expected is not None and found["root"] == expected["span"]:
-                counts["root_attributed"] += 1
-            elif found is not None:
-                detail["root_attributed"].append(f"{row['id']} root {row['root_id']} not reached")
-
-            want = row.get("pin_cite")
-            if want is None:
-                if found is not None and found["pin_cite"] is not None:
-                    detail["pincite_parsed"].append(f"{row['id']} reads a pin cite the filing does not state")
-                continue
-            counts["pincite"] += 1
-            got = found["pin_cite"] if found else None
-            if got is None:
-                detail["pincite_parsed"].append(f"{row['id']} {want['quote']!r} not read")
-            elif (got["start"], got["end"]) != (want["start"], want["end"]):
-                detail["pincite_parsed"].append(f"{row['id']} {want['quote']!r} read at another span")
-            elif got["pages"] != want["normalized"]:
-                detail["pincite_parsed"].append(f"{row['id']} {want['quote']!r} reads as {got['pages']}")
-            else:
-                counts["pincite_parsed"] += 1
-
-        # The other side of the same corpus: everything the run reads as a
-        # citation to a case that is not one of the annotated citations.
-        claimed = {(row["span"]["start"], row["span"]["end"]) for row in parsed.values()}
         noncase = [
             (row["cited_as"]["start"], row["cited_as"]["end"], row["id"])
             for row in body
             if row["unit"] == "noncase_citation"
         ]
-        for span in run:
-            counts["case_kind_reported"] += 1
+
+        for row in annotated:
+            counts["citation:stated"] += 1
+            by_kind[f"{row['kind']}:stated"] += 1
+            found = parsed.get(row["id"])
+            group = "root" if row["is_root"] else "short_form"
+            counts[f"{group}:stated"] += 1
+            if found is None:
+                detail["citation"].append(f"{row['id']} {row['kind']} {row['cited_as']['quote'][:48]!r}")
+                detail[group].append(f"{row['id']} {row['cited_as']['quote'][:48]!r} not read")
+                continue
+            counts["citation:right"] += 1
+            by_kind[f"{row['kind']}:right"] += 1
+            # A root is right when the run both finds it and reads it as one:
+            # a root the run files under some other case is a root it did not
+            # find, whatever it did with the span.
+            if found["is_root"] == row["is_root"]:
+                counts[f"{group}:right"] += 1
+            else:
+                reads = "a short form" if row["is_root"] else "a root"
+                detail[group].append(f"{row['id']} {row['cited_as']['quote'][:44]!r} read as {reads}")
+
+            # Attribution is scored over the citations a run actually found: a
+            # citation nobody read was not attributed wrongly, it was missed,
+            # and charging it here would count one failure twice.
+            if found is not None:
+                counts["attribution:stated"] += 1
+                if found["root"] is not None:
+                    counts["attribution:reported"] += 1
+                expected = parsed.get(row["root_id"])
+                if expected is not None and found["root"] == expected["span"]:
+                    counts["attribution:right"] += 1
+                elif found["root"] is not None:
+                    detail["attribution"].append(f"{row['id']} attributed away from {row['root_id']}")
+                else:
+                    detail["attribution"].append(f"{row['id']} left unattributed, states {row['root_id']}")
+
+            want = row.get("pin_cite")
+            got = found["pin_cite"] if found else None
+            if want is not None:
+                counts["pincite:stated"] += 1
+            if got is not None:
+                counts["pincite:reported"] += 1
+            if want is None:
+                if got is not None:
+                    detail["pincite"].append(f"{row['id']} reads a pin cite the filing does not state")
+                continue
+            if got is None:
+                detail["pincite"].append(f"{row['id']} {want['quote']!r} not read")
+            elif (got["start"], got["end"]) != (want["start"], want["end"]):
+                detail["pincite"].append(f"{row['id']} {want['quote']!r} read at another span")
+            elif got["pages"] != want["normalized"]:
+                detail["pincite"].append(f"{row['id']} {want['quote']!r} reads as {got['pages']}")
+            else:
+                counts["pincite:right"] += 1
+
+        claimed = {(row["span"]["start"], row["span"]["end"]) for row in parsed.values()}
+        for span, reported in run.items():
+            counts["citation:reported"] += 1
+            if reported["is_root"]:
+                counts["root:reported"] += 1
+            else:
+                counts["short_form:reported"] += 1
             if span in claimed:
                 continue
-            counts["citation_misparsed"] += 1
             row = next((r for start, end, r in noncase if start <= span[0] and span[1] <= end), None)
             where = f"{row}, which is not a case" if row else "no annotated citation here"
-            detail["citation_misparsed"].append(
-                f"{header['document'][:3]} {run[span]['kind']} {text[span[0] : span[1]][:44]!r} {where}"
+            detail["citation"].append(
+                f"{header['document'][:3]} {reported['kind']} {text[span[0] : span[1]][:44]!r} {where}"
             )
-
     counts.update(by_kind)
     return counts, detail
 
 
+def _rate(right: int, of: int) -> str:
+    return f"{right / of:6.1%}" if of else "     --"
+
+
 def report(counts: Counter[str], detail: dict[str, list[str]], kinds: list[str]) -> str:
-    """Render one run: a line per metric, and its disagreements under it."""
-    lines = []
-    for metric, over in (
-        ("citation_parsed", "citation"),
-        ("root_parsed", "root"),
-        ("pincite_parsed", "pincite"),
-        ("root_attributed", "citation_with_root"),
-        ("citation_misparsed", "case_kind_reported"),
+    """A line per measure, recall beside precision, and the disagreements under it."""
+    lines = [f"{'':<18}{'recall':>18}{'precision':>18}"]
+    for label, key, indent in (
+        ("citations", "citation", ""),
+        ("roots", "root", "- "),
+        ("short forms", "short_form", "- "),
+        ("pin cites", "pincite", ""),
+        ("attribution", "attribution", ""),
     ):
-        lines.append(f"{metric:<20}{counts[metric]}/{counts[over]}")
-        if metric == "citation_parsed":
-            lines += [f"- {kind:<22}{counts[f'{kind}:parsed']}/{counts[f'{kind}:of']}" for kind in kinds]
-        lines += [f"- {line}" for line in detail[metric]]
+        right = counts[f"{key}:right"]
+        stated = counts[f"{key}:stated"]
+        reported = counts[f"{key}:reported"]
+        lines.append(
+            f"{indent + label:<18}"
+            f"{f'{right}/{stated}':>10}{_rate(right, stated):>8}"
+            f"{f'{right}/{reported}':>10}{_rate(right, reported):>8}"
+        )
+    lines.append("")
+    lines.append("by kind, recall:")
+    lines += [f"- {kind:<22}{counts[f'{kind}:right']}/{counts[f'{kind}:stated']}" for kind in kinds]
+    for label, key in (
+        ("citations", "citation"),
+        ("roots", "root"),
+        ("short forms", "short_form"),
+        ("pin cites", "pincite"),
+        ("attribution", "attribution"),
+    ):
+        if detail[key]:
+            lines.append("")
+            lines.append(f"{label}:")
+            lines += [f"- {line}" for line in detail[key]]
     return "\n".join(lines)
 
 
@@ -250,7 +289,7 @@ def main() -> None:
 
     relaxation = Relaxation[args.relaxation]
     counts, detail = score(args.dataset, args.documents, relaxation)
-    kinds = sorted({key.split(":")[0] for key in counts if key.endswith(":of")})
+    kinds = sorted({key.split(":")[0] for key in counts if key.endswith(":stated") and key[0].isupper()})
     print(f"== {relaxation.name} ==")
     print(report(counts, detail, kinds))
 
