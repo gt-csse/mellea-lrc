@@ -68,199 +68,105 @@ false positive.
 `evaluate.py` scores a flat list of identifiers: whether a citation was found,
 and nothing else. `tree.py` scores against `extraction-v3.0`, which is a tree --
 every place a filing cites a case, which place introduced the case, and which
-page each one claims:
+page each one claims -- and it scores three arms against it.
 
-```bash
-uv run python -m evaluations.extraction.tree \
-  --dataset  <store>/extraction-v3.0/documents \
-  --documents <store>/corpus/documents_txt \
-  --relaxation FULL
-```
-
-```text
-                              recall         precision
-citations            710/721   98.5%   710/717   99.0%
-- roots              426/428   99.5%   426/426  100.0%
-- short forms        283/293   96.6%   283/291   97.3%
-pin cites            460/463   99.4%   460/462   99.6%
-attribution          707/710   99.6%   707/709   99.7%
-
-by kind, recall:
-- DocketCitation        42/42
-- FullCaseCitation      589/590
-- IdCitation            32/32
-- ReferenceCitation     6/16
-- ShortCaseCitation     41/41
-
-attribution:
-- 005 'Id.' attributed to '2025 WL 1530660', and it is not a citation to a case
-- 006-o39 left unattributed, states 006-o39
-- 016 'Chen Zhi\n\n32' attributed to 'No. 1:25-cr-00312-RPK', and it is not a citation to a case
-…
-```
-
-**Recall is out of what the filings state; precision is out of what the run
-reports.** One without the other hides half of a pass: a reader that reports
-every span in the document has perfect recall. Detail lines are indented
-with `- `.
-
-Both denominators are taken over the **whole run**, not over the part of it the
-dataset annotates. A pin cite stays in the recall denominator when the citation
-carrying it was missed, and an attribution counts against precision even when
-the thing attributed is not a citation to a case: an `Id.` pointing at a motion
-filed in the same proceeding is attributed to whatever case eyecite reaches
-back to, and that is an attribution the filing never made.
-
-A root counts as found only when the run reads it *as* a root. A root filed
-under some other case is a root the run did not find, whatever it did with the
-span — which is what `006-o39` is, `Rosenblatt v. Baer, 383 U.S. at 85`, read
-by extraction as a short form of the case quoting it.
-
-**Attribution is scored over the citations a run found**, not over all of them:
-a citation nobody read was not attributed wrongly, it was missed, and charging
-it here would count one failure twice.
-
-**Every metric is counted against the ground truth's own denominator.**
-`pincite_parsed` is out of the 446 pin cites the filings state, not out of the
-citations this run found -- a denominator that shrank with the run would hide
-what the run missed. Detail lines are indented with `- `.
-
-| relaxation | citations | roots | short forms | pin cites | attribution |
-|---|---|---|---|---|---|
-| `NONE` | 89.3% · 97.0% | 95.3% · 99.3% | 79.2% · 91.7% | 75.8% · 98.3% | 99.4% · 97.4% |
-| `FULL` | **98.5% · 99.0%** | **99.5% · 100%** | **96.6% · 97.3%** | **99.4% · 99.6%** | **99.6% · 99.7%** |
-| `FULL` + the case-name layer | **99.9% · 99.0%** | 99.5% · 100% | **100% · 97.3%** | 99.4% · 99.6% | **99.6% · 99.7%** |
-
-**`BOUNDED` is not measured here.** It was the control `FULL` was read against,
-and `FULL` is now at least as good on every one of these measures, so the two
-ends are what a result is read between. It remains the library's default and an
-arm of the published flat bench above; neither of those is settled by this
-table.
-
-Each cell is recall · precision.
-
-`root_parsed` is the roots alone, the 428 citations that state an identifier for
-the first time. A short form missed costs a page claim; a root missed costs the
-case, and the one that is missed is the citation with no volume.
-
-**What costs precision.** Seven spans the run reads as a case citation refer to
-no case at all: two `Id.` into motions filed in the same proceeding, four into
-an exhibit declaration and a statute, and a section heading eyecite reads as a
-bare-name reference. Five of the seven reach no root, so nothing downstream
-would check anything for them. Two do, and those are the damaging ones: an
-`Id.` pointing at `Doc. 387` is attributed to `Perez v. Sunbeam Prods., Inc.`
-1,700 characters earlier, and a section heading reading `Chen Zhi 32` is
-attributed to `United States v. Chen Zhi` **with `32` as a pin cite**, which
-is a page claim the filing never made.
-
-Eleven of the eleven misses at `FULL` are citations no reader can reach: ten
-bare names, which state no identifier at all, and document 025's
-`WL 6200979`, which states no volume. The three pin cites are two shapes: two
-carry a footnote marker eyecite's pattern does not admit, and the third sits in
-a table of authorities where the leader dots follow the page.
-
-## Case names nothing read
-
-`tree.py` says the gap: at `FULL`, eleven citations are missed and ten of
-them are a case name with no identifier at all -- a Bluebook Rule 10.9 short
-form, which a reporter-driven tokenizer cannot see because there is nothing
-there to tokenize. This layer goes after them.
-
-It masks every citation that was read, sweeps the residue for case names, and
-asks a reader what each one is. Four answers:
-
-| reading | what it means |
+| arm | what it runs |
 |---|---|
-| `names_a_citation` | the name is the case name of a citation already read, not a citation of its own |
-| `short_form` | a proper Rule 10.9 reference to a case cited in full elsewhere, and which root it is |
-| `uncited_case` | a case the filing leans on that the document never cites |
-| `not_a_citation` | a caption, a heading, a party discussed in prose, a roman numeral `v` |
-
-`names_a_citation` asserts no error. A filing writes `In Boeser v. Sharp , the
-court recognized …` and then the citation, and both names are right; what the
-answer carries is where the name is written, so a consumer can hold the fuller
-of the two. That is `case_name_span` on the citation -- a span, not a parse,
-because `In re Flint Water Cases` is a whole name and eyecite files it under
-`defendant` with the opening words stripped. The parsed party fields are left
-exactly as they were read.
-
-The reader never returns an offset. It quotes the name verbatim and picks a
-citation or a root **by number** from lists this layer built, so every part of
-the answer grounds back into the record deterministically or fails to.
+| `eyecite` | eyecite as published. The floor, and what a result is read up from |
+| `augmented` | the same, with this project's rules: the separator relaxation, the docket reader, the pin cite reader, the case name locator |
+| `mellea` | the augmented rules, then the model layers. Today that is the case-name layer; more land here as they are built |
 
 ```bash
-uv run --env-file .env python -m evaluations.extraction.name_recovery \
+uv run --env-file .env python -m evaluations.extraction.tree \
   --dataset  <store>/extraction-v3.0/documents \
   --documents <store>/corpus/documents_txt
 ```
 
+`--arms eyecite augmented` runs the two that call no model, and `--detail`
+prints every disagreement under the tables.
+
 ```text
-sites                 54
-- bare short forms    10
-- uncited cases       18
-- not annotated       26
-declined              0/54
-recovered             10/10
-root_right            10/10
-uncited_right         18/18
-invented              0/26
-false_defect          1/26
-- 010 'In re COvIDrelated' read as a case the filing never cites
+counts, recall · precision
+
+              eyecite            augmented          mellea
+citations     644/721 · 644/664  710/721 · 710/717  720/721 · 720/727
+- roots       408/428 · 408/411  426/428 · 426/426  426/428 · 426/426
+- short forms 232/293 · 232/253  283/293 · 283/291  293/293 · 293/301
+pin cites     351/463 · 351/357  460/463 · 460/462  460/463 · 460/462
+attribution   640/644 · 640/657  707/710 · 707/709  717/720 · 717/719
+
+percentages, recall · precision
+
+              eyecite            augmented          mellea
+citations     89.3% · 97.0%      98.5% · 99.0%      99.9% · 99.0%
+- roots       95.3% · 99.3%      99.5% · 100.0%     99.5% · 100.0%
+- short forms 79.2% · 91.7%      96.6% · 97.3%      100.0% · 97.3%
+pin cites     75.8% · 98.3%      99.4% · 99.6%      99.4% · 99.6%
+attribution   99.4% · 97.4%      99.6% · 99.7%      99.6% · 99.7%
+
+by kind, recall
+
+                        eyecite            augmented          mellea
+- DocketCitation        42/42              42/42              42/42
+- FullCaseCitation      548/590            589/590            589/590
+- IdCitation            22/32              32/32              32/32
+- ReferenceCitation     2/16               6/16               16/16
+- ShortCaseCitation     30/41              41/41              41/41
 ```
 
-The headline numbers count only the 31 sites the dataset annotates, so here is
-what became of all 54:
+**What each arm is worth.** The rules are worth 66 citations and 109 pin cites
+over eyecite as published, and they cost nothing: precision rises with recall,
+because most of what they add is a citation eyecite read at the wrong edges or
+did not read at all. The model layer is worth the last 10, which are the bare
+names -- a case named with no identifier at all, which no reporter-driven
+tokenizer can see because there is nothing there to tokenize. It takes
+`ReferenceCitation` recall from 6/16 to 16/16 and leaves every other measure
+where it was.
 
-| the dataset says | the reader said | n |
-|---|---|---:|
-| bare short form | `short_form`, root named and right | 10 |
-| uncited case | `uncited_case` | 18 |
-| not annotated | `names_a_citation` | 20 |
-| | `not_a_citation` | 5 |
-| | `uncited_case` | 1 |
+The one citation still missed at `mellea` is the one whose volume the filing
+never wrote.
 
-53 of the 54 are right, and 30 answers name a case: every one of them carries
-its parties, split from the name it quoted and repaired.
+**What costs precision**, and it is the same seven at every arm: spans read as a
+case citation that refer to no case at all -- two `Id.` into motions filed in
+the same proceeding, four into an exhibit declaration and a statute, and a
+section heading eyecite reads as a bare-name reference. Five reach no root, so
+nothing downstream would check anything for them. Two do, and those are the
+damaging ones: an `Id.` pointing at `Doc. 387` is attributed to
+`Perez v. Sunbeam Prods., Inc.` 1,700 characters earlier, and a section heading
+reading `Chen Zhi 32` is attributed to `United States v. Chen Zhi` **with `32`
+as a pin cite**, which is a page claim the filing never made.
 
-The 20 `names_a_citation` answers on unannotated sites are the finding this
-dataset cannot score, because it does not annotate case names: each is the name
-of a citation already in the record, fuller than the one the parse reached.
-Eleven are one document where the extraction spaces the apostrophe out of a
-party name and the name search stops there.
+### What is scored, and how
 
-**A patched name carries its parties.** A span alone leaves a rule-based
-checker to parse the name, and a damaged name is what defeats a rule. So the
-reader reports `plaintiff` and `defendant` with the damage **repaired** while
-the quote keeps it -- the same contract the locator reviewer uses for a volume
-and a page -- and the two are checked against each other with punctuation,
-spacing and the `v.` removed and the characters a scanner confuses folded
-together. `World Wide Ass ' n of Specialty Programs` may be reported as
-`World Wide Ass'n of Specialty Programs`; a party that is not in the name
-cannot pass. A case with no adverse party carries a defendant and no
-plaintiff, because that is what eyecite does with `In re Giftcraft Ltd.`, and
-a patch that chose otherwise would disagree with every citation the rules
-parsed.
+An annotated citation is **found** when the arm produces a citation at exactly
+its `locator` span, or at its `cited_as` span where it has no locator, which is
+`Id.` and the bare-name references. Nothing partial counts.
 
-The name stops where an identifier starts, in the reader as in the rules: asked
-for the whole name, a model quotes the docket number after it.
+The **roots** are counted apart from the **short forms**, because the two cost
+different things: a short form missed costs a page claim, a root missed costs
+the case. A root counts as found only when the arm reads it *as* a root -- a
+root filed under some other case is a root it did not find, which is what
+`Rosenblatt v. Baer, 383 U.S. at 85` is, read as a short form of the case
+quoting it.
 
-### What is left
+A root is named by its span rather than by a dataset id, so an arm that knows
+nothing about `extraction-v3.0` can be scored the same way.
 
-One site wrong: a name the converter damaged into something that is not a case
-name, reported as a defect the filing does not have. It does not enter the
-record as a citation.
+**Recall is out of what the filings state; precision is out of what the arm
+reports.** One without the other hides half of a pass: a reader that reports
+every span in the document has perfect recall. Both denominators are taken over
+the whole run rather than over the part of it the dataset annotates -- a pin
+cite stays in the recall denominator when the citation carrying it was missed,
+and an attribution counts against precision even when the thing attributed is
+not a citation to a case.
 
-**What `uncited_case` turns on.** It is the answer when the filing leans on the
-case for something it wants accepted -- a holding, a standard, or that
-something happened -- and nothing in the document cites it. It is not the
-answer when a case is named for another reason: whose matter it is, what a
-heading says, who the parties to this filing are. Narrowing it to *legal*
-propositions alone was tried and is wrong -- a filing that offers a case as
-evidence that a pattern of conduct exists is still offering it.
+**Attribution is scored over the citations an arm found**, because a citation
+nobody read was missed rather than misattributed, and charging it here would
+count one failure twice.
 
-A switch remains for the ordering reading, `--unordered`, which lets a short
-form stand before the citation it refers to. It reaches nothing more here and
-invents two citations, so it is off by default.
+`BOUNDED` is not an arm. It was the control full relaxation was read against,
+and full relaxation is now at least as good on every measure here. It remains
+the library's default and an arm of the published flat bench above.
 
 ## Get the dataset
 
