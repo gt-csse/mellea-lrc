@@ -242,9 +242,7 @@ def main() -> None:
     )
     parser.add_argument("--dataset", type=Path, required=True, help="extraction-v3.0/documents/")
     parser.add_argument("--documents", type=Path, required=True, help="The text those spans index.")
-    parser.add_argument(
-        "--relaxation", default="FULL", choices=[level.name for level in Relaxation], help="Tokenizer."
-    )
+    parser.add_argument("--relaxation", default="FULL", choices=["NONE", "FULL"], help="Tokenizer.")
     parser.add_argument("--limit", type=int, default=None, help="Sites per document, for a short run.")
     parser.add_argument("--out", type=Path, default=None, help="Write every answer to this JSONL.")
     parser.add_argument(

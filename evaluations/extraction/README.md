@@ -128,9 +128,14 @@ what the run missed. Detail lines are indented with `- `.
 | relaxation | citations | roots | short forms | pin cites | attribution |
 |---|---|---|---|---|---|
 | `NONE` | 89.3% · 97.0% | 95.3% · 99.3% | 79.2% · 91.7% | 75.8% · 98.3% | 99.4% · 97.4% |
-| `BOUNDED` | 98.3% · 99.0% | 99.5% · 100% | 96.2% · 97.2% | 99.4% · 99.6% | 99.4% · 99.7% |
 | `FULL` | **98.5% · 99.0%** | **99.5% · 100%** | **96.6% · 97.3%** | **99.4% · 99.6%** | **99.6% · 99.7%** |
 | `FULL` + the case-name layer | **99.9% · 99.0%** | 99.5% · 100% | **100% · 97.3%** | 99.4% · 99.6% | **99.6% · 99.7%** |
+
+**`BOUNDED` is not measured here.** It was the control `FULL` was read against,
+and `FULL` is now at least as good on every one of these measures, so the two
+ends are what a result is read between. It remains the library's default and an
+arm of the published flat bench above; neither of those is settled by this
+table.
 
 Each cell is recall · precision.
 
