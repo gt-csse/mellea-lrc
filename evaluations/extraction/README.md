@@ -131,6 +131,82 @@ twelve bare names, which state no identifier at all, and document 025's
 carry a footnote marker eyecite's pattern does not admit, and the third sits in
 a table of authorities where the leader dots follow the page.
 
+## Case names nothing read
+
+`tree.py` says the gap: at `FULL`, thirteen citations are missed and twelve of
+them are a case name with no identifier at all -- a Bluebook Rule 10.9 short
+form, which a reporter-driven tokenizer cannot see because there is nothing
+there to tokenize. This layer goes after them.
+
+It masks every citation that was read, sweeps the residue for case names, and
+asks a reader what each one is. Four answers:
+
+| reading | what it means |
+|---|---|
+| `misread_citation` | the name belongs to a citation read beside it, which got the wrong name or none |
+| `short_form` | a proper Rule 10.9 reference to a case cited in full elsewhere, and which root it is |
+| `uncited_case` | a case offered as authority that the document never cites |
+| `not_a_citation` | a caption, a heading, a party discussed in prose, a roman numeral `v` |
+
+The reader never returns an offset. It quotes the name verbatim and picks a
+citation or a root **by number** from lists this layer built, so every part of
+the answer grounds back into the record deterministically or fails to.
+
+```bash
+uv run --env-file .env python -m evaluations.extraction.name_recovery \
+  --dataset  <store>/extraction-v3.0/documents \
+  --documents <store>/corpus/documents_txt
+```
+
+```text
+sites                 54
+- bare short forms    12
+- uncited cases       19
+- not annotated       23
+declined              0/54
+recovered             9/12
+- 006 'In Boeser v. Sharp' read as uncited_case
+- 011 'Shockey v. Huhtamaki' read as uncited_case
+- 011 'And in Packard v. City of New York' read as uncited_case
+root_right            7/7
+uncited_right         16/19
+- 025 'Breest v. Haggis' read as short_form
+- 025 'Friedman v. Bartell' read as short_form
+- 025 'M.D. v. OPWDD' read as short_form
+invented              0/23
+```
+
+**Every root it named was the right one.** That is the number that decides
+whether this is worth having: a short form recovered under the wrong case is
+worse than one not recovered, because nothing downstream can tell.
+
+### Rule 10.9 is ordered, and the ground truth is not sure it is
+
+A short form stands only *after* the full citation has appeared. Telling the
+reader where each root sits relative to the name is worth a lot and costs
+something:
+
+| | recovered | root_right | uncited_right | invented | declined |
+|---|---:|---:|---:|---:|---:|
+| ordering applied | 9/12 | 7/7 | 16/19 | **0/23** | **0/54** |
+| `--unordered` | **12/12** | **9/9** | 15/19 | 2/23 | 2/54 |
+
+Unordered reaches every short form and invents two citations. Ordered invents
+nothing and refuses three -- `Boeser v. Sharp`, `Shockey v. Huhtamaki` and
+`Packard v. City of New York`, each of which its filing cites in full a
+sentence or two *afterwards*.
+
+That disagreement is not the reader's. `extraction-v3.0` calls those three
+proper short forms and calls document 025's `Breest v. Haggis`,
+`Friedman v. Bartell` and `M.D. v. OPWDD` -- named in one clause, each cited in
+full later -- nonconforming. Both are a name before its citation, and they are
+annotated opposite ways. The three the ordered reader refuses and the three it
+wrongly accepts are the same shape, which is why the switch exists rather than
+a decision.
+
+Ordering is on by default: it is the rule, and it is the setting that invents
+nothing.
+
 ## Get the dataset
 
 ```bash
