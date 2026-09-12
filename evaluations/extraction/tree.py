@@ -18,6 +18,24 @@ it.
 
 Detail lines under a metric are indented with `- `. Nothing else is printed.
 
+The last two metrics are the other side of the corpus. `noncase_parsed` is how
+many of the 27 `noncase_citation` rows the run reports: the filing does write
+`Id.` and a shortened cite at those places, so reading them is right, and what
+the ground truth says is only that they point at something other than a
+decision. `unaccounted` is the run's case citations that no row accounts for at
+all, out of every case-kind citation it reported -- the precision side, and the
+one number here where lower is better.
+
+Statutes and journal citations are not in this ground truth and are not counted
+either way. A statute *read as a case* is a case-kind citation at a span no row
+claims, so it lands in `unaccounted`, which is where it belongs.
+
+An unaccounted citation is not always an invented one. A citation read at a span
+no row has is unaccounted too: unrelaxed eyecite reports `673 F.2d at ` where
+the filing writes `673 F.2d at 57`, and that is one miss and one unaccounted
+report of the same citation. The detail line carries the text, which says which
+it is.
+
 ## Matching
 
 `root_parsed` is the roots alone -- the citations that state an identifier for
@@ -122,6 +140,8 @@ def score(dataset: Path, corpus: Path, relaxation: Relaxation) -> tuple[Counter[
         "root_parsed": [],
         "pincite_parsed": [],
         "root_attributed": [],
+        "noncase_parsed": [],
+        "unaccounted": [],
     }
     for header, body in read_documents(dataset):
         text = (corpus / header["document"]).read_text(encoding="utf-8")
@@ -170,6 +190,33 @@ def score(dataset: Path, corpus: Path, relaxation: Relaxation) -> tuple[Counter[
                 detail["pincite_parsed"].append(f"{row['id']} {want['quote']!r} reads as {got['pages']}")
             else:
                 counts["pincite_parsed"] += 1
+
+        # The other side of the same corpus: what the run reports that no
+        # citation row claims. A noncase row accounts for its own span -- the
+        # filing does write `Id.` there and a reader is right to read it -- so
+        # reporting one is neither a hit nor an error, and is counted apart.
+        claimed = {(row["span"]["start"], row["span"]["end"]) for row in parsed.values()}
+        noncase = [
+            (row["cited_as"]["start"], row["cited_as"]["end"], row["id"])
+            for row in body
+            if row["unit"] == "noncase_citation"
+        ]
+        counts["noncase"] += len(noncase)
+        reported = set()
+        for span in run:
+            counts["case_kind_reported"] += 1
+            if span in claimed:
+                continue
+            inside = next((r for start, end, r in noncase if start <= span[0] and span[1] <= end), None)
+            if inside is not None:
+                reported.add(inside)
+                continue
+            counts["unaccounted"] += 1
+            detail["unaccounted"].append(
+                f"{header['document'][:3]} {run[span]['kind']} {text[span[0] : span[1]][:48]!r}"
+            )
+        counts["noncase_parsed"] += len(reported)
+        detail["noncase_parsed"] += [f"{row} not read" for _, _, row in noncase if row not in reported]
     counts.update(by_kind)
     return counts, detail
 
@@ -182,6 +229,8 @@ def report(counts: Counter[str], detail: dict[str, list[str]], kinds: list[str])
         ("root_parsed", "root"),
         ("pincite_parsed", "pincite"),
         ("root_attributed", "citation_with_root"),
+        ("noncase_parsed", "noncase"),
+        ("unaccounted", "case_kind_reported"),
     ):
         lines.append(f"{metric:<18}{counts[metric]}/{counts[over]}")
         if metric == "citation_parsed":

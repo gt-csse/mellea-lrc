@@ -96,6 +96,8 @@ pincite_parsed    442/446
 root_attributed   688/703
 - 022-o35 root 022-o01 not reached
 - 022-o38 root 022-o23 not reached
+noncase_parsed    27/27
+unaccounted       0/717
 ```
 
 **Every metric is counted against the ground truth's own denominator.**
@@ -103,11 +105,23 @@ root_attributed   688/703
 citations this run found -- a denominator that shrank with the run would hide
 what the run missed. Detail lines are indented with `- `.
 
-| relaxation | citation_parsed | root_parsed | pincite_parsed | root_attributed |
-|---|---:|---:|---:|---:|
-| `NONE` | 630/703 | 408/427 | 339/446 | 627/703 |
-| `BOUNDED` | 689/703 | 426/427 | 442/446 | 686/703 |
-| `FULL` | **690/703** | **426/427** | **442/446** | **688/703** |
+| relaxation | citation_parsed | root_parsed | pincite_parsed | root_attributed | unaccounted |
+|---|---:|---:|---:|---:|---:|
+| `NONE` | 630/703 | 408/427 | 339/446 | 627/703 | 7/664 |
+| `BOUNDED` | 689/703 | 426/427 | 442/446 | 686/703 | **0/716** |
+| `FULL` | **690/703** | **426/427** | **442/446** | **688/703** | **0/717** |
+
+`unaccounted` is the precision side and the one number where lower is better:
+case citations the run reports that no row accounts for, out of every case-kind
+citation it reported. All seven at `NONE` are citations read at the wrong span
+-- `673 F.2d at ` where the filing writes `673 F.2d at 57` -- so each is one
+miss and one unaccounted report of the same citation, not an invention.
+
+`noncase_parsed` is the 27 rows that are written like citations and point at
+something other than a decision: a pleading's numbered allegations, an exhibit,
+a statute, a case quoted inside another case. Every arm reads all 27, which is
+correct -- the filing does write them. They are counted apart rather than as
+hits, because the page they claim cannot be checked against an opinion.
 
 `root_parsed` is the roots alone, the 427 citations that state an identifier for
 the first time. A short form missed costs a page claim; a root missed costs the
