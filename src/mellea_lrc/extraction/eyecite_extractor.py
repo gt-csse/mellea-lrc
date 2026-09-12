@@ -324,10 +324,14 @@ def extract_citations(
         if relaxation is not Relaxation.NONE:
             stack.enter_context(relaxed_pin_cites())
         eyecite_citations = get_citations(text, tokenizer=with_dockets(tokenizer_for(relaxation)))
-    resolutions = cast(
-        dict[Resource, list[CitationBase]],
-        resolve_citations(eyecite_citations),
-    )
+        # Resolution is inside the block because it reads pin cites too: it
+        # tests an `Id.`'s page against the citation it would attach to, with a
+        # pattern that counts spaces. Leaving it outside read the page
+        # tolerantly and then threw the attribution away.
+        resolutions = cast(
+            dict[Resource, list[CitationBase]],
+            resolve_citations(eyecite_citations),
+        )
     citation_ids = _assign_citation_ids(eyecite_citations)
     antecedent_map = _build_antecedent_map(resolutions, citation_ids)
 
