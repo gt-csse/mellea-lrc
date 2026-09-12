@@ -112,6 +112,7 @@ what the run missed. Detail lines are indented with `- `.
 | `NONE` | 644/721 | 409/428 | 351/463 | 640/721 | 20/664 |
 | `BOUNDED` | 709/721 | 427/428 | 460/463 | 705/721 | **7/716** |
 | `FULL` | **710/721** | **427/428** | **460/463** | **707/721** | **7/717** |
+| `FULL` + the case-name layer | **720/721** | 427/428 | 460/463 | **717/721** | 7/727 |
 
 `root_parsed` is the roots alone, the 428 citations that state an identifier for
 the first time. A short form missed costs a page claim; a root missed costs the
@@ -143,10 +144,18 @@ asks a reader what each one is. Four answers:
 
 | reading | what it means |
 |---|---|
-| `misread_citation` | the name belongs to a citation read beside it, which got the wrong name or none |
+| `names_a_citation` | the name is the case name of a citation already read, not a citation of its own |
 | `short_form` | a proper Rule 10.9 reference to a case cited in full elsewhere, and which root it is |
-| `uncited_case` | a case offered as authority that the document never cites |
+| `uncited_case` | a case the filing leans on that the document never cites |
 | `not_a_citation` | a caption, a heading, a party discussed in prose, a roman numeral `v` |
+
+`names_a_citation` asserts no error. A filing writes `In Boeser v. Sharp , the
+court recognized …` and then the citation, and both names are right; what the
+answer carries is where the name is written, so a consumer can hold the fuller
+of the two. That is `case_name_span` on the citation -- a span, not a parse,
+because `In re Flint Water Cases` is a whole name and eyecite files it under
+`defendant` with the opening words stripped. The parsed party fields are left
+exactly as they were read.
 
 The reader never returns an offset. It quotes the name verbatim and picks a
 citation or a root **by number** from lists this layer built, so every part of
@@ -160,22 +169,20 @@ uv run --env-file .env python -m evaluations.extraction.name_recovery \
 
 ```text
 sites                 54
-- bare short forms    10
-- uncited cases       21
+- bare short forms    13
+- uncited cases       18
 - not annotated       23
 declined              0/54
-recovered             10/10
-root_right            7/7
-- 006 'In Boeser v. Sharp' read as misread_citation, so no root was named
-- 006 'United States  v.  Hassan' read as misread_citation, so no root was named
-- 021 "In Loos v. Lowe's" read as misread_citation, so no root was named
-uncited_right         18/21
-- 025 'Breest v. Haggis' read as short_form
-- 025 'Friedman v. Bartell' read as short_form
-- 025 'M.D. v. OPWDD' read as short_form
+recovered             13/13
+root_right            10/10
+- 006 'In Boeser v. Sharp' read as names_a_citation, so no root was named
+- 006 'United States  v.  Hassan' read as names_a_citation, so no root was named
+- 021 "In Loos v. Lowe's" read as names_a_citation, so no root was named
+uncited_right         18/18
 invented              0/23
-false_defect          1/23
+false_defect          2/23
 - 010 'In re COvIDrelated' read as a case the filing never cites
+- 025 'Watson v. New York' read as a case the filing never cites
 ```
 
 The headline numbers count only the 31 sites the dataset annotates, so here is
@@ -183,45 +190,26 @@ what became of all 54:
 
 | the dataset says | the reader said | n |
 |---|---|---:|
-| bare short form | `short_form`, root named and right | 7 |
-| | `misread_citation`, the name and its citation split by a sentence | 3 |
+| bare short form | `short_form`, root named and right | 10 |
+| | `names_a_citation`, the name of the citation a sentence away | 3 |
 | uncited case | `uncited_case` | 18 |
-| | `short_form` | 3 |
-| not annotated | `misread_citation` | 17 |
-| | `not_a_citation` | 5 |
-| | `uncited_case` | 1 |
+| not annotated | `names_a_citation` | 17 |
+| | `not_a_citation` | 4 |
+| | `uncited_case` | 2 |
 
-50 of the 54 are right. The 17 `misread_citation` answers on unannotated sites
+52 of the 54 are right. The 17 `names_a_citation` answers on unannotated sites
 are the finding this dataset cannot score, because it does not annotate case
-names: each is a citation already in the record whose stored name is wrong or
-truncated, and the reader names which citation it belongs to. Eleven of the
-seventeen are one document where the extraction spaces the apostrophe out of a
-party name and the name search stops there.
-
-**Every root it named was the right one.** That is the number that decides
-whether this is worth having: a short form recovered under the wrong case is
-worse than one not recovered, because nothing downstream can tell.
+names: each is the name of a citation already in the record, fuller than the
+one the parse reached. Eleven of the seventeen are one document where the
+extraction spaces the apostrophe out of a party name and the name search stops
+there.
 
 ### What is left
 
-Four sites wrong. One is a name the converter damaged into something that is
-not a case name, reported as a defect. The other three are document 025's:
-
-> as confirmed by case law spanning **Breest v. Haggis, Friedman v. Bartell,
-> and M.D. v. OPWDD** , among others.
-
-The reader calls them short forms because all three are in the filing's table
-of authorities. The ground truth calls them defects because nothing supports
-the sentence that names them: a case named in prose needs a citation there, and
-the table of authorities is an index rather than a citation in the argument.
-
-That line moved once already. `011-s03` and `011-s04` were filed as short forms
-on Rule 10.9 -- which governs short-form *citations* and not names used in
-prose -- and this layer is what surfaced it; they are `nonconforming_citation`
-rows now. The three that remain are the same question one step further in, and
-the reader is not told a rule for it because the rule is not settled: another
-filing names two cases in plain prose with no citation either and the dataset
-calls those proper short forms.
+Two sites wrong, both reported as a defect the filing does not have: a name the
+converter damaged into something that is not a case name, and a citation whose
+volume the filing never wrote, which the reader reads as a case cited nowhere.
+Neither enters the record as a citation.
 
 **What `uncited_case` turns on.** It is the answer when the filing leans on the
 case for something it wants accepted -- a holding, a standard, or that

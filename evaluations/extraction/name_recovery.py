@@ -11,7 +11,7 @@ The ground truth for each site is the row whose span it covers:
                      a bare short form. The reading should be `short_form` and
                      the root it names should be the row's `root_id`. A site
                      whose root is the citation written beside it comes back as
-                     `misread_citation` instead, which is the same finding in
+                     `names_a_citation` instead, which is the same finding in
                      different words, so both count as recovered and only the
                      root is scored where one was named
 
@@ -21,7 +21,7 @@ The ground truth for each site is the row whose span it covers:
 
     anything else    a name the dataset does not annotate: the filing's own
                      caption, a heading, or part of a citation that was read.
-                     `misread_citation` and `not_a_citation` are both defensible
+                     `names_a_citation` and `not_a_citation` are both defensible
                      there, so what is counted is the two answers that are not:
                      `short_form` naming a root nowhere near it, a citation
                      invented out of a name, and `uncited_case`, a defect
@@ -178,12 +178,12 @@ def _score(
     """Count one answer against what the dataset says the site is."""
     where = f"{header['document'][:3]} {text[site.span.start : site.span.end][:40]!r}"
     if want is Reading.SHORT_FORM:
-        if answer.reading not in {Reading.SHORT_FORM, Reading.MISREAD_CITATION}:
+        if answer.reading not in {Reading.SHORT_FORM, Reading.NAMES_A_CITATION}:
             detail["recovered"].append(f"{where} read as {answer.reading.value}")
             return
         counts["recovered"] += 1
         if answer.reading is not Reading.SHORT_FORM:
-            detail["root_right"].append(f"{where} read as misread_citation, so no root was named")
+            detail["root_right"].append(f"{where} read as names_a_citation, so no root was named")
             return
         counts["root_named"] += 1
         chosen = next((c for c in document.citations if c.citation_id == answer.root_id), None)

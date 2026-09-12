@@ -3,11 +3,15 @@ r"""Ask a reader what a case name standing outside every citation actually is.
 `case_name_sites` proposes a span; this answers it. Three readings, and the
 document decides which:
 
-``misread_citation``
-    The name belongs to a citation read beside it. Extraction reached the
-    locator and not the name -- `In re BYJU ' s Alpha, Inc. , 2024 WL 1455586`
-    is recorded with the party `Alpha, Inc.` -- so the finding is a correction
-    to a citation already in the record, not a new one.
+``names_a_citation``
+    The name is the case name of a citation already read. It is not a separate
+    citation and nothing about it says the citation is wrong: a filing writes
+    `In Boeser v. Sharp , the court recognized …` and then the citation, and
+    both names are correct. What the finding carries is **where the name is
+    written**, so a consumer can hold the fuller of the two -- `In re BYJU ' s
+    Alpha, Inc.` against the `Alpha, Inc.` the parse reached, or
+    `United States v. Hassan` against the `Hassan` the filing shortens to at
+    the citation itself.
 
 ``short_form``
     A proper Bluebook Rule 10.9 reference: the filing names a case it gave in
@@ -77,10 +81,12 @@ A case name was found at this position and no citation was read there:
 
 Decide what it is. There are exactly three answers.
 
-"misread_citation" - the name belongs to a citation in the list below, which
-    was read with the wrong name or with no name. The citation is beside the
-    name in the window. Answer this when the name and one of those citations
-    are one citation that the extraction split.
+"names_a_citation" - the name is the case name of one of the citations in the
+    list below. They are one reference, not two: the filing names the case and
+    then cites it, or cites it and then names it. Answer this whenever the name
+    and one of those citations are the same case, whatever name that citation
+    was read with - a citation read with a shorter name, a different form of
+    the name, or no name at all is still the same reference.
 
 "short_form" - the filing is referring by name alone to a case it has already
     cited in full, which Bluebook Rule 10.9 permits. Choose which case from the
@@ -105,17 +111,20 @@ Decide what it is. There are exactly three answers.
 Report:
 - reading   one of the three answers above
 - name      the case name quoted EXACTLY as written in the window, character
-            for character, including any damage. For "misread_citation" quote
-            the WHOLE name, including the part the citation already has.
-- citation  for "misread_citation", the number of the citation from the list
+            for character, including any damage. For "names_a_citation" quote
+            the WHOLE name, including any part the citation already has.
+- citation  for "names_a_citation", the number of the citation from the list
 - root      for "short_form", the number of the root from the list
 - reason    one sentence
 
 Rules:
 - Quote "name" exactly. Do not tidy its spacing or punctuation. The quote is
   checked against the window and a repaired quote will not be found.
-- Set "citation" only for "misread_citation" and "root" only for "short_form".
-  Leave both null for "not_a_citation".
+- Set "citation" only for "names_a_citation" and "root" only for "short_form".
+  Leave both null for the other two.
+- "names_a_citation" comes first. If a citation in the window is the same case
+  as this name, that is the answer, even when the case is also in the roots
+  list: a name beside its own citation is not a short form of itself.
 - A case the filing names and never cites anywhere is NOT a short form. If no
   root in the list is the same case, the answer is "uncited_case" when the
   filing is offering the case as authority, and "not_a_citation" otherwise.
@@ -150,7 +159,8 @@ ORDERING = (
 class Reading(str, Enum):
     """What a reader says a case-name site is."""
 
-    MISREAD_CITATION = "misread_citation"
+    NAMES_A_CITATION = "names_a_citation"
+    """The case name of a citation already read, not a citation of its own."""
     SHORT_FORM = "short_form"
     UNCITED_CASE = "uncited_case"
     """A case offered as authority that the document never cites."""
@@ -187,7 +197,7 @@ class AdjudicatedCaseName:
     name: str
     reading: Reading
     citation_id: str | None = None
-    """For `misread_citation`, the citation the name belongs to."""
+    """For `names_a_citation`, the citation this is the case name of."""
     root_id: str | None = None
     """For `short_form`, the root the name reads back to."""
     reason: str = ""
@@ -277,7 +287,7 @@ def _citation_line(index: int, text: str, citation: ExtractedCitation, site: Spa
 def neighbours(document: ExtractedDocument, window: Span) -> tuple[ExtractedCitation, ...]:
     """Every citation read inside the window, in document order.
 
-    These are what `misread_citation` chooses between. The list is the window's
+    These are what `names_a_citation` chooses between. The list is the window's
     own, not the document's: a name belongs to a citation it is written beside,
     and offering a distant one invites an answer that cannot be true.
     """
@@ -292,6 +302,35 @@ def roots(document: ExtractedDocument) -> tuple[ExtractedCitation, ...]:
     """Every citation in the document that states an identifier of its own."""
     tree = build_citation_tree(document)
     return tuple(sorted((item.root for item in tree.roots), key=lambda c: c.locator_span.start))
+
+
+# Abbreviations a case name ends in, where the final period belongs to the word.
+# Everything else ending a quoted name is the sentence's period, not the name's.
+_ABBREVIATION = frozenset(
+    """admin assn auth bd bros cas cent cir cnty co comm commn constr corp cty dept
+    dist div educ elec eng engrs enters equip fed fin found gen grp hldgs hosp inc
+    indus ins intl invs liab ltd llc llp lp mfg mgmt mkts mortg mtge mut natl no pc
+    pharm pharms plc pllc prods props res ry rr sch sec servs sols soc sys techs
+    univ""".split()
+)
+_TRAILING_WORD = re.compile(r"([A-Za-z'’]+)\.$")
+
+
+def trim_sentence_period(name: str) -> str:
+    """Drop a final period that ends the sentence rather than the name.
+
+    A filing writes `… including Dailey v. Integon and Murray v. Nationwide.`
+    and the period is the sentence's, while `Andrade Gutierrez Engenharia S.A.`
+    and `Weetabix Co.` end in one of their own. What tells them apart is the
+    word in front of it: an abbreviation, or a whole word.
+    """
+    found = _TRAILING_WORD.search(name)
+    if not found:
+        return name
+    word = found.group(1).replace("'", "").replace("\u2019", "").lower()
+    if word in _ABBREVIATION or len(word) <= 2:
+        return name
+    return name[:-1]
 
 
 def _ground(window: str, collapsed: str, offset: int, quote: str) -> tuple[Span, str, str] | None:
@@ -339,13 +378,13 @@ def _validate_choice(ctx: Context, citations: int, root_count: int) -> Validatio
     proposed, failure = _proposed(ctx)
     if failure is not None:
         return failure
-    if proposed.reading is Reading.MISREAD_CITATION:
+    if proposed.reading is Reading.NAMES_A_CITATION:
         if proposed.citation is None or not 1 <= proposed.citation <= citations:
             return ValidationResult(
                 result=False,
                 reason=(
-                    f"`misread_citation` needs `citation` set to one of the {citations} numbered "
-                    f"citations in the window. If none of them is the name's citation, the "
+                    f"`names_a_citation` needs `citation` set to one of the {citations} numbered "
+                    f"citations in the window. If none of them is the same case as this name, the "
                     f"reading is `short_form` or `not_a_citation`."
                 ),
             )
@@ -454,7 +493,7 @@ async def adjudicate_case_name(
             requirements=[
                 req("Return a valid answer.", validation_fn=_validate_schema),
                 req(
-                    "Name a citation for `misread_citation` and a root for `short_form`.",
+                    "Name a citation for `names_a_citation` and a root for `short_form`.",
                     validation_fn=lambda ctx: _validate_choice(ctx, len(nearby), len(document_roots)),
                 ),
                 req(
@@ -475,9 +514,12 @@ async def adjudicate_case_name(
     if grounded is None:
         return None
     span, name, method = grounded
+    trimmed = trim_sentence_period(name)
+    if trimmed != name:
+        span, name = Span(start=span.start, end=span.end - 1), trimmed
 
     citation_id = root_id = None
-    if proposed.reading is Reading.MISREAD_CITATION:
+    if proposed.reading is Reading.NAMES_A_CITATION:
         if proposed.citation is None or not 1 <= proposed.citation <= len(nearby):
             return None
         citation_id = nearby[proposed.citation - 1].citation_id
@@ -487,13 +529,12 @@ async def adjudicate_case_name(
         chosen = document_roots[proposed.root - 1]
         beside = next((c for c in nearby if c.citation_id == chosen.citation_id), None)
         if beside is not None:
-            # The root it named is the citation in the window. That is a name
-            # and a locator the extraction split, whichever word was used for
-            # it, so it is recorded as the one finding it is.
+            # The root it named is a citation in the window, so the name and
+            # that citation are one reference however the answer was worded.
             return AdjudicatedCaseName(
                 span=span,
                 name=name,
-                reading=Reading.MISREAD_CITATION,
+                reading=Reading.NAMES_A_CITATION,
                 citation_id=beside.citation_id,
                 reason=proposed.reason,
                 match_method=method,

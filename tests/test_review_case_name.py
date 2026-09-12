@@ -18,6 +18,7 @@ from mellea_lrc.extraction.adjudication.review.case_name import (
     _same_case,
     neighbours,
     roots,
+    trim_sentence_period,
 )
 from mellea_lrc.extraction.adjudication.types import CandidateKind
 
@@ -120,3 +121,24 @@ class TestGrounding:
         window = "In Loos v. Lowe's , for example"
 
         assert _ground(window, window, 0, "Doe v. Amazon.com") is None
+
+
+class TestTheSentencePeriod:
+    """A case name quoted at the end of a sentence takes the period with it."""
+
+    def test_a_whole_word_before_the_period_ends_the_sentence(self) -> None:
+        assert trim_sentence_period("Murray v. Nationwide.") == "Murray v. Nationwide"
+        assert trim_sentence_period("Loos v. Lowe's.") == "Loos v. Lowe's"
+
+    def test_an_abbreviation_keeps_its_own_period(self) -> None:
+        for name in (
+            "Romandette v. Weetabix Co.",
+            "In re Giftcraft Ltd.",
+            "Jimerson v. Tetlin Native Corp.",
+            "Bell Atl. Bus. Sys. Servs., Inc.",
+            "Andrade Gutierrez Engenharia S.A.",
+        ):
+            assert trim_sentence_period(name) == name
+
+    def test_a_name_with_no_trailing_period_is_untouched(self) -> None:
+        assert trim_sentence_period("Doe v. Skyline") == "Doe v. Skyline"
