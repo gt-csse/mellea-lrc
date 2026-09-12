@@ -183,20 +183,16 @@ uv run --env-file .env python -m evaluations.extraction.name_recovery \
 
 ```text
 sites                 54
-- bare short forms    13
+- bare short forms    10
 - uncited cases       18
-- not annotated       23
+- not annotated       26
 declined              0/54
-recovered             13/13
+recovered             10/10
 root_right            10/10
-- 006 'In Boeser v. Sharp' read as names_a_citation, so no root was named
-- 006 'United States  v.  Hassan' read as names_a_citation, so no root was named
-- 021 "In Loos v. Lowe's" read as names_a_citation, so no root was named
 uncited_right         18/18
-invented              0/23
-false_defect          2/23
+invented              0/26
+false_defect          1/26
 - 010 'In re COvIDrelated' read as a case the filing never cites
-- 025 'Watson v. New York' read as a case the filing never cites
 ```
 
 The headline numbers count only the 31 sites the dataset annotates, so here is
@@ -205,25 +201,41 @@ what became of all 54:
 | the dataset says | the reader said | n |
 |---|---|---:|
 | bare short form | `short_form`, root named and right | 10 |
-| | `names_a_citation`, the name of the citation a sentence away | 3 |
 | uncited case | `uncited_case` | 18 |
-| not annotated | `names_a_citation` | 17 |
-| | `not_a_citation` | 4 |
-| | `uncited_case` | 2 |
+| not annotated | `names_a_citation` | 20 |
+| | `not_a_citation` | 5 |
+| | `uncited_case` | 1 |
 
-52 of the 54 are right. The 17 `names_a_citation` answers on unannotated sites
-are the finding this dataset cannot score, because it does not annotate case
-names: each is the name of a citation already in the record, fuller than the
-one the parse reached. Eleven of the seventeen are one document where the
-extraction spaces the apostrophe out of a party name and the name search stops
-there.
+53 of the 54 are right, and 30 answers name a case: every one of them carries
+its parties, split from the name it quoted and repaired.
+
+The 20 `names_a_citation` answers on unannotated sites are the finding this
+dataset cannot score, because it does not annotate case names: each is the name
+of a citation already in the record, fuller than the one the parse reached.
+Eleven are one document where the extraction spaces the apostrophe out of a
+party name and the name search stops there.
+
+**A patched name carries its parties.** A span alone leaves a rule-based
+checker to parse the name, and a damaged name is what defeats a rule. So the
+reader reports `plaintiff` and `defendant` with the damage **repaired** while
+the quote keeps it -- the same contract the locator reviewer uses for a volume
+and a page -- and the two are checked against each other with punctuation,
+spacing and the `v.` removed and the characters a scanner confuses folded
+together. `World Wide Ass ' n of Specialty Programs` may be reported as
+`World Wide Ass'n of Specialty Programs`; a party that is not in the name
+cannot pass. A case with no adverse party carries a defendant and no
+plaintiff, because that is what eyecite does with `In re Giftcraft Ltd.`, and
+a patch that chose otherwise would disagree with every citation the rules
+parsed.
+
+The name stops where an identifier starts, in the reader as in the rules: asked
+for the whole name, a model quotes the docket number after it.
 
 ### What is left
 
-Two sites wrong, both reported as a defect the filing does not have: a name the
-converter damaged into something that is not a case name, and a citation whose
-volume the filing never wrote, which the reader reads as a case cited nowhere.
-Neither enters the record as a citation.
+One site wrong: a name the converter damaged into something that is not a case
+name, reported as a defect the filing does not have. It does not enter the
+record as a citation.
 
 **What `uncited_case` turns on.** It is the answer when the filing leans on the
 case for something it wants accepted -- a holding, a standard, or that
