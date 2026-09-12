@@ -32,6 +32,15 @@ class CandidateKind(str, Enum):
     what nobody can settle from the page alone.
     """
 
+    CASE_NAME = "case_name"
+    """A case named where no citation was read.
+
+    Three different things wear this shape and only a reader can tell them
+    apart: a name belonging to a citation beside it that was read without one,
+    a proper short form for a case given in full elsewhere, and a name that is
+    not a citation at all.
+    """
+
     ORPHAN_SHORT_FORM = "orphan_short_form"
     """A short form for a case the filing never gives in full.
 
