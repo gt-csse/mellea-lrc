@@ -20,6 +20,11 @@ Detail lines under a metric are indented with `- `. Nothing else is printed.
 
 ## Matching
 
+`root_parsed` is the roots alone -- the citations that state an identifier for
+the first time, 427 of the 703. A root reached is a case the filing can be
+checked for; a short form missed costs a page claim, and a root missed costs the
+case.
+
 An annotated citation is **parsed** when the run produces a citation at exactly
 its `locator` span, or at its `cited_as` span where it has no locator, which is
 `Id.` and the bare-name references. Nothing partial counts: `PROTOCOL.md` fixes
@@ -112,7 +117,12 @@ def score(dataset: Path, corpus: Path, relaxation: Relaxation) -> tuple[Counter[
     """Score one relaxation over the whole corpus."""
     counts: Counter[str] = Counter()
     by_kind: Counter[str] = Counter()
-    detail: dict[str, list[str]] = {"citation_parsed": [], "pincite_parsed": [], "root_attributed": []}
+    detail: dict[str, list[str]] = {
+        "citation_parsed": [],
+        "root_parsed": [],
+        "pincite_parsed": [],
+        "root_attributed": [],
+    }
     for header, body in read_documents(dataset):
         text = (corpus / header["document"]).read_text(encoding="utf-8")
         run = {(row["span"]["start"], row["span"]["end"]): row for row in run_document(text, relaxation)}
@@ -129,8 +139,16 @@ def score(dataset: Path, corpus: Path, relaxation: Relaxation) -> tuple[Counter[
             else:
                 counts["citation_parsed"] += 1
                 by_kind[f"{row['kind']}:parsed"] += 1
+            if row["is_root"]:
+                counts["root"] += 1
+                if found is None:
+                    detail["root_parsed"].append(
+                        f"{row['id']} {row['kind']} {row['cited_as']['quote'][:48]!r}"
+                    )
+                else:
+                    counts["root_parsed"] += 1
 
-            counts["root"] += 1
+            counts["citation_with_root"] += 1
             expected = parsed.get(row["root_id"])
             if found is not None and expected is not None and found["root"] == expected["span"]:
                 counts["root_attributed"] += 1
@@ -161,8 +179,9 @@ def report(counts: Counter[str], detail: dict[str, list[str]], kinds: list[str])
     lines = []
     for metric, over in (
         ("citation_parsed", "citation"),
+        ("root_parsed", "root"),
         ("pincite_parsed", "pincite"),
-        ("root_attributed", "root"),
+        ("root_attributed", "citation_with_root"),
     ):
         lines.append(f"{metric:<18}{counts[metric]}/{counts[over]}")
         if metric == "citation_parsed":

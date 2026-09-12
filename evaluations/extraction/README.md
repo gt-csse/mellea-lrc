@@ -86,6 +86,8 @@ citation_parsed   690/703
 - ShortCaseCitation   40/40
 - 006-s04 ReferenceCitation 'Boeser v. Sharp'
   …
+root_parsed       426/427
+- 025-o13 FullCaseCitation 'Watson v. New York  , WL 6200979 (S.D.N.Y. Sept.'
 pincite_parsed    442/446
 - 015-o45 '184' not read
 - 021-o08 '11' not read
@@ -101,11 +103,15 @@ root_attributed   688/703
 citations this run found -- a denominator that shrank with the run would hide
 what the run missed. Detail lines are indented with `- `.
 
-| relaxation | citation_parsed | pincite_parsed | root_attributed |
-|---|---:|---:|---:|
-| `NONE` | 630/703 | 339/446 | 627/703 |
-| `BOUNDED` | 689/703 | 442/446 | 686/703 |
-| `FULL` | **690/703** | **442/446** | **688/703** |
+| relaxation | citation_parsed | root_parsed | pincite_parsed | root_attributed |
+|---|---:|---:|---:|---:|
+| `NONE` | 630/703 | 408/427 | 339/446 | 627/703 |
+| `BOUNDED` | 689/703 | 426/427 | 442/446 | 686/703 |
+| `FULL` | **690/703** | **426/427** | **442/446** | **688/703** |
+
+`root_parsed` is the roots alone, the 427 citations that state an identifier for
+the first time. A short form missed costs a page claim; a root missed costs the
+case, and the one that is missed is the citation with no volume.
 
 Thirteen of the thirteen misses at `FULL` are citations no reader can reach:
 twelve bare names, which state no identifier at all, and document 025's
