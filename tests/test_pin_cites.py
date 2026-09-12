@@ -11,7 +11,7 @@ from __future__ import annotations
 import contextlib
 import io
 
-from mellea_lrc.core.citations import FullCaseCitation, IdCitation
+from mellea_lrc.core.citations import FullCaseCitation, IdCitation, ShortCaseCitation
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.adjudication.candidates.reporter_sites import SuspectedLocator
 from mellea_lrc.extraction.adjudication.promotion import reread_site
@@ -167,3 +167,36 @@ def test_a_pin_cite_outside_the_case_is_still_refused() -> None:
     (id_citation,) = [c for c in document.citations if isinstance(c.citation, IdCitation)]
 
     assert id_citation.root_id is None
+
+
+def test_a_short_forms_page_is_its_pin_cite_when_the_pattern_after_it_fails() -> None:
+    """`645 B.R. at 184 (quoting …)` lost its page outright.
+
+    `quoting` and `citing` are citation signals, and one of them after the page
+    makes eyecite's post-citation pattern fail: `metadata.pin_cite` comes back
+    `None`, the span stops at `at `, and the page is in no field a reader looks
+    at. It is still in `groups["page"]`, which is where the working path reads
+    it from too.
+    """
+    document = _extract("Andrade Gutierrez , 645 B.R. at 184 (quoting H.R. Rep. No. 109-31).")
+    citation = next(c for c in document.citations if isinstance(c.citation, ShortCaseCitation))
+
+    assert citation.citation.pin_cite == "184"
+    assert document.text[citation.locator_span.start : citation.locator_span.end] == "645 B.R. at 184"
+    assert document.text[citation.pin_cite_span.start : citation.pin_cite_span.end] == "184"
+
+
+def test_a_footnote_after_a_short_forms_page_does_not_lose_the_page() -> None:
+    """`570 n.4` fails the same pattern for a different reason."""
+    document = _extract("Twombly , 550 U.S. at 570 n.4.")
+    citation = next(c for c in document.citations if isinstance(c.citation, ShortCaseCitation))
+
+    assert citation.citation.pin_cite == "570"
+
+
+def test_a_short_forms_range_still_reads_whole_when_nothing_follows_it() -> None:
+    """The page is taken only as a fallback, so a parsed range is untouched."""
+    document = _extract("Advanced Textile , 214 F.3d at 1068, 1071 -72.")
+    citation = next(c for c in document.citations if isinstance(c.citation, ShortCaseCitation))
+
+    assert citation.citation.pin_cite == "1068, 1071 -72"

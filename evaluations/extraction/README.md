@@ -78,27 +78,27 @@ uv run python -m evaluations.extraction.tree \
 ```
 
 ```text
-citation_parsed     690/703
-- DocketCitation        41/41
+citation_parsed     710/723
+- DocketCitation        42/42
 - FullCaseCitation      589/590
-- IdCitation            14/14
+- IdCitation            32/32
 - ReferenceCitation     6/18
-- ShortCaseCitation     40/40
+- ShortCaseCitation     41/41
 - 006-s04 ReferenceCitation 'Boeser v. Sharp'
   …
-root_parsed         426/427
+root_parsed         427/428
 - 025-o13 FullCaseCitation 'Watson v. New York  , WL 6200979 (S.D.N.Y. Sept.'
-pincite_parsed      442/446
-- 015-o45 '184' not read
+pincite_parsed      460/463
 - 021-o08 '11' not read
 - 022-o15 '657 n.1' not read
 - 023-o20 '895 -96' not read
-root_attributed     688/703
+root_attributed     707/723
+- 006-o39 root 006-o39 not reached
 - 022-o35 root 022-o01 not reached
 - 022-o38 root 022-o23 not reached
-citation_misparsed  27/717
+citation_misparsed  7/717
 - 005 IdCitation 'Id. ¶¶26-28' 005-o11, which is not a case
-- 006 ShortCaseCitation '383 U.S. at 85' 006-o39, which is not a case
+- 016 ReferenceCitation 'Chen Zhi\n\n32' 016-o28, which is not a case
   …
 ```
 
@@ -109,32 +109,27 @@ what the run missed. Detail lines are indented with `- `.
 
 | relaxation | citation_parsed | root_parsed | pincite_parsed | root_attributed | citation_misparsed |
 |---|---:|---:|---:|---:|---:|
-| `NONE` | 630/703 | 408/427 | 339/446 | 627/703 | 34/664 |
-| `BOUNDED` | 689/703 | 426/427 | 442/446 | 686/703 | **27/716** |
-| `FULL` | **690/703** | **426/427** | **442/446** | **688/703** | **27/717** |
+| `NONE` | 644/723 | 409/428 | 351/463 | 640/723 | 20/664 |
+| `BOUNDED` | 709/723 | 427/428 | 460/463 | 705/723 | **7/716** |
+| `FULL` | **710/723** | **427/428** | **460/463** | **707/723** | **7/717** |
 
-`root_parsed` is the roots alone, the 427 citations that state an identifier for
+`root_parsed` is the roots alone, the 428 citations that state an identifier for
 the first time. A short form missed costs a page claim; a root missed costs the
 case, and the one that is missed is the citation with no volume.
 
 `citation_misparsed` is everything the run reads as a citation to a case that is
-not one of the 703, and it is the one number where lower is better. Twenty-seven
-of them are the same twenty-seven at every arm: places written exactly like a
-short form that point at something other than a decision.
-`Rosenblatt v. Baer, 383 U.S. at 85` parses as a short case citation and is
-Anaya's citation rather than this filing's; document 016 recites an indictment
-and a forfeiture complaint by paragraph, eighteen times. The ground truth holds
-each as a `noncase_citation` row and the detail line names it.
-
-The seven extra at `NONE` are citations read with the wrong edges --
-`673 F.2d at ` where the filing writes `673 F.2d at 57` -- so each is one miss
-and one misparse of the same citation.
+not one of the 723, and it is the one number where lower is better. The seven at
+`BOUNDED` and `FULL` refer to no case at all: two `Id.` into motions filed in
+the same proceeding, four into an exhibit declaration and a statute, and a
+section heading eyecite reads as a bare-name reference. The thirteen extra at
+`NONE` are citations read with the wrong edges -- `Id.` where the filing writes
+`Id. ¶¶ 30-31` -- so each is one miss and one misparse of the same citation.
 
 Thirteen of the thirteen misses at `FULL` are citations no reader can reach:
 twelve bare names, which state no identifier at all, and document 025's
-`WL 6200979`, which states no volume. The four pin cites are one shape and a
-half -- three carry a footnote marker eyecite's pattern does not admit, and the
-fourth is a named short cite whose page eyecite files under `extra`.
+`WL 6200979`, which states no volume. The three pin cites are two shapes: two
+carry a footnote marker eyecite's pattern does not admit, and the third sits in
+a table of authorities where the leader dots follow the page.
 
 ## Get the dataset
 

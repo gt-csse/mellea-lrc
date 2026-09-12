@@ -192,12 +192,43 @@ def _to_full_journal(citation: EyeciteFullJournalCitation) -> FullJournalCitatio
     )
 
 
+def _locator_bounds(citation: CitationBase) -> tuple[int, int]:
+    """Where the citation's identifier sits in the document.
+
+    `span()` for a short form runs to the end of the page, because a short
+    form's page is part of its identifier -- `695 F.Supp.2d at 1154`. When the
+    pin cite pattern after the page fails, the span stops at `at ` instead and
+    the page falls outside it, which leaves a locator that identifies nothing
+    and a page with nowhere to point. `span_with_pincite()` covers the page in
+    both cases, so it is what a short form is measured by.
+
+    Every other kind keeps `span()`. A full citation's span is the identifier
+    alone and `span_with_pincite()` would pull the pin cite into it, which is
+    the distinction `locator_span` exists to make.
+    """
+    if isinstance(citation, EyeciteShortCaseCitation):
+        return citation.span_with_pincite()
+    return citation.span()
+
+
 def _to_short_case(citation: EyeciteShortCaseCitation) -> ShortCaseCitation:
+    # A short form's page *is* its pin cite -- `550 U.S. at 570` claims page 570
+    # and identifies no page of its own -- and eyecite says so on the path that
+    # works, reading the page out of the locator and passing it back through
+    # `extract_pin_cite`. When the pattern after the page fails, that step is
+    # skipped and `metadata.pin_cite` is `None` while `groups["page"]` still
+    # holds the page: `645 B.R. at 184 (quoting …)` and `550 U.S. at 570 n.4`
+    # both come back with no pin cite at all. The page is taken directly there.
+    #
+    # What the page cannot recover is the rest of a range: eyecite parses
+    # `570-71 (quoting …)` to `page="570"` and the `-71` is in no parse, so the
+    # claim narrows to its first page. That is a loss already taken, not one
+    # made here.
     return ShortCaseCitation(
         volume=citation.groups.get("volume"),
         reporter=_reporter(citation),
         page=citation.groups.get("page"),
-        pin_cite=strip_connector(citation.metadata.pin_cite),
+        pin_cite=strip_connector(citation.metadata.pin_cite) or citation.groups.get("page"),
         court=citation.metadata.court,
         date=_date(citation),
         parenthetical=citation.metadata.parenthetical,
@@ -338,7 +369,7 @@ def extract_citations(
     extracted: list[ExtractedCitation] = []
     for eyecite_citation, citation_id in citation_ids:
         span_start, span_end = eyecite_citation.full_span()
-        locator_start, locator_end = eyecite_citation.span()
+        locator_start, locator_end = _locator_bounds(eyecite_citation)
         full_span = Span(start=span_start, end=span_end)
         locator_span = Span(start=locator_start, end=locator_end)
         canonical = to_canonical(eyecite_citation)
