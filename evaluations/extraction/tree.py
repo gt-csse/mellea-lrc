@@ -103,6 +103,14 @@ class Arm:
     relaxation: Relaxation
     layers: tuple[str, ...] = field(default_factory=tuple)
     components: str = ""
+    reads_dockets: bool = True
+    """Whether docket numbers are read at all.
+
+    eyecite attempts none: its tokenizer is built from a reporter gazetteer and
+    a docket number names no reporter. The reader that finds them is this
+    project's, so an arm standing for eyecite as published must not have it,
+    and the 42 docket citations in this corpus are 42 citations it cannot see.
+    """
 
     @property
     def needs_model(self) -> bool:
@@ -111,7 +119,7 @@ class Arm:
 
 
 ARMS = {
-    "eyecite": Arm(Relaxation.NONE, components="eyecite as published"),
+    "eyecite": Arm(Relaxation.NONE, components="eyecite as published", reads_dockets=False),
     "augmented": Arm(Relaxation.FULL, components="+ this project's rules"),
     "mellea": Arm(Relaxation.FULL, (CASE_NAME_LAYER,), components="+ the case-name layer"),
 }
@@ -160,12 +168,42 @@ def _row(
     }
 
 
-def _from_rules(extracted: ExtractedDocument) -> dict[tuple[int, int], dict[str, Any]]:
+def _overlaps(one: tuple[int, int], other: tuple[int, int]) -> int:
+    """How many characters two spans share."""
+    return max(0, min(one[1], other[1]) - max(one[0], other[0]))
+
+
+def _associate(
+    run: dict[tuple[int, int], dict[str, Any]], annotated: list[dict[str, Any]]
+) -> dict[str, dict[str, Any]]:
+    """Which reported citation is which annotated one, by the span they share.
+
+    A row is associated with the reported citation that overlaps it most, and a
+    reported citation is associated with at most one row: two annotated
+    citations at one span would be the same citation twice.
+    """
+    taken: set[tuple[int, int]] = set()
+    found: dict[str, dict[str, Any]] = {}
+    for row in annotated:
+        want = anchor(row)
+        best = max(
+            (span for span in run if span not in taken and _overlaps(span, want)),
+            key=lambda span: (_overlaps(span, want), -abs(span[0] - want[0])),
+            default=None,
+        )
+        if best is not None:
+            taken.add(best)
+            found[row["id"]] = run[best]
+    return found
+
+
+def _from_rules(extracted: ExtractedDocument, *, dockets: bool) -> dict[tuple[int, int], dict[str, Any]]:
     """What the deterministic pass reports, keyed by the span it reports it at."""
     at = {citation.citation_id: citation.locator_span for citation in extracted.citations}
     rows = {}
     for citation in extracted.citations:
-        if citation_kind(citation.citation) not in CASE_KINDS:
+        kind = citation_kind(citation.citation)
+        if kind not in CASE_KINDS or (kind is CitationKind.DOCKET and not dockets):
             continue
         root = at.get(citation.root_id or "")
         span = (citation.locator_span.start, citation.locator_span.end)
@@ -219,7 +257,7 @@ async def run_document(
     # Eyecite writes overlap diagnostics to stdout as it reads.
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         extracted = extract_from_plain_text(text, relaxation=arm.relaxation)
-    rows = _from_rules(extracted)
+    rows = _from_rules(extracted, dockets=arm.reads_dockets)
     if CASE_NAME_LAYER in arm.layers and session is not None:
         await _case_name_layer(extracted, rows, session)
     return rows
@@ -237,6 +275,12 @@ async def score(dataset: Path, corpus: Path, arm: Arm) -> tuple[Counter[str], di
         annotated = [row for row in body if row["unit"] == "citation"]
         roots_by_id = {row["id"]: row.get("identifier") or {} for row in annotated if row["is_root"]}
         parsed = {row["id"]: run[anchor(row)] for row in annotated if anchor(row) in run}
+        # Identification is exact, because the identifier is what a lookup
+        # resolves. Everything scored *about* a citation is scored over an
+        # overlap instead: a run that reads `673 F.2d at ` where the filing
+        # writes `673 F.2d at 57` has the citation, with the wrong edges, and
+        # whether it then attributed it correctly is a separate question.
+        associated = _associate(run, annotated)
         noncase = [
             (row["cited_as"]["start"], row["cited_as"]["end"], row["id"])
             for row in body
@@ -254,6 +298,40 @@ async def score(dataset: Path, corpus: Path, arm: Arm) -> tuple[Counter[str], di
             want = row.get("pin_cite")
             if want is not None:
                 counts["pincite:stated"] += 1
+            want_court = (roots_by_id.get(row["root_id"]) or {}).get("court")
+            if row["kind"] == "DocketCitation" and want_court:
+                counts["court:stated"] += 1
+
+            # **Attribution is a short form pointing at its root**, so it is
+            # counted over the short forms the filings write. A root points at
+            # itself and there is nothing there to get wrong.
+            if not row["is_root"]:
+                counts["attribution:stated"] += 1
+                reported = associated.get(row["id"])
+                target = associated.get(row["root_id"])
+                if reported is None:
+                    detail["attribution"].append(f"{row['id']} not read, so it points nowhere")
+                elif reported["root"] is None:
+                    detail["attribution"].append(f"{row['id']} left unattributed, states {row['root_id']}")
+                elif target is not None and _overlaps(
+                    (reported["root"]["start"], reported["root"]["end"]),
+                    (target["span"]["start"], target["span"]["end"]),
+                ):
+                    counts["attribution:right"] += 1
+                else:
+                    detail["attribution"].append(f"{row['id']} attributed away from {row['root_id']}")
+
+            at_span = associated.get(row["id"])
+            if row["kind"] == "DocketCitation" and want_court:
+                if at_span is None:
+                    detail["court"].append(f"{row['id']} not read, so it names no court")
+                elif at_span["court"] == want_court:
+                    counts["court:right"] += 1
+                else:
+                    detail["court"].append(
+                        f"{row['id']} read the court as {at_span['court']!r}, and the filing "
+                        f"writes one that resolves to {want_court!r}"
+                    )
             if found is None:
                 detail["citation"].append(f"{row['id']} {row['kind']} {row['cited_as']['quote'][:48]!r}")
                 detail[group].append(f"{row['id']} {row['cited_as']['quote'][:48]!r} not read")
@@ -267,31 +345,6 @@ async def score(dataset: Path, corpus: Path, arm: Arm) -> tuple[Counter[str], di
             else:
                 reads = "a short form" if row["is_root"] else "a root"
                 detail[group].append(f"{row['id']} {row['cited_as']['quote'][:44]!r} read as {reads}")
-
-            # A docket number names a case in no district on its own, so the
-            # court is half of the identifier rather than decoration. A short
-            # form of a docket states the number again and not the court, so
-            # what it is scored against is its root's.
-            if row["kind"] == "DocketCitation":
-                want_court = (roots_by_id.get(row["root_id"]) or {}).get("court")
-                if want_court:
-                    counts["court:stated"] += 1
-                    if found["court"] == want_court:
-                        counts["court:right"] += 1
-                    else:
-                        detail["court"].append(
-                            f"{row['id']} read the court as {found['court']!r}, and the filing "
-                            f"writes one that resolves to {want_court!r}"
-                        )
-
-            counts["attribution:stated"] += 1
-            expected = parsed.get(row["root_id"])
-            if expected is not None and found["root"] == expected["span"]:
-                counts["attribution:right"] += 1
-            elif found["root"] is not None:
-                detail["attribution"].append(f"{row['id']} attributed away from {row['root_id']}")
-            else:
-                detail["attribution"].append(f"{row['id']} left unattributed, states {row['root_id']}")
 
             got = found["pin_cite"]
             if want is None:
@@ -311,7 +364,7 @@ async def score(dataset: Path, corpus: Path, arm: Arm) -> tuple[Counter[str], di
         for span, reported in run.items():
             counts["citation:reported"] += 1
             counts["root:reported" if reported["is_root"] else "short_form:reported"] += 1
-            if reported["root"] is not None:
+            if reported["root"] is not None and not reported["is_root"]:
                 counts["attribution:reported"] += 1
             if reported["pin_cite"] is not None:
                 counts["pincite:reported"] += 1
@@ -341,11 +394,18 @@ async def score(dataset: Path, corpus: Path, arm: Arm) -> tuple[Counter[str], di
 
 
 def _cell(counts: Counter[str], key: str, *, as_rate: bool) -> str:
-    """One arm's reading of one measure: recall beside precision."""
+    """One arm's reading of one measure: recall beside precision.
+
+    Each side is `--` on its own when its denominator is empty, which is not
+    the same failure: an arm that reports nothing of a kind has no precision to
+    state and a recall of zero.
+    """
     right, stated, reported = (counts[f"{key}:{part}"] for part in ("right", "stated", "reported"))
-    if as_rate:
-        return f"{right / stated:.1%} · {right / reported:.1%}" if stated and reported else "--"
-    return f"{right}/{stated} · {right}/{reported}"
+    if not as_rate:
+        return f"{right}/{stated} · {right}/{reported}"
+    recall = f"{right / stated:.1%}" if stated else "--"
+    precision = f"{right / reported:.1%}" if reported else "--"
+    return f"{recall} · {precision}"
 
 
 def table(scores: dict[str, Counter[str]], *, as_rate: bool) -> str:
