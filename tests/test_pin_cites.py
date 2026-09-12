@@ -11,10 +11,16 @@ from __future__ import annotations
 import contextlib
 import io
 
-from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.core.citations import FullCaseCitation, IdCitation
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.adjudication.candidates.reporter_sites import SuspectedLocator
 from mellea_lrc.extraction.adjudication.promotion import reread_site
+
+
+def _extract(text: str, relaxation: Relaxation = Relaxation.BOUNDED):
+    # eyecite writes overlap diagnostics to stdout on some inputs.
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        return extract_from_plain_text(text, relaxation=relaxation)
 
 
 def _first(text: str, relaxation: Relaxation = Relaxation.BOUNDED):
@@ -127,3 +133,37 @@ def test_a_re_read_site_reads_its_pin_cite_as_tolerantly_as_extraction() -> None
     assert citation.citation.pin_cite == "701"
     assert citation.pin_cite_span is not None
     assert text[citation.pin_cite_span.start : citation.pin_cite_span.end] == "701"
+
+
+def test_a_doubled_space_in_a_pin_cite_does_not_strand_the_citation() -> None:
+    """Reading the page is not enough if the check that accepts it counts spaces.
+
+    eyecite tests an `Id.`'s page against the citation it would attach to with
+    `(?:at )?(\\d+)`, one literal space, so `Id. at  547` fails the test and the
+    attribution is thrown away after the widened patterns read it. And because
+    an `Id.` following an unresolved `Id.` is refused by rule, one damaged space
+    strands the citation after it as well.
+    """
+    text = (
+        "Bell v. Wolfish, 441 U.S. 520, 547 (1979). Officials are accorded deference. "
+        "Id. at  547. Judicial deference is highest here. See id. at 548."
+    )
+
+    document = _extract(text)
+    by_id = {citation.citation_id: citation for citation in document.citations}
+    ids = [c for c in document.citations if isinstance(c.citation, IdCitation)]
+
+    assert len(ids) == 2
+    for citation in ids:
+        root = by_id[citation.root_id]
+        assert text[root.locator_span.start : root.locator_span.end] == "441 U.S. 520"
+
+
+def test_a_pin_cite_outside_the_case_is_still_refused() -> None:
+    """The check is right; only what it reads was damaged."""
+    text = "Bell v. Wolfish, 441 U.S. 520, 547 (1979). Something else. Id. at  9999."
+
+    document = _extract(text)
+    (id_citation,) = [c for c in document.citations if isinstance(c.citation, IdCitation)]
+
+    assert id_citation.root_id is None

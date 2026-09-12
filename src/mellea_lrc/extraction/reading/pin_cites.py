@@ -94,6 +94,7 @@ from collections.abc import Iterator
 
 import eyecite.helpers
 import eyecite.regexes
+import eyecite.resolve
 
 # A comma, an `at`, or a page abbreviation standing in front of the page. Only
 # what joins the pin cite to the citation -- `¶`, `§`, `*` and `n.` are labels
@@ -142,6 +143,43 @@ _BAKED = (
 )
 
 
+_HORIZONTAL_RUN = re.compile(r"[^\S\r\n]+")
+
+
+def _tolerant_check(original):
+    r"""eyecite's pin-cite check, asked about a pin cite with its spaces collapsed.
+
+    Reading a pin cite through doubled spaces is only half of it. `Id. at  547`
+    parses once the patterns are widened, and then resolution throws it away:
+    `_has_invalid_pin_cite` tests the string with `(?:at )?(\d+)`, one literal
+    space, so the doubled one fails to match and the id cite is called invalid.
+
+    Because an `Id.` that follows an unresolved `Id.` is refused by rule, one
+    damaged space strands the citation after it as well. Document 026 loses two
+    that way, both returning to `Bell v. Wolfish, 441 U.S. 520` under a sentence
+    that names it.
+
+    The check itself is right; what it reads is damaged. So it is asked about
+    the same pin cite with horizontal runs collapsed, and the citation keeps the
+    characters the filing wrote.
+    """
+
+    def check(full_cite, id_cite) -> bool:
+        pin = getattr(id_cite.metadata, "pin_cite", None)
+        if not pin:
+            return original(full_cite, id_cite)
+        collapsed = _HORIZONTAL_RUN.sub(" ", pin).strip()
+        if collapsed == pin:
+            return original(full_cite, id_cite)
+        id_cite.metadata.pin_cite = collapsed
+        try:
+            return original(full_cite, id_cite)
+        finally:
+            id_cite.metadata.pin_cite = pin
+
+    return check
+
+
 @contextlib.contextmanager
 def relaxed_pin_cites() -> Iterator[None]:
     """Read pin cites tolerantly for the duration of the block.
@@ -160,9 +198,14 @@ def relaxed_pin_cites() -> Iterator[None]:
     only the full path leaves `645  B.R.  at  181` and `Id. at  547` unread,
     which is 15 pin cites on the bench and its own citation entirely where the
     damage falls between the reporter and the `at`.
+
+    Resolution is swapped too, for the reason `_tolerant_check` gives: reading
+    the pin cite is not enough if the check that accepts it counts spaces.
     """
     pin = eyecite.regexes.PIN_CITE_REGEX
     baked = {name: getattr(eyecite.helpers, name) for name in _BAKED}
+    strict_check = eyecite.resolve._has_invalid_pin_cite
+    eyecite.resolve._has_invalid_pin_cite = _tolerant_check(strict_check)
     eyecite.regexes.PIN_CITE_REGEX = relax(pin)
     for name, pattern in baked.items():
         widened = relax(pattern)
@@ -171,6 +214,7 @@ def relaxed_pin_cites() -> Iterator[None]:
     try:
         yield
     finally:
+        eyecite.resolve._has_invalid_pin_cite = strict_check
         eyecite.regexes.PIN_CITE_REGEX = pin
         for name, pattern in baked.items():
             setattr(eyecite.regexes, name, pattern)
