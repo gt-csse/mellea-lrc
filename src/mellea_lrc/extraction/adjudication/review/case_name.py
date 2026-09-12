@@ -89,14 +89,18 @@ Decide what it is. There are exactly three answers.
     shortened name. Each root is marked with where it sits relative to this
     name. {{ordering}}
 
-"uncited_case" - the filing offers this case as authority and cites it nowhere
-    in the document: no root in the list is this case, and there is no volume,
-    reporter, page or docket number for it here either. This is a defect in the
-    filing, and it is a different answer from "not_a_citation".
+"uncited_case" - the filing OFFERS the case in support of something it is
+    asserting - what a court held, what the law is, what standard applies, or
+    that something happened - and nothing in the document cites it: no root in
+    the list is this case, and there is no volume, reporter, page or docket
+    number for it here either. This is a defect in the filing, and it is a
+    different answer from "not_a_citation".
 
-"not_a_citation" - the name is not a reference to an authority at all. The
-    filing's own caption naming its own parties, a section heading, a party
-    discussed in prose, or a roman numeral "v" that is not "versus".
+"not_a_citation" - the name appears for some reason other than relying on what
+    the case decided. The filing's own caption naming its own parties; a
+    proceeding someone names as part of their own history or involvement rather
+    than for what was decided in it; a name in a heading; a roman numeral "v"
+    that is not "versus"; or characters too damaged to be a case name at all.
 
 Report:
 - reading   one of the three answers above
@@ -115,7 +119,15 @@ Rules:
 - A case the filing names and never cites anywhere is NOT a short form. If no
   root in the list is the same case, the answer is "uncited_case" when the
   filing is offering the case as authority, and "not_a_citation" otherwise.
-- Do not guess. "not_a_citation" is a real answer.
+- Between "uncited_case" and "not_a_citation", the question is what the
+  sentence is doing, not whether the words look like a case name. Ask whether
+  the sentence is leaning on the case for something it wants the reader to
+  accept. If it is, and nothing cites it, that is "uncited_case", whether the
+  point is legal or factual. If the case is named for another reason - whose
+  matter it is, what a heading says, who the parties to this filing are - that
+  is "not_a_citation".
+- Do not guess. "not_a_citation" is a real answer, and it is the answer
+  whenever none of the other three clearly fits.
 
 {{neighbours}}
 

@@ -163,8 +163,7 @@ sites                 54
 - bare short forms    10
 - uncited cases       21
 - not annotated       23
-declined              1/54
-- 025 'Watson v. New York'
+declined              0/54
 recovered             10/10
 root_right            7/7
 - 006 'In Boeser v. Sharp' read as misread_citation, so no root was named
@@ -175,15 +174,38 @@ uncited_right         18/21
 - 025 'Friedman v. Bartell' read as short_form
 - 025 'M.D. v. OPWDD' read as short_form
 invented              0/23
+false_defect          1/23
+- 010 'In re COvIDrelated' read as a case the filing never cites
 ```
+
+The headline numbers count only the 31 sites the dataset annotates, so here is
+what became of all 54:
+
+| the dataset says | the reader said | n |
+|---|---|---:|
+| bare short form | `short_form`, root named and right | 7 |
+| | `misread_citation`, the name and its citation split by a sentence | 3 |
+| uncited case | `uncited_case` | 18 |
+| | `short_form` | 3 |
+| not annotated | `misread_citation` | 17 |
+| | `not_a_citation` | 5 |
+| | `uncited_case` | 1 |
+
+50 of the 54 are right. The 17 `misread_citation` answers on unannotated sites
+are the finding this dataset cannot score, because it does not annotate case
+names: each is a citation already in the record whose stored name is wrong or
+truncated, and the reader names which citation it belongs to. Eleven of the
+seventeen are one document where the extraction spaces the apostrophe out of a
+party name and the name search stops there.
 
 **Every root it named was the right one.** That is the number that decides
 whether this is worth having: a short form recovered under the wrong case is
 worse than one not recovered, because nothing downstream can tell.
 
-### What is left, and it is a line-drawing question
+### What is left
 
-Three sites remain wrong, all of them document 025's:
+Four sites wrong. One is a name the converter damaged into something that is
+not a case name, reported as a defect. The other three are document 025's:
 
 > as confirmed by case law spanning **Breest v. Haggis, Friedman v. Bartell,
 > and M.D. v. OPWDD** , among others.
@@ -197,7 +219,17 @@ That line moved once already. `011-s03` and `011-s04` were filed as short forms
 on Rule 10.9 -- which governs short-form *citations* and not names used in
 prose -- and this layer is what surfaced it; they are `nonconforming_citation`
 rows now. The three that remain are the same question one step further in, and
-the reader is not told the rule because the rule is not settled.
+the reader is not told a rule for it because the rule is not settled: another
+filing names two cases in plain prose with no citation either and the dataset
+calls those proper short forms.
+
+**What `uncited_case` turns on.** It is the answer when the filing leans on the
+case for something it wants accepted -- a holding, a standard, or that
+something happened -- and nothing in the document cites it. It is not the
+answer when a case is named for another reason: whose matter it is, what a
+heading says, who the parties to this filing are. Narrowing it to *legal*
+propositions alone was tried and is wrong -- a filing that offers a case as
+evidence that a pattern of conduct exists is still offering it.
 
 A switch remains for the ordering reading, `--unordered`, which lets a short
 form stand before the citation it refers to. It reaches nothing more here and

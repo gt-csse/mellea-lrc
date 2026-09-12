@@ -22,9 +22,10 @@ The ground truth for each site is the row whose span it covers:
     anything else    a name the dataset does not annotate: the filing's own
                      caption, a heading, or part of a citation that was read.
                      `misread_citation` and `not_a_citation` are both defensible
-                     there, so what is counted is the one answer that is not:
-                     `short_form` naming a root nowhere near it, which is a
-                     citation invented out of a name
+                     there, so what is counted is the two answers that are not:
+                     `short_form` naming a root nowhere near it, a citation
+                     invented out of a name, and `uncited_case`, a defect
+                     reported against a filing that does not have one
 
 Every metric is counted against the ground truth's own denominator, and detail
 lines are indented with `- `, the same as `tree.py`.
@@ -89,6 +90,7 @@ async def review(
         "root_right": [],
         "uncited_right": [],
         "invented": [],
+        "false_defect": [],
     }
     session = start_mellea_session_from_env()
     for header, body in read_documents(dataset):
@@ -203,6 +205,9 @@ def _score(
     if answer.reading is Reading.SHORT_FORM:
         counts["invented"] += 1
         detail["invented"].append(f"{where} read as a short form of a distant root")
+    elif answer.reading is Reading.UNCITED_CASE:
+        counts["false_defect"] += 1
+        detail["false_defect"].append(f"{where} read as a case the filing never cites")
 
 
 def report(counts: Counter[str], detail: dict[str, list[str]]) -> str:
@@ -222,6 +227,8 @@ def report(counts: Counter[str], detail: dict[str, list[str]]) -> str:
         *[f"- {line}" for line in detail["uncited_right"]],
         f"{'invented':<22}{counts['invented']}/{counts['unannotated']}",
         *[f"- {line}" for line in detail["invented"]],
+        f"{'false_defect':<22}{counts['false_defect']}/{counts['unannotated']}",
+        *[f"- {line}" for line in detail["false_defect"]],
     ]
     return "\n".join(lines)
 
