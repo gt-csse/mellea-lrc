@@ -154,6 +154,8 @@ def _record(
                         "span": {"start": answer.span.start, "end": answer.span.end},
                         "citation_id": answer.citation_id,
                         "root_id": answer.root_id,
+                        "plaintiff": answer.plaintiff,
+                        "defendant": answer.defendant,
                         "reason": answer.reason,
                     },
                 },

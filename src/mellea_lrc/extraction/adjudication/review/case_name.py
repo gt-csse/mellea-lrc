@@ -51,7 +51,9 @@ from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
 
 from mellea_lrc.core.spans import Span
+from mellea_lrc.extraction.adjudication import ocr
 from mellea_lrc.extraction.adjudication.review.locator import _locate
+from mellea_lrc.extraction.reading.case_names import IDENTIFIER
 from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 from mellea_lrc.llm import (
     InstructIvrSpec,
@@ -109,17 +111,27 @@ Decide what it is. There are exactly three answers.
     that is not "versus"; or characters too damaged to be a case name at all.
 
 Report:
-- reading   one of the three answers above
+- reading   one of the four answers above
 - name      the case name quoted EXACTLY as written in the window, character
             for character, including any damage. For "names_a_citation" quote
             the WHOLE name, including any part the citation already has.
 - citation  for "names_a_citation", the number of the citation from the list
 - root      for "short_form", the number of the root from the list
+- plaintiff and defendant, for "names_a_citation" and "short_form": the name
+            split into its two parties, with any extraction damage REPAIRED.
+            `Bell Atl. Corp. v. Twombly` is plaintiff="Bell Atl. Corp.",
+            defendant="Twombly". A case with no adverse party has no plaintiff:
+            `In re Giftcraft Ltd.` is plaintiff=null, defendant="Giftcraft
+            Ltd.", and `Ex parte Young` is plaintiff=null, defendant="Young".
+            Leave both null for the other two readings.
 - reason    one sentence
 
 Rules:
 - Quote "name" exactly. Do not tidy its spacing or punctuation. The quote is
   checked against the window and a repaired quote will not be found.
+- Stop at the end of the name. A docket number, a reporter citation or a year
+  after it is not part of it: `Boeser v. Sharp , No. CIVA03CV00031WDMMEH, 2007
+  WL 1430100` is the name `Boeser v. Sharp` and then two identifiers.
 - Set "citation" only for "names_a_citation" and "root" only for "short_form".
   Leave both null for the other two.
 - "names_a_citation" comes first. If a citation in the window is the same case
@@ -135,6 +147,11 @@ Rules:
   point is legal or factual. If the case is named for another reason - whose
   matter it is, what a heading says, who the parties to this filing are - that
   is "not_a_citation".
+- Damage belongs in "name" and must be repaired in "plaintiff" and
+  "defendant": quote "Ass ' n of Specialty Programs" as written and report the
+  party as "Ass'n of Specialty Programs". Do not otherwise change the words -
+  the parties are checked against the quote and a party that is not in it will
+  not pass.
 - Do not guess. "not_a_citation" is a real answer, and it is the answer
   whenever none of the other three clearly fits.
 
@@ -181,6 +198,8 @@ class _Answer(BaseModel):
     name: Annotated[str, StringConstraints(min_length=1)]
     citation: int | None
     root: int | None
+    plaintiff: str | None
+    defendant: str | None
     reason: str
 
 
@@ -200,6 +219,16 @@ class AdjudicatedCaseName:
     """For `names_a_citation`, the citation this is the case name of."""
     root_id: str | None = None
     """For `short_form`, the root the name reads back to."""
+    plaintiff: str | None = None
+    """The first party, repaired. `None` for a case with no adverse party."""
+    defendant: str | None = None
+    """The second party, or the whole name where there is only one.
+
+    Which is eyecite's own convention: it parses `In re Flint Water Cases` to
+    `defendant='Flint Water Cases'` and a single-party short form to
+    `defendant='Hassan'`, leaving `plaintiff` unset. A patch that filled
+    `plaintiff` instead would disagree with every citation the rules parsed.
+    """
     reason: str = ""
     match_method: str = ""
 
@@ -408,6 +437,26 @@ def _validate_choice(ctx: Context, citations: int, root_count: int) -> Validatio
     return ValidationResult(result=True)
 
 
+def _validate_parties(ctx: Context) -> ValidationResult:
+    """Require the parties to be the quoted name, and nothing else."""
+    proposed, failure = _proposed(ctx)
+    if failure is not None:
+        return failure
+    if proposed.reading not in _NAMES_A_CASE:
+        return ValidationResult(result=True)
+    if parties_read_as(proposed.name, proposed.plaintiff, proposed.defendant):
+        return ValidationResult(result=True)
+    return ValidationResult(
+        result=False,
+        reason=(
+            f"plaintiff={proposed.plaintiff!r} and defendant={proposed.defendant!r} do not read "
+            f"as {proposed.name!r}. Split the name you quoted and nothing else, repairing the "
+            f"damage but changing no words. A case with no adverse party has a defendant and no "
+            f"plaintiff, and `In re` and `Ex parte` belong to neither."
+        ),
+    )
+
+
 def _validate_grounding(ctx: Context, window: str) -> ValidationResult:
     proposed, failure = _proposed(ctx)
     if failure is not None:
@@ -422,6 +471,40 @@ def _validate_grounding(ctx: Context, window: str) -> ValidationResult:
             ),
         )
     return ValidationResult(result=True)
+
+
+_NAMES_A_CASE = frozenset({Reading.NAMES_A_CITATION, Reading.SHORT_FORM})
+# The opening of a case with no adverse party. Part of the name, and part of
+# neither party -- which is eyecite's own reading, since it parses
+# `In re Giftcraft Ltd.` to `defendant='Giftcraft Ltd.'`
+_OPENS_WITH_NO_PARTY = re.compile(r"^(?:In\s+re|In\s+the\s+Matter\s+of|Matter\s+of|Ex\s+parte)\s+", re.I)
+_VERSUS = re.compile(r"\bvs?\.?(?=\s|$)", re.I)
+_NOT_ALPHANUMERIC = re.compile(r"[^a-z0-9]+")
+
+
+def _letters(value: str) -> str:
+    """A name reduced to the characters that carry it."""
+    return _NOT_ALPHANUMERIC.sub("", value.lower())
+
+
+def parties_read_as(name: str, plaintiff: str | None, defendant: str | None) -> bool:
+    """Whether the parties are what the quoted name says, damage forgiven.
+
+    The quote is the document's characters and the parties are repaired, so the
+    two are compared with punctuation, spacing and the `v.` removed, and with
+    the characters a scanner confuses folded together -- `Ass ' n` against
+    `Ass'n`, `l83` against `183`. Folding admits a substitution and never an
+    insertion, because the two must already be the same length to compare.
+
+    A name with no adverse party carries only a defendant, which is eyecite's
+    convention and not a choice made here. Its opening words are not part of
+    either party: `In re Giftcraft Ltd.` is `Giftcraft Ltd.`
+    """
+    if not defendant:
+        return False
+    quoted = _letters(_OPENS_WITH_NO_PARTY.sub("", _VERSUS.sub(" ", name), count=1))
+    parts = _letters((plaintiff or "") + defendant)
+    return quoted == parts or (len(quoted) == len(parts) and ocr.fold(quoted) == ocr.fold(parts))
 
 
 def _same_case(name: str, other: str) -> bool:
@@ -497,6 +580,10 @@ async def adjudicate_case_name(
                     validation_fn=lambda ctx: _validate_choice(ctx, len(nearby), len(document_roots)),
                 ),
                 req(
+                    "Split the name into its parties, repairing the damage.",
+                    validation_fn=_validate_parties,
+                ),
+                req(
                     "Quote the name with the window's exact characters.",
                     validation_fn=lambda ctx: _validate_grounding(ctx, collapsed),
                 ),
@@ -514,9 +601,15 @@ async def adjudicate_case_name(
     if grounded is None:
         return None
     span, name, method = grounded
-    trimmed = trim_sentence_period(name)
+    # A quote asked for the WHOLE name comes back with the docket number after
+    # it more often than not. The name stops where an identifier starts, the
+    # same rule the rules-side reader applies.
+    cut = IDENTIFIER.search(name)
+    if cut:
+        span, name = Span(start=span.start, end=span.start + cut.start()), name[: cut.start()]
+    trimmed = trim_sentence_period(name.rstrip(" ,"))
     if trimmed != name:
-        span, name = Span(start=span.start, end=span.end - 1), trimmed
+        span, name = Span(start=span.start, end=span.start + len(trimmed)), trimmed
 
     citation_id = root_id = None
     if proposed.reading is Reading.NAMES_A_CITATION:
@@ -531,11 +624,14 @@ async def adjudicate_case_name(
         if beside is not None:
             # The root it named is a citation in the window, so the name and
             # that citation are one reference however the answer was worded.
+            parties = parties_read_as(name, proposed.plaintiff, proposed.defendant)
             return AdjudicatedCaseName(
                 span=span,
                 name=name,
                 reading=Reading.NAMES_A_CITATION,
                 citation_id=beside.citation_id,
+                plaintiff=proposed.plaintiff if parties else None,
+                defendant=proposed.defendant if parties else None,
                 reason=proposed.reason,
                 match_method=method,
             )
@@ -552,12 +648,15 @@ async def adjudicate_case_name(
             return None
         root_id = chosen.citation_id
 
+    parties = parties_read_as(name, proposed.plaintiff, proposed.defendant)
     return AdjudicatedCaseName(
         span=span,
         name=name,
         reading=proposed.reading,
         citation_id=citation_id,
         root_id=root_id,
+        plaintiff=proposed.plaintiff if parties else None,
+        defendant=proposed.defendant if parties else None,
         reason=proposed.reason,
         match_method=method,
     )

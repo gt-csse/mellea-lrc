@@ -49,7 +49,7 @@ _LEAD = re.compile(
 # Where the name stops and an identifier starts: a docket number, or a volume
 # followed by a reporter. A party's own comma and digits survive, which is what
 # keeps `United States v. Approximately 127,271 Bitcoin` whole.
-_IDENTIFIER = re.compile(r",\s*(?=No\s*\.|Case\s+No\s*\.|\d{1,4}\s+(?:WL|U\.\s?S\.|[A-Z][A-Za-z]*\.))")
+IDENTIFIER = re.compile(r",\s*(?=No\s*\.|Case\s+No\s*\.|\d{1,4}\s+(?:WL|U\.\s?S\.|[A-Z][A-Za-z]*\.))")
 # How a case with no adverse party is named. eyecite's span opens after it and
 # its `defendant` drops it, so `In re Giftcraft Ltd.` parses as `Giftcraft
 # Ltd.`; the filing's name is the whole of it.
@@ -95,7 +95,7 @@ def locate_case_name(text: str, citation: CitationBase, locator: Span) -> Span |
     while lead:
         start, end = _trim(text, start + lead.end(), end)
         lead = _LEAD.match(text[start:end])
-    cut = _IDENTIFIER.search(text, start, end)
+    cut = IDENTIFIER.search(text, start, end)
     if cut:
         start, end = _trim(text, start, cut.start())
     if end <= start or not re.search(r"[A-Za-z]", text[start:end]):
