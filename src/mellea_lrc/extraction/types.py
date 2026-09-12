@@ -81,6 +81,21 @@ class ExtractedCitation:
     as `colocation.py` explains why an id is shared.
     """
 
+    case_name_span: Span | None = None
+    """Where the fullest case name for this citation is written.
+
+    A span rather than a parse, because a case name is not always two parties:
+    `In re Flint Water Cases` and `Ex parte Young` are whole names, and eyecite
+    files each of them under `defendant` with the opening words stripped. The
+    parsed fields are left exactly as they were read; this says where to find
+    the name on the page.
+
+    It may sit outside `full_span`. A filing writes `In Boeser v. Sharp , the
+    court recognized …` and then the citation a sentence later, and the name in
+    that sentence is the same case name -- neither position is the wrong one,
+    and the fuller of the two is what a reader wants.
+    """
+
     colocation_id: str | None = None
     """Shared by citations occupying the same place in the text.
 
