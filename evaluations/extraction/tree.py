@@ -121,6 +121,7 @@ MEASURES = (
     ("roots", "root", "- "),
     ("short forms", "short_form", "- "),
     ("pin cites", "pincite", ""),
+    ("docket courts", "court", ""),
     ("attribution", "attribution", ""),
 )
 
@@ -142,13 +143,20 @@ def read_documents(dataset: Path) -> Iterator[tuple[dict[str, Any], list[dict[st
         yield rows[0], rows[1:]
 
 
-def _row(kind: str, span: tuple[int, int], root: tuple[int, int] | None, pin_cite: Any) -> dict[str, Any]:
+def _row(
+    kind: str,
+    span: tuple[int, int],
+    root: tuple[int, int] | None,
+    pin_cite: Any,
+    court: str | None = None,
+) -> dict[str, Any]:
     return {
         "kind": kind,
         "span": {"start": span[0], "end": span[1]},
         "root": {"start": root[0], "end": root[1]} if root else None,
         "is_root": root is not None and root == span,
         "pin_cite": pin_cite,
+        "court": court,
     }
 
 
@@ -175,6 +183,9 @@ def _from_rules(extracted: ExtractedDocument) -> dict[tuple[int, int], dict[str,
                 ],
             }
             if pin
+            else None,
+            getattr(citation.citation, "court", None)
+            if citation_kind(citation.citation) is CitationKind.DOCKET
             else None,
         )
     return rows
@@ -224,6 +235,7 @@ async def score(dataset: Path, corpus: Path, arm: Arm) -> tuple[Counter[str], di
         text = (corpus / header["document"]).read_text(encoding="utf-8")
         run = await run_document(text, arm, session)
         annotated = [row for row in body if row["unit"] == "citation"]
+        roots_by_id = {row["id"]: row.get("identifier") or {} for row in annotated if row["is_root"]}
         parsed = {row["id"]: run[anchor(row)] for row in annotated if anchor(row) in run}
         noncase = [
             (row["cited_as"]["start"], row["cited_as"]["end"], row["id"])
@@ -256,6 +268,22 @@ async def score(dataset: Path, corpus: Path, arm: Arm) -> tuple[Counter[str], di
                 reads = "a short form" if row["is_root"] else "a root"
                 detail[group].append(f"{row['id']} {row['cited_as']['quote'][:44]!r} read as {reads}")
 
+            # A docket number names a case in no district on its own, so the
+            # court is half of the identifier rather than decoration. A short
+            # form of a docket states the number again and not the court, so
+            # what it is scored against is its root's.
+            if row["kind"] == "DocketCitation":
+                want_court = (roots_by_id.get(row["root_id"]) or {}).get("court")
+                if want_court:
+                    counts["court:stated"] += 1
+                    if found["court"] == want_court:
+                        counts["court:right"] += 1
+                    else:
+                        detail["court"].append(
+                            f"{row['id']} read the court as {found['court']!r}, and the filing "
+                            f"writes one that resolves to {want_court!r}"
+                        )
+
             counts["attribution:stated"] += 1
             expected = parsed.get(row["root_id"])
             if expected is not None and found["root"] == expected["span"]:
@@ -287,6 +315,8 @@ async def score(dataset: Path, corpus: Path, arm: Arm) -> tuple[Counter[str], di
                 counts["attribution:reported"] += 1
             if reported["pin_cite"] is not None:
                 counts["pincite:reported"] += 1
+            if reported["court"] is not None:
+                counts["court:reported"] += 1
             if span in claimed:
                 continue
             row = next((r for start, end, r in noncase if start <= span[0] and span[1] <= end), None)
