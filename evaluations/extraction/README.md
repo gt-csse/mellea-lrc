@@ -93,6 +93,7 @@ citations     644/721 · 644/664  710/721 · 710/717  720/721 · 720/727
 - roots       408/428 · 408/411  426/428 · 426/426  426/428 · 426/426
 - short forms 232/293 · 232/253  283/293 · 283/291  293/293 · 293/301
 pin cites     351/463 · 351/357  460/463 · 460/462  460/463 · 460/462
+docket courts 42/42 · 42/42      42/42 · 42/42      42/42 · 42/42
 attribution   640/644 · 640/657  707/710 · 707/709  717/720 · 717/719
 
 percentages, recall · precision
@@ -102,6 +103,7 @@ citations     89.3% · 97.0%      98.5% · 99.0%      99.9% · 99.0%
 - roots       95.3% · 99.3%      99.5% · 100.0%     99.5% · 100.0%
 - short forms 79.2% · 91.7%      96.6% · 97.3%      100.0% · 97.3%
 pin cites     75.8% · 98.3%      99.4% · 99.6%      99.4% · 99.6%
+docket courts 100.0% · 100.0%    100.0% · 100.0%    100.0% · 100.0%
 attribution   99.4% · 97.4%      99.6% · 99.7%      99.6% · 99.7%
 
 by kind, recall
@@ -125,6 +127,19 @@ where it was.
 
 The one citation still missed at `mellea` is the one whose volume the filing
 never wrote.
+
+**`docket courts` is the one field checked beside the span.** A docket number
+names a case in no district on its own -- `1:19-cv-362` exists in every one of
+them -- so the court is half of the identifier rather than decoration, which is
+what `PROTOCOL.md` says and what `evaluate.py` already requires of a docket
+prediction. It is the courts-db id that is compared, because that is the half a
+lookup takes; the spelling the filing used is the document's characters, like
+`reporter_as_written`. A short form of a docket states the number again and not
+the court, so it is scored against its root's.
+
+Every arm reads all 42, including eyecite as published -- the docket reader is
+this project's and runs at every relaxation. The row exists so that a
+regression would show, which before it nothing would have.
 
 **What costs precision**, and it is the same seven at every arm: spans read as a
 case citation that refer to no case at all -- two `Id.` into motions filed in
@@ -182,13 +197,6 @@ pin cite's normalization is checked, inside the pin cite measure. Whether
 `F.Supp.2d` resolved to the right reporter and `Bankr. S.D. Fla.` to the right
 courts-db id is not scored anywhere, and those are exactly the halves a lookup
 uses.
-
-**A docket citation's court is unchecked, and it is half the identifier.**
-`PROTOCOL.md` puts it plainly -- `1:19-cv-362` exists in every district and
-names a case in none of them alone -- and `evaluate.py` refuses a docket
-prediction whose court does not match. This table matches on span alone, so all
-42 docket citations count as found whether or not the court resolved. They all
-do today, which is exactly why nothing here would notice if they stopped.
 
 The **date** is a different case and is deliberately absent: it is not part of
 any identifier, and the year a filing states against the year on the record is
