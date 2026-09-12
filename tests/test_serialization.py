@@ -110,10 +110,12 @@ def test_extracted_document_round_trip_preserves_recoverable_fields() -> None:
 
     payload = serialize_extracted_document(document)
 
-    assert payload["schema_version"] == 6
+    assert payload["schema_version"] == 7
     assert payload["artifact_type"] == "extracted_document"
     assert payload["citations"][0]["full_span"] == {"start": 0, "end": len(document.text) - 1}
     assert payload["citations"][0]["locator_span"] == {"start": 29, "end": 41}
+    # This citation states no pin cite, so it claims no pages.
+    assert payload["citations"][0]["pin_cite_pages"] == []
     assert deserialize_extracted_document(payload) == document
     assert json.loads(json.dumps(payload)) == payload
 
@@ -207,7 +209,7 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
 
     payload = serialize_validated_document(validated)
 
-    assert payload["schema_version"] == 6
+    assert payload["schema_version"] == 7
     assert payload["artifact_type"] == "validated_document"
     assert payload["source"]["artifact_type"] == "extracted_document"
     assert payload["source"]["citations"][0]["citation"]["citation_type"] == "FullCaseCitation"

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from mellea_lrc.core.citations import CanonicalCitation, is_full_citation
+from mellea_lrc.core.pin_cites import PinCitePages, read_pin_cite
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.preprocessing.types import PreprocessedDocument
@@ -90,6 +91,18 @@ class ExtractedCitation:
     them, not by where they sit. `None` means the citation stands alone, which is the
     common case. See :mod:`mellea_lrc.extraction.structure.colocation`.
     """
+
+    @property
+    def pin_cite_pages(self) -> tuple[PinCitePages, ...]:
+        """Which pages the pin cite claims, or `()` when it states none.
+
+        Derived rather than stored, so it cannot disagree with the text it was
+        read from. `pin_cite` keeps the filing's own spelling, damage included;
+        this is what that spelling means, and it is what a page claim is
+        compared on -- `247-48` and `247 - 248` are one claim, and a string
+        equality cannot see it.
+        """
+        return read_pin_cite(getattr(self.citation, "pin_cite", None))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
