@@ -78,53 +78,67 @@ uv run python -m evaluations.extraction.tree \
 ```
 
 ```text
-citation_parsed     710/721
+                              recall         precision
+citations            710/721   98.5%   710/717   99.0%
+- roots              426/428   99.5%   426/426  100.0%
+- short forms        283/293   96.6%   283/291   97.3%
+pin cites            460/463   99.4%   460/460  100.0%
+attribution          707/710   99.6%   707/707  100.0%
+
+by kind, recall:
 - DocketCitation        42/42
 - FullCaseCitation      589/590
 - IdCitation            32/32
 - ReferenceCitation     6/16
 - ShortCaseCitation     41/41
-- 006-s04 ReferenceCitation 'Boeser v. Sharp'
-  …
-root_parsed         427/428
-- 025-o13 FullCaseCitation 'Watson v. New York  , WL 6200979 (S.D.N.Y. Sept.'
-pincite_parsed      460/463
-- 021-o08 '11' not read
-- 022-o15 '657 n.1' not read
-- 023-o20 '895 -96' not read
-root_attributed     707/721
-- 006-o39 root 006-o39 not reached
-- 022-o35 root 022-o01 not reached
-- 022-o38 root 022-o23 not reached
-citation_misparsed  7/717
-- 005 IdCitation 'Id. ¶¶26-28' 005-o11, which is not a case
-- 016 ReferenceCitation 'Chen Zhi\n\n32' 016-o28, which is not a case
-  …
+
+roots:
+- 006-o39 'Rosenblatt v. Baer, 383 U.S. at 85' read as a short form
+- 025-o13 'Watson v. New York  , WL 6200979 (S.D.N.Y.' not read
+…
 ```
+
+**Recall is out of what the filings state; precision is out of what the run
+reports.** One without the other hides half of a pass: a reader that reports
+every span in the document has perfect recall. Detail lines are indented
+with `- `.
+
+A root counts as found only when the run reads it *as* a root. A root filed
+under some other case is a root the run did not find, whatever it did with the
+span — which is what `006-o39` is, `Rosenblatt v. Baer, 383 U.S. at 85`, read
+by extraction as a short form of the case quoting it.
+
+**Attribution is scored over the citations a run found**, not over all of them:
+a citation nobody read was not attributed wrongly, it was missed, and charging
+it here would count one failure twice.
 
 **Every metric is counted against the ground truth's own denominator.**
 `pincite_parsed` is out of the 446 pin cites the filings state, not out of the
 citations this run found -- a denominator that shrank with the run would hide
 what the run missed. Detail lines are indented with `- `.
 
-| relaxation | citation_parsed | root_parsed | pincite_parsed | root_attributed | citation_misparsed |
-|---|---:|---:|---:|---:|---:|
-| `NONE` | 644/721 | 409/428 | 351/463 | 640/721 | 20/664 |
-| `BOUNDED` | 709/721 | 427/428 | 460/463 | 705/721 | **7/716** |
-| `FULL` | **710/721** | **427/428** | **460/463** | **707/721** | **7/717** |
-| `FULL` + the case-name layer | **720/721** | 427/428 | 460/463 | **717/721** | 7/727 |
+| relaxation | citations | roots | short forms | pin cites | attribution |
+|---|---|---|---|---|---|
+| `NONE` | 630/721 · 630/664 | 408/428 | 222/293 | 351/463 | 627/630 |
+| `BOUNDED` | 709/721 · 709/716 | 426/428 | 282/293 | 460/463 | 705/709 |
+| `FULL` | **710/721 · 710/717** | **426/428** | **283/293** | **460/463** | **707/710** |
+| `FULL` + the case-name layer | **720/721 · 720/727** | 426/428 | **293/293** | 460/463 | **717/720** |
+
+Each cell is recall, and for citations precision beside it.
 
 `root_parsed` is the roots alone, the 428 citations that state an identifier for
 the first time. A short form missed costs a page claim; a root missed costs the
 case, and the one that is missed is the citation with no volume.
 
-`citation_misparsed` is everything the run reads as a citation to a case that is
-not one of the 721, and it is the one number where lower is better. The seven at
-`BOUNDED` and `FULL` refer to no case at all: two `Id.` into motions filed in
-the same proceeding, four into an exhibit declaration and a statute, and a
-section heading eyecite reads as a bare-name reference. The thirteen extra at
-`NONE` are citations read with the wrong edges -- `Id.` where the filing writes
-`Id. ¶¶ 30-31` -- so each is one miss and one misparse of the same citation.
+**What costs precision.** Seven spans the run reads as a case citation refer to
+no case at all: two `Id.` into motions filed in the same proceeding, four into
+an exhibit declaration and a statute, and a section heading eyecite reads as a
+bare-name reference. Five of the seven reach no root, so nothing downstream
+would check anything for them. Two do, and those are the damaging ones: an
+`Id.` pointing at `Doc. 387` is attributed to `Perez v. Sunbeam Prods., Inc.`
+1,700 characters earlier, and a section heading reading `Chen Zhi 32` is
+attributed to `United States v. Chen Zhi` **with `32` as a pin cite**, which
+is a page claim the filing never made.
 
 Eleven of the eleven misses at `FULL` are citations no reader can reach: ten
 bare names, which state no identifier at all, and document 025's
