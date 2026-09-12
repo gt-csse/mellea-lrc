@@ -17,6 +17,7 @@ from mellea_lrc.extraction.adjudication.review.case_name import (
     _ground,
     _same_case,
     neighbours,
+    parties_read_as,
     roots,
     trim_sentence_period,
 )
@@ -142,3 +143,34 @@ class TestTheSentencePeriod:
 
     def test_a_name_with_no_trailing_period_is_untouched(self) -> None:
         assert trim_sentence_period("Doe v. Skyline") == "Doe v. Skyline"
+
+
+class TestTheParties:
+    """A patched name carries its parties, checked against the quote."""
+
+    def test_a_two_party_name_splits_at_the_versus(self) -> None:
+        assert parties_read_as("Bell Atl. Corp. v. Twombly", "Bell Atl. Corp.", "Twombly")
+
+    def test_a_case_with_no_adverse_party_has_only_a_defendant(self) -> None:
+        """eyecite's own convention, and the opening words belong to neither."""
+        assert parties_read_as("In re Giftcraft Ltd.", None, "Giftcraft Ltd.")
+        assert parties_read_as("Ex parte Young", None, "Young")
+        assert parties_read_as("Hassan", None, "Hassan")
+
+    def test_the_opening_words_are_not_a_party(self) -> None:
+        assert not parties_read_as("In re Giftcraft Ltd.", "In re", "Giftcraft Ltd.")
+
+    def test_damage_in_the_quote_is_repaired_in_the_parties(self) -> None:
+        """The quote keeps the document's characters; the parties do not."""
+        assert parties_read_as(
+            "World Wide Ass ' n of Specialty Programs v. Pure, Inc.",
+            "World Wide Ass'n of Specialty Programs",
+            "Pure, Inc.",
+        )
+        assert parties_read_as("Romandette v. Weetabix Co .", "Romandette", "Weetabix Co.")
+
+    def test_a_party_that_is_not_in_the_name_is_refused(self) -> None:
+        assert not parties_read_as("Doe v. Skyline", "Doe", "Amazon.com")
+
+    def test_a_name_with_no_defendant_is_refused(self) -> None:
+        assert not parties_read_as("Doe v. Skyline", "Doe", None)
