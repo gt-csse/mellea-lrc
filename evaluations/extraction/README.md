@@ -78,26 +78,28 @@ uv run python -m evaluations.extraction.tree \
 ```
 
 ```text
-citation_parsed   690/703
-- DocketCitation      41/41
-- FullCaseCitation    589/590
-- IdCitation          14/14
-- ReferenceCitation   6/18
-- ShortCaseCitation   40/40
+citation_parsed     690/703
+- DocketCitation        41/41
+- FullCaseCitation      589/590
+- IdCitation            14/14
+- ReferenceCitation     6/18
+- ShortCaseCitation     40/40
 - 006-s04 ReferenceCitation 'Boeser v. Sharp'
   …
-root_parsed       426/427
+root_parsed         426/427
 - 025-o13 FullCaseCitation 'Watson v. New York  , WL 6200979 (S.D.N.Y. Sept.'
-pincite_parsed    442/446
+pincite_parsed      442/446
 - 015-o45 '184' not read
 - 021-o08 '11' not read
 - 022-o15 '657 n.1' not read
 - 023-o20 '895 -96' not read
-root_attributed   688/703
+root_attributed     688/703
 - 022-o35 root 022-o01 not reached
 - 022-o38 root 022-o23 not reached
-noncase_parsed    27/27
-unaccounted       0/717
+citation_misparsed  27/717
+- 005 IdCitation 'Id. ¶¶26-28' 005-o11, which is not a case
+- 006 ShortCaseCitation '383 U.S. at 85' 006-o39, which is not a case
+  …
 ```
 
 **Every metric is counted against the ground truth's own denominator.**
@@ -105,27 +107,28 @@ unaccounted       0/717
 citations this run found -- a denominator that shrank with the run would hide
 what the run missed. Detail lines are indented with `- `.
 
-| relaxation | citation_parsed | root_parsed | pincite_parsed | root_attributed | unaccounted |
+| relaxation | citation_parsed | root_parsed | pincite_parsed | root_attributed | citation_misparsed |
 |---|---:|---:|---:|---:|---:|
-| `NONE` | 630/703 | 408/427 | 339/446 | 627/703 | 7/664 |
-| `BOUNDED` | 689/703 | 426/427 | 442/446 | 686/703 | **0/716** |
-| `FULL` | **690/703** | **426/427** | **442/446** | **688/703** | **0/717** |
-
-`unaccounted` is the precision side and the one number where lower is better:
-case citations the run reports that no row accounts for, out of every case-kind
-citation it reported. All seven at `NONE` are citations read at the wrong span
--- `673 F.2d at ` where the filing writes `673 F.2d at 57` -- so each is one
-miss and one unaccounted report of the same citation, not an invention.
-
-`noncase_parsed` is the 27 rows that are written like citations and point at
-something other than a decision: a pleading's numbered allegations, an exhibit,
-a statute, a case quoted inside another case. Every arm reads all 27, which is
-correct -- the filing does write them. They are counted apart rather than as
-hits, because the page they claim cannot be checked against an opinion.
+| `NONE` | 630/703 | 408/427 | 339/446 | 627/703 | 34/664 |
+| `BOUNDED` | 689/703 | 426/427 | 442/446 | 686/703 | **27/716** |
+| `FULL` | **690/703** | **426/427** | **442/446** | **688/703** | **27/717** |
 
 `root_parsed` is the roots alone, the 427 citations that state an identifier for
 the first time. A short form missed costs a page claim; a root missed costs the
 case, and the one that is missed is the citation with no volume.
+
+`citation_misparsed` is everything the run reads as a citation to a case that is
+not one of the 703, and it is the one number where lower is better. Twenty-seven
+of them are the same twenty-seven at every arm: places written exactly like a
+short form that point at something other than a decision.
+`Rosenblatt v. Baer, 383 U.S. at 85` parses as a short case citation and is
+Anaya's citation rather than this filing's; document 016 recites an indictment
+and a forfeiture complaint by paragraph, eighteen times. The ground truth holds
+each as a `noncase_citation` row and the detail line names it.
+
+The seven extra at `NONE` are citations read with the wrong edges --
+`673 F.2d at ` where the filing writes `673 F.2d at 57` -- so each is one miss
+and one misparse of the same citation.
 
 Thirteen of the thirteen misses at `FULL` are citations no reader can reach:
 twelve bare names, which state no identifier at all, and document 025's
