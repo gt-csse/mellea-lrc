@@ -1,74 +1,84 @@
-"""Score an extraction run against the citation tree ground truth.
+"""Score extraction against the citation tree ground truth, arm by arm.
 
 The bench `evaluate.py` reads is a flat list of identifiers: it asks whether a
 citation was found and nothing else. This one reads `extraction-v3.0`, which is
 a tree -- every place a filing cites a case, which place introduced the case,
-and which page each one claims -- and asks the three questions separately,
-because a pass that finds every citation and files half of them under the wrong
-case is not doing better than one that finds fewer.
+and which page each one claims -- and asks the questions separately, because a
+pass that finds every citation and files half of them under the wrong case is
+not doing better than one that finds fewer.
 
-## The report
+## The arms
 
-Every metric is `<thing>_parsed` or `<thing>_attributed`, and every one of them
-is counted **against the ground truth's own denominator**: `pincite_parsed` is
-out of the pin cites the filings state, not out of the citations this run
-happened to find. A run that reads fewer citations therefore reads fewer pin
-cites, which is the point -- a denominator that shrinks with the run would hide
-it.
+``eyecite``
+    eyecite as published. The floor, and what a result is read up from.
 
-Detail lines under a metric are indented with `- `. Nothing else is printed.
+``augmented``
+    the same, with this project's rules: the separator relaxation that matches
+    the whitespace PDF extraction leaves, the docket reader, the pin cite
+    reader, and the case name locator.
 
-`citation_misparsed` is the other side, and the one number here where lower is
-better: everything the run reads as a citation to a case that is **not** one of
-the 703, out of every case-kind citation it reported. Two things land there.
+``mellea``
+    the augmented rules, and then the model layers, each of which answers one
+    question the rules leave. Today that is the case-name layer, which sweeps
+    the residue of a full mask and says what each case name standing in it is.
+    More layers land here as they are built.
 
-Twenty-seven places are written exactly like a short form and point at something
-that is not a decision -- a pleading's numbered allegations, an exhibit
-declaration, a statute, a case quoted inside another case. `Rosenblatt v. Baer,
-383 U.S. at 85` parses as a short case citation, and it is Anaya's citation
-rather than this filing's, so the page it claims cannot be checked against an
-opinion the filing relies on. The ground truth holds those as
-`noncase_citation` rows, so the detail line says which one was hit.
+## What is scored, and how
 
-The rest are citations at a span no row has. That includes a citation read with
-the wrong edges: unrelaxed eyecite reports `673 F.2d at ` where the filing
-writes `673 F.2d at 57`, which is one miss and one misparse of the same
-citation.
-
-Statutes and journal citations are not in this ground truth and are not counted
-either way -- but a statute *read as a case* is a case-kind citation at a span
-no row claims, so it lands here, which is where it belongs.
-
-## Matching
-
-`root_parsed` is the roots alone -- the citations that state an identifier for
-the first time, 427 of the 703. A root reached is a case the filing can be
-checked for; a short form missed costs a page claim, and a root missed costs the
-case.
-
-An annotated citation is **parsed** when the run produces a citation at exactly
+An annotated citation is **found** when the arm produces a citation at exactly
 its `locator` span, or at its `cited_as` span where it has no locator, which is
 `Id.` and the bare-name references. Nothing partial counts: `PROTOCOL.md` fixes
 that rule, and the identifier is what a lookup resolves.
 
-A root is named by its span rather than by an id, so a run that knows nothing
+The **roots** are counted apart from the **short forms**, because the two cost
+different things: a short form missed costs a page claim, a root missed costs
+the case. A root counts as found only when the arm reads it *as* a root -- a
+root filed under some other case is a root it did not find, whatever it did
+with the span.
+
+A root is named by its span rather than by an id, so an arm that knows nothing
 about this dataset's ids can still be scored: a citation is **attributed** when
-the run's root sits at the span of the row the ground truth calls its root.
+the arm's root sits at the span of the row the ground truth calls its root.
+Attribution is scored over the citations an arm found, because a citation
+nobody read was missed rather than misattributed, and charging it here would
+count one failure twice.
+
+**Recall is out of what the filings state; precision is out of what the arm
+reports.** One without the other hides half of a pass: a reader that reports
+every span in the document has perfect recall. Both denominators are taken over
+the whole run rather than over the part of it the dataset annotates -- a pin
+cite stays in the recall denominator when the citation carrying it was missed,
+and an attribution counts against precision even when the thing attributed is
+not a citation to a case.
+
+Statutes and journal citations are not in this ground truth and are not counted
+either way. A statute *read as a case* is a case-kind citation at a span no row
+claims, so it costs precision, which is where it belongs.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import contextlib
 import io
 import json
 from collections import Counter
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mellea_lrc.core.citations import CitationKind, citation_kind
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
+from mellea_lrc.extraction.adjudication.candidates.case_name_sites import case_name_sites
+from mellea_lrc.extraction.adjudication.review.case_name import Reading, adjudicate_case_name
+from mellea_lrc.llm import start_mellea_session_from_env
+
+if TYPE_CHECKING:
+    from mellea import MelleaSession
+
+    from mellea_lrc.extraction.types import ExtractedDocument
 
 # Every kind that cites a case. A statute is not one, and the tree says nothing
 # about it, so reporting one is neither right nor wrong here.
@@ -81,6 +91,37 @@ CASE_KINDS = frozenset(
         CitationKind.REFERENCE,
         CitationKind.SUPRA,
     }
+)
+
+CASE_NAME_LAYER = "case_name"
+
+
+@dataclass(frozen=True, slots=True)
+class Arm:
+    """One pass over a document, named for what it runs."""
+
+    relaxation: Relaxation
+    layers: tuple[str, ...] = field(default_factory=tuple)
+    components: str = ""
+
+    @property
+    def needs_model(self) -> bool:
+        """Whether running it calls a model, and so costs time and money."""
+        return bool(self.layers)
+
+
+ARMS = {
+    "eyecite": Arm(Relaxation.NONE, components="eyecite as published"),
+    "augmented": Arm(Relaxation.FULL, components="+ this project's rules"),
+    "mellea": Arm(Relaxation.FULL, (CASE_NAME_LAYER,), components="+ the case-name layer"),
+}
+
+MEASURES = (
+    ("citations", "citation", ""),
+    ("roots", "root", "- "),
+    ("short forms", "short_form", "- "),
+    ("pin cites", "pincite", ""),
+    ("attribution", "attribution", ""),
 )
 
 
@@ -101,57 +142,87 @@ def read_documents(dataset: Path) -> Iterator[tuple[dict[str, Any], list[dict[st
         yield rows[0], rows[1:]
 
 
-def run_document(text: str, relaxation: Relaxation) -> list[dict[str, Any]]:
-    """Run extraction over one document and project the tree artifact rows."""
-    # Eyecite writes overlap diagnostics to stdout as it reads.
-    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        extracted = extract_from_plain_text(text, relaxation=relaxation)
+def _row(kind: str, span: tuple[int, int], root: tuple[int, int] | None, pin_cite: Any) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "span": {"start": span[0], "end": span[1]},
+        "root": {"start": root[0], "end": root[1]} if root else None,
+        "is_root": root is not None and root == span,
+        "pin_cite": pin_cite,
+    }
+
+
+def _from_rules(extracted: ExtractedDocument) -> dict[tuple[int, int], dict[str, Any]]:
+    """What the deterministic pass reports, keyed by the span it reports it at."""
     at = {citation.citation_id: citation.locator_span for citation in extracted.citations}
-    rows = []
+    rows = {}
     for citation in extracted.citations:
         if citation_kind(citation.citation) not in CASE_KINDS:
             continue
         root = at.get(citation.root_id or "")
-        rows.append(
+        span = (citation.locator_span.start, citation.locator_span.end)
+        pin = citation.pin_cite_span
+        rows[span] = _row(
+            citation_kind(citation.citation).value,
+            span,
+            (root.start, root.end) if root else None,
             {
-                "kind": citation_kind(citation.citation).value,
-                "span": {"start": citation.locator_span.start, "end": citation.locator_span.end},
-                "root": {"start": root.start, "end": root.end} if root else None,
-                "is_root": root is not None
-                and (root.start, root.end) == (citation.locator_span.start, citation.locator_span.end),
-                "pin_cite": (
-                    {
-                        "start": citation.pin_cite_span.start,
-                        "end": citation.pin_cite_span.end,
-                        "pages": [
-                            {"first": page.first, "last": page.last, "kind": page.kind.value}
-                            for page in citation.pin_cite_pages
-                        ],
-                    }
-                    if citation.pin_cite_span
-                    else None
-                ),
+                "start": pin.start,
+                "end": pin.end,
+                "pages": [
+                    {"first": page.first, "last": page.last, "kind": page.kind.value}
+                    for page in citation.pin_cite_pages
+                ],
             }
+            if pin
+            else None,
         )
     return rows
 
 
-def score(dataset: Path, corpus: Path, relaxation: Relaxation) -> tuple[Counter[str], dict[str, list[str]]]:
-    """Score one relaxation over the whole corpus.
+async def _case_name_layer(
+    extracted: ExtractedDocument, rows: dict[tuple[int, int], dict[str, Any]], session: MelleaSession
+) -> None:
+    """Add the citations a case name standing outside every citation turns out to be.
 
-    Each measure is counted twice. **Recall** is out of what the filings state,
-    so it says what a run misses. **Precision** is out of what the run reports,
-    so it says what a run makes up. One without the other hides half of a pass:
-    a reader that reports every span in the document has perfect recall.
+    Only `short_form` adds a row. `names_a_citation` names a citation the rules
+    already reported and patches its case name, which this table does not score;
+    the other two readings are findings about the filing rather than citations.
     """
+    at = {citation.citation_id: citation.locator_span for citation in extracted.citations}
+    for site in case_name_sites(extracted):
+        answer = await adjudicate_case_name(extracted, site, session=session)
+        if answer is None or answer.reading is not Reading.SHORT_FORM:
+            continue
+        root = at.get(answer.root_id or "")
+        if root is None:
+            continue
+        span = (answer.span.start, answer.span.end)
+        rows[span] = _row("ReferenceCitation", span, (root.start, root.end), None)
+
+
+async def run_document(
+    text: str, arm: Arm, session: MelleaSession | None
+) -> dict[tuple[int, int], dict[str, Any]]:
+    """Run one arm over one document and project what it reports."""
+    # Eyecite writes overlap diagnostics to stdout as it reads.
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        extracted = extract_from_plain_text(text, relaxation=arm.relaxation)
+    rows = _from_rules(extracted)
+    if CASE_NAME_LAYER in arm.layers and session is not None:
+        await _case_name_layer(extracted, rows, session)
+    return rows
+
+
+async def score(dataset: Path, corpus: Path, arm: Arm) -> tuple[Counter[str], dict[str, list[str]]]:
+    """Score one arm over the whole corpus."""
     counts: Counter[str] = Counter()
     by_kind: Counter[str] = Counter()
-    detail: dict[str, list[str]] = {
-        key: [] for key in ("citation", "root", "short_form", "pincite", "attribution")
-    }
+    detail: dict[str, list[str]] = {key: [] for _, key, _ in MEASURES}
+    session = start_mellea_session_from_env() if arm.needs_model else None
     for header, body in read_documents(dataset):
         text = (corpus / header["document"]).read_text(encoding="utf-8")
-        run = {(row["span"]["start"], row["span"]["end"]): row for row in run_document(text, relaxation)}
+        run = await run_document(text, arm, session)
         annotated = [row for row in body if row["unit"] == "citation"]
         parsed = {row["id"]: run[anchor(row)] for row in annotated if anchor(row) in run}
         noncase = [
@@ -167,8 +238,7 @@ def score(dataset: Path, corpus: Path, relaxation: Relaxation) -> tuple[Counter[
             group = "root" if row["is_root"] else "short_form"
             counts[f"{group}:stated"] += 1
             # Counted before the citation is looked for, so a pin cite stays in
-            # the denominator when the citation carrying it was missed. A
-            # denominator that shrinks with the run hides what the run missed.
+            # the denominator when the citation carrying it was missed.
             want = row.get("pin_cite")
             if want is not None:
                 counts["pincite:stated"] += 1
@@ -180,29 +250,22 @@ def score(dataset: Path, corpus: Path, relaxation: Relaxation) -> tuple[Counter[
                 continue
             counts["citation:right"] += 1
             by_kind[f"{row['kind']}:right"] += 1
-            # A root is right when the run both finds it and reads it as one:
-            # a root the run files under some other case is a root it did not
-            # find, whatever it did with the span.
             if found["is_root"] == row["is_root"]:
                 counts[f"{group}:right"] += 1
             else:
                 reads = "a short form" if row["is_root"] else "a root"
                 detail[group].append(f"{row['id']} {row['cited_as']['quote'][:44]!r} read as {reads}")
 
-            # Attribution is scored over the citations a run actually found: a
-            # citation nobody read was not attributed wrongly, it was missed,
-            # and charging it here would count one failure twice.
-            if found is not None:
-                counts["attribution:stated"] += 1
-                expected = parsed.get(row["root_id"])
-                if expected is not None and found["root"] == expected["span"]:
-                    counts["attribution:right"] += 1
-                elif found["root"] is not None:
-                    detail["attribution"].append(f"{row['id']} attributed away from {row['root_id']}")
-                else:
-                    detail["attribution"].append(f"{row['id']} left unattributed, states {row['root_id']}")
+            counts["attribution:stated"] += 1
+            expected = parsed.get(row["root_id"])
+            if expected is not None and found["root"] == expected["span"]:
+                counts["attribution:right"] += 1
+            elif found["root"] is not None:
+                detail["attribution"].append(f"{row['id']} attributed away from {row['root_id']}")
+            else:
+                detail["attribution"].append(f"{row['id']} left unattributed, states {row['root_id']}")
 
-            got = found["pin_cite"] if found else None
+            got = found["pin_cite"]
             if want is None:
                 if got is not None:
                     detail["pincite"].append(f"{row['id']} reads a pin cite the filing does not state")
@@ -219,14 +282,7 @@ def score(dataset: Path, corpus: Path, relaxation: Relaxation) -> tuple[Counter[
         claimed = {(row["span"]["start"], row["span"]["end"]) for row in parsed.values()}
         for span, reported in run.items():
             counts["citation:reported"] += 1
-            if reported["is_root"]:
-                counts["root:reported"] += 1
-            else:
-                counts["short_form:reported"] += 1
-            # Precision counts every attribution the run made, not only those
-            # on citations the dataset annotates. An `Id.` pointing at a motion
-            # is attributed to whatever case eyecite reaches back to, and that
-            # is an attribution the filing never made.
+            counts["root:reported" if reported["is_root"] else "short_form:reported"] += 1
             if reported["root"] is not None:
                 counts["attribution:reported"] += 1
             if reported["pin_cite"] is not None:
@@ -254,69 +310,81 @@ def score(dataset: Path, corpus: Path, relaxation: Relaxation) -> tuple[Counter[
     return counts, detail
 
 
-def _rate(right: int, of: int) -> str:
-    return f"{right / of:6.1%}" if of else "     --"
+def _cell(counts: Counter[str], key: str, *, as_rate: bool) -> str:
+    """One arm's reading of one measure: recall beside precision."""
+    right, stated, reported = (counts[f"{key}:{part}"] for part in ("right", "stated", "reported"))
+    if as_rate:
+        return f"{right / stated:.1%} · {right / reported:.1%}" if stated and reported else "--"
+    return f"{right}/{stated} · {right}/{reported}"
 
 
-def report(counts: Counter[str], detail: dict[str, list[str]], kinds: list[str]) -> str:
-    """A line per measure, recall beside precision, and the disagreements under it."""
-    lines = [f"{'':<18}{'recall':>18}{'precision':>18}"]
-    for label, key, indent in (
-        ("citations", "citation", ""),
-        ("roots", "root", "- "),
-        ("short forms", "short_form", "- "),
-        ("pin cites", "pincite", ""),
-        ("attribution", "attribution", ""),
-    ):
-        right = counts[f"{key}:right"]
-        stated = counts[f"{key}:stated"]
-        reported = counts[f"{key}:reported"]
+def table(scores: dict[str, Counter[str]], *, as_rate: bool) -> str:
+    """One table over every arm, a row per measure, each cell recall · precision."""
+    width = max(19, *(len(name) + 2 for name in scores))
+    lines = ["".ljust(14) + "".join(name.ljust(width) for name in scores)]
+    for label, key, indent in MEASURES:
         lines.append(
-            f"{indent + label:<18}"
-            f"{f'{right}/{stated}':>10}{_rate(right, stated):>8}"
-            f"{f'{right}/{reported}':>10}{_rate(right, reported):>8}"
+            (indent + label).ljust(14)
+            + "".join(_cell(counts, key, as_rate=as_rate).ljust(width) for counts in scores.values())
         )
-    lines.append("")
-    lines.append("by kind, recall:")
-    lines += [f"- {kind:<22}{counts[f'{kind}:right']}/{counts[f'{kind}:stated']}" for kind in kinds]
-    for label, key in (
-        ("citations", "citation"),
-        ("roots", "root"),
-        ("short forms", "short_form"),
-        ("pin cites", "pincite"),
-        ("attribution", "attribution"),
-    ):
-        if detail[key]:
-            lines.append("")
-            lines.append(f"{label}:")
-            lines += [f"- {line}" for line in detail[key]]
+    return "\n".join(lines)
+
+
+def kinds_table(scores: dict[str, Counter[str]]) -> str:
+    """Recall per citation kind, which is where a miss says what shape it was."""
+    kinds = sorted(
+        {key.split(":")[0] for counts in scores.values() for key in counts if key.endswith(":stated")}
+        - {label for _, label, _ in MEASURES}
+    )
+    width = max(19, *(len(name) + 2 for name in scores))
+    lines = ["".ljust(24) + "".join(name.ljust(width) for name in scores)]
+    for kind in kinds:
+        lines.append(
+            f"- {kind}".ljust(24)
+            + "".join(
+                f"{counts[f'{kind}:right']}/{counts[f'{kind}:stated']}".ljust(width)
+                for counts in scores.values()
+            )
+        )
     return "\n".join(lines)
 
 
 def main() -> None:
     """Run the command-line tree evaluator."""
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="arms:\n" + "\n".join(f"  {name:<12} {arm.components}" for name, arm in ARMS.items()),
     )
     parser.add_argument("--dataset", type=Path, required=True, help="extraction-v3.0/documents/")
     parser.add_argument("--documents", type=Path, required=True, help="The text those spans index.")
-    # `BOUNDED` is not offered. It was the control `FULL` was read against, and
-    # `FULL` is now at least as good on every measure here, so running it says
-    # nothing the two ends do not. It is still what the library defaults to and
-    # still an arm of the published flat bench; both are separate questions.
     parser.add_argument(
-        "--relaxation",
-        default="FULL",
-        choices=["NONE", "FULL"],
-        help="Which tokenizer to read with: eyecite as published, or relaxed.",
+        "--arms", nargs="+", default=list(ARMS), choices=list(ARMS), help="Which arms to run."
     )
+    parser.add_argument("--detail", action="store_true", help="Print every disagreement.")
     args = parser.parse_args()
 
-    relaxation = Relaxation[args.relaxation]
-    counts, detail = score(args.dataset, args.documents, relaxation)
-    kinds = sorted({key.split(":")[0] for key in counts if key.endswith(":stated") and key[0].isupper()})
-    print(f"== {relaxation.name} ==")
-    print(report(counts, detail, kinds))
+    scores: dict[str, Counter[str]] = {}
+    details: dict[str, dict[str, list[str]]] = {}
+    for name in args.arms:
+        arm = ARMS[name]
+        if arm.needs_model:
+            print(f"{name}: calls a model; set MELLEA_LRC_LLM_* in the environment")
+        counts, detail = asyncio.run(score(args.dataset, args.documents, arm))
+        scores[name], details[name] = counts, detail
+
+    print("\ncounts, recall · precision\n")
+    print(table(scores, as_rate=False))
+    print("\npercentages, recall · precision\n")
+    print(table(scores, as_rate=True))
+    print("\nby kind, recall\n")
+    print(kinds_table(scores))
+    if args.detail:
+        for name, detail in details.items():
+            for label, key, _ in MEASURES:
+                if detail[key]:
+                    print(f"\n{name} · {label}")
+                    print("\n".join(f"- {line}" for line in detail[key]))
 
 
 if __name__ == "__main__":
