@@ -59,3 +59,15 @@ def test_a_party_keeps_its_own_comma_and_digits() -> None:
 def test_a_citation_with_no_name_has_no_span() -> None:
     assert _name("Id. at 570.") is None
     assert _name("550 U.S. at 570.") is None
+
+
+def test_a_span_that_opens_at_the_versus_takes_the_party_in_front_of_it() -> None:
+    """eyecite gives up on a party a quotation dash runs into."""
+    text = "must reasonably anticipate being haled into court.' -Calder v. Jones , 465 U.S. 783, 789 (1984)."
+    assert _name(text) == "Calder v. Jones"
+
+
+def test_the_party_is_not_taken_from_the_sentence_before_it() -> None:
+    """Only a capitalised word touching the `v.` is the missing party."""
+    text = "The court so held. v. Jones , 465 U.S. 783, 789 (1984)."
+    assert _name(text) == "v. Jones"
