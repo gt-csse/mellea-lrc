@@ -78,11 +78,11 @@ uv run python -m evaluations.extraction.tree \
 ```
 
 ```text
-citation_parsed     710/723
+citation_parsed     710/721
 - DocketCitation        42/42
 - FullCaseCitation      589/590
 - IdCitation            32/32
-- ReferenceCitation     6/18
+- ReferenceCitation     6/16
 - ShortCaseCitation     41/41
 - 006-s04 ReferenceCitation 'Boeser v. Sharp'
   …
@@ -92,7 +92,7 @@ pincite_parsed      460/463
 - 021-o08 '11' not read
 - 022-o15 '657 n.1' not read
 - 023-o20 '895 -96' not read
-root_attributed     707/723
+root_attributed     707/721
 - 006-o39 root 006-o39 not reached
 - 022-o35 root 022-o01 not reached
 - 022-o38 root 022-o23 not reached
@@ -109,31 +109,31 @@ what the run missed. Detail lines are indented with `- `.
 
 | relaxation | citation_parsed | root_parsed | pincite_parsed | root_attributed | citation_misparsed |
 |---|---:|---:|---:|---:|---:|
-| `NONE` | 644/723 | 409/428 | 351/463 | 640/723 | 20/664 |
-| `BOUNDED` | 709/723 | 427/428 | 460/463 | 705/723 | **7/716** |
-| `FULL` | **710/723** | **427/428** | **460/463** | **707/723** | **7/717** |
+| `NONE` | 644/721 | 409/428 | 351/463 | 640/721 | 20/664 |
+| `BOUNDED` | 709/721 | 427/428 | 460/463 | 705/721 | **7/716** |
+| `FULL` | **710/721** | **427/428** | **460/463** | **707/721** | **7/717** |
 
 `root_parsed` is the roots alone, the 428 citations that state an identifier for
 the first time. A short form missed costs a page claim; a root missed costs the
 case, and the one that is missed is the citation with no volume.
 
 `citation_misparsed` is everything the run reads as a citation to a case that is
-not one of the 723, and it is the one number where lower is better. The seven at
+not one of the 721, and it is the one number where lower is better. The seven at
 `BOUNDED` and `FULL` refer to no case at all: two `Id.` into motions filed in
 the same proceeding, four into an exhibit declaration and a statute, and a
 section heading eyecite reads as a bare-name reference. The thirteen extra at
 `NONE` are citations read with the wrong edges -- `Id.` where the filing writes
 `Id. ¶¶ 30-31` -- so each is one miss and one misparse of the same citation.
 
-Thirteen of the thirteen misses at `FULL` are citations no reader can reach:
-twelve bare names, which state no identifier at all, and document 025's
+Eleven of the eleven misses at `FULL` are citations no reader can reach: ten
+bare names, which state no identifier at all, and document 025's
 `WL 6200979`, which states no volume. The three pin cites are two shapes: two
 carry a footnote marker eyecite's pattern does not admit, and the third sits in
 a table of authorities where the leader dots follow the page.
 
 ## Case names nothing read
 
-`tree.py` says the gap: at `FULL`, thirteen citations are missed and twelve of
+`tree.py` says the gap: at `FULL`, eleven citations are missed and ten of
 them are a case name with no identifier at all -- a Bluebook Rule 10.9 short
 form, which a reporter-driven tokenizer cannot see because there is nothing
 there to tokenize. This layer goes after them.
@@ -160,16 +160,17 @@ uv run --env-file .env python -m evaluations.extraction.name_recovery \
 
 ```text
 sites                 54
-- bare short forms    12
-- uncited cases       19
+- bare short forms    10
+- uncited cases       21
 - not annotated       23
-declined              0/54
-recovered             9/12
-- 006 'In Boeser v. Sharp' read as uncited_case
-- 011 'Shockey v. Huhtamaki' read as uncited_case
-- 011 'And in Packard v. City of New York' read as uncited_case
+declined              1/54
+- 025 'Watson v. New York'
+recovered             10/10
 root_right            7/7
-uncited_right         16/19
+- 006 'In Boeser v. Sharp' read as misread_citation, so no root was named
+- 006 'United States  v.  Hassan' read as misread_citation, so no root was named
+- 021 "In Loos v. Lowe's" read as misread_citation, so no root was named
+uncited_right         18/21
 - 025 'Breest v. Haggis' read as short_form
 - 025 'Friedman v. Bartell' read as short_form
 - 025 'M.D. v. OPWDD' read as short_form
@@ -180,32 +181,27 @@ invented              0/23
 whether this is worth having: a short form recovered under the wrong case is
 worse than one not recovered, because nothing downstream can tell.
 
-### Rule 10.9 is ordered, and the ground truth is not sure it is
+### What is left, and it is a line-drawing question
 
-A short form stands only *after* the full citation has appeared. Telling the
-reader where each root sits relative to the name is worth a lot and costs
-something:
+Three sites remain wrong, all of them document 025's:
 
-| | recovered | root_right | uncited_right | invented | declined |
-|---|---:|---:|---:|---:|---:|
-| ordering applied | 9/12 | 7/7 | 16/19 | **0/23** | **0/54** |
-| `--unordered` | **12/12** | **9/9** | 15/19 | 2/23 | 2/54 |
+> as confirmed by case law spanning **Breest v. Haggis, Friedman v. Bartell,
+> and M.D. v. OPWDD** , among others.
 
-Unordered reaches every short form and invents two citations. Ordered invents
-nothing and refuses three -- `Boeser v. Sharp`, `Shockey v. Huhtamaki` and
-`Packard v. City of New York`, each of which its filing cites in full a
-sentence or two *afterwards*.
+The reader calls them short forms because all three are in the filing's table
+of authorities. The ground truth calls them defects because nothing supports
+the sentence that names them: a case named in prose needs a citation there, and
+the table of authorities is an index rather than a citation in the argument.
 
-That disagreement is not the reader's. `extraction-v3.0` calls those three
-proper short forms and calls document 025's `Breest v. Haggis`,
-`Friedman v. Bartell` and `M.D. v. OPWDD` -- named in one clause, each cited in
-full later -- nonconforming. Both are a name before its citation, and they are
-annotated opposite ways. The three the ordered reader refuses and the three it
-wrongly accepts are the same shape, which is why the switch exists rather than
-a decision.
+That line moved once already. `011-s03` and `011-s04` were filed as short forms
+on Rule 10.9 -- which governs short-form *citations* and not names used in
+prose -- and this layer is what surfaced it; they are `nonconforming_citation`
+rows now. The three that remain are the same question one step further in, and
+the reader is not told the rule because the rule is not settled.
 
-Ordering is on by default: it is the rule, and it is the setting that invents
-nothing.
+A switch remains for the ordering reading, `--unordered`, which lets a short
+form stand before the citation it refers to. It reaches nothing more here and
+invents two citations, so it is off by default.
 
 ## Get the dataset
 
