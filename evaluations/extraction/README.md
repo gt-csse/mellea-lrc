@@ -82,8 +82,8 @@ uv run python -m evaluations.extraction.tree \
 citations            710/721   98.5%   710/717   99.0%
 - roots              426/428   99.5%   426/426  100.0%
 - short forms        283/293   96.6%   283/291   97.3%
-pin cites            460/463   99.4%   460/460  100.0%
-attribution          707/710   99.6%   707/707  100.0%
+pin cites            460/463   99.4%   460/462   99.6%
+attribution          707/710   99.6%   707/709   99.7%
 
 by kind, recall:
 - DocketCitation        42/42
@@ -92,9 +92,10 @@ by kind, recall:
 - ReferenceCitation     6/16
 - ShortCaseCitation     41/41
 
-roots:
-- 006-o39 'Rosenblatt v. Baer, 383 U.S. at 85' read as a short form
-- 025-o13 'Watson v. New York  , WL 6200979 (S.D.N.Y.' not read
+attribution:
+- 005 'Id.' attributed to '2025 WL 1530660', and it is not a citation to a case
+- 006-o39 left unattributed, states 006-o39
+- 016 'Chen Zhi\n\n32' attributed to 'No. 1:25-cr-00312-RPK', and it is not a citation to a case
 …
 ```
 
@@ -102,6 +103,13 @@ roots:
 reports.** One without the other hides half of a pass: a reader that reports
 every span in the document has perfect recall. Detail lines are indented
 with `- `.
+
+Both denominators are taken over the **whole run**, not over the part of it the
+dataset annotates. A pin cite stays in the recall denominator when the citation
+carrying it was missed, and an attribution counts against precision even when
+the thing attributed is not a citation to a case: an `Id.` pointing at a motion
+filed in the same proceeding is attributed to whatever case eyecite reaches
+back to, and that is an attribution the filing never made.
 
 A root counts as found only when the run reads it *as* a root. A root filed
 under some other case is a root the run did not find, whatever it did with the
@@ -119,12 +127,12 @@ what the run missed. Detail lines are indented with `- `.
 
 | relaxation | citations | roots | short forms | pin cites | attribution |
 |---|---|---|---|---|---|
-| `NONE` | 630/721 · 630/664 | 408/428 | 222/293 | 351/463 | 627/630 |
-| `BOUNDED` | 709/721 · 709/716 | 426/428 | 282/293 | 460/463 | 705/709 |
-| `FULL` | **710/721 · 710/717** | **426/428** | **283/293** | **460/463** | **707/710** |
-| `FULL` + the case-name layer | **720/721 · 720/727** | 426/428 | **293/293** | 460/463 | **717/720** |
+| `NONE` | 89.3% · 97.0% | 95.3% · 99.3% | 79.2% · 91.7% | 75.8% · 98.3% | 99.4% · 97.4% |
+| `BOUNDED` | 98.3% · 99.0% | 99.5% · 100% | 96.2% · 97.2% | 99.4% · 99.6% | 99.4% · 99.7% |
+| `FULL` | **98.5% · 99.0%** | **99.5% · 100%** | **96.6% · 97.3%** | **99.4% · 99.6%** | **99.6% · 99.7%** |
+| `FULL` + the case-name layer | **99.9% · 99.0%** | 99.5% · 100% | **100% · 97.3%** | 99.4% · 99.6% | **99.6% · 99.7%** |
 
-Each cell is recall, and for citations precision beside it.
+Each cell is recall · precision.
 
 `root_parsed` is the roots alone, the 428 citations that state an identifier for
 the first time. A short form missed costs a page claim; a root missed costs the
