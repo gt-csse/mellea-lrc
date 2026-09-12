@@ -82,7 +82,10 @@ class ExtractedCitation:
     """
 
     case_name_span: Span | None = None
-    """Where the fullest case name for this citation is written.
+    """Where this citation's case name is written.
+
+    Located rather than rebuilt: see
+    :mod:`mellea_lrc.extraction.reading.case_names`.
 
     A span rather than a parse, because a case name is not always two parties:
     `In re Flint Water Cases` and `Ex parte Young` are whole names, and eyecite
