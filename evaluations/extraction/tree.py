@@ -300,11 +300,15 @@ def main() -> None:
     )
     parser.add_argument("--dataset", type=Path, required=True, help="extraction-v3.0/documents/")
     parser.add_argument("--documents", type=Path, required=True, help="The text those spans index.")
+    # `BOUNDED` is not offered. It was the control `FULL` was read against, and
+    # `FULL` is now at least as good on every measure here, so running it says
+    # nothing the two ends do not. It is still what the library defaults to and
+    # still an arm of the published flat bench; both are separate questions.
     parser.add_argument(
         "--relaxation",
         default="FULL",
-        choices=[level.name for level in Relaxation],
-        help="Which tokenizer to read with.",
+        choices=["NONE", "FULL"],
+        help="Which tokenizer to read with: eyecite as published, or relaxed.",
     )
     args = parser.parse_args()
 
