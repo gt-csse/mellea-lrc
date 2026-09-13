@@ -24,12 +24,13 @@ out, and it runs out in four different ways that are one question to a reader --
     one that falls before the case's own first page, is a reading of damage
     rather than a claim.
 
-*   **A page on a reference citation eyecite refused to build.**
-    `extract_pincited_reference_citations` builds a pattern from the parsed
-    party names and `is_valid_name` rejects any name ending in a period -- a
-    rule meant for `Co.` that also rejects every abbreviated party. `Planned
-    Parenthood Minn., N.D., S.D. at 732` is a case name and a page and no
-    citation at all.
+*   **A page on a citation eyecite never searched for.** After reading a full
+    citation, eyecite looks through the rest of the document for the party name
+    followed by a page and builds a citation for what it finds. It will not
+    search for a name ending in a period -- a rule meant to keep `Co.` from
+    being used as a search term, which also rules out every abbreviated party.
+    So `Planned Parenthood Minn., N.D., S.D. at 732` is a case name and a page
+    and no citation at all.
 
 **No rule here decides which**, and none of them decides that the reading is
 wrong. A page of five digits is nearly always converter damage and is
@@ -175,13 +176,17 @@ def _site(text: str, span: Span, record: CitationRecord, note: str) -> Candidate
 def _refused_references(
     document: ExtractedDocument, taken: list[tuple[int, int]]
 ) -> Iterator[Candidate]:
-    """A name and a page, where the name is one eyecite will not build on.
+    """A name and a page, where the name is one eyecite will not search for.
 
-    `is_valid_name` refuses anything ending in a period so that `Co.` is never
-    used as a reference name, and refuses every abbreviated party with it.
-    Where such a name is written again with a page after it and no citation
-    covers the span, the filing has made a page claim that no pattern could
-    reach.
+    After reading a full citation, eyecite looks through the rest of the
+    document for the party name followed by a page -- `Bell at 546` -- and
+    builds a citation for what it finds. It picks the name to search for with
+    `is_valid_name`, which throws out anything ending in a period so that `Co.`
+    is never used as a search term. That also throws out every abbreviated
+    party, so no search is ever made for `Planned Parenthood Minn., N.D., S.D.`
+    and the page claim after it is in no citation at all.
+
+    This does the search eyecite did not, and proposes what it finds.
     """
     text = document.text
     for record in document.citations:
@@ -193,12 +198,12 @@ def _refused_references(
                 getattr(record.stated, "plaintiff", None),
                 getattr(record.stated, "defendant", None),
             )
-            # More than one word, because a one-word party ending in a period is
-            # what `is_valid_name` was written to refuse and is right to: `Co.`
-            # and `Inc.` are suffixes a parse kept when it lost the name in
-            # front of them, and searching a document for either finds every
-            # company in it. `Princeton Univ.` is a name that happens to end in
-            # a suffix, which is the case the rule catches by accident.
+            # More than one word. eyecite's parser sometimes returns a broken
+            # party name -- `Inc.` where the party was `Avante Group, Inc.` --
+            # and searching a document for `Inc.` matches every company in it.
+            # One word ending in a period is almost always a fragment like that,
+            # so it is skipped; `Princeton Univ.` and `Avante Group, Inc.` are
+            # searched for.
             if party and len(party.split()) > 1 and not is_valid_name(party)
         ]
         for party in refused:
