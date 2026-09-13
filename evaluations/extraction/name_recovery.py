@@ -79,8 +79,6 @@ async def review(
     relaxation: Relaxation,
     limit: int | None,
     out: Path | None = None,
-    *,
-    ordered: bool = True,
 ) -> tuple[Counter[str], dict[str, list[str]]]:
     """Run every site in the corpus past a reader and score the answers."""
     counts: Counter[str] = Counter()
@@ -114,7 +112,7 @@ async def review(
             else:
                 counts["unannotated"] += 1
 
-            answer = await adjudicate_case_name(document, site, session=session, ordered=ordered)
+            answer = await adjudicate_case_name(document, site, session=session)
             if out is not None:
                 _record(out, header, text, site, row, want, answer)
             if answer is None:
@@ -245,11 +243,6 @@ def main() -> None:
     parser.add_argument("--relaxation", default="FULL", choices=["NONE", "FULL"], help="Tokenizer.")
     parser.add_argument("--limit", type=int, default=None, help="Sites per document, for a short run.")
     parser.add_argument("--out", type=Path, default=None, help="Write every answer to this JSONL.")
-    parser.add_argument(
-        "--unordered",
-        action="store_true",
-        help="Let a short form stand before the full citation it refers to.",
-    )
     args = parser.parse_args()
 
     if args.out is not None and args.out.exists():
@@ -261,7 +254,6 @@ def main() -> None:
             Relaxation[args.relaxation],
             args.limit,
             args.out,
-            ordered=not args.unordered,
         )
     )
     print(report(counts, detail))
