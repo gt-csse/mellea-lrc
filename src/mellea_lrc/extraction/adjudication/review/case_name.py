@@ -75,9 +75,12 @@ from mellea_lrc.llm import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from mellea import MelleaSession
     from mellea.core.base import Context
 
+    from mellea_lrc.core.record import CitationRecord
     from mellea_lrc.extraction.adjudication.types import Candidate
     from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
 
@@ -323,28 +326,31 @@ def _identity_words(name: str) -> set[str]:
     return {word.lower() for word in _WORD.findall(name) if word.lower() not in _COMMON}
 
 
-def _citation_line(index: int, text: str, citation: ExtractedCitation) -> str:
+def _citation_line(
+    index: int,
+    text: str,
+    citation: ExtractedCitation,
+    records: Mapping[str, CitationRecord] | None = None,
+) -> str:
     """One citation as the reader sees it: its locator, and the best name known.
 
-    The name is the citation's own `case_name` where it has one -- which is the
-    last touch on its log, so a name an earlier site of this pass wrote is the
-    name a later site is shown. That is the only way a patch reaches anything:
-    a root read with no name is unmatchable by name, and repairing it at the
-    mention beside it is what makes the mentions further away readable.
+    The name is the one the record currently states, which is the last thing any
+    reader wrote. That is the only way a correction reaches anything: a root read
+    with no name is unmatchable by name, and repairing it at the mention beside
+    it is what makes the mentions further away readable.
     """
-    known = citation.case_name
+    record = (records or {}).get(citation.citation_id)
+    known = record.stated.case_name if record is not None else citation.case_name
+    parse = record.stated if record is not None else citation.citation
     parties = (
         (known.plaintiff, known.defendant)
         if known is not None
-        else (
-            getattr(citation.citation, "plaintiff", None),
-            getattr(citation.citation, "defendant", None),
-        )
+        else (getattr(parse, "plaintiff", None), getattr(parse, "defendant", None))
     )
     name = (
         " v. ".join(part for part in parties if part)
         or (known.text if known is not None else None)
-        or getattr(citation.citation, "antecedent", None)
+        or getattr(parse, "antecedent", None)
     )
     locator = text[citation.locator_span.start : citation.locator_span.end]
     locator = _REPEATED_INLINE_WHITESPACE.sub(" ", locator.replace("\n", " ")).strip()
@@ -564,6 +570,7 @@ async def adjudicate_case_name(
     site: Candidate,
     *,
     session: MelleaSession | None = None,
+    records: Mapping[str, CitationRecord] | None = None,
 ) -> AdjudicatedCaseName | None:
     """Return what a reader makes of one case-name site, or `None` on a decline.
 

@@ -388,42 +388,56 @@ Three things it cannot, each with an instance on the held-out set:
     the `at 1301` damaged — comes back as a reference with the page claim
     flattened out of it, and the page claim is the thing validation checks.
 
-### A logged field keeps what it held
+### The record: what the rules read, what it is now, and the evidence between
 
-`case_name` is not read once. The rules read it from the offsets eyecite gives;
+A case name is not read once. The rules read it from the offsets eyecite gives;
 a reader asked about a name standing outside every citation may then say the
 name belongs to *this* citation and be right where the rules were not. Keeping
-only the second answer loses which one a measurement is measuring, and keeping
-only the first throws the reader's work away.
+only the second answer loses which one a measurement is measuring; keeping only
+the first throws the reader's work away.
 
-So the field is a log. `ExtractedCitation.field_log` holds every touch in order,
-the first being whatever built the citation — `extraction` for the deterministic
-pass, `adjudication` for a citation a reader proposed — and **the last touch is
-the value**, which `case_name` returns. A name written over `None` is an
-overwrite like any other and reads back as one.
+So the citation the pipeline holds is not the one extraction produced, and
+:class:`~mellea_lrc.core.record.CitationRecord` is where that is written down:
 
-**The value is a `CaseName`, not a span**: where the name is, the characters at
-that position as the document holds them, and the two parties repaired. Four
-things that go out of step if they are stored apart, which is what the parties
-show. On corpus document 006 the layer writes four names, and eyecite had read:
+```
+CitationRecord
+├── citation_id                  never changes
+├── source:  Citation            frozen. exactly what the rules read
+├── stated:  Citation            the same citation as currently read
+├── found:   Resolution | None   what an archive holds        (validation's)
+├── root_id / authority_id       what extraction read / what a lookup found
+└── trace:   tuple[Node, ...]    evidence, and the corrections it justified
+```
 
-| citation | eyecite's parties | the reader's |
-|---|---|---|
-| `2007 WL 1430100` | `Boeser` / `Sharp ,  No. CIVA03CV00031WDMMEH` | `Boeser` / `Sharp` |
-| `2013 WL 1658203` | `None` / `Cnty. of Bernalillo , No. CIV 11-0107 JB/KBM` | `Solis-Marrufo` / `Bd. of Comm'rs for Cnty. of Bernalillo` |
-| `742 F.3d 104` | `None` / `Hassan` | `United States` / `Hassan` |
-| `2019 WL 1085179` | no name at all | `Rivero` / `Bd. of Regents of Univ. of New Mexico` |
+Four rules, and between them they are the whole design.
 
-A docket number swallowed into a party, a plaintiff dropped, a name truncated —
-each repaired, and each repair is what a rule-based check in validation compares
-against a record. Recording the span alone threw all of it away. The parse on
-`citation` is left exactly as it was read, so the two can be compared; this is
-the best reading of the name.
+**`source` is never touched**, so the diff against `stated` is exactly what was
+changed. They are the same type, so it compares field by field.
 
-The log is mutable and shared by reference, so `dataclasses.replace` — which is
-how a citation gains a `root_id` or a `colocation_id` — carries the history
-rather than reopening it. It serializes with the citation, so a document written
-to disk keeps it, and a payload written before it reads back as one touch.
+**A change lives inside the evidence for it.** A `Correction` is a field of the
+`Node` that justified it, so a change with no evidence is not something that can
+be built rather than something checked for. `record.corrections` reads them back
+in order, and the state at any point is a fold over a prefix of the trace --
+which is what an evaluation slices on, and what an as-of read is.
+
+**What the filing states and what an archive holds are kept apart.** `stated` is
+only ever the filing's reading; an archive's answer goes on `found`. A filing
+citing the right case under the wrong year keeps its wrong year on `stated` and
+gets the right one on `found`, and the disagreement between them is the finding.
+
+**A node is named for what it read, not for the stage that ran it.** `reads` is
+`DOCUMENT` or `RECORD`, and that is what decides where it may write: document
+evidence corrects `stated`, record evidence settles `found`. A model re-reading
+a name from the filing's own text produces document evidence whether it runs in
+the case-name layer or inside identity -- those are the same operation, and only
+`stage` differs.
+
+On corpus document 006 the case-name layer corrects four names, and the parties
+are where the repair shows: eyecite read `Boeser` / `Sharp ,  No.
+CIVA03CV00031WDMMEH`, and the reader writes `Boeser` / `Sharp`; it read no
+plaintiff for `Hassan`, and the reader writes `United States` against it. Each
+correction carries the reader's own sentence for why, and what it replaced is
+still on `source`.
 
 ### Where the held-out gap actually is, after the layer
 

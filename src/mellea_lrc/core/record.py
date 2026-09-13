@@ -42,7 +42,6 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from mellea_lrc.core.case_names import CaseName
     from mellea_lrc.core.citations import CanonicalCitation
     from mellea_lrc.extraction.types import ExtractedCitation
 
@@ -62,7 +61,7 @@ class Correction:
     """One change to the filing's reading, on the node that justified it."""
 
     field: str
-    """Which field of `stated` changed: `citation`, `case_name`."""
+    """Which field of the citation changed: `case_name`, `court`, `pin_cite`."""
 
     before: Any
     after: Any
@@ -105,19 +104,6 @@ class Node:
 
 
 @dataclass(frozen=True, slots=True)
-class StatedCitation:
-    """What the filing states, as currently read.
-
-    Thin on purpose. It holds the parse and the name because those are what a
-    reader corrects; where the citation is written stays on `source`, which is
-    the anchor every span indexes and the one thing that must not move.
-    """
-
-    citation: CanonicalCitation
-    case_name: CaseName | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class Resolution:
     """What an archive holds at the identity the filing cited. Validation fills it."""
 
@@ -133,8 +119,15 @@ class Resolution:
 class CitationRecord:
     """One citation's current state, its original, and the trace between them."""
 
-    source: ExtractedCitation
-    stated: StatedCitation
+    source: CanonicalCitation
+    """What the rules read, frozen. Never touched, so the diff is readable."""
+
+    stated: CanonicalCitation
+    """The same citation as currently read. The same type, so they compare field
+    by field: `source.case_name` against `stated.case_name` is the whole of what
+    a reader changed."""
+
+    citation_id: str = ""
     root_id: str | None = None
     """The root this citation belongs to, as extraction read it. Never rewritten."""
 
@@ -148,15 +141,11 @@ class CitationRecord:
     def from_extracted(cls, source: ExtractedCitation) -> CitationRecord:
         """Start a record from what the rules produced, unchanged."""
         return cls(
-            source=source,
-            stated=StatedCitation(citation=source.citation, case_name=source.case_name),
+            source=source.citation,
+            stated=source.citation,
+            citation_id=source.citation_id,
             root_id=source.root_id,
         )
-
-    @property
-    def citation_id(self) -> str:
-        """The identifier extraction assigned, which never changes."""
-        return self.source.citation_id
 
     @property
     def corrections(self) -> tuple[Correction, ...]:
