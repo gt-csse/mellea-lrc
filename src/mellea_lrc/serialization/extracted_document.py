@@ -21,6 +21,7 @@ from mellea_lrc.core.citations import (
     citation_kind,
 )
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
+from mellea_lrc.core.field_log import FieldLog, FieldTouch
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.extraction.types import (
@@ -72,6 +73,9 @@ def serialize_extracted_document(document: ExtractedDocument) -> dict[str, JsonV
                 "case_name_span": (
                     serialize_dataclass(citation.case_name_span) if citation.case_name_span else None
                 ),
+                # The value above is the last of these. Both are written because
+                # a reader wants the value and a review wants the history.
+                "field_log": _serialize_field_log(citation.field_log),
                 "citation": {
                     "citation_type": citation_kind(citation.citation).value,
                     **serialize_dataclass(citation.citation),
@@ -165,11 +169,52 @@ def _deserialize_citation(value: object) -> ExtractedCitation:
         matched_text=_required_string(payload.get("matched_text"), name="citation.matched_text"),
         citation=citation_type(**citation_fields),
         pin_cite_span=_optional_span(payload.get("pin_cite_span"), name="citation.pin_cite_span"),
-        case_name_span=_optional_span(payload.get("case_name_span"), name="citation.case_name_span"),
+        case_name_read=_optional_span(payload.get("case_name_span"), name="citation.case_name_span"),
+        field_log=_field_log(payload.get("field_log")),
         resolves_to=_optional_string(payload.get("resolves_to"), name="citation.resolves_to"),
         root_id=_optional_string(payload.get("root_id"), name="citation.root_id"),
         colocation_id=_optional_string(payload.get("colocation_id"), name="citation.colocation_id"),
     )
+
+
+def _serialize_field_log(log: FieldLog) -> dict[str, list[dict[str, object]]]:
+    """Every touch on every logged field, in order."""
+    return {
+        field: [
+            {
+                "by": touch.by,
+                "value": serialize_dataclass(touch.value) if touch.value is not None else None,
+                "reason": touch.reason,
+            }
+            for touch in log.history(field)
+        ]
+        for field in log.fields()
+    }
+
+
+def _field_log(value: object) -> FieldLog:
+    """Rebuild a log from a payload, or an empty one for a payload written before it.
+
+    An empty log is opened by `ExtractedCitation` from `case_name_span`, so a
+    document serialized before this field existed still reads back with a
+    history of one touch: what the rules read.
+    """
+    if not isinstance(value, dict):
+        return FieldLog()
+    touches: dict[str, list[FieldTouch]] = {}
+    for field, entries in value.items():
+        if not isinstance(field, str) or not isinstance(entries, list):
+            continue
+        touches[field] = [
+            FieldTouch(
+                by=_required_string(entry.get("by"), name="citation.field_log.by"),
+                value=_optional_span(entry.get("value"), name="citation.field_log.value"),
+                reason=_optional_string(entry.get("reason"), name="citation.field_log.reason"),
+            )
+            for entry in entries
+            if isinstance(entry, dict)
+        ]
+    return FieldLog(touches)
 
 
 def _optional_span(value: object, *, name: str) -> Span | None:
