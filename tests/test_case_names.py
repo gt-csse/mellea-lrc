@@ -14,6 +14,16 @@ import io
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 
 
+def _names(text: str) -> list[str | None]:
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        document = extract_from_plain_text(text, relaxation=Relaxation.FULL)
+    out: list[str | None] = []
+    for citation in document.citations:
+        span = citation.case_name_span
+        out.append(None if span is None else text[span.start : span.end])
+    return out
+
+
 def _name(text: str) -> str | None:
     # Eyecite writes overlap diagnostics to stdout on some inputs.
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -71,3 +81,38 @@ def test_the_party_is_not_taken_from_the_sentence_before_it() -> None:
     """Only a capitalised word touching the `v.` is the missing party."""
     text = "The court so held. v. Jones , 465 U.S. 783, 789 (1984)."
     assert _name(text) == "v. Jones"
+
+
+def test_a_period_inside_a_name_is_not_a_sentence_boundary() -> None:
+    """`N.C.`, `Atl.` and `Inc.` end a word, and cutting there loses the party."""
+    assert _name("Bell Atl. Corp. v. Twombly, 550 U.S. 544, 570 (2007).") == "Bell Atl. Corp. v. Twombly"
+    text = "Robinson v. N.C. Farm Bureau Ins. Co. , 86 N.C. App. 44, 46 (1987)."
+    assert _name(text) == "Robinson v. N.C. Farm Bureau Ins. Co."
+
+
+def test_a_heading_in_front_of_the_name_is_not_part_of_it() -> None:
+    text = "Case Law: Sedima, S.P.R.L. v. Imrex Co. , 473 U.S. 479 (1985)."
+    assert _name(text) == "Sedima, S.P.R.L. v. Imrex Co."
+
+
+def test_the_second_of_two_citations_written_together_keeps_its_own_name() -> None:
+    """eyecite opens the second span back at the first citation's name."""
+    text = (
+        "Ashcroft v. Iqbal, 556 U.S. 662 (2009), and Bell Atlantic Corp. v. Twombly"
+        " , 550 U.S. 544 (2007) both apply."
+    )
+    assert _names(text) == ["Ashcroft v. Iqbal", "Bell Atlantic Corp. v. Twombly"]
+
+
+def test_a_parallel_citation_still_reaches_back_to_the_shared_name() -> None:
+    """One name, two reporters: the second has no name of its own in between."""
+    text = "State v. Peters , 231 Kan. 595, 598, 647 P.2d 1288 (1982)."
+    assert _names(text) == ["State v. Peters", "State v. Peters"]
+
+
+def test_the_number_of_a_list_is_not_part_of_the_name() -> None:
+    assert _name("1) In Garrett v. Selby Connor , 425 F.3d 836, 840 (10th Cir. 2005).") == (
+        "Garrett v. Selby Connor"
+    )
+    text = "(ERISA). In Womack v. City of Tulsa , 522 P.3d 508, 511 (Okla. 2022)."
+    assert _name(text) == "Womack v. City of Tulsa"

@@ -368,6 +368,8 @@ def extract_citations(
     antecedent_map = _build_antecedent_map(resolutions, citation_ids)
 
     extracted: list[ExtractedCitation] = []
+    # Where the citation before this one stopped, so a name cannot open inside it.
+    name_floor = 0
     for eyecite_citation, citation_id in citation_ids:
         span_start, span_end = eyecite_citation.full_span()
         locator_start, locator_end = _locator_bounds(eyecite_citation)
@@ -384,10 +386,11 @@ def extract_citations(
                 pin_cite_span=locate_pin_cite(
                     text, canonical, locator_span=locator_span, full_span=full_span
                 ),
-                case_name_span=locate_case_name(text, eyecite_citation, locator_span),
+                case_name_span=locate_case_name(text, eyecite_citation, locator_span, floor=name_floor),
                 resolves_to=antecedent_map.get(citation_id),
             )
         )
+        name_floor = max(name_floor, eyecite_citation.full_span()[1])
 
     # The passes over the citation list are ordered, and one reads what another
     # writes. See :mod:`mellea_lrc.extraction.stages` for the sequence and the
