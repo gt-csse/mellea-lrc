@@ -9,7 +9,7 @@ from mellea_lrc.courtlistener.opinion_models import (
     CourtListenerOpinionCluster,
     CourtListenerOpinionClusterCitation,
 )
-from mellea_lrc.extraction import ExtractedCitation
+from mellea_lrc.extraction import CitationRecord
 from mellea_lrc.validation.pinpoint_retrieval import run_reporter_page_retrieval
 from mellea_lrc.validation.pinpoint_retrieval.reporter_page import extract_reporter_page
 from mellea_lrc.validation.types import (
@@ -40,9 +40,9 @@ def _validation(
     cluster_reporter: str = "F.3d",
     sub_opinion_ids: tuple[str, ...] = ("lead", "combined"),
 ) -> tuple[CitationValidation, CandidateEvaluationNode]:
-    extracted = ExtractedCitation(
+    extracted = CitationRecord(
         citation_id="cite-1",
-        citation=placed(
+        source=placed(
             FullCaseCitation(
                 volume="376",
                 reporter=reporter,

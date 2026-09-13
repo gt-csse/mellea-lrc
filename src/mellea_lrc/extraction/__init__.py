@@ -59,14 +59,14 @@ from mellea_lrc.extraction.find_full_reporter_locators import find_full_reporter
 from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.extraction.resolve_colocations import resolve_colocations
 from mellea_lrc.extraction.types import (
-    ExtractedCitation,
+    CitationRecord,
     ExtractedDocument,
     ExtractionBackend,
     ExtractionMetadata,
 )
 
 __all__ = [
-    "ExtractedCitation",
+    "CitationRecord",
     "ExtractedDocument",
     "ExtractionBackend",
     "ExtractionMetadata",

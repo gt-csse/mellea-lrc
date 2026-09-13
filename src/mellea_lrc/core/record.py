@@ -42,8 +42,10 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from mellea_lrc.core.case_names import CaseName
     from mellea_lrc.core.citations import CanonicalCitation
-    from mellea_lrc.extraction.types import ExtractedCitation
+    from mellea_lrc.core.pin_cites import PinCitePages
+    from mellea_lrc.core.spans import Span
 
 
 class Reads(str, Enum):
@@ -117,19 +119,50 @@ class Resolution:
 
 @dataclass(slots=True)
 class CitationRecord:
-    """One citation's current state, its original, and the trace between them."""
+    """One citation: what the rules read, what it is now, and the evidence between.
 
+    This is the unit a document holds. There is no separate "extracted
+    citation": a citation and its history are one object from the moment the
+    rules produce it, which is what lets a reader's answer reach the next reader
+    instead of being thrown away.
+    """
+
+    citation_id: str
     source: CanonicalCitation
     """What the rules read, frozen. Never touched, so the diff is readable."""
 
-    stated: CanonicalCitation
-    """The same citation as currently read. The same type, so they compare field
-    by field: `source.case_name` against `stated.case_name` is the whole of what
-    a reader changed."""
+    stated: CanonicalCitation = None  # type: ignore[assignment]
+    """The same citation as currently read.
 
-    citation_id: str = ""
+    The same type as `source`, so they compare field by field:
+    `source.case_name` against `stated.case_name` is the whole of what a reader
+    changed. Defaults to `source`, which is what a citation nobody has read yet
+    states.
+    """
+
+    resolves_to: str | None = None
     root_id: str | None = None
-    """The root this citation belongs to, as extraction read it. Never rewritten."""
+    """The citation that stated the identifier this one refers to.
+
+    A **root** is an identifier the filing states -- a claim about which case it
+    means -- given once in full and returned to as `Id. at 570`,
+    `550 U.S. at 563` or by party name, each return being its own claim about
+    its own page. This carries which root, so a consumer does not have to
+    rebuild the chain, and so a corrected attribution survives, which a chain of
+    `resolves_to` cannot express.
+
+    `None` means **not attributed**, which is a real answer and usually the
+    right one.
+    """
+
+    colocation_id: str | None = None
+    """Shared by citations occupying the same place in the text.
+
+    A filing citing an authority in parallel writes several identifiers for one
+    citation, and eyecite extracts each separately. Citations carrying the same
+    `colocation_id` are candidates for reaching one authority -- **candidates,
+    not a finding**. See :mod:`mellea_lrc.extraction.structure.colocation`.
+    """
 
     authority_id: str | None = None
     """The authority the root was established to reach. `None` until a lookup settles it."""
@@ -137,15 +170,9 @@ class CitationRecord:
     found: Resolution | None = None
     trace: tuple[Node, ...] = field(default_factory=tuple)
 
-    @classmethod
-    def from_extracted(cls, source: ExtractedCitation) -> CitationRecord:
-        """Start a record from what the rules produced, unchanged."""
-        return cls(
-            source=source.citation,
-            stated=source.citation,
-            citation_id=source.citation_id,
-            root_id=source.root_id,
-        )
+    def __post_init__(self) -> None:
+        if self.stated is None:
+            self.stated = self.source
 
     @property
     def corrections(self) -> tuple[Correction, ...]:
@@ -157,12 +184,54 @@ class CitationRecord:
         """The authority this citation belongs to: the one a lookup found, else its root."""
         return self.authority_id or self.root_id
 
+    @property
+    def full_span(self) -> Span:
+        """The citation's whole extent: name, locator, pin cite, parenthetical."""
+        return self._span("span")
+
+    @property
+    def locator_span(self) -> Span:
+        """The minimum sufficient identifier -- volume, reporter and page.
+
+        Named apart from `full_span` because the two answer different questions:
+        this is what a lookup resolves, that is what a reader is shown.
+        """
+        return self._span("locator_span")
+
+    @property
+    def matched_text(self) -> str:
+        """The characters the parse matched, as eyecite read them."""
+        return self.stated.matched_text or ""
+
+    @property
+    def case_name(self) -> CaseName | None:
+        """The name this citation is currently read under."""
+        return self.stated.case_name
+
+    @property
+    def case_name_span(self) -> Span | None:
+        """Where that name is written, for a reader that wants only the position."""
+        name = self.stated.case_name
+        return name.span if name is not None else None
+
+    @property
+    def pin_cite_span(self) -> Span | None:
+        """Where the pin cite was read from, or `None` when it states none."""
+        pin_cite = getattr(self.stated, "pin_cite", None)
+        return pin_cite.span if pin_cite is not None else None
+
+    @property
+    def pin_cite_pages(self) -> tuple[PinCitePages, ...]:
+        """Which pages the pin cite claims, or `()` when it states none."""
+        pin_cite = getattr(self.stated, "pin_cite", None)
+        return pin_cite.pages if pin_cite is not None else ()
+
     def observe(self, node: Node) -> Node:
         """Add one node to the trace, returning it so a caller can depend on it.
 
-        Corrections travel on the node, so a node that changes something is
-        appended already carrying what it changed, and `stated` is brought up to
-        it here. There is no way to correct without leaving the evidence.
+        Corrections travel on the node, so a node that changes something arrives
+        already carrying what it changed, and `stated` is brought up to it here.
+        There is no way to correct without leaving the evidence.
         """
         self.trace = (*self.trace, node)
         for correction in node.corrections:
@@ -172,10 +241,16 @@ class CitationRecord:
     def correcting(self, node: Node, field_name: str, value: Any, *, reason: str) -> Node:
         """The same node, carrying a correction to one field of `stated`.
 
-        A convenience for the common case: read the value the record holds, and
-        return the node with the change attached. `None` over a value and a
-        value over `None` are both changes and both are recorded.
+        `None` over a value and a value over `None` are both changes and both
+        are recorded.
         """
         before = getattr(self.stated, field_name)
         correction = Correction(field=field_name, before=before, after=value, reason=reason)
         return replace(node, corrections=(*node.corrections, correction))
+
+    def _span(self, name: str) -> Span:
+        span = getattr(self.stated, name)
+        if span is None:
+            msg = f"Citation {self.citation_id!r} was read without a {name}"
+            raise ValueError(msg)
+        return span

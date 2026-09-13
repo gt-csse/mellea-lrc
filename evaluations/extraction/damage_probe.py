@@ -133,7 +133,7 @@ async def main_async() -> int:
 
     read: dict[str, str] = {}
     for item in document.citations:
-        if isinstance(item.citation, FullCaseCitation | ShortCaseCitation):
+        if isinstance(item.stated, FullCaseCitation | ShortCaseCitation):
             case = _case_of(item.locator_span.start)
             if case:
                 read[case.label] = item.matched_text

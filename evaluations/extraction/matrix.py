@@ -123,7 +123,7 @@ def _court_written_but_unrecorded(text: str, document: ExtractedDocument) -> int
     """Citations whose parenthetical names a court that was not recorded."""
     missed = 0
     for item in document.citations:
-        citation = item.citation
+        citation = item.stated
         if not isinstance(citation, FullCaseCitation) or citation.court:
             continue
         tail = text[item.locator_span.end : item.locator_span.end + 70]
@@ -150,7 +150,7 @@ def _measure(text: str, document: ExtractedDocument) -> dict[str, int]:
     )
     citations = list(document.citations)
     for item in citations:
-        citation = item.citation
+        citation = item.stated
         if citation.kind is CitationKind.DOCKET:
             counts["dockets"] += 1
         if not isinstance(citation, FullCaseCitation):
@@ -209,7 +209,7 @@ def run(directory: Path, arm: Arm, *, truth: dict[str, set[tuple[int, int]]] | N
                 found[path.name] = {
                     (item.locator_span.start, item.locator_span.end)
                     for item in document.citations
-                    if isinstance(item.citation, FullCaseCitation)
+                    if isinstance(item.stated, FullCaseCitation)
                 }
     if truth is not None:
         stated = {(d, s, e) for d, spans in truth.items() for s, e in spans}

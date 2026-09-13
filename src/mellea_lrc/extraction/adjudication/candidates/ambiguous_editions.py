@@ -41,7 +41,7 @@ def ambiguous_editions(document: ExtractedDocument) -> Iterator[Candidate]:
     """Propose citations whose reporter abbreviation names several reporters."""
     text = document.text
     for item in document.citations:
-        reporter = getattr(item.citation, "reporter", None)
+        reporter = getattr(item.stated, "reporter", None)
         if reporter is None or len(reporter.editions) < 2:
             continue
         yield Candidate(

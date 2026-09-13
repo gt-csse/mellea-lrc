@@ -13,7 +13,6 @@ from mellea_lrc.core.case_names import CaseName
 from mellea_lrc.core.citations import FullCaseCitation, placed
 from mellea_lrc.core.record import CitationRecord, Correction, Node, Reads
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.types import ExtractedCitation
 
 READ = CaseName(span=Span(start=0, end=6), text="Hassan", defendant="Hassan")
 FULLER = CaseName(
@@ -25,17 +24,15 @@ FULLER = CaseName(
 
 
 def _record() -> CitationRecord:
-    return CitationRecord.from_extracted(
-        ExtractedCitation(
-            citation_id="c1",
-            citation=placed(
-                FullCaseCitation(volume="742", reporter="F.3d", page="104"),
-                span=Span(start=0, end=30),
-                locator_span=Span(start=9, end=21),
-                matched_text="742 F.3d 104",
-                case_name=READ,
-            ),
-        )
+    return CitationRecord(
+        citation_id="c1",
+        source=placed(
+            FullCaseCitation(volume="742", reporter="F.3d", page="104"),
+            span=Span(start=0, end=30),
+            locator_span=Span(start=9, end=21),
+            matched_text="742 F.3d 104",
+            case_name=READ,
+        ),
     )
 
 

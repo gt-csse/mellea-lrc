@@ -60,12 +60,12 @@ def test_a_site_needing_only_a_re_read_costs_no_call() -> None:
     citation = reread_site(_CAPS, _site(_CAPS, "F.4TH"))
 
     assert citation is not None
-    assert isinstance(citation.citation, FullCaseCitation)
-    assert citation.citation.volume == "33"
-    assert citation.citation.reporter.canonical == "F.4th"
-    assert citation.citation.page == "693"
-    assert citation.citation.date.year == "2022"
-    assert citation.citation.court == "ca2"
+    assert isinstance(citation.stated, FullCaseCitation)
+    assert citation.stated.volume == "33"
+    assert citation.stated.reporter.canonical == "F.4th"
+    assert citation.stated.page == "693"
+    assert citation.stated.date.year == "2022"
+    assert citation.stated.court == "ca2"
 
 
 def test_a_re_read_span_indexes_the_original_document() -> None:
@@ -121,9 +121,9 @@ def test_promoting_a_reviewed_locator_repairs_it_and_parses_the_result() -> None
     )
 
     assert citation is not None
-    assert isinstance(citation.citation, FullCaseCitation)
-    assert citation.citation.page == "662"
-    assert citation.citation.date.year == "2009"
+    assert isinstance(citation.stated, FullCaseCitation)
+    assert citation.stated.page == "662"
+    assert citation.stated.date.year == "2009"
     # The record points at the characters the document holds, never at a repair.
     assert _PUNCTUATION[citation.locator_span.start : citation.locator_span.end] == "556 U,S, 662"
     assert citation.matched_text == "556 U,S, 662"

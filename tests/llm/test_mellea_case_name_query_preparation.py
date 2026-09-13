@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 from mellea_lrc.core.citations import FullCaseCitation, placed
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction import ExtractedCitation
+from mellea_lrc.extraction import CitationRecord
 from mellea_lrc.validation import (
     CitationValidation,
     MelleaCaseNameReextractionNode,
@@ -47,9 +47,9 @@ def test_mellea_case_name_query_preparation(
     accepted_terms: Collection[tuple[str, str]],
 ) -> None:
     """Prepare concise, faithful search terms from two case parties."""
-    citation = ExtractedCitation(
+    citation = CitationRecord(
         citation_id="live-case-name-query",
-        citation=placed(
+        source=placed(
             FullCaseCitation(court="scotus"), span=Span(0, 1), locator_span=Span(0, 1), matched_text="x"
         ),
     )

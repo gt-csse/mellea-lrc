@@ -23,10 +23,11 @@ from mellea_lrc.core.citations import (
 )
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.core.pin_cites import PinCite
+from mellea_lrc.core.record import CitationRecord, Correction, Node, Reads
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.extraction.types import (
-    ExtractedCitation,
+    CitationRecord,
     ExtractedDocument,
     ExtractionBackend,
     ExtractionMetadata,
@@ -37,19 +38,24 @@ from mellea_lrc.preprocessing.types import (
 )
 from mellea_lrc.serialization._json import JsonValue, require_list, require_mapping, serialize_dataclass
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 """What an artifact of this shape is called, so a reader refuses one it cannot read.
 
-Version 10 is what a citation became when it started carrying its own position.
+Version 11 is the citation record. A document holds records rather than
+extracted citations, and each entry is::
 
-A citation entry is now ``citation_id``, ``citation``, and the three fields that
-belong to its place in a *document* rather than to the citation -- ``resolves_to``,
-``root_id``, ``colocation_id``. Everything else moved **inside** ``citation``,
-where it is written once: ``span``, ``locator_span``, ``matched_text``,
-``case_name`` as a whole name rather than a bare span, and ``pin_cite`` as the
-written form with its position and the pages it claims. Version 8 wrote most of
-those beside the citation, where a reading and the position it was read from
-could go out of step -- which is what happened when a reader repaired a name.
+    citation_id            what this pass assigned, which never changes
+    source                 the citation as the rules read it, frozen
+    stated                 the same citation as currently read
+    resolves_to, root_id, colocation_id
+    authority_id, found    filled by validation, absent until then
+    trace                  every node, and the corrections it justified
+
+`source` and `stated` are the same shape, so a reader diffs them field by field
+to see what was changed and why. Both carry their own position -- ``span``,
+``locator_span``, ``matched_text``, ``case_name`` and ``pin_cite`` are fields of
+the citation, written once, because a reading and the position it was read from
+go out of step the moment they are stored apart.
 """
 _ARTIFACT_TYPE = "extracted_document"
 
@@ -74,16 +80,7 @@ def serialize_extracted_document(document: ExtractedDocument) -> dict[str, JsonV
         "source_metadata": serialize_dataclass(document.source_metadata),
         "text": document.text,
         "preprocessing_metadata": serialize_dataclass(document.preprocessing_metadata),
-        "citations": [
-            {
-                "citation_id": citation.citation_id,
-                "citation": _serialize_citation(citation.citation),
-                "resolves_to": citation.resolves_to,
-                "root_id": citation.root_id,
-                "colocation_id": citation.colocation_id,
-            }
-            for citation in document.citations
-        ],
+        "citations": [_serialize_record(record) for record in document.citations],
         "unread_case_names": [serialize_dataclass(span) for span in document.unread_case_names],
         "extraction_metadata": serialize_dataclass(document.extraction_metadata),
     }
@@ -139,34 +136,127 @@ def deserialize_extracted_document(payload: Mapping[str, object]) -> ExtractedDo
     )
 
 
-def _deserialize_citation(payload: Mapping[str, object]) -> ExtractedCitation:
-    """One citation, from the one place the artifact writes it."""
-    citation_payload = require_mapping(payload.get("citation"), name="citation.citation")
-    kind = CitationKind(
-        _required_string(citation_payload.get("citation_type"), name="citation.citation_type")
+def _deserialize_citation(payload: Mapping[str, object]) -> CitationRecord:
+    """One record: what the rules read, what it is now, and the trace between."""
+    source = _read_citation(payload.get("source"), name="citation.source")
+    stated_payload = payload.get("stated")
+    return CitationRecord(
+        citation_id=_required_string(payload.get("citation_id"), name="citation.citation_id"),
+        source=source,
+        stated=(
+            _read_citation(stated_payload, name="citation.stated")
+            if isinstance(stated_payload, Mapping)
+            else source
+        ),
+        resolves_to=_optional_string(payload.get("resolves_to"), name="citation.resolves_to"),
+        root_id=_optional_string(payload.get("root_id"), name="citation.root_id"),
+        colocation_id=_optional_string(payload.get("colocation_id"), name="citation.colocation_id"),
+        authority_id=_optional_string(payload.get("authority_id"), name="citation.authority_id"),
+        trace=_read_trace(payload.get("trace")),
     )
+
+
+def _serialize_record(record: CitationRecord) -> dict[str, object]:
+    """A record, with `stated` written only where it differs from `source`."""
+    return {
+        "citation_id": record.citation_id,
+        "source": _serialize_citation(record.source),
+        **({"stated": _serialize_citation(record.stated)} if record.stated != record.source else {}),
+        "resolves_to": record.resolves_to,
+        "root_id": record.root_id,
+        "colocation_id": record.colocation_id,
+        **({"authority_id": record.authority_id} if record.authority_id else {}),
+        **({"trace": [_serialize_node(node) for node in record.trace]} if record.trace else {}),
+    }
+
+
+def _serialize_node(node: Node) -> dict[str, object]:
+    """One node, and the corrections it justified."""
+    return {
+        "node_id": node.node_id,
+        "reads": node.reads.value,
+        "stage": node.stage,
+        "made_by": node.made_by,
+        "outcome": node.outcome,
+        "message": node.message,
+        "depends_on": list(node.depends_on),
+        "corrections": [
+            {
+                "field": correction.field,
+                "before": _serialize_value(correction.before),
+                "after": _serialize_value(correction.after),
+                "reason": correction.reason,
+            }
+            for correction in node.corrections
+        ],
+    }
+
+
+def _serialize_value(value: object) -> object:
+    """A corrected field's value, whatever kind of thing it is."""
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, CaseName):
+        return _serialize_case_name(value)
+    if isinstance(value, PinCite):
+        return _serialize_pin_cite(value)
+    return serialize_dataclass(value)
+
+
+def _read_value(field: str, value: object) -> object:
+    """The same, back. Which field it is says what shape to read it as."""
+    if field == "case_name":
+        return _read_case_name(value, name="citation.trace.correction")
+    if field == "pin_cite":
+        return _read_pin_cite(value)
+    return value
+
+
+def _read_trace(value: object) -> tuple[Node, ...]:
+    """Every node on a record, in the order they happened."""
+    if not isinstance(value, list):
+        return ()
+    return tuple(
+        Node(
+            node_id=_required_string(entry.get("node_id"), name="citation.trace.node_id"),
+            reads=Reads(_required_string(entry.get("reads"), name="citation.trace.reads")),
+            stage=_required_string(entry.get("stage"), name="citation.trace.stage"),
+            made_by=_required_string(entry.get("made_by"), name="citation.trace.made_by"),
+            outcome=_required_string(entry.get("outcome"), name="citation.trace.outcome"),
+            message=_optional_string(entry.get("message"), name="citation.trace.message"),
+            depends_on=tuple(entry.get("depends_on") or ()),
+            corrections=tuple(
+                Correction(
+                    field=_required_string(item.get("field"), name="citation.trace.field"),
+                    before=_read_value(str(item.get("field")), item.get("before")),
+                    after=_read_value(str(item.get("field")), item.get("after")),
+                    reason=_required_string(item.get("reason"), name="citation.trace.reason"),
+                )
+                for item in (entry.get("corrections") or [])
+                if isinstance(item, Mapping)
+            ),
+        )
+        for entry in value
+        if isinstance(entry, Mapping)
+    )
+
+
+def _read_citation(value: object, *, name: str) -> CanonicalCitation:
+    """One citation, from the one place the artifact writes it."""
+    citation_payload = require_mapping(value, name=name)
+    kind = CitationKind(_required_string(citation_payload.get("citation_type"), name=f"{name}.citation_type"))
     fields = {key: value for key, value in citation_payload.items() if key != "citation_type"}
-    # Everything that is an object rather than a string has to be rebuilt.
-    for name, rebuild in (
-        ("date", _deserialize_date),
-        ("reporter", _deserialize_reporter),
-    ):
-        if isinstance(fields.get(name), Mapping):
-            fields[name] = rebuild(fields[name])
-    for name in ("span", "locator_span"):
-        fields[name] = _optional_span(fields.get(name), name=f"citation.{name}")
-    fields["case_name"] = _read_case_name(fields.get("case_name"), name="citation.case_name")
+    for field_name, rebuild in (("date", _deserialize_date), ("reporter", _deserialize_reporter)):
+        if isinstance(fields.get(field_name), Mapping):
+            fields[field_name] = rebuild(fields[field_name])
+    for field_name in ("span", "locator_span"):
+        fields[field_name] = _optional_span(fields.get(field_name), name=f"{name}.{field_name}")
+    fields["case_name"] = _read_case_name(fields.get("case_name"), name=f"{name}.case_name")
     # `UnknownCitation` states no pin cite at all, so the key is not written for
     # it and must not be invented here.
     if "pin_cite" in fields:
         fields["pin_cite"] = _read_pin_cite(fields["pin_cite"])
-    return ExtractedCitation(
-        citation_id=_required_string(payload.get("citation_id"), name="citation.citation_id"),
-        citation=_CITATION_TYPES[kind](**fields),
-        resolves_to=_optional_string(payload.get("resolves_to"), name="citation.resolves_to"),
-        root_id=_optional_string(payload.get("root_id"), name="citation.root_id"),
-        colocation_id=_optional_string(payload.get("colocation_id"), name="citation.colocation_id"),
-    )
+    return _CITATION_TYPES[kind](**fields)
 
 
 def _serialize_citation(citation: CanonicalCitation) -> dict[str, object]:

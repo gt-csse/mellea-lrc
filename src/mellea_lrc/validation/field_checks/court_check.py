@@ -23,7 +23,7 @@ def run_court_check(
     evidence: CandidateEvaluationNode | DocketCourtRetrievalNode,
 ) -> CourtCheckNode:
     """Compare Eyecite's normalized court ID with retrieved candidate evidence."""
-    citation = validation.citation.citation
+    citation = validation.citation.stated
     extracted = citation.court if isinstance(citation, FullCaseCitation) else None
     retrieved = evidence.court_id
     if extracted is None or retrieved is None:

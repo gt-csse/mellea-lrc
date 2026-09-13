@@ -62,7 +62,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from mellea_lrc.extraction.types import ExtractedCitation
+    from mellea_lrc.extraction.types import CitationRecord
 
 # What kind of thing a citation names. Only a citation that names an authority
 # outright can be one of several identifiers for it -- a short form or an `id.`
@@ -80,9 +80,9 @@ _NAMES = {
 }
 
 
-def _reporter(citation: ExtractedCitation) -> str:
+def _reporter(citation: CitationRecord) -> str:
     """The citation's reporter, normalised so spacing does not split a group."""
-    return "".join(str(getattr(citation.citation, "reporter", "") or "").split()).lower()
+    return "".join(str(getattr(citation.stated, "reporter", "") or "").split()).lower()
 
 
 # Parallel citations share a full span to within a character: eyecite yields
@@ -102,7 +102,7 @@ _SPAN_SLACK = 2
 _ANOTHER_CITATION = re.compile(r"…|\.{2,}|\bvs?\.")
 
 
-def _co_located(text: str, left: ExtractedCitation, right: ExtractedCitation) -> bool:
+def _co_located(text: str, left: CitationRecord, right: CitationRecord) -> bool:
     """Whether two citations occupy the same span, to within a character or two."""
     if (
         abs(left.full_span.start - right.full_span.start) > _SPAN_SLACK
@@ -114,17 +114,17 @@ def _co_located(text: str, left: ExtractedCitation, right: ExtractedCitation) ->
     return not _ANOTHER_CITATION.search(between)
 
 
-def colocation_groups(text: str, citations: Sequence[ExtractedCitation]) -> list[list[ExtractedCitation]]:
+def colocation_groups(text: str, citations: Sequence[CitationRecord]) -> list[list[CitationRecord]]:
     """Return each set of two or more citations occupying the same place.
 
     A group is built by overlap and then rejected if any reporter appears twice
     in it, so a group is always a set of distinct identifiers for what may be
     one authority.
     """
-    eligible = [c for c in citations if type(c.citation).__name__ in _NAMES]
+    eligible = [c for c in citations if type(c.stated).__name__ in _NAMES]
     ordered = sorted(eligible, key=lambda c: (c.full_span.start, c.full_span.end))
 
-    groups: list[list[ExtractedCitation]] = []
+    groups: list[list[CitationRecord]] = []
     for citation in ordered:
         if groups and any(_co_located(text, citation, member) for member in groups[-1]):
             groups[-1].append(citation)
@@ -142,11 +142,11 @@ def colocation_groups(text: str, citations: Sequence[ExtractedCitation]) -> list
         # however close it sits, and overlap grouped the two before this test
         # existed. A docket and a reporter page *are* two names for one case, so
         # the test is on what is named rather than on the citation's type.
-        and len({_NAMES[type(member.citation).__name__] for member in group}) == 1
+        and len({_NAMES[type(member.stated).__name__] for member in group}) == 1
     ]
 
 
-def assign_colocation(text: str, citations: Sequence[ExtractedCitation]) -> tuple[ExtractedCitation, ...]:
+def assign_colocation(text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
     """Return the citations with a shared `colocation_id` on each co-located set.
 
     The id is the citation id of the group's first member, which makes it stable

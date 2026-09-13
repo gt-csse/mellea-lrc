@@ -14,14 +14,14 @@ from mellea_lrc.core.citations import (
 )
 from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction import ExtractedCitation
+from mellea_lrc.extraction import CitationRecord
 from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 from mellea_lrc.extraction.types import ExtractedDocument, ExtractionMetadata
-from mellea_lrc.preprocessing.plain_text import preprocess_plain_text_from_string
+from mellea_lrc.preprocessing import preprocess
 
 
-def _document(*citations: ExtractedCitation, text: str = "x" * 400) -> ExtractedDocument:
-    source = preprocess_plain_text_from_string(text)
+def _document(*citations: CitationRecord, text: str = "x" * 400) -> ExtractedDocument:
+    source = preprocess(text)
     return ExtractedDocument(
         source_metadata=source.source_metadata,
         preprocessing_metadata=source.preprocessing_metadata,
@@ -31,10 +31,10 @@ def _document(*citations: ExtractedCitation, text: str = "x" * 400) -> Extracted
     )
 
 
-def _full(citation_id: str, page: str, pin: str | None, start: int) -> ExtractedCitation:
-    return ExtractedCitation(
+def _full(citation_id: str, page: str, pin: str | None, start: int) -> CitationRecord:
+    return CitationRecord(
         citation_id=citation_id,
-        citation=placed(
+        source=placed(
             FullCaseCitation(
                 volume="550", reporter="U.S.", page=page, pin_cite=PinCite.read(pin) if pin else None
             ),
@@ -45,11 +45,11 @@ def _full(citation_id: str, page: str, pin: str | None, start: int) -> Extracted
     )
 
 
-def _short(citation_id: str, pin: str, resolves_to: str, start: int) -> ExtractedCitation:
-    return ExtractedCitation(
+def _short(citation_id: str, pin: str, resolves_to: str, start: int) -> CitationRecord:
+    return CitationRecord(
         citation_id=citation_id,
         resolves_to=resolves_to,
-        citation=placed(
+        source=placed(
             ShortCaseCitation(volume="550", reporter="U.S.", page=pin, pin_cite=PinCite.read(f"at {pin}")),
             span=Span(start, start + 12),
             locator_span=Span(start, start + 12),
@@ -58,11 +58,11 @@ def _short(citation_id: str, pin: str, resolves_to: str, start: int) -> Extracte
     )
 
 
-def _id(citation_id: str, pin: str, resolves_to: str, start: int) -> ExtractedCitation:
-    return ExtractedCitation(
+def _id(citation_id: str, pin: str, resolves_to: str, start: int) -> CitationRecord:
+    return CitationRecord(
         citation_id=citation_id,
         resolves_to=resolves_to,
-        citation=placed(
+        source=placed(
             IdCitation(pin_cite=PinCite.read(f"at {pin}")),
             span=Span(start, start + 8),
             locator_span=Span(start, start + 8),
@@ -159,11 +159,11 @@ def test_a_dangling_antecedent_cannot_reach_the_tree_at_all() -> None:
         _document(_id("c3", "570", "gone", 0))
 
 
-def _law(citation_id: str, start: int, resolves_to: str | None = None) -> ExtractedCitation:
-    return ExtractedCitation(
+def _law(citation_id: str, start: int, resolves_to: str | None = None) -> CitationRecord:
+    return CitationRecord(
         citation_id=citation_id,
         resolves_to=resolves_to,
-        citation=placed(
+        source=placed(
             FullLawCitation(reporter="U.S.C."),
             span=Span(start, start + 14),
             locator_span=Span(start, start + 14),
@@ -207,9 +207,9 @@ def test_a_short_form_with_no_antecedent_is_a_real_failure() -> None:
     full. Nothing can be verified about it, and it must not be silently folded
     in with the statutes.
     """
-    orphan = ExtractedCitation(
+    orphan = CitationRecord(
         citation_id="c9",
-        citation=placed(
+        source=placed(
             ShortCaseCitation(volume="383", reporter="U.S.", page="85", pin_cite=PinCite.read("at 85")),
             span=Span(0, 14),
             locator_span=Span(0, 14),
@@ -223,11 +223,11 @@ def test_a_short_form_with_no_antecedent_is_a_real_failure() -> None:
     assert tree.out_of_scope == ()
 
 
-def _docket(citation_id: str, start: int, resolves_to: str | None = None) -> ExtractedCitation:
-    return ExtractedCitation(
+def _docket(citation_id: str, start: int, resolves_to: str | None = None) -> CitationRecord:
+    return CitationRecord(
         citation_id=citation_id,
         resolves_to=resolves_to,
-        citation=placed(
+        source=placed(
             DocketCitation(defendant="Chen Zhi", docket_number="1:25-cr-00312-RPK", court="nyed"),
             span=Span(start, start + 21),
             locator_span=Span(start, start + 21),

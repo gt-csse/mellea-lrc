@@ -127,9 +127,9 @@ def test_a_run_cannot_end_before_it_begins() -> None:
 def test_an_extracted_citation_carries_the_pages_it_claims() -> None:
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         document = extract_from_plain_text("Bell Atl. Corp. v. Twombly, 550 U.S. 544, 555 -56 (2007).")
-    citation = next(c for c in document.citations if isinstance(c.citation, FullCaseCitation))
+    citation = next(c for c in document.citations if isinstance(c.stated, FullCaseCitation))
 
-    assert citation.citation.pin_cite.text == "555 -56"
+    assert citation.stated.pin_cite.text == "555 -56"
     assert citation.pin_cite_pages == (PinCitePages(first=555, last=556, kind=PinCiteKind.PAGE),)
 
 
@@ -140,7 +140,7 @@ def test_the_pages_reach_the_serialized_artifact() -> None:
 
     payload = serialize_extracted_document(document)
 
-    assert payload["citations"][0]["citation"]["pin_cite"] == {
+    assert payload["citations"][0]["source"]["pin_cite"] == {
         "span": {"start": 42, "end": 49},
         "text": "555 -56",
         "pages": [{"first": 555, "last": 556, "kind": "page", "footnote": None, "note": None}],

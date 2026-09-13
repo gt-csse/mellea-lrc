@@ -62,7 +62,7 @@ from mellea_lrc.extraction.reading.pin_cites import relaxed_pin_cites, strip_con
 from mellea_lrc.extraction.reading.relaxation import Relaxation, tokenizer_for
 from mellea_lrc.extraction.reading.unread_names import unread_case_names
 from mellea_lrc.extraction.stages import refine
-from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument, ExtractionMetadata
+from mellea_lrc.extraction.types import CitationRecord, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.preprocessing.types import PreprocessedDocument
 
@@ -395,7 +395,7 @@ def extract_citations(
     citation_ids = _assign_citation_ids(eyecite_citations)
     antecedent_map = _build_antecedent_map(resolutions, citation_ids)
 
-    extracted: list[ExtractedCitation] = []
+    extracted: list[CitationRecord] = []
     # Where the citation before this one stopped, so a name cannot open inside it.
     name_floor = 0
     for eyecite_citation, citation_id in citation_ids:
@@ -423,9 +423,9 @@ def extract_citations(
             ),
         )
         extracted.append(
-            ExtractedCitation(
+            CitationRecord(
                 citation_id=citation_id,
-                citation=canonical,
+                source=canonical,
                 resolves_to=antecedent_map.get(citation_id),
             )
         )

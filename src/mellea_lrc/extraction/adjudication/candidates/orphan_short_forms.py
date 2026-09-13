@@ -57,7 +57,7 @@ def orphan_short_forms(document: ExtractedDocument) -> Iterator[Candidate]:
     """Propose short case citations that resolved to no authority."""
     text = document.text
     for item in build_citation_tree(document).unattributed:
-        citation = item.citation
+        citation = item.stated
         if citation.kind is not CitationKind.SHORT_CASE:
             continue
         volume = getattr(citation, "volume", None)

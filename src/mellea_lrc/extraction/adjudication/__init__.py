@@ -24,7 +24,7 @@ It has two halves and they are kept apart on purpose.
 
 :mod:`~mellea_lrc.extraction.adjudication.promotion` closes the loop: an accepted candidate
 is re-read through eyecite on its own window, with a rule widened for that span
-alone, so it becomes an ordinary ``ExtractedCitation`` rather than a hand-built
+alone, so it becomes an ordinary ``CitationRecord`` rather than a hand-built
 object that would miss the court, date and party names the real pipeline
 produces.
 

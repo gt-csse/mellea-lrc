@@ -21,7 +21,7 @@ def run_exact_case_name_check(
     candidate: CandidateEvaluationNode,
 ) -> ExactCaseNameCheckNode:
     """Compare normalized extracted and retrieved case names exactly."""
-    citation = validation.citation.citation
+    citation = validation.citation.stated
     extracted = _extracted_case_name(citation) if isinstance(citation, FullCaseCitation) else None
     retrieved = candidate.case_name
     if extracted is None or retrieved is None:

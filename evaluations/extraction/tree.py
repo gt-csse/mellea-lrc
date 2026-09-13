@@ -233,14 +233,14 @@ def _from_rules(extracted: ExtractedDocument, *, dockets: bool) -> dict[tuple[in
     at = {citation.citation_id: citation.locator_span for citation in extracted.citations}
     rows = {}
     for citation in extracted.citations:
-        kind = citation_kind(citation.citation)
+        kind = citation_kind(citation.stated)
         if kind not in CASE_KINDS or (kind is CitationKind.DOCKET and not dockets):
             continue
         root = at.get(citation.root_id or "")
         span = (citation.locator_span.start, citation.locator_span.end)
         pin = citation.pin_cite_span
         rows[span] = _row(
-            citation_kind(citation.citation).value,
+            citation_kind(citation.stated).value,
             span,
             (root.start, root.end) if root else None,
             {
@@ -258,8 +258,8 @@ def _from_rules(extracted: ExtractedDocument, *, dockets: bool) -> dict[tuple[in
             }
             if pin
             else None,
-            getattr(citation.citation, "court", None)
-            if citation_kind(citation.citation) is CitationKind.DOCKET
+            getattr(citation.stated, "court", None)
+            if citation_kind(citation.stated) is CitationKind.DOCKET
             else None,
         )
     return rows

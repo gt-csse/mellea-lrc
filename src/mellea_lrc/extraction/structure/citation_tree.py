@@ -83,7 +83,7 @@ from mellea_lrc.core.citations import (
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
+    from mellea_lrc.extraction.types import CitationRecord, ExtractedDocument
 
 # A chain longer than this is a resolution loop or a pathology, not a brief.
 MAX_RESOLUTION_DEPTH = 24
@@ -106,7 +106,7 @@ _CASE_KINDS = (FullCaseCitation, ShortCaseCitation, DocketCitation)
 class CitationOccurrence:
     """One place a document refers to a root, with the page it names."""
 
-    citation: ExtractedCitation
+    citation: CitationRecord
     depth: int
     pin_cite: str | None
 
@@ -125,7 +125,7 @@ class CitationOccurrence:
 class Root:
     """One root -- an identifier the filing states -- and every place it returns to it."""
 
-    root: ExtractedCitation
+    root: CitationRecord
     occurrences: tuple[CitationOccurrence, ...]
 
     @property
@@ -152,14 +152,14 @@ class CitationTree:
     """Every root a document states, and what could not be attributed to one."""
 
     roots: tuple[Root, ...]
-    unattributed: tuple[ExtractedCitation, ...]
+    unattributed: tuple[CitationRecord, ...]
     """References with no positive evidence of being out of scope, and no root.
 
     A case citation whose full form was never found, or a reference that needed
     an antecedent and reached none. The second kind has an unknown citation
     type, which is why it is here rather than in `out_of_scope`.
     """
-    out_of_scope: tuple[ExtractedCitation, ...] = ()
+    out_of_scope: tuple[CitationRecord, ...] = ()
     """Citations that are not to a case, so no case root could hold them."""
 
     @property
@@ -177,7 +177,7 @@ class CitationTree:
         return sum(len(root.pin_cites) for root in self.roots)
 
 
-def assign_roots(citations: Sequence[ExtractedCitation]) -> tuple[ExtractedCitation, ...]:
+def assign_roots(citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
     """Return the citations, each carrying the root it refers to.
 
     The same resolution `build_citation_tree` performs, written onto the
@@ -190,7 +190,7 @@ def assign_roots(citations: Sequence[ExtractedCitation]) -> tuple[ExtractedCitat
     for item in citations:
         root_id, _ = _resolve_root(item, by_id)
         root = by_id.get(root_id) if root_id else None
-        placed = root is not None and isinstance(root.citation, _ROOT_KINDS)
+        placed = root is not None and isinstance(root.stated, _ROOT_KINDS)
         assigned[item.citation_id] = root_id if placed else None
     return tuple(
         replace(item, root_id=assigned[item.citation_id]) if assigned[item.citation_id] else item
@@ -202,13 +202,13 @@ def build_citation_tree(document: ExtractedDocument) -> CitationTree:
     """Group a document's citations under the authorities they refer to."""
     by_id = {item.citation_id: item for item in document.citations}
     roots: dict[str, list[CitationOccurrence]] = {}
-    unattributed: list[ExtractedCitation] = []
-    out_of_scope: list[ExtractedCitation] = []
+    unattributed: list[CitationRecord] = []
+    out_of_scope: list[CitationRecord] = []
 
     for item in document.citations:
         root_id, depth = _resolve_root(item, by_id)
         root = by_id.get(root_id) if root_id else None
-        if root is not None and isinstance(root.citation, _ROOT_KINDS):
+        if root is not None and isinstance(root.stated, _ROOT_KINDS):
             roots.setdefault(root_id or "", []).append(
                 CitationOccurrence(citation=item, depth=depth, pin_cite=_pin_cite(item))
             )
@@ -227,7 +227,7 @@ def build_citation_tree(document: ExtractedDocument) -> CitationTree:
     )
 
 
-def _is_out_of_scope(item: ExtractedCitation, root: ExtractedCitation | None) -> bool:
+def _is_out_of_scope(item: CitationRecord, root: CitationRecord | None) -> bool:
     """Whether there is positive evidence this citation names something other than a case.
 
     Only positive evidence counts, and it comes from exactly two places: the
@@ -241,24 +241,24 @@ def _is_out_of_scope(item: ExtractedCitation, root: ExtractedCitation | None) ->
     `unattributed` where it will be counted. Calling it out of scope would
     assert that it did not name a case, which is precisely what is unknown.
     """
-    if isinstance(item.citation, _CASE_KINDS):
+    if isinstance(item.stated, _CASE_KINDS):
         return False
     if not _needs_an_antecedent(item):
         return True
     reached_something_else = root is not None and root.citation_id != item.citation_id
     if not reached_something_else:
         return False
-    return not isinstance(root.citation, _CASE_KINDS)
+    return not isinstance(root.stated, _CASE_KINDS)
 
 
-def _needs_an_antecedent(item: ExtractedCitation) -> bool:
+def _needs_an_antecedent(item: CitationRecord) -> bool:
     """Whether this citation carries no identity of its own and must resolve to one."""
-    return item.citation.kind in _REFERRING_KINDS
+    return item.stated.kind in _REFERRING_KINDS
 
 
 def _resolve_root(
-    item: ExtractedCitation,
-    by_id: Mapping[str, ExtractedCitation],
+    item: CitationRecord,
+    by_id: Mapping[str, CitationRecord],
 ) -> tuple[str | None, int]:
     """Follow `resolves_to` to the citation that stated the identifier.
 
@@ -283,9 +283,9 @@ def _resolve_root(
     return (None, MAX_RESOLUTION_DEPTH)
 
 
-def _pin_cite(item: ExtractedCitation) -> str | None:
+def _pin_cite(item: CitationRecord) -> str | None:
     """The page a citation claims, as the filing wrote it."""
-    pin_cite = getattr(item.citation, "pin_cite", None)
+    pin_cite = getattr(item.stated, "pin_cite", None)
     pin = pin_cite.text if pin_cite is not None else None
     return str(pin) if pin else None
 

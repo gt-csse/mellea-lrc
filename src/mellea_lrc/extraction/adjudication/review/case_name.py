@@ -82,7 +82,7 @@ if TYPE_CHECKING:
 
     from mellea_lrc.core.record import CitationRecord
     from mellea_lrc.extraction.adjudication.types import Candidate
-    from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
+    from mellea_lrc.extraction.types import CitationRecord, ExtractedDocument
 
 MAX_TOKENS = 600
 MAX_REPAIR_TURNS = 2
@@ -329,7 +329,7 @@ def _identity_words(name: str) -> set[str]:
 def _citation_line(
     index: int,
     text: str,
-    citation: ExtractedCitation,
+    citation: CitationRecord,
     records: Mapping[str, CitationRecord] | None = None,
 ) -> str:
     """One citation as the reader sees it: its locator, and the best name known.
@@ -341,7 +341,7 @@ def _citation_line(
     """
     record = (records or {}).get(citation.citation_id)
     known = record.stated.case_name if record is not None else citation.case_name
-    parse = record.stated if record is not None else citation.citation
+    parse = record.stated if record is not None else citation.stated
     parties = (
         (known.plaintiff, known.defendant)
         if known is not None
@@ -358,7 +358,7 @@ def _citation_line(
     return f"  {index}. {locator}{read}"
 
 
-def neighbours(document: ExtractedDocument, window: Span) -> tuple[ExtractedCitation, ...]:
+def neighbours(document: ExtractedDocument, window: Span) -> tuple[CitationRecord, ...]:
     """Every citation read inside the window, in document order.
 
     These are what `names_a_citation` chooses between. The list is the window's
@@ -372,7 +372,7 @@ def neighbours(document: ExtractedDocument, window: Span) -> tuple[ExtractedCita
     )
 
 
-def roots(document: ExtractedDocument) -> tuple[ExtractedCitation, ...]:
+def roots(document: ExtractedDocument) -> tuple[CitationRecord, ...]:
     """Every citation in the document that states an identifier of its own."""
     tree = build_citation_tree(document)
     return tuple(sorted((item.root for item in tree.roots), key=lambda c: c.locator_span.start))
@@ -453,7 +453,7 @@ def _validate_choice(ctx: Context, citations: int, root_count: int) -> Validatio
     if failure is not None:
         return failure
     if proposed.reading is Reading.NAMES_A_CITATION:
-        if proposed.citation is None or not 1 <= proposed.citation <= citations:
+        if proposed.stated is None or not 1 <= proposed.stated <= citations:
             return ValidationResult(
                 result=False,
                 reason=(
@@ -474,7 +474,7 @@ def _validate_choice(ctx: Context, citations: int, root_count: int) -> Validatio
                 ),
             )
         return ValidationResult(result=True)
-    if proposed.citation is not None or proposed.root is not None:
+    if proposed.stated is not None or proposed.root is not None:
         return ValidationResult(
             result=False,
             reason=(f"`{proposed.reading.value}` names neither a citation nor a root. Leave both null."),
@@ -654,9 +654,9 @@ async def adjudicate_case_name(
 
     citation_id = root_id = None
     if proposed.reading is Reading.NAMES_A_CITATION:
-        if proposed.citation is None or not 1 <= proposed.citation <= len(nearby):
+        if proposed.stated is None or not 1 <= proposed.stated <= len(nearby):
             return None
-        citation_id = nearby[proposed.citation - 1].citation_id
+        citation_id = nearby[proposed.stated - 1].citation_id
     elif proposed.reading is Reading.SHORT_FORM:
         if proposed.root is None or not 1 <= proposed.root <= len(document_roots):
             return None
@@ -679,9 +679,9 @@ async def adjudicate_case_name(
         chosen_name = " ".join(
             part
             for part in (
-                getattr(chosen.citation, "plaintiff", None),
-                getattr(chosen.citation, "defendant", None),
-                getattr(chosen.citation, "antecedent", None),
+                getattr(chosen.stated, "plaintiff", None),
+                getattr(chosen.stated, "defendant", None),
+                getattr(chosen.stated, "antecedent", None),
             )
             if part
         )

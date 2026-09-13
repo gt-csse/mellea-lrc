@@ -22,7 +22,7 @@ from mellea_lrc.core import (
 )
 from mellea_lrc.core.citations import placed
 from mellea_lrc.extraction.types import (
-    ExtractedCitation,
+    CitationRecord,
     ExtractedDocument,
     ExtractionBackend,
     ExtractionMetadata,
@@ -84,11 +84,11 @@ class MelleaExtractorBase(abc.ABC):
     def _find_citations(self, text: str) -> list[FoundCitation]:
         """Locate the case citations in `text`. Implemented by each strategy."""
 
-    def _to_extracted_citation(self, found: FoundCitation) -> ExtractedCitation:
-        """Wrap a located citation in an `ExtractedCitation` (classification pending)."""
-        return ExtractedCitation(
+    def _to_extracted_citation(self, found: FoundCitation) -> CitationRecord:
+        """Wrap a located citation in an `CitationRecord` (classification pending)."""
+        return CitationRecord(
             citation_id=uuid.uuid4().hex,
-            citation=placed(
+            source=placed(
                 UnknownCitation(), span=found.span, locator_span=found.span, matched_text=found.matched_text
             ),
         )
