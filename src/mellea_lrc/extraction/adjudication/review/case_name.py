@@ -324,14 +324,28 @@ def _identity_words(name: str) -> set[str]:
 
 
 def _citation_line(index: int, text: str, citation: ExtractedCitation) -> str:
-    name = " v. ".join(
-        part
-        for part in (
+    """One citation as the reader sees it: its locator, and the best name known.
+
+    The name is the citation's own `case_name` where it has one -- which is the
+    last touch on its log, so a name an earlier site of this pass wrote is the
+    name a later site is shown. That is the only way a patch reaches anything:
+    a root read with no name is unmatchable by name, and repairing it at the
+    mention beside it is what makes the mentions further away readable.
+    """
+    known = citation.case_name
+    parties = (
+        (known.plaintiff, known.defendant)
+        if known is not None
+        else (
             getattr(citation.citation, "plaintiff", None),
             getattr(citation.citation, "defendant", None),
         )
-        if part
-    ) or getattr(citation.citation, "antecedent", None)
+    )
+    name = (
+        " v. ".join(part for part in parties if part)
+        or (known.text if known is not None else None)
+        or getattr(citation.citation, "antecedent", None)
+    )
     locator = text[citation.locator_span.start : citation.locator_span.end]
     locator = _REPEATED_INLINE_WHITESPACE.sub(" ", locator.replace("\n", " ")).strip()
     read = f"   (read with the name {name!r})" if name else "   (read with no name)"
