@@ -76,8 +76,20 @@ _CONTINUES = re.compile(r"\s*(?:[-–]\s*\*?\d|,\s*\*?\d|&?\s*n{1,2}\.\s*\d|\d)"
 # A page claim standing where one belongs and no page was read: after the
 # locator, with the connector a filing writes in front of it.
 _STATES_A_PAGE = re.compile(r"[\s,]*(?:at\s+)?[*¶]{0,2}\s*\d")
-# Where a reference citation's page would be: the name, then a page.
-_AFTER_A_NAME = re.compile(r"\s*,?\s*(?:at\s+)?[*¶]{0,2}\s*\d+(?:\s*[-–]\s*\d+)?")
+# Where a reference citation's page would be: the name, then `at`, then the
+# page. `at` is required and is not a filter of convenience -- it is the form.
+# Rule 10.9's short form with no reporter is `<name> at <page>`, and all seven
+# of these in `extraction-v3.0` are written that way: `Bell at 546`, `Caraway ,
+# at 1301`, `Rafiyev at 861`, `Doe , at 3 -4`.
+#
+# Without it the search matches a name followed by any number at all, and what
+# follows a party name in these documents is usually not a page: the margin line
+# number of pleading paper (`Celano v. Marriott Inter'l, Inc., 18 242 F.R.D.
+# 544`), a year where a volume belongs (`Doe v. Amazon.com, Inc., 2023`), a
+# volume with no reporter after it (`Hatten v. State, 203`). Each of those is a
+# real defect and none of them is a page claim; a damaged locator is
+# `reporter_sites`' question, not this one.
+_AFTER_A_NAME = re.compile(r"\s*,?\s*at\s+[*¶]{0,2}\s*\d+(?:\s*[-–]\s*\d+)?")
 
 
 def _first_page(record: CitationRecord) -> int | None:
