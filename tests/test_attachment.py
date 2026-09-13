@@ -160,3 +160,26 @@ def test_id_means_the_citation_before_it_and_not_the_last_case() -> None:
     assert [type(leaf).__name__ for leaf in leaves] == ["IdCitation"]
     before = [r for r in roots if r.full_span.start < leaves[0].span.start]
     assert root_for(leaves[0], roots, before=before) is None
+
+
+def test_a_name_reaches_the_root_that_holds_all_of_it_over_one_sharing_a_word() -> None:
+    """`Service By Air, Inc.` is not the `Service Center` in another caption.
+
+    The name a leaf carries is a whole name once a reader has read it, and the
+    root it reaches is the one that holds all of it. Sharing a single word is
+    the weaker reading: taking it here would leave the leaf pointing at two
+    cases that are not the same case, which is no answer at all.
+
+    The antecedent is corrected here the way a reader corrects it, because
+    eyecite's own guess is the one token before `supra` -- `Inc.` -- which is
+    in every other corporate caption and identifies none of them.
+    """
+    roots, leaves = _read(
+        "Service By Air, Inc. v. Phoenix Cartage & Air Freight, LLC , 78 F. Supp. 3d 852 "
+        "(N.D. Ill. 2015). Chinese Consolidated Benevolent Ass'n v. Chicago Chinatown "
+        "Service Center , 182 Ill. 2d 12 (1998). See Service By Air, Inc. , supra , at 860."
+    )
+    assert root_for(leaves[0], roots) is None
+
+    read = replace(leaves[0], antecedent="Service By Air, Inc.")
+    assert _page_of(roots, root_for(read, roots)) == "852"
