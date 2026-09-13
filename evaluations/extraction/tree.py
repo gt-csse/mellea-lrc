@@ -94,6 +94,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mellea_lrc.core.citations import CitationKind, citation_kind
+from mellea_lrc.core.pin_cites import PinCiteKind
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.adjudication import Review, adjudicate
 from mellea_lrc.llm import start_mellea_session_from_env
@@ -272,12 +273,21 @@ def _from_rules(extracted: ExtractedDocument, *, dockets: bool) -> dict[tuple[in
                 "end": pin.end,
                 # `footnote` only where there is one, so a page claim compares
                 # equal to a ground truth that states the same page and no
-                # footnote. `note` is left out either way: it says why nothing
-                # was read, which is about the reader rather than the claim.
+                # footnote.
+                #
+                # An arm that read no page out of the characters reports an
+                # empty list, which is what the ground truth writes when the
+                # characters state no page. The dataset says what the filing
+                # claims; `PinCiteKind.UNREAD` is this project saying what it
+                # could do with the characters, and the two are not the same
+                # statement, so the second one is not compared against the
+                # first -- it is dropped, and agreeing means both sides ended
+                # with no page.
                 "pages": [
                     {"first": page.first, "last": page.last, "kind": page.kind.value}
                     | ({"footnote": page.footnote} if page.footnote else {})
                     for page in citation.pin_cite_pages
+                    if page.kind is not PinCiteKind.UNREAD
                 ],
             }
             if pin

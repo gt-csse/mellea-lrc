@@ -79,6 +79,12 @@ class PinCiteKind(str, Enum):
     UNREAD = "unread"
     """Nothing here could turn this pin cite into pages.
 
+    **A statement about this reader, and so never a statement a ground truth
+    makes.** A dataset records what the filing writes and what that means; where
+    the characters state no page it says so by listing none. Which citations an
+    extractor found hard is a property of the extractor, and a dataset that
+    recorded it would change every time the extractor improved.
+
     A statement about this reader. The pin cite may be perfectly proper --
     `slip op. at 3` names a page of a slip opinion, which has no reporter
     pagination at all -- or it may be damage the converter left, `749-50`

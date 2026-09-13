@@ -198,13 +198,7 @@ def _refused_references(
                 getattr(record.stated, "plaintiff", None),
                 getattr(record.stated, "defendant", None),
             )
-            # More than one word. eyecite's parser sometimes returns a broken
-            # party name -- `Inc.` where the party was `Avante Group, Inc.` --
-            # and searching a document for `Inc.` matches every company in it.
-            # One word ending in a period is almost always a fragment like that,
-            # so it is skipped; `Princeton Univ.` and `Avante Group, Inc.` are
-            # searched for.
-            if party and len(party.split()) > 1 and not is_valid_name(party)
+            if party and len(party) > 2 and not is_valid_name(party)
         ]
         for party in refused:
             pattern = re.compile(r"\s+".join(re.escape(word) for word in party.split()))
