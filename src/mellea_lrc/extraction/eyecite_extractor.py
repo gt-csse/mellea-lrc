@@ -63,6 +63,7 @@ from mellea_lrc.extraction.reading.pin_cites import relaxed_pin_cites, strip_con
 from mellea_lrc.extraction.reading.relaxation import Relaxation, tokenizer_for
 from mellea_lrc.extraction.reading.unread_names import unread_case_names
 from mellea_lrc.extraction.stages import refine
+from mellea_lrc.extraction.structure.attachment import root_for
 from mellea_lrc.extraction.types import CitationRecord, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.preprocessing.types import PreprocessedDocument
@@ -385,6 +386,19 @@ def extract_citations(
     the same leaf pass, given every root instead of the admitted ones. See
     `docs/Extraction.md`, "Roots first, leaves after validation".
     """
+    document, leaves = _read(preprocessed, relaxation)
+    return _with_leaves(document, leaves) if with_leaves else document
+
+
+def _read(
+    preprocessed: PreprocessedDocument, relaxation: Relaxation
+) -> tuple[ExtractedDocument, list[tuple[str, CanonicalCitation, str | None]]]:
+    """One read of the document: the roots as a document, and the leaves apart.
+
+    Both growths go through here, so they read the text exactly the same way and
+    the only difference between them is which roots the leaves are offered.
+    """
+
     text = preprocessed.text
     # A relaxed level reads pin cites tolerantly as well as reporter joins: the
     # same literal single space breaks both, and losing a pin cite loses the
@@ -466,7 +480,7 @@ def extract_citations(
         unread_case_names=unread_case_names(text, refined),
         extraction_metadata=ExtractionMetadata(relaxation=relaxation),
     )
-    return _with_leaves(document, leaves) if leaves and with_leaves else document
+    return document, leaves
 
 
 def _with_leaves(
@@ -475,19 +489,38 @@ def _with_leaves(
 ) -> ExtractedDocument:
     """Attach each leaf to a root the document holds, or drop it.
 
-    A leaf reaches a root through `resolves_to`, which is eyecite's resolution
-    keyed by the resource it built -- and a root the document does not hold is a
-    root nothing can be attached to. So a leaf whose antecedent is missing is
-    dropped rather than recorded with a dangling id: `CitationRecord` refuses a
-    leaf with no root, and a leaf pointing at a root that was removed away is the
-    same thing one step removed.
+    **Decided from `stated`**, by
+    :func:`~mellea_lrc.extraction.structure.attachment.root_for`, and not from
+    eyecite's own resolution. eyecite decides while parsing, against the party
+    names it read; a root it named `Cnty.` is a root no short form can find, and
+    the same root named properly is one that `Huri , 804 F.3d at 833` reaches.
+    Attaching against the parse would throw away every correction a reader or
+    validation has since made, which is the whole reason the leaves are grown in
+    a pass of their own. eyecite's answer is kept beside ours in `resolves_to`,
+    so the two can be compared.
+
+    A leaf `root_for` cannot decide is dropped rather than recorded pointing
+    nowhere. `CitationRecord` refuses a leaf with no root, and a leaf attached to
+    a guess is worse than a leaf that is not there.
+
+    Each leaf is settled before the next is read, because an `Id.` means the
+    authority of the citation before it and that citation is often another leaf.
     """
-    roots = {record.citation_id for record in document.citations}
-    grown = [
-        CitationRecord(citation_id=citation_id, source=canonical, root_id=antecedent, resolves_to=antecedent)
-        for citation_id, canonical, antecedent in leaves
-        if antecedent in roots
-    ]
+    roots = [record for record in document.citations if not is_leaf(record.stated)]
+    if not roots:
+        return document
+    settled = sorted(roots, key=lambda record: record.full_span.start)
+    grown: list[CitationRecord] = []
+    for citation_id, canonical, antecedent in sorted(leaves, key=lambda item: item[1].span.start):
+        before = [r for r in settled if r.full_span.start < canonical.span.start]
+        root_id = root_for(canonical, roots, before=before)
+        if root_id is None:
+            continue
+        leaf = CitationRecord(
+            citation_id=citation_id, source=canonical, root_id=root_id, resolves_to=antecedent
+        )
+        grown.append(leaf)
+        settled = sorted([*settled, leaf], key=lambda record: record.full_span.start)
     if not grown:
         return document
     citations = sorted((*document.citations, *grown), key=lambda record: record.full_span.start)
@@ -524,21 +557,9 @@ def grow_leaves(
         text=document.text,
         preprocessing_metadata=document.preprocessing_metadata,
     )
-    read = extract_citations(preprocessed, relaxation=level, with_leaves=True)
-    roots = {record.citation_id for record in document.citations}
-    grown = [
-        record
-        for record in read.citations
-        if is_leaf(record.stated) and record.root_id in roots
-    ]
-    if not grown:
-        return document
-    citations = sorted((*document.citations, *grown), key=lambda record: record.full_span.start)
-    return dataclasses.replace(
-        document,
-        citations=tuple(citations),
-        unread_case_names=unread_case_names(document.text, citations),
-    )
+    _, leaves = _read(preprocessed, level)
+    known = {record.citation_id for record in document.citations}
+    return _with_leaves(document, [leaf for leaf in leaves if leaf[0] not in known])
 
 
 def extract_from_plain_text(
