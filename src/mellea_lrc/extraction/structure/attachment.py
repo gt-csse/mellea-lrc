@@ -197,10 +197,21 @@ def _holding_the_page(leaf: CanonicalCitation, candidates: Sequence[CitationReco
 
 
 def _by_name(leaf: CanonicalCitation, roots: Sequence[CitationRecord]) -> list[CitationRecord]:
+    """Roots whose name holds every word the leaf writes, else any of them.
+
+    A filing writing a case short writes part of its name, so the root's name
+    has to contain that part whole: `Service By Air, Inc.` is in
+    `Service By Air, Inc. v. Phoenix Cartage & Air Freight, LLC` and is not in
+    `Chinese Consolidated Benevolent Ass'n v. ... Service Center`, which shares
+    only the word `Service`. Sharing one word is the weaker reading and is
+    asked only when holding them all reaches nothing, because a name the
+    parser cut in half still has to reach its root.
+    """
     wanted = _names(leaf)
     if not wanted:
         return []
-    return [root for root in roots if wanted & _names(root.stated)]
+    whole = [root for root in roots if wanted <= _names(root.stated)]
+    return whole or [root for root in roots if wanted & _names(root.stated)]
 
 
 def root_for(
