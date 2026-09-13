@@ -54,6 +54,23 @@ not a citation to a case.
 Statutes and journal citations are not in this ground truth and are not counted
 either way. A statute *read as a case* is a case-kind citation at a span no row
 claims, so it costs precision, which is where it belongs.
+
+## Deferring the bare name
+
+`--defer-bare-names` takes the name-only `ReferenceCitation` rows out of both
+sides. Rule 10.9 lets a filing write a case name and stop, and finding one is a
+question about case names rather than about citations: nothing is written at
+that position for a citation reader to reach, and the answer comes after the
+citations are read. The flag says what the rest of the pass looks like with that
+question set aside -- which is the shape the pipeline has today, since the name
+layer runs last.
+
+A reference that states a page -- `Bell at 546` -- is not deferred. The page is a
+claim about the opinion, and every other citation's page is scored.
+
+`--replay` scores a run already written by `--artifacts` instead of producing
+one, so an arm that calls a model can be re-scored against a changed ground
+truth without calling it again.
 """
 
 from __future__ import annotations
@@ -350,6 +367,17 @@ async def run_document(
     return _from_rules(deserialize_extracted_document(payload), dockets=arm.reads_dockets)
 
 
+def _replayed(replay: Path, name: str, *, dockets: bool) -> dict[tuple[int, int], dict[str, Any]]:
+    """One arm's saved run, read back instead of produced.
+
+    The artifact is what `run_document` scores anyway, so a replay of it scores
+    the same run -- which is what lets an arm that calls a model be re-scored
+    against a changed ground truth without calling it again.
+    """
+    payload = json.loads((replay / f"{Path(name).stem}.json").read_text(encoding="utf-8"))
+    return _from_rules(deserialize_extracted_document(payload), dockets=dockets)
+
+
 def _write_artifact(artifacts: Path, name: str, payload: dict[str, Any]) -> None:
     """One document's run, as the next stage will read it."""
     artifacts.mkdir(parents=True, exist_ok=True)
@@ -358,18 +386,56 @@ def _write_artifact(artifacts: Path, name: str, payload: dict[str, Any]) -> None
     )
 
 
+def _is_bare_name(kind: str | None, pin_cite: object) -> bool:
+    """A name-only reference: Rule 10.9's short form, with no page after it.
+
+    `Bell at 546` is a reference too and states a page, which is a claim about
+    the opinion that can be right or wrong. `In Burrell` states nothing, so
+    whether it is read at all is a question about the name and not about the
+    citation.
+    """
+    return kind == "ReferenceCitation" and not pin_cite
+
+
 async def score(
-    dataset: Path, corpus: Path, arm: Arm, artifacts: Path | None = None
+    dataset: Path,
+    corpus: Path,
+    arm: Arm,
+    artifacts: Path | None = None,
+    replay: Path | None = None,
+    *,
+    defer_bare_names: bool = False,
 ) -> tuple[Counter[str], dict[str, list[str]]]:
-    """Score one arm over the whole corpus, writing its artifacts when asked."""
+    """Score one arm over the whole corpus, writing its artifacts when asked.
+
+    ``defer_bare_names`` takes the name-only references out of both sides: out
+    of every recall denominator, and out of precision wherever the arm reports
+    one or reports anything at a deferred row's span. Reading a bare name is a
+    question about case names, which is answered after the citations are read,
+    and this says what the rest of the pass looks like without it.
+    """
     counts: Counter[str] = Counter()
     by_kind: Counter[str] = Counter()
     detail: dict[str, list[str]] = {key: [] for _, key, _ in MEASURES}
-    session = start_mellea_session_from_env() if arm.needs_model else None
+    session = start_mellea_session_from_env() if arm.needs_model and replay is None else None
     for header, body in read_documents(dataset):
         text = (corpus / header["document"]).read_text(encoding="utf-8")
-        run = await run_document(text, arm, session, header["document"], artifacts)
+        run = (
+            _replayed(replay, header["document"], dockets=arm.reads_dockets)
+            if replay is not None
+            else await run_document(text, arm, session, header["document"], artifacts)
+        )
         annotated = [row for row in body if row["unit"] == "citation"]
+        deferred: list[tuple[int, int]] = []
+        if defer_bare_names:
+            deferred = [
+                (row["cited_as"]["start"], row["cited_as"]["end"])
+                for row in annotated
+                if _is_bare_name(row.get("kind"), row.get("pin_cite"))
+            ]
+            annotated = [
+                row for row in annotated if not _is_bare_name(row.get("kind"), row.get("pin_cite"))
+            ]
         roots_by_id = {row["id"]: row.get("identifier") or {} for row in annotated if row["is_root"]}
         reported = identities(run)
         parsed = {row["id"]: reported[identity(row)] for row in annotated if identity(row) in reported}
@@ -460,6 +526,11 @@ async def score(
 
         claimed = {(row["span"]["start"], row["span"]["end"]) for row in parsed.values()}
         for span, reported in run.items():
+            if defer_bare_names and (
+                _is_bare_name(reported["kind"], reported["pin_cite"])
+                or any(_overlaps(span, where) for where in deferred)
+            ):
+                continue
             counts["citation:reported"] += 1
             counts["root:reported" if reported["is_root"] else "short_form:reported"] += 1
             if reported["root"] is not None and not reported["is_root"]:
@@ -556,13 +627,26 @@ def main() -> None:
         default=None,
         help="Write each arm's serialized run here, one file per document, under the arm's name.",
     )
+    parser.add_argument(
+        "--replay",
+        type=Path,
+        default=None,
+        help="Score the runs already written here instead of producing them, same layout as "
+        "--artifacts. An arm that calls a model is re-scored without calling it.",
+    )
+    parser.add_argument(
+        "--defer-bare-names",
+        action="store_true",
+        help="Leave the name-only ReferenceCitation rows out of both sides. A reference that "
+        "states a page stays in.",
+    )
     args = parser.parse_args()
 
     scores: dict[str, Counter[str]] = {}
     details: dict[str, dict[str, list[str]]] = {}
     for name in args.arms:
         arm = ARMS[name]
-        if arm.needs_model:
+        if arm.needs_model and args.replay is None:
             print(f"{name}: calls a model; set MELLEA_LRC_LLM_* in the environment")
         counts, detail = asyncio.run(
             score(
@@ -570,6 +654,8 @@ def main() -> None:
                 args.documents,
                 arm,
                 args.artifacts / name if args.artifacts else None,
+                args.replay / name if args.replay else None,
+                defer_bare_names=args.defer_bare_names,
             )
         )
         scores[name], details[name] = counts, detail
