@@ -163,10 +163,26 @@ def read_pin_cite(pin_cite: str | None) -> tuple[PinCitePages, ...]:
         # `¶¶ 26, 28` each state their kind at the front.
         label = found.group("label") or label
         first, last = found.group("first"), found.group("last")
+        opens, closes = int(first), _expand(first, last)
+        if closes < opens:
+            # A range that ends before it begins. `808 F. Supp. 3d 97, 980-814`
+            # is written in a court's order about fabricated citations, which is
+            # where a page range like that comes from. It is a claim about the
+            # opinion and this reader cannot turn it into pages, which is what
+            # UNREAD is for -- raising here would stop a document being read at
+            # all over one citation in it.
+            return (
+                PinCitePages(
+                    first=None,
+                    last=None,
+                    kind=PinCiteKind.UNREAD,
+                    note=f"the range {opens}-{closes} ends before it begins",
+                ),
+            )
         pages.append(
             PinCitePages(
-                first=int(first),
-                last=_expand(first, last),
+                first=opens,
+                last=closes,
                 kind=_LABELS.get(label or "", PinCiteKind.PAGE),
                 footnote=_collapsed(found.group("footnote")),
             )

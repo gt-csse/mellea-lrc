@@ -55,6 +55,13 @@ Statutes and journal citations are not in this ground truth and are not counted
 either way. A statute *read as a case* is a case-kind citation at a span no row
 claims, so it costs precision, which is where it belongs.
 
+An `out_of_scope_citation` row is different, and is counted in **neither**
+direction. It marks a case the filing locates by something this dataset does not
+score -- an agency's own file number, a slip opinion. There are without limit
+many of those, and a ground truth that scores each new one as it appears grows
+by whatever the next filing invents; so the row records what the filing wrote
+and an arm that reads it is neither credited nor charged.
+
 ## Deferring the bare name
 
 `--defer-bare-names` takes the name-only `ReferenceCitation` rows out of both
@@ -363,6 +370,17 @@ async def score(
             else await run_document(text, arm, session, header["document"], artifacts)
         )
         annotated = [row for row in body if row["unit"] == "citation"]
+        # Counted in nothing, in either direction. A case can be located in
+        # without limit many ways -- an agency's own file number, a slip
+        # opinion, a docket sheet -- and a ground truth that scores each new one
+        # as it appears grows by whatever the next filing invents. So these
+        # leave the recall denominator with their unit, and an arm that reads
+        # one is neither credited nor charged.
+        outside = [
+            (row["cited_as"]["start"], row["cited_as"]["end"])
+            for row in body
+            if row["unit"] == "out_of_scope_citation"
+        ]
         deferred: list[tuple[int, int]] = []
         if defer_bare_names:
             deferred = [
@@ -463,6 +481,8 @@ async def score(
 
         claimed = {(row["span"]["start"], row["span"]["end"]) for row in parsed.values()}
         for span, reported in run.items():
+            if any(_overlaps(span, where) for where in outside):
+                continue
             if defer_bare_names and (
                 _is_bare_name(reported["kind"], reported["pin_cite"])
                 or any(_overlaps(span, where) for where in deferred)
