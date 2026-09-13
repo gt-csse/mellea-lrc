@@ -316,6 +316,49 @@ code, and several others are obscure state reporters whose abbreviations collide
 with ordinary words. And the hunt is deliberately over-permissive — a judge that
 rejects freely costs far less than a citation never surfaced.
 
+### What a reader is allowed to establish, and what it is not
+
+The honest statement of the gap: a reader could in principle establish anything
+the rules missed — a root nothing parsed, a member of a colocation, a short form
+that states a page — and the case-name layer establishes two things. It writes a
+name onto a citation the rules already read, and it records a bare name as a
+reference to a root. Nothing else it answers becomes a row.
+
+That is narrower than it sounds, because of where the residue actually is. Over
+the corpus, the rules alone, by kind:
+
+| kind | read |
+|---|---|
+| `DocketCitation` | 42 / 42 |
+| `ShortCaseCitation` | 41 / 41 |
+| `IdCitation` | 32 / 32 |
+| `FullCaseCitation` | 589 / 590 |
+| `ReferenceCitation` | **6 / 19** |
+
+Every kind that states an identifier is read. The one kind that states none —
+a case name and nothing else — is six of nineteen, and eyecite reaches those six
+only because it had the root's party names to match on. The thirteen it misses
+are the ones whose root was read with no name, which is the same cause as the
+false defects above. **So the likely finding is a bare name that is a reference
+citation, and that is what the layer is built to establish.**
+
+Three things it cannot, each with an instance on the held-out set:
+
+1.  **A root.** `In re Barteca Restaurants, LLC , Ser. Nos. 85202482 & 85202583
+    (T.T.A.B. Feb. 1, 2013)` is a decision cited by application serial number
+    and extraction reads nothing at it. A case-name site cannot establish it: a
+    name states no identifier, and what is missing here is the identifier. That
+    is the locator reviewer's shape — `adjudicate_locator` and
+    `promote_locator`, which exist and are not in the pipeline.
+2.  **A colocation.** Parallel citations are grouped by a rule in
+    `structure/colocation.py` and nothing reviews the grouping, so a position
+    the rule splits or joins wrongly stays that way.
+3.  **A short form that claims a page.** When the layer accepts a `short_form`
+    it records a `ReferenceCitation` with no pin cite, because a bare name has
+    none. A name whose page the rules failed to read — `Caraway , at 1301` with
+    the `at 1301` damaged — comes back as a reference with the page claim
+    flattened out of it, and the page claim is the thing validation checks.
+
 ### A logged field keeps what it held
 
 `case_name` is not read once. The rules read it from the offsets eyecite gives;
