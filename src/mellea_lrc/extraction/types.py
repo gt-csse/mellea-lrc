@@ -3,6 +3,7 @@
 from dataclasses import InitVar, dataclass, field
 from enum import Enum
 
+from mellea_lrc.core.case_names import CaseName
 from mellea_lrc.core.citations import CanonicalCitation, is_full_citation
 from mellea_lrc.core.field_log import RULES, FieldLog
 from mellea_lrc.core.pin_cites import PinCitePages, read_pin_cite
@@ -85,11 +86,11 @@ class ExtractedCitation:
     as `colocation.py` explains why an id is shared.
     """
 
-    case_name_read: InitVar[Span | None] = None
-    """Where whatever built this citation read its case name, if it read one.
+    case_name_read: InitVar[CaseName | None] = None
+    """The case name whatever built this citation read, if it read one.
 
     Init-only: it opens `field_log`, which is where the name lives from then on.
-    Read it back as `case_name_span`.
+    Read it back as `case_name`, or its span alone as `case_name_span`.
     """
 
     read_by: InitVar[str] = RULES
@@ -119,12 +120,29 @@ class ExtractedCitation:
     common case. See :mod:`mellea_lrc.extraction.structure.colocation`.
     """
 
-    def __post_init__(self, case_name_read: Span | None, read_by: str) -> None:
+    def __post_init__(self, case_name_read: CaseName | None, read_by: str) -> None:
         # A log that already has a history belongs to this citation already:
         # `replace` passes the same object, and re-seeding it would record a
         # read that never happened.
         if not self.field_log.history(CASE_NAME):
             self.field_log.touch(CASE_NAME, case_name_read, by=read_by)
+
+    @property
+    def case_name(self) -> CaseName | None:
+        """This citation's case name, as last read: where it is and what it says.
+
+        The value is the last touch in `field_log`, so a name a reader wrote
+        here reads back the way a parsed one does, and what it replaced is still
+        on the record with the reason it was replaced.
+
+        `plaintiff` and `defendant` travel with it because a reader repairs them
+        when it repairs the name -- `Ass ' n of Specialty Programs` on the page
+        is the party `Ass'n of Specialty Programs` -- and a rule-based check
+        compares parties, not spans. The parse on `citation` is left exactly as
+        it was read; this is the best reading of the name, which may be the
+        same one.
+        """
+        return self.field_log.value(CASE_NAME)
 
     @property
     def case_name_span(self) -> Span | None:
@@ -144,21 +162,21 @@ class ExtractedCitation:
         name in that sentence is the same case name -- neither position is the
         wrong one, and the fuller of the two is what a reader wants.
 
-        The value is the last touch in `field_log`, so a name a reader wrote
-        here reads back the same way a parsed one does, and what it replaced is
-        still on the record.
+        A convenience over `case_name`, because most readers want the position
+        and nothing else.
         """
-        return self.field_log.value(CASE_NAME)
+        name = self.case_name
+        return name.span if name is not None else None
 
-    def record_case_name(self, span: Span | None, *, by: str, reason: str | None = None) -> None:
+    def record_case_name(self, name: CaseName | None, *, by: str, reason: str | None = None) -> None:
         """Write a case name over whatever the field holds, and say who did.
 
-        Writing `None` over a span, and a span over `None`, are both overwrites
+        Writing `None` over a name, and a name over `None`, are both overwrites
         and both are recorded. Nothing is checked here: whether the name is the
         right one is the caller's finding, and the log is what makes it
         reviewable.
         """
-        self.field_log.touch(CASE_NAME, span, by=by, reason=reason)
+        self.field_log.touch(CASE_NAME, name, by=by, reason=reason)
 
     @property
     def pin_cite_pages(self) -> tuple[PinCitePages, ...]:

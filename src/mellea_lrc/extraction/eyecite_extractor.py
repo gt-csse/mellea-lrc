@@ -35,6 +35,7 @@ from eyecite.models import (
     UnknownCitation as EyeciteUnknownCitation,
 )
 
+from mellea_lrc.core.case_names import CaseName
 from mellea_lrc.core.citations import (
     CanonicalCitation,
     CitationDate,
@@ -190,6 +191,30 @@ def _to_full_journal(citation: EyeciteFullJournalCitation) -> FullJournalCitatio
         pin_cite=strip_connector(citation.metadata.pin_cite),
         date=_date(citation),
         parenthetical=citation.metadata.parenthetical,
+    )
+
+
+def _case_name(
+    text: str,
+    eyecite_citation: CitationBase,
+    locator_span: Span,
+    floor: int,
+    canonical: CanonicalCitation,
+) -> CaseName | None:
+    """The name this citation is written under, with the parties eyecite read.
+
+    The span is located in the document; the parties are eyecite's own parse,
+    carried here so a later reading of the name replaces all of it at once
+    rather than leaving a repaired span beside a stale party.
+    """
+    span = locate_case_name(text, eyecite_citation, locator_span, floor=floor)
+    if span is None:
+        return None
+    return CaseName(
+        span=span,
+        text=text[span.start : span.end],
+        plaintiff=getattr(canonical, "plaintiff", None),
+        defendant=getattr(canonical, "defendant", None),
     )
 
 
@@ -386,7 +411,7 @@ def extract_citations(
                 pin_cite_span=locate_pin_cite(
                     text, canonical, locator_span=locator_span, full_span=full_span
                 ),
-                case_name_read=locate_case_name(text, eyecite_citation, locator_span, floor=name_floor),
+                case_name_read=_case_name(text, eyecite_citation, locator_span, name_floor, canonical),
                 resolves_to=antecedent_map.get(citation_id),
             )
         )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from mellea_lrc.core.case_names import CaseName
 from mellea_lrc.core.citations import (
     CanonicalCitation,
     CitationDate,
@@ -70,10 +71,13 @@ def serialize_extracted_document(document: ExtractedDocument) -> dict[str, JsonV
                     serialize_dataclass(citation.pin_cite_span) if citation.pin_cite_span else None
                 ),
                 "pin_cite_pages": [serialize_dataclass(pages) for pages in citation.pin_cite_pages],
+                "case_name": _serialize_case_name(citation.case_name),
+                # Kept beside `case_name` because every reader of a payload
+                # written before it wants the span and nothing else.
                 "case_name_span": (
                     serialize_dataclass(citation.case_name_span) if citation.case_name_span else None
                 ),
-                # The value above is the last of these. Both are written because
+                # The name above is the last of these. Both are written because
                 # a reader wants the value and a review wants the history.
                 "field_log": _serialize_field_log(citation.field_log),
                 "citation": {
@@ -169,12 +173,53 @@ def _deserialize_citation(value: object) -> ExtractedCitation:
         matched_text=_required_string(payload.get("matched_text"), name="citation.matched_text"),
         citation=citation_type(**citation_fields),
         pin_cite_span=_optional_span(payload.get("pin_cite_span"), name="citation.pin_cite_span"),
-        case_name_read=_optional_span(payload.get("case_name_span"), name="citation.case_name_span"),
+        case_name_read=_case_name(payload),
         field_log=_field_log(payload.get("field_log")),
         resolves_to=_optional_string(payload.get("resolves_to"), name="citation.resolves_to"),
         root_id=_optional_string(payload.get("root_id"), name="citation.root_id"),
         colocation_id=_optional_string(payload.get("colocation_id"), name="citation.colocation_id"),
     )
+
+
+def _serialize_case_name(name: CaseName | None) -> dict[str, object] | None:
+    """A case name as its four parts, or `None` where the citation states none."""
+    if name is None:
+        return None
+    return {
+        "span": serialize_dataclass(name.span),
+        "text": name.text,
+        "plaintiff": name.plaintiff,
+        "defendant": name.defendant,
+    }
+
+
+def _read_case_name(value: object, *, name: str) -> CaseName | None:
+    """Rebuild a case name from a payload, whichever shape wrote it."""
+    if not isinstance(value, Mapping):
+        return None
+    span = _optional_span(value.get("span"), name=f"{name}.span")
+    if span is None:
+        return None
+    return CaseName(
+        span=span,
+        text=_required_string(value.get("text"), name=f"{name}.text"),
+        plaintiff=_optional_string(value.get("plaintiff"), name=f"{name}.plaintiff"),
+        defendant=_optional_string(value.get("defendant"), name=f"{name}.defendant"),
+    )
+
+
+def _case_name(payload: Mapping[str, object]) -> CaseName | None:
+    """The case name a citation payload states, from either shape it may be in.
+
+    `case_name` is the whole value. A payload written before it has only
+    `case_name_span`, and a name is rebuilt from the span with the parties left
+    unread, which is what that payload recorded.
+    """
+    whole = _read_case_name(payload.get("case_name"), name="citation.case_name")
+    if whole is not None:
+        return whole
+    span = _optional_span(payload.get("case_name_span"), name="citation.case_name_span")
+    return None if span is None else CaseName(span=span, text="")
 
 
 def _serialize_field_log(log: FieldLog) -> dict[str, list[dict[str, object]]]:
@@ -183,7 +228,7 @@ def _serialize_field_log(log: FieldLog) -> dict[str, list[dict[str, object]]]:
         field: [
             {
                 "by": touch.by,
-                "value": serialize_dataclass(touch.value) if touch.value is not None else None,
+                "value": _serialize_case_name(touch.value) if touch.value is not None else None,
                 "reason": touch.reason,
             }
             for touch in log.history(field)
@@ -208,7 +253,7 @@ def _field_log(value: object) -> FieldLog:
         touches[field] = [
             FieldTouch(
                 by=_required_string(entry.get("by"), name="citation.field_log.by"),
-                value=_optional_span(entry.get("value"), name="citation.field_log.value"),
+                value=_read_case_name(entry.get("value"), name="citation.field_log.value"),
                 reason=_optional_string(entry.get("reason"), name="citation.field_log.reason"),
             )
             for entry in entries

@@ -69,6 +69,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mellea_lrc.core.case_names import CaseName
 from mellea_lrc.core.citations import CitationKind, citation_kind
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.adjudication.candidates.case_name_sites import case_name_sites
@@ -276,7 +277,16 @@ async def _case_name_layer(
         if answer.reading is Reading.NAMES_A_CITATION:
             named = by_id.get(answer.citation_id or "")
             if named is not None:
-                named.record_case_name(answer.span, by=CASE_NAME_LAYER, reason=answer.reason or None)
+                named.record_case_name(
+                    CaseName(
+                        span=answer.span,
+                        text=answer.name,
+                        plaintiff=answer.plaintiff,
+                        defendant=answer.defendant,
+                    ),
+                    by=CASE_NAME_LAYER,
+                    reason=answer.reason or None,
+                )
             continue
         if answer.reading is not Reading.SHORT_FORM:
             continue
