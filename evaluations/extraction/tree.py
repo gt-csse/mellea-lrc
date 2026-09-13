@@ -243,8 +243,13 @@ def _from_rules(extracted: ExtractedDocument, *, dockets: bool) -> dict[tuple[in
             {
                 "start": pin.start,
                 "end": pin.end,
+                # `footnote` only where there is one, so a page claim compares
+                # equal to a ground truth that states the same page and no
+                # footnote. `note` is left out either way: it says why nothing
+                # was read, which is about the reader rather than the claim.
                 "pages": [
                     {"first": page.first, "last": page.last, "kind": page.kind.value}
+                    | ({"footnote": page.footnote} if page.footnote else {})
                     for page in citation.pin_cite_pages
                 ],
             }
