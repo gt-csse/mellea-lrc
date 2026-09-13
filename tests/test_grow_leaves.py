@@ -13,6 +13,7 @@ import io
 import json
 
 from mellea_lrc.core.citations import is_leaf
+from mellea_lrc.core.case_names import CaseName
 from mellea_lrc.core.record import Node, Reads
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text, grow_leaves
 from mellea_lrc.serialization import deserialize_extracted_document, serialize_extracted_document
@@ -92,3 +93,51 @@ def test_a_surviving_root_keeps_everything_validation_wrote_on_it() -> None:
 
     assert same.authority_id == "authority-1"
     assert [node.stage for node in same.trace] == ["identity"]
+
+
+def test_a_leaf_finds_a_root_by_the_name_stated_not_the_name_parsed() -> None:
+    """Why the leaves are grown in a second pass.
+
+    eyecite reads the party of `Huri v. Office of the Chief Judge of the Cir.
+    Ct. of Cook Cnty. , 804 F.3d 826` as `Cnty.`, because the name search stops
+    at the `Cnty.` in front of the citation. A later `Huri , supra` states no
+    volume and no reporter, so the name is the only thing that can attach it,
+    and against the parse there is no `Huri` to attach to. Correcting `stated`
+    is what puts the name back, and attachment reads `stated`.
+    """
+    text = (
+        "The elements are set out in Huri v. Office of the Chief Judge of the Cir. Ct. of "
+        "Cook Cnty. , 804 F.3d 826, 833 (7th Cir. 2015). A different panel decided "
+        "Yancick v. Hanna Steel Corp. , 653 F.3d 532 (7th Cir. 2011). "
+        "See Huri , supra , at 834."
+    )
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        document = extract_from_plain_text(text, relaxation=Relaxation.FULL)
+    huri = next(c for c in document.citations if c.stated.page == "826")
+    assert "Huri" not in (huri.stated.case_name.text if huri.stated.case_name else "")
+
+    assert not [c for c in grow_leaves(document).citations if is_leaf(c.stated)]
+
+    huri.observe(
+        huri.correcting(
+            Node(
+                node_id="name",
+                reads=Reads.DOCUMENT,
+                stage="identity",
+                made_by="mellea_case_name_check",
+                outcome="corrected",
+            ),
+            "case_name",
+            CaseName(
+                span=huri.stated.case_name.span if huri.stated.case_name else None,
+                text="Huri v. Office of the Chief Judge of the Cir. Ct. of Cook Cnty.",
+                plaintiff="Huri",
+                defendant="Office of the Chief Judge of the Cir. Ct. of Cook Cnty.",
+            ),
+            reason="the parse stopped at the `Cnty.` in front of the citation",
+        )
+    )
+
+    leaves = [c for c in grow_leaves(document).citations if is_leaf(c.stated)]
+    assert [c.stated.antecedent for c in leaves] == ["Huri"]
+    assert leaves[0].root_id == huri.citation_id
