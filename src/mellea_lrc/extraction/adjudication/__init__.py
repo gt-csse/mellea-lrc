@@ -63,9 +63,9 @@ from mellea_lrc.extraction.adjudication.candidates.reporter_sites import (
 )
 from mellea_lrc.extraction.adjudication.masking import mask_full_spans, mask_locator_spans
 from mellea_lrc.extraction.adjudication.promotion import promote, promote_locator, reread_site
-from mellea_lrc.extraction.adjudication.reviews import DEFAULT_REVIEWS, Review, adjudicate
 from mellea_lrc.extraction.adjudication.review.docket import adjudicate_docket
 from mellea_lrc.extraction.adjudication.review.locator import adjudicate_locator
+from mellea_lrc.extraction.adjudication.reviews import DEFAULT_REVIEWS, Review, adjudicate
 from mellea_lrc.extraction.adjudication.types import Adjudication, Candidate, CandidateKind, Verdict
 
 __all__ = [
