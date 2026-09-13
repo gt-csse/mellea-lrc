@@ -26,9 +26,9 @@ not doing better than one that finds fewer.
 ## What is scored, and how
 
 An annotated citation is **found** when the arm produces a citation at exactly
-its `locator` span, or at its `cited_as` span where it has no locator, which is
-`Id.` and the bare-name references. Nothing partial counts: `PROTOCOL.md` fixes
-that rule, and the identifier is what a lookup resolves.
+its `locator` span, or where it starts when it states no locator, which is `Id.`
+and the bare-name references. Nothing partial counts: `PROTOCOL.md` fixes that
+rule, and the identifier is what a lookup resolves.
 
 The **roots** are counted apart from the **short forms**, because the two cost
 different things: a short form missed costs a page claim, a root missed costs
@@ -142,6 +142,33 @@ def anchor(row: dict[str, Any]) -> tuple[int, int]:
     """
     span = row.get("locator") or row["cited_as"]
     return (span["start"], span["end"])
+
+
+#: What a citation that identifies nothing is matched on: where it starts.
+_NO_LOCATOR = -1
+_UNLOCATED = {CitationKind.ID.value, CitationKind.REFERENCE.value}
+
+
+def identity(row: dict[str, Any]) -> tuple[int, int]:
+    """The span an annotated citation is *identified* at.
+
+    The locator, or the start alone where the row states none. `Id.   at 71
+    n.10` is one citation and `cited_as` covers all of it, but how much of a
+    pin cite written past the `Id.` a pass reads is the pin cite's own row to
+    answer, and charging it here would count one failure twice.
+    """
+    locator = row.get("locator")
+    if locator is not None:
+        return (locator["start"], locator["end"])
+    return (row["cited_as"]["start"], _NO_LOCATOR)
+
+
+def identities(run: dict[tuple[int, int], dict[str, Any]]) -> dict[tuple[int, int], dict[str, Any]]:
+    """What the run reports, keyed the way `identity` keys an annotated row."""
+    return {
+        (span[0], _NO_LOCATOR) if reported["kind"] in _UNLOCATED else span: reported
+        for span, reported in run.items()
+    }
 
 
 def read_documents(dataset: Path) -> Iterator[tuple[dict[str, Any], list[dict[str, Any]]]]:
@@ -274,7 +301,8 @@ async def score(dataset: Path, corpus: Path, arm: Arm) -> tuple[Counter[str], di
         run = await run_document(text, arm, session)
         annotated = [row for row in body if row["unit"] == "citation"]
         roots_by_id = {row["id"]: row.get("identifier") or {} for row in annotated if row["is_root"]}
-        parsed = {row["id"]: run[anchor(row)] for row in annotated if anchor(row) in run}
+        reported = identities(run)
+        parsed = {row["id"]: reported[identity(row)] for row in annotated if identity(row) in reported}
         # Identification is exact, because the identifier is what a lookup
         # resolves. Everything scored *about* a citation is scored over an
         # overlap instead: a run that reads `673 F.2d at ` where the filing
