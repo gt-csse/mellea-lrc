@@ -301,7 +301,9 @@ async def _case_name_layer(extracted: ExtractedDocument, session: MelleaSession)
         )
         if answer.reading is Reading.NAMES_A_CITATION:
             named = records.get(answer.citation_id or "")
-            if named is not None:
+            # The layer sweeps what the rules left over, so it can land on a
+            # citation that already holds the name it read. Nothing to correct.
+            if named is not None and named.case_name != name:
                 named.observe(named.correcting(node, "case_name", name, reason=node.message or ""))
             continue
         if answer.reading is not Reading.SHORT_FORM or answer.root_id not in at:

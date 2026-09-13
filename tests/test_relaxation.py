@@ -26,6 +26,7 @@ import pytest
 
 from mellea_lrc.core.citations import FullCaseCitation, ShortCaseCitation
 from mellea_lrc.extraction import ExtractedDocument, Relaxation, extract_from_plain_text
+from mellea_lrc.extraction.reading.relaxation import tokenizer_for
 
 
 def _extract(text: str, relaxation: Relaxation) -> ExtractedDocument:
@@ -299,3 +300,32 @@ def test_an_undamaged_short_form_still_reads() -> None:
 
     assert len(short) == 1
     assert short[0].matched_text == "556 U.S. at 678"
+
+
+@pytest.mark.parametrize("relaxation", [Relaxation.BOUNDED, Relaxation.FULL])
+def test_the_same_text_reads_the_same_way_in_every_process(relaxation: Relaxation) -> None:
+    """Two extractors matching the very same characters must not race.
+
+    Relaxing a reporter's punctuation lets `P.3d` reach `P. 3`, so `206 P. 327`
+    is matched twice over exactly the same span -- once as `P.` with page 327,
+    once as `P. 3` with page 27. `Tokenizer.tokenize` sorts by `(start, -end)`
+    and that sort is stable, so the winner is whichever extractor came first
+    out of the set `get_extractors` returns, which is Python's hash order.
+    That made the reading differ between processes.
+    """
+    citations = _extract("Williams , 111 Kan. 34, 35, 206 P. 327 (1922)", relaxation).citations
+    pacific = [c for c in citations if isinstance(c.stated, FullCaseCitation) and c.stated.volume == "206"]
+
+    assert len(pacific) == 1
+    assert pacific[0].stated.reporter.as_written == "P."
+    assert pacific[0].stated.page == "327"
+
+
+def test_the_extractors_run_in_a_fixed_order() -> None:
+    """The order is the tokenizer's own list, not the set's."""
+    tokenizer = tokenizer_for(Relaxation.FULL)
+    text = "206 P. 327"
+    first = [id(e) for e in tokenizer.get_extractors(text)]
+
+    assert first == sorted(first, key=lambda at: tokenizer._order[at])
+    assert first == [id(e) for e in tokenizer.get_extractors(text)]
