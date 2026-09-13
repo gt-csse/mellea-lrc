@@ -104,6 +104,8 @@ import eyecite.helpers
 import eyecite.regexes
 import eyecite.resolve
 
+from mellea_lrc.extraction.reading.eyecite_patterns import Widening, patched, widen
+
 # A comma, an `at`, or a page abbreviation standing in front of the page. Only
 # what joins the pin cite to the citation -- `¶`, `§`, `*` and `n.` are labels
 # that change the page's meaning and are left alone.
@@ -133,30 +135,62 @@ _HORIZONTAL_REQUIRED = r"[^\S\r\n]+"
 # extraction produces both.
 _RANGE_HYPHEN = r"[^\S\r\n]*[-–][^\S\r\n]*"
 
-
-#: What eyecite writes before a page that follows the first one: a comma, then
-#: an optional space. `570 n.10` has no comma, which is why the footnote is lost.
-_ANOTHER_PAGE = "(?:,\\ ?"
-#: The same, accepting a space instead of the comma when a note label follows.
-#: Scoped to the label rather than widened outright, because a comma is what
-#: separates two pages: `544, 570 2007` must not read 2007 as a second page.
-_ANOTHER_PAGE_OR_A_NOTE = "(?:(?:,|\\ (?=(?:&\\ )?(?:note|nn?\\.|fn?\\.)))\\ ?"
+#: What this project reads differently from eyecite, in the order it applies.
+#: Every one is a literal substring of eyecite's own pattern, and the order
+#: matters: the footnote and the end of text are written in eyecite's spelling
+#: of a space, which the two widenings after them rewrite.
+PIN_CITE_WIDENINGS = (
+    Widening(
+        written="(?:,\\ ?",
+        read_as="(?:(?:,|\\ (?=(?:&\\ )?(?:note|nn?\\.|fn?\\.)))\\ ?",
+        why=(
+            "A page after the first needs a comma in front of it, and Bluebook "
+            "Rule 3.2(b) writes none between a page and the footnote on it: "
+            "`570 n.10`. A space is accepted in its place when a note label "
+            "follows, and only then, because a comma is what separates two "
+            "pages and `544, 570 2007` must not read 2007 as a second one."
+        ),
+    ),
+    Widening(
+        written="$            # end of text",
+        read_as="[^\\S\\r\\n]*$   # end of text, or the space a cut left",
+        why=(
+            "A pin cite must be followed by punctuation, a paren or the end of "
+            "the text. `extract_pin_cite` matches with `strings_only`, so the "
+            "text stops at the first token that is not a string -- and "
+            "`(quoting` is a stop word, hence a token. `Id. at 71 (quoting ...)` "
+            "is matched against `' at 71 '`, and the space the cut left is all "
+            "that stands between the page and the end."
+        ),
+    ),
+    Widening(
+        written=r"\ ?",
+        read_as=_HORIZONTAL_OPTIONAL,
+        why="An optional literal space, where extraction leaves several or none.",
+    ),
+    Widening(
+        written="\\ ",
+        read_as=_HORIZONTAL_REQUIRED,
+        why="A required literal space, where extraction leaves several.",
+    ),
+    Widening(
+        written=r"(?:-\d+(?::\d+)?)?",
+        read_as=rf"(?:{_RANGE_HYPHEN}\d+(?::\d+)?)?",
+        why="A page:paragraph range's hyphen, which extraction spaces.",
+    ),
+    Widening(
+        written=r"(?:-\d+)?",
+        read_as=rf"(?:{_RANGE_HYPHEN}\d+)?",
+        why="A page range's hyphen: `998 -1003`, `337 - 38`, `189 - 90`.",
+    ),
+)
 
 
 def relax(pattern: str) -> str:
-    """Widen a pin-cite pattern's literal spaces, range hyphens and footnotes.
-
-    The footnote first, because it is written in eyecite's own spelling and the
-    space widening below rewrites that spelling.
-    """
-    widened = pattern.replace(_ANOTHER_PAGE, _ANOTHER_PAGE_OR_A_NOTE)
-    widened = widened.replace(r"\ ?", _HORIZONTAL_OPTIONAL).replace("\\ ", _HORIZONTAL_REQUIRED)
-    widened = widened.replace(r"(?:-\d+(?::\d+)?)?", rf"(?:{_RANGE_HYPHEN}\d+(?::\d+)?)?")
-    return widened.replace(r"(?:-\d+)?", rf"(?:{_RANGE_HYPHEN}\d+)?")
+    """Widen a pin-cite pattern by every reading in `PIN_CITE_WIDENINGS`."""
+    return widen(pattern, PIN_CITE_WIDENINGS)
 
 
-# Every pattern that embeds `PIN_CITE_REGEX` at import time. Widening the
-# constant alone reaches only what reads it at call time, which is references.
 _BAKED = (
     "POST_FULL_CITATION_REGEX",
     "POST_SHORT_CITATION_REGEX",
@@ -224,20 +258,19 @@ def relaxed_pin_cites() -> Iterator[None]:
     Resolution is swapped too, for the reason `_tolerant_check` gives: reading
     the pin cite is not enough if the check that accepts it counts spaces.
     """
-    pin = eyecite.regexes.PIN_CITE_REGEX
-    baked = {name: getattr(eyecite.helpers, name) for name in _BAKED}
-    strict_check = eyecite.resolve._has_invalid_pin_cite
-    eyecite.resolve._has_invalid_pin_cite = _tolerant_check(strict_check)
-    eyecite.regexes.PIN_CITE_REGEX = relax(pin)
-    for name, pattern in baked.items():
-        widened = relax(pattern)
-        setattr(eyecite.regexes, name, widened)
-        setattr(eyecite.helpers, name, widened)
-    try:
+    patterns = {
+        (eyecite.regexes, "PIN_CITE_REGEX"): relax(eyecite.regexes.PIN_CITE_REGEX),
+    }
+    for name in _BAKED:
+        widened = relax(getattr(eyecite.helpers, name))
+        patterns[(eyecite.regexes, name)] = widened
+        patterns[(eyecite.helpers, name)] = widened
+    with patched(
+        patterns,
+        pin_cite_check=(
+            eyecite.resolve,
+            "_has_invalid_pin_cite",
+            _tolerant_check(eyecite.resolve._has_invalid_pin_cite),
+        ),
+    ):
         yield
-    finally:
-        eyecite.resolve._has_invalid_pin_cite = strict_check
-        eyecite.regexes.PIN_CITE_REGEX = pin
-        for name, pattern in baked.items():
-            setattr(eyecite.regexes, name, pattern)
-            setattr(eyecite.helpers, name, pattern)
