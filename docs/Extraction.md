@@ -532,6 +532,35 @@ is worth saying out loud: **an artifact from the initialization is not a reading
 of the document's citations.** It is the roots, which is what identity needs and
 all that identity needs.
 
+#### How a leaf finds its root
+
+`structure/attachment.root_for` decides it, and it reads `stated` and never
+`source`. That is the point of the second growth: `source` is the parse and
+never changes, `stated` is the citation after a reader and validation have
+corrected it, and matching a leaf against the parse would throw every one of
+those corrections away.
+
+A short form is matched by the volume and reporter it states, against the roots
+that state the same. One candidate is the answer; several are narrowed by the
+name it writes, and then by the page -- of the roots that begin at or before the
+page claimed, the last one holds it. `supra` and a bare-name reference are
+matched by the name alone, since neither states an identifier. `Id.` takes the
+root of the citation before it, refused when the page it claims cannot fall
+inside that root.
+
+Only the whole case name is read, with the parsed parties as a fallback when
+there is none. eyecite fills `plaintiff` and `defendant` from the words in front
+of a citation, and those are often the words of the citation before it: the
+`Bell Atl. Corp. v. Twombly , 550 U.S. 544` two sentences after `Ashcroft v.
+Iqbal` is parsed with `defendant='Iqbal'`. Reading the parties alongside the
+name let `Iqbal , supra` reach Twombly.
+
+Nothing is guessed. A leaf that matches no root, or matches two and cannot be
+narrowed, is not grown at all -- `CitationRecord` refuses a leaf without a root,
+so an undecided leaf is a leaf that does not exist rather than one pointing at
+the wrong case. Over the 26 corpus filings the parse finds 86 leaves and 77 are
+placed.
+
 #### Open: a leaf that cannot be grown is still a finding
 
 The initialization drops a leaf it cannot attach, and the leaf pass drops one
@@ -545,6 +574,13 @@ So the leaf pass has to report what it could not grow, beside what it grew.
 Where that report lives -- a field on the document, a candidate kind, a unit of
 its own -- is not decided. Until it is, `tests/test_adjudication.py` carries a
 strict `xfail` so the day it starts working is not silent.
+
+The nine refused over the corpus say what such a report would have to hold.
+Four are an `Id.` whose antecedent is a statute, which no case root can take:
+the tree places citations under case roots only, so `Id. § 1231(g)` after
+`8 U.S.C. § 1231` is unplaceable by construction and not a defect at all. Two
+follow no citation of any kind. The remaining three are name matches that failed
+or were ambiguous, and eyecite placed one of them.
 
 #### What moves in the measurement
 
