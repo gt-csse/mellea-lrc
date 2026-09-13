@@ -396,6 +396,30 @@ how a citation gains a `root_id` or a `colocation_id` — carries the history
 rather than reopening it. It serializes with the citation, so a document written
 to disk keeps it, and a payload written before it reads back as one touch.
 
+### Where the held-out gap actually is, after the layer
+
+Measured on `evaluation_set_1` with all three arms, so the reminder is a
+number rather than an impression. The layer takes the seven bare names both
+rule arms miss — `ReferenceCitation` recall 0/7, 0/7, **7/7** — and attributes
+every one to the right root, carrying citations from 98.3% to 99.6% and
+attribution from 89.2% to 93.0%.
+
+What it does **not** reach, which is what the next move should be chosen
+against:
+
+| what is left | count | is it a case-name problem |
+|---|---|---|
+| pin cites | 16 | no — converter damage |
+| attribution | 13 | no — `Id.` the resolver drops or sends to the other half of a parallel pair |
+| citations | 2 | no — a decision cited by application serial number, which needs a *root* established |
+| roots and short forms | 6 | no — annotation semantics: four short forms that are their own root, and `604 U.S. ___` having no page |
+
+**So case-name hunting is close to done on this set and the remaining gap is
+elsewhere.** What would improve the layer further is better case names on the
+*roots* — its three false defects are all roots read with no name — and that is
+what validation produces. Which is the loop below, and the reason to hand over
+rather than keep pushing here.
+
 ### One pass is the wrong shape for the case-name layer
 
 Not built. Recorded because the failure it describes is the only one the layer
