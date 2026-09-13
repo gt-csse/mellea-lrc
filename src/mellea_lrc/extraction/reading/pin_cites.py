@@ -33,10 +33,20 @@ that comma when a note label follows it, and nothing else -- `544, 570 2007`
 must not read 2007 as a second page. This is what takes `550 n. 16`, `246 n.13`,
 `1117 n.4` and `850 n.10` from unread to a page with a footnote beside it.
 
-Both widenings are horizontal only, as the reporter joins are. A doubled or
-tabbed separator matches; a paragraph break does not. Doubled spaces are the
-defect observed, and this project's history is that the bounded form was right
-and the unbounded one bought errors.
+At `Relaxation.BOUNDED` both widenings are horizontal only, as the reporter
+joins are: a doubled or tabbed separator matches and a paragraph break does not.
+At `FULL` they are any whitespace, which is what that level already means for
+the volume, the reporter and the page.
+
+**The blank line needs more than the pattern.** `add_post_citation` reads the
+pin cite with `match_on_tokens`, which stops appending at a `ParagraphToken`, so
+the widest pattern in the world is matched against text that ends before the
+page begins. At `FULL` the scan is run a second time with the break flattened --
+and only as a fallback, where the strict scan found no pin cite at all. Reading
+past the break unconditionally costs as much as it buys: `Id. at 809\n\nThe
+Murphy Order` and `960 F.Supp. 253, 254\n\n- (D. Kan. 1997)` both end their
+page at the break, and continuing loses a page that was read. As a fallback it
+adds six pin cites across the three annotated sets and removes none.
 
 ## Why this is applied by patching, and only around one call
 
@@ -99,12 +109,15 @@ from __future__ import annotations
 import contextlib
 import re
 from collections.abc import Iterator
+from dataclasses import replace
 
 import eyecite.helpers
 import eyecite.regexes
 import eyecite.resolve
+from eyecite.tokenizers import ParagraphToken
 
 from mellea_lrc.extraction.reading.eyecite_patterns import Widening, patched, widen
+from mellea_lrc.extraction.reading.relaxation import Relaxation
 
 # A comma, an `at`, or a page abbreviation standing in front of the page. Only
 # what joins the pin cite to the citation -- `¶`, `§`, `*` and `n.` are labels
@@ -134,6 +147,13 @@ _HORIZONTAL_REQUIRED = r"[^\S\r\n]+"
 # Horizontal space either side of the hyphen, and an en dash beside it, because
 # extraction produces both.
 _RANGE_HYPHEN = r"[^\S\r\n]*[-–][^\S\r\n]*"
+# At `Relaxation.FULL` the page may be anywhere after the separator, blank line
+# included, which is the same latitude the locator already takes at that level:
+# `371 U.S. 178,\n\n182 (1962)` is one citation on the page and the pin cite is
+# the only part of it this project was still losing.
+_ANY_OPTIONAL = r"\s*"
+_ANY_REQUIRED = r"\s+"
+_RANGE_HYPHEN_ANY = r"\s*[-–]\s*"
 
 #: What this project reads differently from eyecite, in the order it applies.
 #: Every one is a literal substring of eyecite's own pattern, and the order
@@ -186,9 +206,33 @@ PIN_CITE_WIDENINGS = (
 )
 
 
-def relax(pattern: str) -> str:
-    """Widen a pin-cite pattern by every reading in `PIN_CITE_WIDENINGS`."""
-    return widen(pattern, PIN_CITE_WIDENINGS)
+def widenings_for(relaxation: Relaxation) -> tuple[Widening, ...]:
+    """`PIN_CITE_WIDENINGS`, with the separators the relaxation level allows.
+
+    `BOUNDED` keeps the horizontal forms: a doubled or tabbed space matches and
+    a paragraph break does not. `FULL` lets every one of them be any whitespace,
+    which is what `FULL` already means for the volume, the reporter and the
+    page, and the reason it exists -- a citation broken across a blank line is
+    still one citation.
+    """
+    if relaxation is not Relaxation.FULL:
+        return PIN_CITE_WIDENINGS
+    wider = {
+        _HORIZONTAL_OPTIONAL: _ANY_OPTIONAL,
+        _HORIZONTAL_REQUIRED: _ANY_REQUIRED,
+    }
+    return tuple(
+        replace(
+            step,
+            read_as=wider.get(step.read_as, step.read_as).replace(_RANGE_HYPHEN, _RANGE_HYPHEN_ANY),
+        )
+        for step in PIN_CITE_WIDENINGS
+    )
+
+
+def relax(pattern: str, relaxation: Relaxation = Relaxation.BOUNDED) -> str:
+    """Widen a pin-cite pattern by every reading the relaxation level allows."""
+    return widen(pattern, widenings_for(relaxation))
 
 
 _BAKED = (
@@ -236,8 +280,51 @@ def _tolerant_check(original):
     return check
 
 
+def _across_paragraphs(original):
+    """eyecite's forward token scan, asked again across a blank line.
+
+    Widening the pattern is not enough on its own. `add_post_citation` reads the
+    pin cite with `match_on_tokens`, which builds the text to match by appending
+    tokens and **stops at a `ParagraphToken`** -- so where the converter put a
+    blank line between the page and the pin cite, the pattern is matched against
+    text that ends before the pin cite starts, however wide the pattern is.
+    `371 U.S. 178,\n\n182 (1962)` is one citation on the page, and at
+    `Relaxation.FULL` a blank line is not a boundary.
+
+    **The second scan is a fallback, never a replacement.** Reading past the
+    break unconditionally costs as much as it buys: where the pin cite has
+    already ended at the break, what follows is the next sentence or the margin
+    of pleading paper -- `Id. at 809\n\nThe Murphy Order`, `960 F.Supp. 253,
+    254\n\n- (D. Kan. 1997)` -- and continuing turns a page that was read into
+    one that is not. So the strict scan runs first and its answer stands
+    wherever it found a pin cite; the wider one is tried only where it found
+    none, which can add a page and can never take one away.
+
+    Backward scans are left alone. They are how a case name is found, and a name
+    reaching back over a paragraph break would cross into the sentence before.
+    """
+
+    def scan(words, start_index, regex, prefix="", strings_only=False, forward=True, **kwargs):
+        found = original(words, start_index, regex, prefix, strings_only, forward, **kwargs)
+        if not forward or "?P<pin_cite>" not in regex:
+            return found
+        if found is not None and found.groupdict().get("pin_cite"):
+            return found
+        flattened = [
+            str(word) if isinstance(word, ParagraphToken) else word for word in words
+        ]
+        if len(flattened) == len(words) and all(a is b for a, b in zip(flattened, words)):
+            return found
+        wider = original(flattened, start_index, regex, prefix, strings_only, forward, **kwargs)
+        if wider is not None and wider.groupdict().get("pin_cite"):
+            return wider
+        return found
+
+    return scan
+
+
 @contextlib.contextmanager
-def relaxed_pin_cites() -> Iterator[None]:
+def relaxed_pin_cites(relaxation: Relaxation = Relaxation.BOUNDED) -> Iterator[None]:
     """Read pin cites tolerantly for the duration of the block.
 
     Several names have to be swapped, and finding that out is the point of this
@@ -259,10 +346,14 @@ def relaxed_pin_cites() -> Iterator[None]:
     the pin cite is not enough if the check that accepts it counts spaces.
     """
     patterns = {
-        (eyecite.regexes, "PIN_CITE_REGEX"): relax(eyecite.regexes.PIN_CITE_REGEX),
+        (eyecite.regexes, "PIN_CITE_REGEX"): relax(eyecite.regexes.PIN_CITE_REGEX, relaxation),
     }
+    if relaxation is Relaxation.FULL:
+        patterns[(eyecite.helpers, "match_on_tokens")] = _across_paragraphs(
+            eyecite.helpers.match_on_tokens
+        )
     for name in _BAKED:
-        widened = relax(getattr(eyecite.helpers, name))
+        widened = relax(getattr(eyecite.helpers, name), relaxation)
         patterns[(eyecite.regexes, name)] = widened
         patterns[(eyecite.helpers, name)] = widened
     with patched(
