@@ -14,10 +14,10 @@ document decides which:
     the citation itself.
 
 ``short_form``
-    A proper Bluebook Rule 10.9 reference: the filing names a case it gave in
-    full somewhere else and states no identifier here. The finding is a
-    citation the record does not hold at all, and what makes it one is the
-    root it reads back to, which is usually nowhere near the window.
+    The filing names a case it gives in full somewhere else and states no
+    identifier here. The finding is a citation the record does not hold at all,
+    and what makes it one is the root it reads back to, which is usually
+    nowhere near the window.
 
 ``not_a_citation``
     The filing's own caption, a section heading, a roman-numeral list item.
@@ -30,9 +30,11 @@ name verbatim and picks a neighbour or a root **by index** from lists this
 module built, so every part of the answer resolves back into the record
 deterministically or fails to resolve at all.
 
-A root is offered from the whole document, because Rule 10.9 puts no distance
-limit on a short form -- document 022 writes `Doe v. Rose` eight thousand
-characters after the table of authorities entry that gives it in full.
+A root is offered from the whole document, and from either direction. There is
+no distance limit -- document 022 writes `Doe v. Rose` eight thousand characters
+after the table of authorities entry that gives it in full -- and no ordering
+either: what decides `uncited_case` is whether the document cites the case at
+all, because that is what a reader needs to reach it.
 """
 
 from __future__ import annotations
@@ -90,18 +92,19 @@ Decide what it is. There are exactly three answers.
     was read with - a citation read with a shorter name, a different form of
     the name, or no name at all is still the same reference.
 
-"short_form" - the filing is referring by name alone to a case it has already
-    cited in full, which Bluebook Rule 10.9 permits. Choose which case from the
-    roots list below. Answer this only when one of those roots is the same
-    case: the party names must match, allowing for abbreviation and for a
-    shortened name. Each root is marked with where it sits relative to this
-    name. {{ordering}}
+"short_form" - the filing is referring by name alone to a case this document
+    cites in full somewhere. Choose which case from the roots list below.
+    Answer this only when one of those roots is the same case: the party names
+    must match, allowing for abbreviation and for a shortened name. WHERE that
+    root sits does not matter. A filing may name a case and cite it a sentence
+    later, and a reader can still reach it, so it is cited.
 
 "uncited_case" - the filing OFFERS the case in support of something it is
     asserting - what a court held, what the law is, what standard applies, or
-    that something happened - and nothing in the document cites it: no root in
-    the list is this case, and there is no volume, reporter, page or docket
-    number for it here either. This is a defect in the filing, and it is a
+    that something happened - and NOTHING ANYWHERE in the document cites it: no
+    root in the list is this case, and there is no volume, reporter, page or
+    docket number for it here either. Nothing a reader could look the case up
+    with exists, which is what makes this a defect in the filing. It is a
     different answer from "not_a_citation".
 
 "not_a_citation" - the name appears for some reason other than relying on what
@@ -162,15 +165,6 @@ Rules:
 window:
 {{window}}
 """.strip()
-
-
-ORDERING = (
-    "Each root is marked with where it sits relative to this name. Rule 10.9 "
-    "permits a short form only AFTER the full citation has appeared, so a root "
-    'marked "later in the document" does not make this a short form -- at that '
-    "point nothing in the filing locates the case, and the answer is "
-    '"uncited_case".'
-)
 
 
 class Reading(str, Enum):
@@ -293,7 +287,7 @@ def _identity_words(name: str) -> set[str]:
     return {word.lower() for word in _WORD.findall(name) if word.lower() not in _COMMON}
 
 
-def _citation_line(index: int, text: str, citation: ExtractedCitation, site: Span | None = None) -> str:
+def _citation_line(index: int, text: str, citation: ExtractedCitation) -> str:
     name = " v. ".join(
         part
         for part in (
@@ -305,12 +299,7 @@ def _citation_line(index: int, text: str, citation: ExtractedCitation, site: Spa
     locator = text[citation.locator_span.start : citation.locator_span.end]
     locator = _REPEATED_INLINE_WHITESPACE.sub(" ", locator.replace("\n", " ")).strip()
     read = f"   (read with the name {name!r})" if name else "   (read with no name)"
-    if site is None:
-        return f"  {index}. {locator}{read}"
-    # Rule 10.9 is ordered: a short form stands only after the full citation.
-    # A reader sees one window and cannot tell which came first, so it is told.
-    where = "earlier in the document" if citation.locator_span.start < site.start else "later in the document"
-    return f"  {index}. {locator}{read}   [{where}]"
+    return f"  {index}. {locator}{read}"
 
 
 def neighbours(document: ExtractedDocument, window: Span) -> tuple[ExtractedCitation, ...]:
@@ -525,18 +514,15 @@ async def adjudicate_case_name(
     site: Candidate,
     *,
     session: MelleaSession | None = None,
-    ordered: bool = True,
 ) -> AdjudicatedCaseName | None:
     """Return what a reader makes of one case-name site, or `None` on a decline.
 
-    `ordered` applies Rule 10.9's ordering: a short form stands only after the
-    full citation has appeared, so a name whose only matching root comes later
-    in the document is an `uncited_case`. It is on by default because it is the
-    rule, and because over this corpus it is what stops the reader inventing a
-    short form -- but it also refuses three names the ground truth calls proper
-    short forms, each of which the filing cites in full a sentence or two
-    afterwards. Which of those readings is right is a question about the ground
-    truth, so the switch is here rather than settled.
+    A case is uncited when the document holds no citation of it, in either
+    direction. Rule 10.9's ordering was tried here and is the wrong test: it
+    governs short-form *citations*, which claim a page, and a name written in
+    text claims nothing, so a filing may name a case and cite it a sentence
+    later without writing anything improper. Reading those as uncited cost
+    eight of this layer's thirteen errors on `extraction-eval-1`.
     """
     text = document.text
     window_text = text[site.window.start : site.window.end]
@@ -548,8 +534,7 @@ async def adjudicate_case_name(
         _citation_line(index, text, citation) for index, citation in enumerate(nearby, start=1)
     )
     root_lines = "\n".join(
-        _citation_line(index, text, citation, site.span if ordered else None)
-        for index, citation in enumerate(document_roots, start=1)
+        _citation_line(index, text, citation) for index, citation in enumerate(document_roots, start=1)
     )
 
     resolved_session = session or start_mellea_session_from_env()
@@ -559,7 +544,6 @@ async def adjudicate_case_name(
             description=INSTRUCTION,
             user_variables={
                 "site": _REPEATED_INLINE_WHITESPACE.sub(" ", text[site.span.start : site.span.end]),
-                "ordering": ORDERING if ordered else "",
                 "window": collapsed,
                 "neighbours": (
                     f"citations already read in this window:\n{neighbour_lines}"
