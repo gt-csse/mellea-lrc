@@ -36,9 +36,9 @@ nameless for every site in the pass, so if the review of the name written near
 it misses, every later mention of that case is unreachable by name too, and the
 answer the reader honestly gives is that the filing never cites it. The order is
 one-way: a patch found at a later mention cannot rescue an earlier one. The
-place to run this layer again is after validation, where the names have been
-checked against the record -- see `docs/Extraction.md`, "One pass is the wrong
-shape for the case-name layer".
+place to run this layer is after validation, where the names have been checked
+against the record -- see `docs/Extraction.md`, "Roots first, leaves after
+validation", which is why it is in no arm.
 
 A root is offered from the whole document, and from either direction. There is
 no distance limit -- document 022 writes `Doe v. Rose` eight thousand characters
