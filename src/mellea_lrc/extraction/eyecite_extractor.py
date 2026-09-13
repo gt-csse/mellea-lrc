@@ -479,7 +479,7 @@ def _with_leaves(
     keyed by the resource it built -- and a root the document does not hold is a
     root nothing can be attached to. So a leaf whose antecedent is missing is
     dropped rather than recorded with a dangling id: `CitationRecord` refuses a
-    leaf with no root, and a leaf pointing at a root that was pruned away is the
+    leaf with no root, and a leaf pointing at a root that was removed away is the
     same thing one step removed.
     """
     roots = {record.citation_id for record in document.citations}
@@ -515,7 +515,7 @@ def grow_leaves(
     validation wrote on them: a citation's identifier is a hash of its span and
     the characters at it, so the re-read produces the same ids and the roots
     already here are the ones the leaves point at. A leaf whose root the document
-    does not hold -- pruned as unidentifiable, or never found -- is dropped
+    does not hold -- removed as unidentifiable, or never found -- is dropped
     rather than recorded pointing nowhere.
     """
     level = relaxation or document.extraction_metadata.relaxation

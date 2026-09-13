@@ -1,8 +1,8 @@
 """The second growth: leaves onto the roots that came back from validation.
 
-Extraction grows roots; validation prunes them and settles what survives;
+Extraction grows roots; validation removes what reaches no case and settles what survives;
 extraction grows leaves onto what it is handed. The contract between the two
-halves is this module's subject -- what a pruned root takes with it, and what a
+halves is this module's subject -- what a removed root takes with it, and what a
 surviving root keeps.
 """
 
@@ -29,10 +29,10 @@ def _roots():
         return extract_from_plain_text(TEXT, relaxation=Relaxation.FULL)
 
 
-def _through_the_artifact(document, prune: set[str] = frozenset()):
+def _through_the_artifact(document, removed: set[str] = frozenset()):
     """Out as an artifact and back, which is how validation returns it."""
     payload = json.loads(json.dumps(serialize_extracted_document(document)))
-    payload["citations"] = [c for c in payload["citations"] if c["citation_id"] not in prune]
+    payload["citations"] = [c for c in payload["citations"] if c["citation_id"] not in removed]
     return deserialize_extracted_document(payload)
 
 
@@ -53,13 +53,13 @@ def test_leaves_grow_onto_the_roots_that_came_back() -> None:
     assert {c.root_id for c in leaves} <= {c.citation_id for c in returned.citations}
 
 
-def test_a_pruned_root_takes_its_leaves_with_it() -> None:
+def test_a_root_removed_by_validation_takes_its_leaves() -> None:
     """A leaf whose root validation removed reaches nothing, and a leaf that
-    reaches nothing cannot be built. So pruning a root prunes its leaves."""
+    reaches nothing cannot be built. So removing a root removes its leaves."""
     document = _roots()
     twombly = next(c for c in document.citations if c.stated.page == "544")
 
-    grown = grow_leaves(_through_the_artifact(document, prune={twombly.citation_id}))
+    grown = grow_leaves(_through_the_artifact(document, removed={twombly.citation_id}))
     leaves = [c for c in grown.citations if is_leaf(c.stated)]
 
     assert twombly.citation_id not in {c.citation_id for c in grown.citations}
