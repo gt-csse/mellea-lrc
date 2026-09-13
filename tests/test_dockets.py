@@ -44,9 +44,9 @@ def _extract(text: str, relaxation: Relaxation = Relaxation.BOUNDED) -> Extracte
 
 def _dockets(text: str, relaxation: Relaxation = Relaxation.BOUNDED) -> list[DocketCitation]:
     return [
-        item.citation
+        item.stated
         for item in _extract(text, relaxation).citations
-        if isinstance(item.citation, DocketCitation)
+        if isinstance(item.stated, DocketCitation)
     ]
 
 
@@ -75,7 +75,7 @@ def test_the_spans_point_at_the_docket_and_at_the_whole_citation() -> None:
     the end of the parenthetical would blank out the court and the date as
     though they had been read as part of the number.
     """
-    (item,) = [c for c in _extract(INDICTMENT).citations if isinstance(c.citation, DocketCitation)]
+    (item,) = [c for c in _extract(INDICTMENT).citations if isinstance(c.stated, DocketCitation)]
 
     full = INDICTMENT[item.full_span.start : item.full_span.end]
 
@@ -96,7 +96,7 @@ def test_a_docket_and_a_parallel_reporter_locator_are_two_citations() -> None:
         "at *1 (D. Nev. Oct. 6, 2011) (granting a protective order)."
     )
 
-    kinds = {type(c.citation).__name__ for c in _extract(text).citations}
+    kinds = {type(c.stated).__name__ for c in _extract(text).citations}
 
     assert {"DocketCitation", "FullCaseCitation"} <= kinds
 
@@ -241,7 +241,7 @@ def test_an_id_chain_attributes_to_the_docket_it_heads() -> None:
 
     (authority,) = tree.roots
 
-    assert isinstance(authority.root.citation, DocketCitation)
+    assert isinstance(authority.root.stated, DocketCitation)
     assert authority.pin_cites == ("¶¶ 30-31", "¶ 34")
     assert tree.unattributed == ()
 
@@ -278,7 +278,7 @@ def test_two_courts_sharing_a_docket_number_are_two_authorities() -> None:
 
     tree = build_citation_tree(_extract(text))
 
-    assert {a.root.citation.court for a in tree.roots} == {"ncmd", "nvd"}
+    assert {a.root.stated.court for a in tree.roots} == {"ncmd", "nvd"}
 
 
 def test_a_docket_citation_survives_a_serialization_round_trip() -> None:
@@ -301,8 +301,8 @@ def test_a_docket_is_a_full_citation_and_a_reporter_locator_is_still_its_own() -
 
     (full,) = document.full_citations
 
-    assert isinstance(full.citation, DocketCitation)
-    assert not isinstance(full.citation, FullCaseCitation)
+    assert isinstance(full.stated, DocketCitation)
+    assert not isinstance(full.stated, FullCaseCitation)
 
 
 def test_a_bankruptcy_docket_number_is_a_locator() -> None:
@@ -317,19 +317,19 @@ def test_a_bankruptcy_docket_number_is_a_locator() -> None:
         "(Bankr. S.D.N.Y. Jan. 18, 2006) (entering a temporary restraining order)."
     )
 
-    (citation,) = [c for c in _extract(text).citations if isinstance(c.citation, DocketCitation)]
+    (citation,) = [c for c in _extract(text).citations if isinstance(c.stated, DocketCitation)]
 
-    assert citation.citation.docket_number == "06-01147"
-    assert citation.citation.court_text == "Bankr. S.D.N.Y."
+    assert citation.stated.docket_number == "06-01147"
+    assert citation.stated.court_text == "Bankr. S.D.N.Y."
 
 
 def test_a_bankruptcy_number_whose_hyphen_extraction_dropped_is_still_read() -> None:
     """`No. 2010712` is `20-10712` with the hyphen lost in conversion."""
     text = "See, e.g ., In re Olinda Star Ltd. , No. 2010712 (MG) [D.I. 23] (Bankr. S.D.N.Y. Apr. 3, 2020)."
 
-    (citation,) = [c for c in _extract(text).citations if isinstance(c.citation, DocketCitation)]
+    (citation,) = [c for c in _extract(text).citations if isinstance(c.stated, DocketCitation)]
 
-    assert citation.citation.docket_number == "2010712"
+    assert citation.stated.docket_number == "2010712"
 
 
 def test_a_number_of_that_shape_with_no_court_is_not_a_citation() -> None:
@@ -342,15 +342,15 @@ def test_a_number_of_that_shape_with_no_court_is_not_a_citation() -> None:
     bar_number = "Jennifer Smith (State Bar No. 1124201) 361 Falls Rd, Suite 610 Grafton, WI 53024"
     own_caption = "Chapter 15 Case No. 26-10769 (MG) (Joint Administration Requested)"
 
-    assert [c for c in _extract(bar_number).citations if isinstance(c.citation, DocketCitation)] == []
-    assert [c for c in _extract(own_caption).citations if isinstance(c.citation, DocketCitation)] == []
+    assert [c for c in _extract(bar_number).citations if isinstance(c.stated, DocketCitation)] == []
+    assert [c for c in _extract(own_caption).citations if isinstance(c.stated, DocketCitation)] == []
 
 
 def test_the_bankruptcy_shape_needs_the_signal_in_front_of_it() -> None:
     """A bare year and sequence is a page range as often as a docket number."""
     text = "The discussion runs from 06-01147 in the appendix (Bankr. S.D.N.Y. 2006)."
 
-    assert [c for c in _extract(text).citations if isinstance(c.citation, DocketCitation)] == []
+    assert [c for c in _extract(text).citations if isinstance(c.stated, DocketCitation)] == []
 
 
 def test_a_docket_number_with_no_office_is_still_a_locator() -> None:
@@ -360,10 +360,10 @@ def test_a_docket_number_with_no_office_is_still_a_locator() -> None:
         "at *3 (W.D. Wash. May 19, 2023), the court granted anonymity."
     )
 
-    (citation,) = [c for c in _extract(text).citations if isinstance(c.citation, DocketCitation)]
+    (citation,) = [c for c in _extract(text).citations if isinstance(c.stated, DocketCitation)]
 
-    assert citation.citation.docket_number == "22-cv-1231"
-    assert citation.citation.court_text == "W.D. Wash."
+    assert citation.stated.docket_number == "22-cv-1231"
+    assert citation.stated.court_text == "W.D. Wash."
 
 
 def test_reading_the_docket_keeps_it_out_of_the_case_name() -> None:
@@ -378,9 +378,9 @@ def test_reading_the_docket_keeps_it_out_of_the_case_name() -> None:
         "at *3 (W.D. Wash. May 19, 2023), the court granted anonymity."
     )
 
-    reporter = next(c for c in _extract(text).citations if isinstance(c.citation, FullCaseCitation))
+    reporter = next(c for c in _extract(text).citations if isinstance(c.stated, FullCaseCitation))
 
-    assert reporter.citation.defendant == "Amazon.com, Inc."
+    assert reporter.stated.defendant == "Amazon.com, Inc."
 
 
 def test_a_bankruptcy_docket_reads_its_court_however_the_filing_abbreviates_it() -> None:
@@ -393,8 +393,8 @@ def test_a_bankruptcy_docket_reads_its_court_however_the_filing_abbreviates_it()
     """
     text = "In re FCI Mkts ., No. 21-14743 (CL) (Bankr. S.D. Fla., May 14, 2021)."
 
-    citation = next(c for c in _extract(text).citations if isinstance(c.citation, DocketCitation))
+    citation = next(c for c in _extract(text).citations if isinstance(c.stated, DocketCitation))
 
-    assert citation.citation.docket_number == "21-14743"
-    assert citation.citation.court == "flsb"
+    assert citation.stated.docket_number == "21-14743"
+    assert citation.stated.court == "flsb"
     assert text[citation.full_span.start : citation.full_span.end].startswith("FCI Mkts")

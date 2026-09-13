@@ -33,7 +33,7 @@ from mellea_lrc.core.spans import Span
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from mellea_lrc.extraction.types import ExtractedCitation
+    from mellea_lrc.extraction.types import CitationRecord
 
 # A party name: capitalised words, the punctuation a company name carries, and
 # the lowercase words that sit inside one -- `U.S. Department of the Interior`,
@@ -62,7 +62,7 @@ _ANOTHER_CASE = re.compile(r"\s*(?:v\.|vs\.|v\b)")
 _LAST_FRAGMENT = re.compile(r",[^,]*$")
 
 
-def unread_case_names(text: str, citations: Sequence[ExtractedCitation]) -> tuple[Span, ...]:
+def unread_case_names(text: str, citations: Sequence[CitationRecord]) -> tuple[Span, ...]:
     """Spans of `text` that name a case and lie outside every citation read."""
     blanked = list(text)
     for citation in citations:

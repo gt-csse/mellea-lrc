@@ -7,10 +7,10 @@ import pytest
 
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import (
-    ExtractedCitation,
+    CitationRecord,
     ExtractedDocument,
     ExtractionMetadata,
-    extract,
+    extract_citations,
     extract_from_plain_text,
 )
 from mellea_lrc.preprocessing import PreprocessedDocument, preprocess
@@ -31,49 +31,45 @@ def test_extract_from_plain_text_carries_the_preprocessing_through() -> None:
     assert result.citations
 
 
-def test_extract_reads_a_string_as_content() -> None:
-    assert extract(SAMPLE_TEXT).text == SAMPLE_TEXT
-
-
-def test_extract_reads_a_path_as_a_location(tmp_path: Path) -> None:
-    """A ``Path`` is opened; the same text as a ``str`` would be extracted from."""
+def test_extraction_takes_what_preprocessing_produced(tmp_path: Path) -> None:
+    """The stage's signature: the preceding stage's output in, citations out."""
     path = tmp_path / "filing.txt"
     path.write_text(SAMPLE_TEXT, encoding="utf-8")
 
-    from_disk = extract(path)
+    from_disk = extract_citations(preprocess(path))
 
     assert from_disk.text == SAMPLE_TEXT
-    assert {item.citation.kind for item in from_disk.citations} == {
-        item.citation.kind for item in extract(SAMPLE_TEXT).citations
+    assert {item.stated.kind for item in from_disk.citations} == {
+        item.stated.kind for item in extract_from_plain_text(SAMPLE_TEXT).citations
     }
 
 
 def test_extract_from_plain_text_returns_canonical_types() -> None:
     result = extract_from_plain_text(SAMPLE_TEXT)
-    kinds = {item.citation.kind for item in result.citations}
+    kinds = {item.stated.kind for item in result.citations}
 
     assert CitationKind.FULL_CASE in kinds
     assert CitationKind.FULL_LAW in kinds
     assert len(result.full_citations) >= 2
 
-    full_case = next(item for item in result.citations if isinstance(item.citation, FullCaseCitation))
-    assert full_case.citation.defendant == "Shelby County"
-    assert full_case.citation.volume == "118"
-    assert full_case.citation.reporter.as_written == "U.S."
+    full_case = next(item for item in result.citations if isinstance(item.stated, FullCaseCitation))
+    assert full_case.stated.defendant == "Shelby County"
+    assert full_case.stated.volume == "118"
+    assert full_case.stated.reporter.as_written == "U.S."
     assert SAMPLE_TEXT[full_case.locator_span.start : full_case.locator_span.end] == "118 U.S. 425"
     assert full_case.full_span.start < full_case.locator_span.start
     assert full_case.resolves_to is None
 
-    full_law = next(item for item in result.citations if isinstance(item.citation, FullLawCitation))
-    assert full_law.citation.volume == "28"
-    assert full_law.citation.reporter.as_written == "U.S.C."
+    full_law = next(item for item in result.citations if isinstance(item.stated, FullLawCitation))
+    assert full_law.stated.volume == "28"
+    assert full_law.stated.reporter.as_written == "U.S.C."
 
 
 def test_extracted_document_rejects_duplicate_citation_ids() -> None:
     preprocessed = preprocess("347 U.S. 483")
-    citation = ExtractedCitation(
+    citation = CitationRecord(
         citation_id="cite-1",
-        citation=placed(
+        source=placed(
             FullCaseCitation(volume="347", reporter="U.S.", page="483"),
             span=Span(0, len(preprocessed.text)),
             locator_span=Span(0, len(preprocessed.text)),
@@ -93,9 +89,9 @@ def test_extracted_document_rejects_duplicate_citation_ids() -> None:
 
 def test_extracted_document_rejects_span_outside_text() -> None:
     preprocessed = preprocess("347 U.S. 483")
-    citation = ExtractedCitation(
+    citation = CitationRecord(
         citation_id="cite-1",
-        citation=placed(
+        source=placed(
             FullCaseCitation(volume="347", reporter="U.S.", page="483"),
             span=Span(0, len(preprocessed.text) + 1),
             locator_span=Span(0, len(preprocessed.text) + 1),
@@ -126,9 +122,9 @@ def test_extract_recovers_citation_broken_by_repeated_whitespace() -> None:
 
     assert len(result.citations) == 1
     citation = result.citations[0]
-    assert isinstance(citation.citation, FullCaseCitation)
-    assert citation.citation.volume == "284"
-    assert citation.citation.reporter.as_written == "S.W.3d"
+    assert isinstance(citation.stated, FullCaseCitation)
+    assert citation.stated.volume == "284"
+    assert citation.stated.reporter.as_written == "S.W.3d"
     assert text[citation.locator_span.start : citation.locator_span.end] == "284  S.W.3d  303"
 
 

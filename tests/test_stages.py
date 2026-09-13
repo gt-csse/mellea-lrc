@@ -36,9 +36,7 @@ def test_every_stage_says_why_it_runs_where_it_does() -> None:
 
 def test_in_order_a_parallel_citation_keeps_the_year_it_reaches_for() -> None:
     dates = {
-        item.citation.date.year
-        for item in _citations(_PARALLEL)
-        if isinstance(item.citation, FullCaseCitation)
+        item.stated.date.year for item in _citations(_PARALLEL) if isinstance(item.stated, FullCaseCitation)
     }
 
     assert dates == {"1968"}
@@ -58,9 +56,9 @@ def test_without_colocation_first_the_parallel_citation_loses_it() -> None:
     without = post_citation.run(_PARALLEL, unmarked)
 
     dates = {
-        item.citation.date.year if item.citation.date else None
+        item.stated.date.year if item.stated.date else None
         for item in without
-        if isinstance(item.citation, FullCaseCitation)
+        if isinstance(item.stated, FullCaseCitation)
     }
 
     assert None in dates
@@ -81,8 +79,8 @@ def test_the_authority_is_written_onto_every_citation_that_has_one() -> None:
     """The chain's answer, recorded rather than left to be recomputed."""
     text = "Doe v. Megless, 654 F.3d 404, 408 (3d Cir. 2011). Id. at 409."
     citations = _citations(text)
-    full = next(c for c in citations if isinstance(c.citation, FullCaseCitation))
-    reference = next(c for c in citations if c.citation.kind.value == "IdCitation")
+    full = next(c for c in citations if isinstance(c.stated, FullCaseCitation))
+    reference = next(c for c in citations if c.stated.kind.value == "IdCitation")
 
     assert full.root_id == full.citation_id
     assert reference.root_id == full.citation_id
@@ -91,6 +89,6 @@ def test_the_authority_is_written_onto_every_citation_that_has_one() -> None:
 def test_a_reference_with_no_authority_keeps_none() -> None:
     """Not attributed is an answer, and the field says so rather than guessing."""
     citations = _citations("The rule is settled. Id. at 409.")
-    reference = next(c for c in citations if c.citation.kind.value == "IdCitation")
+    reference = next(c for c in citations if c.stated.kind.value == "IdCitation")
 
     assert reference.root_id is None

@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from mellea_lrc.core.citations import FullCaseCitation, placed
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import CourtListenerOpinionCluster
-from mellea_lrc.extraction import ExtractedCitation
+from mellea_lrc.extraction import CitationRecord
 from mellea_lrc.validation import (
     CitationValidation,
     ExactLocatorLookupNode,
@@ -61,9 +61,9 @@ def test_mellea_case_name_reextraction(
 ) -> None:
     """Extract parties verbatim from the citation-local document text."""
     start = text.index(locator)
-    citation = ExtractedCitation(
+    citation = CitationRecord(
         citation_id="live-case-name",
-        citation=placed(
+        source=placed(
             FullCaseCitation(),
             span=Span(0, len(text)),
             locator_span=Span(start, start + len(locator)),

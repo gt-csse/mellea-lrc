@@ -52,7 +52,7 @@ def run_reporter_page_retrieval(
     ):
         msg = "Reporter-page retrieval requires a locator-derived opinion cluster"
         raise ValueError(msg)
-    citation = validation.citation.citation
+    citation = validation.citation.stated
     cluster = evaluation.record
     cluster_id = cluster.cluster_id
     dependency = (evaluation.node_id,)

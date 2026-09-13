@@ -190,7 +190,7 @@ def _node(
 
 
 def _court_id(validation: CitationValidation) -> str | None:
-    citation = validation.citation.citation
+    citation = validation.citation.stated
     return citation.court if isinstance(citation, FullCaseCitation) else None
 
 

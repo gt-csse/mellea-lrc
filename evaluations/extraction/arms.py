@@ -5,7 +5,7 @@ objects, spelled out rather than composed by a framework so that reading one
 tells you exactly what ran, in order.
 
 The experimental arms have no domain-object form -- an ``AdjudicatedLocator``
-is not an ``ExtractedCitation`` -- which is why they emit public occurrences
+is not an ``CitationRecord`` -- which is why they emit public occurrences
 directly rather than a serialized ``ExtractedDocument``.
 """
 
@@ -58,13 +58,13 @@ def _from_extracted_document(document: str, extracted: ExtractedDocument) -> lis
             end=citation.locator_span.end,
             matched_text=extracted.text[citation.locator_span.start : citation.locator_span.end],
             detail={
-                "volume": citation.citation.volume,
-                "reporter": citation.citation.reporter,
-                "page": citation.citation.page,
+                "volume": citation.stated.volume,
+                "reporter": citation.stated.reporter,
+                "page": citation.stated.page,
             },
         )
         for citation in extracted.citations
-        if type(citation.citation).__name__ == _FULL_CASE
+        if type(citation.stated).__name__ == _FULL_CASE
     ]
 
 

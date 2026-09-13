@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from mellea_lrc.core.citations import FullCaseCitation, placed
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction import ExtractedCitation
+from mellea_lrc.extraction import CitationRecord
 from mellea_lrc.validation.pinpoint_retrieval.mellea_citing_proposition_extraction import (
     CONTEXT_WINDOW_CHARS,
     citing_context_span,
@@ -52,9 +52,9 @@ def test_citing_proposition_node_stores_original_document_span(monkeypatch: obje
     document = f"{prefix}{proposition} See {citation_text}."
     citation_start = document.index(citation_text)
     validation = CitationValidation(
-        citation=ExtractedCitation(
+        citation=CitationRecord(
             citation_id="citation-1",
-            citation=placed(
+            source=placed(
                 FullCaseCitation(
                     volume="671",
                     reporter="F.2d",

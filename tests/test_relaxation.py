@@ -40,15 +40,15 @@ def _matched(text: str, relaxation: Relaxation = Relaxation.BOUNDED) -> list[str
 
 def _locators(text: str, relaxation: Relaxation = Relaxation.BOUNDED) -> set[str]:
     return {
-        f"{c.citation.volume} {c.citation.reporter} {c.citation.page}"
+        f"{c.stated.volume} {c.stated.reporter} {c.stated.page}"
         for c in _extract(text, relaxation).citations
-        if isinstance(c.citation, FullCaseCitation)
+        if isinstance(c.stated, FullCaseCitation)
     }
 
 
 def _only_full_case(text: str, relaxation: Relaxation = Relaxation.BOUNDED):
     (citation,) = [
-        item for item in _extract(text, relaxation).citations if isinstance(item.citation, FullCaseCitation)
+        item for item in _extract(text, relaxation).citations if isinstance(item.stated, FullCaseCitation)
     ]
     return citation
 
@@ -233,9 +233,9 @@ def test_reporter_groups_are_not_left_with_absorbed_whitespace(relaxation: Relax
     r"""Relaxed separators let alternation branches ending in \s* keep a space."""
     text = "United States v. Rucker , 188 Fed. Appx. 772, 778 (10th Cir. 2006)"
     reporters = {
-        c.citation.reporter.as_written
+        c.stated.reporter.as_written
         for c in _extract(text, relaxation).citations
-        if isinstance(c.citation, FullCaseCitation)
+        if isinstance(c.stated, FullCaseCitation)
     }
     assert reporters
     assert all(r == r.strip() for r in reporters if r)
@@ -285,17 +285,17 @@ def test_a_short_form_is_read_through_doubled_spaces(relaxation: Relaxation) -> 
     `367  P.3d  at  74` was unread while `367 P.3d at 74` parsed.
     """
     citations = _extract("See Watkins ,  367  P.3d  at  74 -75.", relaxation).citations
-    short = [c for c in citations if isinstance(c.citation, ShortCaseCitation)]
+    short = [c for c in citations if isinstance(c.stated, ShortCaseCitation)]
 
     assert len(short) == 1
-    assert short[0].citation.volume == "367"
-    assert short[0].citation.reporter.canonical == "P.3d"
+    assert short[0].stated.volume == "367"
+    assert short[0].stated.reporter.canonical == "P.3d"
 
 
 def test_an_undamaged_short_form_still_reads() -> None:
     """The widening must not cost the ordinary case."""
     citations = _extract("Iqbal, 556 U.S. at 678.", Relaxation.FULL).citations
-    short = [c for c in citations if isinstance(c.citation, ShortCaseCitation)]
+    short = [c for c in citations if isinstance(c.stated, ShortCaseCitation)]
 
     assert len(short) == 1
     assert short[0].matched_text == "556 U.S. at 678"

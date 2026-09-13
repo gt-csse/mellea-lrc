@@ -81,7 +81,7 @@ def test_a_short_form_is_not_co_located_with_its_authority() -> None:
     among several for the same case.
     """
     document = _extract("Iqbal, 556 U.S. 662, 678 (2009). See Iqbal, 556 U.S. at 678.")
-    short = [c for c in document.citations if not isinstance(c.citation, FullCaseCitation)]
+    short = [c for c in document.citations if not isinstance(c.stated, FullCaseCitation)]
 
     assert short, "expected a short form in this text"
     assert all(c.colocation_id is None for c in short)

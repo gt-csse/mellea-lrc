@@ -7,7 +7,7 @@ import pytest
 
 from mellea_lrc.core.citations import FullCaseCitation, placed
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction import ExtractedCitation
+from mellea_lrc.extraction import CitationRecord
 from mellea_lrc.validation.pinpoint_retrieval import mellea_pinpoint_check
 from mellea_lrc.validation.pinpoint_retrieval.evidence_quote import resolve_evidence_quote
 from mellea_lrc.validation.pinpoint_retrieval.mellea_pinpoint_check import (
@@ -121,9 +121,9 @@ def test_mellea_pinpoint_check_stores_the_canonical_source_slice(monkeypatch: ob
     matched = "Example v. Case, 10 F.3d 20, 24"
     start = citing_document.index(matched)
     validation = CitationValidation(
-        citation=ExtractedCitation(
+        citation=CitationRecord(
             citation_id="citation-1",
-            citation=placed(
+            source=placed(
                 FullCaseCitation(
                     volume="10",
                     reporter="F.3d",

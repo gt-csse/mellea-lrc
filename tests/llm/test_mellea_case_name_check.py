@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 from mellea_lrc.core.citations import FullCaseCitation, placed
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction import ExtractedCitation
+from mellea_lrc.extraction import CitationRecord
 from mellea_lrc.validation import (
     CitationValidation,
     ExactCaseNameCheckNode,
@@ -49,9 +49,9 @@ def test_mellea_case_name_check(
     expected_outcome: MelleaCaseNameCheckOutcome,
 ) -> None:
     """Classify normal legal abbreviation as match and distinct cases as mismatch."""
-    citation = ExtractedCitation(
+    citation = CitationRecord(
         citation_id="live-semantic-case-name",
-        citation=placed(FullCaseCitation(), span=Span(0, 1), locator_span=Span(0, 1), matched_text="x"),
+        source=placed(FullCaseCitation(), span=Span(0, 1), locator_span=Span(0, 1), matched_text="x"),
     )
     exact_node = ExactCaseNameCheckNode(
         node_id="live-semantic-case-name:exact_case_name_check",

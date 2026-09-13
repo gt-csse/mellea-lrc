@@ -15,17 +15,17 @@ import pytest
 
 from mellea_lrc.core.citations import CitationKind
 from mellea_lrc.extraction import extract_from_plain_text
-from mellea_lrc.extraction.types import ExtractedCitation
+from mellea_lrc.extraction.types import CitationRecord
 
 
-def _citations(text: str) -> tuple[ExtractedCitation, ...]:
+def _citations(text: str) -> tuple[CitationRecord, ...]:
     # eyecite writes overlap diagnostics to stdout on some inputs.
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         return extract_from_plain_text(text).citations
 
 
-def _of_kind(text: str, kind: CitationKind) -> ExtractedCitation:
-    return next(c for c in _citations(text) if c.citation.kind is kind)
+def _of_kind(text: str, kind: CitationKind) -> CitationRecord:
+    return next(c for c in _citations(text) if c.stated.kind is kind)
 
 
 @pytest.mark.parametrize(
@@ -62,7 +62,7 @@ def test_the_span_holds_the_pin_cite_the_citation_states(
 
     assert citation.pin_cite_span is not None
     assert text[citation.pin_cite_span.start : citation.pin_cite_span.end] == expected
-    assert citation.citation.pin_cite.text == expected
+    assert citation.stated.pin_cite.text == expected
 
 
 def test_the_span_survives_the_whitespace_the_relaxation_forgives() -> None:
@@ -98,11 +98,11 @@ def test_every_kind_spells_the_page_the_same_way(text: str, kind: CitationKind) 
     """
     citation = _of_kind(text, kind)
 
-    assert citation.citation.pin_cite is not None
-    assert citation.citation.pin_cite.text[0].isdigit()
+    assert citation.stated.pin_cite is not None
+    assert citation.stated.pin_cite.text[0].isdigit()
     assert citation.pin_cite_span is not None
     start, end = citation.pin_cite_span.start, citation.pin_cite_span.end
-    assert text[start:end] == citation.citation.pin_cite.text
+    assert text[start:end] == citation.stated.pin_cite.text
 
 
 @pytest.mark.parametrize(
@@ -127,7 +127,7 @@ def test_a_label_is_not_a_connector_and_stays(text: str, kind: CitationKind, exp
     """
     citation = _of_kind(text, kind)
 
-    assert citation.citation.pin_cite.text == expected
+    assert citation.stated.pin_cite.text == expected
     assert citation.pin_cite_span is not None
     assert text[citation.pin_cite_span.start : citation.pin_cite_span.end] == expected
 
@@ -136,7 +136,7 @@ def test_a_citation_stating_no_page_has_no_span() -> None:
     """Absence is an answer. A pin cite nobody wrote must not be pointed at."""
     citation = _of_kind("Marbury v. Madison, 5 U.S. 137 (1803).", CitationKind.FULL_CASE)
 
-    assert citation.citation.pin_cite is None
+    assert citation.stated.pin_cite is None
     assert citation.pin_cite_span is None
 
 

@@ -16,7 +16,7 @@ from mellea_lrc.courtlistener import (
     CourtListenerOpinionCluster,
     CourtListenerSearchResult,
 )
-from mellea_lrc.extraction import ExtractedCitation, ExtractedDocument, ExtractionMetadata
+from mellea_lrc.extraction import CitationRecord, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.validation import (
@@ -134,9 +134,9 @@ def _document(citation: FullCaseCitation | FullLawCitation) -> ExtractedDocument
     preprocessed = preprocess(text)
     locator = "347 U.S. 483"
     start = text.index(locator)
-    extracted = ExtractedCitation(
+    extracted = CitationRecord(
         citation_id="cite-0001",
-        citation=placed(
+        source=placed(
             citation,
             span=Span(0, len(text)),
             locator_span=Span(start, start + len(locator)),

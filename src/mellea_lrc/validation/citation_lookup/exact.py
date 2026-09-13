@@ -29,7 +29,7 @@ def run_exact_locator_lookup(
 ) -> ExactLocatorLookupNode:
     """Return one completed exact-locator validation node."""
     extracted = validation.citation
-    citation = extracted.citation
+    citation = extracted.stated
     node_id = f"{extracted.citation_id}:exact_locator_lookup"
     if not isinstance(citation, FullCaseCitation):
         return ExactLocatorLookupNode(

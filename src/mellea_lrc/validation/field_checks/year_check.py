@@ -17,7 +17,7 @@ def run_year_check(
     candidate: CandidateEvaluationNode,
 ) -> YearCheckNode:
     """Compare extracted and retrieved decision years for one found locator."""
-    citation = validation.citation.citation
+    citation = validation.citation.stated
     date = citation.date if isinstance(citation, FullCaseCitation) else None
     # The check compares years; a citation stating a full date states its year too.
     extracted = date.year if date else None

@@ -18,7 +18,7 @@ from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 def _first(text: str, kind: type = FullCaseCitation):
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         document = extract_from_plain_text(text, relaxation=Relaxation.FULL)
-    return next(item.citation for item in document.citations if isinstance(item.citation, kind))
+    return next(item.stated for item in document.citations if isinstance(item.stated, kind))
 
 
 def test_the_spelling_the_document_used_is_kept() -> None:

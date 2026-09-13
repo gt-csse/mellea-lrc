@@ -103,7 +103,7 @@ async def main_async(limit: int | None) -> int:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             document = extract_from_plain_text(text, relaxation=Relaxation.FULL)
         for item in document.citations:
-            if isinstance(item.citation, FullCaseCitation):
+            if isinstance(item.stated, FullCaseCitation):
                 extracted.add((path.name, item.locator_span.start, item.locator_span.end))
         proposals["orphan short forms"] += len(list(orphan_short_forms(document)))
         # The reviewer sees every other citation blanked, so it cannot quote

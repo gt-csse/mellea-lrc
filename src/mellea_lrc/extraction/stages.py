@@ -46,28 +46,26 @@ from mellea_lrc.extraction.structure.colocation import assign_colocation
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from mellea_lrc.extraction.types import ExtractedCitation
+    from mellea_lrc.extraction.types import CitationRecord
 
 
 class Pass(Protocol):
     """One refinement over a document's citations, given the text they index."""
 
-    def __call__(
-        self, text: str, citations: Sequence[ExtractedCitation]
-    ) -> tuple[ExtractedCitation, ...]: ...
+    def __call__(self, text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]: ...
 
 
-def _colocation(text: str, citations: Sequence[ExtractedCitation]) -> tuple[ExtractedCitation, ...]:
+def _colocation(text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
     """Group citations occupying the same span and written with nothing between."""
     return assign_colocation(text, citations)
 
 
-def _post_citation(text: str, citations: Sequence[ExtractedCitation]) -> tuple[ExtractedCitation, ...]:
+def _post_citation(text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
     """Re-read each case citation's court and date inside its own boundary."""
     return reread_post_citation(text, citations)
 
 
-def _root(text: str, citations: Sequence[ExtractedCitation]) -> tuple[ExtractedCitation, ...]:
+def _root(text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
     """Write onto each citation the root it refers to. Does not read the text."""
     del text
     return assign_roots(citations)
@@ -113,7 +111,7 @@ STAGES: tuple[Stage, ...] = (
 )
 
 
-def refine(text: str, citations: Sequence[ExtractedCitation]) -> tuple[ExtractedCitation, ...]:
+def refine(text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
     """Run every stage over the citations, in order."""
     refined = tuple(citations)
     for stage in STAGES:

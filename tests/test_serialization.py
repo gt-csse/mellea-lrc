@@ -18,7 +18,7 @@ from mellea_lrc.core.citations import (
 )
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import CourtListenerOpinionCluster, CourtListenerSearchResult
-from mellea_lrc.extraction import ExtractedCitation, ExtractedDocument, ExtractionMetadata
+from mellea_lrc.extraction import CitationRecord, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.serialization import (
     deserialize_extracted_document,
@@ -87,9 +87,9 @@ def _document_with_one_citation() -> ExtractedDocument:
         text=text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=(
-            ExtractedCitation(
+            CitationRecord(
                 citation_id="cite-0001",
-                citation=placed(
+                source=placed(
                     FullCaseCitation(
                         plaintiff="Brown",
                         defendant="Board of Education",
@@ -118,7 +118,7 @@ def test_extracted_document_round_trip_preserves_recoverable_fields() -> None:
     assert payload["schema_version"] == SCHEMA_VERSION
     assert payload["artifact_type"] == "extracted_document"
     # Everything about the citation is written in one place, inside `citation`.
-    written = payload["citations"][0]["citation"]
+    written = payload["citations"][0]["source"]
     assert written["span"] == {"start": 0, "end": len(document.text) - 1}
     assert written["locator_span"] == {"start": 29, "end": 41}
     # This citation states no pin cite, so it claims no pages.
@@ -153,11 +153,11 @@ def test_extracted_document_round_trip_supports_every_canonical_citation_type() 
         text=source.text,
         preprocessing_metadata=source.preprocessing_metadata,
         citations=tuple(
-            ExtractedCitation(
+            CitationRecord(
                 citation_id=f"cite-{index}",
                 # A pin cite is scored on its own, so its span has to survive
                 # the round trip like any other offset.
-                citation=placed(
+                source=placed(
                     citation,
                     span=Span(index, index + 1),
                     locator_span=Span(index, index + 1),
@@ -188,9 +188,9 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
         text=text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=(
-            ExtractedCitation(
+            CitationRecord(
                 citation_id="cite-0001",
-                citation=placed(
+                source=placed(
                     FullCaseCitation(
                         plaintiff="Brown",
                         defendant="Board of Education",
@@ -227,7 +227,7 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
     assert payload["schema_version"] == SCHEMA_VERSION
     assert payload["artifact_type"] == "validated_document"
     assert payload["source"]["artifact_type"] == "extracted_document"
-    assert payload["source"]["citations"][0]["citation"]["citation_type"] == "FullCaseCitation"
+    assert payload["source"]["citations"][0]["source"]["citation_type"] == "FullCaseCitation"
     assert payload["citations"] == [
         {
             "citation_id": "cite-0001",

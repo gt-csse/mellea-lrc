@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
     from mellea_lrc.core.spans import Span
     from mellea_lrc.courtlistener.opinion_models import CourtListenerOpinionCluster
-    from mellea_lrc.extraction.types import ExtractedCitation, ExtractedDocument
+    from mellea_lrc.extraction.types import CitationRecord, ExtractedDocument
 
 
 class ValidationNodeStatus(str, Enum):
@@ -692,7 +692,7 @@ ValidationNode: TypeAlias = (
 class CitationValidation:
     """Ordered validation-node progression for one extracted citation."""
 
-    citation: ExtractedCitation
+    citation: CitationRecord
     nodes: tuple[ValidationNode, ...] = ()
 
     @property

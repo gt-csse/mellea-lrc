@@ -19,9 +19,9 @@ def _cases(text: str) -> dict[str, FullCaseCitation]:
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         document = extract_from_plain_text(text, relaxation=Relaxation.FULL)
     return {
-        " ".join(item.matched_text.split()): item.citation
+        " ".join(item.matched_text.split()): item.stated
         for item in document.citations
-        if isinstance(item.citation, FullCaseCitation)
+        if isinstance(item.stated, FullCaseCitation)
     }
 
 

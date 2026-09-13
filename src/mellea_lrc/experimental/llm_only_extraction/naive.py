@@ -24,7 +24,7 @@ from mellea_lrc.core import (
 from mellea_lrc.core.citations import placed
 from mellea_lrc.experimental.llm_only_extraction.base import FoundCitation, MelleaExtractorBase
 from mellea_lrc.extraction.types import (
-    ExtractedCitation,
+    CitationRecord,
     ExtractedDocument,
     ExtractionBackend,
     ExtractionMetadata,
@@ -75,17 +75,17 @@ class MelleaNaive(MelleaExtractorBase):
         kind = CitationKind(kind)
         return mapping[kind](**kwargs)
 
-    def _assemble_extractor_citation(self, text: str, **kwargs) -> ExtractedCitation:
-        """Build and return a ExtractedCitation class.
+    def _assemble_extractor_citation(self, text: str, **kwargs) -> CitationRecord:
+        """Build and return a CitationRecord class.
 
         Args:
         ----
             text: The original text input (i.e., the legal document as plain text).
-            kwargs: All of the arguments for assembling a ExtractedCitation (e.g., span, matched text, etc.).
+            kwargs: All of the arguments for assembling a CitationRecord (e.g., span, matched text, etc.).
 
         Returns:
         -------
-            An assembled ExtractedCitation class of the citation.
+            An assembled CitationRecord class of the citation.
 
         """
         matched_text = kwargs.get("matched_text", "")
@@ -96,9 +96,9 @@ class MelleaNaive(MelleaExtractorBase):
         span = Span(start_span, end_span)
         locator = "123 U.S. 456"
         locator_start = matched_text.index(locator)
-        return ExtractedCitation(
+        return CitationRecord(
             citation_id=citation_id,
-            citation=placed(
+            source=placed(
                 citation,
                 span=span,
                 locator_span=Span(locator_start, locator_start + len(locator)),

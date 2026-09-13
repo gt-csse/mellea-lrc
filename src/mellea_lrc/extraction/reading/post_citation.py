@@ -65,7 +65,7 @@ from mellea_lrc.extraction.reading.pin_cites import relax
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from mellea_lrc.extraction.types import ExtractedCitation
+    from mellea_lrc.extraction.types import CitationRecord
 
 # eyecite's own post-citation pattern, widened the way this project widens pin
 # cites, and anchored the way `match_on_tokens` anchors it.
@@ -73,8 +73,8 @@ _POST_CITATION = re.compile(rf"^(?:{relax(eyecite.regexes.POST_FULL_CITATION_REG
 
 
 def _boundary(
-    item: ExtractedCitation,
-    citations: Sequence[ExtractedCitation],
+    item: CitationRecord,
+    citations: Sequence[CitationRecord],
     length: int,
 ) -> int:
     """Where this citation's forward scan should stop.
@@ -94,16 +94,16 @@ def _boundary(
 
 def reread_post_citation(
     text: str,
-    citations: Sequence[ExtractedCitation],
-) -> tuple[ExtractedCitation, ...]:
+    citations: Sequence[CitationRecord],
+) -> tuple[CitationRecord, ...]:
     """Re-read each case citation's court and date within its own boundary.
 
     ``citations`` must already carry their co-location ids, because the boundary
     is defined in terms of them.
     """
-    rebuilt: list[ExtractedCitation] = []
+    rebuilt: list[CitationRecord] = []
     for item in citations:
-        if not isinstance(item.citation, FullCaseCitation):
+        if not isinstance(item.stated, FullCaseCitation):
             rebuilt.append(item)
             continue
         stop = max(_boundary(item, citations, len(text)), item.locator_span.end)
@@ -115,21 +115,19 @@ def reread_post_citation(
             else None
         )
         court_text = (found.group("court") or "").strip() if found else ""
-        rebuilt.append(
-            replace(
-                item,
-                # SCOTUS is set from the reporter rather than the parenthetical,
-                # so it is not this scan's to take away. The span widens with
-                # the date, because the parenthetical is part of the citation.
-                citation=replace(
-                    item.citation,
-                    date=date,
-                    court="scotus" if item.citation.court == "scotus" else resolve_court(court_text),
-                    span=Span(
-                        start=item.full_span.start,
-                        end=item.locator_span.end + found.end() if found else item.locator_span.end,
-                    ),
-                ),
-            )
+        # This is still the rules reading, so what it finds is what the citation
+        # was read as: both sides of the record move together. SCOTUS is set
+        # from the reporter rather than the parenthetical, so it is not this
+        # scan's to take away, and the span widens with the date, because the
+        # parenthetical is part of the citation.
+        read = replace(
+            item.source,
+            date=date,
+            court="scotus" if item.source.court == "scotus" else resolve_court(court_text),
+            span=Span(
+                start=item.full_span.start,
+                end=item.locator_span.end + found.end() if found else item.locator_span.end,
+            ),
         )
+        rebuilt.append(replace(item, source=read, stated=read))
     return tuple(rebuilt)

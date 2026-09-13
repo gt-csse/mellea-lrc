@@ -56,14 +56,14 @@ different questions.
 from mellea_lrc.extraction.eyecite_extractor import extract_citations, extract_from_plain_text
 from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.extraction.types import (
-    ExtractedCitation,
+    CitationRecord,
     ExtractedDocument,
     ExtractionBackend,
     ExtractionMetadata,
 )
 
 __all__ = [
-    "ExtractedCitation",
+    "CitationRecord",
     "ExtractedDocument",
     "ExtractionBackend",
     "ExtractionMetadata",

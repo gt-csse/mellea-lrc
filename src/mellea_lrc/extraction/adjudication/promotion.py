@@ -2,7 +2,7 @@ r"""Turn a candidate a reader accepted into a citation, by re-reading it.
 
 The question this answers: once someone has agreed that `33 F.4TH 693` is a
 citation, how does it become an
-:class:`~mellea_lrc.extraction.types.ExtractedCitation` like every other one?
+:class:`~mellea_lrc.extraction.types.CitationRecord` like every other one?
 
 Not by constructing one. A hand-built citation carries only the fields whoever
 built it thought of, and would miss the court, the date, the pin cite and the
@@ -55,7 +55,7 @@ from mellea_lrc.extraction.eyecite_extractor import to_canonical
 from mellea_lrc.extraction.identity import citation_id as citation_id_for
 from mellea_lrc.extraction.reading.pin_cite_spans import locate_pin_cite
 from mellea_lrc.extraction.reading.pin_cites import relaxed_pin_cites
-from mellea_lrc.extraction.types import ExtractedCitation
+from mellea_lrc.extraction.types import CitationRecord
 
 
 def _placed(
@@ -101,7 +101,7 @@ def _forgiving_tokenizer() -> Tokenizer:
     return Tokenizer(extractors=[dataclasses.replace(e, flags=e.flags | re.I) for e in EXTRACTORS])
 
 
-def promote(text: str, candidate: Candidate) -> ExtractedCitation | None:
+def promote(text: str, candidate: Candidate) -> CitationRecord | None:
     """Re-read an accepted candidate and return it as an extracted citation.
 
     ``None`` when the widened read still finds nothing at that span, which is an
@@ -134,9 +134,9 @@ def promote(text: str, candidate: Candidate) -> ExtractedCitation | None:
             end=candidate.window.start + end,
         )
         canonical = to_canonical(citation)
-        return ExtractedCitation(
+        return CitationRecord(
             citation_id=citation_id_for(locator_span, citation.matched_text()),
-            citation=_placed(text, canonical, full_span, locator_span, citation.matched_text()),
+            source=_placed(text, canonical, full_span, locator_span, citation.matched_text()),
         )
     return None
 
@@ -150,7 +150,7 @@ that the unfiltered tokenizer's cost does not matter.
 """
 
 
-def promote_locator(text: str, locator: AdjudicatedLocator) -> ExtractedCitation | None:
+def promote_locator(text: str, locator: AdjudicatedLocator) -> CitationRecord | None:
     """Re-read a reviewer-accepted locator by repairing it in place, then parsing.
 
     :func:`promote` re-reads text as written, so it recovers a citation only
@@ -207,13 +207,13 @@ def promote_locator(text: str, locator: AdjudicatedLocator) -> ExtractedCitation
         full_span = Span(start=start + full_start, end=start + full_end)
         locator_span = Span(start=locator.span.start, end=locator.span.end)
         promoted = to_canonical(citation)
-        return ExtractedCitation(
+        return CitationRecord(
             citation_id=citation_id_for(locator_span, locator.text),
             # `matched_text` is the characters the document holds, not the ones
             # that were parsed. The pin cite is located in the document, where
             # it is undamaged: only the locator was repaired, and the pin cite
             # lies past its end.
-            citation=_placed(text, promoted, full_span, locator_span, locator.text),
+            source=_placed(text, promoted, full_span, locator_span, locator.text),
         )
     return None
 
@@ -235,7 +235,7 @@ def _lettered_page(citation: object) -> bool:
     return isinstance(page, str) and bool(page) and not any(c.isdigit() for c in page)
 
 
-def reread_site(text: str, site: SuspectedLocator) -> ExtractedCitation | None:
+def reread_site(text: str, site: SuspectedLocator) -> CitationRecord | None:
     """Recover a suspected site with no model call, when re-reading is enough.
 
     A site is flagged because the extractor recorded nothing there, but the
@@ -274,8 +274,8 @@ def reread_site(text: str, site: SuspectedLocator) -> ExtractedCitation | None:
         full_span = Span(start=start + full_start, end=start + full_end)
         locator_span = Span(start=start + local_start, end=start + local_end)
         canonical = to_canonical(citation)
-        return ExtractedCitation(
+        return CitationRecord(
             citation_id=citation_id_for(locator_span, citation.matched_text()),
-            citation=_placed(text, canonical, full_span, locator_span, citation.matched_text()),
+            source=_placed(text, canonical, full_span, locator_span, citation.matched_text()),
         )
     return None
