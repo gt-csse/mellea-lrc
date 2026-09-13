@@ -1,13 +1,17 @@
 """Extraction result types."""
 
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass, field
 from enum import Enum
 
 from mellea_lrc.core.citations import CanonicalCitation, is_full_citation
+from mellea_lrc.core.field_log import RULES, FieldLog
 from mellea_lrc.core.pin_cites import PinCitePages, read_pin_cite
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.preprocessing.types import PreprocessedDocument
+
+#: The one field logged today. See :mod:`mellea_lrc.core.field_log`.
+CASE_NAME = "case_name"
 
 
 class ExtractionBackend(str, Enum):
@@ -81,22 +85,27 @@ class ExtractedCitation:
     as `colocation.py` explains why an id is shared.
     """
 
-    case_name_span: Span | None = None
-    """Where this citation's case name is written.
+    case_name_read: InitVar[Span | None] = None
+    """Where whatever built this citation read its case name, if it read one.
 
-    Located rather than rebuilt: see
-    :mod:`mellea_lrc.extraction.reading.case_names`.
+    Init-only: it opens `field_log`, which is where the name lives from then on.
+    Read it back as `case_name_span`.
+    """
 
-    A span rather than a parse, because a case name is not always two parties:
-    `In re Flint Water Cases` and `Ex parte Young` are whole names, and eyecite
-    files each of them under `defendant` with the opening words stripped. The
-    parsed fields are left exactly as they were read; this says where to find
-    the name on the page.
+    read_by: InitVar[str] = RULES
+    """What built this citation, which is the first entry in its log.
 
-    It may sit outside `full_span`. A filing writes `In Boeser v. Sharp , the
-    court recognized …` and then the citation a sentence later, and the name in
-    that sentence is the same case name -- neither position is the wrong one,
-    and the fuller of the two is what a reader wants.
+    `extraction` for the deterministic pass. A reader that proposes a citation
+    the rules never read passes its own name, so the record says a citation was
+    recovered rather than parsed.
+    """
+
+    field_log: FieldLog = field(default_factory=FieldLog, repr=False, compare=False)
+    """Every touch on every logged field, in order. See
+    :mod:`mellea_lrc.core.field_log`.
+
+    Mutable and shared: `dataclasses.replace` copies the reference, so a
+    citation that gains a `root_id` keeps the history it already had.
     """
 
     colocation_id: str | None = None
@@ -109,6 +118,47 @@ class ExtractedCitation:
     them, not by where they sit. `None` means the citation stands alone, which is the
     common case. See :mod:`mellea_lrc.extraction.structure.colocation`.
     """
+
+    def __post_init__(self, case_name_read: Span | None, read_by: str) -> None:
+        # A log that already has a history belongs to this citation already:
+        # `replace` passes the same object, and re-seeding it would record a
+        # read that never happened.
+        if not self.field_log.history(CASE_NAME):
+            self.field_log.touch(CASE_NAME, case_name_read, by=read_by)
+
+    @property
+    def case_name_span(self) -> Span | None:
+        """Where this citation's case name is written, as last read.
+
+        Located rather than rebuilt: see
+        :mod:`mellea_lrc.extraction.reading.case_names`.
+
+        A span rather than a parse, because a case name is not always two
+        parties: `In re Flint Water Cases` is a whole name, and eyecite files it
+        under `defendant` with the opening words stripped. The parsed fields are
+        left exactly as they were read; this says where to find the name on the
+        page.
+
+        It may sit outside `full_span`. A filing writes `In Boeser v. Sharp ,
+        the court recognized …` and then the citation a sentence later, and the
+        name in that sentence is the same case name -- neither position is the
+        wrong one, and the fuller of the two is what a reader wants.
+
+        The value is the last touch in `field_log`, so a name a reader wrote
+        here reads back the same way a parsed one does, and what it replaced is
+        still on the record.
+        """
+        return self.field_log.value(CASE_NAME)
+
+    def record_case_name(self, span: Span | None, *, by: str, reason: str | None = None) -> None:
+        """Write a case name over whatever the field holds, and say who did.
+
+        Writing `None` over a span, and a span over `None`, are both overwrites
+        and both are recorded. Nothing is checked here: whether the name is the
+        right one is the caller's finding, and the log is what makes it
+        reviewable.
+        """
+        self.field_log.touch(CASE_NAME, span, by=by, reason=reason)
 
     @property
     def pin_cite_pages(self) -> tuple[PinCitePages, ...]:

@@ -316,6 +316,28 @@ code, and several others are obscure state reporters whose abbreviations collide
 with ordinary words. And the hunt is deliberately over-permissive — a judge that
 rejects freely costs far less than a citation never surfaced.
 
+### A logged field keeps what it held
+
+`case_name` is not read once. The rules read it from the offsets eyecite gives;
+a reader asked about a name standing outside every citation may then say the
+name belongs to *this* citation and be right where the rules were not. Keeping
+only the second answer loses which one a measurement is measuring, and keeping
+only the first throws the reader's work away.
+
+So the field is a log. `ExtractedCitation.field_log` holds every touch in order,
+the first being whatever built the citation — `extraction` for the deterministic
+pass, `adjudication` for a citation a reader proposed — and **the last touch is
+the value**, which `case_name_span` returns. A name written over `None` is an
+overwrite like any other and reads back as one. On corpus document 006 the layer
+writes four: `None` becomes `Rivero v. Bd. of Regents of Univ. of New Mexico`,
+`Hassan` becomes `United States v. Hassan`, and both of what each replaced is
+still on the record with the reader's reason.
+
+The log is mutable and shared by reference, so `dataclasses.replace` — which is
+how a citation gains a `root_id` or a `colocation_id` — carries the history
+rather than reopening it. It serializes with the citation, so a document written
+to disk keeps it.
+
 ### One pass is the wrong shape for the case-name layer
 
 Not built. Recorded because the failure it describes is the only one the layer

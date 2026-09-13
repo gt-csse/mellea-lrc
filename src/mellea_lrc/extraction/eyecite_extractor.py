@@ -386,7 +386,7 @@ def extract_citations(
                 pin_cite_span=locate_pin_cite(
                     text, canonical, locator_span=locator_span, full_span=full_span
                 ),
-                case_name_span=locate_case_name(text, eyecite_citation, locator_span, floor=name_floor),
+                case_name_read=locate_case_name(text, eyecite_citation, locator_span, floor=name_floor),
                 resolves_to=antecedent_map.get(citation_id),
             )
         )

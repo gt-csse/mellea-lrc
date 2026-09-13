@@ -54,6 +54,10 @@ from mellea_lrc.extraction.reading.pin_cite_spans import locate_pin_cite
 from mellea_lrc.extraction.reading.pin_cites import relaxed_pin_cites
 from mellea_lrc.extraction.types import ExtractedCitation
 
+#: What opens the field log of a citation nobody parsed in the ordinary pass.
+ACCEPTED_BY_A_READER = "adjudication"
+REREAD = "reread"
+
 if TYPE_CHECKING:
     from mellea_lrc.extraction.adjudication.candidates.reporter_sites import SuspectedLocator
     from mellea_lrc.extraction.adjudication.review.locator import AdjudicatedLocator
@@ -112,6 +116,7 @@ def promote(text: str, candidate: Candidate) -> ExtractedCitation | None:
             matched_text=citation.matched_text(),
             citation=canonical,
             pin_cite_span=locate_pin_cite(text, canonical, locator_span=locator_span, full_span=full_span),
+            read_by=ACCEPTED_BY_A_READER,
         )
     return None
 
@@ -192,6 +197,7 @@ def promote_locator(text: str, locator: AdjudicatedLocator) -> ExtractedCitation
             # Located in the document, where the pin cite is undamaged: only the
             # locator was repaired, and the pin cite lies past its end.
             pin_cite_span=locate_pin_cite(text, promoted, locator_span=locator_span, full_span=full_span),
+            read_by=ACCEPTED_BY_A_READER,
         )
     return None
 
@@ -259,5 +265,6 @@ def reread_site(text: str, site: SuspectedLocator) -> ExtractedCitation | None:
             matched_text=citation.matched_text(),
             citation=canonical,
             pin_cite_span=locate_pin_cite(text, canonical, locator_span=locator_span, full_span=full_span),
+            read_by=REREAD,
         )
     return None

@@ -259,16 +259,26 @@ def _from_rules(extracted: ExtractedDocument, *, dockets: bool) -> dict[tuple[in
 async def _case_name_layer(
     extracted: ExtractedDocument, rows: dict[tuple[int, int], dict[str, Any]], session: MelleaSession
 ) -> None:
-    """Add the citations a case name standing outside every citation turns out to be.
+    """Apply what a reader makes of each case name standing outside every citation.
 
-    Only `short_form` adds a row. `names_a_citation` names a citation the rules
-    already reported and patches its case name, which this table does not score;
-    the other two readings are findings about the filing rather than citations.
+    `short_form` adds a row: a citation the rules did not read at all. The other
+    three change no row. `names_a_citation` writes the name onto the citation it
+    names, which this table does not score but which the record keeps, so the
+    reader's answer stops being thrown away; the last two are findings about the
+    filing rather than citations.
     """
     at = {citation.citation_id: citation.locator_span for citation in extracted.citations}
+    by_id = {citation.citation_id: citation for citation in extracted.citations}
     for site in case_name_sites(extracted):
         answer = await adjudicate_case_name(extracted, site, session=session)
-        if answer is None or answer.reading is not Reading.SHORT_FORM:
+        if answer is None:
+            continue
+        if answer.reading is Reading.NAMES_A_CITATION:
+            named = by_id.get(answer.citation_id or "")
+            if named is not None:
+                named.record_case_name(answer.span, by=CASE_NAME_LAYER, reason=answer.reason or None)
+            continue
+        if answer.reading is not Reading.SHORT_FORM:
             continue
         root = at.get(answer.root_id or "")
         if root is None:
