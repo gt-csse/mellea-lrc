@@ -123,6 +123,35 @@ Each `ExtractedCitation` carries:
 | `citation` | the typed object — one of the eight kinds below |
 | `resolves_to` | for a back-reference, the `citation_id` it points at |
 
+### The artifact, which is what validation reads
+
+`serialize_extracted_document` writes the whole of an `ExtractedDocument` as
+JSON and `deserialize_extracted_document` reads it back. That artifact is the
+**input to the identity stage**, not a by-product of an evaluation: extraction
+is offline and deterministic, validation is neither, and the boundary between
+them is a file.
+
+It is versioned. `schema_version` is **9**, and a reader refuses a payload that
+does not say so rather than guessing at a field it does not recognise.
+
+What a citation carries there, beyond its spans and its parse:
+
+| field | what it holds |
+|---|---|
+| `case_name` | the whole name: `span`, `text` as the page holds it, `plaintiff`, `defendant` |
+| `case_name_span` | the same position alone, for a reader that wants only that |
+| `field_log` | every touch on a logged field, in order. The last is the value |
+| `pin_cite` / `pin_cite_pages` | the written form, and the pages it claims |
+| `root_id`, `colocation_id` | which identifier a return inherits, and what was written beside it |
+
+Three things changed at 9, all of them because a reading can now be better than
+the parse it started from. `case_name` used to be a bare span. `field_log` did
+not exist, so a name a reader repaired had nowhere to go that did not erase what
+it replaced. And a pin cite's pages now carry `footnote` where the citation
+names one, and `note` where nothing could be read — the kind formerly called
+`nonconforming` is `unread`, which says what it means: **this reader** could not
+turn the written form into pages, and the filing may be perfectly proper.
+
 ### `span` and `locator_span` are not the same
 
 For `Brown v. Board of Education, 347 U.S. 483, 495 (1954)`:

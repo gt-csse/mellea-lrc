@@ -37,7 +37,23 @@ from mellea_lrc.preprocessing.types import (
 )
 from mellea_lrc.serialization._json import JsonValue, require_list, require_mapping, serialize_dataclass
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
+"""What an artifact of this shape is called, so a reader refuses one it cannot read.
+
+Version 9 is what a citation's case name and its pin cite's pages became:
+
+*   ``case_name`` is the whole name -- ``span``, ``text``, ``plaintiff``,
+    ``defendant`` -- where 8 wrote ``case_name_span`` and nothing else.
+    ``case_name_span`` is still written beside it, so a reader wanting only the
+    position does not have to reach inside.
+*   ``field_log`` carries every touch on a logged field, in order, the last
+    being the value. A name a reader wrote reads back the way a parsed one
+    does, and what it replaced is still there with the reason it was replaced.
+*   ``pin_cite_pages`` entries carry ``footnote`` where the pin cite names one,
+    and ``note`` where nothing could be read from it.
+*   the kind formerly called ``nonconforming`` is ``unread``, which says what it
+    means: this reader could not turn the written form into pages.
+"""
 _ARTIFACT_TYPE = "extracted_document"
 
 _CITATION_TYPES: dict[CitationKind, type[CanonicalCitation]] = {
