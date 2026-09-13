@@ -54,8 +54,12 @@ meaning a case the filing argues from and never cites, which is a defect.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mellea_lrc.core.spans import Span
 
 
 class PinCiteKind(str, Enum):
@@ -212,3 +216,33 @@ def _expand(first: str, last: str | None) -> int:
     if len(last) < len(first):
         return int(first[: len(first) - len(last)] + last)
     return int(last)
+
+
+@dataclass(frozen=True, slots=True)
+class PinCite:
+    """A citation's page claim: where it is written, what it says, what it means.
+
+    Three things that go out of step if they are stored apart, which is what the
+    case name showed. `text` keeps the filing's own spelling, damage included --
+    `1053 -54`, `*2 -3` -- because it is what the document holds and `span`
+    indexes that. `pages` is the second reading of the same characters.
+    """
+
+    span: Span | None = None
+    """Where the pin cite is written, or `None` where the position was not found.
+
+    eyecite returns the pin cite as a string and an end offset for one citation
+    kind out of six, so the position is located afterwards and sometimes is not.
+    The claim is still the claim.
+    """
+
+    text: str = ""
+    """The characters the filing wrote, as it wrote them."""
+
+    pages: tuple[PinCitePages, ...] = field(default_factory=tuple)
+    """Which pages those characters claim, or a single `UNREAD` element."""
+
+    @classmethod
+    def read(cls, text: str, span: Span | None = None) -> PinCite:
+        """A pin cite with its pages read from the characters."""
+        return cls(span=span, text=text, pages=read_pin_cite(text))

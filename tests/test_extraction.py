@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from mellea_lrc.core.citations import CitationKind, FullCaseCitation, FullLawCitation
+from mellea_lrc.core.citations import CitationKind, FullCaseCitation, FullLawCitation, placed
 import pytest
 
 from mellea_lrc.core.spans import Span
@@ -73,10 +73,12 @@ def test_extracted_document_rejects_duplicate_citation_ids() -> None:
     preprocessed = preprocess("347 U.S. 483")
     citation = ExtractedCitation(
         citation_id="cite-1",
-        full_span=Span(0, len(preprocessed.text)),
-        locator_span=Span(0, len(preprocessed.text)),
-        matched_text=preprocessed.text,
-        citation=FullCaseCitation(volume="347", reporter="U.S.", page="483"),
+        citation=placed(
+            FullCaseCitation(volume="347", reporter="U.S.", page="483"),
+            span=Span(0, len(preprocessed.text)),
+            locator_span=Span(0, len(preprocessed.text)),
+            matched_text=preprocessed.text,
+        ),
     )
 
     with pytest.raises(ValueError, match="must be unique"):
@@ -93,10 +95,12 @@ def test_extracted_document_rejects_span_outside_text() -> None:
     preprocessed = preprocess("347 U.S. 483")
     citation = ExtractedCitation(
         citation_id="cite-1",
-        full_span=Span(0, len(preprocessed.text) + 1),
-        locator_span=Span(0, len(preprocessed.text) + 1),
-        matched_text=preprocessed.text,
-        citation=FullCaseCitation(volume="347", reporter="U.S.", page="483"),
+        citation=placed(
+            FullCaseCitation(volume="347", reporter="U.S.", page="483"),
+            span=Span(0, len(preprocessed.text) + 1),
+            locator_span=Span(0, len(preprocessed.text) + 1),
+            matched_text=preprocessed.text,
+        ),
     )
 
     with pytest.raises(ValueError, match="span exceeds"):

@@ -1,6 +1,6 @@
 """Tests for the exact case-name field check."""
 
-from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.core.citations import FullCaseCitation, placed
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import ExtractedCitation
 from mellea_lrc.validation.field_checks.exact_case_name_check import run_exact_case_name_check
@@ -17,10 +17,7 @@ from mellea_lrc.validation.types import (
 def _validation_with_citation(citation: FullCaseCitation) -> CitationValidation:
     extracted = ExtractedCitation(
         citation_id="cite-0001",
-        full_span=Span(0, 10),
-        locator_span=Span(0, 10),
-        matched_text="347 U.S. 483",
-        citation=citation,
+        citation=placed(citation, span=Span(0, 10), locator_span=Span(0, 10), matched_text="347 U.S. 483"),
     )
     return CitationValidation(citation=extracted)
 

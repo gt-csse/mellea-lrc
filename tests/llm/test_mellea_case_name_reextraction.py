@@ -7,7 +7,7 @@ import asyncio
 import pytest
 from dotenv import load_dotenv
 
-from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.core.citations import FullCaseCitation, placed
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import CourtListenerOpinionCluster
 from mellea_lrc.extraction import ExtractedCitation
@@ -63,10 +63,12 @@ def test_mellea_case_name_reextraction(
     start = text.index(locator)
     citation = ExtractedCitation(
         citation_id="live-case-name",
-        full_span=Span(0, len(text)),
-        locator_span=Span(start, start + len(locator)),
-        matched_text=locator,
-        citation=FullCaseCitation(),
+        citation=placed(
+            FullCaseCitation(),
+            span=Span(0, len(text)),
+            locator_span=Span(start, start + len(locator)),
+            matched_text=locator,
+        ),
     )
     lookup = ExactLocatorLookupNode(
         node_id="live-case-name:exact_locator_lookup",

@@ -8,7 +8,7 @@ from collections.abc import Collection
 import pytest
 from dotenv import load_dotenv
 
-from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.core.citations import FullCaseCitation, placed
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import ExtractedCitation
 from mellea_lrc.validation import (
@@ -49,10 +49,9 @@ def test_mellea_case_name_query_preparation(
     """Prepare concise, faithful search terms from two case parties."""
     citation = ExtractedCitation(
         citation_id="live-case-name-query",
-        full_span=Span(0, 1),
-        locator_span=Span(0, 1),
-        matched_text="x",
-        citation=FullCaseCitation(court="scotus"),
+        citation=placed(
+            FullCaseCitation(court="scotus"), span=Span(0, 1), locator_span=Span(0, 1), matched_text="x"
+        ),
     )
     reextraction = MelleaCaseNameReextractionNode(
         node_id="live-case-name-query:mellea_case_name_reextraction",

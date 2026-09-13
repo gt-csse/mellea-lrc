@@ -62,7 +62,7 @@ def test_the_span_holds_the_pin_cite_the_citation_states(
 
     assert citation.pin_cite_span is not None
     assert text[citation.pin_cite_span.start : citation.pin_cite_span.end] == expected
-    assert citation.citation.pin_cite == expected
+    assert citation.citation.pin_cite.text == expected
 
 
 def test_the_span_survives_the_whitespace_the_relaxation_forgives() -> None:
@@ -99,10 +99,10 @@ def test_every_kind_spells_the_page_the_same_way(text: str, kind: CitationKind) 
     citation = _of_kind(text, kind)
 
     assert citation.citation.pin_cite is not None
-    assert citation.citation.pin_cite[0].isdigit()
+    assert citation.citation.pin_cite.text[0].isdigit()
     assert citation.pin_cite_span is not None
     start, end = citation.pin_cite_span.start, citation.pin_cite_span.end
-    assert text[start:end] == citation.citation.pin_cite
+    assert text[start:end] == citation.citation.pin_cite.text
 
 
 @pytest.mark.parametrize(
@@ -127,7 +127,7 @@ def test_a_label_is_not_a_connector_and_stays(text: str, kind: CitationKind, exp
     """
     citation = _of_kind(text, kind)
 
-    assert citation.citation.pin_cite == expected
+    assert citation.citation.pin_cite.text == expected
     assert citation.pin_cite_span is not None
     assert text[citation.pin_cite_span.start : citation.pin_cite_span.end] == expected
 

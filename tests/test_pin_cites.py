@@ -34,7 +34,7 @@ def test_a_doubled_space_before_the_pin_cite_is_read() -> None:
     """`544,  570` is what justified text leaves behind, and it lost the page."""
     citation = _first("Bell Atl. Corp. v. Twombly,  550  U.S.  544,  570  (2007).")
 
-    assert citation.citation.pin_cite == "570"
+    assert citation.citation.pin_cite.text == "570"
 
 
 def test_a_spaced_range_hyphen_is_read() -> None:
@@ -47,27 +47,27 @@ def test_a_spaced_range_hyphen_is_read() -> None:
 
     # Kept as written, spacing and all. The widening decides what parses, not
     # how it is spelled, and a consumer comparing pages reads the first number.
-    assert citation.citation.pin_cite == "998 -1003"
+    assert citation.citation.pin_cite.text == "998 -1003"
 
 
 def test_a_range_hyphen_with_spaces_on_both_sides_is_read() -> None:
     citation = _first("Doe v. Roe, 80 F.3d 336, 337 - 38 (9th Cir. 1996).")
 
-    assert citation.citation.pin_cite == "337 - 38"
+    assert citation.citation.pin_cite.text == "337 - 38"
 
 
 def test_an_en_dash_range_is_read() -> None:
     """Extraction produces both the hyphen and the dash."""
     citation = _first("Kogan v. Facebook, 334 F.R.D. 393, 403–04 (S.D.N.Y. 2020).")
 
-    assert citation.citation.pin_cite == "403–04"
+    assert citation.citation.pin_cite.text == "403–04"
 
 
 def test_an_ordinary_pin_cite_is_unchanged() -> None:
     """The widening must not change what already worked."""
     citation = _first("Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009).")
 
-    assert citation.citation.pin_cite == "678"
+    assert citation.citation.pin_cite.text == "678"
     assert citation.citation.extra is None
 
 
@@ -130,7 +130,7 @@ def test_a_re_read_site_reads_its_pin_cite_as_tolerantly_as_extraction() -> None
     citation = reread_site(text, site)
 
     assert citation is not None
-    assert citation.citation.pin_cite == "701"
+    assert citation.citation.pin_cite.text == "701"
     assert citation.pin_cite_span is not None
     assert text[citation.pin_cite_span.start : citation.pin_cite_span.end] == "701"
 
@@ -181,7 +181,7 @@ def test_a_short_forms_page_is_its_pin_cite_when_the_pattern_after_it_fails() ->
     document = _extract("Andrade Gutierrez , 645 B.R. at 184 (quoting H.R. Rep. No. 109-31).")
     citation = next(c for c in document.citations if isinstance(c.citation, ShortCaseCitation))
 
-    assert citation.citation.pin_cite == "184"
+    assert citation.citation.pin_cite.text == "184"
     assert document.text[citation.locator_span.start : citation.locator_span.end] == "645 B.R. at 184"
     assert document.text[citation.pin_cite_span.start : citation.pin_cite_span.end] == "184"
 
@@ -196,7 +196,7 @@ def test_a_footnote_after_a_page_is_read_with_it() -> None:
     document = _extract("Twombly , 550 U.S. at 570 n.4.")
     citation = next(c for c in document.citations if isinstance(c.citation, ShortCaseCitation))
 
-    assert citation.citation.pin_cite == "570 n.4"
+    assert citation.citation.pin_cite.text == "570 n.4"
     assert document.text[citation.pin_cite_span.start : citation.pin_cite_span.end] == "570 n.4"
     pages = citation.pin_cite_pages
     assert [(page.first, page.last, page.kind.value, page.footnote) for page in pages] == [
@@ -209,7 +209,7 @@ def test_a_page_after_a_page_still_needs_its_comma() -> None:
     document = _extract("Twombly , 550 U.S. at 570 2007.")
     citation = next(c for c in document.citations if isinstance(c.citation, ShortCaseCitation))
 
-    assert citation.citation.pin_cite == "570"
+    assert citation.citation.pin_cite.text == "570"
 
 
 def test_a_short_forms_range_still_reads_whole_when_nothing_follows_it() -> None:
@@ -217,4 +217,4 @@ def test_a_short_forms_range_still_reads_whole_when_nothing_follows_it() -> None
     document = _extract("Advanced Textile , 214 F.3d at 1068, 1071 -72.")
     citation = next(c for c in document.citations if isinstance(c.citation, ShortCaseCitation))
 
-    assert citation.citation.pin_cite == "1068, 1071 -72"
+    assert citation.citation.pin_cite.text == "1068, 1071 -72"

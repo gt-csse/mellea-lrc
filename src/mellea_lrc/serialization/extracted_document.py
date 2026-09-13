@@ -22,7 +22,7 @@ from mellea_lrc.core.citations import (
     citation_kind,
 )
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
-from mellea_lrc.core.field_log import FieldLog, FieldTouch
+from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.extraction.types import (
@@ -37,22 +37,19 @@ from mellea_lrc.preprocessing.types import (
 )
 from mellea_lrc.serialization._json import JsonValue, require_list, require_mapping, serialize_dataclass
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 """What an artifact of this shape is called, so a reader refuses one it cannot read.
 
-Version 9 is what a citation's case name and its pin cite's pages became:
+Version 10 is what a citation became when it started carrying its own position.
 
-*   ``case_name`` is the whole name -- ``span``, ``text``, ``plaintiff``,
-    ``defendant`` -- where 8 wrote ``case_name_span`` and nothing else.
-    ``case_name_span`` is still written beside it, so a reader wanting only the
-    position does not have to reach inside.
-*   ``field_log`` carries every touch on a logged field, in order, the last
-    being the value. A name a reader wrote reads back the way a parsed one
-    does, and what it replaced is still there with the reason it was replaced.
-*   ``pin_cite_pages`` entries carry ``footnote`` where the pin cite names one,
-    and ``note`` where nothing could be read from it.
-*   the kind formerly called ``nonconforming`` is ``unread``, which says what it
-    means: this reader could not turn the written form into pages.
+A citation entry is now ``citation_id``, ``citation``, and the three fields that
+belong to its place in a *document* rather than to the citation -- ``resolves_to``,
+``root_id``, ``colocation_id``. Everything else moved **inside** ``citation``,
+where it is written once: ``span``, ``locator_span``, ``matched_text``,
+``case_name`` as a whole name rather than a bare span, and ``pin_cite`` as the
+written form with its position and the pages it claims. Version 8 wrote most of
+those beside the citation, where a reading and the position it was read from
+could go out of step -- which is what happened when a reader repaired a name.
 """
 _ARTIFACT_TYPE = "extracted_document"
 
@@ -80,26 +77,7 @@ def serialize_extracted_document(document: ExtractedDocument) -> dict[str, JsonV
         "citations": [
             {
                 "citation_id": citation.citation_id,
-                "full_span": serialize_dataclass(citation.full_span),
-                "locator_span": serialize_dataclass(citation.locator_span),
-                "matched_text": citation.matched_text,
-                "pin_cite_span": (
-                    serialize_dataclass(citation.pin_cite_span) if citation.pin_cite_span else None
-                ),
-                "pin_cite_pages": [serialize_dataclass(pages) for pages in citation.pin_cite_pages],
-                "case_name": _serialize_case_name(citation.case_name),
-                # Kept beside `case_name` because every reader of a payload
-                # written before it wants the span and nothing else.
-                "case_name_span": (
-                    serialize_dataclass(citation.case_name_span) if citation.case_name_span else None
-                ),
-                # The name above is the last of these. Both are written because
-                # a reader wants the value and a review wants the history.
-                "field_log": _serialize_field_log(citation.field_log),
-                "citation": {
-                    "citation_type": citation_kind(citation.citation).value,
-                    **serialize_dataclass(citation.citation),
-                },
+                "citation": _serialize_citation(citation.citation),
                 "resolves_to": citation.resolves_to,
                 "root_id": citation.root_id,
                 "colocation_id": citation.colocation_id,
@@ -161,39 +139,64 @@ def deserialize_extracted_document(payload: Mapping[str, object]) -> ExtractedDo
     )
 
 
-def _deserialize_citation(value: object) -> ExtractedCitation:
-    payload = require_mapping(value, name="citation")
-    full_span = require_mapping(payload.get("full_span"), name="citation.full_span")
-    locator_span = require_mapping(payload.get("locator_span"), name="citation.locator_span")
+def _deserialize_citation(payload: Mapping[str, object]) -> ExtractedCitation:
+    """One citation, from the one place the artifact writes it."""
     citation_payload = require_mapping(payload.get("citation"), name="citation.citation")
     kind = CitationKind(
         _required_string(citation_payload.get("citation_type"), name="citation.citation_type")
     )
-    citation_type = _CITATION_TYPES[kind]
-    citation_fields = {key: value for key, value in citation_payload.items() if key != "citation_type"}
-    # Two fields hold objects rather than strings, so both have to be rebuilt.
-    if isinstance(citation_fields.get("date"), Mapping):
-        citation_fields["date"] = _deserialize_date(citation_fields["date"])
-    if isinstance(citation_fields.get("reporter"), Mapping):
-        citation_fields["reporter"] = _deserialize_reporter(citation_fields["reporter"])
+    fields = {key: value for key, value in citation_payload.items() if key != "citation_type"}
+    # Everything that is an object rather than a string has to be rebuilt.
+    for name, rebuild in (
+        ("date", _deserialize_date),
+        ("reporter", _deserialize_reporter),
+    ):
+        if isinstance(fields.get(name), Mapping):
+            fields[name] = rebuild(fields[name])
+    for name in ("span", "locator_span"):
+        fields[name] = _optional_span(fields.get(name), name=f"citation.{name}")
+    fields["case_name"] = _read_case_name(fields.get("case_name"), name="citation.case_name")
+    # `UnknownCitation` states no pin cite at all, so the key is not written for
+    # it and must not be invented here.
+    if "pin_cite" in fields:
+        fields["pin_cite"] = _read_pin_cite(fields["pin_cite"])
     return ExtractedCitation(
         citation_id=_required_string(payload.get("citation_id"), name="citation.citation_id"),
-        full_span=Span(
-            start=_required_integer(full_span.get("start"), name="citation.full_span.start"),
-            end=_required_integer(full_span.get("end"), name="citation.full_span.end"),
-        ),
-        locator_span=Span(
-            start=_required_integer(locator_span.get("start"), name="citation.locator_span.start"),
-            end=_required_integer(locator_span.get("end"), name="citation.locator_span.end"),
-        ),
-        matched_text=_required_string(payload.get("matched_text"), name="citation.matched_text"),
-        citation=citation_type(**citation_fields),
-        pin_cite_span=_optional_span(payload.get("pin_cite_span"), name="citation.pin_cite_span"),
-        case_name_read=_case_name(payload),
-        field_log=_field_log(payload.get("field_log")),
+        citation=_CITATION_TYPES[kind](**fields),
         resolves_to=_optional_string(payload.get("resolves_to"), name="citation.resolves_to"),
         root_id=_optional_string(payload.get("root_id"), name="citation.root_id"),
         colocation_id=_optional_string(payload.get("colocation_id"), name="citation.colocation_id"),
+    )
+
+
+def _serialize_citation(citation: CanonicalCitation) -> dict[str, object]:
+    """A citation and everything it knows, including where it is written."""
+    return {
+        "citation_type": citation_kind(citation).value,
+        **serialize_dataclass(citation),
+        "case_name": _serialize_case_name(citation.case_name),
+        **({"pin_cite": _serialize_pin_cite(citation.pin_cite)} if hasattr(citation, "pin_cite") else {}),
+    }
+
+
+def _serialize_pin_cite(pin_cite: PinCite | None) -> dict[str, object] | None:
+    """The written form, where it is, and the pages it claims."""
+    if pin_cite is None:
+        return None
+    return {
+        "span": serialize_dataclass(pin_cite.span) if pin_cite.span else None,
+        "text": pin_cite.text,
+        "pages": [serialize_dataclass(pages) for pages in pin_cite.pages],
+    }
+
+
+def _read_pin_cite(value: object) -> PinCite | None:
+    """Rebuild a pin cite from a payload, reading its pages from the text again."""
+    if not isinstance(value, Mapping):
+        return None
+    return PinCite.read(
+        _required_string(value.get("text"), name="citation.pin_cite.text"),
+        _optional_span(value.get("span"), name="citation.pin_cite.span"),
     )
 
 
@@ -236,46 +239,6 @@ def _case_name(payload: Mapping[str, object]) -> CaseName | None:
         return whole
     span = _optional_span(payload.get("case_name_span"), name="citation.case_name_span")
     return None if span is None else CaseName(span=span, text="")
-
-
-def _serialize_field_log(log: FieldLog) -> dict[str, list[dict[str, object]]]:
-    """Every touch on every logged field, in order."""
-    return {
-        field: [
-            {
-                "by": touch.by,
-                "value": _serialize_case_name(touch.value) if touch.value is not None else None,
-                "reason": touch.reason,
-            }
-            for touch in log.history(field)
-        ]
-        for field in log.fields()
-    }
-
-
-def _field_log(value: object) -> FieldLog:
-    """Rebuild a log from a payload, or an empty one for a payload written before it.
-
-    An empty log is opened by `ExtractedCitation` from `case_name_span`, so a
-    document serialized before this field existed still reads back with a
-    history of one touch: what the rules read.
-    """
-    if not isinstance(value, dict):
-        return FieldLog()
-    touches: dict[str, list[FieldTouch]] = {}
-    for field, entries in value.items():
-        if not isinstance(field, str) or not isinstance(entries, list):
-            continue
-        touches[field] = [
-            FieldTouch(
-                by=_required_string(entry.get("by"), name="citation.field_log.by"),
-                value=_read_case_name(entry.get("value"), name="citation.field_log.value"),
-                reason=_optional_string(entry.get("reason"), name="citation.field_log.reason"),
-            )
-            for entry in entries
-            if isinstance(entry, dict)
-        ]
-    return FieldLog(touches)
 
 
 def _optional_span(value: object, *, name: str) -> Span | None:

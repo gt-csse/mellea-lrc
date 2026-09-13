@@ -21,6 +21,7 @@ from mellea_lrc.core import (
     SupraCitation,
     UnknownCitation,
 )
+from mellea_lrc.core.citations import placed
 from mellea_lrc.experimental.llm_only_extraction.base import FoundCitation, MelleaExtractorBase
 from mellea_lrc.extraction.types import (
     ExtractedCitation,
@@ -97,10 +98,12 @@ class MelleaNaive(MelleaExtractorBase):
         locator_start = matched_text.index(locator)
         return ExtractedCitation(
             citation_id=citation_id,
-            full_span=span,
-            matched_text=matched_text,
-            citation=citation,
-            locator_span=Span(locator_start, locator_start + len(locator)),
+            citation=placed(
+                citation,
+                span=span,
+                locator_span=Span(locator_start, locator_start + len(locator)),
+                matched_text=matched_text,
+            ),
         )
 
     def _load_data(self, document_path: Path) -> str:

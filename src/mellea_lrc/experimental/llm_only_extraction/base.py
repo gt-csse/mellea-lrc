@@ -20,6 +20,7 @@ from mellea_lrc.core import (
     Span,
     UnknownCitation,
 )
+from mellea_lrc.core.citations import placed
 from mellea_lrc.extraction.types import (
     ExtractedCitation,
     ExtractedDocument,
@@ -87,10 +88,9 @@ class MelleaExtractorBase(abc.ABC):
         """Wrap a located citation in an `ExtractedCitation` (classification pending)."""
         return ExtractedCitation(
             citation_id=uuid.uuid4().hex,
-            full_span=found.span,
-            locator_span=found.span,
-            matched_text=found.matched_text,
-            citation=UnknownCitation(),
+            citation=placed(
+                UnknownCitation(), span=found.span, locator_span=found.span, matched_text=found.matched_text
+            ),
         )
 
     def extract_citations(self, text: str) -> ExtractedDocument:

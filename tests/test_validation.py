@@ -7,7 +7,7 @@ import pytest
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import BaseModel
 
-from mellea_lrc.core.citations import CitationDate, FullCaseCitation, FullLawCitation
+from mellea_lrc.core.citations import CitationDate, FullCaseCitation, FullLawCitation, placed
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import (
     CourtListenerCitationLookup,
@@ -136,10 +136,12 @@ def _document(citation: FullCaseCitation | FullLawCitation) -> ExtractedDocument
     start = text.index(locator)
     extracted = ExtractedCitation(
         citation_id="cite-0001",
-        full_span=Span(0, len(text)),
-        locator_span=Span(start, start + len(locator)),
-        matched_text=locator,
-        citation=citation,
+        citation=placed(
+            citation,
+            span=Span(0, len(text)),
+            locator_span=Span(start, start + len(locator)),
+            matched_text=locator,
+        ),
     )
     return ExtractedDocument(
         source_metadata=preprocessed.source_metadata,
