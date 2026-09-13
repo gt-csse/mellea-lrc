@@ -193,7 +193,13 @@ def _refused_references(
                 getattr(record.stated, "plaintiff", None),
                 getattr(record.stated, "defendant", None),
             )
-            if party and len(party) > 2 and not is_valid_name(party)
+            # More than one word, because a one-word party ending in a period is
+            # what `is_valid_name` was written to refuse and is right to: `Co.`
+            # and `Inc.` are suffixes a parse kept when it lost the name in
+            # front of them, and searching a document for either finds every
+            # company in it. `Princeton Univ.` is a name that happens to end in
+            # a suffix, which is the case the rule catches by accident.
+            if party and len(party.split()) > 1 and not is_valid_name(party)
         ]
         for party in refused:
             pattern = re.compile(r"\s+".join(re.escape(word) for word in party.split()))

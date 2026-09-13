@@ -244,6 +244,9 @@ _BAKED = (
 
 
 _HORIZONTAL_RUN = re.compile(r"[^\S\r\n]+")
+# What a filing writes between a citation and the page it claims, and nothing
+# else: whitespace, the comma, and the connector.
+_SEPARATOR_ONLY = re.compile(r"[\s,]*(?:at\b[\s,]*)?(?:pp?\.[\s,]*)?")
 
 
 def _tolerant_check(original):
@@ -316,9 +319,17 @@ def _across_paragraphs(original):
         if len(flattened) == len(words) and all(a is b for a, b in zip(flattened, words)):
             return found
         wider = original(flattened, start_index, regex, prefix, strings_only, forward, **kwargs)
-        if wider is not None and wider.groupdict().get("pin_cite"):
-            return wider
-        return found
+        if wider is None or not wider.groupdict().get("pin_cite"):
+            return found
+        # Only a separator may stand between a citation and its page. Reading
+        # past a blank line otherwise reaches into the next paragraph and calls
+        # whatever number starts it a pin cite -- `( Id. ¶ 10). As a part of her
+        # role, for over two\n\n1 Defendant's request` ends on a footnote
+        # marker -- and the span that comes back is not where the citation's
+        # kind puts its pin cite, which is a citation that cannot be pointed at.
+        if not _SEPARATOR_ONLY.fullmatch(wider.group(0)[: wider.start("pin_cite")]):
+            return found
+        return wider
 
     return scan
 

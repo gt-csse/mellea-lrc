@@ -145,3 +145,14 @@ def test_the_pages_reach_the_serialized_artifact() -> None:
         "text": "555 -56",
         "pages": [{"first": 555, "last": 556, "kind": "page", "footnote": None, "note": None}],
     }
+
+
+def test_a_range_that_ends_before_it_begins_is_unread() -> None:
+    """`808 F. Supp. 3d 97, 980-814` is written in a court's own order about
+    fabricated citations, which is where a page range like that comes from. It
+    is a claim this reader cannot turn into pages, and raising would stop a
+    document being read at all over one citation in it."""
+    pages = read_pin_cite("980-814")
+
+    assert [page.kind for page in pages] == [PinCiteKind.UNREAD]
+    assert pages[0].note == "the range 980-814 ends before it begins"
