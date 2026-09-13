@@ -41,6 +41,15 @@ class CandidateKind(str, Enum):
     not a citation at all.
     """
 
+    PIN_CITE = "pin_cite"
+    """A page claim that may be more, or other, than what was read.
+
+    Four shapes and one question. A page cut short by a stop word, a page the
+    pattern would not terminate, a page the converter damaged past being one,
+    and a page on a reference citation eyecite refused to build. Only a reader
+    can say which of them is in front of it.
+    """
+
     ORPHAN_SHORT_FORM = "orphan_short_form"
     """A short form for a case the filing never gives in full.
 
@@ -65,6 +74,14 @@ class Candidate:
 
     note: str = ""
     """Why this generator proposed it, in a sentence."""
+
+    about: str | None = None
+    """The `citation_id` this candidate concerns, where it concerns one.
+
+    A site proposing a citation nothing read has nothing to name; a site
+    proposing that a citation's page is wrong has to say which citation, because
+    the reader's answer is a correction to that record rather than a new one.
+    """
 
 
 class Verdict(str, Enum):

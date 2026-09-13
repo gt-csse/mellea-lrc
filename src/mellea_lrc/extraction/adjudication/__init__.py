@@ -56,6 +56,7 @@ of them does yet.
 """
 
 from mellea_lrc.extraction.adjudication.candidates.docket_sites import SuspectedDocket, suspected_dockets
+from mellea_lrc.extraction.adjudication.candidates.pin_cite_sites import pin_cite_sites
 from mellea_lrc.extraction.adjudication.candidates.reporter_sites import (
     SiteStage,
     SuspectedLocator,
@@ -83,6 +84,7 @@ __all__ = [
     "adjudicate_locator",
     "mask_full_spans",
     "mask_locator_spans",
+    "pin_cite_sites",
     "promote",
     "promote_locator",
     "reread_site",
