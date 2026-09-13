@@ -69,13 +69,16 @@ def test_an_ordinary_citation_proposes_nothing(text: str) -> None:
     assert _sites(text) == []
 
 
-def test_a_name_eyecite_will_not_build_a_reference_on() -> None:
-    """`is_valid_name` refuses any name ending in a period, for `Co.`'s sake,
-    and refuses every abbreviated party with it."""
+def test_a_citation_nobody_read_is_not_this_generator_s_business() -> None:
+    """`Planned Parenthood Minn., N.D., S.D. at 732` is a case name and a page
+    and no citation at all, and finding it means searching the document for a
+    name. Until validation has resolved the roots, the names in the record are
+    whatever eyecite's parser made of them, so that search is a search for a
+    guess -- it comes back after the roots are resolved."""
     text = (
         "Planned Parenthood Minn., N.D., S.D. v. Rounds, 530 F.3d 724, 732 (8th Cir. 2008). "
         "Plaintiffs must show a likelihood of success through a heavy and compelling weight "
         "of evidence. Planned Parenthood Minn., N.D., S.D. at 732. Plaintiffs fail to meet it."
     )
 
-    assert any("is_valid_name" in note for note in _sites(text))
+    assert _sites(text) == []

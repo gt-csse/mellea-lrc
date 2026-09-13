@@ -83,6 +83,19 @@ class Review(str, Enum):
 
     A name the rules did not reach, on a citation they did read, or a bare name
     that is a citation of its own under Bluebook Rule 10.9.
+
+    **This runs after validation, not before it.** Both halves of it turn on a
+    name: whether the name beside a citation is that citation's, and which root
+    a bare name reads back to. The names in the record at this point are
+    whatever eyecite's parser made of them -- half a name where an apostrophe
+    was spaced out, a suffix where the party was lost -- so every one of those
+    questions is asked against a guess.
+
+    Validation resolves each root against the archives and the record then holds
+    the authority's real name. The plan is that the record comes back to
+    extraction at that point and this review runs on it, where both the sweep
+    for bare names and eyecite's own attribution have something true to match
+    against. Declared here so the interface is whole; not in any arm.
     """
 
     @property
