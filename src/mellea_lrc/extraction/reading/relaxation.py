@@ -156,12 +156,26 @@ class _RelaxedTokenizer(AhocorasickTokenizer):
     silently never runs them. Rebuilding the filters from ``self.extractors``
     keeps the prefilter -- without it every one of the ~6,800 extractors runs
     against every document, which is far too slow to be usable.
+
+    It also runs the extractors in a fixed order. ``get_extractors`` returns a
+    set, and ``Tokenizer.tokenize`` sorts the matches by ``(start, -end)``,
+    which is a stable sort: where two extractors match the very same characters
+    the winner is whichever the set yielded first, and that is Python's hash
+    order, which differs between processes. `206 P. 327` is read as
+    ``P.``/page 327 in one run and as the relaxed ``P. 3``/page 27 in the next.
+    Sorting the set by each extractor's position in ``self.extractors`` makes
+    the same text read the same way every time.
     """
 
     def __post_init__(self) -> None:
         self.unfiltered_extractors = {e for e in self.extractors if not e.strings}
         self.case_sensitive_filter = self._filter(case_sensitive=True)
         self.case_insensitive_filter = self._filter(case_sensitive=False)
+        self._order = {id(e): index for index, e in enumerate(self.extractors)}
+
+    def get_extractors(self, text: str) -> list[TokenExtractor]:
+        found = super().get_extractors(text)
+        return sorted(found, key=lambda e: self._order.get(id(e), len(self._order)))
 
     def _filter(self, *, case_sensitive: bool) -> ahocorasick.Automaton:
         pairs = [
