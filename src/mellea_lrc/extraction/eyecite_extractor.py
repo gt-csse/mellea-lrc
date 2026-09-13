@@ -382,7 +382,7 @@ def extract_citations(
     # See :mod:`mellea_lrc.extraction.reading.pin_cites`.
     with contextlib.ExitStack() as stack:
         if relaxation is not Relaxation.NONE:
-            stack.enter_context(relaxed_pin_cites())
+            stack.enter_context(relaxed_pin_cites(relaxation))
         eyecite_citations = get_citations(text, tokenizer=with_dockets(tokenizer_for(relaxation)))
         # Resolution is inside the block because it reads pin cites too: it
         # tests an `Id.`'s page against the citation it would attach to, with a

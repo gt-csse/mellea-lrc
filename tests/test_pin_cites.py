@@ -11,6 +11,8 @@ from __future__ import annotations
 import contextlib
 import io
 
+import pytest
+
 from mellea_lrc.core.citations import FullCaseCitation, IdCitation, ShortCaseCitation
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.adjudication.candidates.reporter_sites import SuspectedLocator
@@ -218,3 +220,39 @@ def test_a_short_forms_range_still_reads_whole_when_nothing_follows_it() -> None
     citation = next(c for c in document.citations if isinstance(c.stated, ShortCaseCitation))
 
     assert citation.stated.pin_cite.text == "1068, 1071 -72"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('Foman v. Davis , 371 U.S. 178,\n\n182 (1962). There is no', "182"),
+        ('Tucker v. Fischbein , 237 F.3d 275,\n\n281 -82 (3d Cir. 2001); x', "281 -82"),
+        ("as integral. Id. at 409-\n\n12. If even materials", "409-\n\n12"),
+    ],
+)
+def test_full_reads_a_pin_cite_across_a_blank_line(text: str, expected: str) -> None:
+    """`match_on_tokens` stops at a paragraph token, so widening the pattern is
+    not enough on its own. At FULL the scan is tried again with the break
+    flattened, and `371 U.S. 178,\\n\\n182 (1962)` keeps its page."""
+    citations = _extract(text, Relaxation.FULL).citations
+    spans = [c.pin_cite_span for c in citations if c.pin_cite_span]
+
+    assert [text[s.start : s.end] for s in spans] == [expected]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "of conscience and good faith.' Id. at 809\n\nThe Murphy Order is not final",
+        "accord Marler v. Hiebert , 960 F.Supp. 253, 254\n\n- (D. Kan. 1997) (emphasis added)",
+    ],
+)
+def test_the_wider_scan_never_takes_a_page_away(text: str) -> None:
+    """Where the pin cite ends at the break, what follows is the next sentence
+    or the margin of pleading paper. The strict scan runs first and its answer
+    stands, so reading past the break can add a page and never remove one."""
+    at = {r: [c.pin_cite_span for c in _extract(text, r).citations if c.pin_cite_span]
+          for r in (Relaxation.BOUNDED, Relaxation.FULL)}
+
+    assert at[Relaxation.FULL] == at[Relaxation.BOUNDED]
+    assert at[Relaxation.FULL]
