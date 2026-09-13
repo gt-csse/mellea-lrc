@@ -49,7 +49,11 @@ _LEAD = re.compile(
 # Where the name stops and an identifier starts: a docket number, or a volume
 # followed by a reporter. A party's own comma and digits survive, which is what
 # keeps `United States v. Approximately 127,271 Bitcoin` whole.
-IDENTIFIER = re.compile(r",\s*(?=No\s*\.|Case\s+No\s*\.|\d{1,4}\s+(?:WL|U\.\s?S\.|[A-Z][A-Za-z]*\.))")
+IDENTIFIER = re.compile(
+    r",\s*(?=No\s*\.|Case\s+No\s*\.|\d{1,4}\s+(?:WL|U\.\s?S\.|[A-Z][A-Za-z]*\.)"
+    # A public-domain citation: `Bosh v. Cherokee County Bldg. Auth., 2013 OK 9`.
+    r"|\d{4}\s+[A-Z]{2}(?:\s+[A-Z]{2,4})?\s+\d+)"
+)
 # How a case with no adverse party is named. eyecite's span opens after it and
 # its `defendant` drops it, so `In re Giftcraft Ltd.` parses as `Giftcraft
 # Ltd.`; the filing's name is the whole of it.
@@ -58,12 +62,21 @@ _NO_PARTY = re.compile(r"(?:In\s+re|In\s+the\s+Matter\s+of|Matter\s+of|Ex\s+part
 # that run to the page number, and the rules of the table itself. A span that
 # opens above one of these has run through a neighbouring entry.
 _ENTRY_BREAK = re.compile(r"[….]{2,}|\|")
+_WORD = re.compile(r"[A-Za-z]")
+# The heading a filing writes above a name: `Case Law: Sedima, S.P.R.L. ...`.
+_LABEL = re.compile(r"^[A-Z][A-Za-z ]{0,18}:\s*")
+# The number of a list, or the tail of the sentence before: `1) In Garrett`,
+# `ERISA). In Womack`. A word in a parenthesis with no period after it belongs
+# to the name -- `Muscogee (Creek) Nation v. Pruitt`.
+_ENUMERATOR = re.compile(r"^(?:\d{1,3}\)|[A-Za-z0-9]{1,8}\)\.)\s+")
 # A located name that begins at the `v.` has lost its first party.
 _OPENS_AT_VERSUS = re.compile(r"^vs?\.?(?=\s)", re.I)
 # The word in front of it, and the punctuation a filing puts before a name: a
 # quotation dash, an opening bracket, the space after a signal.
 _PARTY_BEHIND = re.compile(r"[A-Z][\w.'’&-]*[^\S\r\n]*$")
-_OPENING = " \t\n,.;:|·•()"
+# The punctuation a filing puts in front of a name: a quotation mark, a
+# quotation dash, an opening bracket, the space after a signal.
+_OPENING = " \t\n,.;:|·•()-\"'“”‘’"
 # A period is not trimmed off the end. The window closes at the locator rather
 # than at a sentence, so a name ending in one ends in an abbreviation --
 # `Langston Equip. Assocs., Inc.`, `Louisville Land Co.` -- and dropping it
@@ -79,7 +92,7 @@ def _trim(text: str, start: int, end: int) -> tuple[int, int]:
     return start, end
 
 
-def locate_case_name(text: str, citation: CitationBase, locator: Span) -> Span | None:
+def locate_case_name(text: str, citation: CitationBase, locator: Span, floor: int = 0) -> Span | None:
     """The span of the case name this citation is written under, if there is one.
 
     `None` when the filing writes no name at this citation -- a bare `Id.`, a
@@ -88,6 +101,17 @@ def locate_case_name(text: str, citation: CitationBase, locator: Span) -> Span |
     """
     start = getattr(citation, "full_span_start", None)
     if start is None or start >= locator.start:
+        return None
+    # A name cannot begin before the citation in front of it ends. eyecite
+    # opens the span of the second of two citations written together back at
+    # the first: `Twombly , 550 U.S. 544 (2007) and Ashcroft v. Iqbal , 556
+    # U.S. 662` gives the Iqbal citation a window that starts at `Twombly`.
+    # Parallel citations are the exception -- `231 Kan. 595, 598, 647 P.2d 320`
+    # writes one name for both -- and there the citation in front leaves no
+    # letters behind it, so only a window with words of its own is cut back.
+    if floor > start and _WORD.search(text[floor : locator.start]):
+        start = floor
+    if start >= locator.start:
         return None
     # An entry of a table of authorities ends at its leader dots, so anything
     # before the last of them belongs to the entry above.
@@ -103,6 +127,17 @@ def locate_case_name(text: str, citation: CitationBase, locator: Span) -> Span |
     cut = IDENTIFIER.search(text, start, end)
     if cut:
         start, end = _trim(text, start, cut.start())
+    # `Case Law: Sedima, S.P.R.L. v. Imrex Co.` opens with the heading above it,
+    # and `1) In Garrett v. Selby` with the number of a list. Either can leave a
+    # signal or a carrying word behind it, so the lead is read again after.
+    for prefix in (_LABEL, _ENUMERATOR):
+        found = prefix.match(text[start:end])
+        if found:
+            start, end = _trim(text, start + found.end(), end)
+            lead = _LEAD.match(text[start:end])
+            while lead:
+                start, end = _trim(text, start + lead.end(), end)
+                lead = _LEAD.match(text[start:end])
     if end <= start or not re.search(r"[A-Za-z]", text[start:end]):
         return None
     opener = _NO_PARTY.search(text[max(0, start - 30) : start])
