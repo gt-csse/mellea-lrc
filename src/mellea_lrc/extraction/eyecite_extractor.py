@@ -63,7 +63,7 @@ from mellea_lrc.extraction.reading.pin_cites import relaxed_pin_cites, strip_con
 from mellea_lrc.extraction.reading.relaxation import Relaxation, tokenizer_for
 from mellea_lrc.extraction.reading.unread_names import unread_case_names
 from mellea_lrc.extraction.stages import refine
-from mellea_lrc.extraction.structure.attachment import root_for
+from mellea_lrc.extraction.structure.attachment import Attachment, root_for
 from mellea_lrc.extraction.types import CitationRecord, ExtractedDocument, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.preprocessing.types import PreprocessedDocument
@@ -364,6 +364,7 @@ def extract_citations(
     *,
     relaxation: Relaxation = Relaxation.FULL,
     with_leaves: bool = False,
+    attach: Attachment = Attachment.STATED,
 ) -> ExtractedDocument:
     """Extract canonical citations from a preprocessed document.
 
@@ -387,7 +388,7 @@ def extract_citations(
     `docs/Extraction.md`, "Roots first, leaves after validation".
     """
     document, leaves = _read(preprocessed, relaxation)
-    return _with_leaves(document, leaves) if with_leaves else document
+    return _with_leaves(document, leaves, attach) if with_leaves else document
 
 
 def _read(
@@ -486,6 +487,7 @@ def _read(
 def _with_leaves(
     document: ExtractedDocument,
     leaves: list[tuple[str, CanonicalCitation, str | None]],
+    attach: Attachment = Attachment.STATED,
 ) -> ExtractedDocument:
     """Attach each leaf to a root the document holds, or drop it.
 
@@ -505,15 +507,24 @@ def _with_leaves(
 
     Each leaf is settled before the next is read, because an `Id.` means the
     authority of the citation before it and that citation is often another leaf.
+
+    `attach` chooses which of the two decides. `Attachment.EYECITE` takes
+    eyecite's answer instead of ours and is the baseline the second growth is
+    measured against; it changes nothing else, so a difference between the two
+    runs is the attachment and only the attachment.
     """
     roots = [record for record in document.citations if not is_leaf(record.stated)]
     if not roots:
         return document
+    by_id = {record.citation_id: record for record in roots}
     settled = sorted(roots, key=lambda record: record.full_span.start)
     grown: list[CitationRecord] = []
     for citation_id, canonical, antecedent in sorted(leaves, key=lambda item: item[1].span.start):
-        before = [r for r in settled if r.full_span.start < canonical.span.start]
-        root_id = root_for(canonical, roots, before=before)
+        if attach is Attachment.EYECITE:
+            root_id = antecedent if antecedent in by_id else None
+        else:
+            before = [r for r in settled if r.full_span.start < canonical.span.start]
+            root_id = root_for(canonical, roots, before=before)
         if root_id is None:
             continue
         leaf = CitationRecord(
@@ -535,6 +546,7 @@ def grow_leaves(
     document: ExtractedDocument,
     *,
     relaxation: Relaxation | None = None,
+    attach: Attachment = Attachment.STATED,
 ) -> ExtractedDocument:
     """Attach every leaf the document's text writes to a root the document holds.
 
@@ -559,7 +571,7 @@ def grow_leaves(
     )
     _, leaves = _read(preprocessed, level)
     known = {record.citation_id for record in document.citations}
-    return _with_leaves(document, [leaf for leaf in leaves if leaf[0] not in known])
+    return _with_leaves(document, [leaf for leaf in leaves if leaf[0] not in known], attach)
 
 
 def extract_from_plain_text(
@@ -568,6 +580,7 @@ def extract_from_plain_text(
     source_path: str | None = None,
     relaxation: Relaxation = Relaxation.FULL,
     with_leaves: bool = False,
+    attach: Attachment = Attachment.STATED,
 ) -> ExtractedDocument:
     """Extract citations from Layer 2 plain text.
 
@@ -583,4 +596,6 @@ def extract_from_plain_text(
             preprocessed,
             source_metadata=replace(preprocessed.source_metadata, path=source_path),
         )
-    return extract_citations(preprocessed, relaxation=relaxation, with_leaves=with_leaves)
+    return extract_citations(
+        preprocessed, relaxation=relaxation, with_leaves=with_leaves, attach=attach
+    )

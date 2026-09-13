@@ -59,6 +59,7 @@ from mellea_lrc.extraction.eyecite_extractor import (
     grow_leaves,
 )
 from mellea_lrc.extraction.reading.relaxation import Relaxation
+from mellea_lrc.extraction.structure.attachment import Attachment
 from mellea_lrc.extraction.types import (
     CitationRecord,
     ExtractedDocument,
@@ -67,6 +68,7 @@ from mellea_lrc.extraction.types import (
 )
 
 __all__ = [
+    "Attachment",
     "CitationRecord",
     "ExtractedDocument",
     "ExtractionBackend",

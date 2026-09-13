@@ -1,4 +1,4 @@
-"""What `--defer-bare-names` takes out of the tree evaluator, and what it keeps.
+"""What the tree evaluator takes out by default, and what it keeps.
 
 Reading a bare name is a question about case names, which is answered after the
 citations are read. Deferring it says what the rest of the pass looks like
