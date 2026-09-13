@@ -2,7 +2,6 @@
 
 import json
 
-from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.citations import (
     CitationDate,
     FullCaseCitation,
@@ -16,6 +15,7 @@ from mellea_lrc.core.citations import (
     UnknownCitation,
     placed,
 )
+from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import CourtListenerOpinionCluster, CourtListenerSearchResult
 from mellea_lrc.extraction import CitationRecord, ExtractedDocument, ExtractionMetadata
@@ -26,7 +26,11 @@ from mellea_lrc.serialization import (
     serialize_extracted_document,
     serialize_validated_document,
 )
-from mellea_lrc.serialization.extracted_document import SCHEMA_VERSION
+from mellea_lrc.serialization.extracted_document import (
+    SCHEMA_VERSION,
+    _read_pin_cite,
+    _serialize_pin_cite,
+)
 from mellea_lrc.validation import (
     AggregatedFieldOutcome,
     CandidateEvaluationNode,
@@ -592,3 +596,21 @@ def test_validated_document_round_trip_supports_every_current_node_type() -> Non
     document = type(initialized)(source=initialized.source, citations=(validation,))
 
     assert deserialize_validated_document(serialize_validated_document(document)) == document
+
+
+def test_a_pin_cite_that_claims_no_page_survives_the_round_trip() -> None:
+    """The pages are read back, not recomputed.
+
+    `written_but_no_page` is the pin-cite reviewer saying that these characters
+    claim no page. Recomputing from the text turns `74950` straight back into
+    page 74,950, which throws the finding away and -- because the correction's
+    `before` and `after` then compare equal -- makes the artifact unreadable.
+    """
+    claim = PinCite(span=Span(start=10, end=15), text="74950", pages=())
+
+    payload = _serialize_pin_cite(claim)
+    back = _read_pin_cite(payload)
+
+    assert back == claim
+    assert back.pages == ()
+    assert PinCite.read("74950").pages != ()

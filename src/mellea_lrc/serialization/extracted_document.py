@@ -22,7 +22,7 @@ from mellea_lrc.core.citations import (
     citation_kind,
 )
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
-from mellea_lrc.core.pin_cites import PinCite
+from mellea_lrc.core.pin_cites import PinCite, PinCiteKind, PinCitePages
 from mellea_lrc.core.record import CitationRecord, Correction, Node, Reads
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.reading.relaxation import Relaxation
@@ -38,7 +38,7 @@ from mellea_lrc.preprocessing.types import (
 )
 from mellea_lrc.serialization._json import JsonValue, require_list, require_mapping, serialize_dataclass
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 """What an artifact of this shape is called, so a reader refuses one it cannot read.
 
 Version 11 is the citation record. A document holds records rather than
@@ -281,12 +281,48 @@ def _serialize_pin_cite(pin_cite: PinCite | None) -> dict[str, object] | None:
 
 
 def _read_pin_cite(value: object) -> PinCite | None:
-    """Rebuild a pin cite from a payload, reading its pages from the text again."""
+    """Rebuild a pin cite from a payload, pages included.
+
+    The pages are **read back, not recomputed.** They used to be derived from
+    the text again, which is right for a pin cite the rules read and wrong for
+    every one a reader has since answered about: the whole finding of
+    `written_but_no_page` is that these characters claim no page, and
+    recomputing turns `74950` straight back into page 74,950. A stage that
+    cannot write down what it decided has not decided anything.
+    """
     if not isinstance(value, Mapping):
         return None
-    return PinCite.read(
-        _required_string(value.get("text"), name="citation.pin_cite.text"),
-        _optional_span(value.get("span"), name="citation.pin_cite.span"),
+    return PinCite(
+        span=_optional_span(value.get("span"), name="citation.pin_cite.span"),
+        text=_required_string(value.get("text"), name="citation.pin_cite.text"),
+        pages=_read_pin_cite_pages(value.get("pages")),
+    )
+
+
+def _optional_int(value: object, *, name: str) -> int | None:
+    """An integer a payload may leave out, which a page with no number does."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        msg = f"{name} must be an integer"
+        raise ValueError(msg)
+    return value
+
+
+def _read_pin_cite_pages(value: object) -> tuple[PinCitePages, ...]:
+    """Which pages a pin cite claims, as the artifact holds them."""
+    if not isinstance(value, list):
+        return ()
+    return tuple(
+        PinCitePages(
+            first=_optional_int(item.get("first"), name="citation.pin_cite.pages.first"),
+            last=_optional_int(item.get("last"), name="citation.pin_cite.pages.last"),
+            kind=PinCiteKind(_required_string(item.get("kind"), name="citation.pin_cite.pages.kind")),
+            footnote=_optional_string(item.get("footnote"), name="citation.pin_cite.pages.footnote"),
+            note=_optional_string(item.get("note"), name="citation.pin_cite.pages.note"),
+        )
+        for item in value
+        if isinstance(item, Mapping)
     )
 
 
