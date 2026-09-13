@@ -170,16 +170,13 @@ def test_a_name_reaches_the_root_that_holds_all_of_it_over_one_sharing_a_word() 
     the weaker reading: taking it here would leave the leaf pointing at two
     cases that are not the same case, which is no answer at all.
 
-    The antecedent is corrected here the way a reader corrects it, because
-    eyecite's own guess is the one token before `supra` -- `Inc.` -- which is
-    in every other corporate caption and identifies none of them.
+    eyecite's own guess at the antecedent is the one token before `supra` --
+    `Inc.` -- which the name reader widens back over the party it belongs to,
+    so what reaches attachment here is the whole of `Service By Air, Inc.`.
     """
     roots, leaves = _read(
         "Service By Air, Inc. v. Phoenix Cartage & Air Freight, LLC , 78 F. Supp. 3d 852 "
         "(N.D. Ill. 2015). Chinese Consolidated Benevolent Ass'n v. Chicago Chinatown "
         "Service Center , 182 Ill. 2d 12 (1998). See Service By Air, Inc. , supra , at 860."
     )
-    assert root_for(leaves[0], roots) is None
-
-    read = replace(leaves[0], antecedent="Service By Air, Inc.")
-    assert _page_of(roots, root_for(read, roots)) == "852"
+    assert _page_of(roots, root_for(leaves[0], roots)) == "852"

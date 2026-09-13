@@ -74,6 +74,25 @@ _OPENS_AT_VERSUS = re.compile(r"^vs?\.?(?=\s)", re.I)
 # The word in front of it, and the punctuation a filing puts before a name: a
 # quotation dash, an opening bracket, the space after a signal.
 _PARTY_BEHIND = re.compile(r"[A-Z][\w.'’&-]*[^\S\r\n]*$")
+# A located name that is nothing but the suffix of a party has lost the party.
+# eyecite guesses a short form's antecedent from the one token in front of the
+# citation, so `Service By Air, Inc., supra` comes back as `Inc.` -- a word in
+# every other corporate caption, which identifies none of them.
+_SUFFIX_ONLY = re.compile(
+    r"^(?:Inc|LLC|L\.\s?L\.\s?C|Co|Corp|Ltd|L\.\s?P|LLP|PLLC|P\.\s?C|N\.\s?A|"
+    r"Ass'?n|Assocs?|Grp|Group|Bros|Partners)\.?$",
+    re.I,
+)
+# One word of a party, read backwards from its suffix: a capitalised word, or
+# one of the small words a caption keeps between them. A word that is neither
+# is the sentence in front of the name, and the name stops there.
+_WORD_BEHIND = re.compile(
+    r"(?:[A-Z][\w.'’&-]*|&|of|the|by|and|for|in|at|on|de|la|le|van|von)"
+    r"[^\S\r\n]*,?[^\S\r\n]*$"
+)
+#: How far back the party in front of a suffix is looked for. Six words covers
+#: every one in this corpus and stops a runaway from eating a sentence.
+_PARTY_WORDS = 6
 # The punctuation a filing puts in front of a name: a quotation mark, a
 # quotation dash, an opening bracket, the space after a signal.
 _OPENING = " \t\n,.;:|·•()-\"'“”‘’"
@@ -90,6 +109,33 @@ def _trim(text: str, start: int, end: int) -> tuple[int, int]:
     while end > start and text[end - 1] in _CLOSING:
         end -= 1
     return start, end
+
+
+def _strip_lead(text: str, start: int, end: int) -> tuple[int, int]:
+    """The span with the signals and carrying words in front of the name cut off."""
+    start, end = _trim(text, start, end)
+    lead = _LEAD.match(text[start:end])
+    while lead:
+        start, end = _trim(text, start + lead.end(), end)
+        lead = _LEAD.match(text[start:end])
+    return start, end
+
+
+def _party_in_front(text: str, start: int, floor: int) -> int:
+    """Where the party begins whose suffix is written at `start`.
+
+    Walks back a word at a time and stops at the first that is neither
+    capitalised nor one of a caption's own small words, which is the sentence
+    in front of the name: `to pierce the corporate veil. Service By Air, Inc.`
+    stops at `veil`.
+    """
+    at = start
+    for _ in range(_PARTY_WORDS):
+        behind = _WORD_BEHIND.search(text, floor, at)
+        if behind is None or behind.end() != at:
+            break
+        at = behind.start()
+    return at
 
 
 def locate_case_name(text: str, citation: CitationBase, locator: Span, floor: int = 0) -> Span | None:
@@ -143,6 +189,10 @@ def locate_case_name(text: str, citation: CitationBase, locator: Span, floor: in
     opener = _NO_PARTY.search(text[max(0, start - 30) : start])
     if opener:
         start -= len(opener.group())
+    elif _SUFFIX_ONLY.match(text[start:end]):
+        # The signal in front of the name is read again, because widening back
+        # over `Service By Air` also walks back over the `See` in front of it.
+        start, end = _strip_lead(text, _party_in_front(text, start, floor), end)
     elif _OPENS_AT_VERSUS.match(text[start:end]):
         # eyecite's span begins at `v.` when the party in front of it did not
         # parse -- after a quotation dash, or where the converter spaced the
