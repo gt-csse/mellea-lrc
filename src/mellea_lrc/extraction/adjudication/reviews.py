@@ -48,7 +48,9 @@ from mellea_lrc.core.case_names import CaseName
 from mellea_lrc.core.citations import ReferenceCitation
 from mellea_lrc.core.record import CitationRecord, Node, Reads
 from mellea_lrc.extraction.adjudication.candidates.case_name_sites import case_name_sites
+from mellea_lrc.extraction.adjudication.candidates.pin_cite_sites import pin_cite_sites
 from mellea_lrc.extraction.adjudication.review.case_name import Reading, adjudicate_case_name
+from mellea_lrc.extraction.adjudication.review.pin_cite import adjudicate_pin_cite
 from mellea_lrc.extraction.reading.relaxation import Relaxation
 
 if TYPE_CHECKING:
@@ -117,6 +119,10 @@ _ORDER: tuple[Relaxation, ...] = (Relaxation.NONE, Relaxation.BOUNDED, Relaxatio
 
 #: What made a correction, on the node that carries it.
 ADJUDICATE_CASE_NAME = "adjudicate_case_name"
+ADJUDICATE_PIN_CITE = "adjudicate_pin_cite"
+#: A reader that could not answer. Recorded, because a site that was looked at
+#: and left alone is not a site nobody looked at.
+DECLINED = "declined"
 
 
 async def adjudicate(
@@ -210,8 +216,37 @@ async def _case_name(document: ExtractedDocument, session: MelleaSession) -> Non
 
 
 async def _pin_cite(document: ExtractedDocument, session: MelleaSession) -> None:
-    """Not written yet. See `Review.PIN_CITE` for what it answers."""
-    raise NotImplementedError(Review.PIN_CITE.value)
+    """Apply what a reader makes of each page claim the rules are not sure of.
+
+    Every site names a citation already in the record, so every answer is a
+    correction to one field of it. A reading of `states_no_page` is a
+    correction too, where the rules read a page and the reader says the
+    characters are not one -- `None` over a value is a change and is recorded.
+
+    A site the reader declines, or answers the same way the rules already did,
+    leaves a node with no correction on it: the record then says that the page
+    was looked at and stands, which is not the same as never having been asked.
+    """
+    records = {record.citation_id: record for record in document.citations}
+    for site in pin_cite_sites(document):
+        record = records.get(site.about or "")
+        if record is None:
+            continue
+        answer = await adjudicate_pin_cite(document.text, site, record, session=session)
+        node = Node(
+            node_id=f"pin_cite:{site.span.start}-{site.span.end}",
+            reads=Reads.DOCUMENT,
+            stage=Review.PIN_CITE.value,
+            made_by=ADJUDICATE_PIN_CITE,
+            outcome=answer.reading.value if answer is not None else DECLINED,
+            message=(answer.reason if answer is not None else site.note) or None,
+        )
+        if answer is None or answer.pin_cite == record.stated.pin_cite:
+            record.observe(node)
+            continue
+        record.observe(
+            record.correcting(node, "pin_cite", answer.pin_cite, reason=node.message or "")
+        )
 
 
 _RUNNERS = {
