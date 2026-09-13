@@ -453,7 +453,7 @@ def _validate_choice(ctx: Context, citations: int, root_count: int) -> Validatio
     if failure is not None:
         return failure
     if proposed.reading is Reading.NAMES_A_CITATION:
-        if proposed.stated is None or not 1 <= proposed.stated <= citations:
+        if proposed.citation is None or not 1 <= proposed.citation <= citations:
             return ValidationResult(
                 result=False,
                 reason=(
@@ -474,7 +474,7 @@ def _validate_choice(ctx: Context, citations: int, root_count: int) -> Validatio
                 ),
             )
         return ValidationResult(result=True)
-    if proposed.stated is not None or proposed.root is not None:
+    if proposed.citation is not None or proposed.root is not None:
         return ValidationResult(
             result=False,
             reason=(f"`{proposed.reading.value}` names neither a citation nor a root. Leave both null."),
@@ -654,9 +654,9 @@ async def adjudicate_case_name(
 
     citation_id = root_id = None
     if proposed.reading is Reading.NAMES_A_CITATION:
-        if proposed.stated is None or not 1 <= proposed.stated <= len(nearby):
+        if proposed.citation is None or not 1 <= proposed.citation <= len(nearby):
             return None
-        citation_id = nearby[proposed.stated - 1].citation_id
+        citation_id = nearby[proposed.citation - 1].citation_id
     elif proposed.reading is Reading.SHORT_FORM:
         if proposed.root is None or not 1 <= proposed.root <= len(document_roots):
             return None
