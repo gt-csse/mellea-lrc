@@ -370,16 +370,31 @@ only the first throws the reader's work away.
 So the field is a log. `ExtractedCitation.field_log` holds every touch in order,
 the first being whatever built the citation — `extraction` for the deterministic
 pass, `adjudication` for a citation a reader proposed — and **the last touch is
-the value**, which `case_name_span` returns. A name written over `None` is an
-overwrite like any other and reads back as one. On corpus document 006 the layer
-writes four: `None` becomes `Rivero v. Bd. of Regents of Univ. of New Mexico`,
-`Hassan` becomes `United States v. Hassan`, and both of what each replaced is
-still on the record with the reader's reason.
+the value**, which `case_name` returns. A name written over `None` is an
+overwrite like any other and reads back as one.
+
+**The value is a `CaseName`, not a span**: where the name is, the characters at
+that position as the document holds them, and the two parties repaired. Four
+things that go out of step if they are stored apart, which is what the parties
+show. On corpus document 006 the layer writes four names, and eyecite had read:
+
+| citation | eyecite's parties | the reader's |
+|---|---|---|
+| `2007 WL 1430100` | `Boeser` / `Sharp ,  No. CIVA03CV00031WDMMEH` | `Boeser` / `Sharp` |
+| `2013 WL 1658203` | `None` / `Cnty. of Bernalillo , No. CIV 11-0107 JB/KBM` | `Solis-Marrufo` / `Bd. of Comm'rs for Cnty. of Bernalillo` |
+| `742 F.3d 104` | `None` / `Hassan` | `United States` / `Hassan` |
+| `2019 WL 1085179` | no name at all | `Rivero` / `Bd. of Regents of Univ. of New Mexico` |
+
+A docket number swallowed into a party, a plaintiff dropped, a name truncated —
+each repaired, and each repair is what a rule-based check in validation compares
+against a record. Recording the span alone threw all of it away. The parse on
+`citation` is left exactly as it was read, so the two can be compared; this is
+the best reading of the name.
 
 The log is mutable and shared by reference, so `dataclasses.replace` — which is
 how a citation gains a `root_id` or a `colocation_id` — carries the history
 rather than reopening it. It serializes with the citation, so a document written
-to disk keeps it.
+to disk keeps it, and a payload written before it reads back as one touch.
 
 ### One pass is the wrong shape for the case-name layer
 
