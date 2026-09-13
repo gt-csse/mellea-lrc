@@ -463,36 +463,83 @@ elsewhere.** What would improve the layer further is better case names on the
 what validation produces. Which is the loop below, and the reason to hand over
 rather than keep pushing here.
 
-### One pass is the wrong shape for the case-name layer
+### Roots first, leaves after validation
 
-Not built. Recorded because the failure it describes is the only one the layer
-has left on either dataset.
+**Design, agreed and not yet built.** It replaces the section that used to sit
+here, which said the case-name layer should run a second time after validation.
+That was the right observation about one layer and the wrong size: the same
+thing is true of every citation that hangs off another, and the fix belongs in
+the data model rather than in a second pass.
 
-The case-name reviewer is given the document's roots and asked what a name
-standing outside every citation is. It can answer that the name belongs to a
-citation nearby, which patches that citation's case name, or that it is a bare
-reference to a root elsewhere, which names the root it reads back to. **Neither
-answer is written back into the document, and the roots list is built once**, so
-nothing the reviewer decides at one site is visible at the next.
+#### The invariant
 
-That costs, and in a particular order. When a root is read with no case name —
-because the filing writes the name a quotation away from the citation, as in
-`Draughon v. United States elaborated: [quote]. 103 F. Supp. 3d 1266, 1278
-(D. Kan. 2015).` — the uncaptured name does become a site and does get reviewed.
-The right answer there names the citation and repairs the root. But if that
-review misses, every later mention of the same case is now unreachable too: the
-roots list still shows a nameless citation, so a reader matching by name cannot
-see that the case is cited at all, and the honest answer it gives is that the
-filing never cites it. **The order is one-way. A patch found at the third
-mention cannot rescue the first, because the first was answered before it.**
+**A leaf cannot exist without an admitted root.** Not "should not" -- the type
+refuses it. `root_id` is not a field a leaf is built with empty and filled in
+later; a leaf is built *from* a confirmed root or it is not built.
 
-The fix is not a second adjudication pass over the same evidence. It is to run
-the layer again **after validation**, where case names have been checked and
-re-extracted against the record and the roots that were nameless mostly are not
-any more. Site hunting is cheaper there as well, because fewer sites survive a
-document whose citations carry their names. What that costs is an ordering
-constraint between two stages that are otherwise independent, which is why it is
-written down rather than built.
+A **root** is a citation that states a complete identifier: a volume, a reporter
+and a first page, or a docket number with its court. A **leaf** is every
+citation whose meaning is which root it points at -- a short form, an `Id.`, a
+`supra`, a bare-name reference. `556 U.S. at 678` is characters anyone can read;
+what it *claims* is page 678 of a case those characters do not name, and that is
+not knowable from them.
+
+#### Why the order has to be this way
+
+Everything after the locator is keyed on the case name, and the case name is the
+one field extraction is worst at. eyecite's short-form and `supra` resolution
+matches an `antecedent_guess` against the parsed party names; the bare-name
+sweep searches the document for them. After the initial pass those names are
+whatever the parser made of them: `Cnty.` for
+`Huri v. Office of the Chief Judge of the Cir. Ct. of Cook Cnty.`, `Inc.` for a
+party that was lost, half a name where a spaced apostrophe stopped the search.
+Matching against those is matching against a guess, and the evidence says so --
+a search for the names eyecite itself refuses proposed thirty sites across 127
+filings and not one of them was a citation.
+
+Validation resolves each root against the archives and, where the lookup cannot
+reach it, through open search with the root's context. It checks the case name
+the filing wrote against the authority and rewrites it where they disagree. So
+after validation's identity stage the record holds each root's **real** name,
+and every question that was being asked against a guess has something true to
+match on.
+
+#### The three stages
+
+    initialization   roots only. Every citation that states a complete
+                     identifier, with its locator, its pin cite and its name as
+                     the filing wrote it. No leaf of any kind is emitted.
+
+    identity         validation, per root: lookup, then a check on the case
+                     name, then open search for what the lookup cannot reach.
+                     Each root comes back admitted or not, with a name.
+
+    leaves           back in extraction, over the admitted roots: the short
+                     forms, the `Id.` chains, the `supra` forms and the
+                     bare-name references, all matched against real names.
+
+#### What is dropped, and what that costs
+
+The initial pass **drops the leaves entirely**. It does not record a span and
+leave the kind off; that would be a leaf-shaped hole and the invariant would be
+a convention again rather than a property. The leaf pass re-reads the document,
+which it has to do anyway to find a bare name, so the position is recovered
+rather than carried.
+
+What that costs is that the artifact between the two stages holds fewer
+citations than the filing writes, and anything reading it has to know that. It
+is worth saying out loud: **an artifact from the initialization is not a reading
+of the document's citations.** It is the roots, which is what identity needs and
+all that identity needs.
+
+#### What moves in the measurement
+
+`short forms`, `attribution`, and every leaf kind leave the initialization arm's
+denominators, the same way the bare names did and for the same reason: a score
+over a stage that has not run is not a low score, it is the wrong question. The
+evaluator gets the switch for it beside `--defer-bare-names`. The datasets do
+not change -- they are ground truth for the whole document, and the leaf pass is
+scored against the same rows once it exists.
 
 ---
 
