@@ -83,35 +83,62 @@ A case name was found at this position and no citation was read there:
 
     {{site}}
 
-Decide what it is. There are exactly three answers.
+Decide what it is. Two questions settle it, in this order.
 
-"names_a_citation" - the name is the case name of one of the citations in the
-    list below. They are one reference, not two: the filing names the case and
-    then cites it, or cites it and then names it. Answer this whenever the name
-    and one of those citations are the same case, whatever name that citation
-    was read with - a citation read with a shorter name, a different form of
-    the name, or no name at all is still the same reference.
+FIRST: is the filing pointing the reader at this DECISION -- relying on what it
+decided, what it held, or that it happened? If it is not, the answer is
+"not_a_citation" whatever else is true. If it is, go to the second question.
 
-"short_form" - the filing is referring by name alone to a case this document
-    cites in full somewhere. Choose which case from the roots list below.
-    Answer this only when one of those roots is the same case: the party names
-    must match, allowing for abbreviation and for a shortened name. WHERE that
-    root sits does not matter. A filing may name a case and cite it a sentence
-    later, and a reader can still reach it, so it is cited.
+    Watch for a case name used as the LABEL OF A RULE. In `the Ex parte Young
+    exception`, `the Bell standard`, `the Pioneer framework`, `the Advanced
+    Textile test`, `a Daubert hearing`, the name modifies a noun for a doctrine
+    and the sentence leans on the DOCTRINE, which has that case's name, rather
+    than on the decision. The answer is "not_a_citation", even when the filing
+    is plainly relying on the rule and even when the case is cited elsewhere.
+    Take the noun away and it changes: `under Ex parte Young`, `Bell held`,
+    `Pioneer controls` point at the decision, and those go on to the second
+    question.
 
-"uncited_case" - the filing OFFERS the case in support of something it is
-    asserting - what a court held, what the law is, what standard applies, or
-    that something happened - and NOTHING ANYWHERE in the document cites it: no
-    root in the list is this case, and there is no volume, reporter, page or
-    docket number for it here either. Nothing a reader could look the case up
-    with exists, which is what makes this a defect in the filing. It is a
-    different answer from "not_a_citation".
+SECOND: does the document hold a citation of this case? A citation in the
+window below, or a root in the list below, or a volume, reporter, page or
+docket number written right here. Where it sits decides nothing: earlier,
+later, in a table of authorities, in another section -- a reader reaches it
+either way.
 
-"not_a_citation" - the name appears for some reason other than relying on what
-    the case decided. The filing's own caption naming its own parties; a
-    proceeding someone names as part of their own history or involvement rather
-    than for what was decided in it; a name in a heading; a roman numeral "v"
-    that is not "versus"; or characters too damaged to be a case name at all.
+"names_a_citation" - it does, and the citation is one of those in the window.
+    The name and that citation are one reference, not two: the filing names the
+    case and then cites it, or cites it and then names it, and a quotation or a
+    clause may stand between them. Answer this whenever the name and one of
+    those citations are the same case, whatever name that citation was read
+    with -- a citation read with a shorter name, a different form of the name,
+    or no name at all is still the same reference.
+
+"short_form" - it does, but not here: the case is in the roots list and this
+    mention states no identifier of its own. The filing is referring back to a
+    case it gives in full somewhere else. Choose which root, and answer this
+    only when one of them is the same case: the party names must match,
+    allowing for abbreviation and for a shortened name. It does not matter
+    whether the mention sits in a citation's place -- `(see Doe v. Amazon.com ,
+    Doe v. Rose)` -- or inside the grammar of a sentence -- `Doe v. Skyline
+    denied anonymity because the plaintiff had publicly disclosed her identity`.
+    Both refer the reader to the same case and neither states a locator, which
+    is what makes this a citation the record does not hold.
+
+"uncited_case" - it does not. NOTHING ANYWHERE in the document cites this case:
+    no citation in the window is it, no root in the list is it, and there is no
+    volume, reporter, page or docket number for it here either. Nothing a
+    reader could look the case up with exists, which is what makes this a
+    defect in the filing, and it is a different answer from "not_a_citation".
+
+"not_a_citation" - the filing is not leaning on the case at all. Its own
+    caption naming its own parties; a proceeding someone names as part of their
+    own history or involvement rather than for what was decided in it; a name
+    in a heading, even a heading that argues; a case the filing is discussing
+    as an object rather than as authority -- a citation it is conceding is
+    fabricated, or a docket it is describing; a roman numeral "v" that is not
+    "versus"; or characters too damaged to be a case name at all.
+
+    The label of a rule belongs here, as the first question says.
 
 Report:
 - reading   one of the four answers above
@@ -142,7 +169,7 @@ Rules:
   list: a name beside its own citation is not a short form of itself.
 - A case the filing names and never cites anywhere is NOT a short form. If no
   root in the list is the same case, the answer is "uncited_case" when the
-  filing is offering the case as authority, and "not_a_citation" otherwise.
+  filing is leaning on the case, and "not_a_citation" otherwise.
 - Between "uncited_case" and "not_a_citation", the question is what the
   sentence is doing, not whether the words look like a case name. Ask whether
   the sentence is leaning on the case for something it wants the reader to
