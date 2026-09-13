@@ -146,10 +146,12 @@ class Arm:
 ARMS = {
     "eyecite": Arm(Relaxation.NONE, components="eyecite as published", reads_dockets=False),
     "augmented": Arm(Relaxation.FULL, components="+ this project's rules"),
-    # `Review.CASE_NAME` is the other half of this layer and is off. It answers
-    # about a bare name that states no page, and `--defer-bare-names` is the
-    # scoring side of the same decision: the arm is not asked for them and the
-    # score does not count them. Turn both on together or neither.
+    # `Review.CASE_NAME` is off, and so is every other search for a citation
+    # nobody read. Both turn on a name, and the names in the record here are
+    # whatever eyecite's parser made of them. They come back after validation
+    # has resolved the roots, when the record holds each authority's real name.
+    # `--defer-bare-names` is the scoring side of the same decision: the arm is
+    # not asked for them and the score does not count them.
     "mellea": Arm(Relaxation.FULL, (Review.PIN_CITE,), components="+ the pin-cite review"),
 }
 
