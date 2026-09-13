@@ -63,14 +63,55 @@ def test_a_label_written_once_governs_what_follows_it() -> None:
     )
 
 
-def test_a_pin_cite_holding_more_than_pages_is_not_read() -> None:
-    """`657 n.1` is a page and a footnote on it, and which is the claim is a reading."""
-    assert read_pin_cite("657 n.1") == (PinCitePages(first=None, last=None, kind=PinCiteKind.NONCONFORMING),)
+def test_a_footnote_pin_names_the_page_the_footnote_is_on() -> None:
+    """Rule 3.2(b): the page, then `n.` and the footnote's own number."""
+    assert read_pin_cite("657 n.1") == (
+        PinCitePages(first=657, last=657, kind=PinCiteKind.PAGE, footnote="1"),
+    )
+    assert read_pin_cite("570 nn.10-12") == (
+        PinCitePages(first=570, last=570, kind=PinCiteKind.PAGE, footnote="10-12"),
+    )
 
 
-def test_a_nonconforming_run_states_no_pages() -> None:
+def test_a_footnote_marker_survives_the_spacing_a_filing_or_a_converter_leaves() -> None:
+    assert read_pin_cite("550 n. 16")[0].footnote == "16"
+    assert read_pin_cite("167   n.14")[0].footnote == "14"
+
+
+def test_several_footnotes_on_one_page_are_one_place() -> None:
+    """`570 nn.10, 12` names one page, so the comma inside it does not split it."""
+    assert read_pin_cite("570 nn.10, 12") == (
+        PinCitePages(first=570, last=570, kind=PinCiteKind.PAGE, footnote="10, 12"),
+    )
+
+
+def test_a_footnote_can_sit_on_a_star_page() -> None:
+    """The marker is not a kind, so it rides beside whichever kind is there."""
+    assert read_pin_cite("*3 n.1") == (PinCitePages(first=3, last=3, kind=PinCiteKind.STAR, footnote="1"),)
+
+
+def test_what_cannot_be_read_says_what_it_holds() -> None:
+    """`UNREAD` is about this reader: `slip op. at 3` is a proper citation."""
+    unread = read_pin_cite("slip op. at 3")
+    assert len(unread) == 1
+    assert unread[0].kind is PinCiteKind.UNREAD
+    assert unread[0].first is None
+    assert "slip op. at" in (unread[0].note or "")
+
+
+def test_an_unread_run_states_no_pages() -> None:
     with pytest.raises(ValueError, match="states no pages"):
-        PinCitePages(first=657, last=657, kind=PinCiteKind.NONCONFORMING)
+        PinCitePages(first=657, last=657, kind=PinCiteKind.UNREAD, note="why")
+
+
+def test_an_unread_run_must_say_why() -> None:
+    with pytest.raises(ValueError, match="what stopped the read"):
+        PinCitePages(first=None, last=None, kind=PinCiteKind.UNREAD)
+
+
+def test_a_run_that_was_read_carries_no_note() -> None:
+    with pytest.raises(ValueError, match="carries no note"):
+        PinCitePages(first=570, last=570, kind=PinCiteKind.PAGE, note="why")
 
 
 def test_a_page_run_states_a_first_and_a_last() -> None:
@@ -99,4 +140,6 @@ def test_the_pages_reach_the_serialized_artifact() -> None:
 
     payload = serialize_extracted_document(document)
 
-    assert payload["citations"][0]["pin_cite_pages"] == [{"first": 555, "last": 556, "kind": "page"}]
+    assert payload["citations"][0]["pin_cite_pages"] == [
+        {"first": 555, "last": 556, "kind": "page", "footnote": None, "note": None}
+    ]

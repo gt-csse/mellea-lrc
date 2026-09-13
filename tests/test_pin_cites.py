@@ -186,9 +186,27 @@ def test_a_short_forms_page_is_its_pin_cite_when_the_pattern_after_it_fails() ->
     assert document.text[citation.pin_cite_span.start : citation.pin_cite_span.end] == "184"
 
 
-def test_a_footnote_after_a_short_forms_page_does_not_lose_the_page() -> None:
-    """`570 n.4` fails the same pattern for a different reason."""
+def test_a_footnote_after_a_page_is_read_with_it() -> None:
+    """Rule 3.2(b) writes the page, then the footnote on it, with no comma between.
+
+    eyecite requires a comma before any page after the first, so `570 n.4` read
+    as the page alone and the footnote was lost. The widened pattern accepts a
+    space in place of that comma when a note label follows it.
+    """
     document = _extract("Twombly , 550 U.S. at 570 n.4.")
+    citation = next(c for c in document.citations if isinstance(c.citation, ShortCaseCitation))
+
+    assert citation.citation.pin_cite == "570 n.4"
+    assert document.text[citation.pin_cite_span.start : citation.pin_cite_span.end] == "570 n.4"
+    pages = citation.pin_cite_pages
+    assert [(page.first, page.last, page.kind.value, page.footnote) for page in pages] == [
+        (570, 570, "page", "4")
+    ]
+
+
+def test_a_page_after_a_page_still_needs_its_comma() -> None:
+    """The widening is scoped to a note label, so damage is not read as a page."""
+    document = _extract("Twombly , 550 U.S. at 570 2007.")
     citation = next(c for c in document.citations if isinstance(c.citation, ShortCaseCitation))
 
     assert citation.citation.pin_cite == "570"

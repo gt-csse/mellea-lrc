@@ -22,8 +22,16 @@ cite is lost the same way.
 Over the 26 documents of `false-citation-bench`, the two together take citations
 carrying a bare page in `extra` from **68 to 1**, and pin cites from 387 to 463.
 Nothing else moves: no citation kind changes count, and every locator span is
-identical. The one that remains is `928 F.3d 652, 657 n.1`, a page followed by a
-footnote, which is a different shape rather than a whitespace problem.
+identical.
+
+**The footnote.** `928 F.3d 652, 657 n.1` was the one pin cite the two
+widenings above left unread, and it is a different shape rather than a
+whitespace problem: eyecite understands `n.` as a label, but only in front of a
+page that follows a **comma**, and Rule 3.2(b) writes no comma between a page
+and the footnote on it. So the separator accepts a horizontal space in place of
+that comma when a note label follows it, and nothing else -- `544, 570 2007`
+must not read 2007 as a second page. This is what takes `550 n. 16`, `246 n.13`,
+`1117 n.4` and `850 n.10` from unread to a page with a footnote beside it.
 
 Both widenings are horizontal only, as the reporter joins are. A doubled or
 tabbed separator matches; a paragraph break does not. Doubled spaces are the
@@ -126,9 +134,23 @@ _HORIZONTAL_REQUIRED = r"[^\S\r\n]+"
 _RANGE_HYPHEN = r"[^\S\r\n]*[-–][^\S\r\n]*"
 
 
+#: What eyecite writes before a page that follows the first one: a comma, then
+#: an optional space. `570 n.10` has no comma, which is why the footnote is lost.
+_ANOTHER_PAGE = "(?:,\\ ?"
+#: The same, accepting a space instead of the comma when a note label follows.
+#: Scoped to the label rather than widened outright, because a comma is what
+#: separates two pages: `544, 570 2007` must not read 2007 as a second page.
+_ANOTHER_PAGE_OR_A_NOTE = "(?:(?:,|\\ (?=(?:&\\ )?(?:note|nn?\\.|fn?\\.)))\\ ?"
+
+
 def relax(pattern: str) -> str:
-    """Widen a pin-cite pattern's literal spaces and range hyphens."""
-    widened = pattern.replace(r"\ ?", _HORIZONTAL_OPTIONAL).replace("\\ ", _HORIZONTAL_REQUIRED)
+    """Widen a pin-cite pattern's literal spaces, range hyphens and footnotes.
+
+    The footnote first, because it is written in eyecite's own spelling and the
+    space widening below rewrites that spelling.
+    """
+    widened = pattern.replace(_ANOTHER_PAGE, _ANOTHER_PAGE_OR_A_NOTE)
+    widened = widened.replace(r"\ ?", _HORIZONTAL_OPTIONAL).replace("\\ ", _HORIZONTAL_REQUIRED)
     widened = widened.replace(r"(?:-\d+(?::\d+)?)?", rf"(?:{_RANGE_HYPHEN}\d+(?::\d+)?)?")
     return widened.replace(r"(?:-\d+)?", rf"(?:{_RANGE_HYPHEN}\d+)?")
 
