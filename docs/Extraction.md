@@ -595,8 +595,8 @@ identity run has settled.
 Over the 26 corpus filings the second growth removes four false attributions
 and loses nothing: an `Id.` whose antecedent is a statute is not the earlier
 case's, and attribution precision goes from 97.9% to 99.3%. Over the two
-held-out sets it is worth one short form on `extraction-eval-1` and nothing
-either way on `extraction-eval-2`. The identity names move no leaf on this
+held-out sets it is worth one short form on each of `extraction-eval-1` and
+`extraction-eval-2`. The identity names move no leaf on this
 corpus: every leaf they would reach is already reached by the volume, the
 reporter and the page, which the filing states at the leaf itself. What a name
 decides is a `supra` or a bare-name reference, and those are the forms these

@@ -134,7 +134,8 @@ this corpus it removes four false attributions of an `Id.` whose antecedent is
 a statute, which no case root can hold, and attribution precision goes from
 97.9% to 99.3%. On the two held-out sets it is worth one short form of recall
 on `extraction-eval-1` (167/177 to 168/177, precision 100% either way) and
-nothing either way on `extraction-eval-2`. It is not a large difference and it
+one on `extraction-eval-2` (159/163 to 160/163, precision 100% either way).
+It is not a large difference and it
 is not meant to be one: the measurement here is against roots nobody has
 corrected, where `stated` is still the parse, and what the growth is for is the
 names validation settles.

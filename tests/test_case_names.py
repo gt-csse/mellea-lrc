@@ -119,3 +119,36 @@ def test_the_number_of_a_list_is_not_part_of_the_name() -> None:
     )
     text = "(ERISA). In Womack v. City of Tulsa , 522 P.3d 508, 511 (Okla. 2022)."
     assert _name(text) == "Womack v. City of Tulsa"
+
+
+def test_a_name_that_is_only_a_corporate_suffix_reaches_back_to_its_party() -> None:
+    """eyecite guesses a short form's antecedent from the token in front of it.
+
+    `Service By Air, Inc., supra` comes back as `Inc.` -- a word in every other
+    corporate caption, which identifies none of them. The party is written
+    right there, so the name is widened back over it.
+    """
+    text = (
+        "Service By Air, Inc. v. Phoenix Cartage & Air Freight, LLC , 78 F. Supp. 3d 852 "
+        "(N.D. Ill. 2015). The officer must have participated personally to pierce the "
+        "corporate veil. Service By Air, Inc., supra."
+    )
+    assert _names(text)[-1] == "Service By Air, Inc."
+
+
+def test_the_sentence_in_front_of_a_suffix_is_not_part_of_the_party() -> None:
+    """The walk back stops at the first word a caption would not hold."""
+    text = (
+        "Drink Group, Inc. v. Gulfstream Communications, Inc. , 7 F. Supp. 2d 1009 "
+        "(N.D. Ill. 1998). That is what the district court decided in Drink Group, "
+        "Inc., supra."
+    )
+    assert _names(text)[-1] == "Drink Group, Inc."
+
+
+def test_widening_over_a_party_does_not_swallow_the_signal_in_front_of_it() -> None:
+    text = (
+        "Mars, Inc. v. Curtiss Candy Co. , 8 Ill. App. 3d 338 (1972). "
+        "See Mars, Inc., supra."
+    )
+    assert _names(text)[-1] == "Mars, Inc."
