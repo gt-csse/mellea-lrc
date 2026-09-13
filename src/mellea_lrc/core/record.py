@@ -41,6 +41,8 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+from mellea_lrc.core.citations import is_leaf
+
 if TYPE_CHECKING:
     from mellea_lrc.core.case_names import CaseName
     from mellea_lrc.core.citations import CanonicalCitation
@@ -173,6 +175,19 @@ class CitationRecord:
     def __post_init__(self) -> None:
         if self.stated is None:
             self.stated = self.source
+        # A leaf cannot exist without a root. `556 U.S. at 678` claims page 678
+        # of a case those characters do not name, so a leaf with no `root_id` is
+        # not an incomplete citation -- it is a citation of nothing. The rules
+        # cannot attach one reliably either, because attaching it means matching
+        # a case name and the names they read are parses; the leaves are grown
+        # after validation has settled the roots. See `docs/Extraction.md`,
+        # "Roots first, leaves after validation".
+        if self.root_id is None and is_leaf(self.stated):
+            msg = (
+                f"Citation {self.citation_id!r} is a {self.stated.kind.value} and states no root. "
+                "A leaf is built from an admitted root or not at all."
+            )
+            raise ValueError(msg)
 
     @property
     def corrections(self) -> tuple[Correction, ...]:

@@ -53,7 +53,11 @@ different questions.
     a reviewer.
 """
 
-from mellea_lrc.extraction.eyecite_extractor import extract_citations, extract_from_plain_text
+from mellea_lrc.extraction.eyecite_extractor import (
+    extract_citations,
+    extract_from_plain_text,
+    grow_leaves,
+)
 from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.extraction.types import (
     CitationRecord,
@@ -70,4 +74,5 @@ __all__ = [
     "Relaxation",
     "extract_citations",
     "extract_from_plain_text",
+    "grow_leaves",
 ]

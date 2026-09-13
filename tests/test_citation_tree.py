@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from mellea_lrc.core.citations import placed
 from mellea_lrc.core.citations import (
     DocketCitation,
     FullCaseCitation,
     FullLawCitation,
     IdCitation,
     ShortCaseCitation,
+    placed,
 )
 from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
@@ -49,6 +49,7 @@ def _short(citation_id: str, pin: str, resolves_to: str, start: int) -> Citation
     return CitationRecord(
         citation_id=citation_id,
         resolves_to=resolves_to,
+        root_id=resolves_to,
         source=placed(
             ShortCaseCitation(volume="550", reporter="U.S.", page=pin, pin_cite=PinCite.read(f"at {pin}")),
             span=Span(start, start + 12),
@@ -62,6 +63,7 @@ def _id(citation_id: str, pin: str, resolves_to: str, start: int) -> CitationRec
     return CitationRecord(
         citation_id=citation_id,
         resolves_to=resolves_to,
+        root_id=resolves_to,
         source=placed(
             IdCitation(pin_cite=PinCite.read(f"at {pin}")),
             span=Span(start, start + 8),
@@ -126,14 +128,34 @@ def test_one_page_cited_twice_is_one_claim() -> None:
     assert authority.pin_cites == ("555", "at 555")
 
 
-def test_an_unresolved_reference_is_reported_not_guessed() -> None:
-    """Attaching a claim to the wrong authority checks it against the wrong page."""
-    document = _document(_full("c1", "544", None, 0), _id("c9", "570", None, 200))
+def test_a_leaf_with_no_root_cannot_be_built_at_all() -> None:
+    """What `unattributed` used to hold, the type now refuses.
 
-    tree = build_citation_tree(document)
+    Two tests stood here: an `Id.` that resolved to nothing, and a short form
+    for a case the filing never gives in full -- the corpus's `Rosenblatt v.
+    Baer, 383 U.S. at 85`, quoted inside another case's parenthetical. Both
+    described a leaf attached to nothing, and the tree reported them so that a
+    claim would not be checked against the wrong page.
 
-    assert [c.citation_id for c in tree.unattributed] == ["c9"]
-    assert tree.occurrence_count == 1
+    A leaf is now built from a root or it is not built, so "attached to nothing"
+    and "not there" are one state and the tree never sees the first. The filing
+    still writes those characters and the ground truth still records them -- as
+    a `nonconforming_citation`, which is what a case the document never
+    identifies is. See `docs/Extraction.md`, "Roots first, leaves after
+    validation".
+    """
+    with pytest.raises(ValueError, match="states no root"):
+        CitationRecord(
+            citation_id="c9",
+            source=placed(
+                ShortCaseCitation(
+                    volume="383", reporter="U.S.", page="85", pin_cite=PinCite.read("at 85")
+                ),
+                span=Span(0, 14),
+                locator_span=Span(0, 14),
+                matched_text="383 U.S. at 85",
+            ),
+        )
 
 
 def test_a_resolution_cycle_does_not_hang_or_attribute() -> None:
@@ -197,30 +219,6 @@ def test_an_id_standing_in_for_a_statute_is_out_of_scope_too() -> None:
 
     assert {c.citation_id for c in tree.out_of_scope} == {"s1", "c2"}
     assert tree.unattributed == ()
-
-
-def test_a_short_form_with_no_antecedent_is_a_real_failure() -> None:
-    """A short form carries a volume and reporter, so it is a case on its own evidence.
-
-    This is the corpus's single unattributed citation: `Rosenblatt v. Baer, 383
-    U.S. at 85`, quoted inside another case's parenthetical and never given in
-    full. Nothing can be verified about it, and it must not be silently folded
-    in with the statutes.
-    """
-    orphan = CitationRecord(
-        citation_id="c9",
-        source=placed(
-            ShortCaseCitation(volume="383", reporter="U.S.", page="85", pin_cite=PinCite.read("at 85")),
-            span=Span(0, 14),
-            locator_span=Span(0, 14),
-            matched_text="383 U.S. at 85",
-        ),
-    )
-
-    tree = build_citation_tree(_document(orphan))
-
-    assert [c.citation_id for c in tree.unattributed] == ["c9"]
-    assert tree.out_of_scope == ()
 
 
 def _docket(citation_id: str, start: int, resolves_to: str | None = None) -> CitationRecord:

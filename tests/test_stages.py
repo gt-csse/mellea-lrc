@@ -22,7 +22,7 @@ _PARALLEL = "St. Amant v. Thompson, 390 U.S. 727, 731, 88 S.Ct. 1323, 20 L.Ed.2d
 
 def _citations(text: str):
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        return extract_from_plain_text(text, relaxation=Relaxation.FULL).citations
+        return extract_from_plain_text(text, relaxation=Relaxation.FULL, with_leaves=True).citations
 
 
 def test_the_sequence_is_the_one_the_docstring_describes() -> None:
@@ -86,9 +86,13 @@ def test_the_authority_is_written_onto_every_citation_that_has_one() -> None:
     assert reference.root_id == full.citation_id
 
 
-def test_a_reference_with_no_authority_keeps_none() -> None:
-    """Not attributed is an answer, and the field says so rather than guessing."""
-    citations = _citations("The rule is settled. Id. at 409.")
-    reference = next(c for c in citations if c.stated.kind.value == "IdCitation")
+def test_a_leaf_with_nothing_before_it_is_not_grown() -> None:
+    """Not attributed used to be an answer the field carried; now it is absence.
 
-    assert reference.root_id is None
+    An `Id.` opening a document points at nothing, and a leaf is built from a
+    root or not at all -- so what the record says about it is that it is not
+    there. See `docs/Extraction.md`, "Roots first, leaves after validation".
+    """
+    citations = _citations("The rule is settled. Id. at 409.")
+
+    assert not [c for c in citations if c.stated.kind.value == "IdCitation"]

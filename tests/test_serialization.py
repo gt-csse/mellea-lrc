@@ -15,6 +15,7 @@ from mellea_lrc.core.citations import (
     UnknownCitation,
     placed,
 )
+from mellea_lrc.core.citations import is_leaf
 from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import CourtListenerOpinionCluster, CourtListenerSearchResult
@@ -159,6 +160,9 @@ def test_extracted_document_round_trip_supports_every_canonical_citation_type() 
         citations=tuple(
             CitationRecord(
                 citation_id=f"cite-{index}",
+                # Every leaf reaches a root, because nothing else can exist.
+                # `cite-0` is the first of the full citations, so it serves.
+                root_id="cite-0" if is_leaf(citation) else None,
                 # A pin cite is scored on its own, so its span has to survive
                 # the round trip like any other offset.
                 source=placed(

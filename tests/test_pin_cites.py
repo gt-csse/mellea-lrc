@@ -22,7 +22,7 @@ from mellea_lrc.extraction.adjudication.promotion import reread_site
 def _extract(text: str, relaxation: Relaxation = Relaxation.BOUNDED):
     # eyecite writes overlap diagnostics to stdout on some inputs.
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        return extract_from_plain_text(text, relaxation=relaxation)
+        return extract_from_plain_text(text, relaxation=relaxation, with_leaves=True)
 
 
 def _first(text: str, relaxation: Relaxation = Relaxation.BOUNDED):
@@ -162,13 +162,18 @@ def test_a_doubled_space_in_a_pin_cite_does_not_strand_the_citation() -> None:
 
 
 def test_a_pin_cite_outside_the_case_is_still_refused() -> None:
-    """The check is right; only what it reads was damaged."""
+    """The check is right; only what it reads was damaged.
+
+    A refused `Id.` is now an `Id.` that is never grown: a leaf reaches its root
+    or it does not exist, so "attributed to nothing" and "not there" are the
+    same state. See `docs/Extraction.md`, "Roots first, leaves after
+    validation".
+    """
     text = "Bell v. Wolfish, 441 U.S. 520, 547 (1979). Something else. Id. at  9999."
 
     document = _extract(text)
-    (id_citation,) = [c for c in document.citations if isinstance(c.stated, IdCitation)]
 
-    assert id_citation.root_id is None
+    assert not [c for c in document.citations if isinstance(c.stated, IdCitation)]
 
 
 def test_a_short_forms_page_is_its_pin_cite_when_the_pattern_after_it_fails() -> None:
@@ -180,7 +185,10 @@ def test_a_short_forms_page_is_its_pin_cite_when_the_pattern_after_it_fails() ->
     at. It is still in `groups["page"]`, which is where the working path reads
     it from too.
     """
-    document = _extract("Andrade Gutierrez , 645 B.R. at 184 (quoting H.R. Rep. No. 109-31).")
+    document = _extract(
+        "In re Andrade Gutierrez Engenharia S.A. , 645 B.R. 175 (Bankr. S.D.N.Y. 2022). "
+        "Andrade Gutierrez , 645 B.R. at 184 (quoting H.R. Rep. No. 109-31)."
+    )
     citation = next(c for c in document.citations if isinstance(c.stated, ShortCaseCitation))
 
     assert citation.stated.pin_cite.text == "184"
@@ -195,7 +203,9 @@ def test_a_footnote_after_a_page_is_read_with_it() -> None:
     as the page alone and the footnote was lost. The widened pattern accepts a
     space in place of that comma when a note label follows it.
     """
-    document = _extract("Twombly , 550 U.S. at 570 n.4.")
+    document = _extract(
+        "Bell Atl. Corp. v. Twombly , 550 U.S. 544 (2007). Twombly , 550 U.S. at 570 n.4."
+    )
     citation = next(c for c in document.citations if isinstance(c.stated, ShortCaseCitation))
 
     assert citation.stated.pin_cite.text == "570 n.4"
@@ -208,7 +218,9 @@ def test_a_footnote_after_a_page_is_read_with_it() -> None:
 
 def test_a_page_after_a_page_still_needs_its_comma() -> None:
     """The widening is scoped to a note label, so damage is not read as a page."""
-    document = _extract("Twombly , 550 U.S. at 570 2007.")
+    document = _extract(
+        "Bell Atl. Corp. v. Twombly , 550 U.S. 544 (2007). Twombly , 550 U.S. at 570 2007."
+    )
     citation = next(c for c in document.citations if isinstance(c.stated, ShortCaseCitation))
 
     assert citation.stated.pin_cite.text == "570"
@@ -216,7 +228,10 @@ def test_a_page_after_a_page_still_needs_its_comma() -> None:
 
 def test_a_short_forms_range_still_reads_whole_when_nothing_follows_it() -> None:
     """The page is taken only as a fallback, so a parsed range is untouched."""
-    document = _extract("Advanced Textile , 214 F.3d at 1068, 1071 -72.")
+    document = _extract(
+        "Does I thru XXIII v. Advanced Textile Corp. , 214 F.3d 1058 (9th Cir. 2000). "
+        "Advanced Textile , 214 F.3d at 1068, 1071 -72."
+    )
     citation = next(c for c in document.citations if isinstance(c.stated, ShortCaseCitation))
 
     assert citation.stated.pin_cite.text == "1068, 1071 -72"
@@ -227,7 +242,7 @@ def test_a_short_forms_range_still_reads_whole_when_nothing_follows_it() -> None
     [
         ('Foman v. Davis , 371 U.S. 178,\n\n182 (1962). There is no', "182"),
         ('Tucker v. Fischbein , 237 F.3d 275,\n\n281 -82 (3d Cir. 2001); x', "281 -82"),
-        ("as integral. Id. at 409-\n\n12. If even materials", "409-\n\n12"),
+        ("Goel v. Bunge , 820 F.3d 400 (2d Cir. 2016). Id. at 409-\n\n12. If even", "409-\n\n12"),
     ],
 )
 def test_full_reads_a_pin_cite_across_a_blank_line(text: str, expected: str) -> None:
@@ -243,7 +258,7 @@ def test_full_reads_a_pin_cite_across_a_blank_line(text: str, expected: str) -> 
 @pytest.mark.parametrize(
     "text",
     [
-        "of conscience and good faith.' Id. at 809\n\nThe Murphy Order is not final",
+        "Vieux Carre , 875 F.2d 800 (5th Cir. 1989). Id. at 809\n\nThe Murphy Order is not final",
         "accord Marler v. Hiebert , 960 F.Supp. 253, 254\n\n- (D. Kan. 1997) (emphasis added)",
     ],
 )

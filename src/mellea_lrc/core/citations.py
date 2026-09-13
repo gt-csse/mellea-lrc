@@ -44,6 +44,18 @@ FULL_CITATION_KINDS = frozenset(
 )
 
 
+# A leaf's meaning is which root it points at. `UnknownCitation` is not one: it
+# is a span nothing read, and it claims no antecedent.
+LEAF_CITATION_KINDS = frozenset(
+    {
+        CitationKind.SHORT_CASE,
+        CitationKind.ID,
+        CitationKind.SUPRA,
+        CitationKind.REFERENCE,
+    }
+)
+
+
 @dataclass(frozen=True, slots=True)
 class Reporter:
     """The reporter a citation names, as written and as the databases know it.
@@ -487,6 +499,21 @@ def citation_kind(citation: CanonicalCitation) -> CitationKind:
 def is_full_citation(citation: CanonicalCitation) -> bool:
     """Return True when the citation is a self-contained bibliographic cite."""
     return citation.kind in FULL_CITATION_KINDS
+
+
+def is_leaf(citation: CanonicalCitation) -> bool:
+    """Return True when the citation's meaning is which other citation it points at.
+
+    A **root** states a complete identifier and means something on its own. A
+    **leaf** does not: `556 U.S. at 678` is characters anyone can read, and what
+    it claims is page 678 of a case those characters do not name. So a leaf
+    without a root is not an incomplete citation, it is a citation of nothing,
+    and `CitationRecord` refuses to hold one.
+
+    `UnknownCitation` is neither. It is a span the tokenizer matched and nothing
+    read -- a bare `§` -- and it makes no claim to be attached to anything.
+    """
+    return citation.kind in LEAF_CITATION_KINDS
 
 
 def placed(citation: CanonicalCitation, **where: object) -> CanonicalCitation:
