@@ -264,10 +264,15 @@ def test_the_document_records_which_tokenizer_read_it(relaxation: Relaxation) ->
     assert document.extraction_metadata.relaxation is relaxation
 
 
-def test_the_default_is_bounded() -> None:
-    """The shipped setting, asserted so a change to it is a deliberate edit."""
+def test_the_default_is_full() -> None:
+    """The shipped setting, asserted so a change to it is a deliberate edit.
+
+    `FULL` is what this project reads a filing with: the rules are the tool, and
+    a caller who wants eyecite as published asks for `NONE` by name. `BOUNDED`
+    stays reachable as the diagnostic that separates the two joins.
+    """
     document = extract_from_plain_text("Norton v. Shelby County, 118 U.S. 425 (1886)")
-    assert document.extraction_metadata.relaxation is Relaxation.BOUNDED
+    assert document.extraction_metadata.relaxation is Relaxation.FULL
 
 
 @pytest.mark.parametrize("relaxation", [Relaxation.BOUNDED, Relaxation.FULL])

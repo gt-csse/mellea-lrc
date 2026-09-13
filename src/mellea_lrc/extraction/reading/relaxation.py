@@ -43,6 +43,11 @@ blank line there reads ``214 F.3d\n\n1\n\n2\n\n3`` as ``214 F.3d 1`` when the
 citation is ``214 F.3d 1058``. Not a miss but a *wrong page*, which sends
 validation to a different case and returns a confident verdict about it.
 
+**``FULL`` is the default.** The rules are this project's own reading tool, so a
+filing is read with all of them unless a caller asks otherwise; `NONE` is asked
+for by name, and it is what the evaluation's baseline arm means. `BOUNDED`
+stays reachable as the diagnostic that separates the two joins.
+
 ``FULL`` accepts that hazard in exchange for the citations only it can reach.
 Measured over 103 documents and 2,603 citations, widening that join beyond
 ``BOUNDED`` changed the parse in six documents: two correct recoveries and four

@@ -29,7 +29,7 @@ class ExtractionMetadata:
 
     backend: ExtractionBackend = ExtractionBackend.EYECITE
     backend_version: str | None = None
-    relaxation: Relaxation = Relaxation.BOUNDED
+    relaxation: Relaxation = Relaxation.FULL
     """Which tokenizer read the text.
 
     Two levels disagree about whether a given citation is there at all, so a

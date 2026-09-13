@@ -357,7 +357,7 @@ def _build_antecedent_map(
 def extract_citations(
     preprocessed: PreprocessedDocument,
     *,
-    relaxation: Relaxation = Relaxation.BOUNDED,
+    relaxation: Relaxation = Relaxation.FULL,
 ) -> ExtractedDocument:
     """Extract canonical citations from a preprocessed document.
 
@@ -435,7 +435,7 @@ def extract_from_plain_text(
     text: str,
     *,
     source_path: str | None = None,
-    relaxation: Relaxation = Relaxation.BOUNDED,
+    relaxation: Relaxation = Relaxation.FULL,
 ) -> ExtractedDocument:
     """Extract citations from Layer 2 plain text.
 
