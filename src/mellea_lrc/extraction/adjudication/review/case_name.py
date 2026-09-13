@@ -89,15 +89,14 @@ FIRST: is the filing pointing the reader at this DECISION -- relying on what it
 decided, what it held, or that it happened? If it is not, the answer is
 "not_a_citation" whatever else is true. If it is, go to the second question.
 
-    Watch for a case name used as the LABEL OF A RULE. In `the Ex parte Young
-    exception`, `the Bell standard`, `the Pioneer framework`, `the Advanced
-    Textile test`, `a Daubert hearing`, the name modifies a noun for a doctrine
-    and the sentence leans on the DOCTRINE, which has that case's name, rather
-    than on the decision. The answer is "not_a_citation", even when the filing
-    is plainly relying on the rule and even when the case is cited elsewhere.
-    Take the noun away and it changes: `under Ex parte Young`, `Bell held`,
-    `Pioneer controls` point at the decision, and those go on to the second
-    question.
+    Watch for a case name used as the LABEL OF A RULE. In `the Bell standard`,
+    `the Pioneer framework`, `the Dataphase test`, `a Daubert hearing`, the name
+    modifies a noun for a doctrine and the sentence leans on the DOCTRINE, which
+    has that case's name, rather than on the decision. The answer is
+    "not_a_citation", even when the filing is plainly relying on the rule and
+    even when the case is cited elsewhere. Take the noun away and it changes:
+    `Bell held`, `Pioneer controls`, `under Dataphase` point at the decision,
+    and those go on to the second question.
 
 SECOND: does the document hold a citation of this case? A citation in the
 window below, or a root in the list below, or a volume, reporter, page or
@@ -152,7 +151,7 @@ Report:
             `Bell Atl. Corp. v. Twombly` is plaintiff="Bell Atl. Corp.",
             defendant="Twombly". A case with no adverse party has no plaintiff:
             `In re Giftcraft Ltd.` is plaintiff=null, defendant="Giftcraft
-            Ltd.", and `Ex parte Young` is plaintiff=null, defendant="Young".
+            Ltd.", and `Ex parte Quirin` is plaintiff=null, defendant="Quirin".
             Leave both null for the other two readings.
 - reason    one sentence
 
