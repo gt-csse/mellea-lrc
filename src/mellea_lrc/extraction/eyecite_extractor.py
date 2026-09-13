@@ -51,6 +51,7 @@ from mellea_lrc.core.citations import (
     ShortCaseCitation,
     SupraCitation,
     UnknownCitation,
+    is_leaf,
 )
 from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
@@ -361,6 +362,7 @@ def extract_citations(
     preprocessed: PreprocessedDocument,
     *,
     relaxation: Relaxation = Relaxation.FULL,
+    with_leaves: bool = False,
 ) -> ExtractedDocument:
     """Extract canonical citations from a preprocessed document.
 
@@ -373,6 +375,15 @@ def extract_citations(
     no span is remapped afterwards, so every offset indexes straight into
     ``preprocessed.text``: how much separator damage a citation may carry is
     entirely a property of ``relaxation``, and of nothing else.
+
+    **Roots only, unless ``with_leaves``.** A leaf's meaning is which root it
+    points at, and attaching one means matching a case name -- against names
+    that are whatever the parser made of them here. The leaves are grown
+    afterwards, over the roots validation admitted, by
+    :func:`~mellea_lrc.extraction.grow_leaves`. ``with_leaves`` does both in one
+    call and is what a caller with no validation stage in the loop wants; it is
+    the same leaf pass, given every root instead of the admitted ones. See
+    `docs/Extraction.md`, "Roots first, leaves after validation".
     """
     text = preprocessed.text
     # A relaxed level reads pin cites tolerantly as well as reporter joins: the
@@ -396,6 +407,7 @@ def extract_citations(
     antecedent_map = _build_antecedent_map(resolutions, citation_ids)
 
     extracted: list[CitationRecord] = []
+    leaves: list[tuple[str, CanonicalCitation, str | None]] = []
     # Where the citation before this one stopped, so a name cannot open inside it.
     name_floor = 0
     for eyecite_citation, citation_id in citation_ids:
@@ -422,26 +434,110 @@ def extract_citations(
                 else {}
             ),
         )
-        extracted.append(
-            CitationRecord(
-                citation_id=citation_id,
-                source=canonical,
-                resolves_to=antecedent_map.get(citation_id),
+        # **Roots only.** A leaf's meaning is which root it points at, and
+        # attaching one means matching a case name -- against names that are
+        # whatever the parser made of them at this point. The leaves are grown
+        # after validation has admitted the roots and settled their names. So
+        # nothing leaf-shaped is emitted here, not even a span with the kind
+        # left off: that would be a leaf-shaped hole, and the invariant
+        # `CitationRecord` enforces would be a convention again. See
+        # `docs/Extraction.md`, "Roots first, leaves after validation".
+        if is_leaf(canonical):
+            leaves.append((citation_id, canonical, antecedent_map.get(citation_id)))
+        else:
+            extracted.append(
+                CitationRecord(
+                    citation_id=citation_id,
+                    source=canonical,
+                    resolves_to=antecedent_map.get(citation_id),
+                )
             )
-        )
         name_floor = max(name_floor, eyecite_citation.full_span()[1])
 
     # The passes over the citation list are ordered, and one reads what another
     # writes. See :mod:`mellea_lrc.extraction.stages` for the sequence and the
     # constraint behind it.
     refined = refine(text, extracted)
-    return ExtractedDocument(
+    document = ExtractedDocument(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=refined,
         unread_case_names=unread_case_names(text, refined),
         extraction_metadata=ExtractionMetadata(relaxation=relaxation),
+    )
+    return _with_leaves(document, leaves) if leaves and with_leaves else document
+
+
+def _with_leaves(
+    document: ExtractedDocument,
+    leaves: list[tuple[str, CanonicalCitation, str | None]],
+) -> ExtractedDocument:
+    """Attach each leaf to a root the document holds, or drop it.
+
+    A leaf reaches a root through `resolves_to`, which is eyecite's resolution
+    keyed by the resource it built -- and a root the document does not hold is a
+    root nothing can be attached to. So a leaf whose antecedent is missing is
+    dropped rather than recorded with a dangling id: `CitationRecord` refuses a
+    leaf with no root, and a leaf pointing at a root that was pruned away is the
+    same thing one step removed.
+    """
+    roots = {record.citation_id for record in document.citations}
+    grown = [
+        CitationRecord(citation_id=citation_id, source=canonical, root_id=antecedent, resolves_to=antecedent)
+        for citation_id, canonical, antecedent in leaves
+        if antecedent in roots
+    ]
+    if not grown:
+        return document
+    citations = sorted((*document.citations, *grown), key=lambda record: record.full_span.start)
+    return dataclasses.replace(
+        document,
+        citations=tuple(citations),
+        unread_case_names=unread_case_names(document.text, citations),
+    )
+
+
+def grow_leaves(
+    document: ExtractedDocument,
+    *,
+    relaxation: Relaxation | None = None,
+) -> ExtractedDocument:
+    """Attach every leaf the document's text writes to a root the document holds.
+
+    The second growth. The roots came from :func:`extract_citations` and have
+    since been through validation's identity stage, so each one that survived is
+    a root with an authority behind it and a case name that was checked rather
+    than parsed -- which is what a leaf needs, because reaching a root means
+    matching a name.
+
+    **The roots the document holds are kept exactly as they are**, with whatever
+    validation wrote on them: a citation's identifier is a hash of its span and
+    the characters at it, so the re-read produces the same ids and the roots
+    already here are the ones the leaves point at. A leaf whose root the document
+    does not hold -- pruned as unidentifiable, or never found -- is dropped
+    rather than recorded pointing nowhere.
+    """
+    level = relaxation or document.extraction_metadata.relaxation
+    preprocessed = PreprocessedDocument(
+        source_metadata=document.source_metadata,
+        text=document.text,
+        preprocessing_metadata=document.preprocessing_metadata,
+    )
+    read = extract_citations(preprocessed, relaxation=level, with_leaves=True)
+    roots = {record.citation_id for record in document.citations}
+    grown = [
+        record
+        for record in read.citations
+        if is_leaf(record.stated) and record.root_id in roots
+    ]
+    if not grown:
+        return document
+    citations = sorted((*document.citations, *grown), key=lambda record: record.full_span.start)
+    return dataclasses.replace(
+        document,
+        citations=tuple(citations),
+        unread_case_names=unread_case_names(document.text, citations),
     )
 
 
@@ -450,6 +546,7 @@ def extract_from_plain_text(
     *,
     source_path: str | None = None,
     relaxation: Relaxation = Relaxation.FULL,
+    with_leaves: bool = False,
 ) -> ExtractedDocument:
     """Extract citations from Layer 2 plain text.
 
@@ -460,4 +557,9 @@ def extract_from_plain_text(
     still be found; see :class:`~mellea_lrc.extraction.reading.relaxation.Relaxation`.
     """
     preprocessed = preprocess(text)
-    return extract_citations(preprocessed, relaxation=relaxation)
+    if source_path is not None:
+        preprocessed = replace(
+            preprocessed,
+            source_metadata=replace(preprocessed.source_metadata, path=source_path),
+        )
+    return extract_citations(preprocessed, relaxation=relaxation, with_leaves=with_leaves)

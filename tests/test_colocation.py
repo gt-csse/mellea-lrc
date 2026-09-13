@@ -19,7 +19,7 @@ from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 def _extract(text: str):
     # eyecite writes overlap diagnostics to stdout on some inputs.
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        return extract_from_plain_text(text, relaxation=Relaxation.FULL)
+        return extract_from_plain_text(text, relaxation=Relaxation.FULL, with_leaves=True)
 
 
 def _groups(document) -> list[set[str]]:

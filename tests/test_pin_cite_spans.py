@@ -21,7 +21,7 @@ from mellea_lrc.extraction.types import CitationRecord
 def _citations(text: str) -> tuple[CitationRecord, ...]:
     # eyecite writes overlap diagnostics to stdout on some inputs.
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        return extract_from_plain_text(text).citations
+        return extract_from_plain_text(text, with_leaves=True).citations
 
 
 def _of_kind(text: str, kind: CitationKind) -> CitationRecord:
@@ -115,7 +115,15 @@ def test_every_kind_spells_the_page_the_same_way(text: str, kind: CitationKind) 
             "*3",
         ),
         # Paragraphs, as a decision numbered by paragraph is pinpointed.
-        ("Doe v. Roe, 5 F.3d 1 (1993). Id. ¶¶ 26-28.", CitationKind.ID, "¶¶ 26-28"),
+        # A paragraph pin cite belongs to a docket citation: a reporter page and a
+        # paragraph number are different numbering, and eyecite refuses an `Id.`
+        # whose pin cite does not start with a digit against a reporter.
+        (
+            "United States v. Chen Zhi , No. 1:25-cr-00312-RPK (E.D.N.Y. filed Oct. 8, 2025). "
+            "Id. ¶¶ 26-28.",
+            CitationKind.ID,
+            "¶¶ 26-28",
+        ),
     ],
 )
 def test_a_label_is_not_a_connector_and_stays(text: str, kind: CitationKind, expected: str) -> None:

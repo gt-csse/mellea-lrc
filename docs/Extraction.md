@@ -532,6 +532,20 @@ is worth saying out loud: **an artifact from the initialization is not a reading
 of the document's citations.** It is the roots, which is what identity needs and
 all that identity needs.
 
+#### Open: a leaf that cannot be grown is still a finding
+
+The initialization drops a leaf it cannot attach, and the leaf pass drops one
+whose root the document does not hold. Both are right for the record and wrong
+for the ledger: a short form for a case the filing never gives in full is a
+**defect**, and one of the ground truth's `nonconforming_citation` classes.
+`orphan_short_forms` used to propose exactly those, and there is now nothing in
+the document for it to propose.
+
+So the leaf pass has to report what it could not grow, beside what it grew.
+Where that report lives -- a field on the document, a candidate kind, a unit of
+its own -- is not decided. Until it is, `tests/test_adjudication.py` carries a
+strict `xfail` so the day it starts working is not silent.
+
 #### What moves in the measurement
 
 `short forms`, `attribution`, and every leaf kind leave the initialization arm's

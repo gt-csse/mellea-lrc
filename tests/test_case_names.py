@@ -16,7 +16,7 @@ from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 
 def _names(text: str) -> list[str | None]:
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        document = extract_from_plain_text(text, relaxation=Relaxation.FULL)
+        document = extract_from_plain_text(text, relaxation=Relaxation.FULL, with_leaves=True)
     out: list[str | None] = []
     for citation in document.citations:
         span = citation.case_name_span
@@ -27,7 +27,7 @@ def _names(text: str) -> list[str | None]:
 def _name(text: str) -> str | None:
     # Eyecite writes overlap diagnostics to stdout on some inputs.
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        document = extract_from_plain_text(text, relaxation=Relaxation.FULL)
+        document = extract_from_plain_text(text, relaxation=Relaxation.FULL, with_leaves=True)
     citation = document.citations[0]
     span = citation.case_name_span
     return None if span is None else text[span.start : span.end]
@@ -67,8 +67,11 @@ def test_a_party_keeps_its_own_comma_and_digits() -> None:
 
 
 def test_a_citation_with_no_name_has_no_span() -> None:
-    assert _name("Id. at 570.") is None
-    assert _name("550 U.S. at 570.") is None
+    """Both need the case in full first: a leaf reaches a root or is not grown."""
+    full = "Bell Atl. Corp. v. Twombly , 550 U.S. 544 (2007). "
+
+    assert _names(full + "Id. at 570.")[1] is None
+    assert _names(full + "The court went on. 550 U.S. at 570.")[1] is None
 
 
 def test_a_span_that_opens_at_the_versus_takes_the_party_in_front_of_it() -> None:

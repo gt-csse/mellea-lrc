@@ -53,7 +53,11 @@ different questions.
     a reviewer.
 """
 
-from mellea_lrc.extraction.eyecite_extractor import extract_citations, extract_from_plain_text
+from mellea_lrc.extraction.eyecite_extractor import (
+    extract_citations,
+    extract_from_plain_text,
+    grow_leaves,
+)
 from mellea_lrc.extraction.find_docket_locators import find_docket_locators
 from mellea_lrc.extraction.find_full_reporter_locators import find_full_reporter_locators
 from mellea_lrc.extraction.reading.relaxation import Relaxation
@@ -73,6 +77,7 @@ __all__ = [
     "Relaxation",
     "extract_citations",
     "extract_from_plain_text",
+    "grow_leaves",
     "find_docket_locators",
     "find_full_reporter_locators",
     "resolve_colocations",

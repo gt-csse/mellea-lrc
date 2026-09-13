@@ -39,7 +39,7 @@ INDICTMENT = (
 def _extract(text: str, relaxation: Relaxation = Relaxation.BOUNDED) -> ExtractedDocument:
     # eyecite writes overlap diagnostics to stdout on some inputs.
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        return extract_from_plain_text(text, relaxation=relaxation)
+        return extract_from_plain_text(text, relaxation=relaxation, with_leaves=True)
 
 
 def _dockets(text: str, relaxation: Relaxation = Relaxation.BOUNDED) -> list[DocketCitation]:

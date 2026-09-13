@@ -32,7 +32,7 @@ from mellea_lrc.extraction.reading.relaxation import tokenizer_for
 def _extract(text: str, relaxation: Relaxation) -> ExtractedDocument:
     # eyecite writes overlap diagnostics to stdout on some inputs.
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        return extract_from_plain_text(text, relaxation=relaxation)
+        return extract_from_plain_text(text, relaxation=relaxation, with_leaves=True)
 
 
 def _matched(text: str, relaxation: Relaxation = Relaxation.BOUNDED) -> list[str]:
@@ -285,7 +285,10 @@ def test_a_short_form_is_read_through_doubled_spaces(relaxation: Relaxation) -> 
     reporter and `at` that the reporter-to-page substitution no longer matches.
     `367  P.3d  at  74` was unread while `367 P.3d at 74` parsed.
     """
-    citations = _extract("See Watkins ,  367  P.3d  at  74 -75.", relaxation).citations
+    citations = _extract(
+        "Watkins v. State , 367 P.3d 1 (Kan. 2016). See Watkins ,  367  P.3d  at  74 -75.",
+        relaxation,
+    ).citations
     short = [c for c in citations if isinstance(c.stated, ShortCaseCitation)]
 
     assert len(short) == 1
@@ -295,7 +298,9 @@ def test_a_short_form_is_read_through_doubled_spaces(relaxation: Relaxation) -> 
 
 def test_an_undamaged_short_form_still_reads() -> None:
     """The widening must not cost the ordinary case."""
-    citations = _extract("Iqbal, 556 U.S. at 678.", Relaxation.FULL).citations
+    citations = _extract(
+        "Ashcroft v. Iqbal , 556 U.S. 662 (2009). Iqbal, 556 U.S. at 678.", Relaxation.FULL
+    ).citations
     short = [c for c in citations if isinstance(c.stated, ShortCaseCitation)]
 
     assert len(short) == 1
