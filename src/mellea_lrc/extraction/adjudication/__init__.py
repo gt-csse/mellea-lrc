@@ -33,6 +33,26 @@ the data cannot show generalises should not be hardened -- it should propose and
 be reviewed, and the thinness of the evidence is exactly what makes the review
 affordable. Making 67 reporter spellings case-insensitive to catch two citations
 is the wrong trade; proposing those two is the right one.
+
+:mod:`~mellea_lrc.extraction.adjudication.reviews`
+    The one way in. :class:`Review` names each question this layer can be asked,
+    every one of them opt-in, and :func:`adjudicate` runs the ones a caller
+    named.
+
+**A review writes to the record, so it runs one site at a time.** The model
+underneath is asynchronous and nothing about the network stops several sites
+being in flight together -- but a reviewer corrects a field on a record, and the
+site after it is shown the corrected field. `adjudicate_case_name` is handed the
+records precisely so it can say which citation a name belongs to; two sites
+deciding about the same citation concurrently would each answer against a record
+the other is rewriting, and which answer survives would depend on which call
+returned first. That is a record that cannot be replayed, which is the one
+property this whole design exists to keep.
+
+So :func:`adjudicate` awaits each review in turn and each site within it in
+turn. Concurrency here is not an optimisation to add later and forget to guard:
+it needs a review that declares its sites independent of one another, and none
+of them does yet.
 """
 
 from mellea_lrc.extraction.adjudication.candidates.docket_sites import SuspectedDocket, suspected_dockets
@@ -43,18 +63,22 @@ from mellea_lrc.extraction.adjudication.candidates.reporter_sites import (
 )
 from mellea_lrc.extraction.adjudication.masking import mask_full_spans, mask_locator_spans
 from mellea_lrc.extraction.adjudication.promotion import promote, promote_locator, reread_site
+from mellea_lrc.extraction.adjudication.reviews import DEFAULT_REVIEWS, Review, adjudicate
 from mellea_lrc.extraction.adjudication.review.docket import adjudicate_docket
 from mellea_lrc.extraction.adjudication.review.locator import adjudicate_locator
 from mellea_lrc.extraction.adjudication.types import Adjudication, Candidate, CandidateKind, Verdict
 
 __all__ = [
+    "DEFAULT_REVIEWS",
     "Adjudication",
     "Candidate",
     "CandidateKind",
+    "Review",
     "SiteStage",
     "SuspectedDocket",
     "SuspectedLocator",
     "Verdict",
+    "adjudicate",
     "adjudicate_docket",
     "adjudicate_locator",
     "mask_full_spans",

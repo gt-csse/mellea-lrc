@@ -86,12 +86,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from mellea_lrc.core.case_names import CaseName
-from mellea_lrc.core.citations import CitationKind, ReferenceCitation, citation_kind
-from mellea_lrc.core.record import CitationRecord, Node, Reads
+from mellea_lrc.core.citations import CitationKind, citation_kind
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
-from mellea_lrc.extraction.adjudication.candidates.case_name_sites import case_name_sites
-from mellea_lrc.extraction.adjudication.review.case_name import Reading, adjudicate_case_name
+from mellea_lrc.extraction.adjudication import Review, adjudicate
 from mellea_lrc.llm import start_mellea_session_from_env
 from mellea_lrc.serialization import (
     deserialize_extracted_document,
@@ -116,17 +113,12 @@ CASE_KINDS = frozenset(
     }
 )
 
-CASE_NAME_LAYER = "case_name"
-#: What made a correction, on the node that carries it.
-ADJUDICATE_CASE_NAME = "adjudicate_case_name"
-
-
 @dataclass(frozen=True, slots=True)
 class Arm:
     """One pass over a document, named for what it runs."""
 
     relaxation: Relaxation
-    layers: tuple[str, ...] = field(default_factory=tuple)
+    reviews: tuple[Review, ...] = field(default_factory=tuple)
     components: str = ""
     reads_dockets: bool = True
     """Whether docket numbers are read at all.
@@ -140,13 +132,17 @@ class Arm:
     @property
     def needs_model(self) -> bool:
         """Whether running it calls a model, and so costs time and money."""
-        return bool(self.layers)
+        return bool(self.reviews)
 
 
 ARMS = {
     "eyecite": Arm(Relaxation.NONE, components="eyecite as published", reads_dockets=False),
     "augmented": Arm(Relaxation.FULL, components="+ this project's rules"),
-    "mellea": Arm(Relaxation.FULL, (CASE_NAME_LAYER,), components="+ the case-name layer"),
+    # `Review.CASE_NAME` is the other half of this layer and is off. It answers
+    # about a bare name that states no page, and `--defer-bare-names` is the
+    # scoring side of the same decision: the arm is not asked for them and the
+    # score does not count them. Turn both on together or neither.
+    "mellea": Arm(Relaxation.FULL, (Review.PIN_CITE,), components="+ the pin-cite review"),
 }
 
 MEASURES = (
@@ -286,65 +282,6 @@ def _from_rules(extracted: ExtractedDocument, *, dockets: bool) -> dict[tuple[in
     return rows
 
 
-async def _case_name_layer(extracted: ExtractedDocument, session: MelleaSession) -> None:
-    """Apply what a reader makes of each case name standing outside every citation.
-
-    `short_form` is a citation the rules did not read at all, so it becomes a
-    record of its own. `names_a_citation` corrects the case name of the record
-    it names, carrying the node that justified it, and the next site is shown
-    the corrected name. The other two are findings about the filing rather than
-    citations.
-    """
-    records = {record.citation_id: record for record in extracted.citations}
-    at = {record.citation_id: record.locator_span for record in extracted.citations}
-    recovered: list[CitationRecord] = []
-    for site in case_name_sites(extracted):
-        answer = await adjudicate_case_name(extracted, site, session=session, records=records)
-        if answer is None:
-            continue
-        node = Node(
-            node_id=f"case_name:{site.span.start}-{site.span.end}",
-            reads=Reads.DOCUMENT,
-            stage=CASE_NAME_LAYER,
-            made_by=ADJUDICATE_CASE_NAME,
-            outcome=answer.reading.value,
-            message=answer.reason or None,
-        )
-        name = CaseName(
-            span=answer.span,
-            text=answer.name,
-            plaintiff=answer.plaintiff,
-            defendant=answer.defendant,
-        )
-        if answer.reading is Reading.NAMES_A_CITATION:
-            named = records.get(answer.citation_id or "")
-            # The layer sweeps what the rules left over, so it can land on a
-            # citation that already holds the name it read. Nothing to correct.
-            if named is not None and named.case_name != name:
-                named.observe(named.correcting(node, "case_name", name, reason=node.message or ""))
-            continue
-        if answer.reading is not Reading.SHORT_FORM or answer.root_id not in at:
-            continue
-        # A bare name is a citation the record does not hold: it states no
-        # identifier, so nothing the rules read could have reached it.
-        reference = CitationRecord(
-            citation_id=f"case_name:{site.span.start}",
-            source=ReferenceCitation(
-                span=answer.span,
-                locator_span=answer.span,
-                matched_text=answer.name,
-                case_name=name,
-                plaintiff=answer.plaintiff,
-                defendant=answer.defendant,
-            ),
-            root_id=answer.root_id,
-        )
-        reference.observe(node)
-        recovered.append(reference)
-    if recovered:
-        object.__setattr__(extracted, "citations", (*extracted.citations, *recovered))
-
-
 async def run_document(
     text: str, arm: Arm, session: MelleaSession | None, name: str = "", artifacts: Path | None = None
 ) -> dict[tuple[int, int], dict[str, Any]]:
@@ -359,8 +296,8 @@ async def run_document(
     # Eyecite writes overlap diagnostics to stdout as it reads.
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         extracted = extract_from_plain_text(text, relaxation=arm.relaxation)
-    if CASE_NAME_LAYER in arm.layers and session is not None:
-        await _case_name_layer(extracted, session)
+    if arm.reviews and session is not None:
+        await adjudicate(extracted, arm.reviews, session=session)
     payload = serialize_extracted_document(extracted)
     if artifacts is not None and name:
         _write_artifact(artifacts, name, payload)
