@@ -4,7 +4,7 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.core.citations import FullCaseCitation, placed
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import ExtractedCitation
 from mellea_lrc.validation.pinpoint_retrieval.mellea_citing_proposition_extraction import (
@@ -54,17 +54,19 @@ def test_citing_proposition_node_stores_original_document_span(monkeypatch: obje
     validation = CitationValidation(
         citation=ExtractedCitation(
             citation_id="citation-1",
-            full_span=Span(citation_start, citation_start + len(citation_text)),
-            locator_span=Span(
-                citation_start + len("United States v. Golden, "),
-                citation_start + len("United States v. Golden, 671 F.2d 369"),
-            ),
-            matched_text="671 F.2d 369",
-            citation=FullCaseCitation(
-                volume="671",
-                reporter="F.2d",
-                page="369",
-                pin_cite="371",
+            citation=placed(
+                FullCaseCitation(
+                    volume="671",
+                    reporter="F.2d",
+                    page="369",
+                    pin_cite="371",
+                ),
+                span=Span(citation_start, citation_start + len(citation_text)),
+                locator_span=Span(
+                    citation_start + len("United States v. Golden, "),
+                    citation_start + len("United States v. Golden, 671 F.2d 369"),
+                ),
+                matched_text="671 F.2d 369",
             ),
         )
     )

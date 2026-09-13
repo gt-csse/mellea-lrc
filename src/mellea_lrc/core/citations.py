@@ -4,9 +4,14 @@ These are project-level citation classes. Eyecite citations are converted into
 these canonical types before downstream validation and serialization.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
-from typing import ClassVar, TypeAlias
+from typing import TYPE_CHECKING, ClassVar, TypeAlias
+
+if TYPE_CHECKING:
+    from mellea_lrc.core.case_names import CaseName
+    from mellea_lrc.core.pin_cites import PinCite
+    from mellea_lrc.core.spans import Span
 
 
 class CitationKind(str, Enum):
@@ -137,12 +142,31 @@ class FullCaseCitation:
 
     kind: ClassVar[CitationKind] = CitationKind.FULL_CASE
 
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.core.case_names.CaseName`.
+    """
+
     plaintiff: str | None = None
     defendant: str | None = None
     volume: str | None = None
     reporter: Reporter | None = None
     page: str | None = None
-    pin_cite: str | None = None
+    pin_cite: PinCite | None = None
     extra: str | None = None
     date: CitationDate | None = None
     court: str | None = None
@@ -163,10 +187,29 @@ class FullLawCitation:
 
     kind: ClassVar[CitationKind] = CitationKind.FULL_LAW
 
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.core.case_names.CaseName`.
+    """
+
     volume: str | None = None
     reporter: Reporter | None = None
     page: str | None = None
-    pin_cite: str | None = None
+    pin_cite: PinCite | None = None
     date: CitationDate | None = None
     publisher: str | None = None
     parenthetical: str | None = None
@@ -178,10 +221,29 @@ class FullJournalCitation:
 
     kind: ClassVar[CitationKind] = CitationKind.FULL_JOURNAL
 
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.core.case_names.CaseName`.
+    """
+
     volume: str | None = None
     reporter: Reporter | None = None
     page: str | None = None
-    pin_cite: str | None = None
+    pin_cite: PinCite | None = None
     date: CitationDate | None = None
     parenthetical: str | None = None
 
@@ -204,6 +266,25 @@ class DocketCitation:
 
     kind: ClassVar[CitationKind] = CitationKind.DOCKET
 
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.core.case_names.CaseName`.
+    """
+
     plaintiff: str | None = None
     defendant: str | None = None
     docket_number: str | None = None
@@ -212,7 +293,7 @@ class DocketCitation:
     court_name: str | None = None
     court_text: str | None = None
     """The court exactly as the filing wrote it, e.g. ``E.D.N.Y.``."""
-    pin_cite: str | None = None
+    pin_cite: PinCite | None = None
     date: CitationDate | None = None
     parenthetical: str | None = None
 
@@ -223,10 +304,29 @@ class ShortCaseCitation:
 
     kind: ClassVar[CitationKind] = CitationKind.SHORT_CASE
 
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.core.case_names.CaseName`.
+    """
+
     volume: str | None = None
     reporter: Reporter | None = None
     page: str | None = None
-    pin_cite: str | None = None
+    pin_cite: PinCite | None = None
     court: str | None = None
     date: CitationDate | None = None
     parenthetical: str | None = None
@@ -247,9 +347,28 @@ class SupraCitation:
 
     kind: ClassVar[CitationKind] = CitationKind.SUPRA
 
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.core.case_names.CaseName`.
+    """
+
     volume: str | None = None
     """The volume a numbered supra states, as in `Smith, 5 supra, at 10`."""
-    pin_cite: str | None = None
+    pin_cite: PinCite | None = None
     parenthetical: str | None = None
     antecedent: str | None = None
     """The party name ahead of `supra`, which is the whole of its identity."""
@@ -261,7 +380,26 @@ class IdCitation:
 
     kind: ClassVar[CitationKind] = CitationKind.ID
 
-    pin_cite: str | None = None
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.core.case_names.CaseName`.
+    """
+
+    pin_cite: PinCite | None = None
     parenthetical: str | None = None
 
 
@@ -271,9 +409,28 @@ class ReferenceCitation:
 
     kind: ClassVar[CitationKind] = CitationKind.REFERENCE
 
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.core.case_names.CaseName`.
+    """
+
     plaintiff: str | None = None
     defendant: str | None = None
-    pin_cite: str | None = None
+    pin_cite: PinCite | None = None
     """The page a bare-name reference points at, as in `Bell at 546`.
 
     A reference states no reporter, so the page is the only thing about it that
@@ -288,6 +445,25 @@ class UnknownCitation:
     """Span that looks like a citation but cannot be parsed."""
 
     kind: ClassVar[CitationKind] = CitationKind.UNKNOWN
+
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.core.case_names.CaseName`.
+    """
 
 
 CanonicalCitation: TypeAlias = (
@@ -311,3 +487,14 @@ def citation_kind(citation: CanonicalCitation) -> CitationKind:
 def is_full_citation(citation: CanonicalCitation) -> bool:
     """Return True when the citation is a self-contained bibliographic cite."""
     return citation.kind in FULL_CITATION_KINDS
+
+
+def placed(citation: CanonicalCitation, **where: object) -> CanonicalCitation:
+    """The same citation, knowing where in a document it is written.
+
+    The position belongs to the citation rather than beside it, so this is how
+    it gets there: one call, at the moment a parse becomes a citation in a
+    document. Only the keys given are set, so a pin cite already read is not
+    wiped by a caller that only knows the span.
+    """
+    return replace(citation, **where)  # type: ignore[arg-type]

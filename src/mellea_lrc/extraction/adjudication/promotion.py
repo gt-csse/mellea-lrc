@@ -47,6 +47,9 @@ from eyecite import get_citations
 from eyecite.annotate import SpanUpdater
 from eyecite.tokenizers import EXTRACTORS, Tokenizer
 
+from mellea_lrc.core.case_names import CaseName
+from mellea_lrc.core.citations import CanonicalCitation, placed
+from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.eyecite_extractor import to_canonical
 from mellea_lrc.extraction.identity import citation_id as citation_id_for
@@ -54,9 +57,31 @@ from mellea_lrc.extraction.reading.pin_cite_spans import locate_pin_cite
 from mellea_lrc.extraction.reading.pin_cites import relaxed_pin_cites
 from mellea_lrc.extraction.types import ExtractedCitation
 
-#: What opens the field log of a citation nobody parsed in the ordinary pass.
-ACCEPTED_BY_A_READER = "adjudication"
-REREAD = "reread"
+
+def _placed(
+    text: str,
+    citation: CanonicalCitation,
+    full_span: Span,
+    locator_span: Span,
+    matched_text: str,
+) -> CanonicalCitation:
+    """A re-read citation that knows where in the document it is written.
+
+    The same shaping the ordinary pass does, so a promoted citation is not
+    distinguishable from a parsed one by the fields it happens to carry.
+    """
+    written = getattr(citation, "pin_cite", None)
+    pin_cite_span = locate_pin_cite(text, citation, locator_span=locator_span, full_span=full_span)
+    return placed(
+        citation,
+        span=full_span,
+        locator_span=locator_span,
+        matched_text=matched_text,
+        **(
+            {"pin_cite": PinCite.read(written, pin_cite_span)} if isinstance(written, str) and written else {}
+        ),
+    )
+
 
 if TYPE_CHECKING:
     from mellea_lrc.extraction.adjudication.candidates.reporter_sites import SuspectedLocator
@@ -111,12 +136,7 @@ def promote(text: str, candidate: Candidate) -> ExtractedCitation | None:
         canonical = to_canonical(citation)
         return ExtractedCitation(
             citation_id=citation_id_for(locator_span, citation.matched_text()),
-            full_span=full_span,
-            locator_span=locator_span,
-            matched_text=citation.matched_text(),
-            citation=canonical,
-            pin_cite_span=locate_pin_cite(text, canonical, locator_span=locator_span, full_span=full_span),
-            read_by=ACCEPTED_BY_A_READER,
+            citation=_placed(text, canonical, full_span, locator_span, citation.matched_text()),
         )
     return None
 
@@ -189,15 +209,11 @@ def promote_locator(text: str, locator: AdjudicatedLocator) -> ExtractedCitation
         promoted = to_canonical(citation)
         return ExtractedCitation(
             citation_id=citation_id_for(locator_span, locator.text),
-            full_span=full_span,
-            locator_span=locator_span,
-            # The characters the document holds, not the ones that were parsed.
-            matched_text=locator.text,
-            citation=promoted,
-            # Located in the document, where the pin cite is undamaged: only the
-            # locator was repaired, and the pin cite lies past its end.
-            pin_cite_span=locate_pin_cite(text, promoted, locator_span=locator_span, full_span=full_span),
-            read_by=ACCEPTED_BY_A_READER,
+            # `matched_text` is the characters the document holds, not the ones
+            # that were parsed. The pin cite is located in the document, where
+            # it is undamaged: only the locator was repaired, and the pin cite
+            # lies past its end.
+            citation=_placed(text, promoted, full_span, locator_span, locator.text),
         )
     return None
 
@@ -260,11 +276,6 @@ def reread_site(text: str, site: SuspectedLocator) -> ExtractedCitation | None:
         canonical = to_canonical(citation)
         return ExtractedCitation(
             citation_id=citation_id_for(locator_span, citation.matched_text()),
-            full_span=full_span,
-            locator_span=locator_span,
-            matched_text=citation.matched_text(),
-            citation=canonical,
-            pin_cite_span=locate_pin_cite(text, canonical, locator_span=locator_span, full_span=full_span),
-            read_by=REREAD,
+            citation=_placed(text, canonical, full_span, locator_span, citation.matched_text()),
         )
     return None

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.core.citations import FullCaseCitation, placed
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import ExtractedCitation
 from mellea_lrc.validation.pinpoint_retrieval import mellea_pinpoint_check
@@ -123,14 +123,18 @@ def test_mellea_pinpoint_check_stores_the_canonical_source_slice(monkeypatch: ob
     validation = CitationValidation(
         citation=ExtractedCitation(
             citation_id="citation-1",
-            full_span=Span(start, start + len(matched)),
-            locator_span=Span(start + len("Example v. Case, "), start + len("Example v. Case, 10 F.3d 20")),
-            matched_text="10 F.3d 20",
-            citation=FullCaseCitation(
-                volume="10",
-                reporter="F.3d",
-                page="20",
-                pin_cite="24",
+            citation=placed(
+                FullCaseCitation(
+                    volume="10",
+                    reporter="F.3d",
+                    page="20",
+                    pin_cite="24",
+                ),
+                span=Span(start, start + len(matched)),
+                locator_span=Span(
+                    start + len("Example v. Case, "), start + len("Example v. Case, 10 F.3d 20")
+                ),
+                matched_text="10 F.3d 20",
             ),
         )
     )

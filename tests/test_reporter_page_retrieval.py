@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.core.citations import FullCaseCitation, placed
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener.opinion_models import (
     CourtListenerOpinion,
@@ -42,14 +42,16 @@ def _validation(
 ) -> tuple[CitationValidation, CandidateEvaluationNode]:
     extracted = ExtractedCitation(
         citation_id="cite-1",
-        full_span=Span(0, 20),
-        locator_span=Span(0, 14),
-        matched_text="376 F.3d 615",
-        citation=FullCaseCitation(
-            volume="376",
-            reporter=reporter,
-            page="615",
-            pin_cite=pin_cite,
+        citation=placed(
+            FullCaseCitation(
+                volume="376",
+                reporter=reporter,
+                page="615",
+                pin_cite=pin_cite,
+            ),
+            span=Span(0, 20),
+            locator_span=Span(0, 14),
+            matched_text="376 F.3d 615",
         ),
     )
     cluster = CourtListenerOpinionCluster(

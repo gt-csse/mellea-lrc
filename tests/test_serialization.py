@@ -2,6 +2,7 @@
 
 import json
 
+from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.citations import (
     CitationDate,
     FullCaseCitation,
@@ -13,6 +14,7 @@ from mellea_lrc.core.citations import (
     ShortCaseCitation,
     SupraCitation,
     UnknownCitation,
+    placed,
 )
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import CourtListenerOpinionCluster, CourtListenerSearchResult
@@ -87,17 +89,19 @@ def _document_with_one_citation() -> ExtractedDocument:
         citations=(
             ExtractedCitation(
                 citation_id="cite-0001",
-                full_span=Span(0, len(text) - 1),
-                locator_span=Span(start, start + len(matched_text)),
-                matched_text=matched_text,
-                citation=FullCaseCitation(
-                    plaintiff="Brown",
-                    defendant="Board of Education",
-                    volume="347",
-                    reporter=Reporter(as_written="U.S.", short_name="U.S.", is_scotus=True),
-                    page="483",
-                    date=CitationDate(year="1954"),
-                    court="scotus",
+                citation=placed(
+                    FullCaseCitation(
+                        plaintiff="Brown",
+                        defendant="Board of Education",
+                        volume="347",
+                        reporter=Reporter(as_written="U.S.", short_name="U.S.", is_scotus=True),
+                        page="483",
+                        date=CitationDate(year="1954"),
+                        court="scotus",
+                    ),
+                    span=Span(0, len(text) - 1),
+                    locator_span=Span(start, start + len(matched_text)),
+                    matched_text=matched_text,
                 ),
             ),
         ),
@@ -113,10 +117,12 @@ def test_extracted_document_round_trip_preserves_recoverable_fields() -> None:
 
     assert payload["schema_version"] == SCHEMA_VERSION
     assert payload["artifact_type"] == "extracted_document"
-    assert payload["citations"][0]["full_span"] == {"start": 0, "end": len(document.text) - 1}
-    assert payload["citations"][0]["locator_span"] == {"start": 29, "end": 41}
+    # Everything about the citation is written in one place, inside `citation`.
+    written = payload["citations"][0]["citation"]
+    assert written["span"] == {"start": 0, "end": len(document.text) - 1}
+    assert written["locator_span"] == {"start": 29, "end": 41}
     # This citation states no pin cite, so it claims no pages.
-    assert payload["citations"][0]["pin_cite_pages"] == []
+    assert written["pin_cite"] is None
     assert deserialize_extracted_document(payload) == document
     assert json.loads(json.dumps(payload)) == payload
 
@@ -149,13 +155,19 @@ def test_extracted_document_round_trip_supports_every_canonical_citation_type() 
         citations=tuple(
             ExtractedCitation(
                 citation_id=f"cite-{index}",
-                full_span=Span(index, index + 1),
-                locator_span=Span(index, index + 1),
-                matched_text="x",
-                citation=citation,
                 # A pin cite is scored on its own, so its span has to survive
                 # the round trip like any other offset.
-                pin_cite_span=Span(index, index + 1) if getattr(citation, "pin_cite", None) else None,
+                citation=placed(
+                    citation,
+                    span=Span(index, index + 1),
+                    locator_span=Span(index, index + 1),
+                    matched_text="x",
+                    **(
+                        {"pin_cite": PinCite.read(citation.pin_cite, Span(index, index + 1))}
+                        if getattr(citation, "pin_cite", None)
+                        else {}
+                    ),
+                ),
             )
             for index, citation in enumerate(citations)
         ),
@@ -178,17 +190,19 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
         citations=(
             ExtractedCitation(
                 citation_id="cite-0001",
-                full_span=Span(start, start + len(matched_text)),
-                locator_span=Span(start, start + len(matched_text)),
-                matched_text=matched_text,
-                citation=FullCaseCitation(
-                    plaintiff="Brown",
-                    defendant="Board of Education",
-                    volume="347",
-                    reporter=Reporter(as_written="U.S.", short_name="U.S.", is_scotus=True),
-                    page="483",
-                    date=CitationDate(year="1954"),
-                    court="scotus",
+                citation=placed(
+                    FullCaseCitation(
+                        plaintiff="Brown",
+                        defendant="Board of Education",
+                        volume="347",
+                        reporter=Reporter(as_written="U.S.", short_name="U.S.", is_scotus=True),
+                        page="483",
+                        date=CitationDate(year="1954"),
+                        court="scotus",
+                    ),
+                    span=Span(start, start + len(matched_text)),
+                    locator_span=Span(start, start + len(matched_text)),
+                    matched_text=matched_text,
                 ),
             ),
         ),

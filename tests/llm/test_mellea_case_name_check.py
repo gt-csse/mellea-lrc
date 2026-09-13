@@ -7,7 +7,7 @@ import asyncio
 import pytest
 from dotenv import load_dotenv
 
-from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.core.citations import FullCaseCitation, placed
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import ExtractedCitation
 from mellea_lrc.validation import (
@@ -51,10 +51,7 @@ def test_mellea_case_name_check(
     """Classify normal legal abbreviation as match and distinct cases as mismatch."""
     citation = ExtractedCitation(
         citation_id="live-semantic-case-name",
-        full_span=Span(0, 1),
-        locator_span=Span(0, 1),
-        matched_text="x",
-        citation=FullCaseCitation(),
+        citation=placed(FullCaseCitation(), span=Span(0, 1), locator_span=Span(0, 1), matched_text="x"),
     )
     exact_node = ExactCaseNameCheckNode(
         node_id="live-semantic-case-name:exact_case_name_check",

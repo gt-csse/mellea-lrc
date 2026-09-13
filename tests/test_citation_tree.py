@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from mellea_lrc.core.citations import placed
 from mellea_lrc.core.citations import (
     DocketCitation,
     FullCaseCitation,
@@ -11,6 +12,7 @@ from mellea_lrc.core.citations import (
     IdCitation,
     ShortCaseCitation,
 )
+from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import ExtractedCitation
 from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
@@ -32,32 +34,40 @@ def _document(*citations: ExtractedCitation, text: str = "x" * 400) -> Extracted
 def _full(citation_id: str, page: str, pin: str | None, start: int) -> ExtractedCitation:
     return ExtractedCitation(
         citation_id=citation_id,
-        full_span=Span(start, start + 12),
-        locator_span=Span(start, start + 12),
-        matched_text=f"550 U.S. {page}",
-        citation=FullCaseCitation(volume="550", reporter="U.S.", page=page, pin_cite=pin),
+        citation=placed(
+            FullCaseCitation(
+                volume="550", reporter="U.S.", page=page, pin_cite=PinCite.read(pin) if pin else None
+            ),
+            span=Span(start, start + 12),
+            locator_span=Span(start, start + 12),
+            matched_text=f"550 U.S. {page}",
+        ),
     )
 
 
 def _short(citation_id: str, pin: str, resolves_to: str, start: int) -> ExtractedCitation:
     return ExtractedCitation(
         citation_id=citation_id,
-        full_span=Span(start, start + 12),
-        locator_span=Span(start, start + 12),
-        matched_text=f"550 U.S. at {pin}",
-        citation=ShortCaseCitation(volume="550", reporter="U.S.", page=pin, pin_cite=f"at {pin}"),
         resolves_to=resolves_to,
+        citation=placed(
+            ShortCaseCitation(volume="550", reporter="U.S.", page=pin, pin_cite=PinCite.read(f"at {pin}")),
+            span=Span(start, start + 12),
+            locator_span=Span(start, start + 12),
+            matched_text=f"550 U.S. at {pin}",
+        ),
     )
 
 
 def _id(citation_id: str, pin: str, resolves_to: str, start: int) -> ExtractedCitation:
     return ExtractedCitation(
         citation_id=citation_id,
-        full_span=Span(start, start + 8),
-        locator_span=Span(start, start + 8),
-        matched_text=f"Id. at {pin}",
-        citation=IdCitation(pin_cite=f"at {pin}"),
         resolves_to=resolves_to,
+        citation=placed(
+            IdCitation(pin_cite=PinCite.read(f"at {pin}")),
+            span=Span(start, start + 8),
+            locator_span=Span(start, start + 8),
+            matched_text=f"Id. at {pin}",
+        ),
     )
 
 
@@ -152,11 +162,13 @@ def test_a_dangling_antecedent_cannot_reach_the_tree_at_all() -> None:
 def _law(citation_id: str, start: int, resolves_to: str | None = None) -> ExtractedCitation:
     return ExtractedCitation(
         citation_id=citation_id,
-        full_span=Span(start, start + 14),
-        locator_span=Span(start, start + 14),
-        matched_text="28 U.S.C. § 636",
-        citation=FullLawCitation(reporter="U.S.C."),
         resolves_to=resolves_to,
+        citation=placed(
+            FullLawCitation(reporter="U.S.C."),
+            span=Span(start, start + 14),
+            locator_span=Span(start, start + 14),
+            matched_text="28 U.S.C. § 636",
+        ),
     )
 
 
@@ -197,10 +209,12 @@ def test_a_short_form_with_no_antecedent_is_a_real_failure() -> None:
     """
     orphan = ExtractedCitation(
         citation_id="c9",
-        full_span=Span(0, 14),
-        locator_span=Span(0, 14),
-        matched_text="383 U.S. at 85",
-        citation=ShortCaseCitation(volume="383", reporter="U.S.", page="85", pin_cite="at 85"),
+        citation=placed(
+            ShortCaseCitation(volume="383", reporter="U.S.", page="85", pin_cite=PinCite.read("at 85")),
+            span=Span(0, 14),
+            locator_span=Span(0, 14),
+            matched_text="383 U.S. at 85",
+        ),
     )
 
     tree = build_citation_tree(_document(orphan))
@@ -212,11 +226,13 @@ def test_a_short_form_with_no_antecedent_is_a_real_failure() -> None:
 def _docket(citation_id: str, start: int, resolves_to: str | None = None) -> ExtractedCitation:
     return ExtractedCitation(
         citation_id=citation_id,
-        full_span=Span(start, start + 21),
-        locator_span=Span(start, start + 21),
-        matched_text="No. 1:25-cr-00312-RPK",
-        citation=DocketCitation(defendant="Chen Zhi", docket_number="1:25-cr-00312-RPK", court="nyed"),
         resolves_to=resolves_to,
+        citation=placed(
+            DocketCitation(defendant="Chen Zhi", docket_number="1:25-cr-00312-RPK", court="nyed"),
+            span=Span(start, start + 21),
+            locator_span=Span(start, start + 21),
+            matched_text="No. 1:25-cr-00312-RPK",
+        ),
     )
 
 

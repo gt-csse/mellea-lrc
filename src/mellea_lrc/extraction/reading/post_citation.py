@@ -119,15 +119,16 @@ def reread_post_citation(
             replace(
                 item,
                 # SCOTUS is set from the reporter rather than the parenthetical,
-                # so it is not this scan's to take away.
+                # so it is not this scan's to take away. The span widens with
+                # the date, because the parenthetical is part of the citation.
                 citation=replace(
                     item.citation,
                     date=date,
                     court="scotus" if item.citation.court == "scotus" else resolve_court(court_text),
-                ),
-                full_span=Span(
-                    start=item.full_span.start,
-                    end=item.locator_span.end + found.end() if found else item.locator_span.end,
+                    span=Span(
+                        start=item.full_span.start,
+                        end=item.locator_span.end + found.end() if found else item.locator_span.end,
+                    ),
                 ),
             )
         )

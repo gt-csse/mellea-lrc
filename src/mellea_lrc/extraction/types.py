@@ -1,18 +1,14 @@
 """Extraction result types."""
 
-from dataclasses import InitVar, dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 from mellea_lrc.core.case_names import CaseName
 from mellea_lrc.core.citations import CanonicalCitation, is_full_citation
-from mellea_lrc.core.field_log import RULES, FieldLog
-from mellea_lrc.core.pin_cites import PinCitePages, read_pin_cite
+from mellea_lrc.core.pin_cites import PinCitePages
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.preprocessing.types import PreprocessedDocument
-
-#: The one field logged today. See :mod:`mellea_lrc.core.field_log`.
-CASE_NAME = "case_name"
 
 
 class ExtractionBackend(str, Enum):
@@ -39,29 +35,22 @@ class ExtractionMetadata:
 
 @dataclass(frozen=True, slots=True)
 class ExtractedCitation:
-    """A canonical citation with full and matched-locator spans in document text."""
+    """One citation the rules read, and where the document holds it.
+
+    **The citation carries its own position.** `span`, `locator_span`, `text`,
+    `case_name` and `pin_cite` are fields of
+    :data:`~mellea_lrc.core.citations.CanonicalCitation`, because content and
+    position go out of step the moment they are stored apart -- which is what
+    happened when a reader repaired a case name and the span it repaired stayed
+    behind. The accessors below read them, so nothing has to reach inside.
+
+    What is left here is what belongs to the citation's place in a *document*
+    rather than to the citation: the identifier this pass assigned it, and which
+    other citation it returns to.
+    """
 
     citation_id: str
-    full_span: Span
-    """The citation's whole extent: party names, locator, pin cite, parenthetical."""
-    locator_span: Span
-    """The minimum sufficient identifier -- volume, reporter and page.
-
-    Named apart from `full_span` because the two answer different questions: this
-    is what a lookup resolves, that is what a reader is shown.
-    """
-    matched_text: str
     citation: CanonicalCitation
-    pin_cite_span: Span | None = None
-    """Where the pin cite was read from, or `None` when the citation states none.
-
-    The page a filing argues from is not part of the case's identity -- a
-    retrieval settles the case name and the court, and cannot settle the page --
-    so it is scored on its own, and scoring it needs somewhere to point.
-
-    eyecite supplies this for full case citations only; every other kind is
-    located by :mod:`mellea_lrc.extraction.reading.pin_cite_spans`.
-    """
     resolves_to: str | None = None
     root_id: str | None = None
     """The citation that stated the identifier this one refers to.
@@ -80,33 +69,7 @@ class ExtractedCitation:
     claim; validation settles it.
 
     `None` means **not attributed**, which is a real answer and usually the right
-    one. Why it is absent -- the reference is to the record rather than to a
-    case, or the chain reached nothing -- is
-    :mod:`~mellea_lrc.extraction.structure.citation_tree`'s to explain, exactly
-    as `colocation.py` explains why an id is shared.
-    """
-
-    case_name_read: InitVar[CaseName | None] = None
-    """The case name whatever built this citation read, if it read one.
-
-    Init-only: it opens `field_log`, which is where the name lives from then on.
-    Read it back as `case_name`, or its span alone as `case_name_span`.
-    """
-
-    read_by: InitVar[str] = RULES
-    """What built this citation, which is the first entry in its log.
-
-    `extraction` for the deterministic pass. A reader that proposes a citation
-    the rules never read passes its own name, so the record says a citation was
-    recovered rather than parsed.
-    """
-
-    field_log: FieldLog = field(default_factory=FieldLog, repr=False, compare=False)
-    """Every touch on every logged field, in order. See
-    :mod:`mellea_lrc.core.field_log`.
-
-    Mutable and shared: `dataclasses.replace` copies the reference, so a
-    citation that gains a `root_id` keeps the history it already had.
+    one.
     """
 
     colocation_id: str | None = None
@@ -116,79 +79,65 @@ class ExtractedCitation:
     citation, and eyecite extracts each separately. Citations carrying the same
     `colocation_id` are candidates for reaching one authority -- **candidates,
     not a finding**: whether they name the same case is settled by resolving
-    them, not by where they sit. `None` means the citation stands alone, which is the
-    common case. See :mod:`mellea_lrc.extraction.structure.colocation`.
+    them, not by where they sit. `None` means the citation stands alone, which
+    is the common case. See :mod:`mellea_lrc.extraction.structure.colocation`.
     """
 
-    def __post_init__(self, case_name_read: CaseName | None, read_by: str) -> None:
-        # A log that already has a history belongs to this citation already:
-        # `replace` passes the same object, and re-seeding it would record a
-        # read that never happened.
-        if not self.field_log.history(CASE_NAME):
-            self.field_log.touch(CASE_NAME, case_name_read, by=read_by)
+    @property
+    def full_span(self) -> Span:
+        """The citation's whole extent: name, locator, pin cite, parenthetical."""
+        span = self.citation.span
+        if span is None:
+            msg = f"Citation {self.citation_id!r} was read without a position"
+            raise ValueError(msg)
+        return span
+
+    @property
+    def locator_span(self) -> Span:
+        """The minimum sufficient identifier -- volume, reporter and page.
+
+        Named apart from `full_span` because the two answer different questions:
+        this is what a lookup resolves, that is what a reader is shown.
+        """
+        span = self.citation.locator_span
+        if span is None:
+            msg = f"Citation {self.citation_id!r} was read without a locator position"
+            raise ValueError(msg)
+        return span
+
+    @property
+    def matched_text(self) -> str:
+        """The characters the parse matched: the locator, as eyecite read them."""
+        return self.citation.matched_text or ""
 
     @property
     def case_name(self) -> CaseName | None:
-        """This citation's case name, as last read: where it is and what it says.
-
-        The value is the last touch in `field_log`, so a name a reader wrote
-        here reads back the way a parsed one does, and what it replaced is still
-        on the record with the reason it was replaced.
-
-        `plaintiff` and `defendant` travel with it because a reader repairs them
-        when it repairs the name -- `Ass ' n of Specialty Programs` on the page
-        is the party `Ass'n of Specialty Programs` -- and a rule-based check
-        compares parties, not spans. The parse on `citation` is left exactly as
-        it was read; this is the best reading of the name, which may be the
-        same one.
-        """
-        return self.field_log.value(CASE_NAME)
+        """The name this citation is written under, as the rules read it."""
+        return self.citation.case_name
 
     @property
     def case_name_span(self) -> Span | None:
-        """Where this citation's case name is written, as last read.
-
-        Located rather than rebuilt: see
-        :mod:`mellea_lrc.extraction.reading.case_names`.
-
-        A span rather than a parse, because a case name is not always two
-        parties: `In re Flint Water Cases` is a whole name, and eyecite files it
-        under `defendant` with the opening words stripped. The parsed fields are
-        left exactly as they were read; this says where to find the name on the
-        page.
-
-        It may sit outside `full_span`. A filing writes `In Boeser v. Sharp ,
-        the court recognized …` and then the citation a sentence later, and the
-        name in that sentence is the same case name -- neither position is the
-        wrong one, and the fuller of the two is what a reader wants.
-
-        A convenience over `case_name`, because most readers want the position
-        and nothing else.
-        """
-        name = self.case_name
+        """Where that name is written, for a reader that wants only the position."""
+        name = self.citation.case_name
         return name.span if name is not None else None
 
-    def record_case_name(self, name: CaseName | None, *, by: str, reason: str | None = None) -> None:
-        """Write a case name over whatever the field holds, and say who did.
-
-        Writing `None` over a name, and a name over `None`, are both overwrites
-        and both are recorded. Nothing is checked here: whether the name is the
-        right one is the caller's finding, and the log is what makes it
-        reviewable.
-        """
-        self.field_log.touch(CASE_NAME, name, by=by, reason=reason)
+    @property
+    def pin_cite_span(self) -> Span | None:
+        """Where the pin cite was read from, or `None` when it states none."""
+        pin_cite = self.citation.pin_cite
+        return pin_cite.span if pin_cite is not None else None
 
     @property
     def pin_cite_pages(self) -> tuple[PinCitePages, ...]:
         """Which pages the pin cite claims, or `()` when it states none.
 
-        Derived rather than stored, so it cannot disagree with the text it was
-        read from. `pin_cite` keeps the filing's own spelling, damage included;
-        this is what that spelling means, and it is what a page claim is
-        compared on -- `247-48` and `247 - 248` are one claim, and a string
-        equality cannot see it.
+        Read once, when the pin cite is read, so the two cannot disagree:
+        `pin_cite` keeps the filing's own spelling, damage included, and this is
+        what that spelling means -- `247-48` and `247 - 248` are one claim, and
+        a string equality cannot see it.
         """
-        return read_pin_cite(getattr(self.citation, "pin_cite", None))
+        pin_cite = self.citation.pin_cite
+        return pin_cite.pages if pin_cite is not None else ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

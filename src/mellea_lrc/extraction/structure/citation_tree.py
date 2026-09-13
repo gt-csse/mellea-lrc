@@ -284,7 +284,9 @@ def _resolve_root(
 
 
 def _pin_cite(item: ExtractedCitation) -> str | None:
-    pin = getattr(item.citation, "pin_cite", None)
+    """The page a citation claims, as the filing wrote it."""
+    pin_cite = getattr(item.citation, "pin_cite", None)
+    pin = pin_cite.text if pin_cite is not None else None
     return str(pin) if pin else None
 
 

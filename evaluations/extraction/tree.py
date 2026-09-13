@@ -71,6 +71,7 @@ from typing import TYPE_CHECKING, Any
 
 from mellea_lrc.core.case_names import CaseName
 from mellea_lrc.core.citations import CitationKind, citation_kind
+from mellea_lrc.core.record import CitationRecord, Node, Reads
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.adjudication.candidates.case_name_sites import case_name_sites
 from mellea_lrc.extraction.adjudication.review.case_name import Reading, adjudicate_case_name
@@ -95,6 +96,8 @@ CASE_KINDS = frozenset(
 )
 
 CASE_NAME_LAYER = "case_name"
+#: What made a correction, on the node that carries it.
+ADJUDICATE_CASE_NAME = "adjudicate_case_name"
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,34 +266,53 @@ def _from_rules(extracted: ExtractedDocument, *, dockets: bool) -> dict[tuple[in
 
 
 async def _case_name_layer(
-    extracted: ExtractedDocument, rows: dict[tuple[int, int], dict[str, Any]], session: MelleaSession
-) -> None:
+    extracted: ExtractedDocument,
+    rows: dict[tuple[int, int], dict[str, Any]],
+    session: MelleaSession,
+) -> tuple[CitationRecord, ...]:
     """Apply what a reader makes of each case name standing outside every citation.
 
     `short_form` adds a row: a citation the rules did not read at all. The other
-    three change no row. `names_a_citation` writes the name onto the citation it
-    names, which this table does not score but which the record keeps, so the
-    reader's answer stops being thrown away; the last two are findings about the
+    three add no row. `names_a_citation` corrects the case name of the citation
+    it names, on the record, carrying the node that justified it -- this table
+    does not score case names, but the answer stops being thrown away and the
+    next site is shown the corrected name. The last two are findings about the
     filing rather than citations.
+
+    Records are returned rather than kept, because the caller is the one that
+    knows whether anything downstream reads them.
     """
     at = {citation.citation_id: citation.locator_span for citation in extracted.citations}
-    by_id = {citation.citation_id: citation for citation in extracted.citations}
-    for site in case_name_sites(extracted):
-        answer = await adjudicate_case_name(extracted, site, session=session)
+    records = {
+        citation.citation_id: CitationRecord.from_extracted(citation) for citation in extracted.citations
+    }
+    for index, site in enumerate(case_name_sites(extracted), start=1):
+        answer = await adjudicate_case_name(extracted, site, session=session, records=records)
         if answer is None:
             continue
+        node = Node(
+            node_id=f"case_name:{site.span.start}-{site.span.end}",
+            reads=Reads.DOCUMENT,
+            stage=CASE_NAME_LAYER,
+            made_by=ADJUDICATE_CASE_NAME,
+            outcome=answer.reading.value,
+            message=answer.reason or None,
+        )
         if answer.reading is Reading.NAMES_A_CITATION:
-            named = by_id.get(answer.citation_id or "")
+            named = records.get(answer.citation_id or "")
             if named is not None:
-                named.record_case_name(
-                    CaseName(
-                        span=answer.span,
-                        text=answer.name,
-                        plaintiff=answer.plaintiff,
-                        defendant=answer.defendant,
-                    ),
-                    by=CASE_NAME_LAYER,
-                    reason=answer.reason or None,
+                named.observe(
+                    named.correcting(
+                        node,
+                        "case_name",
+                        CaseName(
+                            span=answer.span,
+                            text=answer.name,
+                            plaintiff=answer.plaintiff,
+                            defendant=answer.defendant,
+                        ),
+                        reason=answer.reason or f"names the citation at {index}",
+                    )
                 )
             continue
         if answer.reading is not Reading.SHORT_FORM:
@@ -300,6 +322,7 @@ async def _case_name_layer(
             continue
         span = (answer.span.start, answer.span.end)
         rows[span] = _row("ReferenceCitation", span, (root.start, root.end), None)
+    return tuple(records.values())
 
 
 async def run_document(

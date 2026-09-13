@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
+from dataclasses import replace
 from typing import cast
 
 from eyecite import get_citations, resolve_citations
@@ -50,6 +52,7 @@ from mellea_lrc.core.citations import (
     SupraCitation,
     UnknownCitation,
 )
+from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.identity import citation_id as citation_id_for
 from mellea_lrc.extraction.reading.case_names import locate_case_name
@@ -401,17 +404,28 @@ def extract_citations(
         full_span = Span(start=span_start, end=span_end)
         locator_span = Span(start=locator_start, end=locator_end)
         canonical = to_canonical(eyecite_citation)
+        # The citation carries where it is written. `pin_cite` arrives from the
+        # parse as the string the filing wrote; it becomes a `PinCite` here,
+        # with the position located against the document and the pages read
+        # from the same characters, so the three cannot disagree.
+        pin_cite_span = locate_pin_cite(text, canonical, locator_span=locator_span, full_span=full_span)
+        written = getattr(canonical, "pin_cite", None)
+        canonical = dataclasses.replace(
+            canonical,
+            span=full_span,
+            locator_span=locator_span,
+            matched_text=eyecite_citation.matched_text(),
+            case_name=_case_name(text, eyecite_citation, locator_span, name_floor, canonical),
+            **(
+                {"pin_cite": PinCite.read(written, pin_cite_span)}
+                if isinstance(written, str) and written
+                else {}
+            ),
+        )
         extracted.append(
             ExtractedCitation(
                 citation_id=citation_id,
-                full_span=full_span,
-                locator_span=locator_span,
-                matched_text=eyecite_citation.matched_text(),
                 citation=canonical,
-                pin_cite_span=locate_pin_cite(
-                    text, canonical, locator_span=locator_span, full_span=full_span
-                ),
-                case_name_read=_case_name(text, eyecite_citation, locator_span, name_floor, canonical),
                 resolves_to=antecedent_map.get(citation_id),
             )
         )
