@@ -68,76 +68,95 @@ false positive.
 `evaluate.py` scores a flat list of identifiers: whether a citation was found,
 and nothing else. `tree.py` scores against `extraction-v3.0`, which is a tree --
 every place a filing cites a case, which place introduced the case, and which
-page each one claims -- and it scores three arms against it.
+page each one claims.
 
 | arm | what it runs |
 |---|---|
-| `eyecite` | eyecite as published, with no docket reader. The floor, and what a result is read up from |
-| `augmented` | the same, with this project's rules: the separator relaxation, the docket reader, the pin cite reader, the case name locator |
-| `mellea` | the augmented rules, then the model layers. Today that is the case-name layer; more land here as they are built |
+| `eyecite` | eyecite as published, with no docket reader, and its own resolution attaching the leaves. The floor, and what a result is read up from |
+| `augmented` | the same, with this project's rules: the separator relaxation, the docket reader, the pin cite reader, the case name locator. The leaves are still eyecite's to attach |
+| `grown` | the augmented rules, and then the second growth: the leaves attached from `stated` rather than from the parse |
+| `grown+identity` | the same, over roots a recorded identity run has settled -- replayed from `--identity`, so scoring it calls nothing |
+| `mellea` | the augmented rules, then the model layers, then the leaves. Today that is the pin-cite review |
+
+The name-only `ReferenceCitation` rows are left out of both sides unless
+`--score-bare-names` is given; a reference that states a page is always scored.
 
 ```bash
 uv run --env-file .env python -m evaluations.extraction.tree \
   --dataset  <store>/extraction-v3.0/documents \
-  --documents <store>/corpus/documents_txt
+  --documents <store>/corpus/documents_txt \
+  --arms eyecite augmented grown
 ```
 
-`--arms eyecite augmented` runs the two that call no model, and `--detail`
-prints every disagreement under the tables.
+`--arms eyecite augmented grown` runs the three that call no model, and
+`--detail` prints every disagreement under the tables.
 
 ```text
 counts, recall · precision
 
-              eyecite            augmented          mellea
-citations     602/721 · 602/622  710/721 · 710/717  719/721 · 719/726
-- roots       374/428 · 374/377  426/428 · 426/426  426/428 · 426/426
-- short forms 224/293 · 224/245  283/293 · 283/291  292/293 · 292/300
-pin cites     351/463 · 351/357  460/463 · 460/462  460/463 · 460/462
+              eyecite            augmented          grown
+citations     611/711 · 611/620  707/711 · 707/713  707/711 · 707/709
+- roots       374/427 · 374/377  426/427 · 426/426  426/427 · 426/426
+- short forms 234/284 · 234/243  281/284 · 281/287  281/284 · 281/283
+pin cites     350/463 · 350/355  458/463 · 458/460  458/463 · 458/460
 docket courts 0/42 · 0/0         42/42 · 42/42      42/42 · 42/42
-attribution   218/293 · 218/238  281/293 · 281/283  290/293 · 290/292
+attribution   218/284 · 218/243  281/284 · 281/287  281/284 · 281/283
 
 percentages, recall · precision
 
-              eyecite            augmented          mellea
-citations     83.5% · 96.8%      98.5% · 99.0%      99.7% · 99.0%
-- roots       87.4% · 99.2%      99.5% · 100.0%     99.5% · 100.0%
-- short forms 76.5% · 91.4%      96.6% · 97.3%      99.7% · 97.3%
-pin cites     75.8% · 98.3%      99.4% · 99.6%      99.4% · 99.6%
+              eyecite            augmented          grown
+citations     85.9% · 98.5%      99.4% · 99.2%      99.4% · 99.7%
+- roots       87.6% · 99.2%      99.8% · 100.0%     99.8% · 100.0%
+- short forms 82.4% · 96.3%      98.9% · 97.9%      98.9% · 99.3%
+pin cites     75.6% · 98.6%      98.9% · 99.6%      98.9% · 99.6%
 docket courts 0.0% · --          100.0% · 100.0%    100.0% · 100.0%
-attribution   74.4% · 91.6%      95.9% · 99.3%      99.0% · 99.3%
+attribution   76.8% · 89.7%      98.9% · 97.9%      98.9% · 99.3%
 
 by kind, recall
 
-                        eyecite            augmented          mellea
+                        eyecite            augmented          grown
 - DocketCitation        0/42               42/42              42/42
 - FullCaseCitation      548/590            589/590            589/590
-- IdCitation            22/32              32/32              32/32
-- ReferenceCitation     2/16               6/16               15/16
-- ShortCaseCitation     30/41              41/41              41/41
+- IdCitation            32/32              31/32              31/32
+- ReferenceCitation     2/7                5/7                5/7
+- ShortCaseCitation     29/40              40/40              40/40
 ```
 
-**What each arm is worth.** The rules are worth 108 citations and 109 pin
-cites over eyecite as published, and they cost nothing: precision rises with
-recall, because most of what they add is a citation eyecite read at the wrong
-edges or did not read at all. 42 of the 108 are docket citations, which eyecite
-attempts none of -- its tokenizer is built from a reporter gazetteer and a
-docket number names no reporter. The model layer is worth the last 9, which are
-bare names: a case named with no identifier at all, which no reporter-driven
-tokenizer can see because there is nothing there to tokenize.
+**What the rules are worth.** 96 citations and 108 pin cites over eyecite as
+published, at no cost to precision on anything but attribution: most of what
+they add is a citation eyecite read at the wrong edges or did not read at all.
+42 of the 96 are docket citations, which eyecite attempts none of -- its
+tokenizer is built from a reporter gazetteer and a docket number names no
+reporter.
 
-The two citations still missed at `mellea` are the one whose volume the filing
-never wrote, and one bare name the layer read as a defect rather than a short
-form.
+**What the second growth is worth.** The same citations, attached better. On
+this corpus it removes four false attributions of an `Id.` whose antecedent is
+a statute, which no case root can hold, and attribution precision goes from
+97.9% to 99.3%. On the two held-out sets it is worth one short form of recall
+on `extraction-eval-1` (167/177 to 168/177, precision 100% either way) and
+nothing either way on `extraction-eval-2`. It is not a large difference and it
+is not meant to be one: the measurement here is against roots nobody has
+corrected, where `stated` is still the parse, and what the growth is for is the
+names validation settles.
 
-**Every denominator is what the filings state.** Recall is out of the 721
-citations, the 428 roots, the 293 short forms, the 463 pin cites, the 42 docket
+`grown+identity` replays a recorded identity run onto the roots first -- 31 of
+this corpus's roots come back with a corrected name, including
+`Cnty. of Bernalillo` written out as
+`Solis-Marrufo v. Bd. of Comm'rs for Cnty. of Bernalillo`. It moves no leaf.
+Every leaf those names would reach is already reached by the volume, the
+reporter and the page, which the filing states at the leaf itself; the name is
+what decides a `supra` or a bare-name reference, and those are the forms this
+corpus writes least.
+
+**Every denominator is what the filings state.** Recall is out of the 711
+citations, the 427 roots, the 284 short forms, the 463 pin cites, the 42 docket
 courts -- never out of the part of the corpus the arm happened to reach. A
 denominator that shrinks with the run hides what the run missed, which is how
 `attribution` once read 99.6% while it was scored over the citations an arm
 found.
 
 **Attribution is a short form pointing at its root**, so it is counted over the
-293 short forms. A root points at itself and there is nothing there to get
+284 short forms. A root points at itself and there is nothing there to get
 wrong.
 
 **Identification is exact; everything else is scored over an overlap.** A
@@ -162,15 +181,11 @@ the court, so it is scored against its root's.
 state: an arm that reports nothing of a kind cannot be right or wrong about it,
 and the two sides of a cell say so separately.
 
-**What costs precision**, and it is the same seven at every arm: spans read as a
-case citation that refer to no case at all -- two `Id.` into motions filed in
-the same proceeding, four into an exhibit declaration and a statute, and a
-section heading eyecite reads as a bare-name reference. Five reach no root, so
-nothing downstream would check anything for them. Two do, and those are the
-damaging ones: an `Id.` pointing at `Doc. 387` is attributed to
-`Perez v. Sunbeam Prods., Inc.` 1,700 characters earlier, and a section heading
-reading `Chen Zhi 32` is attributed to `United States v. Chen Zhi` **with `32`
-as a pin cite**, which is a page claim the filing never made.
+**What costs precision** at `grown` is two spans read as a case citation that
+refer to no case: an `Id.` into a motion filed in the same proceeding, and a
+section heading read as a bare-name reference with `32` as its pin cite, which
+is a page claim the filing never made. `augmented` reports those two and four
+more, all of them an `Id.` attached across a statute to the case before it.
 
 ### What is scored, and how
 

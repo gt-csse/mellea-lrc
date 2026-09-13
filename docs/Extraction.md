@@ -582,14 +582,30 @@ the tree places citations under case roots only, so `Id. § 1231(g)` after
 follow no citation of any kind. The remaining three are name matches that failed
 or were ambiguous, and eyecite placed one of them.
 
-#### What moves in the measurement
+#### What the measurement says
 
-`short forms`, `attribution`, and every leaf kind leave the initialization arm's
-denominators, the same way the bare names did and for the same reason: a score
-over a stage that has not run is not a low score, it is the wrong question. The
-evaluator gets the switch for it beside `--defer-bare-names`. The datasets do
-not change -- they are ground truth for the whole document, and the leaf pass is
-scored against the same rows once it exists.
+Both growths are scored together, against the same ground truth, because the
+artifact the two stages hand between them is not a reading of the document's
+citations and a score over it would be the wrong question. `tree.py` runs the
+whole sequence per arm -- the roots, then the leaves -- and the arms differ in
+how a leaf finds its root: `augmented` keeps eyecite's own resolution, `grown`
+decides from `stated`, and `grown+identity` does it over roots a recorded
+identity run has settled.
+
+Over the 26 corpus filings the second growth removes four false attributions
+and loses nothing: an `Id.` whose antecedent is a statute is not the earlier
+case's, and attribution precision goes from 97.9% to 99.3%. Over the two
+held-out sets it is worth one short form on `extraction-eval-1` and nothing
+either way on `extraction-eval-2`. The identity names move no leaf on this
+corpus: every leaf they would reach is already reached by the volume, the
+reporter and the page, which the filing states at the leaf itself. What a name
+decides is a `supra` or a bare-name reference, and those are the forms these
+filings write least.
+
+The bare names are left out of both sides, which the evaluator does by default
+and `--score-bare-names` undoes. The datasets do not change -- they are ground
+truth for the whole document, and a bare name is a conforming citation whatever
+the pipeline is asking today.
 
 ---
 

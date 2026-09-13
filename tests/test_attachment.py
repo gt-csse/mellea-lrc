@@ -111,3 +111,52 @@ def test_nothing_is_read_from_source() -> None:
     )
     assert root.source.case_name is not None
     assert root_for(leaves[0], roots) is None
+
+
+def test_a_case_written_in_full_twice_is_one_root_and_the_first_is_it() -> None:
+    """Four full citations of `Burrell` are one authority stated four times.
+
+    Volume and reporter reach all four, the name reaches all four, and the page
+    cannot separate them because they all begin at 408. They disagree about
+    nothing, so nothing is being guessed: the occurrence that introduced the
+    case is the root and the rest are returns to it.
+    """
+    roots, leaves = _read(
+        "Burrell v. Dr. Pepper/Seven Up Bottling Grp., L.P. , 482 F.3d 408, 412 (5th Cir. 2007). "
+        "The court went on. Burrell v. Dr. Pepper/Seven Up Bottling Grp., L.P. , 482 F.3d 408 "
+        "(5th Cir. 2007). And later still, 482 F.3d at 414."
+    )
+    first = min(roots, key=lambda record: record.full_span.start)
+    assert root_for(leaves[0], roots) == first.citation_id
+
+
+def test_a_pin_cite_no_root_can_hold_does_not_refuse_the_only_case_in_the_volume() -> None:
+    """`482 F.3d at 41215` is page 412 with a margin line number stuck to it.
+
+    No root begins within reach of 41215, but every root in the volume states
+    `482 F.3d 408`, so which case is meant was never in doubt. The page narrows
+    between candidates; it does not veto the only answer.
+    """
+    roots, leaves = _read(
+        "Burrell v. Dr. Pepper/Seven Up Bottling Grp., L.P. , 482 F.3d 408 (5th Cir. 2007). "
+        "Burrell v. Dr. Pepper/Seven Up Bottling Grp., L.P. , 482 F.3d 408 (5th Cir. 2007). "
+        "See 482 F.3d at 41215."
+    )
+    assert root_for(leaves[0], roots) is not None
+
+
+def test_id_means_the_citation_before_it_and_not_the_last_case() -> None:
+    """A filing writing `§ 2529 , Id., at 300` points at the section.
+
+    eyecite reads `§ 2529` as a citation of its own, and it reaches no case, so
+    the `Id.` after it reaches no case either. Walking past it to the case two
+    sentences back would invent an attribution the filing never made.
+    """
+    roots, leaves = _read(
+        "Anderson v. Liberty Lobby, Inc. , 477 U.S. 242 (1986). "
+        "See 10A Charles Alan Wright & Arthur R. Miller, Federal Practice and Procedure "
+        "§ 2529, Id., at 300."
+    )
+    assert [type(leaf).__name__ for leaf in leaves] == ["IdCitation"]
+    before = [r for r in roots if r.full_span.start < leaves[0].span.start]
+    assert root_for(leaves[0], roots, before=before) is None

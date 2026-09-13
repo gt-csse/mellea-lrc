@@ -62,18 +62,24 @@ many of those, and a ground truth that scores each new one as it appears grows
 by whatever the next filing invents; so the row records what the filing wrote
 and an arm that reads it is neither credited nor charged.
 
-## Deferring the bare name
+## The bare name is out of scope, for now
 
-`--defer-bare-names` takes the name-only `ReferenceCitation` rows out of both
-sides. Rule 10.9 lets a filing write a case name and stop, and finding one is a
-question about case names rather than about citations: nothing is written at
+A name-only `ReferenceCitation` is left out of both sides by default: out of
+every recall denominator, and out of precision wherever an arm reports one.
+Rule 10.9 lets a filing write a case name and stop, and finding one is a
+question about case names rather than about citations -- nothing is written at
 that position for a citation reader to reach, and the answer comes after the
-citations are read. The flag says what the rest of the pass looks like with that
-question set aside -- which is the shape the pipeline has today, since the name
-layer runs last.
+citations are read and the roots are resolved. Scoring a question the pipeline
+does not yet ask says nothing about the pipeline. `--score-bare-names` puts
+them back.
 
-A reference that states a page -- `Bell at 546` -- is not deferred. The page is a
-claim about the opinion, and every other citation's page is scored.
+A reference that states a page -- `Bell at 546` -- is always scored. The page is
+a claim about the opinion, and every other citation's page is scored.
+
+The dataset is untouched: these stay ordinary `citation` rows, because a bare
+name is a conforming citation and the ground truth says what the filing wrote.
+Leaving them out is the evaluator's decision about what is being measured
+today, not a claim about the citation.
 
 `--replay` scores a run already written by `--artifacts` instead of producing
 one, so an arm that calls a model can be re-scored against a changed ground
@@ -93,9 +99,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from evaluations.extraction.identity import settled
 from mellea_lrc.core.citations import CitationKind, citation_kind
 from mellea_lrc.core.pin_cites import PinCiteKind
-from mellea_lrc.extraction import Relaxation, extract_from_plain_text
+from mellea_lrc.extraction import Attachment, Relaxation, extract_from_plain_text, grow_leaves
 from mellea_lrc.extraction.adjudication import Review, adjudicate
 from mellea_lrc.llm import start_mellea_session_from_env
 from mellea_lrc.serialization import (
@@ -128,6 +135,22 @@ class Arm:
     relaxation: Relaxation
     reviews: tuple[Review, ...] = field(default_factory=tuple)
     components: str = ""
+    needs_identity: bool = False
+    """Whether the roots are handed to validation's identity stage first.
+
+    Replayed from a recorded run rather than called, so the arm costs nothing
+    to score. See :mod:`evaluations.extraction.identity`.
+    """
+
+    attach: Attachment = Attachment.STATED
+    """How the leaves are attached to their roots once the roots are settled.
+
+    `Attachment.EYECITE` is eyecite's own resolution, decided while parsing
+    against the party names the parser read. `Attachment.STATED` is this
+    project's second growth, decided from `stated` -- the citation as it is
+    after the readers and validation have corrected it. The two arms differ in
+    nothing else, so a difference between them is the attachment.
+    """
     reads_dockets: bool = True
     """Whether docket numbers are read at all.
 
@@ -144,15 +167,30 @@ class Arm:
 
 
 ARMS = {
-    "eyecite": Arm(Relaxation.NONE, components="eyecite as published", reads_dockets=False),
-    "augmented": Arm(Relaxation.FULL, components="+ this project's rules"),
+    "eyecite": Arm(
+        Relaxation.NONE,
+        components="eyecite as published",
+        reads_dockets=False,
+        attach=Attachment.EYECITE,
+    ),
+    "augmented": Arm(
+        Relaxation.FULL, components="+ this project's rules", attach=Attachment.EYECITE
+    ),
+    "grown": Arm(Relaxation.FULL, components="+ leaves grown from `stated`"),
     # `Review.CASE_NAME` is off, and so is every other search for a citation
     # nobody read. Both turn on a name, and the names in the record here are
     # whatever eyecite's parser made of them. They come back after validation
     # has resolved the roots, when the record holds each authority's real name.
     # `--defer-bare-names` is the scoring side of the same decision: the arm is
     # not asked for them and the score does not count them.
-    "mellea": Arm(Relaxation.FULL, (Review.PIN_CITE,), components="+ the pin-cite review"),
+    "mellea": Arm(
+        Relaxation.FULL, (Review.PIN_CITE,), components="+ the pin-cite review, then the leaves"
+    ),
+    "grown+identity": Arm(
+        Relaxation.FULL,
+        components="+ leaves grown over the roots identity settled",
+        needs_identity=True,
+    ),
 }
 
 MEASURES = (
@@ -302,7 +340,12 @@ def _from_rules(extracted: ExtractedDocument, *, dockets: bool) -> dict[tuple[in
 
 
 async def run_document(
-    text: str, arm: Arm, session: MelleaSession | None, name: str = "", artifacts: Path | None = None
+    text: str,
+    arm: Arm,
+    session: MelleaSession | None,
+    name: str = "",
+    artifacts: Path | None = None,
+    identity_run: Path | None = None,
 ) -> dict[tuple[int, int], dict[str, Any]]:
     """Run one arm over one document and project what it reports.
 
@@ -317,6 +360,13 @@ async def run_document(
         extracted = extract_from_plain_text(text, relaxation=arm.relaxation)
     if arm.reviews and session is not None:
         await adjudicate(extracted, arm.reviews, session=session)
+    if arm.needs_identity and identity_run is not None:
+        extracted = settled(extracted, identity_run / f"{Path(name).stem}.json")
+    # The leaves last, and over the roots as they stand: this is the order the
+    # pipeline runs in, where validation settles the roots between the two
+    # growths and a leaf is matched against a name that has been checked.
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        extracted = grow_leaves(extracted, attach=arm.attach)
     payload = serialize_extracted_document(extracted)
     if artifacts is not None and name:
         _write_artifact(artifacts, name, payload)
@@ -361,6 +411,7 @@ async def score(
     replay: Path | None = None,
     *,
     defer_bare_names: bool = False,
+    identity_run: Path | None = None,
 ) -> tuple[Counter[str], dict[str, list[str]]]:
     """Score one arm over the whole corpus, writing its artifacts when asked.
 
@@ -379,7 +430,7 @@ async def score(
         run = (
             _replayed(replay, header["document"], dockets=arm.reads_dockets)
             if replay is not None
-            else await run_document(text, arm, session, header["document"], artifacts)
+            else await run_document(text, arm, session, header["document"], artifacts, identity_run)
         )
         annotated = [row for row in body if row["unit"] == "citation"]
         # Counted in nothing, in either direction. A case can be located in
@@ -604,10 +655,17 @@ def main() -> None:
         "--artifacts. An arm that calls a model is re-scored without calling it.",
     )
     parser.add_argument(
-        "--defer-bare-names",
+        "--identity",
+        type=Path,
+        default=None,
+        help="A recorded identity run, one file per document. The arms that grow leaves over "
+        "settled roots need it; without it they are the same as `grown`.",
+    )
+    parser.add_argument(
+        "--score-bare-names",
         action="store_true",
-        help="Leave the name-only ReferenceCitation rows out of both sides. A reference that "
-        "states a page stays in.",
+        help="Score the name-only ReferenceCitation rows, which are left out of both sides by "
+        "default. A reference that states a page is always scored.",
     )
     args = parser.parse_args()
 
@@ -624,7 +682,8 @@ def main() -> None:
                 arm,
                 args.artifacts / name if args.artifacts else None,
                 args.replay / name if args.replay else None,
-                defer_bare_names=args.defer_bare_names,
+                defer_bare_names=not args.score_bare_names,
+                identity_run=args.identity,
             )
         )
         scores[name], details[name] = counts, detail

@@ -42,6 +42,7 @@ attached to the wrong case.
 from __future__ import annotations
 
 import re
+from enum import Enum
 from typing import TYPE_CHECKING
 
 from mellea_lrc.core.citations import CitationKind, citation_kind
@@ -65,6 +66,23 @@ _EMPTY = frozenset(
 #: How far past a root's first page a pin cite may fall and still be its page.
 #: eyecite's own bound, reused so the two do not disagree.
 MAX_PAGES = 150
+
+
+class Attachment(Enum):
+    """How a leaf is matched to its root."""
+
+    STATED = "stated"
+    """From `stated`, by :func:`root_for`. What the pipeline runs."""
+
+    EYECITE = "eyecite"
+    """From eyecite's own resolution, made while parsing.
+
+    The baseline the second growth is read against, and nothing but a
+    measurement: eyecite groups a leaf with the citations it resolved alongside,
+    so the root is whichever citation opened that group. It is decided against
+    the party names the parser read and cannot see a correction, which is what
+    the comparison is for.
+    """
 
 
 def _words(name: str | None) -> set[str]:
@@ -119,6 +137,31 @@ def _claimed(citation: CanonicalCitation) -> int | None:
         if pages.first is not None:
             return pages.first
     return _page(citation)
+
+
+def _identifier(citation: CanonicalCitation) -> tuple:
+    """What the citation claims to be: the identifier, not the name."""
+    return (
+        getattr(citation, "volume", None),
+        _reporter(citation),
+        getattr(citation, "page", None),
+        getattr(citation, "docket_number", None),
+    )
+
+
+def _introduced(candidates: Sequence[CitationRecord]):
+    """The occurrence that introduced the case, when every candidate is one case.
+
+    A filing that writes `Burrell v. Dr. Pepper/Seven Up Bottling Grp. , 482
+    F.3d 408` four times has stated one authority four times, and which of the
+    four a short form is filed under is not a question about the case -- the
+    ground truth calls the first of them the root and the others returns to it.
+    So where the candidates disagree about nothing, the first is the answer and
+    nothing has been guessed.
+    """
+    if len({_identifier(root.stated) for root in candidates}) != 1:
+        return None
+    return candidates[0] if candidates else None
 
 
 def _by_locator(leaf: CanonicalCitation, roots: Sequence[CitationRecord]) -> list[CitationRecord]:
@@ -177,28 +220,44 @@ def root_for(
     kind = citation_kind(leaf)
 
     if kind is CitationKind.ID:
-        for earlier in reversed(before):
-            if earlier.root_id:
-                root = next((r for r in roots if r.citation_id == earlier.root_id), None)
-                # An `Id.` claiming a page its antecedent cannot hold is not
-                # that antecedent's, and this reader does not guess whose it is.
-                page, start = _claimed(leaf), _page(root.stated) if root else None
-                if root is None or page is None or start is None:
-                    return earlier.root_id
-                return earlier.root_id if start <= page <= start + MAX_PAGES else None
-        return None
+        # `Id.` means the citation immediately before it, and only that one. A
+        # filing that writes `§ 2529, Id., at 300` is pointing at the section,
+        # not at the case two sentences back, so walking past a citation that
+        # reaches no case would invent an attribution the filing never made.
+        # `root_id` is what says a citation reaches one: a case root carries its
+        # own, a leaf carries its root's, and a statute carries none.
+        earlier = before[-1] if before else None
+        if earlier is None or earlier.root_id is None:
+            return None
+        root = next((r for r in roots if r.citation_id == earlier.root_id), None)
+        # An `Id.` claiming a page its antecedent cannot hold is not that
+        # antecedent's, and this reader does not guess whose it is.
+        page, start = _claimed(leaf), _page(root.stated) if root else None
+        if root is None or page is None or start is None:
+            return earlier.root_id
+        return earlier.root_id if start <= page <= start + MAX_PAGES else None
 
     if kind in {CitationKind.SUPRA, CitationKind.REFERENCE}:
         named = _by_name(leaf, roots)
-        return named[0].citation_id if len(named) == 1 else None
+        if len(named) == 1:
+            return named[0].citation_id
+        one = _introduced(named) if named else None
+        return one.citation_id if one is not None else None
 
     candidates = _by_locator(leaf, roots)
-    if len(candidates) == 1:
-        return candidates[0].citation_id
     if not candidates:
         return None
-    named = _by_name(leaf, candidates)
-    if len(named) == 1:
-        return named[0].citation_id
-    holding = _holding_the_page(leaf, named or candidates)
-    return holding.citation_id if holding is not None else None
+    if len(candidates) == 1:
+        return candidates[0].citation_id
+    pool = _by_name(leaf, candidates) or candidates
+    if len(pool) == 1:
+        return pool[0].citation_id
+    # The page narrows; it does not veto. `482 F.3d at 41215` is a page number
+    # with a margin line number stuck to it, and no root begins within reach of
+    # it -- but every candidate states `482 F.3d 408`, so which case is meant
+    # was never in doubt and only the page is damaged.
+    holding = _holding_the_page(leaf, pool)
+    if holding is not None:
+        return holding.citation_id
+    one = _introduced(pool)
+    return one.citation_id if one is not None else None

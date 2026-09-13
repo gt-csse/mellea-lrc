@@ -61,6 +61,7 @@ from mellea_lrc.extraction.eyecite_extractor import (
 from mellea_lrc.extraction.find_docket_locators import find_docket_locators
 from mellea_lrc.extraction.find_full_reporter_locators import find_full_reporter_locators
 from mellea_lrc.extraction.reading.relaxation import Relaxation
+from mellea_lrc.extraction.structure.attachment import Attachment
 from mellea_lrc.extraction.resolve_colocations import resolve_colocations
 from mellea_lrc.extraction.types import (
     CitationRecord,
@@ -70,6 +71,7 @@ from mellea_lrc.extraction.types import (
 )
 
 __all__ = [
+    "Attachment",
     "CitationRecord",
     "ExtractedDocument",
     "ExtractionBackend",
