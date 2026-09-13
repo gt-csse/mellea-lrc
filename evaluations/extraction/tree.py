@@ -70,12 +70,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mellea_lrc.core.case_names import CaseName
-from mellea_lrc.core.citations import CitationKind, citation_kind
+from mellea_lrc.core.citations import CitationKind, ReferenceCitation, citation_kind
 from mellea_lrc.core.record import CitationRecord, Node, Reads
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.adjudication.candidates.case_name_sites import case_name_sites
 from mellea_lrc.extraction.adjudication.review.case_name import Reading, adjudicate_case_name
 from mellea_lrc.llm import start_mellea_session_from_env
+from mellea_lrc.serialization import (
+    deserialize_extracted_document,
+    serialize_extracted_document,
+)
 
 if TYPE_CHECKING:
     from mellea import MelleaSession
@@ -265,28 +269,19 @@ def _from_rules(extracted: ExtractedDocument, *, dockets: bool) -> dict[tuple[in
     return rows
 
 
-async def _case_name_layer(
-    extracted: ExtractedDocument,
-    rows: dict[tuple[int, int], dict[str, Any]],
-    session: MelleaSession,
-) -> tuple[CitationRecord, ...]:
+async def _case_name_layer(extracted: ExtractedDocument, session: MelleaSession) -> None:
     """Apply what a reader makes of each case name standing outside every citation.
 
-    `short_form` adds a row: a citation the rules did not read at all. The other
-    three add no row. `names_a_citation` corrects the case name of the citation
-    it names, on the record, carrying the node that justified it -- this table
-    does not score case names, but the answer stops being thrown away and the
-    next site is shown the corrected name. The last two are findings about the
-    filing rather than citations.
-
-    Records are returned rather than kept, because the caller is the one that
-    knows whether anything downstream reads them.
+    `short_form` is a citation the rules did not read at all, so it becomes a
+    record of its own. `names_a_citation` corrects the case name of the record
+    it names, carrying the node that justified it, and the next site is shown
+    the corrected name. The other two are findings about the filing rather than
+    citations.
     """
-    at = {citation.citation_id: citation.locator_span for citation in extracted.citations}
-    records = {
-        citation.citation_id: CitationRecord.from_extracted(citation) for citation in extracted.citations
-    }
-    for index, site in enumerate(case_name_sites(extracted), start=1):
+    records = {record.citation_id: record for record in extracted.citations}
+    at = {record.citation_id: record.locator_span for record in extracted.citations}
+    recovered: list[CitationRecord] = []
+    for site in case_name_sites(extracted):
         answer = await adjudicate_case_name(extracted, site, session=session, records=records)
         if answer is None:
             continue
@@ -298,55 +293,80 @@ async def _case_name_layer(
             outcome=answer.reading.value,
             message=answer.reason or None,
         )
+        name = CaseName(
+            span=answer.span,
+            text=answer.name,
+            plaintiff=answer.plaintiff,
+            defendant=answer.defendant,
+        )
         if answer.reading is Reading.NAMES_A_CITATION:
             named = records.get(answer.citation_id or "")
             if named is not None:
-                named.observe(
-                    named.correcting(
-                        node,
-                        "case_name",
-                        CaseName(
-                            span=answer.span,
-                            text=answer.name,
-                            plaintiff=answer.plaintiff,
-                            defendant=answer.defendant,
-                        ),
-                        reason=answer.reason or f"names the citation at {index}",
-                    )
-                )
+                named.observe(named.correcting(node, "case_name", name, reason=node.message or ""))
             continue
-        if answer.reading is not Reading.SHORT_FORM:
+        if answer.reading is not Reading.SHORT_FORM or answer.root_id not in at:
             continue
-        root = at.get(answer.root_id or "")
-        if root is None:
-            continue
-        span = (answer.span.start, answer.span.end)
-        rows[span] = _row("ReferenceCitation", span, (root.start, root.end), None)
-    return tuple(records.values())
+        # A bare name is a citation the record does not hold: it states no
+        # identifier, so nothing the rules read could have reached it.
+        reference = CitationRecord(
+            citation_id=f"case_name:{site.span.start}",
+            source=ReferenceCitation(
+                span=answer.span,
+                locator_span=answer.span,
+                matched_text=answer.name,
+                case_name=name,
+                plaintiff=answer.plaintiff,
+                defendant=answer.defendant,
+            ),
+            root_id=answer.root_id,
+        )
+        reference.observe(node)
+        recovered.append(reference)
+    if recovered:
+        object.__setattr__(extracted, "citations", (*extracted.citations, *recovered))
 
 
 async def run_document(
-    text: str, arm: Arm, session: MelleaSession | None
+    text: str, arm: Arm, session: MelleaSession | None, name: str = "", artifacts: Path | None = None
 ) -> dict[tuple[int, int], dict[str, Any]]:
-    """Run one arm over one document and project what it reports."""
+    """Run one arm over one document and project what it reports.
+
+    **Through the artifact.** What is scored is what comes back from
+    `serialize_extracted_document` and `deserialize_extracted_document`, not the
+    objects in memory, because the artifact is what the next stage reads. A
+    field that does not survive the round trip is a field validation does not
+    have, and a score taken before it would not say so.
+    """
     # Eyecite writes overlap diagnostics to stdout as it reads.
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         extracted = extract_from_plain_text(text, relaxation=arm.relaxation)
-    rows = _from_rules(extracted, dockets=arm.reads_dockets)
     if CASE_NAME_LAYER in arm.layers and session is not None:
-        await _case_name_layer(extracted, rows, session)
-    return rows
+        await _case_name_layer(extracted, session)
+    payload = serialize_extracted_document(extracted)
+    if artifacts is not None and name:
+        _write_artifact(artifacts, name, payload)
+    return _from_rules(deserialize_extracted_document(payload), dockets=arm.reads_dockets)
 
 
-async def score(dataset: Path, corpus: Path, arm: Arm) -> tuple[Counter[str], dict[str, list[str]]]:
-    """Score one arm over the whole corpus."""
+def _write_artifact(artifacts: Path, name: str, payload: dict[str, Any]) -> None:
+    """One document's run, as the next stage will read it."""
+    artifacts.mkdir(parents=True, exist_ok=True)
+    (artifacts / f"{Path(name).stem}.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8"
+    )
+
+
+async def score(
+    dataset: Path, corpus: Path, arm: Arm, artifacts: Path | None = None
+) -> tuple[Counter[str], dict[str, list[str]]]:
+    """Score one arm over the whole corpus, writing its artifacts when asked."""
     counts: Counter[str] = Counter()
     by_kind: Counter[str] = Counter()
     detail: dict[str, list[str]] = {key: [] for _, key, _ in MEASURES}
     session = start_mellea_session_from_env() if arm.needs_model else None
     for header, body in read_documents(dataset):
         text = (corpus / header["document"]).read_text(encoding="utf-8")
-        run = await run_document(text, arm, session)
+        run = await run_document(text, arm, session, header["document"], artifacts)
         annotated = [row for row in body if row["unit"] == "citation"]
         roots_by_id = {row["id"]: row.get("identifier") or {} for row in annotated if row["is_root"]}
         reported = identities(run)
@@ -528,6 +548,12 @@ def main() -> None:
         "--arms", nargs="+", default=list(ARMS), choices=list(ARMS), help="Which arms to run."
     )
     parser.add_argument("--detail", action="store_true", help="Print every disagreement.")
+    parser.add_argument(
+        "--artifacts",
+        type=Path,
+        default=None,
+        help="Write each arm's serialized run here, one file per document, under the arm's name.",
+    )
     args = parser.parse_args()
 
     scores: dict[str, Counter[str]] = {}
@@ -536,7 +562,14 @@ def main() -> None:
         arm = ARMS[name]
         if arm.needs_model:
             print(f"{name}: calls a model; set MELLEA_LRC_LLM_* in the environment")
-        counts, detail = asyncio.run(score(args.dataset, args.documents, arm))
+        counts, detail = asyncio.run(
+            score(
+                args.dataset,
+                args.documents,
+                arm,
+                args.artifacts / name if args.artifacts else None,
+            )
+        )
         scores[name], details[name] = counts, detail
 
     print("\ncounts, recall · precision\n")
