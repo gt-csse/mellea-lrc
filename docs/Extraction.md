@@ -316,6 +316,37 @@ code, and several others are obscure state reporters whose abbreviations collide
 with ordinary words. And the hunt is deliberately over-permissive — a judge that
 rejects freely costs far less than a citation never surfaced.
 
+### One pass is the wrong shape for the case-name layer
+
+Not built. Recorded because the failure it describes is the only one the layer
+has left on either dataset.
+
+The case-name reviewer is given the document's roots and asked what a name
+standing outside every citation is. It can answer that the name belongs to a
+citation nearby, which patches that citation's case name, or that it is a bare
+reference to a root elsewhere, which names the root it reads back to. **Neither
+answer is written back into the document, and the roots list is built once**, so
+nothing the reviewer decides at one site is visible at the next.
+
+That costs, and in a particular order. When a root is read with no case name —
+because the filing writes the name a quotation away from the citation, as in
+`Draughon v. United States elaborated: [quote]. 103 F. Supp. 3d 1266, 1278
+(D. Kan. 2015).` — the uncaptured name does become a site and does get reviewed.
+The right answer there names the citation and repairs the root. But if that
+review misses, every later mention of the same case is now unreachable too: the
+roots list still shows a nameless citation, so a reader matching by name cannot
+see that the case is cited at all, and the honest answer it gives is that the
+filing never cites it. **The order is one-way. A patch found at the third
+mention cannot rescue the first, because the first was answered before it.**
+
+The fix is not a second adjudication pass over the same evidence. It is to run
+the layer again **after validation**, where case names have been checked and
+re-extracted against the record and the roots that were nameless mostly are not
+any more. Site hunting is cheaper there as well, because fewer sites survive a
+document whose citations carry their names. What that costs is an ordering
+constraint between two stages that are otherwise independent, which is why it is
+written down rather than built.
+
 ---
 
 ---
