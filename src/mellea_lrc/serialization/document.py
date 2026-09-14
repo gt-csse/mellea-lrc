@@ -25,14 +25,15 @@ from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.core.findings import Finding, FindingKind
 from mellea_lrc.core.pin_cites import PinCite, PinCiteKind, PinCitePages
 from mellea_lrc.core.record import (
-    UNJUDGED_YET,
     CitationRecord,
     Correction,
     DateExploration,
     Judgement,
     Node,
+    Question,
     Reads,
     Resolution,
+    unjudged,
 )
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.reading.relaxation import Relaxation
@@ -48,7 +49,7 @@ from mellea_lrc.preprocessing.types import (
 )
 from mellea_lrc.serialization._json import JsonValue, require_list, require_mapping, serialize_dataclass
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 """What an artifact of this shape is called, so a reader refuses one it cannot read.
 
 Version 11 is the citation record. A document holds records rather than
@@ -206,7 +207,7 @@ def _deserialize_citation(payload: Mapping[str, object]) -> CitationRecord:
         authority_id=_optional_string(payload.get("authority_id"), name="citation.authority_id"),
         found=_read_resolution(payload.get("found"), name="citation.found"),
         corrections=_read_corrections(payload.get("corrections")),
-        judgement=_read_judgement(payload.get("judgement")),
+        judgements=_read_judgements(payload.get("judgements")),
         withdrawn_by=_optional_string(payload.get("withdrawn_by"), name="citation.withdrawn_by"),
         trace=_read_trace(payload.get("trace")),
     )
@@ -226,10 +227,13 @@ def _serialize_record(record: CitationRecord) -> dict[str, object]:
         # What the pipeline currently says, each naming the node that said it.
         # Written flat rather than inside the trace: the trace is a graph, and
         # a reader after the current state should never have to walk one.
-        "judgement": {
-            "outcome": record.judgement.outcome,
-            "node_id": record.judgement.node_id,
-            "message": record.judgement.message,
+        "judgements": {
+            question.value: {
+                "outcome": judgement.outcome,
+                "node_id": judgement.node_id,
+                "message": judgement.message,
+            }
+            for question, judgement in record.judgements.items()
         },
         **({"withdrawn_by": record.withdrawn_by} if record.withdrawn_by else {}),
         **(
@@ -336,15 +340,21 @@ def _read_corrections(value: object) -> tuple[Correction, ...]:
     )
 
 
-def _read_judgement(value: object) -> Judgement:
-    """What the pipeline concludes, which every citation carries from the start."""
+def _read_judgements(value: object) -> dict[Question, Judgement]:
+    """One answer per question, with every question the pipeline asks present."""
+    answers = unjudged()
     if not isinstance(value, Mapping):
-        return UNJUDGED_YET
-    return Judgement(
-        outcome=_required_string(value.get("outcome"), name="citation.judgement.outcome"),
-        node_id=_optional_string(value.get("node_id"), name="citation.judgement.node_id"),
-        message=_optional_string(value.get("message"), name="citation.judgement.message"),
-    )
+        return answers
+    for question in Question:
+        written = value.get(question.value)
+        if not isinstance(written, Mapping):
+            continue
+        answers[question] = Judgement(
+            outcome=_required_string(written.get("outcome"), name="citation.judgements.outcome"),
+            node_id=_optional_string(written.get("node_id"), name="citation.judgements.node_id"),
+            message=_optional_string(written.get("message"), name="citation.judgements.message"),
+        )
+    return answers
 
 
 def _serialize_node(node: Node) -> dict[str, object]:
