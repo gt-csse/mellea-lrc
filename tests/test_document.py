@@ -16,7 +16,12 @@ import pytest
 from mellea_lrc.core.citations import is_leaf
 from mellea_lrc.core.findings import FindingKind
 from mellea_lrc.core.record import UNJUDGED, WITHDRAWN, Node, Question, Reads, Resolution
-from mellea_lrc.extraction import Relaxation, extract_from_plain_text, grow_leaves
+from mellea_lrc.extraction import (
+    Relaxation,
+    extract_from_plain_text,
+    grow_leaves,
+    withdraw_leaves_of_withdrawn_roots,
+)
 from mellea_lrc.serialization import deserialize_document, serialize_document
 
 ORPHAN = "The court disagreed. DCD Programs , 833 F.2d at 186. That principle applies."
@@ -297,3 +302,76 @@ def test_pinpoint_answers_its_own_question_without_overwriting_identity() -> Non
     assert back.judgement(Question.IDENTITY).outcome == "reaches_the_authority_it_names"
     assert back.judgement(Question.PINPOINT).outcome == "the_page_does_not_say_it"
     assert {node.node_id for node in back.trace} == {"identity:aggregate", "pinpoint:check"}
+
+
+def test_a_withdrawn_root_takes_its_leaves_and_they_keep_the_pointer() -> None:
+    """A leaf is built from a root and means nothing without one.
+
+    The `root_id` stays: it says which root took the leaf out, it is what a
+    later pass follows if that root is ever admitted again, and a leaf with it
+    cleared would be a leaf standing on nothing, which the type refuses.
+    """
+    grown = grow_leaves(_read(WHOLE))
+    root = next(c for c in grown.citations if c.stated.page == "662")
+    leaves = [c for c in grown.citations if is_leaf(c.stated) and c.root_id == root.citation_id]
+    assert leaves
+
+    root.withdraw(
+        Node(
+            node_id="identity:scope",
+            reads=Reads.RECORD,
+            stage="identity",
+            made_by="identity_scope",
+            outcome=WITHDRAWN,
+            message="the locator reaches no case",
+        )
+    )
+    assert withdraw_leaves_of_withdrawn_roots(grown) == len(leaves)
+
+    for leaf in leaves:
+        assert leaf.withdrawn
+        assert leaf.root_id == root.citation_id
+        node = next(n for n in leaf.trace if n.node_id == leaf.withdrawn_by)
+        assert node.depends_on == ("identity:scope",)
+    # Every other citation is untouched.
+    others = [c for c in grown.citations if c.root_id != root.citation_id]
+    assert not any(c.withdrawn for c in others)
+
+
+def test_the_sweep_is_idempotent_and_survives_the_artifact() -> None:
+    grown = grow_leaves(_read(WHOLE))
+    root = next(c for c in grown.citations if c.stated.page == "662")
+    root.withdraw(
+        Node(
+            node_id="identity:scope",
+            reads=Reads.RECORD,
+            stage="identity",
+            made_by="identity_scope",
+            outcome=WITHDRAWN,
+        )
+    )
+    first = withdraw_leaves_of_withdrawn_roots(grown)
+    assert first and withdraw_leaves_of_withdrawn_roots(grown) == 0
+
+    back = _through_the_artifact(grown)
+    assert sum(1 for c in back.citations if c.withdrawn) == first + 1
+    assert withdraw_leaves_of_withdrawn_roots(back) == 0
+
+
+def test_a_leaf_grown_onto_a_root_already_withdrawn_is_withdrawn_with_it() -> None:
+    """The sweep runs inside the leaf pass, so both orders reach the same document."""
+    roots = _read(WHOLE)
+    root = next(c for c in roots.citations if c.stated.page == "662")
+    root.withdraw(
+        Node(
+            node_id="identity:scope",
+            reads=Reads.RECORD,
+            stage="identity",
+            made_by="identity_scope",
+            outcome=WITHDRAWN,
+        )
+    )
+    grown = grow_leaves(roots)
+    leaves = [c for c in grown.citations if is_leaf(c.stated) and c.root_id == root.citation_id]
+    assert leaves
+    assert all(leaf.withdrawn for leaf in leaves)

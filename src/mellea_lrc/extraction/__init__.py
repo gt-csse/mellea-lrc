@@ -62,6 +62,7 @@ from mellea_lrc.extraction.find_docket_locators import find_docket_locators
 from mellea_lrc.extraction.find_full_reporter_locators import find_full_reporter_locators
 from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.extraction.structure.attachment import Attachment
+from mellea_lrc.extraction.structure.withdrawal import withdraw_leaves_of_withdrawn_roots
 from mellea_lrc.extraction.resolve_colocations import resolve_colocations
 from mellea_lrc.extraction.types import (
     CitationRecord,
@@ -80,6 +81,7 @@ __all__ = [
     "extract_citations",
     "extract_from_plain_text",
     "grow_leaves",
+    "withdraw_leaves_of_withdrawn_roots",
     "find_docket_locators",
     "find_full_reporter_locators",
     "resolve_colocations",

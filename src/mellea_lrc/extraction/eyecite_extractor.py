@@ -66,6 +66,7 @@ from mellea_lrc.extraction.reading.relaxation import Relaxation, tokenizer_for
 from mellea_lrc.extraction.reading.unread_names import unread_case_names
 from mellea_lrc.extraction.stages import refine
 from mellea_lrc.extraction.structure.attachment import Attachment, root_for
+from mellea_lrc.extraction.structure.withdrawal import withdraw_leaves_of_withdrawn_roots
 from mellea_lrc.extraction.types import CitationRecord, Document, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.preprocessing.types import PreprocessedDocument
@@ -555,13 +556,19 @@ def _with_leaves(
         grown.append(leaf)
         settled = sorted([*settled, leaf], key=lambda record: record.full_span.start)
     citations = sorted((*document.citations, *grown), key=lambda record: record.full_span.start)
-    return dataclasses.replace(
+    grown_document = dataclasses.replace(
         document,
         citations=tuple(citations),
         unread_case_names=unread_case_names(document.text, citations),
         findings=(*document.findings, *ungrown),
         passes=_after("leaves", document),
     )
+    # A leaf grown onto a root that has since been withdrawn is withdrawn with
+    # it, keeping the `root_id` that says which root took it. Attaching first
+    # and sweeping after is one rule rather than two: the same sweep runs when a
+    # root is withdrawn after its leaves already exist.
+    withdraw_leaves_of_withdrawn_roots(grown_document)
+    return grown_document
 
 
 def _after(name: str, document: Document) -> tuple[str, ...]:
