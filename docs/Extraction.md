@@ -582,6 +582,53 @@ the tree places citations under case roots only, so `Id. § 1231(g)` after
 follow no citation of any kind. The remaining three are name matches that failed
 or were ambiguous, and eyecite placed one of them.
 
+#### Where the site hunting goes, and why it is last
+
+A site is a place in the document the rules came up empty, found against a copy
+with every extracted citation blanked out. So how much of the document is
+masked decides how many sites there are, and a leaf sitting in the residue
+looks exactly like an unread citation -- a case named with no full citation
+beside it, which is what a site is. Hunting before the leaves are grown pays a
+model to rediscover citations the rules already read.
+
+Growing them first barely moves the mask and collapses the sites:
+
+    set        documents   leaves grown   sites, roots only -> after the leaves
+    corpus        26            78            83  ->  42
+    eval-1        10            77           121  ->   69
+    eval-2        10            75            79  ->   19
+
+A third of a percent more of the text is covered, and half to three quarters of
+the questions disappear. What is left is one or two sites a document, which is
+few enough to put every one of them in front of a model rather than rank them.
+
+**The hunt is triggered by the leaves that could not be grown.** A refused leaf
+is a case the filing cites and the document never introduced, named at a known
+span, and it has two answers, both of them findings: the hunt reaches the root
+the tokenizer missed, and the leaf grows on the next round; or there is no root
+to reach, and the leaf is a `nonconforming_citation`. The second is the class
+`orphan_short_forms` used to propose and now has nothing to propose, so the
+trigger closes that hole rather than only raising recall.
+
+**Roots are hunted in the first pass instead**, before validation, because a
+root is what everything else hangs off: a false leaf is one wrong page claim, a
+false root is a case that does not exist plus every leaf that then attaches to
+it. Hunting them where their output still has to pass identity before anything
+is built on it is the only order that is safe. It is off by default on this
+corpus, where the rules already read 1,055 of the 1,057 roots the three sets
+state -- the two missed are `Watson v. New York , WL 6200979`, whose volume the
+filing never wrote, and `Scheuer v. Rhodes, 416 U.s. 232`, whose reporter is
+spelled with a lowercase `s`. Both are the shape a reader would catch; two
+recovered against the chance of a fabricated root is not a trade worth making
+by default.
+
+**A root found after the leaves have grown is safe and incomplete**, which is
+not the same as wrong. `CitationRecord` refuses a leaf with no root and the
+leaf pass attaches only to roots the document holds, so a late root cannot
+silently acquire leaves -- it has none until another growth runs. What is
+missing is the artifact saying the tree is not finished, which is the same open
+item as the refused leaves above.
+
 #### What the measurement says
 
 Both growths are scored together, against the same ground truth, because the
