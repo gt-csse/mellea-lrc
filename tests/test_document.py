@@ -15,7 +15,7 @@ import pytest
 
 from mellea_lrc.core.citations import is_leaf
 from mellea_lrc.core.findings import FindingKind
-from mellea_lrc.core.record import UNJUDGED, WITHDRAWN, Node, Reads, Resolution
+from mellea_lrc.core.record import UNJUDGED, WITHDRAWN, Node, Question, Reads, Resolution
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text, grow_leaves
 from mellea_lrc.serialization import deserialize_document, serialize_document
 
@@ -139,8 +139,9 @@ def test_a_node_that_read_a_record_still_cannot_correct_the_filing() -> None:
 def test_every_citation_carries_a_judgement_from_the_moment_it_is_read() -> None:
     """Absent and unmade are different, and a reader should never have to guess."""
     document = _read(WHOLE)
-    assert [c.judgement.outcome for c in document.citations] == [UNJUDGED] * len(document.citations)
-    assert document.citations[0].judgement.node_id is None
+    for record in document.citations:
+        assert [record.judgement(q).outcome for q in Question] == [UNJUDGED] * len(Question)
+    assert document.citations[0].judgement(Question.IDENTITY).node_id is None
 
 
 def test_a_judgement_is_written_with_the_node_that_reached_it() -> None:
@@ -155,13 +156,17 @@ def test_a_judgement_is_written_with_the_node_that_reached_it() -> None:
             made_by="identity_aggregation",
             outcome="resolved",
         ),
+        Question.IDENTITY,
         "reaches_the_authority_it_names",
         message="the locator resolved and the name matches",
     )
     back = _through_the_artifact(document).citations[0]
-    assert back.judgement.outcome == "reaches_the_authority_it_names"
-    assert back.judgement.node_id == "identity:aggregate"
-    assert back.judgement.message == "the locator resolved and the name matches"
+    identity = back.judgement(Question.IDENTITY)
+    assert identity.outcome == "reaches_the_authority_it_names"
+    assert identity.node_id == "identity:aggregate"
+    assert identity.message == "the locator resolved and the name matches"
+    # The other questions are untouched, which is the point of one slot each.
+    assert back.judgement(Question.PINPOINT).outcome == UNJUDGED
 
 
 def test_corrections_are_a_list_on_the_record_and_survive_the_artifact() -> None:
@@ -244,6 +249,7 @@ def test_growing_the_leaves_keeps_what_validation_settled() -> None:
             made_by="identity_aggregation",
             outcome="resolved",
         ),
+        Question.IDENTITY,
         "reaches_the_authority_it_names",
     )
 
@@ -251,5 +257,43 @@ def test_growing_the_leaves_keeps_what_validation_settled() -> None:
     kept = next(c for c in grown.citations if c.citation_id == root.citation_id)
     assert kept.found is not None
     assert kept.found.cluster_id == "145875"
-    assert kept.judgement.outcome == "reaches_the_authority_it_names"
+    assert kept.judgement(Question.IDENTITY).outcome == "reaches_the_authority_it_names"
     assert root.citation_id in {c.root_id for c in grown.citations if is_leaf(c.stated)}
+
+
+def test_pinpoint_answers_its_own_question_without_overwriting_identity() -> None:
+    """A root that states a page is judged twice, on two different questions.
+
+    A citation can reach the right case and misstate the page. One slot would
+    make the second stage erase the first finding.
+    """
+    document = _read(WHOLE)
+    record = document.citations[0]
+    record.judge(
+        Node(
+            node_id="identity:aggregate",
+            reads=Reads.RECORD,
+            stage="identity",
+            made_by="identity_aggregation",
+            outcome="resolved",
+        ),
+        Question.IDENTITY,
+        "reaches_the_authority_it_names",
+    )
+    record.judge(
+        Node(
+            node_id="pinpoint:check",
+            reads=Reads.RECORD,
+            stage="pinpoint",
+            made_by="mellea_pinpoint_check",
+            outcome="unsupported",
+            details={"page": 678},
+        ),
+        Question.PINPOINT,
+        "the_page_does_not_say_it",
+    )
+
+    back = _through_the_artifact(document).citations[0]
+    assert back.judgement(Question.IDENTITY).outcome == "reaches_the_authority_it_names"
+    assert back.judgement(Question.PINPOINT).outcome == "the_page_does_not_say_it"
+    assert {node.node_id for node in back.trace} == {"identity:aggregate", "pinpoint:check"}

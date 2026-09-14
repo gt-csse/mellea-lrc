@@ -36,7 +36,7 @@ everything the pipeline knows about it:
     root_id         which root this citation points at
     authority_id    which authority it was established to reach
     corrections     every change to `stated`, in order, each naming its node
-    judgement       what the pipeline concludes, and the node that concluded it
+    judgements      one answer per question, each naming the node that reached it
     withdrawn_by    the node that took this citation out, if one has
     trace           every node: what was asked and what came back
 
@@ -51,7 +51,7 @@ currently says is a field on the record, and the node that said it is an id
 beside it:
 
     a correction   `Correction.node_id`
-    a judgement    `Judgement.node_id`
+    a judgement    `Judgement.node_id`, one per `Question`
     a withdrawal   `withdrawn_by`
     a resolution   `Resolution.node_id`   (already this shape)
     a finding      `Finding.node_id`
@@ -63,11 +63,30 @@ and the correction in one call, so there is still no way to change `stated`
 without leaving the reason. What it buys is that the history is a list rather
 than a traversal, and the history is read far more often than the graph is.
 
-**The judgement is there from the start**, saying `unjudged`. A reader never has
-to tell an absent judgement from an unmade one, and never has to search the
-trace for whichever node happened to be the aggregation. The same is true of
-every field above: a question about the current state is a field access, and
-the trace answers only "how did it get that way".
+**The judgements are there from the start**, every question saying `unjudged`. A
+reader never has to tell an absent judgement from an unmade one, and never has
+to search the trace for whichever node happened to be the aggregation. The same
+is true of every field above: a question about the current state is a field
+access, and the trace answers only "how did it get that way".
+
+### One judgement per question, not per stage
+
+A citation is judged once for each question the pipeline asks, and `Question`
+names them: `IDENTITY` -- does this citation reach the authority it names --
+and `PINPOINT` -- does the page it claims say what it is cited for. A root that
+states a page is judged on both, and they are not competing answers: a filing
+can reach the right case and misstate the page, or reach nothing at all. One
+field would make the second stage overwrite the first.
+
+The key is the **question**, not the stage that asks it, for the same reason a
+node is named for what it read rather than who ran it: the name check moving
+from one stage to another must not change what its verdict means. Keying by
+stage would also make each new stage a new field a consumer has to know to look
+for, where a new question is a new member of one enum.
+
+There is deliberately **no combined verdict**. How a wrong page and a right case
+add up is the reader's finding to make, and a record that decided it would be
+deciding policy it has no evidence for.
 
 ## What a stage may do
 

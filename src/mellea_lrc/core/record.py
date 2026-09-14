@@ -139,6 +139,27 @@ class Node:
 UNJUDGED = "unjudged"
 
 
+class Question(str, Enum):
+    """A question the pipeline asks of a citation, and keeps an answer to.
+
+    Named for **what is asked**, not for the stage that asks it -- the same rule
+    a node follows. A citation is judged once per question, so a later answer to
+    a different question never overwrites an earlier one: whether a citation
+    reaches the authority it names and whether the page it claims says what it
+    is cited for are two findings, and a filing can fail either alone.
+
+    Adding a question here is how a new stage gets somewhere to put its verdict.
+    The outcomes are the asking stage's own vocabulary; only the questions are
+    shared.
+    """
+
+    IDENTITY = "identity"
+    """Does this citation reach the authority it names?"""
+
+    PINPOINT = "pinpoint"
+    """Does the page it claims say what it is cited for?"""
+
+
 @dataclass(frozen=True, slots=True)
 class Judgement:
     """What the pipeline concludes about one citation, and what concluded it."""
@@ -154,6 +175,11 @@ class Judgement:
 
 #: The judgement a citation carries from the moment it is read.
 UNJUDGED_YET = Judgement(outcome=UNJUDGED)
+
+
+def unjudged() -> dict[Question, Judgement]:
+    """Every question, unanswered. What a citation is born carrying."""
+    return dict.fromkeys(Question, UNJUDGED_YET)
 
 
 #: The outcome that marks a citation as one the document does not hold. It is a
@@ -278,12 +304,20 @@ class CitationRecord:
     against what the pipeline now says it wrote.
     """
 
-    judgement: Judgement = UNJUDGED_YET
-    """What the pipeline concludes about this citation.
+    judgements: dict[Question, Judgement] = field(default_factory=unjudged)
+    """What the pipeline concludes about this citation, one answer per question.
 
-    Present from the moment the citation is read, saying `unjudged`, so a reader
-    never has to tell an absent judgement from an unmade one -- and never has to
-    search the trace for whichever node happened to be the aggregation.
+    Every question is present from the moment the citation is read, saying
+    `unjudged`, so a reader never has to tell an absent judgement from an unmade
+    one -- and never has to search the trace for whichever node happened to be
+    the aggregation.
+
+    **One slot per question, not per stage.** Identity and pinpoint both reach a
+    verdict on a root that states a page, and they are answering different
+    questions: a citation can reach the right case and misstate the page, or
+    reach nothing at all. One field would make the second stage overwrite the
+    first. There is deliberately no combined verdict -- how a wrong page and a
+    right case add up is the reader's finding to make, not the record's.
     """
 
     withdrawn_by: str | None = None
@@ -401,11 +435,23 @@ class CitationRecord:
         self.stated = replace(self.stated, **{field_name: value})
         return node
 
-    def judge(self, node: Node, outcome: str, *, message: str | None = None) -> Node:
-        """Conclude something about this citation, on the evidence of `node`."""
+    def judge(
+        self, node: Node, question: Question, outcome: str, *, message: str | None = None
+    ) -> Node:
+        """Answer one question about this citation, on the evidence of `node`.
+
+        Answering one leaves every other question as it was, so a later stage
+        adds a finding rather than replacing one.
+        """
         self.observe(node)
-        self.judgement = Judgement(outcome=outcome, node_id=node.node_id, message=message)
+        self.judgements[question] = Judgement(
+            outcome=outcome, node_id=node.node_id, message=message
+        )
         return node
+
+    def judgement(self, question: Question) -> Judgement:
+        """This citation's answer to one question, `unjudged` until something answers it."""
+        return self.judgements.get(question, UNJUDGED_YET)
 
     def resolve(self, node: Node, resolution: Resolution) -> Node:
         """Settle what an archive holds at this citation's identity, on the evidence of `node`."""
