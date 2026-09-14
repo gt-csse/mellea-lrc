@@ -15,7 +15,7 @@ import pytest
 
 from mellea_lrc.core.citations import is_leaf
 from mellea_lrc.core.findings import FindingKind
-from mellea_lrc.core.record import UNJUDGED, WITHDRAWN, Node, Reads
+from mellea_lrc.core.record import UNJUDGED, WITHDRAWN, Node, Reads, Resolution
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text, grow_leaves
 from mellea_lrc.serialization import deserialize_document, serialize_document
 
@@ -183,3 +183,73 @@ def test_corrections_are_a_list_on_the_record_and_survive_the_artifact() -> None
     assert [(c.field, c.after, c.node_id) for c in back.corrections] == [("court", "ca7", "name")]
     assert back.stated.court == "ca7"
     assert back.source.court != "ca7"
+
+
+def test_what_an_archive_found_survives_the_artifact() -> None:
+    """`found` is what the leaf pass must not drop when it reads a document back."""
+    document = _read(WHOLE)
+    record = document.citations[0]
+    node = Node(
+        node_id="lookup",
+        reads=Reads.RECORD,
+        stage="identity",
+        made_by="exact_locator_lookup",
+        outcome="found",
+    )
+    record.resolve(
+        node,
+        Resolution(
+            cluster_id="145875",
+            case_name="Ashcroft v. Iqbal",
+            date_filed="2009-05-18",
+            court_id="scotus",
+            node_id=node.node_id,
+            opinion_ids=("145875",),
+            citations=("556 U.S. 662",),
+        ),
+    )
+    back = _through_the_artifact(document).citations[0]
+    assert back.found is not None
+    assert back.found.cluster_id == "145875"
+    assert back.found.citations == ("556 U.S. 662",)
+    assert back.found.node_id == "lookup"
+
+
+def test_growing_the_leaves_keeps_what_validation_settled() -> None:
+    """The leaf pass rebuilds nothing about a root; it only adds leaves."""
+    document = _read(WHOLE)
+    root = next(c for c in document.citations if c.stated.page == "662")
+    node = Node(
+        node_id="lookup",
+        reads=Reads.RECORD,
+        stage="identity",
+        made_by="exact_locator_lookup",
+        outcome="found",
+    )
+    root.resolve(
+        node,
+        Resolution(
+            cluster_id="145875",
+            case_name="Ashcroft v. Iqbal",
+            date_filed="2009-05-18",
+            court_id="scotus",
+            node_id=node.node_id,
+        ),
+    )
+    root.judge(
+        Node(
+            node_id="identity:aggregate",
+            reads=Reads.RECORD,
+            stage="identity",
+            made_by="identity_aggregation",
+            outcome="resolved",
+        ),
+        "reaches_the_authority_it_names",
+    )
+
+    grown = grow_leaves(_through_the_artifact(document))
+    kept = next(c for c in grown.citations if c.citation_id == root.citation_id)
+    assert kept.found is not None
+    assert kept.found.cluster_id == "145875"
+    assert kept.judgement.outcome == "reaches_the_authority_it_names"
+    assert root.citation_id in {c.root_id for c in grown.citations if is_leaf(c.stated)}
