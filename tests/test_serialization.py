@@ -121,7 +121,7 @@ def test_extracted_document_round_trip_preserves_recoverable_fields() -> None:
     payload = serialize_extracted_document(document)
 
     assert payload["schema_version"] == SCHEMA_VERSION
-    assert payload["artifact_type"] == "extracted_document"
+    assert payload["artifact_type"] == "document"
     # Everything about the citation is written in one place, inside `citation`.
     written = payload["citations"][0]["source"]
     assert written["span"] == {"start": 0, "end": len(document.text) - 1}
@@ -234,7 +234,7 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
 
     assert payload["schema_version"] == SCHEMA_VERSION
     assert payload["artifact_type"] == "validated_document"
-    assert payload["source"]["artifact_type"] == "extracted_document"
+    assert payload["source"]["artifact_type"] == "document"
     assert payload["source"]["citations"][0]["source"]["citation_type"] == "FullCaseCitation"
     assert payload["citations"] == [
         {

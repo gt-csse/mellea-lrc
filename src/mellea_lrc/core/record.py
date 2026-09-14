@@ -37,6 +37,7 @@ validation. They are written down now so both sides use one word for one thing.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import TYPE_CHECKING, Any
@@ -98,6 +99,17 @@ class Node:
     corrections: tuple[Correction, ...] = ()
     """The changes this node justified. Empty for most nodes, which only observe."""
 
+    details: Mapping[str, Any] = field(default_factory=dict)
+    """Whatever the node that made this wants to keep, carried and not read.
+
+    Serialization writes it back verbatim and nothing in `core` looks inside it,
+    so a stage with typed nodes of its own -- a locator lookup with its cluster,
+    a search with its candidates -- keeps its own fields without `core` knowing
+    any of its types. It is the node's own record of what it did, not a place to
+    put a citation's state: anything the pipeline reads later belongs on the
+    record, where the next reader will look for it.
+    """
+
     def __post_init__(self) -> None:
         if not self.node_id:
             msg = "A node must have an identifier"
@@ -105,6 +117,13 @@ class Node:
         if self.corrections and self.reads is not Reads.DOCUMENT:
             msg = f"Node {self.node_id!r} read a record, so it cannot correct what the filing states"
             raise ValueError(msg)
+
+
+#: The outcome that marks a citation as one the document does not hold. It is a
+#: node like any other, because withdrawing is a reading and a reading needs its
+#: evidence -- what was asked, what came back, and why this is not a citation to
+#: a case.
+WITHDRAWN = "withdrawn"
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +212,18 @@ class CitationRecord:
     def corrections(self) -> tuple[Correction, ...]:
         """Every change to `stated`, in the order they were made."""
         return tuple(correction for node in self.trace for correction in node.corrections)
+
+    @property
+    def withdrawn(self) -> bool:
+        """Whether a reading has taken this citation out of the document.
+
+        Read off the trace rather than stored beside it. A statute read as a
+        case, a docket number that is a record entry, a root that reaches no
+        authority: the span stays, the record stays addressable -- `root_id` and
+        `authority_id` name citation ids, and deleting a record would break
+        every reference to it -- and the node says who took it out and why.
+        """
+        return any(node.outcome == WITHDRAWN for node in self.trace)
 
     @property
     def authority(self) -> str | None:

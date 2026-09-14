@@ -5,6 +5,7 @@ from enum import Enum
 
 from mellea_lrc.core.case_names import CaseName
 from mellea_lrc.core.citations import is_full_citation
+from mellea_lrc.core.findings import Finding
 from mellea_lrc.core.pin_cites import PinCitePages
 from mellea_lrc.core.record import CitationRecord
 from mellea_lrc.core.spans import Span
@@ -35,8 +36,21 @@ class ExtractionMetadata:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ExtractedDocument(PreprocessedDocument):
-    """A preprocessed document with canonical extracted citations."""
+class Document(PreprocessedDocument):
+    """One document and everything the pipeline has read in it.
+
+    Not the output of a stage. Every stage appends to this object -- extraction
+    adds the roots and then the leaves, validation adds nodes to them and
+    withdraws what reaches nothing -- and each hands on the same document with
+    more written on it rather than an artifact of its own kind wrapping the one
+    before. See `docs/Document.md`.
+
+    What is here and not on a citation is here because it cannot be on one.
+    `text` is the coordinate space every span indexes, and per-citation copies
+    of it could disagree. `findings` are true of the document and of no citation
+    in it. `passes` is what has run, which is the only way a consumer can tell a
+    document whose leaves have not grown from one that writes no short forms.
+    """
 
     citations: tuple[CitationRecord, ...]
     unread_case_names: tuple[Span, ...] = ()
@@ -47,6 +61,22 @@ class ExtractedDocument(PreprocessedDocument):
     tokenizer cannot see at all, and a case whose citation *was* read but whose
     name was not reached. See
     :mod:`mellea_lrc.extraction.reading.unread_names`.
+    """
+    findings: tuple[Finding, ...] = ()
+    """What a pass learned that belongs to no citation.
+
+    A leaf it could not grow, a site it hunted and rejected. Beside the
+    citations rather than among them, because a record is a citation and one
+    standing for a citation the document does not hold would be a hole in the
+    invariant. See :mod:`mellea_lrc.core.findings`.
+    """
+    passes: tuple[str, ...] = ()
+    """Which passes have run over this document, in order.
+
+    `("roots",)` is the first growth and is **not a reading of the document's
+    citations** -- it holds what states a complete identifier and no leaf of any
+    kind. `("roots", "leaves")` is the whole of what the filing writes. A
+    consumer that does not check this cannot tell the two apart.
     """
     extraction_metadata: ExtractionMetadata
 
@@ -81,3 +111,8 @@ class ExtractedDocument(PreprocessedDocument):
             ):
                 msg = f"Citation {item.citation_id!r} has invalid resolves_to={item.resolves_to!r}"
                 raise ValueError(msg)
+
+
+#: The name the document carried while it was only extraction's output. Kept so
+#: the name a caller wrote still imports; it is the same class.
+ExtractedDocument = Document
