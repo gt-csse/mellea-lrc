@@ -66,7 +66,7 @@ false positive.
 ## The citation tree
 
 `evaluate.py` scores a flat list of identifiers: whether a citation was found,
-and nothing else. `tree.py` scores against `extraction-v3.0`, which is a tree --
+and nothing else. `tree.py` scores against `annotation-v4.0`, which is a tree --
 every place a filing cites a case, which place introduced the case, and which
 page each one claims.
 
@@ -83,7 +83,7 @@ The name-only `ReferenceCitation` rows are left out of both sides unless
 
 ```bash
 uv run --env-file .env python -m evaluations.extraction.tree \
-  --dataset  <store>/extraction-v3.0/documents \
+  --dataset  <store>/annotation-v4.0/documents \
   --documents <store>/corpus/documents_txt \
   --arms eyecite augmented grown
 ```
@@ -202,7 +202,7 @@ root filed under some other case is a root it did not find, which is what
 quoting it.
 
 A root is named by its span rather than by a dataset id, so an arm that knows
-nothing about `extraction-v3.0` can be scored the same way.
+nothing about `annotation-v4.0` can be scored the same way.
 
 **Recall is out of what the filings state; precision is out of what the arm
 reports.** One without the other hides half of a pass: a reader that reports
@@ -221,7 +221,7 @@ count one failure twice.
 Two whole columns of the ground truth have no reading here.
 
 **Case names.** Every citation now carries `case_name_span`, located rather
-than rebuilt, and `extraction-v3.0` annotates 682 of them as spans. Nothing
+than rebuilt, and `annotation-v4.0` annotates 682 of them as spans. Nothing
 compares the two. It is the one field where the stages could be read against
 each other -- what the rules locate, what a model patches, what a lookup later
 confirms -- which is most of the reason to score it at all. The dataset says in

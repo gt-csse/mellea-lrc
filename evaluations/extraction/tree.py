@@ -1,7 +1,7 @@
 """Score extraction against the citation tree ground truth, arm by arm.
 
 The bench `evaluate.py` reads is a flat list of identifiers: it asks whether a
-citation was found and nothing else. This one reads `extraction-v3.0`, which is
+citation was found and nothing else. This one reads `annotation-v4.0`, which is
 a tree -- every place a filing cites a case, which place introduced the case,
 and which page each one claims -- and asks the questions separately, because a
 pass that finds every citation and files half of them under the wrong case is
@@ -635,7 +635,7 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="arms:\n" + "\n".join(f"  {name:<12} {arm.components}" for name, arm in ARMS.items()),
     )
-    parser.add_argument("--dataset", type=Path, required=True, help="extraction-v3.0/documents/")
+    parser.add_argument("--dataset", type=Path, required=True, help="annotation-v4.0/documents/")
     parser.add_argument("--documents", type=Path, required=True, help="The text those spans index.")
     parser.add_argument(
         "--arms", nargs="+", default=list(ARMS), choices=list(ARMS), help="Which arms to run."

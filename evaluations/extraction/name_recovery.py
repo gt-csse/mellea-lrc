@@ -3,7 +3,7 @@
 `case_name_sites` proposes every case named where the deterministic pass read
 no citation, and `adjudicate_case_name` says which of three things each one is.
 This runs both over a corpus and reports what the readings are worth, against
-what `extraction-v3.0` says is there.
+what `annotation-v4.0` says is there.
 
 The ground truth for each site is the row whose span it covers:
 
@@ -238,7 +238,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--dataset", type=Path, required=True, help="extraction-v3.0/documents/")
+    parser.add_argument("--dataset", type=Path, required=True, help="annotation-v4.0/documents/")
     parser.add_argument("--documents", type=Path, required=True, help="The text those spans index.")
     parser.add_argument("--relaxation", default="FULL", choices=["NONE", "FULL"], help="Tokenizer.")
     parser.add_argument("--limit", type=int, default=None, help="Sites per document, for a short run.")
