@@ -60,6 +60,7 @@ from mellea_lrc.extraction.eyecite_extractor import (
 )
 from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.extraction.structure.attachment import Attachment
+from mellea_lrc.extraction.structure.withdrawal import withdraw_leaves_of_withdrawn_roots
 from mellea_lrc.extraction.types import (
     CitationRecord,
     Document,
@@ -77,4 +78,5 @@ __all__ = [
     "extract_citations",
     "extract_from_plain_text",
     "grow_leaves",
+    "withdraw_leaves_of_withdrawn_roots",
 ]
