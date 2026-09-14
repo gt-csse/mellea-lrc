@@ -56,39 +56,52 @@ def test_a_record_starts_as_what_the_rules_read() -> None:
 
 def test_a_correction_moves_stated_and_leaves_source_alone() -> None:
     record = _record()
-    record.observe(record.correcting(_node(), "case_name", FULLER, reason="named in the sentence"))
+    record.correct(_node(), "case_name", FULLER, reason="named in the sentence")
 
     assert record.stated.case_name == FULLER
     assert record.source.case_name == READ
     assert [(c.field, c.before, c.after) for c in record.corrections] == [("case_name", READ, FULLER)]
 
 
-def test_the_evidence_is_the_correction_is_on() -> None:
-    """A change and the reason for it are one object, so neither can go missing."""
-    record = _record()
-    record.observe(record.correcting(_node(), "case_name", FULLER, reason="named in the sentence"))
+def test_a_correction_names_the_node_it_rests_on() -> None:
+    """The change is on the record and the evidence is one lookup away.
 
-    node = record.trace[-1]
+    Both are written by the same call, so neither can go missing, and reading
+    the history never means walking the trace's graph.
+    """
+    record = _record()
+    record.correct(_node(), "case_name", FULLER, reason="named in the sentence")
+
+    correction = record.corrections[-1]
+    assert correction.reason == "named in the sentence"
+    assert correction.node_id == "case_name:0-6"
+    node = next(item for item in record.trace if item.node_id == correction.node_id)
     assert node.outcome == "names_a_citation"
-    assert node.corrections[0].reason == "named in the sentence"
 
 
 def test_a_node_that_read_a_record_cannot_correct_what_the_filing_states() -> None:
-    """The invariant is the shape: an archive's answer belongs on `found`."""
+    """An archive's answer belongs on `found`, and `correct` is the only door."""
+    record = _record()
     with pytest.raises(ValueError, match="cannot correct what the filing states"):
-        Node(
-            node_id="lookup",
-            reads=Reads.RECORD,
-            stage="identity",
-            made_by="courtlistener",
-            outcome="found",
-            corrections=(Correction(field="case_name", before=READ, after=FULLER, reason="why"),),
+        record.correct(
+            Node(
+                node_id="lookup",
+                reads=Reads.RECORD,
+                stage="identity",
+                made_by="courtlistener",
+                outcome="found",
+            ),
+            "case_name",
+            FULLER,
+            reason="the archive says so",
         )
+    assert record.stated.case_name == READ
+    assert record.corrections == ()
 
 
 def test_a_correction_that_changes_nothing_is_refused() -> None:
     with pytest.raises(ValueError, match="must change the value"):
-        Correction(field="case_name", before=READ, after=READ, reason="why")
+        Correction(field="case_name", before=READ, after=READ, reason="why", node_id="n")
 
 
 def test_a_root_is_what_extraction_read_and_an_authority_is_what_a_lookup_found() -> None:

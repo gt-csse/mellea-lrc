@@ -12,11 +12,16 @@ So the record is mutable, and four rules keep it auditable.
 arrived. `stated` is the pipeline's current reading of what the filing states.
 A reader comparing the two sees exactly what was changed.
 
-**Every change is inside the evidence for it.** A `Correction` lives on the
-`Node` that justified it, so a change with no evidence cannot be constructed --
-the invariant is the shape rather than a check. `record.corrections` reads them
-all back in order, and the state after any point is a fold over a prefix of the
-trace, which is what an evaluation slices on.
+**Every change names the evidence for it.** A `Correction` carries the
+`node_id` of the node that justified it, and `record.correct` is the only way to
+change `stated`: it writes the node and the correction together, so a change
+with no evidence cannot be made. The corrections are an ordered list on the
+record rather than something held inside the trace, because the trace is a
+**graph** -- a node names what it depends on -- and a history held inside a
+graph can only be read by walking it. The same goes for the judgement and for
+the withdrawal: what the pipeline currently says is a field, and the node that
+said it is a pointer. Nothing about a citation's current state is recovered by
+traversal.
 
 **What the filing states and what an archive holds are kept apart.** `stated`
 is only ever the filing's reading; the archive's answer goes on `found`. A
@@ -63,7 +68,7 @@ class Reads(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class Correction:
-    """One change to the filing's reading, on the node that justified it."""
+    """One change to the filing's reading, and the node that justified it."""
 
     field: str
     """Which field of the citation changed: `case_name`, `court`, `pin_cite`."""
@@ -73,6 +78,16 @@ class Correction:
     reason: str
     """One line, in the words of whatever made the change."""
 
+    node_id: str
+    """The node this rests on. A pointer, not a copy.
+
+    The corrections are kept in order on the record and the node is named from
+    here, rather than the corrections being kept inside the nodes. A trace is a
+    graph -- a node names what it depends on -- so a correction history held
+    inside it can only be recovered by walking the graph, and the history is
+    read far more often than the graph is.
+    """
+
     def __post_init__(self) -> None:
         if self.before == self.after:
             msg = f"A correction to {self.field!r} must change the value"
@@ -81,7 +96,12 @@ class Correction:
 
 @dataclass(frozen=True, slots=True)
 class Node:
-    """One thing that was asked, what came back, and what it changed."""
+    """One thing that was asked, and what came back.
+
+    What it *changed* is not here. A node is evidence, and the state it
+    justified -- a correction, a judgement, a withdrawal -- is written on the
+    record with this node's id beside it. See `docs/Document.md`.
+    """
 
     node_id: str
     reads: Reads
@@ -96,9 +116,6 @@ class Node:
 
     message: str | None = None
     depends_on: tuple[str, ...] = ()
-    corrections: tuple[Correction, ...] = ()
-    """The changes this node justified. Empty for most nodes, which only observe."""
-
     details: Mapping[str, Any] = field(default_factory=dict)
     """Whatever the node that made this wants to keep, carried and not read.
 
@@ -114,9 +131,29 @@ class Node:
         if not self.node_id:
             msg = "A node must have an identifier"
             raise ValueError(msg)
-        if self.corrections and self.reads is not Reads.DOCUMENT:
-            msg = f"Node {self.node_id!r} read a record, so it cannot correct what the filing states"
-            raise ValueError(msg)
+
+
+#: What a citation's judgement says before anything has judged it. Written at
+#: initialization rather than left absent, so a reader never has to tell "no
+#: judgement was made" apart from "no judgement was found".
+UNJUDGED = "unjudged"
+
+
+@dataclass(frozen=True, slots=True)
+class Judgement:
+    """What the pipeline concludes about one citation, and what concluded it."""
+
+    outcome: str
+    """In the vocabulary of whatever judged it. `unjudged` until something does."""
+
+    node_id: str | None = None
+    """The node that reached it. `None` while the outcome is `unjudged`."""
+
+    message: str | None = None
+
+
+#: The judgement a citation carries from the moment it is read.
+UNJUDGED_YET = Judgement(outcome=UNJUDGED)
 
 
 #: The outcome that marks a citation as one the document does not hold. It is a
@@ -189,6 +226,33 @@ class CitationRecord:
     """The authority the root was established to reach. `None` until a lookup settles it."""
 
     found: Resolution | None = None
+
+    corrections: tuple[Correction, ...] = field(default_factory=tuple)
+    """Every change to `stated`, in the order they were made.
+
+    Kept here rather than inside the nodes. A trace is a graph and a history is
+    a sequence; holding the sequence inside the graph means walking the graph to
+    read it, and this is read on every comparison of what the filing wrote
+    against what the pipeline now says it wrote.
+    """
+
+    judgement: Judgement = UNJUDGED_YET
+    """What the pipeline concludes about this citation.
+
+    Present from the moment the citation is read, saying `unjudged`, so a reader
+    never has to tell an absent judgement from an unmade one -- and never has to
+    search the trace for whichever node happened to be the aggregation.
+    """
+
+    withdrawn_by: str | None = None
+    """The node that took this citation out of the document, if one has.
+
+    Written, not derived. A statute read as a case, a docket number that is a
+    record entry, a root that reaches no authority: the record stays and stays
+    addressable -- `root_id` and `authority_id` name citation ids, and deleting
+    a record would break every reference to it -- and this says who took it out.
+    """
+
     trace: tuple[Node, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
@@ -209,21 +273,9 @@ class CitationRecord:
             raise ValueError(msg)
 
     @property
-    def corrections(self) -> tuple[Correction, ...]:
-        """Every change to `stated`, in the order they were made."""
-        return tuple(correction for node in self.trace for correction in node.corrections)
-
-    @property
     def withdrawn(self) -> bool:
-        """Whether a reading has taken this citation out of the document.
-
-        Read off the trace rather than stored beside it. A statute read as a
-        case, a docket number that is a record entry, a root that reaches no
-        authority: the span stays, the record stays addressable -- `root_id` and
-        `authority_id` name citation ids, and deleting a record would break
-        every reference to it -- and the node says who took it out and why.
-        """
-        return any(node.outcome == WITHDRAWN for node in self.trace)
+        """Whether a reading has taken this citation out of the document."""
+        return self.withdrawn_by is not None
 
     @property
     def authority(self) -> str | None:
@@ -273,26 +325,50 @@ class CitationRecord:
         return pin_cite.pages if pin_cite is not None else ()
 
     def observe(self, node: Node) -> Node:
-        """Add one node to the trace, returning it so a caller can depend on it.
-
-        Corrections travel on the node, so a node that changes something arrives
-        already carrying what it changed, and `stated` is brought up to it here.
-        There is no way to correct without leaving the evidence.
-        """
-        self.trace = (*self.trace, node)
-        for correction in node.corrections:
-            self.stated = replace(self.stated, **{correction.field: correction.after})
+        """Add one node to the trace, returning it so a caller can depend on it."""
+        if node.node_id not in {seen.node_id for seen in self.trace}:
+            self.trace = (*self.trace, node)
         return node
 
-    def correcting(self, node: Node, field_name: str, value: Any, *, reason: str) -> Node:
-        """The same node, carrying a correction to one field of `stated`.
+    def correct(self, node: Node, field_name: str, value: Any, *, reason: str) -> Node:
+        """Change one field of `stated`, on the evidence of `node`.
+
+        The node is added to the trace and the correction is appended with its
+        id, so a correction cannot exist without the evidence for it: this is
+        the only way to change `stated`, and it writes both or neither.
 
         `None` over a value and a value over `None` are both changes and both
         are recorded.
         """
+        if node.reads is not Reads.DOCUMENT:
+            msg = f"Node {node.node_id!r} read a record, so it cannot correct what the filing states"
+            raise ValueError(msg)
         before = getattr(self.stated, field_name)
-        correction = Correction(field=field_name, before=before, after=value, reason=reason)
-        return replace(node, corrections=(*node.corrections, correction))
+        self.observe(node)
+        self.corrections = (
+            *self.corrections,
+            Correction(
+                field=field_name, before=before, after=value, reason=reason, node_id=node.node_id
+            ),
+        )
+        self.stated = replace(self.stated, **{field_name: value})
+        return node
+
+    def judge(self, node: Node, outcome: str, *, message: str | None = None) -> Node:
+        """Conclude something about this citation, on the evidence of `node`."""
+        self.observe(node)
+        self.judgement = Judgement(outcome=outcome, node_id=node.node_id, message=message)
+        return node
+
+    def withdraw(self, node: Node) -> Node:
+        """Take this citation out of the document, on the evidence of `node`.
+
+        The record stays. Withdrawing is a reading like any other and the node
+        carries what was asked and what came back.
+        """
+        self.observe(node)
+        self.withdrawn_by = node.node_id
+        return node
 
     def _span(self, name: str) -> Span:
         span = getattr(self.stated, name)

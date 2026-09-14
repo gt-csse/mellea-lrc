@@ -15,7 +15,7 @@ import pytest
 
 from mellea_lrc.core.citations import is_leaf
 from mellea_lrc.core.findings import FindingKind
-from mellea_lrc.core.record import WITHDRAWN, Node, Reads
+from mellea_lrc.core.record import UNJUDGED, WITHDRAWN, Node, Reads
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text, grow_leaves
 from mellea_lrc.serialization import deserialize_document, serialize_document
 
@@ -101,7 +101,7 @@ def test_a_withdrawn_citation_stays_in_the_document() -> None:
     document = _read(WHOLE)
     record = document.citations[0]
     assert not record.withdrawn
-    record.observe(
+    record.withdraw(
         Node(
             node_id="identity",
             reads=Reads.RECORD,
@@ -112,6 +112,7 @@ def test_a_withdrawn_citation_stays_in_the_document() -> None:
         )
     )
     assert record.withdrawn
+    assert record.withdrawn_by == "identity"
     back = _through_the_artifact(document)
     assert [c.citation_id for c in back.citations] == [c.citation_id for c in document.citations]
     assert back.citations[0].withdrawn
@@ -120,7 +121,7 @@ def test_a_withdrawn_citation_stays_in_the_document() -> None:
 def test_a_node_that_read_a_record_still_cannot_correct_the_filing() -> None:
     """`details` changes nothing about what a node may write."""
     with pytest.raises(ValueError, match="cannot correct what the filing states"):
-        _read(WHOLE).citations[0].correcting(
+        _read(WHOLE).citations[0].correct(
             Node(
                 node_id="lookup",
                 reads=Reads.RECORD,
@@ -133,3 +134,52 @@ def test_a_node_that_read_a_record_still_cannot_correct_the_filing() -> None:
             "ca6",
             reason="the archive says so",
         )
+
+
+def test_every_citation_carries_a_judgement_from_the_moment_it_is_read() -> None:
+    """Absent and unmade are different, and a reader should never have to guess."""
+    document = _read(WHOLE)
+    assert [c.judgement.outcome for c in document.citations] == [UNJUDGED] * len(document.citations)
+    assert document.citations[0].judgement.node_id is None
+
+
+def test_a_judgement_is_written_with_the_node_that_reached_it() -> None:
+    """Not found by searching the trace for whichever node was the aggregation."""
+    document = _read(WHOLE)
+    record = document.citations[0]
+    record.judge(
+        Node(
+            node_id="identity:aggregate",
+            reads=Reads.RECORD,
+            stage="identity",
+            made_by="identity_aggregation",
+            outcome="resolved",
+        ),
+        "reaches_the_authority_it_names",
+        message="the locator resolved and the name matches",
+    )
+    back = _through_the_artifact(document).citations[0]
+    assert back.judgement.outcome == "reaches_the_authority_it_names"
+    assert back.judgement.node_id == "identity:aggregate"
+    assert back.judgement.message == "the locator resolved and the name matches"
+
+
+def test_corrections_are_a_list_on_the_record_and_survive_the_artifact() -> None:
+    document = _read(WHOLE)
+    record = document.citations[0]
+    record.correct(
+        Node(
+            node_id="name",
+            reads=Reads.DOCUMENT,
+            stage="identity",
+            made_by="mellea_case_name_check",
+            outcome="corrected",
+        ),
+        "court",
+        "ca7",
+        reason="the filing writes the Seventh Circuit",
+    )
+    back = _through_the_artifact(document).citations[0]
+    assert [(c.field, c.after, c.node_id) for c in back.corrections] == [("court", "ca7", "name")]
+    assert back.stated.court == "ca7"
+    assert back.source.court != "ca7"

@@ -191,7 +191,7 @@ async def _case_name(document: Document, session: MelleaSession) -> None:
             # The review sweeps what the rules left over, so it can land on a
             # citation that already holds the name it read. Nothing to correct.
             if named is not None and named.case_name != name:
-                named.observe(named.correcting(node, "case_name", name, reason=node.message or ""))
+                named.correct(node, "case_name", name, reason=node.message or "")
             continue
         if answer.reading is not Reading.SHORT_FORM or answer.root_id not in at:
             continue
@@ -244,9 +244,7 @@ async def _pin_cite(document: Document, session: MelleaSession) -> None:
         if answer is None or answer.pin_cite == record.stated.pin_cite:
             record.observe(node)
             continue
-        record.observe(
-            record.correcting(node, "pin_cite", answer.pin_cite, reason=node.message or "")
-        )
+        record.correct(node, "pin_cite", answer.pin_cite, reason=node.message or "")
 
 
 _RUNNERS = {
