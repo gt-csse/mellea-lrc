@@ -23,7 +23,7 @@ from mellea_lrc.core import (
 from mellea_lrc.core.citations import placed
 from mellea_lrc.extraction.types import (
     CitationRecord,
-    ExtractedDocument,
+    Document,
     ExtractionBackend,
     ExtractionMetadata,
 )
@@ -93,11 +93,11 @@ class MelleaExtractorBase(abc.ABC):
             ),
         )
 
-    def extract_citations(self, text: str) -> ExtractedDocument:
-        """Identify and locate case-law citations, returning an `ExtractedDocument`."""
+    def extract_citations(self, text: str) -> Document:
+        """Identify and locate case-law citations, returning an `Document`."""
         found = self._find_citations(text)
         citations = tuple(self._to_extracted_citation(item) for item in found)
-        return ExtractedDocument(
+        return Document(
             text=text,
             source_metadata=SourceMetadata(format=SourceFormat.TEXT),
             preprocessing_metadata=PreprocessingMetadata(backend=PreprocessingBackend.PLAIN_TEXT),

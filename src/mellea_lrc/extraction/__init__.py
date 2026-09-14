@@ -62,7 +62,7 @@ from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.extraction.structure.attachment import Attachment
 from mellea_lrc.extraction.types import (
     CitationRecord,
-    ExtractedDocument,
+    Document,
     ExtractionBackend,
     ExtractionMetadata,
 )
@@ -70,7 +70,7 @@ from mellea_lrc.extraction.types import (
 __all__ = [
     "Attachment",
     "CitationRecord",
-    "ExtractedDocument",
+    "Document",
     "ExtractionBackend",
     "ExtractionMetadata",
     "Relaxation",

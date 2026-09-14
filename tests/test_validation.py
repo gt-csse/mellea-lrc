@@ -16,7 +16,7 @@ from mellea_lrc.courtlistener import (
     CourtListenerOpinionCluster,
     CourtListenerSearchResult,
 )
-from mellea_lrc.extraction import CitationRecord, ExtractedDocument, ExtractionMetadata
+from mellea_lrc.extraction import CitationRecord, Document, ExtractionMetadata
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.validation import (
@@ -124,12 +124,12 @@ class LookupClient:
         return response
 
 
-def _validate(document: ExtractedDocument, client: LookupClient) -> ValidatedDocument:
+def _validate(document: Document, client: LookupClient) -> ValidatedDocument:
     """Run the sole document-level validation entrypoint synchronously in tests."""
     return asyncio.run(validate_document(document, client=client))
 
 
-def _document(citation: FullCaseCitation | FullLawCitation) -> ExtractedDocument:
+def _document(citation: FullCaseCitation | FullLawCitation) -> Document:
     text = "Brown v. Board, 347 U.S. 483 (1954)."
     preprocessed = preprocess(text)
     locator = "347 U.S. 483"
@@ -143,7 +143,7 @@ def _document(citation: FullCaseCitation | FullLawCitation) -> ExtractedDocument
             matched_text=locator,
         ),
     )
-    return ExtractedDocument(
+    return Document(
         source_metadata=preprocessed.source_metadata,
         text=text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,

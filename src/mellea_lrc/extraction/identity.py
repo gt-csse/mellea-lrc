@@ -18,7 +18,7 @@ ought to stop matching rather than quietly attach to the wrong thing. What this
 removes is churn with no cause, not churn with one.
 
 Uniqueness is per document, which is the contract
-:class:`~mellea_lrc.extraction.types.ExtractedDocument` enforces. Two citations
+:class:`~mellea_lrc.extraction.types.Document` enforces. Two citations
 in one document cannot share a locator span, so they cannot share an id.
 """
 

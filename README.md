@@ -38,7 +38,7 @@ Three layers run in order, each consuming what the last produced:
 | Layer | Input | Output |
 | --- | --- | --- |
 | Preprocessing | PDF or DOCX via [Docling](https://github.com/docling-project/docling), or plain text | `PreprocessedDocument` |
-| Extraction | preprocessed text | `ExtractedDocument` |
+| Extraction | preprocessed text | `Document` |
 | Validation | extracted citations | `ValidatedDocument` |
 
 Every citation keeps a span into the preprocessed text, and each validation step

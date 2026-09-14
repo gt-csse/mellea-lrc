@@ -36,13 +36,13 @@ from mellea_lrc.extraction.reading.unread_names import unread_case_names
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from mellea_lrc.extraction.types import ExtractedDocument
+    from mellea_lrc.extraction.types import Document
 
 WINDOW = 220
 _GENERATOR = "case_name_sites"
 
 
-def case_name_sites(document: ExtractedDocument) -> Iterator[Candidate]:
+def case_name_sites(document: Document) -> Iterator[Candidate]:
     """Propose every case name standing outside the citations that were read."""
     text = document.text
     for span in unread_case_names(text, document.citations):

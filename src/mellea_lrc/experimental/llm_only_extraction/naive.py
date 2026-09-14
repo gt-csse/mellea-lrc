@@ -25,7 +25,7 @@ from mellea_lrc.core.citations import placed
 from mellea_lrc.experimental.llm_only_extraction.base import FoundCitation, MelleaExtractorBase
 from mellea_lrc.extraction.types import (
     CitationRecord,
-    ExtractedDocument,
+    Document,
     ExtractionBackend,
     ExtractionMetadata,
 )

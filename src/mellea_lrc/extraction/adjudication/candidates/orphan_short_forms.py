@@ -36,7 +36,7 @@ from mellea_lrc.extraction.adjudication.types import Candidate, CandidateKind
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from mellea_lrc.extraction.types import ExtractedDocument
+    from mellea_lrc.extraction.types import Document
 
 WINDOW = 150
 _GENERATOR = "orphan_short_forms"
@@ -53,7 +53,7 @@ def _full_form_in_text(text: str, volume: str, reporter: str) -> bool:
     return bool(pattern.search(text))
 
 
-def orphan_short_forms(document: ExtractedDocument) -> Iterator[Candidate]:
+def orphan_short_forms(document: Document) -> Iterator[Candidate]:
     """Propose the short forms the leaf pass could not attach to any root.
 
     **Read off `findings`, not off the citations.** A leaf whose root the

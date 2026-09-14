@@ -106,14 +106,14 @@ from mellea_lrc.extraction import Attachment, Relaxation, extract_from_plain_tex
 from mellea_lrc.extraction.adjudication import Review, adjudicate
 from mellea_lrc.llm import start_mellea_session_from_env
 from mellea_lrc.serialization import (
-    deserialize_extracted_document,
-    serialize_extracted_document,
+    deserialize_document,
+    serialize_document,
 )
 
 if TYPE_CHECKING:
     from mellea import MelleaSession
 
-    from mellea_lrc.extraction.types import ExtractedDocument
+    from mellea_lrc.extraction.types import Document
 
 # Every kind that cites a case. A statute is not one, and the tree says nothing
 # about it, so reporting one is neither right nor wrong here.
@@ -293,7 +293,7 @@ def _associate(
     return found
 
 
-def _from_rules(extracted: ExtractedDocument, *, dockets: bool) -> dict[tuple[int, int], dict[str, Any]]:
+def _from_rules(extracted: Document, *, dockets: bool) -> dict[tuple[int, int], dict[str, Any]]:
     """What the deterministic pass reports, keyed by the span it reports it at."""
     at = {citation.citation_id: citation.locator_span for citation in extracted.citations}
     rows = {}
@@ -350,7 +350,7 @@ async def run_document(
     """Run one arm over one document and project what it reports.
 
     **Through the artifact.** What is scored is what comes back from
-    `serialize_extracted_document` and `deserialize_extracted_document`, not the
+    `serialize_document` and `deserialize_document`, not the
     objects in memory, because the artifact is what the next stage reads. A
     field that does not survive the round trip is a field validation does not
     have, and a score taken before it would not say so.
@@ -367,10 +367,10 @@ async def run_document(
     # growths and a leaf is matched against a name that has been checked.
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         extracted = grow_leaves(extracted, attach=arm.attach)
-    payload = serialize_extracted_document(extracted)
+    payload = serialize_document(extracted)
     if artifacts is not None and name:
         _write_artifact(artifacts, name, payload)
-    return _from_rules(deserialize_extracted_document(payload), dockets=arm.reads_dockets)
+    return _from_rules(deserialize_document(payload), dockets=arm.reads_dockets)
 
 
 def _replayed(replay: Path, name: str, *, dockets: bool) -> dict[tuple[int, int], dict[str, Any]]:
@@ -381,7 +381,7 @@ def _replayed(replay: Path, name: str, *, dockets: bool) -> dict[tuple[int, int]
     against a changed ground truth without calling it again.
     """
     payload = json.loads((replay / f"{Path(name).stem}.json").read_text(encoding="utf-8"))
-    return _from_rules(deserialize_extracted_document(payload), dockets=dockets)
+    return _from_rules(deserialize_document(payload), dockets=dockets)
 
 
 def _write_artifact(artifacts: Path, name: str, payload: dict[str, Any]) -> None:

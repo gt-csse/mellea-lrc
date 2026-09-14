@@ -16,7 +16,7 @@ import pytest
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.core.pin_cites import PinCiteKind, PinCitePages, read_pin_cite
 from mellea_lrc.extraction import extract_from_plain_text
-from mellea_lrc.serialization.extracted_document import serialize_extracted_document
+from mellea_lrc.serialization.document import serialize_document
 
 
 def test_a_single_page_is_one_run() -> None:
@@ -138,7 +138,7 @@ def test_the_pages_reach_the_serialized_artifact() -> None:
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         document = extract_from_plain_text("Bell Atl. Corp. v. Twombly, 550 U.S. 544, 555 -56 (2007).")
 
-    payload = serialize_extracted_document(document)
+    payload = serialize_document(document)
 
     assert payload["citations"][0]["source"]["pin_cite"] == {
         "span": {"start": 42, "end": 49},

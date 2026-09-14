@@ -111,8 +111,3 @@ class Document(PreprocessedDocument):
             ):
                 msg = f"Citation {item.citation_id!r} has invalid resolves_to={item.resolves_to!r}"
                 raise ValueError(msg)
-
-
-#: The name the document carried while it was only extraction's output. Kept so
-#: the name a caller wrote still imports; it is the same class.
-ExtractedDocument = Document

@@ -82,7 +82,7 @@ if TYPE_CHECKING:
 
     from mellea_lrc.core.record import CitationRecord
     from mellea_lrc.extraction.adjudication.types import Candidate
-    from mellea_lrc.extraction.types import CitationRecord, ExtractedDocument
+    from mellea_lrc.extraction.types import CitationRecord, Document
 
 MAX_TOKENS = 600
 MAX_REPAIR_TURNS = 2
@@ -358,7 +358,7 @@ def _citation_line(
     return f"  {index}. {locator}{read}"
 
 
-def neighbours(document: ExtractedDocument, window: Span) -> tuple[CitationRecord, ...]:
+def neighbours(document: Document, window: Span) -> tuple[CitationRecord, ...]:
     """Every citation read inside the window, in document order.
 
     These are what `names_a_citation` chooses between. The list is the window's
@@ -372,7 +372,7 @@ def neighbours(document: ExtractedDocument, window: Span) -> tuple[CitationRecor
     )
 
 
-def roots(document: ExtractedDocument) -> tuple[CitationRecord, ...]:
+def roots(document: Document) -> tuple[CitationRecord, ...]:
     """Every citation in the document that states an identifier of its own."""
     tree = build_citation_tree(document)
     return tuple(sorted((item.root for item in tree.roots), key=lambda c: c.locator_span.start))
@@ -566,7 +566,7 @@ def _same_case(name: str, other: str) -> bool:
 
 
 async def adjudicate_case_name(
-    document: ExtractedDocument,
+    document: Document,
     site: Candidate,
     *,
     session: MelleaSession | None = None,

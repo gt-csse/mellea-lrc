@@ -10,10 +10,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from mellea_lrc.extraction.types import ExtractedDocument
+    from mellea_lrc.extraction.types import Document
 
 
-def mask_locator_spans(document: ExtractedDocument) -> str:
+def mask_locator_spans(document: Document) -> str:
     """Blank every extracted locator, leaving its surrounding citation intact.
 
     Hides what the extractor identified while keeping case names and
@@ -26,7 +26,7 @@ def mask_locator_spans(document: ExtractedDocument) -> str:
     return "".join(characters)
 
 
-def mask_full_spans(document: ExtractedDocument) -> str:
+def mask_full_spans(document: Document) -> str:
     """Blank each extracted citation entirely: name, locator and parenthetical.
 
     Prefer this for candidate generation. Court abbreviations inside

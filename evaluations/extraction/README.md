@@ -306,7 +306,7 @@ destination either — it is the control `full` is read against. Everything from
 `bounded+recovery` on is experimental,
 and has no domain-object form yet: an `AdjudicatedLocator` is not an
 `ExtractedCitation`, so the experimental arms emit public occurrences directly
-rather than a serialized `ExtractedDocument`.
+rather than a serialized `Document`.
 
 ## Run an arm
 

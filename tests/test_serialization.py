@@ -19,15 +19,15 @@ from mellea_lrc.core.citations import is_leaf
 from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import CourtListenerOpinionCluster, CourtListenerSearchResult
-from mellea_lrc.extraction import CitationRecord, ExtractedDocument, ExtractionMetadata
+from mellea_lrc.extraction import CitationRecord, Document, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.serialization import (
-    deserialize_extracted_document,
+    deserialize_document,
     deserialize_validated_document,
-    serialize_extracted_document,
+    serialize_document,
     serialize_validated_document,
 )
-from mellea_lrc.serialization.extracted_document import (
+from mellea_lrc.serialization.document import (
     SCHEMA_VERSION,
     _read_pin_cite,
     _serialize_pin_cite,
@@ -81,13 +81,13 @@ from mellea_lrc.validation import (
 )
 
 
-def _document_with_one_citation() -> ExtractedDocument:
+def _document_with_one_citation() -> Document:
     """Build one extracted case citation for serializer tests."""
     text = "Brown v. Board of Education, 347 U.S. 483 (1954)."
     preprocessed = preprocess(text)
     matched_text = "347 U.S. 483"
     start = text.index(matched_text)
-    return ExtractedDocument(
+    return Document(
         source_metadata=preprocessed.source_metadata,
         text=text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
@@ -114,11 +114,11 @@ def _document_with_one_citation() -> ExtractedDocument:
     )
 
 
-def test_extracted_document_round_trip_preserves_recoverable_fields() -> None:
+def test_document_round_trip_preserves_recoverable_fields() -> None:
     """Preserve source provenance, both citation spans, and canonical fields."""
     document = _document_with_one_citation()
 
-    payload = serialize_extracted_document(document)
+    payload = serialize_document(document)
 
     assert payload["schema_version"] == SCHEMA_VERSION
     assert payload["artifact_type"] == "document"
@@ -128,11 +128,11 @@ def test_extracted_document_round_trip_preserves_recoverable_fields() -> None:
     assert written["locator_span"] == {"start": 29, "end": 41}
     # This citation states no pin cite, so it claims no pages.
     assert written["pin_cite"] is None
-    assert deserialize_extracted_document(payload) == document
+    assert deserialize_document(payload) == document
     assert json.loads(json.dumps(payload)) == payload
 
 
-def test_extracted_document_round_trip_supports_every_canonical_citation_type() -> None:
+def test_document_round_trip_supports_every_canonical_citation_type() -> None:
     """Keep each canonical citation shape recoverable from an extracted artifact."""
     citations = (
         FullCaseCitation(
@@ -153,7 +153,7 @@ def test_extracted_document_round_trip_supports_every_canonical_citation_type() 
         UnknownCitation(),
     )
     source = preprocess("x" * len(citations))
-    document = ExtractedDocument(
+    document = Document(
         source_metadata=source.source_metadata,
         text=source.text,
         preprocessing_metadata=source.preprocessing_metadata,
@@ -182,7 +182,7 @@ def test_extracted_document_round_trip_supports_every_canonical_citation_type() 
         extraction_metadata=ExtractionMetadata(),
     )
 
-    assert deserialize_extracted_document(serialize_extracted_document(document)) == document
+    assert deserialize_document(serialize_document(document)) == document
 
 
 def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
@@ -191,7 +191,7 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
     preprocessed = preprocess(text)
     matched_text = "347 U.S. 483"
     start = text.index(matched_text)
-    extracted = ExtractedDocument(
+    extracted = Document(
         source_metadata=preprocessed.source_metadata,
         text=text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,

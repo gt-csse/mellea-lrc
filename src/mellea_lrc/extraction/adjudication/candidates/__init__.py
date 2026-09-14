@@ -1,6 +1,6 @@
 """Generators: cheap, deterministic, and each answering one question.
 
-Every generator takes an :class:`~mellea_lrc.extraction.types.ExtractedDocument`
+Every generator takes an :class:`~mellea_lrc.extraction.types.Document`
 and yields a proposal. None of them decides anything -- deciding is the
 reviewer's job, and a generator that decides is a rule that should have been in
 extraction instead.

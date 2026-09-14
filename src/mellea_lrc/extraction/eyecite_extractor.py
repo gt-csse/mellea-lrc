@@ -66,7 +66,7 @@ from mellea_lrc.extraction.reading.relaxation import Relaxation, tokenizer_for
 from mellea_lrc.extraction.reading.unread_names import unread_case_names
 from mellea_lrc.extraction.stages import refine
 from mellea_lrc.extraction.structure.attachment import Attachment, root_for
-from mellea_lrc.extraction.types import CitationRecord, ExtractedDocument, ExtractionMetadata
+from mellea_lrc.extraction.types import CitationRecord, Document, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.preprocessing.types import PreprocessedDocument
 
@@ -367,7 +367,7 @@ def extract_citations(
     relaxation: Relaxation = Relaxation.FULL,
     with_leaves: bool = False,
     attach: Attachment = Attachment.STATED,
-) -> ExtractedDocument:
+) -> Document:
     """Extract canonical citations from a preprocessed document.
 
     This is the extraction stage's entry point. Preprocessing is a stage of its
@@ -395,7 +395,7 @@ def extract_citations(
 
 def _read(
     preprocessed: PreprocessedDocument, relaxation: Relaxation
-) -> tuple[ExtractedDocument, list[tuple[str, CanonicalCitation, str | None]]]:
+) -> tuple[Document, list[tuple[str, CanonicalCitation, str | None]]]:
     """One read of the document: the roots as a document, and the leaves apart.
 
     Both growths go through here, so they read the text exactly the same way and
@@ -475,7 +475,7 @@ def _read(
     # writes. See :mod:`mellea_lrc.extraction.stages` for the sequence and the
     # constraint behind it.
     refined = refine(text, extracted)
-    document = ExtractedDocument(
+    document = Document(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
         preprocessing_metadata=preprocessed.preprocessing_metadata,
@@ -488,10 +488,10 @@ def _read(
 
 
 def _with_leaves(
-    document: ExtractedDocument,
+    document: Document,
     leaves: list[tuple[str, CanonicalCitation, str | None]],
     attach: Attachment = Attachment.STATED,
-) -> ExtractedDocument:
+) -> Document:
     """Attach each leaf to a root the document holds, or drop it.
 
     **Decided from `stated`**, by
@@ -564,7 +564,7 @@ def _with_leaves(
     )
 
 
-def _after(name: str, document: ExtractedDocument) -> tuple[str, ...]:
+def _after(name: str, document: Document) -> tuple[str, ...]:
     """The passes with this one added, and not added twice.
 
     Growing the leaves over a document that already has them is one pass that
@@ -574,11 +574,11 @@ def _after(name: str, document: ExtractedDocument) -> tuple[str, ...]:
 
 
 def grow_leaves(
-    document: ExtractedDocument,
+    document: Document,
     *,
     relaxation: Relaxation | None = None,
     attach: Attachment = Attachment.STATED,
-) -> ExtractedDocument:
+) -> Document:
     """Attach every leaf the document's text writes to a root the document holds.
 
     The second growth. The roots came from :func:`extract_citations` and have
@@ -612,7 +612,7 @@ def extract_from_plain_text(
     relaxation: Relaxation = Relaxation.FULL,
     with_leaves: bool = False,
     attach: Attachment = Attachment.STATED,
-) -> ExtractedDocument:
+) -> Document:
     """Extract citations from Layer 2 plain text.
 
     Spans index into ``text`` as given, so a caller that already holds the text

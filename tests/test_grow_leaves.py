@@ -16,7 +16,7 @@ from mellea_lrc.core.citations import is_leaf
 from mellea_lrc.core.case_names import CaseName
 from mellea_lrc.core.record import Node, Reads
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text, grow_leaves
-from mellea_lrc.serialization import deserialize_extracted_document, serialize_extracted_document
+from mellea_lrc.serialization import deserialize_document, serialize_document
 
 TEXT = (
     "Bell Atl. Corp. v. Twombly , 550 U.S. 544 (2007). Id. at 570. "
@@ -32,9 +32,9 @@ def _roots():
 
 def _through_the_artifact(document, removed: set[str] = frozenset()):
     """Out as an artifact and back, which is how validation returns it."""
-    payload = json.loads(json.dumps(serialize_extracted_document(document)))
+    payload = json.loads(json.dumps(serialize_document(document)))
     payload["citations"] = [c for c in payload["citations"] if c["citation_id"] not in removed]
-    return deserialize_extracted_document(payload)
+    return deserialize_document(payload)
 
 
 def test_the_first_growth_is_roots_only() -> None:

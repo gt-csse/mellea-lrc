@@ -13,11 +13,11 @@ from mellea_lrc.courtlistener import (
     CourtListenerSearchResult,
 )
 from mellea_lrc.serialization._json import JsonValue, require_list, require_mapping, serialize_dataclass
-from mellea_lrc.serialization.extracted_document import (
+from mellea_lrc.serialization.document import (
     SCHEMA_VERSION,
     _require_artifact,
-    deserialize_extracted_document,
-    serialize_extracted_document,
+    deserialize_document,
+    serialize_document,
 )
 from mellea_lrc.validation.types import (
     AggregatedFieldOutcome,
@@ -133,7 +133,7 @@ def serialize_validated_document(document: ValidatedDocument) -> dict[str, JsonV
     return {
         "schema_version": SCHEMA_VERSION,
         "artifact_type": _ARTIFACT_TYPE,
-        "source": serialize_extracted_document(document.source),
+        "source": serialize_document(document.source),
         "citations": [
             {
                 "citation_id": progression.citation_id,
@@ -161,7 +161,7 @@ def serialize_validated_document(document: ValidatedDocument) -> dict[str, JsonV
 def deserialize_validated_document(payload: Mapping[str, object]) -> ValidatedDocument:
     """Recover one ``ValidatedDocument`` and its explicit node graph from JSON."""
     _require_artifact(payload, artifact_type=_ARTIFACT_TYPE)
-    source = deserialize_extracted_document(require_mapping(payload.get("source"), name="source"))
+    source = deserialize_document(require_mapping(payload.get("source"), name="source"))
     progressions = require_list(payload.get("citations"), name="citations")
     if len(progressions) != len(source.citations):
         msg = "Validation progressions must exactly match extracted citations"
