@@ -54,7 +54,7 @@ from mellea_lrc.extraction.adjudication import ocr
 from mellea_lrc.extraction.adjudication.masking import mask_full_spans, mask_locator_spans
 
 if TYPE_CHECKING:
-    from mellea_lrc.extraction.types import ExtractedDocument
+    from mellea_lrc.extraction.types import Document
 
 _MIN_GAZETTEER_LENGTH = 2
 _DIGIT_WINDOW = 12
@@ -295,7 +295,7 @@ def _resembles(reduced: str) -> tuple[str, str] | None:
     return gazetteer[close[0]], "similar"
 
 
-def _strict_sites(document: ExtractedDocument, masked: str, reading: str) -> list[SuspectedLocator]:
+def _strict_sites(document: Document, masked: str, reading: str) -> list[SuspectedLocator]:
     """Reporter spellings the gazetteer holds, standing in locator-like company.
 
     A position qualifies when the reporter string is not embedded in a word and
@@ -351,7 +351,7 @@ def _strict_sites(document: ExtractedDocument, masked: str, reading: str) -> lis
     return sites
 
 
-def _fuzzy_sites(document: ExtractedDocument, masked: str, reading: str) -> list[SuspectedLocator]:
+def _fuzzy_sites(document: Document, masked: str, reading: str) -> list[SuspectedLocator]:
     """Number-letters-number runs whose letters reduce to a reporter."""
     sites: list[SuspectedLocator] = []
     for anchor in _NUMBER_START.finditer(masked):
@@ -389,7 +389,7 @@ def _fuzzy_sites(document: ExtractedDocument, masked: str, reading: str) -> list
     return sites
 
 
-def suspected_locators(document: ExtractedDocument) -> tuple[SuspectedLocator, ...]:
+def suspected_locators(document: Document) -> tuple[SuspectedLocator, ...]:
     """Report reporter occurrences that look like locators but were not parsed.
 
     Strict sites first, then fuzzy ones that do not overlap a strict site: a

@@ -12,10 +12,10 @@ if TYPE_CHECKING:
     from mellea import MelleaSession
 
     from mellea_lrc.courtlistener.protocols import CourtListenerServiceClient
-    from mellea_lrc.extraction.types import ExtractedDocument
+    from mellea_lrc.extraction.types import Document
 
 
-def initialize_validation(document: ExtractedDocument) -> ValidatedDocument:
+def initialize_validation(document: Document) -> ValidatedDocument:
     """Create one empty validation progression per extracted citation."""
     return ValidatedDocument(
         source=document,
@@ -24,7 +24,7 @@ def initialize_validation(document: ExtractedDocument) -> ValidatedDocument:
 
 
 async def validate_document(
-    document: ExtractedDocument,
+    document: Document,
     *,
     client: CourtListenerServiceClient | None = None,
     session: MelleaSession | None = None,

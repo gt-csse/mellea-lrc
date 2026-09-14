@@ -83,7 +83,7 @@ from mellea_lrc.core.citations import (
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from mellea_lrc.extraction.types import CitationRecord, ExtractedDocument
+    from mellea_lrc.extraction.types import CitationRecord, Document
 
 # A chain longer than this is a resolution loop or a pathology, not a brief.
 MAX_RESOLUTION_DEPTH = 24
@@ -198,7 +198,7 @@ def assign_roots(citations: Sequence[CitationRecord]) -> tuple[CitationRecord, .
     )
 
 
-def build_citation_tree(document: ExtractedDocument) -> CitationTree:
+def build_citation_tree(document: Document) -> CitationTree:
     """Group a document's citations under the authorities they refer to."""
     by_id = {item.citation_id: item for item in document.citations}
     roots: dict[str, list[CitationOccurrence]] = {}

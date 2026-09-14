@@ -21,11 +21,11 @@ import io
 import pytest
 
 from mellea_lrc.core.citations import DocketCitation, FullCaseCitation
-from mellea_lrc.extraction import ExtractedDocument, Relaxation, extract_from_plain_text
+from mellea_lrc.extraction import Document, Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
-from mellea_lrc.serialization.extracted_document import (
-    deserialize_extracted_document,
-    serialize_extracted_document,
+from mellea_lrc.serialization.document import (
+    deserialize_document,
+    serialize_document,
 )
 
 INDICTMENT = (
@@ -36,7 +36,7 @@ INDICTMENT = (
 )
 
 
-def _extract(text: str, relaxation: Relaxation = Relaxation.BOUNDED) -> ExtractedDocument:
+def _extract(text: str, relaxation: Relaxation = Relaxation.BOUNDED) -> Document:
     # eyecite writes overlap diagnostics to stdout on some inputs.
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         return extract_from_plain_text(text, relaxation=relaxation, with_leaves=True)
@@ -285,7 +285,7 @@ def test_a_docket_citation_survives_a_serialization_round_trip() -> None:
     """A citation kind the artifact cannot carry is a citation kind nothing can use."""
     document = _extract(INDICTMENT)
 
-    recovered = deserialize_extracted_document(serialize_extracted_document(document))
+    recovered = deserialize_document(serialize_document(document))
 
     assert recovered.citations == document.citations
 

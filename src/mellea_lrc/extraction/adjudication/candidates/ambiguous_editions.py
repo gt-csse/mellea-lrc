@@ -31,13 +31,13 @@ from mellea_lrc.extraction.adjudication.types import Candidate, CandidateKind
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from mellea_lrc.extraction.types import ExtractedDocument
+    from mellea_lrc.extraction.types import Document
 
 WINDOW = 120
 _GENERATOR = "ambiguous_editions"
 
 
-def ambiguous_editions(document: ExtractedDocument) -> Iterator[Candidate]:
+def ambiguous_editions(document: Document) -> Iterator[Candidate]:
     """Propose citations whose reporter abbreviation names several reporters."""
     text = document.text
     for item in document.citations:

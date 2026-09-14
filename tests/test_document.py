@@ -17,7 +17,7 @@ from mellea_lrc.core.citations import is_leaf
 from mellea_lrc.core.findings import FindingKind
 from mellea_lrc.core.record import WITHDRAWN, Node, Reads
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text, grow_leaves
-from mellea_lrc.serialization import deserialize_extracted_document, serialize_extracted_document
+from mellea_lrc.serialization import deserialize_document, serialize_document
 
 ORPHAN = "The court disagreed. DCD Programs , 833 F.2d at 186. That principle applies."
 WHOLE = (
@@ -32,7 +32,7 @@ def _read(text: str):
 
 
 def _through_the_artifact(document):
-    return deserialize_extracted_document(json.loads(json.dumps(serialize_extracted_document(document))))
+    return deserialize_document(json.loads(json.dumps(serialize_document(document))))
 
 
 def test_the_document_says_which_passes_have_run() -> None:

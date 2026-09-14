@@ -73,7 +73,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from mellea_lrc.core.record import CitationRecord
-    from mellea_lrc.extraction.types import ExtractedDocument
+    from mellea_lrc.extraction.types import Document
 
 WINDOW = 160
 _GENERATOR = "pin_cite_sites"
@@ -139,7 +139,7 @@ _CLAIMS_A_PAGE = frozenset(
 )
 
 
-def pin_cite_sites(document: ExtractedDocument) -> Iterator[Candidate]:
+def pin_cite_sites(document: Document) -> Iterator[Candidate]:
     """Propose every place a page claim may be more, or other, than was read."""
     text = document.text
     starts = sorted(record.locator_span.start for record in document.citations)

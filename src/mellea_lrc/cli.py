@@ -19,13 +19,13 @@ import json
 import sys
 from pathlib import Path
 
-from mellea_lrc.extraction import ExtractedDocument, extract_citations, extract_from_plain_text
+from mellea_lrc.extraction import Document, extract_citations, extract_from_plain_text
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.serialization import serialize_validated_document
 from mellea_lrc.validation import validate_document
 
 
-def _parse(source: str, *, from_file: bool) -> ExtractedDocument:
+def _parse(source: str, *, from_file: bool) -> Document:
     """Parse the citations out of a document on disk, or out of the text itself."""
     if from_file:
         return extract_citations(preprocess(Path(source)))

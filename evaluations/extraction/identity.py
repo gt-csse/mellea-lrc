@@ -26,7 +26,7 @@ from mellea_lrc.core.spans import Span
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from mellea_lrc.extraction.types import ExtractedDocument
+    from mellea_lrc.extraction.types import Document
 
 #: The fields an identity run corrects. `court` is on the citation like the
 #: parties are; `case_name` is an object of its own.
@@ -55,7 +55,7 @@ def corrections(artifact: Path) -> dict[str, list[tuple[str, Any]]]:
     return made
 
 
-def settled(document: ExtractedDocument, artifact: Path) -> ExtractedDocument:
+def settled(document: Document, artifact: Path) -> Document:
     """The document with an identity run's name corrections written onto `stated`.
 
     Only `stated` moves. `source` stays what the rules read, which is what makes

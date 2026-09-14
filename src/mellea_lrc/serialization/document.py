@@ -29,7 +29,7 @@ from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.extraction.types import (
     CitationRecord,
-    ExtractedDocument,
+    Document,
     ExtractionBackend,
     ExtractionMetadata,
 )
@@ -58,18 +58,7 @@ to see what was changed and why. Both carry their own position -- ``span``,
 the citation, written once, because a reading and the position it was read from
 go out of step the moment they are stored apart.
 """
-#: Schemas this reads. 13 is what it writes; 12 is the same document with two
-#: fields it did not have -- `findings` and `passes` -- so an artifact written
-#: then reads back as one with nothing found and no pass recorded, which is
-#: what was true of it. Nothing else about a citation moved, so the runs already
-#: on disk are not stranded by the rename.
-_READABLE_SCHEMA_VERSIONS = frozenset({12, SCHEMA_VERSION})
 _ARTIFACT_TYPE = "document"
-#: What the artifact was called while it was only extraction's output. Read, and
-#: never written: a document is one object every stage appends to, and an
-#: artifact named for the stage that last touched it is the thing schema 13
-#: stops doing. See `docs/Document.md`.
-_FORMER_ARTIFACT_TYPES = frozenset({"extracted_document"})
 
 _CITATION_TYPES: dict[CitationKind, type[CanonicalCitation]] = {
     CitationKind.FULL_CASE: FullCaseCitation,
@@ -84,8 +73,8 @@ _CITATION_TYPES: dict[CitationKind, type[CanonicalCitation]] = {
 }
 
 
-def serialize_extracted_document(document: ExtractedDocument) -> dict[str, JsonValue]:
-    """Project one ``ExtractedDocument`` into a recoverable JSON artifact."""
+def serialize_document(document: Document) -> dict[str, JsonValue]:
+    """Project one ``Document`` into a recoverable JSON artifact."""
     return {
         "schema_version": SCHEMA_VERSION,
         "artifact_type": _ARTIFACT_TYPE,
@@ -134,8 +123,8 @@ def _read_findings(value: object) -> tuple[Finding, ...]:
     )
 
 
-def deserialize_extracted_document(payload: Mapping[str, object]) -> ExtractedDocument:
-    """Recover one ``ExtractedDocument`` from its serialized artifact."""
+def deserialize_document(payload: Mapping[str, object]) -> Document:
+    """Recover one ``Document`` from its serialized artifact."""
     _require_artifact(payload, artifact_type=_ARTIFACT_TYPE)
     source_metadata = require_mapping(payload.get("source_metadata"), name="source_metadata")
     preprocessing_metadata = require_mapping(
@@ -148,7 +137,7 @@ def deserialize_extracted_document(payload: Mapping[str, object]) -> ExtractedDo
         msg = "text must be a string"
         raise ValueError(msg)
 
-    return ExtractedDocument(
+    return Document(
         source_metadata=SourceMetadata(
             path=_optional_string(source_metadata.get("path"), name="source_metadata.path"),
             format=SourceFormat(
@@ -458,13 +447,10 @@ def _deserialize_reporter(payload: Mapping[str, object]) -> Reporter:
 
 
 def _require_artifact(payload: Mapping[str, object], *, artifact_type: str) -> None:
-    if payload.get("schema_version") not in _READABLE_SCHEMA_VERSIONS:
+    if payload.get("schema_version") != SCHEMA_VERSION:
         msg = f"Unsupported serialization schema version: {payload.get('schema_version')!r}"
         raise ValueError(msg)
-    written = payload.get("artifact_type")
-    if written != artifact_type and not (
-        artifact_type == _ARTIFACT_TYPE and written in _FORMER_ARTIFACT_TYPES
-    ):
+    if payload.get("artifact_type") != artifact_type:
         msg = f"Expected artifact_type={artifact_type!r}"
         raise ValueError(msg)
 

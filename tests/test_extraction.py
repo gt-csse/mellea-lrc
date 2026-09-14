@@ -8,7 +8,7 @@ import pytest
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import (
     CitationRecord,
-    ExtractedDocument,
+    Document,
     ExtractionMetadata,
     extract_citations,
     extract_from_plain_text,
@@ -65,7 +65,7 @@ def test_extract_from_plain_text_returns_canonical_types() -> None:
     assert full_law.stated.reporter.as_written == "U.S.C."
 
 
-def test_extracted_document_rejects_duplicate_citation_ids() -> None:
+def test_document_rejects_duplicate_citation_ids() -> None:
     preprocessed = preprocess("347 U.S. 483")
     citation = CitationRecord(
         citation_id="cite-1",
@@ -78,7 +78,7 @@ def test_extracted_document_rejects_duplicate_citation_ids() -> None:
     )
 
     with pytest.raises(ValueError, match="must be unique"):
-        ExtractedDocument(
+        Document(
             source_metadata=preprocessed.source_metadata,
             text=preprocessed.text,
             preprocessing_metadata=preprocessed.preprocessing_metadata,
@@ -87,7 +87,7 @@ def test_extracted_document_rejects_duplicate_citation_ids() -> None:
         )
 
 
-def test_extracted_document_rejects_span_outside_text() -> None:
+def test_document_rejects_span_outside_text() -> None:
     preprocessed = preprocess("347 U.S. 483")
     citation = CitationRecord(
         citation_id="cite-1",
@@ -100,7 +100,7 @@ def test_extracted_document_rejects_span_outside_text() -> None:
     )
 
     with pytest.raises(ValueError, match="span exceeds"):
-        ExtractedDocument(
+        Document(
             source_metadata=preprocessed.source_metadata,
             text=preprocessed.text,
             preprocessing_metadata=preprocessed.preprocessing_metadata,

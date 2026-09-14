@@ -58,7 +58,7 @@ if TYPE_CHECKING:
 
     from mellea import MelleaSession
 
-    from mellea_lrc.extraction.types import ExtractedDocument
+    from mellea_lrc.extraction.types import Document
 
 
 class Review(str, Enum):
@@ -126,11 +126,11 @@ DECLINED = "declined"
 
 
 async def adjudicate(
-    document: ExtractedDocument,
+    document: Document,
     reviews: Sequence[Review] | None = None,
     *,
     session: MelleaSession,
-) -> ExtractedDocument:
+) -> Document:
     """Run the named reviews over a document, in the order they are given.
 
     **One at a time, and deliberately.** The model underneath is asynchronous
@@ -156,7 +156,7 @@ async def adjudicate(
     return document
 
 
-async def _case_name(document: ExtractedDocument, session: MelleaSession) -> None:
+async def _case_name(document: Document, session: MelleaSession) -> None:
     """Apply what a reader makes of each case name standing outside every citation.
 
     `short_form` is a citation the rules did not read at all, so it becomes a
@@ -215,7 +215,7 @@ async def _case_name(document: ExtractedDocument, session: MelleaSession) -> Non
         object.__setattr__(document, "citations", (*document.citations, *recovered))
 
 
-async def _pin_cite(document: ExtractedDocument, session: MelleaSession) -> None:
+async def _pin_cite(document: Document, session: MelleaSession) -> None:
     """Apply what a reader makes of each page claim the rules are not sure of.
 
     Every site names a citation already in the record, so every answer is a

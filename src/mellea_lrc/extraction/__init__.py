@@ -65,7 +65,7 @@ from mellea_lrc.extraction.structure.attachment import Attachment
 from mellea_lrc.extraction.resolve_colocations import resolve_colocations
 from mellea_lrc.extraction.types import (
     CitationRecord,
-    ExtractedDocument,
+    Document,
     ExtractionBackend,
     ExtractionMetadata,
 )
@@ -73,7 +73,7 @@ from mellea_lrc.extraction.types import (
 __all__ = [
     "Attachment",
     "CitationRecord",
-    "ExtractedDocument",
+    "Document",
     "ExtractionBackend",
     "ExtractionMetadata",
     "Relaxation",

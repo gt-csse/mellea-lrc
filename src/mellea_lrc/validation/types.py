@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
     from mellea_lrc.core.spans import Span
     from mellea_lrc.courtlistener.opinion_models import CourtListenerOpinionCluster
-    from mellea_lrc.extraction.types import CitationRecord, ExtractedDocument
+    from mellea_lrc.extraction.types import CitationRecord, Document
 
 
 class ValidationNodeStatus(str, Enum):
@@ -729,7 +729,7 @@ class CitationValidation:
 class ValidatedDocument:
     """Post-extraction validation state for every citation in one document."""
 
-    source: ExtractedDocument
+    source: Document
     citations: tuple[CitationValidation, ...]
 
     def __post_init__(self) -> None:

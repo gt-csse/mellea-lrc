@@ -38,7 +38,7 @@ from mellea_lrc.extraction import eyecite_extractor as extractor_module
 from mellea_lrc.extraction import stages as stages_module
 from mellea_lrc.extraction.reading import pin_cites as pin_cites_module
 from mellea_lrc.extraction.reading import post_citation as post_citation_module
-from mellea_lrc.extraction.types import ExtractedDocument
+from mellea_lrc.extraction.types import Document
 
 BENCH = Path("data/extraction-v2.0/documents_txt")
 BENCH_TRUTH = Path("data/extraction-v2.0/locators.jsonl")
@@ -119,7 +119,7 @@ def _configured(arm: Arm) -> Iterator[None]:
             setattr(owner, attribute, original)
 
 
-def _court_written_but_unrecorded(text: str, document: ExtractedDocument) -> int:
+def _court_written_but_unrecorded(text: str, document: Document) -> int:
     """Citations whose parenthetical names a court that was not recorded."""
     missed = 0
     for item in document.citations:
@@ -132,7 +132,7 @@ def _court_written_but_unrecorded(text: str, document: ExtractedDocument) -> int
     return missed
 
 
-def _measure(text: str, document: ExtractedDocument) -> dict[str, int]:
+def _measure(text: str, document: Document) -> dict[str, int]:
     """Findings and defects for one document under one arm."""
     counts = dict.fromkeys(
         (

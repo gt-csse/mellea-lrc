@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING
 from mellea_lrc.extraction.reading.dockets import CourtCandidate, courts_near
 
 if TYPE_CHECKING:
-    from mellea_lrc.extraction.types import ExtractedDocument
+    from mellea_lrc.extraction.types import Document
 
 # "No. 1:19-CV-362", "Case No. 3:23-cv-06558", "Civil Action No. 2:25-cv-00804".
 # The office/party suffix ("-RPK", "-PAB-SBP") is optional, and the separator
@@ -71,7 +71,7 @@ class SuspectedDocket:
     window: str
 
 
-def suspected_dockets(document: ExtractedDocument) -> tuple[SuspectedDocket, ...]:
+def suspected_dockets(document: Document) -> tuple[SuspectedDocket, ...]:
     """Report every docket-shaped string, with the courts written near it."""
     text = document.text
     sites: list[SuspectedDocket] = []

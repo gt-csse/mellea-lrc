@@ -16,13 +16,13 @@ from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import CitationRecord
 from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
-from mellea_lrc.extraction.types import ExtractedDocument, ExtractionMetadata
+from mellea_lrc.extraction.types import Document, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess
 
 
-def _document(*citations: CitationRecord, text: str = "x" * 400) -> ExtractedDocument:
+def _document(*citations: CitationRecord, text: str = "x" * 400) -> Document:
     source = preprocess(text)
-    return ExtractedDocument(
+    return Document(
         source_metadata=source.source_metadata,
         preprocessing_metadata=source.preprocessing_metadata,
         text=source.text,
@@ -174,7 +174,7 @@ def test_a_dangling_antecedent_cannot_reach_the_tree_at_all() -> None:
 
     Worth pinning here rather than assuming: the tree still handles a missing
     antecedent defensively, but this is why that path is unreachable through an
-    `ExtractedDocument` and why no citation can be attributed to an authority
+    `Document` and why no citation can be attributed to an authority
     that was never extracted.
     """
     with pytest.raises(ValueError, match="invalid resolves_to"):

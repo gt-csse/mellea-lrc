@@ -6,7 +6,7 @@ tells you exactly what ran, in order.
 
 The experimental arms have no domain-object form -- an ``AdjudicatedLocator``
 is not an ``CitationRecord`` -- which is why they emit public occurrences
-directly rather than a serialized ``ExtractedDocument``.
+directly rather than a serialized ``Document``.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from mellea_lrc.extraction.adjudication import (
     suspected_dockets,
     suspected_locators,
 )
-from mellea_lrc.extraction.types import ExtractedDocument
+from mellea_lrc.extraction.types import Document
 
 Arm = Callable[[str, str], list[Occurrence]]
 
@@ -44,8 +44,8 @@ def _adjudicated(call: Coroutine):
     return asyncio.run(call)
 
 
-def _from_extracted_document(document: str, extracted: ExtractedDocument) -> list[Occurrence]:
-    """Take the full case citations out of an ExtractedDocument.
+def _from_document(document: str, extracted: Document) -> list[Occurrence]:
+    """Take the full case citations out of an Document.
 
     The span used is ``locator_span``, the minimum sufficient case identifier,
     not the citation's full extent. Short forms, ``id.``, ``supra`` and statutes
@@ -113,10 +113,10 @@ def bounded(document: str, text: str) -> list[Occurrence]:
     relaxation with no known false positive, which is what makes it the control
     ``FULL`` is read against.
     """
-    return _from_extracted_document(document, extract_from_plain_text(text, relaxation=Relaxation.BOUNDED))
+    return _from_document(document, extract_from_plain_text(text, relaxation=Relaxation.BOUNDED))
 
 
-def _recover_locators(document: str, extracted: ExtractedDocument) -> list[Occurrence]:
+def _recover_locators(document: str, extracted: Document) -> list[Occurrence]:
     """Hunt for missed locators and let a model adjudicate each site.
 
     Sites are found against a copy of the text with every extracted citation
@@ -145,7 +145,7 @@ def _recover_locators(document: str, extracted: ExtractedDocument) -> list[Occur
     return recovered
 
 
-def _recover_dockets(document: str, extracted: ExtractedDocument) -> list[Occurrence]:
+def _recover_dockets(document: str, extracted: Document) -> list[Occurrence]:
     """Find docket-shaped strings and let a model confirm each one.
 
     A docket number names a case only with its court, so the courts written near
@@ -183,7 +183,7 @@ def bounded_with_recovery(document: str, text: str) -> list[Occurrence]:
     extracted = extract_from_plain_text(text)
     return deduplicate(
         [
-            *_from_extracted_document(document, extracted),
+            *_from_document(document, extracted),
             *_recover_locators(document, extracted),
             *_recover_dockets(document, extracted),
         ]
@@ -198,7 +198,7 @@ def full(document: str, text: str) -> list[Occurrence]:
     a bench -- the only other arm using FULL also runs model recovery, so its
     score cannot say which of the two produced a difference.
     """
-    return _from_extracted_document(document, extract_from_plain_text(text, relaxation=Relaxation.FULL))
+    return _from_document(document, extract_from_plain_text(text, relaxation=Relaxation.FULL))
 
 
 def full_with_recovery(document: str, text: str) -> list[Occurrence]:
@@ -211,7 +211,7 @@ def full_with_recovery(document: str, text: str) -> list[Occurrence]:
     extracted = extract_from_plain_text(text, relaxation=Relaxation.FULL)
     return deduplicate(
         [
-            *_from_extracted_document(document, extracted),
+            *_from_document(document, extracted),
             *_recover_locators(document, extracted),
             *_recover_dockets(document, extracted),
         ]

@@ -103,7 +103,7 @@ own — it is a step of `validate`, not a thing to run.
 
 ## What comes back
 
-An `ExtractedDocument`, which is the `PreprocessedDocument` it was built from
+An `Document`, which is the `PreprocessedDocument` it was built from
 plus the citations found in it:
 
 | field | what it is |
@@ -125,8 +125,8 @@ Each `ExtractedCitation` carries:
 
 ### The artifact, which is what validation reads
 
-`serialize_extracted_document` writes the whole of an `ExtractedDocument` as
-JSON and `deserialize_extracted_document` reads it back. That artifact is the
+`serialize_document` writes the whole of an `Document` as
+JSON and `deserialize_document` reads it back. That artifact is the
 **input to the identity stage**, not a by-product of an evaluation: extraction
 is offline and deterministic, validation is neither, and the boundary between
 them is a file.

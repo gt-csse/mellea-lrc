@@ -25,11 +25,11 @@ import io
 import pytest
 
 from mellea_lrc.core.citations import FullCaseCitation, ShortCaseCitation
-from mellea_lrc.extraction import ExtractedDocument, Relaxation, extract_from_plain_text
+from mellea_lrc.extraction import Document, Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.reading.relaxation import tokenizer_for
 
 
-def _extract(text: str, relaxation: Relaxation) -> ExtractedDocument:
+def _extract(text: str, relaxation: Relaxation) -> Document:
     # eyecite writes overlap diagnostics to stdout on some inputs.
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         return extract_from_plain_text(text, relaxation=relaxation, with_leaves=True)
