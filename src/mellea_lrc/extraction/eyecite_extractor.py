@@ -51,8 +51,10 @@ from mellea_lrc.core.citations import (
     ShortCaseCitation,
     SupraCitation,
     UnknownCitation,
+    citation_kind,
     is_leaf,
 )
+from mellea_lrc.core.findings import Finding, FindingKind
 from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.identity import citation_id as citation_id_for
@@ -479,6 +481,7 @@ def _read(
         preprocessing_metadata=preprocessed.preprocessing_metadata,
         citations=refined,
         unread_case_names=unread_case_names(text, refined),
+        passes=("roots",),
         extraction_metadata=ExtractionMetadata(relaxation=relaxation),
     )
     return document, leaves
@@ -501,9 +504,12 @@ def _with_leaves(
     a pass of their own. eyecite's answer is kept beside ours in `resolves_to`,
     so the two can be compared.
 
-    A leaf `root_for` cannot decide is dropped rather than recorded pointing
-    nowhere. `CitationRecord` refuses a leaf with no root, and a leaf attached to
-    a guess is worse than a leaf that is not there.
+    A leaf `root_for` cannot decide is **not built, and is reported**.
+    `CitationRecord` refuses a leaf with no root, and a leaf attached to a guess
+    is worse than a leaf that is not there -- but a leaf with no root to reach is
+    a finding either way: the root is in the document and was not read, or there
+    is no root and the filing cites a case it never gives in full. So it goes to
+    `findings` rather than to nothing. See :mod:`mellea_lrc.core.findings`.
 
     Each leaf is settled before the next is read, because an `Id.` means the
     authority of the citation before it and that citation is often another leaf.
@@ -513,12 +519,15 @@ def _with_leaves(
     measured against; it changes nothing else, so a difference between the two
     runs is the attachment and only the attachment.
     """
+    # A document with no roots is not a document with no leaves: every leaf in
+    # it is one that reached nothing, and that is exactly what a filing citing
+    # only short forms looks like. So the loop runs either way and the findings
+    # are the whole of what comes out.
     roots = [record for record in document.citations if not is_leaf(record.stated)]
-    if not roots:
-        return document
     by_id = {record.citation_id: record for record in roots}
     settled = sorted(roots, key=lambda record: record.full_span.start)
     grown: list[CitationRecord] = []
+    ungrown: list[Finding] = []
     for citation_id, canonical, antecedent in sorted(leaves, key=lambda item: item[1].span.start):
         if attach is Attachment.EYECITE:
             root_id = antecedent if antecedent in by_id else None
@@ -526,20 +535,42 @@ def _with_leaves(
             before = [r for r in settled if r.full_span.start < canonical.span.start]
             root_id = root_for(canonical, roots, before=before)
         if root_id is None:
+            ungrown.append(
+                Finding(
+                    kind=FindingKind.UNGROWN_LEAF,
+                    stage="extraction",
+                    made_by="mellea_lrc.extraction.structure.attachment",
+                    message=(
+                        f"{citation_kind(canonical).value} reaching no root this document "
+                        "holds, so no leaf was built"
+                    ),
+                    span=canonical.span,
+                    citation=canonical,
+                )
+            )
             continue
         leaf = CitationRecord(
             citation_id=citation_id, source=canonical, root_id=root_id, resolves_to=antecedent
         )
         grown.append(leaf)
         settled = sorted([*settled, leaf], key=lambda record: record.full_span.start)
-    if not grown:
-        return document
     citations = sorted((*document.citations, *grown), key=lambda record: record.full_span.start)
     return dataclasses.replace(
         document,
         citations=tuple(citations),
         unread_case_names=unread_case_names(document.text, citations),
+        findings=(*document.findings, *ungrown),
+        passes=_after("leaves", document),
     )
+
+
+def _after(name: str, document: ExtractedDocument) -> tuple[str, ...]:
+    """The passes with this one added, and not added twice.
+
+    Growing the leaves over a document that already has them is one pass that
+    ran again, not two passes.
+    """
+    return document.passes if name in document.passes else (*document.passes, name)
 
 
 def grow_leaves(

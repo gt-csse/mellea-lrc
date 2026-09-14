@@ -28,10 +28,10 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from mellea_lrc.core.citations import CitationKind
+from mellea_lrc.core.citations import CitationKind, citation_kind
+from mellea_lrc.core.findings import FindingKind
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.adjudication.types import Candidate, CandidateKind
-from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -54,11 +54,22 @@ def _full_form_in_text(text: str, volume: str, reporter: str) -> bool:
 
 
 def orphan_short_forms(document: ExtractedDocument) -> Iterator[Candidate]:
-    """Propose short case citations that resolved to no authority."""
+    """Propose the short forms the leaf pass could not attach to any root.
+
+    **Read off `findings`, not off the citations.** A leaf whose root the
+    document does not hold is never built -- `CitationRecord` refuses a leaf
+    with no root -- so there is nothing among the citations to find. What the
+    pass reports instead is the reading it could not build, and that is what is
+    proposed here. A document whose leaves have not been grown has no findings
+    yet and nothing to propose, which is the right answer rather than an empty
+    one.
+    """
     text = document.text
-    for item in build_citation_tree(document).unattributed:
-        citation = item.stated
-        if citation.kind is not CitationKind.SHORT_CASE:
+    for finding in document.findings:
+        if finding.kind is not FindingKind.UNGROWN_LEAF or finding.citation is None:
+            continue
+        citation = finding.citation
+        if citation_kind(citation) is not CitationKind.SHORT_CASE:
             continue
         volume = getattr(citation, "volume", None)
         reporter = getattr(citation, "reporter", None)
@@ -68,10 +79,10 @@ def orphan_short_forms(document: ExtractedDocument) -> Iterator[Candidate]:
         yield Candidate(
             generator=_GENERATOR,
             kind=CandidateKind.ORPHAN_SHORT_FORM,
-            span=item.locator_span,
+            span=citation.locator_span or citation.span,
             window=Span(
-                start=max(0, item.full_span.start - WINDOW),
-                end=min(len(text), item.full_span.end + WINDOW),
+                start=max(0, citation.span.start - WINDOW),
+                end=min(len(text), citation.span.end + WINDOW),
             ),
             note=(
                 "the volume and reporter appear elsewhere with another page, so the full "

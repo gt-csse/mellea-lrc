@@ -1,6 +1,6 @@
 ---
 tags: [record, artifact, extraction, validation]
-status: proposed
+status: active
 ---
 
 # The document every stage appends to

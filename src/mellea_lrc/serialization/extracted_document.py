@@ -22,6 +22,7 @@ from mellea_lrc.core.citations import (
     citation_kind,
 )
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
+from mellea_lrc.core.findings import Finding, FindingKind
 from mellea_lrc.core.pin_cites import PinCite, PinCiteKind, PinCitePages
 from mellea_lrc.core.record import CitationRecord, Correction, Node, Reads
 from mellea_lrc.core.spans import Span
@@ -38,7 +39,7 @@ from mellea_lrc.preprocessing.types import (
 )
 from mellea_lrc.serialization._json import JsonValue, require_list, require_mapping, serialize_dataclass
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 """What an artifact of this shape is called, so a reader refuses one it cannot read.
 
 Version 11 is the citation record. A document holds records rather than
@@ -57,7 +58,18 @@ to see what was changed and why. Both carry their own position -- ``span``,
 the citation, written once, because a reading and the position it was read from
 go out of step the moment they are stored apart.
 """
-_ARTIFACT_TYPE = "extracted_document"
+#: Schemas this reads. 13 is what it writes; 12 is the same document with two
+#: fields it did not have -- `findings` and `passes` -- so an artifact written
+#: then reads back as one with nothing found and no pass recorded, which is
+#: what was true of it. Nothing else about a citation moved, so the runs already
+#: on disk are not stranded by the rename.
+_READABLE_SCHEMA_VERSIONS = frozenset({12, SCHEMA_VERSION})
+_ARTIFACT_TYPE = "document"
+#: What the artifact was called while it was only extraction's output. Read, and
+#: never written: a document is one object every stage appends to, and an
+#: artifact named for the stage that last touched it is the thing schema 13
+#: stops doing. See `docs/Document.md`.
+_FORMER_ARTIFACT_TYPES = frozenset({"extracted_document"})
 
 _CITATION_TYPES: dict[CitationKind, type[CanonicalCitation]] = {
     CitationKind.FULL_CASE: FullCaseCitation,
@@ -82,8 +94,44 @@ def serialize_extracted_document(document: ExtractedDocument) -> dict[str, JsonV
         "preprocessing_metadata": serialize_dataclass(document.preprocessing_metadata),
         "citations": [_serialize_record(record) for record in document.citations],
         "unread_case_names": [serialize_dataclass(span) for span in document.unread_case_names],
+        "findings": [_serialize_finding(finding) for finding in document.findings],
+        "passes": list(document.passes),
         "extraction_metadata": serialize_dataclass(document.extraction_metadata),
     }
+
+
+def _serialize_finding(finding: Finding) -> dict[str, object]:
+    """One thing a pass learned that belongs to no citation."""
+    return {
+        "kind": finding.kind.value,
+        "stage": finding.stage,
+        "made_by": finding.made_by,
+        "message": finding.message,
+        "span": serialize_dataclass(finding.span) if finding.span is not None else None,
+        "citation": _serialize_citation(finding.citation) if finding.citation is not None else None,
+    }
+
+
+def _read_findings(value: object) -> tuple[Finding, ...]:
+    """The findings back, each with the reading it could not build."""
+    if not isinstance(value, list):
+        return ()
+    return tuple(
+        Finding(
+            kind=FindingKind(_required_string(entry.get("kind"), name="findings.kind")),
+            stage=_required_string(entry.get("stage"), name="findings.stage"),
+            made_by=_required_string(entry.get("made_by"), name="findings.made_by"),
+            message=_required_string(entry.get("message"), name="findings.message"),
+            span=_optional_span(entry.get("span"), name="findings.span"),
+            citation=(
+                _read_citation(entry.get("citation"), name="findings.citation")
+                if entry.get("citation") is not None
+                else None
+            ),
+        )
+        for entry in value
+        if isinstance(entry, Mapping)
+    )
 
 
 def deserialize_extracted_document(payload: Mapping[str, object]) -> ExtractedDocument:
@@ -121,6 +169,10 @@ def deserialize_extracted_document(payload: Mapping[str, object]) -> ExtractedDo
             _optional_span(item, name="unread_case_names")
             for item in require_list(payload.get("unread_case_names", []), name="unread_case_names")
             if item is not None
+        ),
+        findings=_read_findings(payload.get("findings")),
+        passes=tuple(
+            _required_string(name, name="passes") for name in (payload.get("passes") or [])
         ),
         extraction_metadata=ExtractionMetadata(
             backend=ExtractionBackend(
@@ -189,6 +241,10 @@ def _serialize_node(node: Node) -> dict[str, object]:
             }
             for correction in node.corrections
         ],
+        # Written back as it arrived. Nothing here reads it: it is the node's
+        # own record of what it did, in whatever shape the stage that made it
+        # keeps, and interpreting it would make `core` know that stage's types.
+        **({"details": dict(node.details)} if node.details else {}),
     }
 
 
@@ -235,6 +291,7 @@ def _read_trace(value: object) -> tuple[Node, ...]:
                 for item in (entry.get("corrections") or [])
                 if isinstance(item, Mapping)
             ),
+            details=dict(entry["details"]) if isinstance(entry.get("details"), Mapping) else {},
         )
         for entry in value
         if isinstance(entry, Mapping)
@@ -401,10 +458,13 @@ def _deserialize_reporter(payload: Mapping[str, object]) -> Reporter:
 
 
 def _require_artifact(payload: Mapping[str, object], *, artifact_type: str) -> None:
-    if payload.get("schema_version") != SCHEMA_VERSION:
+    if payload.get("schema_version") not in _READABLE_SCHEMA_VERSIONS:
         msg = f"Unsupported serialization schema version: {payload.get('schema_version')!r}"
         raise ValueError(msg)
-    if payload.get("artifact_type") != artifact_type:
+    written = payload.get("artifact_type")
+    if written != artifact_type and not (
+        artifact_type == _ARTIFACT_TYPE and written in _FORMER_ARTIFACT_TYPES
+    ):
         msg = f"Expected artifact_type={artifact_type!r}"
         raise ValueError(msg)
 
