@@ -50,6 +50,9 @@ class Finding:
     message: str
     """One line, in the words of whatever found it."""
 
+    node_id: str | None = None
+    """The node that produced it, where a node did."""
+
     span: Span | None = None
     """Where in the document it is about, when it is about a place."""
 

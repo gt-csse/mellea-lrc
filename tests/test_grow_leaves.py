@@ -118,24 +118,22 @@ def test_a_leaf_finds_a_root_by_the_name_stated_not_the_name_parsed() -> None:
 
     assert not [c for c in grow_leaves(document).citations if is_leaf(c.stated)]
 
-    huri.observe(
-        huri.correcting(
-            Node(
-                node_id="name",
-                reads=Reads.DOCUMENT,
-                stage="identity",
-                made_by="mellea_case_name_check",
-                outcome="corrected",
-            ),
-            "case_name",
-            CaseName(
-                span=huri.stated.case_name.span if huri.stated.case_name else None,
-                text="Huri v. Office of the Chief Judge of the Cir. Ct. of Cook Cnty.",
-                plaintiff="Huri",
-                defendant="Office of the Chief Judge of the Cir. Ct. of Cook Cnty.",
-            ),
-            reason="the parse stopped at the `Cnty.` in front of the citation",
-        )
+    huri.correct(
+        Node(
+            node_id="name",
+            reads=Reads.DOCUMENT,
+            stage="identity",
+            made_by="mellea_case_name_check",
+            outcome="corrected",
+        ),
+        "case_name",
+        CaseName(
+            span=huri.stated.case_name.span if huri.stated.case_name else None,
+            text="Huri v. Office of the Chief Judge of the Cir. Ct. of Cook Cnty.",
+            plaintiff="Huri",
+            defendant="Office of the Chief Judge of the Cir. Ct. of Cook Cnty.",
+        ),
+        reason="the parse stopped at the `Cnty.` in front of the citation",
     )
 
     leaves = [c for c in grow_leaves(document).citations if is_leaf(c.stated)]

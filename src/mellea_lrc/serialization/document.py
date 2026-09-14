@@ -24,7 +24,14 @@ from mellea_lrc.core.citations import (
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.core.findings import Finding, FindingKind
 from mellea_lrc.core.pin_cites import PinCite, PinCiteKind, PinCitePages
-from mellea_lrc.core.record import CitationRecord, Correction, Node, Reads
+from mellea_lrc.core.record import (
+    UNJUDGED_YET,
+    CitationRecord,
+    Correction,
+    Judgement,
+    Node,
+    Reads,
+)
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.extraction.types import (
@@ -39,7 +46,7 @@ from mellea_lrc.preprocessing.types import (
 )
 from mellea_lrc.serialization._json import JsonValue, require_list, require_mapping, serialize_dataclass
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 """What an artifact of this shape is called, so a reader refuses one it cannot read.
 
 Version 11 is the citation record. A document holds records rather than
@@ -96,6 +103,7 @@ def _serialize_finding(finding: Finding) -> dict[str, object]:
         "stage": finding.stage,
         "made_by": finding.made_by,
         "message": finding.message,
+        "node_id": finding.node_id,
         "span": serialize_dataclass(finding.span) if finding.span is not None else None,
         "citation": _serialize_citation(finding.citation) if finding.citation is not None else None,
     }
@@ -111,6 +119,7 @@ def _read_findings(value: object) -> tuple[Finding, ...]:
             stage=_required_string(entry.get("stage"), name="findings.stage"),
             made_by=_required_string(entry.get("made_by"), name="findings.made_by"),
             message=_required_string(entry.get("message"), name="findings.message"),
+            node_id=_optional_string(entry.get("node_id"), name="findings.node_id"),
             span=_optional_span(entry.get("span"), name="findings.span"),
             citation=(
                 _read_citation(entry.get("citation"), name="findings.citation")
@@ -193,6 +202,9 @@ def _deserialize_citation(payload: Mapping[str, object]) -> CitationRecord:
         root_id=_optional_string(payload.get("root_id"), name="citation.root_id"),
         colocation_id=_optional_string(payload.get("colocation_id"), name="citation.colocation_id"),
         authority_id=_optional_string(payload.get("authority_id"), name="citation.authority_id"),
+        corrections=_read_corrections(payload.get("corrections")),
+        judgement=_read_judgement(payload.get("judgement")),
+        withdrawn_by=_optional_string(payload.get("withdrawn_by"), name="citation.withdrawn_by"),
         trace=_read_trace(payload.get("trace")),
     )
 
@@ -207,8 +219,60 @@ def _serialize_record(record: CitationRecord) -> dict[str, object]:
         "root_id": record.root_id,
         "colocation_id": record.colocation_id,
         **({"authority_id": record.authority_id} if record.authority_id else {}),
+        # What the pipeline currently says, each naming the node that said it.
+        # Written flat rather than inside the trace: the trace is a graph, and
+        # a reader after the current state should never have to walk one.
+        "judgement": {
+            "outcome": record.judgement.outcome,
+            "node_id": record.judgement.node_id,
+            "message": record.judgement.message,
+        },
+        **({"withdrawn_by": record.withdrawn_by} if record.withdrawn_by else {}),
+        **(
+            {"corrections": [_serialize_correction(item) for item in record.corrections]}
+            if record.corrections
+            else {}
+        ),
         **({"trace": [_serialize_node(node) for node in record.trace]} if record.trace else {}),
     }
+
+
+def _serialize_correction(correction: Correction) -> dict[str, object]:
+    return {
+        "field": correction.field,
+        "before": _serialize_value(correction.before),
+        "after": _serialize_value(correction.after),
+        "reason": correction.reason,
+        "node_id": correction.node_id,
+    }
+
+
+def _read_corrections(value: object) -> tuple[Correction, ...]:
+    """Every change to `stated`, in the order they were made."""
+    if not isinstance(value, list):
+        return ()
+    return tuple(
+        Correction(
+            field=_required_string(item.get("field"), name="citation.corrections.field"),
+            before=_read_value(str(item.get("field")), item.get("before")),
+            after=_read_value(str(item.get("field")), item.get("after")),
+            reason=_required_string(item.get("reason"), name="citation.corrections.reason"),
+            node_id=_required_string(item.get("node_id"), name="citation.corrections.node_id"),
+        )
+        for item in value
+        if isinstance(item, Mapping)
+    )
+
+
+def _read_judgement(value: object) -> Judgement:
+    """What the pipeline concludes, which every citation carries from the start."""
+    if not isinstance(value, Mapping):
+        return UNJUDGED_YET
+    return Judgement(
+        outcome=_required_string(value.get("outcome"), name="citation.judgement.outcome"),
+        node_id=_optional_string(value.get("node_id"), name="citation.judgement.node_id"),
+        message=_optional_string(value.get("message"), name="citation.judgement.message"),
+    )
 
 
 def _serialize_node(node: Node) -> dict[str, object]:
@@ -221,15 +285,6 @@ def _serialize_node(node: Node) -> dict[str, object]:
         "outcome": node.outcome,
         "message": node.message,
         "depends_on": list(node.depends_on),
-        "corrections": [
-            {
-                "field": correction.field,
-                "before": _serialize_value(correction.before),
-                "after": _serialize_value(correction.after),
-                "reason": correction.reason,
-            }
-            for correction in node.corrections
-        ],
         # Written back as it arrived. Nothing here reads it: it is the node's
         # own record of what it did, in whatever shape the stage that made it
         # keeps, and interpreting it would make `core` know that stage's types.
@@ -270,16 +325,6 @@ def _read_trace(value: object) -> tuple[Node, ...]:
             outcome=_required_string(entry.get("outcome"), name="citation.trace.outcome"),
             message=_optional_string(entry.get("message"), name="citation.trace.message"),
             depends_on=tuple(entry.get("depends_on") or ()),
-            corrections=tuple(
-                Correction(
-                    field=_required_string(item.get("field"), name="citation.trace.field"),
-                    before=_read_value(str(item.get("field")), item.get("before")),
-                    after=_read_value(str(item.get("field")), item.get("after")),
-                    reason=_required_string(item.get("reason"), name="citation.trace.reason"),
-                )
-                for item in (entry.get("corrections") or [])
-                if isinstance(item, Mapping)
-            ),
             details=dict(entry["details"]) if isinstance(entry.get("details"), Mapping) else {},
         )
         for entry in value

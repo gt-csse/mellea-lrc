@@ -35,10 +35,39 @@ everything the pipeline knows about it:
     found           what an archive holds at that identity
     root_id         which root this citation points at
     authority_id    which authority it was established to reach
-    trace           every node, each carrying the corrections it justified
+    corrections     every change to `stated`, in order, each naming its node
+    judgement       what the pipeline concludes, and the node that concluded it
+    withdrawn_by    the node that took this citation out, if one has
+    trace           every node: what was asked and what came back
 
 Nothing else about a citation lives anywhere else. A stage that learns
 something about a citation writes it here.
+
+### State is written; the node is a pointer
+
+The trace is a **graph** -- a node names what it depends on -- and nothing about
+a citation's current state is recovered by walking it. What the pipeline
+currently says is a field on the record, and the node that said it is an id
+beside it:
+
+    a correction   `Correction.node_id`
+    a judgement    `Judgement.node_id`
+    a withdrawal   `withdrawn_by`
+    a resolution   `Resolution.node_id`   (already this shape)
+    a finding      `Finding.node_id`
+
+The corrections were inside their nodes, and the reasoning for that was that a
+change could then not exist without its evidence. The invariant is kept another
+way and costs nothing: `record.correct` is the only door, and it writes the node
+and the correction in one call, so there is still no way to change `stated`
+without leaving the reason. What it buys is that the history is a list rather
+than a traversal, and the history is read far more often than the graph is.
+
+**The judgement is there from the start**, saying `unjudged`. A reader never has
+to tell an absent judgement from an unmade one, and never has to search the
+trace for whichever node happened to be the aggregation. The same is true of
+every field above: a question about the current state is a field access, and
+the trace answers only "how did it get that way".
 
 ## What a stage may do
 
