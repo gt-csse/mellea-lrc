@@ -164,6 +164,34 @@ WITHDRAWN = "withdrawn"
 
 
 @dataclass(frozen=True, slots=True)
+class DateExploration:
+    """Everything read about a record's dates while resolving, kept for a later step.
+
+    Written whether or not the date reconciled: the date the filing stated and
+    at what precision, the record's filing date, the cluster's free-text other
+    dates, the dated phrases found in each opinion header read, and the phrase
+    that matched when one did. A wrong identity whose only disagreeing field is
+    the date is a strong sign the case is real and the dates differ for a
+    reason -- an amendment the archive does not hold, a term-year convention, a
+    rehearing -- and that reason has to be found from what was read rather than
+    from the verdict alone.
+    """
+
+    stated: str
+    """The date the filing states, `YYYY` or `YYYY-MM-DD`."""
+    stated_precision: str
+    """`year` or `day`."""
+    record_date_filed: str | None
+    other_dates: str | None
+    """The cluster's free-text dates, verbatim, when fetched."""
+    phrases_by_opinion: tuple[tuple[str, tuple[str, ...]], ...]
+    """For each opinion header read, in order: its id and the dated events in it."""
+    matched_phrase: str | None
+    matched_opinion_id: str | None
+    """The opinion whose header stated the filing's year, or None."""
+
+
+@dataclass(frozen=True, slots=True)
 class Resolution:
     """What an archive holds at the identity the filing cited. Validation fills it."""
 
@@ -173,6 +201,20 @@ class Resolution:
     court_id: str | None
     node_id: str
     """The node that established it."""
+    opinion_ids: tuple[str, ...] = ()
+    """The cluster's opinions: the text a later stage reads the pages from."""
+    citations: tuple[str, ...] = ()
+    """The reporter citations the archive lists for the cluster, `volume reporter page`."""
+    dates: DateExploration | None = None
+    """What was read about the record's dates, when the plain comparison disagreed."""
+    duplicates: tuple[Resolution, ...] = ()
+    """Other records that agreed with the filing on every field: one decision the
+    archive holds more than once. The words a filing quotes may be in a copy the
+    page was not cut from, so a later stage reads these too."""
+    docket_id: str | None = None
+    """CourtListener's docket, when the case was identified by docket number."""
+    govinfo_package_id: str | None = None
+    """The Publishing Office's package, when identified by docket number."""
 
 
 @dataclass(slots=True)
@@ -278,6 +320,11 @@ class CitationRecord:
         return self.withdrawn_by is not None
 
     @property
+    def is_root(self) -> bool:
+        """Whether this citation states the identifier rather than referring to one."""
+        return self.root_id == self.citation_id
+
+    @property
     def authority(self) -> str | None:
         """The authority this citation belongs to: the one a lookup found, else its root."""
         return self.authority_id or self.root_id
@@ -358,6 +405,28 @@ class CitationRecord:
         """Conclude something about this citation, on the evidence of `node`."""
         self.observe(node)
         self.judgement = Judgement(outcome=outcome, node_id=node.node_id, message=message)
+        return node
+
+    def resolve(self, node: Node, resolution: Resolution) -> Node:
+        """Settle what an archive holds at this citation's identity, on the evidence of `node`."""
+        if node.reads is not Reads.RECORD:
+            msg = f"Node {node.node_id!r} read the filing, so it cannot settle what an archive holds"
+            raise ValueError(msg)
+        if resolution.node_id != node.node_id:
+            msg = f"Resolution names node {resolution.node_id!r}, not {node.node_id!r}"
+            raise ValueError(msg)
+        self.observe(node)
+        self.found = resolution
+        return node
+
+    def reattribute(self, node: Node, authority_id: str) -> Node:
+        """Settle which authority this root reaches, on the evidence of `node`.
+
+        `root_id` is what the filing stated and stays; this writes what a lookup
+        found, which is `authority_id`.
+        """
+        self.observe(node)
+        self.authority_id = authority_id
         return node
 
     def withdraw(self, node: Node) -> Node:

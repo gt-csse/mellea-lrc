@@ -28,9 +28,11 @@ from mellea_lrc.core.record import (
     UNJUDGED_YET,
     CitationRecord,
     Correction,
+    DateExploration,
     Judgement,
     Node,
     Reads,
+    Resolution,
 )
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.reading.relaxation import Relaxation
@@ -202,6 +204,7 @@ def _deserialize_citation(payload: Mapping[str, object]) -> CitationRecord:
         root_id=_optional_string(payload.get("root_id"), name="citation.root_id"),
         colocation_id=_optional_string(payload.get("colocation_id"), name="citation.colocation_id"),
         authority_id=_optional_string(payload.get("authority_id"), name="citation.authority_id"),
+        found=_read_resolution(payload.get("found"), name="citation.found"),
         corrections=_read_corrections(payload.get("corrections")),
         judgement=_read_judgement(payload.get("judgement")),
         withdrawn_by=_optional_string(payload.get("withdrawn_by"), name="citation.withdrawn_by"),
@@ -219,6 +222,7 @@ def _serialize_record(record: CitationRecord) -> dict[str, object]:
         "root_id": record.root_id,
         "colocation_id": record.colocation_id,
         **({"authority_id": record.authority_id} if record.authority_id else {}),
+        **({"found": _serialize_resolution(record.found)} if record.found is not None else {}),
         # What the pipeline currently says, each naming the node that said it.
         # Written flat rather than inside the trace: the trace is a graph, and
         # a reader after the current state should never have to walk one.
@@ -235,6 +239,74 @@ def _serialize_record(record: CitationRecord) -> dict[str, object]:
         ),
         **({"trace": [_serialize_node(node) for node in record.trace]} if record.trace else {}),
     }
+
+
+def _serialize_resolution(resolution: Resolution) -> dict[str, object]:
+    """What an archive holds, written only where it adds to the four fields every one has."""
+    return {
+        "cluster_id": resolution.cluster_id,
+        "case_name": resolution.case_name,
+        "date_filed": resolution.date_filed,
+        "court_id": resolution.court_id,
+        "node_id": resolution.node_id,
+        **({"opinion_ids": list(resolution.opinion_ids)} if resolution.opinion_ids else {}),
+        **({"citations": list(resolution.citations)} if resolution.citations else {}),
+        **({"dates": serialize_dataclass(resolution.dates)} if resolution.dates is not None else {}),
+        **(
+            {"duplicates": [_serialize_resolution(item) for item in resolution.duplicates]}
+            if resolution.duplicates
+            else {}
+        ),
+        **({"docket_id": resolution.docket_id} if resolution.docket_id else {}),
+        **({"govinfo_package_id": resolution.govinfo_package_id} if resolution.govinfo_package_id else {}),
+    }
+
+
+def _read_resolution(value: object, *, name: str) -> Resolution | None:
+    if value is None:
+        return None
+    fields = require_mapping(value, name=name)
+    return Resolution(
+        cluster_id=_optional_string(fields.get("cluster_id"), name=f"{name}.cluster_id"),
+        case_name=_optional_string(fields.get("case_name"), name=f"{name}.case_name"),
+        date_filed=_optional_string(fields.get("date_filed"), name=f"{name}.date_filed"),
+        court_id=_optional_string(fields.get("court_id"), name=f"{name}.court_id"),
+        node_id=_required_string(fields.get("node_id"), name=f"{name}.node_id"),
+        opinion_ids=tuple(
+            _required_string(item, name=f"{name}.opinion_ids")
+            for item in require_list(fields.get("opinion_ids", []), name=f"{name}.opinion_ids")
+        ),
+        citations=tuple(
+            _required_string(item, name=f"{name}.citations")
+            for item in require_list(fields.get("citations", []), name=f"{name}.citations")
+        ),
+        dates=_read_dates(fields.get("dates"), name=f"{name}.dates"),
+        duplicates=tuple(
+            resolution
+            for item in require_list(fields.get("duplicates", []), name=f"{name}.duplicates")
+            if (resolution := _read_resolution(item, name=f"{name}.duplicates")) is not None
+        ),
+        docket_id=_optional_string(fields.get("docket_id"), name=f"{name}.docket_id"),
+        govinfo_package_id=_optional_string(fields.get("govinfo_package_id"), name=f"{name}.govinfo_package_id"),
+    )
+
+
+def _read_dates(value: object, *, name: str) -> DateExploration | None:
+    if value is None:
+        return None
+    fields = require_mapping(value, name=name)
+    return DateExploration(
+        stated=_required_string(fields.get("stated"), name=f"{name}.stated"),
+        stated_precision=_required_string(fields.get("stated_precision"), name=f"{name}.stated_precision"),
+        record_date_filed=_optional_string(fields.get("record_date_filed"), name=f"{name}.record_date_filed"),
+        other_dates=_optional_string(fields.get("other_dates"), name=f"{name}.other_dates"),
+        phrases_by_opinion=tuple(
+            (str(pair[0]), tuple(str(phrase) for phrase in pair[1]))
+            for pair in require_list(fields.get("phrases_by_opinion", []), name=f"{name}.phrases_by_opinion")
+        ),
+        matched_phrase=_optional_string(fields.get("matched_phrase"), name=f"{name}.matched_phrase"),
+        matched_opinion_id=_optional_string(fields.get("matched_opinion_id"), name=f"{name}.matched_opinion_id"),
+    )
 
 
 def _serialize_correction(correction: Correction) -> dict[str, object]:
