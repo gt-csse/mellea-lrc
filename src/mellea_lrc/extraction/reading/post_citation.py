@@ -51,15 +51,17 @@ in the right place.
 from __future__ import annotations
 
 from dataclasses import replace
+from functools import cache, lru_cache
 from typing import TYPE_CHECKING
 
 import eyecite.regexes
 import regex as re  # eyecite matches with this; its patterns repeat group names
 from eyecite.helpers import MAX_MATCH_CHARS
+from reporters_db import REPORTERS
 
 from mellea_lrc.core.citations import CitationDate, FullCaseCitation
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.reading.courts import resolve_court
+from mellea_lrc.extraction.reading.courts import court_from_reporter, resolve_court
 from mellea_lrc.extraction.reading.pin_cites import relax
 
 if TYPE_CHECKING:
@@ -116,14 +118,16 @@ def reread_post_citation(
         )
         court_text = (found.group("court") or "").strip() if found else ""
         # This is still the rules reading, so what it finds is what the citation
-        # was read as: both sides of the record move together. SCOTUS is set
-        # from the reporter rather than the parenthetical, so it is not this
-        # scan's to take away, and the span widens with the date, because the
-        # parenthetical is part of the citation.
+        # was read as: both sides of the record move together. A court the
+        # *reporter* names is not this scan's to take away -- `556 U.S. 662` is
+        # the Supreme Court's and `5 N.C. App. 10` the North Carolina Court of
+        # Appeals' whatever the parenthetical says -- so where the parenthetical
+        # names none, the reporter is asked. The span widens with the date,
+        # because the parenthetical is part of the citation.
         read = replace(
             item.source,
             date=date,
-            court="scotus" if item.source.court == "scotus" else resolve_court(court_text),
+            court=resolve_court(court_text) or _from_reporter(item.source),
             span=Span(
                 start=item.full_span.start,
                 end=item.locator_span.end + found.end() if found else item.locator_span.end,
@@ -131,3 +135,27 @@ def reread_post_citation(
         )
         rebuilt.append(replace(item, source=read, stated=read))
     return tuple(rebuilt)
+
+
+@cache
+def _entry(edition: str | None) -> dict | None:
+    """What reporters-db knows about the reporter this edition belongs to."""
+    if not edition:
+        return None
+    for entries in REPORTERS.values():
+        for entry in entries:
+            if edition in entry["editions"]:
+                return entry
+    return None
+
+
+def _from_reporter(citation: object) -> str | None:
+    """The court the citation's reporter names, where it names one."""
+    reporter = getattr(citation, "reporter", None)
+    edition = getattr(reporter, "short_name", None) or getattr(reporter, "as_written", None)
+    entry = _entry(edition)
+    return court_from_reporter(
+        edition,
+        cite_type=entry.get("cite_type") if entry else None,
+        name=entry.get("name") if entry else None,
+    )
