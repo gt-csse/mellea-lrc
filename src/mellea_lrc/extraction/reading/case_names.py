@@ -138,42 +138,6 @@ def _party_in_front(text: str, start: int, floor: int) -> int:
     return at
 
 
-def locate_from_parties(
-    text: str, locator: Span, floor: int, plaintiff: str | None, defendant: str | None
-) -> Span | None:
-    """Where the parties the parse read are written, when the window found nothing.
-
-    **A citation with parties has a name.** The parties are characters the
-    parser took out of this document, so they are in it, and a record holding
-    `plaintiff='Precision Instrument Mfg. Co.'` with no name is a record that
-    lost the place rather than the name. Every reading after extraction matches
-    on `case_name.text`, so losing the place loses the name for everything
-    downstream.
-
-    The parties are looked for between the citation in front and the end of
-    this citation's identifier, each as the characters the parse reported, and
-    the span runs from the first found to the end of the last. The window runs
-    to the *end* because a bare-name reference is its own name: `Bell at 546`
-    identifies nothing, so its identifier and its name are the same characters.
-    Nothing is repaired and nothing is joined: what comes back is a slice of the
-    document.
-    """
-    window = text[floor : locator.end]
-    found = []
-    for party in (plaintiff, defendant):
-        cleaned = (party or "").strip()
-        if not cleaned:
-            continue
-        at = window.find(cleaned)
-        if at != -1:
-            found.append((floor + at, floor + at + len(cleaned)))
-    if not found:
-        return None
-    start, end = min(s for s, _ in found), max(e for _, e in found)
-    start, end = _trim(text, start, end)
-    return Span(start=start, end=end) if end > start else None
-
-
 def locate_case_name(text: str, citation: CitationBase, locator: Span, floor: int = 0) -> Span | None:
     """The span of the case name this citation is written under, if there is one.
 
@@ -195,26 +159,13 @@ def locate_case_name(text: str, citation: CitationBase, locator: Span, floor: in
         start = floor
     if start >= locator.start:
         return None
-    # A table of authorities writes `Name …… page`, and the leader dots fall on
-    # one side of the name or the other depending on where the window opened.
-    #
-    #     Prev Name ….. 4 This Name , 123 F.3d 4      the dots end the entry above
-    #     This Name ….. 5 123 F.3d 4                  the dots end this entry
-    #
-    # What tells them apart is what follows the last of them: a name, or the
-    # page number alone. Reading it the first way in both is what left
-    # `Precision Instrument Mfg. Co. v. Automotive Maintenance Machinery Co
-    # ……….. 5 324 U.S. 806 (1945)` with no name at all -- the start jumped past
-    # the dots onto ` 5 `, which has no letters in it.
+    # An entry of a table of authorities ends at its leader dots, so anything
+    # before the last of them belongs to the entry above.
     window = text[start : locator.start]
-    breaks = list(_ENTRY_BREAK.finditer(window))
-    end = locator.start
+    breaks = [m.end() for m in _ENTRY_BREAK.finditer(window)]
     if breaks:
-        if _WORD.search(window[breaks[-1].end() :]):
-            start += breaks[-1].end()
-        else:
-            end = start + breaks[0].start()
-    start, end = _trim(text, start, end)
+        start += breaks[-1]
+    start, end = _trim(text, start, locator.start)
     lead = _LEAD.match(text[start:end])
     while lead:
         start, end = _trim(text, start + lead.end(), end)

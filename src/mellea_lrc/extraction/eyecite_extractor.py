@@ -60,7 +60,7 @@ from mellea_lrc.core.findings import Finding, FindingKind
 from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.identity import citation_id as citation_id_for
-from mellea_lrc.extraction.reading.case_names import locate_case_name, locate_from_parties
+from mellea_lrc.extraction.reading.case_names import locate_case_name
 from mellea_lrc.extraction.reading.courts import court_from_reporter
 from mellea_lrc.extraction.reading.dockets import DOCKET_GROUP, with_dockets
 from mellea_lrc.extraction.reading.pin_cite_spans import locate_pin_cite
@@ -253,17 +253,6 @@ def _case_name(
     rather than leaving a repaired span beside a stale party.
     """
     span = locate_case_name(text, eyecite_citation, locator_span, floor=floor)
-    if span is None:
-        # A citation with parties has a name: the parties are characters this
-        # document holds, so the window failing to find them is the place lost,
-        # not the name. Everything after extraction matches on `case_name.text`.
-        span = locate_from_parties(
-            text,
-            locator_span,
-            floor,
-            getattr(canonical, "plaintiff", None),
-            getattr(canonical, "defendant", None),
-        )
     if span is None:
         return None
     return CaseName(
