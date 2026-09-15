@@ -375,3 +375,32 @@ def test_a_leaf_grown_onto_a_root_already_withdrawn_is_withdrawn_with_it() -> No
     leaves = [c for c in grown.citations if is_leaf(c.stated) and c.root_id == root.citation_id]
     assert leaves
     assert all(leaf.withdrawn for leaf in leaves)
+
+
+def test_a_withdrawn_citation_is_not_reported_to_the_evaluation() -> None:
+    """Withdrawing has to cost nothing, or no stage will do it.
+
+    The record stays so that nothing pointing at it breaks, and the arm is not
+    claiming it any more, so the score does not see it.
+    """
+    from evaluations.extraction.tree import _from_rules
+
+    document = grow_leaves(_read(WHOLE))
+    root = next(c for c in document.citations if c.stated.page == "662")
+    before = _from_rules(document, dockets=True)
+    root.withdraw(
+        Node(
+            node_id="identity:scope",
+            reads=Reads.RECORD,
+            stage="identity",
+            made_by="identity_scope",
+            outcome=WITHDRAWN,
+            message="the span is a record entry, not a citation to a case",
+        )
+    )
+    withdraw_leaves_of_withdrawn_roots(document)
+    after = _from_rules(document, dockets=True)
+
+    assert len(after) < len(before)
+    gone = set(before) - set(after)
+    assert (root.locator_span.start, root.locator_span.end) in gone
