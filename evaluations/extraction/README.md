@@ -100,6 +100,8 @@ citations     611/711 · 611/620  707/711 · 707/713  707/711 · 707/709
 - short forms 234/284 · 234/243  281/284 · 281/287  281/284 · 281/283
 pin cites     350/463 · 350/355  458/463 · 458/460  458/463 · 458/460
 docket courts 0/42 · 0/0         42/42 · 42/42      42/42 · 42/42
+courts        422/525 · 422/449  491/525 · 491/521  491/525 · 491/521
+dates         487/577 · 487/490  563/577 · 563/564  563/577 · 563/564
 attribution   218/284 · 218/243  281/284 · 281/287  281/284 · 281/283
 
 percentages, recall · precision
@@ -110,6 +112,8 @@ citations     85.9% · 98.5%      99.4% · 99.2%      99.4% · 99.7%
 - short forms 82.4% · 96.3%      98.9% · 97.9%      98.9% · 99.3%
 pin cites     75.6% · 98.6%      98.9% · 99.6%      98.9% · 99.6%
 docket courts 0.0% · --          100.0% · 100.0%    100.0% · 100.0%
+courts        80.4% · 94.0%      93.5% · 94.2%      93.5% · 94.2%
+dates         84.4% · 99.4%      97.6% · 99.8%      97.6% · 99.8%
 attribution   76.8% · 89.7%      98.9% · 97.9%      98.9% · 99.3%
 
 by kind, recall
@@ -128,6 +132,15 @@ they add is a citation eyecite read at the wrong edges or did not read at all.
 42 of the 96 are docket citations, which eyecite attempts none of -- its
 tokenizer is built from a reporter gazetteer and a docket number names no
 reporter.
+
+**Where the court is lost.** 34 of the corpus's 525 courts are missed at
+`augmented`, and 33 of those are a reporter naming a court the reader does not
+take it from: the state official reporters -- `N.Y.2d`, `N.C.`, `N.C. App.`,
+`Mich App`, `Kan.` -- and a few `U.S.` citations. The one that is read wrong is
+`022-o01`, given `azd` where the filing writes a Western District of Virginia
+citation, which is a court bleeding from the citation before it. The same bleed
+is why the annotation's courts are read from each row's own characters and not
+from the parse.
 
 **What the second growth is worth.** The same citations, attached better. On
 this corpus it removes four false attributions of an `Id.` whose antecedent is
@@ -168,6 +181,20 @@ citation, with the wrong edges, and whether it then attributed it to the right
 case is a separate question -- so a reported citation is associated with the
 annotated one it overlaps most, and attribution, the pin cite and the docket
 court are read through that association.
+
+**`courts` and `dates` are the citation's other two claims.** A court is scored
+where the annotation states one -- written in the filing, or named by the
+reporter the citation is in, `556 U.S. 662 (2009)` being the Supreme Court's
+without anyone saying so. What is compared is the courts-db id, because that is
+the half a lookup takes. A citation in a reporter several courts publish in with
+no court parenthetical states no court at all, and an arm that reports one there
+is charged for it: `206 P. 327 (1922)` says nothing about which court, and a
+guess is not a reading.
+
+A date is compared as the annotation writes it -- `2009`, `2023-09`,
+`2006-07-13` -- which is exactly as much of the date as the filing states. An
+arm that reads a year where the filing writes a day has read less than the
+filing states, and the strings differ, which is the answer.
 
 **`docket courts` is the one field checked beside the span.** A docket number
 names a case in no district on its own -- `1:19-cv-362` exists in every one of
