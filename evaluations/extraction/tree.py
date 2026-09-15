@@ -344,6 +344,14 @@ def _from_rules(extracted: Document, *, dockets: bool) -> dict[tuple[int, int], 
         kind = citation_kind(citation.stated)
         if kind not in CASE_KINDS or (kind is CitationKind.DOCKET and not dockets):
             continue
+        # A withdrawn citation is one the document says it does not hold: a
+        # statute read as a case, a section heading read as a bare name, a root
+        # that reaches no authority. The record stays so nothing that points at
+        # it breaks, and the arm is not reporting it any more, so it is not
+        # scored -- charging precision for a span a stage correctly took out
+        # would make withdrawing it cost something.
+        if citation.withdrawn:
+            continue
         root = at.get(citation.root_id or "")
         span = (citation.locator_span.start, citation.locator_span.end)
         pin = citation.pin_cite_span
