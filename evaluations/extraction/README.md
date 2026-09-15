@@ -139,9 +139,24 @@ and an arm that reports the same offsets read the same name. It is a question
 about the document and nothing else -- what an *archive* calls the case is
 `found`, and comparing the two is validation's finding rather than this one.
 
-A leaf is left out. `Iqbal , 556 U.S. at 678` writes a name and it is a part of
-one; whether a short form's `Huri` is the right part is the attachment question,
-which `attribution` already scores.
+**`- overlapping` is the same name asked a weaker way**, and the two are read
+together. `case names` is the span the filing writes, which is what a reader
+wanting the characters needs. `overlapping` asks only whether the name was read
+*at this citation* -- any span touching the annotated one counts -- and that is
+the question the stages after this one turn on: identity matches a name against
+an archive leniently and correctly, so a name whose edges are a word out still
+reaches the right case, while a name read somewhere else entirely reaches
+nothing.
+
+The gap between the two rows is the population whose edges are off and whose
+case is not: 19 of the corpus's 424 roots, 16 of eval-1's 332, 11 of eval-2's
+296. What fails even on overlap is five rows on the corpus -- three where no
+name was read at all, one read at another citation's name, and one citation the
+arm does not read.
+
+A leaf is left out of both. `Iqbal , 556 U.S. at 678` writes a name and it is a
+part of one; whether a short form's `Huri` is the right part is the attachment
+question, which `attribution` already scores.
 
 **The name is final after the identity stage**, which is what makes it scorable
 before the pipeline ends: nothing later writes one. The leaf pass reads names

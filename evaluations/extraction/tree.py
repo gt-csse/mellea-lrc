@@ -203,6 +203,7 @@ MEASURES = (
     ("courts", "any_court", ""),
     ("dates", "date", ""),
     ("case names", "case_name", ""),
+    ("overlapping", "case_name_touching", "- "),
     ("attribution", "attribution", ""),
 )
 
@@ -278,6 +279,21 @@ def _row(
         "date": date,
         "case_name": case_name,
     }
+
+
+def _read(reported: dict[str, Any], key: str, stated: Any) -> bool:
+    """Whether the arm read what the filing states, by the measure's own test.
+
+    `case_name_touching` is the one that is not equality: it asks whether the
+    name was read *at this citation*, so a span that touches the annotated one
+    counts. A name whose edges are a word out still reaches the right case
+    through an archive's lenient match; a name read somewhere else reaches
+    nothing, and that is the difference this keeps.
+    """
+    if key == "case_name_touching":
+        read = reported.get("case_name")
+        return bool(read and _overlaps(tuple(read), tuple(stated)))
+    return _same(reported[key], stated)
 
 
 def _same(read: Any, stated: Any) -> bool:
@@ -569,6 +585,7 @@ async def score(
             want_name = (name["start"], name["end"]) if name else None
             if want_name:
                 counts["case_name:stated"] += 1
+                counts["case_name_touching:stated"] += 1
 
             want_court = (roots_by_id.get(row["root_id"]) or {}).get("court")
             if row["kind"] == "DocketCitation" and want_court:
@@ -594,21 +611,33 @@ async def score(
                     detail["attribution"].append(f"{row['id']} attributed away from {row['root_id']}")
 
             at_span = associated.get(row["id"])
+            # The same name asked twice. `case_name` is the span the filing
+            # writes, which is what a reader wanting the characters needs.
+            # `case_name_touching` asks only whether the name was read *at this
+            # citation* -- the weaker question, and the one that decides whether
+            # the stages after this can work: identity matches a name against an
+            # archive's leniently and correctly, so a name whose edges are a word
+            # out still reaches the right case, while a name read somewhere else
+            # entirely reaches nothing.
             for key, stated, label in (
                 ("any_court", want_any_court, "court"),
                 ("date", want_date, "date"),
                 ("case_name", want_name, "case name"),
+                ("case_name_touching", want_name, "case name, anywhere in it"),
             ):
                 if not stated:
                     continue
+                if key == "case_name_touching" and at_span is not None and not at_span.get("case_name"):
+                    detail[key].append(f"{row['id']} no name read here at all")
+                    continue
                 if at_span is None:
                     detail[key].append(f"{row['id']} not read, so it states no {label}")
-                elif _same(at_span[key], stated):
+                elif _read(at_span, key, stated):
                     counts[f"{key}:right"] += 1
-                elif at_span[key] is None:
-                    detail[key].append(f"{row['id']} {label} {stated!r} not read")
                 else:
-                    detail[key].append(f"{row['id']} {label} read as {at_span[key]!r}, not {stated!r}")
+                    got = at_span.get("case_name" if key == "case_name_touching" else key)
+                    where = f"read as {got!r}, not {stated!r}" if got else f"{stated!r} not read"
+                    detail[key].append(f"{row['id']} {label} {where}")
 
             if row["kind"] == "DocketCitation" and want_court:
                 if at_span is None:
@@ -674,6 +703,7 @@ async def score(
                 counts["date:reported"] += 1
             if reported["case_name"] is not None and reported["is_root"]:
                 counts["case_name:reported"] += 1
+                counts["case_name_touching:reported"] += 1
             if span in claimed:
                 continue
             row = next((r for start, end, r in noncase if start <= span[0] and span[1] <= end), None)
