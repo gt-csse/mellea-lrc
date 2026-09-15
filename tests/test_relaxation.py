@@ -24,7 +24,7 @@ import io
 
 import pytest
 
-from mellea_lrc.core.citations import FullCaseCitation, ShortCaseCitation
+from mellea_lrc.core.citations import FullCaseCitation, IdCitation, ShortCaseCitation
 from mellea_lrc.extraction import Document, Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.reading.relaxation import tokenizer_for
 
@@ -305,6 +305,27 @@ def test_an_undamaged_short_form_still_reads() -> None:
 
     assert len(short) == 1
     assert short[0].matched_text == "556 U.S. at 678"
+
+
+_IQBAL = "Ashcroft v. Iqbal , 556 U.S. 662, 678 (2009). The rule applies. "
+
+
+def _ids(text: str, relaxation: Relaxation) -> list[str]:
+    citations = _extract(_IQBAL + text, relaxation).citations
+    return [c.matched_text for c in citations if isinstance(c.stated, IdCitation)]
+
+
+@pytest.mark.parametrize("relaxation", [Relaxation.BOUNDED, Relaxation.FULL])
+@pytest.mark.parametrize("text", ["Id . at 679.", "See id ., at 679.", "Ibid . More."])
+def test_an_id_with_a_space_before_its_period_is_read(text: str, relaxation: Relaxation) -> None:
+    """eyecite's `Id.` is hand-written, so the reporter joins never reached it."""
+    assert len(_ids(text, relaxation)) == 1
+    assert _ids(text, Relaxation.NONE) == []
+
+
+@pytest.mark.parametrize("text", ["Id\n. at 679.", "Idaho . More.", "The rid . More."])
+def test_the_id_relaxation_stays_on_one_line_and_one_word(text: str) -> None:
+    assert _ids(text, Relaxation.FULL) == []
 
 
 @pytest.mark.parametrize("relaxation", [Relaxation.BOUNDED, Relaxation.FULL])

@@ -64,7 +64,8 @@ from functools import lru_cache
 from typing import TYPE_CHECKING
 
 import ahocorasick
-from eyecite.models import TokenExtractor
+from eyecite.models import IdToken, TokenExtractor
+from eyecite.regexes import space_boundaries_re
 from eyecite.tokenizers import EXTRACTORS, AhocorasickTokenizer, default_tokenizer
 
 if TYPE_CHECKING:
@@ -136,6 +137,18 @@ _REPORTER_GROUP = re.compile(r"\(\?P<reporter>((?:[^()\\]|\\.)*)\)")
 _TIGHT_PUNCTUATION = re.compile(r"\\\.|['’]")
 
 
+# eyecite's `Id.` is written by hand, not generated from a reporter, so no join
+# above reaches it: `id\.,?|ibid\.` with the period against the word, and a
+# prefilter on the literal `id.`. A conversion that sets the period apart --
+# `Id . at 1148` -- loses the citation. The space allowed is horizontal only.
+_RELAXED_ID = TokenExtractor(
+    regex=space_boundaries_re(r"id[^\S\r\n]*\.,?|ibid[^\S\r\n]*\."),
+    constructor=IdToken.from_match,
+    flags=re.I,
+    strings=["id", "ibid"],
+)
+
+
 def _relax(regex: str, joins: tuple[tuple[str, str], ...]) -> str:
     for old, new in joins:
         regex = regex.replace(old, new)
@@ -199,7 +212,9 @@ def tokenizer_for(relaxation: Relaxation) -> Tokenizer:
     joins = _joins(relaxation)
     return _RelaxedTokenizer(
         extractors=[
-            TokenExtractor(
+            _RELAXED_ID
+            if extractor.constructor == IdToken.from_match
+            else TokenExtractor(
                 regex=_relax(extractor.regex, joins),
                 constructor=extractor.constructor,
                 extra=extractor.extra,
