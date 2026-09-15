@@ -100,7 +100,7 @@ citations     611/711 · 611/620  707/711 · 707/713  707/711 · 707/709
 - short forms 234/284 · 234/243  281/284 · 281/287  281/284 · 281/283
 pin cites     350/463 · 350/355  458/463 · 458/460  458/463 · 458/460
 docket courts 0/42 · 0/0         42/42 · 42/42      42/42 · 42/42
-courts        422/525 · 422/449  491/525 · 491/521  491/525 · 491/521
+courts        474/565 · 474/478  547/565 · 547/551  547/565 · 547/551
 dates         487/577 · 487/490  563/577 · 563/564  563/577 · 563/564
 attribution   218/284 · 218/243  281/284 · 281/287  281/284 · 281/283
 
@@ -112,7 +112,7 @@ citations     85.9% · 98.5%      99.4% · 99.2%      99.4% · 99.7%
 - short forms 82.4% · 96.3%      98.9% · 97.9%      98.9% · 99.3%
 pin cites     75.6% · 98.6%      98.9% · 99.6%      98.9% · 99.6%
 docket courts 0.0% · --          100.0% · 100.0%    100.0% · 100.0%
-courts        80.4% · 94.0%      93.5% · 94.2%      93.5% · 94.2%
+courts        83.9% · 99.2%      96.8% · 99.3%      96.8% · 99.3%
 dates         84.4% · 99.4%      97.6% · 99.8%      97.6% · 99.8%
 attribution   76.8% · 89.7%      98.9% · 97.9%      98.9% · 99.3%
 
@@ -133,14 +133,20 @@ they add is a citation eyecite read at the wrong edges or did not read at all.
 tokenizer is built from a reporter gazetteer and a docket number names no
 reporter.
 
-**Where the court is lost.** 34 of the corpus's 525 courts are missed at
-`augmented`, and 33 of those are a reporter naming a court the reader does not
-take it from: the state official reporters -- `N.Y.2d`, `N.C.`, `N.C. App.`,
-`Mich App`, `Kan.` -- and a few `U.S.` citations. The one that is read wrong is
-`022-o01`, given `azd` where the filing writes a Western District of Virginia
-citation, which is a court bleeding from the citation before it. The same bleed
-is why the annotation's courts are read from each row's own characters and not
-from the parse.
+**A leaf states no court**, so it is left out of both sides. `Id. at 570` is its
+root's citation and its root's court, which is not a second claim to be right or
+wrong about, and an arm carrying the root's court forward is neither credited
+nor charged for it.
+
+**Where the court is still lost.** 18 of the corpus's 565, and they are five
+things rather than one: four rows in a table of authorities where the court sits
+outside the span the reader takes; three `A.D.3d` citations whose department is
+written (`3d Dep't`); two `D. N. Mar. I.` the court reader does not reach; two
+`Ct. App.` after `218 Ariz. 293`, where the parenthetical names a court that is
+only unambiguous inside the state the reporter names; and `022-o01`, given `azd`
+where the filing writes a Western District of Virginia citation -- a court
+bleeding from the citation before it, which is why the annotation reads its
+courts from each row's own characters and not from the parse.
 
 **What the second growth is worth.** The same citations, attached better. On
 this corpus it removes four false attributions of an `Id.` whose antecedent is

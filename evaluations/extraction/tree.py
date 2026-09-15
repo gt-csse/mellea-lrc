@@ -216,6 +216,10 @@ def anchor(row: dict[str, Any]) -> tuple[int, int]:
     return (span["start"], span["end"])
 
 
+#: The kinds that state no citation of their own, so no court and no date.
+_LEAF_KINDS = frozenset(
+    {"IdCitation", "ShortCaseCitation", "SupraCitation", "ReferenceCitation"}
+)
 #: What a citation that identifies nothing is matched on: where it starts.
 _NO_LOCATOR = -1
 _UNLOCATED = {CitationKind.ID.value, CitationKind.REFERENCE.value}
@@ -530,7 +534,12 @@ async def score(
             # The court and the date are counted before the citation is looked
             # for, like the pin cite, so one stays in the denominator when the
             # citation carrying it was missed.
-            want_any_court = (row.get("court") or {}).get("id")
+            # A leaf states no citation of its own, so no court: `Id. at 570`
+            # is its root's citation and the root's court, which is not a
+            # second claim to get right or wrong. Left out of both sides.
+            want_any_court = (
+                None if row["kind"] in _LEAF_KINDS else (row.get("court") or {}).get("id")
+            )
             if want_any_court:
                 counts["any_court:stated"] += 1
             want_date = (row.get("date") or {}).get("normalized")
@@ -631,7 +640,10 @@ async def score(
                 counts["pincite:reported"] += 1
             if reported["court"] is not None:
                 counts["court:reported"] += 1
-            if reported["any_court"] is not None:
+            # A leaf's court is its root's, not a claim of its own: `Id. at
+            # 570` writes no court and the annotation records none, so an arm
+            # carrying the root's court forward is neither credited nor charged.
+            if reported["any_court"] is not None and reported["kind"] not in _LEAF_KINDS:
                 counts["any_court:reported"] += 1
             if reported["date"] is not None:
                 counts["date:reported"] += 1

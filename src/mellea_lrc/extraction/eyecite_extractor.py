@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 from dataclasses import replace
+from functools import cache, lru_cache
 from typing import cast
 
 from eyecite import get_citations, resolve_citations
@@ -36,6 +37,7 @@ from eyecite.models import (
 from eyecite.models import (
     UnknownCitation as EyeciteUnknownCitation,
 )
+from reporters_db import REPORTERS
 
 from mellea_lrc.core.case_names import CaseName
 from mellea_lrc.core.citations import (
@@ -59,6 +61,7 @@ from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.identity import citation_id as citation_id_for
 from mellea_lrc.extraction.reading.case_names import locate_case_name
+from mellea_lrc.extraction.reading.courts import court_from_reporter
 from mellea_lrc.extraction.reading.dockets import DOCKET_GROUP, with_dockets
 from mellea_lrc.extraction.reading.pin_cite_spans import locate_pin_cite
 from mellea_lrc.extraction.reading.pin_cites import relaxed_pin_cites, strip_connector
@@ -173,10 +176,44 @@ def _to_full_case(citation: EyeciteFullCaseCitation) -> FullCaseCitation:
         pin_cite=strip_connector(citation.metadata.pin_cite),
         extra=citation.metadata.extra,
         date=_date(citation),
-        court=citation.metadata.court,
+        court=_court(citation),
         parenthetical=citation.metadata.parenthetical,
         antecedent=citation.metadata.antecedent_guess,
     )
+
+
+def _court(citation: CitationBase) -> str | None:
+    """The court, from what the filing writes or from the reporter it cites.
+
+    eyecite reads a court out of the parenthetical. Where a filing writes none,
+    the reporter can still name one -- `556 U.S. 662 (2009)` is the Supreme
+    Court's, `7 Kan. 2d 1` the Kansas Supreme Court's -- and a reader knows it
+    without being told. See
+    :func:`~mellea_lrc.extraction.reading.courts.court_from_reporter`, which
+    names a court only where the reporter is one court's.
+    """
+    written = citation.metadata.court
+    if written:
+        return written
+    edition = citation.groups.get("reporter") if hasattr(citation, "groups") else None
+    entry = _reporter_entry(edition)
+    return court_from_reporter(
+        edition,
+        cite_type=entry.get("cite_type") if entry else None,
+        name=entry.get("name") if entry else None,
+    )
+
+
+@cache
+def _reporter_entry(edition: str | None) -> dict | None:
+    """What reporters-db knows about the reporter this edition belongs to."""
+    if not edition:
+        return None
+    for entries in REPORTERS.values():
+        for entry in entries:
+            if edition in entry["editions"]:
+                return entry
+    return None
 
 
 def _to_full_law(citation: EyeciteFullLawCitation) -> FullLawCitation:

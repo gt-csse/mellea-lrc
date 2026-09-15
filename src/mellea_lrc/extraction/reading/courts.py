@@ -157,3 +157,66 @@ def resolve_court(paren: str | None) -> str | None:
     if len(abbreviated) == 1:
         return next(iter(abbreviated))
     return None
+
+
+#: A reporter's series, which its court's abbreviation does not carry: the
+#: Kansas Supreme Court is `Kan.` whether the case is in `Kan.` or `Kan. 2d`.
+_SERIES = re.compile(r"\s*\d+\s*(?:st|nd|rd|d|th)\s*$", re.I)
+_APPEALS = re.compile(r"\s*App\.?$")
+
+
+@lru_cache(maxsize=1)
+def _by_citation_string() -> dict[str, frozenset[str]]:
+    """Every court by the abbreviation a citation to it is written with."""
+    grouped: dict[str, set[str]] = defaultdict(set)
+    for court in courts:
+        key = normalize(court.get("citation_string"))
+        if key:
+            grouped[key].add(str(court["id"]))
+    return {key: frozenset(ids) for key, ids in grouped.items()}
+
+
+def court_from_reporter(edition: str | None, *, cite_type: str | None, name: str | None) -> str | None:
+    """The court a reporter is the reports of, when it is one court's.
+
+    A filing writing `556 U.S. 662 (2009)` names no court and needs none: a
+    reader knows the court from the reporter. This is that reading, and it is
+    the bridge between the two databases the project already carries rather than
+    a table someone maintains.
+
+    **A state's official reports are abbreviated the way its court is.** The
+    Bluebook writes the Kansas Supreme Court `Kan.` and its reports `Kan.`;
+    North Carolina's Court of Appeals is `N.C. Ct. App.` and its reports
+    `N.C. App.` So the edition is looked up against courts-db's own
+    `citation_string`, with the series number dropped and `Ct.` tried where the
+    reporter says `App.`, and a match is taken only when exactly one court has
+    that abbreviation.
+
+    **A reporter several courts publish in names none.** `P.3d`, `F.3d`,
+    `So. 3d` and `A.2d` reach no court here and must not: nothing in
+    `206 P. 327 (1922)` says which court decided it, and a guess is not a
+    reading. The one federal exception is the Supreme Court's three reporters,
+    which reporters-db names as its own.
+    """
+    if not edition:
+        return None
+    base = _SERIES.sub("", edition).strip()
+    index = _by_citation_string()
+    forms = [base]
+    if _APPEALS.search(base):
+        stem = _APPEALS.sub("", base)
+        forms += [f"{stem} Ct. App.", f"{stem} App. Ct."]
+    for form in forms:
+        found = index.get(normalize(form))
+        if found and len(found) == 1:
+            return next(iter(found))
+    if cite_type == "federal" and name:
+        spelled = name.lower()
+        if "supreme court" in spelled or "lawyer" in spelled:
+            return _SUPREME_COURT
+    return None
+
+
+#: The one court a federal reporter can be the reports of. Every other federal
+#: reporter carries many courts, and the filing has to say which.
+_SUPREME_COURT = "scotus"

@@ -398,3 +398,32 @@ def test_a_bankruptcy_docket_reads_its_court_however_the_filing_abbreviates_it()
     assert citation.stated.docket_number == "21-14743"
     assert citation.stated.court == "flsb"
     assert text[citation.full_span.start : citation.full_span.end].startswith("FCI Mkts")
+
+
+def test_a_reporter_that_is_one_courts_reports_names_that_court() -> None:
+    """A filing writing `5 N.C. App. 10 (1969)` names no court and needs none.
+
+    The bridge is between the two databases the project already carries: a
+    state's official reports are abbreviated the way its court is, so the
+    edition is looked up against courts-db's own `citation_string`.
+    """
+    text = (
+        "In re X , 5 N.C. App. 10 (1969). Doe v. Roe , 556 U.S. 662 (2009). "
+        "A v. B , 12 N.Y.2d 30 (1963)."
+    )
+    assert [c.stated.court for c in _extract(text).citations] == ["ncctapp", "scotus", "ny"]
+
+
+def test_a_reporter_several_courts_publish_in_names_none() -> None:
+    """`206 P. 327 (1922)` says nothing about which court decided it.
+
+    A guess would be worse than a gap: the Pacific Reporter carries fifteen
+    states, and the filing is the only thing that could say which.
+    """
+    text = "Rae v. Poe , 206 P. 327 (1922). Coe v. Foe , 192 F.3d 742 (1999)."
+    assert [c.stated.court for c in _extract(text).citations] == [None, None]
+
+
+def test_the_court_the_filing_writes_wins_over_the_reporter_it_cites() -> None:
+    text = "United States v. Kim , 5 N.C. App. 10 (4th Cir. 1969)."
+    assert [c.stated.court for c in _extract(text).citations] == ["ca4"]
