@@ -133,6 +133,26 @@ they add is a citation eyecite read at the wrong edges or did not read at all.
 tokenizer is built from a reporter gazetteer and a docket number names no
 reporter.
 
+**`case names` is where the name is written, and it is scored on roots.** What
+is compared is the span: the annotation records the characters the filing wrote,
+and an arm that reports the same offsets read the same name. It is a question
+about the document and nothing else -- what an *archive* calls the case is
+`found`, and comparing the two is validation's finding rather than this one.
+
+A leaf is left out. `Iqbal , 556 U.S. at 678` writes a name and it is a part of
+one; whether a short form's `Huri` is the right part is the attachment question,
+which `attribution` already scores.
+
+**The name is final after the identity stage**, which is what makes it scorable
+before the pipeline ends: nothing later writes one. The leaf pass reads names
+and does not correct them, the pinpoint check does not touch them, and
+`Review.CASE_NAME` is off. Measured over the corpus, identity moves 423 root
+names from 400 right to 403 -- it puts five right and breaks two, and the 18 it
+leaves are almost all span defects rather than identity questions: a name cut
+short at the front (`Broadway Assoc., LLC v. Layens` for `3694 Broadway Assoc.,
+LLC v. Layens`), or one that swallowed the furniture in front of it
+(`Cases Page(s) Ahanchian v. Xenon Pictures`). No archive answers those.
+
 **A leaf states no court**, so it is left out of both sides. `Id. at 570` is its
 root's citation and its root's court, which is not a second claim to be right or
 wrong about, and an arm carrying the root's court forward is neither credited

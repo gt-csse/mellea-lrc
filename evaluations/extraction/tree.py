@@ -202,6 +202,7 @@ MEASURES = (
     ("docket courts", "court", ""),
     ("courts", "any_court", ""),
     ("dates", "date", ""),
+    ("case names", "case_name", ""),
     ("attribution", "attribution", ""),
 )
 
@@ -262,6 +263,7 @@ def _row(
     court: str | None = None,
     any_court: str | None = None,
     date: str | None = None,
+    case_name: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     return {
         "kind": kind,
@@ -274,7 +276,19 @@ def _row(
         # state and only a full one usually does.
         "any_court": any_court,
         "date": date,
+        "case_name": case_name,
     }
+
+
+def _same(read: Any, stated: Any) -> bool:
+    """Whether the arm read what the filing states.
+
+    A span survives the artifact as a list and arrives here as one, so the two
+    are compared as sequences of the same kind rather than by type.
+    """
+    if isinstance(read, list | tuple) and isinstance(stated, list | tuple):
+        return tuple(read) == tuple(stated)
+    return bool(read == stated)
 
 
 def _overlaps(one: tuple[int, int], other: tuple[int, int]) -> int:
@@ -350,6 +364,9 @@ def _from_rules(extracted: Document, *, dockets: bool) -> dict[tuple[int, int], 
             else None,
             getattr(citation.stated, "court", None),
             _written_date(citation),
+            (citation.case_name_span.start, citation.case_name_span.end)
+            if citation.case_name_span is not None
+            else None,
         )
     return rows
 
@@ -545,6 +562,13 @@ async def score(
             want_date = (row.get("date") or {}).get("normalized")
             if want_date:
                 counts["date:stated"] += 1
+            # Where the name is written, which is a question about the document
+            # and nothing else. What the *archive* calls the case is `found`,
+            # and comparing the two is validation's finding, not this.
+            name = row.get("case_name") if row["is_root"] else None
+            want_name = (name["start"], name["end"]) if name else None
+            if want_name:
+                counts["case_name:stated"] += 1
 
             want_court = (roots_by_id.get(row["root_id"]) or {}).get("court")
             if row["kind"] == "DocketCitation" and want_court:
@@ -573,12 +597,13 @@ async def score(
             for key, stated, label in (
                 ("any_court", want_any_court, "court"),
                 ("date", want_date, "date"),
+                ("case_name", want_name, "case name"),
             ):
                 if not stated:
                     continue
                 if at_span is None:
                     detail[key].append(f"{row['id']} not read, so it states no {label}")
-                elif at_span[key] == stated:
+                elif _same(at_span[key], stated):
                     counts[f"{key}:right"] += 1
                 elif at_span[key] is None:
                     detail[key].append(f"{row['id']} {label} {stated!r} not read")
@@ -647,6 +672,8 @@ async def score(
                 counts["any_court:reported"] += 1
             if reported["date"] is not None:
                 counts["date:reported"] += 1
+            if reported["case_name"] is not None and reported["is_root"]:
+                counts["case_name:reported"] += 1
             if span in claimed:
                 continue
             row = next((r for start, end, r in noncase if start <= span[0] and span[1] <= end), None)
