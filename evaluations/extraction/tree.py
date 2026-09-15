@@ -113,6 +113,7 @@ from mellea_lrc.serialization import (
 if TYPE_CHECKING:
     from mellea import MelleaSession
 
+    from mellea_lrc.core.record import CitationRecord
     from mellea_lrc.extraction.types import Document
 
 # Every kind that cites a case. A statute is not one, and the tree says nothing
@@ -199,6 +200,8 @@ MEASURES = (
     ("short forms", "short_form", "- "),
     ("pin cites", "pincite", ""),
     ("docket courts", "court", ""),
+    ("courts", "any_court", ""),
+    ("dates", "date", ""),
     ("attribution", "attribution", ""),
 )
 
@@ -253,6 +256,8 @@ def _row(
     root: tuple[int, int] | None,
     pin_cite: Any,
     court: str | None = None,
+    any_court: str | None = None,
+    date: str | None = None,
 ) -> dict[str, Any]:
     return {
         "kind": kind,
@@ -261,6 +266,10 @@ def _row(
         "is_root": root is not None and root == span,
         "pin_cite": pin_cite,
         "court": court,
+        # The court whatever the kind, and the date, which every citation can
+        # state and only a full one usually does.
+        "any_court": any_court,
+        "date": date,
     }
 
 
@@ -335,8 +344,46 @@ def _from_rules(extracted: Document, *, dockets: bool) -> dict[tuple[int, int], 
             getattr(citation.stated, "court", None)
             if citation_kind(citation.stated) is CitationKind.DOCKET
             else None,
+            getattr(citation.stated, "court", None),
+            _written_date(citation),
         )
     return rows
+
+
+def _written_date(citation: CitationRecord) -> str | None:
+    """The decision date the arm read, at the precision it read it.
+
+    `2009`, `2023-09` or `2006-07-13`, which is how the ground truth writes a
+    date: exactly as much of it as the filing states. An arm that reads a year
+    where the filing writes a day has read less than the filing states, and the
+    two strings differ, which is the answer.
+    """
+    date = getattr(citation.stated, "date", None)
+    if date is None or not getattr(date, "year", None):
+        return None
+    month = _month(getattr(date, "month", None))
+    if month is None:
+        return str(date.year)
+    day = getattr(date, "day", None)
+    if not day:
+        return f"{date.year}-{month:02d}"
+    return f"{date.year}-{month:02d}-{int(day):02d}"
+
+
+#: eyecite reports a month as the filing wrote it -- `July`, `Sept.`, sometimes
+#: a number -- and the ground truth writes a date as digits, so it is read here
+#: rather than compared as prose.
+_MONTHS = {name: number for number, name in enumerate(
+    "jan feb mar apr may jun jul aug sep oct nov dec".split(), start=1)}
+
+
+def _month(written: object) -> int | None:
+    if written is None or written == "":
+        return None
+    text = str(written).strip().lower().rstrip(".")
+    if text.isdigit():
+        return int(text)
+    return _MONTHS.get(text[:3])
 
 
 async def run_document(
@@ -480,6 +527,16 @@ async def score(
             want = row.get("pin_cite")
             if want is not None:
                 counts["pincite:stated"] += 1
+            # The court and the date are counted before the citation is looked
+            # for, like the pin cite, so one stays in the denominator when the
+            # citation carrying it was missed.
+            want_any_court = (row.get("court") or {}).get("id")
+            if want_any_court:
+                counts["any_court:stated"] += 1
+            want_date = (row.get("date") or {}).get("normalized")
+            if want_date:
+                counts["date:stated"] += 1
+
             want_court = (roots_by_id.get(row["root_id"]) or {}).get("court")
             if row["kind"] == "DocketCitation" and want_court:
                 counts["court:stated"] += 1
@@ -504,6 +561,21 @@ async def score(
                     detail["attribution"].append(f"{row['id']} attributed away from {row['root_id']}")
 
             at_span = associated.get(row["id"])
+            for key, stated, label in (
+                ("any_court", want_any_court, "court"),
+                ("date", want_date, "date"),
+            ):
+                if not stated:
+                    continue
+                if at_span is None:
+                    detail[key].append(f"{row['id']} not read, so it states no {label}")
+                elif at_span[key] == stated:
+                    counts[f"{key}:right"] += 1
+                elif at_span[key] is None:
+                    detail[key].append(f"{row['id']} {label} {stated!r} not read")
+                else:
+                    detail[key].append(f"{row['id']} {label} read as {at_span[key]!r}, not {stated!r}")
+
             if row["kind"] == "DocketCitation" and want_court:
                 if at_span is None:
                     detail["court"].append(f"{row['id']} not read, so it names no court")
@@ -559,6 +631,10 @@ async def score(
                 counts["pincite:reported"] += 1
             if reported["court"] is not None:
                 counts["court:reported"] += 1
+            if reported["any_court"] is not None:
+                counts["any_court:reported"] += 1
+            if reported["date"] is not None:
+                counts["date:reported"] += 1
             if span in claimed:
                 continue
             row = next((r for start, end, r in noncase if start <= span[0] and span[1] <= end), None)
