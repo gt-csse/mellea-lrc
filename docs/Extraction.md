@@ -131,8 +131,11 @@ JSON and `deserialize_document` reads it back. That artifact is the
 is offline and deterministic, validation is neither, and the boundary between
 them is a file.
 
-It is versioned. `schema_version` is **9**, and a reader refuses a payload that
-does not say so rather than guessing at a field it does not recognise.
+It is versioned. The current `schema_version` is **16**, and a reader refuses
+a payload it cannot read. It also writes `locators` and
+`colocations` as separate top-level projections. They are regenerated from the
+citation records when an artifact is read, so validation can remove a citation
+without leaving stale locator-layer output behind.
 
 What a citation carries there, beyond its spans and its parse:
 
@@ -163,6 +166,57 @@ The locator is what reaches the case in a reporter-indexed database, so it is
 what lookup and evaluation both key on. The full span is what you highlight in a
 document. Reporting the right locator with a slightly different full span is not
 an error; reporting the right span with a misread locator is.
+
+### Locator occurrences and colocations
+
+The extraction service exposes two independent locator layers:
+
+| output | shape | what is scored |
+|---|---|---|
+| `locators` | locator citation id, kind, exact span and text | whether each complete reporter or docket occurrence was found at the annotated span |
+| `colocations` | groups of citation ids | whether the members written together were grouped exactly |
+
+A single locator has no one-member colocation group.
+For a parallel citation, each locator keeps its own span while the group lists
+the citation ids at that site. The `Document` exposes these as
+`document.locators` and `document.colocations`; the serialized artifact
+stores both explicitly.
+
+Locators count occurrences before deduplication: writing `556 U.S. 662` twice
+produces two locators at different spans even if both records later share a
+`root_id`. `find_locators(...).locators` and `eval_locators` use this same
+occurrence layer. The score compares `(document, start, end)` for every full
+case or docket citation, ignoring `is_root` and context fields. Root assignment
+is a separate tree question; short forms belong to the later leaf layer.
+
+`grow_roots(preprocessed, rules=stable(rules))` is the project-rule entrypoint.
+With `rules=None`, it uses eyecite's default tokenizer and metadata reads.
+The stable profile reads locator spans and case names first, forms colocation
+groups, audits docket candidates, resolves courts and dates inside the group
+boundary, structures pin cites against the resulting full spans, then assigns
+citation roots.
+
+`audit_dockets(document, rules=stable())` is independent of
+`resolve_courts(document, rules=stable())`. The audit admits a docket if an
+explicit court follows its group or if a reporter/database locator is in the
+same group. A docket supported by a reporter can remain courtless for citation
+lookup during validation. The audit scans the court rule without writing court
+fields; court resolution scans the same rule again to populate them. Both
+start after the group's last locator and stop before the next unrelated one.
+
+An unsupported docket is withdrawn with a reason in its record's trace.
+`document.citations` and `document.locators` retain the original candidate for
+inspection and raw evaluation. `document.active_citations` contains the
+admitted records used by the citation tree and validation. No candidate is
+erased, and the audit does not change the raw locator or colocation scores.
+`ExtractionRules.docket_auditor` allows the audit to be replaced independently
+of the court reader; with no rules the public audit stage does nothing.
+
+The stage order is constrained but not circular. The audit and court/date
+searches need locator spans and group boundaries; case-name search runs backward from each
+locator before grouping. Eyecite bundles some of these reads inside
+`get_citations`, so the stable profile re-reads court/date after grouping to
+expose their boundaries as separate stages.
 
 ---
 

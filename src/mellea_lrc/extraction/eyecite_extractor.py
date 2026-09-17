@@ -57,16 +57,16 @@ from mellea_lrc.core.citations import (
     is_leaf,
 )
 from mellea_lrc.core.findings import Finding, FindingKind
-from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.identity import citation_id as citation_id_for
 from mellea_lrc.extraction.reading.case_names import locate_case_name
 from mellea_lrc.extraction.reading.courts import court_from_reporter
 from mellea_lrc.extraction.reading.dockets import DOCKET_GROUP, with_dockets
-from mellea_lrc.extraction.reading.pin_cite_spans import locate_pin_cite
+from mellea_lrc.extraction.reading.pin_cite_spans import read_pin_cites
 from mellea_lrc.extraction.reading.pin_cites import relaxed_pin_cites, strip_connector
 from mellea_lrc.extraction.reading.relaxation import Relaxation, tokenizer_for
 from mellea_lrc.extraction.reading.unread_names import unread_case_names
+from mellea_lrc.extraction.rules import ExtractionRules, stable
 from mellea_lrc.extraction.stages import refine
 from mellea_lrc.extraction.structure.attachment import Attachment, root_for
 from mellea_lrc.extraction.structure.withdrawal import withdraw_leaves_of_withdrawn_roots
@@ -405,6 +405,7 @@ def extract_citations(
     relaxation: Relaxation = Relaxation.FULL,
     with_leaves: bool = False,
     attach: Attachment = Attachment.STATED,
+    rules: ExtractionRules | None = None,
 ) -> Document:
     """Extract canonical citations from a preprocessed document.
 
@@ -427,12 +428,29 @@ def extract_citations(
     the same leaf pass, given every root instead of the admitted ones. See
     `docs/Extraction.md`, "Roots first, leaves after validation".
     """
-    document, leaves = _read(preprocessed, relaxation)
+    active_rules = rules if rules is not None else stable(relaxation=relaxation)
+    document, leaves = _read(preprocessed, active_rules)
     return _with_leaves(document, leaves, attach) if with_leaves else document
 
 
+def grow_roots(
+    preprocessed: PreprocessedDocument,
+    *,
+    rules: ExtractionRules | None = None,
+) -> Document:
+    """Grow locator roots using the supplied rules, or eyecite when omitted.
+
+    The returned Document exposes every complete locator occurrence and
+    colocation groups independently of root assignment. Use stable(rules) to
+    opt into the project's docket, case-name, grouping, and bounded court/date
+    readers.
+    """
+    document, _leaves = _read(preprocessed, rules)
+    return document
+
+
 def _read(
-    preprocessed: PreprocessedDocument, relaxation: Relaxation
+    preprocessed: PreprocessedDocument, rules: ExtractionRules | Relaxation | None
 ) -> tuple[Document, list[tuple[str, CanonicalCitation, str | None]]]:
     """One read of the document: the roots as a document, and the leaves apart.
 
@@ -440,16 +458,31 @@ def _read(
     the only difference between them is which roots the leaves are offered.
     """
 
+    # Keep the old private-helper call shape usable by extraction tests and
+    # callers that still pass a relaxation positionally. Public entry points
+    # pass a fully resolved rules bundle.
+    if isinstance(rules, Relaxation):
+        rules = stable(relaxation=rules)
+
     text = preprocessed.text
+    level = rules.relaxation if rules is not None and rules.relaxation is not None else Relaxation.NONE
     # A relaxed level reads pin cites tolerantly as well as reporter joins: the
     # same literal single space breaks both, and losing a pin cite loses the
     # page a filing argues from. NONE is left strict so it stays eyecite exactly
     # as published, which is what the evaluation baseline means by the name.
     # See :mod:`mellea_lrc.extraction.reading.pin_cites`.
     with contextlib.ExitStack() as stack:
-        if relaxation is not Relaxation.NONE:
-            stack.enter_context(relaxed_pin_cites(relaxation))
-        eyecite_citations = get_citations(text, tokenizer=with_dockets(tokenizer_for(relaxation)))
+        if level is not Relaxation.NONE:
+            stack.enter_context(relaxed_pin_cites(level))
+        tokenizer = None
+        if rules is not None and rules.tokenizer_factory is not None:
+            tokenizer = rules.tokenizer_factory(level)
+        elif rules is not None and rules.read_dockets:
+            tokenizer = with_dockets(tokenizer_for(level))
+        if tokenizer is None:
+            eyecite_citations = get_citations(text)
+        else:
+            eyecite_citations = get_citations(text, tokenizer=tokenizer)
         # Resolution is inside the block because it reads pin cites too: it
         # tests an `Id.`'s page against the citation it would attach to, with a
         # pattern that counts spaces. Leaving it outside read the page
@@ -471,22 +504,15 @@ def _read(
         full_span = Span(start=span_start, end=span_end)
         locator_span = Span(start=locator_start, end=locator_end)
         canonical = to_canonical(eyecite_citation)
-        # The citation carries where it is written. `pin_cite` arrives from the
-        # parse as the string the filing wrote; it becomes a `PinCite` here,
-        # with the position located against the document and the pages read
-        # from the same characters, so the three cannot disagree.
-        pin_cite_span = locate_pin_cite(text, canonical, locator_span=locator_span, full_span=full_span)
-        written = getattr(canonical, "pin_cite", None)
         canonical = dataclasses.replace(
             canonical,
             span=full_span,
             locator_span=locator_span,
             matched_text=eyecite_citation.matched_text(),
-            case_name=_case_name(text, eyecite_citation, locator_span, name_floor, canonical),
-            **(
-                {"pin_cite": PinCite.read(written, pin_cite_span)}
-                if isinstance(written, str) and written
-                else {}
+            case_name=(
+                rules.case_name_reader(text, eyecite_citation, locator_span, name_floor, canonical)
+                if rules is not None and rules.case_name_reader is not None
+                else None
             ),
         )
         # **Roots only.** A leaf's meaning is which root it points at, and
@@ -509,10 +535,29 @@ def _read(
             )
         name_floor = max(name_floor, eyecite_citation.full_span()[1])
 
+    # Leaves do not enter the roots-only court/date passes, but their locator
+    # and full spans are already final from eyecite. Structure their pin cites
+    # now, before attachment uses the claimed page to choose a root.
+    if leaves:
+        pin_cite_reader = (
+            rules.pin_cite_reader
+            if rules is not None and rules.pin_cite_reader is not None
+            else read_pin_cites
+        )
+        leaf_records = tuple(
+            CitationRecord(citation_id=citation_id, source=citation, root_id=citation_id)
+            for citation_id, citation, _antecedent in leaves
+        )
+        parsed_leaves = pin_cite_reader(text, leaf_records)
+        antecedents = {citation_id: antecedent for citation_id, _citation, antecedent in leaves}
+        leaves = [
+            (item.citation_id, item.stated, antecedents[item.citation_id]) for item in parsed_leaves
+        ]
+
     # The passes over the citation list are ordered, and one reads what another
     # writes. See :mod:`mellea_lrc.extraction.stages` for the sequence and the
     # constraint behind it.
-    refined = refine(text, extracted)
+    refined = refine(text, extracted, rules)
     document = Document(
         source_metadata=preprocessed.source_metadata,
         text=preprocessed.text,
@@ -520,7 +565,7 @@ def _read(
         citations=refined,
         unread_case_names=unread_case_names(text, refined),
         passes=("roots",),
-        extraction_metadata=ExtractionMetadata(relaxation=relaxation),
+        extraction_metadata=ExtractionMetadata(relaxation=level),
     )
     return document, leaves
 
@@ -644,7 +689,7 @@ def grow_leaves(
         text=document.text,
         preprocessing_metadata=document.preprocessing_metadata,
     )
-    _, leaves = _read(preprocessed, level)
+    _, leaves = _read(preprocessed, stable(relaxation=level))
     known = {record.citation_id for record in document.citations}
     return _with_leaves(document, [leaf for leaf in leaves if leaf[0] not in known], attach)
 
@@ -656,6 +701,7 @@ def extract_from_plain_text(
     relaxation: Relaxation = Relaxation.FULL,
     with_leaves: bool = False,
     attach: Attachment = Attachment.STATED,
+    rules: ExtractionRules | None = None,
 ) -> Document:
     """Extract citations from Layer 2 plain text.
 
@@ -672,5 +718,5 @@ def extract_from_plain_text(
             source_metadata=replace(preprocessed.source_metadata, path=source_path),
         )
     return extract_citations(
-        preprocessed, relaxation=relaxation, with_leaves=with_leaves, attach=attach
+        preprocessed, relaxation=relaxation, with_leaves=with_leaves, attach=attach, rules=rules
     )

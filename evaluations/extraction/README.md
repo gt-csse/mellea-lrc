@@ -524,3 +524,58 @@ cannot exceed 98.1% recall. And three occurrences are deliberately excluded
 because the filing states no complete identifier — a page lost to margin
 numbering, a volume stranded in another table cell, a volume never written —
 so reporting one scores a false positive.
+
+## Locator-layer evaluation
+
+`grow_annotated_corpus` reads the
+corpus and runs `grow_roots` once per document. `eval_locators(corpus)` scores
+every complete reporter and docket locator occurrence. `eval_colocation(corpus)` scores
+only exact colocation member groups. `eval_docket_audit(corpus)` scores admitted
+docket spans and reports the audit's admission and withdrawal counts. Each evaluator returns its own small JSON
+report and can be called independently; `locator_layers.py` is the convenience
+orchestrator that runs all three against the same extracted corpus. These commands
+read only the annotated corpus, not the held-out evaluation sets.
+
+~~~bash
+uv run python -m evaluations.extraction.eval_locators \
+  --annotations <store>/annotation-v4.0/documents \
+  --texts-root <store>
+
+uv run python -m evaluations.extraction.eval_colocation \
+  --annotations <store>/annotation-v4.0/documents \
+  --texts-root <store>
+
+uv run python -m evaluations.extraction.eval_docket_audit \
+  --annotations <store>/annotation-v4.0/documents \
+  --texts-root <store>
+
+uv run python -m evaluations.extraction.locator_layers \
+  --annotations <store>/annotation-v4.0/documents \
+  --texts-root <store>
+~~~
+
+`eval_locators` returns `locator_spans` and `locator_spans_by_kind`. An exact
+match is `(document, start, end)`: two appearances of the same identifier count
+twice. The scorer uses every `FullCaseCitation` and `DocketCitation` annotation
+with a locator span and every entry in `Document.locators`. It does not read
+`is_root`, `root_id`, court, date, or case name; root deduplication and context
+resolution are separate evaluation questions. Short forms belong to the later
+leaf layer.
+
+Courtless docket candidates are retained in this layer; a caption or page
+stamp therefore counts as a false positive when it is not annotated as a cited
+case locator. `eval_colocation` scores exact groups of occurrence spans, so
+repeated parallel citations also remain separate groups.
+
+The docket audit runs after colocation, before court metadata is written. It
+retains candidates with an explicit court after their group or a colocated
+reporter/database locator. Rejected candidates remain as withdrawn records,
+so the raw locator score stays independent of admission. The audit evaluator
+scores only active docket spans against the cited docket annotations; it does
+not evaluate the correctness of court metadata.
+
+On the 26-document corpus, the audit retains 43 of 71 candidates and withdraws
+28. All 42 annotated docket occurrences remain (100% recall, 97.67% precision).
+The extra occurrence is `No. 22-10066` beside `2023 WL 1428572`, whose docket
+annotation is missing. The same omission accounts for the extra colocation
+group. These scores use the existing annotations without changing their scope.

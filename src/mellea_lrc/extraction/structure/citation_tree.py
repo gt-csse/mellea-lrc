@@ -200,12 +200,12 @@ def assign_roots(citations: Sequence[CitationRecord]) -> tuple[CitationRecord, .
 
 def build_citation_tree(document: Document) -> CitationTree:
     """Group a document's citations under the authorities they refer to."""
-    by_id = {item.citation_id: item for item in document.citations}
+    by_id = {item.citation_id: item for item in document.active_citations}
     roots: dict[str, list[CitationOccurrence]] = {}
     unattributed: list[CitationRecord] = []
     out_of_scope: list[CitationRecord] = []
 
-    for item in document.citations:
+    for item in document.active_citations:
         root_id, depth = _resolve_root(item, by_id)
         root = by_id.get(root_id) if root_id else None
         if root is not None and isinstance(root.stated, _ROOT_KINDS):

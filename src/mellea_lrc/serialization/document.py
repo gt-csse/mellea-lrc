@@ -49,26 +49,9 @@ from mellea_lrc.preprocessing.types import (
 )
 from mellea_lrc.serialization._json import JsonValue, require_list, require_mapping, serialize_dataclass
 
-SCHEMA_VERSION = 15
-"""What an artifact of this shape is called, so a reader refuses one it cannot read.
-
-Version 11 is the citation record. A document holds records rather than
-extracted citations, and each entry is::
-
-    citation_id            what this pass assigned, which never changes
-    source                 the citation as the rules read it, frozen
-    stated                 the same citation as currently read
-    resolves_to, root_id, colocation_id
-    authority_id, found    filled by validation, absent until then
-    trace                  every node, and the corrections it justified
-
-`source` and `stated` are the same shape, so a reader diffs them field by field
-to see what was changed and why. Both carry their own position -- ``span``,
-``locator_span``, ``matched_text``, ``case_name`` and ``pin_cite`` are fields of
-the citation, written once, because a reading and the position it was read from
-go out of step the moment they are stored apart.
-"""
+SCHEMA_VERSION = 16
 _ARTIFACT_TYPE = "document"
+_SUPPORTED_SCHEMA_VERSIONS = frozenset({15, SCHEMA_VERSION})
 
 _CITATION_TYPES: dict[CitationKind, type[CanonicalCitation]] = {
     CitationKind.FULL_CASE: FullCaseCitation,
@@ -92,6 +75,16 @@ def serialize_document(document: Document) -> dict[str, JsonValue]:
         "text": document.text,
         "preprocessing_metadata": serialize_dataclass(document.preprocessing_metadata),
         "citations": [_serialize_record(record) for record in document.citations],
+        "locators": [
+            {
+                "citation_id": locator.citation_id,
+                "kind": locator.kind.value,
+                "span": serialize_dataclass(locator.span),
+                "text": locator.text,
+            }
+            for locator in document.locators
+        ],
+        "colocations": [list(group) for group in document.colocations],
         "unread_case_names": [serialize_dataclass(span) for span in document.unread_case_names],
         "findings": [_serialize_finding(finding) for finding in document.findings],
         "passes": list(document.passes),
@@ -149,7 +142,7 @@ def deserialize_document(payload: Mapping[str, object]) -> Document:
         msg = "text must be a string"
         raise ValueError(msg)
 
-    return Document(
+    document = Document(
         source_metadata=SourceMetadata(
             path=_optional_string(source_metadata.get("path"), name="source_metadata.path"),
             format=SourceFormat(
@@ -172,9 +165,7 @@ def deserialize_document(payload: Mapping[str, object]) -> Document:
             if item is not None
         ),
         findings=_read_findings(payload.get("findings")),
-        passes=tuple(
-            _required_string(name, name="passes") for name in (payload.get("passes") or [])
-        ),
+        passes=tuple(_required_string(name, name="passes") for name in (payload.get("passes") or [])),
         extraction_metadata=ExtractionMetadata(
             backend=ExtractionBackend(
                 _required_string(extraction_metadata.get("backend"), name="extraction_metadata.backend")
@@ -187,6 +178,7 @@ def deserialize_document(payload: Mapping[str, object]) -> Document:
             ),
         ),
     )
+    return document
 
 
 def _deserialize_citation(payload: Mapping[str, object]) -> CitationRecord:
@@ -291,7 +283,9 @@ def _read_resolution(value: object, *, name: str) -> Resolution | None:
             if (resolution := _read_resolution(item, name=f"{name}.duplicates")) is not None
         ),
         docket_id=_optional_string(fields.get("docket_id"), name=f"{name}.docket_id"),
-        govinfo_package_id=_optional_string(fields.get("govinfo_package_id"), name=f"{name}.govinfo_package_id"),
+        govinfo_package_id=_optional_string(
+            fields.get("govinfo_package_id"), name=f"{name}.govinfo_package_id"
+        ),
     )
 
 
@@ -309,7 +303,9 @@ def _read_dates(value: object, *, name: str) -> DateExploration | None:
             for pair in require_list(fields.get("phrases_by_opinion", []), name=f"{name}.phrases_by_opinion")
         ),
         matched_phrase=_optional_string(fields.get("matched_phrase"), name=f"{name}.matched_phrase"),
-        matched_opinion_id=_optional_string(fields.get("matched_opinion_id"), name=f"{name}.matched_opinion_id"),
+        matched_opinion_id=_optional_string(
+            fields.get("matched_opinion_id"), name=f"{name}.matched_opinion_id"
+        ),
     )
 
 
@@ -574,7 +570,7 @@ def _deserialize_reporter(payload: Mapping[str, object]) -> Reporter:
 
 
 def _require_artifact(payload: Mapping[str, object], *, artifact_type: str) -> None:
-    if payload.get("schema_version") != SCHEMA_VERSION:
+    if payload.get("schema_version") not in _SUPPORTED_SCHEMA_VERSIONS:
         msg = f"Unsupported serialization schema version: {payload.get('schema_version')!r}"
         raise ValueError(msg)
     if payload.get("artifact_type") != artifact_type:

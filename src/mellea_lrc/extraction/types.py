@@ -10,6 +10,11 @@ from mellea_lrc.core.pin_cites import PinCitePages
 from mellea_lrc.core.record import CitationRecord
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.reading.relaxation import Relaxation
+from mellea_lrc.extraction.structure.locator_layers import (
+    Locator,
+    colocation_layer,
+    locator_layer,
+)
 from mellea_lrc.preprocessing.types import PreprocessedDocument
 
 
@@ -81,9 +86,34 @@ class Document(PreprocessedDocument):
     extraction_metadata: ExtractionMetadata
 
     @property
+    def active_citations(self) -> tuple[CitationRecord, ...]:
+        """Records admitted for downstream work; withdrawn candidates stay in citations."""
+        return tuple(item for item in self.citations if not item.withdrawn)
+
+    @property
     def full_citations(self) -> tuple[CitationRecord, ...]:
         """Return only self-contained bibliographic citations."""
         return tuple(item for item in self.citations if is_full_citation(item.stated))
+
+    @property
+    def locators(self) -> tuple[Locator, ...]:
+        """Every complete reporter or docket locator occurrence, including repeats.
+
+        This reading is independent of root assignment, case context, and
+        citation occurrence grouping. The locator text is sliced
+        from this document so its span and text cannot drift apart.
+        """
+        return locator_layer(self.text, self.citations)
+
+    @property
+    def colocations(self) -> tuple[tuple[str, ...], ...]:
+        """Co-located case locator occurrences, represented by citation ids.
+
+        One citation remains a locator but does not form a one-member
+        colocation. Groups include repeated occurrences as well as first-seen
+        roots, which keeps grouping independent from root attribution.
+        """
+        return colocation_layer(self.citations)
 
     def __post_init__(self) -> None:
         PreprocessedDocument.__post_init__(self)

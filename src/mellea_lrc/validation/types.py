@@ -727,16 +727,16 @@ class CitationValidation:
 
 @dataclass(frozen=True, slots=True)
 class ValidatedDocument:
-    """Post-extraction validation state for every citation in one document."""
+    """Validation state for active citations, with every raw record in source."""
 
     source: Document
     citations: tuple[CitationValidation, ...]
 
     def __post_init__(self) -> None:
-        source_ids = tuple(item.citation_id for item in self.source.citations)
+        source_ids = tuple(item.citation_id for item in self.source.active_citations)
         validation_ids = tuple(item.citation_id for item in self.citations)
         if validation_ids != source_ids:
-            msg = "Citation validations must exactly match extracted citations in order"
+            msg = "Citation validations must exactly match active extracted citations in order"
             raise ValueError(msg)
 
     @property
