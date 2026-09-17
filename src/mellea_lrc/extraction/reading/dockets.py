@@ -1,76 +1,23 @@
-r"""Docket numbers, read by eyecite as a locator in their own right.
+r"""Find docket-shaped locator candidates before resolving their context.
 
-A reporter locator and a docket number do the same job. Each is the string that
-identifies which case a filing is talking about, and eyecite has a shape for one
-and no shape at all for the other::
+The stable extraction profile registers these patterns with eyecite's tokenizer,
+so a docket enters the same canonical citation stream as a reporter locator.
+Court and date are later readers: a docket is retained with court=None when no
+court is written beside it, and validation can check that candidate before it
+tries to resolve the docket to a case root.
 
-    Calderon v. GEICO Gen. Ins. Co., No. 1:19-CV-362 (M.D.N.C. Jan. 26, 2021)
-                                     ^ the locator, and eyecite emits nothing
+The district shape is self-describing (office, year, case type and sequence),
+while bankruptcy numbers need an introducing signal because a year and sequence
+alone also occur as page ranges. The patterns still admit filing captions,
+ECF stamps and some bar-number lookalikes. They remain visible to raw locator
+evaluation; an independent audit after colocation decides admission using an
+explicit court or a colocated reporter.
 
-That silence is not a small gap. A case too recent or too minor to have reached
-a reporter is cited by docket and by nothing else, which is exactly the
-population where a fabricated citation is hardest to catch: there is no
-reporter page to check it against. On false-citation-bench the docket is the
-only identifier for twelve occurrences across five filings, and one of them --
-the indictment in document 016 -- is the head of a chain of fifteen `Id. ¶ N`
-references that had nowhere to attach.
-
-So rather than reading dockets in a pass of our own, this tells eyecite to keep
-going: a :class:`~eyecite.models.TokenExtractor` registered with the tokenizer,
-emitting an ordinary ``CitationToken``. Everything downstream then happens for
-free and happens the same way it does for a reporter citation -- eyecite finds
-the case name in front of it, the pin cite and year behind it, groups repeat
-occurrences under one resource, and points `Id.` at it.
-
-Two things make a docket different from a reporter locator, and both are
-handled here rather than downstream.
-
-**The court is half of the identifier.** ``1:19-cv-362`` exists in every
-district; only ``1:19-cv-362`` *in the Middle District of North Carolina* names
-a case. So the court is resolved against ``courts-db`` -- the same database
-CourtListener uses -- and a docket number with no court written alongside it is
-declined rather than guessed at. That is the same rule the model-assisted path
-follows, where the model is offered a closed set of courts found in the text so
-that it must pick or decline; a deterministic extractor should be at least as
-strict.
-
-**A filing states its own docket number, everywhere.** It stands in the caption
-and in every ECF page stamp -- document 020 carries twenty identical ``Case
-2:25-cv-01295-GMS Document 1 Filed 04/18/25`` lines, page furniture that
-preprocessing should have dropped and did not. Those are not citations. What
-separates them from a citation is not the number but what follows it: a cited
-docket is followed by its court, in parentheses, on the same block of text::
-
-    No. 1:25-cr-00312-RPK (E.D.N.Y. filed Oct. 8, 2025)     a citation
-    Case 2:25-cv-01295-GMS  Document 1  Filed 04/18/25      a page stamp
-
-Requiring that is what makes the extractor usable at all. Proximity alone is
-not enough: document 022 stamps ``Case 2:25-cv-01295-GMS`` forty characters
-after another case's ``(N.D. Cal. May 13, 2011)``, and document 006 has its own
-caption number sitting a blank line before an unrelated ``(10th Cir. 1994)``.
-Both are excluded by insisting the court parenthesis follow the number without
-a paragraph break between them -- the same block-boundary rule
-:mod:`~mellea_lrc.extraction.reading.relaxation` applies to a broken reporter citation,
-for the same reason: what lies beyond a blank line belongs to something else.
-
-**Two shapes, and the looser one earns it from the court.** A district number
-is ``office:year-type-sequence`` and says what it is; a bankruptcy number is a
-year and a sequence and says nothing -- ``06-01147`` is the same shape as an
-attorney's bar number, a state index number and a page range. Documents 015 and
-016 cite eighteen cases that way, correctly, under Bluebook Rule 10.8.1, and
-every one of them used to be read as no citation at all. What makes the loose
-shape safe is not the digits but the two rules already here: the signal is
-required in front of it rather than optional, and the court must still be
-written alongside. Document 015's own ``Case No. 26-10769 (MG) (Joint
-Administration Requested)`` is declined by the second, as ECF stamps are.
-
-Measured on the 26 documents of false-citation-bench, this reads twenty-nine
-docket citations in seven documents and picks up none of the twenty ECF stamps,
-no bar number and no state index number.
-
-What it does not read is stated rather than hidden: a docket number with no
-court written beside it, and a state or appellate number in a shape neither of
-these covers.
+A court is attached only when its own parenthetical follows the docket in the
+same text block. Proximity across a paragraph break is insufficient. A docket
+without a resolved court gets an internal per-occurrence eyecite edition, so
+unknown jurisdictions cannot be merged before a validation check establishes
+their identity.
 """
 
 from __future__ import annotations
@@ -133,11 +80,10 @@ _DISTRICT = (
 #
 # Nothing in the number itself says it is one. `1124201` is an attorney's bar
 # number in document 005's signature block and `035547/2021` a state index
-# number in document 009, and both are this shape. Two things keep it honest,
-# and neither is about the digits: the signal is **required** here rather than
-# optional, and the court must still be written alongside. The filing's own
-# `Case No. 26-10769 (MG) (Joint Administration Requested)` is declined by the
-# second of those, which is the same rule that already declines ECF stamps.
+# number in document 009, and both are this shape. The signal is required here
+# rather than optional, which reduces but does not eliminate collisions. The
+# filing's own `Case No. 26-10769` and `No. 1124201` are intentionally kept as
+# candidates; locator-layer evaluation measures their cost.
 _BANKRUPTCY = rf"\b(?P<year>\d{{2}}){_JOIN}(?P<sequence>\d{{4,5}})(?P<suffix>(?:-[A-Za-z]{{2,4}})+)?\b"
 
 DOCKET_NUMBER = rf"{_SIGNAL}{_DISTRICT}"
@@ -270,7 +216,7 @@ def courts_near(text: str, start: int, end: int) -> tuple[CourtCandidate, ...]:
     return courts_in(text, start - _COURT_SEARCH_BEFORE, end + _COURT_SEARCH_AFTER)
 
 
-def court_for_docket(text: str, end: int) -> CourtCandidate | None:
+def court_for_docket(text: str, end: int, *, stop: int | None = None) -> CourtCandidate | None:
     """The court written with the docket number that ends at ``end``.
 
     A cited docket carries its court in the parenthesis that follows it, in the
@@ -278,7 +224,8 @@ def court_for_docket(text: str, end: int) -> CourtCandidate | None:
     belongs to whatever citation put it there, which on a page of ECF stamps is
     never this one.
     """
-    for bracket in _BRACKETED.finditer(text, end, end + _COURT_WINDOW):
+    limit = min(end + _COURT_WINDOW, stop if stop is not None else len(text))
+    for bracket in _BRACKETED.finditer(text, end, limit):
         if _PARAGRAPH_BREAK.search(text, end, bracket.start()):
             return None
         court = _court_opening(text, bracket.start(1), bracket.end(1))
@@ -337,13 +284,11 @@ def _is_written_as_a_court(opening: str) -> bool:
 
 @cache
 def _edition(court_id: str, court_name: str, case_type: str) -> Edition:
-    """The docket series this citation belongs to: one court's cases of one type.
+    """An internal edition used to keep eyecite from merging unknown dockets.
 
-    eyecite identifies a case by volume, reporter and page, and it reads the
-    reporter through the edition it resolved to. Making the court part of the
-    edition is what keeps two districts' ``1:19-cv-362`` from being read as one
-    case, and what makes ``No. 1:19-CV-362`` and ``no. 1:19-cv-362`` read as the
-    same one.
+    Before court resolution, each occurrence gets a unique edition, so equal
+    numbers in unknown jurisdictions cannot share an eyecite resource. Once a
+    court is known, the later root stage groups equal docket numbers within it.
     """
     return Edition(
         reporter=Reporter(
@@ -364,11 +309,10 @@ def _edition(court_id: str, court_name: str, case_type: str) -> Edition:
 def docket_token(match: re.Match[str], extra: dict, offset: int = 0) -> CitationToken:
     """Build the citation token for one docket number.
 
-    The three parts of a docket number stand in for the three parts of a
-    locator, which is the whole of the idea: the office is the volume, the
-    court's docket series is the reporter, and the year and sequence together
-    are the page. eyecite's own machinery then treats it as it treats any other
-    case citation.
+    The docket's office, year and sequence stand in for eyecite's volume and
+    page fields, preserving the locator as a normal full-case token. The
+    reporter field is an internal per-occurrence edition until court context is
+    resolved later.
 
     The page deliberately keeps its hyphen. eyecite rejects an `Id.` whose pin
     cite cannot be a page within 150 pages of a numeric one, which is a sound
@@ -377,49 +321,45 @@ def docket_token(match: re.Match[str], extra: dict, offset: int = 0) -> Citation
     doing.
     """
     del extra
-    court = court_for_docket(match.string, match.end())
-    if court is None:  # pragma: no cover - get_matches has already declined it
-        msg = "a docket number is only a citation when its court is written with it"
-        raise ValueError(msg)
     groups = match.groupdict()
     # A bankruptcy number carries neither an office nor a case type: it is a
-    # year and a sequence, and the court it is written beside is the bankruptcy
-    # court. The year stands in for the office so that eyecite has a volume, and
-    # the type is the one such a court hears.
+    # year and a sequence. The year stands in for the office so eyecite has a
+    # volume; the type is filled in after the court is resolved.
     case_type = (groups.get("case_type") or "bk").lower()
     office = groups.get("office") or groups["year"]
     begins = "office" if groups.get("office") else "year"
+    # Court lookup runs after locator detection. Until it does, give each
+    # courtless occurrence an internal unique edition so eyecite cannot merge
+    # equal docket strings from unknown jurisdictions.
+    court_id = f"unresolved-{match.start() + offset}"
+    court_name = "Unresolved docket court"
     return CitationToken(
         match.group(0),
         match.start() + offset,
         match.end() + offset,
         groups={
             "volume": office,
-            "reporter": f"{court.court_id} {case_type}",
+            "reporter": f"{court_id} {case_type}",
             "page": f"{groups['year']}-{groups['sequence']}",
             DOCKET_GROUP: match.string[match.start(begins) : match.end()],
-            "court": court.court_id,
-            "court_name": court.court_name,
-            "court_text": court.text,
+            "court": None,
+            "court_name": None,
+            "court_text": None,
         },
-        exact_editions=(_edition(court.court_id, court.court_name, case_type),),
+        exact_editions=(_edition(court_id, court_name, case_type),),
     )
 
 
 class _DocketExtractor(TokenExtractor):
-    """A token extractor that declines a docket number with no court.
+    """A token extractor that finds docket-shaped locators before context.
 
-    ``TokenExtractor`` hands its constructor the match and nothing else, and
-    whether a docket number is a citation is a fact about the text after it.
-    ``get_matches`` is where eyecite gives an extractor the whole document, so
-    it is where the question gets asked.
+    The tokenizer recognizes the locator's shape. Whether that locator belongs
+    to a cited case is left to locator evaluation and later validation.
     """
 
     def get_matches(self, text: str) -> list[re.Match[str]]:
-        """Return only the docket numbers whose court is written with them."""
-        return [
-            match for match in super().get_matches(text) if court_for_docket(text, match.end()) is not None
-        ]
+        """Return syntactically valid docket numbers for later context resolution."""
+        return super().get_matches(text)
 
 
 @lru_cache(maxsize=1)

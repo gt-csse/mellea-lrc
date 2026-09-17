@@ -44,13 +44,18 @@ reported as ``None`` rather than approximated.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from mellea_lrc.core.citations import CitationKind
+from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from mellea_lrc.core.citations import CanonicalCitation
+    from mellea_lrc.core.record import CitationRecord
 
 _TAIL_OF_LOCATOR = frozenset(
     {
@@ -96,3 +101,32 @@ def locate_pin_cite(
     if offset < 0:
         return None
     return Span(start=base + offset, end=base + offset + len(pin_cite))
+
+
+def read_pin_cites(text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
+    """Parse pin-cite strings after citation spans have been bounded.
+
+    Eyecite supplies the pin-cite string during ``get_citations``. This pass
+    locates that exact string against the finalized locator/full spans and
+    builds the structured ``PinCite`` value used by extraction and validation.
+    """
+
+    return tuple(
+        replace(item, source=read_pin_cite(text, item.source), stated=read_pin_cite(text, item.stated))
+        for item in citations
+    )
+
+
+def read_pin_cite(text: str, citation: CanonicalCitation) -> CanonicalCitation:
+    """Structure one parsed pin string against its locator and full spans."""
+    written = getattr(citation, "pin_cite", None)
+    if not isinstance(written, str) or not written:
+        return citation
+    locator_span = getattr(citation, "locator_span", None)
+    full_span = getattr(citation, "span", None)
+    pin_span = (
+        locate_pin_cite(text, citation, locator_span=locator_span, full_span=full_span)
+        if locator_span is not None and full_span is not None
+        else None
+    )
+    return replace(citation, pin_cite=PinCite.read(written, pin_span))

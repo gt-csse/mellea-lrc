@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import contextlib
 import io
+from dataclasses import replace
 
 import pytest
 
 from mellea_lrc.core.citations import FullCaseCitation, IdCitation, ShortCaseCitation
-from mellea_lrc.extraction import Relaxation, extract_from_plain_text
+from mellea_lrc.extraction import Relaxation, extract_from_plain_text, resolve_pin_cites
 from mellea_lrc.extraction.adjudication.candidates.reporter_sites import SuspectedLocator
 from mellea_lrc.extraction.adjudication.promotion import reread_site
 
@@ -71,6 +72,23 @@ def test_an_ordinary_pin_cite_is_unchanged() -> None:
 
     assert citation.stated.pin_cite.text == "678"
     assert citation.stated.extra is None
+
+
+def test_pin_cite_stage_structures_the_written_text_against_final_spans() -> None:
+    document = _extract("Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009).")
+    target = next(item for item in document.citations if isinstance(item.stated, FullCaseCitation))
+    raw_citation = replace(target.source, pin_cite="678")
+    raw_record = replace(target, source=raw_citation, stated=raw_citation)
+    raw_document = replace(
+        document,
+        citations=tuple(raw_record if item.citation_id == target.citation_id else item for item in document.citations),
+    )
+
+    resolved = resolve_pin_cites(raw_document)
+    citation = next(item for item in resolved.citations if item.citation_id == target.citation_id)
+
+    assert citation.stated.pin_cite.text == "678"
+    assert resolved.text[citation.pin_cite_span.start : citation.pin_cite_span.end] == "678"
 
 
 def test_the_page_does_not_leak_into_extra() -> None:
@@ -240,8 +258,8 @@ def test_a_short_forms_range_still_reads_whole_when_nothing_follows_it() -> None
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ('Foman v. Davis , 371 U.S. 178,\n\n182 (1962). There is no', "182"),
-        ('Tucker v. Fischbein , 237 F.3d 275,\n\n281 -82 (3d Cir. 2001); x', "281 -82"),
+        ("Foman v. Davis , 371 U.S. 178,\n\n182 (1962). There is no", "182"),
+        ("Tucker v. Fischbein , 237 F.3d 275,\n\n281 -82 (3d Cir. 2001); x", "281 -82"),
         ("Goel v. Bunge , 820 F.3d 400 (2d Cir. 2016). Id. at 409-\n\n12. If even", "409-\n\n12"),
     ],
 )

@@ -26,7 +26,14 @@ def _citations(text: str):
 
 
 def test_the_sequence_is_the_one_the_docstring_describes() -> None:
-    assert [stage.name for stage in STAGES] == ["colocation", "post_citation", "root"]
+    assert [stage.name for stage in STAGES] == [
+        "colocation",
+        "docket_audit",
+        "courts",
+        "dates",
+        "pin_cites",
+        "root",
+    ]
 
 
 def test_every_stage_says_why_it_runs_where_it_does() -> None:
@@ -52,8 +59,8 @@ def test_without_colocation_first_the_parallel_citation_loses_it() -> None:
     no date at all.
     """
     unmarked = tuple(replace(item, colocation_id=None) for item in _citations(_PARALLEL))
-    post_citation = next(stage for stage in STAGES if stage.name == "post_citation")
-    without = post_citation.run(_PARALLEL, unmarked)
+    dates = next(stage for stage in STAGES if stage.name == "dates")
+    without = dates.run(_PARALLEL, unmarked)
 
     dates = {
         item.stated.date.year if item.stated.date else None

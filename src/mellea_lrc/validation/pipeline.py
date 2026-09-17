@@ -16,10 +16,10 @@ if TYPE_CHECKING:
 
 
 def initialize_validation(document: Document) -> ValidatedDocument:
-    """Create one empty validation progression per extracted citation."""
+    """Create one validation progression per active citation, preserving the source."""
     return ValidatedDocument(
         source=document,
-        citations=tuple(CitationValidation(citation=item) for item in document.citations),
+        citations=tuple(CitationValidation(citation=item) for item in document.active_citations),
     )
 
 

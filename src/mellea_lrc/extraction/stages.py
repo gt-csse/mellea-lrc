@@ -1,52 +1,39 @@
-"""The order the passes over a document's citations run in, and why.
+"""Named extraction passes and the dependencies that constrain their order.
 
-Once eyecite has produced a citation for every locator it could read, several
-passes refine that list. They are not independent: one of them reads an answer
-another one wrote, so running them in the wrong order does not fail, it produces
-a plausible wrong result -- which is the kind of mistake this project is
-supposed to be bad at making.
+The locator read produces spans and searches backward for case names. Those
+spans then define colocation groups. An independent docket audit checks for an
+explicit court or a colocated reporter and withdraws unsupported candidates.
+Court and date readers run after the audit,
+so a parallel citation may read through its co-located neighbors and stop at
+the next unrelated locator. Pin cites are structured after the date reader
+finalizes each citation's full span. Root/reference assignment runs last.
 
-So the order is a named sequence rather than a line of nested calls. Each stage
-carries the reason it sits where it does, and a test asserts the constraints
-those reasons state.
-
-## The constraints that exist today
-
-``colocation`` before ``post_citation``. Co-location is decided from the spans
-eyecite produced. The post-citation re-read then bounds each citation's search
-for a court and date at *the next citation that is not co-located with it* --
-because a parallel citation is one decision in several reporters and its first
-member has to read across the others to reach the single date at the end. Run
-the re-read first and there are no co-location ids to bound it with, so 30
-parallel citations lose the year they legitimately reach for.
-
-``root`` last, though not because anything forces it. It reads
-``resolves_to``, which no earlier stage writes or changes, so its position is a
-choice: running it after the spans and dates are settled means the citations it
-writes onto are final.
-
-## What is not a stage
-
-Relaxing pin cites is not here. It is not a pass over citations but a swap of
-eyecite's module state around the parse itself, so it lives where the parse is.
-Its ordering constraint is different in kind: it has to be in effect *while*
-`get_citations` runs, and it has to be off at ``Relaxation.NONE`` so the
-evaluation's floor arm keeps measuring eyecite rather than us.
+There is no cycle in this order. The old docket reader created one in practice
+by refusing to emit a docket until it had already resolved a court; locator
+recognition now accepts a docket-shaped span with court=None, and court
+resolution follows grouping. Eyecite still bundles some metadata reads inside
+get_citations, so the stable profile re-reads court/date within the explicit
+boundaries. That re-read is what exposes the stages without changing eyecite's
+baseline when no project rules are supplied.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Protocol
 
-from mellea_lrc.extraction.reading.post_citation import reread_post_citation
+from mellea_lrc.core.citations import DocketCitation
+from mellea_lrc.extraction.reading.docket_audit import audit_docket_citations
+from mellea_lrc.extraction.reading.pin_cite_spans import read_pin_cites
+from mellea_lrc.extraction.reading.post_citation import reread_courts, reread_dates
 from mellea_lrc.extraction.structure.citation_tree import assign_roots
 from mellea_lrc.extraction.structure.colocation import assign_colocation
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from mellea_lrc.extraction.types import CitationRecord
+    from mellea_lrc.extraction.rules import ExtractionRules
+    from mellea_lrc.extraction.types import CitationRecord, Document
 
 
 class Pass(Protocol):
@@ -60,15 +47,43 @@ def _colocation(text: str, citations: Sequence[CitationRecord]) -> tuple[Citatio
     return assign_colocation(text, citations)
 
 
-def _post_citation(text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
-    """Re-read each case citation's court and date inside its own boundary."""
-    return reread_post_citation(text, citations)
+def _courts(text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
+    """Resolve explicit courts after locator spans and groups are known."""
+    return reread_courts(text, citations)
+
+
+def _dates(text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
+    """Resolve dates after locator spans and groups are known."""
+    return reread_dates(text, citations)
+
+
+def _pin_cites(text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
+    """Locate and structure pin cites against the settled citation spans."""
+    return read_pin_cites(text, citations)
 
 
 def _root(text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
     """Write onto each citation the root it refers to. Does not read the text."""
     del text
-    return assign_roots(citations)
+    # Courtless docket locators remain independent candidates. Dockets with an
+    # explicit, resolved court can share an extraction root when the complete
+    # docket identifier repeats in this document.
+    leaders: dict[tuple[str, str], str] = {}
+    linked: list[CitationRecord] = []
+    for citation in citations:
+        stated = citation.stated
+        if citation.withdrawn or not isinstance(stated, DocketCitation) or not stated.court:
+            linked.append(citation)
+            continue
+        key = (stated.court, _normalize_docket(stated.docket_number))
+        leader = leaders.setdefault(key, citation.citation_id)
+        linked.append(replace(citation, resolves_to=leader) if leader != citation.citation_id else citation)
+    return assign_roots(linked)
+
+
+def _normalize_docket(value: str | None) -> str:
+    """Compare docket spellings without punctuation or whitespace changes."""
+    return "".join(char for char in (value or "").casefold() if char.isalnum())
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,16 +102,40 @@ STAGES: tuple[Stage, ...] = (
         run=_colocation,
         why=(
             "Decided from the spans eyecite produced, before anything alters them, and "
-            "before post_citation, which is defined in terms of its ids."
+            "before court and date resolution, whose search boundaries use its ids."
         ),
     ),
     Stage(
-        name="post_citation",
-        run=_post_citation,
+        name="docket_audit",
+        run=audit_docket_citations,
+        why=(
+            "Needs colocation to retain dockets supported by a reporter. Checks the court "
+            "rule independently before any court metadata is written."
+        ),
+    ),
+    Stage(
+        name="courts",
+        run=_courts,
+        why=(
+            "Runs after locators and co-location so court search can use the group span; "
+            "the audit has already decided admission, and this pass scans again to write courts."
+        ),
+    ),
+    Stage(
+        name="dates",
+        run=_dates,
         why=(
             "Needs co-location ids: a citation may read past a co-located neighbour for "
-            "the single date a parallel citation puts at the end, and must stop at any "
-            "other citation. It also trims spans, so it runs after anything reading them."
+            "the date at the end, and must stop at any other locator. It trims the full "
+            "citation span, so it runs after locator and name reading."
+        ),
+    ),
+    Stage(
+        name="pin_cites",
+        run=_pin_cites,
+        why=(
+            "Runs after dates because the bounded date reader finalizes each full citation span; "
+            "pin-cite parsing locates eyecite's page string inside that settled span."
         ),
     ),
     Stage(
@@ -111,9 +150,76 @@ STAGES: tuple[Stage, ...] = (
 )
 
 
-def refine(text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
-    """Run every stage over the citations, in order."""
+def refine(
+    text: str,
+    citations: Sequence[CitationRecord],
+    rules: ExtractionRules | None = None,
+) -> tuple[CitationRecord, ...]:
+    """Run configured readers in dependency order, then assign citation roots.
+
+    With no rules, locator parsing and metadata come from eyecite. Project
+    readers are opt-in and supplied one stage at a time through ExtractionRules.
+    """
     refined = tuple(citations)
-    for stage in STAGES:
-        refined = stage.run(text, refined)
-    return refined
+    if rules is not None and rules.colocation_reader is not None:
+        refined = rules.colocation_reader(text, refined)
+    if rules is not None and rules.docket_auditor is not None:
+        refined = rules.docket_auditor(text, refined)
+    if rules is not None and rules.court_reader is not None:
+        refined = rules.court_reader(text, refined)
+    if rules is not None and rules.date_reader is not None:
+        refined = rules.date_reader(text, refined)
+    if rules is not None and rules.pin_cite_reader is not None:
+        refined = rules.pin_cite_reader(text, refined)
+    else:
+        refined = _pin_cites(text, refined)
+    return _root(text, refined)
+
+
+def audit_dockets(document: Document, rules: ExtractionRules | None = None) -> Document:
+    """Audit already-grouped docket candidates, preserving raw locator records.
+
+    Admission uses an independent court scan or a colocated reporter. Court
+    fields are left for resolve_courts. With no rules, this stage is a no-op.
+    """
+    if rules is None or rules.docket_auditor is None:
+        return document
+    audited = replace(document, citations=rules.docket_auditor(document.text, document.citations))
+    # The public stage can also be replayed after leaf growth.
+    from mellea_lrc.extraction.structure.withdrawal import withdraw_leaves_of_withdrawn_roots
+
+    withdraw_leaves_of_withdrawn_roots(audited)
+    return audited
+
+
+def resolve_case_names(document: Document, rules: ExtractionRules | None = None) -> Document:
+    """Expose the name-read stage, which eyecite performs with locator parsing.
+
+    The stable profile applies its name reader while the raw eyecite citation
+    still exists, before colocation. Once canonical records are built this is
+    intentionally a no-op: names and their spans are already on each record.
+    """
+    del rules
+    return document
+
+
+def resolve_courts(document: Document, rules: ExtractionRules | None = None) -> Document:
+    """Resolve court context after locator spans and colocation groups exist."""
+    if rules is None or rules.court_reader is None:
+        return document
+    return replace(document, citations=rules.court_reader(document.text, document.citations))
+
+
+def resolve_dates(document: Document, rules: ExtractionRules | None = None) -> Document:
+    """Resolve decision dates after locator spans and colocation groups exist."""
+    if rules is None or rules.date_reader is None:
+        return document
+    return replace(document, citations=rules.date_reader(document.text, document.citations))
+
+
+def resolve_pin_cites(document: Document, rules: ExtractionRules | None = None) -> Document:
+    """Structure eyecite's pin-cite text against finalized citation spans."""
+    reader = rules.pin_cite_reader if rules is not None else None
+    if reader is None:
+        reader = read_pin_cites
+    return replace(document, citations=reader(document.text, document.citations))

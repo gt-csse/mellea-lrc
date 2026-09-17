@@ -7,7 +7,7 @@ published text still carries every pleading-paper margin.
 
 This reconverts the published PDFs with the rule on and writes the result
 beside the original as a new dataset version. It also reports, per document,
-how many margin numbers were removed and whether a gutter survived the rule --
+whether the margin rule ran and whether a gutter survived it --
 which is the open question in `exploration/notes/pleading-paper-margins.md`.
 
 **The new text is a different coordinate space.** Removing a margin moves the
@@ -29,7 +29,8 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from mellea_lrc.preprocessing import preprocess_with_docling
+from mellea_lrc.preprocessing import DEFAULT_RULES, Rule
+from mellea_lrc.preprocessing.docling import preprocess_with_docling
 
 # A surviving gutter, read off the text rather than the layout: four or more
 # consecutive ascending integers, each alone on its own line. Four is enough to
@@ -65,7 +66,7 @@ def gutter_runs(text: str) -> list[list[int]]:
 def provenance(
     source: Path,
     backend_version: str | None,
-    rules: Sequence[LayoutRule],
+    rules: Sequence[Rule],
 ) -> dict[str, object]:
     """How one file was produced, for the sidecar beside the rendering.
 
@@ -141,6 +142,9 @@ def main() -> int:
     args = parser.parse_args()
 
     drop_margins = not args.no_margin
+    rules = tuple(
+        rule for rule in DEFAULT_RULES if drop_margins or rule is not Rule.MARGIN_LINE_NUMBERS
+    )
     if args.out is None:
         args.out = Path("data/runs/rendering-v2.0" if drop_margins else "data/corpus/renderings/v1.1")
 
@@ -157,7 +161,7 @@ def main() -> int:
     rendered: dict[str, dict[str, str | None]] = {}
     for index, source in enumerate(sources, start=1):
         print(f"[{index}/{len(sources)}] {source.name}", file=sys.stderr, flush=True)
-        document = preprocess_with_docling(source, drop_margin_line_numbers=drop_margins)
+        document = preprocess_with_docling(source, rules=rules)
 
         destination = text_dir / f"{source.stem}.txt"
         destination.write_text(document.text, encoding="utf-8")
@@ -169,7 +173,7 @@ def main() -> int:
         rows.append(
             {
                 "document": source.stem,
-                "dropped": document.preprocessing_metadata.margin_line_numbers_dropped,
+                "margin_rule_applied": Rule.MARGIN_LINE_NUMBERS in document.preprocessing_metadata.rules,
                 "before": gutter_runs(body_of(before)) if before and before.exists() else None,
                 "after": gutter_runs(document.text),
             }
@@ -193,28 +197,29 @@ def main() -> int:
 
 
 def write_report(path: Path, rows: list[dict]) -> None:
-    """Write, and print, what the rule removed and what survived it."""
+    """Write, and print, where the rule ran and what survived it."""
     had = [r for r in rows if r["before"]]
     left = [r for r in rows if r["after"]]
-    total = sum(r["dropped"] or 0 for r in rows)
+    applied = sum(bool(r["margin_rule_applied"]) for r in rows)
 
     lines = [
-        "# What the margin rule removed, and what it left",
+        "# Where the margin rule ran, and what it left",
         "",
         f"- documents reconverted: **{len(rows)}**",
-        f"- margin line numbers removed: **{total:,}**",
+        f"- documents rendered with the margin rule: **{applied}**",
         f"- documents carrying a gutter before: **{len(had)}**",
         f"- documents carrying a gutter after: **{len(left)}**",
         "",
         "A gutter here is four or more consecutive ascending integers each",
         "standing alone on its own line, read off the exported text.",
         "",
-        "| document | removed | gutter runs before | gutter runs after |",
-        "|---|---:|---:|---:|",
+        "| document | margin rule | gutter runs before | gutter runs after |",
+        "|---|---|---:|---:|",
     ]
     for row in rows:
         before = "n/a" if row["before"] is None else str(len(row["before"]))
-        lines.append(f"| `{row['document'][:44]}` | {row['dropped']} | {before} | {len(row['after'])} |")
+        applied_label = "yes" if row["margin_rule_applied"] else "no"
+        lines.append(f"| `{row['document'][:44]}` | {applied_label} | {before} | {len(row['after'])} |")
 
     if left:
         lines += ["", "## Documents still carrying a gutter", ""]

@@ -104,33 +104,29 @@ def test_a_docket_and_a_parallel_reporter_locator_are_two_citations() -> None:
 # --- What is not a docket citation --------------------------------------------
 
 
-def test_a_caption_docket_number_with_no_court_is_declined() -> None:
-    """A filing's own number, in its own caption, is not a citation to anything.
-
-    Nothing here says which court, and guessing one from the surrounding page
-    would be inventing the half of the identifier that is missing.
-    """
+def test_a_caption_docket_number_is_kept_as_a_courtless_locator_candidate() -> None:
+    """Locator discovery does not depend on resolving a court first."""
     text = (
         "IN THE UNITED STATES DISTRICT COURT\n\nFOR THE DISTRICT OF COLORADO\n\n"
         "Civil Action No. 1:24-cv-00814-PAB-SBP\n\nJAMIE LEE SAUNDERS,\n\nPlaintiff,"
     )
 
-    assert _dockets(text) == []
+    (docket,) = _dockets(text)
+    assert docket.docket_number == "1:24-cv-00814-PAB-SBP"
+    assert docket.court is None
 
 
-def test_an_ecf_page_stamp_is_not_a_citation() -> None:
-    """Twenty identical stamps in one filing would be twenty invented authorities.
-
-    These are page furniture that preprocessing should have removed and did
-    not, so the extractor has to survive them rather than assume they are gone.
-    """
+def test_an_ecf_page_stamp_is_visible_to_locator_evaluation() -> None:
+    """The broad locator layer exposes docket-shaped page furniture as a candidate."""
     text = (
         "COMPLAINT PLAINTIFF DEMANDS A JURY TRIAL ON ALL ISSUES SO TRIABLE - 5 5\n\n"
         "Case 2:25-cv-01295-GMS     Document 1     Filed 04/18/25     Page 6 of 32\n\n"
         "21. After Plaintiff rejected the advances, the retaliation began."
     )
 
-    assert _dockets(text) == []
+    (docket,) = _dockets(text)
+    assert docket.docket_number == "2:25-cv-01295-GMS"
+    assert docket.court is None
 
 
 def test_a_court_belonging_to_the_citation_before_it_is_not_this_docket_s_court() -> None:
@@ -146,7 +142,9 @@ def test_a_court_belonging_to_the_citation_before_it_is_not_this_docket_s_court(
         "Megless , 654 F.3d at 408."
     )
 
-    assert _dockets(text) == []
+    (docket,) = _dockets(text)
+    assert docket.docket_number == "2:25-cv-01295-GMS"
+    assert docket.court is None
 
 
 def test_a_court_beyond_a_blank_line_does_not_belong_to_the_docket() -> None:
@@ -162,7 +160,9 @@ def test_a_court_beyond_a_blank_line_does_not_belong_to_the_docket() -> None:
         "v. Mo. Pac. R.R. Co ., 16 F.3d 1083, 1086 (10th Cir. 1994)."
     )
 
-    assert _dockets(text) == []
+    (docket,) = _dockets(text)
+    assert docket.docket_number == "1:22-cv-01129-NYW-SBP"
+    assert docket.court is None
 
 
 def test_the_assigned_judge_s_initials_are_not_a_court() -> None:
@@ -174,7 +174,9 @@ def test_the_assigned_judge_s_initials_are_not_a_court() -> None:
     """
     text = "UNITED STATES DISTRICT COURT\n\nCase No. 2:23-cv-6188  (SC) SUPERB MOTORS, INC.,"
 
-    assert _dockets(text) == []
+    (docket,) = _dockets(text)
+    assert docket.docket_number == "2:23-cv-6188"
+    assert docket.court is None
 
 
 # --- Damage the converter leaves behind ---------------------------------------
@@ -332,25 +334,29 @@ def test_a_bankruptcy_number_whose_hyphen_extraction_dropped_is_still_read() -> 
     assert citation.stated.docket_number == "2010712"
 
 
-def test_a_number_of_that_shape_with_no_court_is_not_a_citation() -> None:
-    """Nothing in the digits says what they are, so the court has to say it.
+def test_signaled_bankruptcy_shaped_numbers_without_court_remain_candidates() -> None:
+    """Signals make the shape eligible, while citation intent stays unresolved.
 
     `1124201` is an attorney's bar number in document 005's signature block and
     `26-10769` is document 015's own case number in its caption. Both are the
-    bankruptcy shape and neither is a citation.
+    bankruptcy shape, so the broad locator layer reports them for evaluation.
     """
     bar_number = "Jennifer Smith (State Bar No. 1124201) 361 Falls Rd, Suite 610 Grafton, WI 53024"
     own_caption = "Chapter 15 Case No. 26-10769 (MG) (Joint Administration Requested)"
 
-    assert [c for c in _extract(bar_number).citations if isinstance(c.stated, DocketCitation)] == []
-    assert [c for c in _extract(own_caption).citations if isinstance(c.stated, DocketCitation)] == []
+    (bar_candidate,) = [c for c in _extract(bar_number).citations if isinstance(c.stated, DocketCitation)]
+    (caption_candidate,) = [
+        c for c in _extract(own_caption).citations if isinstance(c.stated, DocketCitation)
+    ]
+    assert bar_candidate.stated.court is None
+    assert caption_candidate.stated.court is None
 
 
 def test_the_bankruptcy_shape_needs_the_signal_in_front_of_it() -> None:
     """A bare year and sequence is a page range as often as a docket number."""
     text = "The discussion runs from 06-01147 in the appendix (Bankr. S.D.N.Y. 2006)."
 
-    assert [c for c in _extract(text).citations if isinstance(c.stated, DocketCitation)] == []
+    assert not [c for c in _extract(text).citations if isinstance(c.stated, DocketCitation)]
 
 
 def test_a_docket_number_with_no_office_is_still_a_locator() -> None:
@@ -407,10 +413,7 @@ def test_a_reporter_that_is_one_courts_reports_names_that_court() -> None:
     state's official reports are abbreviated the way its court is, so the
     edition is looked up against courts-db's own `citation_string`.
     """
-    text = (
-        "In re X , 5 N.C. App. 10 (1969). Doe v. Roe , 556 U.S. 662 (2009). "
-        "A v. B , 12 N.Y.2d 30 (1963)."
-    )
+    text = "In re X , 5 N.C. App. 10 (1969). Doe v. Roe , 556 U.S. 662 (2009). A v. B , 12 N.Y.2d 30 (1963)."
     assert [c.stated.court for c in _extract(text).citations] == ["ncctapp", "scotus", "ny"]
 
 

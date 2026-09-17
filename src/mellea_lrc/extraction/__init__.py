@@ -57,9 +57,19 @@ from mellea_lrc.extraction.eyecite_extractor import (
     extract_citations,
     extract_from_plain_text,
     grow_leaves,
+    grow_roots,
 )
 from mellea_lrc.extraction.reading.relaxation import Relaxation
+from mellea_lrc.extraction.rules import ExtractionRules, stable
+from mellea_lrc.extraction.stages import (
+    audit_dockets,
+    resolve_case_names,
+    resolve_courts,
+    resolve_dates,
+    resolve_pin_cites,
+)
 from mellea_lrc.extraction.structure.attachment import Attachment
+from mellea_lrc.extraction.structure.locator_layers import Locator, LocatorLayers, find_locators
 from mellea_lrc.extraction.structure.withdrawal import withdraw_leaves_of_withdrawn_roots
 from mellea_lrc.extraction.types import (
     CitationRecord,
@@ -74,9 +84,20 @@ __all__ = [
     "Document",
     "ExtractionBackend",
     "ExtractionMetadata",
+    "ExtractionRules",
+    "Locator",
+    "LocatorLayers",
     "Relaxation",
+    "audit_dockets",
     "extract_citations",
     "extract_from_plain_text",
+    "find_locators",
     "grow_leaves",
+    "grow_roots",
+    "resolve_case_names",
+    "resolve_courts",
+    "resolve_dates",
+    "resolve_pin_cites",
+    "stable",
     "withdraw_leaves_of_withdrawn_roots",
 ]
