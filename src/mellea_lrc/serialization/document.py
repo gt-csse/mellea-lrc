@@ -46,6 +46,7 @@ from mellea_lrc.extraction.types import (
 from mellea_lrc.preprocessing.types import (
     PreprocessingBackend,
     PreprocessingMetadata,
+    Rule,
 )
 from mellea_lrc.serialization._json import JsonValue, require_list, require_mapping, serialize_dataclass
 
@@ -156,6 +157,10 @@ def deserialize_document(payload: Mapping[str, object]) -> Document:
             ),
             backend_version=_optional_string(
                 preprocessing_metadata.get("backend_version"), name="preprocessing_metadata.backend_version"
+            ),
+            rules=tuple(
+                Rule(_required_string(rule, name="preprocessing_metadata.rules[]"))
+                for rule in require_list(preprocessing_metadata.get("rules", []), name="preprocessing_metadata.rules")
             ),
         ),
         citations=tuple(_deserialize_citation(item) for item in citations),

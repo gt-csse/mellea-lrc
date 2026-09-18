@@ -12,9 +12,9 @@ where reading it is a choice rather than an obligation. Nothing else writes that
 marker: an archive hands over the document's own first page, so there is no
 preamble to take out and no rule that would find one.
 
-The layout rules do not apply here. Every one of them reads the page -- where an
-item sits, whether its neighbours repeat -- and a `.txt` file carries no
-geometry, so a document made this way records that no rule ran.
+Layout rules do not apply here. `FILING_METADATA` is the exception: it has a
+strict textual contract, so `.txt` inputs receive the same offset-preserving
+caption and complete-stamp masking that a converted document receives.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from mellea_lrc.core.documents import SourceFormat, SourceMetadata
+from mellea_lrc.preprocessing.filing_metadata import mask_filing_metadata
 from mellea_lrc.preprocessing.types import (
     DEFAULT_RULES,
     PreprocessedDocument,
@@ -39,8 +40,8 @@ def preprocess_plain_text(
 ) -> PreprocessedDocument:
     """Load a `.txt` file as a preprocessed document.
 
-    ``rules`` is accepted so that one list serves every format, and is
-    not applied: see the note above.
+    ``rules`` is accepted so that one list serves every format. Layout rules do
+    not apply to text, while `FILING_METADATA` does: see the note above.
     """
     source_path = Path(path)
     return preprocess_plain_text_from_string(
@@ -57,14 +58,15 @@ def preprocess_plain_text_from_string(
     rules: Sequence[Rule] = DEFAULT_RULES,
 ) -> PreprocessedDocument:
     """Wrap raw text in a preprocessed document without reading a file."""
-    del rules
+    applied = (Rule.FILING_METADATA,) if Rule.FILING_METADATA in rules else ()
     return PreprocessedDocument(
         source_metadata=SourceMetadata(
             path=source_path,
             format=SourceFormat.TEXT,
         ),
-        text=text,
+        text=mask_filing_metadata(text).text if applied else text,
         preprocessing_metadata=PreprocessingMetadata(
             backend=PreprocessingBackend.PLAIN_TEXT,
+            rules=applied,
         ),
     )

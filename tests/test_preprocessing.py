@@ -1,24 +1,29 @@
 """Tests for preprocessing."""
 
 import sys
-from pathlib import Path
 import types
+from pathlib import Path
 
 import pytest
 
 from mellea_lrc.core import SourceMetadata
-from mellea_lrc.preprocessing.docket_stamp import looks_like_a_stamp
-from mellea_lrc.preprocessing.docling import is_docling_supported_format, preprocess_with_docling
 from mellea_lrc.preprocessing import (
     DEFAULT_RULES,
     DocumentBase,
-    Rule,
     PreprocessedDocument,
     PreprocessingBackend,
     PreprocessingMetadata,
+    Rule,
     SourceFormat,
     preprocess,
-    preprocess,
+)
+from mellea_lrc.preprocessing.docket_stamp import looks_like_a_stamp
+from mellea_lrc.preprocessing.docling import is_docling_supported_format, preprocess_with_docling
+from mellea_lrc.preprocessing.filing_metadata import (
+    FilingMetadataKind,
+    filing_metadata_manifest,
+    mask_filing_metadata,
+    restore_filing_metadata,
 )
 
 
@@ -29,7 +34,7 @@ def test_a_text_file_is_its_text() -> None:
     document = preprocess(raw)
 
     assert document.text == raw
-    assert document.preprocessing_metadata.rules == ()
+    assert document.preprocessing_metadata.rules == (Rule.FILING_METADATA,)
 
 
 def test_text_in_hand_needs_no_file() -> None:
@@ -210,6 +215,88 @@ def test_prose_is_not_a_filing_stamp() -> None:
     assert not looks_like_a_stamp("In that case the court reached page 12 of the opinion before saying so.")
     assert not looks_like_a_stamp("See Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009).")
     assert not looks_like_a_stamp("")
+
+
+def test_filing_metadata_mask_is_offset_preserving_and_reversible() -> None:
+    """Only the opening caption and recurrent ECF furniture are unavailable to extraction."""
+    raw = (
+        "IN THE UNITED STATES DISTRICT COURT\n"
+        "FOR THE DISTRICT OF EXAMPLE\n\n"
+        "ALICE SMITH, Plaintiff,\n"
+        "v.\n"
+        "BOB JONES, Defendant.\n"
+        "Case No. 2:25-cv-00804\n\n"
+        "The related matter is Case No. 1:24-cv-00077. Counsel is State Bar No. 123456.\n"
+        "See ECF No. 303 and Exhibit 2; Permit No. 99-123 remains active.\n\n"
+        "Case 2:25-cv-00804 Document 303 Filed 03/17/26 Page 1 of 16\n"
+        "Argument citing Smith v. Jones, No. 1:24-cv-00077 (D. Example 2024).\n"
+        "Case 2:25-cv-00804 Document 303 Filed 03/17/26 Page 15 of 16\n"
+    )
+
+    masked = mask_filing_metadata(raw)
+
+    assert len(masked.text) == len(raw)
+    assert masked.text[
+        raw.index("2:25-cv-00804") : raw.index("2:25-cv-00804") + len("2:25-cv-00804")
+    ] == " " * len("2:25-cv-00804")
+    assert "Case No. 1:24-cv-00077" in masked.text
+    assert "State Bar No. 123456" in masked.text
+    assert "ECF No. 303" in masked.text
+    assert "Exhibit 2" in masked.text
+    assert "Permit No. 99-123" in masked.text
+    assert [removal.kind for removal in masked.removals] == [
+        FilingMetadataKind.CAPTION_DOCKET,
+        FilingMetadataKind.ECF_STAMP,
+        FilingMetadataKind.ECF_STAMP,
+    ]
+    assert [removal.text for removal in masked.removals[1:]] == [
+        "Case 2:25-cv-00804 Document 303 Filed 03/17/26 Page 1 of 16",
+        "Case 2:25-cv-00804 Document 303 Filed 03/17/26 Page 15 of 16",
+    ]
+    assert restore_filing_metadata(masked.text, masked.removals).encode("utf-8") == raw.encode("utf-8")
+
+
+def test_a_complete_ecf_stamp_masks_without_masking_a_courtless_docket() -> None:
+    raw = "Case 2:25-cv-00804 Document 303 Filed 03/17/26 Page 15 of 16\nCase No. 1:24-cv-00077"
+
+    masked = mask_filing_metadata(raw)
+
+    assert masked.text[: raw.index("\n")] == " " * raw.index("\n")
+    assert masked.text.endswith("Case No. 1:24-cv-00077")
+    assert [removal.kind for removal in masked.removals] == [FilingMetadataKind.ECF_STAMP]
+
+
+def test_a_caption_label_needs_a_docket_number_and_allows_a_colon() -> None:
+    raw = (
+        "IN THE UNITED STATES DISTRICT COURT\n"
+        "Civil Action No:\n\n2:25-cv-02623-SHL-atc\n\n"
+        "The case law does not change the analysis."
+    )
+
+    masked = mask_filing_metadata(raw)
+
+    assert "2:25-cv-02623-SHL-atc" not in masked.text
+    assert "case law" in masked.text
+
+
+def test_filing_metadata_manifest_has_hashes_and_reversible_removals() -> None:
+    raw = "Case 2:25-cv-00804 Document 303 Filed 03/17/26 Page 15 of 16"
+
+    manifest = filing_metadata_manifest("filing.txt", raw)
+    masked = mask_filing_metadata(raw)
+
+    assert manifest["source_path"] == "filing.txt"
+    assert manifest["text_length"] == len(raw)
+    assert manifest["original_utf8_sha256"] != manifest["masked_utf8_sha256"]
+    assert manifest["removals"] == [
+        {
+            "kind": "ecf_page_stamp",
+            "start": 0,
+            "end": len(raw),
+            "text": raw,
+        }
+    ]
+    assert restore_filing_metadata(masked.text, masked.removals).encode("utf-8") == raw.encode("utf-8")
 
 
 def test_declining_the_table_rule_leaves_the_converter_to_rebuild_the_grid(
