@@ -8,21 +8,21 @@ from pathlib import Path
 from typing import Any
 
 from evaluations.extraction.eval_colocation import eval_colocation
-from evaluations.extraction.eval_docket_audit import eval_docket_audit
 from evaluations.extraction.eval_locators import eval_locators
 from evaluations.extraction.locator_eval_common import DEFAULT_DATA, grow_annotated_corpus
 
 
 def evaluate(annotations: Path, texts_root: Path) -> dict[str, Any]:
-    """Run the shared grow-roots layer, then combine the isolated scores."""
+    """Run the shared grow-roots layer and return its three public scores."""
     corpus = grow_annotated_corpus(annotations, texts_root)
     locator_score = eval_locators(corpus)
     colocation_score = eval_colocation(corpus)
-    audit_score = eval_docket_audit(corpus)
     return {
-        **locator_score,
-        "colocation_groups": colocation_score["colocation_groups"],
-        "docket_audit": audit_score["docket_audit"],
+        "dataset": locator_score["dataset"],
+        "documents": locator_score["documents"],
+        "reporter_locators": locator_score["reporter_locators"],
+        "docket_locators": locator_score["docket_locators"],
+        "colocation": colocation_score["colocation"],
     }
 
 

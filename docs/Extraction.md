@@ -182,12 +182,13 @@ the citation ids at that site. The `Document` exposes these as
 `document.locators` and `document.colocations`; the serialized artifact
 stores both explicitly.
 
-Locators count occurrences before deduplication: writing `556 U.S. 662` twice
-produces two locators at different spans even if both records later share a
-`root_id`. `find_locators(...).locators` and `eval_locators` use this same
-occurrence layer. The score compares `(document, start, end)` for every full
-case or docket citation, ignoring `is_root` and context fields. Root assignment
-is a separate tree question; short forms belong to the later leaf layer.
+Raw locators count occurrences before deduplication: writing `556 U.S. 662`
+twice produces two locators at different spans even if both records later share
+a `root_id`. `find_locators(...).locators` exposes that raw occurrence layer.
+`eval_locators` scores reporter locators as read and docket locators only after
+the audit admits them; both compare `(document, start, end)` and ignore
+`is_root` and context fields. Root assignment is a separate tree question;
+short forms belong to the later leaf layer.
 
 `grow_roots(preprocessed, rules=stable(rules))` is the project-rule entrypoint.
 With `rules=None`, it uses eyecite's default tokenizer and metadata reads.
@@ -206,9 +207,10 @@ start after the group's last locator and stop before the next unrelated one.
 
 An unsupported docket is withdrawn with a reason in its record's trace.
 `document.citations` and `document.locators` retain the original candidate for
-inspection and raw evaluation. `document.active_citations` contains the
-admitted records used by the citation tree and validation. No candidate is
-erased, and the audit does not change the raw locator or colocation scores.
+inspection. `document.active_citations` contains the admitted records used by
+the citation tree, validation, and the public docket-locator metric. No
+candidate is erased, and the audit does not change the pre-audit colocation
+score.
 `ExtractionRules.docket_auditor` allows the audit to be replaced independently
 of the court reader; with no rules the public audit stage does nothing.
 

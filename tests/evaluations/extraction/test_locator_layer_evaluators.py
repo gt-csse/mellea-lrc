@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 from evaluations.extraction.eval_colocation import eval_colocation
-from evaluations.extraction.eval_docket_audit import eval_docket_audit
 from evaluations.extraction.eval_locators import eval_locators
 from evaluations.extraction.locator_eval_common import GrownAnnotation, grow_annotated_corpus
 
@@ -52,12 +51,12 @@ def test_locator_and_colocation_scores_are_separate(tmp_path: Path) -> None:
     locator_result = eval_locators(corpus)
     colocation_result = eval_colocation(corpus)
 
-    assert locator_result["locator_spans"]["tp"] == 3
-    assert locator_result["locator_spans"]["fp"] == 0
-    assert set(locator_result) == {"dataset", "documents", "locator_spans", "locator_spans_by_kind"}
-    assert colocation_result["colocation_groups"]["tp"] == 1
-    assert colocation_result["colocation_groups"]["fp"] == 0
-    assert set(colocation_result) == {"dataset", "documents", "colocation_groups"}
+    assert locator_result["reporter_locators"]["tp"] == 3
+    assert locator_result["reporter_locators"]["fp"] == 0
+    assert set(locator_result) == {"dataset", "documents", "reporter_locators", "docket_locators"}
+    assert colocation_result["colocation"]["tp"] == 1
+    assert colocation_result["colocation"]["fp"] == 0
+    assert set(colocation_result) == {"dataset", "documents", "colocation"}
 
 
 def test_a_repeated_locator_counts_even_when_it_resolves_to_an_existing_root(tmp_path: Path) -> None:
@@ -77,18 +76,18 @@ def test_a_repeated_locator_counts_even_when_it_resolves_to_an_existing_root(tmp
     corpus = _grow(tmp_path, text, rows)
     sample = corpus[0]
     assert len({record.root_id for record in sample.document.citations}) == 1
-    score = eval_locators(corpus)["locator_spans"]
+    score = eval_locators(corpus)["reporter_locators"]
     assert (score["gold"], score["tp"], score["fp"], score["fn"]) == (2, 2, 0, 0)
 
     # Losing the repeated occurrence is a locator miss even though the root survives.
     missing_repeat = replace(
         sample, document=replace(sample.document, citations=sample.document.citations[:1])
     )
-    score = eval_locators((missing_repeat,))["locator_spans"]
+    score = eval_locators((missing_repeat,))["reporter_locators"]
     assert (score["gold"], score["tp"], score["fp"], score["fn"]) == (2, 1, 0, 1)
 
 
-def test_audit_scores_admission_without_hiding_raw_locator_false_positives(tmp_path: Path) -> None:
+def test_docket_locator_score_uses_only_audit_admitted_records(tmp_path: Path) -> None:
     text = "Case No. 1:24-cv-00123\n\nSmith v. Jones, No. 1:23-cv-00456 (D. Ariz. 2023)."
     locator = "No. 1:23-cv-00456"
     start = text.index(locator)
@@ -104,8 +103,5 @@ def test_audit_scores_admission_without_hiding_raw_locator_false_positives(tmp_p
         ],
     )
 
-    raw = eval_locators(corpus)["locator_spans"]
-    audit = eval_docket_audit(corpus)["docket_audit"]
-    assert (raw["tp"], raw["fp"]) == (1, 1)
-    assert (audit["candidates"], audit["accepted"], audit["withdrawn"]) == (2, 1, 1)
-    assert (audit["accepted_spans"]["tp"], audit["accepted_spans"]["fp"]) == (1, 0)
+    score = eval_locators(corpus)["docket_locators"]
+    assert (score["gold"], score["predicted"], score["tp"], score["fp"], score["fn"]) == (1, 1, 1, 0, 0)

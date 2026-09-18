@@ -1,61 +1,62 @@
-"""Evaluate exact locator occurrence spans on annotation-v4.0."""
+"""Evaluate reported reporter locators and audit-admitted docket locators."""
 
 from __future__ import annotations
 
 import argparse
 import json
-from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from evaluations.extraction.locator_eval_common import (
-    CASE_LOCATOR_KINDS,
     DEFAULT_DATA,
     GrownAnnotation,
     grow_annotated_corpus,
     locator_span,
     score_sets,
 )
+from mellea_lrc.core.citations import DocketCitation, FullCaseCitation
 
 
 def eval_locators(corpus: Sequence[GrownAnnotation]) -> dict[str, Any]:
-    """Score every complete locator span, independent of root assignment.
+    """Score the two complete locator kinds at their meaningful stage.
 
-    An occurrence is (document, start, end). Repeated identifiers at different
-    positions count separately. Neither ``is_root`` nor any context field is
-    required for a match.
+    Reporter locators are scored as read. Docket locators are scored only after
+    the docket audit: a raw candidate that the audit withdraws is neither a
+    docket prediction nor a false positive in this metric. Colocation has its
+    own evaluator because it is a pre-audit structural relation.
     """
-    gold: set[tuple[str, int, int]] = set()
-    gold_by_kind: dict[str, set[tuple[str, int, int]]] = defaultdict(set)
-    predicted: set[tuple[str, int, int]] = set()
-    predicted_by_kind: dict[str, set[tuple[str, int, int]]] = defaultdict(set)
+    reporter_gold: set[tuple[str, int, int]] = set()
+    docket_gold: set[tuple[str, int, int]] = set()
+    reporter_predicted: set[tuple[str, int, int]] = set()
+    docket_predicted: set[tuple[str, int, int]] = set()
 
     for sample in corpus:
         name = sample.document_name
         for row in sample.citation_rows:
-            if row.get("unit") != "citation" or row.get("kind") not in CASE_LOCATOR_KINDS:
+            if row.get("unit") != "citation":
                 continue
             span = locator_span(row)
             if span is None:
                 continue
             occurrence = (name, *span)
-            gold.add(occurrence)
-            gold_by_kind[str(row["kind"])].add(occurrence)
+            if row.get("kind") == "FullCaseCitation":
+                reporter_gold.add(occurrence)
+            elif row.get("kind") == "DocketCitation":
+                docket_gold.add(occurrence)
 
-        for locator in sample.document.locators:
-            occurrence = (name, locator.span.start, locator.span.end)
-            predicted.add(occurrence)
-            predicted_by_kind[locator.kind.value].add(occurrence)
+        for record in sample.document.citations:
+            occurrence = (name, record.locator_span.start, record.locator_span.end)
+            if isinstance(record.source, FullCaseCitation):
+                reporter_predicted.add(occurrence)
+            elif isinstance(record.source, DocketCitation) and not record.withdrawn:
+                docket_predicted.add(occurrence)
 
     return {
         "dataset": "annotation-v4.0 corpus",
         "documents": len(corpus),
-        "locator_spans": score_sets(gold, predicted),
-        "locator_spans_by_kind": {
-            kind: score_sets(gold_by_kind[kind], predicted_by_kind[kind])
-            for kind in sorted(gold_by_kind.keys() | predicted_by_kind.keys())
-        },
+        "reporter_locators": score_sets(reporter_gold, reporter_predicted),
+        "docket_locators": score_sets(docket_gold, docket_predicted),
     }
 
 
