@@ -45,9 +45,6 @@ class Rule(str, Enum):
     DOCKET_STAMP = "docket_stamp"
     """The filing stamp a court prints across the top of every page."""
 
-    FILING_METADATA = "filing_metadata"
-    """The filing caption docket and complete CM/ECF page stamps."""
-
     TABLE_AS_TEXT = "table_as_text"
     """A table read in the order the page reads it, not rebuilt as a grid."""
 
@@ -59,7 +56,6 @@ DEFAULT_RULES: tuple[Rule, ...] = (
     Rule.MARGIN_LINE_NUMBERS,
     Rule.REPEATED_FURNITURE,
     Rule.DOCKET_STAMP,
-    Rule.FILING_METADATA,
     Rule.TABLE_AS_TEXT,
     Rule.TABLE_OF_AUTHORITIES,
 )

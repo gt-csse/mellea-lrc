@@ -11,7 +11,6 @@ from mellea_lrc.core.documents import SourceFormat, SourceMetadata
 from mellea_lrc.core.spans import Span
 from mellea_lrc.preprocessing.docket_stamp import reclassify_docket_stamps
 from mellea_lrc.preprocessing.document_index import index_table_spans
-from mellea_lrc.preprocessing.filing_metadata import mask_filing_metadata
 from mellea_lrc.preprocessing.margin_line_numbers import reclassify_margin_line_numbers
 from mellea_lrc.preprocessing.repeated_furniture import reclassify_repeated_furniture
 from mellea_lrc.preprocessing.types import (
@@ -76,8 +75,6 @@ def _apply_rules(document: DoclingDocument, rules: Sequence[Rule]) -> tuple[Span
             reclassify_repeated_furniture(document)
         elif rule is Rule.DOCKET_STAMP:
             reclassify_docket_stamps(document)
-        elif rule is Rule.FILING_METADATA:
-            pass  # Applied after export, when character offsets exist.
         elif rule is Rule.TABLE_AS_TEXT:
             pass  # Decided before the conversion; see `_reads_tables_as_text`.
         elif rule is Rule.TABLE_OF_AUTHORITIES:
@@ -157,8 +154,6 @@ def preprocess_with_docling(
     applied = tuple(rules)
     index_spans = _apply_rules(result.document, applied)
     text = result.document.export_to_text()  # Ensure to normalize all characters to Unicode TODO
-    if Rule.FILING_METADATA in applied:
-        text = mask_filing_metadata(text).text
 
     return PreprocessedDocument(
         source_metadata=SourceMetadata(
