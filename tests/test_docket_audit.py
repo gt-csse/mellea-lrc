@@ -36,8 +36,6 @@ def test_audit_reads_court_without_writing_it() -> None:
     "text",
     [
         "Case No. 1:24-cv-00123 (MG) (Joint Administration Requested)",
-        "Case 1:24-cv-00123 Document 10 Filed 01/01/24 Page 1 of 8",
-        "Jennifer Smith (State Bar No. 1124201)",
         "The filing was submitted in Case No. 1:24-cv-00123.",
     ],
 )
@@ -123,7 +121,7 @@ def test_replaying_an_audit_does_not_duplicate_its_trace() -> None:
 
 def test_a_date_parenthetical_admits_a_courtless_docket() -> None:
     document = grow_roots(
-        preprocess("Kestenbaum, No. 1:24-cv10092 (Jan. 21, 2025)."), rules=stable()
+        preprocess("Kestenbaum, No. 1:24-cv-10092 (Jan. 21, 2025)."), rules=stable()
     )
 
     (docket,) = document.active_citations

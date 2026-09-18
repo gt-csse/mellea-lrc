@@ -7,7 +7,7 @@ from mellea_lrc.core.case_names import CaseName
 from mellea_lrc.core.citations import is_full_citation
 from mellea_lrc.core.findings import Finding
 from mellea_lrc.core.pin_cites import PinCitePages
-from mellea_lrc.core.record import CitationRecord
+from mellea_lrc.core.record import CitationRecord, Node
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.reading.relaxation import Relaxation
 from mellea_lrc.extraction.structure.locator_layers import (
@@ -58,6 +58,13 @@ class Document(PreprocessedDocument):
     """
 
     citations: tuple[CitationRecord, ...]
+    nodes: tuple[Node, ...] = ()
+    """Document-level trace nodes for readings that concern no citation.
+
+    A rejected site is evidence about a span but is not itself a citation.
+    Its node therefore belongs here, where a :class:`Finding` can point to it
+    without inventing a citation record merely to carry a trace.
+    """
     unread_case_names: tuple[Span, ...] = ()
     """Text naming a case that no citation covers.
 
@@ -126,6 +133,15 @@ class Document(PreprocessedDocument):
             raise ValueError(msg)
 
         known_ids = set(citation_ids)
+        document_node_ids = [node.node_id for node in self.nodes]
+        if len(document_node_ids) != len(set(document_node_ids)):
+            msg = "Document-level node identifiers must be unique"
+            raise ValueError(msg)
+        citation_node_ids = [node.node_id for item in self.citations for node in item.trace]
+        if set(document_node_ids) & set(citation_node_ids):
+            msg = "A node identifier cannot belong to both a citation and the document"
+            raise ValueError(msg)
+        known_node_ids = set(document_node_ids) | set(citation_node_ids)
         for item in self.citations:
             if item.full_span.end > len(self.text):
                 msg = f"Citation {item.citation_id!r} span exceeds document text"
@@ -141,3 +157,16 @@ class Document(PreprocessedDocument):
             ):
                 msg = f"Citation {item.citation_id!r} has invalid resolves_to={item.resolves_to!r}"
                 raise ValueError(msg)
+        for finding in self.findings:
+            if finding.node_id is not None and finding.node_id not in known_node_ids:
+                msg = f"Finding references unknown node {finding.node_id!r}"
+                raise ValueError(msg)
+
+    def observe(self, node: Node) -> Node:
+        """Add one document-level reading to the trace and return it."""
+        if node.node_id in {seen.node_id for item in self.citations for seen in item.trace}:
+            msg = f"Document-level node identifier {node.node_id!r} already belongs to a citation"
+            raise ValueError(msg)
+        if node.node_id not in {seen.node_id for seen in self.nodes}:
+            object.__setattr__(self, "nodes", (*self.nodes, node))
+        return node

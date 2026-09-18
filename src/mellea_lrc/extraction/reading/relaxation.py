@@ -92,6 +92,31 @@ _ACROSS_BLOCKS = r"\s*"
 _WITHIN_BLOCK = r"[^\S\r\n]*(?:\r?\n[^\S\r\n]*)?"
 
 
+def relaxed_literal(value: str, *, whitespace: bool = True, newline: bool = False) -> str:
+    """Return ``value`` as a literal regex, optionally relaxing its whitespace.
+
+    Whitespace is relaxed by default: each written whitespace run becomes an
+    arbitrary-length run, including zero characters. That tolerates a lost
+    space, justified text, and arbitrary added horizontal space without
+    changing any non-whitespace character. ``whitespace=False`` requests a
+    precise literal, including every written space. ``newline=True`` also
+    permits relaxed runs to cross line boundaries.
+
+    This deliberately has no numeric tolerance.  A caller either needs the
+    literal spelling or needs whitespace not to be evidence at all.
+    """
+    if not whitespace:
+        return re.escape(value)
+
+    separator = r"\s*" if newline else r"[^\S\r\n]*"
+    parts = re.split(r"\s+", value)
+    joins = re.findall(r"\s+", value)
+    pattern = re.escape(parts[0])
+    for _written, part in zip(joins, parts[1:], strict=True):
+        pattern += separator + re.escape(part)
+    return pattern
+
+
 # Reporter groups produced by eyecite's ``_relax_ws`` often end in ``\s*``
 # themselves, so that variants like "U. S." still match. The original pattern's
 # literal trailing space forces such a group to give the space back on

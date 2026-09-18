@@ -1,32 +1,25 @@
-"""Confirm a suspected docket number and pick the court that identifies it.
+"""Confirm a suspected docket locator without deciding any citation fields.
 
-Both halves are grounded the same way the reporter locators are: the model
-quotes each verbatim and the quote is resolved back into the document, so an
-answer that was tidied or invented fails to resolve rather than producing a
-span.
-
-The court is the harder half. Candidate strings come from ``courts-db``, and a
-window routinely offers more than one -- a preceding citation's ``8th Cir.``
-alongside this case's ``M.D.N.C.``, or an unrelated ``Alaska`` beside
-``D. Nev.``. Choosing between them is a reading task, so the prompt names the
-candidates and what each resolves to, and the model picks; it is not asked to
-recall what an abbreviation means, and a court it did not choose from the list
-cannot be grounded.
+The reviewer has one job: decide whether a labelled opaque span is a docket
+locator cited for a court case. It quotes the complete locator verbatim, and the
+exact string check prevents a tidied or invented span from becoming a record.
+Court, date, case name, and pin cite are deliberately absent: after admission,
+the ordinary field readers read them from the document just as they do for a
+deterministically read root.
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 from mellea.core import ValidationResult
 from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
 
-from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction.adjudication.candidates.docket_sites import docket_context
+from mellea_lrc.extraction.adjudication.types import SiteReview
 from mellea_lrc.llm import (
     InstructIvrSpec,
     llm_api_config_from_env,
@@ -39,30 +32,31 @@ if TYPE_CHECKING:
     from mellea.core.base import Context
 
     from mellea_lrc.extraction.adjudication.candidates.docket_sites import SuspectedDocket
+    from mellea_lrc.llm import IvrRun
 
-MAX_TOKENS = 260
+# GLM 5.3 uses part of the completion budget for reasoning before returning its
+# strict JSON response. A smaller budget can end at the reasoning trace with no
+# JSON content at all, so this needs room for both.
+MAX_TOKENS = 1200
 MAX_REPAIR_TURNS = 2
 
 INSTRUCTION = """
 Below is a window of text from a legal filing. A docket-number-shaped string
-was found in it: {{docket}}
+was found in it: {{locator}}
 
-{{court_context}}
-
-Decide whether that string is a docket number cited for a COURT CASE, and if
-so which court it belongs to.
+Decide whether that string is a docket locator cited for a court case. A docket
+number is the court-assigned identifier for one case or proceeding.
 
 Rules:
-- Quote the docket number exactly as written in the window, character for
-  character, including any damage. Do not repair it.
-- Report the court by quoting one of the candidate strings listed above,
-  exactly as written. If none of them is the court of THIS docket number,
-  report court as null. Never name a court that is not written in the window.
-- A window often contains a court from a NEARBY, different citation. Choose the
-  court that belongs to this docket number, not the closest one.
+- Quote the complete candidate locator exactly as written in the window,
+  including its docket label, character for character. Do not repair it.
+- Quote the docket number portion exactly as written, without the label. Do
+  not repair it.
 - Set is_docket_citation=false if the string is not citing a case: an exhibit
   or docket-entry number, a statute, a filing reference, or an internal
   cross-reference.
+- Give one short reason for the decision, especially when
+  is_docket_citation=false.
 
 window:
 {{window}}
@@ -73,20 +67,18 @@ class _DocketProposal(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     is_docket_citation: bool
-    docket: str | None
-    court: str | None
+    locator: str | None
+    docket_number: str | None
+    reason: Annotated[str, StringConstraints(min_length=1)]
 
 
 @dataclass(frozen=True, slots=True)
-class AdjudicatedDocket:
-    """One confirmed docket citation, with both halves grounded in the text."""
+class RecoveredDocketLocator:
+    """A cited docket locator the reviewer grounded against one document span."""
 
-    docket_span: Span
-    docket_text: str
-    court_span: Span | None
-    court_text: str | None
-    court_id: str | None
-    court_name: str | None
+    locator_text: str
+    docket_number: str
+    reason: str
 
 
 def _parse(value: object) -> _DocketProposal:
@@ -101,94 +93,82 @@ def _validate_schema(ctx: Context) -> ValidationResult:
     return ValidationResult(result=True)
 
 
-def _validate_docket(ctx: Context, site: SuspectedDocket) -> ValidationResult:
-    """A confirmed citation must quote the docket number found in the window."""
-    proposal = _parse(ctx.last_output().value)
+def _validate_locator(ctx: Context, site: SuspectedDocket) -> ValidationResult:
+    """A confirmed citation must quote the complete locator found in the window."""
+    try:
+        proposal = _parse(ctx.last_output().value)
+    except ValidationError as error:
+        return ValidationResult(result=False, reason=str(error))
     if not proposal.is_docket_citation:
         return ValidationResult(result=True)
-    if not proposal.docket or proposal.docket not in site.window:
+    if proposal.locator != site.locator_text:
         return ValidationResult(
             result=False,
             reason=(
-                f"{proposal.docket!r} is not written in the window. Quote the docket "
-                f"number exactly as it appears, character for character."
+                f"{proposal.locator!r} is not the candidate {site.locator_text!r}. Quote the "
+                "candidate exactly as it appears, character for character."
             ),
         )
-    return ValidationResult(result=True)
-
-
-def _validate_court(ctx: Context, site: SuspectedDocket) -> ValidationResult:
-    """The court must be one of the candidates, not one the model recalled."""
-    proposal = _parse(ctx.last_output().value)
-    if proposal.court is None:
-        return ValidationResult(result=True)
-    if not any(proposal.court == candidate.text for candidate in site.courts):
-        offered = ", ".join(repr(candidate.text) for candidate in site.courts) or "none"
+    if proposal.docket_number != site.docket_number:
         return ValidationResult(
             result=False,
             reason=(
-                f"{proposal.court!r} is not one of the court strings written near this "
-                f"docket number. Choose exactly one of: {offered}; or report null."
+                f"{proposal.docket_number!r} is not the docket portion {site.docket_number!r}. "
+                "Quote the candidate's docket number exactly as it appears."
             ),
         )
     return ValidationResult(result=True)
 
 
 async def adjudicate_docket(
-    masked_text: str,
     site: SuspectedDocket,
     *,
     session: MelleaSession | None = None,
-) -> AdjudicatedDocket | None:
-    """Confirm one suspected docket site, or return None if it is not a citation."""
+) -> SiteReview[RecoveredDocketLocator]:
+    """Review one docket site and retain the evidence whether it is accepted or not."""
     resolved_session = session or start_mellea_session_from_env()
     result = await run_instruct_ivr(
         resolved_session,
         InstructIvrSpec(
             description=INSTRUCTION,
-            user_variables={
-                "docket": site.docket_text,
-                "court_context": docket_context(site),
-                "window": site.window,
-            },
+            user_variables={"locator": site.locator_text, "window": site.context},
             output_format=_DocketProposal,
             requirements=[
                 req("Return a valid docket proposal.", validation_fn=_validate_schema),
                 req(
-                    "Quote the docket number exactly as written in the window.",
-                    validation_fn=lambda ctx: _validate_docket(ctx, site),
-                ),
-                req(
-                    "Report the court by choosing one of the candidates written nearby.",
-                    validation_fn=lambda ctx: _validate_court(ctx, site),
+                    "Quote the complete docket locator exactly as written in the window.",
+                    validation_fn=lambda ctx: _validate_locator(ctx, site),
                 ),
             ],
         ),
         strategy=MultiTurnStrategy(loop_budget=MAX_REPAIR_TURNS),
         model_options=llm_api_config_from_env(os.environ).mellea_call_options(max_tokens=MAX_TOKENS),
     )
+    return _site_review(result)
+
+
+def _site_review(result: IvrRun) -> SiteReview[RecoveredDocketLocator]:
+    """Keep a failed exact-grounding run as a declined review.
+
+    Mellea retains its last JSON sample after exhausting repair turns. That
+    sample can parse while still failing the exact locator/number requirement.
+    It is evidence of a decline, never a promotion input: only a successful IVR
+    run may create a docket record.
+    """
+    if not result.success:
+        return SiteReview(answer=None, reason=result.failure_reason, run=result)
     try:
-        proposal = _parse(result.result.value)
+        proposal = _parse(result.output)
     except ValidationError:
-        return None
-    if not proposal.is_docket_citation or not proposal.docket:
-        return None
-
-    # Ground the docket against the site rather than the whole document: the same
-    # number is often cited repeatedly, and a document-wide search would return
-    # the first occurrence instead of this one.
-    offset = max(0, site.span_start - 170)
-    found = site.window.find(proposal.docket)
-    if found < 0:
-        return None
-    docket_span = Span(start=offset + found, end=offset + found + len(proposal.docket))
-
-    chosen = next((c for c in site.courts if c.text == proposal.court), None)
-    return AdjudicatedDocket(
-        docket_span=docket_span,
-        docket_text=proposal.docket,
-        court_span=Span(start=chosen.span_start, end=chosen.span_end) if chosen else None,
-        court_text=chosen.text if chosen else None,
-        court_id=chosen.court_id if chosen else None,
-        court_name=chosen.court_name if chosen else None,
+        return SiteReview(answer=None, reason=result.failure_reason, run=result)
+    if not proposal.is_docket_citation or not proposal.locator or not proposal.docket_number:
+        return SiteReview(answer=None, reason=proposal.reason, run=result)
+    return SiteReview(
+        answer=RecoveredDocketLocator(
+            locator_text=proposal.locator,
+            docket_number=proposal.docket_number,
+            reason=proposal.reason,
+        ),
+        reason=proposal.reason,
+        run=result,
     )

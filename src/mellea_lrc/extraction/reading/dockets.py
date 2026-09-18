@@ -1,21 +1,9 @@
-r"""Read generic docket locators before later root-stage audits.
+"""Read federal CM/ECF docket locators before later root-stage audits.
 
-A docket number is an opaque court-local identifier, not a reporter and not a
-federal case-number grammar.  The stable tokenizer therefore reads one broad,
-signaled identifier envelope and preserves its exact span.  It can include
-filing captions and ECF page stamps; that is intentional.  Colocation is built
-next, then the independent docket audit admits a locator only when an explicit
-court or colocated reporter supports it.  Metrics score those audit-admitted
-docket locators, never raw candidates.
-
-A future site hunter may propose docket-shaped text that lacks an introducing
-signal.  It is deliberately unavailable until it has an independent candidate
-and review contract; it must not silently create roots through a second,
-duplicate docket grammar.
-
-Court and date readers run only after colocation and audit.  An admitted docket
-without a written court remains courtless, so validation can first check its
-colocated reporter before attempting a docket lookup.
+The first-pass reader has one intentionally narrow contract: an explicit docket
+label followed by the common federal CM/ECF case-number family.  It does not
+infer a court-local, state, appellate, historical, or malformed docket grammar.
+Those candidates belong to site hunting, where they can be separately reviewed.
 """
 
 from __future__ import annotations
@@ -32,76 +20,38 @@ from eyecite.tokenizers import Tokenizer, default_tokenizer
 from mellea_lrc.core.citations import DocketEntry
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.reading.courts import resolve_court
+from mellea_lrc.extraction.reading.relaxation import relaxed_literal
 
 # The group that marks a citation token as a docket rather than a reporter.
 DOCKET_GROUP = "docket"
 
-# A docket identifier is an opaque, court-specific string. It is not a federal
-# case-number grammar: filings legitimately write compact identifiers such as
-# ``13CV04115WHODMR``, chamber suffixes, slashes, backslashes, and forms this
-# project has not seen yet.  The stable reader asks only for an introducing
-# signal, a digit, and an identifier envelope.  Court and reporter context are
-# deliberately *not* part of this rule: the audit after colocation decides
-# whether this raw locator is actually citing a case.
-#
-# An envelope has one compact first token and up to two compact continuation
-# tokens.  A continuation must carry a digit, separator punctuation, or an
-# all-caps designator.  That retains ``CIV 11-0107 JB/KBM`` and ``CIV. A.
-# 08-222-KD-B`` while stopping before ECF furniture such as ``Document 1``.
-# The rule neither encodes a court's case-number convention nor repairs text.
-_REQUIRED_SIGNAL = (
-    r"(?:"
-    r"\b(?:Case|Civil[^\S\r\n]+Action|Civ\.?[^\S\r\n]*A\.?|Docket)"
-    r"[^\S\r\n]*No(?=[.^\s:]|$)[^\S\r\n]*\.?[^\S\r\n]*:?[^\S\r\n]*"
-    r"|(?<!\.\s)(?<!\.)\bNo(?=[.^\s:]|$)[^\S\r\n]*\.?[^\S\r\n]*:?[^\S\r\n]*"
-    r"|\bCase[^\S\r\n]+"
-    r")"
+# Keep the label spelling literal while treating horizontal whitespace as
+# converter noise: ``Civil Action No.``, ``CivilActionNo.``, and a justified
+# ``Civil   Action  No.`` are one label.  A label never crosses a line here.
+_PREFIXES = (
+    "No. ",
+    "Case No. ",
+    "Civil Action No. ",
+    "Civ. A. No. ",
+    "Docket No. ",
 )
+DOCKET_PREFIX = r"\b(?:" + "|".join(
+    relaxed_literal(prefix, whitespace=True) for prefix in _PREFIXES
+) + ")"
+"""The shared explicit label used by first-pass reading and site generation."""
 
-_COMPACT_DOCKET_TOKEN = r"[A-Za-z0-9](?:[A-Za-z0-9:./\\-]*[A-Za-z0-9])?\.?"
-# A number this short has no identifying weight by itself.  A retained raw
-# candidate contains either a four-digit run or a structural separator.  That
-# rejects ``D.I. No. 17`` while admitting court-local forms such as ``21-11854``
-# and ``1:25-cv-00312`` without naming their individual case-type grammars.
-_IDENTIFIER_EVIDENCE = r"(?=[^,;()\r\n]{0,40}(?:\d{4}|[:/\\-]))"
-# Filings may omit ``No.`` in a table of authorities.  A signal-free identifier
-# is read only where a following database citation supplies local citation
-# context.  The date/database pattern belongs to the context, not a court's
-# docket syntax, so this remains one general reader rather than a second list
-# of court-specific grammars.
-_DATABASE_CITATION = (
-    r"\d{4}(?:[^\S\r\n]+[A-Za-z][A-Za-z.]*)*"
-    r"[^\S\r\n]+(?:WL|LEXIS)[^\S\r\n]+\d+\b"
-)
-_SIGNAL_FREE_DOCKET = r"(?:\d{2}-(?:[A-Za-z]{1,6}-)?\d{3,}|\d{1,2}:\d{2}-[A-Za-z]{2,6})"
-_SIGNAL_FREE_CONTEXT = rf"(?={_SIGNAL_FREE_DOCKET}(?:,[^\S\r\n]*|[^\S\r\n]+){_DATABASE_CITATION})"
-_DOCKET_PREFIX = rf"(?:{_REQUIRED_SIGNAL}|{_SIGNAL_FREE_CONTEXT}|(?=\d{{1,2}}:\d{{2}}-[A-Za-z]{{2,6}}))"
-_COMPACT_CONTINUATION = (
-    r"(?!" + _DATABASE_CITATION + r")"
-    r"(?=[A-Za-z0-9:./\\-]*(?:\d|[:./\\-])|(?-i:[A-Z.]{1,6})\b)"
-    + _COMPACT_DOCKET_TOKEN
-)
-_CONTINUATION_JOIN = r"(?:[^\S\r\n]+|-[^\S\r\n]+)"
+# The federal CM/ECF family is office/year/type/sequence, with optional judge
+# and referral-judge codes.  Offices are normally separated by a colon, though
+# bankruptcy systems also write a hyphen.  The type code stays opaque here:
+# the numbering convention supplies its position, not a finite vocabulary.
+_FEDERAL_CMECF = r"(?:\d{1,3}[:-])?\d{2}-[A-Za-z]{2,4}-\d{1,6}(?:-[A-Za-z]{2,5}){0,2}"
 
 DOCKET_NUMBER = rf"""
-{_DOCKET_PREFIX}
-(?P<{DOCKET_GROUP}>
-    {_IDENTIFIER_EVIDENCE}
-    (?=
-        (?:[A-Za-z0-9:./\\-]*\d)
-      |
-        (?-i:[A-Z.]{{1,6}}){_CONTINUATION_JOIN}
-        (?:
-            [A-Za-z0-9:./\\-]*\d
-          | (?-i:[A-Z.]{{1,6}}){_CONTINUATION_JOIN}[A-Za-z0-9:./\\-]*\d
-        )
-    )
-    {_COMPACT_DOCKET_TOKEN}
-    (?:{_CONTINUATION_JOIN}{_COMPACT_CONTINUATION}){{0,2}}
-)
-(?![A-Za-z0-9:./\\-])
+{DOCKET_PREFIX}
+(?P<{DOCKET_GROUP}>{_FEDERAL_CMECF})
+(?![A-Za-z0-9-])
 """
-"""A signaled opaque docket identifier, before court/context audit."""
+"""An explicitly labelled federal CM/ECF docket identifier."""
 
 # A document-entry reference belongs to a docket citation only when it is
 # immediately joined to that docket's locator.  This deliberately does not
@@ -112,7 +62,11 @@ _DOCKET_ENTRY = re.compile(
     r"\b(?:Doc(?:ument)?\.?|Dkt\.?|ECF)\s*(?:No\.?\s*)?(?P<number>\d+(?:-\d+)?)",
     re.IGNORECASE,
 )
-_ENTRY_JOIN = re.compile(r"^[\s,;:\[\]\(\)]*$")
+# A filing entry and a case locator are one written reference only when they
+# are truly adjacent.  Whitespace is relaxed by default, including a page-line
+# break, but the whole intervening join remains deliberately short.
+MAX_ENTRY_ADJACENCY = 12
+_ENTRY_JOIN = re.compile(rf"^[\s,;:\[\]()]{{0,{MAX_ENTRY_ADJACENCY}}}$")
 _ENTRY_LOOKBACK = 96
 
 
@@ -186,12 +140,21 @@ def _tight(value: str) -> str:
     return _NOT_ALPHANUMERIC.sub("", value.casefold())
 
 
+def _literal_key(value: str) -> str:
+    """Key a court spelling while preserving its non-whitespace characters."""
+    return re.sub(r"\s+", " ", value).strip().casefold().rstrip(". ")
+
+
 def _build_court_index() -> tuple[
-    ahocorasick.Automaton, dict[str, tuple[str, str]], dict[str, tuple[str, str]]
+    ahocorasick.Automaton,
+    dict[str, tuple[str, str]],
+    dict[str, tuple[str, str]],
+    dict[str, tuple[tuple[str, tuple[str, str]], ...]],
 ]:
-    """Index every court citation string courts-db knows, two ways."""
+    """Index every court citation string courts-db knows, three ways."""
     lookup: dict[str, tuple[str, str]] = {}
     tight: dict[str, tuple[str, str]] = {}
+    literal: dict[str, list[tuple[str, tuple[str, str]]]] = {}
     for court in courts:
         citation_string = court.get("citation_string")
         if not citation_string or len(citation_string) < _MIN_COURT_STRING:
@@ -199,14 +162,15 @@ def _build_court_index() -> tuple[
         entry = (court["id"], court["name"])
         lookup.setdefault(_normalize(citation_string), entry)
         tight.setdefault(_tight(citation_string), entry)
+        literal.setdefault(_literal_key(citation_string), []).append((citation_string, entry))
     automaton = ahocorasick.Automaton()
     for normalized in lookup:
         automaton.add_word(normalized, normalized)
     automaton.make_automaton()
-    return automaton, lookup, tight
+    return automaton, lookup, tight, {key: tuple(value) for key, value in literal.items()}
 
 
-_COURT_AUTOMATON, _COURT_LOOKUP, _COURT_TIGHT = _build_court_index()
+_COURT_AUTOMATON, _COURT_LOOKUP, _COURT_TIGHT, _COURT_LITERAL = _build_court_index()
 _COURT_NAMES = {str(court["id"]): court["name"] for court in courts}
 
 
@@ -280,7 +244,14 @@ def _court_opening(text: str, start: int, end: int) -> CourtCandidate | None:
         opening = text[words[0].start() : words[count - 1].end()]
         if not _is_written_as_a_court(opening):
             continue
-        entry = _COURT_TIGHT.get(_tight(opening))
+        # This is the ordinary literal spelling first, except that whitespace
+        # is not evidence.  A source can write ``Bankr.  S.D.N.Y.`` with a
+        # doubled space and still mean the exact court string courts-db holds.
+        # It is intentionally checked before the older punctuation-tolerant
+        # fallback so a full bankruptcy court wins over its nested district.
+        entry = _relaxed_literal_court(opening)
+        if entry is None:
+            entry = _COURT_TIGHT.get(_tight(opening))
         if entry is None:
             # courts-db spells some courts out where a filing abbreviates:
             # `Bankr. S.D. Florida` is stored and `Bankr. S.D. Fla.` is written.
@@ -299,6 +270,28 @@ def _court_opening(text: str, start: int, end: int) -> CourtCandidate | None:
             court_name=court_name,
         )
     return None
+
+
+def _relaxed_literal_court(opening: str) -> tuple[str, str] | None:
+    """Resolve an exact court spelling whose whitespace was damaged.
+
+    The index narrows the comparison to literal spellings with the same words
+    and punctuation; :func:`relaxed_literal` then accepts any amount of
+    horizontal whitespace between them.  This is not the punctuation-dropping
+    fallback below -- ``Bankr.  S.D.N.Y.`` is still the exact bankruptcy court,
+    rather than a substring that happens to name the Southern District.
+    """
+    possibilities = _COURT_LITERAL.get(_literal_key(opening), ())
+    matched = {
+        entry
+        for spelling, entry in possibilities
+        if re.fullmatch(
+            relaxed_literal(spelling.rstrip(". "), whitespace=True),
+            opening.rstrip(". "),
+            flags=re.IGNORECASE,
+        )
+    }
+    return next(iter(matched)) if len(matched) == 1 else None
 
 
 def _is_written_as_a_court(opening: str) -> bool:

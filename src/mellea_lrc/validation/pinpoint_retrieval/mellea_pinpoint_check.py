@@ -134,7 +134,7 @@ async def run_mellea_pinpoint_check(
                 outcome_message="No grounded pinpoint inference is available.",
                 error="Mellea pinpoint inference exhausted its repair budget",
             )
-        proposal = _parse(result.result.value)
+        proposal = _parse(result.output)
         resolved = (
             resolve_evidence_quote(evidence.text, proposal.evidence_quote)
             if proposal.evidence_quote is not None

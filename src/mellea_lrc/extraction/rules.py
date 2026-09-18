@@ -26,6 +26,7 @@ class ExtractionRules:
     read_dockets: bool | None = None
     tokenizer_factory: TokenizerFactory | None = None
     case_name_reader: CaseNameReader | None = None
+    case_name_field_reader: CitationPass | None = None
     pin_cite_reader: CitationPass | None = None
     colocation_reader: CitationPass | None = None
     docket_auditor: CitationPass | None = None
@@ -45,6 +46,7 @@ def stable(
     eyecite.
     """
     from mellea_lrc.extraction.eyecite_extractor import _case_name
+    from mellea_lrc.extraction.reading.case_names import reread_case_names
     from mellea_lrc.extraction.reading.docket_audit import audit_docket_citations
     from mellea_lrc.extraction.reading.dockets import with_dockets
     from mellea_lrc.extraction.reading.pin_cite_spans import read_pin_cites
@@ -57,6 +59,7 @@ def stable(
         read_dockets=True,
         tokenizer_factory=lambda level: with_dockets(tokenizer_for(level)),
         case_name_reader=_case_name,
+        case_name_field_reader=reread_case_names,
         pin_cite_reader=read_pin_cites,
         colocation_reader=assign_colocation,
         docket_auditor=audit_docket_citations,

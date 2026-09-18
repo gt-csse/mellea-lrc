@@ -50,9 +50,9 @@ from mellea_lrc.preprocessing.types import (
 )
 from mellea_lrc.serialization._json import JsonValue, require_list, require_mapping, serialize_dataclass
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 _ARTIFACT_TYPE = "document"
-_SUPPORTED_SCHEMA_VERSIONS = frozenset({15, SCHEMA_VERSION})
+_SUPPORTED_SCHEMA_VERSIONS = frozenset({15, 16, SCHEMA_VERSION})
 
 _CITATION_TYPES: dict[CitationKind, type[CanonicalCitation]] = {
     CitationKind.FULL_CASE: FullCaseCitation,
@@ -76,6 +76,7 @@ def serialize_document(document: Document) -> dict[str, JsonValue]:
         "text": document.text,
         "preprocessing_metadata": serialize_dataclass(document.preprocessing_metadata),
         "citations": [_serialize_record(record) for record in document.citations],
+        **({"nodes": [_serialize_node(node) for node in document.nodes]} if document.nodes else {}),
         "locators": [
             {
                 "citation_id": locator.citation_id,
@@ -160,6 +161,7 @@ def deserialize_document(payload: Mapping[str, object]) -> Document:
             ),
         ),
         citations=tuple(_deserialize_citation(item) for item in citations),
+        nodes=_read_trace(payload.get("nodes")),
         unread_case_names=tuple(
             _optional_span(item, name="unread_case_names")
             for item in require_list(payload.get("unread_case_names", []), name="unread_case_names")

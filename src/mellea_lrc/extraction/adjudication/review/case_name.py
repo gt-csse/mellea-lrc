@@ -65,6 +65,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.adjudication import ocr
 from mellea_lrc.extraction.adjudication.review.locator import _locate
+from mellea_lrc.extraction.adjudication.types import SiteReview
 from mellea_lrc.extraction.reading.case_names import IDENTIFIER
 from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 from mellea_lrc.llm import (
@@ -84,7 +85,7 @@ if TYPE_CHECKING:
     from mellea_lrc.extraction.adjudication.types import Candidate
     from mellea_lrc.extraction.types import CitationRecord, Document
 
-MAX_TOKENS = 600
+MAX_TOKENS = 1200
 MAX_REPAIR_TURNS = 2
 
 INSTRUCTION = """
@@ -233,7 +234,7 @@ class _Answer(BaseModel):
     root: int | None
     plaintiff: str | None
     defendant: str | None
-    reason: str
+    reason: Annotated[str, StringConstraints(min_length=1)]
 
 
 @dataclass(frozen=True, slots=True)
@@ -571,7 +572,7 @@ async def adjudicate_case_name(
     *,
     session: MelleaSession | None = None,
     records: Mapping[str, CitationRecord] | None = None,
-) -> AdjudicatedCaseName | None:
+) -> SiteReview[AdjudicatedCaseName]:
     """Return what a reader makes of one case-name site, or `None` on a decline.
 
     A case is uncited when the document holds no citation of it, in either
@@ -634,13 +635,13 @@ async def adjudicate_case_name(
         model_options=llm_api_config_from_env(os.environ).mellea_call_options(max_tokens=MAX_TOKENS),
     )
     try:
-        proposed = _parse(result.result.value)
+        proposed = _parse(result.output)
     except ValidationError:
-        return None
+        return SiteReview(answer=None, reason=result.failure_reason, run=result)
 
     grounded = _ground(window_text, collapsed, site.window.start, proposed.name)
     if grounded is None:
-        return None
+        return SiteReview(answer=None, reason=proposed.reason, run=result)
     span, name, method = grounded
     # A quote asked for the WHOLE name comes back with the docket number after
     # it more often than not. The name stops where an identifier starts, the
@@ -655,26 +656,30 @@ async def adjudicate_case_name(
     citation_id = root_id = None
     if proposed.reading is Reading.NAMES_A_CITATION:
         if proposed.citation is None or not 1 <= proposed.citation <= len(nearby):
-            return None
+            return SiteReview(answer=None, reason=proposed.reason, run=result)
         citation_id = nearby[proposed.citation - 1].citation_id
     elif proposed.reading is Reading.SHORT_FORM:
         if proposed.root is None or not 1 <= proposed.root <= len(document_roots):
-            return None
+            return SiteReview(answer=None, reason=proposed.reason, run=result)
         chosen = document_roots[proposed.root - 1]
         beside = next((c for c in nearby if c.citation_id == chosen.citation_id), None)
         if beside is not None:
             # The root it named is a citation in the window, so the name and
             # that citation are one reference however the answer was worded.
             parties = parties_read_as(name, proposed.plaintiff, proposed.defendant)
-            return AdjudicatedCaseName(
-                span=span,
-                name=name,
-                reading=Reading.NAMES_A_CITATION,
-                citation_id=beside.citation_id,
-                plaintiff=proposed.plaintiff if parties else None,
-                defendant=proposed.defendant if parties else None,
+            return SiteReview(
+                answer=AdjudicatedCaseName(
+                    span=span,
+                    name=name,
+                    reading=Reading.NAMES_A_CITATION,
+                    citation_id=beside.citation_id,
+                    plaintiff=proposed.plaintiff if parties else None,
+                    defendant=proposed.defendant if parties else None,
+                    reason=proposed.reason,
+                    match_method=method,
+                ),
                 reason=proposed.reason,
-                match_method=method,
+                run=result,
             )
         chosen_name = " ".join(
             part
@@ -686,18 +691,22 @@ async def adjudicate_case_name(
             if part
         )
         if not _same_case(name, chosen_name):
-            return None
+            return SiteReview(answer=None, reason=proposed.reason, run=result)
         root_id = chosen.citation_id
 
     parties = parties_read_as(name, proposed.plaintiff, proposed.defendant)
-    return AdjudicatedCaseName(
-        span=span,
-        name=name,
-        reading=proposed.reading,
-        citation_id=citation_id,
-        root_id=root_id,
-        plaintiff=proposed.plaintiff if parties else None,
-        defendant=proposed.defendant if parties else None,
+    return SiteReview(
+        answer=AdjudicatedCaseName(
+            span=span,
+            name=name,
+            reading=proposed.reading,
+            citation_id=citation_id,
+            root_id=root_id,
+            plaintiff=proposed.plaintiff if parties else None,
+            defendant=proposed.defendant if parties else None,
+            reason=proposed.reason,
+            match_method=method,
+        ),
         reason=proposed.reason,
-        match_method=method,
+        run=result,
     )

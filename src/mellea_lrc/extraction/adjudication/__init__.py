@@ -62,19 +62,33 @@ from mellea_lrc.extraction.adjudication.candidates.reporter_sites import (
     SuspectedLocator,
     suspected_locators,
 )
+from mellea_lrc.extraction.adjudication.docket_hunting import apply_docket_site_review, hunt_docket_locators
 from mellea_lrc.extraction.adjudication.masking import mask_full_spans, mask_locator_spans
-from mellea_lrc.extraction.adjudication.promotion import promote, promote_locator, reread_site
-from mellea_lrc.extraction.adjudication.review.docket import adjudicate_docket
+from mellea_lrc.extraction.adjudication.promotion import (
+    promote,
+    promote_docket_locator,
+    promote_locator,
+    reread_site,
+)
+from mellea_lrc.extraction.adjudication.review.docket import RecoveredDocketLocator, adjudicate_docket
 from mellea_lrc.extraction.adjudication.review.locator import adjudicate_locator
 from mellea_lrc.extraction.adjudication.reviews import DEFAULT_REVIEWS, Review, adjudicate
-from mellea_lrc.extraction.adjudication.types import Adjudication, Candidate, CandidateKind, Verdict
+from mellea_lrc.extraction.adjudication.types import (
+    Adjudication,
+    Candidate,
+    CandidateKind,
+    SiteReview,
+    Verdict,
+)
 
 __all__ = [
     "DEFAULT_REVIEWS",
     "Adjudication",
     "Candidate",
     "CandidateKind",
+    "RecoveredDocketLocator",
     "Review",
+    "SiteReview",
     "SiteStage",
     "SuspectedDocket",
     "SuspectedLocator",
@@ -82,10 +96,13 @@ __all__ = [
     "adjudicate",
     "adjudicate_docket",
     "adjudicate_locator",
+    "apply_docket_site_review",
+    "hunt_docket_locators",
     "mask_full_spans",
     "mask_locator_spans",
     "pin_cite_sites",
     "promote",
+    "promote_docket_locator",
     "promote_locator",
     "reread_site",
     "suspected_dockets",

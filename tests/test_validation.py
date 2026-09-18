@@ -17,7 +17,7 @@ from mellea_lrc.courtlistener import (
     CourtListenerSearchResult,
 )
 from mellea_lrc.extraction import CitationRecord, Document, ExtractionMetadata
-from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
+from mellea_lrc.llm.ivr import InstructIvrSpec, IvrAttempt, IvrRun, run_instruct_ivr
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.validation import (
     AggregatedFieldOutcome,
@@ -152,6 +152,32 @@ def _document(citation: FullCaseCitation | FullLawCitation) -> Document:
     )
 
 
+def _successful_ivr(output: str) -> IvrRun:
+    return IvrRun(
+        success=True,
+        selected_attempt=0,
+        attempts=(IvrAttempt(output=output, requirements=()),),
+        backend="test",
+        model="test-model",
+        model_options={},
+        instruction="",
+        prefix=None,
+        grounding_context={},
+        user_variables={},
+        output_schema=None,
+    )
+
+
+def _sampling_result(output: str) -> SimpleNamespace:
+    """Mellea's public sampling-result surface, without a provider call."""
+    return SimpleNamespace(
+        success=True,
+        result_index=0,
+        sample_generations=[SimpleNamespace(value=output)],
+        sample_validations=[[]],
+    )
+
+
 def test_instruct_ivr_forwards_the_pydantic_output_format(monkeypatch: pytest.MonkeyPatch) -> None:
     """Forward the schema through Mellea's structured-output interface."""
 
@@ -160,9 +186,9 @@ def test_instruct_ivr_forwards_the_pydantic_output_format(monkeypatch: pytest.Mo
 
     calls: list[dict[str, object]] = []
 
-    def fake_instruct(*_args: object, **kwargs: object) -> str:
+    def fake_instruct(*_args: object, **kwargs: object) -> SimpleNamespace:
         calls.append(kwargs)
-        return '{"value":"structured"}'
+        return _sampling_result('{"value":"structured"}')
 
     monkeypatch.setattr("mellea_lrc.llm.ivr.mfuncs.instruct", fake_instruct)
     result = asyncio.run(
@@ -174,7 +200,9 @@ def test_instruct_ivr_forwards_the_pydantic_output_format(monkeypatch: pytest.Mo
         )
     )
 
-    assert result == '{"value":"structured"}'
+    assert result.output == '{"value":"structured"}'
+    assert result.success
+    assert len(result.attempts) == 1
     assert calls[0]["format"] is ExpectedOutput
 
 
@@ -183,9 +211,9 @@ def test_a_prefix_is_sent_as_the_system_message_and_nowhere_else(monkeypatch) ->
 
     calls: list[dict[str, object]] = []
 
-    def fake_instruct(*_args: object, **kwargs: object) -> str:
+    def fake_instruct(*_args: object, **kwargs: object) -> SimpleNamespace:
         calls.append(kwargs)
-        return "{}"
+        return _sampling_result("{}")
 
     monkeypatch.setattr("mellea_lrc.llm.ivr.mfuncs.instruct", fake_instruct)
     options = {"max_tokens": 10}
@@ -549,13 +577,10 @@ def test_mellea_case_name_reextraction_uses_only_local_context(
     monkeypatch.setenv("MELLEA_LRC_LLM_API_KEY", "test-key")
     calls: list[object] = []
 
-    async def fake_instruct(_session: object, spec: object, **_kwargs: object) -> SimpleNamespace:
+    async def fake_instruct(_session: object, spec: object, **_kwargs: object) -> IvrRun:
         calls.append(spec)
-        return SimpleNamespace(
-            success=True,
-            result=SimpleNamespace(
-                value=('{"classification":"complete_case_name","plaintiff":"Brown","defendant":"Board"}')
-            ),
+        return _successful_ivr(
+            '{"classification":"complete_case_name","plaintiff":"Brown","defendant":"Board"}'
         )
 
     monkeypatch.setattr(
@@ -1041,14 +1066,9 @@ def test_mellea_case_name_query_preparation_constructs_the_courtlistener_query(
     monkeypatch.setenv("MELLEA_LRC_LLM_API_KEY", "test-key")
     calls: list[object] = []
 
-    async def fake_instruct(_session: object, spec: object, **_kwargs: object) -> SimpleNamespace:
+    async def fake_instruct(_session: object, spec: object, **_kwargs: object) -> IvrRun:
         calls.append(spec)
-        return SimpleNamespace(
-            success=True,
-            result=SimpleNamespace(
-                value='{"query_plaintiff":"Brown","query_defendant":"Board of Education"}'
-            ),
-        )
+        return _successful_ivr('{"query_plaintiff":"Brown","query_defendant":"Board of Education"}')
 
     monkeypatch.setattr(
         "mellea_lrc.validation.case_search.mellea_case_name_query_preparation.run_instruct_ivr",

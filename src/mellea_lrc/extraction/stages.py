@@ -1,8 +1,9 @@
 """Named extraction passes and the dependencies that constrain their order.
 
 The locator read produces spans and searches backward for case names. Those
-spans then define colocation groups. An independent docket audit checks for an
-explicit court or a colocated reporter and withdraws unsupported candidates.
+spans then define colocation groups. A field name reader fills names on full
+locators admitted after the raw parse. An independent docket audit checks for
+an explicit court or a colocated reporter and withdraws unsupported candidates.
 Court and date readers run after the audit,
 so a parallel citation may read through its co-located neighbors and stop at
 the next unrelated locator. Pin cites are structured after the date reader
@@ -23,6 +24,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Protocol
 
 from mellea_lrc.core.citations import DocketCitation
+from mellea_lrc.extraction.reading.case_names import reread_case_names
 from mellea_lrc.extraction.reading.docket_audit import audit_docket_citations
 from mellea_lrc.extraction.reading.pin_cite_spans import read_pin_cites
 from mellea_lrc.extraction.reading.post_citation import reread_courts, reread_dates
@@ -50,6 +52,11 @@ def _colocation(text: str, citations: Sequence[CitationRecord]) -> tuple[Citatio
 def _courts(text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
     """Resolve explicit courts after locator spans and groups are known."""
     return reread_courts(text, citations)
+
+
+def _case_names(text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
+    """Fill only absent full-locator names after co-location is known."""
+    return reread_case_names(text, citations)
 
 
 def _dates(text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
@@ -103,6 +110,14 @@ STAGES: tuple[Stage, ...] = (
         why=(
             "Decided from the spans eyecite produced, before anything alters them, and "
             "before court and date resolution, whose search boundaries use its ids."
+        ),
+    ),
+    Stage(
+        name="case_names",
+        run=_case_names,
+        why=(
+            "Runs after co-location so a newly admitted full locator reads the name before "
+            "the first identifier of its site; existing raw names remain untouched."
         ),
     ),
     Stage(
@@ -163,6 +178,8 @@ def refine(
     refined = tuple(citations)
     if rules is not None and rules.colocation_reader is not None:
         refined = rules.colocation_reader(text, refined)
+    if rules is not None and rules.case_name_field_reader is not None:
+        refined = rules.case_name_field_reader(text, refined)
     if rules is not None and rules.docket_auditor is not None:
         refined = rules.docket_auditor(text, refined)
     if rules is not None and rules.court_reader is not None:
@@ -193,14 +210,18 @@ def audit_dockets(document: Document, rules: ExtractionRules | None = None) -> D
 
 
 def resolve_case_names(document: Document, rules: ExtractionRules | None = None) -> Document:
-    """Expose the name-read stage, which eyecite performs with locator parsing.
+    """Fill names absent from full locators after colocation is known.
 
-    The stable profile applies its name reader while the raw eyecite citation
-    still exists, before colocation. Once canonical records are built this is
-    intentionally a no-op: names and their spans are already on each record.
+    Eyecite's raw parse already supplied most names during locator extraction.
+    This explicit pass is for a full locator added later, such as a
+    site-admitted docket, and never overwrites a name already recorded.
     """
-    del rules
-    return document
+    if rules is None or rules.case_name_field_reader is None:
+        return document
+    return replace(
+        document,
+        citations=rules.case_name_field_reader(document.text, document.citations),
+    )
 
 
 def resolve_courts(document: Document, rules: ExtractionRules | None = None) -> Document:

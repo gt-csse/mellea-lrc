@@ -124,66 +124,26 @@ def test_a_docket_and_a_parallel_reporter_locator_are_two_citations() -> None:
 
 
 @pytest.mark.parametrize(
-    ("written", "expected", "court", "court_text"),
+    "written",
     [
-        ("CIV 11-0107 JB/KBM", "CIV 11-0107 JB/KBM", "nmd", "D.N.M."),
-        (r"CIV 16-0318 JB\SCY", r"CIV 16-0318 JB\SCY", "nmd", "D.N.M."),
-        ("13CV04115WHODMR", "13CV04115WHODMR", "cand", "N.D. Cal."),
-        ("CV 22-165 MIS/GBW", "CV 22-165 MIS/GBW", "nmd", "D.N.M."),
-        ("CV-20-01788-PHX-JJT", "CV-20-01788-PHX-JJT", "azd", "D. Ariz."),
-        ("CV-2002309-PHX-MTL", "CV-2002309-PHX-MTL", "azd", "D. Ariz."),
-        ("CV-06-02903-PHX-JAT", "CV-06-02903-PHX-JAT", "azd", "D. Ariz."),
+        "CIV 11-0107 JB/KBM",
+        r"CIV 16-0318 JB\SCY",
+        "13CV04115WHODMR",
+        "CV 22-165 MIS/GBW",
+        "CV-20-01788-PHX-JJT",
+        "CV-2002309-PHX-MTL",
+        "CV-06-02903-PHX-JAT",
+        "CV 19-7532",
+        "CV-15-00077",
+        "CIV. A. 08-222-KD-B",
     ],
 )
-def test_a_signaled_docket_before_a_database_locator_uses_its_position(
-    written: str, expected: str, court: str, court_text: str
-) -> None:
-    """A database locator makes otherwise unstructured docket text readable.
-
-    These are ordinary docket citations, but their internal forms cannot be
-    expressed safely as a fixed federal-docket grammar.  The immediately
-    following database locator is the citation context that admits them; colocation
-    then lets the court reader use the shared parenthetical.
-    """
-    text = f"Smith v. Jones, No. {written}, 2024 WL 1234567, at *4 ({court_text} Jan. 1, 2024)."
-
-    document = _extract(text)
-    (docket,) = [item for item in document.citations if isinstance(item.stated, DocketCitation)]
-    (reporter,) = [item for item in document.citations if isinstance(item.stated, FullCaseCitation)]
-
-    assert docket.stated.docket_number == expected
-    assert text[docket.locator_span.start : docket.locator_span.end] == f"No. {written}"
-    assert docket.stated.court == court
-    assert docket.colocation_id == reporter.colocation_id
-    assert not docket.withdrawn
+def test_non_cmecf_dockets_are_left_for_site_hunting(written: str) -> None:
+    """The raw reader does not grow local docket grammars into roots."""
+    assert _dockets(f"Smith v. Jones, No. {written}, 2024 WL 1234567 (D. Ariz. 2024).") == []
 
 
-@pytest.mark.parametrize(
-    ("written", "between", "database", "expected"),
-    [
-        ("CV 19-7532", " (ES) (MAH)", "2024 WL 2861865", "CV 19-7532"),
-        ("CV-15-00077", "", "2016 U.S. Dist. LEXIS 6540", "CV-15-00077"),
-        ("CIV. A. 08-222-KD-B", "", "2009 WL 151023", "CIV. A. 08-222-KD-B"),
-    ],
-)
-def test_a_positional_docket_allows_judge_parentheticals_and_lexis(
-    written: str, between: str, database: str, expected: str
-) -> None:
-    """The boundary is the database locator, not a list of docket subformats."""
-    text = f"Smith v. Jones, No. {written}{between}, {database}, at *4 (D. Ariz. Jan. 1, 2024)."
-
-    document = _extract(text)
-    (docket,) = [item for item in document.citations if isinstance(item.stated, DocketCitation)]
-    reporters = [item for item in document.citations if isinstance(item.stated, FullCaseCitation)]
-
-    assert docket.stated.docket_number == expected
-    assert docket.colocation_id
-    assert docket.colocation_id in {item.colocation_id for item in reporters}
-    assert not docket.withdrawn
-
-
-def test_a_conventional_docket_before_a_database_locator_is_not_read_twice() -> None:
-    """The positional fallback broadens coverage without duplicating a known shape."""
+def test_a_cmecf_docket_before_a_database_locator_is_read_once() -> None:
     text = "Smith v. Jones, No. 1:24-cv-00123, 2024 WL 1234567, at *4 (D. Ariz. Jan. 1, 2024)."
 
     dockets = [item for item in _extract(text).citations if isinstance(item.stated, DocketCitation)]
@@ -191,14 +151,8 @@ def test_a_conventional_docket_before_a_database_locator_is_not_read_twice() -> 
     assert [item.stated.docket_number for item in dockets] == ["1:24-cv-00123"]
 
 
-def test_a_generic_docket_without_citation_context_is_withdrawn_by_audit() -> None:
-    """Reading a generic locator and admitting a cited case are separate decisions."""
-    text = "The clerk assigned No. CIV 11-0107 JB/KBM, and briefing followed."
-
-    (docket,) = [item for item in _extract(text).citations if isinstance(item.stated, DocketCitation)]
-    assert docket.stated.docket_number == "CIV 11-0107 JB/KBM"
-    assert docket.withdrawn
-    assert docket.trace[-1].details["reason"] == "no_citation_context"
+def test_a_non_cmecf_docket_is_not_a_raw_root_candidate() -> None:
+    assert _dockets("The clerk assigned No. CIV 11-0107 JB/KBM, and briefing followed.") == []
 
 
 # --- What is not a docket citation --------------------------------------------
@@ -216,35 +170,24 @@ def test_a_caption_docket_number_is_kept_as_a_courtless_locator_candidate() -> N
     assert docket.court is None
 
 
-def test_an_ecf_page_stamp_is_visible_to_locator_evaluation() -> None:
-    """The broad locator layer exposes docket-shaped page furniture as a candidate."""
+def test_an_unlabelled_ecf_page_stamp_is_left_for_site_hunting() -> None:
     text = (
         "COMPLAINT PLAINTIFF DEMANDS A JURY TRIAL ON ALL ISSUES SO TRIABLE - 5 5\n\n"
         "Case 2:25-cv-01295-GMS     Document 1     Filed 04/18/25     Page 6 of 32\n\n"
         "21. After Plaintiff rejected the advances, the retaliation began."
     )
 
-    (docket,) = _dockets(text)
-    assert docket.docket_number == "2:25-cv-01295-GMS"
-    assert docket.court is None
+    assert _dockets(text) == []
 
 
-def test_a_court_belonging_to_the_citation_before_it_is_not_this_docket_s_court() -> None:
-    """Proximity is not attribution, and this is where a nearby-court rule fails.
-
-    Document 022 stamps its own case number forty characters after another
-    case's `(N.D. Cal. May 13, 2011)`. A rule that looked either way would read
-    the page stamp as a citation and give it the wrong court besides.
-    """
+def test_an_unlabelled_ecf_stamp_is_not_rescued_by_a_nearby_court() -> None:
     text = (
         "See Doe v. Penzato , 2011 WL 1833007, at *3 (N.D. Cal. May 13, 2011); Doe v.\n\n"
         "Case 2:25-cv-01295-GMS     Document 21     Filed 06/12/25     Page 14 of 16\n\n"
         "Megless , 654 F.3d at 408."
     )
 
-    (docket,) = _dockets(text)
-    assert docket.docket_number == "2:25-cv-01295-GMS"
-    assert docket.court is None
+    assert _dockets(text) == []
 
 
 def test_a_court_beyond_a_blank_line_does_not_belong_to_the_docket() -> None:
@@ -282,26 +225,18 @@ def test_the_assigned_judge_s_initials_are_not_a_court() -> None:
 # --- Damage the converter leaves behind ---------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("written", "expected"),
-    [
-        ("No. 1:25-cv-05745-RPK", "1:25-cv-05745-RPK"),
-        ("No. 1:25cv-05745-RPK", "1:25cv-05745-RPK"),
-        ("No. 1:25-cv- 05745-RPK", "1:25-cv- 05745-RPK"),
-    ],
-)
-def test_a_number_damaged_by_the_converter_is_still_read(written: str, expected: str) -> None:
-    """Both of these are real: a lost hyphen and a space inside the number.
-
-    The number is reported as the filing wrote it, damage included. A citation
-    silently repaired is a citation a reader cannot check against the page.
-    """
-    text = f"United States v. Approximately 127,271 Bitcoin , {written} (E.D.N.Y. filed Oct. 14, 2025)."
+def test_a_canonical_cmecf_number_is_read_as_written() -> None:
+    text = "United States v. Bitcoin, No. 1:25-cv-05745-RPK (E.D.N.Y. filed Oct. 14, 2025)."
 
     (docket,) = _dockets(text)
 
-    assert docket.docket_number == expected
+    assert docket.docket_number == "1:25-cv-05745-RPK"
     assert docket.court == "nyed"
+
+
+@pytest.mark.parametrize("written", ("1:25cv-05745-RPK", "1:25-cv- 05745-RPK"))
+def test_a_damaged_cmecf_number_is_left_for_site_hunting(written: str) -> None:
+    assert _dockets(f"United States v. Bitcoin, No. {written} (E.D.N.Y. 2025).") == []
 
 
 def test_a_number_broken_across_a_line_is_not_read_as_one() -> None:
@@ -348,13 +283,7 @@ def test_an_id_chain_attributes_to_the_docket_it_heads() -> None:
     assert tree.unattributed == ()
 
 
-def test_one_docket_written_two_ways_is_one_authority() -> None:
-    """A hyphen the converter dropped does not make a second case.
-
-    Document 016 writes the same forfeiture docket both ways, and counting them
-    as two authorities would double the lookups and split the claims made about
-    one document across two.
-    """
+def test_a_damaged_variant_is_not_silently_promoted_to_a_root() -> None:
     text = (
         "See Verified Compl. in Rem ¶ 21, United States v. Approximately 127,271 Bitcoin , "
         "No. 1:25-cv-05745-RPK (E.D.N.Y. filed Oct. 14, 2025). The complaint alleges control. "
@@ -364,7 +293,7 @@ def test_one_docket_written_two_ways_is_one_authority() -> None:
 
     (authority,) = build_citation_tree(_extract(text)).roots
 
-    assert len(authority.occurrences) == 2
+    assert len(authority.occurrences) == 1
 
 
 def test_two_courts_sharing_a_docket_number_are_two_authorities() -> None:
@@ -407,49 +336,17 @@ def test_a_docket_is_a_full_citation_and_a_reporter_locator_is_still_its_own() -
     assert not isinstance(full.stated, FullCaseCitation)
 
 
-def test_a_bankruptcy_docket_number_is_a_locator() -> None:
-    """`No. 06-01147 (JMP) (Bankr. S.D.N.Y. …)` is a citation under Rule 10.8.1.
+def test_a_cmecf_bankruptcy_number_is_a_locator() -> None:
+    text = "In re Example, Docket No. 3-02-bk-12345 (Bankr. M.D. Pa. 2002)."
 
-    A bankruptcy court numbers a case with a year and a sequence and nothing
-    else. Documents 015 and 016 cite eighteen cases that way and every one was
-    read as no citation at all.
-    """
-    text = (
-        "See also In re Muscletech Research and Dev. Inc. , No. 06-01147 (JMP) "
-        "(Bankr. S.D.N.Y. Jan. 18, 2006) (entering a temporary restraining order)."
-    )
+    (citation,) = _dockets(text)
 
-    (citation,) = [c for c in _extract(text).citations if isinstance(c.stated, DocketCitation)]
-
-    assert citation.stated.docket_number == "06-01147"
-    assert citation.stated.court_text == "Bankr. S.D.N.Y."
+    assert citation.docket_number == "3-02-bk-12345"
 
 
-def test_a_bankruptcy_number_whose_hyphen_extraction_dropped_is_still_read() -> None:
-    """`No. 2010712` is `20-10712` with the hyphen lost in conversion."""
-    text = "See, e.g ., In re Olinda Star Ltd. , No. 2010712 (MG) [D.I. 23] (Bankr. S.D.N.Y. Apr. 3, 2020)."
-
-    (citation,) = [c for c in _extract(text).citations if isinstance(c.stated, DocketCitation)]
-
-    assert citation.stated.docket_number == "2010712"
-
-
-def test_signaled_bankruptcy_shaped_numbers_without_court_remain_candidates() -> None:
-    """Signals make the shape eligible, while citation intent stays unresolved.
-
-    `1124201` is an attorney's bar number in document 005's signature block and
-    `26-10769` is document 015's own case number in its caption. Both are the
-    bankruptcy shape, so the broad locator layer reports them for evaluation.
-    """
-    bar_number = "Jennifer Smith (State Bar No. 1124201) 361 Falls Rd, Suite 610 Grafton, WI 53024"
-    own_caption = "Chapter 15 Case No. 26-10769 (MG) (Joint Administration Requested)"
-
-    (bar_candidate,) = [c for c in _extract(bar_number).citations if isinstance(c.stated, DocketCitation)]
-    (caption_candidate,) = [
-        c for c in _extract(own_caption).citations if isinstance(c.stated, DocketCitation)
-    ]
-    assert bar_candidate.stated.court is None
-    assert caption_candidate.stated.court is None
+@pytest.mark.parametrize("written", ("06-01147", "2010712", "1124201", "26-10769"))
+def test_non_cmecf_bankruptcy_numbers_are_left_for_site_hunting(written: str) -> None:
+    assert _dockets(f"In re Example, No. {written} (Bankr. S.D.N.Y. 2020).") == []
 
 
 def test_the_bankruptcy_shape_needs_the_signal_in_front_of_it() -> None:
@@ -489,21 +386,8 @@ def test_reading_the_docket_keeps_it_out_of_the_case_name() -> None:
     assert reporter.stated.defendant == "Amazon.com, Inc."
 
 
-def test_a_bankruptcy_docket_reads_its_court_however_the_filing_abbreviates_it() -> None:
-    """The docket reader knows the courts the resolver knows, and no fewer.
-
-    courts-db spells the Southern District of Florida's bankruptcy court out as
-    `Bankr. S.D. Florida`. Document 016 writes `Bankr. S.D. Fla.`, and with the
-    court unread the whole citation went unread with it -- case name included,
-    which is what left the name loose in the text.
-    """
-    text = "In re FCI Mkts ., No. 21-14743 (CL) (Bankr. S.D. Fla., May 14, 2021)."
-
-    citation = next(c for c in _extract(text).citations if isinstance(c.stated, DocketCitation))
-
-    assert citation.stated.docket_number == "21-14743"
-    assert citation.stated.court == "flsb"
-    assert text[citation.full_span.start : citation.full_span.end].startswith("FCI Mkts")
+def test_a_non_cmecf_bankruptcy_number_is_not_read_from_a_court_parenthetical() -> None:
+    assert _dockets("In re FCI Mkts., No. 21-14743 (CL) (Bankr. S.D. Fla. 2021).") == []
 
 
 def test_a_reporter_that_is_one_courts_reports_names_that_court() -> None:
@@ -533,9 +417,9 @@ def test_the_court_the_filing_writes_wins_over_the_reporter_it_cites() -> None:
 
 
 def test_a_docket_entry_number_is_not_a_case_docket() -> None:
-    """A docket-entry cross-reference cannot become a root beside a case docket."""
+    """Neither a local case number nor a docket entry is in the CM/ECF family."""
     text = "Smith, No. 21-11854 (DSJ) [D.I. No. 17] (Bankr. S.D.N.Y. 2021)."
 
     dockets = [item for item in _extract(text).citations if isinstance(item.stated, DocketCitation)]
 
-    assert [item.stated.docket_number for item in dockets] == ["21-11854"]
+    assert dockets == []
