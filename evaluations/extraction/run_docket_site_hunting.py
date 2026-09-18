@@ -39,7 +39,7 @@ from mellea_lrc.extraction.types import Document
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.serialization import deserialize_document, serialize_document
 
-SITE_STAGE = "docket_site_hunting"
+SITE_STAGE = "docket_locator_site_hunting"
 DATASETS = (
     "primary",
     "hallucination-set-1",
@@ -407,9 +407,9 @@ def _write_reports(
         "updated_at": datetime.now(UTC).isoformat(),
         "source_commit": _commit(),
         "source_worktree_dirty": _source_worktree_dirty(),
-        "chain": ["federal_cmecf_reader", "docket_site_hunting"],
+        "chain": ["federal_cmecf_reader", "docket_locator_site_hunting"],
         "docket_audit": False,
-        "site_hunting": "iterative: each admission refines the document before the next review",
+        "site_hunting": "iterative: each admission recomputes locator structure before the next review",
         "documents_completed": len(saved),
         "annotations_present": annotations_present,
         "metrics": metrics,

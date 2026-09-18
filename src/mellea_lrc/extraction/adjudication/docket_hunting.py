@@ -2,9 +2,8 @@
 
 This module is intentionally outside ``grow_roots``. A caller can place it
 before validation, after validation, or omit it, without changing deterministic
-extraction. When it admits a locator, it immediately re-runs the ordinary root
-field passes so the next candidate sees the updated locator mask and
-co-location structure. It never runs the docket audit: model admission and a
+extraction. When it admits a locator, it immediately rebuilds the low-level locator
+structure so the next candidate sees the updated locator mask and co-location. It never runs the docket audit: model admission and a
 court/context audit are separate operations.
 """
 
@@ -22,9 +21,8 @@ from mellea_lrc.extraction.adjudication.review.docket import (
     adjudicate_docket,
 )
 from mellea_lrc.extraction.adjudication.types import Candidate, CandidateKind, SiteReview
-from mellea_lrc.extraction.reading.unread_names import unread_case_names
-from mellea_lrc.extraction.rules import ExtractionRules, stable
-from mellea_lrc.extraction.stages import refine
+from mellea_lrc.extraction.locator_stages import DOCKET_SITE_STAGE, rebuild_locator_structure
+from mellea_lrc.extraction.rules import ExtractionRules
 from mellea_lrc.serialization import serialize_site_review
 
 if TYPE_CHECKING:
@@ -32,7 +30,7 @@ if TYPE_CHECKING:
 
     from mellea_lrc.extraction.types import Document
 
-STAGE = "docket_site_hunting"
+STAGE = DOCKET_SITE_STAGE
 MADE_BY = "mellea_lrc.extraction.adjudication.review.docket"
 DECLINED = "declined"
 
@@ -78,9 +76,10 @@ def apply_docket_site_review(
     """Record one docket-site review and return the updated document.
 
     An admission creates a minimal :class:`DocketCitation` and then re-runs
-    co-location, court, date, pin-cite, and root assignment. The review itself
-    does not select any of those fields. A decline is retained as a
-    document-level finding because the inspected text is not a citation record.
+    only co-location and root assignment. The review does not select fields,
+    and it does not invoke court, date, case-name, pin-cite, or docket-audit
+    readers. A decline is retained as a document-level finding because the
+    inspected text is not a citation record.
     """
     if review.answer is None:
         node = _node(site, review, outcome=DECLINED)
@@ -104,21 +103,13 @@ def apply_docket_site_review(
     record = promote_docket_locator(document.text, site, review.answer)
     node = _node(site, review, outcome="accepted")
     record.observe(node)
-    citations = tuple(
-        sorted((*document.citations, record), key=lambda item: item.full_span.start)
-    )
+    citations = tuple(sorted((*document.citations, record), key=lambda item: item.full_span.start))
 
-    # The ordinary deterministic readers own every field following locator
-    # admission. In particular, no docket audit is slipped back in here: it is
-    # a distinct, optional stage and would erase the review's admission signal.
-    root_rules = replace(stable(rules), docket_auditor=None)
-    refined = refine(document.text, citations, root_rules)
-    return replace(
-        document,
-        citations=refined,
-        unread_case_names=unread_case_names(document.text, refined),
-        passes=_after(document),
-    )
+    # Locator admission updates exactly the structure that later candidate
+    # generation needs to see. Field readers run as their own stages after the
+    # locator chain has been checkpointed; a docket audit remains optional.
+    structured = rebuild_locator_structure(replace(document, citations=citations), rules=rules)
+    return replace(structured, passes=_after(structured))
 
 
 async def hunt_docket_locators(
@@ -146,7 +137,7 @@ async def hunt_docket_locators(
             None,
         )
         if site is None:
-            return current
+            return replace(current, passes=_after(current))
         inspected.add((site.locator_span.start, site.locator_span.end))
         review = await adjudicate_docket(site, session=session)
         current = apply_docket_site_review(current, site, review, rules=rules)

@@ -59,6 +59,17 @@ from mellea_lrc.extraction.eyecite_extractor import (
     grow_leaves,
     grow_roots,
 )
+from mellea_lrc.extraction.locator_stages import (
+    DOCKET_RULE_STAGE,
+    DOCKET_SITE_STAGE,
+    REPORTER_RULE_STAGE,
+    REPORTER_SITE_STAGE,
+    find_docket_locators,
+    find_full_reporter_locators,
+    mark_full_reporter_locator_hunting_skipped,
+    rebuild_locator_structure,
+    start_locator_document,
+)
 from mellea_lrc.extraction.find_docket_locators import find_docket_locators
 from mellea_lrc.extraction.find_full_reporter_locators import find_full_reporter_locators
 from mellea_lrc.extraction.reading.relaxation import Relaxation
@@ -82,6 +93,10 @@ from mellea_lrc.extraction.types import (
 )
 
 __all__ = [
+    "DOCKET_RULE_STAGE",
+    "DOCKET_SITE_STAGE",
+    "REPORTER_RULE_STAGE",
+    "REPORTER_SITE_STAGE",
     "Attachment",
     "CitationRecord",
     "Document",
@@ -94,14 +109,19 @@ __all__ = [
     "audit_dockets",
     "extract_citations",
     "extract_from_plain_text",
+    "find_docket_locators",
+    "find_full_reporter_locators",
     "find_locators",
     "grow_leaves",
     "grow_roots",
+    "mark_full_reporter_locator_hunting_skipped",
+    "rebuild_locator_structure",
     "resolve_case_names",
     "resolve_courts",
     "resolve_dates",
     "resolve_pin_cites",
     "stable",
+    "start_locator_document",
     "withdraw_leaves_of_withdrawn_roots",
     "find_docket_locators",
     "find_full_reporter_locators",

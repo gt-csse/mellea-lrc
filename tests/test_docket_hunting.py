@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from mellea_lrc.core.citations import DocketCitation
 from mellea_lrc.core.spans import Span
-from mellea_lrc.extraction import grow_roots, stable
+from mellea_lrc.extraction import grow_roots, resolve_case_names, resolve_courts, resolve_dates, stable
 from mellea_lrc.extraction.adjudication import apply_docket_site_review, suspected_dockets
 from mellea_lrc.extraction.adjudication.candidates.docket_sites import SuspectedDocket
 from mellea_lrc.extraction.adjudication.review.docket import (
@@ -54,7 +54,7 @@ def _accepted_review(locator: str, docket_number: str) -> SiteReview[RecoveredDo
     )
 
 
-def test_site_admission_creates_a_minimal_docket_locator_then_rereads_fields() -> None:
+def test_site_admission_creates_a_minimal_docket_locator_before_field_reading() -> None:
     text = "Ascentra v. Example, No. 21-11854 (Bankr.  S.D.N.Y. Nov. 2, 2021)."
     document = grow_roots(preprocess(text), rules=stable())
     (site,) = suspected_dockets(document)
@@ -68,16 +68,24 @@ def test_site_admission_creates_a_minimal_docket_locator_then_rereads_fields() -
     (record,) = updated.citations
     assert isinstance(record.source, DocketCitation)
     assert record.source.docket_number == "21-11854"
-    # The site review carried no court. The normal court reader subsequently
-    # resolves the literal court spelling despite the doubled whitespace.
+    # The review itself carries no surrounding fields. They remain a separate,
+    # checkpointable sequence after locator admission.
+    assert record.stated.court is None
+    assert record.stated.date is None
+    assert record.stated.case_name is None
+    assert all("docket_audit" not in node.node_id for node in record.trace)
+    assert record.trace[0].stage == "docket_locator_site_hunting"
+
+    resolved = resolve_dates(
+        resolve_courts(resolve_case_names(updated, rules=stable()), rules=stable()), rules=stable()
+    )
+    (record,) = resolved.citations
     assert record.stated.court == "nysb"
     assert record.stated.court_text == "Bankr.  S.D.N.Y."
     assert record.stated.date is not None
     assert record.stated.date.year == "2021"
     assert record.stated.case_name is not None
     assert record.stated.case_name.text == "Ascentra v. Example"
-    assert all("docket_audit" not in node.node_id for node in record.trace)
-    assert record.trace[0].stage == "docket_site_hunting"
 
 
 def test_failed_exact_grounding_is_a_declined_review_not_a_promotion() -> None:
