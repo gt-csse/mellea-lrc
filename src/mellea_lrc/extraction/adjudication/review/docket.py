@@ -40,12 +40,14 @@ if TYPE_CHECKING:
 MAX_TOKENS = 1200
 MAX_REPAIR_TURNS = 2
 
-INSTRUCTION = """
-Below is a window of text from a legal filing. A docket-number-shaped string
-was found in it: {{locator}}
-
-Decide whether that string is a docket locator cited for a court case. A docket
-number is the court-assigned identifier for one case or proceeding.
+# This invariant review contract is a system-message prefix.  Every site review
+# shares it verbatim, allowing the provider's prefix cache to reuse it.  It
+# intentionally supplies only the ordinary meaning of a docket number; local
+# court conventions belong in a future jurisdictional handbook, not here.
+DOCKET_REVIEW_PREFIX = """
+Decide whether a labelled opaque span in a legal filing is a docket locator
+cited for a court case. A docket number is the court-assigned identifier for
+one case or proceeding.
 
 Rules:
 - Quote the complete candidate locator exactly as written in the window,
@@ -57,10 +59,22 @@ Rules:
   cross-reference.
 - Give one short reason for the decision, especially when
   is_docket_citation=false.
+""".strip()
+
+# Only the candidate and its bounded document context vary between site
+# reviews.  They remain in the instruction message, after the cached prefix.
+INSTRUCTION = """
+A docket-number-shaped string was found in this filing window: {{locator}}
+
+Return the required structured decision for this candidate.
 
 window:
 {{window}}
 """.strip()
+
+# OpenRouter uses session IDs to retain provider routing for a repeated prompt
+# prefix.  This identifier carries no filing content or decision state.
+DOCKET_SITE_HUNTING_SESSION_ID = "mellea-lrc-docket-site-hunting-v1"
 
 
 class _DocketProposal(BaseModel):
@@ -131,6 +145,7 @@ async def adjudicate_docket(
         resolved_session,
         InstructIvrSpec(
             description=INSTRUCTION,
+            prefix=DOCKET_REVIEW_PREFIX,
             user_variables={"locator": site.locator_text, "window": site.context},
             output_format=_DocketProposal,
             requirements=[
@@ -142,7 +157,10 @@ async def adjudicate_docket(
             ],
         ),
         strategy=MultiTurnStrategy(loop_budget=MAX_REPAIR_TURNS),
-        model_options=llm_api_config_from_env(os.environ).mellea_call_options(max_tokens=MAX_TOKENS),
+        model_options={
+            **llm_api_config_from_env(os.environ).mellea_call_options(max_tokens=MAX_TOKENS),
+            "extra_body": {"session_id": DOCKET_SITE_HUNTING_SESSION_ID},
+        },
     )
     return _site_review(result)
 
