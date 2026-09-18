@@ -39,6 +39,16 @@ def test_hunting_keeps_periods_inside_a_local_docket_locator() -> None:
     assert site.docket_number == "19 Civ. 8034"
 
 
+def test_hunting_relaxes_whitespace_between_a_label_and_its_period() -> None:
+    text = "Koulkina v. City of New York, No . 06 Civ. 11357, 2009 WL 2103627."
+    document = grow_roots(preprocess(text), rules=stable())
+
+    (site,) = suspected_dockets(document)
+
+    assert site.locator_text == "No . 06 Civ. 11357"
+    assert site.docket_number == "06 Civ. 11357"
+
+
 def test_hunting_does_not_repeat_a_docket_the_cmecf_reader_already_found() -> None:
     document = grow_roots(preprocess("Case No. 1:24-cv-00123"), rules=stable())
 
