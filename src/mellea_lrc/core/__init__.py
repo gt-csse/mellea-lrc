@@ -17,6 +17,7 @@ from mellea_lrc.core.citations import (
     is_full_citation,
 )
 from mellea_lrc.core.documents import DocumentBase, SourceFormat, SourceMetadata
+from mellea_lrc.core.fuzziness import FuzzinessOption, FuzzinessType, fuzzy_literal
 from mellea_lrc.core.spans import Span
 
 __all__ = [
@@ -28,6 +29,8 @@ __all__ = [
     "FullCaseCitation",
     "FullJournalCitation",
     "FullLawCitation",
+    "FuzzinessOption",
+    "FuzzinessType",
     "IdCitation",
     "ReferenceCitation",
     "ShortCaseCitation",
@@ -37,5 +40,6 @@ __all__ = [
     "SupraCitation",
     "UnknownCitation",
     "citation_kind",
+    "fuzzy_literal",
     "is_full_citation",
 ]

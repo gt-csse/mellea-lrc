@@ -20,10 +20,10 @@ from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
 
+from mellea_lrc.core.fuzziness import FuzzinessOption
 from mellea_lrc.extraction.adjudication.types import SiteReview
 from mellea_lrc.llm import (
     EvidenceCandidate,
-    FuzzinessOption,
     GroundingEvidence,
     InstructIvrSpec,
     llm_api_config_from_env,

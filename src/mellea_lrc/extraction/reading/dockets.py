@@ -18,16 +18,17 @@ from eyecite.models import CitationToken, Edition, Reporter, TokenExtractor
 from eyecite.tokenizers import Tokenizer, default_tokenizer
 
 from mellea_lrc.core.citations import DocketEntry
+from mellea_lrc.core.fuzziness import FuzzinessOption, fuzzy_literal
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.reading.courts import resolve_court
-from mellea_lrc.extraction.reading.relaxation import relaxed_literal
 
 # The group that marks a citation token as a docket rather than a reporter.
 DOCKET_GROUP = "docket"
 
 # Keep the label spelling literal while treating horizontal whitespace as
-# converter noise: ``Civil Action No.``, ``CivilActionNo.``, and a justified
-# ``Civil   Action  No.`` are one label.  A label never crosses a line here.
+# converter noise: ``Civil Action No.``, ``CivilActionNo.``, ``No .``, and a
+# justified ``Civil   Action  No.`` are one label. A label never crosses a
+# line here.
 _PREFIXES = (
     "No. ",
     "Case No. ",
@@ -35,9 +36,8 @@ _PREFIXES = (
     "Civ. A. No. ",
     "Docket No. ",
 )
-DOCKET_PREFIX = r"\b(?:" + "|".join(
-    relaxed_literal(prefix, whitespace=True) for prefix in _PREFIXES
-) + ")"
+_PREFIX_FUZZINESS = FuzzinessOption.whitespace_relaxation()
+DOCKET_PREFIX = r"\b(?:" + "|".join(fuzzy_literal(prefix, _PREFIX_FUZZINESS) for prefix in _PREFIXES) + ")"
 """The shared explicit label used by first-pass reading and site generation."""
 
 # The federal CM/ECF family is office/year/type/sequence, with optional judge
@@ -90,6 +90,7 @@ def docket_entry_before(text: str, locator_span: Span) -> DocketEntry | None:
         span=Span(start=match.start(), end=match.end()),
     )
 
+
 # How far past the number the court may be written, and how much of a gap is
 # still the same citation. One line ending is a citation broken by the page;
 # two is a different thing on the page.
@@ -106,6 +107,7 @@ _NOT_ALPHANUMERIC = re.compile(r"[^0-9a-z]")
 # is two, `E.D. Pa.` is two, and nothing real is longer than four.
 _MAX_COURT_WORDS = 4
 _WORD = re.compile(r"\S+")
+
 
 @dataclass(frozen=True, slots=True)
 class CourtCandidate:
@@ -210,7 +212,6 @@ def courts_in(text: str, start: int, end: int) -> tuple[CourtCandidate, ...]:
     return tuple(sorted(maximal, key=lambda candidate: candidate.span_start))
 
 
-
 def court_for_docket(text: str, end: int, *, stop: int | None = None) -> CourtCandidate | None:
     """The court written with the docket number that ends at ``end``.
 
@@ -249,7 +250,7 @@ def _court_opening(text: str, start: int, end: int) -> CourtCandidate | None:
         # doubled space and still mean the exact court string courts-db holds.
         # It is intentionally checked before the older punctuation-tolerant
         # fallback so a full bankruptcy court wins over its nested district.
-        entry = _relaxed_literal_court(opening)
+        entry = _fuzzy_literal_court(opening)
         if entry is None:
             entry = _COURT_TIGHT.get(_tight(opening))
         if entry is None:
@@ -272,11 +273,11 @@ def _court_opening(text: str, start: int, end: int) -> CourtCandidate | None:
     return None
 
 
-def _relaxed_literal_court(opening: str) -> tuple[str, str] | None:
+def _fuzzy_literal_court(opening: str) -> tuple[str, str] | None:
     """Resolve an exact court spelling whose whitespace was damaged.
 
     The index narrows the comparison to literal spellings with the same words
-    and punctuation; :func:`relaxed_literal` then accepts any amount of
+    and punctuation; :func:`fuzzy_literal` then accepts any amount of
     horizontal whitespace between them.  This is not the punctuation-dropping
     fallback below -- ``Bankr.  S.D.N.Y.`` is still the exact bankruptcy court,
     rather than a substring that happens to name the Southern District.
@@ -286,7 +287,7 @@ def _relaxed_literal_court(opening: str) -> tuple[str, str] | None:
         entry
         for spelling, entry in possibilities
         if re.fullmatch(
-            relaxed_literal(spelling.rstrip(". "), whitespace=True),
+            fuzzy_literal(spelling.rstrip(". "), _PREFIX_FUZZINESS),
             opening.rstrip(". "),
             flags=re.IGNORECASE,
         )
