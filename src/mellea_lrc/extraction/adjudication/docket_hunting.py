@@ -2,9 +2,10 @@
 
 This module is intentionally outside ``grow_roots``. A caller can place it
 before validation, after validation, or omit it, without changing deterministic
-extraction. When it admits a locator, it immediately rebuilds the low-level locator
-structure so the next candidate sees the updated locator mask and co-location. It never runs the docket audit: model admission and a
-court/context audit are separate operations.
+extraction. When it admits a locator, it immediately writes that locator so the
+next candidate sees the updated locator mask. Co-location is a separate, single
+projection after hunting ends. It never runs the docket audit: model admission
+and a court/context audit are separate operations.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from mellea_lrc.extraction.adjudication.review.docket import (
     adjudicate_docket,
 )
 from mellea_lrc.extraction.adjudication.types import Candidate, CandidateKind, SiteReview
-from mellea_lrc.extraction.locator_stages import DOCKET_SITE_STAGE, rebuild_locator_structure
+from mellea_lrc.extraction.locator_stages import DOCKET_SITE_STAGE
 from mellea_lrc.extraction.rules import ExtractionRules
 from mellea_lrc.serialization import serialize_site_review
 
@@ -75,11 +76,11 @@ def apply_docket_site_review(
 ) -> Document:
     """Record one docket-site review and return the updated document.
 
-    An admission creates a minimal :class:`DocketCitation` and then re-runs
-    only co-location and root assignment. The review does not select fields,
-    and it does not invoke court, date, case-name, pin-cite, or docket-audit
-    readers. A decline is retained as a document-level finding because the
-    inspected text is not a citation record.
+    An admission creates a minimal :class:`DocketCitation`. The next candidate
+    sees its locator through the ordinary mask, but this function does not form
+    co-location or roots, and it does not invoke court, date, case-name,
+    pin-cite, or docket-audit readers. A decline is retained as a document-
+    level finding because the inspected text is not a citation record.
     """
     if review.answer is None:
         node = _node(site, review, outcome=DECLINED)
@@ -105,11 +106,10 @@ def apply_docket_site_review(
     record.observe(node)
     citations = tuple(sorted((*document.citations, record), key=lambda item: item.full_span.start))
 
-    # Locator admission updates exactly the structure that later candidate
-    # generation needs to see. Field readers run as their own stages after the
-    # locator chain has been checkpointed; a docket audit remains optional.
-    structured = rebuild_locator_structure(replace(document, citations=citations), rules=rules)
-    return replace(structured, passes=_after(structured))
+    # ``suspected_dockets`` computes its next candidate from locator spans, so
+    # this record participates in masking immediately without recomputing the
+    # unrelated co-location projection.
+    return replace(document, citations=citations, passes=_after(document))
 
 
 async def hunt_docket_locators(
@@ -121,9 +121,9 @@ async def hunt_docket_locators(
     """Review each currently-unread docket site, updating the document per move.
 
     The next proposal is generated only after the previous decision has been
-    written. An admitted root is consequently masked and participates in
-    co-location before a later site is considered; a declined span is retained
-    in the local inspected set so it is not asked twice in the same run.
+    written. An admitted locator is consequently masked before a later site is
+    considered; a declined span is retained in the local inspected set so it is
+    not asked twice in the same run.
     """
     inspected: set[tuple[int, int]] = set()
     current = document

@@ -12,9 +12,10 @@ The configured chain is::
       -> docket_locator_site_hunting
 
 Reporter site hunting is represented as a documented no-op because it has low
-recovery yield for its model cost.  The final checkpoint is still a complete
-locator graph, so the separate court/date report resumes from it without
-re-running a locator reader or calling a model.
+recovery yield for its model cost. The final checkpoint holds every locator
+occurrence before the independent co-location projection. The separate
+court/date report resumes from it, forms co-location once, and never re-runs a
+locator reader or calls a model.
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ from mellea_lrc.extraction import (
     find_docket_locators,
     find_full_reporter_locators,
     mark_full_reporter_locator_hunting_skipped,
+    resolve_colocations,
     resolve_courts,
     resolve_dates,
     stable,
@@ -65,7 +67,7 @@ CHECKPOINTS = (
     REPORTER_SITE_STAGE,
     DOCKET_SITE_STAGE,
 )
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _REPORTER_SITE_REASON = (
     "Disabled for this run: reporter site hunting has low recovery yield relative to model cost."
 )
@@ -337,7 +339,8 @@ def _field_rows(
             continue
         # This is deliberately a continuation from checkpoint four, never a
         # second extraction. Both readers are deterministic and independent.
-        resolved = resolve_dates(resolve_courts(locator_document, rules=stable()), rules=stable())
+        grouped = resolve_colocations(locator_document, rules=stable())
+        resolved = resolve_dates(resolve_courts(grouped, rules=stable()), rules=stable())
         for record in resolved.active_citations:
             if not isinstance(record.stated, (FullCaseCitation, DocketCitation)):
                 continue
