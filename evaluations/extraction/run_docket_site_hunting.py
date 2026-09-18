@@ -36,7 +36,6 @@ from mellea_lrc.core.citations import DocketCitation
 from mellea_lrc.extraction import grow_roots, stable
 from mellea_lrc.extraction.adjudication import hunt_docket_locators, suspected_dockets
 from mellea_lrc.extraction.types import Document
-from mellea_lrc.llm import start_mellea_session_from_env
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.serialization import deserialize_document, serialize_document
 
@@ -465,14 +464,15 @@ async def run(*, data: Path, dataset: str, output: Path, resume: bool) -> dict[s
     rules = replace(stable(), docket_auditor=None)
     for index, path in enumerate(missing, start=1):
         # An OpenRouter connection is external state, not part of an extraction
-        # document. Keep it bounded to one filing: a provider connection that
-        # stops responding cannot hold later checkpointed filings hostage.
-        session = start_mellea_session_from_env()
+        # document. Flash can leave a connection idle after a long sequence of
+        # reviews, so do not share a session within this evaluator.  Omitting a
+        # session makes each review create its own bounded provider session;
+        # the Document remains the only state carried from one move to the next.
         source = _source_metadata(path, data)
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             initial = grow_roots(preprocess(path.read_text(encoding="utf-8")), rules=rules)
         sites = suspected_dockets(initial)
-        final = await hunt_docket_locators(initial, session=session, rules=rules)
+        final = await hunt_docket_locators(initial, rules=rules)
         checkpoint = {
             "schema_version": 1,
             "document": path.name,

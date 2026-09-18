@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from mellea import MelleaSession
+from mellea.backends import ModelOption
 from mellea.backends.openai import OpenAIBackend
 
 if TYPE_CHECKING:
@@ -32,8 +33,18 @@ class LlmApiConfig:
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
 
     def mellea_call_options(self, *, max_tokens: int, temperature: float = 0) -> dict[str, object]:
-        """Build per-call Mellea model options for structured generation."""
-        return {"temperature": temperature, "max_tokens": max_tokens}
+        """Build bounded per-call Mellea options for structured generation.
+
+        ``OpenAIBackend(timeout=...)`` bounds ordinary OpenAI requests.  Mellea
+        applies a separate stream-chunk deadline, so carry the same configured
+        timeout into that option as well.  This keeps a provider that opens a
+        stream but never sends a chunk from holding an iterative review run.
+        """
+        return {
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            ModelOption.STREAM_TIMEOUT: self.timeout_seconds,
+        }
 
 
 def llm_api_config_from_env(environ: Mapping[str, str]) -> LlmApiConfig:
