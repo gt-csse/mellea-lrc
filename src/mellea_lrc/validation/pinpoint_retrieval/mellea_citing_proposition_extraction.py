@@ -111,7 +111,6 @@ async def run_mellea_citing_proposition_extraction(
             user_variables={"target_citation": target_citation},
             output_format=_CitingPropositionProposal,
             requirements=[
-                req("Return a valid citing-proposition object.", validation_fn=_validate_schema),
                 req(
                     "An identified proposition must resolve uniquely inside citing_context.",
                     validation_fn=lambda ctx: _validate_grounding(ctx, citing_context),
@@ -198,14 +197,6 @@ def _parse(value: object) -> _CitingPropositionProposal:
     except ValidationError as exc:
         msg = f"Invalid Mellea citing-proposition output: {exc}"
         raise ValueError(msg) from exc
-
-
-def _validate_schema(ctx: Context) -> ValidationResult:
-    try:
-        _parse(ctx.last_output().value)
-    except ValueError as exc:
-        return ValidationResult(result=False, reason=str(exc))
-    return ValidationResult(result=True)
 
 
 def _validate_grounding(ctx: Context, citing_context: str) -> ValidationResult:

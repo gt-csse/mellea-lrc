@@ -111,7 +111,6 @@ async def run_mellea_pinpoint_check(
             user_variables={"citing_proposition": proposition.proposition},
             output_format=_PinpointProposal,
             requirements=[
-                req("Return a valid pinpoint-inference object.", validation_fn=_validate_schema),
                 req(
                     "A conclusive judgment must identify a uniquely grounded evidence quote.",
                     validation_fn=lambda ctx: _validate_grounding(ctx, evidence.text),
@@ -172,14 +171,6 @@ def _parse(value: object) -> _PinpointProposal:
     except ValidationError as exc:
         msg = f"Invalid Mellea pinpoint output: {exc}"
         raise ValueError(msg) from exc
-
-
-def _validate_schema(ctx: Context) -> ValidationResult:
-    try:
-        _parse(ctx.last_output().value)
-    except ValueError as exc:
-        return ValidationResult(result=False, reason=str(exc))
-    return ValidationResult(result=True)
 
 
 def _validate_grounding(ctx: Context, page_text: str) -> ValidationResult:

@@ -99,7 +99,6 @@ async def run_mellea_case_name_reextraction(
             user_variables={"locator": locator_lookup.locator},
             output_format=_PartyProposal,
             requirements=[
-                req("Return a valid plaintiff/defendant JSON object.", validation_fn=_validate_schema),
                 check(
                     "classification must match party availability",
                     validation_fn=_validate_classification,
@@ -190,14 +189,6 @@ def _proposal(output: object) -> _PartyProposal:
     except ValidationError as exc:
         msg = f"Invalid case-name re-extraction output: {exc}"
         raise ValueError(msg) from exc
-
-
-def _validate_schema(ctx: Context) -> ValidationResult:
-    try:
-        _proposal(ctx.last_output().value)
-    except ValueError as exc:
-        return ValidationResult(result=False, reason=str(exc))
-    return ValidationResult(result=True)
 
 
 def _validate_classification(ctx: Context) -> ValidationResult:

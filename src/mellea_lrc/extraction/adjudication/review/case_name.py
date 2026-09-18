@@ -441,13 +441,6 @@ def _proposed(ctx: Context) -> tuple[_Answer | None, ValidationResult | None]:
         return None, _UNPARSEABLE
 
 
-def _validate_schema(ctx: Context) -> ValidationResult:
-    _, failure = _proposed(ctx)
-    if failure is not None:
-        return failure
-    return ValidationResult(result=True)
-
-
 def _validate_choice(ctx: Context, citations: int, root_count: int) -> ValidationResult:
     """Require the reading and the index it needs to agree."""
     proposed, failure = _proposed(ctx)
@@ -616,7 +609,6 @@ async def adjudicate_case_name(
             },
             output_format=_Answer,
             requirements=[
-                req("Return a valid answer.", validation_fn=_validate_schema),
                 req(
                     "Name a citation for `names_a_citation` and a root for `short_form`.",
                     validation_fn=lambda ctx: _validate_choice(ctx, len(nearby), len(document_roots)),

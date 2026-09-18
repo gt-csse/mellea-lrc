@@ -198,11 +198,6 @@ def _proposed(ctx: Context) -> tuple[_Answer | None, ValidationResult | None]:
         return None, ValidationResult(result=False, reason=str(error)[:400])
 
 
-def _validate_schema(ctx: Context) -> ValidationResult:
-    _, failure = _proposed(ctx)
-    return failure or ValidationResult(result=True)
-
-
 def _validate_quote(ctx: Context, window: str) -> ValidationResult:
     """A page claim has to be characters the window holds."""
     proposed, failure = _proposed(ctx)
@@ -271,7 +266,6 @@ async def adjudicate_pin_cite(
             },
             output_format=_Answer,
             requirements=[
-                req("Return a valid answer.", validation_fn=_validate_schema),
                 req(
                     "Quote the page claim with the window's exact characters.",
                     validation_fn=lambda ctx: _validate_quote(ctx, window),
