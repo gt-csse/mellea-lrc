@@ -2,7 +2,8 @@
 
 The reviewer has one job: decide whether a labelled opaque span is a docket
 locator cited for a court case. It quotes the complete locator verbatim, and the
-exact string check prevents a tidied or invented span from becoming a record.
+source-grounding check prevents a tidied or invented span from becoming a
+record while tolerating conversion-created whitespace variation.
 Court, date, case name, and pin cite are deliberately absent: after admission,
 the ordinary field readers read them from the document just as they do for a
 deterministically read root.
@@ -11,7 +12,7 @@ deterministically read root.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Annotated
 
 from mellea.core import ValidationResult
@@ -21,6 +22,9 @@ from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
 
 from mellea_lrc.extraction.adjudication.types import SiteReview
 from mellea_lrc.llm import (
+    EvidenceCandidate,
+    FuzzinessOption,
+    GroundingEvidence,
     InstructIvrSpec,
     llm_api_config_from_env,
     run_instruct_ivr,
@@ -59,6 +63,15 @@ Rules:
   cross-reference.
 - Give one short reason for the decision, especially when
   is_docket_citation=false.
+
+Return only one JSON object with exactly these keys:
+- is_docket_citation
+- locator
+- docket_number
+- reason
+
+Do not use Markdown or substitute names such as complete_locator or
+candidate_locator for locator.
 """.strip()
 
 # Only the candidate and its bounded document context vary between site
@@ -75,6 +88,12 @@ window:
 # OpenRouter uses session IDs to retain provider routing for a repeated prompt
 # prefix.  This identifier carries no filing content or decision state.
 DOCKET_SITE_HUNTING_SESSION_ID = "mellea-lrc-docket-site-hunting-v1"
+
+# A docket identifier differs materially if any non-whitespace character
+# changes. This reader therefore forgives conversion-created whitespace only;
+# edit distance stays available through GroundingEvidence for evidence types
+# where a one-character change does not name a different record.
+DOCKET_GROUNDING = FuzzinessOption.whitespace_relaxation()
 
 
 class _DocketProposal(BaseModel):
@@ -111,27 +130,37 @@ def _validate_locator(ctx: Context, site: SuspectedDocket) -> ValidationResult:
     """A confirmed citation must quote the complete locator found in the window."""
     try:
         proposal = _parse(ctx.last_output().value)
-    except ValidationError as error:
-        return ValidationResult(result=False, reason=str(error))
+    except ValidationError:
+        # The schema requirement supplies the Pydantic error. Repeating it in
+        # this requirement makes Mellea send the same noisy repair feedback
+        # twice and obscures the one correction the model needs to make.
+        return ValidationResult(result=True)
     if not proposal.is_docket_citation:
         return ValidationResult(result=True)
-    if proposal.locator != site.locator_text:
+    locator = _evidence(site.locator_text).resolve(proposal.locator or "", DOCKET_GROUNDING)
+    if locator is None:
         return ValidationResult(
             result=False,
             reason=(
-                f"{proposal.locator!r} is not the candidate {site.locator_text!r}. Quote the "
-                "candidate exactly as it appears, character for character."
+                f"{proposal.locator!r} does not resolve to the candidate {site.locator_text!r}. "
+                "Quote only the candidate's characters; whitespace variation is allowed."
             ),
         )
-    if proposal.docket_number != site.docket_number:
+    docket_number = _evidence(site.docket_number).resolve(proposal.docket_number or "", DOCKET_GROUNDING)
+    if docket_number is None:
         return ValidationResult(
             result=False,
             reason=(
-                f"{proposal.docket_number!r} is not the docket portion {site.docket_number!r}. "
-                "Quote the candidate's docket number exactly as it appears."
+                f"{proposal.docket_number!r} does not resolve to the docket portion "
+                f"{site.docket_number!r}. Quote only that source text; whitespace variation is allowed."
             ),
         )
     return ValidationResult(result=True)
+
+
+def _evidence(text: str) -> GroundingEvidence[str]:
+    """Give one source string a canonical payload for reusable grounding."""
+    return GroundingEvidence((EvidenceCandidate(text=text, value=text),))
 
 
 async def adjudicate_docket(
@@ -162,11 +191,24 @@ async def adjudicate_docket(
             "extra_body": {"session_id": DOCKET_SITE_HUNTING_SESSION_ID},
         },
     )
-    return _site_review(result)
+    review = _site_review(result)
+    if review.answer is None:
+        return review
+    # Grounding admits a canonical evidence candidate, not the model's spelling.
+    # A whitespace-relaxed proposal therefore cannot corrupt the locator span
+    # that later deterministic readers use.
+    return replace(
+        review,
+        answer=replace(
+            review.answer,
+            locator_text=site.locator_text,
+            docket_number=site.docket_number,
+        ),
+    )
 
 
 def _site_review(result: IvrRun) -> SiteReview[RecoveredDocketLocator]:
-    """Keep a failed exact-grounding run as a declined review.
+    """Keep a failed source-grounding run as a declined review.
 
     Mellea retains its last JSON sample after exhausting repair turns. That
     sample can parse while still failing the exact locator/number requirement.
