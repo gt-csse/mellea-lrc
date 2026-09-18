@@ -21,10 +21,8 @@ from eyecite.models import CitationBase
 from evaluations.extraction.occurrences import Occurrence, deduplicate
 from mellea_lrc.extraction import Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.adjudication import (
-    adjudicate_docket,
     adjudicate_locator,
     mask_locator_spans,
-    suspected_dockets,
     suspected_locators,
 )
 from mellea_lrc.extraction.types import Document
@@ -145,47 +143,13 @@ def _recover_locators(document: str, extracted: Document) -> list[Occurrence]:
     return recovered
 
 
-def _recover_dockets(document: str, extracted: Document) -> list[Occurrence]:
-    """Find docket-shaped strings and let a model confirm each one.
-
-    A docket number names a case only with its court, so the courts written near
-    the site are resolved against courts-db and offered as a closed set. The
-    model picks one or declines; it cannot invent a court.
-    """
-    recovered = []
-    for site in suspected_dockets(extracted):
-        docket = _adjudicated(adjudicate_docket(mask_locator_spans(extracted), site))
-        if docket is None:
-            continue
-        recovered.append(
-            Occurrence(
-                document=document,
-                start=docket.docket_span.start,
-                end=docket.docket_span.end,
-                matched_text=docket.docket_text,
-                detail={
-                    "court": docket.court_text,
-                    "court_id": docket.court_id,
-                    "court_span": (
-                        {"start": docket.court_span.start, "end": docket.court_span.end}
-                        if docket.court_span is not None
-                        else None
-                    ),
-                    "stage": "llm_docket_recovery",
-                },
-            )
-        )
-    return recovered
-
-
 def bounded_with_recovery(document: str, text: str) -> list[Occurrence]:
-    """Bounded relaxation, then model recovery of the locators and dockets it missed."""
+    """Bounded relaxation, then model recovery of reporter locators it missed."""
     extracted = extract_from_plain_text(text)
     return deduplicate(
         [
             *_from_document(document, extracted),
             *_recover_locators(document, extracted),
-            *_recover_dockets(document, extracted),
         ]
     )
 
@@ -213,7 +177,6 @@ def full_with_recovery(document: str, text: str) -> list[Occurrence]:
         [
             *_from_document(document, extracted),
             *_recover_locators(document, extracted),
-            *_recover_dockets(document, extracted),
         ]
     )
 

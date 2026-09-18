@@ -169,11 +169,14 @@ def test_a_conventional_docket_before_a_database_locator_is_not_read_twice() -> 
     assert [item.stated.docket_number for item in dockets] == ["1:24-cv-00123"]
 
 
-def test_a_broad_docket_needs_the_following_database_locator() -> None:
-    """A signaled arbitrary string in prose remains outside locator discovery."""
+def test_a_generic_docket_without_citation_context_is_withdrawn_by_audit() -> None:
+    """Reading a generic locator and admitting a cited case are separate decisions."""
     text = "The clerk assigned No. CIV 11-0107 JB/KBM, and briefing followed."
 
-    assert not [item for item in _extract(text).citations if isinstance(item.stated, DocketCitation)]
+    (docket,) = [item for item in _extract(text).citations if isinstance(item.stated, DocketCitation)]
+    assert docket.stated.docket_number == "CIV 11-0107 JB/KBM"
+    assert docket.withdrawn
+    assert docket.trace[-1].details["reason"] == "no_citation_context"
 
 
 # --- What is not a docket citation --------------------------------------------
@@ -505,3 +508,12 @@ def test_a_reporter_several_courts_publish_in_names_none() -> None:
 def test_the_court_the_filing_writes_wins_over_the_reporter_it_cites() -> None:
     text = "United States v. Kim , 5 N.C. App. 10 (4th Cir. 1969)."
     assert [c.stated.court for c in _extract(text).citations] == ["ca4"]
+
+
+def test_a_docket_entry_number_is_not_a_case_docket() -> None:
+    """A docket-entry cross-reference cannot become a root beside a case docket."""
+    text = "Smith, No. 21-11854 (DSJ) [D.I. No. 17] (Bankr. S.D.N.Y. 2021)."
+
+    dockets = [item for item in _extract(text).citations if isinstance(item.stated, DocketCitation)]
+
+    assert [item.stated.docket_number for item in dockets] == ["21-11854"]

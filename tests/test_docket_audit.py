@@ -119,3 +119,14 @@ def test_audit_is_opt_in_and_can_be_overridden() -> None:
 def test_replaying_an_audit_does_not_duplicate_its_trace() -> None:
     document = grow_roots(preprocess("Case No. 1:24-cv-00123"), rules=stable())
     assert audit_dockets(document, stable()).citations == document.citations
+
+
+def test_a_date_parenthetical_admits_a_courtless_docket() -> None:
+    document = grow_roots(
+        preprocess("Kestenbaum, No. 1:24-cv10092 (Jan. 21, 2025)."), rules=stable()
+    )
+
+    (docket,) = document.active_citations
+    assert isinstance(docket.stated, DocketCitation)
+    assert docket.stated.court is None
+    assert docket.trace[-1].details["reason"] == "citation_parenthetical"

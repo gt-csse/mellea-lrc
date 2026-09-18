@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from mellea_lrc.core.citations import DocketCitation, FullCaseCitation
 from mellea_lrc.core.record import WITHDRAWN, Node, Reads
-from mellea_lrc.extraction.reading.post_citation import docket_court
+from mellea_lrc.extraction.reading.post_citation import docket_court, docket_parenthetical_context
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -31,6 +31,7 @@ def audit_docket_citations(text: str, citations: Sequence[CitationRecord]) -> tu
             audited.append(item)
             continue
         court = docket_court(text, item, citations)
+        parenthetical = docket_parenthetical_context(text, item, citations)
         reporters = tuple(
             other.citation_id
             for other in citations
@@ -45,11 +46,14 @@ def audit_docket_citations(text: str, citations: Sequence[CitationRecord]) -> tu
         elif reporters:
             reason = "colocated_reporter"
             message = "A colocated reporter or database locator supports citation lookup."
+        elif parenthetical:
+            reason = "citation_parenthetical"
+            message = "A date or U.S. parenthetical supports this courtless docket citation."
         else:
             reason = "no_citation_context"
             message = "No explicit court or colocated reporter supports this docket candidate."
 
-        admitted = court is not None or bool(reporters)
+        admitted = court is not None or bool(reporters) or parenthetical
         node = Node(
             node_id=f"{item.citation_id}:docket_audit:{reason}",
             reads=Reads.DOCUMENT,

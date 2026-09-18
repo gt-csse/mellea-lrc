@@ -1,68 +1,24 @@
-"""Find docket-number citations and the court strings that identify them.
+"""Docket site hunting is intentionally unavailable.
 
-A docket number is not a locator. ``1:19-cv-362`` names a case only alongside
-its court -- the same number exists in many districts -- so the identifying
-pair is the docket and the court, and the two sit in different places in the
-text::
-
-    Calderon v. GEICO Gen. Ins. Co., No. 1:19-CV-362 (M.D.N.C. Jan. 26, 2021)
-                                     ^docket          ^court
-
-This module reports both, independently of any reporter locator at the same
-position. A citation carrying both identifiers points at two different
-databases -- RECAP for the docket, a reporter corpus for the locator -- which
-carry different information. Deciding that the two denote one case is a later
-service, and folding it in here would mean discarding one of them.
-
-Court strings are recognised from ``courts-db``, the same database
-CourtListener uses, rather than a hand-written pattern. That yields the court's
-identifier and full name, which downstream can use as a cue instead of guessing
-what a given abbreviation means. The index lives in
-:mod:`mellea_lrc.extraction.reading.dockets`, which reads dockets deterministically;
-this module and that one must agree about what a court is, or a site the
-extractor declined would be offered to a model with a different set of
-candidates.
-
-Both insist on the `No.` that introduces a docket number, because a site here
-costs a model call and a filing's own number appears in every ECF page stamp.
-Where they differ is what they do with a number that has no court beside it: the
-extractor declines it, and this offers it, with whatever court strings are
-written near it, so that a reader can decline it instead.
+Stable root extraction reads one generic, signaled docket envelope.  A future
+hunter may propose weaker candidates only after it has a reviewed promotion
+contract.  It must not revive a second docket grammar behind the caller's back.
 """
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from mellea_lrc.extraction.reading.dockets import CourtCandidate, courts_near
+from mellea_lrc.extraction.reading.dockets import CourtCandidate
 
 if TYPE_CHECKING:
     from mellea_lrc.extraction.types import Document
 
-# "No. 1:19-CV-362", "Case No. 3:23-cv-06558", "Civil Action No. 2:25-cv-00804".
-# The office/party suffix ("-RPK", "-PAB-SBP") is optional, and the separator
-# after the year is allowed to be missing entirely: PDF extraction drops it, as
-# in "No. 1:25cv-05745-RPK".
-# Both shapes the extractor reads. The district one carries a case-type code and
-# the bankruptcy one is a year and a sequence -- `No. 06-01147 (JMP) (Bankr.
-# S.D.N.Y. Jan. 18, 2006)`. The looser shape is affordable here for the same
-# reason it is there: the `No.` is required, and a site is offered with the
-# courts written near it so a reader can decline one that has none.
-_DOCKET = re.compile(
-    r"\b(?:No|Case No|Civil Action No|Civ\.? A\.? No|Docket No)\.?\s*"
-    r"(?:(?:\d{1,2}[:\-])?\d{2}[-\s]?[a-zA-Z]{2,4}[-\s]?\d{2,6}(?:-[A-Za-z]{2,4})*"
-    r"|\d{2}[-\s]?\d{4,5}(?:-[A-Za-z]{2,4})*)",
-    re.I,
-)
-
-_CONTEXT = 170
-
 
 @dataclass(frozen=True, slots=True)
 class SuspectedDocket:
-    """One docket-shaped string, with any court strings written near it."""
+    """Reserved candidate shape for a future independently reviewed hunter."""
 
     span_start: int
     span_end: int
@@ -72,30 +28,17 @@ class SuspectedDocket:
 
 
 def suspected_dockets(document: Document) -> tuple[SuspectedDocket, ...]:
-    """Report every docket-shaped string, with the courts written near it."""
-    text = document.text
-    sites: list[SuspectedDocket] = []
-    for match in _DOCKET.finditer(text):
-        start, end = match.span()
-        sites.append(
-            SuspectedDocket(
-                span_start=start,
-                span_end=end,
-                docket_text=match.group(0),
-                courts=courts_near(text, start, end),
-                window=text[max(0, start - _CONTEXT) : end + _CONTEXT],
-            )
-        )
-    return tuple(sites)
+    """Raise until docket-site generation has an approved independent design."""
+    del document
+    raise NotImplementedError(
+        "Docket site hunting is not implemented: stable root extraction owns the "
+        "single docket reader, and a future hunter requires its own candidate and "
+        "review contract."
+    )
 
 
 def docket_context(site: SuspectedDocket) -> str:
-    """Describe the courts found near a docket, for use as a prompt cue.
-
-    Naming the candidates and what they resolve to spares the model from
-    inferring that ``M.D.N.C.`` means the Middle District of North Carolina,
-    and keeps it from inventing a court that is not written down.
-    """
+    """Describe the court candidates a future reviewer would be given."""
     if not site.courts:
         return (
             "No court string was found near this docket number. A docket number "
