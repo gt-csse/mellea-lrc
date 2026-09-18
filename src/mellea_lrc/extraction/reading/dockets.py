@@ -86,11 +86,45 @@ _DISTRICT = (
 # candidates; locator-layer evaluation measures their cost.
 _BANKRUPTCY = rf"\b(?P<year>\d{{2}}){_JOIN}(?P<sequence>\d{{4,5}})(?P<suffix>(?:-[A-Za-z]{{2,4}})+)?\b"
 
+# The group that marks a citation token as a docket rather than a reporter.
+DOCKET_GROUP = "docket"
+
 DOCKET_NUMBER = rf"{_SIGNAL}{_DISTRICT}"
 """A district docket number, with the optional signal that introduces it."""
 
 BANKRUPTCY_DOCKET_NUMBER = rf"{_REQUIRED_SIGNAL}{_BANKRUPTCY}"
 """A bankruptcy docket number, which is only one where a signal introduces it."""
+
+# A district docket's conventional fields are useful when they are present,
+# but they are not a complete grammar for how filings cite a case.  Courts and
+# counsel also write identifiers such as ``CIV 11-0107 JB/KBM`` and
+# ``13CV04115WHODMR``.  Those forms have no reliable internal structure that
+# distinguishes a docket from other text.  Their *citation position* does:
+# they follow an introducing signal and are immediately followed by a database
+# locator that eyecite also reads.  Courts commonly place one or more judge or
+# chamber parentheticals between the number and that locator; they describe the
+# case but are not part of its docket identifier.
+#
+# This deliberately does not make a bare ``No.`` phrase a docket.  The comma
+# and database locator are part of the rule, so captions, ECF stamps, bar
+# numbers, and prose still remain outside this broad path.  The identifier is
+# kept as written, including ordinary spacing, slashes, and backslashes.  Its
+# later admission and court resolution are independent passes.
+POSITIONAL_DOCKET_NUMBER = rf"""
+{_REQUIRED_SIGNAL}
+(?P<{DOCKET_GROUP}>
+    (?=[^,\r\n]{{0,80}}\d)
+    [A-Za-z0-9]
+    (?:[A-Za-z0-9:./\\-]|[^\S\r\n]+(?=[A-Za-z0-9]))*
+)
+(?=
+    [^\S\r\n]*(?:\([^()\r\n]*\)[^\S\r\n]*)*
+    ,[^\S\r\n]*\d{{4}}
+    (?:[^\S\r\n]+[A-Za-z][A-Za-z.]*)*
+    [^\S\r\n]+(?:WL|LEXIS)[^\S\r\n]+\d+\b
+)
+"""
+"""A signaled identifier immediately before an eyecite-readable database locator."""
 
 # How far past the number the court may be written, and how much of a gap is
 # still the same citation. One line ending is a citation broken by the page;
@@ -113,10 +147,6 @@ _WORD = re.compile(r"\S+")
 # still be offered as a candidate for it.
 _COURT_SEARCH_BEFORE = 90
 _COURT_SEARCH_AFTER = 140
-
-# The group that marks a citation token as a docket rather than a reporter.
-DOCKET_GROUP = "docket"
-
 
 @dataclass(frozen=True, slots=True)
 class CourtCandidate:
@@ -322,12 +352,25 @@ def docket_token(match: re.Match[str], extra: dict, offset: int = 0) -> Citation
     """
     del extra
     groups = match.groupdict()
-    # A bankruptcy number carries neither an office nor a case type: it is a
-    # year and a sequence. The year stands in for the office so eyecite has a
-    # volume; the type is filled in after the court is resolved.
-    case_type = (groups.get("case_type") or "bk").lower()
-    office = groups.get("office") or groups["year"]
-    begins = "office" if groups.get("office") else "year"
+    positional_docket = groups.get(DOCKET_GROUP)
+    if positional_docket is not None:
+        # The positional form deliberately accepts identifiers whose internal
+        # fields are unknown.  Eyecite still requires a volume and page to
+        # construct a full-case token, so use an occurrence-local numeric
+        # stand-in.  The actual locator is carried separately in DOCKET_GROUP.
+        case_type = "docket"
+        office = str(match.start() + offset + 1)
+        page = office
+        docket_number = positional_docket
+    else:
+        # A bankruptcy number carries neither an office nor a case type: it is
+        # a year and a sequence. The year stands in for the office so eyecite
+        # has a volume; the type is filled in after the court is resolved.
+        case_type = (groups.get("case_type") or "bk").lower()
+        office = groups.get("office") or groups["year"]
+        begins = "office" if groups.get("office") else "year"
+        page = f"{groups['year']}-{groups['sequence']}"
+        docket_number = match.string[match.start(begins) : match.end()]
     # Court lookup runs after locator detection. Until it does, give each
     # courtless occurrence an internal unique edition so eyecite cannot merge
     # equal docket strings from unknown jurisdictions.
@@ -340,8 +383,8 @@ def docket_token(match: re.Match[str], extra: dict, offset: int = 0) -> Citation
         groups={
             "volume": office,
             "reporter": f"{court_id} {case_type}",
-            "page": f"{groups['year']}-{groups['sequence']}",
-            DOCKET_GROUP: match.string[match.start(begins) : match.end()],
+            "page": page,
+            DOCKET_GROUP: docket_number,
             "court": None,
             "court_name": None,
             "court_text": None,
@@ -362,6 +405,22 @@ class _DocketExtractor(TokenExtractor):
         return super().get_matches(text)
 
 
+class _PositionalDocketExtractor(_DocketExtractor):
+    """Read broad docket forms only when the conventional grammars do not."""
+
+    def get_matches(self, text: str) -> list[re.Match[str]]:
+        """Avoid emitting a second token for a conventionally shaped docket."""
+        known = tuple(
+            re.compile(pattern, re.IGNORECASE)
+            for pattern in (DOCKET_NUMBER, BANKRUPTCY_DOCKET_NUMBER)
+        )
+        return [
+            match
+            for match in super().get_matches(text)
+            if not any(pattern.fullmatch(match.group(0)) for pattern in known)
+        ]
+
+
 @lru_cache(maxsize=1)
 def docket_extractors() -> tuple[TokenExtractor, ...]:
     """The extractors that read docket numbers, to register with a tokenizer.
@@ -371,7 +430,7 @@ def docket_extractors() -> tuple[TokenExtractor, ...]:
     the case-type code is already in the pattern -- and one more regex per
     document is not a cost worth a prefilter.
     """
-    return tuple(
+    conventional = tuple(
         _DocketExtractor(
             regex=pattern,
             constructor=docket_token,
@@ -384,6 +443,13 @@ def docket_extractors() -> tuple[TokenExtractor, ...]:
         # sequence.
         for pattern in (DOCKET_NUMBER, BANKRUPTCY_DOCKET_NUMBER)
     )
+    positional = _PositionalDocketExtractor(
+        regex=POSITIONAL_DOCKET_NUMBER,
+        constructor=docket_token,
+        flags=re.IGNORECASE | re.VERBOSE,
+        strings=[],
+    )
+    return (*conventional, positional)
 
 
 @dataclass
