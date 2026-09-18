@@ -206,7 +206,16 @@ def build_citation_tree(document: Document) -> CitationTree:
     out_of_scope: list[CitationRecord] = []
 
     for item in document.active_citations:
-        root_id, depth = _resolve_root(item, by_id)
+        # Root attachment is now part of the Document contract.  A leaf is
+        # grown only after it receives this pointer, so the tree reads it
+        # directly rather than reconstructing an older eyecite-only chain.
+        assigned = item.root_id
+        assigned_root = by_id.get(assigned) if assigned else None
+        if assigned_root is not None and isinstance(assigned_root.stated, _ROOT_KINDS):
+            root_id = assigned
+            depth = 0 if assigned == item.citation_id else 1
+        else:
+            root_id, depth = _resolve_root(item, by_id)
         root = by_id.get(root_id) if root_id else None
         if root is not None and isinstance(root.stated, _ROOT_KINDS):
             roots.setdefault(root_id or "", []).append(

@@ -64,6 +64,33 @@ def _post_match(text: str, item: CitationRecord, citations: Sequence[CitationRec
     return _POST_CITATION.match(text[item.locator_span.end : stop])
 
 
+_CITATION_PARENTHETICAL = re.compile(
+    r"[^\S\r\n]*[(\[][^()\[\]\r\n]*(?:\b(?:1[789]|20)\d{2}\b|\bU\.S\.)[^()\[\]\r\n]*[)\]]",
+    re.IGNORECASE,
+)
+
+
+def docket_parenthetical_context(
+    text: str, item: CitationRecord, citations: Sequence[CitationRecord]
+) -> bool:
+    """Whether the docket's group has a citation-style parenthetical.
+
+    A date establishes that a following parenthetical belongs to a citation even
+    when it writes no resolvable court. ``U.S.`` does the same for a Supreme
+    Court docket, whose court is intentionally left unset until validation.
+    Judge initials and filing-caption parentheticals do neither.
+    """
+    members = [
+        other
+        for other in citations
+        if not other.withdrawn
+        and (other is item or (item.colocation_id and other.colocation_id == item.colocation_id))
+    ]
+    last = max(members or [item], key=lambda other: other.locator_span.end)
+    stop = _boundary(last, citations, len(text))
+    return _CITATION_PARENTHETICAL.match(text, last.locator_span.end, stop) is not None
+
+
 def docket_court(
     text: str, item: CitationRecord, citations: Sequence[CitationRecord]
 ) -> CourtCandidate | None:
