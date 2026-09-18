@@ -39,16 +39,29 @@ def test_a_parallel_citation_is_one_group() -> None:
 
 
 def test_the_group_survives_spans_that_do_not_coincide_exactly() -> None:
-    """eyecite gives the members of one parallel cite spans that differ by a character.
-
-    Grouping on equality rather than overlap would leave the first reporter out
-    of its own group, which is the reason the rule is written on overlap.
-    """
+    """Different full spans do not change adjacent locator membership."""
     document = _extract("St. Amant v. Thompson, 390 U.S. 727, 88 S.Ct. 1323 (1968).")
     spans = {(c.full_span.start, c.full_span.end) for c in document.citations}
 
     assert len(spans) > 1, "this test is pointless if the spans are already identical"
     assert _groups(document) == [{"390 U.S. 727", "88 S.Ct. 1323"}]
+
+
+def test_adjacent_locators_group_when_eyecite_gives_them_separate_full_spans() -> None:
+    """Locator distance, rather than name parsing, defines the citation site.
+
+    The quoted sentence makes eyecite begin each full span at its own locator.
+    The docket and WL identifier are still adjacent on the page, which is the
+    relationship the docket audit and post-citation readers need.
+    """
+    text = (
+        "The action. Fed. R. Evid. 401. 'The standard for relevancy is particularly loose under "
+        'rule 401, because "[a]ny more stringent requirement is unworkable and unrealistic." '
+        "Rivero v. Bd. of Regents of Univ. of New Mexico, No. CIV 16-0318 JB\\SCY, "
+        "2019 WL 1085179, at *78 (D.N.M. Mar. 7, 2019), aff'd, 950 F.3d 754 (10th Cir. 2020)."
+    )
+
+    assert _groups(_extract(text)) == [{"No. CIV 16-0318 JB\\SCY", "2019 WL 1085179"}]
 
 
 def test_two_cases_in_one_reporter_are_never_grouped() -> None:

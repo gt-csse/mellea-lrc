@@ -101,6 +101,81 @@ def test_a_docket_and_a_parallel_reporter_locator_are_two_citations() -> None:
     assert {"DocketCitation", "FullCaseCitation"} <= kinds
 
 
+@pytest.mark.parametrize(
+    ("written", "expected", "court", "court_text"),
+    [
+        ("CIV 11-0107 JB/KBM", "CIV 11-0107 JB/KBM", "nmd", "D.N.M."),
+        (r"CIV 16-0318 JB\SCY", r"CIV 16-0318 JB\SCY", "nmd", "D.N.M."),
+        ("13CV04115WHODMR", "13CV04115WHODMR", "cand", "N.D. Cal."),
+        ("CV 22-165 MIS/GBW", "CV 22-165 MIS/GBW", "nmd", "D.N.M."),
+        ("CV-20-01788-PHX-JJT", "CV-20-01788-PHX-JJT", "azd", "D. Ariz."),
+        ("CV-2002309-PHX-MTL", "CV-2002309-PHX-MTL", "azd", "D. Ariz."),
+        ("CV-06-02903-PHX-JAT", "CV-06-02903-PHX-JAT", "azd", "D. Ariz."),
+    ],
+)
+def test_a_signaled_docket_before_a_database_locator_uses_its_position(
+    written: str, expected: str, court: str, court_text: str
+) -> None:
+    """A database locator makes otherwise unstructured docket text readable.
+
+    These are ordinary docket citations, but their internal forms cannot be
+    expressed safely as a fixed federal-docket grammar.  The immediately
+    following database locator is the citation context that admits them; colocation
+    then lets the court reader use the shared parenthetical.
+    """
+    text = f"Smith v. Jones, No. {written}, 2024 WL 1234567, at *4 ({court_text} Jan. 1, 2024)."
+
+    document = _extract(text)
+    (docket,) = [item for item in document.citations if isinstance(item.stated, DocketCitation)]
+    (reporter,) = [item for item in document.citations if isinstance(item.stated, FullCaseCitation)]
+
+    assert docket.stated.docket_number == expected
+    assert text[docket.locator_span.start : docket.locator_span.end] == f"No. {written}"
+    assert docket.stated.court == court
+    assert docket.colocation_id == reporter.colocation_id
+    assert not docket.withdrawn
+
+
+@pytest.mark.parametrize(
+    ("written", "between", "database", "expected"),
+    [
+        ("CV 19-7532", " (ES) (MAH)", "2024 WL 2861865", "CV 19-7532"),
+        ("CV-15-00077", "", "2016 U.S. Dist. LEXIS 6540", "CV-15-00077"),
+        ("CIV. A. 08-222-KD-B", "", "2009 WL 151023", "CIV. A. 08-222-KD-B"),
+    ],
+)
+def test_a_positional_docket_allows_judge_parentheticals_and_lexis(
+    written: str, between: str, database: str, expected: str
+) -> None:
+    """The boundary is the database locator, not a list of docket subformats."""
+    text = f"Smith v. Jones, No. {written}{between}, {database}, at *4 (D. Ariz. Jan. 1, 2024)."
+
+    document = _extract(text)
+    (docket,) = [item for item in document.citations if isinstance(item.stated, DocketCitation)]
+    reporters = [item for item in document.citations if isinstance(item.stated, FullCaseCitation)]
+
+    assert docket.stated.docket_number == expected
+    assert docket.colocation_id
+    assert docket.colocation_id in {item.colocation_id for item in reporters}
+    assert not docket.withdrawn
+
+
+def test_a_conventional_docket_before_a_database_locator_is_not_read_twice() -> None:
+    """The positional fallback broadens coverage without duplicating a known shape."""
+    text = "Smith v. Jones, No. 1:24-cv-00123, 2024 WL 1234567, at *4 (D. Ariz. Jan. 1, 2024)."
+
+    dockets = [item for item in _extract(text).citations if isinstance(item.stated, DocketCitation)]
+
+    assert [item.stated.docket_number for item in dockets] == ["1:24-cv-00123"]
+
+
+def test_a_broad_docket_needs_the_following_database_locator() -> None:
+    """A signaled arbitrary string in prose remains outside locator discovery."""
+    text = "The clerk assigned No. CIV 11-0107 JB/KBM, and briefing followed."
+
+    assert not [item for item in _extract(text).citations if isinstance(item.stated, DocketCitation)]
+
+
 # --- What is not a docket citation --------------------------------------------
 
 

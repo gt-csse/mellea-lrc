@@ -10,11 +10,11 @@ to nothing. Downstream every count that is per-authority is then wrong: this
 corpus reports about 4% more authorities than it has, and a claim about the
 case attaches to whichever reporter happened to come last.
 
-**This reports co-location. It does not decide identity.** Citations whose full
-spans coincide are grouped and given a shared id; whether they name one case is
-a question for validation, which can resolve each against CourtListener and
-compare the opinion cluster. That division matters, because co-location alone
-cannot settle it:
+**This reports co-location. It does not decide identity.** Locators that are
+written next to one another are grouped and given a shared id; whether they
+name one case is a question for validation, which can resolve each against
+CourtListener and compare the opinion cluster. That division matters, because
+co-location alone cannot settle it:
 
     See Brown, 347 U.S. 483, 349 U.S. 294 (1955).
 
@@ -85,44 +85,37 @@ def _reporter(citation: CitationRecord) -> str:
     return "".join(str(getattr(citation.stated, "reporter", "") or "").split()).lower()
 
 
-# Parallel citations share a full span to within a character: eyecite yields
-# 11-78, 11-78 and 12-78 for one sentence. Requiring exact equality would leave
-# the third out of its own group; allowing mere overlap admits a different
-# failure, because a long full span swallows the citation after it. On this
-# corpus overlap grouped `501 U.S. 32` with `28 U.S.C. § 1927` and `869 F.2d
-# 688` -- a case, a statute and another case, 239 characters apart at the start
-# and sharing only an end.
-_SPAN_SLACK = 2
-
-
 # What separates one citation from the next: the leader dots of an index, or the
 # `v.` of another case name. Between two identifiers for one case there is a
 # comma, a pin cite, a judge's initials or a short parenthetical, and nothing of
 # this kind.
 _ANOTHER_CITATION = re.compile(r"…|\.{2,}|\bvs?\.")
 
+# Adjacent locators can have a comma, whitespace, a pin cite, or a judge's
+# initials between them.  Those characters do not make the identifiers farther
+# apart.  A handful of ordinary characters covers the actual pin-page bridge
+# (``, 731,``) without treating a case name as an identifier separator.
+_MAX_MEANINGFUL_GAP = 5
+
 
 def _co_located(text: str, left: CitationRecord, right: CitationRecord) -> bool:
-    """Whether two citations occupy the same span, to within a character or two."""
-    if (
-        abs(left.full_span.start - right.full_span.start) > _SPAN_SLACK
-        or abs(left.full_span.end - right.full_span.end) > _SPAN_SLACK
-    ):
-        return False
+    """Whether adjacent locator spans name the same written citation site."""
     first, second = sorted((left, right), key=lambda c: c.locator_span.start)
     between = text[first.locator_span.end : second.locator_span.start]
-    return not _ANOTHER_CITATION.search(between)
+    if _ANOTHER_CITATION.search(between):
+        return False
+    return sum(character.isalnum() for character in between) <= _MAX_MEANINGFUL_GAP
 
 
 def colocation_groups(text: str, citations: Sequence[CitationRecord]) -> list[list[CitationRecord]]:
-    """Return each set of two or more citations occupying the same place.
+    """Return each set of two or more locators written at one citation site.
 
-    A group is built by overlap and then rejected if any reporter appears twice
-    in it, so a group is always a set of distinct identifiers for what may be
-    one authority.
+    A group is built by locator proximity and then rejected if any reporter
+    appears twice in it, so a group is always a set of distinct identifiers for
+    what may be one authority.
     """
     eligible = [c for c in citations if type(c.stated).__name__ in _NAMES]
-    ordered = sorted(eligible, key=lambda c: (c.full_span.start, c.full_span.end))
+    ordered = sorted(eligible, key=lambda c: (c.locator_span.start, c.locator_span.end))
 
     groups: list[list[CitationRecord]] = []
     for citation in ordered:
