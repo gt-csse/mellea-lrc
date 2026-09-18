@@ -463,8 +463,11 @@ async def run(*, data: Path, dataset: str, output: Path, resume: bool) -> dict[s
         return manifest
 
     rules = replace(stable(), docket_auditor=None)
-    session = start_mellea_session_from_env()
     for index, path in enumerate(missing, start=1):
+        # An OpenRouter connection is external state, not part of an extraction
+        # document. Keep it bounded to one filing: a provider connection that
+        # stops responding cannot hold later checkpointed filings hostage.
+        session = start_mellea_session_from_env()
         source = _source_metadata(path, data)
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             initial = grow_roots(preprocess(path.read_text(encoding="utf-8")), rules=rules)
