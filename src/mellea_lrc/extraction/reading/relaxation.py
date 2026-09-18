@@ -92,45 +92,6 @@ _ACROSS_BLOCKS = r"\s*"
 _WITHIN_BLOCK = r"[^\S\r\n]*(?:\r?\n[^\S\r\n]*)?"
 
 
-def relaxed_literal(value: str, *, whitespace: bool = True, newline: bool = False) -> str:
-    """Return ``value`` as a literal regex, optionally relaxing its whitespace.
-
-    Whitespace is relaxed by default: each written whitespace run becomes an
-    arbitrary-length run, including zero characters. The same is true on both
-    sides of literal punctuation, since extraction commonly separates a period
-    from the abbreviation it closes: ``No .`` is the same label as ``No.``.
-    That tolerates a lost space, justified text, and arbitrary added horizontal
-    space without changing any non-whitespace character.
-    ``whitespace=False`` requests a precise literal, including every written
-    space. ``newline=True`` also permits relaxed runs to cross line boundaries.
-
-    This deliberately has no numeric tolerance.  A caller either needs the
-    literal spelling or needs whitespace not to be evidence at all.
-    """
-    if not whitespace:
-        return re.escape(value)
-
-    separator = r"\s*" if newline else r"[^\S\r\n]*"
-    tokens = tuple(re.finditer(r"\w+|[^\w\s]+", value))
-    if not tokens:
-        return separator
-    pattern = ""
-    for index, token in enumerate(tokens):
-        pattern += re.escape(token.group())
-        if index == len(tokens) - 1:
-            if value[token.end() :]:
-                pattern += separator
-            continue
-        following = tokens[index + 1]
-        if (
-            value[token.end() : following.start()]
-            or not token.group().isalnum()
-            or not following.group().isalnum()
-        ):
-            pattern += separator
-    return pattern
-
-
 # Reporter groups produced by eyecite's ``_relax_ws`` often end in ``\s*``
 # themselves, so that variants like "U. S." still match. The original pattern's
 # literal trailing space forces such a group to give the space back on

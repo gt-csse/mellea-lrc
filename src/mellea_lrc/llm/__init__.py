@@ -7,8 +7,6 @@ from mellea_lrc.llm.config import (
 )
 from mellea_lrc.llm.grounding import (
     EvidenceCandidate,
-    FuzzinessOption,
-    FuzzinessType,
     GroundingEvidence,
     GroundingMatch,
     fuzzy_match,
@@ -17,8 +15,6 @@ from mellea_lrc.llm.ivr import InstructIvrSpec, IvrAttempt, IvrRequirementAttemp
 
 __all__ = [
     "EvidenceCandidate",
-    "FuzzinessOption",
-    "FuzzinessType",
     "GroundingEvidence",
     "GroundingMatch",
     "InstructIvrSpec",
