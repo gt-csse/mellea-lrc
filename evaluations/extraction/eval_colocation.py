@@ -56,7 +56,7 @@ def eval_colocation(corpus: Sequence[GrownAnnotation]) -> dict[str, Any]:
     return {
         "dataset": "annotation-v4.0 corpus",
         "documents": len(corpus),
-        "colocation_groups": score_sets(gold_groups, predicted_groups),
+        "colocation": score_sets(gold_groups, predicted_groups),
     }
 
 
