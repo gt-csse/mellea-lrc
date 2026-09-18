@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 from mellea_lrc.core.citations import DocketCitation
+from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import grow_roots, stable
 from mellea_lrc.extraction.adjudication import apply_docket_site_review, suspected_dockets
-from mellea_lrc.extraction.adjudication.review.docket import RecoveredDocketLocator, _site_review
+from mellea_lrc.extraction.adjudication.candidates.docket_sites import SuspectedDocket
+from mellea_lrc.extraction.adjudication.review.docket import (
+    DOCKET_REVIEW_PREFIX,
+    DOCKET_SITE_HUNTING_SESSION_ID,
+    INSTRUCTION,
+    RecoveredDocketLocator,
+    _site_review,
+)
 from mellea_lrc.extraction.adjudication.types import SiteReview
 from mellea_lrc.llm import IvrAttempt, IvrRequirementAttempt, IvrRun
 from mellea_lrc.preprocessing import preprocess
@@ -107,3 +115,67 @@ def test_failed_exact_grounding_is_a_declined_review_not_a_promotion() -> None:
 
     assert review.answer is None
     assert review.reason == "The locator does not exactly match the candidate."
+
+
+def test_docket_review_uses_a_shared_prefix_and_dynamic_site_instruction(monkeypatch) -> None:
+    """The repeated contract is cacheable; no docket convention is site-specific."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from mellea.stdlib.sampling import MultiTurnStrategy
+
+    from mellea_lrc.extraction.adjudication.review.docket import adjudicate_docket
+
+    captured: dict[str, object] = {}
+
+    async def fake_run(_session: object, spec: object, **kwargs: object) -> IvrRun:
+        captured["spec"] = spec
+        captured["model_options"] = kwargs["model_options"]
+        return IvrRun(
+            success=True,
+            selected_attempt=0,
+            attempts=(
+                IvrAttempt(
+                    output=(
+                        '{"is_docket_citation":false,"locator":null,'
+                        '"docket_number":null,"reason":"not a case"}'
+                    ),
+                    requirements=(),
+                ),
+            ),
+            backend="test",
+            model="test",
+            model_options={},
+            instruction="test",
+            prefix=None,
+            grounding_context={},
+            user_variables={},
+            output_schema=None,
+        )
+
+    monkeypatch.setattr("mellea_lrc.extraction.adjudication.review.docket.run_instruct_ivr", fake_run)
+    monkeypatch.setattr(
+        "mellea_lrc.extraction.adjudication.review.docket.llm_api_config_from_env",
+        lambda _environ: SimpleNamespace(mellea_call_options=lambda **_kwargs: {"max_tokens": 1200}),
+    )
+    site = SuspectedDocket(
+        locator_span=Span(10, 22),
+        locator_text="No. 21-11854",
+        docket_number="21-11854",
+        context_span=Span(0, 30),
+        context="Case text No. 21-11854 more text",
+    )
+
+    asyncio.run(adjudicate_docket(site, session=SimpleNamespace()))
+
+    spec = captured["spec"]
+    assert getattr(spec, "prefix") == DOCKET_REVIEW_PREFIX
+    assert getattr(spec, "description") == INSTRUCTION
+    assert getattr(spec, "user_variables") == {
+        "locator": "No. 21-11854",
+        "window": "Case text No. 21-11854 more text",
+    }
+    assert captured["model_options"] == {
+        "max_tokens": 1200,
+        "extra_body": {"session_id": DOCKET_SITE_HUNTING_SESSION_ID},
+    }
