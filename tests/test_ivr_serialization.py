@@ -56,3 +56,69 @@ def test_ivr_run_preserves_every_generation_and_validation() -> None:
 
     assert json.loads(json.dumps(payload)) == payload
     assert deserialize_ivr_run(payload) == run
+
+
+def test_ivr_run_serializes_each_provider_request_and_repair_feedback() -> None:
+    """A later attempt retains the exact Mellea feedback that prompted it."""
+    repair_feedback = (
+        "The following requirements have not been met:\n"
+        "* locator is required\n"
+        "Please try again to fulfill the requirements."
+    )
+    first_request = [
+        {"role": "system", "content": "Static contract"},
+        {"role": "user", "content": "Inspect No. 21-381"},
+    ]
+    repaired_request = [
+        *first_request,
+        {"role": "assistant", "content": '{"complete_locator":"No. 21-381"}'},
+        {"role": "user", "content": repair_feedback},
+    ]
+    first_response = {
+        "id": "first",
+        "choices": [{"finish_reason": "stop"}],
+        "usage": {"completion_tokens": 21},
+    }
+    repaired_response = {
+        "id": "second",
+        "choices": [{"finish_reason": "stop"}],
+        "usage": {"completion_tokens": 18},
+    }
+    sampling = SimpleNamespace(
+        success=True,
+        result_index=1,
+        sample_generations=[
+            SimpleNamespace(
+                value='{"complete_locator":"No. 21-381"}',
+                _generate_log=SimpleNamespace(
+                    prompt=first_request,
+                    model_output=first_response,
+                ),
+            ),
+            SimpleNamespace(
+                value='{"locator":"No. 21-381"}',
+                _generate_log=SimpleNamespace(
+                    prompt=repaired_request,
+                    model_output=repaired_response,
+                ),
+            ),
+        ],
+        sample_validations=[
+            [(_Requirement("Return JSON."), ValidationResult(result=False, reason="locator is required"))],
+            [(_Requirement("Return JSON."), ValidationResult(result=True))],
+        ],
+    )
+
+    run = _to_ivr_run(
+        SimpleNamespace(backend=SimpleNamespace(model_id="test-model")),
+        InstructIvrSpec(description="Decide."),
+        {"max_tokens": 1200},
+        sampling,
+    )
+
+    assert run.attempts[0].request == first_request
+    assert run.attempts[1].request == repaired_request
+    assert run.attempts[1].request[-1] == {"role": "user", "content": repair_feedback}
+    assert run.attempts[0].response == first_response
+    assert run.attempts[1].response == repaired_response
+    assert deserialize_ivr_run(serialize_ivr_run(run)) == run
