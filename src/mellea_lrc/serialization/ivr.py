@@ -37,7 +37,9 @@ def serialize_ivr_run(run: IvrRun) -> dict[str, JsonValue]:
 def deserialize_ivr_run(payload: Mapping[str, object]) -> IvrRun:
     """Recover a serialised IVR run without recreating a live Mellea session."""
     fields = require_mapping(payload, name="ivr_run")
-    attempts = tuple(_read_attempt(item) for item in require_list(fields.get("attempts"), name="ivr_run.attempts"))
+    attempts = tuple(
+        _read_attempt(item) for item in require_list(fields.get("attempts"), name="ivr_run.attempts")
+    )
     selected_attempt = _required_int(fields.get("selected_attempt"), name="ivr_run.selected_attempt")
     if not attempts or not -len(attempts) <= selected_attempt < len(attempts):
         msg = "ivr_run.selected_attempt must identify one recorded attempt"
@@ -95,6 +97,8 @@ def _read_attempt(value: object) -> IvrAttempt:
             _read_requirement(item)
             for item in require_list(fields.get("requirements"), name="ivr_run.attempt.requirements")
         ),
+        request=fields.get("request"),
+        response=fields.get("response"),
     )
 
 

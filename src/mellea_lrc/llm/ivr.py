@@ -53,19 +53,31 @@ class IvrRequirementAttempt:
 
 @dataclass(frozen=True, slots=True)
 class IvrAttempt:
-    """One model answer and Mellea's complete validation record for it."""
+    """One model answer, its provider exchange, and validation record.
+
+    ``request`` is the exact provider message sequence for this attempt. On a
+    repair turn it includes Mellea's user feedback containing the failed
+    requirement reasons. ``response`` is the provider response Mellea retained,
+    including finish reason and usage when the backend provides them. Both are
+    projected to JSON-safe data so an artifact can explain a repair without a
+    live Mellea session.
+    """
 
     output: str
     requirements: tuple[IvrRequirementAttempt, ...]
+    request: object | None = None
+    response: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class IvrRun:
     """Serializable account of an instruct/validate/repair run.
 
-    Mellea already retains every generated answer and every requirement result.
-    This project-owned projection keeps that information after the live session
-    is gone, without retaining backend objects or credentials.
+    Mellea already retains every generated answer, provider exchange, and
+    requirement result. This project-owned projection keeps that information
+    after the live session is gone, without retaining backend objects or
+    credentials. In particular, later attempts retain Mellea's exact repair
+    feedback rather than only the resulting validation status.
     """
 
     success: bool
@@ -160,6 +172,8 @@ def _to_ivr_run(
             )
             if index < len(validations)
             else (),
+            request=_provider_request(generation),
+            response=_provider_response(generation),
         )
         for index, generation in enumerate(generations)
     )
@@ -183,6 +197,28 @@ def _to_ivr_run(
     )
 
 
+def _provider_request(generation: object) -> object | None:
+    """Project the exact provider messages Mellea sent for one attempt.
+
+    ``GenerateLog.prompt`` is the backend-level request after Mellea has added
+    the initial instruction or its multi-turn repair feedback. The fallback is
+    deliberately ``None`` for lightweight test doubles and non-logging
+    backends; it never invents a request from the final answer.
+    """
+    log = getattr(generation, "_generate_log", None)
+    return _json_value(getattr(log, "prompt", None))
+
+
+def _provider_response(generation: object) -> object | None:
+    """Project the provider response that explains completion and token use."""
+    log = getattr(generation, "_generate_log", None)
+    response = getattr(log, "model_output", None)
+    if response is None:
+        raw = getattr(generation, "raw", None)
+        response = getattr(raw, "response", None)
+    return _json_value(response)
+
+
 def _optional_string(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
@@ -203,6 +239,9 @@ def _json_value(value: object) -> object:
         return _json_value(value.value)
     if value is None or isinstance(value, str | int | float | bool):
         return value
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        return _json_value(model_dump(mode="json"))
     if isinstance(value, Mapping):
         return _json_mapping(value)
     if isinstance(value, tuple | list):
