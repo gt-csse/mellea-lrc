@@ -33,18 +33,23 @@ def test_audit_reads_court_without_writing_it() -> None:
 
 
 @pytest.mark.parametrize(
-    "text",
+    ("text", "expected_locators"),
     [
-        "Case No. 1:24-cv-00123 (MG) (Joint Administration Requested)",
-        "Case 1:24-cv-00123 Document 10 Filed 01/01/24 Page 1 of 8",
-        "Jennifer Smith (State Bar No. 1124201)",
-        "The filing was submitted in Case No. 1:24-cv-00123.",
+        ("Case No. 1:24-cv-00123 (MG) (Joint Administration Requested)", 1),
+        ("Case 1:24-cv-00123 Document 10 Filed 01/01/24 Page 1 of 8", 0),
+        ("Jennifer Smith (State Bar No. 1124201)", 1),
+        ("The filing was submitted in Case No. 1:24-cv-00123.", 1),
     ],
 )
-def test_unsupported_dockets_are_withdrawn_but_keep_their_locators(text: str) -> None:
+def test_unsupported_dockets_are_withdrawn_but_furniture_is_not_a_locator(
+    text: str, expected_locators: int
+) -> None:
     document = grow_roots(preprocess(text), rules=stable())
 
-    assert len(document.locators) == 1
+    assert len(document.locators) == expected_locators
+    if not expected_locators:
+        assert document.active_citations == ()
+        return
     assert document.active_citations == ()
     assert document.citations[0].withdrawn
     assert document.citations[0].trace[-1].details["reason"] == "no_citation_context"
@@ -122,9 +127,7 @@ def test_replaying_an_audit_does_not_duplicate_its_trace() -> None:
 
 
 def test_a_date_parenthetical_admits_a_courtless_docket() -> None:
-    document = grow_roots(
-        preprocess("Kestenbaum, No. 1:24-cv10092 (Jan. 21, 2025)."), rules=stable()
-    )
+    document = grow_roots(preprocess("Kestenbaum, No. 1:24-cv10092 (Jan. 21, 2025)."), rules=stable())
 
     (docket,) = document.active_citations
     assert isinstance(docket.stated, DocketCitation)

@@ -182,33 +182,29 @@ def test_a_generic_docket_without_citation_context_is_withdrawn_by_audit() -> No
 # --- What is not a docket citation --------------------------------------------
 
 
-def test_a_caption_docket_number_is_kept_as_a_courtless_locator_candidate() -> None:
-    """Locator discovery does not depend on resolving a court first."""
+def test_a_filing_caption_docket_number_is_not_a_locator_candidate() -> None:
+    """The filing's own caption identifies no external authority."""
     text = (
         "IN THE UNITED STATES DISTRICT COURT\n\nFOR THE DISTRICT OF COLORADO\n\n"
         "Civil Action No. 1:24-cv-00814-PAB-SBP\n\nJAMIE LEE SAUNDERS,\n\nPlaintiff,"
     )
 
-    (docket,) = _dockets(text)
-    assert docket.docket_number == "1:24-cv-00814-PAB-SBP"
-    assert docket.court is None
+    assert _dockets(text) == []
 
 
-def test_an_ecf_page_stamp_is_visible_to_locator_evaluation() -> None:
-    """The broad locator layer exposes docket-shaped page furniture as a candidate."""
+def test_an_ecf_page_stamp_is_not_a_locator_candidate() -> None:
+    """A complete CM/ECF page stamp is filing furniture, not a citation."""
     text = (
         "COMPLAINT PLAINTIFF DEMANDS A JURY TRIAL ON ALL ISSUES SO TRIABLE - 5 5\n\n"
         "Case 2:25-cv-01295-GMS     Document 1     Filed 04/18/25     Page 6 of 32\n\n"
         "21. After Plaintiff rejected the advances, the retaliation began."
     )
 
-    (docket,) = _dockets(text)
-    assert docket.docket_number == "2:25-cv-01295-GMS"
-    assert docket.court is None
+    assert _dockets(text) == []
 
 
-def test_a_court_belonging_to_the_citation_before_it_is_not_this_docket_s_court() -> None:
-    """Proximity is not attribution, and this is where a nearby-court rule fails.
+def test_a_nearby_court_does_not_restore_a_masked_ecf_stamp() -> None:
+    """Page furniture remains unavailable even beside a citation parenthetical.
 
     Document 022 stamps its own case number forty characters after another
     case's `(N.D. Cal. May 13, 2011)`. A rule that looked either way would read
@@ -220,9 +216,7 @@ def test_a_court_belonging_to_the_citation_before_it_is_not_this_docket_s_court(
         "Megless , 654 F.3d at 408."
     )
 
-    (docket,) = _dockets(text)
-    assert docket.docket_number == "2:25-cv-01295-GMS"
-    assert docket.court is None
+    assert _dockets(text) == []
 
 
 def test_a_court_beyond_a_blank_line_does_not_belong_to_the_docket() -> None:
@@ -243,7 +237,7 @@ def test_a_court_beyond_a_blank_line_does_not_belong_to_the_docket() -> None:
     assert docket.court is None
 
 
-def test_the_assigned_judge_s_initials_are_not_a_court() -> None:
+def test_a_caption_with_judge_initials_is_not_a_locator_candidate() -> None:
     """A caption's parenthesis holds the judge, and some initials spell a state.
 
     Reading the periods loosely is what lets `D.Ariz.` be recognised; the cost
@@ -252,9 +246,7 @@ def test_the_assigned_judge_s_initials_are_not_a_court() -> None:
     """
     text = "UNITED STATES DISTRICT COURT\n\nCase No. 2:23-cv-6188  (SC) SUPERB MOTORS, INC.,"
 
-    (docket,) = _dockets(text)
-    assert docket.docket_number == "2:23-cv-6188"
-    assert docket.court is None
+    assert _dockets(text) == []
 
 
 # --- Damage the converter leaves behind ---------------------------------------
