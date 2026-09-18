@@ -1,8 +1,9 @@
 """Persist and evaluate the complete-locator chain one document stage at a time.
 
-Each document artifact holds four *cumulative*, citation-centric ``Document``
-payloads.  A checkpoint can be deserialized and handed directly to the next
-stage; the runner deliberately does so after every write.
+Each document artifact holds five *cumulative*, citation-centric ``Document``
+payloads. Four are locator-discovery checkpoints; the fifth is the independent
+co-location layer. A checkpoint can be deserialized and handed directly to the
+next stage; the runner deliberately does so after every write.
 
 The configured chain is::
 
@@ -10,12 +11,12 @@ The configured chain is::
       -> docket_locator_rule
       -> full_reporter_locator_site_hunting  # retained, intentionally not run
       -> docket_locator_site_hunting
+      -> colocation
 
 Reporter site hunting is represented as a documented no-op because it has low
-recovery yield for its model cost. The final checkpoint holds every locator
-occurrence before the independent co-location projection. The separate
-court/date report resumes from it, forms co-location once, and never re-runs a
-locator reader or calls a model.
+recovery yield for its model cost. The fifth checkpoint deserializes the final
+locator set and forms co-location once. Court/date resolution resumes from the
+fifth checkpoint without re-running a locator reader or calling a model.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ import hashlib
 import io
 import json
 import subprocess
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,6 +38,7 @@ from dotenv import load_dotenv
 
 from mellea_lrc.core.citations import DocketCitation, FullCaseCitation
 from mellea_lrc.extraction import (
+    COLOCATION_STAGE,
     DOCKET_RULE_STAGE,
     DOCKET_SITE_STAGE,
     REPORTER_RULE_STAGE,
@@ -61,13 +64,14 @@ DATASETS = (
     "reliable-high-profile",
     "reliable-low-profile",
 )
-CHECKPOINTS = (
+LOCATOR_CHECKPOINTS = (
     REPORTER_RULE_STAGE,
     DOCKET_RULE_STAGE,
     REPORTER_SITE_STAGE,
     DOCKET_SITE_STAGE,
 )
-_SCHEMA_VERSION = 2
+CHECKPOINTS = (*LOCATOR_CHECKPOINTS, COLOCATION_STAGE)
+_SCHEMA_VERSION = 3
 _REPORTER_SITE_REASON = (
     "Disabled for this run: reporter site hunting has low recovery yield relative to model cost."
 )
@@ -159,7 +163,7 @@ def _read_artifact(path: Path) -> dict[str, Any] | None:
 
 
 def _assert_checkpoint_prefix(path: Path, checkpoints: dict[str, object]) -> None:
-    """A resumed artifact must contain a contiguous prefix of the four stages."""
+    """A resumed artifact must contain a contiguous prefix of the five stages."""
     present = set(checkpoints)
     expected = set(CHECKPOINTS[: len(present)])
     if present != expected:
@@ -196,19 +200,21 @@ async def run_document(
     artifact_path: Path,
     resume: bool,
 ) -> dict[str, Any]:
-    """Run or resume the four checkpoint stages for one filing."""
+    """Run or resume four locator stages plus one co-location layer for one filing."""
     artifact = _read_artifact(artifact_path) if resume else None
     if artifact is None:
         artifact = _new_artifact(path, data=data)
     elif artifact.get("text") != _source_metadata(path, data):
         raise ValueError(f"{path}: text changed since its locator checkpoint was written")
 
-    document = _stored_document(artifact, DOCKET_SITE_STAGE)
+    document = _stored_document(artifact, COLOCATION_STAGE)
     if document is not None:
         return artifact
 
     rules = stable()
-    document = _stored_document(artifact, REPORTER_SITE_STAGE)
+    document = _stored_document(artifact, DOCKET_SITE_STAGE)
+    if document is None:
+        document = _stored_document(artifact, REPORTER_SITE_STAGE)
     if document is None:
         document = _stored_document(artifact, DOCKET_RULE_STAGE)
     if document is None:
@@ -230,7 +236,11 @@ async def run_document(
 
     if DOCKET_SITE_STAGE not in artifact["checkpoints"]:
         document = await hunt_docket_locators(document, rules=rules)
-        _store_checkpoint(artifact_path, artifact, DOCKET_SITE_STAGE, document)
+        document = _store_checkpoint(artifact_path, artifact, DOCKET_SITE_STAGE, document)
+
+    if COLOCATION_STAGE not in artifact["checkpoints"]:
+        document = resolve_colocations(document, rules=rules)
+        _store_checkpoint(artifact_path, artifact, COLOCATION_STAGE, document)
 
     return artifact
 
@@ -328,18 +338,17 @@ def _field_rows(
     artifacts: list[dict[str, Any]],
     gold: dict[FieldKey, str],
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, int | float]]]:
-    """Resume from final locator documents and score only court/date readings."""
+    """Resume from persisted co-location documents and score court/date readings."""
     rows: list[dict[str, Any]] = []
     predicted: dict[str, set[FieldKey]] = {"court": set(), "date": set()}
     correct: dict[str, set[FieldKey]] = {"court": set(), "date": set()}
     for artifact in artifacts:
         document_name = str(artifact["document"])
-        locator_document = _stored_document(artifact, DOCKET_SITE_STAGE)
-        if locator_document is None:
+        grouped = _stored_document(artifact, COLOCATION_STAGE)
+        if grouped is None:
             continue
-        # This is deliberately a continuation from checkpoint four, never a
-        # second extraction. Both readers are deterministic and independent.
-        grouped = resolve_colocations(locator_document, rules=stable())
+        # This starts from the persisted co-location layer, never a second
+        # extraction. Both readers are deterministic and independent.
         resolved = resolve_dates(resolve_courts(grouped, rules=stable()), rules=stable())
         for record in resolved.active_citations:
             if not isinstance(record.stated, (FullCaseCitation, DocketCitation)):
@@ -392,6 +401,49 @@ def _field_rows(
     return sorted(rows, key=lambda row: (row["document"], row["locator"]["start"], row["field"])), metric
 
 
+def _colocation_score(artifacts: list[dict[str, Any]], corpus: Corpus) -> dict[str, int | float]:
+    """Score exact multi-locator groups from the persisted co-location layer."""
+    gold_groups: set[tuple[str, tuple[tuple[int, int], ...]]] = set()
+    if corpus.annotations.exists():
+        for path in sorted(corpus.annotations.glob("*.jsonl")):
+            rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+            if not rows or rows[0].get("unit") != "header":
+                continue
+            members: dict[str, list[tuple[int, int]]] = defaultdict(list)
+            for row in rows[1:]:
+                if row.get("unit") != "citation" or row.get("kind") not in {
+                    "FullCaseCitation",
+                    "DocketCitation",
+                }:
+                    continue
+                identifier = row.get("colocation_id")
+                span = _span(row)
+                if isinstance(identifier, str) and span is not None:
+                    members[identifier].append(span)
+            document = str(rows[0]["document"])
+            for spans in members.values():
+                if len(spans) > 1:
+                    gold_groups.add((document, tuple(sorted(spans))))
+
+    predicted_groups: set[tuple[str, tuple[tuple[int, int], ...]]] = set()
+    for artifact in artifacts:
+        document = _stored_document(artifact, COLOCATION_STAGE)
+        if document is None:
+            continue
+        by_id = {record.citation_id: record for record in document.citations}
+        for group in document.colocations:
+            spans = tuple(
+                sorted(
+                    (by_id[member].locator_span.start, by_id[member].locator_span.end)
+                    for member in group
+                    if member in by_id
+                )
+            )
+            if len(spans) > 1:
+                predicted_groups.add((str(artifact["document"]), spans))
+    return _score(predicted_groups, gold_groups)
+
+
 def _commit() -> str | None:
     completed = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, check=False, text=True)
     return completed.stdout.strip() or None
@@ -412,7 +464,7 @@ def _write_reports(
         name = str(artifact["document"])
         reporter = _stored_document(artifact, REPORTER_RULE_STAGE)
         docket = _stored_document(artifact, DOCKET_RULE_STAGE)
-        final = _stored_document(artifact, DOCKET_SITE_STAGE)
+        final = _stored_document(artifact, COLOCATION_STAGE)
         if reporter is not None:
             reporter_rule |= {(name, *span) for span in _locator_spans(reporter, FullCaseCitation)}
         if docket is not None:
@@ -432,6 +484,7 @@ def _write_reports(
         for start, end in spans
         if _gold_kind(corpus, name, start, end) == "DocketCitation"
     }
+    colocation_metrics = _colocation_score(artifacts, corpus)
     field_rows, field_metrics = _field_rows(artifacts, field_gold)
     _atomic_jsonl(run_root / "court-date-readings.jsonl", field_rows)
     manifest = {
@@ -448,7 +501,8 @@ def _write_reports(
             "full_reporter_locator_rule": _score(reporter_rule, reporter_gold),
             "docket_locator_rule": _score(docket_rule, docket_gold),
             "docket_locator_after_site_hunting": _score(docket_final, docket_gold),
-            "court_date_from_final_locator_checkpoint": field_metrics,
+            "colocation_after_all_locator_stages": colocation_metrics,
+            "court_date_from_colocation_checkpoint": field_metrics,
         },
         "court_date_readings": "court-date-readings.jsonl",
         "document_artifacts": "documents/",
