@@ -9,22 +9,29 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from mellea.backends import ModelOption
+from mellea.core import ValidationResult
+from mellea.core.requirement import Requirement
 from mellea.stdlib import functional as mfuncs
 from mellea.stdlib.context import ChatContext
+from mellea.stdlib.requirements import req
+from pydantic import BaseModel, ValidationError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from mellea import MelleaSession
-    from mellea.core.requirement import Requirement
     from mellea.core.sampling import SamplingResult
     from mellea.stdlib.sampling import MultiTurnStrategy
-    from pydantic import BaseModel
 
 
 @dataclass(frozen=True, slots=True)
 class InstructIvrSpec:
-    """Complete project-level specification for one Mellea IVR instruction."""
+    """Complete project-level specification for one Mellea IVR instruction.
+
+    Passing ``output_format`` both constrains generation and installs one
+    wrapper-owned schema requirement. Callers provide only domain requirements;
+    they never need to parse Pydantic output merely to trigger a repair.
+    """
 
     description: str
     prefix: str | None = None
@@ -126,6 +133,7 @@ async def run_instruct_ivr(
     model_options: dict[str, object],
 ) -> IvrRun:
     """Run one IVR instruction and retain Mellea's inspectable run history."""
+    requirements = _requirements_for(spec)
     sampled = await asyncio.to_thread(
         mfuncs.instruct,
         spec.description,
@@ -133,7 +141,7 @@ async def run_instruct_ivr(
         backend=session.backend,
         grounding_context=dict(spec.grounding_context),
         user_variables=dict(spec.user_variables),
-        requirements=list(spec.requirements),
+        requirements=requirements,
         strategy=strategy,
         return_sampling_results=True,
         format=spec.output_format,
@@ -142,6 +150,108 @@ async def run_instruct_ivr(
         else {**model_options, ModelOption.SYSTEM_PROMPT: spec.prefix},
     )
     return _to_ivr_run(session, spec, model_options, sampled)
+
+
+_SCHEMA_REQUIREMENT = "Return exactly one JSON object matching the required output schema."
+
+
+def _requirements_for(spec: InstructIvrSpec) -> list[Requirement]:
+    """Install schema validation once and protect domain checks from bad JSON.
+
+    Mellea evaluates all requirements concurrently. Without the guard, a
+    domain validator that parses the output can raise beside the schema
+    validator, replacing a useful repair with a provider failure or duplicate
+    Pydantic diagnostics. The schema requirement is the only failed check
+    until the response parses.
+    """
+    if spec.output_format is None:
+        return list(spec.requirements)
+    output_format = spec.output_format
+    return [
+        _schema_requirement(output_format),
+        *(_guard_with_schema(requirement, output_format) for requirement in spec.requirements),
+    ]
+
+
+def _schema_requirement(output_format: type[BaseModel]) -> Requirement:
+    """Create the one schema validation requirement for an IVR call."""
+    return req(
+        _SCHEMA_REQUIREMENT,
+        validation_fn=lambda ctx: _validate_schema(ctx, output_format),
+    )
+
+
+def _guard_with_schema(requirement: Requirement, output_format: type[BaseModel]) -> Requirement:
+    """Do not invoke a parser-owning domain validator on malformed output."""
+    if requirement.validation_fn is None:
+        return requirement
+    domain_validation = requirement.validation_fn
+
+    def guarded(ctx: object) -> ValidationResult:
+        if not _schema_matches(ctx, output_format):
+            return ValidationResult(result=True)
+        return domain_validation(ctx)
+
+    return Requirement(
+        description=requirement.description,
+        validation_fn=guarded,
+        output_to_bool=requirement.output_to_bool,
+        check_only=requirement.check_only,
+    )
+
+
+def _validate_schema(ctx: object, output_format: type[BaseModel]) -> ValidationResult:
+    """Validate generated JSON and give a concise repair instruction on failure."""
+    try:
+        _parse_schema(ctx, output_format)
+    except ValidationError as error:
+        return ValidationResult(result=False, reason=_schema_error_message(error))
+    return ValidationResult(result=True)
+
+
+def _schema_matches(ctx: object, output_format: type[BaseModel]) -> bool:
+    try:
+        _parse_schema(ctx, output_format)
+    except ValidationError:
+        return False
+    return True
+
+
+def _parse_schema(ctx: object, output_format: type[BaseModel]) -> BaseModel:
+    last_output = getattr(ctx, "last_output")()
+    return output_format.model_validate_json(str(getattr(last_output, "value", last_output)))
+
+
+def _schema_error_message(error: ValidationError) -> str:
+    """Convert Pydantic diagnostics into short, model-actionable feedback."""
+    details: list[str] = []
+    priority = {"json_invalid": 0, "missing": 1, "extra_forbidden": 2}
+    errors = sorted(
+        error.errors(include_url=False),
+        key=lambda item: priority.get(str(item["type"]), 3),
+    )
+    for item in errors[:4]:
+        kind = str(item["type"])
+        location = _schema_location(item.get("loc", ()))
+        if kind == "json_invalid":
+            details.append("The previous response was incomplete or invalid JSON.")
+        elif kind == "missing":
+            details.append(f"{location} is required.")
+        elif kind == "extra_forbidden":
+            details.append(f"Remove unsupported field {location}.")
+        elif kind == "string_too_short":
+            details.append(f"{location} must not be empty.")
+        else:
+            details.append(f"{location}: {item['msg']}.")
+    suffix = " ".join(details) if details else "The previous response did not match the schema."
+    return f"{_SCHEMA_REQUIREMENT} {suffix}"
+
+
+def _schema_location(location: object) -> str:
+    if not isinstance(location, tuple | list) or not location:
+        return "The response"
+    parts = [f"[{part}]" if isinstance(part, int) else str(part) for part in location]
+    return f"`{'.'.join(parts)}`"
 
 
 def _to_ivr_run(

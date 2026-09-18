@@ -114,7 +114,12 @@ async def run_mellea_case_name_query_preparation(
                 "defendant": reextraction.defendant,
             },
             output_format=_QueryTermsProposal,
-            requirements=[req("Return valid case-name query terms.", validation_fn=_valid_schema)],
+            requirements=[
+                req(
+                    "Both case-name query terms must be non-empty.",
+                    validation_fn=_validate_query_terms,
+                )
+            ],
         )
         result = await run_instruct_ivr(
             resolved_session,
@@ -196,22 +201,20 @@ def _court_id(validation: CitationValidation) -> str | None:
 
 def _proposal(value: object) -> _QueryTermsProposal:
     try:
-        proposal = _QueryTermsProposal.model_validate_json(value)
+        return _QueryTermsProposal.model_validate_json(value)
     except ValidationError as exc:
         msg = f"Invalid case-name query preparation output: {exc}"
         raise ValueError(msg) from exc
-    if not proposal.query_plaintiff.strip() or not proposal.query_defendant.strip():
-        msg = "Case-name query terms must not be blank"
-        raise ValueError(msg)
-    return proposal
 
 
-def _valid_schema(ctx: Context) -> ValidationResult:
-    try:
-        _proposal(ctx.last_output().value)
-    except ValueError as exc:
-        return ValidationResult(result=False, reason=str(exc))
-    return ValidationResult(result=True)
+def _validate_query_terms(ctx: Context) -> ValidationResult:
+    proposal = _proposal(ctx.last_output().value)
+    if proposal.query_plaintiff.strip() and proposal.query_defendant.strip():
+        return ValidationResult(result=True)
+    return ValidationResult(
+        result=False,
+        reason="Both query terms must be non-empty.",
+    )
 
 
 def _query(terms: _QueryTermsProposal, court_id: str) -> str:

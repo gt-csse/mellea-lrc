@@ -4,13 +4,16 @@ import json
 from types import SimpleNamespace
 
 from mellea.core import ValidationResult
-from pydantic import BaseModel
+from mellea.stdlib.requirements import req
+from pydantic import BaseModel, ConfigDict
 
-from mellea_lrc.llm.ivr import InstructIvrSpec, _to_ivr_run
+from mellea_lrc.llm.ivr import InstructIvrSpec, _requirements_for, _schema_requirement, _to_ivr_run
 from mellea_lrc.serialization.ivr import deserialize_ivr_run, serialize_ivr_run
 
 
 class _Output(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     decision: bool
 
 
@@ -32,6 +35,60 @@ class _Sampling:
         [(_Requirement("Return JSON."), ValidationResult(result=True))],
         [(_Requirement("Return JSON."), ValidationResult(result=False, reason="JSON required"))],
     ]
+
+
+def _context(value: str) -> SimpleNamespace:
+    return SimpleNamespace(last_output=lambda: SimpleNamespace(value=value))
+
+
+def test_output_format_installs_one_schema_requirement_with_actionable_feedback() -> None:
+    requirement = _schema_requirement(_Output)
+
+    result = requirement.validation_fn(_context('{"complete_locator":"No. 21-381"}'))
+
+    assert result is not None
+    assert not result.as_bool()
+    assert result.reason == (
+        "Return exactly one JSON object matching the required output schema. "
+        "`decision` is required. Remove unsupported field `complete_locator`."
+    )
+
+
+def test_schema_requirement_reports_incomplete_json_without_pydantic_noise() -> None:
+    requirement = _schema_requirement(_Output)
+
+    result = requirement.validation_fn(_context('{"decision":'))
+
+    assert result is not None
+    assert not result.as_bool()
+    assert result.reason == (
+        "Return exactly one JSON object matching the required output schema. "
+        "The previous response was incomplete or invalid JSON."
+    )
+    assert "pydantic.dev" not in result.reason
+
+
+def test_schema_requirement_prevents_domain_parser_from_running_on_bad_json() -> None:
+    called = False
+
+    def domain_validation(_ctx: object) -> ValidationResult:
+        nonlocal called
+        called = True
+        raise AssertionError("the schema guard should have returned first")
+
+    requirements = _requirements_for(
+        InstructIvrSpec(
+            description="Return a decision.",
+            output_format=_Output,
+            requirements=[req("A domain-specific condition.", validation_fn=domain_validation)],
+        )
+    )
+
+    assert len(requirements) == 2
+    guarded_result = requirements[1].validation_fn(_context('{"complete_locator":"No. 21-381"}'))
+    assert guarded_result is not None
+    assert guarded_result.as_bool()
+    assert not called
 
 
 def test_ivr_run_preserves_every_generation_and_validation() -> None:

@@ -5,8 +5,6 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING, Literal
 
-from mellea.core import ValidationResult
-from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -28,7 +26,6 @@ from mellea_lrc.validation.types import (
 
 if TYPE_CHECKING:
     from mellea import MelleaSession
-    from mellea.core.base import Context
 
     from mellea_lrc.validation.types import CitationValidation
 
@@ -84,7 +81,6 @@ async def run_mellea_case_name_check(
                 "retrieved_case_name": exact_node.retrieved_case_name,
             },
             output_format=_SemanticVerdict,
-            requirements=[req("Return a valid semantic-verdict object.", validation_fn=_valid_schema)],
         )
         result = await run_instruct_ivr(
             resolved_session,
@@ -129,14 +125,6 @@ def _parse(value: object) -> _SemanticVerdict:
     except ValidationError as exc:
         msg = f"Invalid semantic case-name output: {exc}"
         raise ValueError(msg) from exc
-
-
-def _valid_schema(ctx: Context) -> ValidationResult:
-    try:
-        _parse(ctx.last_output().value)
-    except ValueError as exc:
-        return ValidationResult(result=False, reason=str(exc))
-    return ValidationResult(result=True)
 
 
 def _failed_node(
@@ -222,7 +210,6 @@ async def _semantic_outcome(
                 "retrieved_case_name": retrieved_case_name,
             },
             output_format=_SemanticVerdict,
-            requirements=[req("Return a valid semantic-verdict object.", validation_fn=_valid_schema)],
         )
         result = await run_instruct_ivr(
             session or start_mellea_session_from_env(),

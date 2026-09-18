@@ -255,14 +255,6 @@ def _parse(value: object) -> _Locators:
     return _Locators.model_validate_json(str(value))
 
 
-def _validate_schema(ctx: Context) -> ValidationResult:
-    try:
-        _parse(ctx.last_output().value)
-    except ValidationError as error:
-        return ValidationResult(result=False, reason=str(error))
-    return ValidationResult(result=True)
-
-
 _UNPARSEABLE = ValidationResult(
     result=False,
     reason=(
@@ -522,7 +514,6 @@ async def adjudicate_locator(
             },
             output_format=_Locators,
             requirements=[
-                req("Return a valid locator list.", validation_fn=_validate_schema),
                 req(
                     "Every reported locator must name a reporter and a single page.",
                     validation_fn=_validate_shape,

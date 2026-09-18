@@ -118,14 +118,6 @@ def _parse(value: object) -> _DocketProposal:
     return _DocketProposal.model_validate_json(str(value))
 
 
-def _validate_schema(ctx: Context) -> ValidationResult:
-    try:
-        _parse(ctx.last_output().value)
-    except ValidationError as error:
-        return ValidationResult(result=False, reason=str(error))
-    return ValidationResult(result=True)
-
-
 def _validate_locator(ctx: Context, site: SuspectedDocket) -> ValidationResult:
     """A confirmed citation must quote the complete locator found in the window."""
     try:
@@ -178,7 +170,6 @@ async def adjudicate_docket(
             user_variables={"locator": site.locator_text, "window": site.context},
             output_format=_DocketProposal,
             requirements=[
-                req("Return a valid docket proposal.", validation_fn=_validate_schema),
                 req(
                     "Quote the complete docket locator exactly as written in the window.",
                     validation_fn=lambda ctx: _validate_locator(ctx, site),
