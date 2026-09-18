@@ -14,6 +14,7 @@ from mellea_lrc.extraction import (
     find_docket_locators,
     find_full_reporter_locators,
     mark_full_reporter_locator_hunting_skipped,
+    resolve_colocations,
     resolve_courts,
     resolve_dates,
     stable,
@@ -51,6 +52,8 @@ def test_rule_locator_checkpoints_hold_only_locator_data_and_trace_its_origin() 
 
     assert dockets.passes == (REPORTER_RULE_STAGE, DOCKET_RULE_STAGE)
     assert {type(record.source) for record in dockets.citations} == {FullCaseCitation, DocketCitation}
+    assert all(record.colocation_id is None for record in dockets.citations)
+    assert all(record.root_id is None for record in dockets.citations)
     docket = next(record for record in dockets.citations if isinstance(record.source, DocketCitation))
     assert docket.source.court is None
     assert docket.source.date is None
@@ -71,7 +74,11 @@ def test_checkpoints_round_trip_and_explicit_fields_follow_them() -> None:
     assert restored.nodes[0].stage == REPORTER_SITE_STAGE
     assert restored.nodes[0].outcome == "not_run"
 
-    settled = resolve_dates(resolve_courts(restored, rules=stable()), rules=stable())
+    grouped = resolve_colocations(restored, rules=stable())
+    assert grouped.passes[-1] == "colocation"
+    assert all(record.colocation_id is not None for record in grouped.citations)
+
+    settled = resolve_dates(resolve_courts(grouped, rules=stable()), rules=stable())
     reporter = next(record for record in settled.citations if isinstance(record.source, FullCaseCitation))
     docket = next(record for record in settled.citations if isinstance(record.source, DocketCitation))
     assert reporter.stated.court == "azd"

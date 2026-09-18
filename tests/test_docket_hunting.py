@@ -73,6 +73,8 @@ def test_site_admission_creates_a_minimal_docket_locator_before_field_reading() 
     assert record.stated.court is None
     assert record.stated.date is None
     assert record.stated.case_name is None
+    assert record.colocation_id is None
+    assert record.root_id is None
     assert all("docket_audit" not in node.node_id for node in record.trace)
     assert record.trace[0].stage == "docket_locator_site_hunting"
 

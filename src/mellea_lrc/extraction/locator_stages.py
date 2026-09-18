@@ -2,9 +2,10 @@
 
 A root locator is admitted before the project reads the surrounding case name,
 court, date, or pin cite.  This module exposes those admissions as small,
-``Document -> Document`` stages.  Each stage adds a citation-owned trace node,
-then recalculates only the low-level structure that follows from locator spans:
-co-location and root pointers.
+``Document -> Document`` stages. Each stage adds a citation-owned trace node.
+It does not form co-location or roots: hunting needs only the evolving locator
+mask, and co-location is one deterministic projection after every locator
+source has contributed.
 
 The intended chain is::
 
@@ -13,11 +14,12 @@ The intended chain is::
       -> find_docket_locators(document)
       -> hunt_full_reporter_locators(document)  # optional plugin
       -> hunt_docket_locators(document)         # optional plugin
+      -> resolve_colocations(document)
 
 The two hunting calls are deliberately not coupled to the deterministic
-readers.  A caller can checkpoint, deserialize, and continue at every arrow.
-Field readers live in :mod:`mellea_lrc.extraction.stages` and run only after
-this chain has settled the locator graph.
+readers or to co-location. A caller can checkpoint, deserialize, and continue
+at every arrow. Field readers live in :mod:`mellea_lrc.extraction.stages` and
+run only after :func:`resolve_colocations` settles their search boundaries.
 """
 
 from __future__ import annotations
@@ -29,9 +31,7 @@ from mellea_lrc.core.citations import DocketCitation, FullCaseCitation
 from mellea_lrc.core.record import Node, Reads
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.eyecite_extractor import grow_roots
-from mellea_lrc.extraction.reading.unread_names import unread_case_names
 from mellea_lrc.extraction.rules import ExtractionRules, stable
-from mellea_lrc.extraction.structure.citation_tree import assign_roots
 from mellea_lrc.extraction.structure.colocation import assign_colocation
 from mellea_lrc.extraction.types import CitationRecord, Document, ExtractionMetadata
 from mellea_lrc.preprocessing.types import PreprocessedDocument
@@ -43,6 +43,7 @@ REPORTER_RULE_STAGE = "full_reporter_locator_rule"
 DOCKET_RULE_STAGE = "docket_locator_rule"
 REPORTER_SITE_STAGE = "full_reporter_locator_site_hunting"
 DOCKET_SITE_STAGE = "docket_locator_site_hunting"
+COLOCATION_STAGE = "colocation"
 
 _MADE_BY = "mellea_lrc.extraction.locator_stages"
 
@@ -70,7 +71,7 @@ def find_full_reporter_locators(
     *,
     rules: ExtractionRules | None = None,
 ) -> Document:
-    """Append rule-read reporter locator occurrences and recompute structure.
+    """Append rule-read reporter locator occurrences.
 
     The output contains only locator fields.  Case names, courts, dates, and
     pin cites are intentionally blank until their explicit readers run.
@@ -119,15 +120,17 @@ def mark_full_reporter_locator_hunting_skipped(
     return _with_pass(replace(document, nodes=(*document.nodes, node)), REPORTER_SITE_STAGE)
 
 
-def rebuild_locator_structure(
+def resolve_colocations(
     document: Document,
     *,
     rules: ExtractionRules | None = None,
 ) -> Document:
-    """Recompute co-location and roots from the locator records already held.
+    """Form co-location once from the complete set of admitted locators.
 
-    This is the only structural work locator admission performs.  It deliberately
-    does not call a court, date, name, pin-cite, or docket-audit reader.
+    This projection is deliberately outside locator discovery. Docket hunting
+    masks each admitted locator before its next candidate search, but it does
+    not need groups, roots, or field readers. Courts, dates, and case names use
+    the resulting groups as their bounded reading window.
     """
     effective = stable(rules)
     citations = tuple(document.citations)
@@ -135,12 +138,7 @@ def rebuild_locator_structure(
         citations = effective.colocation_reader(document.text, citations)
     else:
         citations = assign_colocation(document.text, citations)
-    citations = assign_roots(citations)
-    return replace(
-        document,
-        citations=citations,
-        unread_case_names=unread_case_names(document.text, citations),
-    )
+    return _with_pass(replace(document, citations=citations), COLOCATION_STAGE)
 
 
 def _read_locator_candidates(
@@ -227,7 +225,7 @@ def _admit(
         document,
         citations=tuple(sorted((*document.citations, *admitted), key=_citation_order)),
     )
-    return _with_pass(rebuild_locator_structure(appended, rules=rules), stage)
+    return _with_pass(appended, stage)
 
 
 def _locator_only(citation: FullCaseCitation | DocketCitation) -> FullCaseCitation | DocketCitation:
