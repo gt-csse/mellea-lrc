@@ -20,7 +20,8 @@ import io
 
 import pytest
 
-from mellea_lrc.core.citations import DocketCitation, FullCaseCitation
+from mellea_lrc.core.citations import DocketCitation, DocketEntry, FullCaseCitation
+from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction import Document, Relaxation, extract_from_plain_text
 from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 from mellea_lrc.serialization.document import (
@@ -83,6 +84,27 @@ def test_the_spans_point_at_the_docket_and_at_the_whole_citation() -> None:
     assert item.matched_text == "No. 1:25-cr-00312-RPK"
     assert "United States v. Chen Zhi" in full
     assert full.endswith("(E.D.N.Y. filed Oct. 8, 2025)")
+
+
+def test_a_written_document_entry_refines_the_case_docket() -> None:
+    """`Doc. 75` names the filing; the case number still names its docket."""
+    text = "See Doc. 75, Case No. 1:25-cv-00312-RPK (E.D.N.Y. Oct. 8, 2025)."
+
+    (record,) = [item for item in _extract(text).citations if isinstance(item.stated, DocketCitation)]
+
+    assert record.stated.docket_number == "1:25-cv-00312-RPK"
+    assert record.stated.docket_entry == DocketEntry(
+        number="75",
+        span=Span(start=text.index("Doc. 75"), end=text.index("Doc. 75") + len("Doc. 75")),
+    )
+    assert text[record.full_span.start : record.full_span.end].startswith("Doc. 75, Case No.")
+
+
+def test_a_case_docket_does_not_require_a_document_entry() -> None:
+    """A docket-only citation is still complete enough to create a root."""
+    (docket,) = _dockets("See Case No. 1:25-cv-00312-RPK (E.D.N.Y. Oct. 8, 2025).")
+
+    assert docket.docket_entry is None
 
 
 def test_a_docket_and_a_parallel_reporter_locator_are_two_citations() -> None:

@@ -29,6 +29,8 @@ from courts_db import courts
 from eyecite.models import CitationToken, Edition, Reporter, TokenExtractor
 from eyecite.tokenizers import Tokenizer, default_tokenizer
 
+from mellea_lrc.core.citations import DocketEntry
+from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.reading.courts import resolve_court
 
 # The group that marks a citation token as a docket rather than a reporter.
@@ -100,6 +102,39 @@ DOCKET_NUMBER = rf"""
 (?![A-Za-z0-9:./\\-])
 """
 """A signaled opaque docket identifier, before court/context audit."""
+
+# A document-entry reference belongs to a docket citation only when it is
+# immediately joined to that docket's locator.  This deliberately does not
+# scan a paragraph for every ``ECF No.``: those are usually references to
+# entries in the filing's own case.  The shape covers the ordinary cited-file
+# forms and leaves any unnumbered document description as case-level only.
+_DOCKET_ENTRY = re.compile(
+    r"\b(?:Doc(?:ument)?\.?|Dkt\.?|ECF)\s*(?:No\.?\s*)?(?P<number>\d+(?:-\d+)?)",
+    re.IGNORECASE,
+)
+_ENTRY_JOIN = re.compile(r"^[\s,;:\[\]\(\)]*$")
+_ENTRY_LOOKBACK = 96
+
+
+def docket_entry_before(text: str, locator_span: Span) -> DocketEntry | None:
+    """Return the immediately preceding written docket entry, if any.
+
+    ``Doc. 10-1, Case No. 2:25-cv-02337`` names an attachment on that case's
+    docket.  A bar number or an ECF entry elsewhere in the paragraph does not:
+    only punctuation and whitespace may stand between the entry reference and
+    the case locator.
+    """
+    start = max(0, locator_span.start - _ENTRY_LOOKBACK)
+    candidates = tuple(_DOCKET_ENTRY.finditer(text, start, locator_span.start))
+    if not candidates:
+        return None
+    match = candidates[-1]
+    if not _ENTRY_JOIN.fullmatch(text[match.end() : locator_span.start]):
+        return None
+    return DocketEntry(
+        number=match.group("number"),
+        span=Span(start=match.start(), end=match.end()),
+    )
 
 # How far past the number the court may be written, and how much of a gap is
 # still the same citation. One line ending is a citation broken by the page;
