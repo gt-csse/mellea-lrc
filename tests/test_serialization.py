@@ -15,18 +15,24 @@ from mellea_lrc.core.citations import (
     ShortCaseCitation,
     SupraCitation,
     UnknownCitation,
+    is_leaf,
     placed,
 )
-from mellea_lrc.core.citations import is_leaf
+from mellea_lrc.core.findings import Finding, FindingKind
 from mellea_lrc.core.pin_cites import PinCite
+from mellea_lrc.core.record import Node, Reads
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import CourtListenerOpinionCluster, CourtListenerSearchResult
 from mellea_lrc.extraction import CitationRecord, Document, ExtractionMetadata
+from mellea_lrc.extraction.adjudication.types import Candidate, CandidateKind, SiteReview
+from mellea_lrc.llm import IvrAttempt, IvrRequirementAttempt, IvrRun
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.serialization import (
     deserialize_document,
+    deserialize_site_review_trace,
     deserialize_validated_document,
     serialize_document,
+    serialize_site_review,
     serialize_validated_document,
 )
 from mellea_lrc.serialization.document import (
@@ -168,6 +174,74 @@ def test_document_round_trip_preserves_an_optional_docket_entry() -> None:
         "span": {"start": 0, "end": 7},
     }
     assert deserialize_document(payload) == document
+
+
+def test_document_round_trip_preserves_a_rejected_site_review_run() -> None:
+    """A failed review remains inspectable without calling the model again."""
+    document = _document_with_one_citation()
+    run = IvrRun(
+        success=False,
+        selected_attempt=1,
+        attempts=(
+            IvrAttempt(
+                output='{"is_docket_citation":true}',
+                requirements=(IvrRequirementAttempt("Return JSON.", False, "court missing", None),),
+            ),
+            IvrAttempt(
+                output="",
+                requirements=(IvrRequirementAttempt("Return JSON.", False, "empty output", None),),
+            ),
+        ),
+        backend="OpenAIBackend",
+        model="z-ai/glm-5.3-flash",
+        model_options={"max_tokens": 1200},
+        instruction="Decide whether the site is a docket.",
+        prefix=None,
+        grounding_context={},
+        user_variables={"docket": "No. 25-11030"},
+        output_schema={"type": "object"},
+    )
+    node = Node(
+        node_id="docket:10-22",
+        reads=Reads.DOCUMENT,
+        stage="docket",
+        made_by="adjudicate_docket",
+        outcome="declined",
+        details=serialize_site_review(
+            Candidate(
+                generator="suspected_dockets",
+                kind=CandidateKind.DOCKET,
+                span=Span(10, 22),
+                window=Span(0, len(document.text)),
+                note="A docket label followed by an opaque identifier.",
+            ),
+            SiteReview(answer=None, reason="No valid structured response.", run=run),
+        ),
+    )
+    document.observe(node)
+    object.__setattr__(
+        document,
+        "findings",
+        (
+            Finding(
+                kind=FindingKind.SITE_REVIEW,
+                stage="docket",
+                made_by="adjudicate_docket",
+                message="No valid structured response.",
+                node_id=node.node_id,
+                span=Span(10, 22),
+            ),
+        ),
+    )
+
+    recovered = deserialize_document(serialize_document(document))
+
+    assert recovered.nodes == (node,)
+    assert recovered.findings[0].node_id == node.node_id
+    trace = deserialize_site_review_trace(recovered.nodes[0].details)
+    assert trace.ivr == run
+    assert trace.reason == "No valid structured response."
+    assert trace.candidate.kind is CandidateKind.DOCKET
 
 
 def test_document_round_trip_supports_every_canonical_citation_type() -> None:

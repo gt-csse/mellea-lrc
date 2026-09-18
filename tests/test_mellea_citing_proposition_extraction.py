@@ -85,14 +85,12 @@ def test_citing_proposition_node_stores_original_document_span(monkeypatch: obje
     async def fake_run(*_args: object, **_kwargs: object) -> object:
         return SimpleNamespace(
             success=True,
-            result=SimpleNamespace(
-                value=json.dumps(
-                    {
-                        "classification": "identified",
-                        "reasoning": ("The sentence immediately before the citation states the proposition."),
-                        "proposition_quote": proposition,
-                    }
-                )
+            output=json.dumps(
+                {
+                    "classification": "identified",
+                    "reasoning": ("The sentence immediately before the citation states the proposition."),
+                    "proposition_quote": proposition,
+                }
             ),
         )
 

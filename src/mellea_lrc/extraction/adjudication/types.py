@@ -12,8 +12,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 from mellea_lrc.core.spans import Span
+
+if TYPE_CHECKING:
+    from mellea_lrc.llm.ivr import IvrRun
+
+T = TypeVar("T")
 
 
 class CandidateKind(str, Enum):
@@ -102,3 +108,12 @@ class Adjudication:
     reason: str = ""
     reviewer: str = ""
     """What answered -- a rule, a model and which one, or a person."""
+
+
+@dataclass(frozen=True, slots=True)
+class SiteReview(Generic[T]):
+    """One site-review answer together with the complete reproducible IVR run."""
+
+    answer: T | None
+    reason: str | None
+    run: IvrRun

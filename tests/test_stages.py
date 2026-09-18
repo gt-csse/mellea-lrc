@@ -28,6 +28,7 @@ def _citations(text: str):
 def test_the_sequence_is_the_one_the_docstring_describes() -> None:
     assert [stage.name for stage in STAGES] == [
         "colocation",
+        "case_names",
         "docket_audit",
         "courts",
         "dates",

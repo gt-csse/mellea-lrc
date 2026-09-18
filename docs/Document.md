@@ -6,9 +6,9 @@ status: active
 # The document every stage appends to
 
 One document object, one artifact type, one record per citation. A stage adds
-citations, adds nodes to the citations already there, and adds findings about
-the document. It does not wrap the previous stage's output, and it does not
-produce an artifact of its own kind.
+citations, adds nodes to a citation or to the document itself, and adds findings
+about the document. It does not wrap the previous stage's output, and it does
+not produce an artifact of its own kind.
 
 This replaces three types that say the same thing in three shapes:
 
@@ -114,7 +114,9 @@ and cannot be made into one: a leaf that could not be grown, a site that was
 hunted and rejected, a name standing in the text that no citation covers. A
 record is a citation; inventing a record for a non-citation would break the
 invariant that makes the record worth having. These go in a document-level
-list, each naming the span it is about and the node that produced it.
+list, each naming the span it is about and the document-level node that
+produced it. That node retains the candidate, the model's concise reason, and
+every visible instruct/validate/repair attempt.
 
 ## What the document holds
 
@@ -122,6 +124,7 @@ list, each naming the span it is about and the node that produced it.
     text                      the coordinate space every span indexes
     preprocessing_metadata    what the converter did to it
     citations                 the records
+    nodes                     readings that concern no citation
     findings                  what is true of the document and of no citation
     passes                    what has run over it, in order
 
@@ -181,10 +184,12 @@ Every arrow is the same object with more written on it.
     `core` never interprets, so validation's typed nodes keep their own fields
     without `core` knowing any of their types. This is what lets the
     progressions in `validated_document` move onto the trace where
-    `identified_document` already puts them.
+    `identified_document` already puts them. A site-review node uses the typed
+    `SiteReviewTrace` projection: its candidate, concise reason, and full
+    Mellea-visible attempt and requirement history.
 *   `CitationRecord` gains a withdrawal state, and the rule that withdrawing a
     root withdraws its leaves.
-*   The document gains `findings` and `passes`.
+*   The document gains document-level `nodes`, `findings`, and `passes`.
 *   A schema bump, and the old artifacts stay readable or stay archived.
 
 ## Open

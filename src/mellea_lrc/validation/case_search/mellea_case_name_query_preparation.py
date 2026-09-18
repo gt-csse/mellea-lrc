@@ -133,7 +133,7 @@ async def run_mellea_case_name_query_preparation(
                 outcome_message="No CourtListener case-name query is available.",
                 error="Case-name query preparation exhausted its repair budget",
             )
-        terms = _proposal(result.result.value)
+        terms = _proposal(result.output)
         query = _query(terms, court_id)
     except Exception as exc:
         return _node(

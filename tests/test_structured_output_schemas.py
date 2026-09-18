@@ -14,10 +14,12 @@ every model the pipeline hands to Mellea as `output_format`.
 from __future__ import annotations
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
+from mellea_lrc.extraction.adjudication.review.case_name import _Answer as _CaseNameProposal
 from mellea_lrc.extraction.adjudication.review.docket import _DocketProposal
 from mellea_lrc.extraction.adjudication.review.locator import _Locator, _Locators
+from mellea_lrc.extraction.adjudication.review.pin_cite import _Answer as _PinCiteProposal
 from mellea_lrc.validation.case_search.mellea_case_name_query_preparation import _QueryTermsProposal
 from mellea_lrc.validation.field_checks.mellea_case_name_check import _SemanticVerdict
 from mellea_lrc.validation.field_checks.mellea_case_name_reextraction import _PartyProposal
@@ -86,3 +88,33 @@ def test_a_nullable_field_still_accepts_null() -> None:
     proposal = _PinpointProposal(verdict="inconclusive", reasoning="no support found", evidence_quote=None)
 
     assert proposal.evidence_quote is None
+
+
+@pytest.mark.parametrize(
+    ("model", "proposal"),
+    (
+        (
+            _DocketProposal,
+            {"is_docket_citation": False, "locator": None, "docket_number": None, "reason": ""},
+        ),
+        (_Locators, {"locators": [], "reason": ""}),
+        (
+            _CaseNameProposal,
+            {
+                "reading": "not_a_citation",
+                "name": "Smith v. Jones",
+                "citation": None,
+                "root": None,
+                "plaintiff": None,
+                "defendant": None,
+                "reason": "",
+            },
+        ),
+        (_PinCiteProposal, {"reading": "no_page_claim", "pin_cite": "", "reason": ""}),
+    ),
+    ids=("docket", "locator", "case_name", "pin_cite"),
+)
+def test_site_review_reason_cannot_be_blank(model: type[BaseModel], proposal: dict[str, object]) -> None:
+    """A site review must explain a refusal rather than silently returning no answer."""
+    with pytest.raises(ValidationError):
+        model.model_validate(proposal)

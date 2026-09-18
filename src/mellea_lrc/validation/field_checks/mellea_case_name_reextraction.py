@@ -126,7 +126,7 @@ async def run_mellea_case_name_reextraction(
                 outcome_message="Local case-name re-extraction did not satisfy its grounding requirements.",
                 error="Case-name re-extraction exhausted its repair budget",
             )
-        proposal = _proposal(result.result.value)
+        proposal = _proposal(result.output)
     except Exception as exc:
         return _node(
             validation,

@@ -39,6 +39,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
 
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.adjudication import ocr
+from mellea_lrc.extraction.adjudication.types import SiteReview
 from mellea_lrc.llm import (
     InstructIvrSpec,
     llm_api_config_from_env,
@@ -53,7 +54,7 @@ if TYPE_CHECKING:
 
     from mellea_lrc.extraction.adjudication.candidates.reporter_sites import SuspectedLocator
 
-MAX_TOKENS = 320
+MAX_TOKENS = 1200
 MAX_REPAIR_TURNS = 2
 
 INSTRUCTION = """
@@ -103,6 +104,8 @@ Rules:
 - Report nothing for statutes, rules, docket numbers, dates, court names, or
   street addresses.
 - If the window contains no complete case locator, return an empty list.
+- Give one short reason. When the list is empty, say why this site does not
+  contain a complete case locator.
 
 window:
 {{window}}
@@ -133,6 +136,7 @@ class _Locators(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     locators: list[_Locator]
+    reason: Annotated[str, StringConstraints(min_length=1)]
 
 
 @dataclass(frozen=True, slots=True)
@@ -484,7 +488,7 @@ async def adjudicate_locator(
     *,
     session: MelleaSession | None = None,
     context: int = 170,
-) -> tuple[AdjudicatedLocator, ...]:
+) -> SiteReview[tuple[AdjudicatedLocator, ...]]:
     """Return every locator the model finds in one suspected site's window.
 
     ``masked_text`` is the document with every already-extracted **locator**
@@ -548,9 +552,9 @@ async def adjudicate_locator(
     # so keep whatever survives the same checks applied per locator below. The
     # requirements steer the model; these filters are what make the result safe.
     try:
-        proposed = _parse(result.result.value)
+        proposed = _parse(result.output)
     except ValidationError:
-        return ()
+        return SiteReview(answer=None, reason=result.failure_reason, run=result)
 
     found: list[AdjudicatedLocator] = []
     seen: set[tuple[int, int]] = set()
@@ -578,4 +582,4 @@ async def adjudicate_locator(
                 != _identifier(locator.volume) + _identifier(locator.reporter) + _identifier(locator.page),
             )
         )
-    return tuple(found)
+    return SiteReview(answer=tuple(found), reason=proposed.reason, run=result)

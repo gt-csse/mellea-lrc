@@ -29,12 +29,12 @@ from mellea_lrc.validation.types import (
 def test_negative_pinpoint_verdict_is_not_part_of_the_model_contract() -> None:
     """One reporter page cannot establish a negative citation judgment."""
     with pytest.raises(ValueError, match="Invalid Mellea pinpoint output"):
-        mellea_pinpoint_check._parse(  # noqa: SLF001
+        mellea_pinpoint_check._parse(
             '{"verdict":"does_not_support","reasoning":"This page does not state the proposition.",'
             '"evidence_quote":null}'
         )
 
-    proposal = mellea_pinpoint_check._parse(  # noqa: SLF001
+    proposal = mellea_pinpoint_check._parse(
         '{"verdict":"inconclusive","reasoning":"This page does not permit a reliable judgment.",'
         '"evidence_quote":null}'
     )
@@ -175,12 +175,10 @@ def test_mellea_pinpoint_check_stores_the_canonical_source_slice(monkeypatch: ob
     async def fake_run(*_args: object, **_kwargs: object) -> object:
         return SimpleNamespace(
             success=True,
-            result=SimpleNamespace(
-                value=(
-                    '{"verdict":"supports","reasoning":"The cited page states the attributed rule.",'
-                    '"evidence_quote":"The court concludes that actual notice cannot replace '
-                    'proper service in this action."}'
-                )
+            output=(
+                '{"verdict":"supports","reasoning":"The cited page states the attributed rule.",'
+                '"evidence_quote":"The court concludes that actual notice cannot replace '
+                'proper service in this action."}'
             ),
         )
 

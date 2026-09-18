@@ -46,18 +46,21 @@ from typing import TYPE_CHECKING
 
 from mellea_lrc.core.case_names import CaseName
 from mellea_lrc.core.citations import ReferenceCitation
+from mellea_lrc.core.findings import Finding, FindingKind
 from mellea_lrc.core.record import CitationRecord, Node, Reads
 from mellea_lrc.extraction.adjudication.candidates.case_name_sites import case_name_sites
 from mellea_lrc.extraction.adjudication.candidates.pin_cite_sites import pin_cite_sites
 from mellea_lrc.extraction.adjudication.review.case_name import Reading, adjudicate_case_name
 from mellea_lrc.extraction.adjudication.review.pin_cite import adjudicate_pin_cite
 from mellea_lrc.extraction.reading.relaxation import Relaxation
+from mellea_lrc.serialization.ivr import serialize_site_review
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from mellea import MelleaSession
 
+    from mellea_lrc.extraction.adjudication.types import Candidate
     from mellea_lrc.extraction.types import Document
 
 
@@ -169,17 +172,20 @@ async def _case_name(document: Document, session: MelleaSession) -> None:
     at = {record.citation_id: record.locator_span for record in document.citations}
     recovered: list[CitationRecord] = []
     for site in case_name_sites(document):
-        answer = await adjudicate_case_name(document, site, session=session, records=records)
-        if answer is None:
-            continue
+        review = await adjudicate_case_name(document, site, session=session, records=records)
+        answer = review.answer
         node = Node(
             node_id=f"case_name:{site.span.start}-{site.span.end}",
             reads=Reads.DOCUMENT,
             stage=Review.CASE_NAME.value,
             made_by=ADJUDICATE_CASE_NAME,
-            outcome=answer.reading.value,
-            message=answer.reason or None,
+            outcome=answer.reading.value if answer is not None else DECLINED,
+            message=review.reason or site.note or None,
+            details=serialize_site_review(site, review),
         )
+        if answer is None:
+            _record_site_finding(document, node, site, review.reason)
+            continue
         name = CaseName(
             span=answer.span,
             text=answer.name,
@@ -192,8 +198,13 @@ async def _case_name(document: Document, session: MelleaSession) -> None:
             # citation that already holds the name it read. Nothing to correct.
             if named is not None and named.case_name != name:
                 named.correct(node, "case_name", name, reason=node.message or "")
+            elif named is not None:
+                named.observe(node)
+            else:
+                _record_site_finding(document, node, site, review.reason)
             continue
         if answer.reading is not Reading.SHORT_FORM or answer.root_id not in at:
+            _record_site_finding(document, node, site, review.reason)
             continue
         # A bare name is a citation the record does not hold: it states no
         # identifier, so nothing the rules read could have reached it.
@@ -233,18 +244,41 @@ async def _pin_cite(document: Document, session: MelleaSession) -> None:
         if record is None:
             continue
         answer = await adjudicate_pin_cite(document.text, site, record, session=session)
+        reviewed = answer
+        answer = reviewed.answer
         node = Node(
             node_id=f"pin_cite:{site.span.start}-{site.span.end}",
             reads=Reads.DOCUMENT,
             stage=Review.PIN_CITE.value,
             made_by=ADJUDICATE_PIN_CITE,
             outcome=answer.reading.value if answer is not None else DECLINED,
-            message=(answer.reason if answer is not None else site.note) or None,
+            message=(reviewed.reason if reviewed.reason is not None else site.note) or None,
+            details=serialize_site_review(site, reviewed),
         )
         if answer is None or answer.pin_cite == record.stated.pin_cite:
             record.observe(node)
             continue
         record.correct(node, "pin_cite", answer.pin_cite, reason=node.message or "")
+
+
+def _record_site_finding(document: Document, node: Node, site: Candidate, reason: str | None) -> None:
+    """Keep an inspected non-citation site without inventing a citation record."""
+    document.observe(node)
+    object.__setattr__(
+        document,
+        "findings",
+        (
+            *document.findings,
+            Finding(
+                kind=FindingKind.SITE_REVIEW,
+                stage=node.stage,
+                made_by=node.made_by,
+                message=reason or site.note or "The site review produced no citation or correction.",
+                node_id=node.node_id,
+                span=site.span,
+            ),
+        ),
+    )
 
 
 _RUNNERS = {

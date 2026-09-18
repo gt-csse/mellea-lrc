@@ -99,7 +99,7 @@ async def run_mellea_case_name_check(
                 "Semantic case-name check exhausted its repair budget",
                 status_message="Mellea semantic case-name comparison exhausted its repair attempts.",
             )
-        verdict = _parse(result.result.value).verdict
+        verdict = _parse(result.output).verdict
     except Exception as exc:
         return _failed_node(
             validation,
@@ -231,7 +231,7 @@ async def _semantic_outcome(
             model_options=llm_api_config_from_env(os.environ).mellea_call_options(max_tokens=MAX_TOKENS),
         )
         if result.success:
-            verdict = _parse(result.result.value).verdict
+            verdict = _parse(result.output).verdict
             return (
                 ValidationNodeStatus.SUCCEEDED,
                 MelleaCaseNameCheckOutcome(verdict),

@@ -51,6 +51,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
 
 from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
+from mellea_lrc.extraction.adjudication.types import SiteReview
 from mellea_lrc.llm import (
     InstructIvrSpec,
     llm_api_config_from_env,
@@ -65,7 +66,7 @@ if TYPE_CHECKING:
     from mellea_lrc.core.record import CitationRecord
     from mellea_lrc.extraction.adjudication.types import Candidate
 
-MAX_TOKENS = 400
+MAX_TOKENS = 1200
 MAX_REPAIR_TURNS = 2
 
 INSTRUCTION = """
@@ -247,7 +248,7 @@ async def adjudicate_pin_cite(
     record: CitationRecord,
     *,
     session: MelleaSession | None = None,
-) -> AdjudicatedPinCite | None:
+) -> SiteReview[AdjudicatedPinCite]:
     """Return what a reader makes of one pin-cite site, or `None` on a decline.
 
     `None` is a real answer and is recorded as one by the caller: a reader that
@@ -281,26 +282,30 @@ async def adjudicate_pin_cite(
         model_options=llm_api_config_from_env(os.environ).mellea_call_options(max_tokens=MAX_TOKENS),
     )
     try:
-        proposed = _parse(result.result.value)
+        proposed = _parse(result.output)
     except ValidationError:
-        return None
+        return SiteReview(answer=None, reason=result.failure_reason, run=result)
 
     if proposed.reading is Reading.NO_PAGE_CLAIM:
-        return AdjudicatedPinCite(
-            citation_id=site.about or record.citation_id,
-            pin_cite=None,
-            reading=proposed.reading,
+        return SiteReview(
+            answer=AdjudicatedPinCite(
+                citation_id=site.about or record.citation_id,
+                pin_cite=None,
+                reading=proposed.reading,
+                reason=proposed.reason,
+            ),
             reason=proposed.reason,
+            run=result,
         )
 
     found = _find(window, proposed.pin_cite)
     if found is None:
-        return None
+        return SiteReview(answer=None, reason=proposed.reason, run=result)
     span = Span(start=site.window.start + found.start(), end=site.window.start + found.end())
     # Against its own citation, not a number elsewhere in the window that reads
     # the same. The site is where the rules looked; the claim is beside it.
     if not (site.span.start - REACH <= span.start <= site.span.end + REACH):
-        return None
+        return SiteReview(answer=None, reason=proposed.reason, run=result)
     written = text[span.start : span.end]
     # `claims_a_page` reads the pages out of the characters; the reader never
     # states a number. `written_but_no_page` keeps the characters and claims no
@@ -311,9 +316,13 @@ async def adjudicate_pin_cite(
         if proposed.reading is Reading.CLAIMS_A_PAGE
         else PinCite(span=span, text=written, pages=())
     )
-    return AdjudicatedPinCite(
-        citation_id=site.about or record.citation_id,
-        pin_cite=claim,
-        reading=proposed.reading,
+    return SiteReview(
+        answer=AdjudicatedPinCite(
+            citation_id=site.about or record.citation_id,
+            pin_cite=claim,
+            reading=proposed.reading,
+            reason=proposed.reason,
+        ),
         reason=proposed.reason,
+        run=result,
     )

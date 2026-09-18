@@ -32,12 +32,19 @@ so the characters at the span are the characters the filing wrote.
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from mellea_lrc.core.case_names import CaseName
+from mellea_lrc.core.citations import DocketCitation, FullCaseCitation
 from mellea_lrc.core.spans import Span
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from eyecite.models import CitationBase
+
+    from mellea_lrc.extraction.types import CitationRecord
 
 # What a filing puts in front of a case name that is not part of it: a Bluebook
 # signal, or the word carrying the name into the sentence.
@@ -101,6 +108,22 @@ _OPENING = " \t\n,.;:|·•()-\"'“”‘’"
 # `Langston Equip. Assocs., Inc.`, `Louisville Land Co.` -- and dropping it
 # would report a name the filing did not write.
 _CLOSING = " \t\n,;:|·•("
+
+# A field reader has no eyecite ``full_span_start`` to use as a left edge.  It
+# can still make one safe positive reading: a conventional case name written
+# immediately before the first locator in a citation site.  The deliberately
+# small grammar is shared in spirit with ``unread_case_names``: it recognizes
+# a name only when the document actually writes ``v.``, ``In re``, or ``Ex
+# parte``.  Anything less explicit stays absent for later validation rather
+# than turning ordinary prose into a case name.
+_FIELD_NAME_TOKEN = r"[A-Z][\w.'’&-]*(?:[^\S\r\n]*['’][^\S\r\n]*\w[\w.'’&-]*)*"
+_FIELD_NAME_INNER = r"(?:of|the|for|in|on|at|to|by|with|ex|rel\.|de|van|von|del|la|le)"
+_FIELD_NAME_PARTY = rf"{_FIELD_NAME_TOKEN}(?:,?\s+(?:{_FIELD_NAME_INNER}\s+){{0,2}}{_FIELD_NAME_TOKEN}){{0,9}}"
+_FIELD_EXPLICIT_CASE_NAME = (
+    re.compile(rf"\b(?P<name>{_FIELD_NAME_PARTY}\s+(?:v\.|vs\.|v\b)\s+{_FIELD_NAME_PARTY})"),
+    re.compile(rf"\b(?P<name>(?:In\s+re|Ex\s+parte)\s+{_FIELD_NAME_PARTY})"),
+)
+_FIELD_NAME_CONNECTOR = re.compile(r"[\s,;:]*\Z")
 
 
 def _trim(text: str, start: int, end: int) -> tuple[int, int]:
@@ -201,4 +224,83 @@ def locate_case_name(text: str, citation: CitationBase, locator: Span, floor: in
         behind = _PARTY_BEHIND.search(text[max(0, start - 40) : start])
         if behind:
             start -= len(behind.group())
+    return Span(start=start, end=end)
+
+
+def reread_case_names(
+    text: str,
+    citations: Sequence[CitationRecord],
+) -> tuple[CitationRecord, ...]:
+    """Fill an absent name from the explicit text before a full-locator site.
+
+    This is a *field* pass, distinct from eyecite's raw name read.  It exists
+    for a full locator admitted after the tokenizer ran, including a docket
+    locator accepted by site hunting.  It never replaces a name eyecite (or a
+    later reviewer) already supplied, and it reads only the case-name forms
+    whose spelling is explicit in the document.  Colocation supplies the site
+    boundary: every co-located full locator shares the one name written before
+    the first identifier.
+    """
+    rebuilt: list[CitationRecord] = []
+    for item in citations:
+        if (
+            item.withdrawn
+            or not isinstance(item.stated, (FullCaseCitation, DocketCitation))
+            or item.stated.case_name is not None
+        ):
+            rebuilt.append(item)
+            continue
+        site_start = _site_start(item, citations)
+        name_span = _explicit_name_before(text, site_start, _name_floor(item, citations))
+        if name_span is None:
+            rebuilt.append(item)
+            continue
+        name = CaseName(span=name_span, text=text[name_span.start : name_span.end])
+        rebuilt.append(
+            replace(
+                item,
+                source=replace(item.source, case_name=name),
+                stated=replace(item.stated, case_name=name),
+            )
+        )
+    return tuple(rebuilt)
+
+
+def _site_start(item: CitationRecord, citations: Sequence[CitationRecord]) -> int:
+    """The first locator in item's co-location site, or its own start."""
+    if item.colocation_id is None:
+        return item.locator_span.start
+    return min(
+        other.locator_span.start
+        for other in citations
+        if not other.withdrawn and other.colocation_id == item.colocation_id
+    )
+
+
+def _name_floor(item: CitationRecord, citations: Sequence[CitationRecord]) -> int:
+    """End of the preceding unrelated locator, if it has one."""
+    start = _site_start(item, citations)
+    ends = [
+        other.locator_span.end
+        for other in citations
+        if not other.withdrawn
+        and other is not item
+        and other.locator_span.end <= start
+        and (item.colocation_id is None or other.colocation_id != item.colocation_id)
+    ]
+    return max(ends, default=0)
+
+
+def _explicit_name_before(text: str, before: int, floor: int) -> Span | None:
+    """The last conventional case name directly joined to ``before``."""
+    matches = [
+        match
+        for pattern in _FIELD_EXPLICIT_CASE_NAME
+        for match in pattern.finditer(text, floor, before)
+        if _FIELD_NAME_CONNECTOR.fullmatch(text[match.end("name") : before])
+    ]
+    if not matches:
+        return None
+    match = max(matches, key=lambda found: found.start("name"))
+    start, end = match.span("name")
     return Span(start=start, end=end)

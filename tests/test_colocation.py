@@ -57,11 +57,11 @@ def test_adjacent_locators_group_when_eyecite_gives_them_separate_full_spans() -
     text = (
         "The action. Fed. R. Evid. 401. 'The standard for relevancy is particularly loose under "
         'rule 401, because "[a]ny more stringent requirement is unworkable and unrealistic." '
-        "Rivero v. Bd. of Regents of Univ. of New Mexico, No. CIV 16-0318 JB\\SCY, "
+        "Rivero v. Bd. of Regents of Univ. of New Mexico, No. 1:16-cv-0318-JB-SCY, "
         "2019 WL 1085179, at *78 (D.N.M. Mar. 7, 2019), aff'd, 950 F.3d 754 (10th Cir. 2020)."
     )
 
-    assert _groups(_extract(text)) == [{"No. CIV 16-0318 JB\\SCY", "2019 WL 1085179"}]
+    assert _groups(_extract(text)) == [{"No. 1:16-cv-0318-JB-SCY", "2019 WL 1085179"}]
 
 
 def test_two_cases_in_one_reporter_are_never_grouped() -> None:
@@ -113,19 +113,19 @@ def test_the_group_id_is_a_citation_id_from_the_group() -> None:
 def test_a_docket_and_a_reporter_page_are_one_authority() -> None:
     """Two identifiers for one case, which is what a parallel citation is.
 
-    `In re Iovate Health Scis. Int'l Inc. , No. 25-11958 (MG), 2025 Bankr. LEXIS
+    `In re Iovate Health Scis. Int'l Inc. , No. 3-25-bk-11958, 2025 Bankr. LEXIS
     2284` names one authority twice. Grouping by citation *type* refused this,
     because a docket citation and a reporter citation are different types; what
     matters is that both name a case.
     """
     text = (
-        "See, e.g. , In re Giftcraft Ltd. , No. 25-11030 (MG), 2025 Bankr. LEXIS 1350 "
+        "See, e.g. , In re Giftcraft Ltd. , No. 3-25-bk-11030, 2025 Bankr. LEXIS 1350 "
         "(Bankr. S.D.N.Y. Jun. 4, 2025) (granting provisional relief)."
     )
 
     document = _extract(text)
 
-    assert _groups(document) == [{"No. 25-11030", "2025 Bankr. LEXIS 1350"}]
+    assert _groups(document) == [{"No. 3-25-bk-11030", "2025 Bankr. LEXIS 1350"}]
 
 
 def test_a_statute_beside_a_case_is_still_not_one_authority() -> None:

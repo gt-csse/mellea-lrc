@@ -35,6 +35,9 @@ class FindingKind(str, Enum):
     cites and never gives in full. Which of the two it is, is not decided here.
     """
 
+    SITE_REVIEW = "site_review"
+    """A proposed site was reviewed but did not become a citation or correction."""
+
 
 @dataclass(frozen=True, slots=True)
 class Finding:

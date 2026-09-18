@@ -48,11 +48,12 @@ from eyecite.annotate import SpanUpdater
 from eyecite.tokenizers import EXTRACTORS, Tokenizer
 
 from mellea_lrc.core.case_names import CaseName
-from mellea_lrc.core.citations import CanonicalCitation, placed
+from mellea_lrc.core.citations import CanonicalCitation, DocketCitation, placed
 from mellea_lrc.core.pin_cites import PinCite
 from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.eyecite_extractor import to_canonical
 from mellea_lrc.extraction.identity import citation_id as citation_id_for
+from mellea_lrc.extraction.reading.dockets import docket_entry_before
 from mellea_lrc.extraction.reading.pin_cite_spans import locate_pin_cite
 from mellea_lrc.extraction.reading.pin_cites import relaxed_pin_cites
 from mellea_lrc.extraction.types import CitationRecord
@@ -84,7 +85,9 @@ def _placed(
 
 
 if TYPE_CHECKING:
+    from mellea_lrc.extraction.adjudication.candidates.docket_sites import SuspectedDocket
     from mellea_lrc.extraction.adjudication.candidates.reporter_sites import SuspectedLocator
+    from mellea_lrc.extraction.adjudication.review.docket import RecoveredDocketLocator
     from mellea_lrc.extraction.adjudication.review.locator import AdjudicatedLocator
     from mellea_lrc.extraction.adjudication.types import Candidate
 
@@ -216,6 +219,46 @@ def promote_locator(text: str, locator: AdjudicatedLocator) -> CitationRecord | 
             source=_placed(text, promoted, full_span, locator_span, locator.text),
         )
     return None
+
+
+def promote_docket_locator(
+    text: str,
+    site: SuspectedDocket,
+    locator: RecoveredDocketLocator,
+) -> CitationRecord:
+    """Create the minimal full locator a docket-site review admitted.
+
+    A local docket has no parser-independent grammar to re-read. The reviewer
+    has grounded the exact complete locator, so promotion records only that
+    identifier and its document span. It deliberately leaves court, date, case
+    name, and pin cite empty. The normal root field passes fill them afterward;
+    putting model-selected values here would create a second field parser just
+    for site hunting.
+    """
+    if locator.locator_text != site.locator_text:
+        msg = "A recovered docket locator must be the exact site locator"
+        raise ValueError(msg)
+    if locator.docket_number != site.docket_number:
+        msg = "A recovered docket number must be the exact docket portion of its site"
+        raise ValueError(msg)
+    locator_span = site.locator_span
+    docket_entry = docket_entry_before(text, locator_span)
+    span = (
+        locator_span
+        if docket_entry is None
+        else Span(start=docket_entry.span.start, end=locator_span.end)
+    )
+    docket = DocketCitation(
+        span=span,
+        locator_span=locator_span,
+        matched_text=site.locator_text,
+        docket_number=locator.docket_number,
+        docket_entry=docket_entry,
+    )
+    return CitationRecord(
+        citation_id=citation_id_for(locator_span, site.locator_text),
+        source=docket,
+    )
 
 
 def _lettered_page(citation: object) -> bool:

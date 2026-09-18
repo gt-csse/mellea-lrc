@@ -134,7 +134,7 @@ async def run_mellea_citing_proposition_extraction(
                 outcome_message="No grounded citing proposition is available.",
                 error="Mellea citing-proposition extraction exhausted its repair budget",
             )
-        proposal = _parse(result.result.value)
+        proposal = _parse(result.output)
         resolved = (
             resolve_evidence_quote(citing_context, proposal.proposition_quote)
             if proposal.proposition_quote is not None
