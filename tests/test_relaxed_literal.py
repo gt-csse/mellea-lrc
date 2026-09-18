@@ -22,6 +22,8 @@ def test_relaxed_literal_relaxes_horizontal_whitespace_by_default() -> None:
     assert re.fullmatch(pattern, "Civil Action No.")
     assert re.fullmatch(pattern, "CivilActionNo.")
     assert re.fullmatch(pattern, "Civil     Action\t\tNo.")
+    assert re.fullmatch(pattern, "Civil Action No .")
+    assert re.fullmatch(pattern, "Civil Action No\t.")
     assert not re.fullmatch(pattern, "Civil\nAction No.")
 
 
@@ -37,4 +39,5 @@ def test_relaxed_literal_escapes_non_whitespace_characters() -> None:
 
     assert re.fullmatch(pattern, "Civ. A. No.")
     assert re.fullmatch(pattern, "Civ.A.No.")
+    assert re.fullmatch(pattern, "Civ . A . No .")
     assert not re.fullmatch(pattern, "CivXA.No.")
