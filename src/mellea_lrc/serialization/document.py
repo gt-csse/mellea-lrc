@@ -10,6 +10,7 @@ from mellea_lrc.core.citations import (
     CitationDate,
     CitationKind,
     DocketCitation,
+    DocketEntry,
     FullCaseCitation,
     FullJournalCitation,
     FullLawCitation,
@@ -420,12 +421,28 @@ def _read_citation(value: object, *, name: str) -> CanonicalCitation:
             fields[field_name] = rebuild(fields[field_name])
     for field_name in ("span", "locator_span"):
         fields[field_name] = _optional_span(fields.get(field_name), name=f"{name}.{field_name}")
+    if isinstance(fields.get("docket_entry"), Mapping):
+        fields["docket_entry"] = _deserialize_docket_entry(
+            fields["docket_entry"], name=f"{name}.docket_entry"
+        )
     fields["case_name"] = _read_case_name(fields.get("case_name"), name=f"{name}.case_name")
     # `UnknownCitation` states no pin cite at all, so the key is not written for
     # it and must not be invented here.
     if "pin_cite" in fields:
         fields["pin_cite"] = _read_pin_cite(fields["pin_cite"])
     return _CITATION_TYPES[kind](**fields)
+
+
+def _deserialize_docket_entry(value: Mapping[str, object], *, name: str) -> DocketEntry:
+    """Recover the optional written entry reference on a docket citation."""
+    span = _optional_span(value.get("span"), name=f"{name}.span")
+    if span is None:
+        msg = f"{name}.span must be a span"
+        raise ValueError(msg)
+    return DocketEntry(
+        number=_required_string(value.get("number"), name=f"{name}.number"),
+        span=span,
+    )
 
 
 def _serialize_citation(citation: CanonicalCitation) -> dict[str, object]:

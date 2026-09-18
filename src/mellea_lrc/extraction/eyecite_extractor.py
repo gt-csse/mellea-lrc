@@ -61,7 +61,7 @@ from mellea_lrc.core.spans import Span
 from mellea_lrc.extraction.identity import citation_id as citation_id_for
 from mellea_lrc.extraction.reading.case_names import locate_case_name
 from mellea_lrc.extraction.reading.courts import court_from_reporter
-from mellea_lrc.extraction.reading.dockets import DOCKET_GROUP, with_dockets
+from mellea_lrc.extraction.reading.dockets import DOCKET_GROUP, docket_entry_before, with_dockets
 from mellea_lrc.extraction.reading.pin_cite_spans import read_pin_cites
 from mellea_lrc.extraction.reading.pin_cites import relaxed_pin_cites, strip_connector
 from mellea_lrc.extraction.reading.relaxation import Relaxation, tokenizer_for
@@ -504,6 +504,14 @@ def _read(
         full_span = Span(start=span_start, end=span_end)
         locator_span = Span(start=locator_start, end=locator_end)
         canonical = to_canonical(eyecite_citation)
+        if isinstance(canonical, DocketCitation):
+            docket_entry = docket_entry_before(text, locator_span)
+            if docket_entry is not None:
+                # The entry and docket make one citation to a filed document.
+                # Widen only to the written entry; field readers still begin at
+                # the case locator and therefore keep their ordinary boundaries.
+                full_span = Span(start=docket_entry.span.start, end=full_span.end)
+                canonical = replace(canonical, docket_entry=docket_entry)
         canonical = dataclasses.replace(
             canonical,
             span=full_span,

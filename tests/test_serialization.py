@@ -4,6 +4,8 @@ import json
 
 from mellea_lrc.core.citations import (
     CitationDate,
+    DocketCitation,
+    DocketEntry,
     FullCaseCitation,
     FullJournalCitation,
     FullLawCitation,
@@ -130,6 +132,42 @@ def test_document_round_trip_preserves_recoverable_fields() -> None:
     assert written["pin_cite"] is None
     assert deserialize_document(payload) == document
     assert json.loads(json.dumps(payload)) == payload
+
+
+def test_document_round_trip_preserves_an_optional_docket_entry() -> None:
+    """A filed-document citation keeps both its case and entry locators."""
+    text = "Doc. 75, Case No. 1:25-cv-00312-RPK"
+    preprocessed = preprocess(text)
+    entry_span = Span(0, len("Doc. 75"))
+    locator_start = text.index("Case No.")
+    document = Document(
+        source_metadata=preprocessed.source_metadata,
+        text=text,
+        preprocessing_metadata=preprocessed.preprocessing_metadata,
+        citations=(
+            CitationRecord(
+                citation_id="docket-1",
+                source=placed(
+                    DocketCitation(
+                        docket_number="1:25-cv-00312-RPK",
+                        docket_entry=DocketEntry(number="75", span=entry_span),
+                    ),
+                    span=Span(0, len(text)),
+                    locator_span=Span(locator_start, len(text)),
+                    matched_text=text[locator_start:],
+                ),
+            ),
+        ),
+        extraction_metadata=ExtractionMetadata(),
+    )
+
+    payload = serialize_document(document)
+
+    assert payload["citations"][0]["source"]["docket_entry"] == {
+        "number": "75",
+        "span": {"start": 0, "end": 7},
+    }
+    assert deserialize_document(payload) == document
 
 
 def test_document_round_trip_supports_every_canonical_citation_type() -> None:

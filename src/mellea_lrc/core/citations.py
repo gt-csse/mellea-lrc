@@ -261,13 +261,31 @@ class FullJournalCitation:
 
 
 @dataclass(frozen=True, slots=True)
-class DocketCitation:
-    """A case identified by its docket number rather than by a reporter page.
+class DocketEntry:
+    """A particular filing or attachment on a case docket, as written.
 
-    The court is not decoration here, it is half of the identifier: the same
-    docket number exists in every district, and only the pair names a case. So
-    both are on the citation, and a docket read without a court is not read at
-    all.
+    A docket entry refines a :class:`DocketCitation`; it never replaces the
+    case docket.  ``Doc. 75, Case No. 6:24-cv-01143`` therefore has a case
+    identifier and entry ``75``.  ``Case No. 6:24-cv-01143`` has the same kind
+    of case identifier with ``docket_entry=None``.  The number remains a
+    string because entries such as ``10-1`` identify an attachment and because
+    no stage should silently normalize what the filing wrote.
+    """
+
+    number: str
+    span: Span
+
+
+@dataclass(frozen=True, slots=True)
+class DocketCitation:
+    """A case docket, optionally narrowed to one filed docket entry.
+
+    The court is often needed to resolve a docket: the same number can exist
+    in many districts.  Locator discovery nevertheless records a labelled
+    docket before court reading, because a court is context written after the
+    locator or inferred from a co-located reporter.  A courtless value therefore
+    means "not yet read" rather than "not a docket citation"; validation can
+    decide later whether the resulting identifier resolves.
 
     ``docket_number`` is kept as the filing wrote it, damage included --
     ``1:25cv-05745-RPK`` is a real citation in false-citation-bench, missing the
@@ -300,6 +318,13 @@ class DocketCitation:
     plaintiff: str | None = None
     defendant: str | None = None
     docket_number: str | None = None
+    docket_entry: DocketEntry | None = None
+    """The stated ``Doc.``, ``Dkt.``, or ``ECF`` entry, when one is written.
+
+    A citation may identify a case while referring to a particular filed
+    document, rather than an opinion.  Absence means the filing states no entry
+    number; it does not mean that the citation fails to identify a case docket.
+    """
     court: str | None = None
     """The courts-db identifier, e.g. ``nyed``."""
     court_name: str | None = None
