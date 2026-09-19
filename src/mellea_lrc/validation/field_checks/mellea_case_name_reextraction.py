@@ -37,7 +37,7 @@ CONTEXT_AFTER_CHARS = 160
 REEXTRACTION_MAX_TOKENS = 256
 REEXTRACTION_MAX_REPAIR_TURNS = 2
 
-REEXTRACTION_INSTRUCTION = """
+REEXTRACTION_PREFIX = """
 Extract the plaintiff and defendant copied in local_context for the citation
 marked by locator. Treat locator as the boundary marker. Prefer the nearest
 copied "plaintiff v. defendant" name before locator, even when a docket number,
@@ -53,7 +53,9 @@ name. Return plaintiff and defendant as separate fields.
 Return classification "complete_case_name" when both parties are present,
 "partial_case_name" when exactly one is present, and "no_case_name" only when no
 party bound to locator appears in local_context.
+""".strip()
 
+REEXTRACTION_INSTRUCTION = """
 locator:
 {{locator}}
 """.strip()
@@ -96,6 +98,7 @@ async def run_mellea_case_name_reextraction(
         options = llm_api_config_from_env(os.environ).mellea_call_options(max_tokens=REEXTRACTION_MAX_TOKENS)
         spec = InstructIvrSpec(
             description=REEXTRACTION_INSTRUCTION,
+            prefix=REEXTRACTION_PREFIX,
             grounding_context={"local_context": local_context},
             user_variables={"locator": locator_lookup.locator},
             output_format=_PartyProposal,
