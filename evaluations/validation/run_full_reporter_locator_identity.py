@@ -1,10 +1,10 @@
-"""Run a bounded identity-only evaluation from persisted locator checkpoints.
+"""Evaluate reporter identity from persisted locator-chain artifacts.
 
-The source checkpoint has already completed locator admission, colocation, and
-the deterministic court, date, and case-name readers. This runner resumes
-those exact ``Document`` objects, invokes only root identity, and writes the
-same ``Document`` shape with its new citation traces. Pinpoint page retrieval
-is intentionally outside this run.
+Each source artifact supplies its cumulative ``colocation`` ``Document``.
+This runner resumes that document, applies the deterministic case-name, court,
+and date readers, then invokes only reporter identity. Every completed filing
+is a standalone serialized ``Document`` that a later stage can deserialize.
+Pinpoint page retrieval is intentionally outside this run.
 """
 
 from __future__ import annotations
@@ -24,6 +24,10 @@ from dotenv import load_dotenv
 from mellea_lrc.api import (
     Document,
     full_reporter_locator_identity,
+    resolve_case_names,
+    resolve_courts,
+    resolve_dates,
+    stable,
 )
 from mellea_lrc.courtlistener import CourtListenerClient
 from mellea_lrc.llm import llm_api_config_from_env, start_mellea_session_from_env
@@ -40,6 +44,31 @@ def _atomic_json(path: Path, value: object) -> None:
 def _sha256(path: Path) -> str:
     """Return a source checkpoint's byte hash for reproducibility."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _colocation_document(path: Path) -> Document:
+    """Restore the final locator document from one locator-chain artifact."""
+    artifact = json.loads(path.read_text(encoding="utf-8"))
+    if artifact.get("artifact_type") != "locator_checkpoint_chain":
+        msg = f"{path}: expected a locator_checkpoint_chain artifact"
+        raise ValueError(msg)
+    checkpoints = artifact.get("checkpoints")
+    if not isinstance(checkpoints, dict):
+        msg = f"{path}: missing checkpoint map"
+        raise ValueError(msg)
+    payload = checkpoints.get("colocation")
+    if not isinstance(payload, dict):
+        msg = f"{path}: missing serialized colocation checkpoint"
+        raise ValueError(msg)
+    return Document.from_serialized(payload)
+
+
+def _prepare_identity_fields(document: Document) -> Document:
+    """Fill only the deterministic fields reporter identity may compare."""
+    rules = stable()
+    document = resolve_case_names(document, rules=rules)
+    document = resolve_courts(document, rules=rules)
+    return resolve_dates(document, rules=rules)
 
 
 def _summary(payload: dict[str, Any]) -> Counter[str]:
@@ -119,15 +148,15 @@ def _validation_nodes(citation: dict[str, Any]) -> list[dict[str, Any]]:
 
 async def run(
     *,
-    checkpoints: Path,
+    locator_checkpoints: Path,
     output: Path,
     limit: int,
     resume: bool,
 ) -> dict[str, object]:
-    """Resume a deterministic first slice of checkpoint documents."""
-    paths = sorted(checkpoints.glob("*.json"))[:limit]  # noqa: ASYNC240
+    """Resume a deterministic first slice of locator-chain artifacts."""
+    paths = sorted(locator_checkpoints.glob("*.json"))[:limit]  # noqa: ASYNC240
     if len(paths) != limit:
-        msg = f"{checkpoints} has {len(paths)} checkpoints, fewer than requested limit={limit}"
+        msg = f"{locator_checkpoints} has {len(paths)} artifacts, fewer than requested limit={limit}"
         raise ValueError(msg)
 
     service = CourtListenerClient()
@@ -142,7 +171,7 @@ async def run(
             payload = json.loads(result_path.read_text(encoding="utf-8"))
             Document.from_serialized(payload)
         else:
-            document = Document.from_serialized(json.loads(path.read_text(encoding="utf-8")))
+            document = _prepare_identity_fields(_colocation_document(path))
             document = await full_reporter_locator_identity(document, client=service, session=session)
             payload = document.serialize()
             Document.from_serialized(payload)
@@ -151,8 +180,8 @@ async def run(
         model_statistics.update(_model_statistics(payload))
         result_paths.append(
             {
-                "checkpoint": path.name,
-                "checkpoint_sha256": _sha256(path),
+                "locator_checkpoint_artifact": path.name,
+                "locator_checkpoint_artifact_sha256": _sha256(path),
                 "full_reporter_locator_identity_result": str(result_path.relative_to(output)),
             }
         )
@@ -163,8 +192,9 @@ async def run(
         "artifact_type": "full_reporter_locator_identity_evaluation",
         "schema_version": 1,
         "created_at": datetime.now(UTC).isoformat(),
-        "input_checkpoint_dir": str(checkpoints),
-        "input_stage": "locator_checkpoint",
+        "input_locator_checkpoint_dir": str(locator_checkpoints),
+        "input_stage": "colocation",
+        "field_preparation": ["case_names", "courts", "dates"],
         "documents": result_paths,
         "document_count": len(result_paths),
         "full_reporter_locator_identity_scope": (
@@ -182,7 +212,10 @@ def main() -> None:
     """Run the bounded checkpoint evaluation."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--checkpoints", type=Path, required=True, help="Directory of case-name checkpoint documents."
+        "--locator-checkpoints",
+        type=Path,
+        required=True,
+        help="Directory of locator_checkpoint_chain document artifacts.",
     )
     parser.add_argument(
         "--output", type=Path, required=True, help="Directory for full-reporter-locator identity artifacts."
@@ -198,7 +231,7 @@ def main() -> None:
     load_dotenv(".env")
     manifest = asyncio.run(
         run(
-            checkpoints=args.checkpoints,
+            locator_checkpoints=args.locator_checkpoints,
             output=args.output,
             limit=args.limit,
             resume=args.resume,
