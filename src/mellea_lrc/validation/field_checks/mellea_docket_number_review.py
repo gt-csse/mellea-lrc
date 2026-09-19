@@ -19,7 +19,7 @@ from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
 
 from mellea_lrc.core.citations import DocketCitation
-from mellea_lrc.core.fuzziness import FuzzinessOption
+from mellea_lrc.core.fuzziness import FuzzinessOption, FuzzinessType
 from mellea_lrc.extraction.reading.dockets import DOCKET_PREFIX
 from mellea_lrc.llm import (
     EvidenceCandidate,
@@ -45,8 +45,17 @@ if TYPE_CHECKING:
 
 MAX_TOKENS = 640
 MAX_REPAIR_TURNS = 2
-DOCKET_NUMBER_GROUNDING = FuzzinessOption.whitespace_relaxation()
+# A source locator or a model reproduction can carry isolated OCR/converter
+# damage. The evidence still supplies the canonical value admitted to the
+# record; 90% similarity permits a small number of such differences, while
+# the grounding set refuses a proposal that could name two source identifiers.
+DOCKET_NUMBER_GROUNDING = FuzzinessOption.edit_distance(similarity_percent=90)
 _LEADING_DOCKET_LABEL = re.compile(DOCKET_PREFIX, re.IGNORECASE)
+_PLURAL_CASE_LABEL = re.compile(r"\bCase\s+Nos?\.\s*", re.IGNORECASE)
+_SOURCE_DOCKET_SEQUENCE = re.compile(
+    r"\d(?:[A-Za-z0-9:./\\-]|\s+(?!and\b))*[A-Za-z0-9]",
+    re.IGNORECASE,
+)
 
 # This prefix contains the stable recovery contract only. The filing and its
 # particular identifier are supplied separately, which keeps a provider prefix
@@ -92,24 +101,20 @@ def _parse(value: object) -> _DocketNumberProposal:
 
 
 def _grounded_candidates(source_locator: str) -> GroundingEvidence[str]:
-    """Expose every plausible physical substring as a reusable grounding set.
+    """Expose complete digit-led identifier sequences as grounding evidence.
 
-    The locator is short. Enumerating its digit-bearing, alphanumeric-bounded
-    substrings keeps the grounding policy general: the model cannot supply any
-    character that the filing did not write, while no jurisdiction-specific
-    docket grammar is needed to discover a corrected parse.
+    The locator is short. Each sequence ends at a separator or the connective
+    ``and`` rather than at every possible character position. That preserves
+    the source's complete identifier spelling and prevents a 90%-similar
+    proposal from ambiguously matching a one-character-truncated substring.
+    The model still cannot admit characters the filing did not write, and no
+    jurisdiction-specific docket grammar is needed to ground a reparse.
     """
-    candidates: list[EvidenceCandidate[str]] = []
     source_number = _source_number_region(source_locator)
-    for start, first in enumerate(source_number):
-        if not first.isalnum():
-            continue
-        for end in range(start + 1, len(source_number) + 1):
-            value = source_number[start:end]
-            if not value[-1].isalnum() or not any(character.isdigit() for character in value):
-                continue
-            candidates.append(EvidenceCandidate(text=value, value=value))
-    return GroundingEvidence(candidates)
+    return GroundingEvidence(
+        EvidenceCandidate(text=match.group(), value=match.group())
+        for match in _SOURCE_DOCKET_SEQUENCE.finditer(source_number)
+    )
 
 
 def _source_number_region(source_locator: str) -> str:
@@ -121,7 +126,7 @@ def _source_number_region(source_locator: str) -> str:
     identifier while preserving all later, opaque identifier text for review.
     A locator without one of those labels remains fully available to hunting.
     """
-    match = _LEADING_DOCKET_LABEL.match(source_locator)
+    match = _LEADING_DOCKET_LABEL.match(source_locator) or _PLURAL_CASE_LABEL.match(source_locator)
     return source_locator[match.end() :] if match is not None else source_locator
 
 
@@ -130,9 +135,22 @@ def _grounded_number(source_locator: str, proposed: str | None) -> str | None:
     if proposed is None:
         return None
     matches = _grounded_candidates(source_locator).fuzzy_match(proposed, DOCKET_NUMBER_GROUNDING)
-    if len(matches) != 1:
+    exact = tuple(
+        match
+        for match in matches
+        if match.match_type in {FuzzinessType.PERFECT_MATCH, FuzzinessType.WHITESPACE_RELAXATION}
+    )
+    if exact:
+        return exact[0].candidate.value if len(exact) == 1 else None
+
+    # Similarity admits isolated converter/OCR damage, but it cannot make two
+    # equally close identifiers interchangeable. Retain the source spelling
+    # only when the closest fuzzy candidate is unique.
+    if not matches:
         return None
-    return matches[0].candidate.value
+    best_edits = min(match.edits for match in matches)
+    best = tuple(match for match in matches if match.edits == best_edits)
+    return best[0].candidate.value if len(best) == 1 else None
 
 
 def _validate_number(ctx: Context, source_locator: str) -> ValidationResult:
@@ -149,8 +167,8 @@ def _validate_number(ctx: Context, source_locator: str) -> ValidationResult:
     return ValidationResult(
         result=False,
         reason=(
-            "docket_number must be one unambiguous substring of source_locator, copied with at most "
-            "whitespace variation."
+            "docket_number must resolve to one unambiguous source_locator substring at 90% similarity "
+            "after whitespace normalization."
         ),
     )
 
