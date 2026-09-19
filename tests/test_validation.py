@@ -59,6 +59,7 @@ from mellea_lrc.validation import (
     YearCheckNode,
     initialize_validation,
     validate_document,
+    validate_document_identity,
 )
 from mellea_lrc.validation.aggregation.citation_summary_candidate import citation_summary_candidate
 from mellea_lrc.validation.candidate_state import CandidateValidationState
@@ -127,6 +128,11 @@ class LookupClient:
 def _validate(document: Document, client: LookupClient) -> ValidatedDocument:
     """Run the sole document-level validation entrypoint synchronously in tests."""
     return asyncio.run(validate_document(document, client=client))
+
+
+def _validate_identity(document: Document, client: LookupClient) -> ValidatedDocument:
+    """Run the checkpoint-to-identity entrypoint synchronously in tests."""
+    return asyncio.run(validate_document_identity(document, client=client))
 
 
 def _document(citation: FullCaseCitation | FullLawCitation) -> Document:
@@ -322,6 +328,48 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
     assert summary_node.outcome is LocatorCitationSummaryOutcome.COMPLETE
     assert summary_node.candidates[0].assessment_node_id == assessment_node.node_id
     assert progression.aggregation is summary_node
+
+
+def test_identity_checkpoint_stops_before_reporter_page_retrieval() -> None:
+    """Identity is complete before the later pinpoint phase begins."""
+    extracted = _document(
+        FullCaseCitation(
+            plaintiff="Brown",
+            defendant="Board",
+            volume="347",
+            reporter="U.S.",
+            page="483",
+            date=CitationDate(year="1954"),
+            court="scotus",
+        )
+    )
+    cluster = CourtListenerOpinionCluster(
+        case_name="Brown v. Board",
+        date_filed="1954-05-17",
+        court_id="scotus",
+        docket_id="84657",
+    )
+    client = LookupClient(
+        CourtListenerCitationLookup(
+            citation="347 U.S. 483",
+            status=200,
+            clusters=(cluster,),
+        ),
+        docket_response=CourtListenerDocket(docket_id="84657", court_id="scotus"),
+    )
+
+    progression = _validate_identity(extracted, client).citation_by_id("cite-0001")
+
+    assert len(progression.nodes) == 8
+    assert all(
+        not isinstance(
+            node,
+            ReporterPageRetrievalNode | MelleaCitingPropositionExtractionNode | MelleaPinpointCheckNode,
+        )
+        for node in progression.nodes
+    )
+    assert isinstance(progression.aggregation, LocatorCitationSummaryNode)
+    assert progression.aggregation.candidates[0].pinpoint is None
 
 
 def test_found_field_checks_treat_unavailable_year_as_a_full_match() -> None:
