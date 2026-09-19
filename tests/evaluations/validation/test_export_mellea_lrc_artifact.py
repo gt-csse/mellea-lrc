@@ -10,21 +10,26 @@ from evaluations.validation.export_mellea_lrc_artifact import export
 
 def test_export_flattens_a_serialized_run(tmp_path: Path) -> None:
     artifact = {
-        "source": {
-            "citations": [
-                {
-                    "citation_id": "local-id",
+        "citations": [
+            {
+                "citation_id": "local-id",
+                "source": {
+                    "citation_type": "FullCaseCitation",
                     "locator_span": {"start": 10, "end": 22},
-                    "citation": {
-                        "citation_type": "FullCaseCitation",
-                        "volume": "1",
-                        "reporter": "U.S.",
-                        "page": "2",
-                    },
-                }
-            ]
-        },
-        "citations": [{"citation_id": "local-id", "aggregation": {"overall_outcome": "possible_match"}}],
+                    "volume": "1",
+                    "reporter": "U.S.",
+                    "page": "2",
+                },
+                "trace": [
+                    {
+                        "details": {
+                            "validation_node_type": "LocatorCitationSummaryNode",
+                            "validation": {"overall_outcome": "possible_match"},
+                        }
+                    }
+                ],
+            }
+        ]
     }
     (tmp_path / "1.json").write_text(json.dumps(artifact), encoding="utf-8")
 
@@ -54,21 +59,26 @@ def test_export_accepts_published_corpus_file_names(tmp_path: Path) -> None:
     adapter takes that prefix rather than requiring a bare numeric stem.
     """
     artifact = {
-        "source": {
-            "citations": [
-                {
-                    "citation_id": "local-id",
+        "citations": [
+            {
+                "citation_id": "local-id",
+                "source": {
+                    "citation_type": "FullCaseCitation",
                     "locator_span": {"start": 10, "end": 22},
-                    "citation": {
-                        "citation_type": "FullCaseCitation",
-                        "volume": "1",
-                        "reporter": "U.S.",
-                        "page": "2",
-                    },
-                }
-            ]
-        },
-        "citations": [{"citation_id": "local-id", "aggregation": {"overall_outcome": "match"}}],
+                    "volume": "1",
+                    "reporter": "U.S.",
+                    "page": "2",
+                },
+                "trace": [
+                    {
+                        "details": {
+                            "validation_node_type": "LocatorCitationSummaryNode",
+                            "validation": {"overall_outcome": "match"},
+                        }
+                    }
+                ],
+            }
+        ]
     }
     (tmp_path / "006__coomer-v-lindell-mypillow-inc__response-brief.json").write_text(
         json.dumps(artifact), encoding="utf-8"

@@ -854,23 +854,6 @@ class ValidatedDocument:
         """Return the immutable extracted-document text."""
         return self.source.text
 
-    def serialize(self) -> dict[str, object]:
-        """Return the complete JSON-ready validation checkpoint."""
-        from mellea_lrc.serialization.validated_document import serialize_validated_document
-
-        return serialize_validated_document(self)
-
-    @classmethod
-    def from_serialized(cls, payload: Mapping[str, object]) -> ValidatedDocument:
-        """Recover a validation checkpoint produced by :meth:`serialize`."""
-        from mellea_lrc.serialization.validated_document import deserialize_validated_document
-
-        document = deserialize_validated_document(payload)
-        if not isinstance(document, cls):
-            msg = f"Serialized validation produced {type(document).__name__}, not {cls.__name__}"
-            raise TypeError(msg)
-        return document
-
     def citation_by_id(self, citation_id: str) -> CitationValidation:
         """Return one citation's validation progression."""
         for citation in self.citations:

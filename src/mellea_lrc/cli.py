@@ -21,8 +21,7 @@ from pathlib import Path
 
 from mellea_lrc.api import (
     Document,
-    run_full_reporter_locator_identity,
-    start_full_reporter_locator_identity,
+    validate_roots_identity,
 )
 from mellea_lrc.extraction import extract_citations, extract_from_plain_text
 from mellea_lrc.preprocessing import preprocess
@@ -39,10 +38,9 @@ def _validate(args: argparse.Namespace) -> int:
     """Parse the source, then check every citation it contains."""
     document = _parse(args.source, from_file=args.from_file)
     print(f"Parsed {len(document.full_citations)} citations; validating", file=sys.stderr)
-    checkpoint = start_full_reporter_locator_identity(document)
-    validated = asyncio.run(run_full_reporter_locator_identity(checkpoint))
+    document = asyncio.run(validate_roots_identity(document))
 
-    text = json.dumps(validated.serialize(), indent=2, ensure_ascii=False)
+    text = json.dumps(document.serialize(), indent=2, ensure_ascii=False)
     if args.output is None:
         sys.stdout.write(text + "\n")
     else:

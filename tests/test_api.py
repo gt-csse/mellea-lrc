@@ -5,26 +5,23 @@ from pathlib import Path
 
 from mellea_lrc.api import (
     Document,
-    ValidatedDocument,
     find_docket_locators,
     find_full_reporter_locators,
     resolve_colocations,
-    run_full_reporter_locator_identity,
-    start_full_reporter_locator_identity,
+    validate_roots_identity,
 )
 from mellea_lrc.extraction import extract_from_plain_text
 
 
-def test_document_and_validation_checkpoints_own_their_serialization_boundary() -> None:
+def test_document_owns_its_serialization_before_and_after_identity() -> None:
     document = extract_from_plain_text("A filing without citations.")
 
     recovered_document = Document.from_serialized(document.serialize())
-    checkpoint = start_full_reporter_locator_identity(recovered_document)
-    recovered_checkpoint = ValidatedDocument.from_serialized(checkpoint.serialize())
-    completed = asyncio.run(run_full_reporter_locator_identity(recovered_checkpoint, client=object()))
+    completed = asyncio.run(validate_roots_identity(recovered_document, client=object()))
+    restored_completed = Document.from_serialized(completed.serialize())
 
     assert recovered_document == document
-    assert completed == checkpoint
+    assert restored_completed == completed
 
 
 def test_outer_api_composes_locator_stages_from_a_document_owned_constructor() -> None:

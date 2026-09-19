@@ -38,12 +38,30 @@ def _document_id(path: Path) -> str:
     return path.stem.split("__", 1)[0]
 
 
-def _record_id(document_id: str, source: dict[str, Any]) -> str:
+def _record_id(document_id: str, record: dict[str, Any]) -> str:
     """Build the same occurrence ID used by the identity benchmark."""
-    locator_id = _locator_id(source["citation"])
-    identity = locator_id or _normalized_part(source["citation"]["citation_type"])
+    source = record["source"]
+    locator_id = _locator_id(source)
+    identity = locator_id or _normalized_part(source["citation_type"])
     span = source["locator_span"]
     return f"cite:{document_id}:{identity}:{span['start']}-{span['end']}"
+
+
+def _summary_outcome(record: dict[str, Any]) -> str:
+    """Return the stored candidate-summary conclusion without replaying a trace."""
+    for node in record.get("trace", []):
+        details = node.get("details")
+        if not isinstance(details, dict):
+            continue
+        if details.get("validation_node_type") not in {
+            "LocatorCitationSummaryNode",
+            "SearchCitationSummaryNode",
+        }:
+            continue
+        validation = details.get("validation")
+        if isinstance(validation, dict) and isinstance(validation.get("overall_outcome"), str):
+            return validation["overall_outcome"]
+    return "unavailable"
 
 
 def export(artifact_dir: Path) -> list[dict[str, Any]]:
@@ -60,16 +78,14 @@ def export(artifact_dir: Path) -> list[dict[str, Any]]:
     for path in sorted(paths, key=lambda item: int(_document_id(item))):
         try:
             document = json.loads(path.read_text(encoding="utf-8"))
-            sources = {source["citation_id"]: source for source in document["source"]["citations"]}
             for citation in document["citations"]:
-                source = sources[citation["citation_id"]]
+                source = citation["source"]
                 records.append(
                     {
-                        "id": _record_id(_document_id(path), source),
-                        "locator_id": _locator_id(source["citation"]),
+                        "id": _record_id(_document_id(path), citation),
+                        "locator_id": _locator_id(source),
                         "locator_span": source["locator_span"],
-                        "verdict": (citation.get("aggregation") or {}).get("overall_outcome")
-                        or "unavailable",
+                        "verdict": _summary_outcome(citation),
                     }
                 )
         except (json.JSONDecodeError, KeyError, TypeError) as error:
