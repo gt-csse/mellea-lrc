@@ -1,9 +1,11 @@
 """Tests for the post-extraction validation-node progression."""
 
 import asyncio
+from threading import Event
 from types import SimpleNamespace
 
 import pytest
+from mellea.backends import ModelOption
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import BaseModel
 
@@ -254,6 +256,29 @@ def test_a_prefix_is_sent_as_the_system_message_and_nowhere_else(monkeypatch) ->
         ModelOption.SYSTEM_PROMPT: "The cited text:\nthe opinion",
     }
     assert options == {"max_tokens": 10}
+
+
+def test_instruct_ivr_records_a_whole_call_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An open provider call becomes a serializable failed IVR run."""
+
+    def stalled_instruct(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        Event().wait(0.05)
+        return _sampling_result("{}")
+
+    monkeypatch.setattr("mellea_lrc.llm.ivr.mfuncs.instruct", stalled_instruct)
+    result = asyncio.run(
+        run_instruct_ivr(
+            SimpleNamespace(backend=SimpleNamespace(model_id="test-model")),
+            InstructIvrSpec(description="Return a value."),
+            strategy=MultiTurnStrategy(loop_budget=1),
+            model_options={ModelOption.STREAM_TIMEOUT: 0.005},
+        )
+    )
+
+    assert not result.success
+    assert result.output == ""
+    assert result.failure_reason == "Model call exceeded the configured 0.005-second timeout."
+    assert result.attempts[0].requirements[0].passed is False
 
 
 def test_initialize_full_reporter_locator_identity_instances_one_progression_per_extracted_citation() -> None:
