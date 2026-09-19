@@ -14,9 +14,12 @@ citations, or pinpoint support.
 
 ```python
 import asyncio
+from pathlib import Path
+
 from mellea_lrc.extraction import extract_from_raw_document
 from mellea_lrc.validation import validate_document_identity
 
+document = extract_from_raw_document(Path("filing.pdf"))
 identity = asyncio.run(validate_document_identity(document))
 for citation in identity.citations:
     print(citation.citation_id, citation.identity_resolution)
