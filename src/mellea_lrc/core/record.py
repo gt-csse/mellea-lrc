@@ -154,7 +154,10 @@ class Question(str, Enum):
     """
 
     LOCATOR_LOOKUP = "locator_lookup"
-    """What did the exact complete-locator lookup return?"""
+    """What did the exact full-reporter-locator lookup return?"""
+
+    DOCKET_LOOKUP = "docket_lookup"
+    """What did the CourtListener docket-root search return?"""
 
     IDENTITY = "identity"
     """Does this citation reach the authority it names?"""

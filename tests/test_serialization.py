@@ -560,6 +560,7 @@ def test_validated_document_round_trip_supports_every_current_node_type() -> Non
             date_filed=cluster.date_filed,
             court_id=cluster.court_id,
             docket_id=cluster.docket_id,
+            docket_number=None,
             record={"cluster_id": 123, "meta": {"rank": 1}},
             depends_on=(selection_id,),
         ),

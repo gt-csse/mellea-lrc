@@ -35,6 +35,9 @@ from mellea_lrc.validation.types import (
     CourtCheckNode,
     DocketCourtRetrievalNode,
     DocketCourtRetrievalOutcome,
+    DocketNumberCheckNode,
+    DocketRootSearchNode,
+    DocketRootSearchOutcome,
     EvidenceQuoteMatchMethod,
     ExactCaseNameCheckNode,
     ExactLocatorLookupNode,
@@ -85,6 +88,7 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
     node_type.__name__: node_type
     for node_type in (
         ExactLocatorLookupNode,
+        DocketRootSearchNode,
         ExactCaseNameCheckNode,
         MelleaCaseNameCheckNode,
         MelleaCaseNameReextractionNode,
@@ -95,6 +99,7 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
         CandidateEvaluationNode,
         MelleaReextractedCaseNameCheckNode,
         DocketCourtRetrievalNode,
+        DocketNumberCheckNode,
         ReporterPageRetrievalNode,
         MelleaCitingPropositionExtractionNode,
         MelleaPinpointCheckNode,
@@ -112,6 +117,7 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
 
 _OUTCOME_TYPES = {
     ExactLocatorLookupNode: LocatorLookupOutcome,
+    DocketRootSearchNode: DocketRootSearchOutcome,
     ExactCaseNameCheckNode: FieldCheckOutcome,
     MelleaCaseNameCheckNode: MelleaCaseNameCheckOutcome,
     MelleaCaseNameReextractionNode: MelleaCaseNameReextractionOutcome,
@@ -122,6 +128,7 @@ _OUTCOME_TYPES = {
     CandidateEvaluationNode: CandidateEvaluationOutcome,
     MelleaReextractedCaseNameCheckNode: MelleaCaseNameCheckOutcome,
     DocketCourtRetrievalNode: DocketCourtRetrievalOutcome,
+    DocketNumberCheckNode: FieldCheckOutcome,
     ReporterPageRetrievalNode: ReporterPageRetrievalOutcome,
     MelleaCitingPropositionExtractionNode: MelleaCitingPropositionExtractionOutcome,
     MelleaPinpointCheckNode: MelleaPinpointCheckOutcome,
@@ -223,7 +230,11 @@ def deserialize_validation_node(value: object) -> ValidationNode:
             deserialize_ivr_run(require_mapping(run, name="node.run")) if run is not None else None
         )
 
-    if node_type is ExactLocatorLookupNode:
+    if node_type is DocketRootSearchNode:
+        fields["candidates"] = _freeze_search_results(
+            require_list(fields["candidates"], name="node.candidates")
+        )
+    elif node_type is ExactLocatorLookupNode:
         fields["cluster"] = _deserialize_cluster(fields["cluster"]) if fields["cluster"] is not None else None
         fields["candidate_clusters"] = tuple(
             _deserialize_cluster(item)

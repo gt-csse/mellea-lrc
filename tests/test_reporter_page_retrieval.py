@@ -70,6 +70,7 @@ def _validation(
         date_filed=cluster.date_filed,
         court_id=cluster.court_id,
         docket_id=cluster.docket_id,
+        docket_number=None,
         record=cluster,
         depends_on=("cite-1:lookup",),
     )

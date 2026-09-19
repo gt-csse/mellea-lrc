@@ -25,6 +25,11 @@ from mellea_lrc.extraction.stages import (
     resolve_pin_cites,
 )
 from mellea_lrc.extraction.types import Document
+from mellea_lrc.validation.docket_roots import (
+    resolve_docket_root_ambiguities,
+    search_docket_roots,
+    validate_unique_docket_root_identities,
+)
 from mellea_lrc.validation.roots import (
     lookup_full_reporter_locators_exact,
     resolve_full_reporter_locator_ambiguities,
@@ -44,8 +49,11 @@ __all__ = [
     "resolve_colocations",
     "resolve_courts",
     "resolve_dates",
+    "resolve_docket_root_ambiguities",
     "resolve_full_reporter_locator_ambiguities",
     "resolve_pin_cites",
+    "search_docket_roots",
     "stable",
+    "validate_unique_docket_root_identities",
     "validate_unique_full_reporter_locator_identities",
 ]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.core.citations import DocketCitation, FullCaseCitation
 from mellea_lrc.validation.types import (
     ExactCaseNameCheckNode,
     FieldCheckOutcome,
@@ -22,7 +22,9 @@ def run_exact_case_name_check(
 ) -> ExactCaseNameCheckNode:
     """Compare normalized extracted and retrieved case names exactly."""
     citation = validation.citation.stated
-    extracted = _extracted_case_name(citation) if isinstance(citation, FullCaseCitation) else None
+    extracted = (
+        _extracted_case_name(citation) if isinstance(citation, (FullCaseCitation, DocketCitation)) else None
+    )
     retrieved = candidate.case_name
     if extracted is None or retrieved is None:
         status = ValidationNodeStatus.SKIPPED
@@ -54,13 +56,18 @@ def run_exact_case_name_check(
     )
 
 
-def _extracted_case_name(citation: FullCaseCitation) -> str | None:
+def _extracted_case_name(citation: FullCaseCitation | DocketCitation) -> str | None:
     """Build the extracted case name, tolerating single-party captions.
 
     Most citations have both a plaintiff and a defendant, but single-party
     captions (``In re X``, ``Ex parte X``) are legitimate case names too - use
     whichever party is present instead of requiring both.
     """
+    # ``case_name.text`` is the field reader's literal, span-grounded value.
+    # It is indispensable for ``In re`` and ``Ex parte`` captions, where the
+    # reader may not be able to split parties even though it located the name.
+    if citation.case_name is not None:
+        return citation.case_name.text
     if citation.plaintiff and citation.defendant:
         return f"{citation.plaintiff} v. {citation.defendant}"
     return citation.plaintiff or citation.defendant or None

@@ -37,10 +37,28 @@ def run_locator_candidate_evaluation(
         date_filed=cluster.date_filed,
         court_id=cluster.court_id,
         docket_id=cluster.docket_id,
+        docket_number=None,
         record=cluster,
         depends_on=depends_on,
         status_message="Locator candidate evaluation branch initialized.",
         outcome_message="Candidate is ready for independent validation checks.",
+    )
+
+
+def run_docket_search_candidate_evaluation(
+    validation: CitationValidation,
+    *,
+    result: Mapping[str, object],
+    candidate_index: int,
+    depends_on: tuple[str, ...],
+) -> CandidateEvaluationNode:
+    """Materialize one CourtListener docket-search candidate for field checks."""
+    return _search_candidate_evaluation(
+        validation,
+        result=result,
+        candidate_index=candidate_index,
+        depends_on=depends_on,
+        source=CandidateEvaluationSource.DOCKET_SEARCH,
     )
 
 
@@ -99,6 +117,7 @@ def _search_candidate_evaluation(
         date_filed=_optional_string(result.get("dateFiled")),
         court_id=_optional_string(result.get("court_id")),
         docket_id=_optional_string(result.get("docket_id")),
+        docket_number=_optional_string(result.get("docketNumber")),
         record=result,
         depends_on=depends_on,
         status_message=f"{source_label} candidate evaluation branch initialized.",

@@ -34,6 +34,16 @@ class LocatorLookupOutcome(str, Enum):
     FAILED = "failed"
 
 
+class DocketRootSearchOutcome(str, Enum):
+    """Results of retrieving CourtListener docket candidates for one docket root."""
+
+    FOUND = "found"
+    NOT_FOUND = "not_found"
+    AMBIGUOUS = "ambiguous"
+    EXCEEDS_REVIEW_LIMIT = "exceeds_review_limit"
+    FAILED = "failed"
+
+
 class FieldCheckOutcome(str, Enum):
     """Deterministic comparison outcome for one citation field."""
 
@@ -144,6 +154,7 @@ class CandidateEvaluationSource(str, Enum):
     """Retrieval route that produced a candidate evaluation node."""
 
     LOCATOR_LOOKUP = "locator_lookup"
+    DOCKET_SEARCH = "docket_search"
     OPINION_SEARCH = "opinion_search"
     RECAP_SEARCH = "recap_search"
 
@@ -206,6 +217,7 @@ class CandidateProvenance(str, Enum):
     """CourtListener corpus that produced a summarized candidate."""
 
     OPINION = "opinion"
+    DOCKET = "docket"
     RECAP = "recap"
 
 
@@ -371,6 +383,30 @@ class RecapSearchNode:
 
 
 @dataclass(frozen=True, slots=True)
+class DocketRootSearchNode:
+    """All CourtListener docket-search evidence for one docket root.
+
+    Search is the retrieval mechanism for docket identifiers.  The stated
+    court, when present, narrows the query; it is never required.  Candidate
+    records remain intact so the later unique and ambiguity stages can resume
+    without repeating the network call.
+    """
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: DocketRootSearchOutcome
+    docket_number: str | None
+    query: str | None
+    candidate_count: int
+    candidates: tuple[Mapping[str, object], ...]
+    next_cursor: str | None
+    depends_on: tuple[str, ...] = ()
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateSelectionNode:
     """Bounded decision on whether one retrieval result set may be evaluated."""
 
@@ -399,6 +435,7 @@ class CandidateEvaluationNode:
     date_filed: str | None
     court_id: str | None
     docket_id: str | None
+    docket_number: str | None
     record: CourtListenerOpinionCluster | Mapping[str, object]
     depends_on: tuple[str, ...]
     status_message: str | None = None
@@ -439,6 +476,20 @@ class DocketCourtRetrievalNode:
     status_message: str | None = None
     outcome_message: str | None = None
     error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DocketNumberCheckNode:
+    """Comparison of the docket number stated in the filing and search record."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: FieldCheckOutcome
+    extracted_docket_number: str | None
+    retrieved_docket_number: str | None
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -521,7 +572,7 @@ class MelleaPinpointCheckNode:
 
 @dataclass(frozen=True, slots=True)
 class LocatorCandidateAssessmentNode:
-    """Table-ready conclusion for the one candidate from a found locator."""
+    """Table-ready conclusion for one candidate from a complete-locator route."""
 
     node_id: str
     status: ValidationNodeStatus
@@ -590,6 +641,7 @@ class CitationSummaryCandidate:
     retrieved_court_id: str | None
     court_outcome: AggregatedFieldOutcome
     docket_id: str | None
+    docket_number: str | None = None
     opinion_url: str | None = None
     docket_url: str | None = None
     pinpoint: CitationSummaryPinpoint | None = None
@@ -597,7 +649,7 @@ class CitationSummaryCandidate:
 
 @dataclass(frozen=True, slots=True)
 class LocatorCitationSummaryNode:
-    """List of every fully evaluated candidate from one exact-locator route."""
+    """List of every fully evaluated candidate from one complete-locator route."""
 
     node_id: str
     status: ValidationNodeStatus
@@ -764,6 +816,7 @@ class YearCheckNode:
 # Expand this union as operation-specific validation nodes are introduced.
 ValidationNode: TypeAlias = (
     ExactLocatorLookupNode
+    | DocketRootSearchNode
     | ExactCaseNameCheckNode
     | MelleaCaseNameCheckNode
     | MelleaCaseNameReextractionNode
@@ -774,6 +827,7 @@ ValidationNode: TypeAlias = (
     | CandidateEvaluationNode
     | MelleaReextractedCaseNameCheckNode
     | DocketCourtRetrievalNode
+    | DocketNumberCheckNode
     | ReporterPageRetrievalNode
     | MelleaCitingPropositionExtractionNode
     | MelleaPinpointCheckNode
