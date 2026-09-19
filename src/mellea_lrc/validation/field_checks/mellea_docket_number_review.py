@@ -49,7 +49,10 @@ MAX_REPAIR_TURNS = 2
 # damage. The evidence still supplies the canonical value admitted to the
 # record; 90% similarity permits a small number of such differences, while
 # the grounding set refuses a proposal that could name two source identifiers.
-DOCKET_NUMBER_GROUNDING = FuzzinessOption.edit_distance(similarity_percent=90)
+DOCKET_NUMBER_GROUNDING = FuzzinessOption.edit_distance(
+    similarity_percent=90,
+    whitespace_relaxation=True,
+)
 _LEADING_DOCKET_LABEL = re.compile(DOCKET_PREFIX, re.IGNORECASE)
 _PLURAL_CASE_LABEL = re.compile(r"\bCase\s+Nos?\.\s*", re.IGNORECASE)
 _SOURCE_DOCKET_SEQUENCE = re.compile(

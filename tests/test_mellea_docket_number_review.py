@@ -3,7 +3,7 @@
 from mellea_lrc.validation.field_checks.mellea_docket_number_review import _grounded_number
 
 
-def test_docket_review_accepts_only_whitespace_variation_from_the_source_locator() -> None:
+def test_docket_review_grounds_whitespace_and_minor_character_variation() -> None:
     source = "Case No. 1: 24-cv-08760"
 
     assert _grounded_number(source, "1:24-cv-08760") == "1: 24-cv-08760"
