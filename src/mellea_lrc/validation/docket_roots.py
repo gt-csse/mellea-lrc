@@ -58,7 +58,6 @@ from mellea_lrc.validation.types import (
     MelleaDocketNumberEquivalenceNode,
     MelleaDocketNumberEquivalenceOutcome,
     MelleaLocatorCandidateChoiceNode,
-    MelleaLocatorCandidateChoiceOutcome,
     ValidationNode,
     ValidationNodeStatus,
 )
@@ -480,27 +479,11 @@ async def resolve_docket_root_semantics(
                 eligible_candidate_indices=eligible_indices,
             )
             progression = progression.append(choice)
-            if _requires_docket_decision_date_verification(record, choice=choice):
-                # CourtListener's docket search exposes the case's filing
-                # date. A date stated in a docket citation normally identifies
-                # the cited order or opinion instead. The separate opinion/date
-                # stage must retrieve that decision before a selected docket
-                # candidate can become an admitted citation identity.
-                resolution = _future_implementation_resolution(
-                    progression,
-                    depends_on=(summary.node_id, choice.node_id),
-                    scope=f"{search.node_id}:semantic",
-                    reason=(
-                        "The docket and case selection is plausible, but the stated decision date "
-                        "requires opinion-level verification; a docket filing date cannot verify it."
-                    ),
-                )
-            else:
-                resolution = run_locator_identity_resolution(
-                    progression,
-                    summary=summary,
-                    choice=choice,
-                )
+            resolution = run_locator_identity_resolution(
+                progression,
+                summary=summary,
+                choice=choice,
+            )
 
         resolution = replace(
             resolution,
@@ -609,12 +592,6 @@ def _semantic_docket_candidate_assessment(
     elif court is AggregatedFieldOutcome.MISMATCH:
         outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
         message = "The docket and case name agree, but the courts conflict."
-    elif _docket_requires_decision_date_verification(validation):
-        outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
-        message = (
-            "The docket and case name agree, but the stated decision date requires "
-            "opinion-level verification."
-        )
     elif year is AggregatedFieldOutcome.MISMATCH:
         outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
         message = "The docket and case name agree, but the dates conflict."
@@ -649,35 +626,6 @@ def _semantic_docket_candidate_assessment(
         depends_on=tuple(dependencies),
         status_message="Semantic docket candidate assessment completed.",
         outcome_message=message,
-    )
-
-
-def _docket_requires_decision_date_verification(validation: CitationValidation) -> bool:
-    """Whether this docket citation states a decision date the search cannot test.
-
-    CourtListener's docket route supplies ``dateFiled`` for the case, not a
-    date for the order or opinion cited in the filing.  The distinction is a
-    property of the two records, rather than a relaxed text-matching rule.
-    """
-    citation = validation.citation.stated
-    return isinstance(citation, DocketCitation) and citation.date is not None
-
-
-def _requires_docket_decision_date_verification(
-    record: CitationRecord,
-    *,
-    choice: MelleaLocatorCandidateChoiceNode,
-) -> bool:
-    """Keep a selected docket candidate pending when the source states a date.
-
-    A model may reject a candidate outright from its source-grounded case-name
-    and docket evidence.  It may not *admit* a selected docket when an
-    independent decision date remains unverified.
-    """
-    return (
-        choice.outcome is MelleaLocatorCandidateChoiceOutcome.SELECTED
-        and isinstance(record.stated, DocketCitation)
-        and record.stated.date is not None
     )
 
 
@@ -996,12 +944,6 @@ def _docket_candidate_assessment(
     elif court is AggregatedFieldOutcome.MISMATCH:
         outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
         message = "The docket number and case name match, but the courts conflict."
-    elif _docket_requires_decision_date_verification(validation):
-        outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
-        message = (
-            "The docket number and case name match, but the stated decision date requires "
-            "opinion-level verification."
-        )
     elif year is AggregatedFieldOutcome.MISMATCH:
         outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
         message = "The docket number and case name match, but the dates conflict."

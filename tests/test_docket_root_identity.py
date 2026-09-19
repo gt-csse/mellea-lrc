@@ -155,9 +155,13 @@ def test_docket_search_is_not_blocked_by_a_missing_court() -> None:
     assert completed.citations[0].judgement(Question.IDENTITY).outcome == "resolved"
 
 
-def test_docket_identity_defers_a_stated_decision_date_for_opinion_verification() -> None:
-    """A docket search's dateFiled cannot verify the date stated beside a docket citation."""
-    document = _document(date="2020")
+def test_docket_identity_defers_when_case_filing_postdates_a_stated_decision() -> None:
+    """A docket opened after the cited decision is contradictory evidence."""
+    document = _document(date=None)
+    document.citations[0].stated = replace(
+        document.citations[0].stated,
+        date=CitationDate(year="2024", month="Jan.", day="4"),
+    )
     client = _DocketSearchClient(count=1, results=[_candidate()])
 
     searched = asyncio.run(search_docket_roots(form_roots(document), client=client))
@@ -166,7 +170,25 @@ def test_docket_identity_defers_a_stated_decision_date_for_opinion_verification(
 
     assert root.judgement(Question.IDENTITY).outcome == "deferred_to_semantic_review"
     year = next(node for node in root.trace if node.details.get("validation_node_type") == "YearCheckNode")
-    assert year.details["validation"]["outcome"] == "unavailable"
+    assert year.details["validation"]["outcome"] == "mismatch"
+
+
+def test_docket_identity_admits_a_case_filed_before_a_stated_decision() -> None:
+    """A case filing before the cited decision is compatible identity evidence."""
+    document = _document(date=None)
+    document.citations[0].stated = replace(
+        document.citations[0].stated,
+        date=CitationDate(year="2024", month="Jan.", day="6"),
+    )
+    client = _DocketSearchClient(count=1, results=[_candidate()])
+
+    searched = asyncio.run(search_docket_roots(form_roots(document), client=client))
+    completed = asyncio.run(validate_unique_docket_root_identities(searched))
+    root = completed.citations[0]
+
+    assert root.judgement(Question.IDENTITY).outcome == "resolved"
+    year = next(node for node in root.trace if node.details.get("validation_node_type") == "YearCheckNode")
+    assert year.details["validation"]["outcome"] == "match"
 
 
 def test_docket_identity_rejects_a_retrieved_record_with_a_different_docket_number() -> None:
@@ -353,7 +375,7 @@ def test_failed_docket_lookup_is_reviewed_once_then_corrected_and_requeued(
     ("date", "expected_identity"),
     [
         (None, "resolved"),
-        ("2024", "deferred_to_future_implementation"),
+        ("2024", "resolved"),
     ],
 )
 def test_semantic_docket_stage_handles_a_nonliteral_form_with_grounded_choice(
@@ -426,7 +448,7 @@ def test_semantic_docket_stage_handles_a_nonliteral_form_with_grounded_choice(
     root = Document.from_serialized(resolved.serialize()).citations[0]
 
     assert root.judgement(Question.IDENTITY).outcome == expected_identity
-    assert root.authority_id == ("courtlistener:docket:44" if date is None else None)
+    assert root.authority_id == "courtlistener:docket:44"
     assert "docket_root_semantic_resolution" in resolved.passes
     equivalence = next(
         node
