@@ -141,7 +141,7 @@ def test_root_identity_composition_preserves_each_docket_and_reporter_checkpoint
     )
 
     assert client.calls == ["docket:1:24-cv-00123:d", "reporter:347 U.S. 483"]
-    assert completed.passes[-10:] == (
+    assert completed.passes[-11:] == (
         "docket_root_search",
         "docket_root_unique_identity",
         "docket_root_ambiguity_resolution",
@@ -149,6 +149,7 @@ def test_root_identity_composition_preserves_each_docket_and_reporter_checkpoint
         "docket_root_requeued_search",
         "docket_root_requeued_search_unique_identity",
         "docket_root_requeued_search_ambiguity_resolution",
+        "docket_root_semantic_resolution",
         "full_reporter_locator_exact_lookup",
         "full_reporter_locator_unique_identity",
         "full_reporter_locator_ambiguity_resolution",

@@ -50,6 +50,7 @@ from mellea_lrc.extraction.structure.attachment import Attachment
 from mellea_lrc.extraction.types import Document
 from mellea_lrc.validation.docket_roots import (
     resolve_docket_root_ambiguities,
+    resolve_docket_root_semantics,
     resolve_requeued_docket_root_ambiguities,
     review_and_requeue_unresolved_docket_roots,
     search_docket_roots,
@@ -86,6 +87,7 @@ __all__ = [
     "resolve_courts",
     "resolve_dates",
     "resolve_docket_root_ambiguities",
+    "resolve_docket_root_semantics",
     "resolve_full_reporter_locator_ambiguities",
     "resolve_pin_cites",
     "resolve_requeued_docket_root_ambiguities",
@@ -159,6 +161,7 @@ async def validate_roots_identity(
     document = await review_and_requeue_unresolved_docket_roots(document, client=client, session=session)
     document = await validate_unique_requeued_docket_root_identities(document)
     document = await resolve_requeued_docket_root_ambiguities(document)
+    document = await resolve_docket_root_semantics(document, session=session)
     document = await lookup_full_reporter_locators_exact(document, client=client)
     document = await validate_unique_full_reporter_locator_identities(
         document, client=client, session=session

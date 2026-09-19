@@ -3,9 +3,9 @@
 Each invocation reads one directory of serialized ``Document`` checkpoints and
 writes the next one.  Initial search and programmatic resolution are separate runs. The bounded
 extraction-review-and-requeue stage records its own review and requeued-search
-nodes; the second programmatic resolution runs remain separate.  A saved checkpoint can
-therefore be examined or resumed without repeating an earlier CourtListener
-request or model call.
+nodes; the second programmatic resolution runs and semantic candidate review
+remain separate. A saved checkpoint can therefore be examined or resumed
+without repeating an earlier CourtListener request or model call.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from dotenv import load_dotenv
 from mellea_lrc.api import (
     Document,
     resolve_docket_root_ambiguities,
+    resolve_docket_root_semantics,
     resolve_requeued_docket_root_ambiguities,
     review_and_requeue_unresolved_docket_roots,
     search_docket_roots,
@@ -42,12 +43,14 @@ Stage = Literal[
     "docket-extraction-review-and-requeue",
     "requeued-unique-identity",
     "requeued-ambiguity-resolution",
+    "semantic-resolution",
 ]
 
 _SEARCH_STAGES = frozenset({"search"})
 _MODEL_STAGES = frozenset(
     {
         "docket-extraction-review-and-requeue",
+        "semantic-resolution",
     }
 )
 
@@ -197,6 +200,8 @@ async def _run_stage(
         return await validate_unique_requeued_docket_root_identities(document)
     if stage == "requeued-ambiguity-resolution":
         return await resolve_requeued_docket_root_ambiguities(document)
+    if stage == "semantic-resolution":
+        return await resolve_docket_root_semantics(document, session=session)
     msg = f"Unsupported docket-root validation stage: {stage!r}"
     raise ValueError(msg)
 
@@ -237,6 +242,7 @@ def main() -> None:
             "docket-extraction-review-and-requeue",
             "requeued-unique-identity",
             "requeued-ambiguity-resolution",
+            "semantic-resolution",
         ),
         required=True,
     )
