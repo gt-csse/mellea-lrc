@@ -53,6 +53,15 @@ class MelleaDocketNumberReviewOutcome(str, Enum):
     FAILED = "failed"
 
 
+class MelleaDocketNumberEquivalenceOutcome(str, Enum):
+    """Semantic comparison outcomes for two written docket-number forms."""
+
+    MATCH = "match"
+    MISMATCH = "mismatch"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
 class FieldCheckOutcome(str, Enum):
     """Deterministic comparison outcome for one citation field."""
 
@@ -528,6 +537,29 @@ class MelleaDocketNumberReviewNode:
 
 
 @dataclass(frozen=True, slots=True)
+class MelleaDocketNumberEquivalenceNode:
+    """One model judgment about whether two written docket forms name one case.
+
+    This never constructs a normalized docket number or alters the filing.
+    It records a narrow semantic verdict after deterministic literal and
+    whitespace comparison have differed. The prose reason and complete IVR
+    run make the judgment inspectable without re-traversing a root's trace.
+    """
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: MelleaDocketNumberEquivalenceOutcome
+    extracted_docket_number: str | None
+    retrieved_docket_number: str | None
+    reason: str | None
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+    run: IvrRun | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class CourtCheckNode:
     """Exact comparison of Eyecite and CourtListener court identifiers."""
 
@@ -864,6 +896,7 @@ ValidationNode: TypeAlias = (
     | DocketCourtRetrievalNode
     | DocketNumberCheckNode
     | MelleaDocketNumberReviewNode
+    | MelleaDocketNumberEquivalenceNode
     | ReporterPageRetrievalNode
     | MelleaCitingPropositionExtractionNode
     | MelleaPinpointCheckNode

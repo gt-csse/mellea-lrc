@@ -25,6 +25,8 @@ from mellea_lrc.courtlistener import CourtListenerSearchResult
 from mellea_lrc.extraction import Document, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.validation.types import (
+    MelleaDocketNumberEquivalenceNode,
+    MelleaDocketNumberEquivalenceOutcome,
     MelleaDocketNumberReviewNode,
     MelleaDocketNumberReviewOutcome,
     ValidationNodeStatus,
@@ -156,6 +158,46 @@ def test_docket_identity_rejects_a_retrieved_record_with_a_different_docket_numb
     assert root.judgement(Question.IDENTITY).outcome == "no_match"
     assert root.found is None
     assert not any("Mellea" in node.made_by for node in root.trace)
+
+
+def test_docket_identity_accepts_one_model_confirmed_equivalent_form(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The semantic check may admit equivalence without writing a normalized number."""
+    document = _document(date=None)
+    document.citations[0].stated = replace(document.citations[0].stated, docket_number="24-cv-8760")
+    client = _DocketSearchClient(count=1, results=[_candidate()])
+    calls = 0
+
+    async def equivalent_number_check(validation, *, deterministic_check, **kwargs):
+        nonlocal calls
+        calls += 1
+        return MelleaDocketNumberEquivalenceNode(
+            node_id=f"{deterministic_check.node_id}:mellea_docket_number_equivalence",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaDocketNumberEquivalenceOutcome.MATCH,
+            extracted_docket_number="24-cv-8760",
+            retrieved_docket_number="1:24-cv-08760",
+            reason="The retrieved display adds court-context components while preserving the same case serial.",
+            depends_on=(deterministic_check.node_id,),
+        )
+
+    monkeypatch.setattr(docket_roots, "run_mellea_docket_number_equivalence_check", equivalent_number_check)
+    searched = asyncio.run(search_docket_roots(form_roots(document), client=client))
+    completed = asyncio.run(validate_unique_docket_root_identities(searched))
+    restored = Document.from_serialized(completed.serialize())
+    root = restored.citations[0]
+
+    assert calls == 1
+    assert root.stated.docket_number == "24-cv-8760"
+    assert root.judgement(Question.IDENTITY).outcome == "resolved"
+    semantic = next(
+        node
+        for node in root.trace
+        if node.details.get("validation_node_type") == MelleaDocketNumberEquivalenceNode.__name__
+    )
+    assert semantic.details["validation"]["outcome"] == "match"
+    assert semantic.details["validation"]["reason"]
 
 
 def test_bounded_docket_ambiguity_retains_all_candidates_then_selects_the_one_number_match() -> None:

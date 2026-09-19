@@ -31,6 +31,9 @@ from mellea_lrc.validation.candidate_evaluation import run_docket_search_candida
 from mellea_lrc.validation.field_checks.court_check import run_court_check
 from mellea_lrc.validation.field_checks.docket_number_check import run_docket_number_check
 from mellea_lrc.validation.field_checks.exact_case_name_check import run_exact_case_name_check
+from mellea_lrc.validation.field_checks.mellea_docket_number_equivalence import (
+    run_mellea_docket_number_equivalence_check,
+)
 from mellea_lrc.validation.field_checks.mellea_docket_number_review import (
     run_mellea_docket_number_review,
 )
@@ -53,6 +56,8 @@ from mellea_lrc.validation.types import (
     LocatorCitationSummaryOutcome,
     LocatorIdentityResolutionNode,
     LocatorIdentityResolutionOutcome,
+    MelleaDocketNumberEquivalenceNode,
+    MelleaDocketNumberEquivalenceOutcome,
     MelleaDocketNumberReviewNode,
     MelleaDocketNumberReviewOutcome,
     ValidationNode,
@@ -616,15 +621,27 @@ async def _review_docket_candidates(
         )
         validation = validation.append(candidate)
         docket = run_docket_number_check(validation, candidate=candidate)
+        validation = validation.append(docket)
+        docket_equivalence = None
+        if docket.outcome is FieldCheckOutcome.MISMATCH:
+            docket_equivalence = await run_mellea_docket_number_equivalence_check(
+                validation,
+                deterministic_check=docket,
+                candidate=candidate,
+                document=document,
+                session=session,
+            )
+            validation = validation.append(docket_equivalence)
         case_name = run_exact_case_name_check(validation, candidate=candidate)
         year = run_year_check(validation, candidate=candidate)
         court = run_court_check(validation, evidence=candidate)
-        validation = validation.append(docket).append(case_name).append(year).append(court)
+        validation = validation.append(case_name).append(year).append(court)
         validation = validation.append(
             _docket_candidate_assessment(
                 validation,
                 candidate=candidate,
                 docket=docket,
+                docket_equivalence=docket_equivalence,
                 case_name=case_name,
                 year_outcome=year.outcome,
                 court_outcome=court.outcome,
@@ -664,11 +681,16 @@ async def _review_docket_candidates(
 
 
 def _docket_number_matches(validation: CitationValidation) -> tuple[int, ...]:
-    """Return candidate indexes whose retrieved docket number matched deterministically."""
+    """Return candidate indexes with deterministic or semantic docket equivalence."""
     checks = {
         node.node_id.removesuffix(":docket_number_check"): node
         for node in validation.nodes
         if isinstance(node, DocketNumberCheckNode)
+    }
+    semantic_checks = {
+        node.node_id.removesuffix(":mellea_docket_number_equivalence"): node
+        for node in validation.nodes
+        if isinstance(node, MelleaDocketNumberEquivalenceNode)
     }
     return tuple(
         node.candidate_index
@@ -676,7 +698,8 @@ def _docket_number_matches(validation: CitationValidation) -> tuple[int, ...]:
         if isinstance(node, CandidateEvaluationNode)
         and node.source is CandidateEvaluationSource.DOCKET_SEARCH
         and checks.get(node.node_id) is not None
-        and checks[node.node_id].outcome is FieldCheckOutcome.MATCH
+        and _docket_match_outcome(checks[node.node_id], semantic_checks.get(checks[node.node_id].node_id))
+        is FieldCheckOutcome.MATCH
     )
 
 
@@ -685,12 +708,14 @@ def _docket_candidate_assessment(
     *,
     candidate: CandidateEvaluationNode,
     docket: DocketNumberCheckNode,
+    docket_equivalence: MelleaDocketNumberEquivalenceNode | None,
     case_name: ExactCaseNameCheckNode,
     year_outcome: FieldCheckOutcome,
     court_outcome: FieldCheckOutcome,
 ) -> LocatorCandidateAssessmentNode:
     """Reduce docket identity evidence while preserving non-docket field findings."""
-    docket_outcome = AggregatedFieldOutcome(docket.outcome.value)
+    docket_check_outcome = _docket_match_outcome(docket, docket_equivalence)
+    docket_outcome = AggregatedFieldOutcome(docket_check_outcome.value)
     case_outcome = AggregatedFieldOutcome(case_name.outcome.value)
     year = AggregatedFieldOutcome(year_outcome.value)
     court = AggregatedFieldOutcome(court_outcome.value)
@@ -700,14 +725,14 @@ def _docket_candidate_assessment(
     elif docket_outcome is AggregatedFieldOutcome.UNAVAILABLE:
         outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
         message = "The retrieved candidate lacks a docket number for direct identity comparison."
-    elif court is AggregatedFieldOutcome.MISMATCH or year is AggregatedFieldOutcome.MISMATCH:
+    elif court is AggregatedFieldOutcome.MISMATCH:
         outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
-        message = "The docket number matches, but a stated court or date needs semantic correction."
+        message = "The docket number matches, but the stated and retrieved courts conflict."
     else:
         outcome = LocatorCandidateAssessmentOutcome.MATCH
         message = (
-            "The docket number matches and no stated court or date conflicts. "
-            "Any case-name difference remains recorded for the later case-name stage."
+            "The docket number matches and no stated court conflicts. "
+            "Case-name and decision-date differences remain recorded for their separate stages."
         )
     return LocatorCandidateAssessmentNode(
         node_id=f"{candidate.node_id}:docket_candidate_assessment",
@@ -728,6 +753,7 @@ def _docket_candidate_assessment(
         docket_id=candidate.docket_id,
         depends_on=(
             docket.node_id,
+            *((docket_equivalence.node_id,) if docket_equivalence is not None else ()),
             case_name.node_id,
             f"{candidate.node_id}:year_check",
             f"{candidate.node_id}:court_check",
@@ -735,6 +761,23 @@ def _docket_candidate_assessment(
         status_message="Docket candidate assessment completed.",
         outcome_message=message,
     )
+
+
+def _docket_match_outcome(
+    deterministic_check: DocketNumberCheckNode,
+    semantic_check: MelleaDocketNumberEquivalenceNode | None,
+) -> FieldCheckOutcome:
+    """Combine literal comparison with an inspectable semantic second opinion."""
+    if deterministic_check.outcome is not FieldCheckOutcome.MISMATCH:
+        return deterministic_check.outcome
+    if semantic_check is None:
+        return FieldCheckOutcome.MISMATCH
+    return {
+        MelleaDocketNumberEquivalenceOutcome.MATCH: FieldCheckOutcome.MATCH,
+        MelleaDocketNumberEquivalenceOutcome.MISMATCH: FieldCheckOutcome.MISMATCH,
+        MelleaDocketNumberEquivalenceOutcome.UNAVAILABLE: FieldCheckOutcome.UNAVAILABLE,
+        MelleaDocketNumberEquivalenceOutcome.FAILED: FieldCheckOutcome.UNAVAILABLE,
+    }[semantic_check.outcome]
 
 
 def _docket_citation_summary(
