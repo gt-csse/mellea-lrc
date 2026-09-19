@@ -11,6 +11,7 @@ import mellea_lrc.validation.docket_roots as docket_roots
 from mellea_lrc.api import (
     form_roots,
     resolve_docket_root_ambiguities,
+    resolve_docket_root_semantics,
     resolve_requeued_docket_root_ambiguities,
     review_and_requeue_unresolved_docket_roots,
     search_docket_roots,
@@ -26,6 +27,10 @@ from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.validation.types import (
     MelleaDocketCitationReextractionNode,
     MelleaDocketCitationReextractionOutcome,
+    MelleaDocketNumberEquivalenceNode,
+    MelleaDocketNumberEquivalenceOutcome,
+    MelleaLocatorCandidateChoiceNode,
+    MelleaLocatorCandidateChoiceOutcome,
     ValidationNodeStatus,
 )
 
@@ -115,7 +120,7 @@ def _candidate(
 
 def test_docket_search_and_unique_identity_write_one_resumable_root_decision() -> None:
     client = _DocketSearchClient(count=1, results=[_candidate()])
-    formed = form_roots(_document())
+    formed = form_roots(_document(date=None))
 
     searched = asyncio.run(search_docket_roots(formed, client=client))
     checkpoint = Document.from_serialized(searched.serialize())
@@ -148,6 +153,20 @@ def test_docket_search_is_not_blocked_by_a_missing_court() -> None:
 
     assert client.calls == [("1:24-cv-08760", "d", None)]
     assert completed.citations[0].judgement(Question.IDENTITY).outcome == "resolved"
+
+
+def test_docket_identity_defers_a_stated_decision_date_for_opinion_verification() -> None:
+    """A docket search's dateFiled cannot verify the date stated beside a docket citation."""
+    document = _document(date="2020")
+    client = _DocketSearchClient(count=1, results=[_candidate()])
+
+    searched = asyncio.run(search_docket_roots(form_roots(document), client=client))
+    completed = asyncio.run(validate_unique_docket_root_identities(searched))
+    root = completed.citations[0]
+
+    assert root.judgement(Question.IDENTITY).outcome == "deferred_to_semantic_review"
+    year = next(node for node in root.trace if node.details.get("validation_node_type") == "YearCheckNode")
+    assert year.details["validation"]["outcome"] == "unavailable"
 
 
 def test_docket_identity_rejects_a_retrieved_record_with_a_different_docket_number() -> None:
@@ -212,7 +231,7 @@ def test_docket_name_mismatch_is_extraction_reviewed_then_deferred_to_semantics(
     searched = asyncio.run(search_docket_roots(form_roots(document), client=client))
     initial = asyncio.run(validate_unique_docket_root_identities(searched))
     initial = asyncio.run(resolve_docket_root_ambiguities(initial))
-    assert initial.citations[0].judgement(Question.IDENTITY).outcome == "no_match"
+    assert initial.citations[0].judgement(Question.IDENTITY).outcome == "deferred_to_semantic_review"
 
     reviewed = asyncio.run(review_and_requeue_unresolved_docket_roots(initial, client=client))
     root = reviewed.citations[0]
@@ -279,7 +298,7 @@ def test_docket_search_does_not_page_an_out_of_bounds_result_set() -> None:
 def test_failed_docket_lookup_is_reviewed_once_then_corrected_and_requeued(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    document = _document()
+    document = _document(date=None)
     malformed = replace(document.citations[0].stated, docket_number="1:24-cv-0876O")
     document.citations[0].stated = malformed
     client = _CorrectedDocketSearchClient(count=0, results=[])
@@ -328,3 +347,130 @@ def test_failed_docket_lookup_is_reviewed_once_then_corrected_and_requeued(
     rerun = asyncio.run(review_and_requeue_unresolved_docket_roots(resolved, client=client))
     assert rerun == resolved
     assert review_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("date", "expected_identity"),
+    [
+        (None, "resolved"),
+        ("2024", "deferred_to_future_implementation"),
+    ],
+)
+def test_semantic_docket_stage_handles_a_nonliteral_form_with_grounded_choice(
+    monkeypatch: pytest.MonkeyPatch,
+    date: str | None,
+    expected_identity: str,
+) -> None:
+    """A semantic docket form can select a record without bypassing date evidence."""
+    document = _document(date=date)
+    document.citations[0].stated = replace(document.citations[0].stated, docket_number="24-cv-8760")
+    client = _DocketSearchClient(count=1, results=[_candidate()])
+
+    async def unchanged_review(record, **kwargs):
+        return MelleaDocketCitationReextractionNode(
+            node_id=f"{record.citation_id}:mellea_docket_citation_reextraction",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaDocketCitationReextractionOutcome.UNCHANGED,
+            source_citation="Smith v. Jones, Case No. 24-cv-8760 (S.D.N.Y. 2024).",
+            source_locator="24-cv-8760",
+            extracted_docket_number="24-cv-8760",
+            reparsed_case_name="Smith v. Jones",
+            reparsed_docket_number="24-cv-8760",
+            reparsed_court="S.D.N.Y.",
+            reparsed_date="2024",
+            reparsed_pin_cite=None,
+            grounded_docket_number="24-cv-8760",
+            reason="The source states the abbreviated docket form.",
+            depends_on=("cite-0001:docket_root_search:identity_resolution",),
+        )
+
+    async def matching_equivalence(validation, *, deterministic_check, candidate, **kwargs):
+        return MelleaDocketNumberEquivalenceNode(
+            node_id=f"{deterministic_check.node_id}:mellea_docket_number_equivalence",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaDocketNumberEquivalenceOutcome.MATCH,
+            extracted_docket_number=deterministic_check.extracted_docket_number,
+            retrieved_docket_number=deterministic_check.retrieved_docket_number,
+            reason="The retrieved form adds the district prefix and zero padding.",
+            depends_on=(deterministic_check.node_id,),
+        )
+
+    async def choose_candidate(validation, *, summary, eligible_candidate_indices, **kwargs):
+        assert eligible_candidate_indices == (1,)
+        return MelleaLocatorCandidateChoiceNode(
+            node_id=f"{summary.node_id}:mellea_candidate_choice",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaLocatorCandidateChoiceOutcome.SELECTED,
+            candidate_indices=eligible_candidate_indices,
+            selected_candidate_index=1,
+            reparsed_case_name="Smith v. Jones",
+            reparsed_docket_number="24-cv-8760",
+            reparsed_court="S.D.N.Y.",
+            reparsed_date=None,
+            reparsed_pin_cite=None,
+            rationale="The case name and the abbreviated docket form identify candidate 1.",
+            depends_on=(summary.node_id,),
+        )
+
+    monkeypatch.setattr(docket_roots, "run_mellea_docket_citation_reextraction", unchanged_review)
+    monkeypatch.setattr(docket_roots, "run_mellea_docket_number_equivalence_check", matching_equivalence)
+    monkeypatch.setattr(docket_roots, "run_mellea_locator_candidate_choice", choose_candidate)
+
+    searched = asyncio.run(search_docket_roots(form_roots(document), client=client))
+    unique = asyncio.run(validate_unique_docket_root_identities(searched))
+    ambiguous = asyncio.run(resolve_docket_root_ambiguities(unique))
+    reviewed = asyncio.run(review_and_requeue_unresolved_docket_roots(ambiguous, client=client))
+    requeued_unique = asyncio.run(validate_unique_requeued_docket_root_identities(reviewed))
+    ready = asyncio.run(resolve_requeued_docket_root_ambiguities(requeued_unique))
+    resolved = asyncio.run(resolve_docket_root_semantics(ready))
+    root = Document.from_serialized(resolved.serialize()).citations[0]
+
+    assert root.judgement(Question.IDENTITY).outcome == expected_identity
+    assert root.authority_id == ("courtlistener:docket:44" if date is None else None)
+    assert "docket_root_semantic_resolution" in resolved.passes
+    equivalence = next(
+        node
+        for node in root.trace
+        if node.details.get("validation_node_type") == MelleaDocketNumberEquivalenceNode.__name__
+    )
+    assert equivalence.reads.value == "document"
+
+
+def test_semantic_docket_stage_leaves_no_candidate_and_review_limit_unresolved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A semantic stage cannot turn absent or unbounded retrieval into no-match."""
+    document = _document()
+    client = _DocketSearchClient(count=20, results=[_candidate(docket_id=index) for index in range(20)])
+
+    async def unchanged_review(record, **kwargs):
+        return MelleaDocketCitationReextractionNode(
+            node_id=f"{record.citation_id}:mellea_docket_citation_reextraction",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaDocketCitationReextractionOutcome.UNCHANGED,
+            source_citation="Smith v. Jones, Case No. 1:24-cv-08760 (S.D.N.Y. 2024).",
+            source_locator="1:24-cv-08760",
+            extracted_docket_number="1:24-cv-08760",
+            reparsed_case_name="Smith v. Jones",
+            reparsed_docket_number="1:24-cv-08760",
+            reparsed_court="S.D.N.Y.",
+            reparsed_date="2024",
+            reparsed_pin_cite=None,
+            grounded_docket_number="1:24-cv-08760",
+            reason="The source confirms the extracted docket.",
+            depends_on=("cite-0001:docket_root_search:identity_resolution",),
+        )
+
+    monkeypatch.setattr(docket_roots, "run_mellea_docket_citation_reextraction", unchanged_review)
+    searched = asyncio.run(search_docket_roots(form_roots(document), client=client))
+    unique = asyncio.run(validate_unique_docket_root_identities(searched))
+    ambiguous = asyncio.run(resolve_docket_root_ambiguities(unique))
+    reviewed = asyncio.run(review_and_requeue_unresolved_docket_roots(ambiguous, client=client))
+    requeued_unique = asyncio.run(validate_unique_requeued_docket_root_identities(reviewed))
+    ready = asyncio.run(resolve_requeued_docket_root_ambiguities(requeued_unique))
+    completed = asyncio.run(resolve_docket_root_semantics(ready))
+
+    root = completed.citations[0]
+    assert root.judgement(Question.IDENTITY).outcome == "deferred_to_future_implementation"
+    assert root.authority_id is None
+    assert not any("Mellea" in node.made_by and node.stage == "docket_root_semantic_resolution" for node in root.trace)

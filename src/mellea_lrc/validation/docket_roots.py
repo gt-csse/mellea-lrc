@@ -21,6 +21,9 @@ from mellea_lrc.serialization.validated_document import deserialize_validation_n
 from mellea_lrc.validation.aggregation.citation_summary_candidate import citation_summary_candidate
 from mellea_lrc.validation.aggregation.citation_summary_outcome import overall_locator_citation_outcome
 from mellea_lrc.validation.aggregation.locator_identity import run_locator_identity_resolution
+from mellea_lrc.validation.aggregation.mellea_locator_candidate_choice import (
+    run_mellea_locator_candidate_choice,
+)
 from mellea_lrc.validation.candidate_evaluation import run_docket_search_candidate_evaluation
 from mellea_lrc.validation.field_checks.court_check import run_court_check
 from mellea_lrc.validation.field_checks.docket_number_check import run_docket_number_check
@@ -28,7 +31,11 @@ from mellea_lrc.validation.field_checks.exact_case_name_check import run_exact_c
 from mellea_lrc.validation.field_checks.mellea_docket_citation_reextraction import (
     run_mellea_docket_citation_reextraction,
 )
+from mellea_lrc.validation.field_checks.mellea_docket_number_equivalence import (
+    run_mellea_docket_number_equivalence_check,
+)
 from mellea_lrc.validation.field_checks.year_check import run_year_check
+from mellea_lrc.validation.root_context import masked_root_context
 from mellea_lrc.validation.types import (
     AggregatedFieldOutcome,
     CandidateEvaluationNode,
@@ -48,6 +55,10 @@ from mellea_lrc.validation.types import (
     LocatorIdentityResolutionOutcome,
     MelleaDocketCitationReextractionNode,
     MelleaDocketCitationReextractionOutcome,
+    MelleaDocketNumberEquivalenceNode,
+    MelleaDocketNumberEquivalenceOutcome,
+    MelleaLocatorCandidateChoiceNode,
+    MelleaLocatorCandidateChoiceOutcome,
     ValidationNode,
     ValidationNodeStatus,
 )
@@ -69,6 +80,7 @@ DOCKET_ROOT_EXTRACTION_REVIEW_STAGE = "docket_root_extraction_review"
 DOCKET_ROOT_REQUEUED_SEARCH_STAGE = "docket_root_requeued_search"
 DOCKET_ROOT_REQUEUED_UNIQUE_IDENTITY_STAGE = "docket_root_requeued_search_unique_identity"
 DOCKET_ROOT_REQUEUED_AMBIGUITY_RESOLUTION_STAGE = "docket_root_requeued_search_ambiguity_resolution"
+DOCKET_ROOT_SEMANTIC_RESOLUTION_STAGE = "docket_root_semantic_resolution"
 MAX_DOCKET_CANDIDATE_REVIEW = 20
 _MADE_BY = "mellea_lrc.validation.docket_roots"
 
@@ -387,6 +399,313 @@ async def resolve_requeued_docket_root_ambiguities(document: Document) -> Docume
     return replace(document, passes=(*document.passes, DOCKET_ROOT_REQUEUED_AMBIGUITY_RESOLUTION_STAGE))
 
 
+async def resolve_docket_root_semantics(
+    document: Document,
+    *,
+    session: MelleaSession | None = None,
+) -> Document:
+    """Resolve bounded, extraction-reviewed docket searches with semantic evidence.
+
+    This is deliberately a separate checkpoint from docket extraction review.
+    It never searches again and it never modifies a docket number: it compares
+    two written docket forms only where literal comparison differed, then asks
+    the model to choose one representative from the complete bounded candidate
+    list.  Candidate choice is still necessary for a literal docket match,
+    because a shared number does not establish that two case names identify the
+    same matter.
+
+    Searches with no candidates, a failed response, or at least twenty
+    candidates remain unresolved.  Those outcomes need a different retrieval
+    route or a later, more finely scoped review; this stage must not turn a
+    retrieval limit into a negative citation finding.
+    """
+    _require_stage(
+        document,
+        DOCKET_ROOT_REQUEUED_AMBIGUITY_RESOLUTION_STAGE,
+        "Docket-root semantic resolution",
+    )
+    if DOCKET_ROOT_SEMANTIC_RESOLUTION_STAGE in document.passes:
+        return document
+    _reject_partial_stage(document, DOCKET_ROOT_SEMANTIC_RESOLUTION_STAGE)
+
+    for record in _docket_roots(document):
+        if (
+            record.judgement(Question.IDENTITY).outcome
+            != LocatorIdentityResolutionOutcome.DEFERRED_TO_SEMANTIC_REVIEW.value
+        ):
+            continue
+        search = _latest_docket_root_search(record)
+        if search.outcome not in {DocketRootSearchOutcome.FOUND, DocketRootSearchOutcome.AMBIGUOUS}:
+            _write_semantic_deferred_resolution(record, search=search)
+            continue
+
+        progression, eligible_indices, semantic_unavailable = await _semantic_docket_candidates(
+            record,
+            search=search,
+            document=document,
+            session=session,
+        )
+        summary = _docket_citation_summary(
+            progression,
+            scope=f"{search.node_id}:semantic",
+        )
+        progression = progression.append(summary)
+
+        if not eligible_indices:
+            if semantic_unavailable:
+                resolution = _future_implementation_resolution(
+                    progression,
+                    depends_on=(summary.node_id,),
+                    scope=f"{search.node_id}:semantic",
+                    reason="Semantic docket comparison was unavailable or failed for every retrieved candidate.",
+                )
+            else:
+                resolution = _no_match_resolution(
+                    progression,
+                    depends_on=(summary.node_id,),
+                    scope=f"{search.node_id}:semantic",
+                    reason="No retrieved docket candidate represents the stated docket number after semantic comparison.",
+                )
+        else:
+            choice = await run_mellea_locator_candidate_choice(
+                progression,
+                summary=summary,
+                document_text=masked_root_context(
+                    document,
+                    record,
+                    before=480,
+                    after=240,
+                ).as_document_text(document_length=len(document.text)),
+                session=session,
+                eligible_candidate_indices=eligible_indices,
+            )
+            progression = progression.append(choice)
+            if _requires_docket_decision_date_verification(record, choice=choice):
+                # CourtListener's docket search exposes the case's filing
+                # date. A date stated in a docket citation normally identifies
+                # the cited order or opinion instead. The separate opinion/date
+                # stage must retrieve that decision before a selected docket
+                # candidate can become an admitted citation identity.
+                resolution = _future_implementation_resolution(
+                    progression,
+                    depends_on=(summary.node_id, choice.node_id),
+                    scope=f"{search.node_id}:semantic",
+                    reason=(
+                        "The docket and case selection is plausible, but the stated decision date "
+                        "requires opinion-level verification; a docket filing date cannot verify it."
+                    ),
+                )
+            else:
+                resolution = run_locator_identity_resolution(
+                    progression,
+                    summary=summary,
+                    choice=choice,
+                )
+
+        resolution = replace(
+            resolution,
+            node_id=f"{search.node_id}:semantic:identity_resolution",
+        )
+        progression = progression.append(resolution)
+        _write_identity_progression(record, progression, stage=DOCKET_ROOT_SEMANTIC_RESOLUTION_STAGE)
+    return replace(document, passes=(*document.passes, DOCKET_ROOT_SEMANTIC_RESOLUTION_STAGE))
+
+
+async def _semantic_docket_candidates(
+    record: CitationRecord,
+    *,
+    search: DocketRootSearchNode,
+    document: Document,
+    session: MelleaSession | None,
+) -> tuple[CitationValidation, tuple[int, ...], bool]:
+    """Evaluate every stored candidate and return semantic docket anchors.
+
+    The returned indices are only a selection boundary.  The later model sees
+    the complete summary, including candidates that failed the docket anchor,
+    so the serialized trace remains a full account of the retrieved set.
+    """
+    scope = f"{search.node_id}:semantic"
+    validation = CitationValidation(citation=record, nodes=(search,))
+    eligible: list[int] = []
+    unavailable = False
+    for index, result in enumerate(search.candidates, start=1):
+        candidate = run_docket_search_candidate_evaluation(
+            validation,
+            result=result,
+            candidate_index=index,
+            depends_on=(search.node_id,),
+            node_prefix=scope,
+        )
+        validation = validation.append(candidate)
+        docket = run_docket_number_check(validation, candidate=candidate)
+        validation = validation.append(docket)
+
+        equivalence: MelleaDocketNumberEquivalenceNode | None = None
+        docket_matches = docket.outcome is FieldCheckOutcome.MATCH
+        if docket.outcome is FieldCheckOutcome.MISMATCH:
+            equivalence = await run_mellea_docket_number_equivalence_check(
+                validation,
+                deterministic_check=docket,
+                candidate=candidate,
+                document=document,
+                session=session,
+            )
+            validation = validation.append(equivalence)
+            docket_matches = equivalence.outcome is MelleaDocketNumberEquivalenceOutcome.MATCH
+            unavailable = unavailable or equivalence.outcome in {
+                MelleaDocketNumberEquivalenceOutcome.UNAVAILABLE,
+                MelleaDocketNumberEquivalenceOutcome.FAILED,
+            }
+        elif docket.outcome is FieldCheckOutcome.UNAVAILABLE:
+            unavailable = True
+
+        case_name = run_exact_case_name_check(validation, candidate=candidate)
+        year = run_year_check(validation, candidate=candidate)
+        court = run_court_check(validation, evidence=candidate)
+        validation = validation.append(case_name).append(year).append(court)
+        validation = validation.append(
+            _semantic_docket_candidate_assessment(
+                validation,
+                candidate=candidate,
+                docket=docket,
+                docket_matches=docket_matches,
+                equivalence=equivalence,
+                case_name=case_name,
+                year_outcome=year.outcome,
+                court_outcome=court.outcome,
+            )
+        )
+        if docket_matches:
+            eligible.append(index)
+    return validation, tuple(eligible), unavailable
+
+
+def _semantic_docket_candidate_assessment(
+    validation: CitationValidation,
+    *,
+    candidate: CandidateEvaluationNode,
+    docket: DocketNumberCheckNode,
+    docket_matches: bool,
+    equivalence: MelleaDocketNumberEquivalenceNode | None,
+    case_name: ExactCaseNameCheckNode,
+    year_outcome: FieldCheckOutcome,
+    court_outcome: FieldCheckOutcome,
+) -> LocatorCandidateAssessmentNode:
+    """Project a semantic docket anchor with the unchanged field evidence.
+
+    Semantic docket agreement gives a candidate to the bounded representative
+    choice. It never alone admits identity: case name, court, and date still
+    appear in the candidate summary and the model can select no match.
+    """
+    case_outcome = AggregatedFieldOutcome(case_name.outcome.value)
+    year = AggregatedFieldOutcome(year_outcome.value)
+    court = AggregatedFieldOutcome(court_outcome.value)
+    if not docket_matches:
+        outcome = LocatorCandidateAssessmentOutcome.MISMATCH
+        message = "The retrieved docket number does not semantically represent the stated docket number."
+    elif case_outcome is not AggregatedFieldOutcome.MATCH:
+        outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
+        message = "The docket forms agree, but the case name needs semantic representative selection."
+    elif court is AggregatedFieldOutcome.MISMATCH:
+        outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
+        message = "The docket and case name agree, but the courts conflict."
+    elif _docket_requires_decision_date_verification(validation):
+        outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
+        message = (
+            "The docket and case name agree, but the stated decision date requires "
+            "opinion-level verification."
+        )
+    elif year is AggregatedFieldOutcome.MISMATCH:
+        outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
+        message = "The docket and case name agree, but the dates conflict."
+    else:
+        outcome = LocatorCandidateAssessmentOutcome.MATCH
+        message = "The docket forms and every available stated identity field agree."
+    dependencies = [
+        docket.node_id,
+        case_name.node_id,
+        f"{candidate.node_id}:year_check",
+        f"{candidate.node_id}:court_check",
+    ]
+    if equivalence is not None:
+        dependencies.append(equivalence.node_id)
+    return LocatorCandidateAssessmentNode(
+        node_id=f"{candidate.node_id}:semantic_docket_candidate_assessment",
+        status=ValidationNodeStatus.SUCCEEDED,
+        outcome=outcome,
+        candidate_index=candidate.candidate_index,
+        extracted_citation=validation.citation.matched_text,
+        extracted_case_name=case_name.extracted_case_name,
+        retrieved_case_name=case_name.retrieved_case_name,
+        case_name_outcome=case_outcome,
+        case_name_evidence="exact",
+        extracted_year=_year(validation, candidate),
+        retrieved_year=candidate.year,
+        year_outcome=year,
+        extracted_court_id=_court(validation),
+        retrieved_court_id=candidate.court_id,
+        court_outcome=court,
+        docket_id=candidate.docket_id,
+        depends_on=tuple(dependencies),
+        status_message="Semantic docket candidate assessment completed.",
+        outcome_message=message,
+    )
+
+
+def _docket_requires_decision_date_verification(validation: CitationValidation) -> bool:
+    """Whether this docket citation states a decision date the search cannot test.
+
+    CourtListener's docket route supplies ``dateFiled`` for the case, not a
+    date for the order or opinion cited in the filing.  The distinction is a
+    property of the two records, rather than a relaxed text-matching rule.
+    """
+    citation = validation.citation.stated
+    return isinstance(citation, DocketCitation) and citation.date is not None
+
+
+def _requires_docket_decision_date_verification(
+    record: CitationRecord,
+    *,
+    choice: MelleaLocatorCandidateChoiceNode,
+) -> bool:
+    """Keep a selected docket candidate pending when the source states a date.
+
+    A model may reject a candidate outright from its source-grounded case-name
+    and docket evidence.  It may not *admit* a selected docket when an
+    independent decision date remains unverified.
+    """
+    return (
+        choice.outcome is MelleaLocatorCandidateChoiceOutcome.SELECTED
+        and isinstance(record.stated, DocketCitation)
+        and record.stated.date is not None
+    )
+
+
+def _write_semantic_deferred_resolution(record: CitationRecord, *, search: DocketRootSearchNode) -> None:
+    """Keep an unavailable retrieval path unresolved at the semantic boundary."""
+    validation = CitationValidation(citation=record, nodes=(search,))
+    resolution = _future_implementation_resolution(
+        validation,
+        depends_on=(search.node_id,),
+        scope=f"{search.node_id}:semantic",
+        reason=(
+            "Semantic docket selection requires a complete bounded candidate list; "
+            f"the saved search ended as {search.outcome.value}."
+        ),
+    )
+    validation = validation.append(
+        replace(resolution, node_id=f"{search.node_id}:semantic:identity_resolution")
+    )
+    _write_identity_progression(record, validation, stage=DOCKET_ROOT_SEMANTIC_RESOLUTION_STAGE)
+
+
+def _latest_docket_root_search(record: CitationRecord) -> DocketRootSearchNode:
+    """Use a corrected-docket search when the extraction review created one."""
+    if any(node.stage == DOCKET_ROOT_REQUEUED_SEARCH_STAGE for node in record.trace):
+        return _saved_docket_root_search(record, stage=DOCKET_ROOT_REQUEUED_SEARCH_STAGE)
+    return _saved_docket_root_search(record)
+
+
 def _run_docket_root_search(
     record: CitationRecord,
     client: CourtListenerServiceClient,
@@ -609,15 +928,31 @@ def _review_docket_candidates(
         for candidate in summary.candidates
         if candidate.outcome is LocatorCandidateAssessmentOutcome.MATCH
     )
+    partial = tuple(
+        candidate
+        for candidate in summary.candidates
+        if candidate.outcome is LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
+    )
     if len(matching) == 1:
         resolution = run_locator_identity_resolution(validation, summary=summary)
     elif not matching:
-        resolution = _no_match_resolution(
-            validation,
-            depends_on=(summary.node_id,),
-            reason="No retrieved docket candidate passed every programmatic identity comparison.",
-            scope=scope,
-        )
+        if partial:
+            resolution = _deferred_resolution(
+                validation,
+                depends_on=(summary.node_id,),
+                reason=(
+                    "At least one retrieved docket candidate has incomplete programmatic identity "
+                    "evidence and requires extraction or semantic review."
+                ),
+                scope=scope,
+            )
+        else:
+            resolution = _no_match_resolution(
+                validation,
+                depends_on=(summary.node_id,),
+                reason="No retrieved docket candidate passed every programmatic identity comparison.",
+                scope=scope,
+            )
     else:
         resolution = _deferred_resolution(
             validation,
@@ -639,9 +974,11 @@ def _docket_candidate_assessment(
 ) -> LocatorCandidateAssessmentNode:
     """Record exact docket-citation evidence without semantic repair.
 
-    An unavailable court or date does not block a citation because the filing
-    did not state that field. A missing case name does: it prevents this early
-    route from asserting that a docket number identifies the cited case.
+    An unavailable court does not block a citation when the filing did not
+    state a court. A stated decision date is different: a docket search offers
+    the case filing date, not the cited order's date, so it remains pending for
+    an opinion/date stage. A missing case name also prevents this early route
+    from asserting that a docket number identifies the cited case.
     """
     docket_outcome = AggregatedFieldOutcome(docket.outcome.value)
     case_outcome = AggregatedFieldOutcome(case_name.outcome.value)
@@ -659,6 +996,12 @@ def _docket_candidate_assessment(
     elif court is AggregatedFieldOutcome.MISMATCH:
         outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
         message = "The docket number and case name match, but the courts conflict."
+    elif _docket_requires_decision_date_verification(validation):
+        outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
+        message = (
+            "The docket number and case name match, but the stated decision date requires "
+            "opinion-level verification."
+        )
     elif year is AggregatedFieldOutcome.MISMATCH:
         outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
         message = "The docket number and case name match, but the dates conflict."
@@ -761,13 +1104,46 @@ def _deferred_resolution(
     )
 
 
+def _future_implementation_resolution(
+    validation: CitationValidation,
+    *,
+    depends_on: tuple[str, ...],
+    reason: str,
+    scope: str | None = None,
+) -> LocatorIdentityResolutionNode:
+    """Finish this route without recasting unavailable retrieval as no match."""
+    return LocatorIdentityResolutionNode(
+        node_id=f"{scope or validation.citation_id}:locator_identity_resolution",
+        status=ValidationNodeStatus.SUCCEEDED,
+        outcome=LocatorIdentityResolutionOutcome.DEFERRED_TO_FUTURE_IMPLEMENTATION,
+        selected_candidate_index=None,
+        selected_assessment_node_id=None,
+        matching_candidate_indices=(),
+        selection_evidence_node_id=None,
+        depends_on=depends_on,
+        status_message="Docket-root identity resolution deferred to future implementation.",
+        outcome_message=reason,
+    )
+
+
 def _write_identity_progression(
     record: CitationRecord,
     progression: CitationValidation,
     *,
     stage: str,
 ) -> None:
-    projected = {node.node_id: _trace_node(node, stage=stage) for node in progression.nodes}
+    projected = {
+        node.node_id: _trace_node(
+            node,
+            stage=stage,
+            reads=(
+                Reads.DOCUMENT
+                if isinstance(node, (MelleaDocketNumberEquivalenceNode, MelleaLocatorCandidateChoiceNode))
+                else Reads.RECORD
+            ),
+        )
+        for node in progression.nodes
+    }
     for node in projected.values():
         record.observe(node)
     resolution = progression.identity_resolution

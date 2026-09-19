@@ -20,6 +20,7 @@ from mellea_lrc.llm import (
     start_mellea_session_from_env,
 )
 from mellea_lrc.validation.types import (
+    CandidateProvenance,
     CitationSummaryCandidate,
     CitationValidation,
     LocatorCitationSummaryNode,
@@ -51,6 +52,10 @@ candidates whose preliminary field assessment says mismatch or partial_match:
 those assessments are evidence, not a final selection. Do not use outside
 knowledge, change the stated locator, invent a field, or select multiple
 candidates. When a field is absent in local_context, return null for it.
+
+For a docket-derived candidate, case_filed_year is the date the case began.
+It is not the date of an order or opinion cited in local_context, so it cannot
+confirm or contradict that citation's decision date.
 """.strip()
 
 CHOICE_INSTRUCTION = """
@@ -200,10 +205,9 @@ async def run_mellea_locator_candidate_choice(
 
 def _candidate_payload(candidate: CitationSummaryCandidate) -> dict[str, object]:
     """Expose all retained candidate evidence in a compact model-readable form."""
-    return {
+    payload = {
         "candidate_index": candidate.candidate_index,
         "case_name": candidate.retrieved_case_name,
-        "date": candidate.retrieved_year,
         "court_id": candidate.retrieved_court_id,
         "docket_id": candidate.docket_id,
         "docket_number": candidate.docket_number,
@@ -214,6 +218,11 @@ def _candidate_payload(candidate: CitationSummaryCandidate) -> dict[str, object]
             "court": candidate.court_outcome.value,
         },
     }
+    if candidate.provenance is CandidateProvenance.DOCKET:
+        payload["case_filed_year"] = candidate.retrieved_year
+    else:
+        payload["decision_year"] = candidate.retrieved_year
+    return payload
 
 
 def _node(

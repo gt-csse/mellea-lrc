@@ -5,7 +5,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from mellea_lrc.core.citations import DocketCitation, FullCaseCitation
-from mellea_lrc.validation.types import FieldCheckOutcome, ValidationNodeStatus, YearCheckNode
+from mellea_lrc.validation.types import (
+    CandidateEvaluationSource,
+    FieldCheckOutcome,
+    ValidationNodeStatus,
+    YearCheckNode,
+)
 
 if TYPE_CHECKING:
     from mellea_lrc.validation.types import CandidateEvaluationNode, CitationValidation
@@ -22,7 +27,23 @@ def run_year_check(
     # The check compares years; a citation stating a full date states its year too.
     extracted = date.year if date else None
     retrieved = candidate.year
-    if extracted is None or retrieved is None:
+    if (
+        isinstance(citation, DocketCitation)
+        and candidate.source is CandidateEvaluationSource.DOCKET_SEARCH
+        and extracted is not None
+        and retrieved is not None
+    ):
+        # A docket citation can be accompanied by an unpublished-opinion date,
+        # while the docket endpoint supplies the date the case was filed.  The
+        # same written year therefore refers to different events, so treating
+        # unequal values as identity evidence would reject a correct docket.
+        status = ValidationNodeStatus.SKIPPED
+        outcome = FieldCheckOutcome.UNAVAILABLE
+        status_message = "Skipped docket year comparison because the retrieved date is the filing date."
+        outcome_message = (
+            "A docket citation's decision date and CourtListener docket dateFiled identify different events."
+        )
+    elif extracted is None or retrieved is None:
         status = ValidationNodeStatus.SKIPPED
         status_message = "Skipped year comparison because required evidence is missing."
         outcome = FieldCheckOutcome.UNAVAILABLE
