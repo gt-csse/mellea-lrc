@@ -21,23 +21,35 @@ from pathlib import Path
 
 from mellea_lrc.api import (
     Document,
+    find_docket_locators,
+    find_full_reporter_locators,
+    form_roots,
     full_reporter_locator_identity,
+    resolve_case_names,
+    resolve_colocations,
+    resolve_courts,
+    resolve_dates,
+    stable,
 )
-from mellea_lrc.extraction import extract_citations, extract_from_plain_text
-from mellea_lrc.preprocessing import preprocess
 
 
 def _parse(source: str, *, from_file: bool) -> Document:
-    """Parse the citations out of a document on disk, or out of the text itself."""
-    if from_file:
-        return extract_citations(preprocess(Path(source)))
-    return extract_from_plain_text(source)
+    """Run the explicit locator-to-root chain used before identity validation."""
+    document = Document.from_source(Path(source) if from_file else source)
+    rules = stable()
+    document = find_full_reporter_locators(document, rules=rules)
+    document = find_docket_locators(document, rules=rules)
+    document = resolve_colocations(document, rules=rules)
+    document = resolve_case_names(document, rules=rules)
+    document = resolve_courts(document, rules=rules)
+    document = resolve_dates(document, rules=rules)
+    return form_roots(document)
 
 
 def _validate(args: argparse.Namespace) -> int:
     """Parse the source, then check every citation it contains."""
     document = _parse(args.source, from_file=args.from_file)
-    print(f"Parsed {len(document.full_citations)} citations; validating", file=sys.stderr)
+    print(f"Formed {sum(citation.is_root for citation in document.active_citations)} roots; validating", file=sys.stderr)
     document = asyncio.run(full_reporter_locator_identity(document))
 
     text = json.dumps(document.serialize(), indent=2, ensure_ascii=False)
