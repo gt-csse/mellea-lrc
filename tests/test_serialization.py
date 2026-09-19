@@ -61,6 +61,8 @@ from mellea_lrc.validation import (
     LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode,
     LocatorCitationSummaryOutcome,
+    LocatorIdentityResolutionNode,
+    LocatorIdentityResolutionOutcome,
     LocatorLookupOutcome,
     MelleaCaseNameCheckNode,
     MelleaCaseNameCheckOutcome,
@@ -718,6 +720,15 @@ def test_validated_document_round_trip_supports_every_current_node_type() -> Non
                 ),
             ),
             depends_on=(f"{candidate_id}:locator_candidate_assessment",),
+        ),
+        LocatorIdentityResolutionNode(
+            node_id=f"{citation_id}:locator_identity_resolution",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=LocatorIdentityResolutionOutcome.RESOLVED,
+            selected_candidate_index=0,
+            selected_assessment_node_id=f"{candidate_id}:locator_candidate_assessment",
+            matching_candidate_indices=(0,),
+            depends_on=(f"{citation_id}:locator_citation_summary",),
         ),
     )
     validation = initialized.citations[0]

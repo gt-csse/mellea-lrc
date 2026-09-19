@@ -166,9 +166,17 @@ class LocatorCandidateAssessmentOutcome(str, Enum):
 
 
 class LocatorCitationSummaryOutcome(str, Enum):
-    """Completion state of the unique-locator citation summary."""
+    """Completion state of the exact-locator candidate evidence summary."""
 
     COMPLETE = "complete"
+
+
+class LocatorIdentityResolutionOutcome(str, Enum):
+    """Whether evaluated exact-locator candidates establish one identity."""
+
+    RESOLVED = "resolved"
+    UNRESOLVED = "unresolved"
+    DEFERRED = "deferred"
 
 
 class SearchCandidateAssessmentOutcome(str, Enum):
@@ -576,7 +584,7 @@ class CitationSummaryCandidate:
 
 @dataclass(frozen=True, slots=True)
 class LocatorCitationSummaryNode:
-    """Terminal list of every fully evaluated candidate from one locator route."""
+    """List of every fully evaluated candidate from one exact-locator route."""
 
     node_id: str
     status: ValidationNodeStatus
@@ -587,6 +595,40 @@ class LocatorCitationSummaryNode:
     depends_on: tuple[str, ...]
     status_message: str | None = None
     outcome_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LocatorIdentityResolutionNode:
+    """Explicit identity decision after a complete exact-locator candidate review.
+
+    A locator's candidate summary is evidence, not a decision: an ambiguous
+    CourtListener response can contain more than one candidate that looks
+    compatible. This node admits one candidate only when exactly one assessment
+    is a confirmed match. It points at the admitted assessment rather than
+    copying its fields, so the candidate evidence remains the source of truth.
+    """
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: LocatorIdentityResolutionOutcome
+    selected_candidate_index: int | None
+    selected_assessment_node_id: str | None
+    matching_candidate_indices: tuple[int, ...]
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.outcome is LocatorIdentityResolutionOutcome.RESOLVED:
+            if self.selected_candidate_index is None or self.selected_assessment_node_id is None:
+                msg = "A resolved locator identity requires one selected candidate and assessment"
+                raise ValueError(msg)
+            if self.matching_candidate_indices != (self.selected_candidate_index,):
+                msg = "A resolved locator identity requires exactly one matching candidate"
+                raise ValueError(msg)
+        elif self.selected_candidate_index is not None or self.selected_assessment_node_id is not None:
+            msg = "Only a resolved locator identity may select a candidate"
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -686,6 +728,7 @@ ValidationNode: TypeAlias = (
     | CourtCheckNode
     | LocatorCandidateAssessmentNode
     | LocatorCitationSummaryNode
+    | LocatorIdentityResolutionNode
     | OpinionSearchCandidateAssessmentNode
     | RecapSearchCandidateAssessmentNode
     | SearchCitationSummaryNode
@@ -721,13 +764,22 @@ class CitationValidation:
 
     @property
     def aggregation(self) -> LocatorCitationSummaryNode | SearchCitationSummaryNode | None:
-        """Return the route's terminal citation summary when one was produced."""
+        """Return the route's candidate-evidence summary when one was produced."""
         summaries = tuple(
             node
             for node in self.nodes
             if isinstance(node, (LocatorCitationSummaryNode, SearchCitationSummaryNode))
         )
         return summaries[0] if len(summaries) == 1 else None
+
+    @property
+    def identity_resolution(self) -> LocatorIdentityResolutionNode | None:
+        """Return the final exact-locator identity decision, when this route made one."""
+        resolutions = tuple(node for node in self.nodes if isinstance(node, LocatorIdentityResolutionNode))
+        if len(resolutions) > 1:
+            msg = f"Citation {self.citation_id!r} has multiple locator identity decisions"
+            raise ValueError(msg)
+        return resolutions[0] if resolutions else None
 
 
 @dataclass(frozen=True, slots=True)

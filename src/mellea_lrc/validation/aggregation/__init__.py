@@ -4,6 +4,10 @@ from mellea_lrc.validation.aggregation.locator_found import (
     run_locator_candidate_assessment,
     run_locator_citation_summary,
 )
+from mellea_lrc.validation.aggregation.locator_identity import (
+    run_deferred_locator_identity_resolution,
+    run_locator_identity_resolution,
+)
 from mellea_lrc.validation.aggregation.opinion_search import (
     run_opinion_search_candidate_assessment,
 )
@@ -15,8 +19,10 @@ from mellea_lrc.validation.aggregation.search_citation_summary import (
 )
 
 __all__ = [
+    "run_deferred_locator_identity_resolution",
     "run_locator_candidate_assessment",
     "run_locator_citation_summary",
+    "run_locator_identity_resolution",
     "run_opinion_search_candidate_assessment",
     "run_recap_search_candidate_assessment",
     "run_search_citation_summary",

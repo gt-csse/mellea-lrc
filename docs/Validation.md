@@ -44,6 +44,23 @@ validate_document(document, client=my_client, session=my_session)
 for a cache or a fixture. `session` is a Mellea session. Leave the model
 temperature at `0.0`.
 
+For the root-first pipeline, stop after identity and read its decision
+separately from the candidate evidence:
+
+```python
+from mellea_lrc.validation import validate_document_identity
+
+identity = asyncio.run(validate_document_identity(document, client=my_client, session=my_session))
+for citation in identity.citations:
+    decision = citation.identity_resolution
+    if decision is not None and decision.outcome.value == "resolved":
+        print(decision.selected_assessment_node_id)
+```
+
+`citation.aggregation` remains the full candidate evidence. The identity
+decision selects an assessment only when exactly one candidate is confirmed;
+zero or competing matches remain unresolved.
+
 The `mellea-lrc validate` command wraps exactly this.
 
 ---
@@ -110,7 +127,7 @@ the result of that one call decides which of three paths the citation takes.
 exact locator lookup
 ├── found      → the field checks, then the pinpoint check
 ├── not found  → recover a case name, then search
-├── ambiguous  → candidate selection, then the field checks per candidate
+├── ambiguous  → candidate review, field checks per candidate, then identity resolution
 └── unsupported / incomplete / failed → stop
 ```
 
@@ -195,10 +212,12 @@ authority there is no page to read.
 
 ### When the locator is ambiguous
 
-One locator resolving to several clusters. Each is evaluated as its own
-candidate through the same field-check subtree, and selection is capped —
-`deferred_over_limit` records that some candidates were not pursued rather than
-silently dropping them.
+One locator can resolve to several clusters. Each is evaluated through the same
+field-check subtree, and review is capped — `deferred_over_limit` records that
+some candidates were not pursued rather than silently dropping them. The final
+`locator_identity_resolution` node selects a candidate only when exactly one
+assessment is `match`. A partial match is review evidence, not an admitted
+identity; zero or multiple full matches remain `unresolved`.
 
 ---
 

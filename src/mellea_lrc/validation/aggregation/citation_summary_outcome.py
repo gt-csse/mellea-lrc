@@ -17,10 +17,11 @@ if TYPE_CHECKING:
 def overall_locator_citation_outcome(
     candidate_outcomes: Iterable[LocatorCandidateAssessmentOutcome],
 ) -> CitationSummaryAssessmentOutcome | None:
-    """Return the strongest conclusion across all locator-route candidates.
+    """Return the strongest evidence conclusion across exact-locator candidates.
 
-    A unique-locator route can confirm a match, so it may report ``match``,
-    ``possible_match``, or ``mismatch``.
+    This is a summary convenience only. It deliberately does not select an
+    identity: an ambiguous locator may have more than one confirmed candidate.
+    ``run_locator_identity_resolution`` performs that separate decision.
     """
     normalized = tuple(_normalize_locator_outcome(outcome) for outcome in candidate_outcomes)
     if not normalized:
