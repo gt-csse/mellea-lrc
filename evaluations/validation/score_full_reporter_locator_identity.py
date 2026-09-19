@@ -82,7 +82,11 @@ def _gold_identities(
             continue
         for line in path.read_text(encoding="utf-8").splitlines():
             row = json.loads(line)
-            if row.get("unit") != "citation" or row.get("kind") != "FullCaseCitation":
+            if (
+                row.get("unit") != "citation"
+                or row.get("kind") != "FullCaseCitation"
+                or row.get("is_root") is not True
+            ):
                 continue
             identity = row.get("validation", {}).get("identity", {})
             label = identity.get("label") if isinstance(identity, dict) else None
@@ -103,7 +107,10 @@ def _identity_decisions(artifacts: Path) -> dict[tuple[str, int, int], str]:
         payload = json.loads(path.read_text(encoding="utf-8"))
         for citation in payload.get("citations", []):
             source = citation.get("source", {})
-            if source.get("citation_type") != "FullCaseCitation":
+            if (
+                source.get("citation_type") != "FullCaseCitation"
+                or citation.get("root_id") != citation.get("citation_id")
+            ):
                 continue
             outcome = _resolution_outcome(citation)
             locator = source.get("locator_span")
