@@ -16,6 +16,8 @@ from mellea.stdlib.context import ChatContext
 from mellea.stdlib.requirements import req
 from pydantic import BaseModel, ValidationError
 
+from mellea_lrc.llm.config import DEFAULT_TIMEOUT_SECONDS
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -134,7 +136,7 @@ async def run_instruct_ivr(
 ) -> IvrRun:
     """Run one IVR instruction and retain Mellea's inspectable run history."""
     requirements = _requirements_for(spec)
-    sampled = await asyncio.to_thread(
+    instruct = asyncio.to_thread(
         mfuncs.instruct,
         spec.description,
         context=ChatContext(),
@@ -149,10 +151,67 @@ async def run_instruct_ivr(
         if spec.prefix is None
         else {**model_options, ModelOption.SYSTEM_PROMPT: spec.prefix},
     )
+    timeout_seconds = _call_timeout_seconds(model_options)
+    try:
+        # Mellea's stream timeout guards a missing chunk, but some provider
+        # failures leave an open request after a stream has begun.  The outer
+        # deadline turns that condition into an inspectable failed IVR run so
+        # callers can defer safely and persist the reason.
+        sampled = await asyncio.wait_for(instruct, timeout=timeout_seconds)
+    except TimeoutError:
+        return _timed_out_ivr_run(session, spec, model_options, timeout_seconds)
     return _to_ivr_run(session, spec, model_options, sampled)
 
 
 _SCHEMA_REQUIREMENT = "Return exactly one JSON object matching the required output schema."
+_CALL_TIMEOUT_REQUIREMENT = "The model response completed within the configured timeout."
+
+
+def _call_timeout_seconds(model_options: Mapping[object, object]) -> float:
+    """Read the project-owned whole-call limit from Mellea call options."""
+    value = model_options.get(ModelOption.STREAM_TIMEOUT, DEFAULT_TIMEOUT_SECONDS)
+    if isinstance(value, int | float) and value > 0:
+        return float(value)
+    return DEFAULT_TIMEOUT_SECONDS
+
+
+def _timed_out_ivr_run(
+    session: MelleaSession,
+    spec: InstructIvrSpec,
+    model_options: Mapping[object, object],
+    timeout_seconds: float,
+) -> IvrRun:
+    """Represent an outer call deadline using the same artifact shape as IVR repair failure."""
+    backend = session.backend
+    output_format = spec.output_format
+    return IvrRun(
+        success=False,
+        selected_attempt=0,
+        attempts=(
+            IvrAttempt(
+                output="",
+                requirements=(
+                    IvrRequirementAttempt(
+                        description=_CALL_TIMEOUT_REQUIREMENT,
+                        passed=False,
+                        reason=(
+                            "Model call exceeded the configured "
+                            f"{timeout_seconds:g}-second timeout."
+                        ),
+                        score=None,
+                    ),
+                ),
+            ),
+        ),
+        backend=type(backend).__qualname__,
+        model=_optional_string(getattr(backend, "model_id", None)),
+        model_options=_json_mapping(model_options),
+        instruction=spec.description,
+        prefix=spec.prefix,
+        grounding_context=dict(spec.grounding_context),
+        user_variables=dict(spec.user_variables),
+        output_schema=(output_format.model_json_schema() if output_format is not None else None),
+    )
 
 
 def _requirements_for(spec: InstructIvrSpec) -> list[Requirement]:
