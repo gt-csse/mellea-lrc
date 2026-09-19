@@ -218,6 +218,7 @@ class LocatorIdentityResolutionOutcome(str, Enum):
     RESOLVED = "resolved"
     NO_MATCH = "no_match"
     DEFERRED_TO_SEARCH = "deferred_to_search"
+    DEFERRED_TO_SEMANTIC_REVIEW = "deferred_to_semantic_review"
     DEFERRED_TO_FUTURE_IMPLEMENTATION = "deferred_to_future_implementation"
 
 

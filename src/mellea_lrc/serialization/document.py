@@ -202,9 +202,9 @@ def _deserialize_citation(payload: Mapping[str, object]) -> CitationRecord:
         authority_id=_optional_string(payload.get("authority_id"), name="citation.authority_id"),
         found=_read_resolution(payload.get("found"), name="citation.found"),
         corrections=_read_corrections(payload.get("corrections")),
-        stated_fields_reparsed_by_model=_optional_bool(
-            payload.get("stated_fields_reparsed_by_model"),
-            name="citation.stated_fields_reparsed_by_model",
+        extraction_reviewed_by_llm=_optional_bool(
+            payload.get("extraction_reviewed_by_llm"),
+            name="citation.extraction_reviewed_by_llm",
         )
         or False,
         judgements=_read_judgements(payload.get("judgements")),
@@ -224,7 +224,7 @@ def _serialize_record(record: CitationRecord) -> dict[str, object]:
         "colocation_id": record.colocation_id,
         **({"authority_id": record.authority_id} if record.authority_id else {}),
         **({"found": _serialize_resolution(record.found)} if record.found is not None else {}),
-        **({"stated_fields_reparsed_by_model": True} if record.stated_fields_reparsed_by_model else {}),
+        **({"extraction_reviewed_by_llm": True} if record.extraction_reviewed_by_llm else {}),
         # What the pipeline currently says, each naming the node that said it.
         # Written flat rather than inside the trace: the trace is a graph, and
         # a reader after the current state should never have to walk one.

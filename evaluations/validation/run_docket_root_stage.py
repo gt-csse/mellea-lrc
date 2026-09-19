@@ -1,9 +1,9 @@
 """Run one checkpointable docket-root identity stage over serialized Documents.
 
 Each invocation reads one directory of serialized ``Document`` checkpoints and
-writes the next one.  Initial search, its two resolution paths, the one-time
-model review of a no-match docket number, the resulting relookup, and that
-relookup's two resolution paths are separate runs.  A saved checkpoint can
+writes the next one.  Initial search and programmatic resolution are separate runs. The bounded
+extraction-review-and-requeue stage records its own review and requeued-search
+nodes; the second programmatic resolution runs remain separate.  A saved checkpoint can
 therefore be examined or resumed without repeating an earlier CourtListener
 request or model call.
 """
@@ -25,13 +25,12 @@ from dotenv import load_dotenv
 
 from mellea_lrc.api import (
     Document,
-    reextract_unresolved_docket_root_citations,
-    relookup_reviewed_docket_roots,
     resolve_docket_root_ambiguities,
-    resolve_relooked_up_docket_root_ambiguities,
+    resolve_requeued_docket_root_ambiguities,
+    review_and_requeue_unresolved_docket_roots,
     search_docket_roots,
     validate_unique_docket_root_identities,
-    validate_unique_relooked_up_docket_root_identities,
+    validate_unique_requeued_docket_root_identities,
 )
 from mellea_lrc.courtlistener import CourtListenerClient
 from mellea_lrc.llm import llm_api_config_from_env, start_mellea_session_from_env
@@ -40,20 +39,15 @@ Stage = Literal[
     "search",
     "unique-identity",
     "ambiguity-resolution",
-    "docket-citation-reextraction",
-    "relookup-search",
-    "relookup-unique-identity",
-    "relookup-ambiguity-resolution",
+    "docket-extraction-review-and-requeue",
+    "requeued-unique-identity",
+    "requeued-ambiguity-resolution",
 ]
 
-_SEARCH_STAGES = frozenset({"search", "relookup-search"})
+_SEARCH_STAGES = frozenset({"search"})
 _MODEL_STAGES = frozenset(
     {
-        "unique-identity",
-        "ambiguity-resolution",
-        "docket-citation-reextraction",
-        "relookup-unique-identity",
-        "relookup-ambiguity-resolution",
+        "docket-extraction-review-and-requeue",
     }
 )
 
@@ -173,7 +167,7 @@ def _has_failed_search(payload: dict[str, object], *, stage: Stage) -> bool:
         trace = citation.get("trace")
         if not isinstance(trace, list):
             continue
-        expected_stage = "docket_root_search" if stage == "search" else "docket_root_relookup"
+        expected_stage = "docket_root_search"
         for node in trace:
             if not isinstance(node, dict) or node.get("stage") != expected_stage:
                 continue
@@ -194,17 +188,15 @@ async def _run_stage(
     if stage == "search":
         return await search_docket_roots(document, client=service)
     if stage == "unique-identity":
-        return await validate_unique_docket_root_identities(document, session=session)
+        return await validate_unique_docket_root_identities(document)
     if stage == "ambiguity-resolution":
-        return await resolve_docket_root_ambiguities(document, session=session)
-    if stage == "docket-citation-reextraction":
-        return await reextract_unresolved_docket_root_citations(document, session=session)
-    if stage == "relookup-search":
-        return await relookup_reviewed_docket_roots(document, client=service)
-    if stage == "relookup-unique-identity":
-        return await validate_unique_relooked_up_docket_root_identities(document, session=session)
-    if stage == "relookup-ambiguity-resolution":
-        return await resolve_relooked_up_docket_root_ambiguities(document, session=session)
+        return await resolve_docket_root_ambiguities(document)
+    if stage == "docket-extraction-review-and-requeue":
+        return await review_and_requeue_unresolved_docket_roots(document, client=service, session=session)
+    if stage == "requeued-unique-identity":
+        return await validate_unique_requeued_docket_root_identities(document)
+    if stage == "requeued-ambiguity-resolution":
+        return await resolve_requeued_docket_root_ambiguities(document)
     msg = f"Unsupported docket-root validation stage: {stage!r}"
     raise ValueError(msg)
 
@@ -213,8 +205,8 @@ def _outcomes(payload: dict[str, object], *, stage: Stage) -> Counter[str]:
     """Read first-class docket-root judgements rather than inferring trace state."""
     if stage in _SEARCH_STAGES:
         question = "docket_lookup"
-    elif stage == "docket-citation-reextraction":
-        question = "docket_citation_reextraction"
+    elif stage == "docket-extraction-review-and-requeue":
+        question = "extraction_review"
     else:
         question = "identity"
     outcomes: Counter[str] = Counter()
@@ -242,10 +234,9 @@ def main() -> None:
             "search",
             "unique-identity",
             "ambiguity-resolution",
-            "docket-citation-reextraction",
-            "relookup-search",
-            "relookup-unique-identity",
-            "relookup-ambiguity-resolution",
+            "docket-extraction-review-and-requeue",
+            "requeued-unique-identity",
+            "requeued-ambiguity-resolution",
         ),
         required=True,
     )

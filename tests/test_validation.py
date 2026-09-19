@@ -1135,7 +1135,7 @@ def test_ambiguous_lookup_sends_all_reviewed_candidates_to_model(
     assert summary.candidates[1].candidate_index == 2
     assert choice.outcome is MelleaLocatorCandidateChoiceOutcome.NO_MATCH
     assert choice.candidate_indices == (1, 2)
-    assert progression.citation.stated_fields_reparsed_by_model is True
+    assert progression.citation.extraction_reviewed_by_llm is True
     assert resolution is not None
     assert resolution.outcome is LocatorIdentityResolutionOutcome.NO_MATCH
     assert resolution.selection_evidence_node_id == choice.node_id
