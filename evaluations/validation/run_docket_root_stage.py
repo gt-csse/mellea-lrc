@@ -25,28 +25,35 @@ from dotenv import load_dotenv
 
 from mellea_lrc.api import (
     Document,
+    lookup_govinfo_docket_roots,
     resolve_docket_root_ambiguities,
     resolve_docket_root_semantics,
+    resolve_govinfo_docket_root_ambiguities,
     resolve_requeued_docket_root_ambiguities,
     review_and_requeue_unresolved_docket_roots,
     search_docket_roots,
     validate_unique_docket_root_identities,
+    validate_unique_govinfo_docket_root_identities,
     validate_unique_requeued_docket_root_identities,
 )
 from mellea_lrc.courtlistener import CourtListenerClient
+from mellea_lrc.govinfo import GovInfoClient
 from mellea_lrc.llm import llm_api_config_from_env, start_mellea_session_from_env
 
 Stage = Literal[
     "search",
     "unique-identity",
     "ambiguity-resolution",
+    "govinfo-search",
+    "govinfo-unique-identity",
+    "govinfo-ambiguity-resolution",
     "docket-extraction-review-and-requeue",
     "requeued-unique-identity",
     "requeued-ambiguity-resolution",
     "semantic-resolution",
 ]
 
-_SEARCH_STAGES = frozenset({"search"})
+_SEARCH_STAGES = frozenset({"search", "govinfo-search"})
 _MODEL_STAGES = frozenset(
     {
         "docket-extraction-review-and-requeue",
@@ -111,6 +118,7 @@ async def run(
     service = _PacedDocketSearchClient(
         CourtListenerClient(), minimum_interval_seconds=minimum_search_interval_seconds
     )
+    govinfo_service = GovInfoClient()
     session = start_mellea_session_from_env() if stage in _MODEL_STAGES else None
     outcomes: Counter[str] = Counter()
     result_paths: list[dict[str, str]] = []
@@ -124,7 +132,13 @@ async def run(
                 document = Document.from_serialized(payload)
         if not resume or not result_path.exists() or retry:
             document = Document.from_serialized(json.loads(path.read_text(encoding="utf-8")))
-            document = await _run_stage(stage, document, service=service, session=session)
+            document = await _run_stage(
+                stage,
+                document,
+                service=service,
+                govinfo_service=govinfo_service,
+                session=session,
+            )
             payload = document.serialize()
             Document.from_serialized(payload)
             _atomic_json(result_path, payload)
@@ -170,7 +184,7 @@ def _has_failed_search(payload: dict[str, object], *, stage: Stage) -> bool:
         trace = citation.get("trace")
         if not isinstance(trace, list):
             continue
-        expected_stage = "docket_root_search"
+        expected_stage = "govinfo_docket_root_search" if stage == "govinfo-search" else "docket_root_search"
         for node in trace:
             if not isinstance(node, dict) or node.get("stage") != expected_stage:
                 continue
@@ -186,6 +200,7 @@ async def _run_stage(
     document: Document,
     *,
     service: _PacedDocketSearchClient,
+    govinfo_service: GovInfoClient,
     session: object | None,
 ) -> Document:
     if stage == "search":
@@ -194,6 +209,12 @@ async def _run_stage(
         return await validate_unique_docket_root_identities(document)
     if stage == "ambiguity-resolution":
         return await resolve_docket_root_ambiguities(document)
+    if stage == "govinfo-search":
+        return await lookup_govinfo_docket_roots(document, client=govinfo_service)
+    if stage == "govinfo-unique-identity":
+        return await validate_unique_govinfo_docket_root_identities(document)
+    if stage == "govinfo-ambiguity-resolution":
+        return await resolve_govinfo_docket_root_ambiguities(document)
     if stage == "docket-extraction-review-and-requeue":
         return await review_and_requeue_unresolved_docket_roots(document, client=service, session=session)
     if stage == "requeued-unique-identity":
@@ -239,6 +260,9 @@ def main() -> None:
             "search",
             "unique-identity",
             "ambiguity-resolution",
+            "govinfo-search",
+            "govinfo-unique-identity",
+            "govinfo-ambiguity-resolution",
             "docket-extraction-review-and-requeue",
             "requeued-unique-identity",
             "requeued-ambiguity-resolution",
@@ -256,7 +280,7 @@ def main() -> None:
         action="store_true",
         help=(
             "With --resume and a search stage, recompute only Documents containing a failed "
-            "CourtListener request."
+            "retrieval request."
         ),
     )
     parser.add_argument(

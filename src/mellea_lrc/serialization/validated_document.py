@@ -42,6 +42,7 @@ from mellea_lrc.validation.types import (
     ExactCaseNameCheckNode,
     ExactLocatorLookupNode,
     FieldCheckOutcome,
+    GovInfoDocketSearchNode,
     LocatorCandidateAssessmentNode,
     LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode,
@@ -93,6 +94,7 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
     for node_type in (
         ExactLocatorLookupNode,
         DocketRootSearchNode,
+        GovInfoDocketSearchNode,
         MelleaDocketCitationReextractionNode,
         MelleaDocketNumberEquivalenceNode,
         ExactCaseNameCheckNode,
@@ -124,6 +126,7 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
 _OUTCOME_TYPES = {
     ExactLocatorLookupNode: LocatorLookupOutcome,
     DocketRootSearchNode: DocketRootSearchOutcome,
+    GovInfoDocketSearchNode: DocketRootSearchOutcome,
     MelleaDocketCitationReextractionNode: MelleaDocketCitationReextractionOutcome,
     MelleaDocketNumberEquivalenceNode: MelleaDocketNumberEquivalenceOutcome,
     ExactCaseNameCheckNode: FieldCheckOutcome,
@@ -240,7 +243,7 @@ def deserialize_validation_node(value: object) -> ValidationNode:
             deserialize_ivr_run(require_mapping(run, name="node.run")) if run is not None else None
         )
 
-    if node_type is DocketRootSearchNode:
+    if node_type in (DocketRootSearchNode, GovInfoDocketSearchNode):
         fields["candidates"] = _freeze_search_results(
             require_list(fields["candidates"], name="node.candidates")
         )

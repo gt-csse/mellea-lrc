@@ -64,6 +64,25 @@ def run_docket_search_candidate_evaluation(
     )
 
 
+def run_govinfo_docket_search_candidate_evaluation(
+    validation: CitationValidation,
+    *,
+    result: Mapping[str, object],
+    candidate_index: int,
+    depends_on: tuple[str, ...],
+    node_prefix: str | None = None,
+) -> CandidateEvaluationNode:
+    """Materialize one GovInfo USCOURTS package candidate for field checks."""
+    return _search_candidate_evaluation(
+        validation,
+        result=result,
+        candidate_index=candidate_index,
+        depends_on=depends_on,
+        source=CandidateEvaluationSource.GOVINFO_DOCKET_SEARCH,
+        node_prefix=node_prefix,
+    )
+
+
 def run_opinion_search_candidate_evaluation(
     validation: CitationValidation,
     *,
@@ -129,6 +148,8 @@ def _search_candidate_evaluation(
         depends_on=depends_on,
         status_message=f"{source_label} candidate evaluation branch initialized.",
         outcome_message="Candidate is ready for independent validation checks.",
+        decision_date=_optional_string(result.get("decisionDate")),
+        govinfo_package_id=_optional_string(result.get("govinfo_package_id")),
     )
 
 

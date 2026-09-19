@@ -1339,9 +1339,9 @@ def test_model_choice_with_court_mismatch_defers_to_future_semantics(
     resolution = progression.identity_resolution
 
     assert resolution is not None
-    assert resolution.outcome is LocatorIdentityResolutionOutcome.DEFERRED_TO_FUTURE_IMPLEMENTATION
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.NO_MATCH
     assert resolution.selected_candidate_index is None
-    assert "court or year" in resolution.outcome_message
+    assert "court comparison" in resolution.outcome_message
 
 
 def test_docket_locator_is_untouched_without_service_access() -> None:

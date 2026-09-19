@@ -66,20 +66,17 @@ def run_locator_identity_resolution(
             msg = "Model candidate choice selected a candidate absent from the locator summary"
             raise ValueError(msg)
         if _requires_future_court_or_date_semantics(candidate):
-            # A choice may surface a bad court/date parse, but this checkpoint
-            # deliberately does not repair those fields. Admit no identity
-            # until the separate court/date semantic stage can record that
-            # correction and send the locator through exact checking again.
+            conflicts = _conflicting_fields(candidate)
             return _resolution(
                 validation,
-                outcome=LocatorIdentityResolutionOutcome.DEFERRED_TO_FUTURE_IMPLEMENTATION,
+                outcome=LocatorIdentityResolutionOutcome.NO_MATCH,
                 matching_candidate_indices=matching_candidate_indices,
                 selection_evidence_node_id=choice.node_id,
                 depends_on=(summary.node_id, choice.node_id),
-                status_message="Locator identity resolution deferred to court/date semantics.",
+                status_message="Locator identity resolution completed.",
                 outcome_message=(
                     f"Model selected candidate {candidate.candidate_index}, but its deterministic "
-                    "court or year comparison conflicts with the stated fields."
+                    f"{conflicts} comparison conflicts with the stated fields."
                 ),
             )
         return _resolution(
@@ -167,6 +164,16 @@ def _requires_future_court_or_date_semantics(candidate) -> bool:
         candidate.court_outcome is AggregatedFieldOutcome.MISMATCH
         or candidate.year_outcome is AggregatedFieldOutcome.MISMATCH
     )
+
+
+def _conflicting_fields(candidate) -> str:
+    """Name the deterministic evidence that makes a selected identity wrong."""
+    fields: list[str] = []
+    if candidate.court_outcome is AggregatedFieldOutcome.MISMATCH:
+        fields.append("court")
+    if candidate.year_outcome is AggregatedFieldOutcome.MISMATCH:
+        fields.append("date")
+    return " and ".join(fields)
 
 
 def _resolution(

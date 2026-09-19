@@ -10,12 +10,15 @@ import pytest
 import mellea_lrc.validation.docket_roots as docket_roots
 from mellea_lrc.api import (
     form_roots,
+    lookup_govinfo_docket_roots,
     resolve_docket_root_ambiguities,
     resolve_docket_root_semantics,
+    resolve_govinfo_docket_root_ambiguities,
     resolve_requeued_docket_root_ambiguities,
     review_and_requeue_unresolved_docket_roots,
     search_docket_roots,
     validate_unique_docket_root_identities,
+    validate_unique_govinfo_docket_root_identities,
     validate_unique_requeued_docket_root_identities,
 )
 from mellea_lrc.core.citations import CitationDate, DocketCitation, placed
@@ -23,6 +26,7 @@ from mellea_lrc.core.record import CitationRecord, Question
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import CourtListenerSearchResult
 from mellea_lrc.extraction import Document, ExtractionMetadata
+from mellea_lrc.govinfo import GovInfoSearchResult
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.validation.types import (
     MelleaDocketCitationReextractionNode,
@@ -69,6 +73,24 @@ class _CorrectedDocketSearchClient(_DocketSearchClient):
             results=results,
             next_cursor=None,
             previous_cursor=None,
+        )
+
+
+class _GovInfoSearchClient:
+    """Small fake for the independent published-opinion fallback."""
+
+    def __init__(self, *, count: int, results: list[dict[str, object]]) -> None:
+        self.count = count
+        self.results = results
+        self.calls: list[tuple[str, str | None, int]] = []
+
+    def search_uscourts_docket(self, docket_number: str, *, court_id: str | None, page_size: int):
+        self.calls.append((docket_number, court_id, page_size))
+        return GovInfoSearchResult(
+            query=f'collection:uscourts casenumber:("{docket_number}") courtCode:{court_id}',
+            count=self.count,
+            results=tuple(self.results),
+            next_offset_mark=None,
         )
 
 
@@ -155,6 +177,38 @@ def test_docket_search_is_not_blocked_by_a_missing_court() -> None:
     assert completed.citations[0].judgement(Question.IDENTITY).outcome == "resolved"
 
 
+def test_govinfo_fallback_resolves_a_courtlistener_docket_miss() -> None:
+    """GovInfo's package record is a separately persisted positive identity route."""
+    courtlistener = _DocketSearchClient(count=0, results=[])
+    govinfo = _GovInfoSearchClient(
+        count=1,
+        results=[
+            {
+                "packageId": "USCOURTS-nysd-1_24-cv-08760",
+                "title": "Smith v. Jones",
+                "dateIssued": "2024-01-06",
+            }
+        ],
+    )
+    searched = asyncio.run(search_docket_roots(form_roots(_document()), client=courtlistener))
+    unique = asyncio.run(validate_unique_docket_root_identities(searched))
+    ambiguous = asyncio.run(resolve_docket_root_ambiguities(unique))
+    looked_up = asyncio.run(lookup_govinfo_docket_roots(ambiguous, client=govinfo))
+    completed = asyncio.run(
+        resolve_govinfo_docket_root_ambiguities(
+            asyncio.run(validate_unique_govinfo_docket_root_identities(looked_up))
+        )
+    )
+    root = completed.citations[0]
+
+    assert govinfo.calls == [("1:24-cv-08760", "nysd", 20)]
+    assert root.judgement(Question.IDENTITY).outcome == "resolved"
+    assert root.authority_id == "govinfo:package:USCOURTS-nysd-1_24-cv-08760"
+    assert root.found is not None
+    assert root.found.govinfo_package_id == "USCOURTS-nysd-1_24-cv-08760"
+    assert "govinfo_docket_root_search" in completed.passes
+
+
 def test_docket_identity_defers_when_case_filing_postdates_a_stated_decision() -> None:
     """A docket opened after the cited decision is contradictory evidence."""
     document = _document(date=None)
@@ -168,7 +222,7 @@ def test_docket_identity_defers_when_case_filing_postdates_a_stated_decision() -
     completed = asyncio.run(validate_unique_docket_root_identities(searched))
     root = completed.citations[0]
 
-    assert root.judgement(Question.IDENTITY).outcome == "deferred_to_semantic_review"
+    assert root.judgement(Question.IDENTITY).outcome == "no_match"
     year = next(node for node in root.trace if node.details.get("validation_node_type") == "YearCheckNode")
     assert year.details["validation"]["outcome"] == "mismatch"
 
