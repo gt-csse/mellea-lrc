@@ -32,13 +32,15 @@ if TYPE_CHECKING:
 
 MAX_TOKENS = 128
 MAX_REPAIR_TURNS = 2
-INSTRUCTION = """
+PREFIX = """
 Classify whether extracted_case_name is a normal legal citation of retrieved_case_name.
 
 Consider only the names. A match means the same case despite ordinary legal
 abbreviation or party shortening, with both sides of "v." represented. Missing,
 garbled, materially incomplete, or different-case names are mismatches.
+""".strip()
 
+INSTRUCTION = """
 extracted_case_name:
 {{extracted_case_name}}
 
@@ -77,6 +79,7 @@ async def run_mellea_case_name_check(
         resolved_session = session or start_mellea_session_from_env()
         spec = InstructIvrSpec(
             description=INSTRUCTION,
+            prefix=PREFIX,
             user_variables={
                 "extracted_case_name": exact_node.extracted_case_name,
                 "retrieved_case_name": exact_node.retrieved_case_name,
@@ -212,6 +215,7 @@ async def _semantic_outcome(
     try:
         spec = InstructIvrSpec(
             description=INSTRUCTION,
+            prefix=PREFIX,
             user_variables={
                 "extracted_case_name": extracted_case_name,
                 "retrieved_case_name": retrieved_case_name,

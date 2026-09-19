@@ -39,7 +39,7 @@ CHOICE_MAX_REPAIR_TURNS = 2
 
 # TODO: Opinion reading could refine a tie, but it belongs to the later opinion
 # stage and must not be coupled to this root-identity decision yet.
-CHOICE_INSTRUCTION = """
+CHOICE_PREFIX = """
 The filing contains one target reporter citation marked by locator. Read only
 local_context and the complete list of retrieved candidates. Reparse the
 filing's stated case name, court, and date from local_context. Then select the
@@ -51,6 +51,9 @@ candidates whose preliminary field assessment says mismatch or partial_match:
 those assessments are evidence, not a final selection. Do not use outside
 knowledge, change the reporter locator, invent a field, or select multiple
 candidates. When a field is absent in local_context, return null for it.
+""".strip()
+
+CHOICE_INSTRUCTION = """
 
 locator:
 {{locator}}
@@ -99,6 +102,7 @@ async def run_mellea_locator_candidate_choice(
         options = llm_api_config_from_env(os.environ).mellea_call_options(max_tokens=CHOICE_MAX_TOKENS)
         spec = InstructIvrSpec(
             description=CHOICE_INSTRUCTION,
+            prefix=CHOICE_PREFIX,
             grounding_context={"local_context": local_context},
             user_variables={
                 "locator": locator,
