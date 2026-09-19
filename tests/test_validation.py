@@ -1271,6 +1271,66 @@ def test_ambiguous_locator_uses_model_to_select_among_confirmed_candidates(
     assert resolution.selection_evidence_node_id == choice.node_id
 
 
+def test_model_choice_with_court_mismatch_defers_to_future_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A model choice cannot silently turn a bad stated court into an identity."""
+    extracted = _document(
+        FullCaseCitation(
+            plaintiff="Brown",
+            defendant="Board",
+            volume="347",
+            reporter="U.S.",
+            page="483",
+            date=CitationDate(year="1954"),
+            court="scotus",
+        )
+    )
+    clusters = (
+        CourtListenerOpinionCluster(
+            cluster_id="wrong-court",
+            case_name="Brown v. Board",
+            date_filed="1954-05-17",
+            court_id="ksd",
+            docket_id="wrong-court-docket",
+        ),
+    )
+    client = LookupClient(
+        CourtListenerCitationLookup(citation="347 U.S. 483", status=200, clusters=clusters),
+        docket_response=CourtListenerDocket(docket_id="wrong-court-docket", court_id="ksd"),
+    )
+
+    async def fake_choice(
+        validation: object,
+        *,
+        summary: LocatorCitationSummaryNode,
+        document_text: str,
+        session: object | None,
+    ) -> MelleaLocatorCandidateChoiceNode:
+        del validation, document_text, session
+        return MelleaLocatorCandidateChoiceNode(
+            node_id=f"{summary.node_id}:mellea_candidate_choice",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaLocatorCandidateChoiceOutcome.SELECTED,
+            candidate_indices=(1,),
+            selected_candidate_index=1,
+            reparsed_case_name="Brown v. Board",
+            reparsed_court="scotus",
+            reparsed_date="1954",
+            rationale="This is the only candidate.",
+            depends_on=(summary.node_id,),
+        )
+
+    monkeypatch.setattr("mellea_lrc.validation.execution.run_mellea_locator_candidate_choice", fake_choice)
+    progression = _validate_identity(extracted, client).citations[0]
+    resolution = progression.identity_resolution
+
+    assert resolution is not None
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.DEFERRED_TO_FUTURE_IMPLEMENTATION
+    assert resolution.selected_candidate_index is None
+    assert "court or year" in resolution.outcome_message
+
+
 def test_docket_locator_is_untouched_without_service_access() -> None:
     document = _document(DocketCitation(docket_number="1:24-cv-08705"))
     client = LookupClient(CourtListenerCitationLookup(citation="unused", status=200, clusters=()))

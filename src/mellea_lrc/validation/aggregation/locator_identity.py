@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from mellea_lrc.validation.types import (
+    AggregatedFieldOutcome,
     LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode,
     LocatorIdentityResolutionNode,
@@ -64,6 +65,23 @@ def run_locator_identity_resolution(
         if candidate is None:
             msg = "Model candidate choice selected a candidate absent from the locator summary"
             raise ValueError(msg)
+        if _requires_future_court_or_date_semantics(candidate):
+            # A choice may surface a bad court/date parse, but this checkpoint
+            # deliberately does not repair those fields.  Admit no identity
+            # until the separate court/date semantic stage can record that
+            # correction and send the locator through exact checking again.
+            return _resolution(
+                validation,
+                outcome=LocatorIdentityResolutionOutcome.DEFERRED_TO_FUTURE_IMPLEMENTATION,
+                matching_candidate_indices=matching_candidate_indices,
+                selection_evidence_node_id=choice.node_id,
+                depends_on=(summary.node_id, choice.node_id),
+                status_message="Locator identity resolution deferred to court/date semantics.",
+                outcome_message=(
+                    f"Model selected candidate {candidate.candidate_index}, but its deterministic "
+                    "court or year comparison conflicts with the stated fields."
+                ),
+            )
         return _resolution(
             validation,
             outcome=LocatorIdentityResolutionOutcome.RESOLVED,
@@ -140,6 +158,14 @@ def _matching_candidates(summary: LocatorCitationSummaryNode):
         candidate
         for candidate in summary.candidates
         if candidate.outcome is LocatorCandidateAssessmentOutcome.MATCH
+    )
+
+
+def _requires_future_court_or_date_semantics(candidate) -> bool:
+    """Keep unrepaired court/year disagreement out of an admitted identity."""
+    return (
+        candidate.court_outcome is AggregatedFieldOutcome.MISMATCH
+        or candidate.year_outcome is AggregatedFieldOutcome.MISMATCH
     )
 
 
