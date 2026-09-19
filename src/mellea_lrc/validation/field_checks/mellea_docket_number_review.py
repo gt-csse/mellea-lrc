@@ -10,6 +10,7 @@ invented identifier.  The caller decides whether to re-run docket search.
 from __future__ import annotations
 
 import os
+import re
 from typing import TYPE_CHECKING, Annotated
 
 from mellea.core import ValidationResult
@@ -19,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
 
 from mellea_lrc.core.citations import DocketCitation
 from mellea_lrc.core.fuzziness import FuzzinessOption
+from mellea_lrc.extraction.reading.dockets import DOCKET_PREFIX
 from mellea_lrc.llm import (
     EvidenceCandidate,
     GroundingEvidence,
@@ -44,6 +46,7 @@ if TYPE_CHECKING:
 MAX_TOKENS = 640
 MAX_REPAIR_TURNS = 2
 DOCKET_NUMBER_GROUNDING = FuzzinessOption.whitespace_relaxation()
+_LEADING_DOCKET_LABEL = re.compile(DOCKET_PREFIX, re.IGNORECASE)
 
 # This prefix contains the stable recovery contract only. The filing and its
 # particular identifier are supplied separately, which keeps a provider prefix
@@ -57,7 +60,9 @@ page number.
 
 Return the docket-number portion exactly as it appears inside source_locator.
 Do not normalize punctuation, add digits, infer a value from outside knowledge,
-or use another citation. Whitespace damage may be preserved exactly as written.
+or use another citation. Do not include a leading label such as ``No.`` or
+``Case No.`` in docket_number. Whitespace damage may be preserved exactly as
+written.
 If source_locator does not contain a docket number, return null. Give one short
 reason.
 """.strip()
@@ -95,15 +100,29 @@ def _grounded_candidates(source_locator: str) -> GroundingEvidence[str]:
     docket grammar is needed to discover a corrected parse.
     """
     candidates: list[EvidenceCandidate[str]] = []
-    for start, first in enumerate(source_locator):
+    source_number = _source_number_region(source_locator)
+    for start, first in enumerate(source_number):
         if not first.isalnum():
             continue
-        for end in range(start + 1, len(source_locator) + 1):
-            value = source_locator[start:end]
+        for end in range(start + 1, len(source_number) + 1):
+            value = source_number[start:end]
             if not value[-1].isalnum() or not any(character.isdigit() for character in value):
                 continue
             candidates.append(EvidenceCandidate(text=value, value=value))
     return GroundingEvidence(candidates)
+
+
+def _source_number_region(source_locator: str) -> str:
+    """Exclude a recognized leading docket label from identifier evidence.
+
+    A label helps a rule or a model recognize the citation shape, but it is not
+    part of the court-assigned docket number. Reusing the first-pass reader's
+    general label grammar avoids accepting ``No. 16-CV-8607`` as a distinct
+    identifier while preserving all later, opaque identifier text for review.
+    A locator without one of those labels remains fully available to hunting.
+    """
+    match = _LEADING_DOCKET_LABEL.match(source_locator)
+    return source_locator[match.end() :] if match is not None else source_locator
 
 
 def _grounded_number(source_locator: str, proposed: str | None) -> str | None:
