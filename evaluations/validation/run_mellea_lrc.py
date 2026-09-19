@@ -1,8 +1,8 @@
 """Run Mellea-LRC validation over a corpus and serialize one artifact per document.
 
 Produces the input ``export_mellea_lrc_artifact.py`` expects: a directory of
-serialized ``ValidatedDocument`` JSON files, named after the benchmark document
-so the adapter can recover its number.
+serialized ``Document`` JSON files, named after the benchmark document so the
+adapter can recover its number.
 
 The serialized run is the expensive artifact — it costs CourtListener and model
 calls — so it is kept on disk and re-scored for free.
@@ -19,8 +19,7 @@ from pathlib import Path
 
 from evaluations.extraction.run import read_body
 from mellea_lrc.api import (
-    run_full_reporter_locator_identity,
-    start_full_reporter_locator_identity,
+    validate_roots_identity,
 )
 from mellea_lrc.courtlistener import CourtListenerClient
 from mellea_lrc.extraction import extract_from_plain_text
@@ -42,10 +41,9 @@ async def validate_corpus(corpus: list[tuple[str, str]]) -> list[tuple[str, dict
     runs: list[tuple[str, dict]] = []
     for stem, body in corpus:
         extracted = extract_from_plain_text(body, source_path=stem)
-        checkpoint = start_full_reporter_locator_identity(extracted)
-        validated = await run_full_reporter_locator_identity(checkpoint, client=client, session=session)
-        runs.append((stem, validated.serialize()))
-        print(f"  {stem[:40]:<40} {len(validated.citations):>4} citations")
+        document = await validate_roots_identity(extracted, client=client, session=session)
+        runs.append((stem, document.serialize()))
+        print(f"  {stem[:40]:<40} {len(document.citations):>4} citations")
     return runs
 
 

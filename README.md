@@ -39,7 +39,7 @@ Three layers run in order, each consuming what the last produced:
 | --- | --- | --- |
 | Preprocessing | PDF or DOCX via [Docling](https://github.com/docling-project/docling), or plain text | `PreprocessedDocument` |
 | Extraction | preprocessed text | `Document` |
-| Validation | extracted citations | `ValidatedDocument` |
+| Validation | extracted citations | `Document` |
 
 Every citation keeps a span into the preprocessed text, and each validation step
 is recorded as its own node, so a verdict can be traced back to the characters
@@ -153,7 +153,7 @@ is read out of the text around the citation, so there has to be one there.
 
 The public API composes named stages over one `Document`. A `str` is content;
 a `Path` is a source to preprocess. Every transition returns a `Document`, so
-you can serialize it at any checkpoint and resume it later:
+you can serialize it after any stage and resume it later:
 
 ```python
 from pathlib import Path
@@ -181,17 +181,15 @@ from the environment:
 import asyncio
 
 from mellea_lrc.api import (
-    ValidatedDocument,
-    run_full_reporter_locator_identity,
-    start_full_reporter_locator_identity,
+    validate_roots_identity,
 )
+from mellea_lrc.core.record import Question
 
-checkpoint = start_full_reporter_locator_identity(document)
-validated = asyncio.run(run_full_reporter_locator_identity(checkpoint))
-payload = validated.serialize()
-validated = ValidatedDocument.from_serialized(payload)
-for entry in validated.citations:
-    print(entry.citation_id, entry.aggregation)
+document = asyncio.run(validate_roots_identity(document))
+payload = document.serialize()
+document = Document.from_serialized(payload)
+for citation in document.citations:
+    print(citation.citation_id, citation.judgement(Question.IDENTITY).outcome)
 ```
 
 ## Evaluations

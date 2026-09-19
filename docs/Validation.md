@@ -5,7 +5,7 @@ status: active
 
 # Validation
 
-Validation currently has one independent, resumable checkpoint: **full reporter-locator identity**. It works only on `FullCaseCitation` roots with a reporter locator. Docket lookup, lookup-miss search, leaf growth, and pinpoint work are separate stages that have not been admitted to this checkpoint.
+Validation currently has one independent, resumable stage: **root identity**. It works only on `FullCaseCitation` roots with a reporter locator. Docket lookup, lookup-miss search, leaf growth, and pinpoint work are separate stages that have not been admitted to this route.
 
 ## API
 
@@ -15,27 +15,24 @@ from pathlib import Path
 
 from mellea_lrc.api import (
     Document,
-    ValidatedDocument,
     find_docket_locators,
     find_full_reporter_locators,
     resolve_colocations,
-    run_full_reporter_locator_identity,
-    start_full_reporter_locator_identity,
+    validate_roots_identity,
 )
 
 document = Document.from_source(Path("filing.pdf"))
 document = find_full_reporter_locators(document)
 document = find_docket_locators(document)
 document = resolve_colocations(document)
-checkpoint = start_full_reporter_locator_identity(document)
-checkpoint = asyncio.run(run_full_reporter_locator_identity(checkpoint))
-payload = checkpoint.serialize()
-checkpoint = ValidatedDocument.from_serialized(payload)
+document = asyncio.run(validate_roots_identity(document))
+payload = document.serialize()
+document = Document.from_serialized(payload)
 ```
 
-`start_full_reporter_locator_identity` preserves every active citation in source order. `run_full_reporter_locator_identity` returns the same `ValidatedDocument` type. It reads and writes nodes only for full reporter locators; docket locators and every other citation type remain present with an empty validation progression.
+`validate_roots_identity` preserves every citation in source order and returns the same `Document` type. It writes the lookup and candidate evidence to the root citation's `trace`, writes a selected archive result to `found`, writes its pointer to `authority_id`, and writes the terminal state to `judgements[IDENTITY]`. Docket locators and every other citation type remain untouched.
 
-`mellea_lrc.api` is the sole compositional import: it exposes locator readers, the optional docket-hunting plugin, co-location, field readers, and each admitted validation checkpoint. `Document.from_source(...)` starts a locator document from a string or a `Path`; callers with an existing preprocessing result use `Document.from_preprocessed(...)` instead. `Document.serialize()` and `ValidatedDocument.serialize()` return JSON-ready mappings. Their paired constructors are `Document.from_serialized(payload)` and `ValidatedDocument.from_serialized(payload)`; Python reserves `from`, so the constructor cannot be named `Document.from(...)`. A completed checkpoint is safe to pass back to `run_full_reporter_locator_identity`: completed reporter progressions are retained without another lookup. A partial reporter progression is rejected so one logical lookup cannot be recorded twice.
+`mellea_lrc.api` is the sole compositional import: it exposes locator readers, the optional docket-hunting plugin, co-location, field readers, and each admitted validation stage. `Document.from_source(...)` starts a locator document from a string or a `Path`; callers with an existing preprocessing result use `Document.from_preprocessed(...)` instead. `Document.serialize()` returns a JSON-ready mapping and `Document.from_serialized(payload)` restores it. Python reserves `from`, so the constructor cannot be named `Document.from(...)`. A completed identity result is safe to pass back to `validate_roots_identity`: its explicit identity judgement prevents a second lookup. A partial root-identity trace is rejected so one logical lookup cannot be recorded twice.
 
 ## Current route
 
@@ -51,7 +48,7 @@ full reporter locator
     └── deferred_to_future_implementation
 ```
 
-`deferred_to_search` is a positive handoff: exact locator lookup found no candidate, so the later search stage should work from this artifact. `deferred_to_future_implementation` means there is no admitted route yet. In particular, an exact result set of 20 or more candidates is preserved on the lookup node but not truncated or sent to the model.
+`deferred_to_search` is a positive handoff: exact locator lookup found no candidate, so the later search stage should work from this document. `deferred_to_future_implementation` means there is no admitted route yet. In particular, an exact result set of 20 or more candidates is preserved on the lookup node but not truncated or sent to the model.
 
 For a bounded candidate set whose deterministic field checks leave zero or multiple matches, the model receives the target-only local context and all reviewed candidates. It reparses the stated case name, court, and date; selects one candidate or emits `no_match`; and cannot change the reporter locator. Colocation is never sent to the model and is not a model-level operation.
 
@@ -59,14 +56,14 @@ A later cross-locator reconciliation stage may use stored colocation along with 
 
 ## Provenance of a model reparse
 
-Every `CitationRecord` has `stated_fields_reparsed_by_model: bool`. It becomes `True` when a grounded model successfully completes a local reparse of stated identity fields. It does not mean that a field was corrected or that identity was resolved. The corresponding `MelleaLocatorCandidateChoiceNode`, including all IVR attempts and repair feedback, remains in the same serialized checkpoint.
+Every `CitationRecord` has `stated_fields_reparsed_by_model: bool`. It becomes `True` when a grounded model successfully completes a local reparse of stated identity fields. It does not mean that a field was corrected or that identity was resolved. The corresponding `MelleaLocatorCandidateChoiceNode`, including all IVR attempts and repair feedback, remains in the citation's trace.
 
-## Next checkpoints
+## Next stages
 
 The following are deliberately separate:
 
-- reporter lookup-miss search, consuming progressions marked `deferred_to_search`;
-- docket-number-only lookup and disambiguation, consuming untouched `DocketCitation` progressions, including citations without a court;
+- reporter lookup-miss search, consuming roots judged `deferred_to_search`;
+- docket-number-only lookup and disambiguation, consuming untouched `DocketCitation` records, including citations without a court;
 - cross-locator reconciliation after both identity routes have evidence;
 - leaf attribution and leaf case-name consistency;
 - reporter-page retrieval, proposition extraction, and pinpoint support.

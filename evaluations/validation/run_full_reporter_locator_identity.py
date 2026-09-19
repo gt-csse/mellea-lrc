@@ -1,10 +1,10 @@
 """Run a bounded identity-only evaluation from persisted locator checkpoints.
 
 The source checkpoint has already completed locator admission, colocation, and
-the deterministic court, date, and case-name readers.  This runner resumes
-those exact ``Document`` objects, invokes only the identity progression, and
-writes one recoverable ``ValidatedDocument`` trace per filing.  Pinpoint page
-retrieval is intentionally outside this run.
+the deterministic court, date, and case-name readers. This runner resumes
+those exact ``Document`` objects, invokes only root identity, and writes the
+same ``Document`` shape with its new citation traces. Pinpoint page retrieval
+is intentionally outside this run.
 """
 
 from __future__ import annotations
@@ -23,9 +23,7 @@ from dotenv import load_dotenv
 
 from mellea_lrc.api import (
     Document,
-    ValidatedDocument,
-    run_full_reporter_locator_identity,
-    start_full_reporter_locator_identity,
+    validate_roots_identity,
 )
 from mellea_lrc.courtlistener import CourtListenerClient
 from mellea_lrc.llm import llm_api_config_from_env, start_mellea_session_from_env
@@ -48,7 +46,7 @@ def _summary(payload: dict[str, Any]) -> Counter[str]:
     """Count the terminal identity decision, keeping evidence summaries separate."""
     outcomes: Counter[str] = Counter()
     for citation in payload["citations"]:
-        nodes = citation["nodes"]
+        nodes = _validation_nodes(citation)
         lookup = next((node for node in nodes if node["node_type"] == "ExactLocatorLookupNode"), None)
         resolution = next(
             (node for node in nodes if node["node_type"] == "LocatorIdentityResolutionNode"),
@@ -77,7 +75,7 @@ def _model_statistics(payload: dict[str, Any]) -> Counter[str]:
     """Count persisted IVR attempts rather than inferring model work from nodes."""
     statistics: Counter[str] = Counter()
     for citation in payload["citations"]:
-        for node in citation["nodes"]:
+        for node in _validation_nodes(citation):
             run = node.get("run")
             if not isinstance(run, dict):
                 continue
@@ -104,6 +102,21 @@ def _model_statistics(payload: dict[str, Any]) -> Counter[str]:
     return statistics
 
 
+def _validation_nodes(citation: dict[str, Any]) -> list[dict[str, Any]]:
+    """Read validation payloads held by this citation's stage-neutral trace."""
+    nodes: list[dict[str, Any]] = []
+    for trace_node in citation.get("trace", []):
+        details = trace_node.get("details")
+        if not isinstance(details, dict):
+            continue
+        node_type = details.get("validation_node_type")
+        payload = details.get("validation")
+        if not isinstance(node_type, str) or not isinstance(payload, dict):
+            continue
+        nodes.append({"node_type": node_type, **payload})
+    return nodes
+
+
 async def run(
     *,
     checkpoints: Path,
@@ -127,13 +140,12 @@ async def run(
         result_path = output / "documents" / path.name
         if resume and result_path.exists():
             payload = json.loads(result_path.read_text(encoding="utf-8"))
-            ValidatedDocument.from_serialized(payload)
+            Document.from_serialized(payload)
         else:
             document = Document.from_serialized(json.loads(path.read_text(encoding="utf-8")))
-            checkpoint = start_full_reporter_locator_identity(document)
-            validated = await run_full_reporter_locator_identity(checkpoint, client=service, session=session)
-            payload = validated.serialize()
-            ValidatedDocument.from_serialized(payload)
+            document = await validate_roots_identity(document, client=service, session=session)
+            payload = document.serialize()
+            Document.from_serialized(payload)
             _atomic_json(result_path, payload)
         outcomes.update(_summary(payload))
         model_statistics.update(_model_statistics(payload))

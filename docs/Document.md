@@ -10,15 +10,10 @@ citations, adds nodes to a citation or to the document itself, and adds findings
 about the document. It does not wrap the previous stage's output, and it does
 not produce an artifact of its own kind.
 
-This replaces three types that say the same thing in three shapes:
-
-    extracted_document    text, metadata, citations
-    identified_document   source: <a whole extracted_document>, records: [...]
-    validated_document    source: <a whole extracted_document>, citations: [progressions]
-
-Each wraps the one before, so the same citation is written twice, in two
-shapes, and a consumer has to know which layer it is looking at to find the
-current reading. That is the only thing being removed.
+Validation may use richer typed values while executing one citation, but it
+projects each result into a stage-neutral `Node` on that citation before the
+stage returns. The typed values are not an artifact boundary. A caller sees one
+document shape before and after every stage.
 
 ---
 
@@ -175,28 +170,12 @@ Two are structural, and a scheduler has to know them:
 
 Every arrow is the same object with more written on it.
 
-## What this costs to build
+## Implementation
 
-*   One document type and one artifact type, replacing three. The record type
-    is already shared — `mellea_lrc/validation/record.py` is a re-export of
-    `mellea_lrc.core.record`.
-*   `Node` gains an opaque `details` mapping that round-trips verbatim and that
-    `core` never interprets, so validation's typed nodes keep their own fields
-    without `core` knowing any of their types. This is what lets the
-    progressions in `validated_document` move onto the trace where
-    `identified_document` already puts them. A site-review node uses the typed
-    `SiteReviewTrace` projection: its candidate, concise reason, and full
-    Mellea-visible attempt and requirement history.
-*   `CitationRecord` gains a withdrawal state, and the rule that withdrawing a
-    root withdraws its leaves.
-*   The document gains document-level `nodes`, `findings`, and `passes`.
-*   A schema bump, and the old artifacts stay readable or stay archived.
-
-## Open
-
-*   What a finding is, exactly: a span, a kind, a node, a message. The refused
-    leaves are the first users, and what the site hunt needs from them decides
-    the shape.
-*   Whether `withdrawn` is a field or a node outcome read off the trace. The
-    trace is the single source of truth, so the field would be a cache — and a
-    cache that can disagree with the trace is worse than a fold over it.
+`Node.details` is an opaque mapping that round-trips verbatim and that `core`
+does not interpret. The root-identity stage uses it to retain each typed
+lookup, field check, candidate review, and full IVR run on the citation trace.
+The record itself holds the direct state consumers need: `found`,
+`authority_id`, and `judgements[IDENTITY]`. A caller therefore never has to
+walk the trace to learn the current identity result, while the trace remains a
+complete explanation of how that result was reached.
