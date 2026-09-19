@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from mellea_lrc.validation.aggregation import (
+    run_deferred_locator_identity_resolution,
     run_locator_candidate_assessment,
     run_locator_citation_summary,
+    run_locator_identity_resolution,
     run_opinion_search_candidate_assessment,
     run_recap_search_candidate_assessment,
     run_search_citation_summary,
@@ -182,7 +184,9 @@ class CitationValidationRunner:
             session=session,
             state=CandidateValidationState(),
         )
-        return validation.append(run_locator_citation_summary(validation))
+        summary = run_locator_citation_summary(validation)
+        validation = validation.append(summary)
+        return validation.append(run_locator_identity_resolution(validation, summary=summary))
 
     async def run_locator_found(
         self,
@@ -245,7 +249,9 @@ class CitationValidationRunner:
                 session=session,
             )
         )
-        return validation.append(run_locator_citation_summary(validation))
+        summary = run_locator_citation_summary(validation)
+        validation = validation.append(summary)
+        return validation.append(run_locator_identity_resolution(validation, summary=summary))
 
     async def run_locator_candidate_validation(
         self,
@@ -539,7 +545,7 @@ class CitationValidationRunner:
                 ├── deferred over limit -> end
                 └── candidate evaluation x selected candidate
                     └── ``run_locator_candidate_validation``
-                        └── locator citation summary
+                        └── locator citation summary -> locator identity resolution
         """
         if lookup.outcome is not LocatorLookupOutcome.AMBIGUOUS:
             msg = "run_locator_ambiguous requires an ambiguous locator"
@@ -547,7 +553,9 @@ class CitationValidationRunner:
         selection = run_locator_candidate_selection(validation, lookup=lookup)
         validation = validation.append(selection)
         if not selection.selected_candidate_count:
-            return validation
+            return validation.append(
+                run_deferred_locator_identity_resolution(validation, selection=selection)
+            )
         candidates = lookup.candidate_clusters[: selection.selected_candidate_count]
         if len(candidates) != selection.selected_candidate_count:
             msg = "Locator candidate payload is shorter than its selected candidate count"
@@ -568,7 +576,9 @@ class CitationValidationRunner:
                 session=session,
                 state=CandidateValidationState(),
             )
-        return validation.append(run_locator_citation_summary(validation))
+        summary = run_locator_citation_summary(validation)
+        validation = validation.append(summary)
+        return validation.append(run_locator_identity_resolution(validation, summary=summary))
 
 
 def _with_exact_case_name_result(

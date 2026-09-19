@@ -45,11 +45,15 @@ def _sha256(path: Path) -> str:
 
 
 def _summary(payload: dict[str, Any]) -> Counter[str]:
-    """Count one primary identity outcome per locator occurrence."""
+    """Count the terminal identity decision, keeping evidence summaries separate."""
     outcomes: Counter[str] = Counter()
     for citation in payload["citations"]:
         nodes = citation["nodes"]
         lookup = next((node for node in nodes if node["node_type"] == "ExactLocatorLookupNode"), None)
+        resolution = next(
+            (node for node in nodes if node["node_type"] == "LocatorIdentityResolutionNode"),
+            None,
+        )
         summary = next(
             (
                 node
@@ -58,8 +62,10 @@ def _summary(payload: dict[str, Any]) -> Counter[str]:
             ),
             None,
         )
-        if summary is not None:
-            outcomes[f"summary:{summary['overall_outcome']}"] += 1
+        if resolution is not None:
+            outcomes[f"identity_resolution:{resolution['outcome']}"] += 1
+        elif summary is not None:
+            outcomes[f"identity_summary:{summary['overall_outcome']}"] += 1
         elif lookup is not None:
             outcomes[f"lookup:{lookup['outcome']}"] += 1
         else:

@@ -43,6 +43,8 @@ from mellea_lrc.validation.types import (
     LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode,
     LocatorCitationSummaryOutcome,
+    LocatorIdentityResolutionNode,
+    LocatorIdentityResolutionOutcome,
     LocatorLookupOutcome,
     MelleaCaseNameCheckNode,
     MelleaCaseNameCheckOutcome,
@@ -97,6 +99,7 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
         CourtCheckNode,
         LocatorCandidateAssessmentNode,
         LocatorCitationSummaryNode,
+        LocatorIdentityResolutionNode,
         OpinionSearchCandidateAssessmentNode,
         RecapSearchCandidateAssessmentNode,
         SearchCitationSummaryNode,
@@ -122,6 +125,7 @@ _OUTCOME_TYPES = {
     CourtCheckNode: FieldCheckOutcome,
     LocatorCandidateAssessmentNode: LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode: LocatorCitationSummaryOutcome,
+    LocatorIdentityResolutionNode: LocatorIdentityResolutionOutcome,
     OpinionSearchCandidateAssessmentNode: SearchCandidateAssessmentOutcome,
     RecapSearchCandidateAssessmentNode: SearchCandidateAssessmentOutcome,
     SearchCitationSummaryNode: SearchCitationSummaryOutcome,
@@ -251,6 +255,10 @@ def _deserialize_node(value: object) -> ValidationNode:
     ):
         for field_name in ("case_name_outcome", "year_outcome", "court_outcome"):
             fields[field_name] = AggregatedFieldOutcome(fields[field_name])
+    elif node_type is LocatorIdentityResolutionNode:
+        fields["matching_candidate_indices"] = tuple(
+            require_list(fields["matching_candidate_indices"], name="node.matching_candidate_indices")
+        )
     elif node_type in (LocatorCitationSummaryNode, SearchCitationSummaryNode):
         overall_outcome = fields["overall_outcome"]
         fields["overall_outcome"] = (

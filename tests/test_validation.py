@@ -35,6 +35,8 @@ from mellea_lrc.validation import (
     LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode,
     LocatorCitationSummaryOutcome,
+    LocatorIdentityResolutionNode,
+    LocatorIdentityResolutionOutcome,
     LocatorLookupOutcome,
     MelleaCaseNameCheckNode,
     MelleaCaseNameCheckOutcome,
@@ -282,7 +284,7 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
 
     progression = validation.citation_by_id("cite-0001")
     assert client.calls == [("347", "U.S.", "483")]
-    assert len(progression.nodes) == 11
+    assert len(progression.nodes) == 12
     (
         exact_locator_lookup_node,
         candidate_evaluation_node,
@@ -295,6 +297,7 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
         citing_proposition_node,
         pinpoint_check_node,
         summary_node,
+        resolution_node,
     ) = progression.nodes
     assert isinstance(exact_locator_lookup_node, ExactLocatorLookupNode)
     assert exact_locator_lookup_node.outcome is LocatorLookupOutcome.FOUND
@@ -328,6 +331,8 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
     assert summary_node.outcome is LocatorCitationSummaryOutcome.COMPLETE
     assert summary_node.candidates[0].assessment_node_id == assessment_node.node_id
     assert progression.aggregation is summary_node
+    assert isinstance(resolution_node, LocatorIdentityResolutionNode)
+    assert resolution_node.outcome is LocatorIdentityResolutionOutcome.RESOLVED
 
 
 def test_identity_checkpoint_stops_before_reporter_page_retrieval() -> None:
@@ -360,7 +365,7 @@ def test_identity_checkpoint_stops_before_reporter_page_retrieval() -> None:
 
     progression = _validate_identity(extracted, client).citation_by_id("cite-0001")
 
-    assert len(progression.nodes) == 8
+    assert len(progression.nodes) == 9
     assert all(
         not isinstance(
             node,
@@ -370,6 +375,11 @@ def test_identity_checkpoint_stops_before_reporter_page_retrieval() -> None:
     )
     assert isinstance(progression.aggregation, LocatorCitationSummaryNode)
     assert progression.aggregation.candidates[0].pinpoint is None
+    resolution = progression.identity_resolution
+    assert resolution is not None
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.RESOLVED
+    assert resolution.selected_candidate_index == 1
+    assert resolution.selected_assessment_node_id == progression.aggregation.candidates[0].assessment_node_id
 
 
 def test_found_field_checks_treat_unavailable_year_as_a_full_match() -> None:
@@ -415,6 +425,7 @@ def test_found_field_checks_treat_unavailable_year_as_a_full_match() -> None:
         _,
         _,
         summary_node,
+        _,
     ) = progression.nodes
     assert exact_case_name_check_node.outcome is FieldCheckOutcome.MATCH
     assert year_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
@@ -486,6 +497,7 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
         _,
         _,
         summary_node,
+        _,
     ) = _validate(extracted, client).citations[0].nodes
 
     assert exact_case_name_check_node.status is ValidationNodeStatus.SUCCEEDED
@@ -522,6 +534,7 @@ def test_found_field_checks_skip_unavailable_values() -> None:
         _,
         _,
         summary_node,
+        _,
     ) = _validate(extracted, client).citations[0].nodes
 
     assert exact_case_name_check_node.status is ValidationNodeStatus.SKIPPED
@@ -1155,7 +1168,8 @@ def test_ambiguous_lookup_records_a_bounded_candidate_selection() -> None:
     assessments = tuple(
         node for node in progression.nodes if isinstance(node, LocatorCandidateAssessmentNode)
     )
-    summary = progression.nodes[-1]
+    summary = progression.nodes[-2]
+    resolution = progression.nodes[-1]
 
     assert lookup.status is ValidationNodeStatus.SUCCEEDED
     assert lookup.outcome is LocatorLookupOutcome.AMBIGUOUS
@@ -1177,6 +1191,11 @@ def test_ambiguous_lookup_records_a_bounded_candidate_selection() -> None:
     assert isinstance(summary, LocatorCitationSummaryNode)
     assert summary.depends_on == tuple(node.node_id for node in assessments)
     assert progression.aggregation is summary
+    assert isinstance(resolution, LocatorIdentityResolutionNode)
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.UNRESOLVED
+    assert resolution.matching_candidate_indices == ()
+    assert resolution.depends_on == (summary.node_id,)
+    assert progression.identity_resolution is resolution
 
 
 def test_ambiguous_lookup_defers_candidate_selection_over_the_limit() -> None:
@@ -1184,7 +1203,7 @@ def test_ambiguous_lookup_defers_candidate_selection_over_the_limit() -> None:
     clusters = tuple(CourtListenerOpinionCluster(case_name=f"Case {index}") for index in range(4))
     client = LookupClient(CourtListenerCitationLookup(citation="1 F.2d 2", status=300, clusters=clusters))
 
-    lookup, selection = _validate(extracted, client).citations[0].nodes
+    lookup, selection, resolution = _validate(extracted, client).citations[0].nodes
 
     assert lookup.outcome is LocatorLookupOutcome.AMBIGUOUS
     assert isinstance(selection, CandidateSelectionNode)
@@ -1195,6 +1214,82 @@ def test_ambiguous_lookup_defers_candidate_selection_over_the_limit() -> None:
         "Candidate validation is deferred because 4 returned candidates exceed the current scope of 3; "
         "further refinement is needed before selecting candidates."
     )
+    assert isinstance(resolution, LocatorIdentityResolutionNode)
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.DEFERRED
+    assert resolution.depends_on == (selection.node_id,)
+
+
+def test_ambiguous_locator_resolves_only_one_confirmed_candidate() -> None:
+    extracted = _document(
+        FullCaseCitation(
+            plaintiff="Brown",
+            defendant="Board",
+            volume="347",
+            reporter="U.S.",
+            page="483",
+            date=CitationDate(year="1954"),
+            court="scotus",
+        )
+    )
+    clusters = (
+        CourtListenerOpinionCluster(
+            cluster_id="correct",
+            case_name="Brown v. Board",
+            date_filed="1954-05-17",
+            court_id="scotus",
+        ),
+        CourtListenerOpinionCluster(
+            cluster_id="wrong",
+            case_name="Other v. Case",
+            date_filed="1954-05-17",
+            court_id="scotus",
+        ),
+    )
+    client = LookupClient(CourtListenerCitationLookup(citation="347 U.S. 483", status=300, clusters=clusters))
+
+    progression = _validate_identity(extracted, client).citations[0]
+
+    resolution = progression.identity_resolution
+    assert resolution is not None
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.RESOLVED
+    assert resolution.selected_candidate_index == 1
+    assert resolution.matching_candidate_indices == (1,)
+    assert resolution.selected_assessment_node_id == next(
+        node.node_id
+        for node in progression.nodes
+        if isinstance(node, LocatorCandidateAssessmentNode) and node.candidate_index == 1
+    )
+
+
+def test_ambiguous_locator_keeps_two_confirmed_candidates_unresolved() -> None:
+    extracted = _document(
+        FullCaseCitation(
+            plaintiff="Brown",
+            defendant="Board",
+            volume="347",
+            reporter="U.S.",
+            page="483",
+            date=CitationDate(year="1954"),
+            court="scotus",
+        )
+    )
+    clusters = tuple(
+        CourtListenerOpinionCluster(
+            cluster_id=f"duplicate-{index}",
+            case_name="Brown v. Board",
+            date_filed="1954-05-17",
+            court_id="scotus",
+        )
+        for index in range(2)
+    )
+    client = LookupClient(CourtListenerCitationLookup(citation="347 U.S. 483", status=300, clusters=clusters))
+
+    resolution = _validate_identity(extracted, client).citations[0].identity_resolution
+
+    assert resolution is not None
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.UNRESOLVED
+    assert resolution.selected_candidate_index is None
+    assert resolution.matching_candidate_indices == (1, 2)
 
 
 def test_unsupported_citation_is_skipped_without_service_access() -> None:
