@@ -81,6 +81,22 @@ class CitationValidationRunner:
 
     client: CourtListenerServiceClient
 
+    def run_exact_full_reporter_locator_lookup(
+        self,
+        validation: CitationValidation,
+    ) -> CitationValidation:
+        """Run only CourtListener's exact full-reporter-locator lookup.
+
+        This deliberately makes no field assessment or identity decision.
+        A caller can persist its candidate set, then independently run the
+        unique-candidate and bounded-ambiguity identity stages.
+        """
+        stated = validation.citation.stated
+        if not isinstance(stated, FullCaseCitation):
+            msg = "Exact full reporter-locator lookup accepts only FullCaseCitation records"
+            raise ValueError(msg)
+        return validation.append(run_exact_locator_lookup(validation, client=self.client))
+
     async def run_full_reporter_locator_identity(
         self,
         validation: CitationValidation,
@@ -96,13 +112,11 @@ class CitationValidationRunner:
         must filter the document to full reporter locators before this method:
         docket and other locator kinds are intentionally outside this stage.
         """
-        stated = validation.citation.stated
-        if not isinstance(stated, FullCaseCitation):
-            msg = "Full reporter-locator identity accepts only FullCaseCitation records"
+        validation = self.run_exact_full_reporter_locator_lookup(validation)
+        exact_locator_lookup_node = validation.nodes[-1]
+        if not isinstance(exact_locator_lookup_node, ExactLocatorLookupNode):
+            msg = "Exact full reporter-locator lookup did not append its lookup node"
             raise ValueError(msg)
-
-        exact_locator_lookup_node = run_exact_locator_lookup(validation, client=self.client)
-        validation = validation.append(exact_locator_lookup_node)
 
         if exact_locator_lookup_node.outcome is LocatorLookupOutcome.FOUND:
             return await self.run_locator_found_identity(

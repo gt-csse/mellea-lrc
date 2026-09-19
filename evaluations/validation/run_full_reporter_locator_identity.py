@@ -22,7 +22,9 @@ from dotenv import load_dotenv
 
 from mellea_lrc.api import (
     Document,
-    full_reporter_locator_identity,
+    lookup_full_reporter_locators_exact,
+    resolve_full_reporter_locator_ambiguities,
+    validate_unique_full_reporter_locator_identities,
 )
 from mellea_lrc.courtlistener import CourtListenerClient
 from mellea_lrc.llm import llm_api_config_from_env, start_mellea_session_from_env
@@ -127,10 +129,7 @@ async def run(
     """Resume a deterministic first slice of root-formation documents."""
     paths = sorted(root_formation_documents.glob("*.json"))[start : start + limit]  # noqa: ASYNC240
     if len(paths) != limit:
-        msg = (
-            f"{root_formation_documents} has {len(paths)} artifacts in "
-            f"slice start={start}, limit={limit}"
-        )
+        msg = f"{root_formation_documents} has {len(paths)} artifacts in slice start={start}, limit={limit}"
         raise ValueError(msg)
 
     service = CourtListenerClient()
@@ -146,7 +145,13 @@ async def run(
             Document.from_serialized(payload)
         else:
             document = Document.from_serialized(json.loads(path.read_text(encoding="utf-8")))
-            document = await full_reporter_locator_identity(document, client=service, session=session)
+            document = await lookup_full_reporter_locators_exact(document, client=service)
+            document = await validate_unique_full_reporter_locator_identities(
+                document, client=service, session=session
+            )
+            document = await resolve_full_reporter_locator_ambiguities(
+                document, client=service, session=session
+            )
             payload = document.serialize()
             Document.from_serialized(payload)
             _atomic_json(result_path, payload)

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import asyncio
 
-from mellea_lrc.api import form_roots, full_reporter_locator_identity
+from mellea_lrc.api import (
+    form_roots,
+    lookup_full_reporter_locators_exact,
+    resolve_full_reporter_locator_ambiguities,
+    validate_unique_full_reporter_locator_identities,
+)
 from mellea_lrc.core.citations import CitationDate, FullCaseCitation, placed
 from mellea_lrc.core.record import CitationRecord, Question
 from mellea_lrc.core.spans import Span
@@ -66,8 +71,13 @@ def test_root_identity_writes_trace_and_state_to_the_original_document() -> None
     )
 
     formed = form_roots(document)
-    result = asyncio.run(full_reporter_locator_identity(formed, client=client))
-    resumed = asyncio.run(full_reporter_locator_identity(result, client=client))
+    lookup = asyncio.run(lookup_full_reporter_locators_exact(formed, client=client))
+    assert lookup.citations[0].judgement(Question.LOCATOR_LOOKUP).outcome == "found"
+    assert lookup.citations[0].judgement(Question.IDENTITY).outcome == "unjudged"
+
+    unique = asyncio.run(validate_unique_full_reporter_locator_identities(lookup, client=client))
+    result = asyncio.run(resolve_full_reporter_locator_ambiguities(unique, client=client))
+    resumed = asyncio.run(lookup_full_reporter_locators_exact(result, client=client))
     restored = Document.from_serialized(result.serialize())
     resolved = restored.citations[0]
 
@@ -77,7 +87,12 @@ def test_root_identity_writes_trace_and_state_to_the_original_document() -> None
     assert resolved.judgement(Question.IDENTITY).outcome == "resolved"
     assert resolved.judgement(Question.IDENTITY).node_id == "cite-0001:locator_identity_resolution"
     assert resolved.trace[-1].details["validation_node_type"] == "LocatorIdentityResolutionNode"
-    assert result.passes[-2:] == ("root_formation", "root_identity")
+    assert result.passes[-4:] == (
+        "root_formation",
+        "full_reporter_locator_exact_lookup",
+        "full_reporter_locator_unique_identity",
+        "full_reporter_locator_ambiguity_resolution",
+    )
     assert resumed is result
     assert client.calls == [("347", "U.S.", "483")]
 
@@ -86,8 +101,54 @@ def test_root_identity_requires_explicit_root_formation() -> None:
     document = Document.from_source("A filing without citations.")
 
     try:
-        asyncio.run(full_reporter_locator_identity(document, client=object()))
+        asyncio.run(lookup_full_reporter_locators_exact(document, client=object()))
     except ValueError as error:
-        assert str(error) == "Root identity requires form_roots(document) before validation."
+        assert str(error) == "Exact full-reporter lookup requires root_formation before validation."
     else:
         raise AssertionError("identity accepted a document without root formation")
+
+
+class _AmbiguousLookupClient:
+    """An over-limit exact lookup exercises deferred ambiguity without a model call."""
+
+    def lookup_citation(self, volume: str, reporter: str, page: str) -> CourtListenerCitationLookup:
+        clusters = tuple(CourtListenerOpinionCluster(cluster_id=f"candidate-{index}") for index in range(20))
+        return CourtListenerCitationLookup(
+            citation=f"{volume} {reporter} {page}", status=300, clusters=clusters
+        )
+
+
+def test_ambiguity_stage_resumes_a_serialized_lookup_and_defers_over_limit_candidates() -> None:
+    text = "See 347 U.S. 483."
+    preprocessed = preprocess(text)
+    record = CitationRecord(
+        citation_id="cite-0001",
+        source=placed(
+            FullCaseCitation(volume="347", reporter="U.S.", page="483"),
+            span=Span(4, 16),
+            locator_span=Span(4, 16),
+            matched_text="347 U.S. 483",
+        ),
+    )
+    document = Document(
+        source_metadata=preprocessed.source_metadata,
+        text=text,
+        preprocessing_metadata=preprocessed.preprocessing_metadata,
+        citations=(record,),
+        extraction_metadata=ExtractionMetadata(),
+    )
+    client = _AmbiguousLookupClient()
+
+    lookup = asyncio.run(lookup_full_reporter_locators_exact(form_roots(document), client=client))
+    checkpoint = Document.from_serialized(lookup.serialize())
+    unique = asyncio.run(validate_unique_full_reporter_locator_identities(checkpoint, client=client))
+    completed = asyncio.run(resolve_full_reporter_locator_ambiguities(unique, client=client))
+    root = completed.citations[0]
+
+    assert root.judgement(Question.LOCATOR_LOOKUP).outcome == "deferred_to_ambiguity"
+    assert root.judgement(Question.IDENTITY).outcome == "deferred_to_future_implementation"
+    selection = next(
+        node for node in root.trace if node.details.get("validation_node_type") == "CandidateSelectionNode"
+    )
+    assert selection.details["validation"]["total_candidate_count"] == 20
+    assert selection.details["validation"]["selected_candidate_count"] == 0

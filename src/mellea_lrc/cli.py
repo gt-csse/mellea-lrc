@@ -24,12 +24,14 @@ from mellea_lrc.api import (
     find_docket_locators,
     find_full_reporter_locators,
     form_roots,
-    full_reporter_locator_identity,
+    lookup_full_reporter_locators_exact,
     resolve_case_names,
     resolve_colocations,
     resolve_courts,
     resolve_dates,
+    resolve_full_reporter_locator_ambiguities,
     stable,
+    validate_unique_full_reporter_locator_identities,
 )
 
 
@@ -49,8 +51,13 @@ def _parse(source: str, *, from_file: bool) -> Document:
 def _validate(args: argparse.Namespace) -> int:
     """Parse the source, then check every citation it contains."""
     document = _parse(args.source, from_file=args.from_file)
-    print(f"Formed {sum(citation.is_root for citation in document.active_citations)} roots; validating", file=sys.stderr)
-    document = asyncio.run(full_reporter_locator_identity(document))
+    print(
+        f"Formed {sum(citation.is_root for citation in document.active_citations)} roots; validating",
+        file=sys.stderr,
+    )
+    document = asyncio.run(lookup_full_reporter_locators_exact(document))
+    document = asyncio.run(validate_unique_full_reporter_locator_identities(document))
+    document = asyncio.run(resolve_full_reporter_locator_ambiguities(document))
 
     text = json.dumps(document.serialize(), indent=2, ensure_ascii=False)
     if args.output is None:

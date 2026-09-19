@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import asyncio
 
-from mellea_lrc.api import form_roots, full_reporter_locator_identity
+from mellea_lrc.api import (
+    form_roots,
+    lookup_full_reporter_locators_exact,
+    resolve_full_reporter_locator_ambiguities,
+    validate_unique_full_reporter_locator_identities,
+)
 from mellea_lrc.core.citations import DocketCitation, FullCaseCitation, placed
 from mellea_lrc.core.record import CitationRecord, Question
 from mellea_lrc.core.spans import Span
@@ -101,8 +106,11 @@ def test_identity_reads_each_formed_reporter_root_once() -> None:
     client = _NoResultClient()
     document = form_roots(_document(_reporter_record("first", 10), _reporter_record("repeat", 40)))
 
-    completed = asyncio.run(full_reporter_locator_identity(document, client=client))
+    lookup = asyncio.run(lookup_full_reporter_locators_exact(document, client=client))
+    unique = asyncio.run(validate_unique_full_reporter_locator_identities(lookup, client=client))
+    completed = asyncio.run(resolve_full_reporter_locator_ambiguities(unique, client=client))
 
     assert client.calls == [("347", "U.S.", "483")]
-    assert completed.citations[0].judgement(Question.IDENTITY).outcome == "deferred_to_search"
+    assert completed.citations[0].judgement(Question.LOCATOR_LOOKUP).outcome == "deferred_to_search"
+    assert completed.citations[0].judgement(Question.IDENTITY).outcome == "unjudged"
     assert completed.citations[1].judgement(Question.IDENTITY).outcome == "unjudged"

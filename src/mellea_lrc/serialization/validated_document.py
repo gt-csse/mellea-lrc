@@ -195,12 +195,18 @@ def deserialize_validated_document(payload: Mapping[str, object]) -> ValidatedDo
             raise ValueError(msg)
         validation = CitationValidation(citation=source_citation)
         for node_payload in require_list(progression.get("nodes"), name="citation progression.nodes"):
-            validation = validation.append(_deserialize_node(node_payload))
+            validation = validation.append(deserialize_validation_node(node_payload))
         citations.append(validation)
     return ValidatedDocument(source=source, citations=tuple(citations))
 
 
-def _deserialize_node(value: object) -> ValidationNode:
+def deserialize_validation_node(value: object) -> ValidationNode:
+    """Recover one typed validation node from its JSON-ready representation.
+
+    Document-native stages store the same representation in a stage-neutral
+    trace node.  Exposing this decoder lets a later ``Document -> Document``
+    stage resume from that evidence without repeating a lookup.
+    """
     payload = require_mapping(value, name="validation node")
     node_type_name = payload.get("node_type")
     if not isinstance(node_type_name, str) or node_type_name not in _NODE_TYPES:
