@@ -150,13 +150,17 @@ async def run(
     *,
     locator_checkpoints: Path,
     output: Path,
+    start: int,
     limit: int,
     resume: bool,
 ) -> dict[str, object]:
     """Resume a deterministic first slice of locator-chain artifacts."""
-    paths = sorted(locator_checkpoints.glob("*.json"))[:limit]  # noqa: ASYNC240
+    paths = sorted(locator_checkpoints.glob("*.json"))[start : start + limit]  # noqa: ASYNC240
     if len(paths) != limit:
-        msg = f"{locator_checkpoints} has {len(paths)} artifacts, fewer than requested limit={limit}"
+        msg = (
+            f"{locator_checkpoints} has {len(paths)} artifacts in "
+            f"slice start={start}, limit={limit}"
+        )
         raise ValueError(msg)
 
     service = CourtListenerClient()
@@ -194,6 +198,7 @@ async def run(
         "created_at": datetime.now(UTC).isoformat(),
         "input_locator_checkpoint_dir": str(locator_checkpoints),
         "input_stage": "colocation",
+        "start_index": start,
         "field_preparation": ["case_names", "courts", "dates"],
         "documents": result_paths,
         "document_count": len(result_paths),
@@ -220,19 +225,23 @@ def main() -> None:
     parser.add_argument(
         "--output", type=Path, required=True, help="Directory for full-reporter-locator identity artifacts."
     )
+    parser.add_argument(
+        "--start", type=int, default=0, help="Zero-based filing index in sorted checkpoint artifacts."
+    )
     parser.add_argument("--limit", type=int, default=5, help="Deterministic sorted filing count to run.")
     parser.add_argument(
         "--resume", action="store_true", help="Reuse validated documents already in --output."
     )
     args = parser.parse_args()
-    if args.limit < 1:
-        parser.error("--limit must be positive")
+    if args.start < 0 or args.limit < 1:
+        parser.error("--start must be non-negative and --limit must be positive")
 
     load_dotenv(".env")
     manifest = asyncio.run(
         run(
             locator_checkpoints=args.locator_checkpoints,
             output=args.output,
+            start=args.start,
             limit=args.limit,
             resume=args.resume,
         )
