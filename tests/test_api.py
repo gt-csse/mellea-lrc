@@ -7,6 +7,7 @@ from mellea_lrc.api import (
     Document,
     find_docket_locators,
     find_full_reporter_locators,
+    form_roots,
     full_reporter_locator_identity,
     resolve_colocations,
 )
@@ -17,7 +18,7 @@ def test_document_owns_its_serialization_before_and_after_identity() -> None:
     document = extract_from_plain_text("A filing without citations.")
 
     recovered_document = Document.from_serialized(document.serialize())
-    completed = asyncio.run(full_reporter_locator_identity(recovered_document, client=object()))
+    completed = asyncio.run(full_reporter_locator_identity(form_roots(recovered_document), client=object()))
     restored_completed = Document.from_serialized(completed.serialize())
 
     assert recovered_document == document

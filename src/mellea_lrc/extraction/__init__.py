@@ -72,6 +72,7 @@ from mellea_lrc.extraction.locator_stages import (
     start_locator_document,
 )
 from mellea_lrc.extraction.reading.relaxation import Relaxation
+from mellea_lrc.extraction.root_stages import ROOT_FORMATION_STAGE, form_roots
 from mellea_lrc.extraction.rules import ExtractionRules, stable
 from mellea_lrc.extraction.stages import (
     audit_dockets,
@@ -96,6 +97,7 @@ __all__ = [
     "DOCKET_SITE_STAGE",
     "REPORTER_RULE_STAGE",
     "REPORTER_SITE_STAGE",
+    "ROOT_FORMATION_STAGE",
     "Attachment",
     "CitationRecord",
     "Document",
@@ -111,6 +113,7 @@ __all__ = [
     "find_docket_locators",
     "find_full_reporter_locators",
     "find_locators",
+    "form_roots",
     "grow_leaves",
     "grow_roots",
     "mark_full_reporter_locator_hunting_skipped",

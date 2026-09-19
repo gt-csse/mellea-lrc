@@ -16,6 +16,7 @@ from mellea_lrc.extraction.locator_stages import (
     mark_full_reporter_locator_hunting_skipped,
     resolve_colocations,
 )
+from mellea_lrc.extraction.root_stages import form_roots
 from mellea_lrc.extraction.rules import ExtractionRules, stable
 from mellea_lrc.extraction.stages import (
     resolve_case_names,
@@ -31,6 +32,7 @@ __all__ = [
     "ExtractionRules",
     "find_docket_locators",
     "find_full_reporter_locators",
+    "form_roots",
     "full_reporter_locator_identity",
     "hunt_docket_locators",
     "mark_full_reporter_locator_hunting_skipped",
