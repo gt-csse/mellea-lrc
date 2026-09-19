@@ -54,6 +54,19 @@ def run_year_check(
         # TODO: Retrieve a dated order or opinion from the resolved docket and
         # compare that decision's date directly. Filing-date chronology is only
         # a compatibility check; it does not prove that a particular order exists.
+    elif (
+        isinstance(citation, DocketCitation)
+        and candidate.source is CandidateEvaluationSource.GOVINFO_DOCKET_SEARCH
+    ):
+        # A GovInfo USCOURTS package represents the case rather than the one
+        # order cited in the filing. ``packageDateIssued`` is useful provenance
+        # but cannot confirm or contradict the citation date.
+        status = ValidationNodeStatus.SKIPPED
+        outcome = FieldCheckOutcome.UNAVAILABLE
+        status_message = "Skipped GovInfo package-date comparison."
+        outcome_message = (
+            "The GovInfo package date identifies a deposited record, not necessarily the cited order."
+        )
     elif extracted is None or retrieved is None:
         status = ValidationNodeStatus.SKIPPED
         status_message = "Skipped year comparison because required evidence is missing."

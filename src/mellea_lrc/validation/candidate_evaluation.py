@@ -149,6 +149,7 @@ def _search_candidate_evaluation(
         status_message=f"{source_label} candidate evaluation branch initialized.",
         outcome_message="Candidate is ready for independent validation checks.",
         decision_date=_optional_string(result.get("decisionDate")),
+        package_date_issued=_optional_string(result.get("packageDateIssued")),
         govinfo_package_id=_optional_string(result.get("govinfo_package_id")),
     )
 

@@ -523,12 +523,13 @@ async def resolve_docket_root_semantics(
     """Resolve bounded, extraction-reviewed docket searches with semantic evidence.
 
     This is deliberately a separate checkpoint from docket extraction review.
-    It never searches again and it never modifies a docket number: it compares
-    two written docket forms only where literal comparison differed, then asks
-    the model to choose one representative from the complete bounded candidate
-    list.  Candidate choice is still necessary for a literal docket match,
-    because a shared number does not establish that two case names identify the
-    same matter.
+    It never searches again and it never modifies a docket number. It first
+    compares two written docket forms only where literal comparison differed.
+    A complete record confirms the root programmatically only when every
+    available stated field agrees.  A docket-and-court match alone establishes
+    that a record exists, but it cannot establish a citation that also asserts
+    a different case name or decision date.  Bounded partial matches therefore
+    proceed to grounded representative selection.
 
     Searches with no candidates, a failed response, or at least twenty
     candidates remain unresolved.  Those outcomes need a different retrieval
@@ -555,7 +556,11 @@ async def resolve_docket_root_semantics(
             _write_semantic_deferred_resolution(record, search=search)
             continue
 
-        progression, eligible_indices, semantic_unavailable = await _semantic_docket_candidates(
+        (
+            progression,
+            eligible_indices,
+            semantic_unavailable,
+        ) = await _semantic_docket_candidates(
             record,
             search=search,
             document=document,
@@ -567,7 +572,9 @@ async def resolve_docket_root_semantics(
         )
         progression = progression.append(summary)
 
-        if not eligible_indices:
+        if len(eligible_indices) == 1 and _summary_has_one_confirmed_match(summary):
+            resolution = run_locator_identity_resolution(progression, summary=summary)
+        elif not eligible_indices:
             if semantic_unavailable:
                 resolution = _future_implementation_resolution(
                     progression,
@@ -682,6 +689,20 @@ async def _semantic_docket_candidates(
         ):
             eligible.append(index)
     return validation, tuple(eligible), unavailable
+
+
+def _summary_has_one_confirmed_match(summary: LocatorCitationSummaryNode) -> bool:
+    """Return whether its one eligible docket candidate also agrees on all fields.
+
+    Candidate eligibility is intentionally broader: it keeps a record that
+    has a semantic docket anchor but a nonliteral or absent name available to
+    the grounded representative reviewer.  Programmatic admission needs the
+    stronger complete-citation match represented by the summary itself.
+    """
+    return sum(
+        candidate.outcome is LocatorCandidateAssessmentOutcome.MATCH
+        for candidate in summary.candidates
+    ) == 1
 
 
 def _semantic_docket_candidate_assessment(

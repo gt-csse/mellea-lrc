@@ -621,8 +621,6 @@ async def _resolve_locator_identity_from_summary(
         session=session,
     )
     validation = validation.append(choice)
-    if choice.outcome is not MelleaLocatorCandidateChoiceOutcome.FAILED:
-        validation.citation.mark_extraction_reviewed_by_llm()
     return validation.append(run_locator_identity_resolution(validation, summary=summary, choice=choice))
 
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from typing import TYPE_CHECKING, Annotated, Literal
 
 from mellea.core import ValidationResult
@@ -42,16 +41,25 @@ CHOICE_MAX_REPAIR_TURNS = 2
 # stage and must not be coupled to this root-identity decision yet.
 CHOICE_PREFIX = """
 The filing contains one target complete citation marked by locator. Read only
-local_context and the complete list of retrieved candidates. Re-extract the
-filing's stated case name, docket number, court, date, and pin cite from
-local_context. Then select the single candidate that best represents that
-citation, or return no_match when none is supportable from the stated fields.
+local_context and the complete list of retrieved candidates. Select the single
+candidate that best represents that citation, or return no_match when none is
+supportable from the stated fields.
 
 Every candidate shown is a retrieved possibility. Consider every one, including
 candidates whose preliminary field assessment says mismatch or partial_match:
 those assessments are evidence, not a final selection. Do not use outside
 knowledge, change the stated locator, invent a field, or select multiple
-candidates. When a field is absent in local_context, return null for it.
+candidates. Field re-extraction and correction are separate stages, already
+completed or deliberately omitted by the caller; do not re-extract fields here.
+
+A candidate marked selection_eligible has passed the caller's locator-specific
+anchor and has no deterministic court or date contradiction. For docket roots,
+that can include a semantic comparison of two written docket forms. Treat that
+as strong identity evidence. Evaluate whether the stated and retrieved case
+names plausibly identify the same matter: ordinary abbreviation, an added or
+omitted party, or a legal-entity suffix can be compatible; different parties
+without supporting evidence are not. Do not let a name resemblance override a
+stated court or date contradiction.
 
 For a docket-derived candidate, case_filed_year is the date the case began.
 It is not the date of an order or opinion cited in local_context, so it cannot
@@ -74,11 +82,6 @@ class _CandidateChoiceProposal(BaseModel):
 
     decision: Literal["select_candidate", "no_match"]
     candidate_index: int | None
-    reparsed_case_name: str | None
-    reparsed_docket_number: str | None
-    reparsed_court: str | None
-    reparsed_date: str | None
-    reparsed_pin_cite: str | None
     rationale: Annotated[str, Field(min_length=1)]
 
 
@@ -90,7 +93,7 @@ async def run_mellea_locator_candidate_choice(
     session: MelleaSession | None = None,
     eligible_candidate_indices: tuple[int, ...] | None = None,
 ) -> MelleaLocatorCandidateChoiceNode:
-    """Reparse local fields and select among an explicitly eligible candidate set.
+    """Select among an explicitly eligible candidate set.
 
     ``summary`` always carries every retrieved candidate. A caller may narrow
     *selection* to candidates that passed a non-semantic identity anchor, such
@@ -114,7 +117,10 @@ async def run_mellea_locator_candidate_choice(
     end = min(len(document_text), span.end + CONTEXT_AFTER_CHARS)
     local_context = document_text[start:end]
     candidates_json = json.dumps(
-        [_candidate_payload(candidate) for candidate in summary.candidates],
+        [
+            _candidate_payload(candidate, selection_eligible=candidate.candidate_index in candidate_indices)
+            for candidate in summary.candidates
+        ],
         ensure_ascii=False,
         separators=(",", ":"),
     )
@@ -128,16 +134,13 @@ async def run_mellea_locator_candidate_choice(
             user_variables={
                 "locator": locator,
                 "reviewed_candidates_json": candidates_json,
+                "selection_eligible_indices": json.dumps(candidate_indices),
             },
             output_format=_CandidateChoiceProposal,
             requirements=[
                 check(
                     "decision must select one reviewed candidate or no match",
                     validation_fn=lambda ctx: _validate_choice(ctx, candidate_indices),
-                ),
-                check(
-                    "reparsed fields must be copied from local_context",
-                    validation_fn=lambda ctx: _validate_reparsed_fields(ctx, local_context),
                 ),
             ],
         )
@@ -177,11 +180,6 @@ async def run_mellea_locator_candidate_choice(
             status=ValidationNodeStatus.SUCCEEDED,
             outcome=MelleaLocatorCandidateChoiceOutcome.SELECTED,
             selected_candidate_index=proposal.candidate_index,
-            reparsed_case_name=proposal.reparsed_case_name,
-            reparsed_docket_number=proposal.reparsed_docket_number,
-            reparsed_court=proposal.reparsed_court,
-            reparsed_date=proposal.reparsed_date,
-            reparsed_pin_cite=proposal.reparsed_pin_cite,
             rationale=proposal.rationale,
             status_message="Model candidate choice completed.",
             outcome_message=f"Model selected reviewed candidate {proposal.candidate_index}.",
@@ -192,11 +190,6 @@ async def run_mellea_locator_candidate_choice(
         candidate_indices,
         status=ValidationNodeStatus.SUCCEEDED,
         outcome=MelleaLocatorCandidateChoiceOutcome.NO_MATCH,
-        reparsed_case_name=proposal.reparsed_case_name,
-        reparsed_docket_number=proposal.reparsed_docket_number,
-        reparsed_court=proposal.reparsed_court,
-        reparsed_date=proposal.reparsed_date,
-        reparsed_pin_cite=proposal.reparsed_pin_cite,
         rationale=proposal.rationale,
         status_message="Model candidate choice completed.",
         outcome_message="Model found no supportable representative among the reviewed candidates.",
@@ -204,10 +197,15 @@ async def run_mellea_locator_candidate_choice(
     )
 
 
-def _candidate_payload(candidate: CitationSummaryCandidate) -> dict[str, object]:
+def _candidate_payload(
+    candidate: CitationSummaryCandidate,
+    *,
+    selection_eligible: bool,
+) -> dict[str, object]:
     """Expose all retained candidate evidence in a compact model-readable form."""
     payload = {
         "candidate_index": candidate.candidate_index,
+        "selection_eligible": selection_eligible,
         "case_name": candidate.retrieved_case_name,
         "court_id": candidate.retrieved_court_id,
         "docket_id": candidate.docket_id,
@@ -233,11 +231,6 @@ def _node(
     status: ValidationNodeStatus,
     outcome: MelleaLocatorCandidateChoiceOutcome,
     selected_candidate_index: int | None = None,
-    reparsed_case_name: str | None = None,
-    reparsed_docket_number: str | None = None,
-    reparsed_court: str | None = None,
-    reparsed_date: str | None = None,
-    reparsed_pin_cite: str | None = None,
     rationale: str | None = None,
     status_message: str | None = None,
     outcome_message: str | None = None,
@@ -250,11 +243,6 @@ def _node(
         outcome=outcome,
         candidate_indices=candidate_indices,
         selected_candidate_index=selected_candidate_index,
-        reparsed_case_name=reparsed_case_name,
-        reparsed_docket_number=reparsed_docket_number,
-        reparsed_court=reparsed_court,
-        reparsed_date=reparsed_date,
-        reparsed_pin_cite=reparsed_pin_cite,
         rationale=rationale,
         depends_on=(summary.node_id,),
         status_message=status_message,
@@ -281,28 +269,3 @@ def _validate_choice(ctx: Context, candidate_indices: tuple[int, ...]) -> Valida
         valid = proposal.candidate_index is None
         reason = None if valid else "no_match requires candidate_index to be null"
     return ValidationResult(result=valid, reason=reason)
-
-
-def _validate_reparsed_fields(ctx: Context, local_context: str) -> ValidationResult:
-    proposal = _proposal(ctx.last_output().value)
-    missing = [
-        label
-        for label, value in (
-            ("reparsed_case_name", proposal.reparsed_case_name),
-            ("reparsed_docket_number", proposal.reparsed_docket_number),
-            ("reparsed_court", proposal.reparsed_court),
-            ("reparsed_date", proposal.reparsed_date),
-            ("reparsed_pin_cite", proposal.reparsed_pin_cite),
-        )
-        if value is not None and not _is_grounded(value, local_context)
-    ]
-    return ValidationResult(
-        result=not missing,
-        reason=None if not missing else f"not copied from local_context: {', '.join(missing)}",
-    )
-
-
-def _is_grounded(value: str, context: str) -> bool:
-    """Ground copied field text with whitespace relaxation only."""
-    pattern = r"\s+".join(re.escape(piece) for piece in value.split())
-    return bool(pattern) and re.search(pattern, context) is not None
