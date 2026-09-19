@@ -171,11 +171,19 @@ class LocatorCitationSummaryOutcome(str, Enum):
     COMPLETE = "complete"
 
 
+class MelleaLocatorCandidateChoiceOutcome(str, Enum):
+    """Result of a grounded model choice among reviewed locator candidates."""
+
+    SELECTED = "selected"
+    NO_MATCH = "no_match"
+    FAILED = "failed"
+
+
 class LocatorIdentityResolutionOutcome(str, Enum):
-    """Whether evaluated exact-locator candidates establish one identity."""
+    """Whether the current identity checkpoint selected one locator candidate."""
 
     RESOLVED = "resolved"
-    UNRESOLVED = "unresolved"
+    NO_MATCH = "no_match"
     DEFERRED = "deferred"
 
 
@@ -598,14 +606,52 @@ class LocatorCitationSummaryNode:
 
 
 @dataclass(frozen=True, slots=True)
-class LocatorIdentityResolutionNode:
-    """Explicit identity decision after a complete exact-locator candidate review.
+class MelleaLocatorCandidateChoiceNode:
+    """Grounded model decision for a complete, bounded locator candidate list.
 
-    A locator's candidate summary is evidence, not a decision: an ambiguous
-    CourtListener response can contain more than one candidate that looks
-    compatible. This node admits one candidate only when exactly one assessment
-    is a confirmed match. It points at the admitted assessment rather than
-    copying its fields, so the candidate evidence remains the source of truth.
+    The model receives every reviewed candidate and target-only local context.
+    It reparses the stated fields while selecting one representative candidate
+    or returning no match.  Reading a candidate opinion could provide finer
+    tie-breaking, but that couples identity to the later opinion stage; keep
+    that as a TODO rather than silently adding it to this checkpoint.
+    """
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: MelleaLocatorCandidateChoiceOutcome
+    candidate_indices: tuple[int, ...]
+    selected_candidate_index: int | None
+    reparsed_case_name: str | None
+    reparsed_court: str | None
+    reparsed_date: str | None
+    rationale: str | None
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+    run: IvrRun | None = None
+
+    def __post_init__(self) -> None:
+        if not self.candidate_indices:
+            msg = "A model candidate choice requires at least one reviewed candidate"
+            raise ValueError(msg)
+        if self.outcome is MelleaLocatorCandidateChoiceOutcome.SELECTED:
+            if self.selected_candidate_index not in self.candidate_indices:
+                msg = "A selected model candidate must be one of the reviewed candidates"
+                raise ValueError(msg)
+        elif self.selected_candidate_index is not None:
+            msg = "Only a selected model choice may identify a candidate"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True, slots=True)
+class LocatorIdentityResolutionNode:
+    """Explicit terminal identity decision for this locator checkpoint.
+
+    The candidate summary remains the complete evidence record.  This node
+    points to the selected assessment and to the deterministic summary or model
+    choice that made the decision, so callers do not need graph traversal to
+    reconstruct the identity result.
     """
 
     node_id: str
@@ -614,6 +660,7 @@ class LocatorIdentityResolutionNode:
     selected_candidate_index: int | None
     selected_assessment_node_id: str | None
     matching_candidate_indices: tuple[int, ...]
+    selection_evidence_node_id: str | None
     depends_on: tuple[str, ...]
     status_message: str | None = None
     outcome_message: str | None = None
@@ -623,8 +670,8 @@ class LocatorIdentityResolutionNode:
             if self.selected_candidate_index is None or self.selected_assessment_node_id is None:
                 msg = "A resolved locator identity requires one selected candidate and assessment"
                 raise ValueError(msg)
-            if self.matching_candidate_indices != (self.selected_candidate_index,):
-                msg = "A resolved locator identity requires exactly one matching candidate"
+            if self.selection_evidence_node_id is None:
+                msg = "A resolved locator identity requires selection evidence"
                 raise ValueError(msg)
         elif self.selected_candidate_index is not None or self.selected_assessment_node_id is not None:
             msg = "Only a resolved locator identity may select a candidate"
@@ -728,6 +775,7 @@ ValidationNode: TypeAlias = (
     | CourtCheckNode
     | LocatorCandidateAssessmentNode
     | LocatorCitationSummaryNode
+    | MelleaLocatorCandidateChoiceNode
     | LocatorIdentityResolutionNode
     | OpinionSearchCandidateAssessmentNode
     | RecapSearchCandidateAssessmentNode

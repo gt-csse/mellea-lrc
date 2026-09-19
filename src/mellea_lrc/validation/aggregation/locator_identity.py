@@ -1,15 +1,16 @@
-"""Final identity decision for evaluated exact-locator candidates."""
+"""Terminal reporter-locator identity decisions from complete candidate evidence."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 from mellea_lrc.validation.types import (
-    CandidateSelectionNode,
     LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode,
     LocatorIdentityResolutionNode,
     LocatorIdentityResolutionOutcome,
+    MelleaLocatorCandidateChoiceNode,
+    MelleaLocatorCandidateChoiceOutcome,
     ValidationNodeStatus,
 )
 
@@ -17,73 +18,134 @@ if TYPE_CHECKING:
     from mellea_lrc.validation.types import CitationValidation
 
 
+def requires_mellea_locator_candidate_choice(summary: LocatorCitationSummaryNode) -> bool:
+    """Return whether deterministic assessment evidence leaves identity undecided."""
+    return len(_matching_candidates(summary)) != 1
+
+
 def run_locator_identity_resolution(
     validation: CitationValidation,
     *,
     summary: LocatorCitationSummaryNode,
+    choice: MelleaLocatorCandidateChoiceNode | None = None,
 ) -> LocatorIdentityResolutionNode:
-    """Resolve an exact locator when exactly one reviewed candidate matches.
+    """Resolve a reviewed reporter locator from deterministic or model evidence.
 
-    ``partial_match`` is intentionally insufficient: it is useful review
-    evidence, but does not establish a root. This keeps a summary's strongest
-    candidate score from silently becoming an identity decision.
+    Exactly one confirmed candidate is admitted deterministically.  With zero
+    or multiple confirmations, a grounded model choice is required: it reparses
+    the stated fields and selects one of the complete candidate list or reports
+    no match.  Candidate evidence stays in ``summary`` either way.
     """
-    matches = tuple(
-        candidate
-        for candidate in summary.candidates
-        if candidate.outcome is LocatorCandidateAssessmentOutcome.MATCH
-    )
+    matches = _matching_candidates(summary)
     matching_candidate_indices = tuple(candidate.candidate_index for candidate in matches)
-    if len(matches) == 1:
+    if len(matches) == 1 and choice is None:
         candidate = matches[0]
-        return LocatorIdentityResolutionNode(
-            node_id=f"{validation.citation_id}:locator_identity_resolution",
-            status=ValidationNodeStatus.SUCCEEDED,
+        return _resolution(
+            validation,
             outcome=LocatorIdentityResolutionOutcome.RESOLVED,
             selected_candidate_index=candidate.candidate_index,
             selected_assessment_node_id=candidate.assessment_node_id,
             matching_candidate_indices=matching_candidate_indices,
+            selection_evidence_node_id=summary.node_id,
             depends_on=(summary.node_id,),
             status_message="Locator identity resolution completed.",
             outcome_message=(
                 f"Candidate {candidate.candidate_index} is the only confirmed exact-locator match."
             ),
         )
-    if not matches:
-        message = "No reviewed exact-locator candidate was confirmed as a match."
-    else:
-        candidate_numbers = ", ".join(str(index) for index in matching_candidate_indices)
-        message = f"Candidates {candidate_numbers} are all confirmed matches; identity remains ambiguous."
-    return LocatorIdentityResolutionNode(
-        node_id=f"{validation.citation_id}:locator_identity_resolution",
-        status=ValidationNodeStatus.SUCCEEDED,
-        outcome=LocatorIdentityResolutionOutcome.UNRESOLVED,
-        selected_candidate_index=None,
-        selected_assessment_node_id=None,
+    if choice is None:
+        msg = "A model candidate choice is required when exact-locator evidence is not uniquely confirmed"
+        raise ValueError(msg)
+    if choice.outcome is MelleaLocatorCandidateChoiceOutcome.SELECTED:
+        candidate = next(
+            (item for item in summary.candidates if item.candidate_index == choice.selected_candidate_index),
+            None,
+        )
+        if candidate is None:
+            msg = "Model candidate choice selected a candidate absent from the locator summary"
+            raise ValueError(msg)
+        return _resolution(
+            validation,
+            outcome=LocatorIdentityResolutionOutcome.RESOLVED,
+            selected_candidate_index=candidate.candidate_index,
+            selected_assessment_node_id=candidate.assessment_node_id,
+            matching_candidate_indices=matching_candidate_indices,
+            selection_evidence_node_id=choice.node_id,
+            depends_on=(summary.node_id, choice.node_id),
+            status_message="Locator identity resolution completed.",
+            outcome_message=(
+                f"Grounded model choice selected candidate {candidate.candidate_index} after reparsing "
+                "the local citation fields."
+            ),
+        )
+    if choice.outcome is MelleaLocatorCandidateChoiceOutcome.NO_MATCH:
+        return _resolution(
+            validation,
+            outcome=LocatorIdentityResolutionOutcome.NO_MATCH,
+            matching_candidate_indices=matching_candidate_indices,
+            selection_evidence_node_id=choice.node_id,
+            depends_on=(summary.node_id, choice.node_id),
+            status_message="Locator identity resolution completed.",
+            outcome_message="No reviewed exact-locator candidate represents the reparsed citation fields.",
+        )
+    return _resolution(
+        validation,
+        outcome=LocatorIdentityResolutionOutcome.DEFERRED,
         matching_candidate_indices=matching_candidate_indices,
-        depends_on=(summary.node_id,),
-        status_message="Locator identity resolution completed.",
-        outcome_message=message,
+        selection_evidence_node_id=choice.node_id,
+        depends_on=(summary.node_id, choice.node_id),
+        status_message="Locator identity resolution deferred.",
+        outcome_message="Model candidate choice failed; no identity decision was admitted.",
     )
 
 
 def run_deferred_locator_identity_resolution(
     validation: CitationValidation,
     *,
-    selection: CandidateSelectionNode,
+    depends_on: tuple[str, ...] = (),
+    reason: str,
 ) -> LocatorIdentityResolutionNode:
-    """Record that an over-limit candidate set was intentionally not decided."""
+    """Record an intentional scope boundary without invoking another route."""
+    return _resolution(
+        validation,
+        outcome=LocatorIdentityResolutionOutcome.DEFERRED,
+        matching_candidate_indices=(),
+        selection_evidence_node_id=None,
+        depends_on=depends_on,
+        status_message="Locator identity resolution deferred.",
+        outcome_message=reason,
+    )
+
+
+def _matching_candidates(summary: LocatorCitationSummaryNode):
+    return tuple(
+        candidate
+        for candidate in summary.candidates
+        if candidate.outcome is LocatorCandidateAssessmentOutcome.MATCH
+    )
+
+
+def _resolution(
+    validation: CitationValidation,
+    *,
+    outcome: LocatorIdentityResolutionOutcome,
+    matching_candidate_indices: tuple[int, ...],
+    selection_evidence_node_id: str | None,
+    depends_on: tuple[str, ...],
+    status_message: str,
+    outcome_message: str,
+    selected_candidate_index: int | None = None,
+    selected_assessment_node_id: str | None = None,
+) -> LocatorIdentityResolutionNode:
     return LocatorIdentityResolutionNode(
         node_id=f"{validation.citation_id}:locator_identity_resolution",
         status=ValidationNodeStatus.SUCCEEDED,
-        outcome=LocatorIdentityResolutionOutcome.DEFERRED,
-        selected_candidate_index=None,
-        selected_assessment_node_id=None,
-        matching_candidate_indices=(),
-        depends_on=(selection.node_id,),
-        status_message="Locator identity resolution deferred.",
-        outcome_message=(
-            f"{selection.total_candidate_count} exact-locator candidates exceed the review limit of "
-            f"{selection.selection_limit}."
-        ),
+        outcome=outcome,
+        selected_candidate_index=selected_candidate_index,
+        selected_assessment_node_id=selected_assessment_node_id,
+        matching_candidate_indices=matching_candidate_indices,
+        selection_evidence_node_id=selection_evidence_node_id,
+        depends_on=depends_on,
+        status_message=status_message,
+        outcome_message=outcome_message,
     )

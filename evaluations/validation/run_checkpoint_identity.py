@@ -154,8 +154,11 @@ async def run(
         "input_stage": "case_names",
         "documents": result_paths,
         "document_count": len(result_paths),
-        "identity_scope": "lookup, candidate inspection, field checks, and lookup-miss search",
-        "excluded_stages": ["leaf_growth", "pinpoint"],
+        "identity_scope": (
+            "full reporter exact lookup, bounded candidate field checks, and "
+            "deterministic or grounded model candidate choice"
+        ),
+        "excluded_stages": ["lookup-miss search", "docket lookup", "leaf_growth", "pinpoint"],
         "model": config.model,
         "model_statistics": dict(sorted(model_statistics.items())),
         "outcomes": dict(sorted(outcomes.items())),

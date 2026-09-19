@@ -30,19 +30,13 @@ async def validate_document(
     client: CourtListenerServiceClient | None = None,
     session: MelleaSession | None = None,
 ) -> ValidatedDocument:
-    """Run each extracted citation through the common validation progression."""
-    service = client if client is not None else CourtListenerClient()
-    initialized = initialize_validation(document)
-    runner = CitationValidationRunner(client=service)
-    citations = [
-        await runner.run_validation(
-            citation,
-            document_text=document.text,
-            session=session,
-        )
-        for citation in initialized.citations
-    ]
-    return ValidatedDocument(source=document, citations=tuple(citations))
+    """Run the currently admitted reporter-locator identity checkpoint.
+
+    This is intentionally the same safe scope as ``validate_document_identity``
+    until docket lookup, lookup misses, and the downstream opinion stages have
+    their own settled contracts.
+    """
+    return await validate_document_identity(document, client=client, session=session)
 
 
 async def validate_document_identity(
