@@ -21,6 +21,7 @@ def test_score_uses_labeled_roots_in_completed_artifact_documents(tmp_path: Path
         [
             _annotation(start=10, end=20, label="CORRECT_IDENTITY"),
             _annotation(start=30, end=40, label="WRONG_IDENTITY"),
+            _annotation(start=90, end=100, label="CORRECT_IDENTITY", is_root=False),
         ],
     )
     _write_jsonl(
@@ -59,9 +60,10 @@ def test_score_uses_labeled_roots_in_completed_artifact_documents(tmp_path: Path
     assert result["unlabeled_resolutions"] == 1
 
 
-def _annotation(*, start: int, end: int, label: str) -> dict[str, object]:
+def _annotation(*, start: int, end: int, label: str, is_root: bool = True) -> dict[str, object]:
     return {
         "unit": "citation",
+        "is_root": is_root,
         "kind": "FullCaseCitation",
         "locator": {"start": start, "end": end},
         "validation": {"identity": {"label": label}},
@@ -70,6 +72,8 @@ def _annotation(*, start: int, end: int, label: str) -> dict[str, object]:
 
 def _citation(*, start: int, end: int, outcome: str) -> dict[str, object]:
     return {
+        "citation_id": f"citation-{start}",
+        "root_id": f"citation-{start}",
         "source": {
             "citation_type": "FullCaseCitation",
             "locator_span": {"start": start, "end": end},
