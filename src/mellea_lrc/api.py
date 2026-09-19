@@ -24,13 +24,14 @@ from mellea_lrc.extraction.stages import (
     resolve_pin_cites,
 )
 from mellea_lrc.extraction.types import Document
-from mellea_lrc.validation.roots import validate_roots_identity
+from mellea_lrc.validation.roots import full_reporter_locator_identity
 
 __all__ = [
     "Document",
     "ExtractionRules",
     "find_docket_locators",
     "find_full_reporter_locators",
+    "full_reporter_locator_identity",
     "hunt_docket_locators",
     "mark_full_reporter_locator_hunting_skipped",
     "resolve_case_names",
@@ -39,5 +40,4 @@ __all__ = [
     "resolve_dates",
     "resolve_pin_cites",
     "stable",
-    "validate_roots_identity",
 ]

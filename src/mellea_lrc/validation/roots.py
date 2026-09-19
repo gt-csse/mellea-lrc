@@ -38,7 +38,7 @@ ROOT_IDENTITY_STAGE = "root_identity"
 _MADE_BY = "mellea_lrc.validation.roots"
 
 
-async def validate_roots_identity(
+async def full_reporter_locator_identity(
     document: Document,
     *,
     client: CourtListenerServiceClient | None = None,

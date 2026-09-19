@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from mellea_lrc.api import validate_roots_identity
+from mellea_lrc.api import full_reporter_locator_identity
 from mellea_lrc.core.citations import CitationDate, FullCaseCitation, placed
 from mellea_lrc.core.record import CitationRecord, Question
 from mellea_lrc.core.spans import Span
@@ -65,8 +65,8 @@ def test_root_identity_writes_trace_and_state_to_the_original_document() -> None
         )
     )
 
-    result = asyncio.run(validate_roots_identity(document, client=client))
-    resumed = asyncio.run(validate_roots_identity(result, client=client))
+    result = asyncio.run(full_reporter_locator_identity(document, client=client))
+    resumed = asyncio.run(full_reporter_locator_identity(result, client=client))
     restored = Document.from_serialized(result.serialize())
     resolved = restored.citations[0]
 
