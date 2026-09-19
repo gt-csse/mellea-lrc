@@ -159,8 +159,8 @@ class Question(str, Enum):
     DOCKET_LOOKUP = "docket_lookup"
     """What did the CourtListener docket-root search return?"""
 
-    DOCKET_LOCATOR_REVIEW = "docket_locator_review"
-    """What did the one allowed model review conclude about this docket number?"""
+    DOCKET_CITATION_REEXTRACTION = "docket_citation_reextraction"
+    """What did the one allowed model re-extraction conclude about this docket citation?"""
 
     IDENTITY = "identity"
     """Does this citation reach the authority it names?"""
@@ -436,14 +436,14 @@ class CitationRecord:
         self.stated_fields_reparsed_by_model = True
 
     @property
-    def docket_number_reviewed_by_model(self) -> bool:
-        """Whether the one-shot docket-number recovery route already ran.
+    def docket_citation_reextracted_by_model(self) -> bool:
+        """Whether the one-shot docket-citation re-extraction already ran.
 
         The underlying first-class judgement retains the outcome and its node
         pointer. This boolean exposes its loop-prevention meaning without a
         caller having to inspect the trace or reproduce the ``unjudged`` test.
         """
-        return self.judgement(Question.DOCKET_LOCATOR_REVIEW).outcome != UNJUDGED
+        return self.judgement(Question.DOCKET_CITATION_REEXTRACTION).outcome != UNJUDGED
 
     def correct(self, node: Node, field_name: str, value: Any, *, reason: str) -> Node:
         """Change one field of `stated`, on the evidence of `node`.

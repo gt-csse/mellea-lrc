@@ -26,8 +26,8 @@ from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import CourtListenerCitationLookup, CourtListenerSearchResult
 from mellea_lrc.extraction import extract_from_plain_text
 from mellea_lrc.validation.types import (
-    MelleaDocketNumberReviewNode,
-    MelleaDocketNumberReviewOutcome,
+    MelleaDocketCitationReextractionNode,
+    MelleaDocketCitationReextractionOutcome,
     ValidationNodeStatus,
 )
 
@@ -117,19 +117,24 @@ def test_root_identity_composition_preserves_each_docket_and_reporter_checkpoint
     client = _OrderedNoResultClient()
 
     async def no_docket_number_review(record, **kwargs):
-        return MelleaDocketNumberReviewNode(
-            node_id=f"{record.citation_id}:mellea_docket_number_review",
+        return MelleaDocketCitationReextractionNode(
+            node_id=f"{record.citation_id}:mellea_docket_citation_reextraction",
             status=ValidationNodeStatus.SUCCEEDED,
-            outcome=MelleaDocketNumberReviewOutcome.NO_DOCKET_NUMBER,
+            outcome=MelleaDocketCitationReextractionOutcome.NO_DOCKET_NUMBER,
+            source_citation="1:24-cv-00123",
             source_locator="1:24-cv-00123",
             extracted_docket_number="1:24-cv-00123",
-            proposed_docket_number=None,
+            reparsed_case_name=None,
+            reparsed_docket_number=None,
+            reparsed_court=None,
+            reparsed_date=None,
+            reparsed_pin_cite=None,
             grounded_docket_number=None,
             reason="The source locator is masked in this composition-only test.",
             depends_on=("docket:locator_identity_resolution",),
         )
 
-    monkeypatch.setattr(docket_roots, "run_mellea_docket_number_review", no_docket_number_review)
+    monkeypatch.setattr(docket_roots, "run_mellea_docket_citation_reextraction", no_docket_number_review)
 
     completed = asyncio.run(
         validate_roots_identity(form_roots(replace(document, citations=(docket, reporter))), client=client)
@@ -140,7 +145,7 @@ def test_root_identity_composition_preserves_each_docket_and_reporter_checkpoint
         "docket_root_search",
         "docket_root_unique_identity",
         "docket_root_ambiguity_resolution",
-        "docket_root_locator_review",
+        "docket_root_citation_reextraction",
         "docket_root_relookup",
         "docket_root_relookup_unique_identity",
         "docket_root_relookup_ambiguity_resolution",

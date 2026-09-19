@@ -41,10 +41,10 @@ CHOICE_MAX_REPAIR_TURNS = 2
 # stage and must not be coupled to this root-identity decision yet.
 CHOICE_PREFIX = """
 The filing contains one target complete citation marked by locator. Read only
-local_context and the complete list of retrieved candidates. Reparse the
-filing's stated case name, court, and date from local_context. Then select the
-single candidate that best represents that citation, or return no_match when
-none is supportable from the stated fields.
+local_context and the complete list of retrieved candidates. Re-extract the
+filing's stated case name, docket number, court, date, and pin cite from
+local_context. Then select the single candidate that best represents that
+citation, or return no_match when none is supportable from the stated fields.
 
 Every candidate shown is a retrieved possibility. Consider every one, including
 candidates whose preliminary field assessment says mismatch or partial_match:
@@ -69,8 +69,10 @@ class _CandidateChoiceProposal(BaseModel):
     decision: Literal["select_candidate", "no_match"]
     candidate_index: int | None
     reparsed_case_name: str | None
+    reparsed_docket_number: str | None
     reparsed_court: str | None
     reparsed_date: str | None
+    reparsed_pin_cite: str | None
     rationale: Annotated[str, Field(min_length=1)]
 
 
@@ -170,8 +172,10 @@ async def run_mellea_locator_candidate_choice(
             outcome=MelleaLocatorCandidateChoiceOutcome.SELECTED,
             selected_candidate_index=proposal.candidate_index,
             reparsed_case_name=proposal.reparsed_case_name,
+            reparsed_docket_number=proposal.reparsed_docket_number,
             reparsed_court=proposal.reparsed_court,
             reparsed_date=proposal.reparsed_date,
+            reparsed_pin_cite=proposal.reparsed_pin_cite,
             rationale=proposal.rationale,
             status_message="Model candidate choice completed.",
             outcome_message=f"Model selected reviewed candidate {proposal.candidate_index}.",
@@ -183,8 +187,10 @@ async def run_mellea_locator_candidate_choice(
         status=ValidationNodeStatus.SUCCEEDED,
         outcome=MelleaLocatorCandidateChoiceOutcome.NO_MATCH,
         reparsed_case_name=proposal.reparsed_case_name,
+        reparsed_docket_number=proposal.reparsed_docket_number,
         reparsed_court=proposal.reparsed_court,
         reparsed_date=proposal.reparsed_date,
+        reparsed_pin_cite=proposal.reparsed_pin_cite,
         rationale=proposal.rationale,
         status_message="Model candidate choice completed.",
         outcome_message="Model found no supportable representative among the reviewed candidates.",
@@ -218,8 +224,10 @@ def _node(
     outcome: MelleaLocatorCandidateChoiceOutcome,
     selected_candidate_index: int | None = None,
     reparsed_case_name: str | None = None,
+    reparsed_docket_number: str | None = None,
     reparsed_court: str | None = None,
     reparsed_date: str | None = None,
+    reparsed_pin_cite: str | None = None,
     rationale: str | None = None,
     status_message: str | None = None,
     outcome_message: str | None = None,
@@ -233,8 +241,10 @@ def _node(
         candidate_indices=candidate_indices,
         selected_candidate_index=selected_candidate_index,
         reparsed_case_name=reparsed_case_name,
+        reparsed_docket_number=reparsed_docket_number,
         reparsed_court=reparsed_court,
         reparsed_date=reparsed_date,
+        reparsed_pin_cite=reparsed_pin_cite,
         rationale=rationale,
         depends_on=(summary.node_id,),
         status_message=status_message,
@@ -269,8 +279,10 @@ def _validate_reparsed_fields(ctx: Context, local_context: str) -> ValidationRes
         label
         for label, value in (
             ("reparsed_case_name", proposal.reparsed_case_name),
+            ("reparsed_docket_number", proposal.reparsed_docket_number),
             ("reparsed_court", proposal.reparsed_court),
             ("reparsed_date", proposal.reparsed_date),
+            ("reparsed_pin_cite", proposal.reparsed_pin_cite),
         )
         if value is not None and not _is_grounded(value, local_context)
     ]
