@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from mellea_lrc.core.citations import DocketCitation, FullCaseCitation
+from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.validation.aggregation import (
     requires_mellea_locator_candidate_choice,
-    run_deferred_locator_identity_resolution,
+    run_future_implementation_deferred_locator_identity_resolution,
     run_locator_candidate_assessment,
     run_locator_citation_summary,
     run_locator_identity_resolution,
@@ -16,6 +16,7 @@ from mellea_lrc.validation.aggregation import (
     run_opinion_search_candidate_assessment,
     run_recap_search_candidate_assessment,
     run_search_citation_summary,
+    run_search_deferred_locator_identity_resolution,
 )
 from mellea_lrc.validation.candidate_evaluation import (
     run_locator_candidate_evaluation,
@@ -57,8 +58,10 @@ from mellea_lrc.validation.types import (
     LocatorLookupOutcome,
     MelleaCaseNameCheckOutcome,
     MelleaCaseNameReextractionOutcome,
+    MelleaLocatorCandidateChoiceOutcome,
     OpinionSearchOutcome,
     RecapSearchOutcome,
+    ValidationNodeStatus,
 )
 
 if TYPE_CHECKING:
@@ -78,50 +81,25 @@ class CitationValidationRunner:
 
     client: CourtListenerServiceClient
 
-    async def run_validation(
+    async def run_full_reporter_locator_identity(
         self,
         validation: CitationValidation,
         *,
         document_text: str,
         session: MelleaSession | None = None,
     ) -> CitationValidation:
-        """Run the active validation scope: reporter-locator identity only.
-
-        The pipeline intentionally stops before search, docket lookup, and
-        pinpoint work while full reporter-locator lookup behavior is being
-        settled.  ``run_identity_validation`` records each excluded path as an
-        explicit deferred terminal node rather than silently skipping it.
-        """
-        return await self.run_identity_validation(
-            validation,
-            document_text=document_text,
-            session=session,
-        )
-
-    async def run_identity_validation(
-        self,
-        validation: CitationValidation,
-        *,
-        document_text: str,
-        session: MelleaSession | None = None,
-    ) -> CitationValidation:
-        """Resolve only full reporter locators through exact lookup evidence.
+        """Resolve one full reporter locator through exact lookup evidence.
 
         A full reporter locator may take the exact unique or bounded ambiguous
-        route.  A lookup miss, an over-limit result set, every docket locator,
-        and every other citation kind terminates as ``deferred``.  This keeps
-        the present identity checkpoint free of docket search and later-stage
-        opinion or pinpoint work.
+        route. A lookup miss is deferred to the later search checkpoint; an
+        over-limit result set is deferred to future implementation. The caller
+        must filter the document to full reporter locators before this method:
+        docket and other locator kinds are intentionally outside this stage.
         """
         stated = validation.citation.stated
         if not isinstance(stated, FullCaseCitation):
-            reason = (
-                "Docket locator identity is deferred until docket-number-only lookup and "
-                "disambiguation are designed."
-                if isinstance(stated, DocketCitation)
-                else "Identity validation currently accepts only full reporter locators."
-            )
-            return validation.append(run_deferred_locator_identity_resolution(validation, reason=reason))
+            msg = "Full reporter-locator identity accepts only FullCaseCitation records"
+            raise ValueError(msg)
 
         exact_locator_lookup_node = run_exact_locator_lookup(validation, client=self.client)
         validation = validation.append(exact_locator_lookup_node)
@@ -140,13 +118,21 @@ class CitationValidationRunner:
                 document_text=document_text,
                 session=session,
             )
+        if exact_locator_lookup_node.outcome is LocatorLookupOutcome.NOT_FOUND:
+            return validation.append(
+                run_search_deferred_locator_identity_resolution(
+                    validation,
+                    depends_on=(exact_locator_lookup_node.node_id,),
+                    reason="Exact reporter-locator lookup found no candidate; continue in the search stage.",
+                )
+            )
         return validation.append(
-            run_deferred_locator_identity_resolution(
+            run_future_implementation_deferred_locator_identity_resolution(
                 validation,
                 depends_on=(exact_locator_lookup_node.node_id,),
                 reason=(
-                    "Full reporter locator identity is deferred because exact lookup did not return "
-                    "a candidate set eligible for current review."
+                    "Full reporter-locator identity could not produce an exact candidate set eligible "
+                    "for current review."
                 ),
             )
         )
@@ -374,6 +360,8 @@ class CitationValidationRunner:
             session=session,
         )
         validation = validation.append(reextraction)
+        if reextraction.status is ValidationNodeStatus.SUCCEEDED:
+            validation.citation.mark_stated_fields_reparsed_by_model()
         state = state.with_reextraction(reextraction)
         if reextraction.outcome is not MelleaCaseNameReextractionOutcome.COMPLETE:
             return validation, state
@@ -419,6 +407,8 @@ class CitationValidationRunner:
             session=session,
         )
         validation = validation.append(reextraction)
+        if reextraction.status is ValidationNodeStatus.SUCCEEDED:
+            validation.citation.mark_stated_fields_reparsed_by_model()
         search_state = CandidateValidationState().with_reextraction(reextraction)
         preparation = await run_mellea_case_name_query_preparation(
             validation,
@@ -561,7 +551,7 @@ class CitationValidationRunner:
         validation = validation.append(selection)
         if not selection.selected_candidate_count:
             return validation.append(
-                run_deferred_locator_identity_resolution(
+                run_future_implementation_deferred_locator_identity_resolution(
                     validation,
                     depends_on=(selection.node_id,),
                     reason=(
@@ -617,6 +607,8 @@ async def _resolve_locator_identity_from_summary(
         session=session,
     )
     validation = validation.append(choice)
+    if choice.outcome is not MelleaLocatorCandidateChoiceOutcome.FAILED:
+        validation.citation.mark_stated_fields_reparsed_by_model()
     return validation.append(run_locator_identity_resolution(validation, summary=summary, choice=choice))
 
 

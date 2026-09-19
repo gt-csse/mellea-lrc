@@ -188,6 +188,6 @@ errors.
 
 `CourtListenerServiceClient` is a `Protocol` with the four methods above.
 Anything satisfying it can be passed wherever the real client is expected —
-`validate_document(document, client=...)` takes one. That is the seam for a
+`run_full_reporter_locator_identity(checkpoint, client=...)` takes one. That is the seam for a
 cache, a recorded fixture, or a stub in tests, and it is why the client is
 injected rather than constructed inside the validation pipeline.

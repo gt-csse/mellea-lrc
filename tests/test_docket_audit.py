@@ -11,7 +11,7 @@ from mellea_lrc.extraction.reading.docket_audit import audit_docket_citations
 from mellea_lrc.extraction.structure.citation_tree import build_citation_tree
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.serialization import deserialize_document, serialize_document
-from mellea_lrc.validation import initialize_validation
+from mellea_lrc.validation import initialize_full_reporter_locator_identity
 
 
 def _before_audit(text):
@@ -47,7 +47,7 @@ def test_unsupported_dockets_are_withdrawn_but_keep_their_locators(text: str) ->
     assert document.citations[0].withdrawn
     assert document.citations[0].trace[-1].details["reason"] == "no_citation_context"
     assert build_citation_tree(document).roots == ()
-    assert initialize_validation(document).citations == ()
+    assert initialize_full_reporter_locator_identity(document).citations == ()
     recovered = deserialize_document(serialize_document(document))
     assert recovered.locators == document.locators
     assert recovered.citations == document.citations
@@ -120,9 +120,7 @@ def test_replaying_an_audit_does_not_duplicate_its_trace() -> None:
 
 
 def test_a_date_parenthetical_admits_a_courtless_docket() -> None:
-    document = grow_roots(
-        preprocess("Kestenbaum, No. 1:24-cv-10092 (Jan. 21, 2025)."), rules=stable()
-    )
+    document = grow_roots(preprocess("Kestenbaum, No. 1:24-cv-10092 (Jan. 21, 2025)."), rules=stable())
 
     (docket,) = document.active_citations
     assert isinstance(docket.stated, DocketCitation)

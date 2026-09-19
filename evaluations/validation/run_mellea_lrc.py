@@ -22,7 +22,10 @@ from mellea_lrc.courtlistener import CourtListenerClient
 from mellea_lrc.extraction import extract_from_plain_text
 from mellea_lrc.llm import start_mellea_session_from_env
 from mellea_lrc.serialization.validated_document import serialize_validated_document
-from mellea_lrc.validation import validate_document
+from mellea_lrc.validation import (
+    initialize_full_reporter_locator_identity,
+    run_full_reporter_locator_identity,
+)
 
 
 def read_corpus(documents: Path) -> list[tuple[str, str]]:
@@ -40,7 +43,8 @@ async def validate_corpus(corpus: list[tuple[str, str]]) -> list[tuple[str, dict
     runs: list[tuple[str, dict]] = []
     for stem, body in corpus:
         extracted = extract_from_plain_text(body, source_path=stem)
-        validated = await validate_document(extracted, client=client, session=session)
+        checkpoint = initialize_full_reporter_locator_identity(extracted)
+        validated = await run_full_reporter_locator_identity(checkpoint, client=client, session=session)
         runs.append((stem, serialize_validated_document(validated)))
         print(f"  {stem[:40]:<40} {len(validated.citations):>4} citations")
     return runs

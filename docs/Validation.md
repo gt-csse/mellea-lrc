@@ -5,98 +5,56 @@ status: active
 
 # Validation
 
-The active validation checkpoint settles identity for full reporter locators.
-It preserves every lookup candidate and every model attempt in a serializable
-node trace. It does not currently decide lookup misses, docket locators, leaf
-citations, or pinpoint support.
+Validation currently has one independent, resumable checkpoint: **full reporter-locator identity**. It works only on `FullCaseCitation` roots with a reporter locator. Docket lookup, lookup-miss search, leaf growth, and pinpoint work are separate stages that have not been admitted to this checkpoint.
 
-## Running it
+## API
 
 ```python
 import asyncio
-from pathlib import Path
 
-from mellea_lrc.extraction import extract_from_raw_document
-from mellea_lrc.validation import validate_document_identity
+from mellea_lrc.validation import (
+    initialize_full_reporter_locator_identity,
+    run_full_reporter_locator_identity,
+)
 
-document = extract_from_raw_document(Path("filing.pdf"))
-identity = asyncio.run(validate_document_identity(document))
-for citation in identity.citations:
-    print(citation.citation_id, citation.identity_resolution)
+checkpoint = initialize_full_reporter_locator_identity(document)
+checkpoint = asyncio.run(run_full_reporter_locator_identity(checkpoint))
 ```
 
-`validate_document` currently calls this same checkpoint. Both functions accept
-an injectable CourtListener client and Mellea session:
+`initialize_full_reporter_locator_identity` preserves every active citation in source order. `run_full_reporter_locator_identity` returns the same `ValidatedDocument` type. It reads and writes nodes only for full reporter locators; docket locators and every other citation type remain present with an empty validation progression.
 
-```python
-validate_document_identity(document, client=my_client, session=my_session)
-```
-
-The document context sent to Mellea is target-only: neighbouring locators are
-masked without moving source offsets. Colocation remains an extraction-level
-hook; it is never shown as an object or instruction to the model.
+The checkpoint round-trips through `serialize_validated_document` and `deserialize_validated_document`. A completed checkpoint is safe to pass back to `run_full_reporter_locator_identity`: completed reporter progressions are retained without another lookup. A partial reporter progression is rejected so one logical lookup cannot be recorded twice.
 
 ## Current route
-
-Only a `FullCaseCitation` with volume, reporter, and page enters exact lookup.
-All other citation types get a terminal `deferred` identity node. In particular,
-a `DocketCitation` is deferred without a lookup until docket-number-only search
-and its disambiguation contract are settled.
 
 ```text
 full reporter locator
 ├── exact lookup: one candidate
-│   └── field checks → candidate summary
-│       ├── exactly one confirmed match → resolved
-│       └── zero confirmed matches → grounded model choice → resolved | no_match | deferred
+│   └── field checks → candidate summary → resolved | model selection
 ├── exact lookup: 2–19 candidates
-│   └── field checks for every candidate → candidate summary
-│       ├── exactly one confirmed match → resolved
-│       └── zero or multiple confirmed matches → grounded model choice → resolved | no_match | deferred
-├── exact lookup: no candidate, failure, or incomplete locator → deferred
-└── exact lookup: at least 20 candidates → deferred
+│   └── field checks for every candidate → candidate summary → resolved | model selection
+├── exact lookup: no candidate
+│   └── deferred_to_search
+└── exact lookup: 20+ candidates, incomplete locator, or lookup failure
+    └── deferred_to_future_implementation
 ```
 
-A candidate summary is evidence, not an identity decision. It retains every
-reviewed candidate whether its assessment is `match`, `partial_match`, or
-`mismatch`. The raw exact-lookup node retains the complete CourtListener result
-set even when review is deferred at the 20-candidate limit.
+`deferred_to_search` is a positive handoff: exact locator lookup found no candidate, so the later search stage should work from this artifact. `deferred_to_future_implementation` means there is no admitted route yet. In particular, an exact result set of 20 or more candidates is preserved on the lookup node but not truncated or sent to the model.
 
-For a zero-match or ambiguous bounded summary, Mellea sees the local citation
-context and the complete candidate list. It must reparse the filing's stated
-case name, court, and date; select one candidate by index; or return
-`no_match`. It cannot change the reporter locator. The resulting
-`MelleaLocatorCandidateChoiceNode` records the reparsed fields, decision,
-rationale, and complete IVR repair trace. The terminal
-`LocatorIdentityResolutionNode` points directly to the summary or model-choice
-node that supports its result.
+For a bounded candidate set whose deterministic field checks leave zero or multiple matches, the model receives the target-only local context and all reviewed candidates. It reparses the stated case name, court, and date; selects one candidate or emits `no_match`; and cannot change the reporter locator. Colocation is never sent to the model and is not a model-level operation.
 
-Reading an opinion could provide a more refined tie-breaker. That belongs to a
-later opinion-reading stage and is deliberately not coupled to this identity
-checkpoint.
+A later cross-locator reconciliation stage may use stored colocation along with independently resolved reporter and docket results. Keeping that decision later preserves the potential benefit without making reporter identity depend on an unfinished docket contract.
 
-## Reading a result
+## Provenance of a model reparse
 
-Each `CitationValidation` is an ordered tuple of nodes. Every node has a stable
-`node_id`, `status`, typed `outcome`, explicit dependencies, and explanatory
-messages. Nodes that use Mellea also retain the model attempts, provider
-request/response projection, and requirement failures.
+Every `CitationRecord` has `stated_fields_reparsed_by_model: bool`. It becomes `True` when a grounded model successfully completes a local reparse of stated identity fields. It does not mean that a field was corrected or that identity was resolved. The corresponding `MelleaLocatorCandidateChoiceNode`, including all IVR attempts and repair feedback, remains in the same serialized checkpoint.
 
-| terminal outcome | meaning |
-|---|---|
-| `resolved` | a candidate assessment was selected, deterministically or by grounded model choice |
-| `no_match` | the model completed its reparse and found that no reviewed candidate represents the citation |
-| `deferred` | the current checkpoint deliberately did not decide the locator |
+## Next checkpoints
 
-`deferred` is not a negative result. It records a scope boundary: no candidate
-was discarded, and later stages can start directly from the serialized document
-and trace.
+The following are deliberately separate:
 
-## Deferred work
-
-The following stages require their own contracts before being re-enabled:
-
-- case-name search after an exact reporter lookup miss;
-- docket-number-only lookup, which must work without a stated court;
+- reporter lookup-miss search, consuming progressions marked `deferred_to_search`;
+- docket-number-only lookup and disambiguation, consuming untouched `DocketCitation` progressions, including citations without a court;
+- cross-locator reconciliation after both identity routes have evidence;
 - leaf attribution and leaf case-name consistency;
-- reporter-page retrieval, citing-proposition extraction, and pinpoint support.
+- reporter-page retrieval, proposition extraction, and pinpoint support.

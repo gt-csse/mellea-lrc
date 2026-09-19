@@ -1,9 +1,8 @@
 """Post-extraction citation validation."""
 
 from mellea_lrc.validation.pipeline import (
-    initialize_validation,
-    validate_document,
-    validate_document_identity,
+    initialize_full_reporter_locator_identity,
+    run_full_reporter_locator_identity,
 )
 from mellea_lrc.validation.types import (
     AggregatedFieldOutcome,
@@ -119,7 +118,6 @@ __all__ = [
     "ValidationNode",
     "ValidationNodeStatus",
     "YearCheckNode",
-    "initialize_validation",
-    "validate_document",
-    "validate_document_identity",
+    "initialize_full_reporter_locator_identity",
+    "run_full_reporter_locator_identity",
 ]

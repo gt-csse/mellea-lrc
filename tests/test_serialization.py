@@ -89,7 +89,7 @@ from mellea_lrc.validation import (
     SearchCandidateAssessmentOutcome,
     ValidationNodeStatus,
     YearCheckNode,
-    initialize_validation,
+    initialize_full_reporter_locator_identity,
 )
 
 
@@ -332,7 +332,7 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
         ),
         extraction_metadata=ExtractionMetadata(),
     )
-    initialized = initialize_validation(extracted)
+    initialized = initialize_full_reporter_locator_identity(extracted)
     node = ExactLocatorLookupNode(
         node_id="cite-0001:exact_locator_lookup",
         status=ValidationNodeStatus.SUCCEEDED,
@@ -388,10 +388,20 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
     assert json.loads(json.dumps(payload)) == payload
 
 
+def test_document_serialization_preserves_model_reparse_provenance() -> None:
+    document = _document_with_one_citation()
+    document.citations[0].mark_stated_fields_reparsed_by_model()
+
+    payload = serialize_document(document)
+
+    assert payload["citations"][0]["stated_fields_reparsed_by_model"] is True
+    assert deserialize_document(payload).citations[0].stated_fields_reparsed_by_model is True
+
+
 def test_serialize_validated_document_preserves_frozen_opinion_search_results() -> None:
     """Expose immutable upstream opinion results without losing their fields."""
     document = _document_with_one_citation()
-    initialized = initialize_validation(document)
+    initialized = initialize_full_reporter_locator_identity(document)
     preparation = MelleaCaseNameQueryPreparationNode(
         node_id="cite-0001:mellea_case_name_query_preparation",
         status=ValidationNodeStatus.SUCCEEDED,
@@ -435,7 +445,7 @@ def test_serialize_validated_document_preserves_frozen_opinion_search_results() 
 
 def test_validated_document_round_trip_supports_every_current_node_type() -> None:
     """Keep every explicit progression node recoverable as the graph grows."""
-    initialized = initialize_validation(_document_with_one_citation())
+    initialized = initialize_full_reporter_locator_identity(_document_with_one_citation())
     citation_id = "cite-0001"
     lookup_id = f"{citation_id}:exact_locator_lookup"
     exact_id = f"{citation_id}:exact_case_name_check"

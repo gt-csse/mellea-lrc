@@ -19,6 +19,7 @@ from mellea_lrc.courtlistener import (
 from mellea_lrc.extraction import CitationRecord, Document, ExtractionMetadata
 from mellea_lrc.llm.ivr import InstructIvrSpec, IvrAttempt, IvrRun, run_instruct_ivr
 from mellea_lrc.preprocessing import preprocess
+from mellea_lrc.serialization import deserialize_validated_document, serialize_validated_document
 from mellea_lrc.validation import (
     AggregatedFieldOutcome,
     CandidateEvaluationNode,
@@ -61,9 +62,8 @@ from mellea_lrc.validation import (
     ValidatedDocument,
     ValidationNodeStatus,
     YearCheckNode,
-    initialize_validation,
-    validate_document,
-    validate_document_identity,
+    initialize_full_reporter_locator_identity,
+    run_full_reporter_locator_identity,
 )
 from mellea_lrc.validation.aggregation.citation_summary_candidate import citation_summary_candidate
 from mellea_lrc.validation.candidate_state import CandidateValidationState
@@ -136,7 +136,8 @@ def _validate(
     session: object | None = None,
 ) -> ValidatedDocument:
     """Run the active document-level validation entrypoint synchronously in tests."""
-    return asyncio.run(validate_document(document, client=client, session=session))
+    checkpoint = initialize_full_reporter_locator_identity(document)
+    return asyncio.run(run_full_reporter_locator_identity(checkpoint, client=client, session=session))
 
 
 def _validate_identity(
@@ -146,7 +147,8 @@ def _validate_identity(
     session: object | None = None,
 ) -> ValidatedDocument:
     """Run the checkpoint-to-identity entrypoint synchronously in tests."""
-    return asyncio.run(validate_document_identity(document, client=client, session=session))
+    checkpoint = initialize_full_reporter_locator_identity(document)
+    return asyncio.run(run_full_reporter_locator_identity(checkpoint, client=client, session=session))
 
 
 def _document(citation: object) -> Document:
@@ -254,15 +256,83 @@ def test_a_prefix_is_sent_as_the_system_message_and_nowhere_else(monkeypatch) ->
     assert options == {"max_tokens": 10}
 
 
-def test_initialize_validation_instances_one_progression_per_extracted_citation() -> None:
+def test_initialize_full_reporter_locator_identity_instances_one_progression_per_extracted_citation() -> None:
     extracted = _document(FullCaseCitation(volume="347", reporter="U.S.", page="483"))
 
-    validation = initialize_validation(extracted)
+    validation = initialize_full_reporter_locator_identity(extracted)
 
     assert validation.source is extracted
     assert validation.text == extracted.text
     assert validation.citations[0].citation is extracted.citations[0]
     assert validation.citations[0].nodes == ()
+
+
+def test_full_reporter_checkpoint_leaves_a_docket_progression_empty() -> None:
+    text = "Brown v. Board, 347 U.S. 483 (1954); Case No. 1:24-cv-08705."
+    preprocessed = preprocess(text)
+    reporter_locator = "347 U.S. 483"
+    docket_locator = "1:24-cv-08705"
+    reporter_start = text.index(reporter_locator)
+    docket_start = text.index(docket_locator)
+    document = Document(
+        source_metadata=preprocessed.source_metadata,
+        text=text,
+        preprocessing_metadata=preprocessed.preprocessing_metadata,
+        citations=(
+            CitationRecord(
+                citation_id="reporter",
+                source=placed(
+                    FullCaseCitation(
+                        plaintiff="Brown",
+                        defendant="Board",
+                        volume="347",
+                        reporter="U.S.",
+                        page="483",
+                        date=CitationDate(year="1954"),
+                        court="scotus",
+                    ),
+                    span=Span(0, text.index(";")),
+                    locator_span=Span(reporter_start, reporter_start + len(reporter_locator)),
+                    matched_text=reporter_locator,
+                ),
+            ),
+            CitationRecord(
+                citation_id="docket",
+                source=placed(
+                    DocketCitation(docket_number=docket_locator),
+                    span=Span(docket_start, docket_start + len(docket_locator)),
+                    locator_span=Span(docket_start, docket_start + len(docket_locator)),
+                    matched_text=docket_locator,
+                ),
+            ),
+        ),
+        extraction_metadata=ExtractionMetadata(),
+    )
+    client = LookupClient(
+        CourtListenerCitationLookup(
+            citation=reporter_locator,
+            status=200,
+            clusters=(
+                CourtListenerOpinionCluster(
+                    case_name="Brown v. Board",
+                    date_filed="1954-05-17",
+                    court_id="scotus",
+                ),
+            ),
+        )
+    )
+
+    checkpoint = initialize_full_reporter_locator_identity(document)
+    completed = asyncio.run(run_full_reporter_locator_identity(checkpoint, client=client))
+    serialized = serialize_validated_document(completed)
+    resumed = asyncio.run(
+        run_full_reporter_locator_identity(deserialize_validated_document(serialized), client=client)
+    )
+
+    assert client.calls == [("347", "U.S.", "483")]
+    assert completed.citation_by_id("reporter").identity_resolution is not None
+    assert completed.citation_by_id("docket").nodes == ()
+    assert resumed == completed
 
 
 def test_full_reporter_locator_runs_identity_without_pinpoint_work() -> None:
@@ -616,7 +686,7 @@ def test_mellea_case_name_reextraction_uses_only_local_context(
 ) -> None:
     """Ground Mellea re-extraction in local text without a retrieved case name."""
     document = _document(FullCaseCitation(volume="347", reporter="U.S.", page="483"))
-    validation = initialize_validation(document).citations[0]
+    validation = initialize_full_reporter_locator_identity(document).citations[0]
     exact_locator_lookup_node = ExactLocatorLookupNode(
         node_id="cite-0001:exact_locator_lookup",
         status=ValidationNodeStatus.SUCCEEDED,
@@ -682,7 +752,7 @@ def test_lookup_miss_defers_without_local_reextraction() -> None:
 
     assert lookup.outcome is LocatorLookupOutcome.NOT_FOUND
     assert isinstance(resolution, LocatorIdentityResolutionNode)
-    assert resolution.outcome is LocatorIdentityResolutionOutcome.DEFERRED
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.DEFERRED_TO_SEARCH
     assert resolution.depends_on == (lookup.node_id,)
     assert client.search_calls == []
 
@@ -707,7 +777,7 @@ def test_search_candidate_uses_semantic_check_without_reextracting(
             court="scotus",
         )
     )
-    validation = initialize_validation(extracted).citations[0]
+    validation = initialize_full_reporter_locator_identity(extracted).citations[0]
     candidate = CandidateEvaluationNode(
         node_id=f"cite-0001:{source.value}_candidate_evaluation:1",
         status=ValidationNodeStatus.SUCCEEDED,
@@ -807,7 +877,7 @@ def test_opinion_search_candidate_assessment_requires_every_field_to_match() -> 
             court="scotus",
         )
     )
-    validation = initialize_validation(extracted).citations[0]
+    validation = initialize_full_reporter_locator_identity(extracted).citations[0]
     candidate = CandidateEvaluationNode(
         node_id="cite-0001:opinion_search_candidate_evaluation:1",
         status=ValidationNodeStatus.SUCCEEDED,
@@ -857,7 +927,7 @@ def test_recap_search_candidate_assessment_does_not_treat_docket_year_as_a_misma
             court="scotus",
         )
     )
-    validation = initialize_validation(extracted).citations[0]
+    validation = initialize_full_reporter_locator_identity(extracted).citations[0]
     candidate = CandidateEvaluationNode(
         node_id="cite-0001:recap_search_candidate_evaluation:1",
         status=ValidationNodeStatus.SUCCEEDED,
@@ -894,7 +964,7 @@ def test_recap_search_candidate_assessment_does_not_treat_docket_year_as_a_misma
 
 def test_recap_candidate_summary_exposes_canonical_docket_url() -> None:
     """Carry CourtListener's raw docket path into the terminal summary candidate."""
-    validation = initialize_validation(
+    validation = initialize_full_reporter_locator_identity(
         _document(FullCaseCitation(volume="347", reporter="U.S.", page="9999"))
     ).citations[0]
     candidate = CandidateEvaluationNode(
@@ -946,7 +1016,7 @@ def test_mellea_case_name_query_preparation_constructs_the_courtlistener_query(
 ) -> None:
     """Keep CourtListener syntax in project code, not the Mellea response."""
     document = _document(FullCaseCitation(volume="347", reporter="U.S.", page="9999", court="scotus"))
-    validation = initialize_validation(document).citations[0]
+    validation = initialize_full_reporter_locator_identity(document).citations[0]
     locator = ExactLocatorLookupNode(
         node_id="cite-0001:exact_locator_lookup",
         status=ValidationNodeStatus.SUCCEEDED,
@@ -1031,6 +1101,7 @@ def test_ambiguous_lookup_sends_all_reviewed_candidates_to_model(
     assert summary.candidates[1].candidate_index == 2
     assert choice.outcome is MelleaLocatorCandidateChoiceOutcome.NO_MATCH
     assert choice.candidate_indices == (1, 2)
+    assert progression.citation.stated_fields_reparsed_by_model is True
     assert resolution is not None
     assert resolution.outcome is LocatorIdentityResolutionOutcome.NO_MATCH
     assert resolution.selection_evidence_node_id == choice.node_id
@@ -1047,11 +1118,11 @@ def test_ambiguous_lookup_defers_at_twenty_candidates() -> None:
 
     lookup, selection, resolution = _validate(extracted, client).citations[0].nodes
     assert lookup.outcome is LocatorLookupOutcome.AMBIGUOUS
-    assert selection.outcome is CandidateSelectionOutcome.DEFERRED_OVER_LIMIT
+    assert selection.outcome is CandidateSelectionOutcome.EXCEEDS_REVIEW_LIMIT
     assert selection.total_candidate_count == 20
     assert selection.selected_candidate_count == 0
     assert "meet or exceed" in selection.outcome_message
-    assert resolution.outcome is LocatorIdentityResolutionOutcome.DEFERRED
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.DEFERRED_TO_FUTURE_IMPLEMENTATION
     assert resolution.depends_on == (selection.node_id,)
 
 
@@ -1175,27 +1246,26 @@ def test_ambiguous_locator_uses_model_to_select_among_confirmed_candidates(
     assert resolution.selection_evidence_node_id == choice.node_id
 
 
-def test_docket_locator_is_deferred_without_service_access() -> None:
+def test_docket_locator_is_untouched_without_service_access() -> None:
     document = _document(DocketCitation(docket_number="1:24-cv-08705"))
     client = LookupClient(CourtListenerCitationLookup(citation="unused", status=200, clusters=()))
 
-    resolution = _validate_identity(document, client).citations[0].nodes[0]
+    progression = _validate_identity(document, client).citations[0]
 
     assert client.calls == []
-    assert resolution.outcome is LocatorIdentityResolutionOutcome.DEFERRED
-    assert "docket-number-only lookup" in resolution.outcome_message
+    assert progression.nodes == ()
+    assert progression.identity_resolution is None
 
 
-def test_non_reporter_locator_is_deferred_without_service_access() -> None:
+def test_non_reporter_locator_is_untouched_without_service_access() -> None:
     extracted = _document(FullLawCitation(volume="28", reporter="U.S.C.", page="636"))
     client = LookupClient(CourtListenerCitationLookup(citation="28 U.S.C. 636", status=200, clusters=()))
 
-    resolution = _validate(extracted, client).citations[0].nodes[0]
+    progression = _validate(extracted, client).citations[0]
 
     assert client.calls == []
-    assert isinstance(resolution, LocatorIdentityResolutionNode)
-    assert resolution.outcome is LocatorIdentityResolutionOutcome.DEFERRED
-    assert resolution.depends_on == ()
+    assert progression.nodes == ()
+    assert progression.identity_resolution is None
 
 
 def test_service_failure_is_a_terminal_validation_node() -> None:
