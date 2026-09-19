@@ -156,6 +156,13 @@ that the unfiltered tokenizer's cost does not matter.
 def promote_locator(text: str, locator: AdjudicatedLocator) -> CitationRecord | None:
     """Re-read a reviewer-accepted locator by repairing it in place, then parsing.
 
+    This is a pre-validation *admission* of a new full reporter locator, not a
+    later identity-stage correction of an admitted one.  Identity repair must
+    never mutate a ``FullCaseCitation``'s volume/reporter/page: its reporter is
+    a typed object with edition metadata, so a safe change requires a complete
+    new parse.  The rule reader is already sufficiently reliable that that
+    extra correction surface is intentionally out of scope.
+
     :func:`promote` re-reads text as written, so it recovers a citation only
     when the damage is something a widened *rule* can already forgive -- a lost
     capital, a missing space. It cannot recover ``556 U,S, 662``: no tokenizer
@@ -243,11 +250,7 @@ def promote_docket_locator(
         raise ValueError(msg)
     locator_span = site.locator_span
     docket_entry = docket_entry_before(text, locator_span)
-    span = (
-        locator_span
-        if docket_entry is None
-        else Span(start=docket_entry.span.start, end=locator_span.end)
-    )
+    span = locator_span if docket_entry is None else Span(start=docket_entry.span.start, end=locator_span.end)
     docket = DocketCitation(
         span=span,
         locator_span=locator_span,
