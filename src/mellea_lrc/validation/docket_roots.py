@@ -614,7 +614,7 @@ async def resolve_docket_root_semantics(
 async def _semantic_docket_candidates(
     record: CitationRecord,
     *,
-    search: DocketRootSearchNode,
+    search: DocketRootSearchNode | GovInfoDocketSearchNode,
     document: Document,
     session: MelleaSession | None,
 ) -> tuple[CitationValidation, tuple[int, ...], bool]:
@@ -750,7 +750,11 @@ def _semantic_docket_candidate_assessment(
     )
 
 
-def _write_semantic_deferred_resolution(record: CitationRecord, *, search: DocketRootSearchNode) -> None:
+def _write_semantic_deferred_resolution(
+    record: CitationRecord,
+    *,
+    search: DocketRootSearchNode | GovInfoDocketSearchNode,
+) -> None:
     """Keep an unavailable retrieval path unresolved at the semantic boundary."""
     validation = CitationValidation(citation=record, nodes=(search,))
     resolution = _future_implementation_resolution(
@@ -768,10 +772,25 @@ def _write_semantic_deferred_resolution(record: CitationRecord, *, search: Docke
     _write_identity_progression(record, validation, stage=DOCKET_ROOT_SEMANTIC_RESOLUTION_STAGE)
 
 
-def _latest_docket_root_search(record: CitationRecord) -> DocketRootSearchNode:
-    """Use a corrected-docket search when the extraction review created one."""
+def _latest_docket_root_search(
+    record: CitationRecord,
+) -> DocketRootSearchNode | GovInfoDocketSearchNode:
+    """Choose the most specific candidate-bearing docket retrieval path.
+
+    A source-grounded correction is the newest stated locator and its
+    CourtListener requeue therefore takes precedence.  Otherwise a positive
+    GovInfo fallback is the only candidate set available after a
+    CourtListener miss, so semantic docket equivalence must inspect it rather
+    than returning to that earlier empty CourtListener result.
+    """
     if any(node.stage == DOCKET_ROOT_REQUEUED_SEARCH_STAGE for node in record.trace):
         return _saved_docket_root_search(record, stage=DOCKET_ROOT_REQUEUED_SEARCH_STAGE)
+    govinfo = _saved_govinfo_docket_root_search(record)
+    if govinfo is not None and govinfo.outcome in {
+        DocketRootSearchOutcome.FOUND,
+        DocketRootSearchOutcome.AMBIGUOUS,
+    }:
+        return govinfo
     return _saved_docket_root_search(record)
 
 

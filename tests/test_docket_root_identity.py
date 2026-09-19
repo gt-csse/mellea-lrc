@@ -209,6 +209,95 @@ def test_govinfo_fallback_resolves_a_courtlistener_docket_miss() -> None:
     assert "govinfo_docket_root_search" in completed.passes
 
 
+def test_semantic_docket_stage_uses_a_positive_govinfo_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A nonliteral GovInfo package number reaches semantic equivalence."""
+    document = _document(date="2024")
+    document.citations[0].stated = replace(document.citations[0].stated, docket_number="24-cv-8760")
+    courtlistener = _DocketSearchClient(count=0, results=[])
+    govinfo = _GovInfoSearchClient(
+        count=1,
+        results=[
+            {
+                "packageId": "USCOURTS-nysd-1_24-cv-08760",
+                "title": "Smith v. Jones",
+                "dateIssued": "2024-01-06",
+            }
+        ],
+    )
+
+    async def unchanged_review(record, **kwargs):
+        return MelleaDocketCitationReextractionNode(
+            node_id=f"{record.citation_id}:mellea_docket_citation_reextraction",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaDocketCitationReextractionOutcome.UNCHANGED,
+            source_citation="Smith v. Jones, Case No. 24-cv-8760 (S.D.N.Y. 2024).",
+            source_locator="24-cv-8760",
+            extracted_docket_number="24-cv-8760",
+            reparsed_case_name="Smith v. Jones",
+            reparsed_docket_number="24-cv-8760",
+            reparsed_court="S.D.N.Y.",
+            reparsed_date="2024",
+            reparsed_pin_cite=None,
+            grounded_docket_number="24-cv-8760",
+            reason="The source states the abbreviated docket form.",
+            depends_on=("cite-0001:govinfo_docket_root_search:identity_resolution",),
+        )
+
+    async def matching_equivalence(validation, *, deterministic_check, candidate, **kwargs):
+        return MelleaDocketNumberEquivalenceNode(
+            node_id=f"{deterministic_check.node_id}:mellea_docket_number_equivalence",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaDocketNumberEquivalenceOutcome.MATCH,
+            extracted_docket_number=deterministic_check.extracted_docket_number,
+            retrieved_docket_number=deterministic_check.retrieved_docket_number,
+            reason="The retrieved form adds the district prefix and zero padding.",
+            depends_on=(deterministic_check.node_id,),
+        )
+
+    async def choose_candidate(validation, *, summary, eligible_candidate_indices, **kwargs):
+        assert eligible_candidate_indices == (1,)
+        return MelleaLocatorCandidateChoiceNode(
+            node_id=f"{summary.node_id}:mellea_candidate_choice",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaLocatorCandidateChoiceOutcome.SELECTED,
+            candidate_indices=eligible_candidate_indices,
+            selected_candidate_index=1,
+            reparsed_case_name="Smith v. Jones",
+            reparsed_docket_number="24-cv-8760",
+            reparsed_court="S.D.N.Y.",
+            reparsed_date="2024",
+            reparsed_pin_cite=None,
+            rationale="The case and equivalent docket forms identify candidate 1.",
+            depends_on=(summary.node_id,),
+        )
+
+    monkeypatch.setattr(docket_roots, "run_mellea_docket_citation_reextraction", unchanged_review)
+    monkeypatch.setattr(docket_roots, "run_mellea_docket_number_equivalence_check", matching_equivalence)
+    monkeypatch.setattr(docket_roots, "run_mellea_locator_candidate_choice", choose_candidate)
+
+    searched = asyncio.run(search_docket_roots(form_roots(document), client=courtlistener))
+    unique = asyncio.run(validate_unique_docket_root_identities(searched))
+    initial = asyncio.run(resolve_docket_root_ambiguities(unique))
+    fallback = asyncio.run(lookup_govinfo_docket_roots(initial, client=govinfo))
+    fallback = asyncio.run(validate_unique_govinfo_docket_root_identities(fallback))
+    fallback = asyncio.run(resolve_govinfo_docket_root_ambiguities(fallback))
+    reviewed = asyncio.run(review_and_requeue_unresolved_docket_roots(fallback, client=courtlistener))
+    requeued = asyncio.run(validate_unique_requeued_docket_root_identities(reviewed))
+    ready = asyncio.run(resolve_requeued_docket_root_ambiguities(requeued))
+    completed = asyncio.run(resolve_docket_root_semantics(ready))
+
+    root = Document.from_serialized(completed.serialize()).citations[0]
+    assert root.judgement(Question.IDENTITY).outcome == "resolved"
+    assert root.authority_id == "govinfo:package:USCOURTS-nysd-1_24-cv-08760"
+    assert any(
+        node.stage == "docket_root_semantic_resolution"
+        and node.details.get("validation_node_type") == MelleaDocketNumberEquivalenceNode.__name__
+        for node in root.trace
+    )
+
+
 def test_docket_identity_defers_when_case_filing_postdates_a_stated_decision() -> None:
     """A docket opened after the cited decision is contradictory evidence."""
     document = _document(date=None)
