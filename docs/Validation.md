@@ -18,21 +18,21 @@ from mellea_lrc.api import (
     find_docket_locators,
     find_full_reporter_locators,
     resolve_colocations,
-    validate_roots_identity,
+    full_reporter_locator_identity,
 )
 
 document = Document.from_source(Path("filing.pdf"))
 document = find_full_reporter_locators(document)
 document = find_docket_locators(document)
 document = resolve_colocations(document)
-document = asyncio.run(validate_roots_identity(document))
+document = asyncio.run(full_reporter_locator_identity(document))
 payload = document.serialize()
 document = Document.from_serialized(payload)
 ```
 
-`validate_roots_identity` preserves every citation in source order and returns the same `Document` type. It writes the lookup and candidate evidence to the root citation's `trace`, writes a selected archive result to `found`, writes its pointer to `authority_id`, and writes the terminal state to `judgements[IDENTITY]`. Docket locators and every other citation type remain untouched.
+`full_reporter_locator_identity` preserves every citation in source order and returns the same `Document` type. It writes the lookup and candidate evidence to the root citation's `trace`, writes a selected archive result to `found`, writes its pointer to `authority_id`, and writes the terminal state to `judgements[IDENTITY]`. Docket locators and every other citation type remain untouched.
 
-`mellea_lrc.api` is the sole compositional import: it exposes locator readers, the optional docket-hunting plugin, co-location, field readers, and each admitted validation stage. `Document.from_source(...)` starts a locator document from a string or a `Path`; callers with an existing preprocessing result use `Document.from_preprocessed(...)` instead. `Document.serialize()` returns a JSON-ready mapping and `Document.from_serialized(payload)` restores it. Python reserves `from`, so the constructor cannot be named `Document.from(...)`. A completed identity result is safe to pass back to `validate_roots_identity`: its explicit identity judgement prevents a second lookup. A partial root-identity trace is rejected so one logical lookup cannot be recorded twice.
+`mellea_lrc.api` is the sole compositional import: it exposes locator readers, the optional docket-hunting plugin, co-location, field readers, and each admitted validation stage. `Document.from_source(...)` starts a locator document from a string or a `Path`; callers with an existing preprocessing result use `Document.from_preprocessed(...)` instead. `Document.serialize()` returns a JSON-ready mapping and `Document.from_serialized(payload)` restores it. Python reserves `from`, so the constructor cannot be named `Document.from(...)`. A completed identity result is safe to pass back to `full_reporter_locator_identity`: its explicit identity judgement prevents a second lookup. A partial root-identity trace is rejected so one logical lookup cannot be recorded twice.
 
 ## Current route
 

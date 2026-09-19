@@ -181,11 +181,11 @@ from the environment:
 import asyncio
 
 from mellea_lrc.api import (
-    validate_roots_identity,
+    full_reporter_locator_identity,
 )
 from mellea_lrc.core.record import Question
 
-document = asyncio.run(validate_roots_identity(document))
+document = asyncio.run(full_reporter_locator_identity(document))
 payload = document.serialize()
 document = Document.from_serialized(payload)
 for citation in document.citations:

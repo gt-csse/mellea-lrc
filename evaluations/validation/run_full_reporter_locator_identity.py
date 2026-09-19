@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 
 from mellea_lrc.api import (
     Document,
-    validate_roots_identity,
+    full_reporter_locator_identity,
 )
 from mellea_lrc.courtlistener import CourtListenerClient
 from mellea_lrc.llm import llm_api_config_from_env, start_mellea_session_from_env
@@ -143,7 +143,7 @@ async def run(
             Document.from_serialized(payload)
         else:
             document = Document.from_serialized(json.loads(path.read_text(encoding="utf-8")))
-            document = await validate_roots_identity(document, client=service, session=session)
+            document = await full_reporter_locator_identity(document, client=service, session=session)
             payload = document.serialize()
             Document.from_serialized(payload)
             _atomic_json(result_path, payload)
