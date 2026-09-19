@@ -1,9 +1,11 @@
 """Run one checkpointable docket-root identity stage over serialized Documents.
 
 Each invocation reads one directory of serialized ``Document`` checkpoints and
-writes the next one.  Search, zero/one-candidate resolution, and bounded
-ambiguity resolution are separate runs, so a saved search result can be
-examined or resumed without repeating a CourtListener request.
+writes the next one.  Initial search, its two resolution paths, the one-time
+model review of a no-match docket number, the resulting relookup, and that
+relookup's two resolution paths are separate runs.  A saved checkpoint can
+therefore be examined or resumed without repeating an earlier CourtListener
+request or model call.
 """
 
 from __future__ import annotations
@@ -23,14 +25,37 @@ from dotenv import load_dotenv
 
 from mellea_lrc.api import (
     Document,
+    relookup_reviewed_docket_roots,
     resolve_docket_root_ambiguities,
+    resolve_relooked_up_docket_root_ambiguities,
+    review_unresolved_docket_root_locators,
     search_docket_roots,
     validate_unique_docket_root_identities,
+    validate_unique_relooked_up_docket_root_identities,
 )
 from mellea_lrc.courtlistener import CourtListenerClient
 from mellea_lrc.llm import llm_api_config_from_env, start_mellea_session_from_env
 
-Stage = Literal["search", "unique-identity", "ambiguity-resolution"]
+Stage = Literal[
+    "search",
+    "unique-identity",
+    "ambiguity-resolution",
+    "docket-number-review",
+    "relookup-search",
+    "relookup-unique-identity",
+    "relookup-ambiguity-resolution",
+]
+
+_SEARCH_STAGES = frozenset({"search", "relookup-search"})
+_MODEL_STAGES = frozenset(
+    {
+        "unique-identity",
+        "ambiguity-resolution",
+        "docket-number-review",
+        "relookup-unique-identity",
+        "relookup-ambiguity-resolution",
+    }
+)
 
 
 class _PacedDocketSearchClient:
@@ -89,7 +114,7 @@ async def run(
     service = _PacedDocketSearchClient(
         CourtListenerClient(), minimum_interval_seconds=minimum_search_interval_seconds
     )
-    session = start_mellea_session_from_env() if stage != "search" else None
+    session = start_mellea_session_from_env() if stage in _MODEL_STAGES else None
     outcomes: Counter[str] = Counter()
     result_paths: list[dict[str, str]] = []
     for index, path in enumerate(paths, start=1):
@@ -97,7 +122,7 @@ async def run(
         retry = False
         if resume and result_path.exists():
             payload = json.loads(result_path.read_text(encoding="utf-8"))
-            retry = retry_failed and stage == "search" and _has_failed_search(payload)
+            retry = retry_failed and stage in _SEARCH_STAGES and _has_failed_search(payload, stage=stage)
             if not retry:
                 document = Document.from_serialized(payload)
         if not resume or not result_path.exists() or retry:
@@ -126,11 +151,11 @@ async def run(
         "document_count": len(result_paths),
         "documents": result_paths,
         "outcomes": dict(sorted(outcomes.items())),
-        **({"model": llm_api_config_from_env(os.environ).model} if stage != "search" else {"model": None}),
+        **({"model": llm_api_config_from_env(os.environ).model} if stage in _MODEL_STAGES else {"model": None}),
     }
 
 
-def _has_failed_search(payload: dict[str, object]) -> bool:
+def _has_failed_search(payload: dict[str, object], *, stage: Stage) -> bool:
     """Whether a serialized search checkpoint has a retryable stage failure."""
     citations = payload.get("citations")
     if not isinstance(citations, list):
@@ -144,8 +169,9 @@ def _has_failed_search(payload: dict[str, object]) -> bool:
         trace = citation.get("trace")
         if not isinstance(trace, list):
             continue
+        expected_stage = "docket_root_search" if stage == "search" else "docket_root_relookup"
         for node in trace:
-            if not isinstance(node, dict) or node.get("stage") != "docket_root_search":
+            if not isinstance(node, dict) or node.get("stage") != expected_stage:
                 continue
             details = node.get("details")
             validation = details.get("validation") if isinstance(details, dict) else None
@@ -167,13 +193,26 @@ async def _run_stage(
         return await validate_unique_docket_root_identities(document, session=session)
     if stage == "ambiguity-resolution":
         return await resolve_docket_root_ambiguities(document, session=session)
+    if stage == "docket-number-review":
+        return await review_unresolved_docket_root_locators(document, session=session)
+    if stage == "relookup-search":
+        return await relookup_reviewed_docket_roots(document, client=service)
+    if stage == "relookup-unique-identity":
+        return await validate_unique_relooked_up_docket_root_identities(document, session=session)
+    if stage == "relookup-ambiguity-resolution":
+        return await resolve_relooked_up_docket_root_ambiguities(document, session=session)
     msg = f"Unsupported docket-root validation stage: {stage!r}"
     raise ValueError(msg)
 
 
 def _outcomes(payload: dict[str, object], *, stage: Stage) -> Counter[str]:
     """Read first-class docket-root judgements rather than inferring trace state."""
-    question = "docket_lookup" if stage == "search" else "identity"
+    if stage in _SEARCH_STAGES:
+        question = "docket_lookup"
+    elif stage == "docket-number-review":
+        question = "docket_locator_review"
+    else:
+        question = "identity"
     outcomes: Counter[str] = Counter()
     citations = payload.get("citations")
     if not isinstance(citations, list):
@@ -194,7 +233,17 @@ def _outcomes(payload: dict[str, object], *, stage: Stage) -> Counter[str]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--stage", choices=("search", "unique-identity", "ambiguity-resolution"), required=True
+        "--stage",
+        choices=(
+            "search",
+            "unique-identity",
+            "ambiguity-resolution",
+            "docket-number-review",
+            "relookup-search",
+            "relookup-unique-identity",
+            "relookup-ambiguity-resolution",
+        ),
+        required=True,
     )
     parser.add_argument("--documents", type=Path, required=True, help="Input serialized Document directory.")
     parser.add_argument("--output", type=Path, required=True, help="Output stage-artifact directory.")
@@ -204,7 +253,10 @@ def main() -> None:
     parser.add_argument(
         "--retry-failed",
         action="store_true",
-        help="With --resume and --stage search, recompute only Documents containing a failed search.",
+        help=(
+            "With --resume and a search stage, recompute only Documents containing a failed "
+            "CourtListener request."
+        ),
     )
     parser.add_argument(
         "--minimum-search-interval-seconds",

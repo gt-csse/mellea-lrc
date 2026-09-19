@@ -44,6 +44,15 @@ class DocketRootSearchOutcome(str, Enum):
     FAILED = "failed"
 
 
+class MelleaDocketNumberReviewOutcome(str, Enum):
+    """Results of one grounded model review of a docket locator's number."""
+
+    UNCHANGED = "unchanged"
+    CORRECTED = "corrected"
+    NO_DOCKET_NUMBER = "no_docket_number"
+    FAILED = "failed"
+
+
 class FieldCheckOutcome(str, Enum):
     """Deterministic comparison outcome for one citation field."""
 
@@ -493,6 +502,32 @@ class DocketNumberCheckNode:
 
 
 @dataclass(frozen=True, slots=True)
+class MelleaDocketNumberReviewNode:
+    """One source-grounded model opinion on a docket locator's identifier.
+
+    The model can only return a number found inside the locator the filing
+    wrote.  A corrected value is therefore a correction of our earlier parse,
+    never a newly invented docket.  The node keeps the full IVR repair record;
+    its terminal outcome lets later stages tell a completed review from an
+    unasked one without traversing the trace.
+    """
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: MelleaDocketNumberReviewOutcome
+    source_locator: str
+    extracted_docket_number: str | None
+    proposed_docket_number: str | None
+    grounded_docket_number: str | None
+    reason: str | None
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+    run: IvrRun | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class CourtCheckNode:
     """Exact comparison of Eyecite and CourtListener court identifiers."""
 
@@ -828,6 +863,7 @@ ValidationNode: TypeAlias = (
     | MelleaReextractedCaseNameCheckNode
     | DocketCourtRetrievalNode
     | DocketNumberCheckNode
+    | MelleaDocketNumberReviewNode
     | ReporterPageRetrievalNode
     | MelleaCitingPropositionExtractionNode
     | MelleaPinpointCheckNode

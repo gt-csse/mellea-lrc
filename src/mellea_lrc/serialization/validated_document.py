@@ -57,6 +57,8 @@ from mellea_lrc.validation.types import (
     MelleaCaseNameReextractionOutcome,
     MelleaCitingPropositionExtractionNode,
     MelleaCitingPropositionExtractionOutcome,
+    MelleaDocketNumberReviewNode,
+    MelleaDocketNumberReviewOutcome,
     MelleaLocatorCandidateChoiceNode,
     MelleaLocatorCandidateChoiceOutcome,
     MelleaPinpointCheckNode,
@@ -89,6 +91,7 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
     for node_type in (
         ExactLocatorLookupNode,
         DocketRootSearchNode,
+        MelleaDocketNumberReviewNode,
         ExactCaseNameCheckNode,
         MelleaCaseNameCheckNode,
         MelleaCaseNameReextractionNode,
@@ -118,6 +121,7 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
 _OUTCOME_TYPES = {
     ExactLocatorLookupNode: LocatorLookupOutcome,
     DocketRootSearchNode: DocketRootSearchOutcome,
+    MelleaDocketNumberReviewNode: MelleaDocketNumberReviewOutcome,
     ExactCaseNameCheckNode: FieldCheckOutcome,
     MelleaCaseNameCheckNode: MelleaCaseNameCheckOutcome,
     MelleaCaseNameReextractionNode: MelleaCaseNameReextractionOutcome,
@@ -148,6 +152,7 @@ _IVR_NODE_TYPES = frozenset(
         MelleaCaseNameCheckNode,
         MelleaCaseNameReextractionNode,
         MelleaCaseNameQueryPreparationNode,
+        MelleaDocketNumberReviewNode,
         MelleaReextractedCaseNameCheckNode,
         MelleaLocatorCandidateChoiceNode,
     }

@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 
+import pytest
+
+import mellea_lrc.validation.docket_roots as docket_roots
 from mellea_lrc.api import (
     form_roots,
+    relookup_reviewed_docket_roots,
     resolve_docket_root_ambiguities,
+    resolve_relooked_up_docket_root_ambiguities,
+    review_unresolved_docket_root_locators,
     search_docket_roots,
     validate_unique_docket_root_identities,
+    validate_unique_relooked_up_docket_root_identities,
 )
 from mellea_lrc.core.citations import CitationDate, DocketCitation, placed
 from mellea_lrc.core.record import CitationRecord, Question
@@ -16,6 +24,11 @@ from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import CourtListenerSearchResult
 from mellea_lrc.extraction import Document, ExtractionMetadata
 from mellea_lrc.preprocessing import preprocess
+from mellea_lrc.validation.types import (
+    MelleaDocketNumberReviewNode,
+    MelleaDocketNumberReviewOutcome,
+    ValidationNodeStatus,
+)
 
 
 class _DocketSearchClient:
@@ -32,6 +45,24 @@ class _DocketSearchClient:
             semantic=semantic,
             count=self.count,
             results=self.results,
+            next_cursor=None,
+            previous_cursor=None,
+        )
+
+
+class _CorrectedDocketSearchClient(_DocketSearchClient):
+    """Returns a result only after the model has corrected the parsed number."""
+
+    def search(self, query: str, search_type: str, cursor: str | None = None, *, semantic: bool = False):
+        self.calls.append((query, search_type, cursor))
+        corrected = "1:24-cv-08760"
+        results = [_candidate(docket=corrected)] if corrected in query else []
+        return CourtListenerSearchResult.from_payload(
+            query=query,
+            search_type=search_type,
+            semantic=semantic,
+            count=len(results),
+            results=results,
             next_cursor=None,
             previous_cursor=None,
         )
@@ -170,3 +201,54 @@ def test_docket_search_does_not_page_an_out_of_bounds_result_set() -> None:
     assert search.details["validation"]["candidate_count"] == 21
     assert len(search.details["validation"]["candidates"]) == 1
     assert client.calls == [("1:24-cv-08760 court_id:nysd", "d", None)]
+
+
+def test_failed_docket_lookup_is_reviewed_once_then_corrected_and_requeued(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document = _document()
+    malformed = replace(document.citations[0].stated, docket_number="1:24-cv-0876O")
+    document.citations[0].stated = malformed
+    client = _CorrectedDocketSearchClient(count=0, results=[])
+    review_calls = 0
+
+    async def corrected_review(record, **kwargs):
+        nonlocal review_calls
+        review_calls += 1
+        return MelleaDocketNumberReviewNode(
+            node_id=f"{record.citation_id}:mellea_docket_number_review",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaDocketNumberReviewOutcome.CORRECTED,
+            source_locator="1:24-cv-08760",
+            extracted_docket_number="1:24-cv-0876O",
+            proposed_docket_number="1:24-cv-08760",
+            grounded_docket_number="1:24-cv-08760",
+            reason="The source locator ends in zero, not capital O.",
+            depends_on=("cite-0001:locator_identity_resolution",),
+        )
+
+    monkeypatch.setattr(docket_roots, "run_mellea_docket_number_review", corrected_review)
+    searched = asyncio.run(search_docket_roots(form_roots(document), client=client))
+    initial = asyncio.run(validate_unique_docket_root_identities(searched))
+    initial = asyncio.run(resolve_docket_root_ambiguities(initial))
+    reviewed = asyncio.run(review_unresolved_docket_root_locators(initial))
+    relooked_up = asyncio.run(relookup_reviewed_docket_roots(reviewed, client=client))
+    resolved = asyncio.run(validate_unique_relooked_up_docket_root_identities(relooked_up))
+    resolved = asyncio.run(resolve_relooked_up_docket_root_ambiguities(resolved))
+    root = Document.from_serialized(resolved.serialize()).citations[0]
+
+    assert client.calls == [
+        ("1:24-cv-0876O court_id:nysd", "d", None),
+        ("1:24-cv-08760 court_id:nysd", "d", None),
+    ]
+    assert root.stated.docket_number == "1:24-cv-08760"
+    assert root.stated_fields_reparsed_by_model is True
+    assert root.docket_number_reviewed_by_model is True
+    assert root.judgement(Question.DOCKET_LOCATOR_REVIEW).outcome == "corrected"
+    assert root.judgement(Question.IDENTITY).outcome == "resolved"
+    assert root.authority_id == "courtlistener:docket:44"
+    assert len(root.corrections) == 1
+
+    rerun = asyncio.run(review_unresolved_docket_root_locators(resolved))
+    assert rerun == resolved
+    assert review_calls == 1

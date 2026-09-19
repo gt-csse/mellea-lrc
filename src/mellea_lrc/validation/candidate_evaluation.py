@@ -51,6 +51,7 @@ def run_docket_search_candidate_evaluation(
     result: Mapping[str, object],
     candidate_index: int,
     depends_on: tuple[str, ...],
+    node_prefix: str | None = None,
 ) -> CandidateEvaluationNode:
     """Materialize one CourtListener docket-search candidate for field checks."""
     return _search_candidate_evaluation(
@@ -59,6 +60,7 @@ def run_docket_search_candidate_evaluation(
         candidate_index=candidate_index,
         depends_on=depends_on,
         source=CandidateEvaluationSource.DOCKET_SEARCH,
+        node_prefix=node_prefix,
     )
 
 
@@ -103,11 +105,16 @@ def _search_candidate_evaluation(
     candidate_index: int,
     depends_on: tuple[str, ...],
     source: CandidateEvaluationSource,
+    node_prefix: str | None = None,
 ) -> CandidateEvaluationNode:
     """Materialize one result from a CourtListener search endpoint."""
     source_label = source.value.replace("_", " ").capitalize()
     return CandidateEvaluationNode(
-        node_id=f"{validation.citation_id}:{source.value}_candidate_evaluation:{candidate_index}",
+        node_id=(
+            f"{node_prefix}:{source.value}_candidate_evaluation:{candidate_index}"
+            if node_prefix is not None
+            else f"{validation.citation_id}:{source.value}_candidate_evaluation:{candidate_index}"
+        ),
         status=ValidationNodeStatus.SUCCEEDED,
         outcome=CandidateEvaluationOutcome.READY,
         source=source,

@@ -129,4 +129,11 @@ def _maximum_edits(proposed: str, candidate: str, fuzziness: FuzzinessOption) ->
 
 
 def _normalize_whitespace(value: str) -> str:
-    return _WHITESPACE.sub(" ", value).strip()
+    """Erase layout-only whitespace for the project's relaxed-string policy.
+
+    ``fuzzy_literal(..., whitespace_relaxation())`` accepts zero or more
+    whitespace characters at token joins. Grounding must mean the same thing:
+    ``1: 24-cv`` and ``1:24-cv`` differ only in layout, while changing a
+    punctuation mark or digit remains a substantive mismatch.
+    """
+    return _WHITESPACE.sub("", value)

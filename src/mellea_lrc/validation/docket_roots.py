@@ -31,6 +31,9 @@ from mellea_lrc.validation.candidate_evaluation import run_docket_search_candida
 from mellea_lrc.validation.field_checks.court_check import run_court_check
 from mellea_lrc.validation.field_checks.docket_number_check import run_docket_number_check
 from mellea_lrc.validation.field_checks.exact_case_name_check import run_exact_case_name_check
+from mellea_lrc.validation.field_checks.mellea_docket_number_review import (
+    run_mellea_docket_number_review,
+)
 from mellea_lrc.validation.field_checks.year_check import run_year_check
 from mellea_lrc.validation.root_context import masked_root_context
 from mellea_lrc.validation.types import (
@@ -50,6 +53,8 @@ from mellea_lrc.validation.types import (
     LocatorCitationSummaryOutcome,
     LocatorIdentityResolutionNode,
     LocatorIdentityResolutionOutcome,
+    MelleaDocketNumberReviewNode,
+    MelleaDocketNumberReviewOutcome,
     ValidationNode,
     ValidationNodeStatus,
 )
@@ -67,6 +72,10 @@ if TYPE_CHECKING:
 DOCKET_ROOT_SEARCH_STAGE = "docket_root_search"
 DOCKET_ROOT_UNIQUE_IDENTITY_STAGE = "docket_root_unique_identity"
 DOCKET_ROOT_AMBIGUITY_RESOLUTION_STAGE = "docket_root_ambiguity_resolution"
+DOCKET_ROOT_LOCATOR_REVIEW_STAGE = "docket_root_locator_review"
+DOCKET_ROOT_RELOOKUP_STAGE = "docket_root_relookup"
+DOCKET_ROOT_RELOOKUP_UNIQUE_IDENTITY_STAGE = "docket_root_relookup_unique_identity"
+DOCKET_ROOT_RELOOKUP_AMBIGUITY_RESOLUTION_STAGE = "docket_root_relookup_ambiguity_resolution"
 MAX_DOCKET_CANDIDATE_REVIEW = 20
 _MADE_BY = "mellea_lrc.validation.docket_roots"
 
@@ -202,9 +211,221 @@ async def resolve_docket_root_ambiguities(
     return replace(document, passes=(*document.passes, DOCKET_ROOT_AMBIGUITY_RESOLUTION_STAGE))
 
 
+async def review_unresolved_docket_root_locators(
+    document: Document,
+    *,
+    session: MelleaSession | None = None,
+) -> Document:
+    """Ask once whether a no-match docket root was parsed with the right number.
+
+    This is deliberately after the initial bounded docket route: a model is not
+    asked merely because a candidate list is ambiguous or too large.  It reads
+    only a root whose initial route reached ``no_match``.  Its own first-class
+    judgement records every terminal review state, including a failed model
+    run, so an unchanged document can never loop back into this model call.
+    """
+    _require_stage(document, DOCKET_ROOT_AMBIGUITY_RESOLUTION_STAGE, "Docket-root locator review")
+    if DOCKET_ROOT_LOCATOR_REVIEW_STAGE in document.passes:
+        return document
+    _reject_partial_stage(document, DOCKET_ROOT_LOCATOR_REVIEW_STAGE)
+
+    for record in _docket_roots(document):
+        if record.judgement(Question.IDENTITY).outcome != LocatorIdentityResolutionOutcome.NO_MATCH.value:
+            continue
+        if record.docket_number_reviewed_by_model:
+            continue
+        trigger_node_id = record.judgement(Question.IDENTITY).node_id
+        if trigger_node_id is None:
+            msg = f"No-match docket root {record.citation_id!r} has no identity decision node"
+            raise ValueError(msg)
+        review = await run_mellea_docket_number_review(
+            record,
+            document=document,
+            trigger_node_id=trigger_node_id,
+            session=session,
+        )
+        trace_node = _trace_node(
+            review,
+            stage=DOCKET_ROOT_LOCATOR_REVIEW_STAGE,
+            reads=Reads.DOCUMENT,
+        )
+        if review.status is ValidationNodeStatus.SUCCEEDED:
+            record.mark_stated_fields_reparsed_by_model()
+        if review.outcome is MelleaDocketNumberReviewOutcome.CORRECTED:
+            if review.grounded_docket_number is None:
+                msg = "A corrected docket review requires a grounded source docket number"
+                raise ValueError(msg)
+            record.correct(
+                trace_node,
+                "docket_number",
+                review.grounded_docket_number,
+                reason=review.reason or review.outcome_message or "Model re-read the source docket locator.",
+            )
+        else:
+            record.observe(trace_node)
+        record.judge(
+            trace_node,
+            Question.DOCKET_LOCATOR_REVIEW,
+            review.outcome.value,
+            message=review.outcome_message or review.reason,
+        )
+    return replace(document, passes=(*document.passes, DOCKET_ROOT_LOCATOR_REVIEW_STAGE))
+
+
+async def relookup_reviewed_docket_roots(
+    document: Document,
+    *,
+    client: CourtListenerServiceClient | None = None,
+) -> Document:
+    """Re-enqueue only source-grounded docket corrections for one fresh search.
+
+    The review stage never mutates a CourtListener finding.  A correction
+    instead creates a second, explicitly dependent search node and changes the
+    live identity judgement to ``deferred_to_search`` until its own unique or
+    ambiguity stage decides it.  The original no-match node remains in trace.
+    """
+    _require_stage(document, DOCKET_ROOT_LOCATOR_REVIEW_STAGE, "Reviewed docket-root relookup")
+    if DOCKET_ROOT_RELOOKUP_STAGE in document.passes:
+        return document
+    _reject_partial_stage(document, DOCKET_ROOT_RELOOKUP_STAGE)
+
+    service = client if client is not None else CourtListenerClient()
+    for record in _docket_roots(document):
+        review = _saved_docket_number_review(record)
+        if review is None or review.outcome is not MelleaDocketNumberReviewOutcome.CORRECTED:
+            continue
+        search = _run_docket_root_search(
+            record,
+            service,
+            node_id=f"{record.citation_id}:docket_root_relookup",
+            depends_on=(review.node_id,),
+        )
+        trace_node = _trace_node(search, stage=DOCKET_ROOT_RELOOKUP_STAGE)
+        record.observe(trace_node)
+        record.judge(
+            trace_node,
+            Question.DOCKET_LOOKUP,
+            _docket_lookup_outcome(search.outcome),
+            message=search.outcome_message,
+        )
+        record.judge(
+            trace_node,
+            Question.IDENTITY,
+            LocatorIdentityResolutionOutcome.DEFERRED_TO_SEARCH.value,
+            message="The model-corrected docket number was queued for a fresh CourtListener search.",
+        )
+    return replace(document, passes=(*document.passes, DOCKET_ROOT_RELOOKUP_STAGE))
+
+
+async def validate_unique_relooked_up_docket_root_identities(
+    document: Document,
+    *,
+    session: MelleaSession | None = None,
+) -> Document:
+    """Resolve saved zero- or one-candidate searches after one docket correction."""
+    _require_stage(document, DOCKET_ROOT_RELOOKUP_STAGE, "Re-looked-up docket-root unique identity")
+    if DOCKET_ROOT_RELOOKUP_UNIQUE_IDENTITY_STAGE in document.passes:
+        return document
+    _reject_partial_stage(document, DOCKET_ROOT_RELOOKUP_UNIQUE_IDENTITY_STAGE)
+
+    for record in _docket_roots(document):
+        if (
+            record.judgement(Question.IDENTITY).outcome
+            != LocatorIdentityResolutionOutcome.DEFERRED_TO_SEARCH.value
+        ):
+            continue
+        search = _saved_docket_root_search(record, stage=DOCKET_ROOT_RELOOKUP_STAGE)
+        if search.outcome is DocketRootSearchOutcome.NOT_FOUND:
+            validation = CitationValidation(citation=record, nodes=(search,))
+            progression = validation.append(
+                _no_match_resolution(
+                    validation,
+                    depends_on=(search.node_id,),
+                    reason="CourtListener returned no candidate for the model-corrected docket number.",
+                    scope=search.node_id,
+                )
+            )
+        elif search.outcome is DocketRootSearchOutcome.FOUND:
+            progression = await _review_docket_candidates(
+                record,
+                search=search,
+                document=document,
+                session=session,
+            )
+        else:
+            continue
+        _write_identity_progression(record, progression, stage=DOCKET_ROOT_RELOOKUP_UNIQUE_IDENTITY_STAGE)
+    return replace(document, passes=(*document.passes, DOCKET_ROOT_RELOOKUP_UNIQUE_IDENTITY_STAGE))
+
+
+async def resolve_relooked_up_docket_root_ambiguities(
+    document: Document,
+    *,
+    session: MelleaSession | None = None,
+) -> Document:
+    """Finish bounded candidate review for one model-corrected docket relookup."""
+    _require_stage(
+        document,
+        DOCKET_ROOT_RELOOKUP_UNIQUE_IDENTITY_STAGE,
+        "Re-looked-up docket-root ambiguity resolution",
+    )
+    if DOCKET_ROOT_RELOOKUP_AMBIGUITY_RESOLUTION_STAGE in document.passes:
+        return document
+    _reject_partial_stage(document, DOCKET_ROOT_RELOOKUP_AMBIGUITY_RESOLUTION_STAGE)
+
+    for record in _docket_roots(document):
+        if (
+            record.judgement(Question.IDENTITY).outcome
+            != LocatorIdentityResolutionOutcome.DEFERRED_TO_SEARCH.value
+        ):
+            continue
+        search = _saved_docket_root_search(record, stage=DOCKET_ROOT_RELOOKUP_STAGE)
+        if search.outcome is DocketRootSearchOutcome.AMBIGUOUS:
+            progression = await _review_docket_candidates(
+                record,
+                search=search,
+                document=document,
+                session=session,
+            )
+        elif search.outcome is DocketRootSearchOutcome.EXCEEDS_REVIEW_LIMIT:
+            validation = CitationValidation(citation=record, nodes=(search,))
+            progression = validation.append(
+                _deferred_resolution(
+                    validation,
+                    depends_on=(search.node_id,),
+                    reason=(
+                        f"Re-looked-up docket search returned {search.candidate_count} candidates; "
+                        f"the review limit is {MAX_DOCKET_CANDIDATE_REVIEW}."
+                    ),
+                    scope=search.node_id,
+                )
+            )
+        elif search.outcome is DocketRootSearchOutcome.FAILED:
+            validation = CitationValidation(citation=record, nodes=(search,))
+            progression = validation.append(
+                _deferred_resolution(
+                    validation,
+                    depends_on=(search.node_id,),
+                    reason="Re-looked-up docket search failed; no identity decision was admitted.",
+                    scope=search.node_id,
+                )
+            )
+        else:
+            continue
+        _write_identity_progression(
+            record,
+            progression,
+            stage=DOCKET_ROOT_RELOOKUP_AMBIGUITY_RESOLUTION_STAGE,
+        )
+    return replace(document, passes=(*document.passes, DOCKET_ROOT_RELOOKUP_AMBIGUITY_RESOLUTION_STAGE))
+
+
 def _run_docket_root_search(
     record: CitationRecord,
     client: CourtListenerServiceClient,
+    *,
+    node_id: str | None = None,
+    depends_on: tuple[str, ...] = (),
 ) -> DocketRootSearchNode:
     citation = record.stated
     if not isinstance(citation, DocketCitation) or not citation.docket_number:
@@ -214,6 +435,8 @@ def _run_docket_root_search(
             outcome=DocketRootSearchOutcome.FAILED,
             docket_number=citation.docket_number if isinstance(citation, DocketCitation) else None,
             query=None,
+            node_id=node_id,
+            depends_on=depends_on,
             status_message="Docket-root search could not run.",
             outcome_message="The root has no stated docket number.",
             error="Docket root lacks a docket number",
@@ -233,6 +456,8 @@ def _run_docket_root_search(
                 outcome=outcome,
                 docket_number=citation.docket_number,
                 query=query,
+                node_id=node_id,
+                depends_on=depends_on,
                 candidate_count=result.count,
                 candidates=tuple(result.results),
                 next_cursor=result.next_cursor,
@@ -247,6 +472,8 @@ def _run_docket_root_search(
                 outcome=DocketRootSearchOutcome.FAILED,
                 docket_number=citation.docket_number,
                 query=query,
+                node_id=node_id,
+                depends_on=depends_on,
                 candidate_count=result.count,
                 candidates=candidates,
                 next_cursor=next_cursor,
@@ -260,6 +487,8 @@ def _run_docket_root_search(
             outcome=outcome,
             docket_number=citation.docket_number,
             query=query,
+            node_id=node_id,
+            depends_on=depends_on,
             candidate_count=result.count,
             candidates=candidates,
             next_cursor=next_cursor,
@@ -273,6 +502,8 @@ def _run_docket_root_search(
             outcome=DocketRootSearchOutcome.FAILED,
             docket_number=citation.docket_number,
             query=query,
+            node_id=node_id,
+            depends_on=depends_on,
             status_message="CourtListener docket search failed.",
             outcome_message="No docket candidates were available for identity review.",
             error=f"{type(exc).__name__}: {exc}",
@@ -340,6 +571,8 @@ def _search_node(
     outcome: DocketRootSearchOutcome,
     docket_number: str | None,
     query: str | None,
+    node_id: str | None = None,
+    depends_on: tuple[str, ...] = (),
     candidate_count: int = 0,
     candidates: tuple[Mapping[str, object], ...] = (),
     next_cursor: str | None = None,
@@ -348,7 +581,7 @@ def _search_node(
     error: str | None = None,
 ) -> DocketRootSearchNode:
     return DocketRootSearchNode(
-        node_id=f"{record.citation_id}:docket_root_search",
+        node_id=node_id or f"{record.citation_id}:docket_root_search",
         status=status,
         outcome=outcome,
         docket_number=docket_number,
@@ -356,6 +589,7 @@ def _search_node(
         candidate_count=candidate_count,
         candidates=candidates,
         next_cursor=next_cursor,
+        depends_on=depends_on,
         status_message=status_message,
         outcome_message=outcome_message,
         error=error,
@@ -371,12 +605,14 @@ async def _review_docket_candidates(
 ) -> CitationValidation:
     """Assess every stored candidate, then use deterministic or bounded model choice."""
     validation = CitationValidation(citation=record, nodes=(search,))
+    scope = search.node_id
     for index, result in enumerate(search.candidates, start=1):
         candidate = run_docket_search_candidate_evaluation(
             validation,
             result=result,
             candidate_index=index,
             depends_on=(search.node_id,),
+            node_prefix=scope,
         )
         validation = validation.append(candidate)
         docket = run_docket_number_check(validation, candidate=candidate)
@@ -395,7 +631,7 @@ async def _review_docket_candidates(
             )
         )
 
-    summary = _docket_citation_summary(validation)
+    summary = _docket_citation_summary(validation, scope=scope)
     validation = validation.append(summary)
     eligible = _docket_number_matches(validation)
     if not eligible:
@@ -407,6 +643,7 @@ async def _review_docket_candidates(
                 validation,
                 depends_on=(summary.node_id,),
                 reason="No retrieved candidate reproduced the stated docket number.",
+                scope=scope,
             )
         )
     if requires_mellea_locator_candidate_choice(summary):
@@ -423,7 +660,7 @@ async def _review_docket_candidates(
         resolution = run_locator_identity_resolution(validation, summary=summary, choice=choice)
     else:
         resolution = run_locator_identity_resolution(validation, summary=summary)
-    return validation.append(resolution)
+    return validation.append(replace(resolution, node_id=f"{scope}:identity_resolution"))
 
 
 def _docket_number_matches(validation: CitationValidation) -> tuple[int, ...]:
@@ -500,7 +737,11 @@ def _docket_candidate_assessment(
     )
 
 
-def _docket_citation_summary(validation: CitationValidation) -> LocatorCitationSummaryNode:
+def _docket_citation_summary(
+    validation: CitationValidation,
+    *,
+    scope: str,
+) -> LocatorCitationSummaryNode:
     assessments = tuple(node for node in validation.nodes if isinstance(node, LocatorCandidateAssessmentNode))
     if not assessments:
         msg = "Docket candidate summary requires at least one candidate assessment"
@@ -510,7 +751,7 @@ def _docket_citation_summary(validation: CitationValidation) -> LocatorCitationS
         for assessment in assessments
     )
     return LocatorCitationSummaryNode(
-        node_id=f"{validation.citation_id}:docket_citation_summary",
+        node_id=f"{scope}:docket_citation_summary",
         status=ValidationNodeStatus.SUCCEEDED,
         outcome=LocatorCitationSummaryOutcome.COMPLETE,
         overall_outcome=overall_locator_citation_outcome(candidate.outcome for candidate in candidates),
@@ -527,9 +768,10 @@ def _no_match_resolution(
     *,
     depends_on: tuple[str, ...],
     reason: str,
+    scope: str | None = None,
 ) -> LocatorIdentityResolutionNode:
     return LocatorIdentityResolutionNode(
-        node_id=f"{validation.citation_id}:locator_identity_resolution",
+        node_id=f"{scope or validation.citation_id}:locator_identity_resolution",
         status=ValidationNodeStatus.SUCCEEDED,
         outcome=LocatorIdentityResolutionOutcome.NO_MATCH,
         selected_candidate_index=None,
@@ -547,9 +789,10 @@ def _deferred_resolution(
     *,
     depends_on: tuple[str, ...],
     reason: str,
+    scope: str | None = None,
 ) -> LocatorIdentityResolutionNode:
     return LocatorIdentityResolutionNode(
-        node_id=f"{validation.citation_id}:locator_identity_resolution",
+        node_id=f"{scope or validation.citation_id}:locator_identity_resolution",
         status=ValidationNodeStatus.SUCCEEDED,
         outcome=LocatorIdentityResolutionOutcome.DEFERRED_TO_FUTURE_IMPLEMENTATION,
         selected_candidate_index=None,
@@ -622,15 +865,21 @@ def _selected_docket_candidate(
     return candidate
 
 
-def _saved_docket_root_search(record: CitationRecord) -> DocketRootSearchNode:
+def _saved_docket_root_search(
+    record: CitationRecord,
+    *,
+    stage: str = DOCKET_ROOT_SEARCH_STAGE,
+) -> DocketRootSearchNode:
     matches = [
         node
         for node in record.trace
-        if node.stage == DOCKET_ROOT_SEARCH_STAGE
-        and node.details.get("validation_node_type") == DocketRootSearchNode.__name__
+        if node.stage == stage and node.details.get("validation_node_type") == DocketRootSearchNode.__name__
     ]
     if len(matches) != 1:
-        msg = f"Expected exactly one saved docket search for {record.citation_id!r}, found {len(matches)}"
+        msg = (
+            f"Expected exactly one saved docket search for {record.citation_id!r} in {stage!r}, "
+            f"found {len(matches)}"
+        )
         raise ValueError(msg)
     raw = matches[0].details.get("validation")
     if not isinstance(raw, dict):
@@ -639,6 +888,30 @@ def _saved_docket_root_search(record: CitationRecord) -> DocketRootSearchNode:
     node = deserialize_validation_node({"node_type": DocketRootSearchNode.__name__, **raw})
     if not isinstance(node, DocketRootSearchNode):
         msg = f"Saved docket search for {record.citation_id!r} decoded as {type(node).__name__}"
+        raise ValueError(msg)
+    return node
+
+
+def _saved_docket_number_review(record: CitationRecord) -> MelleaDocketNumberReviewNode | None:
+    """Return the one persisted docket-number review, if this root needed one."""
+    matches = [
+        node
+        for node in record.trace
+        if node.stage == DOCKET_ROOT_LOCATOR_REVIEW_STAGE
+        and node.details.get("validation_node_type") == MelleaDocketNumberReviewNode.__name__
+    ]
+    if not matches:
+        return None
+    if len(matches) != 1:
+        msg = f"Expected at most one docket-number review for {record.citation_id!r}, found {len(matches)}"
+        raise ValueError(msg)
+    raw = matches[0].details.get("validation")
+    if not isinstance(raw, dict):
+        msg = f"Saved docket-number review for {record.citation_id!r} has no validation payload"
+        raise ValueError(msg)
+    node = deserialize_validation_node({"node_type": MelleaDocketNumberReviewNode.__name__, **raw})
+    if not isinstance(node, MelleaDocketNumberReviewNode):
+        msg = f"Saved docket-number review for {record.citation_id!r} decoded as {type(node).__name__}"
         raise ValueError(msg)
     return node
 
@@ -673,11 +946,16 @@ def _reject_partial_stage(document: Document, stage: str) -> None:
         raise ValueError(msg)
 
 
-def _trace_node(node: ValidationNode, *, stage: str) -> Node:
+def _trace_node(
+    node: ValidationNode,
+    *,
+    stage: str,
+    reads: Reads = Reads.RECORD,
+) -> Node:
     payload = serialize_dataclass(node)
     return Node(
         node_id=node.node_id,
-        reads=Reads.RECORD,
+        reads=reads,
         stage=stage,
         made_by=_MADE_BY,
         outcome=str(payload["outcome"]),
