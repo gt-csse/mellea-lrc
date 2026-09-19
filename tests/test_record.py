@@ -111,3 +111,11 @@ def test_a_root_is_what_extraction_read_and_an_authority_is_what_a_lookup_found(
     record.authority_id = "c9"
     assert record.authority == "c9"
     assert record.root_id == "c1"
+
+
+def test_model_reparse_provenance_is_a_direct_citation_field() -> None:
+    record = _record()
+
+    record.mark_stated_fields_reparsed_by_model()
+
+    assert record.stated_fields_reparsed_by_model

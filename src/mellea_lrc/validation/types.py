@@ -128,10 +128,10 @@ class EvidenceQuoteMatchMethod(str, Enum):
 
 
 class CandidateSelectionOutcome(str, Enum):
-    """Results of applying the bounded candidate-validation guard."""
+    """Fact recorded by the bounded candidate-review guard."""
 
     ALL_SELECTED = "all_selected"
-    DEFERRED_OVER_LIMIT = "deferred_over_limit"
+    EXCEEDS_REVIEW_LIMIT = "exceeds_review_limit"
 
 
 class CandidateEvaluationOutcome(str, Enum):
@@ -180,11 +180,16 @@ class MelleaLocatorCandidateChoiceOutcome(str, Enum):
 
 
 class LocatorIdentityResolutionOutcome(str, Enum):
-    """Whether the current identity checkpoint selected one locator candidate."""
+    """Whether the reporter-locator checkpoint selected one candidate.
+
+    Deferred outcomes name the next admissible route. They are neither a
+    negative identity decision nor an execution failure.
+    """
 
     RESOLVED = "resolved"
     NO_MATCH = "no_match"
-    DEFERRED = "deferred"
+    DEFERRED_TO_SEARCH = "deferred_to_search"
+    DEFERRED_TO_FUTURE_IMPLEMENTATION = "deferred_to_future_implementation"
 
 
 class SearchCandidateAssessmentOutcome(str, Enum):

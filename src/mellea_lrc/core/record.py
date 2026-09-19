@@ -304,6 +304,15 @@ class CitationRecord:
     against what the pipeline now says it wrote.
     """
 
+    stated_fields_reparsed_by_model: bool = False
+    """Whether a grounded model has re-read this citation's stated identity fields.
+
+    This is provenance, not a correction: ``True`` says a model completed a
+    local reparse of the filing's case-name, court, or date fields. The
+    serialized validation checkpoint retains the exact model node; this field
+    makes the fact directly available to later stages without trace traversal.
+    """
+
     judgements: dict[Question, Judgement] = field(default_factory=unjudged)
     """What the pipeline concludes about this citation, one answer per question.
 
@@ -410,6 +419,10 @@ class CitationRecord:
         if node.node_id not in {seen.node_id for seen in self.trace}:
             self.trace = (*self.trace, node)
         return node
+
+    def mark_stated_fields_reparsed_by_model(self) -> None:
+        """Record an admitted model reparse of stated identity fields."""
+        self.stated_fields_reparsed_by_model = True
 
     def correct(self, node: Node, field_name: str, value: Any, *, reason: str) -> Node:
         """Change one field of `stated`, on the evidence of `node`.

@@ -202,6 +202,11 @@ def _deserialize_citation(payload: Mapping[str, object]) -> CitationRecord:
         authority_id=_optional_string(payload.get("authority_id"), name="citation.authority_id"),
         found=_read_resolution(payload.get("found"), name="citation.found"),
         corrections=_read_corrections(payload.get("corrections")),
+        stated_fields_reparsed_by_model=_optional_bool(
+            payload.get("stated_fields_reparsed_by_model"),
+            name="citation.stated_fields_reparsed_by_model",
+        )
+        or False,
         judgements=_read_judgements(payload.get("judgements")),
         withdrawn_by=_optional_string(payload.get("withdrawn_by"), name="citation.withdrawn_by"),
         trace=_read_trace(payload.get("trace")),
@@ -219,6 +224,7 @@ def _serialize_record(record: CitationRecord) -> dict[str, object]:
         "colocation_id": record.colocation_id,
         **({"authority_id": record.authority_id} if record.authority_id else {}),
         **({"found": _serialize_resolution(record.found)} if record.found is not None else {}),
+        **({"stated_fields_reparsed_by_model": True} if record.stated_fields_reparsed_by_model else {}),
         # What the pipeline currently says, each naming the node that said it.
         # Written flat rather than inside the trace: the trace is a graph, and
         # a reader after the current state should never have to walk one.
@@ -608,6 +614,15 @@ def _optional_string(value: object, *, name: str) -> str | None:
     if value is None:
         return None
     return _required_string(value, name=name)
+
+
+def _optional_bool(value: object, *, name: str) -> bool | None:
+    if value is None:
+        return None
+    if not isinstance(value, bool):
+        msg = f"{name} must be a boolean"
+        raise ValueError(msg)
+    return value
 
 
 def _required_integer(value: object, *, name: str) -> int:

@@ -169,9 +169,13 @@ from the environment:
 ```python
 import asyncio
 
-from mellea_lrc.validation import validate_document
+from mellea_lrc.validation import (
+    initialize_full_reporter_locator_identity,
+    run_full_reporter_locator_identity,
+)
 
-validated = asyncio.run(validate_document(document))
+checkpoint = initialize_full_reporter_locator_identity(document)
+validated = asyncio.run(run_full_reporter_locator_identity(checkpoint))
 for entry in validated.citations:
     print(entry.citation_id, entry.aggregation)
 ```

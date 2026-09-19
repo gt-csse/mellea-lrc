@@ -28,7 +28,10 @@ from mellea_lrc.serialization import (
     deserialize_validated_document,
     serialize_validated_document,
 )
-from mellea_lrc.validation import validate_document_identity
+from mellea_lrc.validation import (
+    initialize_full_reporter_locator_identity,
+    run_full_reporter_locator_identity,
+)
 
 
 def _atomic_json(path: Path, value: object) -> None:
@@ -69,7 +72,7 @@ def _summary(payload: dict[str, Any]) -> Counter[str]:
         elif lookup is not None:
             outcomes[f"lookup:{lookup['outcome']}"] += 1
         else:
-            outcomes["missing_identity_result"] += 1
+            outcomes["outside_full_reporter_locator_scope"] += 1
     return outcomes
 
 
@@ -130,7 +133,8 @@ async def run(
             deserialize_validated_document(payload)
         else:
             document = deserialize_document(json.loads(path.read_text(encoding="utf-8")))
-            validated = await validate_document_identity(document, client=service, session=session)
+            checkpoint = initialize_full_reporter_locator_identity(document)
+            validated = await run_full_reporter_locator_identity(checkpoint, client=service, session=session)
             payload = serialize_validated_document(validated)
             deserialize_validated_document(payload)
             _atomic_json(result_path, payload)
@@ -140,21 +144,21 @@ async def run(
             {
                 "checkpoint": path.name,
                 "checkpoint_sha256": _sha256(path),
-                "identity_result": str(result_path.relative_to(output)),
+                "full_reporter_locator_identity_result": str(result_path.relative_to(output)),
             }
         )
         print(f"{index}/{len(paths)} {path.stem}: {len(payload['citations'])} locators")
 
     config = llm_api_config_from_env(os.environ)
     return {
-        "artifact_type": "checkpoint_identity_evaluation",
+        "artifact_type": "full_reporter_locator_identity_evaluation",
         "schema_version": 1,
         "created_at": datetime.now(UTC).isoformat(),
         "input_checkpoint_dir": str(checkpoints),
-        "input_stage": "case_names",
+        "input_stage": "locator_checkpoint",
         "documents": result_paths,
         "document_count": len(result_paths),
-        "identity_scope": (
+        "full_reporter_locator_identity_scope": (
             "full reporter exact lookup, bounded candidate field checks, and "
             "deterministic or grounded model candidate choice"
         ),
@@ -171,7 +175,9 @@ def main() -> None:
     parser.add_argument(
         "--checkpoints", type=Path, required=True, help="Directory of case-name checkpoint documents."
     )
-    parser.add_argument("--output", type=Path, required=True, help="Directory for identity-only artifacts.")
+    parser.add_argument(
+        "--output", type=Path, required=True, help="Directory for full-reporter-locator identity artifacts."
+    )
     parser.add_argument("--limit", type=int, default=5, help="Deterministic sorted filing count to run.")
     parser.add_argument(
         "--resume", action="store_true", help="Reuse validated documents already in --output."

@@ -90,29 +90,47 @@ def run_locator_identity_resolution(
         )
     return _resolution(
         validation,
-        outcome=LocatorIdentityResolutionOutcome.DEFERRED,
+        outcome=LocatorIdentityResolutionOutcome.DEFERRED_TO_FUTURE_IMPLEMENTATION,
         matching_candidate_indices=matching_candidate_indices,
         selection_evidence_node_id=choice.node_id,
         depends_on=(summary.node_id, choice.node_id),
-        status_message="Locator identity resolution deferred.",
+        status_message="Locator identity resolution deferred to future implementation.",
         outcome_message="Model candidate choice failed; no identity decision was admitted.",
     )
 
 
-def run_deferred_locator_identity_resolution(
+def run_search_deferred_locator_identity_resolution(
     validation: CitationValidation,
     *,
     depends_on: tuple[str, ...] = (),
     reason: str,
 ) -> LocatorIdentityResolutionNode:
-    """Record an intentional scope boundary without invoking another route."""
+    """Hand a reporter locator with no exact match to the search stage."""
     return _resolution(
         validation,
-        outcome=LocatorIdentityResolutionOutcome.DEFERRED,
+        outcome=LocatorIdentityResolutionOutcome.DEFERRED_TO_SEARCH,
         matching_candidate_indices=(),
         selection_evidence_node_id=None,
         depends_on=depends_on,
-        status_message="Locator identity resolution deferred.",
+        status_message="Locator identity resolution deferred to search.",
+        outcome_message=reason,
+    )
+
+
+def run_future_implementation_deferred_locator_identity_resolution(
+    validation: CitationValidation,
+    *,
+    depends_on: tuple[str, ...] = (),
+    reason: str,
+) -> LocatorIdentityResolutionNode:
+    """Record a bounded checkpoint result with no admitted next route yet."""
+    return _resolution(
+        validation,
+        outcome=LocatorIdentityResolutionOutcome.DEFERRED_TO_FUTURE_IMPLEMENTATION,
+        matching_candidate_indices=(),
+        selection_evidence_node_id=None,
+        depends_on=depends_on,
+        status_message="Locator identity resolution deferred to future implementation.",
         outcome_message=reason,
     )
 

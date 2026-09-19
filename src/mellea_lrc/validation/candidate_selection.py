@@ -69,17 +69,14 @@ def _selection(
     outcome = (
         CandidateSelectionOutcome.ALL_SELECTED
         if selected_count == total_candidate_count
-        else CandidateSelectionOutcome.DEFERRED_OVER_LIMIT
+        else CandidateSelectionOutcome.EXCEEDS_REVIEW_LIMIT
     )
     outcome_message = (
         f"All {total_candidate_count} returned candidates are below the current validation limit of "
         f"{CANDIDATE_SELECTION_LIMIT}."
         if outcome is CandidateSelectionOutcome.ALL_SELECTED
-        else (
-            f"Candidate validation is deferred because {total_candidate_count} returned candidates meet or exceed "
-            f"the current validation limit of {CANDIDATE_SELECTION_LIMIT}; further refinement is needed before "
-            "selecting candidates."
-        )
+        else f"{total_candidate_count} returned candidates meet or exceed the current review limit of "
+        f"{CANDIDATE_SELECTION_LIMIT}."
     )
     return CandidateSelectionNode(
         node_id=node_id,
