@@ -25,6 +25,7 @@ from mellea_lrc.core.record import CitationRecord
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import CourtListenerCitationLookup, CourtListenerSearchResult
 from mellea_lrc.extraction import extract_from_plain_text
+from mellea_lrc.govinfo import GovInfoSearchResult
 from mellea_lrc.validation.types import (
     MelleaDocketCitationReextractionNode,
     MelleaDocketCitationReextractionOutcome,
@@ -91,6 +92,22 @@ class _OrderedNoResultClient:
         return CourtListenerCitationLookup(citation=f"{volume} {reporter} {page}", status=404, clusters=())
 
 
+class _NoResultGovInfoClient:
+    """Avoid live GovInfo traffic while proving the composition boundary."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str | None, int]] = []
+
+    def search_uscourts_docket(self, docket_number: str, *, court_id: str | None, page_size: int):
+        self.calls.append((docket_number, court_id, page_size))
+        return GovInfoSearchResult(
+            query=f'collection:uscourts casenumber:("{docket_number}")',
+            count=0,
+            results=(),
+            next_offset_mark=None,
+        )
+
+
 def test_root_identity_composition_preserves_each_docket_and_reporter_checkpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -115,6 +132,7 @@ def test_root_identity_composition_preserves_each_docket_and_reporter_checkpoint
         ),
     )
     client = _OrderedNoResultClient()
+    govinfo_client = _NoResultGovInfoClient()
 
     async def no_docket_number_review(record, **kwargs):
         return MelleaDocketCitationReextractionNode(
@@ -137,14 +155,22 @@ def test_root_identity_composition_preserves_each_docket_and_reporter_checkpoint
     monkeypatch.setattr(docket_roots, "run_mellea_docket_citation_reextraction", no_docket_number_review)
 
     completed = asyncio.run(
-        validate_roots_identity(form_roots(replace(document, citations=(docket, reporter))), client=client)
+        validate_roots_identity(
+            form_roots(replace(document, citations=(docket, reporter))),
+            client=client,
+            govinfo_client=govinfo_client,
+        )
     )
 
     assert client.calls == ["docket:1:24-cv-00123:d", "reporter:347 U.S. 483"]
-    assert completed.passes[-11:] == (
+    assert govinfo_client.calls == [("1:24-cv-00123", None, 20)]
+    assert completed.passes[-14:] == (
         "docket_root_search",
         "docket_root_unique_identity",
         "docket_root_ambiguity_resolution",
+        "govinfo_docket_root_search",
+        "govinfo_docket_root_unique_identity",
+        "govinfo_docket_root_ambiguity_resolution",
         "docket_root_extraction_review",
         "docket_root_requeued_search",
         "docket_root_requeued_search_unique_identity",

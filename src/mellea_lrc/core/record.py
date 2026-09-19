@@ -157,7 +157,7 @@ class Question(str, Enum):
     """What did the exact full-reporter-locator lookup return?"""
 
     DOCKET_LOOKUP = "docket_lookup"
-    """What did the CourtListener docket-root search return?"""
+    """What did the current docket-root retrieval route return?"""
 
     EXTRACTION_REVIEW = "extraction_review"
     """What did a source-grounded model review conclude about this extraction?"""

@@ -16,6 +16,7 @@ from mellea_lrc.core.citations import DocketCitation
 from mellea_lrc.core.record import UNJUDGED, Node, Question, Reads, Resolution
 from mellea_lrc.courtlistener import CourtListenerClient
 from mellea_lrc.extraction.root_stages import ROOT_FORMATION_STAGE
+from mellea_lrc.govinfo import GovInfoClient, govinfo_package_candidate
 from mellea_lrc.serialization._json import serialize_dataclass
 from mellea_lrc.serialization.validated_document import deserialize_validation_node
 from mellea_lrc.validation.aggregation.citation_summary_candidate import citation_summary_candidate
@@ -24,7 +25,10 @@ from mellea_lrc.validation.aggregation.locator_identity import run_locator_ident
 from mellea_lrc.validation.aggregation.mellea_locator_candidate_choice import (
     run_mellea_locator_candidate_choice,
 )
-from mellea_lrc.validation.candidate_evaluation import run_docket_search_candidate_evaluation
+from mellea_lrc.validation.candidate_evaluation import (
+    run_docket_search_candidate_evaluation,
+    run_govinfo_docket_search_candidate_evaluation,
+)
 from mellea_lrc.validation.field_checks.court_check import run_court_check
 from mellea_lrc.validation.field_checks.docket_number_check import run_docket_number_check
 from mellea_lrc.validation.field_checks.exact_case_name_check import run_exact_case_name_check
@@ -47,6 +51,7 @@ from mellea_lrc.validation.types import (
     DocketRootSearchOutcome,
     ExactCaseNameCheckNode,
     FieldCheckOutcome,
+    GovInfoDocketSearchNode,
     LocatorCandidateAssessmentNode,
     LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode,
@@ -70,6 +75,7 @@ if TYPE_CHECKING:
     from mellea_lrc.core.record import CitationRecord
     from mellea_lrc.courtlistener.protocols import CourtListenerServiceClient
     from mellea_lrc.extraction.types import Document
+    from mellea_lrc.govinfo import GovInfoClient as GovInfoServiceClient
 
 
 DOCKET_ROOT_SEARCH_STAGE = "docket_root_search"
@@ -80,6 +86,9 @@ DOCKET_ROOT_REQUEUED_SEARCH_STAGE = "docket_root_requeued_search"
 DOCKET_ROOT_REQUEUED_UNIQUE_IDENTITY_STAGE = "docket_root_requeued_search_unique_identity"
 DOCKET_ROOT_REQUEUED_AMBIGUITY_RESOLUTION_STAGE = "docket_root_requeued_search_ambiguity_resolution"
 DOCKET_ROOT_SEMANTIC_RESOLUTION_STAGE = "docket_root_semantic_resolution"
+GOVINFO_DOCKET_ROOT_SEARCH_STAGE = "govinfo_docket_root_search"
+GOVINFO_DOCKET_ROOT_UNIQUE_IDENTITY_STAGE = "govinfo_docket_root_unique_identity"
+GOVINFO_DOCKET_ROOT_AMBIGUITY_RESOLUTION_STAGE = "govinfo_docket_root_ambiguity_resolution"
 MAX_DOCKET_CANDIDATE_REVIEW = 20
 _MADE_BY = "mellea_lrc.validation.docket_roots"
 
@@ -193,6 +202,114 @@ async def resolve_docket_root_ambiguities(document: Document) -> Document:
             continue
         _write_identity_progression(record, progression, stage=DOCKET_ROOT_AMBIGUITY_RESOLUTION_STAGE)
     return replace(document, passes=(*document.passes, DOCKET_ROOT_AMBIGUITY_RESOLUTION_STAGE))
+
+
+async def lookup_govinfo_docket_roots(
+    document: Document,
+    *,
+    client: GovInfoServiceClient | None = None,
+) -> Document:
+    """Persist a GovInfo USCOURTS fallback after a CourtListener miss.
+
+    GovInfo carries published Federal opinions, not a comprehensive docket
+    index. It is therefore an independent lookup route only for roots whose
+    completed CourtListener search returned no candidate; it never reinterprets
+    a bounded CourtListener result or searches every docket speculatively.
+    """
+    _require_stage(document, DOCKET_ROOT_AMBIGUITY_RESOLUTION_STAGE, "GovInfo docket-root lookup")
+    if GOVINFO_DOCKET_ROOT_SEARCH_STAGE in document.passes:
+        return document
+    _reject_partial_stage(document, GOVINFO_DOCKET_ROOT_SEARCH_STAGE)
+
+    service = client if client is not None else GovInfoClient()
+    for record in _docket_roots(document):
+        search = _saved_docket_root_search(record)
+        if search.outcome is not DocketRootSearchOutcome.NOT_FOUND:
+            continue
+        result = _run_govinfo_docket_root_search(record, service, depends_on=(search.node_id,))
+        trace_node = _trace_node(result, stage=GOVINFO_DOCKET_ROOT_SEARCH_STAGE)
+        record.observe(trace_node)
+        record.judge(
+            trace_node,
+            Question.DOCKET_LOOKUP,
+            _govinfo_docket_lookup_outcome(result.outcome),
+            message=result.outcome_message,
+        )
+    return replace(document, passes=(*document.passes, GOVINFO_DOCKET_ROOT_SEARCH_STAGE))
+
+
+async def validate_unique_govinfo_docket_root_identities(document: Document) -> Document:
+    """Resolve zero- or one-package GovInfo fallback results programmatically."""
+    _require_stage(document, GOVINFO_DOCKET_ROOT_SEARCH_STAGE, "Unique GovInfo docket-root identity")
+    if GOVINFO_DOCKET_ROOT_UNIQUE_IDENTITY_STAGE in document.passes:
+        return document
+    _reject_partial_stage(document, GOVINFO_DOCKET_ROOT_UNIQUE_IDENTITY_STAGE)
+
+    for record in _docket_roots(document):
+        search = _saved_govinfo_docket_root_search(record)
+        if search is None:
+            continue
+        if search.outcome is DocketRootSearchOutcome.NOT_FOUND:
+            validation = CitationValidation(citation=record, nodes=(search,))
+            progression = validation.append(
+                _no_match_resolution(
+                    validation,
+                    depends_on=(search.node_id,),
+                    reason="Neither CourtListener nor GovInfo returned a docket candidate.",
+                    scope=search.node_id,
+                )
+            )
+        elif search.outcome is DocketRootSearchOutcome.FOUND:
+            progression = _review_govinfo_docket_candidates(record, search=search)
+        else:
+            continue
+        _write_identity_progression(record, progression, stage=GOVINFO_DOCKET_ROOT_UNIQUE_IDENTITY_STAGE)
+    return replace(document, passes=(*document.passes, GOVINFO_DOCKET_ROOT_UNIQUE_IDENTITY_STAGE))
+
+
+async def resolve_govinfo_docket_root_ambiguities(document: Document) -> Document:
+    """Resolve bounded GovInfo fallback results without suppressing candidates."""
+    _require_stage(
+        document,
+        GOVINFO_DOCKET_ROOT_UNIQUE_IDENTITY_STAGE,
+        "GovInfo docket-root ambiguity resolution",
+    )
+    if GOVINFO_DOCKET_ROOT_AMBIGUITY_RESOLUTION_STAGE in document.passes:
+        return document
+    _reject_partial_stage(document, GOVINFO_DOCKET_ROOT_AMBIGUITY_RESOLUTION_STAGE)
+
+    for record in _docket_roots(document):
+        search = _saved_govinfo_docket_root_search(record)
+        if search is None:
+            continue
+        if search.outcome is DocketRootSearchOutcome.AMBIGUOUS:
+            progression = _review_govinfo_docket_candidates(record, search=search)
+        elif search.outcome is DocketRootSearchOutcome.EXCEEDS_REVIEW_LIMIT:
+            validation = CitationValidation(citation=record, nodes=(search,))
+            progression = validation.append(
+                _deferred_resolution(
+                    validation,
+                    depends_on=(search.node_id,),
+                    scope=search.node_id,
+                    reason=(
+                        f"GovInfo returned {search.candidate_count} packages; "
+                        f"the review limit is {MAX_DOCKET_CANDIDATE_REVIEW}."
+                    ),
+                )
+            )
+        elif search.outcome is DocketRootSearchOutcome.FAILED:
+            # The failed fallback adds no identity evidence. Preserve the
+            # completed CourtListener terminal judgement so retrying GovInfo
+            # later does not turn a transport error into semantic uncertainty.
+            continue
+        else:
+            continue
+        _write_identity_progression(
+            record,
+            progression,
+            stage=GOVINFO_DOCKET_ROOT_AMBIGUITY_RESOLUTION_STAGE,
+        )
+    return replace(document, passes=(*document.passes, GOVINFO_DOCKET_ROOT_AMBIGUITY_RESOLUTION_STAGE))
 
 
 async def review_and_requeue_unresolved_docket_roots(
@@ -558,7 +675,11 @@ async def _semantic_docket_candidates(
                 court_outcome=court.outcome,
             )
         )
-        if docket_matches:
+        if (
+            docket_matches
+            and court.outcome is not FieldCheckOutcome.MISMATCH
+            and year.outcome is not FieldCheckOutcome.MISMATCH
+        ):
             eligible.append(index)
     return validation, tuple(eligible), unavailable
 
@@ -586,15 +707,15 @@ def _semantic_docket_candidate_assessment(
     if not docket_matches:
         outcome = LocatorCandidateAssessmentOutcome.MISMATCH
         message = "The retrieved docket number does not semantically represent the stated docket number."
+    elif court is AggregatedFieldOutcome.MISMATCH:
+        outcome = LocatorCandidateAssessmentOutcome.MISMATCH
+        message = "The docket forms agree, but the courts conflict."
+    elif year is AggregatedFieldOutcome.MISMATCH:
+        outcome = LocatorCandidateAssessmentOutcome.MISMATCH
+        message = "The docket forms agree, but the dates conflict."
     elif case_outcome is not AggregatedFieldOutcome.MATCH:
         outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
         message = "The docket forms agree, but the case name needs semantic representative selection."
-    elif court is AggregatedFieldOutcome.MISMATCH:
-        outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
-        message = "The docket and case name agree, but the courts conflict."
-    elif year is AggregatedFieldOutcome.MISMATCH:
-        outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
-        message = "The docket and case name agree, but the dates conflict."
     else:
         outcome = LocatorCandidateAssessmentOutcome.MATCH
         message = "The docket forms and every available stated identity field agree."
@@ -830,10 +951,123 @@ def _search_node(
     )
 
 
+def _run_govinfo_docket_root_search(
+    record: CitationRecord,
+    client: GovInfoServiceClient,
+    *,
+    depends_on: tuple[str, ...],
+) -> GovInfoDocketSearchNode:
+    """Look up a CourtListener miss in GovInfo's published-opinion index."""
+    citation = record.stated
+    if not isinstance(citation, DocketCitation) or not citation.docket_number:
+        return _govinfo_search_node(
+            record,
+            status=ValidationNodeStatus.FAILED,
+            outcome=DocketRootSearchOutcome.FAILED,
+            docket_number=citation.docket_number if isinstance(citation, DocketCitation) else None,
+            query=None,
+            depends_on=depends_on,
+            status_message="GovInfo docket lookup could not run.",
+            outcome_message="The root has no stated docket number.",
+            error="Docket root lacks a docket number",
+        )
+    try:
+        result = client.search_uscourts_docket(
+            citation.docket_number,
+            court_id=citation.court,
+            page_size=MAX_DOCKET_CANDIDATE_REVIEW,
+        )
+        outcome = _search_outcome(result.count)
+        candidates = tuple(govinfo_package_candidate(result_item) for result_item in result.results)
+        if outcome is not DocketRootSearchOutcome.EXCEEDS_REVIEW_LIMIT and len(candidates) != result.count:
+            return _govinfo_search_node(
+                record,
+                status=ValidationNodeStatus.FAILED,
+                outcome=DocketRootSearchOutcome.FAILED,
+                docket_number=citation.docket_number,
+                query=result.query,
+                depends_on=depends_on,
+                candidate_count=result.count,
+                candidates=candidates,
+                next_offset_mark=result.next_offset_mark,
+                status_message="GovInfo docket lookup returned an incomplete result set.",
+                outcome_message="Every GovInfo package must be stored before later review.",
+                error=f"Search reported {result.count} packages but returned {len(candidates)}",
+            )
+        return _govinfo_search_node(
+            record,
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=outcome,
+            docket_number=citation.docket_number,
+            query=result.query,
+            depends_on=depends_on,
+            candidate_count=result.count,
+            candidates=candidates,
+            next_offset_mark=result.next_offset_mark,
+            status_message="GovInfo docket lookup completed.",
+            outcome_message=_govinfo_search_message(outcome, result.count),
+        )
+    except Exception as exc:
+        return _govinfo_search_node(
+            record,
+            status=ValidationNodeStatus.FAILED,
+            outcome=DocketRootSearchOutcome.FAILED,
+            docket_number=citation.docket_number,
+            query=None,
+            depends_on=depends_on,
+            status_message="GovInfo docket lookup failed.",
+            outcome_message="No GovInfo package candidates were available for identity review.",
+            error=f"{type(exc).__name__}: {exc}",
+        )
+
+
+def _govinfo_search_node(
+    record: CitationRecord,
+    *,
+    status: ValidationNodeStatus,
+    outcome: DocketRootSearchOutcome,
+    docket_number: str | None,
+    query: str | None,
+    depends_on: tuple[str, ...],
+    candidate_count: int = 0,
+    candidates: tuple[Mapping[str, object], ...] = (),
+    next_offset_mark: str | None = None,
+    status_message: str | None,
+    outcome_message: str | None,
+    error: str | None = None,
+) -> GovInfoDocketSearchNode:
+    return GovInfoDocketSearchNode(
+        node_id=f"{record.citation_id}:govinfo_docket_root_search",
+        status=status,
+        outcome=outcome,
+        docket_number=docket_number,
+        query=query,
+        candidate_count=candidate_count,
+        candidates=candidates,
+        next_offset_mark=next_offset_mark,
+        depends_on=depends_on,
+        status_message=status_message,
+        outcome_message=outcome_message,
+        error=error,
+    )
+
+
+def _govinfo_search_message(outcome: DocketRootSearchOutcome, count: int) -> str:
+    return {
+        DocketRootSearchOutcome.NOT_FOUND: "GovInfo USCOURTS lookup returned no packages.",
+        DocketRootSearchOutcome.FOUND: "GovInfo USCOURTS lookup returned one package.",
+        DocketRootSearchOutcome.AMBIGUOUS: f"GovInfo USCOURTS lookup returned {count} packages.",
+        DocketRootSearchOutcome.EXCEEDS_REVIEW_LIMIT: (
+            f"GovInfo USCOURTS lookup returned {count} packages, at or above the review limit."
+        ),
+    }[outcome]
+
+
 def _review_docket_candidates(
     record: CitationRecord,
     *,
-    search: DocketRootSearchNode,
+    search: DocketRootSearchNode | GovInfoDocketSearchNode,
+    provenance: CandidateProvenance = CandidateProvenance.DOCKET,
 ) -> CitationValidation:
     """Apply only exact programmatic evidence to every stored candidate.
 
@@ -845,13 +1079,22 @@ def _review_docket_candidates(
     validation = CitationValidation(citation=record, nodes=(search,))
     scope = search.node_id
     for index, result in enumerate(search.candidates, start=1):
-        candidate = run_docket_search_candidate_evaluation(
-            validation,
-            result=result,
-            candidate_index=index,
-            depends_on=(search.node_id,),
-            node_prefix=scope,
-        )
+        if provenance is CandidateProvenance.GOVINFO:
+            candidate = run_govinfo_docket_search_candidate_evaluation(
+                validation,
+                result=result,
+                candidate_index=index,
+                depends_on=(search.node_id,),
+                node_prefix=scope,
+            )
+        else:
+            candidate = run_docket_search_candidate_evaluation(
+                validation,
+                result=result,
+                candidate_index=index,
+                depends_on=(search.node_id,),
+                node_prefix=scope,
+            )
         validation = validation.append(candidate)
         docket = run_docket_number_check(validation, candidate=candidate)
         case_name = run_exact_case_name_check(validation, candidate=candidate)
@@ -869,7 +1112,7 @@ def _review_docket_candidates(
             )
         )
 
-    summary = _docket_citation_summary(validation, scope=scope)
+    summary = _docket_citation_summary(validation, scope=scope, provenance=provenance)
     validation = validation.append(summary)
     matching = tuple(
         candidate
@@ -911,6 +1154,15 @@ def _review_docket_candidates(
     return validation.append(replace(resolution, node_id=f"{scope}:identity_resolution"))
 
 
+def _review_govinfo_docket_candidates(
+    record: CitationRecord,
+    *,
+    search: GovInfoDocketSearchNode,
+) -> CitationValidation:
+    """Evaluate GovInfo package candidates through the shared docket checks."""
+    return _review_docket_candidates(record, search=search, provenance=CandidateProvenance.GOVINFO)
+
+
 def _docket_candidate_assessment(
     validation: CitationValidation,
     *,
@@ -923,10 +1175,9 @@ def _docket_candidate_assessment(
     """Record exact docket-citation evidence without semantic repair.
 
     An unavailable court does not block a citation when the filing did not
-    state a court. A stated decision date is different: a docket search offers
-    the case filing date, not the cited order's date, so it remains pending for
-    an opinion/date stage. A missing case name also prevents this early route
-    from asserting that a docket number identifies the cited case.
+    state a court. A deterministic court or date contradiction is a negative
+    identity finding, rather than a reason to override the filing. A missing
+    case name remains incomplete evidence for later semantic review.
     """
     docket_outcome = AggregatedFieldOutcome(docket.outcome.value)
     case_outcome = AggregatedFieldOutcome(case_name.outcome.value)
@@ -938,15 +1189,15 @@ def _docket_candidate_assessment(
     elif docket_outcome is AggregatedFieldOutcome.UNAVAILABLE:
         outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
         message = "The retrieved candidate lacks a docket number for direct identity comparison."
+    elif court is AggregatedFieldOutcome.MISMATCH:
+        outcome = LocatorCandidateAssessmentOutcome.MISMATCH
+        message = "The docket number matches, but the courts conflict."
+    elif year is AggregatedFieldOutcome.MISMATCH:
+        outcome = LocatorCandidateAssessmentOutcome.MISMATCH
+        message = "The docket number matches, but the dates conflict."
     elif case_outcome is not AggregatedFieldOutcome.MATCH:
         outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
         message = "The docket number matches, but the case name is missing or conflicts."
-    elif court is AggregatedFieldOutcome.MISMATCH:
-        outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
-        message = "The docket number and case name match, but the courts conflict."
-    elif year is AggregatedFieldOutcome.MISMATCH:
-        outcome = LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
-        message = "The docket number and case name match, but the dates conflict."
     else:
         outcome = LocatorCandidateAssessmentOutcome.MATCH
         message = "The docket number and every available stated identity field match."
@@ -982,13 +1233,14 @@ def _docket_citation_summary(
     validation: CitationValidation,
     *,
     scope: str,
+    provenance: CandidateProvenance = CandidateProvenance.DOCKET,
 ) -> LocatorCitationSummaryNode:
     assessments = tuple(node for node in validation.nodes if isinstance(node, LocatorCandidateAssessmentNode))
     if not assessments:
         msg = "Docket candidate summary requires at least one candidate assessment"
         raise ValueError(msg)
     candidates = tuple(
-        citation_summary_candidate(validation, assessment, provenance=CandidateProvenance.DOCKET)
+        citation_summary_candidate(validation, assessment, provenance=provenance)
         for assessment in assessments
     )
     return LocatorCitationSummaryNode(
@@ -1104,6 +1356,7 @@ def _write_identity_progression(
                 court_id=candidate.court_id,
                 node_id=resolution_node.node_id,
                 docket_id=candidate.docket_id,
+                govinfo_package_id=candidate.govinfo_package_id,
             ),
         )
         if candidate.docket_id is not None:
@@ -1111,6 +1364,8 @@ def _write_identity_progression(
             # the docket resource rather than pretending CourtListener's docket
             # id is an opinion-cluster id.
             record.reattribute(resolution_node, f"courtlistener:docket:{candidate.docket_id}")
+        elif candidate.govinfo_package_id is not None:
+            record.reattribute(resolution_node, f"govinfo:package:{candidate.govinfo_package_id}")
     record.judge(
         resolution_node,
         Question.IDENTITY,
@@ -1128,13 +1383,17 @@ def _selected_docket_candidate(
             node
             for node in progression.nodes
             if isinstance(node, CandidateEvaluationNode)
-            and node.source is CandidateEvaluationSource.DOCKET_SEARCH
+            and node.source
+            in {
+                CandidateEvaluationSource.DOCKET_SEARCH,
+                CandidateEvaluationSource.GOVINFO_DOCKET_SEARCH,
+            }
             and node.candidate_index == resolution.selected_candidate_index
         ),
         None,
     )
     if candidate is None:
-        msg = "A resolved docket identity must select one stored docket-search candidate"
+        msg = "A resolved docket identity must select one stored docket-search or GovInfo candidate"
         raise ValueError(msg)
     return candidate
 
@@ -1162,6 +1421,30 @@ def _saved_docket_root_search(
     node = deserialize_validation_node({"node_type": DocketRootSearchNode.__name__, **raw})
     if not isinstance(node, DocketRootSearchNode):
         msg = f"Saved docket search for {record.citation_id!r} decoded as {type(node).__name__}"
+        raise ValueError(msg)
+    return node
+
+
+def _saved_govinfo_docket_root_search(record: CitationRecord) -> GovInfoDocketSearchNode | None:
+    """Return the persisted GovInfo fallback lookup when this root needed one."""
+    matches = [
+        node
+        for node in record.trace
+        if node.stage == GOVINFO_DOCKET_ROOT_SEARCH_STAGE
+        and node.details.get("validation_node_type") == GovInfoDocketSearchNode.__name__
+    ]
+    if not matches:
+        return None
+    if len(matches) != 1:
+        msg = f"Expected at most one saved GovInfo lookup for {record.citation_id!r}, found {len(matches)}"
+        raise ValueError(msg)
+    raw = matches[0].details.get("validation")
+    if not isinstance(raw, dict):
+        msg = f"Saved GovInfo lookup for {record.citation_id!r} has no validation payload"
+        raise ValueError(msg)
+    node = deserialize_validation_node({"node_type": GovInfoDocketSearchNode.__name__, **raw})
+    if not isinstance(node, GovInfoDocketSearchNode):
+        msg = f"Saved GovInfo lookup for {record.citation_id!r} decoded as {type(node).__name__}"
         raise ValueError(msg)
     return node
 
@@ -1209,6 +1492,17 @@ def _docket_lookup_outcome(outcome: DocketRootSearchOutcome) -> str:
         DocketRootSearchOutcome.AMBIGUOUS: "deferred_to_ambiguity",
         DocketRootSearchOutcome.EXCEEDS_REVIEW_LIMIT: "deferred_to_future_implementation",
         DocketRootSearchOutcome.FAILED: "failed",
+    }[outcome]
+
+
+def _govinfo_docket_lookup_outcome(outcome: DocketRootSearchOutcome) -> str:
+    """Keep the active lookup judgement explicit about the fallback source."""
+    return {
+        DocketRootSearchOutcome.FOUND: "govinfo_found",
+        DocketRootSearchOutcome.NOT_FOUND: "govinfo_not_found",
+        DocketRootSearchOutcome.AMBIGUOUS: "govinfo_deferred_to_ambiguity",
+        DocketRootSearchOutcome.EXCEEDS_REVIEW_LIMIT: "govinfo_deferred_to_future_implementation",
+        DocketRootSearchOutcome.FAILED: "govinfo_failed",
     }[outcome]
 
 

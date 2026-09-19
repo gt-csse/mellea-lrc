@@ -173,6 +173,7 @@ class CandidateEvaluationSource(str, Enum):
 
     LOCATOR_LOOKUP = "locator_lookup"
     DOCKET_SEARCH = "docket_search"
+    GOVINFO_DOCKET_SEARCH = "govinfo_docket_search"
     OPINION_SEARCH = "opinion_search"
     RECAP_SEARCH = "recap_search"
 
@@ -237,6 +238,7 @@ class CandidateProvenance(str, Enum):
 
     OPINION = "opinion"
     DOCKET = "docket"
+    GOVINFO = "govinfo"
     RECAP = "recap"
 
 
@@ -426,6 +428,29 @@ class DocketRootSearchNode:
 
 
 @dataclass(frozen=True, slots=True)
+class GovInfoDocketSearchNode:
+    """All GovInfo USCOURTS package-search evidence for one docket root.
+
+    This fallback runs only after CourtListener returned no candidate. Its
+    package records remain separate from CourtListener docket evidence because
+    GovInfo indexes published Federal opinions, rather than case dockets.
+    """
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: DocketRootSearchOutcome
+    docket_number: str | None
+    query: str | None
+    candidate_count: int
+    candidates: tuple[Mapping[str, object], ...]
+    next_offset_mark: str | None
+    depends_on: tuple[str, ...] = ()
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateSelectionNode:
     """Bounded decision on whether one retrieval result set may be evaluated."""
 
@@ -459,11 +484,14 @@ class CandidateEvaluationNode:
     depends_on: tuple[str, ...]
     status_message: str | None = None
     outcome_message: str | None = None
+    decision_date: str | None = None
+    govinfo_package_id: str | None = None
 
     @property
     def year(self) -> str | None:
-        """Return the filed-year prefix when the opinion result provides one."""
-        return self.date_filed[:4] if self.date_filed else None
+        """Return the retrieved decision year, or filing year when that is all a route has."""
+        value = self.decision_date or self.date_filed
+        return value[:4] if value else None
 
 
 @dataclass(frozen=True, slots=True)

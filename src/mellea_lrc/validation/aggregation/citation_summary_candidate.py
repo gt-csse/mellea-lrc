@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, TypeVar
 
 from mellea_lrc.courtlistener.docket_models import courtlistener_docket_url
 from mellea_lrc.courtlistener.opinion_models import CourtListenerOpinionCluster, courtlistener_opinion_url
+from mellea_lrc.govinfo import govinfo_package_url
 from mellea_lrc.validation.types import (
     CandidateEvaluationNode,
     CandidateEvaluationSource,
@@ -68,14 +69,18 @@ def _docket_number(
     provenance: CandidateProvenance,
 ) -> str | None:
     """Expose the candidate's docket number when its retrieval route supplies one."""
-    if provenance is not CandidateProvenance.DOCKET:
+    source = {
+        CandidateProvenance.DOCKET: CandidateEvaluationSource.DOCKET_SEARCH,
+        CandidateProvenance.GOVINFO: CandidateEvaluationSource.GOVINFO_DOCKET_SEARCH,
+    }.get(provenance)
+    if source is None:
         return None
     evaluation = next(
         (
             node
             for node in validation.nodes
             if isinstance(node, CandidateEvaluationNode)
-            and node.source is CandidateEvaluationSource.DOCKET_SEARCH
+            and node.source is source
             and _is_ancestor(validation, node.node_id, assessment.node_id)
         ),
         None,
@@ -128,6 +133,7 @@ def _docket_url(
     """Expose CourtListener's canonical docket URL for docket-derived candidates."""
     source = {
         CandidateProvenance.DOCKET: CandidateEvaluationSource.DOCKET_SEARCH,
+        CandidateProvenance.GOVINFO: CandidateEvaluationSource.GOVINFO_DOCKET_SEARCH,
         CandidateProvenance.RECAP: CandidateEvaluationSource.RECAP_SEARCH,
     }.get(provenance)
     if source is None:
@@ -144,6 +150,8 @@ def _docket_url(
     )
     if evaluation is None or isinstance(evaluation.record, CourtListenerOpinionCluster):
         return None
+    if provenance is CandidateProvenance.GOVINFO:
+        return govinfo_package_url(evaluation.govinfo_package_id)
     absolute_url = evaluation.record.get("docket_absolute_url")
     return courtlistener_docket_url(absolute_url if isinstance(absolute_url, str) else None)
 
