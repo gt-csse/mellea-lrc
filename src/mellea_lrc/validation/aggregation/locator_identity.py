@@ -51,7 +51,7 @@ def run_locator_identity_resolution(
             depends_on=(summary.node_id,),
             status_message="Locator identity resolution completed.",
             outcome_message=(
-                f"Candidate {candidate.candidate_index} is the only confirmed exact-locator match."
+                f"Candidate {candidate.candidate_index} is the only confirmed locator match."
             ),
         )
     if choice is None:

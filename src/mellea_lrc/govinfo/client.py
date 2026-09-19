@@ -157,7 +157,14 @@ def govinfo_package_url(package_id: str | None) -> str | None:
 
 
 def govinfo_package_candidate(result: dict[str, object]) -> dict[str, object]:
-    """Expose a search result using the project-wide candidate field names."""
+    """Expose a package record without treating its deposit date as a decision date.
+
+    A USCOURTS package represents a case and can contain more than one opinion.
+    Its search-result ``dateIssued`` belongs to the returned package record; it
+    does not identify the particular order cited in a filing. Keep that value
+    for provenance, but do not map it to the generic ``decisionDate`` field
+    used by citation-date validation.
+    """
     package_id = _string(result.get("packageId"))
     court_id, docket_number = _package_identity(package_id)
     return {
@@ -166,7 +173,7 @@ def govinfo_package_candidate(result: dict[str, object]) -> dict[str, object]:
         "caseName": _string(result.get("title")),
         "court_id": court_id,
         "docketNumber": docket_number,
-        "decisionDate": _string(result.get("dateIssued")),
+        "packageDateIssued": _string(result.get("dateIssued")),
     }
 
 

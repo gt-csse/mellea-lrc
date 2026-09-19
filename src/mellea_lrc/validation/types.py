@@ -485,6 +485,7 @@ class CandidateEvaluationNode:
     status_message: str | None = None
     outcome_message: str | None = None
     decision_date: str | None = None
+    package_date_issued: str | None = None
     govinfo_package_id: str | None = None
 
     @property
@@ -767,8 +768,8 @@ class MelleaLocatorCandidateChoiceNode:
     """Grounded model decision for a complete, bounded locator candidate list.
 
     The model receives every reviewed candidate and target-only local context.
-    It re-extracts the stated case name, docket number, court, date, and pin
-    cite while selecting one representative candidate or returning no match.  Reading a candidate opinion could provide finer
+    It selects one representative candidate or returns no match; re-extraction
+    is a separate, explicit stage. Reading a candidate opinion could provide finer
     tie-breaking, but that couples identity to the later opinion stage; keep
     that as a TODO rather than silently adding it to this checkpoint.
     """
@@ -778,11 +779,6 @@ class MelleaLocatorCandidateChoiceNode:
     outcome: MelleaLocatorCandidateChoiceOutcome
     candidate_indices: tuple[int, ...]
     selected_candidate_index: int | None
-    reparsed_case_name: str | None
-    reparsed_docket_number: str | None
-    reparsed_court: str | None
-    reparsed_date: str | None
-    reparsed_pin_cite: str | None
     rationale: str | None
     depends_on: tuple[str, ...]
     status_message: str | None = None

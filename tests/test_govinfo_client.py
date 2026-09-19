@@ -83,7 +83,8 @@ def test_govinfo_package_candidate_keeps_upstream_package_identity() -> None:
 
     assert candidate["docketNumber"] == "1:24-cv-08760"
     assert candidate["court_id"] == "nysd"
-    assert candidate["decisionDate"] == "2024-01-06"
+    assert candidate["packageDateIssued"] == "2024-01-06"
+    assert "decisionDate" not in candidate
     assert govinfo_uscourts_docket_query("1:24-cv-08760", court_id=None) == (
         'collection:uscourts casenumber:("1:24-cv-08760")'
     )

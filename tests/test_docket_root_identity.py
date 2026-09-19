@@ -213,7 +213,7 @@ def test_semantic_docket_stage_uses_a_positive_govinfo_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A nonliteral GovInfo package number reaches semantic equivalence."""
-    document = _document(date="2024")
+    document = _document(date="2021")
     document.citations[0].stated = replace(document.citations[0].stated, docket_number="24-cv-8760")
     courtlistener = _DocketSearchClient(count=0, results=[])
     govinfo = _GovInfoSearchClient(
@@ -264,11 +264,6 @@ def test_semantic_docket_stage_uses_a_positive_govinfo_fallback(
             outcome=MelleaLocatorCandidateChoiceOutcome.SELECTED,
             candidate_indices=eligible_candidate_indices,
             selected_candidate_index=1,
-            reparsed_case_name="Smith v. Jones",
-            reparsed_docket_number="24-cv-8760",
-            reparsed_court="S.D.N.Y.",
-            reparsed_date="2024",
-            reparsed_pin_cite=None,
             rationale="The case and equivalent docket forms identify candidate 1.",
             depends_on=(summary.node_id,),
         )
@@ -296,6 +291,8 @@ def test_semantic_docket_stage_uses_a_positive_govinfo_fallback(
         and node.details.get("validation_node_type") == MelleaDocketNumberEquivalenceNode.__name__
         for node in root.trace
     )
+    year = next(node for node in root.trace if node.details.get("validation_node_type") == "YearCheckNode")
+    assert year.details["validation"]["outcome"] == "unavailable"
 
 
 def test_docket_identity_defers_when_case_filing_postdates_a_stated_decision() -> None:
@@ -521,12 +518,12 @@ def test_failed_docket_lookup_is_reviewed_once_then_corrected_and_requeued(
         ("2024", "resolved"),
     ],
 )
-def test_semantic_docket_stage_handles_a_nonliteral_form_with_grounded_choice(
+def test_semantic_docket_stage_confirms_a_nonliteral_court_anchored_record(
     monkeypatch: pytest.MonkeyPatch,
     date: str | None,
     expected_identity: str,
 ) -> None:
-    """A semantic docket form can select a record without bypassing date evidence."""
+    """A semantic docket form and matching court directly identify one record."""
     document = _document(date=date)
     document.citations[0].stated = replace(document.citations[0].stated, docket_number="24-cv-8760")
     client = _DocketSearchClient(count=1, results=[_candidate()])
@@ -560,26 +557,12 @@ def test_semantic_docket_stage_handles_a_nonliteral_form_with_grounded_choice(
             depends_on=(deterministic_check.node_id,),
         )
 
-    async def choose_candidate(validation, *, summary, eligible_candidate_indices, **kwargs):
-        assert eligible_candidate_indices == (1,)
-        return MelleaLocatorCandidateChoiceNode(
-            node_id=f"{summary.node_id}:mellea_candidate_choice",
-            status=ValidationNodeStatus.SUCCEEDED,
-            outcome=MelleaLocatorCandidateChoiceOutcome.SELECTED,
-            candidate_indices=eligible_candidate_indices,
-            selected_candidate_index=1,
-            reparsed_case_name="Smith v. Jones",
-            reparsed_docket_number="24-cv-8760",
-            reparsed_court="S.D.N.Y.",
-            reparsed_date=None,
-            reparsed_pin_cite=None,
-            rationale="The case name and the abbreviated docket form identify candidate 1.",
-            depends_on=(summary.node_id,),
-        )
+    async def should_not_choose_candidate(*args, **kwargs):
+        raise AssertionError("A unique court-anchored docket record must not require candidate selection")
 
     monkeypatch.setattr(docket_roots, "run_mellea_docket_citation_reextraction", unchanged_review)
     monkeypatch.setattr(docket_roots, "run_mellea_docket_number_equivalence_check", matching_equivalence)
-    monkeypatch.setattr(docket_roots, "run_mellea_locator_candidate_choice", choose_candidate)
+    monkeypatch.setattr(docket_roots, "run_mellea_locator_candidate_choice", should_not_choose_candidate)
 
     searched = asyncio.run(search_docket_roots(form_roots(document), client=client))
     unique = asyncio.run(validate_unique_docket_root_identities(searched))
@@ -599,6 +582,66 @@ def test_semantic_docket_stage_handles_a_nonliteral_form_with_grounded_choice(
         if node.details.get("validation_node_type") == MelleaDocketNumberEquivalenceNode.__name__
     )
     assert equivalence.reads.value == "document"
+
+
+def test_semantic_docket_stage_sends_caption_drift_to_representative_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A docket-and-court match cannot bypass a contradictory stated caption."""
+    document = _document(date=None)
+    client = _DocketSearchClient(count=1, results=[_candidate(case_name="Renamed Case, LLC")])
+
+    async def unchanged_review(record, **kwargs):
+        return MelleaDocketCitationReextractionNode(
+            node_id=f"{record.citation_id}:mellea_docket_citation_reextraction",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaDocketCitationReextractionOutcome.UNCHANGED,
+            source_citation="Smith v. Jones, Case No. 1:24-cv-08760 (S.D.N.Y. 2024).",
+            source_locator="1:24-cv-08760",
+            extracted_docket_number="1:24-cv-08760",
+            reparsed_case_name="Smith v. Jones",
+            reparsed_docket_number="1:24-cv-08760",
+            reparsed_court="S.D.N.Y.",
+            reparsed_date="2024",
+            reparsed_pin_cite=None,
+            grounded_docket_number="1:24-cv-08760",
+            reason="The source confirms the docket locator.",
+            depends_on=("cite-0001:docket_root_search:identity_resolution",),
+        )
+
+    async def choose_no_match(validation, *, summary, eligible_candidate_indices, **kwargs):
+        assert eligible_candidate_indices == (1,)
+        return MelleaLocatorCandidateChoiceNode(
+            node_id=f"{summary.node_id}:mellea_candidate_choice",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaLocatorCandidateChoiceOutcome.NO_MATCH,
+            candidate_indices=eligible_candidate_indices,
+            selected_candidate_index=None,
+            rationale="The stated caption and retrieved caption identify different matters.",
+            depends_on=(summary.node_id,),
+        )
+
+    monkeypatch.setattr(docket_roots, "run_mellea_docket_citation_reextraction", unchanged_review)
+    monkeypatch.setattr(docket_roots, "run_mellea_locator_candidate_choice", choose_no_match)
+
+    searched = asyncio.run(search_docket_roots(form_roots(document), client=client))
+    unique = asyncio.run(validate_unique_docket_root_identities(searched))
+    ambiguity = asyncio.run(resolve_docket_root_ambiguities(unique))
+    reviewed = asyncio.run(review_and_requeue_unresolved_docket_roots(ambiguity, client=client))
+    requeued = asyncio.run(validate_unique_requeued_docket_root_identities(reviewed))
+    ready = asyncio.run(resolve_requeued_docket_root_ambiguities(requeued))
+    completed = asyncio.run(resolve_docket_root_semantics(ready))
+
+    root = completed.citations[0]
+    assert root.judgement(Question.IDENTITY).outcome == "no_match"
+    assert root.authority_id is None
+    assessment = next(
+        node
+        for node in root.trace
+        if node.details.get("validation_node_type") == "LocatorCandidateAssessmentNode"
+        and node.stage == "docket_root_semantic_resolution"
+    )
+    assert assessment.details["validation"]["case_name_outcome"] == "mismatch"
 
 
 def test_semantic_docket_stage_leaves_no_candidate_and_review_limit_unresolved(

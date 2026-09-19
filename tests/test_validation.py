@@ -558,11 +558,6 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
             outcome=MelleaLocatorCandidateChoiceOutcome.NO_MATCH,
             candidate_indices=(1,),
             selected_candidate_index=None,
-            reparsed_case_name=None,
-            reparsed_docket_number=None,
-            reparsed_court=None,
-            reparsed_date=None,
-            reparsed_pin_cite=None,
             rationale="Retrieved candidate disagrees with every stated field.",
             depends_on=(summary.node_id,),
         )
@@ -607,11 +602,6 @@ def test_found_field_checks_skip_unavailable_values(
             outcome=MelleaLocatorCandidateChoiceOutcome.NO_MATCH,
             candidate_indices=(1,),
             selected_candidate_index=None,
-            reparsed_case_name=None,
-            reparsed_docket_number=None,
-            reparsed_court=None,
-            reparsed_date=None,
-            reparsed_pin_cite=None,
             rationale="The citation states no identity fields.",
             depends_on=(summary.node_id,),
         )
@@ -1108,9 +1098,7 @@ def test_ambiguous_lookup_sends_all_reviewed_candidates_to_model(
     async def fake_instruct(_session: object, spec: InstructIvrSpec, **_kwargs: object) -> IvrRun:
         calls.append(spec)
         return _successful_ivr(
-            '{"decision":"no_match","candidate_index":null,"reparsed_case_name":null,'
-            '"reparsed_docket_number":null,"reparsed_court":null,"reparsed_date":null,'
-            '"reparsed_pin_cite":null,"rationale":"No stated fields."}'
+            '{"decision":"no_match","candidate_index":null,"rationale":"No stated fields."}'
         )
 
     monkeypatch.setenv("MELLEA_LRC_LLM_MODEL", "test-model")
@@ -1135,7 +1123,7 @@ def test_ambiguous_lookup_sends_all_reviewed_candidates_to_model(
     assert summary.candidates[1].candidate_index == 2
     assert choice.outcome is MelleaLocatorCandidateChoiceOutcome.NO_MATCH
     assert choice.candidate_indices == (1, 2)
-    assert progression.citation.extraction_reviewed_by_llm is True
+    assert progression.citation.extraction_reviewed_by_llm is False
     assert resolution is not None
     assert resolution.outcome is LocatorIdentityResolutionOutcome.NO_MATCH
     assert resolution.selection_evidence_node_id == choice.node_id
@@ -1260,11 +1248,6 @@ def test_ambiguous_locator_uses_model_to_select_among_confirmed_candidates(
             outcome=MelleaLocatorCandidateChoiceOutcome.SELECTED,
             candidate_indices=(1, 2),
             selected_candidate_index=2,
-            reparsed_case_name="Brown v. Board",
-            reparsed_docket_number=None,
-            reparsed_court=None,
-            reparsed_date="1954",
-            reparsed_pin_cite=None,
             rationale="Candidate 2 is the representative record.",
             depends_on=(summary.node_id,),
         )
@@ -1325,11 +1308,6 @@ def test_model_choice_with_court_mismatch_defers_to_future_semantics(
             outcome=MelleaLocatorCandidateChoiceOutcome.SELECTED,
             candidate_indices=(1,),
             selected_candidate_index=1,
-            reparsed_case_name="Brown v. Board",
-            reparsed_docket_number=None,
-            reparsed_court="scotus",
-            reparsed_date="1954",
-            reparsed_pin_cite=None,
             rationale="This is the only candidate.",
             depends_on=(summary.node_id,),
         )
