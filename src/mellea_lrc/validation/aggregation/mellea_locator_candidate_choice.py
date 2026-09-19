@@ -55,7 +55,8 @@ candidates. When a field is absent in local_context, return null for it.
 
 For a docket-derived candidate, case_filed_year is the date the case began.
 It is not the date of an order or opinion cited in local_context, so it cannot
-confirm or contradict that citation's decision date.
+directly verify that citation's decision date. It can only establish whether
+the dates are chronologically compatible.
 """.strip()
 
 CHOICE_INSTRUCTION = """
