@@ -37,6 +37,8 @@ CONTEXT_AFTER_CHARS = 240
 CHOICE_MAX_TOKENS = 512
 CHOICE_MAX_REPAIR_TURNS = 2
 
+# TODO: Opinion reading could refine a tie, but it belongs to the later opinion
+# stage and must not be coupled to this root-identity decision yet.
 CHOICE_INSTRUCTION = """
 The filing contains one target reporter citation marked by locator. Read only
 local_context and the complete list of retrieved candidates. Reparse the
