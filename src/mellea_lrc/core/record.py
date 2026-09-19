@@ -153,6 +153,9 @@ class Question(str, Enum):
     shared.
     """
 
+    LOCATOR_LOOKUP = "locator_lookup"
+    """What did the exact complete-locator lookup return?"""
+
     IDENTITY = "identity"
     """Does this citation reach the authority it names?"""
 
@@ -441,25 +444,19 @@ class CitationRecord:
         self.observe(node)
         self.corrections = (
             *self.corrections,
-            Correction(
-                field=field_name, before=before, after=value, reason=reason, node_id=node.node_id
-            ),
+            Correction(field=field_name, before=before, after=value, reason=reason, node_id=node.node_id),
         )
         self.stated = replace(self.stated, **{field_name: value})
         return node
 
-    def judge(
-        self, node: Node, question: Question, outcome: str, *, message: str | None = None
-    ) -> Node:
+    def judge(self, node: Node, question: Question, outcome: str, *, message: str | None = None) -> Node:
         """Answer one question about this citation, on the evidence of `node`.
 
         Answering one leaves every other question as it was, so a later stage
         adds a finding rather than replacing one.
         """
         self.observe(node)
-        self.judgements[question] = Judgement(
-            outcome=outcome, node_id=node.node_id, message=message
-        )
+        self.judgements[question] = Judgement(outcome=outcome, node_id=node.node_id, message=message)
         return node
 
     def judgement(self, question: Question) -> Judgement:
