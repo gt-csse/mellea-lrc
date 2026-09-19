@@ -65,7 +65,7 @@ class FuzzinessOption:
 
     @classmethod
     def whitespace_relaxation(cls) -> FuzzinessOption:
-        """Permit only differences in whitespace runs."""
+        """Permit arbitrary whitespace insertion, removal, or run variation only."""
         return cls(types=frozenset({FuzzinessType.WHITESPACE_RELAXATION}))
 
     @classmethod

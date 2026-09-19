@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import mellea_lrc.validation.docket_roots as docket_roots
 from mellea_lrc.api import (
     Document,
     find_docket_locators,
@@ -24,6 +25,11 @@ from mellea_lrc.core.record import CitationRecord
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import CourtListenerCitationLookup, CourtListenerSearchResult
 from mellea_lrc.extraction import extract_from_plain_text
+from mellea_lrc.validation.types import (
+    MelleaDocketNumberReviewNode,
+    MelleaDocketNumberReviewOutcome,
+    ValidationNodeStatus,
+)
 
 
 def test_document_owns_its_serialization_before_and_after_identity() -> None:
@@ -85,7 +91,9 @@ class _OrderedNoResultClient:
         return CourtListenerCitationLookup(citation=f"{volume} {reporter} {page}", status=404, clusters=())
 
 
-def test_root_identity_composition_preserves_each_docket_and_reporter_checkpoint() -> None:
+def test_root_identity_composition_preserves_each_docket_and_reporter_checkpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     text = "x" * 200
     document = Document.from_plain_text(text)
     docket = CitationRecord(
@@ -108,13 +116,34 @@ def test_root_identity_composition_preserves_each_docket_and_reporter_checkpoint
     )
     client = _OrderedNoResultClient()
 
-    completed = asyncio.run(validate_roots_identity(form_roots(replace(document, citations=(docket, reporter))), client=client))
+    async def no_docket_number_review(record, **kwargs):
+        return MelleaDocketNumberReviewNode(
+            node_id=f"{record.citation_id}:mellea_docket_number_review",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaDocketNumberReviewOutcome.NO_DOCKET_NUMBER,
+            source_locator="1:24-cv-00123",
+            extracted_docket_number="1:24-cv-00123",
+            proposed_docket_number=None,
+            grounded_docket_number=None,
+            reason="The source locator is masked in this composition-only test.",
+            depends_on=("docket:locator_identity_resolution",),
+        )
+
+    monkeypatch.setattr(docket_roots, "run_mellea_docket_number_review", no_docket_number_review)
+
+    completed = asyncio.run(
+        validate_roots_identity(form_roots(replace(document, citations=(docket, reporter))), client=client)
+    )
 
     assert client.calls == ["docket:1:24-cv-00123:d", "reporter:347 U.S. 483"]
-    assert completed.passes[-6:] == (
+    assert completed.passes[-10:] == (
         "docket_root_search",
         "docket_root_unique_identity",
         "docket_root_ambiguity_resolution",
+        "docket_root_locator_review",
+        "docket_root_relookup",
+        "docket_root_relookup_unique_identity",
+        "docket_root_relookup_ambiguity_resolution",
         "full_reporter_locator_exact_lookup",
         "full_reporter_locator_unique_identity",
         "full_reporter_locator_ambiguity_resolution",
@@ -122,16 +151,17 @@ def test_root_identity_composition_preserves_each_docket_and_reporter_checkpoint
 
 
 def test_root_and_leaf_composition_can_run_without_identity_validation() -> None:
-    document = Document.from_source(
-        "Bell Atlantic Corp. v. Twombly, 550 U.S. 544 (2007). Id. at 570."
-    )
+    document = Document.from_source("Bell Atlantic Corp. v. Twombly, 550 U.S. 544 (2007). Id. at 570.")
 
     roots = asyncio.run(grow_roots(document))
     grown = asyncio.run(grow_leaves(roots))
 
     assert "root_formation" in roots.passes
     assert grown.passes[-1] == "leaf_growth"
-    assert any(citation.root_id is not None and citation.citation_id != citation.root_id for citation in grown.citations)
+    assert any(
+        citation.root_id is not None and citation.citation_id != citation.root_id
+        for citation in grown.citations
+    )
 
 
 def test_compositional_leaf_growth_requires_explicit_root_formation() -> None:
