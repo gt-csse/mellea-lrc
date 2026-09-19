@@ -19,10 +19,11 @@ from pathlib import Path
 
 from evaluations.extraction.run import read_body
 from mellea_lrc.api import (
+    Document,
+    grow_roots,
     validate_roots_identity,
 )
 from mellea_lrc.courtlistener import CourtListenerClient
-from mellea_lrc.extraction import extract_from_plain_text
 from mellea_lrc.llm import start_mellea_session_from_env
 
 
@@ -40,8 +41,9 @@ async def validate_corpus(corpus: list[tuple[str, str]]) -> list[tuple[str, dict
     session = start_mellea_session_from_env()
     runs: list[tuple[str, dict]] = []
     for stem, body in corpus:
-        extracted = extract_from_plain_text(body, source_path=stem)
-        document = await validate_roots_identity(extracted, client=client, session=session)
+        document = Document.from_plain_text(body, source_path=stem)
+        document = await grow_roots(document)
+        document = await validate_roots_identity(document, client=client, session=session)
         runs.append((stem, document.serialize()))
         print(f"  {stem[:40]:<40} {len(document.citations):>4} citations")
     return runs

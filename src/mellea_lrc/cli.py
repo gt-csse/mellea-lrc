@@ -21,43 +21,30 @@ from pathlib import Path
 
 from mellea_lrc.api import (
     Document,
-    find_docket_locators,
-    find_full_reporter_locators,
-    form_roots,
-    lookup_full_reporter_locators_exact,
-    resolve_case_names,
-    resolve_colocations,
-    resolve_courts,
-    resolve_dates,
-    resolve_full_reporter_locator_ambiguities,
-    stable,
-    validate_unique_full_reporter_locator_identities,
+    grow_leaves,
+    grow_roots,
+    validate_roots_identity,
 )
 
 
-def _parse(source: str, *, from_file: bool) -> Document:
+async def _parse(source: str, *, from_file: bool) -> Document:
     """Run the explicit locator-to-root chain used before identity validation."""
     document = Document.from_source(Path(source) if from_file else source)
-    rules = stable()
-    document = find_full_reporter_locators(document, rules=rules)
-    document = find_docket_locators(document, rules=rules)
-    document = resolve_colocations(document, rules=rules)
-    document = resolve_case_names(document, rules=rules)
-    document = resolve_courts(document, rules=rules)
-    document = resolve_dates(document, rules=rules)
-    return form_roots(document)
+    return await grow_roots(document)
 
 
 def _validate(args: argparse.Namespace) -> int:
     """Parse the source, then check every citation it contains."""
-    document = _parse(args.source, from_file=args.from_file)
-    print(
-        f"Formed {sum(citation.is_root for citation in document.active_citations)} roots; validating",
-        file=sys.stderr,
-    )
-    document = asyncio.run(lookup_full_reporter_locators_exact(document))
-    document = asyncio.run(validate_unique_full_reporter_locator_identities(document))
-    document = asyncio.run(resolve_full_reporter_locator_ambiguities(document))
+    async def run() -> Document:
+        document = await _parse(args.source, from_file=args.from_file)
+        print(
+            f"Formed {sum(citation.is_root for citation in document.active_citations)} roots; validating",
+            file=sys.stderr,
+        )
+        document = await validate_roots_identity(document)
+        return await grow_leaves(document)
+
+    document = asyncio.run(run())
 
     text = json.dumps(document.serialize(), indent=2, ensure_ascii=False)
     if args.output is None:

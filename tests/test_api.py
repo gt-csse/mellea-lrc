@@ -1,18 +1,28 @@
 """Tests for the outer compositional API."""
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from mellea_lrc.api import (
     Document,
     find_docket_locators,
     find_full_reporter_locators,
     form_roots,
+    grow_leaves,
+    grow_roots,
     lookup_full_reporter_locators_exact,
     resolve_colocations,
     resolve_full_reporter_locator_ambiguities,
+    validate_roots_identity,
     validate_unique_full_reporter_locator_identities,
 )
+from mellea_lrc.core.citations import DocketCitation, FullCaseCitation, placed
+from mellea_lrc.core.record import CitationRecord
+from mellea_lrc.core.spans import Span
+from mellea_lrc.courtlistener import CourtListenerCitationLookup, CourtListenerSearchResult
 from mellea_lrc.extraction import extract_from_plain_text
 
 
@@ -49,3 +59,81 @@ def test_document_from_source_preserves_a_path_as_source_provenance(tmp_path: Pa
     document = Document.from_source(path)
 
     assert document.source_path == str(path)
+
+
+class _OrderedNoResultClient:
+    """Records the two independent root retrieval routes without model work."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def search(self, query: str, search_type: str, cursor: str | None = None, *, semantic: bool = False):
+        del cursor
+        self.calls.append(f"docket:{query}:{search_type}")
+        return CourtListenerSearchResult.from_payload(
+            query=query,
+            search_type=search_type,
+            semantic=semantic,
+            count=0,
+            results=[],
+            next_cursor=None,
+            previous_cursor=None,
+        )
+
+    def lookup_citation(self, volume: str, reporter: str, page: str) -> CourtListenerCitationLookup:
+        self.calls.append(f"reporter:{volume} {reporter} {page}")
+        return CourtListenerCitationLookup(citation=f"{volume} {reporter} {page}", status=404, clusters=())
+
+
+def test_root_identity_composition_preserves_each_docket_and_reporter_checkpoint() -> None:
+    text = "x" * 200
+    document = Document.from_plain_text(text)
+    docket = CitationRecord(
+        citation_id="docket",
+        source=placed(
+            DocketCitation(docket_number="1:24-cv-00123"),
+            span=Span(10, 26),
+            locator_span=Span(10, 26),
+            matched_text="1:24-cv-00123",
+        ),
+    )
+    reporter = CitationRecord(
+        citation_id="reporter",
+        source=placed(
+            FullCaseCitation(volume="347", reporter="U.S.", page="483"),
+            span=Span(50, 62),
+            locator_span=Span(50, 62),
+            matched_text="347 U.S. 483",
+        ),
+    )
+    client = _OrderedNoResultClient()
+
+    completed = asyncio.run(validate_roots_identity(form_roots(replace(document, citations=(docket, reporter))), client=client))
+
+    assert client.calls == ["docket:1:24-cv-00123:d", "reporter:347 U.S. 483"]
+    assert completed.passes[-6:] == (
+        "docket_root_search",
+        "docket_root_unique_identity",
+        "docket_root_ambiguity_resolution",
+        "full_reporter_locator_exact_lookup",
+        "full_reporter_locator_unique_identity",
+        "full_reporter_locator_ambiguity_resolution",
+    )
+
+
+def test_root_and_leaf_composition_can_run_without_identity_validation() -> None:
+    document = Document.from_source(
+        "Bell Atlantic Corp. v. Twombly, 550 U.S. 544 (2007). Id. at 570."
+    )
+
+    roots = asyncio.run(grow_roots(document))
+    grown = asyncio.run(grow_leaves(roots))
+
+    assert "root_formation" in roots.passes
+    assert grown.passes[-1] == "leaf_growth"
+    assert any(citation.root_id is not None and citation.citation_id != citation.root_id for citation in grown.citations)
+
+
+def test_compositional_leaf_growth_requires_explicit_root_formation() -> None:
+    with pytest.raises(ValueError, match="Leaf growth requires root_formation"):
+        asyncio.run(grow_leaves(Document.from_source("Id. at 570.")))
