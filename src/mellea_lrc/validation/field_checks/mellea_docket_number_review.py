@@ -56,9 +56,10 @@ DOCKET_NUMBER_GROUNDING = FuzzinessOption.edit_distance(
 _LEADING_DOCKET_LABEL = re.compile(DOCKET_PREFIX, re.IGNORECASE)
 _PLURAL_CASE_LABEL = re.compile(r"\bCase\s+Nos?\.\s*", re.IGNORECASE)
 _SOURCE_DOCKET_SEQUENCE = re.compile(
-    r"\d(?:[A-Za-z0-9:./\\-]|\s+(?!and\b))*[A-Za-z0-9]",
-    re.IGNORECASE,
+    r"[A-Za-z0-9:./\\-]+(?:\s+[A-Za-z0-9:./\\-]+)*",
 )
+_SOURCE_DOCKET_SEPARATOR = re.compile(r"\s+\band\b\s+", re.IGNORECASE)
+
 
 # This prefix contains the stable recovery contract only. The filing and its
 # particular identifier are supplied separately, which keeps a provider prefix
@@ -66,9 +67,10 @@ _SOURCE_DOCKET_SEQUENCE = re.compile(
 DOCKET_NUMBER_REVIEW_PREFIX = """
 Read one docket locator from a legal filing after a CourtListener docket search
 found no matching record. Decide only what docket number the filing actually
-writes. A docket number is the court-assigned identifier for a case or
-proceeding; it is not an ECF entry number, an exhibit number, a statute, or a
-page number.
+writes. Compare the prior extracted value against source_locator and correct it
+when the extractor copied a character or boundary incorrectly. A docket number
+is the court-assigned identifier for a case or proceeding; it is not an ECF
+entry number, an exhibit number, a statute, or a page number.
 
 Return the docket-number portion exactly as it appears inside source_locator.
 Do not normalize punctuation, add digits, infer a value from outside knowledge,
@@ -82,6 +84,9 @@ reason.
 INSTRUCTION = """
 source_locator:
 {{source_locator}}
+
+extracted_docket_number:
+{{extracted_docket_number}}
 
 The surrounding target-only filing context is below. Other citation locators
 are blanked. Use it only to decide whether source_locator is a docket number;
@@ -104,7 +109,7 @@ def _parse(value: object) -> _DocketNumberProposal:
 
 
 def _grounded_candidates(source_locator: str) -> GroundingEvidence[str]:
-    """Expose complete digit-led identifier sequences as grounding evidence.
+    """Expose complete digit-bearing identifier sequences as grounding evidence.
 
     The locator is short. Each sequence ends at a separator or the connective
     ``and`` rather than at every possible character position. That preserves
@@ -114,10 +119,15 @@ def _grounded_candidates(source_locator: str) -> GroundingEvidence[str]:
     jurisdiction-specific docket grammar is needed to ground a reparse.
     """
     source_number = _source_number_region(source_locator)
-    return GroundingEvidence(
-        EvidenceCandidate(text=match.group(), value=match.group())
-        for match in _SOURCE_DOCKET_SEQUENCE.finditer(source_number)
-    )
+    candidates = []
+    for portion in _SOURCE_DOCKET_SEPARATOR.split(source_number):
+        # A conjunction joins complete locators; it is never part of the
+        # identifier itself. Read only the first opaque token sequence in each
+        # portion, so a parenthetical court/date cannot become new evidence.
+        match = _SOURCE_DOCKET_SEQUENCE.match(portion.strip())
+        if match is not None and any(character.isdigit() for character in match.group()):
+            candidates.append(EvidenceCandidate(text=match.group(), value=match.group()))
+    return GroundingEvidence(candidates)
 
 
 def _source_number_region(source_locator: str) -> str:
@@ -220,6 +230,8 @@ async def run_mellea_docket_number_review(
     """Re-read a failed docket root once and ground any replacement in source text."""
     source_locator = document.text[record.locator_span.start : record.locator_span.end]
     context = masked_root_context(document, record)
+    citation = record.stated
+    extracted = citation.docket_number if isinstance(citation, DocketCitation) else None
     try:
         result = await run_instruct_ivr(
             session or start_mellea_session_from_env(),
@@ -227,7 +239,10 @@ async def run_mellea_docket_number_review(
                 description=INSTRUCTION,
                 prefix=DOCKET_NUMBER_REVIEW_PREFIX,
                 grounding_context={"local_context": context.text},
-                user_variables={"source_locator": source_locator},
+                user_variables={
+                    "source_locator": source_locator,
+                    "extracted_docket_number": extracted or "(not extracted)",
+                },
                 output_format=_DocketNumberProposal,
                 requirements=[
                     req(
@@ -279,8 +294,6 @@ async def run_mellea_docket_number_review(
         )
 
     grounded = _grounded_number(source_locator, proposal.docket_number)
-    citation = record.stated
-    extracted = citation.docket_number if isinstance(citation, DocketCitation) else None
     if grounded is None:
         return _node(
             record=record,

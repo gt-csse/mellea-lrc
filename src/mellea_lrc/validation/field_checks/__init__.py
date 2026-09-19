@@ -7,6 +7,9 @@ from mellea_lrc.validation.field_checks.mellea_case_name_check import run_mellea
 from mellea_lrc.validation.field_checks.mellea_case_name_reextraction import (
     run_mellea_case_name_reextraction,
 )
+from mellea_lrc.validation.field_checks.mellea_docket_number_equivalence import (
+    run_mellea_docket_number_equivalence_check,
+)
 from mellea_lrc.validation.field_checks.year_check import run_year_check
 
 __all__ = [
@@ -15,5 +18,6 @@ __all__ = [
     "run_exact_case_name_check",
     "run_mellea_case_name_check",
     "run_mellea_case_name_reextraction",
+    "run_mellea_docket_number_equivalence_check",
     "run_year_check",
 ]
