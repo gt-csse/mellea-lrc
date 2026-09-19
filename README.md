@@ -151,16 +151,27 @@ is read out of the text around the citation, so there has to be one there.
 
 ### The Python API
 
-Extraction takes a `str` as content or a `Path` as a location:
+The public API composes named stages over one `Document`. A `str` is content;
+a `Path` is a source to preprocess. Every transition returns a `Document`, so
+you can serialize it at any checkpoint and resume it later:
 
 ```python
 from pathlib import Path
 
-from mellea_lrc.extraction import extract
+from mellea_lrc.api import (
+    Document,
+    find_docket_locators,
+    find_full_reporter_locators,
+    resolve_colocations,
+)
 
-document = extract(Path("filing.pdf"))
-for citation in document.full_citations:
-    print(citation.matched_text, citation.locator_span)
+document = Document.from_source(Path("filing.pdf"))
+document = find_full_reporter_locators(document)
+document = find_docket_locators(document)
+document = resolve_colocations(document)
+
+payload = document.serialize()
+document = Document.from_serialized(payload)
 ```
 
 Validation is async, and reads `COURTLISTENER_API_TOKEN` and `MELLEA_LRC_LLM_*`
@@ -169,13 +180,16 @@ from the environment:
 ```python
 import asyncio
 
-from mellea_lrc.validation import (
-    initialize_full_reporter_locator_identity,
+from mellea_lrc.api import (
+    ValidatedDocument,
     run_full_reporter_locator_identity,
+    start_full_reporter_locator_identity,
 )
 
-checkpoint = initialize_full_reporter_locator_identity(document)
+checkpoint = start_full_reporter_locator_identity(document)
 validated = asyncio.run(run_full_reporter_locator_identity(checkpoint))
+payload = validated.serialize()
+validated = ValidatedDocument.from_serialized(payload)
 for entry in validated.citations:
     print(entry.citation_id, entry.aggregation)
 ```
