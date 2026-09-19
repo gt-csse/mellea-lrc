@@ -111,6 +111,79 @@ class CitationValidationRunner:
             )
         return validation
 
+    async def run_identity_validation(
+        self,
+        validation: CitationValidation,
+        *,
+        document_text: str,
+        session: MelleaSession | None = None,
+    ) -> CitationValidation:
+        """Run a locator through identity only, stopping before pinpoint work.
+
+        This is the checkpoint-to-identity boundary.  It retains exact lookup,
+        bounded candidate inspection, field checks, and the existing
+        lookup-miss search path.  It deliberately does not retrieve a reporter
+        page, extract a citing proposition, or check a pin cite: those are a
+        later stage that depends on a settled identity result.
+        """
+        exact_locator_lookup_node = run_exact_locator_lookup(validation, client=self.client)
+        validation = validation.append(exact_locator_lookup_node)
+
+        if exact_locator_lookup_node.outcome is LocatorLookupOutcome.FOUND:
+            return await self.run_locator_found_identity(
+                validation,
+                lookup=exact_locator_lookup_node,
+                document_text=document_text,
+                session=session,
+            )
+        if exact_locator_lookup_node.outcome is LocatorLookupOutcome.NOT_FOUND:
+            return await self.run_locator_not_found(
+                validation,
+                lookup=exact_locator_lookup_node,
+                document_text=document_text,
+                session=session,
+            )
+        if exact_locator_lookup_node.outcome is LocatorLookupOutcome.AMBIGUOUS:
+            return await self.run_locator_ambiguous(
+                validation,
+                lookup=exact_locator_lookup_node,
+                document_text=document_text,
+                session=session,
+            )
+        return validation
+
+    async def run_locator_found_identity(
+        self,
+        validation: CitationValidation,
+        *,
+        lookup: ExactLocatorLookupNode,
+        document_text: str,
+        session: MelleaSession | None,
+    ) -> CitationValidation:
+        """Check a unique locator candidate without entering pinpoint work."""
+        if lookup.outcome is not LocatorLookupOutcome.FOUND:
+            msg = "run_locator_found_identity requires a found locator"
+            raise ValueError(msg)
+        if lookup.cluster is None:
+            msg = "Found locator requires one opinion cluster"
+            raise ValueError(msg)
+        candidate = run_locator_candidate_evaluation(
+            validation,
+            cluster=lookup.cluster,
+            candidate_index=1,
+            depends_on=(lookup.node_id,),
+        )
+        validation = validation.append(candidate)
+        validation = await self.run_locator_candidate_validation(
+            validation,
+            lookup=lookup,
+            candidate=candidate,
+            document_text=document_text,
+            session=session,
+            state=CandidateValidationState(),
+        )
+        return validation.append(run_locator_citation_summary(validation))
+
     async def run_locator_found(
         self,
         validation: CitationValidation,

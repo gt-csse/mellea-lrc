@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from mellea_lrc.llm import (
     InstructIvrSpec,
+    IvrRun,
     llm_api_config_from_env,
     run_instruct_ivr,
     start_mellea_session_from_env,
@@ -124,6 +125,7 @@ async def run_mellea_case_name_reextraction(
                 status_message="Local case-name re-extraction exhausted its repair attempts.",
                 outcome_message="Local case-name re-extraction did not satisfy its grounding requirements.",
                 error="Case-name re-extraction exhausted its repair budget",
+                run=result,
             )
         proposal = _proposal(result.output)
     except Exception as exc:
@@ -155,6 +157,7 @@ async def run_mellea_case_name_reextraction(
             MelleaCaseNameReextractionOutcome.PARTIAL: "Re-extracted one case party from local context.",
             MelleaCaseNameReextractionOutcome.NOT_FOUND: "No case parties were found before the locator.",
         }[outcome],
+        run=result,
     )
 
 
@@ -169,6 +172,7 @@ def _node(
     status_message: str | None = None,
     outcome_message: str | None = None,
     error: str | None = None,
+    run: IvrRun | None = None,
 ) -> MelleaCaseNameReextractionNode:
     return MelleaCaseNameReextractionNode(
         node_id=f"{trigger.node_id}:mellea_case_name_reextraction",
@@ -180,6 +184,7 @@ def _node(
         status_message=status_message,
         outcome_message=outcome_message,
         error=error,
+        run=run,
     )
 
 

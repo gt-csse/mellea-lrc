@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.llm import (
     InstructIvrSpec,
+    IvrRun,
     llm_api_config_from_env,
     run_instruct_ivr,
     start_mellea_session_from_env,
@@ -137,6 +138,7 @@ async def run_mellea_case_name_query_preparation(
                 status_message="Case-name query preparation exhausted its repair attempts.",
                 outcome_message="No CourtListener case-name query is available.",
                 error="Case-name query preparation exhausted its repair budget",
+                run=result,
             )
         terms = _proposal(result.output)
         query = _query(terms, court_id)
@@ -162,6 +164,7 @@ async def run_mellea_case_name_query_preparation(
         query_defendant=terms.query_defendant,
         status_message="Case-name query preparation completed.",
         outcome_message="Prepared one CourtListener case-name query from both re-extracted parties.",
+        run=result,
     )
 
 
@@ -178,6 +181,7 @@ def _node(
     status_message: str | None = None,
     outcome_message: str | None = None,
     error: str | None = None,
+    run: IvrRun | None = None,
 ) -> MelleaCaseNameQueryPreparationNode:
     return MelleaCaseNameQueryPreparationNode(
         node_id=f"{validation.citation_id}:mellea_case_name_query_preparation",
@@ -191,6 +195,7 @@ def _node(
         status_message=status_message,
         outcome_message=outcome_message,
         error=error,
+        run=run,
     )
 
 

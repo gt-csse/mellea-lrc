@@ -24,6 +24,21 @@ class RootContext:
     start: int
     end: int
 
+    def as_document_text(self, *, document_length: int) -> str:
+        """Place this local view back in an otherwise blank document.
+
+        Older, locator-scoped readers accept document text and calculate their
+        own local offsets.  This adapter lets those readers use the target-only
+        window without changing their coordinate contract.
+        """
+        if self.start < 0 or self.end < self.start or self.end > document_length:
+            msg = "Root context falls outside its source document"
+            raise ValueError(msg)
+        if len(self.text) != self.end - self.start:
+            msg = "Root context text length must equal its source interval"
+            raise ValueError(msg)
+        return " " * self.start + self.text + " " * (document_length - self.end)
+
 
 def masked_root_context(
     document: Document,

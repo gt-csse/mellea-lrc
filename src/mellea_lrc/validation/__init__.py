@@ -1,6 +1,10 @@
 """Post-extraction citation validation."""
 
-from mellea_lrc.validation.pipeline import initialize_validation, validate_document
+from mellea_lrc.validation.pipeline import (
+    initialize_validation,
+    validate_document,
+    validate_document_identity,
+)
 from mellea_lrc.validation.types import (
     AggregatedFieldOutcome,
     CandidateAssessmentOutcome,
@@ -109,4 +113,5 @@ __all__ = [
     "YearCheckNode",
     "initialize_validation",
     "validate_document",
+    "validate_document_identity",
 ]

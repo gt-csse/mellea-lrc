@@ -19,6 +19,7 @@ from mellea_lrc.serialization.document import (
     deserialize_document,
     serialize_document,
 )
+from mellea_lrc.serialization.ivr import deserialize_ivr_run
 from mellea_lrc.validation.types import (
     AggregatedFieldOutcome,
     CandidateEvaluationNode,
@@ -127,6 +128,15 @@ _OUTCOME_TYPES = {
     YearCheckNode: FieldCheckOutcome,
 }
 
+_IVR_NODE_TYPES = frozenset(
+    {
+        MelleaCaseNameCheckNode,
+        MelleaCaseNameReextractionNode,
+        MelleaCaseNameQueryPreparationNode,
+        MelleaReextractedCaseNameCheckNode,
+    }
+)
+
 
 def serialize_validated_document(document: ValidatedDocument) -> dict[str, JsonValue]:
     """Project one ``ValidatedDocument`` into a recoverable JSON artifact."""
@@ -192,6 +202,11 @@ def _deserialize_node(value: object) -> ValidationNode:
     fields["status"] = ValidationNodeStatus(fields["status"])
     fields["outcome"] = _OUTCOME_TYPES[node_type](fields["outcome"])
     fields["depends_on"] = tuple(require_list(fields["depends_on"], name="node.depends_on"))
+    if node_type in _IVR_NODE_TYPES:
+        run = fields.get("run")
+        fields["run"] = (
+            deserialize_ivr_run(require_mapping(run, name="node.run")) if run is not None else None
+        )
 
     if node_type is ExactLocatorLookupNode:
         fields["cluster"] = _deserialize_cluster(fields["cluster"]) if fields["cluster"] is not None else None

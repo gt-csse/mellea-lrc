@@ -21,3 +21,4 @@ def test_masked_root_context_keeps_only_the_target_citation_readable() -> None:
     assert "200 U.S. 2" not in context.text
     assert "Gamma v. Delta" not in context.text
     assert len(context.text) == len(text)
+    assert context.as_document_text(document_length=len(text)) == context.text

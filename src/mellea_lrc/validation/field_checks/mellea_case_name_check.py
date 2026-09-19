@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from mellea_lrc.llm import (
     InstructIvrSpec,
+    IvrRun,
     llm_api_config_from_env,
     run_instruct_ivr,
     start_mellea_session_from_env,
@@ -94,6 +95,7 @@ async def run_mellea_case_name_check(
                 exact_node,
                 "Semantic case-name check exhausted its repair budget",
                 status_message="Mellea semantic case-name comparison exhausted its repair attempts.",
+                run=result,
             )
         verdict = _parse(result.output).verdict
     except Exception as exc:
@@ -116,6 +118,7 @@ async def run_mellea_case_name_check(
             if verdict == "match"
             else "Mellea judged the extracted and retrieved case names to identify different cases."
         ),
+        run=result,
     )
 
 
@@ -133,6 +136,7 @@ def _failed_node(
     error: str,
     *,
     status_message: str,
+    run: IvrRun | None = None,
 ) -> MelleaCaseNameCheckNode:
     return MelleaCaseNameCheckNode(
         node_id=f"{exact_node.node_id}:mellea_case_name_check",
@@ -144,6 +148,7 @@ def _failed_node(
         status_message=status_message,
         outcome_message="No semantic case-name verdict is available.",
         error=error,
+        run=run,
     )
 
 
@@ -167,7 +172,7 @@ async def _run_reextracted_check(
             status_message="Skipped semantic comparison because re-extracted or retrieved evidence is missing.",
             outcome_message="Semantic case-name comparison is unavailable because one case name is missing.",
         )
-    status, outcome, status_message, outcome_message, error = await _semantic_outcome(
+    status, outcome, status_message, outcome_message, error, run = await _semantic_outcome(
         extracted,
         retrieved,
         session,
@@ -182,6 +187,7 @@ async def _run_reextracted_check(
         status_message=status_message,
         outcome_message=outcome_message,
         error=error,
+        run=run,
     )
 
 
@@ -201,6 +207,7 @@ async def _semantic_outcome(
     str,
     str,
     str | None,
+    IvrRun | None,
 ]:
     try:
         spec = InstructIvrSpec(
@@ -229,6 +236,7 @@ async def _semantic_outcome(
                     else "Mellea judged the re-extracted and retrieved case names to identify different cases."
                 ),
                 None,
+                result,
             )
         return (
             ValidationNodeStatus.FAILED,
@@ -236,6 +244,7 @@ async def _semantic_outcome(
             "Mellea semantic case-name comparison exhausted its repair attempts.",
             "No semantic case-name verdict is available.",
             "Semantic case-name check exhausted its repair budget",
+            result,
         )
     except Exception as exc:
         return (
@@ -244,4 +253,5 @@ async def _semantic_outcome(
             "Mellea semantic case-name comparison failed during execution.",
             "No semantic case-name verdict is available.",
             f"{type(exc).__name__}: {exc}",
+            None,
         )

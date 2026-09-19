@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from mellea_lrc.core.spans import Span
     from mellea_lrc.courtlistener.opinion_models import CourtListenerOpinionCluster
     from mellea_lrc.extraction.types import CitationRecord, Document
+    from mellea_lrc.llm import IvrRun
 
 
 class ValidationNodeStatus(str, Enum):
@@ -277,6 +278,7 @@ class MelleaCaseNameCheckNode:
     status_message: str | None = None
     outcome_message: str | None = None
     error: str | None = None
+    run: IvrRun | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,6 +294,7 @@ class MelleaCaseNameReextractionNode:
     status_message: str | None = None
     outcome_message: str | None = None
     error: str | None = None
+    run: IvrRun | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,6 +312,7 @@ class MelleaCaseNameQueryPreparationNode:
     status_message: str | None = None
     outcome_message: str | None = None
     error: str | None = None
+    run: IvrRun | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -398,6 +402,7 @@ class MelleaReextractedCaseNameCheckNode:
     status_message: str | None = None
     outcome_message: str | None = None
     error: str | None = None
+    run: IvrRun | None = None
 
 
 @dataclass(frozen=True, slots=True)

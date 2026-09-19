@@ -449,6 +449,19 @@ def test_validated_document_round_trip_supports_every_current_node_type() -> Non
         court_id="scotus",
         docket_id="42",
     )
+    ivr_run = IvrRun(
+        success=True,
+        selected_attempt=0,
+        attempts=(IvrAttempt(output='{"verdict":"match"}', requirements=()),),
+        backend="OpenAIBackend",
+        model="z-ai/glm-5.3-flash",
+        model_options={"max_tokens": 128},
+        instruction="Classify case names.",
+        prefix=None,
+        grounding_context={},
+        user_variables={"extracted_case_name": "Brown v. Board"},
+        output_schema={"type": "object"},
+    )
     nodes = (
         ExactLocatorLookupNode(
             node_id=lookup_id,
@@ -473,6 +486,7 @@ def test_validated_document_round_trip_supports_every_current_node_type() -> Non
             extracted_case_name="Brown v. Board",
             retrieved_case_name=cluster.case_name or "",
             depends_on=(exact_id,),
+            run=ivr_run,
         ),
         MelleaCaseNameReextractionNode(
             node_id=reextraction_id,
