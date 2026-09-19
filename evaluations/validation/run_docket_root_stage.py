@@ -25,10 +25,10 @@ from dotenv import load_dotenv
 
 from mellea_lrc.api import (
     Document,
+    reextract_unresolved_docket_root_citations,
     relookup_reviewed_docket_roots,
     resolve_docket_root_ambiguities,
     resolve_relooked_up_docket_root_ambiguities,
-    review_unresolved_docket_root_locators,
     search_docket_roots,
     validate_unique_docket_root_identities,
     validate_unique_relooked_up_docket_root_identities,
@@ -40,7 +40,7 @@ Stage = Literal[
     "search",
     "unique-identity",
     "ambiguity-resolution",
-    "docket-number-review",
+    "docket-citation-reextraction",
     "relookup-search",
     "relookup-unique-identity",
     "relookup-ambiguity-resolution",
@@ -51,7 +51,7 @@ _MODEL_STAGES = frozenset(
     {
         "unique-identity",
         "ambiguity-resolution",
-        "docket-number-review",
+        "docket-citation-reextraction",
         "relookup-unique-identity",
         "relookup-ambiguity-resolution",
     }
@@ -151,7 +151,11 @@ async def run(
         "document_count": len(result_paths),
         "documents": result_paths,
         "outcomes": dict(sorted(outcomes.items())),
-        **({"model": llm_api_config_from_env(os.environ).model} if stage in _MODEL_STAGES else {"model": None}),
+        **(
+            {"model": llm_api_config_from_env(os.environ).model}
+            if stage in _MODEL_STAGES
+            else {"model": None}
+        ),
     }
 
 
@@ -193,8 +197,8 @@ async def _run_stage(
         return await validate_unique_docket_root_identities(document, session=session)
     if stage == "ambiguity-resolution":
         return await resolve_docket_root_ambiguities(document, session=session)
-    if stage == "docket-number-review":
-        return await review_unresolved_docket_root_locators(document, session=session)
+    if stage == "docket-citation-reextraction":
+        return await reextract_unresolved_docket_root_citations(document, session=session)
     if stage == "relookup-search":
         return await relookup_reviewed_docket_roots(document, client=service)
     if stage == "relookup-unique-identity":
@@ -209,8 +213,8 @@ def _outcomes(payload: dict[str, object], *, stage: Stage) -> Counter[str]:
     """Read first-class docket-root judgements rather than inferring trace state."""
     if stage in _SEARCH_STAGES:
         question = "docket_lookup"
-    elif stage == "docket-number-review":
-        question = "docket_locator_review"
+    elif stage == "docket-citation-reextraction":
+        question = "docket_citation_reextraction"
     else:
         question = "identity"
     outcomes: Counter[str] = Counter()
@@ -238,7 +242,7 @@ def main() -> None:
             "search",
             "unique-identity",
             "ambiguity-resolution",
-            "docket-number-review",
+            "docket-citation-reextraction",
             "relookup-search",
             "relookup-unique-identity",
             "relookup-ambiguity-resolution",

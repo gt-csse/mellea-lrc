@@ -49,10 +49,10 @@ from mellea_lrc.extraction.stages import (
 from mellea_lrc.extraction.structure.attachment import Attachment
 from mellea_lrc.extraction.types import Document
 from mellea_lrc.validation.docket_roots import (
+    reextract_unresolved_docket_root_citations,
     relookup_reviewed_docket_roots,
     resolve_docket_root_ambiguities,
     resolve_relooked_up_docket_root_ambiguities,
-    review_unresolved_docket_root_locators,
     search_docket_roots,
     validate_unique_docket_root_identities,
     validate_unique_relooked_up_docket_root_identities,
@@ -82,6 +82,7 @@ __all__ = [
     "hunt_docket_locators",
     "lookup_full_reporter_locators_exact",
     "mark_full_reporter_locator_hunting_skipped",
+    "reextract_unresolved_docket_root_citations",
     "relookup_reviewed_docket_roots",
     "resolve_case_names",
     "resolve_colocations",
@@ -91,7 +92,6 @@ __all__ = [
     "resolve_full_reporter_locator_ambiguities",
     "resolve_pin_cites",
     "resolve_relooked_up_docket_root_ambiguities",
-    "review_unresolved_docket_root_locators",
     "search_docket_roots",
     "stable",
     "validate_roots_identity",
@@ -148,7 +148,7 @@ async def validate_roots_identity(
 
     This convenience never merges the individual checkpoints.  A serialized
     document still records every checkpoint in order: initial docket search,
-    unique identity, ambiguity; one failed-lookup docket-number review and its
+    unique identity, ambiguity; one failed-lookup docket-citation re-extraction and its
     relookup path; then reporter exact lookup, unique identity, and ambiguity.
     The review may correct only a number grounded in the filing and is guarded
     by its own judgement, so a revised docket gets exactly one relookup rather
@@ -158,7 +158,7 @@ async def validate_roots_identity(
     document = await search_docket_roots(document, client=client)
     document = await validate_unique_docket_root_identities(document, session=session)
     document = await resolve_docket_root_ambiguities(document, session=session)
-    document = await review_unresolved_docket_root_locators(document, session=session)
+    document = await reextract_unresolved_docket_root_citations(document, session=session)
     document = await relookup_reviewed_docket_roots(document, client=client)
     document = await validate_unique_relooked_up_docket_root_identities(document, session=session)
     document = await resolve_relooked_up_docket_root_ambiguities(document, session=session)

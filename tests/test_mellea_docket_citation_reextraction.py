@@ -1,6 +1,6 @@
 """Grounding contracts for model-led docket-number recovery."""
 
-from mellea_lrc.validation.field_checks.mellea_docket_number_review import _grounded_number
+from mellea_lrc.validation.field_checks.mellea_docket_citation_reextraction import _grounded_number
 
 
 def test_docket_review_grounds_whitespace_and_minor_character_variation() -> None:

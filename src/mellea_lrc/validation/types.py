@@ -44,8 +44,8 @@ class DocketRootSearchOutcome(str, Enum):
     FAILED = "failed"
 
 
-class MelleaDocketNumberReviewOutcome(str, Enum):
-    """Results of one grounded model review of a docket locator's number."""
+class MelleaDocketCitationReextractionOutcome(str, Enum):
+    """Results of one grounded model re-reading of a full docket citation."""
 
     UNCHANGED = "unchanged"
     CORRECTED = "corrected"
@@ -511,22 +511,26 @@ class DocketNumberCheckNode:
 
 
 @dataclass(frozen=True, slots=True)
-class MelleaDocketNumberReviewNode:
-    """One source-grounded model opinion on a docket locator's identifier.
+class MelleaDocketCitationReextractionNode:
+    """One source-grounded re-reading of every stated docket-citation field.
 
-    The model can only return a number found inside the locator the filing
-    wrote.  A corrected value is therefore a correction of our earlier parse,
-    never a newly invented docket.  The node keeps the full IVR repair record;
-    its terminal outcome lets later stages tell a completed review from an
-    unasked one without traversing the trace.
+    The docket number can be corrected only to a source-grounded spelling.
+    Case name, court, date, and pin cite remain raw source evidence for their
+    dedicated parsers and comparisons; this node never normalizes them or
+    copies information from a retrieved record.
     """
 
     node_id: str
     status: ValidationNodeStatus
-    outcome: MelleaDocketNumberReviewOutcome
+    outcome: MelleaDocketCitationReextractionOutcome
+    source_citation: str
     source_locator: str
     extracted_docket_number: str | None
-    proposed_docket_number: str | None
+    reparsed_case_name: str | None
+    reparsed_docket_number: str | None
+    reparsed_court: str | None
+    reparsed_date: str | None
+    reparsed_pin_cite: str | None
     grounded_docket_number: str | None
     reason: str | None
     depends_on: tuple[str, ...]
@@ -734,8 +738,8 @@ class MelleaLocatorCandidateChoiceNode:
     """Grounded model decision for a complete, bounded locator candidate list.
 
     The model receives every reviewed candidate and target-only local context.
-    It reparses the stated fields while selecting one representative candidate
-    or returning no match.  Reading a candidate opinion could provide finer
+    It re-extracts the stated case name, docket number, court, date, and pin
+    cite while selecting one representative candidate or returning no match.  Reading a candidate opinion could provide finer
     tie-breaking, but that couples identity to the later opinion stage; keep
     that as a TODO rather than silently adding it to this checkpoint.
     """
@@ -746,8 +750,10 @@ class MelleaLocatorCandidateChoiceNode:
     candidate_indices: tuple[int, ...]
     selected_candidate_index: int | None
     reparsed_case_name: str | None
+    reparsed_docket_number: str | None
     reparsed_court: str | None
     reparsed_date: str | None
+    reparsed_pin_cite: str | None
     rationale: str | None
     depends_on: tuple[str, ...]
     status_message: str | None = None
@@ -895,7 +901,7 @@ ValidationNode: TypeAlias = (
     | MelleaReextractedCaseNameCheckNode
     | DocketCourtRetrievalNode
     | DocketNumberCheckNode
-    | MelleaDocketNumberReviewNode
+    | MelleaDocketCitationReextractionNode
     | MelleaDocketNumberEquivalenceNode
     | ReporterPageRetrievalNode
     | MelleaCitingPropositionExtractionNode

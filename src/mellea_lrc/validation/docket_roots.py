@@ -20,10 +20,7 @@ from mellea_lrc.serialization._json import serialize_dataclass
 from mellea_lrc.serialization.validated_document import deserialize_validation_node
 from mellea_lrc.validation.aggregation.citation_summary_candidate import citation_summary_candidate
 from mellea_lrc.validation.aggregation.citation_summary_outcome import overall_locator_citation_outcome
-from mellea_lrc.validation.aggregation.locator_identity import (
-    requires_mellea_locator_candidate_choice,
-    run_locator_identity_resolution,
-)
+from mellea_lrc.validation.aggregation.locator_identity import run_locator_identity_resolution
 from mellea_lrc.validation.aggregation.mellea_locator_candidate_choice import (
     run_mellea_locator_candidate_choice,
 )
@@ -31,11 +28,11 @@ from mellea_lrc.validation.candidate_evaluation import run_docket_search_candida
 from mellea_lrc.validation.field_checks.court_check import run_court_check
 from mellea_lrc.validation.field_checks.docket_number_check import run_docket_number_check
 from mellea_lrc.validation.field_checks.exact_case_name_check import run_exact_case_name_check
+from mellea_lrc.validation.field_checks.mellea_docket_citation_reextraction import (
+    run_mellea_docket_citation_reextraction,
+)
 from mellea_lrc.validation.field_checks.mellea_docket_number_equivalence import (
     run_mellea_docket_number_equivalence_check,
-)
-from mellea_lrc.validation.field_checks.mellea_docket_number_review import (
-    run_mellea_docket_number_review,
 )
 from mellea_lrc.validation.field_checks.year_check import run_year_check
 from mellea_lrc.validation.root_context import masked_root_context
@@ -56,10 +53,10 @@ from mellea_lrc.validation.types import (
     LocatorCitationSummaryOutcome,
     LocatorIdentityResolutionNode,
     LocatorIdentityResolutionOutcome,
+    MelleaDocketCitationReextractionNode,
+    MelleaDocketCitationReextractionOutcome,
     MelleaDocketNumberEquivalenceNode,
     MelleaDocketNumberEquivalenceOutcome,
-    MelleaDocketNumberReviewNode,
-    MelleaDocketNumberReviewOutcome,
     ValidationNode,
     ValidationNodeStatus,
 )
@@ -77,7 +74,7 @@ if TYPE_CHECKING:
 DOCKET_ROOT_SEARCH_STAGE = "docket_root_search"
 DOCKET_ROOT_UNIQUE_IDENTITY_STAGE = "docket_root_unique_identity"
 DOCKET_ROOT_AMBIGUITY_RESOLUTION_STAGE = "docket_root_ambiguity_resolution"
-DOCKET_ROOT_LOCATOR_REVIEW_STAGE = "docket_root_locator_review"
+DOCKET_ROOT_CITATION_REEXTRACTION_STAGE = "docket_root_citation_reextraction"
 DOCKET_ROOT_RELOOKUP_STAGE = "docket_root_relookup"
 DOCKET_ROOT_RELOOKUP_UNIQUE_IDENTITY_STAGE = "docket_root_relookup_unique_identity"
 DOCKET_ROOT_RELOOKUP_AMBIGUITY_RESOLUTION_STAGE = "docket_root_relookup_ambiguity_resolution"
@@ -216,7 +213,7 @@ async def resolve_docket_root_ambiguities(
     return replace(document, passes=(*document.passes, DOCKET_ROOT_AMBIGUITY_RESOLUTION_STAGE))
 
 
-async def review_unresolved_docket_root_locators(
+async def reextract_unresolved_docket_root_citations(
     document: Document,
     *,
     session: MelleaSession | None = None,
@@ -229,21 +226,21 @@ async def review_unresolved_docket_root_locators(
     judgement records every terminal review state, including a failed model
     run, so an unchanged document can never loop back into this model call.
     """
-    _require_stage(document, DOCKET_ROOT_AMBIGUITY_RESOLUTION_STAGE, "Docket-root locator review")
-    if DOCKET_ROOT_LOCATOR_REVIEW_STAGE in document.passes:
+    _require_stage(document, DOCKET_ROOT_AMBIGUITY_RESOLUTION_STAGE, "Docket-root citation re-extraction")
+    if DOCKET_ROOT_CITATION_REEXTRACTION_STAGE in document.passes:
         return document
-    _reject_partial_stage(document, DOCKET_ROOT_LOCATOR_REVIEW_STAGE)
+    _reject_partial_stage(document, DOCKET_ROOT_CITATION_REEXTRACTION_STAGE)
 
     for record in _docket_roots(document):
         if record.judgement(Question.IDENTITY).outcome != LocatorIdentityResolutionOutcome.NO_MATCH.value:
             continue
-        if record.docket_number_reviewed_by_model:
+        if record.docket_citation_reextracted_by_model:
             continue
         trigger_node_id = record.judgement(Question.IDENTITY).node_id
         if trigger_node_id is None:
             msg = f"No-match docket root {record.citation_id!r} has no identity decision node"
             raise ValueError(msg)
-        review = await run_mellea_docket_number_review(
+        review = await run_mellea_docket_citation_reextraction(
             record,
             document=document,
             trigger_node_id=trigger_node_id,
@@ -251,30 +248,30 @@ async def review_unresolved_docket_root_locators(
         )
         trace_node = _trace_node(
             review,
-            stage=DOCKET_ROOT_LOCATOR_REVIEW_STAGE,
+            stage=DOCKET_ROOT_CITATION_REEXTRACTION_STAGE,
             reads=Reads.DOCUMENT,
         )
         if review.status is ValidationNodeStatus.SUCCEEDED:
             record.mark_stated_fields_reparsed_by_model()
-        if review.outcome is MelleaDocketNumberReviewOutcome.CORRECTED:
+        if review.outcome is MelleaDocketCitationReextractionOutcome.CORRECTED:
             if review.grounded_docket_number is None:
-                msg = "A corrected docket review requires a grounded source docket number"
+                msg = "A corrected docket-citation re-extraction requires a grounded source docket number"
                 raise ValueError(msg)
             record.correct(
                 trace_node,
                 "docket_number",
                 review.grounded_docket_number,
-                reason=review.reason or review.outcome_message or "Model re-read the source docket locator.",
+                reason=review.reason or review.outcome_message or "Model re-read the source docket citation.",
             )
         else:
             record.observe(trace_node)
         record.judge(
             trace_node,
-            Question.DOCKET_LOCATOR_REVIEW,
+            Question.DOCKET_CITATION_REEXTRACTION,
             review.outcome.value,
             message=review.outcome_message or review.reason,
         )
-    return replace(document, passes=(*document.passes, DOCKET_ROOT_LOCATOR_REVIEW_STAGE))
+    return replace(document, passes=(*document.passes, DOCKET_ROOT_CITATION_REEXTRACTION_STAGE))
 
 
 async def relookup_reviewed_docket_roots(
@@ -289,15 +286,15 @@ async def relookup_reviewed_docket_roots(
     live identity judgement to ``deferred_to_search`` until its own unique or
     ambiguity stage decides it.  The original no-match node remains in trace.
     """
-    _require_stage(document, DOCKET_ROOT_LOCATOR_REVIEW_STAGE, "Reviewed docket-root relookup")
+    _require_stage(document, DOCKET_ROOT_CITATION_REEXTRACTION_STAGE, "Re-extracted docket-root relookup")
     if DOCKET_ROOT_RELOOKUP_STAGE in document.passes:
         return document
     _reject_partial_stage(document, DOCKET_ROOT_RELOOKUP_STAGE)
 
     service = client if client is not None else CourtListenerClient()
     for record in _docket_roots(document):
-        review = _saved_docket_number_review(record)
-        if review is None or review.outcome is not MelleaDocketNumberReviewOutcome.CORRECTED:
+        review = _saved_docket_citation_reextraction(record)
+        if review is None or review.outcome is not MelleaDocketCitationReextractionOutcome.CORRECTED:
             continue
         search = _run_docket_root_search(
             record,
@@ -663,7 +660,7 @@ async def _review_docket_candidates(
                 scope=scope,
             )
         )
-    if requires_mellea_locator_candidate_choice(summary):
+    if _requires_docket_citation_reextraction(summary, eligible):
         choice = await run_mellea_locator_candidate_choice(
             validation,
             summary=summary,
@@ -678,6 +675,33 @@ async def _review_docket_candidates(
     else:
         resolution = run_locator_identity_resolution(validation, summary=summary)
     return validation.append(replace(resolution, node_id=f"{scope}:identity_resolution"))
+
+
+def _requires_docket_citation_reextraction(
+    summary: LocatorCitationSummaryNode,
+    eligible_candidate_indices: tuple[int, ...],
+) -> bool:
+    """Decide whether a docket root needs one combined local citation re-read.
+
+    A unique docket-equivalent candidate can be accepted without a model when
+    its case name agrees. Courts and dates are independently extracted fields:
+    missing values and disagreements remain recorded for their later semantic
+    audit, so they do not trigger an unnecessary identity model call. A missing
+    or mismatched name is decisive enough to require one combined local
+    citation re-extraction and a choose-or-no-match decision. That read exposes
+    docket number, pin cite, court, date, and case name together.
+    """
+    if len(eligible_candidate_indices) != 1:
+        return True
+    candidate_index = eligible_candidate_indices[0]
+    candidate = next(
+        (item for item in summary.candidates if item.candidate_index == candidate_index),
+        None,
+    )
+    if candidate is None:
+        msg = f"Docket-eligible candidate {candidate_index} is absent from its citation summary"
+        raise ValueError(msg)
+    return candidate.case_name_outcome is not AggregatedFieldOutcome.MATCH
 
 
 def _docket_number_matches(validation: CitationValidation) -> tuple[int, ...]:
@@ -935,26 +959,30 @@ def _saved_docket_root_search(
     return node
 
 
-def _saved_docket_number_review(record: CitationRecord) -> MelleaDocketNumberReviewNode | None:
-    """Return the one persisted docket-number review, if this root needed one."""
+def _saved_docket_citation_reextraction(
+    record: CitationRecord,
+) -> MelleaDocketCitationReextractionNode | None:
+    """Return the one persisted docket-citation re-extraction, if this root needed one."""
     matches = [
         node
         for node in record.trace
-        if node.stage == DOCKET_ROOT_LOCATOR_REVIEW_STAGE
-        and node.details.get("validation_node_type") == MelleaDocketNumberReviewNode.__name__
+        if node.stage == DOCKET_ROOT_CITATION_REEXTRACTION_STAGE
+        and node.details.get("validation_node_type") == MelleaDocketCitationReextractionNode.__name__
     ]
     if not matches:
         return None
     if len(matches) != 1:
-        msg = f"Expected at most one docket-number review for {record.citation_id!r}, found {len(matches)}"
+        msg = f"Expected at most one docket-citation re-extraction for {record.citation_id!r}, found {len(matches)}"
         raise ValueError(msg)
     raw = matches[0].details.get("validation")
     if not isinstance(raw, dict):
-        msg = f"Saved docket-number review for {record.citation_id!r} has no validation payload"
+        msg = f"Saved docket-citation re-extraction for {record.citation_id!r} has no validation payload"
         raise ValueError(msg)
-    node = deserialize_validation_node({"node_type": MelleaDocketNumberReviewNode.__name__, **raw})
-    if not isinstance(node, MelleaDocketNumberReviewNode):
-        msg = f"Saved docket-number review for {record.citation_id!r} decoded as {type(node).__name__}"
+    node = deserialize_validation_node({"node_type": MelleaDocketCitationReextractionNode.__name__, **raw})
+    if not isinstance(node, MelleaDocketCitationReextractionNode):
+        msg = (
+            f"Saved docket-citation re-extraction for {record.citation_id!r} decoded as {type(node).__name__}"
+        )
         raise ValueError(msg)
     return node
 
