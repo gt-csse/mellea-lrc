@@ -21,17 +21,14 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from mellea_lrc.api import (
+    Document,
+    ValidatedDocument,
+    run_full_reporter_locator_identity,
+    start_full_reporter_locator_identity,
+)
 from mellea_lrc.courtlistener import CourtListenerClient
 from mellea_lrc.llm import llm_api_config_from_env, start_mellea_session_from_env
-from mellea_lrc.serialization import (
-    deserialize_document,
-    deserialize_validated_document,
-    serialize_validated_document,
-)
-from mellea_lrc.validation import (
-    initialize_full_reporter_locator_identity,
-    run_full_reporter_locator_identity,
-)
 
 
 def _atomic_json(path: Path, value: object) -> None:
@@ -130,13 +127,13 @@ async def run(
         result_path = output / "documents" / path.name
         if resume and result_path.exists():
             payload = json.loads(result_path.read_text(encoding="utf-8"))
-            deserialize_validated_document(payload)
+            ValidatedDocument.from_serialized(payload)
         else:
-            document = deserialize_document(json.loads(path.read_text(encoding="utf-8")))
-            checkpoint = initialize_full_reporter_locator_identity(document)
+            document = Document.from_serialized(json.loads(path.read_text(encoding="utf-8")))
+            checkpoint = start_full_reporter_locator_identity(document)
             validated = await run_full_reporter_locator_identity(checkpoint, client=service, session=session)
-            payload = serialize_validated_document(validated)
-            deserialize_validated_document(payload)
+            payload = validated.serialize()
+            ValidatedDocument.from_serialized(payload)
             _atomic_json(result_path, payload)
         outcomes.update(_summary(payload))
         model_statistics.update(_model_statistics(payload))

@@ -1,7 +1,10 @@
 """Extraction result types."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from mellea_lrc.core.case_names import CaseName
 from mellea_lrc.core.citations import is_full_citation
@@ -16,6 +19,9 @@ from mellea_lrc.extraction.structure.locator_layers import (
     locator_layer,
 )
 from mellea_lrc.preprocessing.types import PreprocessedDocument
+
+if TYPE_CHECKING:
+    from mellea_lrc.extraction.rules import ExtractionRules
 
 
 class ExtractionBackend(str, Enum):
@@ -96,6 +102,87 @@ class Document(PreprocessedDocument):
     def active_citations(self) -> tuple[CitationRecord, ...]:
         """Records admitted for downstream work; withdrawn candidates stay in citations."""
         return tuple(item for item in self.citations if not item.withdrawn)
+
+    @classmethod
+    def from_source(
+        cls,
+        source: Path | str,
+        *,
+        rules: "ExtractionRules | None" = None,
+    ) -> "Document":
+        """Preprocess content or a source path, then create its locator document.
+
+        A string is document content. Pass a :class:`~pathlib.Path` to load a
+        file through the appropriate preprocessing backend. ``rules`` selects
+        the extraction profile and is recorded on the resulting document.
+        """
+        from mellea_lrc.preprocessing import preprocess
+
+        return cls.from_preprocessed(preprocess(source), rules=rules)
+
+    @classmethod
+    def from_plain_text(
+        cls,
+        text: str,
+        *,
+        source_path: str | None = None,
+        rules: "ExtractionRules | None" = None,
+    ) -> "Document":
+        """Create an empty locator-stage document from already-extracted text.
+
+        This is the convenient public constructor for text callers. Callers
+        with a layout-aware source preprocess it first, then use
+        :meth:`from_preprocessed` so the preprocessing provenance remains
+        explicit.
+        """
+        from mellea_lrc.extraction.locator_stages import start_locator_document
+        from mellea_lrc.preprocessing.plain_text import preprocess_plain_text_from_string
+
+        return start_locator_document(
+            preprocess_plain_text_from_string(text, source_path=source_path), rules=rules
+        )
+
+    @classmethod
+    def from_preprocessed(
+        cls,
+        document: PreprocessedDocument,
+        *,
+        rules: "ExtractionRules | None" = None,
+    ) -> "Document":
+        """Create an empty locator-stage document from preprocessing output."""
+        from mellea_lrc.extraction.locator_stages import start_locator_document
+
+        result = start_locator_document(document, rules=rules)
+        if not isinstance(result, cls):
+            msg = f"Locator initialization produced {type(result).__name__}, not {cls.__name__}"
+            raise TypeError(msg)
+        return result
+
+    def serialize(self) -> dict[str, object]:
+        """Return the complete JSON-ready document checkpoint.
+
+        This is the outer serialization boundary. Stage code passes a
+        ``Document`` directly; callers saving or handing it to another process
+        use this method instead of importing serializer internals.
+        """
+        from mellea_lrc.serialization.document import serialize_document
+
+        return serialize_document(self)
+
+    @classmethod
+    def from_serialized(cls, payload: Mapping[str, object]) -> "Document":
+        """Recover a document checkpoint produced by :meth:`serialize`.
+
+        Python reserves ``from``, so the paired constructor is named
+        ``from_serialized`` rather than ``Document.from(...)``.
+        """
+        from mellea_lrc.serialization.document import deserialize_document
+
+        document = deserialize_document(payload)
+        if not isinstance(document, cls):
+            msg = f"Serialized document produced {type(document).__name__}, not {cls.__name__}"
+            raise TypeError(msg)
+        return document
 
     @property
     def full_citations(self) -> tuple[CitationRecord, ...]:

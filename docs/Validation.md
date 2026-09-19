@@ -11,19 +11,31 @@ Validation currently has one independent, resumable checkpoint: **full reporter-
 
 ```python
 import asyncio
+from pathlib import Path
 
-from mellea_lrc.validation import (
-    initialize_full_reporter_locator_identity,
+from mellea_lrc.api import (
+    Document,
+    ValidatedDocument,
+    find_docket_locators,
+    find_full_reporter_locators,
+    resolve_colocations,
     run_full_reporter_locator_identity,
+    start_full_reporter_locator_identity,
 )
 
-checkpoint = initialize_full_reporter_locator_identity(document)
+document = Document.from_source(Path("filing.pdf"))
+document = find_full_reporter_locators(document)
+document = find_docket_locators(document)
+document = resolve_colocations(document)
+checkpoint = start_full_reporter_locator_identity(document)
 checkpoint = asyncio.run(run_full_reporter_locator_identity(checkpoint))
+payload = checkpoint.serialize()
+checkpoint = ValidatedDocument.from_serialized(payload)
 ```
 
-`initialize_full_reporter_locator_identity` preserves every active citation in source order. `run_full_reporter_locator_identity` returns the same `ValidatedDocument` type. It reads and writes nodes only for full reporter locators; docket locators and every other citation type remain present with an empty validation progression.
+`start_full_reporter_locator_identity` preserves every active citation in source order. `run_full_reporter_locator_identity` returns the same `ValidatedDocument` type. It reads and writes nodes only for full reporter locators; docket locators and every other citation type remain present with an empty validation progression.
 
-The checkpoint round-trips through `serialize_validated_document` and `deserialize_validated_document`. A completed checkpoint is safe to pass back to `run_full_reporter_locator_identity`: completed reporter progressions are retained without another lookup. A partial reporter progression is rejected so one logical lookup cannot be recorded twice.
+`mellea_lrc.api` is the sole compositional import: it exposes locator readers, the optional docket-hunting plugin, co-location, field readers, and each admitted validation checkpoint. `Document.from_source(...)` starts a locator document from a string or a `Path`; callers with an existing preprocessing result use `Document.from_preprocessed(...)` instead. `Document.serialize()` and `ValidatedDocument.serialize()` return JSON-ready mappings. Their paired constructors are `Document.from_serialized(payload)` and `ValidatedDocument.from_serialized(payload)`; Python reserves `from`, so the constructor cannot be named `Document.from(...)`. A completed checkpoint is safe to pass back to `run_full_reporter_locator_identity`: completed reporter progressions are retained without another lookup. A partial reporter progression is rejected so one logical lookup cannot be recorded twice.
 
 ## Current route
 
