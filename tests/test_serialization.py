@@ -390,12 +390,12 @@ def test_serialize_validated_document_preserves_source_and_node_graph() -> None:
 
 def test_document_serialization_preserves_model_reparse_provenance() -> None:
     document = _document_with_one_citation()
-    document.citations[0].mark_stated_fields_reparsed_by_model()
+    document.citations[0].mark_extraction_reviewed_by_llm()
 
     payload = serialize_document(document)
 
-    assert payload["citations"][0]["stated_fields_reparsed_by_model"] is True
-    assert deserialize_document(payload).citations[0].stated_fields_reparsed_by_model is True
+    assert payload["citations"][0]["extraction_reviewed_by_llm"] is True
+    assert deserialize_document(payload).citations[0].extraction_reviewed_by_llm is True
 
 
 def test_serialize_validated_document_preserves_frozen_opinion_search_results() -> None:

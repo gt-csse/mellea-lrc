@@ -375,7 +375,7 @@ class CitationValidationRunner:
         )
         validation = validation.append(reextraction)
         if reextraction.status is ValidationNodeStatus.SUCCEEDED:
-            validation.citation.mark_stated_fields_reparsed_by_model()
+            validation.citation.mark_extraction_reviewed_by_llm()
         state = state.with_reextraction(reextraction)
         if reextraction.outcome is not MelleaCaseNameReextractionOutcome.COMPLETE:
             return validation, state
@@ -422,7 +422,7 @@ class CitationValidationRunner:
         )
         validation = validation.append(reextraction)
         if reextraction.status is ValidationNodeStatus.SUCCEEDED:
-            validation.citation.mark_stated_fields_reparsed_by_model()
+            validation.citation.mark_extraction_reviewed_by_llm()
         search_state = CandidateValidationState().with_reextraction(reextraction)
         preparation = await run_mellea_case_name_query_preparation(
             validation,
@@ -622,7 +622,7 @@ async def _resolve_locator_identity_from_summary(
     )
     validation = validation.append(choice)
     if choice.outcome is not MelleaLocatorCandidateChoiceOutcome.FAILED:
-        validation.citation.mark_stated_fields_reparsed_by_model()
+        validation.citation.mark_extraction_reviewed_by_llm()
     return validation.append(run_locator_identity_resolution(validation, summary=summary, choice=choice))
 
 
