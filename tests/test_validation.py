@@ -814,6 +814,7 @@ def test_search_candidate_uses_semantic_check_without_reextracting(
         date_filed="1954-05-17",
         court_id="scotus",
         docket_id=None,
+        docket_number=None,
         record={},
         depends_on=(),
     )
@@ -914,6 +915,7 @@ def test_opinion_search_candidate_assessment_requires_every_field_to_match() -> 
         date_filed="1955-05-17",
         court_id="scotus",
         docket_id=None,
+        docket_number=None,
         record={},
         depends_on=(),
     )
@@ -964,6 +966,7 @@ def test_recap_search_candidate_assessment_does_not_treat_docket_year_as_a_misma
         date_filed="1955-05-17",
         court_id="scotus",
         docket_id="123",
+        docket_number=None,
         record={},
         depends_on=(),
     )
@@ -1003,6 +1006,7 @@ def test_recap_candidate_summary_exposes_canonical_docket_url() -> None:
         date_filed="2006-10-25",
         court_id="scotus",
         docket_id="5068645",
+        docket_number=None,
         record={"docket_absolute_url": "/docket/5068645/brown-v-board-of-education/"},
         depends_on=(),
     )

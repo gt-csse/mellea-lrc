@@ -1,4 +1,4 @@
-"""Grounded model choice among a bounded set of reporter-locator candidates."""
+"""Grounded model choice among a bounded set of complete-locator candidates."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ CHOICE_MAX_REPAIR_TURNS = 2
 # TODO: Opinion reading could refine a tie, but it belongs to the later opinion
 # stage and must not be coupled to this root-identity decision yet.
 CHOICE_PREFIX = """
-The filing contains one target reporter citation marked by locator. Read only
+The filing contains one target complete citation marked by locator. Read only
 local_context and the complete list of retrieved candidates. Reparse the
 filing's stated case name, court, and date from local_context. Then select the
 single candidate that best represents that citation, or return no_match when
@@ -49,7 +49,7 @@ none is supportable from the stated fields.
 Every candidate shown is a retrieved possibility. Consider every one, including
 candidates whose preliminary field assessment says mismatch or partial_match:
 those assessments are evidence, not a final selection. Do not use outside
-knowledge, change the reporter locator, invent a field, or select multiple
+knowledge, change the stated locator, invent a field, or select multiple
 candidates. When a field is absent in local_context, return null for it.
 """.strip()
 
@@ -80,11 +80,24 @@ async def run_mellea_locator_candidate_choice(
     summary: LocatorCitationSummaryNode,
     document_text: str,
     session: MelleaSession | None = None,
+    eligible_candidate_indices: tuple[int, ...] | None = None,
 ) -> MelleaLocatorCandidateChoiceNode:
-    """Reparse local fields and select among every bounded, reviewed candidate."""
-    candidate_indices = tuple(candidate.candidate_index for candidate in summary.candidates)
+    """Reparse local fields and select among an explicitly eligible candidate set.
+
+    ``summary`` always carries every retrieved candidate. A caller may narrow
+    *selection* to candidates that passed a non-semantic identity anchor, such
+    as a docket-number comparison, while keeping non-eligible candidates fully
+    visible as evidence.
+    """
+    candidate_indices = eligible_candidate_indices or tuple(
+        candidate.candidate_index for candidate in summary.candidates
+    )
     if not candidate_indices:
-        msg = "Model candidate choice requires a nonempty locator candidate summary"
+        msg = "Model candidate choice requires at least one eligible candidate"
+        raise ValueError(msg)
+    known_indices = {candidate.candidate_index for candidate in summary.candidates}
+    if not set(candidate_indices) <= known_indices:
+        msg = "Eligible candidate indices must be present in the complete candidate summary"
         raise ValueError(msg)
 
     locator = validation.citation.matched_text
@@ -187,6 +200,7 @@ def _candidate_payload(candidate: CitationSummaryCandidate) -> dict[str, object]
         "date": candidate.retrieved_year,
         "court_id": candidate.retrieved_court_id,
         "docket_id": candidate.docket_id,
+        "docket_number": candidate.docket_number,
         "preliminary_assessment": candidate.outcome.value,
         "field_assessments": {
             "case_name": candidate.case_name_outcome.value,

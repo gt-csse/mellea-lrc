@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.core.citations import DocketCitation, FullCaseCitation
 from mellea_lrc.validation.types import (
     CandidateEvaluationNode,
     CourtCheckNode,
@@ -24,7 +24,7 @@ def run_court_check(
 ) -> CourtCheckNode:
     """Compare Eyecite's normalized court ID with retrieved candidate evidence."""
     citation = validation.citation.stated
-    extracted = citation.court if isinstance(citation, FullCaseCitation) else None
+    extracted = citation.court if isinstance(citation, (FullCaseCitation, DocketCitation)) else None
     retrieved = evidence.court_id
     if extracted is None or retrieved is None:
         status = ValidationNodeStatus.SKIPPED

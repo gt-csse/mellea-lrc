@@ -54,10 +54,33 @@ def citation_summary_candidate(
         retrieved_court_id=assessment.retrieved_court_id,
         court_outcome=assessment.court_outcome,
         docket_id=assessment.docket_id,
+        docket_number=_docket_number(validation, assessment, provenance=provenance),
         opinion_url=_opinion_url(validation, assessment, provenance=provenance),
         docket_url=_docket_url(validation, assessment, provenance=provenance),
         pinpoint=_pinpoint_summary(validation, assessment),
     )
+
+
+def _docket_number(
+    validation: CitationValidation,
+    assessment: CandidateAssessmentNode,
+    *,
+    provenance: CandidateProvenance,
+) -> str | None:
+    """Expose the candidate's docket number when its retrieval route supplies one."""
+    if provenance is not CandidateProvenance.DOCKET:
+        return None
+    evaluation = next(
+        (
+            node
+            for node in validation.nodes
+            if isinstance(node, CandidateEvaluationNode)
+            and node.source is CandidateEvaluationSource.DOCKET_SEARCH
+            and _is_ancestor(validation, node.node_id, assessment.node_id)
+        ),
+        None,
+    )
+    return evaluation.docket_number if evaluation is not None else None
 
 
 def _opinion_url(
@@ -102,15 +125,19 @@ def _docket_url(
     *,
     provenance: CandidateProvenance,
 ) -> str | None:
-    """Expose CourtListener's canonical docket URL for RECAP candidates."""
-    if provenance is not CandidateProvenance.RECAP:
+    """Expose CourtListener's canonical docket URL for docket-derived candidates."""
+    source = {
+        CandidateProvenance.DOCKET: CandidateEvaluationSource.DOCKET_SEARCH,
+        CandidateProvenance.RECAP: CandidateEvaluationSource.RECAP_SEARCH,
+    }.get(provenance)
+    if source is None:
         return None
     evaluation = next(
         (
             node
             for node in validation.nodes
             if isinstance(node, CandidateEvaluationNode)
-            and node.source is CandidateEvaluationSource.RECAP_SEARCH
+            and node.source is source
             and _is_ancestor(validation, node.node_id, assessment.node_id)
         ),
         None,

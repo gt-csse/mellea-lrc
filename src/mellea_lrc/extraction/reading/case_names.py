@@ -117,7 +117,7 @@ _CLOSING = " \t\n,;:|·•("
 # parte``.  Anything less explicit stays absent for later validation rather
 # than turning ordinary prose into a case name.
 _FIELD_NAME_TOKEN = r"[A-Z][\w.'’&-]*(?:[^\S\r\n]*['’][^\S\r\n]*\w[\w.'’&-]*)*"
-_FIELD_NAME_INNER = r"(?:of|the|for|in|on|at|to|by|with|ex|rel\.|de|van|von|del|la|le)"
+_FIELD_NAME_INNER = r"(?:of|the|for|in|on|at|to|by|with|and|ex|rel\.|de|van|von|del|la|le)"
 _FIELD_NAME_PARTY = rf"{_FIELD_NAME_TOKEN}(?:,?\s+(?:{_FIELD_NAME_INNER}\s+){{0,2}}{_FIELD_NAME_TOKEN}){{0,9}}"
 _FIELD_EXPLICIT_CASE_NAME = (
     re.compile(rf"\b(?P<name>{_FIELD_NAME_PARTY}\s+(?:v\.|vs\.|v\b)\s+{_FIELD_NAME_PARTY})"),

@@ -14,6 +14,7 @@ from mellea_lrc.extraction import (
     find_docket_locators,
     find_full_reporter_locators,
     mark_full_reporter_locator_hunting_skipped,
+    resolve_case_names,
     resolve_colocations,
     resolve_courts,
     resolve_dates,
@@ -85,3 +86,14 @@ def test_checkpoints_round_trip_and_explicit_fields_follow_them() -> None:
     assert reporter.stated.date is not None and reporter.stated.date.year == "2024"
     assert docket.stated.court == "azd"
     assert docket.stated.date is not None and docket.stated.date.year == "2024"
+
+
+def test_case_name_reader_fills_an_in_re_name_for_a_docket_root() -> None:
+    text = "In re Muscletech Research and Dev. Inc., No. 1:06-bk-01147 (Bankr. S.D.N.Y. Jan. 18, 2006)."
+    _reporters, dockets = _run(text)
+    grouped = resolve_colocations(dockets, rules=stable())
+    named = resolve_case_names(grouped, rules=stable())
+    docket = next(record for record in named.citations if isinstance(record.source, DocketCitation))
+
+    assert docket.stated.case_name is not None
+    assert docket.stated.case_name.text == "In re Muscletech Research and Dev. Inc."

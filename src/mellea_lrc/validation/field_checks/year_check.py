@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from mellea_lrc.core.citations import FullCaseCitation
+from mellea_lrc.core.citations import DocketCitation, FullCaseCitation
 from mellea_lrc.validation.types import FieldCheckOutcome, ValidationNodeStatus, YearCheckNode
 
 if TYPE_CHECKING:
@@ -18,7 +18,7 @@ def run_year_check(
 ) -> YearCheckNode:
     """Compare extracted and retrieved decision years for one found locator."""
     citation = validation.citation.stated
-    date = citation.date if isinstance(citation, FullCaseCitation) else None
+    date = citation.date if isinstance(citation, (FullCaseCitation, DocketCitation)) else None
     # The check compares years; a citation stating a full date states its year too.
     extracted = date.year if date else None
     retrieved = candidate.year

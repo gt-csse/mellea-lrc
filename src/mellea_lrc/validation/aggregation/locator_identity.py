@@ -67,7 +67,7 @@ def run_locator_identity_resolution(
             raise ValueError(msg)
         if _requires_future_court_or_date_semantics(candidate):
             # A choice may surface a bad court/date parse, but this checkpoint
-            # deliberately does not repair those fields.  Admit no identity
+            # deliberately does not repair those fields. Admit no identity
             # until the separate court/date semantic stage can record that
             # correction and send the locator through exact checking again.
             return _resolution(
