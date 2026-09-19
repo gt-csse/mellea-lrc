@@ -7,6 +7,7 @@ def test_docket_review_accepts_only_whitespace_variation_from_the_source_locator
     source = "Case No. 1: 24-cv-08760"
 
     assert _grounded_number(source, "1:24-cv-08760") == "1: 24-cv-08760"
+    assert _grounded_number(source, "Case No. 1:24-cv-08760") is None
     assert _grounded_number(source, "1:24-cv-0876O") is None
 
 
