@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from mellea_lrc.api import full_reporter_locator_identity
+from mellea_lrc.api import form_roots, full_reporter_locator_identity
 from mellea_lrc.core.citations import CitationDate, FullCaseCitation, placed
 from mellea_lrc.core.record import CitationRecord, Question
 from mellea_lrc.core.spans import Span
@@ -65,7 +65,8 @@ def test_root_identity_writes_trace_and_state_to_the_original_document() -> None
         )
     )
 
-    result = asyncio.run(full_reporter_locator_identity(document, client=client))
+    formed = form_roots(document)
+    result = asyncio.run(full_reporter_locator_identity(formed, client=client))
     resumed = asyncio.run(full_reporter_locator_identity(result, client=client))
     restored = Document.from_serialized(result.serialize())
     resolved = restored.citations[0]
@@ -76,6 +77,17 @@ def test_root_identity_writes_trace_and_state_to_the_original_document() -> None
     assert resolved.judgement(Question.IDENTITY).outcome == "resolved"
     assert resolved.judgement(Question.IDENTITY).node_id == "cite-0001:locator_identity_resolution"
     assert resolved.trace[-1].details["validation_node_type"] == "LocatorIdentityResolutionNode"
-    assert result.passes[-1] == "root_identity"
+    assert result.passes[-2:] == ("root_formation", "root_identity")
     assert resumed is result
     assert client.calls == [("347", "U.S.", "483")]
+
+
+def test_root_identity_requires_explicit_root_formation() -> None:
+    document = Document.from_source("A filing without citations.")
+
+    try:
+        asyncio.run(full_reporter_locator_identity(document, client=object()))
+    except ValueError as error:
+        assert str(error) == "Root identity requires form_roots(document) before validation."
+    else:
+        raise AssertionError("identity accepted a document without root formation")

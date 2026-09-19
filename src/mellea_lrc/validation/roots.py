@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from mellea_lrc.core.citations import FullCaseCitation
 from mellea_lrc.core.record import UNJUDGED, Node, Question, Reads, Resolution
 from mellea_lrc.courtlistener import CourtListenerClient, CourtListenerOpinionCluster
+from mellea_lrc.extraction.root_stages import ROOT_FORMATION_STAGE
 from mellea_lrc.serialization._json import serialize_dataclass
 from mellea_lrc.validation.execution import CitationValidationRunner
 from mellea_lrc.validation.root_context import masked_root_context
@@ -53,10 +54,15 @@ async def full_reporter_locator_identity(
     results may require a grounded model choice; ordinary exact lookup itself
     has no model call.
     """
+    if ROOT_FORMATION_STAGE not in document.passes:
+        msg = "Root identity requires form_roots(document) before validation."
+        raise ValueError(msg)
     service = client if client is not None else CourtListenerClient()
     runner = CitationValidationRunner(client=service)
     for record in document.active_citations:
         if not isinstance(record.stated, FullCaseCitation):
+            continue
+        if not record.is_root:
             continue
         if record.judgement(Question.IDENTITY).outcome != UNJUDGED:
             continue
