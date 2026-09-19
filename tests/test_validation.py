@@ -7,7 +7,7 @@ import pytest
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import BaseModel
 
-from mellea_lrc.core.citations import CitationDate, FullCaseCitation, FullLawCitation, placed
+from mellea_lrc.core.citations import CitationDate, DocketCitation, FullCaseCitation, FullLawCitation, placed
 from mellea_lrc.core.spans import Span
 from mellea_lrc.courtlistener import (
     CourtListenerCitationLookup,
@@ -45,6 +45,8 @@ from mellea_lrc.validation import (
     MelleaCaseNameReextractionNode,
     MelleaCaseNameReextractionOutcome,
     MelleaCitingPropositionExtractionNode,
+    MelleaLocatorCandidateChoiceNode,
+    MelleaLocatorCandidateChoiceOutcome,
     MelleaPinpointCheckNode,
     OpinionSearchCandidateAssessmentNode,
     OpinionSearchNode,
@@ -127,17 +129,27 @@ class LookupClient:
         return response
 
 
-def _validate(document: Document, client: LookupClient) -> ValidatedDocument:
-    """Run the sole document-level validation entrypoint synchronously in tests."""
-    return asyncio.run(validate_document(document, client=client))
+def _validate(
+    document: Document,
+    client: LookupClient,
+    *,
+    session: object | None = None,
+) -> ValidatedDocument:
+    """Run the active document-level validation entrypoint synchronously in tests."""
+    return asyncio.run(validate_document(document, client=client, session=session))
 
 
-def _validate_identity(document: Document, client: LookupClient) -> ValidatedDocument:
+def _validate_identity(
+    document: Document,
+    client: LookupClient,
+    *,
+    session: object | None = None,
+) -> ValidatedDocument:
     """Run the checkpoint-to-identity entrypoint synchronously in tests."""
-    return asyncio.run(validate_document_identity(document, client=client))
+    return asyncio.run(validate_document_identity(document, client=client, session=session))
 
 
-def _document(citation: FullCaseCitation | FullLawCitation) -> Document:
+def _document(citation: object) -> Document:
     text = "Brown v. Board, 347 U.S. 483 (1954)."
     preprocessed = preprocess(text)
     locator = "347 U.S. 483"
@@ -253,7 +265,8 @@ def test_initialize_validation_instances_one_progression_per_extracted_citation(
     assert validation.citations[0].nodes == ()
 
 
-def test_exact_locator_found_fans_out_to_field_checks() -> None:
+def test_full_reporter_locator_runs_identity_without_pinpoint_work() -> None:
+    """The active top-level runner stops at the reporter-locator identity boundary."""
     extracted = _document(
         FullCaseCitation(
             plaintiff="Brown",
@@ -272,67 +285,40 @@ def test_exact_locator_found_fans_out_to_field_checks() -> None:
         docket_id="84657",
     )
     client = LookupClient(
-        CourtListenerCitationLookup(
-            citation="347 U.S. 483",
-            status=200,
-            clusters=(cluster,),
-        ),
+        CourtListenerCitationLookup(citation="347 U.S. 483", status=200, clusters=(cluster,)),
         docket_response=CourtListenerDocket(docket_id="84657", court_id="scotus"),
     )
 
-    validation = _validate(extracted, client)
+    progression = _validate(extracted, client).citation_by_id("cite-0001")
 
-    progression = validation.citation_by_id("cite-0001")
     assert client.calls == [("347", "U.S.", "483")]
-    assert len(progression.nodes) == 12
-    (
-        exact_locator_lookup_node,
-        candidate_evaluation_node,
-        exact_case_name_check_node,
-        year_check_node,
-        docket_court_retrieval_node,
-        court_check_node,
-        assessment_node,
-        reporter_page_retrieval_node,
-        citing_proposition_node,
-        pinpoint_check_node,
-        summary_node,
-        resolution_node,
-    ) = progression.nodes
-    assert isinstance(exact_locator_lookup_node, ExactLocatorLookupNode)
-    assert exact_locator_lookup_node.outcome is LocatorLookupOutcome.FOUND
-    assert exact_locator_lookup_node.cluster is cluster
-    assert isinstance(candidate_evaluation_node, CandidateEvaluationNode)
-    assert candidate_evaluation_node.outcome is CandidateEvaluationOutcome.READY
-    assert candidate_evaluation_node.source is CandidateEvaluationSource.LOCATOR_LOOKUP
-    assert candidate_evaluation_node.record is cluster
-    assert candidate_evaluation_node.depends_on == (exact_locator_lookup_node.node_id,)
-    assert isinstance(exact_case_name_check_node, ExactCaseNameCheckNode)
-    assert exact_case_name_check_node.outcome is FieldCheckOutcome.MATCH
-    assert exact_case_name_check_node.depends_on == (candidate_evaluation_node.node_id,)
-    assert isinstance(year_check_node, YearCheckNode)
-    assert year_check_node.outcome is FieldCheckOutcome.MATCH
-    assert year_check_node.depends_on == (candidate_evaluation_node.node_id,)
-    assert docket_court_retrieval_node.status is ValidationNodeStatus.SUCCEEDED
+    assert len(progression.nodes) == 9
+    lookup, candidate, exact_name, year, docket_court, court, assessment, summary, resolution = (
+        progression.nodes
+    )
+    assert isinstance(lookup, ExactLocatorLookupNode)
+    assert lookup.outcome is LocatorLookupOutcome.FOUND
+    assert isinstance(candidate, CandidateEvaluationNode)
+    assert candidate.record is cluster
+    assert exact_name.outcome is FieldCheckOutcome.MATCH
+    assert year.outcome is FieldCheckOutcome.MATCH
+    assert docket_court.status is ValidationNodeStatus.SUCCEEDED
     assert client.docket_calls == ["84657"]
-    assert isinstance(court_check_node, CourtCheckNode)
-    assert court_check_node.outcome is FieldCheckOutcome.MATCH
-    assert court_check_node.depends_on == (docket_court_retrieval_node.node_id,)
-    assert isinstance(assessment_node, LocatorCandidateAssessmentNode)
-    assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.MATCH
-    assert assessment_node.case_name_outcome is AggregatedFieldOutcome.MATCH
-    assert assessment_node.year_outcome is AggregatedFieldOutcome.MATCH
-    assert assessment_node.court_outcome is AggregatedFieldOutcome.MATCH
-    assert isinstance(reporter_page_retrieval_node, ReporterPageRetrievalNode)
-    assert reporter_page_retrieval_node.outcome is ReporterPageRetrievalOutcome.UNAVAILABLE
-    assert isinstance(citing_proposition_node, MelleaCitingPropositionExtractionNode)
-    assert isinstance(pinpoint_check_node, MelleaPinpointCheckNode)
-    assert isinstance(summary_node, LocatorCitationSummaryNode)
-    assert summary_node.outcome is LocatorCitationSummaryOutcome.COMPLETE
-    assert summary_node.candidates[0].assessment_node_id == assessment_node.node_id
-    assert progression.aggregation is summary_node
-    assert isinstance(resolution_node, LocatorIdentityResolutionNode)
-    assert resolution_node.outcome is LocatorIdentityResolutionOutcome.RESOLVED
+    assert court.outcome is FieldCheckOutcome.MATCH
+    assert isinstance(assessment, LocatorCandidateAssessmentNode)
+    assert assessment.outcome is LocatorCandidateAssessmentOutcome.MATCH
+    assert isinstance(summary, LocatorCitationSummaryNode)
+    assert summary.pinpoint_requires_review is None
+    assert isinstance(resolution, LocatorIdentityResolutionNode)
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.RESOLVED
+    assert resolution.selection_evidence_node_id == summary.node_id
+    assert all(
+        not isinstance(
+            node,
+            ReporterPageRetrievalNode | MelleaCitingPropositionExtractionNode | MelleaPinpointCheckNode,
+        )
+        for node in progression.nodes
+    )
 
 
 def test_identity_checkpoint_stops_before_reporter_page_retrieval() -> None:
@@ -375,6 +361,7 @@ def test_identity_checkpoint_stops_before_reporter_page_retrieval() -> None:
     )
     assert isinstance(progression.aggregation, LocatorCitationSummaryNode)
     assert progression.aggregation.candidates[0].pinpoint is None
+    assert progression.aggregation.pinpoint_requires_review is None
     resolution = progression.identity_resolution
     assert resolution is not None
     assert resolution.outcome is LocatorIdentityResolutionOutcome.RESOLVED
@@ -383,7 +370,7 @@ def test_identity_checkpoint_stops_before_reporter_page_retrieval() -> None:
 
 
 def test_found_field_checks_treat_unavailable_year_as_a_full_match() -> None:
-    """Eyecite often can't parse a year; that shouldn't downgrade an otherwise-confirmed match."""
+    """An unavailable date does not downgrade a confirmed reporter identity."""
     extracted = _document(
         FullCaseCitation(
             plaintiff="Brown",
@@ -402,36 +389,19 @@ def test_found_field_checks_treat_unavailable_year_as_a_full_match() -> None:
         docket_id="84657",
     )
     client = LookupClient(
-        CourtListenerCitationLookup(
-            citation="347 U.S. 483",
-            status=200,
-            clusters=(cluster,),
-        ),
+        CourtListenerCitationLookup(citation="347 U.S. 483", status=200, clusters=(cluster,)),
         docket_response=CourtListenerDocket(docket_id="84657", court_id="scotus"),
     )
 
-    validation = _validate(extracted, client)
-
-    progression = validation.citation_by_id("cite-0001")
-    (
-        _,
-        _,
-        exact_case_name_check_node,
-        year_check_node,
-        _,
-        court_check_node,
-        assessment_node,
-        _,
-        _,
-        _,
-        summary_node,
-        _,
-    ) = progression.nodes
-    assert exact_case_name_check_node.outcome is FieldCheckOutcome.MATCH
-    assert year_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
-    assert court_check_node.outcome is FieldCheckOutcome.MATCH
-    assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.MATCH
-    assert summary_node.outcome is LocatorCitationSummaryOutcome.COMPLETE
+    _, _, exact_name, year, _, court, assessment, summary, resolution = (
+        _validate(extracted, client).citations[0].nodes
+    )
+    assert exact_name.outcome is FieldCheckOutcome.MATCH
+    assert year.outcome is FieldCheckOutcome.UNAVAILABLE
+    assert court.outcome is FieldCheckOutcome.MATCH
+    assert assessment.outcome is LocatorCandidateAssessmentOutcome.MATCH
+    assert summary.outcome is LocatorCitationSummaryOutcome.COMPLETE
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.RESOLVED
 
 
 def test_found_field_checks_record_mismatch_without_failing_execution(
@@ -479,75 +449,85 @@ def test_found_field_checks_record_mismatch_without_failing_execution(
             depends_on=(case_name_evidence.node_id,),
         )
 
-    monkeypatch.setattr(
-        "mellea_lrc.validation.execution.run_mellea_case_name_check",
-        fake_semantic_check,
+    async def fake_choice(
+        validation: object,
+        *,
+        summary: LocatorCitationSummaryNode,
+        document_text: str,
+        session: object | None,
+    ) -> MelleaLocatorCandidateChoiceNode:
+        del validation, document_text, session
+        return MelleaLocatorCandidateChoiceNode(
+            node_id=f"{summary.node_id}:mellea_candidate_choice",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaLocatorCandidateChoiceOutcome.NO_MATCH,
+            candidate_indices=(1,),
+            selected_candidate_index=None,
+            reparsed_case_name=None,
+            reparsed_court=None,
+            reparsed_date=None,
+            rationale="Retrieved candidate disagrees with every stated field.",
+            depends_on=(summary.node_id,),
+        )
+
+    monkeypatch.setattr("mellea_lrc.validation.execution.run_mellea_case_name_check", fake_semantic_check)
+    monkeypatch.setattr("mellea_lrc.validation.execution.run_mellea_locator_candidate_choice", fake_choice)
+
+    (_, _, exact_name, year, _, court, semantic, assessment, summary, choice, resolution) = (
+        _validate(extracted, client).citations[0].nodes
     )
-
-    (
-        _,
-        _,
-        exact_case_name_check_node,
-        year_check_node,
-        _,
-        court_check_node,
-        semantic_case_name_check_node,
-        assessment_node,
-        _,
-        _,
-        _,
-        summary_node,
-        _,
-    ) = _validate(extracted, client).citations[0].nodes
-
-    assert exact_case_name_check_node.status is ValidationNodeStatus.SUCCEEDED
-    assert exact_case_name_check_node.outcome is FieldCheckOutcome.MISMATCH
-    assert year_check_node.status is ValidationNodeStatus.SUCCEEDED
-    assert year_check_node.outcome is FieldCheckOutcome.MISMATCH
-    assert semantic_case_name_check_node.status is ValidationNodeStatus.SUCCEEDED
-    assert semantic_case_name_check_node.outcome is MelleaCaseNameCheckOutcome.MATCH
-    assert court_check_node.status is ValidationNodeStatus.SUCCEEDED
-    assert court_check_node.outcome is FieldCheckOutcome.MISMATCH
-    assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.MISMATCH
-    assert summary_node.candidates[0].assessment_node_id == assessment_node.node_id
+    assert exact_name.outcome is FieldCheckOutcome.MISMATCH
+    assert year.outcome is FieldCheckOutcome.MISMATCH
+    assert semantic.outcome is MelleaCaseNameCheckOutcome.MATCH
+    assert court.outcome is FieldCheckOutcome.MISMATCH
+    assert assessment.outcome is LocatorCandidateAssessmentOutcome.MISMATCH
+    assert summary.candidates[0].assessment_node_id == assessment.node_id
+    assert choice.outcome is MelleaLocatorCandidateChoiceOutcome.NO_MATCH
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.NO_MATCH
 
 
-def test_found_field_checks_skip_unavailable_values() -> None:
+def test_found_field_checks_skip_unavailable_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     extracted = _document(FullCaseCitation(volume="347", reporter="U.S.", page="483"))
     client = LookupClient(
         CourtListenerCitationLookup(
-            citation="347 U.S. 483",
-            status=200,
-            clusters=(CourtListenerOpinionCluster(),),
+            citation="347 U.S. 483", status=200, clusters=(CourtListenerOpinionCluster(),)
         )
     )
 
-    (
-        _,
-        _,
-        exact_case_name_check_node,
-        year_check_node,
-        _,
-        court_check_node,
-        assessment_node,
-        _,
-        _,
-        _,
-        summary_node,
-        _,
-    ) = _validate(extracted, client).citations[0].nodes
+    async def fake_choice(
+        validation: object,
+        *,
+        summary: LocatorCitationSummaryNode,
+        document_text: str,
+        session: object | None,
+    ) -> MelleaLocatorCandidateChoiceNode:
+        del validation, document_text, session
+        return MelleaLocatorCandidateChoiceNode(
+            node_id=f"{summary.node_id}:mellea_candidate_choice",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaLocatorCandidateChoiceOutcome.NO_MATCH,
+            candidate_indices=(1,),
+            selected_candidate_index=None,
+            reparsed_case_name=None,
+            reparsed_court=None,
+            reparsed_date=None,
+            rationale="The citation states no identity fields.",
+            depends_on=(summary.node_id,),
+        )
 
-    assert exact_case_name_check_node.status is ValidationNodeStatus.SKIPPED
-    assert exact_case_name_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
-    assert year_check_node.status is ValidationNodeStatus.SKIPPED
-    assert year_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
-    assert court_check_node.status is ValidationNodeStatus.SKIPPED
-    assert court_check_node.outcome is FieldCheckOutcome.UNAVAILABLE
-    # Unavailable case-name evidence is not a confirmed disagreement, so it
-    # doesn't downgrade all the way to a mismatch - only an outright case-name
-    # or court mismatch does that.
-    assert assessment_node.outcome is LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
-    assert summary_node.candidates[0].assessment_node_id == assessment_node.node_id
+    monkeypatch.setattr("mellea_lrc.validation.execution.run_mellea_locator_candidate_choice", fake_choice)
+    _, _, exact_name, year, _, court, assessment, summary, choice, resolution = (
+        _validate(extracted, client).citations[0].nodes
+    )
+    assert exact_name.outcome is FieldCheckOutcome.UNAVAILABLE
+    assert year.outcome is FieldCheckOutcome.UNAVAILABLE
+    assert court.outcome is FieldCheckOutcome.UNAVAILABLE
+    assert assessment.outcome is LocatorCandidateAssessmentOutcome.PARTIAL_MATCH
+    assert summary.candidates[0].assessment_node_id == assessment.node_id
+    assert choice.outcome is MelleaLocatorCandidateChoiceOutcome.NO_MATCH
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.NO_MATCH
 
 
 def test_found_unavailable_extraction_with_retrieved_name_still_reextracts(
@@ -594,6 +574,28 @@ def test_found_unavailable_extraction_with_retrieved_name_still_reextracts(
     monkeypatch.setattr(
         "mellea_lrc.validation.execution.run_mellea_case_name_reextraction",
         fake_reextraction,
+    )
+
+    async def fake_reextracted_semantic_check(
+        _validation: object,
+        *,
+        case_name_evidence: MelleaCaseNameReextractionNode,
+        candidate: CandidateEvaluationNode | None = None,
+        session: object | None = None,
+    ) -> MelleaCaseNameCheckNode:
+        del candidate, session
+        return MelleaCaseNameCheckNode(
+            node_id=f"{case_name_evidence.node_id}:mellea_case_name_check",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaCaseNameCheckOutcome.MATCH,
+            extracted_case_name="Soundview Elite Ltd.",
+            retrieved_case_name="In re Soundview Elite, Ltd.",
+            depends_on=(case_name_evidence.node_id,),
+        )
+
+    monkeypatch.setattr(
+        "mellea_lrc.validation.execution.run_mellea_case_name_check",
+        fake_reextracted_semantic_check,
     )
 
     (
@@ -671,185 +673,23 @@ def test_mellea_case_name_reextraction_uses_only_local_context(
     assert spec.output_format.__name__ == "_PartyProposal"
 
 
-def test_not_found_reextracts_case_parties_in_the_mellea_progression(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Route a locator miss to local party re-extraction before candidate search."""
+def test_lookup_miss_defers_without_local_reextraction() -> None:
+    """Lookup misses stay deferred until reporter-locator lookup design is settled."""
     extracted = _document(FullCaseCitation(volume="347", reporter="U.S.", page="9999"))
-    prepared_query = 'caseName:("Brown" AND "Board")'
-    client = LookupClient(
-        CourtListenerCitationLookup(citation="347 U.S. 9999", status=404, clusters=()),
-        opinion_search_response=CourtListenerSearchResult.from_payload(
-            query=prepared_query,
-            search_type="o",
-            semantic=False,
-            count=1,
-            results=[{"cluster_id": 123, "caseName": "Brown v. Board"}],
-            next_cursor=None,
-            previous_cursor=None,
-        ),
-        recap_search_response=CourtListenerSearchResult.from_payload(
-            query=prepared_query,
-            search_type="r",
-            semantic=False,
-            count=2,
-            results=[
-                {"docket_id": 789, "caseName": "Brown v. Board"},
-                {"docket_id": 790, "caseName": "Brown v. Board"},
-            ],
-            next_cursor=None,
-            previous_cursor=None,
-        ),
-    )
-    calls: list[tuple[object, str, object]] = []
+    client = LookupClient(CourtListenerCitationLookup(citation="347 U.S. 9999", status=404, clusters=()))
 
-    async def fake_reextraction(
-        validation: object,
-        *,
-        trigger: ExactLocatorLookupNode,
-        locator_lookup: ExactLocatorLookupNode,
-        document_text: str,
-        session: object | None,
-    ) -> MelleaCaseNameReextractionNode:
-        assert trigger is locator_lookup
-        calls.append((validation, document_text, session))
-        return MelleaCaseNameReextractionNode(
-            node_id="cite-0001:mellea_case_name_reextraction",
-            status=ValidationNodeStatus.SUCCEEDED,
-            outcome=MelleaCaseNameReextractionOutcome.COMPLETE,
-            plaintiff="Brown",
-            defendant="Board",
-            depends_on=("cite-0001:exact_locator_lookup",),
-        )
+    lookup, resolution = _validate(extracted, client).citations[0].nodes
 
-    monkeypatch.setattr(
-        "mellea_lrc.validation.execution.run_mellea_case_name_reextraction",
-        fake_reextraction,
-    )
-
-    async def fake_query_preparation(
-        validation: object,
-        *,
-        reextraction: MelleaCaseNameReextractionNode,
-        session: object | None,
-    ) -> MelleaCaseNameQueryPreparationNode:
-        del validation, session
-        return MelleaCaseNameQueryPreparationNode(
-            node_id="cite-0001:mellea_case_name_query_preparation",
-            status=ValidationNodeStatus.SUCCEEDED,
-            outcome=MelleaCaseNameQueryPreparationOutcome.PREPARED,
-            query=prepared_query,
-            query_plaintiff="Brown",
-            query_defendant="Board",
-            court_id=None,
-            depends_on=(reextraction.node_id,),
-        )
-
-    monkeypatch.setattr(
-        "mellea_lrc.validation.execution.run_mellea_case_name_query_preparation",
-        fake_query_preparation,
-    )
-
-    session = object()
-    progression = asyncio.run(validate_document(extracted, client=client, session=session)).citations[0]
-
-    assert len(progression.nodes) == 23
-    assert progression.nodes[0].outcome is LocatorLookupOutcome.NOT_FOUND
-    assert isinstance(progression.nodes[1], MelleaCaseNameReextractionNode)
-    assert progression.nodes[1].outcome is MelleaCaseNameReextractionOutcome.COMPLETE
-    assert isinstance(progression.nodes[2], MelleaCaseNameQueryPreparationNode)
-    assert progression.nodes[2].outcome is MelleaCaseNameQueryPreparationOutcome.PREPARED
-    assert isinstance(progression.nodes[3], OpinionSearchNode)
-    assert progression.nodes[3].outcome is OpinionSearchOutcome.SEARCHED
-    assert progression.nodes[3].result_count == 1
-    assert progression.nodes[3].results[0]["cluster_id"] == 123
-    assert progression.nodes[3].depends_on == (progression.nodes[2].node_id,)
-    assert progression.nodes[3].status_message == "Opinion search completed."
-    assert progression.nodes[3].outcome_message == "CourtListener returned 1 opinion search results."
-    assert isinstance(progression.nodes[4], RecapSearchNode)
-    assert progression.nodes[4].outcome is RecapSearchOutcome.SEARCHED
-    assert progression.nodes[4].result_count == 2
-    assert progression.nodes[4].results[0]["docket_id"] == 789
-    assert progression.nodes[4].depends_on == (progression.nodes[2].node_id,)
-    assert progression.nodes[4].status_message == "RECAP search completed."
-    assert progression.nodes[4].outcome_message == "CourtListener returned 2 RECAP search results."
-    assert isinstance(progression.nodes[5], CandidateSelectionNode)
-    assert progression.nodes[5].outcome is CandidateSelectionOutcome.ALL_SELECTED
-    assert progression.nodes[5].total_candidate_count == 1
-    assert progression.nodes[5].depends_on == (progression.nodes[3].node_id,)
-    assert isinstance(progression.nodes[6], CandidateEvaluationNode)
-    assert progression.nodes[6].outcome is CandidateEvaluationOutcome.READY
-    assert progression.nodes[6].source is CandidateEvaluationSource.OPINION_SEARCH
-    assert progression.nodes[6].candidate_index == 1
-    assert progression.nodes[6].cluster_id == "123"
-    assert progression.nodes[6].case_name == "Brown v. Board"
-    assert progression.nodes[6].depends_on == (progression.nodes[5].node_id,)
-    assert progression.nodes[6].record == progression.nodes[3].results[0]
-    assert isinstance(progression.nodes[7], ExactCaseNameCheckNode)
-    assert progression.nodes[7].outcome is FieldCheckOutcome.UNAVAILABLE
-    assert isinstance(progression.nodes[8], YearCheckNode)
-    assert progression.nodes[8].outcome is FieldCheckOutcome.UNAVAILABLE
-    assert isinstance(progression.nodes[9], CourtCheckNode)
-    assert progression.nodes[9].outcome is FieldCheckOutcome.UNAVAILABLE
-    assert progression.nodes[9].depends_on == (progression.nodes[6].node_id,)
-    assert isinstance(progression.nodes[10], OpinionSearchCandidateAssessmentNode)
-    assert progression.nodes[10].outcome is SearchCandidateAssessmentOutcome.MISMATCH
-    assert progression.nodes[10].depends_on == (
-        progression.nodes[7].node_id,
-        progression.nodes[8].node_id,
-        progression.nodes[9].node_id,
-    )
-    assert isinstance(progression.nodes[11], CandidateSelectionNode)
-    assert progression.nodes[11].outcome is CandidateSelectionOutcome.ALL_SELECTED
-    assert progression.nodes[11].total_candidate_count == 2
-    assert progression.nodes[11].depends_on == (progression.nodes[4].node_id,)
-    assert isinstance(progression.nodes[12], CandidateEvaluationNode)
-    assert progression.nodes[12].source is CandidateEvaluationSource.RECAP_SEARCH
-    assert progression.nodes[12].candidate_index == 1
-    assert progression.nodes[12].docket_id == "789"
-    assert progression.nodes[12].depends_on == (progression.nodes[11].node_id,)
-    assert progression.nodes[12].record == progression.nodes[4].results[0]
-    assert isinstance(progression.nodes[13], ExactCaseNameCheckNode)
-    assert progression.nodes[13].outcome is FieldCheckOutcome.UNAVAILABLE
-    assert isinstance(progression.nodes[14], YearCheckNode)
-    assert progression.nodes[14].outcome is FieldCheckOutcome.UNAVAILABLE
-    assert isinstance(progression.nodes[15], CourtCheckNode)
-    assert progression.nodes[15].outcome is FieldCheckOutcome.UNAVAILABLE
-    assert progression.nodes[15].depends_on == (progression.nodes[12].node_id,)
-    assert isinstance(progression.nodes[16], RecapSearchCandidateAssessmentNode)
-    assert progression.nodes[16].outcome is SearchCandidateAssessmentOutcome.MISMATCH
-    assert progression.nodes[16].depends_on == (
-        progression.nodes[13].node_id,
-        progression.nodes[14].node_id,
-        progression.nodes[15].node_id,
-    )
-    assert isinstance(progression.nodes[17], CandidateEvaluationNode)
-    assert progression.nodes[17].source is CandidateEvaluationSource.RECAP_SEARCH
-    assert progression.nodes[17].candidate_index == 2
-    assert progression.nodes[17].depends_on == (progression.nodes[11].node_id,)
-    assert isinstance(progression.nodes[18], ExactCaseNameCheckNode)
-    assert progression.nodes[18].outcome is FieldCheckOutcome.UNAVAILABLE
-    assert isinstance(progression.nodes[19], YearCheckNode)
-    assert progression.nodes[19].outcome is FieldCheckOutcome.UNAVAILABLE
-    assert isinstance(progression.nodes[20], CourtCheckNode)
-    assert progression.nodes[20].outcome is FieldCheckOutcome.UNAVAILABLE
-    assert progression.nodes[20].depends_on == (progression.nodes[17].node_id,)
-    assert isinstance(progression.nodes[21], RecapSearchCandidateAssessmentNode)
-    assert progression.nodes[21].outcome is SearchCandidateAssessmentOutcome.MISMATCH
-    assert progression.nodes[21].depends_on == (
-        progression.nodes[18].node_id,
-        progression.nodes[19].node_id,
-        progression.nodes[20].node_id,
-    )
-    assert isinstance(progression.nodes[22], SearchCitationSummaryNode)
-    assert progression.aggregation is progression.nodes[22]
-    assert client.search_calls == [(prepared_query, "o"), (prepared_query, "r")]
-    assert calls[0][1:] == (extracted.text, session)
+    assert lookup.outcome is LocatorLookupOutcome.NOT_FOUND
+    assert isinstance(resolution, LocatorIdentityResolutionNode)
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.DEFERRED
+    assert resolution.depends_on == (lookup.node_id,)
+    assert client.search_calls == []
 
 
 @pytest.mark.parametrize(
     "source",
-    [CandidateEvaluationSource.OPINION_SEARCH, CandidateEvaluationSource.RECAP_SEARCH],
+    (CandidateEvaluationSource.OPINION_SEARCH, CandidateEvaluationSource.RECAP_SEARCH),
 )
 def test_search_candidate_uses_semantic_check_without_reextracting(
     monkeypatch: pytest.MonkeyPatch,
@@ -1154,72 +994,70 @@ def test_mellea_case_name_query_preparation_constructs_the_courtlistener_query(
     assert spec.output_format.__name__ == "_QueryTermsProposal"
 
 
-def test_ambiguous_lookup_records_a_bounded_candidate_selection() -> None:
+def test_ambiguous_lookup_sends_all_reviewed_candidates_to_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     extracted = _document(FullCaseCitation(volume="1", reporter="F.2d", page="2"))
-    clusters = (
-        CourtListenerOpinionCluster(case_name="First"),
-        CourtListenerOpinionCluster(case_name="Second"),
-    )
+    clusters = (CourtListenerOpinionCluster(), CourtListenerOpinionCluster())
     client = LookupClient(CourtListenerCitationLookup(citation="1 F.2d 2", status=300, clusters=clusters))
+    calls: list[InstructIvrSpec] = []
 
-    progression = _validate(extracted, client).citations[0]
-    lookup, selection = progression.nodes[:2]
-    candidates = tuple(node for node in progression.nodes if isinstance(node, CandidateEvaluationNode))
-    assessments = tuple(
-        node for node in progression.nodes if isinstance(node, LocatorCandidateAssessmentNode)
+    async def fake_instruct(_session: object, spec: InstructIvrSpec, **_kwargs: object) -> IvrRun:
+        calls.append(spec)
+        return _successful_ivr(
+            '{"decision":"no_match","candidate_index":null,"reparsed_case_name":null,'
+            '"reparsed_court":null,"reparsed_date":null,"rationale":"No stated fields."}'
+        )
+
+    monkeypatch.setenv("MELLEA_LRC_LLM_MODEL", "test-model")
+    monkeypatch.setenv("MELLEA_LRC_LLM_API_BASE", "https://example.test/v1")
+    monkeypatch.setenv("MELLEA_LRC_LLM_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "mellea_lrc.validation.aggregation.mellea_locator_candidate_choice.run_instruct_ivr",
+        fake_instruct,
     )
-    summary = progression.nodes[-2]
-    resolution = progression.nodes[-1]
 
-    assert lookup.status is ValidationNodeStatus.SUCCEEDED
+    progression = _validate(extracted, client, session=object()).citations[0]
+    lookup, selection = progression.nodes[:2]
+    summary = next(node for node in progression.nodes if isinstance(node, LocatorCitationSummaryNode))
+    choice = next(node for node in progression.nodes if isinstance(node, MelleaLocatorCandidateChoiceNode))
+    resolution = progression.identity_resolution
+
     assert lookup.outcome is LocatorLookupOutcome.AMBIGUOUS
-    assert lookup.candidate_count == 2
-    assert lookup.candidate_clusters == clusters
-    assert lookup.cluster is None
-    assert isinstance(selection, CandidateSelectionNode)
     assert selection.outcome is CandidateSelectionOutcome.ALL_SELECTED
     assert selection.total_candidate_count == 2
     assert selection.selected_candidate_count == 2
-    assert selection.depends_on == (lookup.node_id,)
-    first_candidate, second_candidate = candidates
-    assert first_candidate.source is CandidateEvaluationSource.LOCATOR_LOOKUP
-    assert first_candidate.record is clusters[0]
-    assert first_candidate.depends_on == (selection.node_id,)
-    assert second_candidate.record is clusters[1]
-    assert second_candidate.depends_on == (selection.node_id,)
-    assert len(assessments) == 2
-    assert isinstance(summary, LocatorCitationSummaryNode)
-    assert summary.depends_on == tuple(node.node_id for node in assessments)
-    assert progression.aggregation is summary
-    assert isinstance(resolution, LocatorIdentityResolutionNode)
-    assert resolution.outcome is LocatorIdentityResolutionOutcome.UNRESOLVED
-    assert resolution.matching_candidate_indices == ()
-    assert resolution.depends_on == (summary.node_id,)
-    assert progression.identity_resolution is resolution
+    assert summary.candidates[0].candidate_index == 1
+    assert summary.candidates[1].candidate_index == 2
+    assert choice.outcome is MelleaLocatorCandidateChoiceOutcome.NO_MATCH
+    assert choice.candidate_indices == (1, 2)
+    assert resolution is not None
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.NO_MATCH
+    assert resolution.selection_evidence_node_id == choice.node_id
+    spec = calls[0]
+    assert spec.grounding_context.keys() == {"local_context"}
+    assert '"candidate_index":1' in spec.user_variables["reviewed_candidates_json"]
+    assert '"candidate_index":2' in spec.user_variables["reviewed_candidates_json"]
 
 
-def test_ambiguous_lookup_defers_candidate_selection_over_the_limit() -> None:
+def test_ambiguous_lookup_defers_at_twenty_candidates() -> None:
     extracted = _document(FullCaseCitation(volume="1", reporter="F.2d", page="2"))
-    clusters = tuple(CourtListenerOpinionCluster(case_name=f"Case {index}") for index in range(4))
+    clusters = tuple(CourtListenerOpinionCluster(case_name=f"Case {index}") for index in range(20))
     client = LookupClient(CourtListenerCitationLookup(citation="1 F.2d 2", status=300, clusters=clusters))
 
     lookup, selection, resolution = _validate(extracted, client).citations[0].nodes
-
     assert lookup.outcome is LocatorLookupOutcome.AMBIGUOUS
-    assert isinstance(selection, CandidateSelectionNode)
     assert selection.outcome is CandidateSelectionOutcome.DEFERRED_OVER_LIMIT
-    assert selection.total_candidate_count == 4
+    assert selection.total_candidate_count == 20
     assert selection.selected_candidate_count == 0
-    assert selection.outcome_message == (
-        "Candidate validation is deferred because 4 returned candidates exceed the current scope of 3; "
-        "further refinement is needed before selecting candidates."
-    )
-    assert isinstance(resolution, LocatorIdentityResolutionNode)
+    assert "meet or exceed" in selection.outcome_message
     assert resolution.outcome is LocatorIdentityResolutionOutcome.DEFERRED
     assert resolution.depends_on == (selection.node_id,)
 
 
-def test_ambiguous_locator_resolves_only_one_confirmed_candidate() -> None:
+def test_ambiguous_locator_resolves_only_one_confirmed_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     extracted = _document(
         FullCaseCitation(
             plaintiff="Brown",
@@ -1247,6 +1085,23 @@ def test_ambiguous_locator_resolves_only_one_confirmed_candidate() -> None:
     )
     client = LookupClient(CourtListenerCitationLookup(citation="347 U.S. 483", status=300, clusters=clusters))
 
+    async def fake_semantic_check(
+        _validation: object,
+        *,
+        case_name_evidence: ExactCaseNameCheckNode,
+        session: object | None = None,
+    ) -> MelleaCaseNameCheckNode:
+        del session
+        return MelleaCaseNameCheckNode(
+            node_id=f"{case_name_evidence.node_id}:mellea_case_name_check",
+            status=ValidationNodeStatus.FAILED,
+            outcome=MelleaCaseNameCheckOutcome.FAILED,
+            extracted_case_name="Brown v. Board",
+            retrieved_case_name="Other v. Case",
+            depends_on=(case_name_evidence.node_id,),
+        )
+
+    monkeypatch.setattr("mellea_lrc.validation.execution.run_mellea_case_name_check", fake_semantic_check)
     progression = _validate_identity(extracted, client).citations[0]
 
     resolution = progression.identity_resolution
@@ -1261,7 +1116,9 @@ def test_ambiguous_locator_resolves_only_one_confirmed_candidate() -> None:
     )
 
 
-def test_ambiguous_locator_keeps_two_confirmed_candidates_unresolved() -> None:
+def test_ambiguous_locator_uses_model_to_select_among_confirmed_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     extracted = _document(
         FullCaseCitation(
             plaintiff="Brown",
@@ -1284,23 +1141,61 @@ def test_ambiguous_locator_keeps_two_confirmed_candidates_unresolved() -> None:
     )
     client = LookupClient(CourtListenerCitationLookup(citation="347 U.S. 483", status=300, clusters=clusters))
 
-    resolution = _validate_identity(extracted, client).citations[0].identity_resolution
+    async def fake_choice(
+        validation: object,
+        *,
+        summary: LocatorCitationSummaryNode,
+        document_text: str,
+        session: object | None,
+    ) -> MelleaLocatorCandidateChoiceNode:
+        del validation, document_text, session
+        return MelleaLocatorCandidateChoiceNode(
+            node_id=f"{summary.node_id}:mellea_candidate_choice",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaLocatorCandidateChoiceOutcome.SELECTED,
+            candidate_indices=(1, 2),
+            selected_candidate_index=2,
+            reparsed_case_name="Brown v. Board",
+            reparsed_court=None,
+            reparsed_date="1954",
+            rationale="Candidate 2 is the representative record.",
+            depends_on=(summary.node_id,),
+        )
 
+    monkeypatch.setattr("mellea_lrc.validation.execution.run_mellea_locator_candidate_choice", fake_choice)
+    progression = _validate_identity(extracted, client).citations[0]
+    resolution = progression.identity_resolution
+    choice = next(node for node in progression.nodes if isinstance(node, MelleaLocatorCandidateChoiceNode))
+
+    assert choice.candidate_indices == (1, 2)
     assert resolution is not None
-    assert resolution.outcome is LocatorIdentityResolutionOutcome.UNRESOLVED
-    assert resolution.selected_candidate_index is None
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.RESOLVED
+    assert resolution.selected_candidate_index == 2
     assert resolution.matching_candidate_indices == (1, 2)
+    assert resolution.selection_evidence_node_id == choice.node_id
 
 
-def test_unsupported_citation_is_skipped_without_service_access() -> None:
+def test_docket_locator_is_deferred_without_service_access() -> None:
+    document = _document(DocketCitation(docket_number="1:24-cv-08705"))
+    client = LookupClient(CourtListenerCitationLookup(citation="unused", status=200, clusters=()))
+
+    resolution = _validate_identity(document, client).citations[0].nodes[0]
+
+    assert client.calls == []
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.DEFERRED
+    assert "docket-number-only lookup" in resolution.outcome_message
+
+
+def test_non_reporter_locator_is_deferred_without_service_access() -> None:
     extracted = _document(FullLawCitation(volume="28", reporter="U.S.C.", page="636"))
     client = LookupClient(CourtListenerCitationLookup(citation="28 U.S.C. 636", status=200, clusters=()))
 
-    node = _validate(extracted, client).citations[0].nodes[0]
+    resolution = _validate(extracted, client).citations[0].nodes[0]
 
     assert client.calls == []
-    assert node.status is ValidationNodeStatus.SKIPPED
-    assert node.outcome is LocatorLookupOutcome.UNSUPPORTED_CITATION
+    assert isinstance(resolution, LocatorIdentityResolutionNode)
+    assert resolution.outcome is LocatorIdentityResolutionOutcome.DEFERRED
+    assert resolution.depends_on == ()
 
 
 def test_service_failure_is_a_terminal_validation_node() -> None:

@@ -121,6 +121,8 @@ def _pinpoint_requires_review(
     # when candidate aggregation gains pinpoint semantics for other routes.
     if lookup is None or lookup.outcome is not LocatorLookupOutcome.FOUND:
         return None
+    if not any(candidate.pinpoint is not None for candidate in candidates):
+        return None
     matched = tuple(
         candidate for candidate in candidates if candidate.outcome is LocatorCandidateAssessmentOutcome.MATCH
     )

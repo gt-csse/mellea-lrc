@@ -16,7 +16,7 @@ from mellea_lrc.validation.types import (
 if TYPE_CHECKING:
     from mellea_lrc.validation.types import CitationValidation
 
-CANDIDATE_SELECTION_LIMIT = 3
+CANDIDATE_SELECTION_LIMIT = 20
 
 
 def run_locator_candidate_selection(
@@ -65,19 +65,19 @@ def _selection(
     total_candidate_count: int,
 ) -> CandidateSelectionNode:
     """Create the shared selection decision for one retrieved result set."""
-    selected_count = total_candidate_count if total_candidate_count <= CANDIDATE_SELECTION_LIMIT else 0
+    selected_count = total_candidate_count if total_candidate_count < CANDIDATE_SELECTION_LIMIT else 0
     outcome = (
         CandidateSelectionOutcome.ALL_SELECTED
         if selected_count == total_candidate_count
         else CandidateSelectionOutcome.DEFERRED_OVER_LIMIT
     )
     outcome_message = (
-        f"All {total_candidate_count} returned candidates are within the current validation scope of "
+        f"All {total_candidate_count} returned candidates are below the current validation limit of "
         f"{CANDIDATE_SELECTION_LIMIT}."
         if outcome is CandidateSelectionOutcome.ALL_SELECTED
         else (
-            f"Candidate validation is deferred because {total_candidate_count} returned candidates exceed "
-            f"the current scope of {CANDIDATE_SELECTION_LIMIT}; further refinement is needed before "
+            f"Candidate validation is deferred because {total_candidate_count} returned candidates meet or exceed "
+            f"the current validation limit of {CANDIDATE_SELECTION_LIMIT}; further refinement is needed before "
             "selecting candidates."
         )
     )

@@ -54,6 +54,8 @@ from mellea_lrc.validation.types import (
     MelleaCaseNameReextractionOutcome,
     MelleaCitingPropositionExtractionNode,
     MelleaCitingPropositionExtractionOutcome,
+    MelleaLocatorCandidateChoiceNode,
+    MelleaLocatorCandidateChoiceOutcome,
     MelleaPinpointCheckNode,
     MelleaPinpointCheckOutcome,
     MelleaReextractedCaseNameCheckNode,
@@ -99,6 +101,7 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
         CourtCheckNode,
         LocatorCandidateAssessmentNode,
         LocatorCitationSummaryNode,
+        MelleaLocatorCandidateChoiceNode,
         LocatorIdentityResolutionNode,
         OpinionSearchCandidateAssessmentNode,
         RecapSearchCandidateAssessmentNode,
@@ -125,6 +128,7 @@ _OUTCOME_TYPES = {
     CourtCheckNode: FieldCheckOutcome,
     LocatorCandidateAssessmentNode: LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode: LocatorCitationSummaryOutcome,
+    MelleaLocatorCandidateChoiceNode: MelleaLocatorCandidateChoiceOutcome,
     LocatorIdentityResolutionNode: LocatorIdentityResolutionOutcome,
     OpinionSearchCandidateAssessmentNode: SearchCandidateAssessmentOutcome,
     RecapSearchCandidateAssessmentNode: SearchCandidateAssessmentOutcome,
@@ -138,6 +142,7 @@ _IVR_NODE_TYPES = frozenset(
         MelleaCaseNameReextractionNode,
         MelleaCaseNameQueryPreparationNode,
         MelleaReextractedCaseNameCheckNode,
+        MelleaLocatorCandidateChoiceNode,
     }
 )
 
@@ -255,6 +260,10 @@ def _deserialize_node(value: object) -> ValidationNode:
     ):
         for field_name in ("case_name_outcome", "year_outcome", "court_outcome"):
             fields[field_name] = AggregatedFieldOutcome(fields[field_name])
+    elif node_type is MelleaLocatorCandidateChoiceNode:
+        fields["candidate_indices"] = tuple(
+            require_list(fields["candidate_indices"], name="node.candidate_indices")
+        )
     elif node_type is LocatorIdentityResolutionNode:
         fields["matching_candidate_indices"] = tuple(
             require_list(fields["matching_candidate_indices"], name="node.matching_candidate_indices")

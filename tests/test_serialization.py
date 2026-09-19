@@ -72,6 +72,8 @@ from mellea_lrc.validation import (
     MelleaCaseNameReextractionOutcome,
     MelleaCitingPropositionExtractionNode,
     MelleaCitingPropositionExtractionOutcome,
+    MelleaLocatorCandidateChoiceNode,
+    MelleaLocatorCandidateChoiceOutcome,
     MelleaPinpointCheckNode,
     MelleaPinpointCheckOutcome,
     MelleaReextractedCaseNameCheckNode,
@@ -534,7 +536,7 @@ def test_validated_document_round_trip_supports_every_current_node_type() -> Non
             outcome=CandidateSelectionOutcome.ALL_SELECTED,
             total_candidate_count=1,
             selected_candidate_count=1,
-            selection_limit=3,
+            selection_limit=20,
             depends_on=(opinion_search_id,),
         ),
         CandidateEvaluationNode(
@@ -721,6 +723,19 @@ def test_validated_document_round_trip_supports_every_current_node_type() -> Non
             ),
             depends_on=(f"{candidate_id}:locator_candidate_assessment",),
         ),
+        MelleaLocatorCandidateChoiceNode(
+            node_id=f"{citation_id}:locator_citation_summary:mellea_candidate_choice",
+            status=ValidationNodeStatus.SUCCEEDED,
+            outcome=MelleaLocatorCandidateChoiceOutcome.SELECTED,
+            candidate_indices=(0,),
+            selected_candidate_index=0,
+            reparsed_case_name="Brown v. Board",
+            reparsed_court="scotus",
+            reparsed_date="1954",
+            rationale="The complete candidate record supports the cited fields.",
+            depends_on=(f"{citation_id}:locator_citation_summary",),
+            run=ivr_run,
+        ),
         LocatorIdentityResolutionNode(
             node_id=f"{citation_id}:locator_identity_resolution",
             status=ValidationNodeStatus.SUCCEEDED,
@@ -728,7 +743,11 @@ def test_validated_document_round_trip_supports_every_current_node_type() -> Non
             selected_candidate_index=0,
             selected_assessment_node_id=f"{candidate_id}:locator_candidate_assessment",
             matching_candidate_indices=(0,),
-            depends_on=(f"{citation_id}:locator_citation_summary",),
+            selection_evidence_node_id=f"{citation_id}:locator_citation_summary:mellea_candidate_choice",
+            depends_on=(
+                f"{citation_id}:locator_citation_summary",
+                f"{citation_id}:locator_citation_summary:mellea_candidate_choice",
+            ),
         ),
     )
     validation = initialized.citations[0]

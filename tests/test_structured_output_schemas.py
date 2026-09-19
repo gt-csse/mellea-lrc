@@ -20,6 +20,7 @@ from mellea_lrc.extraction.adjudication.review.case_name import _Answer as _Case
 from mellea_lrc.extraction.adjudication.review.docket import _DocketProposal
 from mellea_lrc.extraction.adjudication.review.locator import _Locator, _Locators
 from mellea_lrc.extraction.adjudication.review.pin_cite import _Answer as _PinCiteProposal
+from mellea_lrc.validation.aggregation.mellea_locator_candidate_choice import _CandidateChoiceProposal
 from mellea_lrc.validation.case_search.mellea_case_name_query_preparation import _QueryTermsProposal
 from mellea_lrc.validation.field_checks.mellea_case_name_check import _SemanticVerdict
 from mellea_lrc.validation.field_checks.mellea_case_name_reextraction import _PartyProposal
@@ -29,6 +30,7 @@ from mellea_lrc.validation.pinpoint_retrieval.mellea_citing_proposition_extracti
 from mellea_lrc.validation.pinpoint_retrieval.mellea_pinpoint_check import _PinpointProposal
 
 OUTPUT_FORMATS: tuple[type[BaseModel], ...] = (
+    _CandidateChoiceProposal,
     _CitingPropositionProposal,
     _DocketProposal,
     _Locator,
