@@ -44,6 +44,12 @@ class Pass(Protocol):
     def __call__(self, text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]: ...
 
 
+CASE_NAME_STAGE = "case_name_resolution"
+COURT_STAGE = "court_resolution"
+DATE_STAGE = "date_resolution"
+PIN_CITE_STAGE = "pin_cite_resolution"
+
+
 def _colocation(text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
     """Group citations occupying the same span and written with nothing between."""
     return assign_colocation(text, citations)
@@ -216,31 +222,49 @@ def resolve_case_names(document: Document, rules: ExtractionRules | None = None)
     This explicit pass is for a full locator added later, such as a
     site-admitted docket, and never overwrites a name already recorded.
     """
-    if rules is None or rules.case_name_field_reader is None:
+    if CASE_NAME_STAGE in document.passes:
         return document
-    return replace(
-        document,
-        citations=rules.case_name_field_reader(document.text, document.citations),
+    citations = (
+        rules.case_name_field_reader(document.text, document.citations)
+        if rules is not None and rules.case_name_field_reader is not None
+        else document.citations
     )
+    return replace(document, citations=citations, passes=(*document.passes, CASE_NAME_STAGE))
 
 
 def resolve_courts(document: Document, rules: ExtractionRules | None = None) -> Document:
     """Resolve court context after locator spans and colocation groups exist."""
-    if rules is None or rules.court_reader is None:
+    if COURT_STAGE in document.passes:
         return document
-    return replace(document, citations=rules.court_reader(document.text, document.citations))
+    citations = (
+        rules.court_reader(document.text, document.citations)
+        if rules is not None and rules.court_reader is not None
+        else document.citations
+    )
+    return replace(document, citations=citations, passes=(*document.passes, COURT_STAGE))
 
 
 def resolve_dates(document: Document, rules: ExtractionRules | None = None) -> Document:
     """Resolve decision dates after locator spans and colocation groups exist."""
-    if rules is None or rules.date_reader is None:
+    if DATE_STAGE in document.passes:
         return document
-    return replace(document, citations=rules.date_reader(document.text, document.citations))
+    citations = (
+        rules.date_reader(document.text, document.citations)
+        if rules is not None and rules.date_reader is not None
+        else document.citations
+    )
+    return replace(document, citations=citations, passes=(*document.passes, DATE_STAGE))
 
 
 def resolve_pin_cites(document: Document, rules: ExtractionRules | None = None) -> Document:
     """Structure eyecite's pin-cite text against finalized citation spans."""
+    if PIN_CITE_STAGE in document.passes:
+        return document
     reader = rules.pin_cite_reader if rules is not None else None
     if reader is None:
         reader = read_pin_cites
-    return replace(document, citations=reader(document.text, document.citations))
+    return replace(
+        document,
+        citations=reader(document.text, document.citations),
+        passes=(*document.passes, PIN_CITE_STAGE),
+    )

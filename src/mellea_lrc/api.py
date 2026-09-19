@@ -1,22 +1,44 @@
 """Outer compositional API for Mellea-LRC stages.
 
-This module is the stable boundary for callers composing individual stages.
-It intentionally does not choose an end-to-end pipeline: callers begin with a
-``Document`` or a serialized document, then explicitly invoke the
-``Document -> Document`` stage they want. The command-line interface is the
-separate end-to-end entrypoint.
+This is the stable boundary for callers composing individual stages.  Every
+public operation accepts a :class:`Document` and returns that same document
+with more evidence written on it.  A caller may save it with
+``document.serialize()``, restore it with ``Document.from_serialized(...)``,
+and resume at the next named stage.
+
+The three composition helpers are intentionally small conveniences, rather
+than an implicit end-to-end pipeline:
+
+``grow_roots``
+    Complete-locator discovery through field reading and filing-internal root
+    formation.  Optional docket-site hunting belongs here, before co-location
+    and before validation.
+
+``validate_roots_identity``
+    Docket retrieval and reporter lookup, retaining their distinct search,
+    unique-candidate, and ambiguity checkpoints.
+
+``grow_leaves``
+    The deterministic second growth after root work.  Leaf-site hunting and
+    leaf case-name validation are deliberately separate future stages.
+
+The command-line interface is the separate end-to-end entrypoint.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
+from typing import TYPE_CHECKING
+
 from mellea_lrc.extraction.adjudication import hunt_docket_locators
+from mellea_lrc.extraction.eyecite_extractor import grow_leaves as _grow_leaves
 from mellea_lrc.extraction.locator_stages import (
     find_docket_locators,
     find_full_reporter_locators,
     mark_full_reporter_locator_hunting_skipped,
     resolve_colocations,
 )
-from mellea_lrc.extraction.root_stages import form_roots
+from mellea_lrc.extraction.root_stages import ROOT_FORMATION_STAGE, form_roots
 from mellea_lrc.extraction.rules import ExtractionRules, stable
 from mellea_lrc.extraction.stages import (
     resolve_case_names,
@@ -24,6 +46,7 @@ from mellea_lrc.extraction.stages import (
     resolve_dates,
     resolve_pin_cites,
 )
+from mellea_lrc.extraction.structure.attachment import Attachment
 from mellea_lrc.extraction.types import Document
 from mellea_lrc.validation.docket_roots import (
     resolve_docket_root_ambiguities,
@@ -36,12 +59,22 @@ from mellea_lrc.validation.roots import (
     validate_unique_full_reporter_locator_identities,
 )
 
+if TYPE_CHECKING:
+    from mellea import MelleaSession
+
+    from mellea_lrc.courtlistener.protocols import CourtListenerServiceClient
+
+
+LEAF_GROWTH_STAGE = "leaf_growth"
+
 __all__ = [
     "Document",
     "ExtractionRules",
     "find_docket_locators",
     "find_full_reporter_locators",
     "form_roots",
+    "grow_leaves",
+    "grow_roots",
     "hunt_docket_locators",
     "lookup_full_reporter_locators_exact",
     "mark_full_reporter_locator_hunting_skipped",
@@ -54,6 +87,100 @@ __all__ = [
     "resolve_pin_cites",
     "search_docket_roots",
     "stable",
+    "validate_roots_identity",
     "validate_unique_docket_root_identities",
     "validate_unique_full_reporter_locator_identities",
 ]
+
+
+async def grow_roots(
+    document: Document,
+    *,
+    rules: ExtractionRules | None = None,
+    hunt_dockets: bool = False,
+    session: MelleaSession | None = None,
+) -> Document:
+    """Grow complete locators into filing-internal roots.
+
+    The explicit order is the extraction dependency order: every configured
+    locator source finishes before co-location is projected; case names,
+    courts, dates, and pin cites then read the final site boundaries; root
+    formation is last.  ``hunt_dockets`` is deliberately opt-in because it
+    incurs model calls.  It runs before co-location, so every newly admitted
+    locator participates in the one final grouping pass.
+
+    Full-reporter site hunting is not run here.  Its deliberately recorded
+    skip leaves a checkpoint explaining that decision without pretending that
+    the reporter rule pass found every possible reporter locator.
+    """
+    effective_rules = stable(rules)
+    document = find_full_reporter_locators(document, rules=effective_rules)
+    document = find_docket_locators(document, rules=effective_rules)
+    document = mark_full_reporter_locator_hunting_skipped(
+        document,
+        reason="Full-reporter site hunting is disabled in the current root-growth profile.",
+    )
+    if hunt_dockets:
+        document = await hunt_docket_locators(document, session=session, rules=effective_rules)
+    document = resolve_colocations(document, rules=effective_rules)
+    document = resolve_case_names(document, rules=effective_rules)
+    document = resolve_courts(document, rules=effective_rules)
+    document = resolve_dates(document, rules=effective_rules)
+    document = resolve_pin_cites(document, rules=effective_rules)
+    return form_roots(document)
+
+
+async def validate_roots_identity(
+    document: Document,
+    *,
+    client: CourtListenerServiceClient | None = None,
+    session: MelleaSession | None = None,
+) -> Document:
+    """Validate formed docket roots first, then formed reporter roots.
+
+    This convenience never merges the individual checkpoints.  A serialized
+    document still records, in order, docket search, docket unique identity,
+    docket ambiguity, reporter exact lookup, reporter unique identity, and
+    reporter ambiguity.  Docket lookup is first because it is an independent
+    search route that remains useful even where no court was read.
+    """
+    document = await search_docket_roots(document, client=client)
+    document = await validate_unique_docket_root_identities(document, session=session)
+    document = await resolve_docket_root_ambiguities(document, session=session)
+    document = await lookup_full_reporter_locators_exact(document, client=client)
+    document = await validate_unique_full_reporter_locator_identities(
+        document, client=client, session=session
+    )
+    return await resolve_full_reporter_locator_ambiguities(document, client=client, session=session)
+
+
+async def grow_leaves(
+    document: Document,
+    *,
+    attach: Attachment = Attachment.STATED,
+) -> Document:
+    """Attach deterministic short-form leaves to the roots this document holds.
+
+    Root identity validation is not a prerequisite: this stage is useful for
+    structural evaluation immediately after :func:`form_roots`, and it also
+    respects roots withdrawn by a later identity stage.  It reuses the
+    established deterministic reader and attachment policy, but writes the
+    explicit ``leaf_growth`` checkpoint used by the compositional API.
+
+    TODO: add a separate leaf-site-hunting stage and a separate check that a
+    leaf's stated case name agrees with its root and retrieved record.  Neither
+    concern belongs in this structural attachment stage, and neither should
+    make leaf growth depend on co-location.
+    """
+    if ROOT_FORMATION_STAGE not in document.passes:
+        msg = "Leaf growth requires root_formation before attachment."
+        raise ValueError(msg)
+    if LEAF_GROWTH_STAGE in document.passes:
+        return document
+
+    # The native reader still marks its historical ``leaves`` pass.  Replace
+    # that marker at the outer boundary so every new public stage has one
+    # unambiguous, checkpointable name.
+    grown = _grow_leaves(document, attach=attach)
+    passes = tuple(pass_name for pass_name in grown.passes if pass_name != "leaves")
+    return replace(grown, passes=(*passes, LEAF_GROWTH_STAGE))

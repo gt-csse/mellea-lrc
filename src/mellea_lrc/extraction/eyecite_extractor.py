@@ -614,7 +614,14 @@ def _with_leaves(
     # it is one that reached nothing, and that is exactly what a filing citing
     # only short forms looks like. So the loop runs either way and the findings
     # are the whole of what comes out.
-    roots = [record for record in document.citations if not is_leaf(record.stated)]
+    # Root formation may retain later repeats of a complete identifier as
+    # occurrences pointing at the first record.  Leaves must attach to that
+    # canonical root, never to one of those already-attached repetitions.
+    roots = [
+        record
+        for record in document.citations
+        if not is_leaf(record.stated) and record.is_root
+    ]
     by_id = {record.citation_id: record for record in roots}
     settled = sorted(roots, key=lambda record: record.full_span.start)
     grown: list[CitationRecord] = []
