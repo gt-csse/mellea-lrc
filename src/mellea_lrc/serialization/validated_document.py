@@ -45,7 +45,10 @@ from mellea_lrc.validation.types import (
     ExactCaseNameCheckNode,
     ExactLocatorLookupNode,
     FieldCheckOutcome,
+    FullReporterSearchNode,
+    FullReporterSearchOutcome,
     GovInfoDocketSearchNode,
+    GovInfoFullReporterSearchNode,
     LocatorCandidateAssessmentNode,
     LocatorCandidateAssessmentOutcome,
     LocatorCitationSummaryNode,
@@ -70,6 +73,7 @@ from mellea_lrc.validation.types import (
     MelleaPinpointCheckNode,
     MelleaPinpointCheckOutcome,
     MelleaReextractedCaseNameCheckNode,
+    MetadataSearchAttempt,
     OpinionSearchCandidateAssessmentNode,
     OpinionSearchNode,
     OpinionSearchOutcome,
@@ -97,8 +101,10 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
     for node_type in (
         ExactLocatorLookupNode,
         DocketRootSearchNode,
+        FullReporterSearchNode,
         DocketMetadataShortlistNode,
         GovInfoDocketSearchNode,
+        GovInfoFullReporterSearchNode,
         MelleaDocketCitationReextractionNode,
         MelleaDocketNumberEquivalenceNode,
         ExactCaseNameCheckNode,
@@ -130,8 +136,10 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
 _OUTCOME_TYPES = {
     ExactLocatorLookupNode: LocatorLookupOutcome,
     DocketRootSearchNode: DocketRootSearchOutcome,
+    FullReporterSearchNode: FullReporterSearchOutcome,
     DocketMetadataShortlistNode: DocketMetadataShortlistOutcome,
     GovInfoDocketSearchNode: DocketRootSearchOutcome,
+    GovInfoFullReporterSearchNode: FullReporterSearchOutcome,
     MelleaDocketCitationReextractionNode: MelleaDocketCitationReextractionOutcome,
     MelleaDocketNumberEquivalenceNode: MelleaDocketNumberEquivalenceOutcome,
     ExactCaseNameCheckNode: FieldCheckOutcome,
@@ -248,9 +256,29 @@ def deserialize_validation_node(value: object) -> ValidationNode:
             deserialize_ivr_run(require_mapping(run, name="node.run")) if run is not None else None
         )
 
-    if node_type in (DocketRootSearchNode, GovInfoDocketSearchNode):
+    if node_type in (
+        DocketRootSearchNode,
+        GovInfoDocketSearchNode,
+        FullReporterSearchNode,
+        GovInfoFullReporterSearchNode,
+    ):
         fields["candidates"] = _freeze_search_results(
             require_list(fields["candidates"], name="node.candidates")
+        )
+        fields["attempts"] = tuple(
+            MetadataSearchAttempt(
+                **{
+                    **require_mapping(item, name="node.attempts[]"),
+                    "status": ValidationNodeStatus(require_mapping(item, name="node.attempts[]")["status"]),
+                    "candidates": _freeze_search_results(
+                        require_list(
+                            require_mapping(item, name="node.attempts[]")["candidates"],
+                            name="node.attempts[].candidates",
+                        )
+                    ),
+                }
+            )
+            for item in require_list(fields.get("attempts", []), name="node.attempts")
         )
     elif node_type is DocketMetadataShortlistNode:
         fields["candidates"] = tuple(

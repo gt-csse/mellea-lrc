@@ -87,6 +87,15 @@ class GovInfoClient:
         court only as an optional narrowing condition.
         """
         query = govinfo_uscourts_docket_query(docket_number, court_id=court_id)
+        return self.search_uscourts(query, page_size=page_size)
+
+    def search_uscourts(self, query: str, *, page_size: int) -> GovInfoSearchResult:
+        """Search USCOURTS packages with a caller-supplied, auditable query.
+
+        Higher-level stages build the small, fixed family of query forms from
+        source-grounded fields; this client only carries the exact query to the
+        archive. It does not parse or normalize docket numbers.
+        """
         url = urljoin(self.config.base_url.rstrip("/") + "/", "search")
         body = {
             "query": query,
@@ -142,6 +151,17 @@ class GovInfoClient:
         return _search_result(payload, query=query, url=response.url)
 
 
+def govinfo_uscourts_case_name_query(terms: tuple[str, ...], *, court_id: str | None) -> str:
+    """Build a USCOURTS title query from source-grounded case-name terms."""
+    if not terms:
+        msg = "GovInfo case-name search needs at least one term"
+        raise ValueError(msg)
+    clauses = ["collection:uscourts", f"title:({' AND '.join(_query_term(term) for term in terms)})"]
+    if court_id:
+        clauses.append(f"courtCode:{court_id}")
+    return " ".join(clauses)
+
+
 def govinfo_uscourts_docket_query(docket_number: str, *, court_id: str | None) -> str:
     """Build the documented USCOURTS case-number query from source text."""
     escaped = docket_number.replace("\\", "\\\\").replace('"', '\\"')
@@ -149,6 +169,11 @@ def govinfo_uscourts_docket_query(docket_number: str, *, court_id: str | None) -
     if court_id:
         clauses.append(f"courtCode:{court_id}")
     return " ".join(clauses)
+
+
+def _query_term(value: str) -> str:
+    escaped = value.strip().replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def govinfo_package_url(package_id: str | None) -> str | None:

@@ -31,7 +31,9 @@ from mellea_lrc.api import (
     resolve_govinfo_docket_root_ambiguities,
     resolve_requeued_docket_root_ambiguities,
     review_and_requeue_unresolved_docket_roots,
+    search_courtlistener_docket_roots,
     search_docket_roots,
+    search_govinfo_docket_roots,
     shortlist_docket_root_metadata_candidates,
     validate_unique_docket_root_identities,
     validate_unique_govinfo_docket_root_identities,
@@ -53,15 +55,38 @@ Stage = Literal[
     "requeued-ambiguity-resolution",
     "metadata-shortlist",
     "semantic-resolution",
+    "courtlistener-metadata-search",
+    "govinfo-metadata-search",
 ]
 
-_SEARCH_STAGES = frozenset({"search", "govinfo-search"})
+_SEARCH_STAGES = frozenset(
+    {"search", "govinfo-search", "courtlistener-metadata-search", "govinfo-metadata-search"}
+)
 _MODEL_STAGES = frozenset(
     {
         "docket-extraction-review-and-requeue",
         "semantic-resolution",
+        "courtlistener-metadata-search",
     }
 )
+
+
+class _PacedGovInfoClient:
+    """Evaluation-only GovInfo wrapper that avoids burst-rate failures."""
+
+    def __init__(self, client: GovInfoClient, *, minimum_interval_seconds: float) -> None:
+        self.client = client
+        self.minimum_interval_seconds = minimum_interval_seconds
+        self._last_request_at: float | None = None
+
+    def search_uscourts(self, query: str, *, page_size: int):
+        if self._last_request_at is not None:
+            remaining = self.minimum_interval_seconds - (time.monotonic() - self._last_request_at)
+            if remaining > 0:
+                time.sleep(remaining)
+        result = self.client.search_uscourts(query, page_size=page_size)
+        self._last_request_at = time.monotonic()
+        return result
 
 
 class _PacedDocketSearchClient:
@@ -120,7 +145,9 @@ async def run(
     service = _PacedDocketSearchClient(
         CourtListenerClient(), minimum_interval_seconds=minimum_search_interval_seconds
     )
-    govinfo_service = GovInfoClient()
+    govinfo_service = _PacedGovInfoClient(
+        GovInfoClient(), minimum_interval_seconds=minimum_search_interval_seconds
+    )
     session = start_mellea_session_from_env() if stage in _MODEL_STAGES else None
     outcomes: Counter[str] = Counter()
     result_paths: list[dict[str, str]] = []
@@ -186,7 +213,11 @@ def _has_failed_search(payload: dict[str, object], *, stage: Stage) -> bool:
         trace = citation.get("trace")
         if not isinstance(trace, list):
             continue
-        expected_stage = "govinfo_docket_root_search" if stage == "govinfo-search" else "docket_root_search"
+        expected_stage = {
+            "govinfo-search": "govinfo_docket_root_search",
+            "courtlistener-metadata-search": "courtlistener_docket_search",
+            "govinfo-metadata-search": "govinfo_docket_search",
+        }.get(stage, "docket_root_search")
         for node in trace:
             if not isinstance(node, dict) or node.get("stage") != expected_stage:
                 continue
@@ -202,7 +233,7 @@ async def _run_stage(
     document: Document,
     *,
     service: _PacedDocketSearchClient,
-    govinfo_service: GovInfoClient,
+    govinfo_service: _PacedGovInfoClient,
     session: object | None,
 ) -> Document:
     if stage == "search":
@@ -227,6 +258,10 @@ async def _run_stage(
         return await shortlist_docket_root_metadata_candidates(document)
     if stage == "semantic-resolution":
         return await resolve_docket_root_semantics(document, session=session)
+    if stage == "courtlistener-metadata-search":
+        return await search_courtlistener_docket_roots(document, client=service, session=session)
+    if stage == "govinfo-metadata-search":
+        return await search_govinfo_docket_roots(document, client=govinfo_service, session=session)
     msg = f"Unsupported docket-root validation stage: {stage!r}"
     raise ValueError(msg)
 
@@ -300,6 +335,8 @@ def main() -> None:
             "requeued-ambiguity-resolution",
             "metadata-shortlist",
             "semantic-resolution",
+            "courtlistener-metadata-search",
+            "govinfo-metadata-search",
         ),
         required=True,
     )
@@ -320,7 +357,7 @@ def main() -> None:
         "--minimum-search-interval-seconds",
         type=float,
         default=0.0,
-        help="Evaluation-only minimum spacing between CourtListener search requests.",
+        help="Evaluation-only minimum spacing between provider search requests.",
     )
     args = parser.parse_args()
     if args.start < 0 or args.limit < 1:

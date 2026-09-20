@@ -44,6 +44,17 @@ class DocketRootSearchOutcome(str, Enum):
     FAILED = "failed"
 
 
+class FullReporterSearchOutcome(str, Enum):
+    """Results of a metadata search after exact reporter lookup missed."""
+
+    FOUND = "found"
+    NOT_FOUND = "not_found"
+    AMBIGUOUS = "ambiguous"
+    EXCEEDS_REVIEW_LIMIT = "exceeds_review_limit"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
 class DocketMetadataShortlistOutcome(str, Enum):
     """Outcome of narrowing returned docket metadata for semantic review."""
 
@@ -411,6 +422,26 @@ class RecapSearchNode:
 
 
 @dataclass(frozen=True, slots=True)
+class MetadataSearchAttempt:
+    """One bounded provider query inside one metadata-discovery stage.
+
+    A discovery stage can try several general query forms, but this record
+    preserves each one rather than flattening their provenance into its merged
+    candidate list. ``continuation`` is retained when a provider result reaches
+    the discovery boundary; a stage never exhausts an unbounded query.
+    """
+
+    kind: str
+    query: str | None
+    court_id: str | None
+    status: ValidationNodeStatus
+    candidate_count: int | None
+    candidates: tuple[Mapping[str, object], ...] = ()
+    continuation: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class DocketRootSearchNode:
     """All CourtListener docket-search evidence for one docket root.
 
@@ -432,6 +463,7 @@ class DocketRootSearchNode:
     status_message: str | None = None
     outcome_message: str | None = None
     error: str | None = None
+    attempts: tuple[MetadataSearchAttempt, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -476,9 +508,10 @@ class DocketMetadataShortlistNode:
 class GovInfoDocketSearchNode:
     """All GovInfo USCOURTS package-search evidence for one docket root.
 
-    This fallback runs only after CourtListener returned no candidate. Its
-    package records remain separate from CourtListener docket evidence because
-    GovInfo indexes published Federal opinions, rather than case dockets.
+    This runs after the CourtListener metadata stage but remains an independent
+    archive lookup even when CourtListener found candidates. Its package
+    records remain separate because GovInfo indexes published Federal opinions,
+    rather than case dockets.
     """
 
     node_id: str
@@ -493,6 +526,47 @@ class GovInfoDocketSearchNode:
     status_message: str | None = None
     outcome_message: str | None = None
     error: str | None = None
+    attempts: tuple[MetadataSearchAttempt, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class FullReporterSearchNode:
+    """CourtListener docket-metadata alternatives for one reporter locator.
+
+    Exact citation lookup remains the primary reporter route. This node records
+    only source-grounded case-name metadata discovery after that lookup returns
+    no candidate; it does not treat a docket candidate as proof of the cited
+    reporter decision.
+    """
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: FullReporterSearchOutcome
+    reporter_locator: str
+    candidate_count: int
+    candidates: tuple[Mapping[str, object], ...]
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+    attempts: tuple[MetadataSearchAttempt, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class GovInfoFullReporterSearchNode:
+    """GovInfo package-metadata alternatives for one reporter locator."""
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: FullReporterSearchOutcome
+    reporter_locator: str
+    candidate_count: int
+    candidates: tuple[Mapping[str, object], ...]
+    depends_on: tuple[str, ...]
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+    attempts: tuple[MetadataSearchAttempt, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -960,6 +1034,9 @@ class YearCheckNode:
 ValidationNode: TypeAlias = (
     ExactLocatorLookupNode
     | DocketRootSearchNode
+    | GovInfoDocketSearchNode
+    | FullReporterSearchNode
+    | GovInfoFullReporterSearchNode
     | DocketMetadataShortlistNode
     | ExactCaseNameCheckNode
     | MelleaCaseNameCheckNode
