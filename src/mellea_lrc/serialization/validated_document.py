@@ -35,6 +35,9 @@ from mellea_lrc.validation.types import (
     CourtCheckNode,
     DocketCourtRetrievalNode,
     DocketCourtRetrievalOutcome,
+    DocketMetadataShortlistCandidate,
+    DocketMetadataShortlistNode,
+    DocketMetadataShortlistOutcome,
     DocketNumberCheckNode,
     DocketRootSearchNode,
     DocketRootSearchOutcome,
@@ -94,6 +97,7 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
     for node_type in (
         ExactLocatorLookupNode,
         DocketRootSearchNode,
+        DocketMetadataShortlistNode,
         GovInfoDocketSearchNode,
         MelleaDocketCitationReextractionNode,
         MelleaDocketNumberEquivalenceNode,
@@ -126,6 +130,7 @@ _NODE_TYPES: dict[str, type[ValidationNode]] = {
 _OUTCOME_TYPES = {
     ExactLocatorLookupNode: LocatorLookupOutcome,
     DocketRootSearchNode: DocketRootSearchOutcome,
+    DocketMetadataShortlistNode: DocketMetadataShortlistOutcome,
     GovInfoDocketSearchNode: DocketRootSearchOutcome,
     MelleaDocketCitationReextractionNode: MelleaDocketCitationReextractionOutcome,
     MelleaDocketNumberEquivalenceNode: MelleaDocketNumberEquivalenceOutcome,
@@ -246,6 +251,11 @@ def deserialize_validation_node(value: object) -> ValidationNode:
     if node_type in (DocketRootSearchNode, GovInfoDocketSearchNode):
         fields["candidates"] = _freeze_search_results(
             require_list(fields["candidates"], name="node.candidates")
+        )
+    elif node_type is DocketMetadataShortlistNode:
+        fields["candidates"] = tuple(
+            DocketMetadataShortlistCandidate(**require_mapping(item, name="node.candidates[]"))
+            for item in require_list(fields["candidates"], name="node.candidates")
         )
     elif node_type is ExactLocatorLookupNode:
         fields["cluster"] = _deserialize_cluster(fields["cluster"]) if fields["cluster"] is not None else None

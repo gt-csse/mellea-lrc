@@ -164,7 +164,7 @@ def test_root_identity_composition_preserves_each_docket_and_reporter_checkpoint
 
     assert client.calls == ["docket:1:24-cv-00123:d", "reporter:347 U.S. 483"]
     assert govinfo_client.calls == [("1:24-cv-00123", None, 20)]
-    assert completed.passes[-14:] == (
+    assert completed.passes[-15:] == (
         "docket_root_search",
         "docket_root_unique_identity",
         "docket_root_ambiguity_resolution",
@@ -175,6 +175,7 @@ def test_root_identity_composition_preserves_each_docket_and_reporter_checkpoint
         "docket_root_requeued_search",
         "docket_root_requeued_search_unique_identity",
         "docket_root_requeued_search_ambiguity_resolution",
+        "docket_root_metadata_shortlist",
         "docket_root_semantic_resolution",
         "full_reporter_locator_exact_lookup",
         "full_reporter_locator_unique_identity",

@@ -32,6 +32,7 @@ from mellea_lrc.api import (
     resolve_requeued_docket_root_ambiguities,
     review_and_requeue_unresolved_docket_roots,
     search_docket_roots,
+    shortlist_docket_root_metadata_candidates,
     validate_unique_docket_root_identities,
     validate_unique_govinfo_docket_root_identities,
     validate_unique_requeued_docket_root_identities,
@@ -50,6 +51,7 @@ Stage = Literal[
     "docket-extraction-review-and-requeue",
     "requeued-unique-identity",
     "requeued-ambiguity-resolution",
+    "metadata-shortlist",
     "semantic-resolution",
 ]
 
@@ -221,6 +223,8 @@ async def _run_stage(
         return await validate_unique_requeued_docket_root_identities(document)
     if stage == "requeued-ambiguity-resolution":
         return await resolve_requeued_docket_root_ambiguities(document)
+    if stage == "metadata-shortlist":
+        return await shortlist_docket_root_metadata_candidates(document)
     if stage == "semantic-resolution":
         return await resolve_docket_root_semantics(document, session=session)
     msg = f"Unsupported docket-root validation stage: {stage!r}"
@@ -229,6 +233,8 @@ async def _run_stage(
 
 def _outcomes(payload: dict[str, object], *, stage: Stage) -> Counter[str]:
     """Read first-class docket-root judgements rather than inferring trace state."""
+    if stage == "metadata-shortlist":
+        return _metadata_shortlist_outcomes(payload)
     if stage in _SEARCH_STAGES:
         question = "docket_lookup"
     elif stage == "docket-extraction-review-and-requeue":
@@ -252,6 +258,32 @@ def _outcomes(payload: dict[str, object], *, stage: Stage) -> Counter[str]:
     return outcomes
 
 
+def _metadata_shortlist_outcomes(payload: dict[str, object]) -> Counter[str]:
+    """Count persisted shortlist decisions without inventing an identity judgement."""
+    outcomes: Counter[str] = Counter()
+    citations = payload.get("citations")
+    if not isinstance(citations, list):
+        return outcomes
+    for citation in citations:
+        if not isinstance(citation, dict) or citation.get("root_id") != citation.get("citation_id"):
+            continue
+        source = citation.get("source")
+        if not isinstance(source, dict) or source.get("citation_type") != "DocketCitation":
+            continue
+        trace = citation.get("trace")
+        if not isinstance(trace, list):
+            continue
+        for node in trace:
+            if not isinstance(node, dict) or node.get("stage") != "docket_root_metadata_shortlist":
+                continue
+            details = node.get("details")
+            validation = details.get("validation") if isinstance(details, dict) else None
+            outcome = validation.get("outcome") if isinstance(validation, dict) else None
+            if isinstance(outcome, str):
+                outcomes[outcome] += 1
+    return outcomes
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -266,6 +298,7 @@ def main() -> None:
             "docket-extraction-review-and-requeue",
             "requeued-unique-identity",
             "requeued-ambiguity-resolution",
+            "metadata-shortlist",
             "semantic-resolution",
         ),
         required=True,
