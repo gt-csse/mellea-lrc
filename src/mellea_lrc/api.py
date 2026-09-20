@@ -43,6 +43,7 @@ from mellea_lrc.extraction.locator_stages import (
 from mellea_lrc.extraction.root_stages import ROOT_FORMATION_STAGE, form_roots
 from mellea_lrc.extraction.rules import ExtractionRules, stable
 from mellea_lrc.extraction.stages import (
+    CASE_NAME_STAGE,
     resolve_case_names,
     resolve_courts,
     resolve_dates,
@@ -199,11 +200,17 @@ async def validate_roots_identity(
     # Discovery is deliberately a pair of provider-level stages, each with its
     # own bounded internal query exploration. Candidate selection remains a
     # later identity operation, and body-text corroboration remains separate.
-    document = await search_courtlistener_docket_roots(document, client=client, session=session)
-    document = await search_govinfo_docket_roots(document, client=govinfo_client, session=session)
+    # The two provider metadata routes depend on the explicitly readable
+    # case-name field. Keep direct identity validation usable for manually
+    # formed roots that have not entered field reading; callers can resume
+    # from that Document after resolving case names.
+    if CASE_NAME_STAGE in document.passes:
+        document = await search_courtlistener_docket_roots(document, client=client, session=session)
+        document = await search_govinfo_docket_roots(document, client=govinfo_client, session=session)
     document = await lookup_full_reporter_locators_exact(document, client=client)
-    document = await search_courtlistener_full_reporter_roots(document, client=client, session=session)
-    document = await search_govinfo_full_reporter_roots(document, client=govinfo_client, session=session)
+    if CASE_NAME_STAGE in document.passes:
+        document = await search_courtlistener_full_reporter_roots(document, client=client, session=session)
+        document = await search_govinfo_full_reporter_roots(document, client=govinfo_client, session=session)
     document = await validate_unique_full_reporter_locator_identities(
         document, client=client, session=session
     )
