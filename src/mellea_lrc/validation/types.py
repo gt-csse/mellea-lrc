@@ -44,6 +44,13 @@ class DocketRootSearchOutcome(str, Enum):
     FAILED = "failed"
 
 
+class DocketMetadataShortlistOutcome(str, Enum):
+    """Outcome of narrowing returned docket metadata for semantic review."""
+
+    SHORTLISTED = "shortlisted"
+    NO_CANDIDATES = "no_candidates"
+
+
 class MelleaDocketCitationReextractionOutcome(str, Enum):
     """Results of one grounded model re-reading of a full docket citation."""
 
@@ -422,6 +429,44 @@ class DocketRootSearchNode:
     candidates: tuple[Mapping[str, object], ...]
     next_cursor: str | None
     depends_on: tuple[str, ...] = ()
+    status_message: str | None = None
+    outcome_message: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DocketMetadataShortlistCandidate:
+    """One CourtListener docket result that passed the local shortlist policy."""
+
+    candidate_index: int
+    case_name: str | None
+    docket_number: str
+    edit_distance: int
+    similarity_percent: float
+
+
+@dataclass(frozen=True, slots=True)
+class DocketMetadataShortlistNode:
+    """Deterministic, auditable shortlist from returned docket metadata.
+
+    The raw search node remains the complete record of what CourtListener
+    returned. This node records only the candidate indexes which passed the
+    stated-court filter, when one was extracted, and the shared fuzzy docket
+    comparison. It does not decide docket equivalence or identity.
+    """
+
+    node_id: str
+    status: ValidationNodeStatus
+    outcome: DocketMetadataShortlistOutcome
+    search_node_id: str
+    extracted_docket_number: str | None
+    extracted_court_id: str | None
+    total_candidate_count: int
+    returned_candidate_count: int
+    complete_result_set: bool
+    minimum_similarity_percent: float
+    candidates: tuple[DocketMetadataShortlistCandidate, ...]
+    depends_on: tuple[str, ...]
     status_message: str | None = None
     outcome_message: str | None = None
     error: str | None = None
@@ -915,6 +960,7 @@ class YearCheckNode:
 ValidationNode: TypeAlias = (
     ExactLocatorLookupNode
     | DocketRootSearchNode
+    | DocketMetadataShortlistNode
     | ExactCaseNameCheckNode
     | MelleaCaseNameCheckNode
     | MelleaCaseNameReextractionNode

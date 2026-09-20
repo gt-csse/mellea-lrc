@@ -13,15 +13,20 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from mellea_lrc.core.citations import DocketCitation
+from mellea_lrc.core.fuzziness import FuzzinessOption
 from mellea_lrc.core.record import UNJUDGED, Node, Question, Reads, Resolution
 from mellea_lrc.courtlistener import CourtListenerClient
 from mellea_lrc.extraction.root_stages import ROOT_FORMATION_STAGE
 from mellea_lrc.govinfo import GovInfoClient, govinfo_package_candidate
+from mellea_lrc.llm.grounding import EvidenceCandidate, GroundingEvidence
 from mellea_lrc.serialization._json import serialize_dataclass
 from mellea_lrc.serialization.validated_document import deserialize_validation_node
 from mellea_lrc.validation.aggregation.citation_summary_candidate import citation_summary_candidate
 from mellea_lrc.validation.aggregation.citation_summary_outcome import overall_locator_citation_outcome
 from mellea_lrc.validation.aggregation.locator_identity import run_locator_identity_resolution
+from mellea_lrc.validation.aggregation.mellea_docket_metadata_choice import (
+    run_mellea_docket_metadata_choice,
+)
 from mellea_lrc.validation.aggregation.mellea_locator_candidate_choice import (
     run_mellea_locator_candidate_choice,
 )
@@ -46,6 +51,9 @@ from mellea_lrc.validation.types import (
     CandidateEvaluationSource,
     CandidateProvenance,
     CitationValidation,
+    DocketMetadataShortlistCandidate,
+    DocketMetadataShortlistNode,
+    DocketMetadataShortlistOutcome,
     DocketNumberCheckNode,
     DocketRootSearchNode,
     DocketRootSearchOutcome,
@@ -63,6 +71,7 @@ from mellea_lrc.validation.types import (
     MelleaDocketNumberEquivalenceNode,
     MelleaDocketNumberEquivalenceOutcome,
     MelleaLocatorCandidateChoiceNode,
+    MelleaLocatorCandidateChoiceOutcome,
     ValidationNode,
     ValidationNodeStatus,
 )
@@ -85,11 +94,13 @@ DOCKET_ROOT_EXTRACTION_REVIEW_STAGE = "docket_root_extraction_review"
 DOCKET_ROOT_REQUEUED_SEARCH_STAGE = "docket_root_requeued_search"
 DOCKET_ROOT_REQUEUED_UNIQUE_IDENTITY_STAGE = "docket_root_requeued_search_unique_identity"
 DOCKET_ROOT_REQUEUED_AMBIGUITY_RESOLUTION_STAGE = "docket_root_requeued_search_ambiguity_resolution"
+DOCKET_ROOT_METADATA_SHORTLIST_STAGE = "docket_root_metadata_shortlist"
 DOCKET_ROOT_SEMANTIC_RESOLUTION_STAGE = "docket_root_semantic_resolution"
 GOVINFO_DOCKET_ROOT_SEARCH_STAGE = "govinfo_docket_root_search"
 GOVINFO_DOCKET_ROOT_UNIQUE_IDENTITY_STAGE = "govinfo_docket_root_unique_identity"
 GOVINFO_DOCKET_ROOT_AMBIGUITY_RESOLUTION_STAGE = "govinfo_docket_root_ambiguity_resolution"
 MAX_DOCKET_CANDIDATE_REVIEW = 20
+DOCKET_METADATA_MINIMUM_SIMILARITY_PERCENT = 40.0
 _MADE_BY = "mellea_lrc.validation.docket_roots"
 
 
@@ -515,30 +526,54 @@ async def resolve_requeued_docket_root_ambiguities(document: Document) -> Docume
     return replace(document, passes=(*document.passes, DOCKET_ROOT_REQUEUED_AMBIGUITY_RESOLUTION_STAGE))
 
 
+async def shortlist_docket_root_metadata_candidates(document: Document) -> Document:
+    """Narrow each multi-result CourtListener docket search before model review.
+
+    The search response itself is kept untouched.  This separate checkpoint
+    filters only its returned docket metadata: a stated court must agree when
+    one exists, and ``docketNumber`` must pass 40% whitespace-relaxed edit
+    similarity.  That permissive threshold makes an unbounded first page
+    reviewable; it is not docket normalization and cannot establish identity.
+    """
+    _require_stage(
+        document,
+        DOCKET_ROOT_REQUEUED_AMBIGUITY_RESOLUTION_STAGE,
+        "Docket-root metadata shortlist",
+    )
+    if DOCKET_ROOT_METADATA_SHORTLIST_STAGE in document.passes:
+        return document
+    _reject_partial_stage(document, DOCKET_ROOT_METADATA_SHORTLIST_STAGE)
+
+    for record in _docket_roots(document):
+        search = _latest_courtlistener_docket_root_search(record)
+        if search.outcome not in {
+            DocketRootSearchOutcome.AMBIGUOUS,
+            DocketRootSearchOutcome.EXCEEDS_REVIEW_LIMIT,
+        }:
+            continue
+        shortlist = _docket_metadata_shortlist(record, search=search)
+        record.observe(_trace_node(shortlist, stage=DOCKET_ROOT_METADATA_SHORTLIST_STAGE))
+    return replace(document, passes=(*document.passes, DOCKET_ROOT_METADATA_SHORTLIST_STAGE))
+
+
 async def resolve_docket_root_semantics(
     document: Document,
     *,
     session: MelleaSession | None = None,
 ) -> Document:
-    """Resolve bounded, extraction-reviewed docket searches with semantic evidence.
+    """Resolve extraction-reviewed docket searches with semantic evidence.
 
     This is deliberately a separate checkpoint from docket extraction review.
-    It never searches again and it never modifies a docket number. It first
-    compares two written docket forms only where literal comparison differed.
-    A complete record confirms the root programmatically only when every
-    available stated field agrees.  A docket-and-court match alone establishes
-    that a record exists, but it cannot establish a citation that also asserts
-    a different case name or decision date.  Bounded partial matches therefore
-    proceed to grounded representative selection.
-
-    Searches with no candidates, a failed response, or at least twenty
-    candidates remain unresolved.  Those outcomes need a different retrieval
-    route or a later, more finely scoped review; this stage must not turn a
-    retrieval limit into a negative citation finding.
+    It never searches again and it never modifies a docket number. CourtListener
+    metadata shortlists are resolved through one model choice over just their
+    candidate index, case name, and docket number. A selected result is still
+    checked against stated court and date evidence before identity is admitted.
+    An incomplete first page may support a positive selection, but a model
+    rejection from it remains deferred rather than becoming a negative finding.
     """
     _require_stage(
         document,
-        DOCKET_ROOT_REQUEUED_AMBIGUITY_RESOLUTION_STAGE,
+        DOCKET_ROOT_METADATA_SHORTLIST_STAGE,
         "Docket-root semantic resolution",
     )
     if DOCKET_ROOT_SEMANTIC_RESOLUTION_STAGE in document.passes:
@@ -546,12 +581,21 @@ async def resolve_docket_root_semantics(
     _reject_partial_stage(document, DOCKET_ROOT_SEMANTIC_RESOLUTION_STAGE)
 
     for record in _docket_roots(document):
+        search = _latest_docket_root_search(record)
+        shortlist = _saved_docket_metadata_shortlist(record)
+        if shortlist is not None:
+            await _resolve_docket_metadata_shortlist(
+                record,
+                search=search,
+                shortlist=shortlist,
+                session=session,
+            )
+            continue
         if (
             record.judgement(Question.IDENTITY).outcome
             != LocatorIdentityResolutionOutcome.DEFERRED_TO_SEMANTIC_REVIEW.value
         ):
             continue
-        search = _latest_docket_root_search(record)
         if search.outcome not in {DocketRootSearchOutcome.FOUND, DocketRootSearchOutcome.AMBIGUOUS}:
             _write_semantic_deferred_resolution(record, search=search)
             continue
@@ -616,6 +660,100 @@ async def resolve_docket_root_semantics(
         progression = progression.append(resolution)
         _write_identity_progression(record, progression, stage=DOCKET_ROOT_SEMANTIC_RESOLUTION_STAGE)
     return replace(document, passes=(*document.passes, DOCKET_ROOT_SEMANTIC_RESOLUTION_STAGE))
+
+
+async def _resolve_docket_metadata_shortlist(
+    record: CitationRecord,
+    *,
+    search: DocketRootSearchNode | GovInfoDocketSearchNode,
+    shortlist: DocketMetadataShortlistNode,
+    session: MelleaSession | None,
+) -> None:
+    """Resolve one CourtListener metadata shortlist without re-searching it."""
+    if shortlist.outcome is DocketMetadataShortlistOutcome.NO_CANDIDATES:
+        validation = CitationValidation(citation=record, nodes=(search, shortlist))
+        resolution = _future_implementation_resolution(
+            validation,
+            depends_on=(shortlist.node_id,),
+            scope=f"{shortlist.node_id}:semantic",
+            reason=(
+                "No returned docket metadata candidate passed the court and 40% similarity shortlist; "
+                "the citation remains available for a later corroboration route."
+            ),
+        )
+        _write_identity_progression(
+            record,
+            validation.append(
+                replace(resolution, node_id=f"{shortlist.node_id}:semantic:identity_resolution")
+            ),
+            stage=DOCKET_ROOT_SEMANTIC_RESOLUTION_STAGE,
+        )
+        return
+
+    progression = _metadata_shortlist_candidate_assessments(record, search=search, shortlist=shortlist)
+    summary = _docket_citation_summary(progression, scope=f"{shortlist.node_id}:semantic")
+    progression = progression.append(summary)
+    choice = await run_mellea_docket_metadata_choice(
+        progression,
+        summary=summary,
+        shortlist=shortlist,
+        session=session,
+    )
+    progression = progression.append(choice)
+    if choice.outcome is MelleaLocatorCandidateChoiceOutcome.NO_MATCH and not shortlist.complete_result_set:
+        resolution = _future_implementation_resolution(
+            progression,
+            depends_on=(summary.node_id, choice.node_id),
+            scope=f"{shortlist.node_id}:semantic",
+            reason=(
+                "The model rejected every shortlisted candidate from an incomplete CourtListener result page; "
+                "unreturned candidates remain available for a later corroboration route."
+            ),
+        )
+    else:
+        resolution = run_locator_identity_resolution(progression, summary=summary, choice=choice)
+    progression = progression.append(
+        replace(resolution, node_id=f"{shortlist.node_id}:semantic:identity_resolution")
+    )
+    _write_identity_progression(record, progression, stage=DOCKET_ROOT_SEMANTIC_RESOLUTION_STAGE)
+
+
+def _metadata_shortlist_candidate_assessments(
+    record: CitationRecord,
+    *,
+    search: DocketRootSearchNode | GovInfoDocketSearchNode,
+    shortlist: DocketMetadataShortlistNode,
+) -> CitationValidation:
+    """Materialize field evidence for only the metadata candidates sent to Mellea."""
+    validation = CitationValidation(citation=record, nodes=(search, shortlist))
+    for short_candidate in shortlist.candidates:
+        result = search.candidates[short_candidate.candidate_index - 1]
+        candidate = run_docket_search_candidate_evaluation(
+            validation,
+            result=result,
+            candidate_index=short_candidate.candidate_index,
+            depends_on=(shortlist.node_id,),
+            node_prefix=f"{shortlist.node_id}:semantic",
+        )
+        validation = validation.append(candidate)
+        docket = run_docket_number_check(validation, candidate=candidate)
+        case_name = run_exact_case_name_check(validation, candidate=candidate)
+        year = run_year_check(validation, candidate=candidate)
+        court = run_court_check(validation, evidence=candidate)
+        validation = validation.append(docket).append(case_name).append(year).append(court)
+        validation = validation.append(
+            _semantic_docket_candidate_assessment(
+                validation,
+                candidate=candidate,
+                docket=docket,
+                docket_matches=docket.outcome is FieldCheckOutcome.MATCH,
+                equivalence=None,
+                case_name=case_name,
+                year_outcome=year.outcome,
+                court_outcome=court.outcome,
+            )
+        )
+    return validation
 
 
 async def _semantic_docket_candidates(
@@ -699,10 +837,10 @@ def _summary_has_one_confirmed_match(summary: LocatorCitationSummaryNode) -> boo
     the grounded representative reviewer.  Programmatic admission needs the
     stronger complete-citation match represented by the summary itself.
     """
-    return sum(
-        candidate.outcome is LocatorCandidateAssessmentOutcome.MATCH
-        for candidate in summary.candidates
-    ) == 1
+    return (
+        sum(candidate.outcome is LocatorCandidateAssessmentOutcome.MATCH for candidate in summary.candidates)
+        == 1
+    )
 
 
 def _semantic_docket_candidate_assessment(
@@ -813,6 +951,108 @@ def _latest_docket_root_search(
     }:
         return govinfo
     return _saved_docket_root_search(record)
+
+
+def _latest_courtlistener_docket_root_search(record: CitationRecord) -> DocketRootSearchNode:
+    """Return the newest CourtListener docket search, excluding GovInfo fallback evidence."""
+    if any(node.stage == DOCKET_ROOT_REQUEUED_SEARCH_STAGE for node in record.trace):
+        return _saved_docket_root_search(record, stage=DOCKET_ROOT_REQUEUED_SEARCH_STAGE)
+    return _saved_docket_root_search(record)
+
+
+def _docket_metadata_shortlist(
+    record: CitationRecord,
+    *,
+    search: DocketRootSearchNode,
+) -> DocketMetadataShortlistNode:
+    """Apply the shared fuzzy evidence policy to one returned docket page."""
+    citation = record.stated
+    extracted = citation.docket_number if isinstance(citation, DocketCitation) else None
+    court = citation.court if isinstance(citation, DocketCitation) else None
+    complete_result_set = search.candidate_count == len(search.candidates) and search.next_cursor is None
+    if extracted is None:
+        return DocketMetadataShortlistNode(
+            node_id=f"{search.node_id}:metadata_shortlist",
+            status=ValidationNodeStatus.FAILED,
+            outcome=DocketMetadataShortlistOutcome.NO_CANDIDATES,
+            search_node_id=search.node_id,
+            extracted_docket_number=None,
+            extracted_court_id=court,
+            total_candidate_count=search.candidate_count,
+            returned_candidate_count=len(search.candidates),
+            complete_result_set=complete_result_set,
+            minimum_similarity_percent=DOCKET_METADATA_MINIMUM_SIMILARITY_PERCENT,
+            candidates=(),
+            depends_on=(search.node_id,),
+            status_message="Docket-metadata shortlist could not compare a missing stated docket number.",
+            outcome_message="No docket metadata candidates were shortlisted.",
+            error="Docket root lacks a stated docket number",
+        )
+
+    metadata = []
+    for index, result in enumerate(search.candidates, start=1):
+        candidate_court = result.get("court_id")
+        if court is not None and candidate_court != court:
+            continue
+        docket_number = result.get("docketNumber")
+        if not isinstance(docket_number, str) or not docket_number:
+            continue
+        metadata.append(
+            EvidenceCandidate(
+                text=docket_number,
+                value=(index, result.get("caseName")),
+            )
+        )
+    evidence = GroundingEvidence(metadata)
+    matches = evidence.fuzzy_match(
+        extracted,
+        FuzzinessOption.edit_distance(
+            similarity_percent=DOCKET_METADATA_MINIMUM_SIMILARITY_PERCENT,
+            whitespace_relaxation=True,
+        ),
+    )
+    candidates = tuple(
+        DocketMetadataShortlistCandidate(
+            candidate_index=match.candidate.value[0],
+            case_name=match.candidate.value[1] if isinstance(match.candidate.value[1], str) else None,
+            docket_number=match.candidate.text,
+            edit_distance=match.edits,
+            similarity_percent=match.similarity_percent,
+        )
+        for match in sorted(
+            matches,
+            key=lambda match: (
+                -match.similarity_percent,
+                match.edits,
+                match.candidate.value[0],
+            ),
+        )
+    )
+    outcome = (
+        DocketMetadataShortlistOutcome.SHORTLISTED
+        if candidates
+        else DocketMetadataShortlistOutcome.NO_CANDIDATES
+    )
+    return DocketMetadataShortlistNode(
+        node_id=f"{search.node_id}:metadata_shortlist",
+        status=ValidationNodeStatus.SUCCEEDED,
+        outcome=outcome,
+        search_node_id=search.node_id,
+        extracted_docket_number=extracted,
+        extracted_court_id=court,
+        total_candidate_count=search.candidate_count,
+        returned_candidate_count=len(search.candidates),
+        complete_result_set=complete_result_set,
+        minimum_similarity_percent=DOCKET_METADATA_MINIMUM_SIMILARITY_PERCENT,
+        candidates=candidates,
+        depends_on=(search.node_id,),
+        status_message="Docket-metadata shortlist completed.",
+        outcome_message=(
+            f"Shortlisted {len(candidates)} returned candidate(s) using the stated court and 40% similarity."
+            if candidates
+            else "No returned candidate passed the stated-court and 40% similarity shortlist."
+        ),
+    )
 
 
 def _run_docket_root_search(
@@ -1461,6 +1701,32 @@ def _saved_docket_root_search(
     node = deserialize_validation_node({"node_type": DocketRootSearchNode.__name__, **raw})
     if not isinstance(node, DocketRootSearchNode):
         msg = f"Saved docket search for {record.citation_id!r} decoded as {type(node).__name__}"
+        raise ValueError(msg)
+    return node
+
+
+def _saved_docket_metadata_shortlist(record: CitationRecord) -> DocketMetadataShortlistNode | None:
+    """Return the persisted CourtListener metadata shortlist, if this root had one."""
+    matches = [
+        node
+        for node in record.trace
+        if node.stage == DOCKET_ROOT_METADATA_SHORTLIST_STAGE
+        and node.details.get("validation_node_type") == DocketMetadataShortlistNode.__name__
+    ]
+    if not matches:
+        return None
+    if len(matches) != 1:
+        msg = (
+            f"Expected at most one docket metadata shortlist for {record.citation_id!r}, found {len(matches)}"
+        )
+        raise ValueError(msg)
+    raw = matches[0].details.get("validation")
+    if not isinstance(raw, dict):
+        msg = f"Saved docket metadata shortlist for {record.citation_id!r} has no validation payload"
+        raise ValueError(msg)
+    node = deserialize_validation_node({"node_type": DocketMetadataShortlistNode.__name__, **raw})
+    if not isinstance(node, DocketMetadataShortlistNode):
+        msg = f"Saved docket metadata shortlist for {record.citation_id!r} decoded as {type(node).__name__}"
         raise ValueError(msg)
     return node
 
