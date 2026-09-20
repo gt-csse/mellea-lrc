@@ -15,8 +15,10 @@ than an implicit end-to-end pipeline:
     and before validation.
 
 ``validate_roots_identity``
-    Docket retrieval and reporter lookup, retaining their distinct search,
-    unique-candidate, and ambiguity checkpoints.
+    Docket retrieval and exact reporter lookup.  Both citation families then
+    expose separate, bounded CourtListener and GovInfo metadata-discovery
+    checkpoints before any later candidate-selection or body-corroboration
+    work.
 
 ``grow_leaves``
     The deterministic second growth after root work.  Leaf-site hunting and
@@ -62,6 +64,14 @@ from mellea_lrc.validation.docket_roots import (
     validate_unique_govinfo_docket_root_identities,
     validate_unique_requeued_docket_root_identities,
 )
+from mellea_lrc.validation.docket_search import (
+    search_courtlistener_docket_roots,
+    search_govinfo_docket_roots,
+)
+from mellea_lrc.validation.full_reporter_search import (
+    search_courtlistener_full_reporter_roots,
+    search_govinfo_full_reporter_roots,
+)
 from mellea_lrc.validation.roots import (
     lookup_full_reporter_locators_exact,
     resolve_full_reporter_locator_ambiguities,
@@ -99,7 +109,11 @@ __all__ = [
     "resolve_pin_cites",
     "resolve_requeued_docket_root_ambiguities",
     "review_and_requeue_unresolved_docket_roots",
+    "search_courtlistener_docket_roots",
+    "search_courtlistener_full_reporter_roots",
     "search_docket_roots",
+    "search_govinfo_docket_roots",
+    "search_govinfo_full_reporter_roots",
     "shortlist_docket_root_metadata_candidates",
     "stable",
     "validate_roots_identity",
@@ -162,8 +176,11 @@ async def validate_roots_identity(
     CourtListener misses, with its own unique identity and ambiguity checks;
     one extraction review and any resulting
     requeued docket lookup; then its unique identity and ambiguity checkpoints;
-    one deterministic CourtListener-metadata shortlist; then reporter exact
-    lookup, unique identity, and ambiguity. The review may
+    one deterministic CourtListener-metadata shortlist; then bounded
+    CourtListener and GovInfo metadata discovery, each retaining all query
+    attempts and candidates; then reporter exact
+    lookup; bounded CourtListener and GovInfo metadata discovery for reporter
+    exact misses; then reporter unique identity and ambiguity. The review may
     correct only a docket number grounded in the filing, and a correction gets
     exactly one requeued lookup rather than an implicit repair loop. Docket
     lookup is first because it remains useful even where no court was read.
@@ -179,7 +196,14 @@ async def validate_roots_identity(
     document = await resolve_requeued_docket_root_ambiguities(document)
     document = await shortlist_docket_root_metadata_candidates(document)
     document = await resolve_docket_root_semantics(document, session=session)
+    # Discovery is deliberately a pair of provider-level stages, each with its
+    # own bounded internal query exploration. Candidate selection remains a
+    # later identity operation, and body-text corroboration remains separate.
+    document = await search_courtlistener_docket_roots(document, client=client, session=session)
+    document = await search_govinfo_docket_roots(document, client=govinfo_client, session=session)
     document = await lookup_full_reporter_locators_exact(document, client=client)
+    document = await search_courtlistener_full_reporter_roots(document, client=client, session=session)
+    document = await search_govinfo_full_reporter_roots(document, client=govinfo_client, session=session)
     document = await validate_unique_full_reporter_locator_identities(
         document, client=client, session=session
     )
