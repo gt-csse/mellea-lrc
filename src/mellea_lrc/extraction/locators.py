@@ -7,9 +7,7 @@ import re
 from eyecite import get_citations
 from eyecite.models import FullCaseCitation
 
-from mellea_lrc.extraction.rules import ExtractionRules
-from mellea_lrc.model.citations import FullCitationKind
-from mellea_lrc.model.citations.history import CitationField, latest
+from mellea_lrc.model.citations import FullDocketCitation, FullReporterCitation
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.preprocessing.document_index import is_within
@@ -27,15 +25,14 @@ _ENTRY_JOIN = re.compile(r"^[\s,;:\[\]()]{0,12}$")
 
 def _overlaps(span: Span, document: Document) -> bool:
     for item in document.citations:
-        site = latest(item.locator_span)
-        if site is not None and site.start < span.end and span.start < site.end:
+        site = item.locator_span
+        if site.start < span.end and span.start < site.end:
             return True
     return False
 
 
-def find_full_reporter_locators(document: Document, rules: ExtractionRules | None = None) -> Document:
+def find_full_reporter_locators(document: Document) -> Document:
     """Create one typed occurrence for each eyecite full case reporter span."""
-    del rules  # Eyecite's default reporter tokenizer is the stable first pass.
     stage = "full_reporter_locators"
     if stage in document.completed_stages:
         return document
@@ -51,24 +48,22 @@ def find_full_reporter_locators(document: Document, rules: ExtractionRules | Non
         if is_within(span, document.index_spans) or _overlaps(span, document):
             continue
         identifier = f"reporter:{start}:{end}"
-        document = document.create_citation(stage, identifier, FullCitationKind.REPORTER)
-        document = document.update_fields(
-            stage,
-            identifier,
-            {
-                CitationField.LOCATOR_SPAN: span,
-                CitationField.LOCATOR_TEXT: document.text[start:end],
-                CitationField.VOLUME: match.groups.get("volume"),
-                CitationField.REPORTER: match.groups.get("reporter"),
-                CitationField.PAGE: match.groups.get("page"),
-            },
+        document = document.add_citation(
+            FullReporterCitation.from_locator(
+                citation_id=identifier,
+                stage=stage,
+                source=document.text,
+                span=span,
+                volume=match.groups.get("volume"),
+                reporter=match.groups.get("reporter"),
+                page=match.groups.get("page"),
+            )
         )
     return document.complete(stage)
 
 
-def find_docket_locators(document: Document, rules: ExtractionRules | None = None) -> Document:
+def find_docket_locators(document: Document) -> Document:
     """Create courtless docket occurrences from labelled CM/ECF numbers."""
-    del rules
     stage = "docket_locators"
     if stage in document.completed_stages:
         return document
@@ -78,17 +73,24 @@ def find_docket_locators(document: Document, rules: ExtractionRules | None = Non
         span = Span(*match.span())
         if is_within(span, document.index_spans) or _overlaps(span, document):
             continue
-        changes = {
-            CitationField.LOCATOR_SPAN: span,
-            CitationField.LOCATOR_TEXT: document.text[span.start : span.end],
-            CitationField.DOCKET_NUMBER: match.group("number"),
-        }
+        entry_number: str | None = None
+        entry_span: Span | None = None
         before = tuple(_ENTRY.finditer(document.text, max(0, span.start - 96), span.start))
         if before and _ENTRY_JOIN.fullmatch(document.text[before[-1].end() : span.start]):
             entry = before[-1]
-            changes[CitationField.DOCKET_ENTRY] = entry.group("number")
-            changes[CitationField.DOCKET_ENTRY_SPAN] = Span(*entry.span())
+            entry_number = entry.group("number")
+            entry_span = Span(*entry.span())
         identifier = f"docket:{span.start}:{span.end}"
-        document = document.create_citation(stage, identifier, FullCitationKind.DOCKET)
-        document = document.update_fields(stage, identifier, changes)
+        document = document.add_citation(
+            FullDocketCitation.from_locator(
+                citation_id=identifier,
+                stage=stage,
+                source=document.text,
+                span=span,
+                docket_number=match.group("number"),
+                docket_number_span=Span(*match.span("number")),
+                docket_entry=entry_number,
+                docket_entry_span=entry_span,
+            )
+        )
     return document.complete(stage)

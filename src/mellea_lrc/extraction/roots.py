@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from mellea_lrc.model.citations import FullDocketCitation, FullReporterCitation
-from mellea_lrc.model.citations.history import CitationField, latest
+from mellea_lrc.model.citations.history import latest
 from mellea_lrc.model.document import Document
 
 
@@ -45,5 +45,5 @@ def form_roots(document: Document) -> Document:
     for citation in document.full_locators:
         key = _reporter_key(citation) if isinstance(citation, FullReporterCitation) else _docket_key(citation)
         root_id = known.setdefault(key, citation.id) if key is not None else citation.id
-        document = document.update_fields(stage, citation.id, {CitationField.ROOT_ID: root_id})
+        document = document.replace_citation(citation.record(stage).with_root(root_id))
     return document.complete(stage)

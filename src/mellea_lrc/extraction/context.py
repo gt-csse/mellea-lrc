@@ -11,7 +11,7 @@ from eyecite.models import FullCaseCitation
 
 from mellea_lrc.extraction.rules import ExtractionRules, stable
 from mellea_lrc.model.citations import CitationDate, FullCitationVariant, FullReporterCitation
-from mellea_lrc.model.citations.history import CitationField, latest
+from mellea_lrc.model.citations.history import latest
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 
@@ -59,9 +59,7 @@ def _members(document: Document, citation: FullCitationVariant) -> tuple[FullCit
 
 
 def _site(citation: FullCitationVariant) -> Span:
-    span = latest(citation.locator_span)
-    assert span is not None
-    return span
+    return citation.locator_span
 
 
 def _before(document: Document, citation: FullCitationVariant, limit: int) -> tuple[str, int]:
@@ -129,11 +127,7 @@ def resolve_case_names(document: Document, rules: ExtractionRules | None = None)
         if not name:
             continue
         span = Span(start + match.start() + offset, start + match.start() + offset + len(name))
-        document = document.update_fields(
-            stage,
-            citation.id,
-            {CitationField.CASE_NAME: name, CitationField.CASE_NAME_SPAN: span},
-        )
+        document = document.replace_citation(citation.record(stage).with_case_name(document.text, name, span))
     return document.complete(stage)
 
 
@@ -199,10 +193,9 @@ def resolve_courts(document: Document, rules: ExtractionRules | None = None) -> 
         if court is None:
             court = _court_from_reporter(citation)
         if court is not None:
-            changes = {CitationField.COURT: court}
-            if span is not None:
-                changes[CitationField.COURT_SPAN] = span
-            document = document.update_fields(stage, citation.id, changes)
+            document = document.replace_citation(
+                citation.record(stage).with_court(document.text, court, span)
+            )
     return document.complete(stage)
 
 
@@ -231,11 +224,7 @@ def resolve_dates(document: Document, rules: ExtractionRules | None = None) -> D
             start + parenthetical.start("body") + match.start(),
             start + parenthetical.start("body") + match.end(),
         )
-        document = document.update_fields(
-            stage,
-            citation.id,
-            {CitationField.DATE: date, CitationField.DATE_SPAN: span},
-        )
+        document = document.replace_citation(citation.record(stage).with_date(document.text, date, span))
     return document.complete(stage)
 
 
@@ -257,9 +246,7 @@ def resolve_pin_cites(document: Document, rules: ExtractionRules | None = None) 
         if match is None:
             continue
         span = Span(site.end + match.start("pin"), site.end + match.end("pin"))
-        document = document.update_fields(
-            stage,
-            citation.id,
-            {CitationField.PIN_CITE: match.group("pin"), CitationField.PIN_CITE_SPAN: span},
+        document = document.replace_citation(
+            citation.record(stage).with_pin_cite(document.text, match.group("pin"), span)
         )
     return document.complete(stage)
