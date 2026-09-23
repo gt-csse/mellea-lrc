@@ -13,6 +13,7 @@ from mellea_lrc.extraction import (
     resolve_dates,
     resolve_pin_cites,
 )
+from mellea_lrc.extraction.normalization import normalize_pin_cite
 from mellea_lrc.model import (
     CaseNameField,
     CitationDate,
@@ -28,6 +29,8 @@ from mellea_lrc.model import (
     LocatorField,
     PageField,
     PinCiteField,
+    PinCiteKind,
+    PinCiteTarget,
     RelationshipUpdate,
     ReporterField,
     Span,
@@ -178,7 +181,7 @@ def test_field_readers_keep_adjacent_cases_and_source_spans_separate() -> None:
     assert "Brown" not in str(latest(docket.case_name))
     assert latest(reporter.date).year == 1954
     assert latest(docket.date).year == 2024
-    assert latest(reporter.pin_cite) == "495"
+    assert latest(reporter.pin_cite) == (PinCiteTarget(first=495, last=495, kind=PinCiteKind.PAGE),)
     assert latest(reporter.court) is not None
     assert latest(docket.court) is not None
 
@@ -197,7 +200,8 @@ def test_field_readers_keep_adjacent_cases_and_source_spans_separate() -> None:
     assert court.normalized == "azd"
     assert date.quote == "Jan. 1, 2024"
     assert date.normalized == CitationDate(year=2024, month=1, day=1)
-    assert pin.quote == pin.normalized == "495"
+    assert pin.quote == "495"
+    assert pin.normalized == (PinCiteTarget(first=495, last=495, kind=PinCiteKind.PAGE),)
     inferred_court = reporter.court[-1]
     assert inferred_court.quote is None
     assert inferred_court.span is None
@@ -391,7 +395,7 @@ def test_source_mismatches_are_rejected_at_write_time_and_after_json_loading() -
     with pytest.raises(ValueError, match="span is outside"):
         citation.record("review").with_case_name(source, Span(0, len(source) + 1), normalized="Other v. Case")
     with pytest.raises(ValueError, match="span is outside"):
-        citation.record("review").with_pin_cite(source, Span(0, 0), normalized="43")
+        citation.record("review").with_pin_cite(source, Span(0, 0), normalized=normalize_pin_cite("43"))
     with pytest.raises(ValueError, match="source span"):
         FullDocketCitation.from_locator(
             citation_id="bad",
@@ -404,7 +408,7 @@ def test_source_mismatches_are_rejected_at_write_time_and_after_json_loading() -
 
     updated = citation.record("case_names").with_case_name(source, name_span, normalized="Smith v. Jones")
     document = document.replace_citation(updated).complete("case_names")
-    updated = updated.record("pin_cites").with_pin_cite(source, pin_span, normalized="42")
+    updated = updated.record("pin_cites").with_pin_cite(source, pin_span, normalized=normalize_pin_cite("42"))
     document = document.replace_citation(updated).complete("pin_cites")
     _assert_roundtrip(document)
 

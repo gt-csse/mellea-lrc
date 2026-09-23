@@ -23,7 +23,7 @@ class RelationshipUpdate(BaseModel, Generic[T]):
 
 
 def latest(log: tuple[CitationField[T] | RelationshipUpdate[T], ...]) -> T | None:
-    """Read the newest normalized field or relationship value."""
+    """Read the newest value; None means an empty log or a null relationship."""
     if not log:
         return None
     entry = log[-1]
