@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import re
-from functools import lru_cache
 
 from eyecite import get_citations
-from eyecite.helpers import courts
 from eyecite.models import FullCaseCitation
 
-from mellea_lrc.extraction.normalization import normalize_pin_cite
 from mellea_lrc.extraction.rules import ExtractionRules, stable
-from mellea_lrc.model.citations import CitationDate, FullCitationVariant, FullReporterCitation
+from mellea_lrc.model.citations import CaseName, FullCitationVariant, FullReporterCitation
+from mellea_lrc.model.citations.fields.court import court_id_if_unique
+from mellea_lrc.model.citations.fields.date import FULL_DATE_RE, YEAR_RE
 from mellea_lrc.model.citations.history import latest
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
@@ -19,28 +18,9 @@ from mellea_lrc.model.span import Span
 _CASE = re.compile(r"(?:In re|Ex parte)\s+[^,;\n]{2,100}|[A-Z][^,;\n]{0,100}?\s+v\.\s+[^,;\n]{1,100}")
 _SIGNAL = re.compile(r"^(?:See(?: also)?|Cf\.|But see|Accord|Compare)\s+", re.I)
 _PAREN = re.compile(r"\((?P<body>[^()\r\n]{0,100})\)")
-_YEAR = re.compile(r"(?<!\d)(?:1[6789]\d{2}|20\d{2}|21\d{2})(?!\d)")
-_MONTHS = {
-    "jan": 1,
-    "feb": 2,
-    "mar": 3,
-    "apr": 4,
-    "may": 5,
-    "jun": 6,
-    "jul": 7,
-    "aug": 8,
-    "sep": 9,
-    "oct": 10,
-    "nov": 11,
-    "dec": 12,
-}
-_FULL_DATE = re.compile(
-    r"\b(?P<month>Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
-    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
-    r"\.?\s+(?P<day>\d{1,2}),?\s+(?P<year>(?:1[6789]|20|21)\d{2})\b",
-    re.I,
-)
 _PIN = re.compile(r"^\s*,?\s*(?:at\s+)?(?P<pin>\*?\d+(?:[-–]\d+)?)(?![\d:])")
+_NAME_TOKEN = re.compile(r"[\w.'’&-]+")
+_VERSUS = re.compile(r"\s+v\.\s+")
 
 
 def _require_structure(document: Document) -> None:
@@ -98,13 +78,53 @@ def _dated_parenthetical(
 ) -> tuple[re.Match[str], int] | None:
     after, start = _after(document, citation, limit)
     for match in _PAREN.finditer(after):
-        if not _YEAR.search(match.group("body")):
+        if not YEAR_RE.search(match.group("body")):
             continue
         # A period starting a new sentence before the parenthetical ends the
         # current citation even if no later locator was discovered.
         if re.search(r"\.\s+[A-Z]", after[: match.start()]):
             return None
         return match, start
+    return None
+
+
+def _reporter_name_span(citation: FullCitationVariant, before: str, start: int) -> Span | None:
+    """Use eyecite's parsed parties to anchor a written name, not surrounding prose."""
+    if not isinstance(citation, FullReporterCitation):
+        return None
+    site = citation.locator[-1].quote
+    excerpt = before + site
+    parsed = next(
+        (
+            item
+            for item in get_citations(excerpt)
+            if isinstance(item, FullCaseCitation) and item.span() == (len(before), len(excerpt))
+        ),
+        None,
+    )
+    if parsed is None or not parsed.metadata.plaintiff or not parsed.metadata.defendant:
+        return None
+    plaintiff_tokens = _NAME_TOKEN.findall(parsed.metadata.plaintiff)
+    defendant_tokens = _NAME_TOKEN.findall(parsed.metadata.defendant)
+    if not plaintiff_tokens or not defendant_tokens:
+        return None
+    first, last = plaintiff_tokens[0], defendant_tokens[-1]
+    for separator in reversed(tuple(_VERSUS.finditer(before))):
+        left = before[: separator.start()]
+        right = before[separator.end() :]
+        starts = tuple(re.finditer(rf"(?<!\w){re.escape(first)}(?!\w)", left, re.I))
+        end = re.search(rf"(?<!\w){re.escape(last)}(?!\w)", right, re.I)
+        if not starts or end is None:
+            continue
+        local_start = starts[-1].start()
+        local_end = separator.end() + end.end()
+        if local_end - local_start > 100:
+            continue
+        try:
+            CaseName.from_quote(before[local_start:local_end])
+        except ValueError:
+            continue
+        return Span(start + local_start, start + local_end)
     return None
 
 
@@ -117,6 +137,10 @@ def resolve_case_names(document: Document, rules: ExtractionRules | None = None)
     config = rules or stable()
     for citation in document.full_locators:
         before, start = _before(document, citation, config.case_name_window)
+        span = _reporter_name_span(citation, before, start)
+        if span is not None:
+            document = document.replace_citation(citation.record(stage).with_case_name(document.text, span))
+            continue
         matches = tuple(_CASE.finditer(before))
         if not matches:
             continue
@@ -128,47 +152,20 @@ def resolve_case_names(document: Document, rules: ExtractionRules | None = None)
         if not name:
             continue
         span = Span(start + match.start() + offset, start + match.start() + offset + len(name))
-        document = document.replace_citation(
-            citation.record(stage).with_case_name(document.text, span, normalized=name)
-        )
+        document = document.replace_citation(citation.record(stage).with_case_name(document.text, span))
     return document.complete(stage)
-
-
-def _court_key(text: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", text.casefold())
-
-
-@lru_cache(maxsize=1)
-def _court_index() -> dict[str, frozenset[str]]:
-    grouped: dict[str, set[str]] = {}
-    for item in courts:
-        key = _court_key(item.get("citation_string") or "")
-        if key:
-            grouped.setdefault(key, set()).add(str(item["id"]))
-    return {key: frozenset(ids) for key, ids in grouped.items()}
-
-
-def _court_from_parenthetical(body: str, date_start: int) -> tuple[str, int] | None:
-    written = body[:date_start].strip(" ,;")
-    if not written:
-        return None
-    found = _court_index().get(_court_key(written))
-    return (next(iter(found)), len(written)) if found and len(found) == 1 else None
 
 
 def _court_from_reporter(citation: FullCitationVariant) -> str | None:
     if not isinstance(citation, FullReporterCitation):
         return None
-    locator_text = latest(citation.locator_text)
-    if not locator_text:
-        return None
+    locator = citation.locator[-1]
     # Eyecite's isolated locator may infer a unique reporter court. Running it
     # on this exact span avoids its unbounded post-citation metadata leak.
-    isolated = get_citations(locator_text)
+    isolated = get_citations(locator.quote)
     if len(isolated) == 1 and isinstance(isolated[0], FullCaseCitation):
         return isolated[0].metadata.court
-    found = _court_index().get(_court_key(latest(citation.reporter) or ""))
-    return next(iter(found)) if found and len(found) == 1 else None
+    return court_id_if_unique(locator.normalized.edition)
 
 
 def resolve_courts(document: Document, rules: ExtractionRules | None = None) -> Document:
@@ -180,28 +177,23 @@ def resolve_courts(document: Document, rules: ExtractionRules | None = None) -> 
     config = rules or stable()
     for citation in document.full_locators:
         found = _dated_parenthetical(document, citation, config.post_locator_window)
-        court: str | None = None
         span: Span | None = None
         if found:
             parenthetical, start = found
             body = parenthetical.group("body")
-            date = _FULL_DATE.search(body) or _YEAR.search(body)
+            date = FULL_DATE_RE.search(body) or YEAR_RE.search(body)
             if date:
                 written = body[: date.start()].strip(" ,;")
-                resolved = _court_from_parenthetical(body, date.start())
-                if resolved:
-                    court, length = resolved
+                if written:
                     body_start = start + parenthetical.start("body")
                     stripped = len(body[: date.start()]) - len(body[: date.start()].lstrip(" ,;"))
-                    span = Span(body_start + stripped, body_start + stripped + length)
-                elif written:
-                    raise ValueError(f"Cannot normalize written court for {citation.id}: {written!r}")
-        if court is None:
-            court = _court_from_reporter(citation)
+                    span = Span(body_start + stripped, body_start + stripped + len(written))
+        if span is not None:
+            document = document.replace_citation(citation.record(stage).with_court(document.text, span))
+            continue
+        court = _court_from_reporter(citation)
         if court is not None:
-            document = document.replace_citation(
-                citation.record(stage).with_court(document.text, span, normalized=court)
-            )
+            document = document.replace_citation(citation.record(stage).with_inferred_court(court))
     return document.complete(stage)
 
 
@@ -218,21 +210,14 @@ def resolve_dates(document: Document, rules: ExtractionRules | None = None) -> D
             continue
         parenthetical, start = found
         body = parenthetical.group("body")
-        match = _FULL_DATE.search(body) or _YEAR.search(body)
+        match = FULL_DATE_RE.search(body) or YEAR_RE.search(body)
         if match is None:
             continue
-        date = CitationDate(
-            year=int(match.group("year") if "year" in match.groupdict() else match.group()),
-            month=_MONTHS[match.group("month")[:3].lower()] if "month" in match.groupdict() else None,
-            day=int(match.group("day")) if "day" in match.groupdict() else None,
-        )
         span = Span(
             start + parenthetical.start("body") + match.start(),
             start + parenthetical.start("body") + match.end(),
         )
-        document = document.replace_citation(
-            citation.record(stage).with_date(document.text, span, normalized=date)
-        )
+        document = document.replace_citation(citation.record(stage).with_date(document.text, span))
     return document.complete(stage)
 
 
@@ -254,9 +239,5 @@ def resolve_pin_cites(document: Document, rules: ExtractionRules | None = None) 
         if match is None:
             continue
         span = Span(site.end + match.start("pin"), site.end + match.end("pin"))
-        document = document.replace_citation(
-            citation.record(stage).with_pin_cite(
-                document.text, span, normalized=normalize_pin_cite(match.group("pin"))
-            )
-        )
+        document = document.replace_citation(citation.record(stage).with_pin_cite(document.text, span))
     return document.complete(stage)

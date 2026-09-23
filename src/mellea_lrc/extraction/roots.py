@@ -10,24 +10,22 @@ from mellea_lrc.model.document import Document
 
 
 def _reporter_key(citation: FullReporterCitation) -> tuple[str, ...] | None:
-    volume, reporter, page = latest(citation.volume), latest(citation.reporter), latest(citation.page)
-    if not (volume and reporter and page):
-        return None
+    locator = citation.locator[-1].normalized
     return (
         "reporter",
-        volume.casefold(),
-        re.sub(r"\s+", "", reporter.casefold()),
-        page.casefold(),
+        str(locator.volume),
+        re.sub(r"\s+", "", locator.edition.casefold()),
+        locator.page.casefold(),
     )
 
 
 def _docket_key(citation: FullDocketCitation) -> tuple[str, ...] | None:
     # A courtless docket is not globally unique. Preserve its occurrence as a
     # separate root until identity validation or search supplies that context.
-    court, docket_number = latest(citation.court), latest(citation.docket_number)
+    court, docket_number = latest(citation.court), citation.locator[-1].normalized.docket_number
     if not court or not docket_number:
         return None
-    return ("docket", court, docket_number.casefold())
+    return ("docket", court.id, docket_number.casefold())
 
 
 def form_roots(document: Document) -> Document:

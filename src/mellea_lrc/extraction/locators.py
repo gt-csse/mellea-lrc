@@ -54,9 +54,6 @@ def find_full_reporter_locators(document: Document) -> Document:
                 stage=stage,
                 source=document.text,
                 span=span,
-                volume=match.groups.get("volume"),
-                reporter=match.groups.get("reporter"),
-                page=match.groups.get("page"),
             )
         )
     return document.complete(stage)
@@ -73,12 +70,10 @@ def find_docket_locators(document: Document) -> Document:
         span = Span(*match.span())
         if is_within(span, document.index_spans) or _overlaps(span, document):
             continue
-        entry_number: str | None = None
         entry_span: Span | None = None
         before = tuple(_ENTRY.finditer(document.text, max(0, span.start - 96), span.start))
         if before and _ENTRY_JOIN.fullmatch(document.text[before[-1].end() : span.start]):
             entry = before[-1]
-            entry_number = entry.group("number")
             entry_span = Span(*entry.span())
         identifier = f"docket:{span.start}:{span.end}"
         document = document.add_citation(
@@ -87,9 +82,7 @@ def find_docket_locators(document: Document) -> Document:
                 stage=stage,
                 source=document.text,
                 span=span,
-                docket_number=match.group("number"),
-                docket_number_span=Span(*match.span("number")),
-                docket_entry=entry_number,
+                number_span=Span(*match.span("number")),
                 docket_entry_span=entry_span,
             )
         )

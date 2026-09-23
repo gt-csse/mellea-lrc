@@ -2,33 +2,107 @@
 
 import pytest
 
-from mellea_lrc.extraction import grow_roots
-from mellea_lrc.model import CitationDate, Document, FullDocketCitation, Span, latest
-
-
-@pytest.mark.parametrize(
-    ("docket_entry", "include_entry_span"),
-    [(None, True), ("10-1", False)],
+from mellea_lrc.extraction import find_docket_locators, grow_roots
+from mellea_lrc.model import (
+    CitationDate,
+    Document,
+    FullDocketCitation,
+    FullReporterLocator,
+    Reporter,
+    Span,
+    latest,
 )
-def test_docket_entry_and_span_must_be_supplied_together(
-    docket_entry: str | None, include_entry_span: bool
-) -> None:
+from mellea_lrc.model.citations.fields.docket import DocketEntryField
+
+
+def test_reporter_locator_keeps_written_variant_and_eyecite_identity() -> None:
+    source = "See 347 U. S. 483."
+    written = "347 U. S. 483"
+    entry = FullReporterLocator.from_source(
+        source,
+        Span(source.index(written), source.index(written) + len(written)),
+        node_id="reporter:node:0",
+    )
+
+    assert entry.quote == written
+    assert entry.normalized.volume == 347
+    assert entry.normalized.page == "483"
+    assert entry.normalized.edition == "U.S."
+    assert isinstance(entry.normalized.reporter, Reporter)
+    assert entry.normalized.reporter.short_name == "U.S."
+
+
+def test_ambiguous_eyecite_reporter_raises_on_normalization() -> None:
+    # eyecite identifies this as a full citation but cannot choose an edition.
+    source = "1 Wash. 2"
+    with pytest.raises(ValueError, match="Cannot normalize.*reporter locator"):
+        FullReporterLocator.from_source(source, Span(0, len(source)), node_id="reporter:node:0")
+
+
+def test_docket_number_span_must_be_inside_its_locator() -> None:
     source = "Doc. 10-1, Case No. 1:24-cv-00123."
     locator = "Case No. 1:24-cv-00123"
-    number = "1:24-cv-00123"
-    entry_span = Span(0, len("Doc. 10-1")) if include_entry_span else None
-
-    with pytest.raises(ValueError, match="Docket entry and its source span must be supplied together"):
+    with pytest.raises(ValueError, match="inside the locator"):
         FullDocketCitation.from_locator(
             citation_id="docket:0",
             stage="docket_locators",
             source=source,
             span=Span(source.index(locator), source.index(locator) + len(locator)),
-            docket_number=number,
-            docket_number_span=Span(source.index(number), source.index(number) + len(number)),
-            docket_entry=docket_entry,
-            docket_entry_span=entry_span,
+            number_span=Span(0, len("Doc. 10-1")),
         )
+
+
+def test_serialized_docket_number_must_match_its_exact_component_span() -> None:
+    document = find_docket_locators(Document.from_source("See Case No. 1:24-cv-00123."))
+    saved = document.model_dump(mode="json")
+    locator = saved["citations"][0]["locator"][0]
+
+    changed_number = document.model_dump(mode="json")
+    changed_number["citations"][0]["locator"][0]["normalized"]["docket_number"] = "00123"
+    with pytest.raises(ValueError, match="Docket number normalization"):
+        Document.model_validate(changed_number)
+
+    locator["number_span"]["start"] += 1
+    with pytest.raises(ValueError, match="Docket number normalization"):
+        Document.model_validate(saved)
+
+
+def test_docket_entry_that_cannot_be_normalized_raises() -> None:
+    source = "Doc. unresolved, Case No. 1:24-cv-00123."
+    locator = "Case No. 1:24-cv-00123"
+    number = "1:24-cv-00123"
+    with pytest.raises(ValueError, match="Cannot normalize docket entry"):
+        FullDocketCitation.from_locator(
+            citation_id="docket:0",
+            stage="docket_locators",
+            source=source,
+            span=Span(source.index(locator), source.index(locator) + len(locator)),
+            number_span=Span(source.index(number), source.index(number) + len(number)),
+            docket_entry_span=Span(0, len("Doc. unresolved")),
+        )
+
+
+def test_docket_entry_requires_its_written_label() -> None:
+    source = "garbage 10"
+    with pytest.raises(ValueError, match="Cannot normalize docket entry"):
+        DocketEntryField.from_source(source, Span(0, len(source)), node_id="docket:node:0")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "Alpha v. Beta. Smith v. Jones, 347 U.S. 483 (1954).",
+        "In Alpha v. Beta the court cited Smith v. Jones, 347 U.S. 483 (1954).",
+        "The court in Smith v. Jones, 347 U.S. 483 (1954).",
+        "The court in Oak and Fort Corp. v. Jones, 347 U.S. 483 (1954).",
+    ],
+)
+def test_reporter_name_quote_excludes_prior_names_and_prose(source: str) -> None:
+    document = grow_roots(Document.from_source(source))
+    name = document.citations[0].case_name[-1]
+    assert name.quote == source[name.span.start : name.span.end]
+    assert name.normalized.defendant == "Jones"
+    assert name.normalized.plaintiff in {"Smith", "Oak and Fort Corp."}
 
 
 @pytest.mark.parametrize(
@@ -80,4 +154,4 @@ def test_unresolved_written_court_raises_before_inference(source: str) -> None:
 
 def test_absent_written_court_can_still_be_inferred_from_reporter() -> None:
     document = grow_roots(Document.from_source("See 347 U.S. 483 (1954)."))
-    assert latest(document.citations[0].court) == "scotus"
+    assert latest(document.citations[0].court).id == "scotus"
