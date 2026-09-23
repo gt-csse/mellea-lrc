@@ -7,7 +7,7 @@ version = "0.1.9"
 #
 #   uv run python -m AutoGitSemVer.scripts.UpdatePythonVersion ./pyproject.toml ./src
 
-description = "Document preprocessing foundation for legal citation analysis"
+description = "Document preprocessing and citation extraction for legal citation analysis"
 readme = "README.md"
 authors = [
     { name = "Di Wu (Woody)", email = "dwu400@gatech.edu" },
@@ -16,6 +16,7 @@ authors = [
 ]
 requires-python = ">= 3.11"
 dependencies = [
+    "eyecite>=2.7,<3",
     "pydantic>=2,<3",
 ]
 classifiers = [

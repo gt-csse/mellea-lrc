@@ -1,6 +1,6 @@
 # Preprocessing
 
-`preprocess(source, rules=None)` produces a `PreprocessedDocument`. It is the only active pipeline stage while extraction is rebuilt.
+`preprocess(source, rules=None)` produces a `PreprocessedDocument`. It is the entry point before the active [extraction stages](Extraction.md).
 
 ```python
 from pathlib import Path
