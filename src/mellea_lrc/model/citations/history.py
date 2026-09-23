@@ -27,7 +27,7 @@ def latest(log: tuple[CitationField[T] | RelationshipUpdate[T], ...]) -> T | Non
     if not log:
         return None
     entry = log[-1]
-    return entry.normalized if isinstance(entry, CitationField) else entry.value
+    return entry.get_normalized() if isinstance(entry, CitationField) else entry.value
 
 
 class Node(BaseModel):

@@ -8,7 +8,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from mellea_lrc.model.citations.fields.base import CitationField, source_quote
+from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
 from mellea_lrc.model.span import Span
 
 YEAR_RE = re.compile(r"(?<!\d)(?:1[6789]\d{2}|20\d{2}|21\d{2})(?!\d)")
@@ -80,10 +80,14 @@ class DateField(CitationField[CitationDate]):
     @classmethod
     def from_source(cls, source: str, span: Span, *, node_id: str) -> Self:
         quote = source_quote(source, span)
-        return cls(node_id=node_id, quote=quote, span=span, normalized=normalize_date(quote))
+        return cls(
+            node_id=node_id,
+            quote=quote,
+            span=span,
+            **normalization_record(lambda: normalize_date(quote)),
+        )
 
     @model_validator(mode="after")
     def _validate_normalization(self) -> Self:
-        if self.normalized != normalize_date(self.quote):
-            raise ValueError("Citation date normalization does not match its quote")
+        self.validate_normalization(lambda: normalize_date(self.quote))
         return self

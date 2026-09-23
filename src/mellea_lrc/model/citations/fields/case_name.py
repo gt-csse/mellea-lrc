@@ -8,7 +8,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from mellea_lrc.model.citations.fields.base import CitationField, source_quote
+from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
 from mellea_lrc.model.span import Span
 
 _VERSUS = re.compile(r"\s+v\.\s+")
@@ -90,10 +90,14 @@ class CaseNameField(CitationField[CaseName]):
     @classmethod
     def from_source(cls, source: str, span: Span, *, node_id: str) -> Self:
         quote = source_quote(source, span)
-        return cls(node_id=node_id, quote=quote, span=span, normalized=CaseName.from_quote(quote))
+        return cls(
+            node_id=node_id,
+            quote=quote,
+            span=span,
+            **normalization_record(lambda: CaseName.from_quote(quote)),
+        )
 
     @model_validator(mode="after")
     def _validate_normalization(self) -> Self:
-        if self.normalized != CaseName.from_quote(self.quote):
-            raise ValueError("Case name normalization does not match its quote")
+        self.validate_normalization(lambda: CaseName.from_quote(self.quote))
         return self
