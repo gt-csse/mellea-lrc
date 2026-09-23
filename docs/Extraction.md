@@ -50,7 +50,9 @@ The reporter stage uses eyecite's full case citation spans. The docket stage rea
 
 `document.full_locators` contains every detected occurrence with its exact text span. `document.roots` contains canonical occurrences after root formation. Exact reporter keys can deduplicate repeated reporter locators; docket keys require both a docket number and a court. A courtless docket remains its own root until later identity work can resolve it. `ExtractionRules` controls colocation distance and the context windows; `stable()` supplies the default rules.
 
-Each stage records durable create and field-update operations in `document.operations`, linked to stage decisions in `document.nodes`. The materialized `document.citations` is the current view of those operations. `document.completed_stages` makes intermediate results inspectable. Save and restore the complete state with Pydantic's native JSON methods:
+The state models are independent of any extraction stage. [`model/document.py`](../src/mellea_lrc/model/document.py) defines `Document`, and [`model/operations.py`](../src/mellea_lrc/model/operations.py) defines the decision `Node` and durable `Operation`. The [`model/citations/`](../src/mellea_lrc/model/citations/) package defines `FullCitation` for fields shared by full locator occurrences, with `FullReporterCitation` for reporter fields (`volume`, `reporter`, `page`) and `FullDocketCitation` for docket fields (`docket_number`, `docket_entry`). The `Full` names scope these types to full reporter and docket citations.
+
+Each stage records create and field-update operations in `document.operations`, linked to stage decisions in `document.nodes`. A create operation chooses the concrete citation type; later updates accept only fields on that type. The materialized `document.citations` is the current view of those operations. Its `kind` discriminator preserves each concrete subtype through a Pydantic JSON round trip. `document.completed_stages` makes intermediate results inspectable. Save and restore the complete state with Pydantic's native JSON methods:
 
 ```python
 checkpoint = Path("extraction.json")

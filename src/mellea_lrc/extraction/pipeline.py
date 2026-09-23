@@ -14,8 +14,8 @@ from mellea_lrc.extraction.locators import find_docket_locators, find_full_repor
 from mellea_lrc.extraction.roots import form_roots
 from mellea_lrc.extraction.rules import ExtractionRules, stable
 from mellea_lrc.extraction.structure import resolve_colocations
-from mellea_lrc.model.extraction import Document
-from mellea_lrc.model.preprocessed import PreprocessedDocument
+from mellea_lrc.model.document import Document
+from mellea_lrc.model.preprocessed_document import PreprocessedDocument
 
 
 def start_extraction(source: Document | PreprocessedDocument) -> Document:

@@ -5,12 +5,15 @@ from __future__ import annotations
 import re
 
 from mellea_lrc.extraction.rules import ExtractionRules, stable
-from mellea_lrc.model.extraction import Citation, CitationField, Colocation, Document
+from mellea_lrc.model.citations import FullCitation, FullReporterCitation
+from mellea_lrc.model.colocation import Colocation
+from mellea_lrc.model.document import Document
+from mellea_lrc.model.operations import CitationField
 
 _SEPARATE_CITATION = re.compile(r"…|\.{2,}|\bvs?\.|\n\s*\n|\.\s+[A-Z]", re.I)
 
 
-def _adjacent(text: str, left: Citation, right: Citation, maximum_gap: int) -> bool:
+def _adjacent(text: str, left: FullCitation, right: FullCitation, maximum_gap: int) -> bool:
     assert left.locator_span is not None and right.locator_span is not None
     between = text[left.locator_span.end : right.locator_span.start]
     return (
@@ -31,14 +34,18 @@ def resolve_colocations(document: Document, rules: ExtractionRules | None = None
     if not {"full_reporter_locators", "docket_locators"} & set(document.completed_stages):
         raise ValueError("Discover at least one kind of full locator before resolving colocations")
     config = rules or stable()
-    groups: list[list[Citation]] = []
+    groups: list[list[FullCitation]] = []
     for citation in document.full_locators:
         if not groups:
             groups.append([citation])
             continue
         previous = groups[-1][-1]
-        reporters = {member.reporter for member in groups[-1] if member.reporter is not None}
-        duplicate_reporter = citation.reporter is not None and citation.reporter in reporters
+        reporters = {
+            member.reporter
+            for member in groups[-1]
+            if isinstance(member, FullReporterCitation) and member.reporter is not None
+        }
+        duplicate_reporter = isinstance(citation, FullReporterCitation) and citation.reporter in reporters
         if not duplicate_reporter and _adjacent(
             document.text, previous, citation, config.colocation_max_meaningful_gap
         ):

@@ -17,7 +17,12 @@ from mellea_lrc.extraction import (
     stable,
     start_extraction,
 )
-from mellea_lrc.model import CitationField, Document
+from mellea_lrc.model import (
+    CitationField,
+    Document,
+    FullDocketCitation,
+    FullReporterCitation,
+)
 from mellea_lrc.preprocessing import preprocess
 
 
@@ -46,7 +51,10 @@ def test_locator_stages_preserve_exact_occurrences_and_leave_fields_unread() -> 
         ("reporter", "2024 WL 1234567"),
     ]
     assert _read_span(both, 0) == "No. 1:24-cv-00123"
-    assert [citation.docket_number for citation in both.citations] == ["1:24-cv-00123", None]
+    assert isinstance(both.citations[0], FullDocketCitation)
+    assert isinstance(both.citations[1], FullReporterCitation)
+    assert both.citations[0].docket_number == "1:24-cv-00123"
+    assert not hasattr(both.citations[1], "docket_number")
     assert both.colocations == ()
     assert both.operations[: len(reporter_only.operations)] == reporter_only.operations
 
@@ -147,6 +155,8 @@ def test_document_json_roundtrip_recovers_every_stage_operation() -> None:
     restored = Document.model_validate_json(document.model_dump_json())
 
     assert restored == document
+    assert isinstance(restored.citations[0], FullDocketCitation)
+    assert isinstance(restored.citations[1], FullReporterCitation)
     assert restored.text == text
     assert restored.operations
     assert restored.completed_stages
@@ -158,6 +168,17 @@ def test_document_json_roundtrip_recovers_every_stage_operation() -> None:
     changed["citations"][0]["locator_text"] = "a different locator"
     with pytest.raises(ValueError, match="disagrees with extraction operations"):
         Document.model_validate(changed)
+
+
+def test_citation_updates_cannot_cross_concrete_locator_types() -> None:
+    document = find_docket_locators(Document.from_source("Case No. 1:24-cv-00123."))
+    citation = document.citations[0]
+    assert isinstance(citation, FullDocketCitation)
+
+    with pytest.raises(ValueError, match="has no reporter field"):
+        document.update_fields("review", citation.id, {CitationField.REPORTER: "U.S."})
+
+    assert document.citations[0] == citation
 
 
 def test_every_checkpoint_and_later_withdrawal_replays_without_erasing_history() -> None:

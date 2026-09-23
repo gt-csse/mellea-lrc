@@ -1,10 +1,10 @@
-"""A parsing group of adjacent citation occurrences."""
+"""A parsing group of adjacent full citation occurrences."""
 
 from pydantic import BaseModel, ConfigDict
 
 
 class Colocation(BaseModel):
-    """Source sites sharing a parsing window."""
+    """Locators sharing a citation site, without any identity assertion."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

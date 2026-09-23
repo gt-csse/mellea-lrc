@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Literal
 
 from pydantic import model_validator
 
@@ -15,13 +14,6 @@ class PreprocessingBackend(str, Enum):
 
     DOCLING = "docling"
     PLAIN_TEXT = "plain_text"
-
-
-@dataclass(frozen=True, slots=True)
-class TableOfAuthoritiesComponent(Span):
-    """One TOA component in the final exported source-text coordinates."""
-
-    kind: Literal["table_of_authorities"] = "table_of_authorities"
 
 
 class Rule(str, Enum):
@@ -40,7 +32,7 @@ class Rule(str, Enum):
     """A table read in the order the page reads it, not rebuilt as a grid."""
 
     TABLE_OF_AUTHORITIES = "table_of_authorities"
-    """The authority index: citations identify cases but supply no pinpoint proposition."""
+    """The index of cited cases, marked because it cites nothing."""
 
 
 DEFAULT_RULES: tuple[Rule, ...] = (
@@ -55,7 +47,7 @@ DEFAULT_RULES: tuple[Rule, ...] = (
 
 @dataclass(frozen=True, slots=True)
 class PreprocessingMetadata:
-    """Backend provenance for the preprocessing substage."""
+    """Backend provenance for the preprocessing stage."""
 
     backend: PreprocessingBackend = PreprocessingBackend.PLAIN_TEXT
     backend_version: str | None = None
@@ -68,7 +60,7 @@ class PreprocessedDocument(DocumentBase):
 
     text: str
     preprocessing_metadata: PreprocessingMetadata
-    index_spans: tuple[TableOfAuthoritiesComponent, ...] = ()
+    index_spans: tuple[Span, ...] = ()
     """Table-of-authorities regions. Empty may mean the index is unknown."""
 
     @model_validator(mode="after")
@@ -76,11 +68,4 @@ class PreprocessedDocument(DocumentBase):
         if not self.text:
             msg = "PreprocessedDocument.text must not be empty"
             raise ValueError(msg)
-        previous_end = 0
-        for component in self.index_spans:
-            if component.start == component.end or component.end > len(self.text):
-                raise ValueError("TOA component must occupy a nonempty range inside the source text")
-            if component.start < previous_end:
-                raise ValueError("TOA components must be ordered and nonoverlapping")
-            previous_end = component.end
         return self

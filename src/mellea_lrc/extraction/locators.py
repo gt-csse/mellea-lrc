@@ -8,8 +8,10 @@ from eyecite import get_citations
 from eyecite.models import FullCaseCitation
 
 from mellea_lrc.extraction.rules import ExtractionRules
-from mellea_lrc.model.extraction import CitationField, CitationKind, Document
-from mellea_lrc.model.spans import Span
+from mellea_lrc.model.citations import FullCitationKind
+from mellea_lrc.model.document import Document
+from mellea_lrc.model.operations import CitationField
+from mellea_lrc.model.span import Span
 from mellea_lrc.preprocessing.document_index import is_within
 from mellea_lrc.text_match import fuzzy_literal
 
@@ -50,7 +52,7 @@ def find_full_reporter_locators(document: Document, rules: ExtractionRules | Non
         if is_within(span, document.index_spans) or _overlaps(span, document):
             continue
         identifier = f"reporter:{start}:{end}"
-        document = document.create_citation(stage, identifier, CitationKind.REPORTER)
+        document = document.create_citation(stage, identifier, FullCitationKind.REPORTER)
         document = document.update_fields(
             stage,
             identifier,
@@ -88,6 +90,6 @@ def find_docket_locators(document: Document, rules: ExtractionRules | None = Non
             changes[CitationField.DOCKET_ENTRY] = entry.group("number")
             changes[CitationField.DOCKET_ENTRY_SPAN] = Span(*entry.span())
         identifier = f"docket:{span.start}:{span.end}"
-        document = document.create_citation(stage, identifier, CitationKind.DOCKET)
+        document = document.create_citation(stage, identifier, FullCitationKind.DOCKET)
         document = document.update_fields(stage, identifier, changes)
     return document.complete(stage)

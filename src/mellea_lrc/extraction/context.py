@@ -10,8 +10,10 @@ from eyecite.helpers import courts
 from eyecite.models import FullCaseCitation
 
 from mellea_lrc.extraction.rules import ExtractionRules, stable
-from mellea_lrc.model.extraction import Citation, CitationDate, CitationField, CitationKind, Document
-from mellea_lrc.model.spans import Span
+from mellea_lrc.model.citations import CitationDate, FullCitation, FullReporterCitation
+from mellea_lrc.model.document import Document
+from mellea_lrc.model.operations import CitationField
+from mellea_lrc.model.span import Span
 
 _CASE = re.compile(r"(?:In re|Ex parte)\s+[^,;\n]{2,100}|[A-Z][^,;\n]{0,100}?\s+v\.\s+[^,;\n]{1,100}")
 _SIGNAL = re.compile(r"^(?:See(?: also)?|Cf\.|But see|Accord|Compare)\s+", re.I)
@@ -47,7 +49,7 @@ def _require_structure(document: Document) -> None:
         raise ValueError("Read contextual fields before forming roots")
 
 
-def _members(document: Document, citation: Citation) -> tuple[Citation, ...]:
+def _members(document: Document, citation: FullCitation) -> tuple[FullCitation, ...]:
     if citation.colocation_id is None:
         return (citation,)
     ids = next(group.citation_ids for group in document.colocations if group.id == citation.colocation_id)
@@ -55,7 +57,7 @@ def _members(document: Document, citation: Citation) -> tuple[Citation, ...]:
     return tuple(by_id[identifier] for identifier in ids)
 
 
-def _before(document: Document, citation: Citation, limit: int) -> tuple[str, int]:
+def _before(document: Document, citation: FullCitation, limit: int) -> tuple[str, int]:
     members = _members(document, citation)
     first = min(item.locator_span.start for item in members if item.locator_span is not None)
     previous = max(
@@ -72,7 +74,7 @@ def _before(document: Document, citation: Citation, limit: int) -> tuple[str, in
     return document.text[start:first], start
 
 
-def _after(document: Document, citation: Citation, limit: int) -> tuple[str, int]:
+def _after(document: Document, citation: FullCitation, limit: int) -> tuple[str, int]:
     members = _members(document, citation)
     last = max(item.locator_span.end for item in members if item.locator_span is not None)
     following = min(
@@ -90,7 +92,7 @@ def _after(document: Document, citation: Citation, limit: int) -> tuple[str, int
 
 
 def _dated_parenthetical(
-    document: Document, citation: Citation, limit: int
+    document: Document, citation: FullCitation, limit: int
 ) -> tuple[re.Match[str], int] | None:
     after, start = _after(document, citation, limit)
     for match in _PAREN.finditer(after):
@@ -154,8 +156,8 @@ def _court_from_parenthetical(body: str, date_start: int) -> tuple[str, int] | N
     return (next(iter(found)), len(written)) if found and len(found) == 1 else None
 
 
-def _court_from_reporter(citation: Citation) -> str | None:
-    if citation.kind is not CitationKind.REPORTER or not citation.locator_text:
+def _court_from_reporter(citation: FullCitation) -> str | None:
+    if not isinstance(citation, FullReporterCitation) or not citation.locator_text:
         return None
     # Eyecite's isolated locator may infer a unique reporter court. Running it
     # on this exact span avoids its unbounded post-citation metadata leak.

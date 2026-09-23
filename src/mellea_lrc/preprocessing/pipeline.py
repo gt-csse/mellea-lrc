@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-from mellea_lrc.model.preprocessed import DEFAULT_RULES, PreprocessedDocument, Rule
+from mellea_lrc.model.preprocessed_document import DEFAULT_RULES, PreprocessedDocument, Rule
 from mellea_lrc.preprocessing.docling import is_docling_supported_format, preprocess_with_docling
 from mellea_lrc.preprocessing.plain_text import preprocess_plain_text, preprocess_plain_text_from_string
 
