@@ -21,6 +21,7 @@ _PAREN = re.compile(r"\((?P<body>[^()\r\n]{0,100})\)")
 _PIN = re.compile(r"^\s*,?\s*(?:at\s+)?(?P<pin>\*?\d+(?:[-–]\d+)?)(?![\d:])")
 _NAME_TOKEN = re.compile(r"[\w.'’&-]+")
 _VERSUS = re.compile(r"\s+v\.\s+")
+_DATE_EVENT = re.compile(r"\s+\b(?:filed|decided|issued)\b\s*$", re.I)
 
 
 def _require_structure(document: Document) -> None:
@@ -183,10 +184,13 @@ def resolve_courts(document: Document, rules: ExtractionRules | None = None) -> 
             body = parenthetical.group("body")
             date = FULL_DATE_RE.search(body) or YEAR_RE.search(body)
             if date:
-                written = body[: date.start()].strip(" ,;")
+                court_region = body[: date.start()]
+                if event := _DATE_EVENT.search(court_region):
+                    court_region = court_region[: event.start()]
+                written = court_region.strip(" ,;")
                 if written:
                     body_start = start + parenthetical.start("body")
-                    stripped = len(body[: date.start()]) - len(body[: date.start()].lstrip(" ,;"))
+                    stripped = len(court_region) - len(court_region.lstrip(" ,;"))
                     span = Span(body_start + stripped, body_start + stripped + len(written))
         if span is not None:
             document = document.replace_citation(citation.record(stage).with_court(document.text, span))
