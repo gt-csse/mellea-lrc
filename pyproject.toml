@@ -19,6 +19,7 @@ dependencies = [
     "courts-db>=0.10.27,<0.11",
     "eyecite>=2.7,<3",
     "pydantic>=2,<3",
+    "reporters-db>=3.2,<4",
 ]
 classifiers = [
     "Operating System :: MacOS",

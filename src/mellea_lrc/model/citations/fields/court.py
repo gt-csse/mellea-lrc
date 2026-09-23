@@ -9,6 +9,7 @@ from typing import Self
 
 from courts_db import courts
 from pydantic import BaseModel, ConfigDict, model_validator
+from reporters_db import STATE_ABBREVIATIONS
 
 from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
 from mellea_lrc.model.span import Span
@@ -56,6 +57,45 @@ def _court_index() -> dict[tuple[str, ...], frozenset[str]]:
     return {key: frozenset(ids) for key, ids in grouped.items()}
 
 
+def _label_ends_in_location(suffix: tuple[str, ...], location: str, bluebook: tuple[str, ...]) -> bool:
+    """Verify that a database label's tail denotes its recorded state."""
+    full = _court_tokens(location)
+    if suffix == full or suffix == bluebook:
+        return True
+    if len(suffix) != 1 or len(full) != 1 or not full[0].startswith(suffix[0]):
+        return False
+    # Courts-db sometimes shortens a state differently (Penn. versus Pa.).
+    # Accept that spelling only when it identifies exactly one state.
+    return sum(_court_tokens(state)[0].startswith(suffix[0]) for state in STATE_ABBREVIATIONS.values()) == 1
+
+
+@lru_cache(maxsize=1)
+def _bluebook_court_index() -> dict[tuple[str, ...], frozenset[str]]:
+    """Combine reporters-db state labels with courts-db district court IDs."""
+    by_location = {
+        location: _court_tokens(abbreviation) for abbreviation, location in STATE_ABBREVIATIONS.items()
+    }
+    grouped: dict[tuple[str, ...], set[str]] = defaultdict(set)
+    for item in courts:
+        name = str(item.get("name") or "")
+        location = str(item.get("location") or "")
+        label = _court_tokens(item.get("citation_string") or "")
+        if (
+            item.get("system") != "federal"
+            or not ("District Court" in name or "Bankruptcy Court" in name)
+            or location not in by_location
+        ):
+            continue
+        district_positions = [index for index, token in enumerate(label[:4]) if token == "d"]
+        if len(district_positions) != 1 or district_positions[0] == len(label) - 1:
+            continue
+        prefix_end = district_positions[0] + 1
+        if not _label_ends_in_location(label[prefix_end:], location, by_location[location]):
+            continue
+        grouped[(*label[:prefix_end], *by_location[location])].add(str(item["id"]))
+    return {key: frozenset(ids) for key, ids in grouped.items()}
+
+
 @lru_cache(maxsize=1)
 def _courts_by_id() -> dict[str, Court]:
     return {str(item["id"]): Court(id=str(item["id"]), name=str(item["name"])) for item in courts}
@@ -85,7 +125,11 @@ class Court(BaseModel):
 
 def court_id_if_unique(text: str) -> str | None:
     """Return one mapped court ID; absence is not a normalized reading."""
-    found = _court_index().get(_court_tokens(text))
+    key = _court_tokens(text)
+    found = _court_index().get(key)
+    if found is None:
+        # A generated state abbreviation must not override a direct court label.
+        found = _bluebook_court_index().get(key)
     return next(iter(found)) if found and len(found) == 1 else None
 
 
