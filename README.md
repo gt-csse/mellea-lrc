@@ -1,16 +1,17 @@
 # mellea-lrc
 
-This branch is rebuilding the citation pipeline from a small, inspectable base. The active package currently provides **preprocessing only**. The previous extraction, validation, provider, and evaluation code is preserved in [`archive/root-locators-2026-09-23/`](archive/root-locators-2026-09-23/) for reference; it is outside the installable package.
+This branch is rebuilding the citation pipeline from a small, inspectable base. The active package provides preprocessing and a rule-based first extraction pass. The previous extraction, validation, provider, and evaluation implementations are preserved in [`archive/root-locators-2026-09-23/`](archive/root-locators-2026-09-23/) for reference; they are outside the installable package.
 
 ```python
 from pathlib import Path
 
-from mellea_lrc.preprocessing import preprocess
+from mellea_lrc.api import Document, grow_roots, stable
 
-filing = preprocess(Path("filing.pdf"))
-print(filing.text)
+document = Document.from_source(Path("filing.pdf"))
+document = await grow_roots(document, rules=stable())
+print(document.full_locators, document.roots)
 ```
 
-A `Path` reads a file. A `str` is the document text itself. Preprocessing returns a `PreprocessedDocument` with source metadata, the resulting text, and the layout rules that ran. Its spans refer to character offsets in that text. See [the preprocessing contract](docs/Preprocessing.md).
+`grow_roots` composes independent `Document -> Document` stages: reporter locators, docket locators, colocation, contextual fields, then root formation. Each full locator is an occurrence; roots deduplicate only supported exact identifiers. The document retains stage history and can be saved and restored as Pydantic JSON. See [the extraction API](docs/Extraction.md) and [the preprocessing contract](docs/Preprocessing.md).
 
-Install the optional Docling backend for PDFs and other formatted files with `uv sync --group preprocessing`. Plain text works with the base package. Run the active tests with `uv run pytest`.
+A `Path` reads a file; a `str` is the document text itself. Install the optional Docling backend for PDFs and other formatted files with `uv sync --group preprocessing`. Plain text works with the base package. Run the active tests with `uv run pytest`.
