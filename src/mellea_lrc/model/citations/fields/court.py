@@ -3,27 +3,56 @@
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from functools import lru_cache
 from typing import Self
 
-from eyecite.helpers import courts
+from courts_db import courts
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from mellea_lrc.model.citations.fields.base import CitationField, source_quote
 from mellea_lrc.model.span import Span
 
+_ORDINAL = re.compile(r"^(\d+)(?:st|nd|rd|th|d)$")
+_SPLIT_ORDINAL = re.compile(r"\b(\d+)\s+(st|nd|rd|th|d)\b")
 
-def _court_key(text: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", text.casefold())
+
+def _court_tokens(text: str) -> tuple[str, ...]:
+    """Compare citation labels by tokens, folding ordinal spelling and spacing."""
+    joined = _SPLIT_ORDINAL.sub(r"\1\2", text.casefold())
+    tokens = re.findall(r"[a-z0-9]+", joined)
+    return tuple(f"#{match.group(1)}" if (match := _ORDINAL.fullmatch(token)) else token for token in tokens)
 
 
 @lru_cache(maxsize=1)
-def _court_index() -> dict[str, frozenset[str]]:
-    grouped: dict[str, set[str]] = {}
+def _court_index() -> dict[tuple[str, ...], frozenset[str]]:
+    grouped: dict[tuple[str, ...], set[str]] = defaultdict(set)
+    location_abbreviations: dict[str, set[tuple[str, ...]]] = defaultdict(set)
     for item in courts:
-        key = _court_key(item.get("citation_string") or "")
-        if key:
-            grouped.setdefault(key, set()).add(str(item["id"]))
+        label = _court_tokens(item.get("citation_string") or "")
+        if item.get("system") == "state" and len(label) == 1 and item.get("location"):
+            location_abbreviations[str(item["location"])].add(label)
+
+    for item in courts:
+        label = _court_tokens(item.get("citation_string") or "")
+        if not label:
+            continue
+        keys = {label}
+        location = str(item.get("location") or "")
+        location_tokens = _court_tokens(location)
+        is_district = item.get("system") == "federal" and str(item.get("name") or "").startswith(
+            "District Court"
+        )
+        if is_district:
+            # Derive D. Md. from D. Maryland and the database's Md. label,
+            # rather than maintaining a separate state-abbreviation map.
+            if label[:1] == ("d",) and label[1:] == location_tokens:
+                keys.update(("d", *alias) for alias in location_abbreviations[location])
+            elif label[:1] != ("d",):
+                # The database sometimes omits the written District prefix.
+                keys.add(("d", *label))
+        for key in keys:
+            grouped[key].add(str(item["id"]))
     return {key: frozenset(ids) for key, ids in grouped.items()}
 
 
@@ -56,7 +85,7 @@ class Court(BaseModel):
 
 def court_id_if_unique(text: str) -> str | None:
     """Return one mapped court ID; absence is not a normalized reading."""
-    found = _court_index().get(_court_key(text))
+    found = _court_index().get(_court_tokens(text))
     return next(iter(found)) if found and len(found) == 1 else None
 
 

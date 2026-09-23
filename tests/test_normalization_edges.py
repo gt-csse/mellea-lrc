@@ -12,7 +12,42 @@ from mellea_lrc.model import (
     Span,
     latest,
 )
+from mellea_lrc.model.citations.fields.court import normalize_court
 from mellea_lrc.model.citations.fields.docket import DocketEntryField
+
+
+@pytest.mark.parametrize(
+    ("written", "court_id"),
+    [
+        ("3d Cir.", "ca3"),
+        ("3rd Cir.", "ca3"),
+        ("2 nd  Cir.", "ca2"),
+        ("D. Md.", "mdd"),
+        ("D. Minn.", "mnd"),
+        ("D. N. Mar. I.", "nmid"),
+    ],
+)
+def test_court_label_uses_data_derived_token_variants(written: str, court_id: str) -> None:
+    source = f"See Case No. 1:24-cv-00123 ({written} 2024)."
+    document = grow_roots(Document.from_source(source))
+    court = document.citations[0].court[-1]
+    assert court.quote == written
+    assert court.normalized.id == court_id
+    assert Document.model_validate_json(document.model_dump_json()) == document
+
+
+def test_filing_date_verb_is_not_part_of_the_court_quote() -> None:
+    source = "See Case No. 1:24-cv-00123 (E.D.N.Y. filed Oct. 14, 2025)."
+    document = grow_roots(Document.from_source(source))
+    court = document.citations[0].court[-1]
+    assert court.quote == "E.D.N.Y."
+    assert court.normalized.id == "nyed"
+    assert document.citations[0].date[-1].normalized == CitationDate(year=2025, month=10, day=14)
+
+
+def test_court_matching_does_not_confuse_a_circuit_with_its_bankruptcy_panel() -> None:
+    assert normalize_court("2 nd  Cir.").id == "ca2"
+    assert normalize_court("2 nd  Cir. BAP").id == "bap2"
 
 
 def test_reporter_locator_keeps_written_variant_and_eyecite_identity() -> None:
@@ -144,7 +179,7 @@ def test_citation_date_rejects_day_without_month() -> None:
     "source",
     [
         "See 347 U.S. 483 (D. Fiction 1954).",
-        "See Case No. 1:24-cv-00123 (3d Cir. 2024).",
+        "See Case No. 1:24-cv-00123 (Ct. App. 2024).",
     ],
 )
 def test_unresolved_written_court_raises_before_inference(source: str) -> None:
