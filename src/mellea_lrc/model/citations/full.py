@@ -6,7 +6,6 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from mellea_lrc.model.citations.date import CitationDate
 from mellea_lrc.model.citations.fields import (
     CaseNameField,
     CitationField,
@@ -16,19 +15,7 @@ from mellea_lrc.model.citations.fields import (
 )
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, Node, RelationshipUpdate
 from mellea_lrc.model.citations.kind import FullCitationKind
-from mellea_lrc.model.citations.pin_cite import PinCiteValue
 from mellea_lrc.model.span import Span
-
-
-def _source_slice(source: str, span: Span) -> str:
-    if span.end > len(source) or span.start == span.end:
-        raise ValueError("Source span is outside the document or empty")
-    return source[span.start : span.end]
-
-
-def _require_exact(source: str, span: Span, written: str) -> None:
-    if _source_slice(source, span) != written:
-        raise ValueError("Field text does not match its source span")
 
 
 class FullCitation(BaseModel):
@@ -72,45 +59,40 @@ class FullCitation(BaseModel):
                 data[name] = tuple(update for update in getattr(self, name) if update.node_id in node_ids)
         return type(self).model_validate(data)
 
-    def with_case_name(self, source: str, span: Span, *, normalized: str) -> Self:
-        """Quote a case name and record its current interpretation."""
+    def with_case_name(self, source: str, span: Span) -> Self:
+        """Quote a case name and parse its parties or subject."""
         return self._with_log(
             case_name=(
                 *self.case_name,
-                CaseNameField.from_source(
-                    source, span, normalized=normalized, node_id=self._decision_node_id()
-                ),
+                CaseNameField.from_source(source, span, node_id=self._decision_node_id()),
             ),
         )
 
-    def with_court(self, source: str, span: Span | None, *, normalized: str) -> Self:
-        """Quote an explicit court or record a reporter-inferred court."""
-        reading = (
-            CourtField.from_source(source, span, normalized=normalized, node_id=self._decision_node_id())
-            if span is not None
-            else CourtField.inferred(normalized, node_id=self._decision_node_id())
-        )
-        return self._with_log(
-            court=(*self.court, reading),
-        )
+    def with_court(self, source: str, span: Span) -> Self:
+        """Quote and normalize an explicit court."""
+        reading = CourtField.from_source(source, span, node_id=self._decision_node_id())
+        return self._with_log(court=(*self.court, reading))
 
-    def with_date(self, source: str, span: Span, *, normalized: CitationDate) -> Self:
-        """Quote a written date and record its parsed calendar components."""
+    def with_inferred_court(self, court_id: str) -> Self:
+        """Record a court inferred from the reporter, without a court quote."""
+        reading = CourtField.inferred(court_id, node_id=self._decision_node_id())
+        return self._with_log(court=(*self.court, reading))
+
+    def with_date(self, source: str, span: Span) -> Self:
+        """Quote and normalize a written calendar date."""
         return self._with_log(
             date=(
                 *self.date,
-                DateField.from_source(source, span, normalized=normalized, node_id=self._decision_node_id()),
+                DateField.from_source(source, span, node_id=self._decision_node_id()),
             ),
         )
 
-    def with_pin_cite(self, source: str, span: Span, *, normalized: PinCiteValue) -> Self:
-        """Quote a pinpoint reference and record its parsed value."""
+    def with_pin_cite(self, source: str, span: Span) -> Self:
+        """Quote and normalize a pinpoint reference."""
         return self._with_log(
             pin_cite=(
                 *self.pin_cite,
-                PinCiteField.from_source(
-                    source, span, normalized=normalized, node_id=self._decision_node_id()
-                ),
+                PinCiteField.from_source(source, span, node_id=self._decision_node_id()),
             ),
         )
 

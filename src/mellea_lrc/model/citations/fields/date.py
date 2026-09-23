@@ -8,7 +8,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
+from mellea_lrc.model.citations.fields.base import CitationField, source_quote
 from mellea_lrc.model.span import Span
 
 YEAR_RE = re.compile(r"(?<!\d)(?:1[6789]\d{2}|20\d{2}|21\d{2})(?!\d)")
@@ -16,12 +16,6 @@ FULL_DATE_RE = re.compile(
     r"\b(?P<month>Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
     r"Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
     r"\.?\s+(?P<day>\d{1,2}),?\s+(?P<year>(?:1[6789]|20|21)\d{2})\b",
-    re.I,
-)
-MONTH_YEAR_RE = re.compile(
-    r"\b(?P<month>Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
-    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
-    r"\.?\s+(?P<year>(?:1[6789]|20|21)\d{2})\b",
     re.I,
 )
 _MONTHS = {
@@ -65,17 +59,12 @@ class CitationDate(BaseModel):
 
 
 def normalize_date(quote: str) -> CitationDate:
-    """Parse a written day, month, or year; never return a null date."""
+    """Parse a complete written day or year; never return a null date."""
     if match := FULL_DATE_RE.fullmatch(quote):
         return CitationDate(
             year=int(match.group("year")),
             month=_MONTHS[match.group("month")[:3].lower()],
             day=int(match.group("day")),
-        )
-    if match := MONTH_YEAR_RE.fullmatch(quote):
-        return CitationDate(
-            year=int(match.group("year")),
-            month=_MONTHS[match.group("month")[:3].lower()],
         )
     if YEAR_RE.fullmatch(quote):
         return CitationDate(year=int(quote))
@@ -91,14 +80,10 @@ class DateField(CitationField[CitationDate]):
     @classmethod
     def from_source(cls, source: str, span: Span, *, node_id: str) -> Self:
         quote = source_quote(source, span)
-        return cls(
-            node_id=node_id,
-            quote=quote,
-            span=span,
-            **normalization_record(lambda: normalize_date(quote)),
-        )
+        return cls(node_id=node_id, quote=quote, span=span, normalized=normalize_date(quote))
 
     @model_validator(mode="after")
     def _validate_normalization(self) -> Self:
-        self.validate_normalization(lambda: normalize_date(self.quote))
+        if self.normalized != normalize_date(self.quote):
+            raise ValueError("Citation date normalization does not match its quote")
         return self

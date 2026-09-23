@@ -2,9 +2,10 @@
 
 import pytest
 
-from mellea_lrc.extraction.normalization import normalize_pin_cite
 from mellea_lrc.model import (
+    CaseName,
     CaseNameField,
+    CaseNameKind,
     CourtField,
     Document,
     PinCiteField,
@@ -12,6 +13,7 @@ from mellea_lrc.model import (
     PinCiteTarget,
     Span,
 )
+from mellea_lrc.model.citations.fields.pin_cite import normalize_pin_cite
 from mellea_lrc.extraction import grow_roots
 
 
@@ -40,13 +42,28 @@ def test_unrecognized_or_invalid_pin_cites_raise(quote: str) -> None:
 def test_parsed_field_cannot_store_missing_normalization() -> None:
     source = "Smith v. Jones, 347 U.S. 483, 495 (1954)."
     span = Span(source.index("495"), source.index("495") + 3)
+    valid = PinCiteField.from_source(source, span, node_id="pin:node:0").model_dump(mode="python")
     for value in (None, ()):
         with pytest.raises(ValueError):
-            PinCiteField.from_source(source, span, normalized=value, node_id="pin:node:0")
-    for field in (CaseNameField, CourtField):
-        for value in (None, "", "   "):
-            with pytest.raises(ValueError):
-                field.from_source(source, span, normalized=value, node_id="field:node:0")
+            PinCiteField.model_validate({**valid, "normalized": value})
+
+    name_span = Span(0, len("Smith v. Jones"))
+    name = CaseNameField.from_source(source, name_span, node_id="name:node:0")
+    with pytest.raises(ValueError):
+        CaseNameField.model_validate({**name.model_dump(mode="python"), "normalized": None})
+    with pytest.raises(ValueError, match="does not match its quote"):
+        CaseNameField.model_validate(
+            {
+                **name.model_dump(mode="python"),
+                "normalized": CaseName(kind=CaseNameKind.ADVERSARIAL, plaintiff="Smith", defendant="Brown"),
+            }
+        )
+
+    court_source = "D. Ariz."
+    court = CourtField.from_source(court_source, Span(0, len(court_source)), node_id="court:node:0")
+    for value in (None, "", "   "):
+        with pytest.raises(ValueError):
+            CourtField.model_validate({**court.model_dump(mode="python"), "normalized": value})
 
 
 def test_pipeline_pin_cite_normalization_roundtrips() -> None:

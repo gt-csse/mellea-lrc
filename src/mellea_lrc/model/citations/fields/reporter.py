@@ -5,12 +5,12 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Self
 
-from eyecite.models import Reporter
+from eyecite import get_citations
+from eyecite.models import FullCaseCitation, Reporter
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
+from mellea_lrc.model.citations.fields.base import CitationField, source_quote
 from mellea_lrc.model.span import Span
-from mellea_lrc.parsing.reporters import full_reporter_readings
 
 
 class ReporterLocatorValue(BaseModel):
@@ -34,15 +34,18 @@ class ReporterLocatorValue(BaseModel):
 
 @lru_cache(maxsize=8192)
 def normalize_reporter_locator(quote: str) -> ReporterLocatorValue:
-    """Read exactly one whole locator with the shared reporter grammar."""
-    matches = [reading for reading in full_reporter_readings(quote) if reading.span == (0, len(quote))]
+    """Re-read one locator in isolation using eyecite's reporter edition."""
+    matches = [
+        cite
+        for cite in get_citations(quote)
+        if isinstance(cite, FullCaseCitation) and cite.span() == (0, len(quote))
+    ]
     if len(matches) != 1:
         raise ValueError(f"Cannot normalize full reporter locator: {quote!r}")
-    reading = matches[0]
-    match = reading.citation
+    match = matches[0]
 
-    # A parsed spelling is not necessarily a resolved reporter edition.
-    # Preserve that uncertainty instead of recording raw text as normalized.
+    # corrected_reporter() falls back to raw text when the edition is unknown;
+    # require an actual eyecite edition before recording a normalized value.
     edition = match.edition_guess
     if edition is None:
         raise ValueError(f"Cannot normalize ambiguous reporter locator: {quote!r}")
@@ -79,14 +82,10 @@ class FullReporterLocator(CitationField[ReporterLocatorValue]):
     @classmethod
     def from_source(cls, source: str, span: Span, *, node_id: str) -> Self:
         quote = source_quote(source, span)
-        return cls(
-            node_id=node_id,
-            quote=quote,
-            span=span,
-            **normalization_record(lambda: normalize_reporter_locator(quote)),
-        )
+        return cls(node_id=node_id, quote=quote, span=span, normalized=normalize_reporter_locator(quote))
 
     @model_validator(mode="after")
     def _validate_normalization(self) -> Self:
-        self.validate_normalization(lambda: normalize_reporter_locator(self.quote))
+        if self.normalized != normalize_reporter_locator(self.quote):
+            raise ValueError("Reporter locator normalization does not match its quote")
         return self

@@ -2,21 +2,27 @@
 
 from typing import Annotated, TypeAlias
 
+from eyecite.models import Reporter
 from pydantic import Field
 
-from mellea_lrc.model.citations.date import CitationDate
 from mellea_lrc.model.citations.fields import (
+    CaseName,
     CaseNameField,
+    CaseNameKind,
+    CitationDate,
     CitationField,
+    Court,
     CourtField,
     DateField,
     DocketEntryField,
-    DocketNumberField,
-    LocatorField,
-    PageField,
+    DocketLocatorValue,
+    FullDocketLocator,
+    FullReporterLocator,
     PinCiteField,
-    ReporterField,
-    VolumeField,
+    PinCiteKind,
+    PinCiteTarget,
+    PinCiteValue,
+    ReporterLocatorValue,
 )
 from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.full_docket import FullDocketCitation
@@ -27,7 +33,6 @@ from mellea_lrc.model.citations.history import (
     latest,
 )
 from mellea_lrc.model.citations.kind import FullCitationKind
-from mellea_lrc.model.citations.pin_cite import PinCiteKind, PinCiteTarget, PinCiteValue
 
 FullCitationVariant: TypeAlias = Annotated[
     FullReporterCitation | FullDocketCitation,
@@ -36,27 +41,30 @@ FullCitationVariant: TypeAlias = Annotated[
 
 
 __all__ = [
+    "CaseName",
     "CaseNameField",
+    "CaseNameKind",
     "CitationDate",
     "CitationField",
+    "Court",
     "CourtField",
     "DateField",
     "DocketEntryField",
-    "DocketNumberField",
+    "DocketLocatorValue",
     "FullCitation",
     "FullCitationKind",
     "FullCitationVariant",
     "FullDocketCitation",
+    "FullDocketLocator",
     "FullReporterCitation",
-    "LocatorField",
+    "FullReporterLocator",
     "Node",
-    "PageField",
     "PinCiteField",
     "PinCiteKind",
     "PinCiteTarget",
     "PinCiteValue",
     "RelationshipUpdate",
-    "ReporterField",
-    "VolumeField",
+    "Reporter",
+    "ReporterLocatorValue",
     "latest",
 ]
