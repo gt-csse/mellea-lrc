@@ -58,7 +58,7 @@ def test_preprocess_rejects_path_without_suffix() -> None:
 
 
 def test_a_string_is_content_and_a_path_is_a_location() -> None:
-    """The argument's type says what it is, as it does for `extract`."""
+    """The argument's type says whether preprocessing reads a path or text."""
     document = preprocess("sample.csv")
 
     assert document.text == "sample.csv"

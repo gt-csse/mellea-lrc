@@ -6,7 +6,6 @@ is the convenience composition; validation and leaf growth are later layers.
 
 from mellea_lrc.extraction import (
     ExtractionRules,
-    extract,
     find_docket_locators,
     find_full_reporter_locators,
     form_roots,
@@ -24,7 +23,6 @@ from mellea_lrc.preprocessing import preprocess
 __all__ = [
     "Document",
     "ExtractionRules",
-    "extract",
     "find_docket_locators",
     "find_full_reporter_locators",
     "form_roots",

@@ -52,6 +52,18 @@ class FullCitation(BaseModel):
         """Validate the immutable citation after a named field method changes it."""
         return type(self).model_validate({**self.model_dump(mode="python"), **logs})
 
+    def _through_node_count(self, count: int) -> Self:
+        """Recover the citation and field readings through one node boundary."""
+        if not 1 <= count <= len(self.nodes):
+            raise ValueError("Citation cutoff must retain its creation node")
+        nodes = self.nodes[:count]
+        node_ids = {node.id for node in nodes}
+        data = {**self.model_dump(mode="python"), "nodes": nodes}
+        for name in type(self).model_fields:
+            if name not in {"id", "kind", "nodes"}:
+                data[name] = tuple(update for update in getattr(self, name) if update.node_id in node_ids)
+        return type(self).model_validate(data)
+
     def with_case_name(self, source: str, name: str, span: Span) -> Self:
         """Append a case name only when the document says exactly that text."""
         _require_exact(source, span, name)
