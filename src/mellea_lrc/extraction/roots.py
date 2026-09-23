@@ -37,9 +37,9 @@ def form_roots(document: Document) -> Document:
     but does not establish shared identity.
     """
     stage = "roots"
-    if stage in document.completed_stages:
+    if stage in document.stage_runs:
         return document
-    if "colocations" not in document.completed_stages:
+    if "colocations" not in document.stage_runs:
         raise ValueError("Resolve colocations before forming roots")
     known: dict[tuple[str, ...], str] = {}
     for citation in document.full_locators:

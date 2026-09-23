@@ -28,9 +28,9 @@ def resolve_colocations(document: Document, rules: ExtractionRules | None = None
     never itself a finding that its identifiers refer to the same case.
     """
     stage = "colocations"
-    if stage in document.completed_stages:
+    if stage in document.stage_runs:
         return document
-    if not {"full_reporter_locators", "docket_locators"} & set(document.completed_stages):
+    if not {"full_reporter_locators", "docket_locators"} & set(document.stage_runs):
         raise ValueError("Discover at least one kind of full locator before resolving colocations")
     config = rules or stable()
     groups: list[list[FullCitationVariant]] = []

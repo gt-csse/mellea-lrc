@@ -43,9 +43,9 @@ _PIN = re.compile(r"^\s*,?\s*(?:at\s+)?(?P<pin>\*?\d+(?:[-–]\d+)?)(?![\d:])")
 
 
 def _require_structure(document: Document) -> None:
-    if "colocations" not in document.completed_stages:
+    if "colocations" not in document.stage_runs:
         raise ValueError("Resolve colocations before reading contextual fields")
-    if "roots" in document.completed_stages:
+    if "roots" in document.stage_runs:
         raise ValueError("Read contextual fields before forming roots")
 
 
@@ -110,7 +110,7 @@ def _dated_parenthetical(
 def resolve_case_names(document: Document, rules: ExtractionRules | None = None) -> Document:
     """Read a name before each citation site, never through another locator."""
     stage = "case_names"
-    if stage in document.completed_stages:
+    if stage in document.stage_runs:
         return document
     _require_structure(document)
     config = rules or stable()
@@ -171,7 +171,7 @@ def _court_from_reporter(citation: FullCitationVariant) -> str | None:
 def resolve_courts(document: Document, rules: ExtractionRules | None = None) -> Document:
     """Read an explicit post-site court or infer a unique reporter court."""
     stage = "courts"
-    if stage in document.completed_stages:
+    if stage in document.stage_runs:
         return document
     _require_structure(document)
     config = rules or stable()
@@ -202,7 +202,7 @@ def resolve_courts(document: Document, rules: ExtractionRules | None = None) -> 
 def resolve_dates(document: Document, rules: ExtractionRules | None = None) -> Document:
     """Read an exact day or year from the bounded post-site parenthetical."""
     stage = "dates"
-    if stage in document.completed_stages:
+    if stage in document.stage_runs:
         return document
     _require_structure(document)
     config = rules or stable()
@@ -231,7 +231,7 @@ def resolve_dates(document: Document, rules: ExtractionRules | None = None) -> D
 def resolve_pin_cites(document: Document, rules: ExtractionRules | None = None) -> Document:
     """Read each locator's own immediately adjacent page or star-page pin."""
     stage = "pin_cites"
-    if stage in document.completed_stages:
+    if stage in document.stage_runs:
         return document
     _require_structure(document)
     config = rules or stable()

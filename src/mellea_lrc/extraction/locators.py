@@ -34,9 +34,9 @@ def _overlaps(span: Span, document: Document) -> bool:
 def find_full_reporter_locators(document: Document) -> Document:
     """Create one typed occurrence for each eyecite full case reporter span."""
     stage = "full_reporter_locators"
-    if stage in document.completed_stages:
+    if stage in document.stage_runs:
         return document
-    if "colocations" in document.completed_stages:
+    if "colocations" in document.stage_runs:
         raise ValueError("Discover all locators before resolving colocations")
     found = sorted(
         (citation for citation in get_citations(document.text) if isinstance(citation, FullCaseCitation)),
@@ -65,9 +65,9 @@ def find_full_reporter_locators(document: Document) -> Document:
 def find_docket_locators(document: Document) -> Document:
     """Create courtless docket occurrences from labelled CM/ECF numbers."""
     stage = "docket_locators"
-    if stage in document.completed_stages:
+    if stage in document.stage_runs:
         return document
-    if "colocations" in document.completed_stages:
+    if "colocations" in document.stage_runs:
         raise ValueError("Discover all locators before resolving colocations")
     for match in _DOCKET.finditer(document.text):
         span = Span(*match.span())

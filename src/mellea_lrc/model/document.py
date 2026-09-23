@@ -14,10 +14,10 @@ from mellea_lrc.model.preprocessed_document import PreprocessedDocument
 
 
 class Document(PreprocessedDocument):
-    """Source text, citations with their histories, and completed stages."""
+    """Source text, citation histories, and ordered atomic stage runs."""
 
     citations: tuple[FullCitationVariant, ...] = ()
-    completed_stages: tuple[str, ...] = ()
+    stage_runs: tuple[str, ...] = ()
 
     @classmethod
     def from_preprocessed(cls, source: PreprocessedDocument) -> Self:
@@ -51,6 +51,8 @@ class Document(PreprocessedDocument):
     def add_citation(self, citation: FullCitationVariant) -> Self:
         if any(existing.id == citation.id for existing in self.citations):
             raise ValueError(f"Citation already exists: {citation.id}")
+        if citation.nodes[0].stage in self.stage_runs:
+            raise ValueError("Cannot create a citation in a completed stage")
         return self._with_citation(citation)
 
     def replace_citation(self, citation: FullCitationVariant) -> Self:
@@ -61,7 +63,10 @@ class Document(PreprocessedDocument):
             raise ValueError("Citation type cannot change")
         if citation.nodes[: len(original.nodes)] != original.nodes:
             raise ValueError("Citation nodes must be append-only")
-        new_nodes = {node.id for node in citation.nodes[len(original.nodes) :]}
+        appended_nodes = citation.nodes[len(original.nodes) :]
+        if any(node.stage in self.stage_runs for node in appended_nodes):
+            raise ValueError("Cannot add citation nodes to a completed stage")
+        new_nodes = {node.id for node in appended_nodes}
         for name in type(citation).model_fields:
             if name in {"id", "kind", "nodes"}:
                 continue
@@ -79,25 +84,104 @@ class Document(PreprocessedDocument):
         return type(self).model_validate({**self.model_dump(mode="python"), "citations": ordered})
 
     def complete(self, stage: str) -> Self:
-        """Save a completed stage even when it found no citations."""
-        if stage in self.completed_stages:
+        """Commit one atomic run, including runs with no citation changes."""
+        if stage in self.stage_runs:
             return self
+        pending = {
+            node.stage
+            for citation in self.citations
+            for node in citation.nodes
+            if node.stage not in self.stage_runs
+        }
+        if pending - {stage}:
+            raise ValueError("Complete the pending stage before starting another stage run")
         return type(self).model_validate(
-            {**self.model_dump(mode="python"), "completed_stages": (*self.completed_stages, stage)}
+            {**self.model_dump(mode="python"), "stage_runs": (*self.stage_runs, stage)}
+        )
+
+    def get_stage(self, stage: str) -> Self:
+        """Recover exactly the document returned by a completed stage run."""
+        try:
+            cutoff = self.stage_runs.index(stage) + 1
+        except ValueError as exc:
+            raise KeyError(f"Stage has not run: {stage}") from exc
+        included = set(self.stage_runs[:cutoff])
+        citations: list[FullCitationVariant] = []
+        for citation in self.citations:
+            count = 0
+            for node in citation.nodes:
+                if node.stage not in included:
+                    break
+                count += 1
+            if count:
+                citations.append(citation._through_node_count(count))
+        citations.sort(key=lambda item: (item.locator_span.start, item.id))
+        return type(self).model_validate(
+            {
+                **self.model_dump(mode="python"),
+                "citations": tuple(citations),
+                "stage_runs": self.stage_runs[:cutoff],
+            }
         )
 
     @model_validator(mode="after")
     def _validate_relationships(self) -> Self:
+        if len(set(self.stage_runs)) != len(self.stage_runs):
+            raise ValueError("Stage runs must be unique")
+        stage_positions = {stage: index for index, stage in enumerate(self.stage_runs)}
+        pending_stages: set[str] = set()
         by_id = {citation.id: citation for citation in self.citations}
         if len(by_id) != len(self.citations):
             raise ValueError("Duplicate citation in document state")
-        for citation in self.citations:
-            citation.validate_source(self.text)
-            root_id = latest(citation.root_id)
-            if root_id not in {None, WITHDRAWN_ROOT_ID} and root_id not in by_id:
-                raise ValueError("Citation points to an unknown root")
-        if "colocations" in self.completed_stages and any(
-            len(group.citation_ids) < 2 for group in self.colocations
+        if (
+            tuple(sorted(self.citations, key=lambda item: (item.locator_span.start, item.id)))
+            != self.citations
         ):
-            raise ValueError("A colocation group needs at least two citations")
+            raise ValueError("Citations must be ordered by locator span and ID")
+        for citation in self.citations:
+            previous_stage = -1
+            for node in citation.nodes:
+                position = stage_positions.get(node.stage)
+                if position is None:
+                    pending_stages.add(node.stage)
+                    previous_stage = len(self.stage_runs)
+                elif position < previous_stage:
+                    raise ValueError("Citation nodes cannot move backward through stage runs")
+                else:
+                    previous_stage = position
+            citation.validate_source(self.text)
+            node_stages = {node.id: node.stage for node in citation.nodes}
+            for update in citation.root_id:
+                if update.value in {None, WITHDRAWN_ROOT_ID}:
+                    continue
+                target = by_id.get(update.value)
+                if target is None:
+                    raise ValueError("Citation points to an unknown root")
+                target_stage = stage_positions.get(target.nodes[0].stage, len(self.stage_runs))
+                update_stage = stage_positions.get(node_stages[update.node_id], len(self.stage_runs))
+                if target_stage > update_stage:
+                    raise ValueError("Citation root cannot be created after its assignment")
+        if len(pending_stages) > 1:
+            raise ValueError("Only one stage can have uncommitted citation nodes")
+        # A later stage must not make an invalid earlier checkpoint look valid.
+        for cutoff in range(len(self.stage_runs)):
+            group_sizes: dict[str, int] = {}
+            for citation in self.citations:
+                if stage_positions.get(citation.nodes[0].stage, len(self.stage_runs)) > cutoff:
+                    continue
+                node_positions = {
+                    node.id: stage_positions.get(node.stage, len(self.stage_runs)) for node in citation.nodes
+                }
+                group_id = next(
+                    (
+                        update.value
+                        for update in reversed(citation.colocation_id)
+                        if node_positions[update.node_id] <= cutoff
+                    ),
+                    None,
+                )
+                if group_id is not None:
+                    group_sizes[group_id] = group_sizes.get(group_id, 0) + 1
+            if any(size < 2 for size in group_sizes.values()):
+                raise ValueError("A colocation group needs at least two citations")
         return self
