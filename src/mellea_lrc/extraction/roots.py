@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import re
 
-from mellea_lrc.model.extraction import Citation, CitationField, CitationKind, Document
+from mellea_lrc.model.citations import FullDocketCitation, FullReporterCitation
+from mellea_lrc.model.document import Document
+from mellea_lrc.model.operations import CitationField
 
 
-def _reporter_key(citation: Citation) -> tuple[str, ...] | None:
+def _reporter_key(citation: FullReporterCitation) -> tuple[str, ...] | None:
     if not (citation.volume and citation.reporter and citation.page):
         return None
     return (
@@ -18,7 +20,7 @@ def _reporter_key(citation: Citation) -> tuple[str, ...] | None:
     )
 
 
-def _docket_key(citation: Citation) -> tuple[str, ...] | None:
+def _docket_key(citation: FullDocketCitation) -> tuple[str, ...] | None:
     # A courtless docket is not globally unique. Preserve its occurrence as a
     # separate root until identity validation or search supplies that context.
     if not citation.court or not citation.docket_number:
@@ -39,7 +41,7 @@ def form_roots(document: Document) -> Document:
         raise ValueError("Resolve colocations before forming roots")
     known: dict[tuple[str, ...], str] = {}
     for citation in document.full_locators:
-        key = _reporter_key(citation) if citation.kind is CitationKind.REPORTER else _docket_key(citation)
+        key = _reporter_key(citation) if isinstance(citation, FullReporterCitation) else _docket_key(citation)
         root_id = known.setdefault(key, citation.id) if key is not None else citation.id
         document = document.update_fields(stage, citation.id, {CitationField.ROOT_ID: root_id})
     return document.complete(stage)

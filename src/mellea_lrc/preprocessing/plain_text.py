@@ -5,14 +5,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-from mellea_lrc.model.documents import SourceFormat, SourceMetadata
-from mellea_lrc.model.preprocessed import (
+from mellea_lrc.model.preprocessed_document import (
     DEFAULT_RULES,
     PreprocessedDocument,
     PreprocessingBackend,
     PreprocessingMetadata,
     Rule,
 )
+from mellea_lrc.model.source import SourceFormat, SourceMetadata
 
 
 def preprocess_plain_text(

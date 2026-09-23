@@ -7,15 +7,15 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from mellea_lrc.model.documents import SourceFormat, SourceMetadata
-from mellea_lrc.model.preprocessed import (
+from mellea_lrc.model.preprocessed_document import (
     DEFAULT_RULES,
     PreprocessedDocument,
     PreprocessingBackend,
     PreprocessingMetadata,
     Rule,
 )
-from mellea_lrc.model.spans import Span
+from mellea_lrc.model.source import SourceFormat, SourceMetadata
+from mellea_lrc.model.span import Span
 from mellea_lrc.preprocessing.docket_stamp import reclassify_docket_stamps
 from mellea_lrc.preprocessing.document_index import index_table_spans
 from mellea_lrc.preprocessing.margin_line_numbers import reclassify_margin_line_numbers

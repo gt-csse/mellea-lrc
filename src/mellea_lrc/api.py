@@ -19,7 +19,7 @@ from mellea_lrc.extraction import (
     stable,
     start_extraction,
 )
-from mellea_lrc.model.extraction import Document
+from mellea_lrc.model.document import Document
 from mellea_lrc.preprocessing import preprocess
 
 __all__ = [

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from mellea_lrc.model.spans import Span
+from mellea_lrc.model.span import Span
 
 if TYPE_CHECKING:
     from docling_core.types.doc.document import DoclingDocument
