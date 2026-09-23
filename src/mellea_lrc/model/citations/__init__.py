@@ -5,12 +5,25 @@ from typing import Annotated, TypeAlias
 from pydantic import Field
 
 from mellea_lrc.model.citations.date import CitationDate
+from mellea_lrc.model.citations.fields import (
+    CaseNameField,
+    CitationField,
+    CourtField,
+    DateField,
+    DocketEntryField,
+    DocketNumberField,
+    LocatorField,
+    PageField,
+    PinCiteField,
+    ReporterField,
+    VolumeField,
+)
 from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.full_docket import FullDocketCitation
 from mellea_lrc.model.citations.full_reporter import FullReporterCitation
 from mellea_lrc.model.citations.history import (
-    FieldUpdate,
     Node,
+    RelationshipUpdate,
     latest,
 )
 from mellea_lrc.model.citations.kind import FullCitationKind
@@ -22,13 +35,24 @@ FullCitationVariant: TypeAlias = Annotated[
 
 
 __all__ = [
+    "CaseNameField",
     "CitationDate",
-    "FieldUpdate",
+    "CitationField",
+    "CourtField",
+    "DateField",
+    "DocketEntryField",
+    "DocketNumberField",
     "FullCitation",
     "FullCitationKind",
     "FullCitationVariant",
     "FullDocketCitation",
     "FullReporterCitation",
+    "LocatorField",
     "Node",
+    "PageField",
+    "PinCiteField",
+    "RelationshipUpdate",
+    "ReporterField",
+    "VolumeField",
     "latest",
 ]

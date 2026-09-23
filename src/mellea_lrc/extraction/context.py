@@ -127,7 +127,9 @@ def resolve_case_names(document: Document, rules: ExtractionRules | None = None)
         if not name:
             continue
         span = Span(start + match.start() + offset, start + match.start() + offset + len(name))
-        document = document.replace_citation(citation.record(stage).with_case_name(document.text, name, span))
+        document = document.replace_citation(
+            citation.record(stage).with_case_name(document.text, span, normalized=name)
+        )
     return document.complete(stage)
 
 
@@ -194,7 +196,7 @@ def resolve_courts(document: Document, rules: ExtractionRules | None = None) -> 
             court = _court_from_reporter(citation)
         if court is not None:
             document = document.replace_citation(
-                citation.record(stage).with_court(document.text, court, span)
+                citation.record(stage).with_court(document.text, span, normalized=court)
             )
     return document.complete(stage)
 
@@ -224,7 +226,9 @@ def resolve_dates(document: Document, rules: ExtractionRules | None = None) -> D
             start + parenthetical.start("body") + match.start(),
             start + parenthetical.start("body") + match.end(),
         )
-        document = document.replace_citation(citation.record(stage).with_date(document.text, date, span))
+        document = document.replace_citation(
+            citation.record(stage).with_date(document.text, span, normalized=date)
+        )
     return document.complete(stage)
 
 
@@ -247,6 +251,6 @@ def resolve_pin_cites(document: Document, rules: ExtractionRules | None = None) 
             continue
         span = Span(site.end + match.start("pin"), site.end + match.end("pin"))
         document = document.replace_citation(
-            citation.record(stage).with_pin_cite(document.text, match.group("pin"), span)
+            citation.record(stage).with_pin_cite(document.text, span, normalized=match.group("pin"))
         )
     return document.complete(stage)

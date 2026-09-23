@@ -6,8 +6,9 @@ from typing import Literal, Self
 
 from pydantic import model_validator
 
+from mellea_lrc.model.citations.fields import DocketEntryField, DocketNumberField, LocatorField
 from mellea_lrc.model.citations.full import FullCitation, _require_exact, _source_slice
-from mellea_lrc.model.citations.history import FieldUpdate, Node
+from mellea_lrc.model.citations.history import Node
 from mellea_lrc.model.citations.kind import FullCitationKind
 from mellea_lrc.model.span import Span
 
@@ -16,9 +17,9 @@ class FullDocketCitation(FullCitation):
     """A docket occurrence with an optional adjacent entry reference."""
 
     kind: Literal[FullCitationKind.DOCKET] = FullCitationKind.DOCKET
-    locator_text: tuple[FieldUpdate[str], ...]
-    docket_number: tuple[FieldUpdate[str | None], ...] = ()
-    docket_entry: tuple[FieldUpdate[str | None], ...] = ()
+    locator_text: tuple[LocatorField, ...]
+    docket_number: tuple[DocketNumberField, ...] = ()
+    docket_entry: tuple[DocketEntryField, ...] = ()
 
     @property
     def locator_span(self) -> Span:
@@ -44,36 +45,35 @@ class FullDocketCitation(FullCitation):
         if not (span.start <= docket_number_span.start < docket_number_span.end <= span.end):
             raise ValueError("Docket number span must be inside the locator")
         _require_exact(source, docket_number_span, docket_number)
-        if docket_entry is not None and (
-            docket_entry_span is None or docket_entry not in _source_slice(source, docket_entry_span)
-        ):
+        entry_quote = _source_slice(source, docket_entry_span) if docket_entry_span is not None else None
+        if docket_entry is not None and (entry_quote is None or docket_entry not in entry_quote):
             raise ValueError("Docket entry does not match its source span")
         node = Node(id=f"{citation_id}:node:0", stage=stage)
         return cls(
             id=citation_id,
             nodes=(node,),
-            locator_text=(FieldUpdate(value=written, span=span, node_id=node.id),),
-            docket_number=(FieldUpdate(value=docket_number, span=docket_number_span, node_id=node.id),),
+            locator_text=(LocatorField.from_source(source, span, normalized=written, node_id=node.id),),
+            docket_number=(
+                DocketNumberField.from_source(
+                    source,
+                    docket_number_span,
+                    normalized=docket_number,
+                    node_id=node.id,
+                ),
+            ),
             docket_entry=(
-                (FieldUpdate(value=docket_entry, span=docket_entry_span, node_id=node.id),)
+                (
+                    DocketEntryField.from_source(
+                        source,
+                        docket_entry_span,
+                        normalized=docket_entry,
+                        node_id=node.id,
+                    ),
+                )
                 if docket_entry is not None
                 else ()
             ),
         )
-
-    def validate_source(self, source: str) -> None:
-        super().validate_source(source)
-        for update in self.locator_text:
-            assert update.span is not None
-            _require_exact(source, update.span, update.value)
-        for update in self.docket_number:
-            if update.value is not None and update.span is not None:
-                _require_exact(source, update.span, update.value)
-        for update in self.docket_entry:
-            if update.value is not None and (
-                update.span is None or update.value not in _source_slice(source, update.span)
-            ):
-                raise ValueError("Docket entry does not match its source span")
 
     @model_validator(mode="after")
     def _validate_locator(self) -> Self:

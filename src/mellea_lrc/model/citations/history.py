@@ -6,26 +6,28 @@ from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
-from mellea_lrc.model.span import Span
+from mellea_lrc.model.citations.fields import CitationField
 
 WITHDRAWN_ROOT_ID = "__withdrawn__"
 
 T = TypeVar("T")
 
 
-class FieldUpdate(BaseModel, Generic[T]):
-    """One value, its optional source span, and its decision node."""
+class RelationshipUpdate(BaseModel, Generic[T]):
+    """A non-text relationship assignment at a decision node."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     value: T
     node_id: str
-    span: Span | None = None
 
 
-def latest(log: tuple[FieldUpdate[T], ...]) -> T | None:
-    """Read the last value; an empty log has not been read yet."""
-    return log[-1].value if log else None
+def latest(log: tuple[CitationField[T] | RelationshipUpdate[T], ...]) -> T | None:
+    """Read the newest normalized field or relationship value."""
+    if not log:
+        return None
+    entry = log[-1]
+    return entry.normalized if isinstance(entry, CitationField) else entry.value
 
 
 class Node(BaseModel):
