@@ -14,12 +14,24 @@ from mellea_lrc.extraction import (
     resolve_pin_cites,
 )
 from mellea_lrc.model import (
+    CaseNameField,
     CitationDate,
+    CitationField,
+    CourtField,
+    DateField,
+    DocketEntryField,
+    DocketNumberField,
     Document,
     FullCitation,
     FullDocketCitation,
     FullReporterCitation,
+    LocatorField,
+    PageField,
+    PinCiteField,
+    RelationshipUpdate,
+    ReporterField,
     Span,
+    VolumeField,
     latest,
 )
 from mellea_lrc.preprocessing import preprocess
@@ -42,6 +54,12 @@ def _assert_roundtrip(document: Document) -> None:
     assert Document.model_validate_json(document.model_dump_json()) == document
 
 
+def _assert_exact_quote(document: Document, entry: CitationField) -> None:
+    assert entry.quote is not None
+    assert entry.span is not None
+    assert document.text[entry.span.start : entry.span.end] == entry.quote
+
+
 def test_locator_stages_preserve_exact_occurrences_and_create_one_node() -> None:
     text = "Smith v. Jones, No. 1:24-cv-00123, 2024 WL 1234567 (D. Ariz. Jan. 1, 2024)."
     empty = Document.from_preprocessed(preprocess(text))
@@ -55,6 +73,10 @@ def test_locator_stages_preserve_exact_occurrences_and_create_one_node() -> None
     assert reporter_only.colocations == ()
     assert len(reporter.nodes) == 1
     assert reporter.nodes[0].stage == "full_reporter_locators"
+    assert isinstance(reporter.locator_text[-1], LocatorField)
+    assert isinstance(reporter.locator_text[-1], CitationField)
+    _assert_exact_quote(reporter_only, reporter.locator_text[-1])
+    assert reporter.locator_text[-1].normalized == "2024 WL 1234567"
     assert all(
         update.node_id == reporter.nodes[0].id for log in _field_logs(reporter).values() for update in log
     )
@@ -70,6 +92,11 @@ def test_locator_stages_preserve_exact_occurrences_and_create_one_node() -> None
     ]
     assert _read_span(both, 0) == "No. 1:24-cv-00123"
     assert latest(docket.docket_number) == "1:24-cv-00123"
+    assert isinstance(docket.locator_text[-1], LocatorField)
+    assert isinstance(docket.docket_number[-1], DocketNumberField)
+    _assert_exact_quote(both, docket.locator_text[-1])
+    _assert_exact_quote(both, docket.docket_number[-1])
+    assert docket.docket_number[-1].normalized == "1:24-cv-00123"
     assert not hasattr(reporter, "docket_number")
     assert both.colocations == ()
     assert reporter == reporter_only.citations[0]
@@ -91,6 +118,8 @@ def test_colocation_is_derived_from_citation_assignments() -> None:
     group = grouped.colocations[0]
     assert set(group.citation_ids) == {citation.id for citation in grouped.citations}
     assert all(latest(citation.colocation_id) == group.id for citation in grouped.citations)
+    assert all(isinstance(citation.colocation_id[-1], RelationshipUpdate) for citation in grouped.citations)
+    assert all(not hasattr(citation.colocation_id[-1], "quote") for citation in grouped.citations)
     assert all(citation.case_name == citation.court == citation.date == () for citation in grouped.citations)
     assert document.colocations == ()
     assert "colocations" not in Document.model_fields
@@ -100,6 +129,29 @@ def test_colocation_is_derived_from_citation_assignments() -> None:
     grouped_early = resolve_colocations(reporter_only)
     with pytest.raises(ValueError, match="before resolving colocations"):
         find_docket_locators(grouped_early)
+
+
+def test_reporter_components_keep_their_own_quoted_spans() -> None:
+    document = find_full_reporter_locators(Document.from_source("See 347 U.S. 483."))
+    citation = document.citations[0]
+    assert isinstance(citation, FullReporterCitation)
+
+    for field, entry_type, expected in (
+        ("volume", VolumeField, "347"),
+        ("reporter", ReporterField, "U.S."),
+        ("page", PageField, "483"),
+    ):
+        entry = getattr(citation, field)[-1]
+        assert isinstance(entry, entry_type)
+        _assert_exact_quote(document, entry)
+        assert entry.quote == expected
+        assert entry.normalized == expected
+
+        tampered = document.model_dump(mode="json")
+        tampered["citations"][0][field][-1]["quote"] = "not in the document"
+        with pytest.raises(ValueError, match="source span"):
+            Document.model_validate(tampered)
+    _assert_roundtrip(document)
 
 
 def test_field_readers_keep_adjacent_cases_and_source_spans_separate() -> None:
@@ -134,12 +186,29 @@ def test_field_readers_keep_adjacent_cases_and_source_spans_separate() -> None:
     court = docket.court[-1]
     date = docket.date[-1]
     pin = reporter.pin_cite[-1]
-    assert all(update.span is not None for update in (name, court, date, pin))
-    assert text[name.span.start : name.span.end] == name.value
-    assert text[court.span.start : court.span.end] == "D. Ariz."
-    assert text[date.span.start : date.span.end] == "Jan. 1, 2024"
-    assert text[pin.span.start : pin.span.end] == pin.value
+    assert isinstance(name, CaseNameField)
+    assert isinstance(court, CourtField)
+    assert isinstance(date, DateField)
+    assert isinstance(pin, PinCiteField)
+    for entry in (name, court, date, pin):
+        _assert_exact_quote(document, entry)
+    assert name.quote == name.normalized == "Brown v. Board of Education"
+    assert court.quote == "D. Ariz."
+    assert court.normalized == "azd"
+    assert date.quote == "Jan. 1, 2024"
+    assert date.normalized == CitationDate(year=2024, month=1, day=1)
+    assert pin.quote == pin.normalized == "495"
+    inferred_court = reporter.court[-1]
+    assert inferred_court.quote is None
+    assert inferred_court.span is None
+    assert inferred_court.normalized == "scotus"
     _assert_roundtrip(document)
+
+    for field, wrong_quote in (("court", "not in the document"), ("date", "wrong 2024 text")):
+        tampered = document.model_dump(mode="json")
+        tampered["citations"][1][field][-1]["quote"] = wrong_quote
+        with pytest.raises(ValueError, match="source span"):
+            Document.model_validate(tampered)
 
 
 def test_repeated_reporter_occurrences_share_a_root_without_losing_spans() -> None:
@@ -182,8 +251,11 @@ def test_adjacent_docket_entry_has_its_own_evidence_span() -> None:
     assert latest(citation.docket_number) == "1:24-cv-00123"
     assert latest(citation.docket_entry) == "10-1"
     entry = citation.docket_entry[-1]
+    assert isinstance(entry, DocketEntryField)
     assert entry.span is not None
-    assert document.text[entry.span.start : entry.span.end] == "Doc. 10-1"
+    _assert_exact_quote(document, entry)
+    assert entry.quote == "Doc. 10-1"
+    assert entry.normalized == "10-1"
 
 
 def test_synchronous_pipeline_and_json_roundtrip() -> None:
@@ -225,14 +297,16 @@ def test_explicit_methods_append_a_traceable_history() -> None:
     date_text = "2024"
     court_text = "D. Ariz."
 
-    named = citation.record("case_names").with_case_name(source, name, Span(0, len(name)))
+    named = citation.record("case_names").with_case_name(source, Span(0, len(name)), normalized=name)
     document = document.replace_citation(named).complete("case_names")
     courted = named.record("courts").with_court(
-        source, "d-ariz", Span(source.index(court_text), source.index(court_text) + len(court_text))
+        source,
+        Span(source.index(court_text), source.index(court_text) + len(court_text)),
+        normalized="d-ariz",
     )
     document = document.replace_citation(courted).complete("courts")
     dated = courted.record("dates").with_date(
-        source, CitationDate(year=2024), Span(source.index(date_text), source.index(date_text) + 4)
+        source, Span(source.index(date_text), source.index(date_text) + 4), normalized=CitationDate(year=2024)
     )
     document = document.replace_citation(dated).complete("dates")
     rooted = dated.record("roots").with_root(citation.id)
@@ -253,11 +327,33 @@ def test_explicit_methods_append_a_traceable_history() -> None:
     assert rooted.date[-1].node_id == rooted.nodes[3].id
     assert rooted.root_id[-1].node_id == rooted.nodes[4].id
     assert rooted.case_name[-1].span == Span(0, len(name))
+    assert rooted.case_name[-1].quote == name
+    assert rooted.case_name[-1].normalized == name
+    assert rooted.court[-1].quote == court_text
+    assert rooted.court[-1].normalized == "d-ariz"
+    assert rooted.date[-1].quote == date_text
+    assert rooted.date[-1].normalized == CitationDate(year=2024)
     assert latest(rooted.root_id) == citation.id
     _assert_roundtrip(document)
 
     with pytest.raises(ValueError, match="append-only"):
         document.replace_citation(rooted.model_copy(update={"case_name": ()}))
+
+
+def test_normalized_case_name_can_differ_from_its_exact_quote() -> None:
+    source = "Smith   v.   Jones, Case No. 1:24-cv-00123."
+    document = find_docket_locators(Document.from_source(source))
+    citation = document.citations[0]
+    name_span = Span(0, source.index(","))
+    named = citation.record("case_names").with_case_name(source, name_span, normalized="Smith v. Jones")
+    document = document.replace_citation(named).complete("case_names")
+
+    entry = document.citations[0].case_name[-1]
+    _assert_exact_quote(document, entry)
+    assert entry.quote == "Smith   v.   Jones"
+    assert entry.normalized == latest(named.case_name) == "Smith v. Jones"
+    assert entry.quote != entry.normalized
+    _assert_roundtrip(document)
 
 
 def test_one_recorded_decision_can_update_two_fields() -> None:
@@ -267,9 +363,9 @@ def test_one_recorded_decision_can_update_two_fields() -> None:
     name = "Smith v. Jones"
     court = "D. Ariz."
     revised = citation.record("review")
-    revised = revised.with_case_name(source, name, Span(0, len(name)))
+    revised = revised.with_case_name(source, Span(0, len(name)), normalized=name)
     revised = revised.with_court(
-        source, "d-ariz", Span(source.index(court), source.index(court) + len(court))
+        source, Span(source.index(court), source.index(court) + len(court)), normalized="d-ariz"
     )
     document = document.replace_citation(revised)
 
@@ -280,7 +376,7 @@ def test_one_recorded_decision_can_update_two_fields() -> None:
     _assert_roundtrip(document)
 
     year_span = Span(source.index("2024"), source.index("2024") + 4)
-    unrecorded = revised.with_date(source, CitationDate(year=2024), year_span)
+    unrecorded = revised.with_date(source, year_span, normalized=CitationDate(year=2024))
     with pytest.raises(ValueError, match="new decision node"):
         document.replace_citation(unrecorded)
 
@@ -291,14 +387,11 @@ def test_source_mismatches_are_rejected_at_write_time_and_after_json_loading() -
     citation = document.citations[0]
     name_span = Span(0, len("Smith v. Jones"))
     pin_span = Span(source.index("42"), source.index("42") + 2)
-    date_span = Span(source.index("2024"), source.index("2024") + 4)
 
-    with pytest.raises(ValueError, match="source span"):
-        citation.record("review").with_case_name(source, "Other v. Case", name_span)
-    with pytest.raises(ValueError, match="source span"):
-        citation.record("review").with_pin_cite(source, "43", pin_span)
-    with pytest.raises(ValueError, match="Date year"):
-        citation.record("review").with_date(source, CitationDate(year=2023), date_span)
+    with pytest.raises(ValueError, match="span is outside"):
+        citation.record("review").with_case_name(source, Span(0, len(source) + 1), normalized="Other v. Case")
+    with pytest.raises(ValueError, match="span is outside"):
+        citation.record("review").with_pin_cite(source, Span(0, 0), normalized="43")
     with pytest.raises(ValueError, match="source span"):
         FullDocketCitation.from_locator(
             citation_id="bad",
@@ -309,26 +402,41 @@ def test_source_mismatches_are_rejected_at_write_time_and_after_json_loading() -
             docket_number_span=citation.docket_number[-1].span,
         )
 
-    updated = citation.record("case_names").with_case_name(source, "Smith v. Jones", name_span)
+    updated = citation.record("case_names").with_case_name(source, name_span, normalized="Smith v. Jones")
     document = document.replace_citation(updated).complete("case_names")
-    updated = updated.record("pin_cites").with_pin_cite(source, "42", pin_span)
+    updated = updated.record("pin_cites").with_pin_cite(source, pin_span, normalized="42")
     document = document.replace_citation(updated).complete("pin_cites")
     _assert_roundtrip(document)
 
-    for field in ("locator_text", "case_name", "pin_cite"):
+    for field in ("locator_text", "docket_number", "case_name", "pin_cite"):
         tampered = document.model_dump(mode="json")
-        tampered["citations"][0][field][-1]["value"] = "text absent from source"
+        tampered["citations"][0][field][-1]["quote"] = "text absent from source"
         with pytest.raises(ValueError, match="source span"):
             Document.model_validate(tampered)
+
+    tampered_span = document.model_dump(mode="json")
+    tampered_span["citations"][0]["case_name"][-1]["span"] = {"start": 1, "end": len("Smith v. Jones") + 1}
+    with pytest.raises(ValueError, match="source span"):
+        Document.model_validate(tampered_span)
+
+    missing_quote = document.model_dump(mode="json")
+    missing_quote["citations"][0]["case_name"][-1]["quote"] = None
+    with pytest.raises(ValueError):
+        Document.model_validate(missing_quote)
+
+    missing_span = document.model_dump(mode="json")
+    missing_span["citations"][0]["case_name"][-1]["span"] = None
+    with pytest.raises(ValueError):
+        Document.model_validate(missing_span)
 
 
 def test_field_history_rejects_missing_node_and_reversed_order() -> None:
     source = "Case No. 1:24-cv-00123 (D. Ariz. 2024)."
     document = find_docket_locators(Document.from_source(source))
     citation = document.citations[0]
-    citation = citation.record("first").with_court(source, "d-ariz")
+    citation = citation.record("first").with_court(source, None, normalized="d-ariz")
     document = document.replace_citation(citation).complete("first")
-    citation = citation.record("second").with_court(source, "d-ariz")
+    citation = citation.record("second").with_court(source, None, normalized="d-ariz")
     document = document.replace_citation(citation).complete("second")
 
     missing = document.model_dump(mode="json")
@@ -471,9 +579,7 @@ def test_native_reload_rejects_histories_that_cannot_restore_prior_stages() -> N
     first, second, docket = document.citations
 
     future_root = document.model_dump(mode="python")
-    future_root["citations"][0]["root_id"] = [
-        {"value": docket.id, "node_id": first.nodes[0].id, "span": None}
-    ]
+    future_root["citations"][0]["root_id"] = [{"value": docket.id, "node_id": first.nodes[0].id}]
     with pytest.raises(ValueError, match="created after"):
         Document.model_validate(future_root)
 
@@ -490,6 +596,6 @@ def test_native_reload_rejects_histories_that_cannot_restore_prior_stages() -> N
     ):
         node_id = f"{citation.id}:node:1"
         raw["nodes"] = (*raw["nodes"], {"id": node_id, "stage": stage})
-        raw["colocation_id"] = [{"value": "g", "node_id": node_id, "span": None}]
+        raw["colocation_id"] = [{"value": "g", "node_id": node_id}]
     with pytest.raises(ValueError, match="colocation group"):
         Document.model_validate(late_group_member)

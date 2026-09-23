@@ -6,8 +6,9 @@ from typing import Literal, Self
 
 from pydantic import model_validator
 
-from mellea_lrc.model.citations.full import FullCitation, _require_exact, _source_slice
-from mellea_lrc.model.citations.history import FieldUpdate, Node
+from mellea_lrc.model.citations.fields import LocatorField, PageField, ReporterField, VolumeField
+from mellea_lrc.model.citations.full import FullCitation, _source_slice
+from mellea_lrc.model.citations.history import Node
 from mellea_lrc.model.citations.kind import FullCitationKind
 from mellea_lrc.model.span import Span
 
@@ -16,10 +17,10 @@ class FullReporterCitation(FullCitation):
     """A reporter occurrence; its locator text owns the source span."""
 
     kind: Literal[FullCitationKind.REPORTER] = FullCitationKind.REPORTER
-    locator_text: tuple[FieldUpdate[str], ...]
-    volume: tuple[FieldUpdate[str | None], ...] = ()
-    reporter: tuple[FieldUpdate[str | None], ...] = ()
-    page: tuple[FieldUpdate[str | None], ...] = ()
+    locator_text: tuple[LocatorField, ...]
+    volume: tuple[VolumeField, ...] = ()
+    reporter: tuple[ReporterField, ...] = ()
+    page: tuple[PageField, ...] = ()
 
     @property
     def locator_span(self) -> Span:
@@ -42,20 +43,37 @@ class FullReporterCitation(FullCitation):
         """Create the citation and initial readings in one decision node."""
         written = _source_slice(source, span)
         node = Node(id=f"{citation_id}:node:0", stage=stage)
+        components: dict[str, tuple[VolumeField | ReporterField | PageField, ...]] = {}
+        offset = 0
+        for name, value, field_type in (
+            ("volume", volume, VolumeField),
+            ("reporter", reporter, ReporterField),
+            ("page", page, PageField),
+        ):
+            if value is None:
+                components[name] = ()
+                continue
+            start = written.find(value, offset)
+            if start < 0:
+                raise ValueError(f"Eyecite {name} is not in its locator quote")
+            end = start + len(value)
+            components[name] = (
+                field_type.from_source(
+                    source,
+                    Span(span.start + start, span.start + end),
+                    normalized=value,
+                    node_id=node.id,
+                ),
+            )
+            offset = end
         return cls(
             id=citation_id,
             nodes=(node,),
-            locator_text=(FieldUpdate(value=written, span=span, node_id=node.id),),
-            volume=(FieldUpdate(value=volume, node_id=node.id),),
-            reporter=(FieldUpdate(value=reporter, node_id=node.id),),
-            page=(FieldUpdate(value=page, node_id=node.id),),
+            locator_text=(LocatorField.from_source(source, span, normalized=written, node_id=node.id),),
+            volume=components["volume"],
+            reporter=components["reporter"],
+            page=components["page"],
         )
-
-    def validate_source(self, source: str) -> None:
-        super().validate_source(source)
-        for update in self.locator_text:
-            assert update.span is not None
-            _require_exact(source, update.span, update.value)
 
     @model_validator(mode="after")
     def _validate_locator(self) -> Self:

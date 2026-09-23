@@ -7,7 +7,14 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from mellea_lrc.model.citations.date import CitationDate
-from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, FieldUpdate, Node
+from mellea_lrc.model.citations.fields import (
+    CaseNameField,
+    CitationField,
+    CourtField,
+    DateField,
+    PinCiteField,
+)
+from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, Node, RelationshipUpdate
 from mellea_lrc.model.citations.kind import FullCitationKind
 from mellea_lrc.model.span import Span
 
@@ -31,12 +38,12 @@ class FullCitation(BaseModel):
     id: str
     kind: FullCitationKind
     nodes: tuple[Node, ...]
-    case_name: tuple[FieldUpdate[str | None], ...] = ()
-    court: tuple[FieldUpdate[str | None], ...] = ()
-    date: tuple[FieldUpdate[CitationDate | None], ...] = ()
-    pin_cite: tuple[FieldUpdate[str | None], ...] = ()
-    colocation_id: tuple[FieldUpdate[str | None], ...] = ()
-    root_id: tuple[FieldUpdate[str | None], ...] = ()
+    case_name: tuple[CaseNameField, ...] = ()
+    court: tuple[CourtField, ...] = ()
+    date: tuple[DateField, ...] = ()
+    pin_cite: tuple[PinCiteField, ...] = ()
+    colocation_id: tuple[RelationshipUpdate[str | None], ...] = ()
+    root_id: tuple[RelationshipUpdate[str | None], ...] = ()
 
     def record(self, stage: str) -> Self:
         """Record one decision; named field methods may share its node."""
@@ -48,7 +55,7 @@ class FullCitation(BaseModel):
             raise ValueError("Record a decision node before changing citation fields")
         return self.nodes[-1].id
 
-    def _with_log(self, **logs: tuple[FieldUpdate, ...]) -> Self:
+    def _with_log(self, **logs: tuple[CitationField | RelationshipUpdate, ...]) -> Self:
         """Validate the immutable citation after a named field method changes it."""
         return type(self).model_validate({**self.model_dump(mode="python"), **logs})
 
@@ -64,34 +71,46 @@ class FullCitation(BaseModel):
                 data[name] = tuple(update for update in getattr(self, name) if update.node_id in node_ids)
         return type(self).model_validate(data)
 
-    def with_case_name(self, source: str, name: str, span: Span) -> Self:
-        """Append a case name only when the document says exactly that text."""
-        _require_exact(source, span, name)
+    def with_case_name(self, source: str, span: Span, *, normalized: str) -> Self:
+        """Quote a case name and record its current interpretation."""
         return self._with_log(
-            case_name=(*self.case_name, FieldUpdate(value=name, span=span, node_id=self._decision_node_id())),
+            case_name=(
+                *self.case_name,
+                CaseNameField.from_source(
+                    source, span, normalized=normalized, node_id=self._decision_node_id()
+                ),
+            ),
         )
 
-    def with_court(self, source: str, court: str, span: Span | None = None) -> Self:
-        """Append a normalized court ID with its written span, if explicit."""
-        if span is not None:
-            _source_slice(source, span)
+    def with_court(self, source: str, span: Span | None, *, normalized: str) -> Self:
+        """Quote an explicit court or record a reporter-inferred court."""
+        reading = (
+            CourtField.from_source(source, span, normalized=normalized, node_id=self._decision_node_id())
+            if span is not None
+            else CourtField.inferred(normalized, node_id=self._decision_node_id())
+        )
         return self._with_log(
-            court=(*self.court, FieldUpdate(value=court, span=span, node_id=self._decision_node_id())),
+            court=(*self.court, reading),
         )
 
-    def with_date(self, source: str, date: CitationDate, span: Span) -> Self:
-        """Append a parsed date tied to written source evidence."""
-        if str(date.year) not in _source_slice(source, span):
-            raise ValueError("Date year does not match its source span")
+    def with_date(self, source: str, span: Span, *, normalized: CitationDate) -> Self:
+        """Quote a written date and record its parsed calendar components."""
         return self._with_log(
-            date=(*self.date, FieldUpdate(value=date, span=span, node_id=self._decision_node_id())),
+            date=(
+                *self.date,
+                DateField.from_source(source, span, normalized=normalized, node_id=self._decision_node_id()),
+            ),
         )
 
-    def with_pin_cite(self, source: str, pin: str, span: Span) -> Self:
-        """Append an exact pin-cite reading from the document."""
-        _require_exact(source, span, pin)
+    def with_pin_cite(self, source: str, span: Span, *, normalized: str) -> Self:
+        """Quote a pinpoint reference and record its parsed value."""
         return self._with_log(
-            pin_cite=(*self.pin_cite, FieldUpdate(value=pin, span=span, node_id=self._decision_node_id())),
+            pin_cite=(
+                *self.pin_cite,
+                PinCiteField.from_source(
+                    source, span, normalized=normalized, node_id=self._decision_node_id()
+                ),
+            ),
         )
 
     def with_colocation(self, group_id: str) -> Self:
@@ -99,14 +118,14 @@ class FullCitation(BaseModel):
         return self._with_log(
             colocation_id=(
                 *self.colocation_id,
-                FieldUpdate(value=group_id, node_id=self._decision_node_id()),
+                RelationshipUpdate(value=group_id, node_id=self._decision_node_id()),
             ),
         )
 
     def with_root(self, root_id: str) -> Self:
         """Append a root attachment without erasing earlier assignments."""
         return self._with_log(
-            root_id=(*self.root_id, FieldUpdate(value=root_id, node_id=self._decision_node_id())),
+            root_id=(*self.root_id, RelationshipUpdate(value=root_id, node_id=self._decision_node_id())),
         )
 
     def withdraw(self) -> Self:
@@ -114,20 +133,13 @@ class FullCitation(BaseModel):
         return self.with_root(WITHDRAWN_ROOT_ID)
 
     def validate_source(self, source: str) -> None:
-        """Check literal readings after a JSON round trip as well as at write time."""
-        for log in (self.case_name, self.pin_cite):
-            for update in log:
-                if update.value is not None:
-                    if update.span is None:
-                        raise ValueError("Literal field has no source span")
-                    _require_exact(source, update.span, update.value)
-        for update in self.court:
-            if update.span is not None:
-                _source_slice(source, update.span)
-        for update in self.date:
-            if update.value is not None and update.span is not None:
-                if str(update.value.year) not in _source_slice(source, update.span):
-                    raise ValueError("Date year does not match its source span")
+        """Check all stored quotes against the source, including after JSON loading."""
+        for name in type(self).model_fields:
+            if name in {"id", "kind", "nodes"}:
+                continue
+            for entry in getattr(self, name):
+                if isinstance(entry, CitationField):
+                    entry.validate_source(source)
 
     @model_validator(mode="after")
     def _validate_history(self) -> Self:

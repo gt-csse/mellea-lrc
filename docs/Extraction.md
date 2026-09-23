@@ -12,7 +12,7 @@ after_dockets = document.get_stage("docket_locators")
 
 `grow_roots` is synchronous. It runs reporter locator discovery, docket locator discovery, colocation, case-name/court/date/pin-cite reading, and root formation in that order. Each stage can also be called separately through the same API. Colocation sets parsing boundaries; it does not establish case identity.
 
-`Document` contains the preprocessed text and provenance, citation histories, and an ordered `stage_runs` tuple. A citation's fields are append-only logs whose entries point to citation-local nodes. `get_stage(stage)` reconstructs exactly the document returned by that completed stage, including citations untouched in that stage; it raises `KeyError` if the stage has not run.
+`Document` contains the preprocessed text and provenance, citation histories, and an ordered `stage_runs` tuple. Each parsed field is an append-only log of typed entries carrying an exact `quote`, its source `span`, a `normalized` value, and a citation-local `node_id`. Current extraction stages normalize programmatically; the field type does not require that producer, so a later review can append a different interpretation under a new node. An inferred court has no quote or span; root and colocation assignments use separate relationship entries. `get_stage(stage)` reconstructs exactly the document returned by that completed stage, including citations untouched in that stage; it raises `KeyError` if the stage has not run.
 
 ```python
 saved = document.model_dump_json()
