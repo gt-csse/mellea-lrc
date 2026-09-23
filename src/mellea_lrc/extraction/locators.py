@@ -9,8 +9,8 @@ from eyecite.models import FullCaseCitation
 
 from mellea_lrc.extraction.rules import ExtractionRules
 from mellea_lrc.model.citations import FullCitationKind
+from mellea_lrc.model.citations.history import CitationField, latest
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.operations import CitationField
 from mellea_lrc.model.span import Span
 from mellea_lrc.preprocessing.document_index import is_within
 from mellea_lrc.text_match import fuzzy_literal
@@ -26,12 +26,11 @@ _ENTRY_JOIN = re.compile(r"^[\s,;:\[\]()]{0,12}$")
 
 
 def _overlaps(span: Span, document: Document) -> bool:
-    return any(
-        item.locator_span is not None
-        and item.locator_span.start < span.end
-        and span.start < item.locator_span.end
-        for item in document.citations
-    )
+    for item in document.citations:
+        site = latest(item.locator_span)
+        if site is not None and site.start < span.end and span.start < site.end:
+            return True
+    return False
 
 
 def find_full_reporter_locators(document: Document, rules: ExtractionRules | None = None) -> Document:

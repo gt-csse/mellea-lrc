@@ -10,9 +10,9 @@ from eyecite.helpers import courts
 from eyecite.models import FullCaseCitation
 
 from mellea_lrc.extraction.rules import ExtractionRules, stable
-from mellea_lrc.model.citations import CitationDate, FullCitation, FullReporterCitation
+from mellea_lrc.model.citations import CitationDate, FullCitationVariant, FullReporterCitation
+from mellea_lrc.model.citations.history import CitationField, latest
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.operations import CitationField
 from mellea_lrc.model.span import Span
 
 _CASE = re.compile(r"(?:In re|Ex parte)\s+[^,;\n]{2,100}|[A-Z][^,;\n]{0,100}?\s+v\.\s+[^,;\n]{1,100}")
@@ -49,24 +49,29 @@ def _require_structure(document: Document) -> None:
         raise ValueError("Read contextual fields before forming roots")
 
 
-def _members(document: Document, citation: FullCitation) -> tuple[FullCitation, ...]:
-    if citation.colocation_id is None:
+def _members(document: Document, citation: FullCitationVariant) -> tuple[FullCitationVariant, ...]:
+    colocation_id = latest(citation.colocation_id)
+    if colocation_id is None:
         return (citation,)
-    ids = next(group.citation_ids for group in document.colocations if group.id == citation.colocation_id)
+    ids = next(group.citation_ids for group in document.colocations if group.id == colocation_id)
     by_id = {item.id: item for item in document.citations}
     return tuple(by_id[identifier] for identifier in ids)
 
 
-def _before(document: Document, citation: FullCitation, limit: int) -> tuple[str, int]:
+def _site(citation: FullCitationVariant) -> Span:
+    span = latest(citation.locator_span)
+    assert span is not None
+    return span
+
+
+def _before(document: Document, citation: FullCitationVariant, limit: int) -> tuple[str, int]:
     members = _members(document, citation)
-    first = min(item.locator_span.start for item in members if item.locator_span is not None)
+    first = min(_site(item).start for item in members)
     previous = max(
         (
-            item.locator_span.end
+            _site(item).end
             for item in document.full_locators
-            if item.id not in {member.id for member in members}
-            and item.locator_span is not None
-            and item.locator_span.end <= first
+            if item.id not in {member.id for member in members} and _site(item).end <= first
         ),
         default=0,
     )
@@ -74,16 +79,14 @@ def _before(document: Document, citation: FullCitation, limit: int) -> tuple[str
     return document.text[start:first], start
 
 
-def _after(document: Document, citation: FullCitation, limit: int) -> tuple[str, int]:
+def _after(document: Document, citation: FullCitationVariant, limit: int) -> tuple[str, int]:
     members = _members(document, citation)
-    last = max(item.locator_span.end for item in members if item.locator_span is not None)
+    last = max(_site(item).end for item in members)
     following = min(
         (
-            item.locator_span.start
+            _site(item).start
             for item in document.full_locators
-            if item.id not in {member.id for member in members}
-            and item.locator_span is not None
-            and item.locator_span.start >= last
+            if item.id not in {member.id for member in members} and _site(item).start >= last
         ),
         default=len(document.text),
     )
@@ -92,7 +95,7 @@ def _after(document: Document, citation: FullCitation, limit: int) -> tuple[str,
 
 
 def _dated_parenthetical(
-    document: Document, citation: FullCitation, limit: int
+    document: Document, citation: FullCitationVariant, limit: int
 ) -> tuple[re.Match[str], int] | None:
     after, start = _after(document, citation, limit)
     for match in _PAREN.finditer(after):
@@ -156,15 +159,18 @@ def _court_from_parenthetical(body: str, date_start: int) -> tuple[str, int] | N
     return (next(iter(found)), len(written)) if found and len(found) == 1 else None
 
 
-def _court_from_reporter(citation: FullCitation) -> str | None:
-    if not isinstance(citation, FullReporterCitation) or not citation.locator_text:
+def _court_from_reporter(citation: FullCitationVariant) -> str | None:
+    if not isinstance(citation, FullReporterCitation):
+        return None
+    locator_text = latest(citation.locator_text)
+    if not locator_text:
         return None
     # Eyecite's isolated locator may infer a unique reporter court. Running it
     # on this exact span avoids its unbounded post-citation metadata leak.
-    isolated = get_citations(citation.locator_text)
+    isolated = get_citations(locator_text)
     if len(isolated) == 1 and isinstance(isolated[0], FullCaseCitation):
         return isolated[0].metadata.court
-    found = _court_index().get(_court_key(citation.reporter or ""))
+    found = _court_index().get(_court_key(latest(citation.reporter) or ""))
     return next(iter(found)) if found and len(found) == 1 else None
 
 
@@ -241,26 +247,16 @@ def resolve_pin_cites(document: Document, rules: ExtractionRules | None = None) 
     _require_structure(document)
     config = rules or stable()
     for citation in document.full_locators:
-        assert citation.locator_span is not None
+        site = _site(citation)
         next_start = min(
-            (
-                item.locator_span.start
-                for item in document.full_locators
-                if item.locator_span is not None and item.locator_span.start >= citation.locator_span.end
-            ),
+            (_site(item).start for item in document.full_locators if _site(item).start >= site.end),
             default=len(document.text),
         )
-        region = document.text[
-            citation.locator_span.end : min(
-                next_start, citation.locator_span.end + config.post_locator_window
-            )
-        ]
+        region = document.text[site.end : min(next_start, site.end + config.post_locator_window)]
         match = _PIN.match(region)
         if match is None:
             continue
-        span = Span(
-            citation.locator_span.end + match.start("pin"), citation.locator_span.end + match.end("pin")
-        )
+        span = Span(site.end + match.start("pin"), site.end + match.end("pin"))
         document = document.update_fields(
             stage,
             citation.id,

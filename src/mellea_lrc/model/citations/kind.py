@@ -1,4 +1,4 @@
-"""Kinds of full citation occurrences."""
+"""Kinds of full citation currently supported by the document."""
 
 from enum import Enum
 

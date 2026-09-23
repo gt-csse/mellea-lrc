@@ -1,15 +1,18 @@
-"""Stage-neutral document, citation, and operation models."""
+"""Stage-neutral document and citation models."""
 
 from mellea_lrc.model.citations import (
     CitationDate,
+    CitationField,
+    FieldUpdate,
     FullCitation,
     FullCitationKind,
     FullDocketCitation,
     FullReporterCitation,
+    Node,
+    latest,
 )
 from mellea_lrc.model.colocation import Colocation
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.operations import CitationField, Node, Operation, OperationKind
 from mellea_lrc.model.preprocessed_document import (
     DEFAULT_RULES,
     PreprocessedDocument,
@@ -27,13 +30,12 @@ __all__ = [
     "Colocation",
     "Document",
     "DocumentBase",
+    "FieldUpdate",
     "FullCitation",
     "FullCitationKind",
     "FullDocketCitation",
     "FullReporterCitation",
     "Node",
-    "Operation",
-    "OperationKind",
     "PreprocessedDocument",
     "PreprocessingBackend",
     "PreprocessingMetadata",
@@ -41,4 +43,5 @@ __all__ = [
     "SourceFormat",
     "SourceMetadata",
     "Span",
+    "latest",
 ]
