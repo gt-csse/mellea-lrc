@@ -5,27 +5,29 @@ from __future__ import annotations
 import re
 
 from mellea_lrc.model.citations import FullDocketCitation, FullReporterCitation
+from mellea_lrc.model.citations.history import CitationField, latest
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.operations import CitationField
 
 
 def _reporter_key(citation: FullReporterCitation) -> tuple[str, ...] | None:
-    if not (citation.volume and citation.reporter and citation.page):
+    volume, reporter, page = latest(citation.volume), latest(citation.reporter), latest(citation.page)
+    if not (volume and reporter and page):
         return None
     return (
         "reporter",
-        citation.volume.casefold(),
-        re.sub(r"\s+", "", citation.reporter.casefold()),
-        citation.page.casefold(),
+        volume.casefold(),
+        re.sub(r"\s+", "", reporter.casefold()),
+        page.casefold(),
     )
 
 
 def _docket_key(citation: FullDocketCitation) -> tuple[str, ...] | None:
     # A courtless docket is not globally unique. Preserve its occurrence as a
     # separate root until identity validation or search supplies that context.
-    if not citation.court or not citation.docket_number:
+    court, docket_number = latest(citation.court), latest(citation.docket_number)
+    if not court or not docket_number:
         return None
-    return ("docket", citation.court, citation.docket_number.casefold())
+    return ("docket", court, docket_number.casefold())
 
 
 def form_roots(document: Document) -> Document:

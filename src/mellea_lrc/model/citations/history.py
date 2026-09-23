@@ -1,18 +1,41 @@
-"""Citation-local decisions and current values from append-only field histories."""
+"""Citation-local decisions and append-only field values."""
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
-from mellea_lrc.model.citations.fields.base import CitationField, NotStatedField
+
+class CitationField(str, Enum):
+    LOCATOR_SPAN = "locator_span"
+    LOCATOR_TEXT = "locator_text"
+    VOLUME = "volume"
+    REPORTER = "reporter"
+    PAGE = "page"
+    DOCKET_NUMBER = "docket_number"
+    DOCKET_ENTRY = "docket_entry"
+    DOCKET_ENTRY_SPAN = "docket_entry_span"
+    CASE_NAME = "case_name"
+    CASE_NAME_SPAN = "case_name_span"
+    COURT = "court"
+    COURT_SPAN = "court_span"
+    DATE = "date"
+    DATE_SPAN = "date_span"
+    PIN_CITE = "pin_cite"
+    PIN_CITE_SPAN = "pin_cite_span"
+    COLOCATION_ID = "colocation_id"
+    ROOT_ID = "root_id"
+
+
+WITHDRAWN_ROOT_ID = "__withdrawn__"
 
 T = TypeVar("T")
 
 
-class RelationshipUpdate(BaseModel, Generic[T]):
-    """A non-text relationship assignment at a citation-local decision node."""
+class FieldUpdate(BaseModel, Generic[T]):
+    """One value appended to a field, pointing to its decision node."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -20,18 +43,15 @@ class RelationshipUpdate(BaseModel, Generic[T]):
     node_id: str
 
 
+def latest(log: tuple[FieldUpdate[T], ...]) -> T | None:
+    """Read the last value; an empty log has not been read yet."""
+    return log[-1].value if log else None
+
+
 class Node(BaseModel):
-    """A citation-local decision that can update several distinct fields."""
+    """A citation-local decision that can update any number of fields."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    id: str = Field(min_length=1, pattern=r"\S")
-    substage: str = Field(pattern=r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){0,2}$")
-
-
-def latest(log: tuple[CitationField[T] | NotStatedField | RelationshipUpdate[T], ...] | None) -> T | None:
-    """Read the latest normalized value; a failed latest reading still raises."""
-    if not log or isinstance(log[-1], NotStatedField):
-        return None
-    reading = log[-1]
-    return reading.value if isinstance(reading, RelationshipUpdate) else reading.get_normalized()
+    id: str
+    stage: str

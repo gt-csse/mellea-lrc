@@ -5,17 +5,18 @@ from __future__ import annotations
 import re
 
 from mellea_lrc.extraction.rules import ExtractionRules, stable
-from mellea_lrc.model.citations import FullCitation, FullReporterCitation
+from mellea_lrc.model.citations import FullCitationVariant, FullReporterCitation
+from mellea_lrc.model.citations.history import CitationField, latest
 from mellea_lrc.model.colocation import Colocation
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.operations import CitationField
 
 _SEPARATE_CITATION = re.compile(r"…|\.{2,}|\bvs?\.|\n\s*\n|\.\s+[A-Z]", re.I)
 
 
-def _adjacent(text: str, left: FullCitation, right: FullCitation, maximum_gap: int) -> bool:
-    assert left.locator_span is not None and right.locator_span is not None
-    between = text[left.locator_span.end : right.locator_span.start]
+def _adjacent(text: str, left: FullCitationVariant, right: FullCitationVariant, maximum_gap: int) -> bool:
+    left_span, right_span = latest(left.locator_span), latest(right.locator_span)
+    assert left_span is not None and right_span is not None
+    between = text[left_span.end : right_span.start]
     return (
         not _SEPARATE_CITATION.search(between)
         and sum(character.isalnum() for character in between) <= maximum_gap
@@ -34,18 +35,20 @@ def resolve_colocations(document: Document, rules: ExtractionRules | None = None
     if not {"full_reporter_locators", "docket_locators"} & set(document.completed_stages):
         raise ValueError("Discover at least one kind of full locator before resolving colocations")
     config = rules or stable()
-    groups: list[list[FullCitation]] = []
+    groups: list[list[FullCitationVariant]] = []
     for citation in document.full_locators:
         if not groups:
             groups.append([citation])
             continue
         previous = groups[-1][-1]
         reporters = {
-            member.reporter
+            latest(member.reporter)
             for member in groups[-1]
-            if isinstance(member, FullReporterCitation) and member.reporter is not None
+            if isinstance(member, FullReporterCitation) and latest(member.reporter) is not None
         }
-        duplicate_reporter = isinstance(citation, FullReporterCitation) and citation.reporter in reporters
+        duplicate_reporter = (
+            isinstance(citation, FullReporterCitation) and latest(citation.reporter) in reporters
+        )
         if not duplicate_reporter and _adjacent(
             document.text, previous, citation, config.colocation_max_meaningful_gap
         ):
