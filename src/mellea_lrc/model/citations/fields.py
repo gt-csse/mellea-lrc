@@ -7,6 +7,7 @@ from typing import Generic, Self, TypeVar
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from mellea_lrc.model.citations.date import CitationDate
+from mellea_lrc.model.citations.pin_cite import PinCiteValue
 from mellea_lrc.model.span import Span
 
 T = TypeVar("T")
@@ -31,6 +32,8 @@ class CitationField(BaseModel, Generic[T]):
 
     @model_validator(mode="after")
     def _validate_quote_pair(self) -> Self:
+        if self.normalized is None or (isinstance(self.normalized, str) and not self.normalized.strip()):
+            raise ValueError("Parsed field has no normalized value")
         if (self.quote is None) != (self.span is None):
             raise ValueError("Quote and span must be present together")
         if self.quote == "":
@@ -98,5 +101,11 @@ class DateField(QuotedField[CitationDate]):
     """A written decision date and its parsed calendar components."""
 
 
-class PinCiteField(QuotedField[str]):
-    """A written pinpoint reference and its parsed value."""
+class PinCiteField(QuotedField[PinCiteValue]):
+    """A written pinpoint reference and its normalized targets."""
+
+    @model_validator(mode="after")
+    def _require_target(self) -> Self:
+        if not self.normalized:
+            raise ValueError("Parsed pin cite has no normalized target")
+        return self

@@ -27,6 +27,7 @@ from mellea_lrc.model.citations.history import (
     latest,
 )
 from mellea_lrc.model.citations.kind import FullCitationKind
+from mellea_lrc.model.citations.pin_cite import PinCiteKind, PinCiteTarget, PinCiteValue
 
 FullCitationVariant: TypeAlias = Annotated[
     FullReporterCitation | FullDocketCitation,
@@ -51,6 +52,9 @@ __all__ = [
     "Node",
     "PageField",
     "PinCiteField",
+    "PinCiteKind",
+    "PinCiteTarget",
+    "PinCiteValue",
     "RelationshipUpdate",
     "ReporterField",
     "VolumeField",

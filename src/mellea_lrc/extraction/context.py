@@ -9,6 +9,7 @@ from eyecite import get_citations
 from eyecite.helpers import courts
 from eyecite.models import FullCaseCitation
 
+from mellea_lrc.extraction.normalization import normalize_pin_cite
 from mellea_lrc.extraction.rules import ExtractionRules, stable
 from mellea_lrc.model.citations import CitationDate, FullCitationVariant, FullReporterCitation
 from mellea_lrc.model.citations.history import latest
@@ -186,12 +187,15 @@ def resolve_courts(document: Document, rules: ExtractionRules | None = None) -> 
             body = parenthetical.group("body")
             date = _FULL_DATE.search(body) or _YEAR.search(body)
             if date:
+                written = body[: date.start()].strip(" ,;")
                 resolved = _court_from_parenthetical(body, date.start())
                 if resolved:
                     court, length = resolved
                     body_start = start + parenthetical.start("body")
                     stripped = len(body[: date.start()]) - len(body[: date.start()].lstrip(" ,;"))
                     span = Span(body_start + stripped, body_start + stripped + length)
+                elif written:
+                    raise ValueError(f"Cannot normalize written court for {citation.id}: {written!r}")
         if court is None:
             court = _court_from_reporter(citation)
         if court is not None:
@@ -251,6 +255,8 @@ def resolve_pin_cites(document: Document, rules: ExtractionRules | None = None) 
             continue
         span = Span(site.end + match.start("pin"), site.end + match.end("pin"))
         document = document.replace_citation(
-            citation.record(stage).with_pin_cite(document.text, span, normalized=match.group("pin"))
+            citation.record(stage).with_pin_cite(
+                document.text, span, normalized=normalize_pin_cite(match.group("pin"))
+            )
         )
     return document.complete(stage)

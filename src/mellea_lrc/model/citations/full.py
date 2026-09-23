@@ -16,6 +16,7 @@ from mellea_lrc.model.citations.fields import (
 )
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, Node, RelationshipUpdate
 from mellea_lrc.model.citations.kind import FullCitationKind
+from mellea_lrc.model.citations.pin_cite import PinCiteValue
 from mellea_lrc.model.span import Span
 
 
@@ -102,7 +103,7 @@ class FullCitation(BaseModel):
             ),
         )
 
-    def with_pin_cite(self, source: str, span: Span, *, normalized: str) -> Self:
+    def with_pin_cite(self, source: str, span: Span, *, normalized: PinCiteValue) -> Self:
         """Quote a pinpoint reference and record its parsed value."""
         return self._with_log(
             pin_cite=(

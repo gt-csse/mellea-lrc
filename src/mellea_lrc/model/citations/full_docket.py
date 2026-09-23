@@ -45,6 +45,8 @@ class FullDocketCitation(FullCitation):
         if not (span.start <= docket_number_span.start < docket_number_span.end <= span.end):
             raise ValueError("Docket number span must be inside the locator")
         _require_exact(source, docket_number_span, docket_number)
+        if (docket_entry is None) != (docket_entry_span is None):
+            raise ValueError("Docket entry and its source span must be supplied together")
         entry_quote = _source_slice(source, docket_entry_span) if docket_entry_span is not None else None
         if docket_entry is not None and (entry_quote is None or docket_entry not in entry_quote):
             raise ValueError("Docket entry does not match its source span")
