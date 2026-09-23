@@ -1,0 +1,169 @@
+{
+  "annotations": "data/primary/documents",
+  "artifact_type": "root_identity_score",
+  "artifacts": "data/run-artifacts/54-schema21-primary-v1/shared_body_evidence_review",
+  "decision": {
+    "accuracy": 0.9650145772594753,
+    "correct": 331,
+    "decided": 343,
+    "deferred_or_unreached": 97
+  },
+  "incorrect_admissions": [
+    {
+      "document": "004__taiujuan-burches-v-equifax-information-services-llc-et-__memorandum-in-opposition-to-defendant-trans-union-llc-s",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 4202,
+        "start": 4191
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "008__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 2430,
+        "start": 2416
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "008__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 2760,
+        "start": 2746
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "008__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 5987,
+        "start": 5973
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "009__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 11515,
+        "start": 11499
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "010__brandon-rulund-akins-v-tashi-latwon-ratliff-et-al__complaint",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 16835,
+        "start": 16823
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "026__the-advocates-for-human-rights-and-l-h-m-v-u-s-departme__opposition-brief",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 35392,
+        "start": 35380
+      },
+      "outcome": "resolved"
+    }
+  ],
+  "incorrect_rejections": [
+    {
+      "document": "006__coomer-v-lindell-mypillow-inc__response-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 15892,
+        "start": 15878
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "016__in-re-prince-global-holdings-limited-et-al__declaration-of-paul-pretlove",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 7477,
+        "start": 7465
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "019__modern-floor-specialists-inc-et-al-v-city-of-los-angele__opposition-brief-to-city-defendants-motion-to-dismiss",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 13678,
+        "start": 13666
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "019__modern-floor-specialists-inc-et-al-v-city-of-los-angele__opposition-brief-to-city-defendants-motion-to-dismiss",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 28648,
+        "start": 28636
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "022__chelsea-montes-v-suns-legacy-partners-llc__reply-in-support-of-plaintiff-s-motion-to-proceed-anony",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 4608,
+        "start": 4590
+      },
+      "outcome": "no_match"
+    }
+  ],
+  "labeled_roots": 440,
+  "outcome_by_gold_label": {
+    "deferred_to_open_web_search": {
+      "correct_identity": 53,
+      "wrong_identity": 43
+    },
+    "no_match": {
+      "correct_identity": 5,
+      "wrong_identity": 24
+    },
+    "not_reached": {
+      "correct_identity": 1,
+      "wrong_identity": 0
+    },
+    "resolved": {
+      "correct_identity": 307,
+      "wrong_identity": 7
+    }
+  },
+  "positive_admission": {
+    "f1": 0.9029411764705882,
+    "fn": 59,
+    "fp": 7,
+    "gold": 366,
+    "precision": 0.9777070063694268,
+    "predicted": 314,
+    "recall": 0.8387978142076503,
+    "tp": 307
+  },
+  "stage_coverage": {
+    "gold": 440,
+    "not_reached": 1,
+    "reached": 439
+  }
+}

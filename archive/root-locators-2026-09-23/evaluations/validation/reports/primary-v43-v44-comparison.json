@@ -1,0 +1,140 @@
+{
+  "after_artifacts": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/run-artifacts/44-primary-shared-body-review-v1/shared_body_evidence_review",
+  "annotations": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/primary/documents",
+  "artifact_type": "primary_root_identity_saved_run_comparison",
+  "before_artifacts": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/run-artifacts/43-primary-current-body-resolution-v1/root_body_corroboration_resolution",
+  "changed_annotated_root_count": 4,
+  "changed_root_outcomes": [
+    {
+      "after": "resolved",
+      "before": "deferred_to_open_web_search",
+      "document": "005__coomer-v-lindell-mypillow-inc__response-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 14592,
+        "start": 14569
+      },
+      "locator_text": "No. 07-cv-00630-DME-MEH"
+    },
+    {
+      "after": "resolved",
+      "before": "deferred_to_open_web_search",
+      "document": "006__coomer-v-lindell-mypillow-inc__response-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 2169,
+        "start": 2144
+      },
+      "locator_text": "No.  CIV  16-0318  JB\\SCY"
+    },
+    {
+      "after": "resolved",
+      "before": "deferred_to_open_web_search",
+      "document": "006__coomer-v-lindell-mypillow-inc__response-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 11968,
+        "start": 11946
+      },
+      "locator_text": "No. CIV 11-0107 JB/KBM"
+    },
+    {
+      "after": "resolved",
+      "before": "deferred_to_open_web_search",
+      "document": "011__anthony-c-hill-v-workday-inc__joint-discovery-letter-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 7661,
+        "start": 7640
+      },
+      "locator_text": "No. 2:04-CV-01304-RCJ"
+    }
+  ],
+  "document_count": 26,
+  "interpretation": "Observed saved-run difference only; repeated model judgments and provider availability may both change outcomes. Neither run imposed a retrospective evidence date.",
+  "provider_transient_failures": {
+    "after": {
+      "affected_roots": {
+        "either": 88,
+        "fetch": 29,
+        "search": 59
+      },
+      "affected_roots_429": {
+        "either": 87,
+        "fetch": 29,
+        "search": 58
+      },
+      "fetch_error_attempts": {
+        "429": 29
+      },
+      "fetch_terminal_failures": {
+        "429": 29
+      },
+      "scope": "All serialized roots, including roots without an identity gold label.",
+      "search_error_events": {
+        "429": 113,
+        "500": 2
+      }
+    },
+    "before": {
+      "affected_roots": {
+        "either": 88,
+        "fetch": 29,
+        "search": 59
+      },
+      "affected_roots_429": {
+        "either": 87,
+        "fetch": 29,
+        "search": 58
+      },
+      "fetch_error_attempts": {
+        "429": 29
+      },
+      "fetch_terminal_failures": {
+        "429": 29
+      },
+      "scope": "All serialized roots, including roots without an identity gold label.",
+      "search_error_events": {
+        "429": 113,
+        "500": 2
+      }
+    },
+    "definition": "429, 500, 502, 503, 504, or timeout recorded in root body search/fetch traces; repeated trace entries remain separate attempts."
+  },
+  "score": {
+    "after": {
+      "f1": 0.8776758409785933,
+      "false_admissions": 1,
+      "gold_correct_roots": 366,
+      "labeled_roots": 440,
+      "missed_correct_roots": 79,
+      "precision": 0.9965277777777778,
+      "reached_roots": 438,
+      "recall": 0.7841530054644809,
+      "true_admissions": 287
+    },
+    "before": {
+      "f1": 0.8707692307692307,
+      "false_admissions": 1,
+      "gold_correct_roots": 366,
+      "labeled_roots": 440,
+      "missed_correct_roots": 83,
+      "precision": 0.9964788732394366,
+      "reached_roots": 438,
+      "recall": 0.773224043715847,
+      "true_admissions": 283
+    },
+    "delta": {
+      "f1": 0.0069066102093625625,
+      "false_admissions": 0,
+      "missed_correct_roots": -4,
+      "precision": 4.8904538341165704e-05,
+      "recall": 0.010928961748633892,
+      "true_admissions": 4
+    }
+  }
+}

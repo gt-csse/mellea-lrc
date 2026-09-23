@@ -1,0 +1,68 @@
+{
+  "annotations": "data/reliable-low-profile/documents",
+  "artifact_type": "root_identity_score",
+  "artifacts": "data/run-artifacts/54-schema21-reliable-low-profile-v1/shared_body_evidence_review",
+  "decision": {
+    "accuracy": 0.9459459459459459,
+    "correct": 35,
+    "decided": 37,
+    "deferred_or_unreached": 543
+  },
+  "incorrect_admissions": [
+    {
+      "document": "68138504_37",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 5315,
+        "start": 5303
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "68138504_37",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 5332,
+        "start": 5317
+      },
+      "outcome": "resolved"
+    }
+  ],
+  "incorrect_rejections": [],
+  "labeled_roots": 580,
+  "outcome_by_gold_label": {
+    "deferred_to_open_web_search": {
+      "correct_identity": 58,
+      "wrong_identity": 0
+    },
+    "not_reached": {
+      "correct_identity": 2,
+      "wrong_identity": 0
+    },
+    "resolved": {
+      "correct_identity": 35,
+      "wrong_identity": 2
+    },
+    "unjudged": {
+      "correct_identity": 471,
+      "wrong_identity": 12
+    }
+  },
+  "positive_admission": {
+    "f1": 0.11608623548922055,
+    "fn": 531,
+    "fp": 2,
+    "gold": 566,
+    "precision": 0.9459459459459459,
+    "predicted": 37,
+    "recall": 0.061837455830388695,
+    "tp": 35
+  },
+  "stage_coverage": {
+    "gold": 580,
+    "not_reached": 2,
+    "reached": 578
+  }
+}

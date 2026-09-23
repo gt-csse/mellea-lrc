@@ -1,0 +1,93 @@
+{
+  "interpretation": "proposal ceiling only; no site-review admissions or false-admission score",
+  "sets": {
+    "hallucination-set-1": {
+      "counts": {
+        "combined_gold_proposed": 32,
+        "combined_predictions": 44,
+        "documents": 10,
+        "gold": 32,
+        "rule_gold": 32,
+        "rule_predictions": 32,
+        "saved_gold_admitted": 32,
+        "saved_initial_site_candidates": 12,
+        "site_gold_proposed": 0,
+        "site_proposals": 12
+      },
+      "unproposed_gold": []
+    },
+    "hallucination-set-2": {
+      "counts": {
+        "combined_gold_proposed": 9,
+        "combined_predictions": 36,
+        "documents": 10,
+        "gold": 9,
+        "rule_gold": 1,
+        "rule_predictions": 1,
+        "saved_gold_admitted": 8,
+        "saved_initial_site_candidates": 34,
+        "site_gold_proposed": 8,
+        "site_proposals": 35
+      },
+      "unproposed_gold": []
+    },
+    "primary": {
+      "counts": {
+        "combined_gold_proposed": 57,
+        "combined_predictions": 111,
+        "documents": 26,
+        "gold": 57,
+        "rule_gold": 19,
+        "rule_predictions": 20,
+        "saved_gold_admitted": 55,
+        "saved_initial_site_candidates": 87,
+        "site_gold_proposed": 38,
+        "site_proposals": 91
+      },
+      "unproposed_gold": []
+    },
+    "reliable-high-profile": {
+      "counts": {
+        "combined_gold_proposed": 49,
+        "combined_predictions": 79,
+        "documents": 10,
+        "gold": 49,
+        "rule_gold": 27,
+        "rule_predictions": 27,
+        "saved_gold_admitted": 47,
+        "saved_initial_site_candidates": 47,
+        "site_gold_proposed": 22,
+        "site_proposals": 52
+      },
+      "unproposed_gold": []
+    },
+    "reliable-low-profile": {
+      "counts": {
+        "combined_gold_proposed": 97,
+        "combined_predictions": 146,
+        "documents": 10,
+        "gold": 97,
+        "rule_gold": 43,
+        "rule_predictions": 43,
+        "saved_gold_admitted": 91,
+        "saved_initial_site_candidates": 98,
+        "site_gold_proposed": 54,
+        "site_proposals": 103
+      },
+      "unproposed_gold": []
+    }
+  },
+  "source": "data/run-artifacts/1-roots/docket-site-hunting-grounding-flash",
+  "totals": {
+    "combined_gold_proposed": 244,
+    "combined_predictions": 416,
+    "documents": 66,
+    "gold": 244,
+    "rule_gold": 122,
+    "rule_predictions": 123,
+    "saved_gold_admitted": 233,
+    "saved_initial_site_candidates": 278,
+    "site_gold_proposed": 122,
+    "site_proposals": 293
+  }
+}

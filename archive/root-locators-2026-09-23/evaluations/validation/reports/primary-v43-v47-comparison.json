@@ -1,0 +1,127 @@
+{
+  "after_artifacts": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/run-artifacts/47-primary-body-search-shared-main-v1/root_body_corroboration_resolution",
+  "annotations": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/primary/documents",
+  "artifact_type": "primary_root_identity_saved_run_comparison",
+  "before_artifacts": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/run-artifacts/43-primary-current-body-resolution-v1/root_body_corroboration_resolution",
+  "changed_annotated_root_count": 3,
+  "changed_root_outcomes": [
+    {
+      "after": "resolved",
+      "before": "deferred_to_open_web_search",
+      "document": "003__chakma-v-sushi-katsuei-inc__letter",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 2012,
+        "start": 1993
+      },
+      "locator_text": "444 F. Supp. 3d 593"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "no_match",
+      "document": "008__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 2659,
+        "start": 2644
+      },
+      "locator_text": "2010 WL 4722279"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "resolved",
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 22911,
+        "start": 22899
+      },
+      "locator_text": "No. 25-11030"
+    }
+  ],
+  "document_count": 26,
+  "interpretation": "Observed saved-run difference only; repeated model judgments and provider availability may both change outcomes. Neither run imposed a retrospective evidence date.",
+  "provider_transient_failures": {
+    "after": {
+      "affected_roots": {
+        "either": 116,
+        "fetch": 28,
+        "search": 105
+      },
+      "affected_roots_429": {
+        "either": 116,
+        "fetch": 28,
+        "search": 105
+      },
+      "fetch_error_attempts": {
+        "429": 28
+      },
+      "fetch_terminal_failures": {
+        "429": 28
+      },
+      "scope": "All serialized roots, including roots without an identity gold label.",
+      "search_error_events": {
+        "429": 187
+      }
+    },
+    "before": {
+      "affected_roots": {
+        "either": 88,
+        "fetch": 29,
+        "search": 59
+      },
+      "affected_roots_429": {
+        "either": 87,
+        "fetch": 29,
+        "search": 58
+      },
+      "fetch_error_attempts": {
+        "429": 29
+      },
+      "fetch_terminal_failures": {
+        "429": 29
+      },
+      "scope": "All serialized roots, including roots without an identity gold label.",
+      "search_error_events": {
+        "429": 113,
+        "500": 2
+      }
+    },
+    "definition": "429, 500, 502, 503, 504, or timeout recorded in root body search/fetch traces; repeated trace entries remain separate attempts."
+  },
+  "score": {
+    "after": {
+      "f1": 0.8707692307692307,
+      "false_admissions": 1,
+      "gold_correct_roots": 366,
+      "labeled_roots": 440,
+      "missed_correct_roots": 83,
+      "precision": 0.9964788732394366,
+      "reached_roots": 438,
+      "recall": 0.773224043715847,
+      "true_admissions": 283
+    },
+    "before": {
+      "f1": 0.8707692307692307,
+      "false_admissions": 1,
+      "gold_correct_roots": 366,
+      "labeled_roots": 440,
+      "missed_correct_roots": 83,
+      "precision": 0.9964788732394366,
+      "reached_roots": 438,
+      "recall": 0.773224043715847,
+      "true_admissions": 283
+    },
+    "delta": {
+      "f1": 0.0,
+      "false_admissions": 0,
+      "missed_correct_roots": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "true_admissions": 0
+    }
+  }
+}

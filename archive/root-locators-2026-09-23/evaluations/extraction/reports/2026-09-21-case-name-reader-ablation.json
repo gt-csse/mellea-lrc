@@ -1,0 +1,186 @@
+{
+  "description": "Offline replay of current case-name reader from saved locator checkpoints; root occurrences only.",
+  "caveat": "The five corpora are not independent holdouts: some filings and citations recur across sets. Exact spans are diagnostic, not identity judgments.",
+  "sets": {
+    "primary": {
+      "counts": {
+        "baseline_exact_span": 290,
+        "baseline_name_present": 376,
+        "baseline_normalized_agreement": 290,
+        "current_exact_span": 387,
+        "current_name_present": 419,
+        "current_normalized_agreement": 387,
+        "gold_name_absent": 5,
+        "gold_name_present": 433,
+        "new_name": 43,
+        "new_name_agrees": 38,
+        "reached_gold_root": 438,
+        "unreached_gold_root": 2
+      },
+      "examples": [
+        {
+          "id": "005-o08",
+          "issue": "new_name_disagrees",
+          "prediction": "Vance ex rel. Wood v. Midwest Coast Transport, Inc .",
+          "gold": "Wood v. Midwest Coast Transport, Inc ."
+        },
+        {
+          "id": "006-o09",
+          "issue": "new_name_disagrees",
+          "prediction": "New  Mexico  ex  rel.\n\nBalderas v. Real Estate Law Center, P.C .",
+          "gold": "Balderas v. Real Estate Law Center, P.C ."
+        },
+        {
+          "id": "006-o49",
+          "issue": "new_name_disagrees",
+          "prediction": "Defendants' conduct. See Brown v. Petrolite Corp .",
+          "gold": "Brown v. Petrolite Corp ."
+        },
+        {
+          "id": "019-o36",
+          "issue": "new_name_disagrees",
+          "prediction": "Eclectic Props. E., LLC v. Marcus & Millichap Co.",
+          "gold": "E., LLC v. Marcus & Millichap Co."
+        },
+        {
+          "id": "019-o43",
+          "issue": "new_name_disagrees",
+          "prediction": "United States ex rel. Newsham v. Lockheed Missiles & Space Co.",
+          "gold": "Newsham v. Lockheed Missiles & Space Co."
+        }
+      ]
+    },
+    "hallucination-set-1": {
+      "counts": {
+        "baseline_exact_span": 180,
+        "baseline_name_present": 284,
+        "baseline_normalized_agreement": 180,
+        "current_exact_span": 270,
+        "current_name_present": 303,
+        "current_normalized_agreement": 270,
+        "gold_name_absent": 3,
+        "gold_name_present": 333,
+        "new_name": 20,
+        "new_name_agrees": 18,
+        "reached_gold_root": 336
+      },
+      "examples": [
+        {
+          "id": "70655948_74-o068",
+          "issue": "new_name_disagrees",
+          "prediction": "The Supreme Court in Sedima, S.P.R.L. v. Imrex Co .",
+          "gold": "Sedima, S.P.R.L. v. Imrex Co ."
+        },
+        {
+          "id": "70655948_74-o091",
+          "issue": "new_name_disagrees",
+          "prediction": "Similarly, in Reazin v. Blue Cross & Blue Shield of Kansas, Inc.",
+          "gold": "Reazin v. Blue Cross & Blue Shield of Kansas, Inc."
+        }
+      ]
+    },
+    "hallucination-set-2": {
+      "counts": {
+        "baseline_exact_span": 202,
+        "baseline_name_present": 254,
+        "baseline_normalized_agreement": 203,
+        "current_exact_span": 263,
+        "current_name_present": 277,
+        "current_normalized_agreement": 264,
+        "gold_name_absent": 4,
+        "gold_name_present": 297,
+        "new_name": 23,
+        "new_name_agrees": 23,
+        "reached_gold_root": 301,
+        "unreached_gold_root": 2
+      },
+      "examples": []
+    },
+    "reliable-high-profile": {
+      "counts": {
+        "baseline_exact_span": 316,
+        "baseline_false_name": 2,
+        "baseline_name_present": 357,
+        "baseline_normalized_agreement": 316,
+        "current_exact_span": 363,
+        "current_false_name": 2,
+        "current_name_present": 393,
+        "current_normalized_agreement": 363,
+        "gold_name_absent": 14,
+        "gold_name_present": 402,
+        "new_name": 36,
+        "new_name_agrees": 35,
+        "reached_gold_root": 416,
+        "unreached_gold_root": 1
+      },
+      "examples": [
+        {
+          "id": "6327062_77_1-o025",
+          "issue": "new_name_disagrees",
+          "prediction": "Phillips Chem. Co. v. Dumas Indep. Sch. Dist  .",
+          "gold": "Co. v. Dumas Indep. Sch. Dist  ."
+        }
+      ]
+    },
+    "reliable-low-profile": {
+      "counts": {
+        "baseline_exact_span": 408,
+        "baseline_name_present": 444,
+        "baseline_normalized_agreement": 408,
+        "current_exact_span": 520,
+        "current_name_present": 535,
+        "current_normalized_agreement": 520,
+        "gold_name_absent": 23,
+        "gold_name_present": 555,
+        "new_name": 91,
+        "new_name_agrees": 84,
+        "reached_gold_root": 578,
+        "unreached_gold_root": 5
+      },
+      "examples": [
+        {
+          "id": "68138504_37-o013",
+          "issue": "new_name_disagrees",
+          "prediction": "Cases  Anderson v. Libby Lobby, Inc  .",
+          "gold": "Anderson v. Libby Lobby, Inc  ."
+        },
+        {
+          "id": "68138504_37-o014",
+          "issue": "new_name_disagrees",
+          "prediction": "Cases  Anderson v. Libby Lobby, Inc  .",
+          "gold": "Anderson v. Libby Lobby, Inc  ."
+        },
+        {
+          "id": "68138504_37-o015",
+          "issue": "new_name_disagrees",
+          "prediction": "Cases  Anderson v. Libby Lobby, Inc  .",
+          "gold": "Anderson v. Libby Lobby, Inc  ."
+        },
+        {
+          "id": "68272707_31-o050",
+          "issue": "new_name_disagrees",
+          "prediction": "Pension Fund v. Zimmer Holdings, Inc  .",
+          "gold": "Plumbers & Pipefitters Local Union 719 Pension Fund v. Zimmer Holdings, Inc  ."
+        },
+        {
+          "id": "69221813_46_2-o001",
+          "issue": "new_name_disagrees",
+          "prediction": "Cases  Adetuyi v. City & County of San Francisco",
+          "gold": "Adetuyi v. City & County of San Francisco"
+        },
+        {
+          "id": "69442946_13-o003",
+          "issue": "new_name_disagrees",
+          "prediction": "Cases  Affinity Labs of Texas, LLC v. Amazon.com, Inc  .",
+          "gold": "Affinity Labs of Texas, LLC v. Amazon.com, Inc  ."
+        },
+        {
+          "id": "69442946_13-o040",
+          "issue": "new_name_disagrees",
+          "prediction": "Patent in Digital Media Technology Holdings, LLC v. Disney Media & Entertainment Distribution LLC",
+          "gold": "Digital Media Technology Holdings, LLC v. Disney Media & Entertainment Distribution LLC"
+        }
+      ]
+    }
+  }
+}

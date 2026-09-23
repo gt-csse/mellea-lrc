@@ -1,0 +1,169 @@
+{
+  "annotations": "data/primary/documents",
+  "artifact_type": "root_identity_score",
+  "artifacts": "data/run-artifacts/33-primary-third-party-body-reviewed-v1/root_body_corroboration_resolution",
+  "decision": {
+    "accuracy": 0.9637462235649547,
+    "correct": 319,
+    "decided": 331,
+    "deferred_or_unreached": 109
+  },
+  "incorrect_admissions": [
+    {
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 30580,
+        "start": 30564
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "026__the-advocates-for-human-rights-and-l-h-m-v-u-s-departme__opposition-brief",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 35392,
+        "start": 35380
+      },
+      "outcome": "resolved"
+    }
+  ],
+  "incorrect_rejections": [
+    {
+      "document": "006__coomer-v-lindell-mypillow-inc__response-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 28320,
+        "start": 28300
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "008__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 6276,
+        "start": 6262
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "014__alishia-monique-jones-v-ahmed-taylor-et-al__response-to-the-show-cause-order",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 1699,
+        "start": 1681
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "018__gamez-v-county-of-fresno__brief-opposing-defendant-county-of-fresno-s-motion-for-",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 7715,
+        "start": 7701
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "021__chelsea-montes-v-suns-legacy-partners-llc__response-to-defendant-s-motion-to-dismiss",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 4617,
+        "start": 4604
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "022__chelsea-montes-v-suns-legacy-partners-llc__reply-in-support-of-plaintiff-s-motion-to-proceed-anony",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 4608,
+        "start": 4590
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "022__chelsea-montes-v-suns-legacy-partners-llc__reply-in-support-of-plaintiff-s-motion-to-proceed-anony",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 5469,
+        "start": 5450
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "025__andrea-k-tantaros-v-fox-news-network-llc-et-al__opposition-to-brown-s-motion-to-dismiss-the-complaint",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 1718,
+        "start": 1705
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "025__andrea-k-tantaros-v-fox-news-network-llc-et-al__opposition-to-brown-s-motion-to-dismiss-the-complaint",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 2551,
+        "start": 2536
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "025__andrea-k-tantaros-v-fox-news-network-llc-et-al__opposition-to-brown-s-motion-to-dismiss-the-complaint",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 2730,
+        "start": 2716
+      },
+      "outcome": "no_match"
+    }
+  ],
+  "labeled_roots": 440,
+  "outcome_by_gold_label": {
+    "deferred_to_open_web_search": {
+      "correct_identity": 75,
+      "wrong_identity": 32
+    },
+    "no_match": {
+      "correct_identity": 10,
+      "wrong_identity": 39
+    },
+    "not_reached": {
+      "correct_identity": 2,
+      "wrong_identity": 0
+    },
+    "resolved": {
+      "correct_identity": 280,
+      "wrong_identity": 2
+    }
+  },
+  "positive_admission": {
+    "f1": 0.8628659476117103,
+    "fn": 87,
+    "fp": 2,
+    "gold": 367,
+    "precision": 0.9929078014184397,
+    "predicted": 282,
+    "recall": 0.7629427792915532,
+    "tp": 280
+  },
+  "stage_coverage": {
+    "gold": 440,
+    "not_reached": 2,
+    "reached": 438
+  }
+}

@@ -6,7 +6,7 @@ import types
 
 import pytest
 
-from mellea_lrc.core import SourceMetadata
+from mellea_lrc.model.documents import SourceMetadata
 from mellea_lrc.preprocessing.docket_stamp import looks_like_a_stamp
 from mellea_lrc.preprocessing.docling import is_docling_supported_format, preprocess_with_docling
 from mellea_lrc.preprocessing import (

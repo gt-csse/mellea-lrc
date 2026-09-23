@@ -1,0 +1,1448 @@
+{
+  "schema_version": 1,
+  "policy": "retrospective_date is the exact calendar day explicitly attached to the source document as dated, executed, submitted, or a dated letter. Filing stamps, filing metadata, and service certificates never substitute for a document date. Null means no trustworthy exact source-document day is available. Dates are inclusive upper bounds for evidence retrieval.",
+  "counts": {
+    "primary": {
+      "total": 26,
+      "dated": 18
+    },
+    "hallucination-set-1": {
+      "total": 10,
+      "dated": 9
+    },
+    "hallucination-set-2": {
+      "total": 10,
+      "dated": 7
+    },
+    "reliable-high-profile": {
+      "total": 10,
+      "dated": 7
+    },
+    "reliable-low-profile": {
+      "total": 10,
+      "dated": 8
+    }
+  },
+  "documents": [
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/001__reaves-law-firm-pllc-v-baker-donelson-bearman-caldwell-__partial-motion-to-dismiss.txt",
+      "source_sha256": "99914964f8e2c1fd5d24d5b3a582f642d3754e539ed9fa60b72449a4a360deeb",
+      "retrospective_date": "2025-09-08",
+      "basis": "submission_date",
+      "evidence": [
+        {
+          "line": 104,
+          "quote": "RESPECTFULLY SUBMITTED, this the 8 th  day of September, 2025.",
+          "span": {
+            "start": 5780,
+            "end": 5842
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/002__thomas-robert-boyle-et-al-v-steven-kramer__objections-to-magistrate-judge-stafford-s-order.txt",
+      "source_sha256": "86797752d87ee4ae64c89f873d4fe76b1570854253083ab7cb2b4acf870b497b",
+      "retrospective_date": "2026-05-03",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 57,
+          "quote": "Dated: May 3, 2026",
+          "span": {
+            "start": 5107,
+            "end": 5125
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/003__chakma-v-sushi-katsuei-inc__letter.txt",
+      "source_sha256": "cda2a71bdbe5a96c6c8e2a6baa52ff5eb6a1987da9533e96d6efeda81b16a8e5",
+      "retrospective_date": "2025-07-08",
+      "basis": "letter_date",
+      "evidence": [
+        {
+          "line": 25,
+          "quote": "July 8, 2025",
+          "span": {
+            "start": 2306,
+            "end": 2318
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/004__taiujuan-burches-v-equifax-information-services-llc-et-__memorandum-in-opposition-to-defendant-trans-union-llc-s.txt",
+      "source_sha256": "228f69ddda584677d5608f622b76213653abd1add17f8fd5326c3d813e7f2c1f",
+      "retrospective_date": null,
+      "basis": null,
+      "evidence": [
+        {
+          "line": 260,
+          "quote": "Respectfully submitted,",
+          "span": {
+            "start": 22338,
+            "end": 22361
+          }
+        },
+        {
+          "line": 270,
+          "quote": "I hereby certify that on this 17th day of March, 2026, I electronically filed the foregoing Plaintiff's Opposition to Defendant Trans Union LLC's Motion to Stay Discovery with the Clerk of Court using the CM/ECF system, which will send notice of such filing to all counsel of",
+          "span": {
+            "start": 22451,
+            "end": 22726
+          }
+        }
+      ],
+      "missing_reason": "The filing certificate gives a filing day, but the document has no separate dated or signed day."
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/005__coomer-v-lindell-mypillow-inc__response-brief.txt",
+      "source_sha256": "9869021b33533240030c96b2736e5d89ded75ce3fa04b568a5bfadb0cad867e4",
+      "retrospective_date": "2025-08-05",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 140,
+          "quote": "Dated: August 5, 2025.",
+          "span": {
+            "start": 27900,
+            "end": 27922
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/006__coomer-v-lindell-mypillow-inc__response-brief.txt",
+      "source_sha256": "9ed65c1db70e7a16c86eed8742ae8d6660abbba29df6430d6cc1beecc82e3132",
+      "retrospective_date": "2025-02-25",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 203,
+          "quote": "Dated: February 25, 2025.",
+          "span": {
+            "start": 29986,
+            "end": 30011
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/007__superb-motors-inc-et-al-v-anthony-deo-et-al__brief-in-opposition-to-plaintiffs-motion-to-vacate-the-.txt",
+      "source_sha256": "06124356e6f2d07245910f922e97feeb05cc10ba3798f2e3fd9d262749b1c16e",
+      "retrospective_date": "2025-12-12",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 152,
+          "quote": "Dated: December 12, 2025",
+          "span": {
+            "start": 18311,
+            "end": 18335
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/008__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition.txt",
+      "source_sha256": "f8fedc724439eb41a4e93b9072075f1ec18fd299d235fcb60e25f76460a02724",
+      "retrospective_date": null,
+      "basis": null,
+      "evidence": [
+        {
+          "line": 140,
+          "quote": "Respectfully submitted,",
+          "span": {
+            "start": 27127,
+            "end": 27150
+          }
+        },
+        {
+          "line": 144,
+          "quote": "By:  ________________________",
+          "span": {
+            "start": 27190,
+            "end": 27219
+          }
+        }
+      ],
+      "missing_reason": "The signature or submission block has no day."
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/009__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition.txt",
+      "source_sha256": "7016d355ce81e23ba9995fa655670d41caec47ef5b34c489ecc59b1983fb6073",
+      "retrospective_date": null,
+      "basis": null,
+      "evidence": [
+        {
+          "line": 101,
+          "quote": "Respectfully submitted,",
+          "span": {
+            "start": 26427,
+            "end": 26450
+          }
+        },
+        {
+          "line": 103,
+          "quote": "/s/: _____________________",
+          "span": {
+            "start": 26452,
+            "end": 26478
+          }
+        }
+      ],
+      "missing_reason": "The signature or submission block has no day."
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/010__brandon-rulund-akins-v-tashi-latwon-ratliff-et-al__complaint.txt",
+      "source_sha256": "908c515986a1e6dcc90cbca45dc8a0e780a97df1425fecc69978f45d030467e9",
+      "retrospective_date": null,
+      "basis": null,
+      "evidence": [
+        {
+          "line": 11,
+          "quote": "AUG 05 2025",
+          "span": {
+            "start": 96,
+            "end": 107
+          }
+        },
+        {
+          "line": 302,
+          "quote": "Respectfully submitted,",
+          "span": {
+            "start": 30318,
+            "end": 30341
+          }
+        }
+      ],
+      "missing_reason": "The visible day is a docket filing stamp, while the document signature has no day."
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/011__anthony-c-hill-v-workday-inc__joint-discovery-letter-brief.txt",
+      "source_sha256": "eddc8ede09b67609bd530873fb4fb209de81562214f8244eaa900c78f9810327",
+      "retrospective_date": "2025-07-21",
+      "basis": "letter_date",
+      "evidence": [
+        {
+          "line": 45,
+          "quote": "July 21, 2025",
+          "span": {
+            "start": 644,
+            "end": 657
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/012__marble-v-o-malley__complaint.txt",
+      "source_sha256": "cb620fac60c781842bbdf3fb72a0433633fd139422fda6c15db8e4da8d7b74a0",
+      "retrospective_date": null,
+      "basis": null,
+      "evidence": [
+        {
+          "line": 254,
+          "quote": "Respectfully submitted,",
+          "span": {
+            "start": 15941,
+            "end": 15964
+          }
+        },
+        {
+          "line": 256,
+          "quote": "Brian Raymond Marble",
+          "span": {
+            "start": 15966,
+            "end": 15986
+          }
+        }
+      ],
+      "missing_reason": "The signature or submission block has no day."
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/013__gunter-v-contango-ore-inc-et-al__complaint.txt",
+      "source_sha256": "9d1b12b1dd83a654d3e9f99373940587bc33785891f15c8208db9e0018558a62",
+      "retrospective_date": null,
+      "basis": null,
+      "evidence": [
+        {
+          "line": 559,
+          "quote": "10/30",
+          "span": {
+            "start": 126673,
+            "end": 126678
+          }
+        },
+        {
+          "line": 561,
+          "quote": "Dated:",
+          "span": {
+            "start": 126680,
+            "end": 126686
+          }
+        },
+        {
+          "line": 563,
+          "quote": ",2025.",
+          "span": {
+            "start": 126688,
+            "end": 126694
+          }
+        }
+      ],
+      "missing_reason": "The OCR separates “10/30”, “Dated:”, and “,2025”; the source does not yield a trustworthy exact signed day without visual review."
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/014__alishia-monique-jones-v-ahmed-taylor-et-al__response-to-the-show-cause-order.txt",
+      "source_sha256": "02dae42ba1ad03ddebcdfa1906420e97b2e7566e2ba8265cb9e760301b40820e",
+      "retrospective_date": null,
+      "basis": null,
+      "evidence": [
+        {
+          "line": 83,
+          "quote": "Respectfully submitted,",
+          "span": {
+            "start": 4386,
+            "end": 4409
+          }
+        },
+        {
+          "line": 85,
+          "quote": "Alishia Jones, Plaintiff In Pro Per",
+          "span": {
+            "start": 4411,
+            "end": 4446
+          }
+        }
+      ],
+      "missing_reason": "The signature or submission block has no day."
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part.txt",
+      "source_sha256": "8b27bdd9dbf2741c082071ed1db27000cccaccf662e859e116918f3a59e5f417",
+      "retrospective_date": "2026-04-09",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 230,
+          "quote": "Dated: April 9 , 2026 New York, New York",
+          "span": {
+            "start": 61580,
+            "end": 61620
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/016__in-re-prince-global-holdings-limited-et-al__declaration-of-paul-pretlove.txt",
+      "source_sha256": "8fa4a45c0df80dfc695956d66a3a29e385c1be9f332c6b5b5d7b1ad37a458d9b",
+      "retrospective_date": "2026-04-08",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 270,
+          "quote": "Dated: April 8 , 2026",
+          "span": {
+            "start": 51374,
+            "end": 51395
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/017__jamie-lee-saunders-v-albertsons-safeway-llc__reply-brief.txt",
+      "source_sha256": "0a0b208a972bd1076f1d50d222dea0b29462152a268eaf26179a10389f2d8ffe",
+      "retrospective_date": "2025-10-27",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 61,
+          "quote": "Dated: October 27, 2025",
+          "span": {
+            "start": 6126,
+            "end": 6149
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/018__gamez-v-county-of-fresno__brief-opposing-defendant-county-of-fresno-s-motion-for-.txt",
+      "source_sha256": "895d09333fad60cafa069704ccb01efcfb7c1362a56bb97c438e36d26569443a",
+      "retrospective_date": null,
+      "basis": null,
+      "evidence": [
+        {
+          "line": 183,
+          "quote": "LAW OFFICE OF KEVIN G. LITTLE",
+          "span": {
+            "start": 22883,
+            "end": 22912
+          }
+        },
+        {
+          "line": 185,
+          "quote": "/s/ Kevin G. Little Kevin G. Little Attorneys for Plaintiff ELIO GAMEZ",
+          "span": {
+            "start": 22914,
+            "end": 22984
+          }
+        }
+      ],
+      "missing_reason": "The signature or submission block has no day."
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/019__modern-floor-specialists-inc-et-al-v-city-of-los-angele__opposition-brief-to-city-defendants-motion-to-dismiss.txt",
+      "source_sha256": "e22e7776883116ab7268752c3142dc05b5402f577780ba6ae78a18f77a79e40b",
+      "retrospective_date": "2025-11-07",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 147,
+          "quote": "Dated: November 7 , 2025",
+          "span": {
+            "start": 31663,
+            "end": 31687
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/020__chelsea-montes-v-suns-legacy-partners-llc__initial-complaint.txt",
+      "source_sha256": "a3a6f8c291741fe8171500ba910422e0d1c04cfe7e5f0b29697298339ec9d36c",
+      "retrospective_date": "2025-04-18",
+      "basis": "document_executed",
+      "evidence": [
+        {
+          "line": 451,
+          "quote": "EXECUTED this 1 8 th day of April 2025.",
+          "span": {
+            "start": 48077,
+            "end": 48116
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/021__chelsea-montes-v-suns-legacy-partners-llc__response-to-defendant-s-motion-to-dismiss.txt",
+      "source_sha256": "713697b34b4376b700c534ec80423eae044f58a0c4de9528f57f8e042c175c7e",
+      "retrospective_date": "2025-06-12",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 249,
+          "quote": "DATED this 12 th day of June 2025.",
+          "span": {
+            "start": 39458,
+            "end": 39492
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/022__chelsea-montes-v-suns-legacy-partners-llc__reply-in-support-of-plaintiff-s-motion-to-proceed-anony.txt",
+      "source_sha256": "38a28df58210831eccc914dac92ae764b69dc26ecf9c5f4dd053d80ebbec227d",
+      "retrospective_date": "2025-06-12",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 196,
+          "quote": "DATED this 12 th day of June 2025.",
+          "span": {
+            "start": 30294,
+            "end": 30328
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/023__chelsea-montes-v-suns-legacy-partners-llc__reply-in-support-of-plaintiff-s-motion-for-leave-to-fil.txt",
+      "source_sha256": "9040454d078e84960c14d13f047d36237e210b5e7c1caac5d4bc645736b2e8bb",
+      "retrospective_date": "2025-06-24",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 165,
+          "quote": "DATED this 24th day of June 2025.",
+          "span": {
+            "start": 19992,
+            "end": 20025
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/024__elbert-coleman-iii-elbert-coleman-iv-v-nexo-capital-inc__brief-in-opposition.txt",
+      "source_sha256": "c7ee427b869cdce16117f2c1da6a5e6f18ddd6ff302df0d4ffe869025bfa5f4e",
+      "retrospective_date": "2025-01-17",
+      "basis": "document_executed",
+      "evidence": [
+        {
+          "line": 176,
+          "quote": "Executed on 01/17/25",
+          "span": {
+            "start": 10548,
+            "end": 10568
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/025__andrea-k-tantaros-v-fox-news-network-llc-et-al__opposition-to-brown-s-motion-to-dismiss-the-complaint.txt",
+      "source_sha256": "603fb43ecb0dc3592f7226e3d4621cbc4d61f773b757191037710ed9a733281d",
+      "retrospective_date": "2025-07-10",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 133,
+          "quote": "Date: July 10, 2025",
+          "span": {
+            "start": 24280,
+            "end": 24299
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "primary",
+      "source_txt": "data/primary/documents_txt/026__the-advocates-for-human-rights-and-l-h-m-v-u-s-departme__opposition-brief.txt",
+      "source_sha256": "f0280cae777b68884abc7af80100c338604a6a638f766a5e1bf33a7c44d7bd31",
+      "retrospective_date": "2026-03-12",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 210,
+          "quote": "Dated: March 12, 2026",
+          "span": {
+            "start": 41317,
+            "end": 41338
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "hallucination-set-1",
+      "source_txt": "data/hallucination-set-1/filings_txt/62980057_174.txt",
+      "source_sha256": "023c7017e2bc43f6f698322ddb7e3c5904b7bfc722a4ba6dc8cddd721fdb4b58",
+      "retrospective_date": "2025-05-07",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 27,
+          "quote": "Dated: May 7,  2025.",
+          "span": {
+            "start": 4840,
+            "end": 4860
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "hallucination-set-1",
+      "source_txt": "data/hallucination-set-1/filings_txt/67006237_92.txt",
+      "source_sha256": "17f4e73fa019c367ded1a7562a26ac854dd0100d01a83e4a735b801719239eb3",
+      "retrospective_date": "2025-11-12",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 149,
+          "quote": "Dated: November 12, 2025",
+          "span": {
+            "start": 10934,
+            "end": 10958
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "hallucination-set-1",
+      "source_txt": "data/hallucination-set-1/filings_txt/67673016_163.txt",
+      "source_sha256": "b28eb41712d017343bbaec3c199015a21cd63240704bfa1e38e8206715d6c975",
+      "retrospective_date": "2025-04-30",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 277,
+          "quote": "Dated: April 30, 2025",
+          "span": {
+            "start": 73266,
+            "end": 73287
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "hallucination-set-1",
+      "source_txt": "data/hallucination-set-1/filings_txt/68152794_45.txt",
+      "source_sha256": "512c8e7ee5a8204cd0c148eac8dc43303767754c1f07db4bfd5f4b068bfe93e0",
+      "retrospective_date": "2025-04-21",
+      "basis": "letter_date",
+      "evidence": [
+        {
+          "line": 1,
+          "quote": "April 21, 2025",
+          "span": {
+            "start": 0,
+            "end": 14
+          }
+        },
+        {
+          "line": 3,
+          "quote": "VIA ECF The Honorable Rachel P. Kovner United States District Judge Eastern District of New York 225 Cadman Plaza East Brooklyn, New York 11201",
+          "span": {
+            "start": 16,
+            "end": 159
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "hallucination-set-1",
+      "source_txt": "data/hallucination-set-1/filings_txt/69550312_20.txt",
+      "source_sha256": "93965f1adf206d5fc34a1e6aea6ee274c7b02e15af5fc0176afaabf5ed626681",
+      "retrospective_date": null,
+      "basis": null,
+      "evidence": [
+        {
+          "line": 217,
+          "quote": "Respectfully submitted,",
+          "span": {
+            "start": 23763,
+            "end": 23786
+          }
+        },
+        {
+          "line": 239,
+          "quote": "instrument was forwarded to the United States Attorney's Office via CM/ECF system on this 7th",
+          "span": {
+            "start": 24158,
+            "end": 24251
+          }
+        },
+        {
+          "line": 241,
+          "quote": "day of March 2025.",
+          "span": {
+            "start": 24253,
+            "end": 24271
+          }
+        }
+      ],
+      "missing_reason": "The certificate gives a service day, but the document has no separate dated or signed day."
+    },
+    {
+      "set": "hallucination-set-1",
+      "source_txt": "data/hallucination-set-1/filings_txt/69843456_10.txt",
+      "source_sha256": "7bfe03beb23015f033de51a0e0a87ca26c2095066c4b47da33fbd503e0d0a8ab",
+      "retrospective_date": "2025-05-15",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 147,
+          "quote": "DATED",
+          "span": {
+            "start": 6626,
+            "end": 6631
+          }
+        },
+        {
+          "line": 149,
+          "quote": ": May 15, 2025",
+          "span": {
+            "start": 6633,
+            "end": 6647
+          }
+        },
+        {
+          "line": 151,
+          "quote": "Respectfully submitted,",
+          "span": {
+            "start": 6649,
+            "end": 6672
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "hallucination-set-1",
+      "source_txt": "data/hallucination-set-1/filings_txt/69855528_51.txt",
+      "source_sha256": "8699ea36d4a9bf0cd441a822cc9a448396ab8b4f8b80390a29c11194408f391f",
+      "retrospective_date": "2025-05-29",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 37,
+          "quote": "5. Dated: May 29, 2025 49",
+          "span": {
+            "start": 3845,
+            "end": 3870
+          }
+        },
+        {
+          "line": 38,
+          "quote": "6. Respectfully submitted, 50",
+          "span": {
+            "start": 3871,
+            "end": 3900
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "hallucination-set-1",
+      "source_txt": "data/hallucination-set-1/filings_txt/70607460_15.txt",
+      "source_sha256": "777a3306935e37b9f9e622f59a531e969a6ae9b8fe7bf32280180f0747ccb788",
+      "retrospective_date": "2025-10-13",
+      "basis": "submission_date",
+      "evidence": [
+        {
+          "line": 180,
+          "quote": "October 13, 2025",
+          "span": {
+            "start": 35847,
+            "end": 35863
+          }
+        },
+        {
+          "line": 182,
+          "quote": "Respectfully Submitted,",
+          "span": {
+            "start": 35865,
+            "end": 35888
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "hallucination-set-1",
+      "source_txt": "data/hallucination-set-1/filings_txt/70655948_74.txt",
+      "source_sha256": "4a8925e16dc3631b62566bee92a562e9825fe5af9c87345a4854c2e74a30fa06",
+      "retrospective_date": "2025-08-20",
+      "basis": "document_executed",
+      "evidence": [
+        {
+          "line": 249,
+          "quote": "AVOUCHMENT / VERIFICATION",
+          "span": {
+            "start": 88463,
+            "end": 88488
+          }
+        },
+        {
+          "line": 255,
+          "quote": "Executed in   Charleston   County, republic land of   South   Carolina   on this   20th   day of   August in the Year of Our Lord   Two Thousand and Twenty Five  .",
+          "span": {
+            "start": 89314,
+            "end": 89477
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "hallucination-set-1",
+      "source_txt": "data/hallucination-set-1/filings_txt/72299304_24_1.txt",
+      "source_sha256": "9cf19f32d6321918fd0fc89858edf284f7b130a05e4ee557ae4fc1b868bbb6e0",
+      "retrospective_date": "2026-03-31",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 257,
+          "quote": "Dated: March 31, 2026",
+          "span": {
+            "start": 52089,
+            "end": 52110
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "hallucination-set-2",
+      "source_txt": "data/hallucination-set-2/filings_txt/15663311_149.txt",
+      "source_sha256": "70a4c3730de0eab4ce687694e976ea895f152425ed07f7f7875d6f696c54766c",
+      "retrospective_date": "2025-10-10",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 146,
+          "quote": "Respectfully submitted,",
+          "span": {
+            "start": 36891,
+            "end": 36914
+          }
+        },
+        {
+          "line": 148,
+          "quote": "Michael C. Hild Pro Se Defendant 2302EMarshallStreet Richmond, VA 23223 804.306.4314 Date:October10,2025",
+          "span": {
+            "start": 36916,
+            "end": 37020
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "hallucination-set-2",
+      "source_txt": "data/hallucination-set-2/filings_txt/67673016_143.txt",
+      "source_sha256": "e0237df912d148d4fb86b055a77d42e424fe5b803aa8cb9626fc10fe4a7000f1",
+      "retrospective_date": "2025-04-11",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 277,
+          "quote": "Dated: April 11, 2025",
+          "span": {
+            "start": 73588,
+            "end": 73609
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "hallucination-set-2",
+      "source_txt": "data/hallucination-set-2/filings_txt/68658788_65.txt",
+      "source_sha256": "81536790b86863a9179a256c66afc1fda28a06fbed7aea7b6dd4889fbfecc6a2",
+      "retrospective_date": "2025-06-12",
+      "basis": "submission_date",
+      "evidence": [
+        {
+          "line": 177,
+          "quote": "THIS, the 12th day of June, 2025.",
+          "span": {
+            "start": 60444,
+            "end": 60477
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "hallucination-set-2",
+      "source_txt": "data/hallucination-set-2/filings_txt/69412014_46.txt",
+      "source_sha256": "47b1ba1cb699f69137b2bb0c13443e59a5e80aed5dbc19094d5fdbb830000ca8",
+      "retrospective_date": "2025-06-02",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 190,
+          "quote": "Dated:",
+          "span": {
+            "start": 28521,
+            "end": 28527
+          }
+        },
+        {
+          "line": 192,
+          "quote": "June 2, 2025",
+          "span": {
+            "start": 28529,
+            "end": 28541
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "hallucination-set-2",
+      "source_txt": "data/hallucination-set-2/filings_txt/69605230_11.txt",
+      "source_sha256": "860c9dc2cb016bbf71a9cb685eb44ee373cd9e2a35946d6df0f86ec5261a22cd",
+      "retrospective_date": "2025-04-07",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 165,
+          "quote": "Dated: April 7, 2025",
+          "span": {
+            "start": 17598,
+            "end": 17618
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "hallucination-set-2",
+      "source_txt": "data/hallucination-set-2/filings_txt/69605230_18.txt",
+      "source_sha256": "2a38ea3bde536a01ba3486a4819659bb594eb5df9d84754e11e6e5886c507f69",
+      "retrospective_date": null,
+      "basis": null,
+      "evidence": [
+        {
+          "line": 89,
+          "quote": "Respectfully submitted,",
+          "span": {
+            "start": 5622,
+            "end": 5645
+          }
+        },
+        {
+          "line": 99,
+          "quote": "I certify-that on _April  18, 2025, a true and correct copy of  the foregoing Response was served via CM/ECF I EMAIL on all counsel of  record.",
+          "span": {
+            "start": 5791,
+            "end": 5934
+          }
+        }
+      ],
+      "missing_reason": "The certificate gives a service day, but the document has no separate dated or signed day."
+    },
+    {
+      "set": "hallucination-set-2",
+      "source_txt": "data/hallucination-set-2/filings_txt/69713591_23.txt",
+      "source_sha256": "303cf0f5f6a6e63c1d317a5cdb025f7721cb205c9dbe68d30829a9327afeb704",
+      "retrospective_date": "2025-05-16",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 131,
+          "quote": "DATED: May 16, 2025",
+          "span": {
+            "start": 18765,
+            "end": 18784
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "hallucination-set-2",
+      "source_txt": "data/hallucination-set-2/filings_txt/70495110_84.txt",
+      "source_sha256": "20d14f3df3df915d4f7f12fcc52a2d800e5ae049e9b38da7c3a23a25b53911cd",
+      "retrospective_date": null,
+      "basis": null,
+      "evidence": [
+        {
+          "line": 194,
+          "quote": "Respectfully submitted,",
+          "span": {
+            "start": 27586,
+            "end": 27609
+          }
+        },
+        {
+          "line": 196,
+          "quote": "Charles C. Force, Pro Se 3735 Rubin Road Jacksonville, Florida 32257 305-587-1901. force@countermail.com",
+          "span": {
+            "start": 27611,
+            "end": 27715
+          }
+        },
+        {
+          "line": 200,
+          "quote": "I hereby certify that on jV 4 o, I served a true and correct copy of the foregoing via U.s. First-Class Mail to the following counsels of record:",
+          "span": {
+            "start": 27741,
+            "end": 27886
+          }
+        }
+      ],
+      "missing_reason": "The signature or submission block has no day."
+    },
+    {
+      "set": "hallucination-set-2",
+      "source_txt": "data/hallucination-set-2/filings_txt/71231282_86.txt",
+      "source_sha256": "b66086eb2104081cfd620bf24b8871c43f0a654debc8e1b5fd65893bef53ac85",
+      "retrospective_date": null,
+      "basis": null,
+      "evidence": [
+        {
+          "line": 124,
+          "quote": "W. ELLIS BOYLE United States Attorney",
+          "span": {
+            "start": 11809,
+            "end": 11846
+          }
+        },
+        {
+          "line": 138,
+          "quote": "I do hereby certify that I have this 23rd day of December, 2025, served a copy of the foregoing upon the below listed party electronically using the CM/ECF system or by placing a copy of the same in the U.S. Mail, addressed as follows:",
+          "span": {
+            "start": 12123,
+            "end": 12358
+          }
+        }
+      ],
+      "missing_reason": "The certificate gives a service day, but the document has no separate dated or signed day."
+    },
+    {
+      "set": "hallucination-set-2",
+      "source_txt": "data/hallucination-set-2/filings_txt/72299304_28.txt",
+      "source_sha256": "f7ca1da4962e720956e86ffc8caf709f3f038b3327f0d3c076473c02435c6ab1",
+      "retrospective_date": "2026-05-20",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 103,
+          "quote": "May 20, 2026",
+          "span": {
+            "start": 13472,
+            "end": 13484
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "reliable-high-profile",
+      "source_txt": "data/reliable-high-profile/filings_txt/19-1392_196237.txt",
+      "source_sha256": "cf3b1d153250f11446113ede7350c88912c53d9007ef60c68479b0e24c8a4940",
+      "retrospective_date": "2021-10-13",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 193,
+          "quote": "October 13, 2021",
+          "span": {
+            "start": 50663,
+            "end": 50679
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "reliable-high-profile",
+      "source_txt": "data/reliable-high-profile/filings_txt/21-1496_254539.txt",
+      "source_sha256": "1bd09315d97284623acc065d8c1d4dfc95a6e55681c13203eee0a9e3a378f011",
+      "retrospective_date": null,
+      "basis": null,
+      "evidence": [
+        {
+          "line": 208,
+          "quote": "Respectfully submitted.",
+          "span": {
+            "start": 56211,
+            "end": 56234
+          }
+        },
+        {
+          "line": 213,
+          "quote": "FEBRUARY 2023",
+          "span": {
+            "start": 57065,
+            "end": 57078
+          }
+        }
+      ],
+      "missing_reason": "The document supplies a month and year, but no exact day for a retrospective cutoff."
+    },
+    {
+      "set": "reliable-high-profile",
+      "source_txt": "data/reliable-high-profile/filings_txt/22-915_286059.txt",
+      "source_sha256": "56177e4b39a2210b946a6eb11be6a9788da581480abbee4700f75eee9cfc8f98",
+      "retrospective_date": null,
+      "basis": null,
+      "evidence": [
+        {
+          "line": 158,
+          "quote": "Respectfully submitted.",
+          "span": {
+            "start": 52283,
+            "end": 52306
+          }
+        },
+        {
+          "line": 160,
+          "quote": "OCTOBER 2023",
+          "span": {
+            "start": 52308,
+            "end": 52320
+          }
+        }
+      ],
+      "missing_reason": "The document supplies a month and year, but no exact day for a retrospective cutoff."
+    },
+    {
+      "set": "reliable-high-profile",
+      "source_txt": "data/reliable-high-profile/filings_txt/23-235_303109.txt",
+      "source_sha256": "8d04ac5b98811acdfedb256bf37c013ec5499eb1d0db7ff35be54b444a366e75",
+      "retrospective_date": null,
+      "basis": null,
+      "evidence": [
+        {
+          "line": 327,
+          "quote": "The Fifth Circuit's judgment should be reversed. Respectfully submitted,",
+          "span": {
+            "start": 56898,
+            "end": 56970
+          }
+        },
+        {
+          "line": 334,
+          "quote": "MARCH 2024",
+          "span": {
+            "start": 57912,
+            "end": 57922
+          }
+        }
+      ],
+      "missing_reason": "The document supplies a month and year, but no exact day for a retrospective cutoff."
+    },
+    {
+      "set": "reliable-high-profile",
+      "source_txt": "data/reliable-high-profile/filings_txt/4234232_20220812.txt",
+      "source_sha256": "3aa6dedbcb571aec61940fcde6a0a6b5cef3816e5bdc9cae74482fc45779f876",
+      "retrospective_date": "2022-08-12",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 257,
+          "quote": "Dated:",
+          "span": {
+            "start": 79098,
+            "end": 79104
+          }
+        },
+        {
+          "line": 259,
+          "quote": "August 12, 2022",
+          "span": {
+            "start": 79106,
+            "end": 79121
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "reliable-high-profile",
+      "source_txt": "data/reliable-high-profile/filings_txt/63113826_21.txt",
+      "source_sha256": "2ec3c923c6ec4e47148646b7d21d84b039cd603eafb4d1f4465fa85ef02ad23c",
+      "retrospective_date": "2022-07-01",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 267,
+          "quote": "Dated: July 1, 2022",
+          "span": {
+            "start": 54741,
+            "end": 54760
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "reliable-high-profile",
+      "source_txt": "data/reliable-high-profile/filings_txt/6327062_77_1.txt",
+      "source_sha256": "e043ae977008ad79b784b6bb09442a13349c0e23e58fe4a17bb3ae37ac06c18b",
+      "retrospective_date": "2018-05-04",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 212,
+          "quote": "Dated:  May 4, 2018",
+          "span": {
+            "start": 59346,
+            "end": 59365
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "reliable-high-profile",
+      "source_txt": "data/reliable-high-profile/filings_txt/67840811_87.txt",
+      "source_sha256": "023829e0ff27b1639df9abc27127205ea6b336ff00771dd405cc3980a89955f6",
+      "retrospective_date": "2024-01-26",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 204,
+          "quote": "Dated: January 26, 2024",
+          "span": {
+            "start": 66356,
+            "end": 66379
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "reliable-high-profile",
+      "source_txt": "data/reliable-high-profile/filings_txt/68557723_273.txt",
+      "source_sha256": "ab2256642a8fc6231030571b64c4150c3cbd6a80013f52186cfc3e937729bef3",
+      "retrospective_date": "2024-09-18",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 177,
+          "quote": "Dated: September 18, 2024",
+          "span": {
+            "start": 69847,
+            "end": 69872
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "reliable-high-profile",
+      "source_txt": "data/reliable-high-profile/filings_txt/72520538_28.txt",
+      "source_sha256": "158a8ed4c076cdd7ee41bca5bdef28f9354ead02eef85e9a760fe6657e3b856e",
+      "retrospective_date": "2026-05-18",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 324,
+          "quote": "DATED:  May 18, 2026",
+          "span": {
+            "start": 122344,
+            "end": 122364
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "reliable-low-profile",
+      "source_txt": "data/reliable-low-profile/filings_txt/68138504_37.txt",
+      "source_sha256": "7d31a1bc694ac968d6f85a9764c07630e08242ced46bcaee675b049dbd434890",
+      "retrospective_date": null,
+      "basis": null,
+      "evidence": [
+        {
+          "line": 365,
+          "quote": "Respectfully submitted,",
+          "span": {
+            "start": 66932,
+            "end": 66955
+          }
+        },
+        {
+          "line": 387,
+          "quote": "I hereby certify that on the 30th day of August 2024, I served a true and correct copy of the",
+          "span": {
+            "start": 67325,
+            "end": 67418
+          }
+        }
+      ],
+      "missing_reason": "The certificate gives a service day, but the document has no separate dated or signed day."
+    },
+    {
+      "set": "reliable-low-profile",
+      "source_txt": "data/reliable-low-profile/filings_txt/68272707_31.txt",
+      "source_sha256": "c8e93249aca6fb3002287e126319acdd72300be43deb56b9d8a110861a73ece3",
+      "retrospective_date": null,
+      "basis": null,
+      "evidence": [
+        {
+          "line": 461,
+          "quote": "Respectfully submitted,",
+          "span": {
+            "start": 97839,
+            "end": 97862
+          }
+        },
+        {
+          "line": 463,
+          "quote": "By: /s/ Glenn K. Vanzura Glenn K. Vanzura Jacqueline M. Vallette",
+          "span": {
+            "start": 97864,
+            "end": 97928
+          }
+        }
+      ],
+      "missing_reason": "The signature or submission block has no day."
+    },
+    {
+      "set": "reliable-low-profile",
+      "source_txt": "data/reliable-low-profile/filings_txt/68386642_33.txt",
+      "source_sha256": "26cbf8aaf137a25f5720e225b32ae5267c6295d304b775bb8e5e42153af02980",
+      "retrospective_date": "2024-10-11",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 241,
+          "quote": "Dated: October 11, 2024",
+          "span": {
+            "start": 70945,
+            "end": 70968
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "reliable-low-profile",
+      "source_txt": "data/reliable-low-profile/filings_txt/69026386_77.txt",
+      "source_sha256": "6f338598e45dbfa25f0d525cbb4f829589c6510c4e05c886a582fb5356b078ee",
+      "retrospective_date": "2025-04-07",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 225,
+          "quote": "Dated:  New York, New York April 7, 2025",
+          "span": {
+            "start": 70931,
+            "end": 70971
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "reliable-low-profile",
+      "source_txt": "data/reliable-low-profile/filings_txt/69183050_38.txt",
+      "source_sha256": "21d40c1a8611adc453cd5917f5553a7a1dcd5524897fbf628df4a056e2c03fa4",
+      "retrospective_date": "2025-09-26",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 241,
+          "quote": "Dated: September 26, 2025",
+          "span": {
+            "start": 54327,
+            "end": 54352
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "reliable-low-profile",
+      "source_txt": "data/reliable-low-profile/filings_txt/69194173_21.txt",
+      "source_sha256": "6b51496fac20fa2060a6b0aed456896a6dbafd1b4de4bb43f292169f978bc536",
+      "retrospective_date": "2025-05-23",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 224,
+          "quote": "Dated: May 23, 2025",
+          "span": {
+            "start": 73696,
+            "end": 73715
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "reliable-low-profile",
+      "source_txt": "data/reliable-low-profile/filings_txt/69221813_46_2.txt",
+      "source_sha256": "20298c55926c222f61b7d3d917ac6d1d6cc2b6f5c39a84a76661d43c2fc278c8",
+      "retrospective_date": "2025-06-27",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 332,
+          "quote": "Dated:   June 27, 2025",
+          "span": {
+            "start": 74778,
+            "end": 74800
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "reliable-low-profile",
+      "source_txt": "data/reliable-low-profile/filings_txt/69442946_13.txt",
+      "source_sha256": "77f947c7029e1134e4bb5f06cebec2c1814762fd060426de0af033b30a202a9b",
+      "retrospective_date": "2025-01-27",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 188,
+          "quote": "Dated:  January 27, 2025",
+          "span": {
+            "start": 48146,
+            "end": 48170
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "reliable-low-profile",
+      "source_txt": "data/reliable-low-profile/filings_txt/69933021_43.txt",
+      "source_sha256": "b1098f295507595b5df3a03ebe93f641657e5cfd4ea8e4a5fbfb747c6dbfe361",
+      "retrospective_date": "2025-12-17",
+      "basis": "submission_date",
+      "evidence": [
+        {
+          "line": 212,
+          "quote": "Respectfully submitted this 17th day of December, 2025.",
+          "span": {
+            "start": 44459,
+            "end": 44514
+          }
+        }
+      ],
+      "missing_reason": null
+    },
+    {
+      "set": "reliable-low-profile",
+      "source_txt": "data/reliable-low-profile/filings_txt/70448448_37.txt",
+      "source_sha256": "45a0430543ee268c9d396065e7665156844ce6c7b455ae3ce985f8f62591698f",
+      "retrospective_date": "2025-10-03",
+      "basis": "document_dated",
+      "evidence": [
+        {
+          "line": 231,
+          "quote": "DATED:  October 3, 2025",
+          "span": {
+            "start": 72628,
+            "end": 72651
+          }
+        }
+      ],
+      "missing_reason": null
+    }
+  ]
+}

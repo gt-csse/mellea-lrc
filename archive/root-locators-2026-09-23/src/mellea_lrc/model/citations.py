@@ -1,0 +1,613 @@
+"""Canonical citation representations shared across extraction and validation.
+
+These are project-level citation classes. Eyecite citations are converted into
+these canonical types before downstream validation and serialization.
+"""
+
+from dataclasses import dataclass, field, replace
+from enum import Enum
+from typing import Annotated, Literal, TypeAlias
+
+from pydantic import Field
+
+from mellea_lrc.model.case_names import CaseName
+from mellea_lrc.model.pin_cites import PinCite
+from mellea_lrc.model.spans import Span
+
+
+class CitationKind(str, Enum):
+    """Canonical citation type names used in annotation and serialization."""
+
+    FULL_CASE = "FullCaseCitation"
+    FULL_LAW = "FullLawCitation"
+    FULL_JOURNAL = "FullJournalCitation"
+    DOCKET = "DocketCitation"
+    SHORT_CASE = "ShortCaseCitation"
+    SUPRA = "SupraCitation"
+    ID = "IdCitation"
+    REFERENCE = "ReferenceCitation"
+    UNKNOWN = "UnknownCitation"
+
+
+class CitationField(str, Enum):
+    """Typed names of fields read from a citation in the document.
+
+    The citation kind determines which of these fields it can carry. Graph
+    links, retrieved records, and judgements are separate record state, not
+    fields that the filing itself states.
+    """
+
+    SPAN = "span"
+    LOCATOR_SPAN = "locator_span"
+    MATCHED_TEXT = "matched_text"
+    CASE_NAME = "case_name"
+    PLAINTIFF = "plaintiff"
+    DEFENDANT = "defendant"
+    VOLUME = "volume"
+    REPORTER = "reporter"
+    PAGE = "page"
+    PIN_CITE = "pin_cite"
+    EXTRA = "extra"
+    DATE = "date"
+    COURT = "court"
+    PARENTHETICAL = "parenthetical"
+    ANTECEDENT = "antecedent"
+    PUBLISHER = "publisher"
+    DOCKET_NUMBER = "docket_number"
+    DOCKET_ENTRY = "docket_entry"
+    COURT_NAME = "court_name"
+    COURT_TEXT = "court_text"
+
+
+class _KindedCitation:
+    """Keep a citation's runtime class and serialized kind in agreement."""
+
+    def __post_init__(self) -> None:
+        expected = type(self).__dataclass_fields__["kind"].default
+        if self.kind is not expected:
+            raise ValueError(f"{type(self).__name__} requires kind {expected.value!r}")
+
+
+# Full citations identify what they cite on their own; short citations
+# generally need an antecedent before they can be validated. A docket citation
+# belongs here on that test -- a docket number and its court name a case with
+# no help from the text around them -- even though the reporter-keyed case
+# search cannot look one up, which is a fact about that service and not about
+# the citation.
+FULL_CITATION_KINDS = frozenset(
+    {
+        CitationKind.FULL_CASE,
+        CitationKind.FULL_LAW,
+        CitationKind.FULL_JOURNAL,
+        CitationKind.DOCKET,
+    }
+)
+
+
+# A leaf's meaning is which root it points at. `UnknownCitation` is not one: it
+# is a span nothing read, and it claims no antecedent.
+LEAF_CITATION_KINDS = frozenset(
+    {
+        CitationKind.SHORT_CASE,
+        CitationKind.ID,
+        CitationKind.SUPRA,
+        CitationKind.REFERENCE,
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class Reporter:
+    """The reporter a citation names, as written and as the databases know it.
+
+    A filing writes one reporter several ways and extraction adds more. Across
+    the 26 documents of `false-citation-bench` there are **47 distinct reporter
+    spellings for 35 reporters**: `F.Supp.2d`, `F. Supp. 2d` and `F.  Supp.  2d`
+    are one thing, so are `N.C.App.` and `N.C. App.`, and so are `Fed. Appx.`,
+    `Fed. App'x` and `F. App'x` -- the last three being the filer's choice
+    rather than converter damage, which no amount of whitespace repair would
+    reconcile.
+
+    So the field is a reporter rather than a string. `as_written` is what the
+    document says, kept because this project records what was written; the rest
+    is what reporters-db knows about it, by way of the edition eyecite matched.
+
+    `cite_type` is worth having beyond tidiness: it says `federal`, `state`,
+    `journal` or `leg_statute`, which is a sourced answer to "is this a case at
+    all" in place of the reporter-name guessing done elsewhere.
+
+    `short_name` is None when no edition matched -- an unknown reporter is
+    recorded as written and not invented.
+    """
+
+    as_written: str
+    short_name: str | None = None
+    name: str | None = None
+    cite_type: str | None = None
+    is_scotus: bool = False
+    editions: tuple[str, ...] = ()
+    """Every reporter whose edition the abbreviation could name.
+
+    One entry is an answer and `short_name` carries it. More than one is an
+    **ambiguity left undecided**: `5 Cranch 137` is United States Reports and it
+    is also District of Columbia Reports, and nothing on the page says which.
+    eyecite settles that by asking which edition's years contain the citation's
+    year, and the two ways that goes wrong are both visible in one reporter --
+    `5 Cranch 137 (1803)`, which is Marbury, falls inside both ranges and gets no
+    edition at all, while `5 Cranch 137 (1830)` falls in only one and gets a
+    confident answer naming the wrong court.
+
+    So the tie is not broken here. `short_name` stays unset, `cite_type` and
+    `is_scotus` are kept only where every candidate agrees, and the choice is
+    reported to
+    :mod:`~mellea_lrc.extraction.adjudication.candidates.ambiguous_editions`.
+    """
+
+    @property
+    def canonical(self) -> str:
+        """The spelling to compare on: the database's, or ours if it has none."""
+        return self.short_name or self.as_written
+
+    def __str__(self) -> str:
+        """The reporter as the document wrote it."""
+        return self.as_written
+
+
+@dataclass(frozen=True, slots=True)
+class CitationDate:
+    """The decision date a citation states, to whatever precision it states it.
+
+    A filing writes `(2007)` for a reported case and `(D. Ariz. Oct. 31, 2024)`
+    for an unpublished one, and the difference carries information: 58 of the
+    583 case citations on `false-citation-bench` give a full date, and they are
+    disproportionately the Westlaw and LEXIS citations, which are exactly the
+    ones a year alone cannot tell apart.
+
+    So the field is a date rather than a year. `year` is always present -- a
+    date without one identifies nothing -- and `month` and `day` come together
+    or not at all, which is what the corpus shows: no citation there states a
+    month without a day.
+
+    Values are kept as the citation wrote them. Comparing them to a retrieved
+    opinion is a separate step that has to be testable on its own.
+    """
+
+    year: str
+    month: str | None = None
+    day: str | None = None
+
+    @property
+    def is_exact(self) -> bool:
+        """Whether this names a single day rather than a year."""
+        return self.month is not None and self.day is not None
+
+    def __str__(self) -> str:
+        """The date roughly as a citation writes it."""
+        if self.is_exact:
+            return f"{self.month} {self.day}, {self.year}"
+        return self.year
+
+
+@dataclass(frozen=True, slots=True)
+class FullCaseCitation(_KindedCitation):
+    """Complete citation to a reported case."""
+
+    kind: Literal[CitationKind.FULL_CASE] = field(default=CitationKind.FULL_CASE, kw_only=True)
+
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.model.case_names.CaseName`.
+    """
+
+    plaintiff: str | None = None
+    defendant: str | None = None
+    volume: str | None = None
+    reporter: Reporter | str | None = None
+    page: str | None = None
+    pin_cite: PinCite | str | None = None
+    extra: str | None = None
+    date: CitationDate | None = None
+    court: str | None = None
+    parenthetical: str | None = None
+    antecedent: str | None = None
+    """A party name read from the text when the case name would not parse.
+
+    Normally a full citation has `plaintiff` and `defendant` and this is unset.
+    It fills in for them when the name ahead of the locator is not a `v.` pair:
+    document 007 writes `Electromedicina , 369 F.3d 645 (2 nd Cir. 2004)`, and
+    without this field that citation carries no party name at all.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class FullLawCitation(_KindedCitation):
+    """Citation to a statute, regulation, or code section."""
+
+    kind: Literal[CitationKind.FULL_LAW] = field(default=CitationKind.FULL_LAW, kw_only=True)
+
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.model.case_names.CaseName`.
+    """
+
+    volume: str | None = None
+    reporter: Reporter | str | None = None
+    page: str | None = None
+    pin_cite: PinCite | str | None = None
+    date: CitationDate | None = None
+    publisher: str | None = None
+    parenthetical: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FullJournalCitation(_KindedCitation):
+    """Citation to a law review or journal article."""
+
+    kind: Literal[CitationKind.FULL_JOURNAL] = field(default=CitationKind.FULL_JOURNAL, kw_only=True)
+
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.model.case_names.CaseName`.
+    """
+
+    volume: str | None = None
+    reporter: Reporter | str | None = None
+    page: str | None = None
+    pin_cite: PinCite | str | None = None
+    date: CitationDate | None = None
+    parenthetical: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DocketEntry:
+    """A particular filing or attachment on a case docket, as written.
+
+    A docket entry refines a :class:`DocketCitation`; it never replaces the
+    case docket.  ``Doc. 75, Case No. 6:24-cv-01143`` therefore has a case
+    identifier and entry ``75``.  ``Case No. 6:24-cv-01143`` has the same kind
+    of case identifier with ``docket_entry=None``.  The number remains a
+    string because entries such as ``10-1`` identify an attachment and because
+    no stage should silently normalize what the filing wrote.
+    """
+
+    number: str
+    span: Span
+
+
+@dataclass(frozen=True, slots=True)
+class DocketCitation(_KindedCitation):
+    """A case docket, optionally narrowed to one filed docket entry.
+
+    The court is often needed to resolve a docket: the same number can exist
+    in many districts.  Locator discovery nevertheless records a labelled
+    docket before court reading, because a court is context written after the
+    locator or inferred from a co-located reporter.  A courtless value therefore
+    means "not yet read" rather than "not a docket citation"; validation can
+    decide later whether the resulting identifier resolves.
+
+    ``docket_number`` is kept as the filing wrote it, damage included --
+    ``1:25cv-05745-RPK`` is a real citation in false-citation-bench, missing the
+    hyphen its converter dropped. Normalizing it here would hide from a reader
+    what the document actually says, which is the one thing a verification tool
+    must not do.
+    """
+
+    kind: Literal[CitationKind.DOCKET] = field(default=CitationKind.DOCKET, kw_only=True)
+
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.model.case_names.CaseName`.
+    """
+
+    plaintiff: str | None = None
+    defendant: str | None = None
+    docket_number: str | None = None
+    docket_entry: DocketEntry | None = None
+    """The stated ``Doc.``, ``Dkt.``, or ``ECF`` entry, when one is written.
+
+    A citation may identify a case while referring to a particular filed
+    document, rather than an opinion.  Absence means the filing states no entry
+    number; it does not mean that the citation fails to identify a case docket.
+    """
+    court: str | None = None
+    """The courts-db identifier, e.g. ``nyed``."""
+    court_name: str | None = None
+    court_text: str | None = None
+    """The court exactly as the filing wrote it, e.g. ``E.D.N.Y.``."""
+    pin_cite: PinCite | str | None = None
+    date: CitationDate | None = None
+    parenthetical: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ShortCaseCitation(_KindedCitation):
+    """Subsequent reference using volume + reporter + pin cite."""
+
+    kind: Literal[CitationKind.SHORT_CASE] = field(default=CitationKind.SHORT_CASE, kw_only=True)
+
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.model.case_names.CaseName`.
+    """
+
+    volume: str | None = None
+    reporter: Reporter | str | None = None
+    page: str | None = None
+    pin_cite: PinCite | str | None = None
+    court: str | None = None
+    date: CitationDate | None = None
+    parenthetical: str | None = None
+    antecedent: str | None = None
+    """The party name the short form is written under, e.g. `Iqbal`.
+
+    A short citation states a volume, a reporter and a page, and no case name;
+    on `false-citation-bench` 32 of 33 of them are written next to one anyway.
+    That name is the only identity the occurrence carries on its own, so a
+    reader checking `695 F.Supp.2d at 1154` against the authority it was
+    attributed to has nothing else to compare.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class SupraCitation(_KindedCitation):
+    """Reference using party name + supra."""
+
+    kind: Literal[CitationKind.SUPRA] = field(default=CitationKind.SUPRA, kw_only=True)
+
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.model.case_names.CaseName`.
+    """
+
+    volume: str | None = None
+    """The volume a numbered supra states, as in `Smith, 5 supra, at 10`."""
+    pin_cite: PinCite | str | None = None
+    parenthetical: str | None = None
+    antecedent: str | None = None
+    """The party name ahead of `supra`, which is the whole of its identity."""
+
+
+@dataclass(frozen=True, slots=True)
+class IdCitation(_KindedCitation):
+    """Reference using Id. or Ibid."""
+
+    kind: Literal[CitationKind.ID] = field(default=CitationKind.ID, kw_only=True)
+
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.model.case_names.CaseName`.
+    """
+
+    pin_cite: PinCite | str | None = None
+    parenthetical: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReferenceCitation(_KindedCitation):
+    """Bare party-name reference with no reporter information."""
+
+    kind: Literal[CitationKind.REFERENCE] = field(default=CitationKind.REFERENCE, kw_only=True)
+
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.model.case_names.CaseName`.
+    """
+
+    plaintiff: str | None = None
+    defendant: str | None = None
+    pin_cite: PinCite | str | None = None
+    """The page a bare-name reference points at, as in `Bell at 546`.
+
+    A reference states no reporter, so the page is the only thing about it that
+    can be wrong on its own terms -- and it is stated on every reference
+    `false-citation-bench` contains.
+    """
+    parenthetical: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class UnknownCitation(_KindedCitation):
+    """Span that looks like a citation but cannot be parsed."""
+
+    kind: Literal[CitationKind.UNKNOWN] = field(default=CitationKind.UNKNOWN, kw_only=True)
+
+    span: Span | None = None
+    """Where the whole citation is written: name, locator, pin cite, parenthetical."""
+    locator_span: Span | None = None
+    """Where the identifier alone is written, which is what a lookup resolves."""
+    matched_text: str | None = None
+    """The characters the parse matched: the locator, not the whole citation.
+
+    eyecite's own, kept as it read them. What the document holds at `span` is a
+    slice of the document, which the caller has; this is the narrower thing the
+    parse actually saw.
+    """
+    case_name: CaseName | None = None
+    """The name this citation is written under, or `None` where it states none.
+
+    A span, a quotation and two parties, because a case name is not always two
+    parties: `In re Flint Water Cases` is a whole name. See
+    :class:`~mellea_lrc.model.case_names.CaseName`.
+    """
+
+
+CanonicalCitation: TypeAlias = Annotated[
+    (
+        FullCaseCitation
+        | FullLawCitation
+        | FullJournalCitation
+        | DocketCitation
+        | ShortCaseCitation
+        | SupraCitation
+        | IdCitation
+        | ReferenceCitation
+        | UnknownCitation
+    ),
+    Field(discriminator="kind"),
+]
+
+
+_CITATION_TYPES: dict[CitationKind, type[CanonicalCitation]] = {
+    CitationKind.FULL_CASE: FullCaseCitation,
+    CitationKind.FULL_LAW: FullLawCitation,
+    CitationKind.FULL_JOURNAL: FullJournalCitation,
+    CitationKind.DOCKET: DocketCitation,
+    CitationKind.SHORT_CASE: ShortCaseCitation,
+    CitationKind.SUPRA: SupraCitation,
+    CitationKind.ID: IdCitation,
+    CitationKind.REFERENCE: ReferenceCitation,
+    CitationKind.UNKNOWN: UnknownCitation,
+}
+
+
+def empty_citation(kind: CitationKind) -> CanonicalCitation:
+    """Create the field schema selected by the immutable citation kind."""
+    return _CITATION_TYPES[kind]()
+
+
+def citation_kind(citation: CanonicalCitation) -> CitationKind:
+    """Return the canonical type name for a citation."""
+    return citation.kind
+
+
+def is_full_citation(citation: CanonicalCitation) -> bool:
+    """Return True when the citation is a self-contained bibliographic cite."""
+    return citation.kind in FULL_CITATION_KINDS
+
+
+def is_leaf(citation: CanonicalCitation) -> bool:
+    """Return True when the citation's meaning is which other citation it points at.
+
+    A **root** states a complete identifier and means something on its own. A
+    **leaf** does not: `556 U.S. at 678` is characters anyone can read, and what
+    it claims is page 678 of a case those characters do not name. So a leaf
+    without a root is not an incomplete citation, it is a citation of nothing,
+    and `CitationRecord` refuses to hold one.
+
+    `UnknownCitation` is neither. It is a span the tokenizer matched and nothing
+    read -- a bare `§` -- and it makes no claim to be attached to anything.
+    """
+    return citation.kind in LEAF_CITATION_KINDS
+
+
+def placed(citation: CanonicalCitation, **where: object) -> CanonicalCitation:
+    """The same citation, knowing where in a document it is written.
+
+    The position belongs to the citation rather than beside it, so this is how
+    it gets there: one call, at the moment a parse becomes a citation in a
+    document. Only the keys given are set, so a pin cite already read is not
+    wiped by a caller that only knows the span.
+    """
+    return replace(citation, **where)  # type: ignore[arg-type]

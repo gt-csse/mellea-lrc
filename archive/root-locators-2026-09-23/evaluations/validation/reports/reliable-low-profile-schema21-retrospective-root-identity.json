@@ -1,0 +1,50 @@
+{
+  "annotations": "data/reliable-low-profile/documents",
+  "artifact_type": "root_identity_score",
+  "artifacts": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/run-artifacts/54-schema21-reliable-low-profile-v1/shared_body_evidence_review",
+  "corpus_manifest": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/run-artifacts/54-schema21-reliable-low-profile-v1/corpus-manifest.json",
+  "decision": {
+    "accuracy": 1.0,
+    "correct": 27,
+    "decided": 27,
+    "deferred_or_unreached": 417
+  },
+  "document_count": 8,
+  "incorrect_admissions": [],
+  "incorrect_rejections": [],
+  "labeled_roots": 444,
+  "outcome_by_gold_label": {
+    "deferred_to_open_web_search": {
+      "correct_identity": 55,
+      "wrong_identity": 0
+    },
+    "not_reached": {
+      "correct_identity": 2,
+      "wrong_identity": 0
+    },
+    "resolved": {
+      "correct_identity": 27,
+      "wrong_identity": 0
+    },
+    "unjudged": {
+      "correct_identity": 354,
+      "wrong_identity": 6
+    }
+  },
+  "positive_admission": {
+    "f1": 0.11612903225806451,
+    "fn": 411,
+    "fp": 0,
+    "gold": 438,
+    "precision": 1.0,
+    "predicted": 27,
+    "recall": 0.06164383561643835,
+    "tp": 27
+  },
+  "scope": "retrospective_evaluable_documents",
+  "stage_coverage": {
+    "gold": 444,
+    "not_reached": 2,
+    "reached": 442
+  }
+}

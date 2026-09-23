@@ -1,0 +1,250 @@
+{
+  "artifact_type": "dev_scoped_model_replay",
+  "source_artifact": "data/run-artifacts/54-primary-durable-case-name-rerun-v1/full_reporter_locator_unique_identity/008__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition.json",
+  "citation_id": "77764530",
+  "annotation_id": "008-o03",
+  "locator": "139 A.D.3d 695",
+  "source_case_name": "Cadle Co. v. Ayala",
+  "retrieved_case_name": "Ramirez v. City of New York",
+  "gold_label": "WRONG_IDENTITY",
+  "exact_lookup_candidate_count": 1,
+  "historical": {
+    "model": "openai/gpt-6-luna",
+    "request": [
+      {
+        "content": "The filing contains one target complete citation marked by locator. Read only\nlocal_context and the complete list of retrieved candidates. Select the single\ncandidate that best represents that citation, or return no_match when none is\nsupportable from the stated fields.\n\nEvery candidate shown is a retrieved possibility. Consider every one, including\ncandidates whose preliminary field assessment says mismatch or partial_match:\nthose assessments are evidence, not a final selection. Do not use outside\nknowledge, change the stated locator, invent a field, or select multiple\ncandidates. Field re-extraction and correction are separate stages, already\ncompleted or deliberately omitted by the caller; do not re-extract fields here.\nIf a candidate carries a reviewed local case name, use it as evidence of that\nseparate review; do not assume every candidate was re-extracted.\n\nA candidate marked selection_eligible is one the caller permits you to choose;\nthe flag alone does not prove identity or verify the locator, court, or date.\nEvaluate whether the stated and retrieved case names plausibly identify the\nsame matter: ordinary abbreviation, an added or omitted party, or a legal-entity\nsuffix can be compatible; different parties without supporting evidence are\nnot. Do not let a name resemblance override a stated court or date\ncontradiction.\n\nFor docket-derived candidates, docket numbers can have different written forms\nfor the same case. Compare the forms semantically rather than requiring their\nstrings to be identical.\n\nFor a docket-derived candidate, case_filed_year is the date the case began.\nIt is not the date of an order or opinion cited in local_context, so it cannot\ndirectly verify that citation's decision date. It can only establish whether\nthe dates are chronologically compatible.",
+        "role": "system"
+      },
+      {
+        "content": "locator:\n139 A.D.3d 695\n\nreviewed_candidates_json:\n[{\"candidate_index\":1,\"selection_eligible\":true,\"case_name\":\"Ramirez v. City of New York\",\"local_case_name\":\"Cadle Co. v. Ayala\",\"local_case_name_evidence\":\"mellea_reextracted\",\"court_id\":\"nyappdiv\",\"docket_id\":\"3060844\",\"docket_number\":null,\"preliminary_assessment\":\"mismatch\",\"field_assessments\":{\"case_name\":\"mismatch\",\"year\":\"match\",\"court\":\"match\"},\"decision_year\":\"2016\"}]\nFulfill the following requirements:\n* Return exactly one JSON object matching the required output schema.\nHere is some grounding context:\n*   [local_context] =                                                                                                                                                                  .......................... [8]  TABLE OF AUTHORITIES  Cases  page  •  Bank of Am., N.A. v. Gruff  ,                                 ......................................[7]  •  Bossuk v. Steinberg  ,                      ................................................................... [7]  •  Cadle Co. v. Ayala  , 139 A.D.3d 695 (2d Dept. 2016) ................................................... [7]  •  Cassano v. Altshuler  ,                                     .......................                                                                                ",
+        "role": "user"
+      }
+    ],
+    "output_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Candidate Index"
+        },
+        "decision": {
+          "enum": [
+            "select_candidate",
+            "no_match"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "rationale": {
+          "minLength": 1,
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision",
+        "candidate_index",
+        "rationale"
+      ],
+      "title": "_CandidateChoiceProposal",
+      "type": "object"
+    },
+    "output": "{\"decision\":\"select_candidate\",\"candidate_index\":1,\"rationale\":\"The locator is explicitly cited in the local context as Cadle Co. v. Ayala, 139 A.D.3d 695 (2d Dept. 2016). The candidate’s reviewed local case name matches that case, and its court and decision year are compatible; the differing retrieved case_name is outweighed by that reviewed local-name evidence.\"}",
+    "success": true,
+    "usage": {
+      "completion_tokens": 199,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": null,
+        "audio_tokens": 0,
+        "image_tokens": 0,
+        "reasoning_tokens": 100,
+        "rejected_prediction_tokens": null
+      },
+      "cost": 8.505e-05,
+      "cost_details": {
+        "upstream_inference_completions_cost": 4.975e-05,
+        "upstream_inference_cost": 8.505e-05,
+        "upstream_inference_prompt_cost": 3.53e-05
+      },
+      "is_byok": false,
+      "prompt_tokens": 706,
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "total_tokens": 905
+    },
+    "choice_outcome": "selected"
+  },
+  "current": {
+    "choice_outcome": "no_match",
+    "selected_candidate_index": null,
+    "rationale": "The locator and court/year are compatible, but the reviewed local case name is “Cadle Co. v. Ayala,” while the candidate is “Ramirez v. City of New York.” These identify different cases, so the candidate is not supportable.",
+    "run": {
+      "model": "openai/gpt-6-luna",
+      "request": [
+        {
+          "role": "system",
+          "content": "The filing contains one target complete citation marked by locator. Read only\nlocal_context and the complete list of retrieved candidates. Select the single\ncandidate that best represents that citation, or return no_match when none is\nsupportable from the stated fields.\n\nEvery candidate shown is a retrieved possibility. Consider every one, including\ncandidates whose preliminary field assessment says mismatch or partial_match:\nthose assessments are evidence, not a final selection. Do not use outside\nknowledge, change the stated locator, invent a field, or select multiple\ncandidates. Field re-extraction and correction are separate stages, already\ncompleted or deliberately omitted by the caller; do not re-extract fields here.\nIf a candidate carries a reviewed local case name, use it as evidence of that\nseparate review; do not assume every candidate was re-extracted. A reviewed\nlocal name confirms what the filing says, not whether the retrieved candidate\nhas that name. Compare the local and retrieved case names directly. If they\nidentify different cases, return no_match even when the reporter locator agrees.\n\nA candidate marked selection_eligible is one the caller permits you to choose;\nthe flag alone does not prove identity or verify the locator, court, or date.\nEvaluate whether the stated and retrieved case names plausibly identify the\nsame matter: ordinary abbreviation, an added or omitted party, or a legal-entity\nsuffix can be compatible; different parties without supporting evidence are\nnot. A misspelled party or title is a mismatch, even when the intended case is\nrecognizable; do not treat a spelling error as an abbreviation. Do not let a\nname resemblance override a stated court or date contradiction.\n\nFor docket-derived candidates, docket numbers can have different written forms\nfor the same case. Compare the forms semantically rather than requiring their\nstrings to be identical.\n\nFor a docket-derived candidate, case_filed_year is the date the case began.\nIt is not the date of an order or opinion cited in local_context, so it cannot\ndirectly verify that citation's decision date. It can only establish whether\nthe dates are chronologically compatible."
+        },
+        {
+          "role": "user",
+          "content": "locator:\n139 A.D.3d 695\n\nreviewed_candidates_json:\n[{\"candidate_index\":1,\"selection_eligible\":true,\"case_name\":\"Ramirez v. City of New York\",\"local_case_name\":\"Cadle Co. v. Ayala\",\"local_case_name_evidence\":\"mellea_reextracted\",\"court_id\":\"nyappdiv\",\"docket_id\":\"3060844\",\"docket_number\":null,\"preliminary_assessment\":\"mismatch\",\"field_assessments\":{\"case_name\":\"mismatch\",\"year\":\"match\",\"court\":\"match\"},\"decision_year\":\"2016\"}]\nFulfill the following requirements:\n* Return exactly one JSON object matching the required output schema.\nHere is some grounding context:\n*   [local_context] =  ................................................[8]  VI. Table of Evidence ............................................................................................................... [8]  TABLE OF AUTHORITIES  Cases  page  •  Bank of Am., N.A. v. Gruff  , 131 A.D.3d 1185 (2d Dept. 2015) ......................................[7]  •  Bossuk v. Steinberg  , 58 N.Y.2d 916 (1983) ................................................................... [7]  •  Cadle Co. v. Ayala  , 139 A.D.3d 695 (2d Dept. 2016) ................................................... [7]  •  Cassano v. Altshuler  , 186 F. Supp. 3d 318 (S.D.N.Y. 2016) ..........................................[5]  •  Conway v. Am. Red Cross  , 2010 WL 4722279 (S.D.N.Y. "
+        }
+      ],
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "select_candidate",
+              "no_match"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "candidate_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Index"
+          },
+          "rationale": {
+            "minLength": 1,
+            "title": "Rationale",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision",
+          "candidate_index",
+          "rationale"
+        ],
+        "title": "_CandidateChoiceProposal",
+        "type": "object"
+      },
+      "output": "{\"decision\":\"no_match\",\"candidate_index\":null,\"rationale\":\"The locator and court/year are compatible, but the reviewed local case name is “Cadle Co. v. Ayala,” while the candidate is “Ramirez v. City of New York.” These identify different cases, so the candidate is not supportable.\"}",
+      "success": true,
+      "attempt_count": 1,
+      "usage": {
+        "completion_tokens": 102,
+        "prompt_tokens": 871,
+        "total_tokens": 973,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": 0,
+          "reasoning_tokens": 23,
+          "rejected_prediction_tokens": null,
+          "image_tokens": 0
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cache_write_tokens": 0,
+          "cached_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost": 6.905e-05,
+        "is_byok": false,
+        "cost_details": {
+          "upstream_inference_cost": 6.905e-05,
+          "upstream_inference_prompt_cost": 4.355e-05,
+          "upstream_inference_completions_cost": 2.55e-05
+        }
+      }
+    }
+  },
+  "controlled_replay": {
+    "description": "Current system prompt and exact historical user message, saved candidate and context; same model, temperature, output schema, and service tier. No CourtListener request.",
+    "model": "openai/gpt-6-luna",
+    "request": [
+      {
+        "role": "system",
+        "content": "The filing contains one target complete citation marked by locator. Read only\nlocal_context and the complete list of retrieved candidates. Select the single\ncandidate that best represents that citation, or return no_match when none is\nsupportable from the stated fields.\n\nEvery candidate shown is a retrieved possibility. Consider every one, including\ncandidates whose preliminary field assessment says mismatch or partial_match:\nthose assessments are evidence, not a final selection. Do not use outside\nknowledge, change the stated locator, invent a field, or select multiple\ncandidates. Field re-extraction and correction are separate stages, already\ncompleted or deliberately omitted by the caller; do not re-extract fields here.\nIf a candidate carries a reviewed local case name, use it as evidence of that\nseparate review; do not assume every candidate was re-extracted. A reviewed\nlocal name confirms what the filing says, not whether the retrieved candidate\nhas that name. Compare the local and retrieved case names directly. If they\nidentify different cases, return no_match even when the reporter locator agrees.\n\nA candidate marked selection_eligible is one the caller permits you to choose;\nthe flag alone does not prove identity or verify the locator, court, or date.\nEvaluate whether the stated and retrieved case names plausibly identify the\nsame matter: ordinary abbreviation, an added or omitted party, or a legal-entity\nsuffix can be compatible; different parties without supporting evidence are\nnot. A misspelled party or title is a mismatch, even when the intended case is\nrecognizable; do not treat a spelling error as an abbreviation. Do not let a\nname resemblance override a stated court or date contradiction.\n\nFor docket-derived candidates, docket numbers can have different written forms\nfor the same case. Compare the forms semantically rather than requiring their\nstrings to be identical.\n\nFor a docket-derived candidate, case_filed_year is the date the case began.\nIt is not the date of an order or opinion cited in local_context, so it cannot\ndirectly verify that citation's decision date. It can only establish whether\nthe dates are chronologically compatible."
+      },
+      {
+        "role": "user",
+        "content": "locator:\n139 A.D.3d 695\n\nreviewed_candidates_json:\n[{\"candidate_index\":1,\"selection_eligible\":true,\"case_name\":\"Ramirez v. City of New York\",\"local_case_name\":\"Cadle Co. v. Ayala\",\"local_case_name_evidence\":\"mellea_reextracted\",\"court_id\":\"nyappdiv\",\"docket_id\":\"3060844\",\"docket_number\":null,\"preliminary_assessment\":\"mismatch\",\"field_assessments\":{\"case_name\":\"mismatch\",\"year\":\"match\",\"court\":\"match\"},\"decision_year\":\"2016\"}]\nFulfill the following requirements:\n* Return exactly one JSON object matching the required output schema.\nHere is some grounding context:\n*   [local_context] =                                                                                                                                                                  .......................... [8]  TABLE OF AUTHORITIES  Cases  page  •  Bank of Am., N.A. v. Gruff  ,                                 ......................................[7]  •  Bossuk v. Steinberg  ,                      ................................................................... [7]  •  Cadle Co. v. Ayala  , 139 A.D.3d 695 (2d Dept. 2016) ................................................... [7]  •  Cassano v. Altshuler  ,                                     .......................                                                                                "
+      }
+    ],
+    "output_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "enum": [
+            "select_candidate",
+            "no_match"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "candidate_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Candidate Index"
+        },
+        "rationale": {
+          "minLength": 1,
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision",
+        "candidate_index",
+        "rationale"
+      ],
+      "title": "_CandidateChoiceProposal",
+      "type": "object"
+    },
+    "output": "{\"decision\":\"no_match\",\"candidate_index\":null,\"rationale\":\"The reviewed local case name is Cadle Co. v. Ayala, while the candidate is Ramirez v. City of New York. These identify different cases, so the matching reporter locator and year do not support selecting this candidate.\"}",
+    "success": true,
+    "attempt_count": 1,
+    "usage": {
+      "completion_tokens": 103,
+      "prompt_tokens": 782,
+      "total_tokens": 885,
+      "completion_tokens_details": {
+        "accepted_prediction_tokens": null,
+        "audio_tokens": 0,
+        "reasoning_tokens": 30,
+        "rejected_prediction_tokens": null,
+        "image_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "audio_tokens": 0,
+        "cache_write_tokens": 0,
+        "cached_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost": 6.485e-05,
+      "is_byok": false,
+      "cost_details": {
+        "upstream_inference_cost": 6.485e-05,
+        "upstream_inference_prompt_cost": 3.91e-05,
+        "upstream_inference_completions_cost": 2.575e-05
+      }
+    },
+    "historical_user_message_identical": true,
+    "current_system_message_identical": true
+  }
+}

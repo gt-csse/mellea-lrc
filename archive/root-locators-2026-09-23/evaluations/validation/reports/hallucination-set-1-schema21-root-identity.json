@@ -1,0 +1,179 @@
+{
+  "annotations": "data/hallucination-set-1/documents",
+  "artifact_type": "root_identity_score",
+  "artifacts": "data/run-artifacts/54-schema21-hallucination-set-1-v1/shared_body_evidence_review",
+  "decision": {
+    "accuracy": 0.9525547445255474,
+    "correct": 261,
+    "decided": 274,
+    "deferred_or_unreached": 59
+  },
+  "incorrect_admissions": [
+    {
+      "document": "67673016_163",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 68295,
+        "start": 68283
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "70607460_15",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 18482,
+        "start": 18470
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "70607460_15",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 19929,
+        "start": 19917
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "70607460_15",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 19956,
+        "start": 19941
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "70655948_74",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 15621,
+        "start": 15609
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "70655948_74",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 24534,
+        "start": 24523
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "70655948_74",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 24549,
+        "start": 24536
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "70655948_74",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 24564,
+        "start": 24551
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "70655948_74",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 75251,
+        "start": 75241
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "70655948_74",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 75453,
+        "start": 75444
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "70655948_74",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 75469,
+        "start": 75455
+      },
+      "outcome": "resolved"
+    }
+  ],
+  "incorrect_rejections": [
+    {
+      "document": "69843456_10",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 3581,
+        "start": 3569
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "70655948_74",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 84638,
+        "start": 84625
+      },
+      "outcome": "no_match"
+    }
+  ],
+  "labeled_roots": 333,
+  "outcome_by_gold_label": {
+    "deferred_to_open_web_search": {
+      "correct_identity": 21,
+      "wrong_identity": 36
+    },
+    "no_match": {
+      "correct_identity": 2,
+      "wrong_identity": 17
+    },
+    "resolved": {
+      "correct_identity": 244,
+      "wrong_identity": 11
+    },
+    "unjudged": {
+      "correct_identity": 1,
+      "wrong_identity": 1
+    }
+  },
+  "positive_admission": {
+    "f1": 0.9330783938814532,
+    "fn": 24,
+    "fp": 11,
+    "gold": 268,
+    "precision": 0.9568627450980393,
+    "predicted": 255,
+    "recall": 0.9104477611940298,
+    "tp": 244
+  },
+  "stage_coverage": {
+    "gold": 333,
+    "not_reached": 0,
+    "reached": 333
+  }
+}

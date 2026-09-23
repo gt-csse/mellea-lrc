@@ -1,29 +1,12 @@
-"""Load plain text files into canonical preprocessing types.
-
-A text file is its text. Nothing is stripped from the front of it, so an offset
-into the file is an offset into the document, and there is one coordinate system
-rather than one per source.
-
-This project used to write conversion provenance -- the source PDF, the Docling
-version -- as a header above a `--- Plain text ---` marker, and every reader had
-to know to skip it. Court records arrive with enough furniture of their own; the
-provenance now sits beside the text in a `renderings.json` or `documents.json`,
-where reading it is a choice rather than an obligation. Nothing else writes that
-marker: an archive hands over the document's own first page, so there is no
-preamble to take out and no rule that would find one.
-
-The layout rules do not apply here. Every one of them reads the page -- where an
-item sits, whether its neighbours repeat -- and a `.txt` file carries no
-geometry, so a document made this way records that no rule ran.
-"""
+"""Read plain text without adding a header or changing its offsets."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
 
-from mellea_lrc.core.documents import SourceFormat, SourceMetadata
-from mellea_lrc.preprocessing.types import (
+from mellea_lrc.model.documents import SourceFormat, SourceMetadata
+from mellea_lrc.model.preprocessed import (
     DEFAULT_RULES,
     PreprocessedDocument,
     PreprocessingBackend,
