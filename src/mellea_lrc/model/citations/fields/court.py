@@ -16,6 +16,10 @@ from mellea_lrc.model.span import Span
 
 _ORDINAL = re.compile(r"^(\d+)(?:st|nd|rd|th|d)$")
 _SPLIT_ORDINAL = re.compile(r"\b(\d+)\s+(st|nd|rd|th|d)\b")
+_NEW_YORK_APPELLATE_DEPARTMENT = re.compile(
+    r"(?:1\s*st|2\s*(?:d|nd)|3\s*(?:d|rd)|4\s*th)\s+(?:dept|dep['’]t|department)\.?",
+    re.IGNORECASE,
+)
 
 
 def _court_tokens(text: str) -> tuple[str, ...]:
@@ -130,7 +134,14 @@ def court_id_if_unique(text: str) -> str | None:
     if found is None:
         # A generated state abbreviation must not override a direct court label.
         found = _bluebook_court_index().get(key)
-    return next(iter(found)) if found and len(found) == 1 else None
+    if found:
+        return next(iter(found)) if len(found) == 1 else None
+    # New York cites the four Appellate Division departments separately, but
+    # courts-db provides one shared court ID. Retain the quote for later
+    # department-level checks against an opinion or another citation.
+    if _NEW_YORK_APPELLATE_DEPARTMENT.fullmatch(text.strip()):
+        return "nyappdiv"
+    return None
 
 
 def normalize_court(quote: str) -> Court:
