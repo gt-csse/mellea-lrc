@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Generic, Literal, Self, TypeVar
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mellea_lrc.model.span import Span
 
@@ -21,20 +22,60 @@ def source_quote(source: str, span: Span) -> str:
     return quote
 
 
+def normalization_record(normalize: Callable[[], T]) -> dict[str, object]:
+    """Keep a failed reading without mistaking it for a normalized value."""
+    try:
+        value = normalize()
+    except ValueError as exc:
+        return {
+            "normalizable": False,
+            "normalized": None,
+            "normalization_error": str(exc) or type(exc).__name__,
+        }
+    return {"normalizable": True, "normalized": value, "normalization_error": None}
+
+
 class CitationField(BaseModel, Generic[T]):
     """A field reading and the node that made it; subclasses own normalization."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", serialize_by_alias=True)
 
     node_id: str
-    normalized: T
+    normalizable: bool
+    # Pydantic needs a field for lossless checkpoints. This deliberately names
+    # the unchecked storage; callers must use get_normalized().
+    unchecked_normalized: T | None = Field(alias="normalized", repr=False)
+    normalization_error: str | None
     quote: str | None = None
     span: Span | None = None
 
+    def get_normalized(self) -> T:
+        """Return a typed value or fail explicitly; never return None."""
+        if not self.normalizable:
+            raise ValueError(f"{type(self).__name__} is not normalizable: {self.normalization_error}")
+        value = self.unchecked_normalized
+        if value is None:
+            raise ValueError("Normalizable field has no stored value")
+        return value
+
+    def validate_normalization(self, normalize: Callable[[], T]) -> None:
+        """Check the stored outcome against the field's parsing rule."""
+        if self.normalizable:
+            if self.unchecked_normalized != normalize():
+                raise ValueError("Field normalization does not match its quote")
+            return
+        # A failed reading is a historical fact. A later normalizer upgrade may
+        # recognize its quote; loading the earlier checkpoint must still work.
+
     @model_validator(mode="after")
     def _validate_reading(self) -> Self:
-        if self.normalized is None or (isinstance(self.normalized, str) and not self.normalized.strip()):
-            raise ValueError("Parsed field has no normalized value")
+        if self.normalizable:
+            if self.unchecked_normalized is None or self.normalization_error is not None:
+                raise ValueError("Normalizable field needs a value and no error")
+            if isinstance(self.unchecked_normalized, str) and not self.unchecked_normalized.strip():
+                raise ValueError("Normalized string is blank")
+        elif self.unchecked_normalized is not None or not self.normalization_error:
+            raise ValueError("Unnormalizable field needs an error and no value")
         if (self.quote is None) != (self.span is None):
             raise ValueError("Quote and span must be present together")
         if self.quote is not None and not self.quote.strip():

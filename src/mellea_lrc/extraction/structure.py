@@ -39,13 +39,14 @@ def resolve_colocations(document: Document, rules: ExtractionRules | None = None
             continue
         previous = groups[-1][-1]
         reporters = {
-            member.locator[-1].normalized.edition
+            member.locator[-1].get_normalized().edition
             for member in groups[-1]
-            if isinstance(member, FullReporterCitation)
+            if isinstance(member, FullReporterCitation) and member.locator[-1].normalizable
         }
         duplicate_reporter = (
             isinstance(citation, FullReporterCitation)
-            and citation.locator[-1].normalized.edition in reporters
+            and citation.locator[-1].normalizable
+            and citation.locator[-1].get_normalized().edition in reporters
         )
         if not duplicate_reporter and _adjacent(
             document.text, previous, citation, config.colocation_max_meaningful_gap

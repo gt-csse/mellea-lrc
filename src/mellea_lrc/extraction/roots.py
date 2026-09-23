@@ -5,12 +5,14 @@ from __future__ import annotations
 import re
 
 from mellea_lrc.model.citations import FullDocketCitation, FullReporterCitation
-from mellea_lrc.model.citations.history import latest
 from mellea_lrc.model.document import Document
 
 
 def _reporter_key(citation: FullReporterCitation) -> tuple[str, ...] | None:
-    locator = citation.locator[-1].normalized
+    reading = citation.locator[-1]
+    if not reading.normalizable:
+        return None
+    locator = reading.get_normalized()
     return (
         "reporter",
         str(locator.volume),
@@ -22,9 +24,12 @@ def _reporter_key(citation: FullReporterCitation) -> tuple[str, ...] | None:
 def _docket_key(citation: FullDocketCitation) -> tuple[str, ...] | None:
     # A courtless docket is not globally unique. Preserve its occurrence as a
     # separate root until identity validation or search supplies that context.
-    court, docket_number = latest(citation.court), citation.locator[-1].normalized.docket_number
-    if not court or not docket_number:
+    court_reading = citation.court[-1] if citation.court else None
+    docket_reading = citation.locator[-1]
+    if court_reading is None or not court_reading.normalizable or not docket_reading.normalizable:
         return None
+    court = court_reading.get_normalized()
+    docket_number = docket_reading.get_normalized().docket_number
     return ("docket", court.id, docket_number.casefold())
 
 

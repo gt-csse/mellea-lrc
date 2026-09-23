@@ -9,7 +9,7 @@ from eyecite import get_citations
 from eyecite.models import FullCaseCitation, Reporter
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from mellea_lrc.model.citations.fields.base import CitationField, source_quote
+from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
 from mellea_lrc.model.span import Span
 
 
@@ -82,10 +82,14 @@ class FullReporterLocator(CitationField[ReporterLocatorValue]):
     @classmethod
     def from_source(cls, source: str, span: Span, *, node_id: str) -> Self:
         quote = source_quote(source, span)
-        return cls(node_id=node_id, quote=quote, span=span, normalized=normalize_reporter_locator(quote))
+        return cls(
+            node_id=node_id,
+            quote=quote,
+            span=span,
+            **normalization_record(lambda: normalize_reporter_locator(quote)),
+        )
 
     @model_validator(mode="after")
     def _validate_normalization(self) -> Self:
-        if self.normalized != normalize_reporter_locator(self.quote):
-            raise ValueError("Reporter locator normalization does not match its quote")
+        self.validate_normalization(lambda: normalize_reporter_locator(self.quote))
         return self

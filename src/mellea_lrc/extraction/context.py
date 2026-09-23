@@ -166,7 +166,9 @@ def _court_from_reporter(citation: FullCitationVariant) -> str | None:
     isolated = get_citations(locator.quote)
     if len(isolated) == 1 and isinstance(isolated[0], FullCaseCitation):
         return isolated[0].metadata.court
-    return court_id_if_unique(locator.normalized.edition)
+    if not locator.normalizable:
+        return None
+    return court_id_if_unique(locator.get_normalized().edition)
 
 
 def resolve_courts(document: Document, rules: ExtractionRules | None = None) -> Document:

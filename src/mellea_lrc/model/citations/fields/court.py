@@ -10,7 +10,7 @@ from typing import Self
 from courts_db import courts
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from mellea_lrc.model.citations.fields.base import CitationField, source_quote
+from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
 from mellea_lrc.model.span import Span
 
 _ORDINAL = re.compile(r"^(\d+)(?:st|nd|rd|th|d)$")
@@ -103,16 +103,28 @@ class CourtField(CitationField[Court]):
     @classmethod
     def from_source(cls, source: str, span: Span, *, node_id: str) -> Self:
         quote = source_quote(source, span)
-        return cls(node_id=node_id, quote=quote, span=span, normalized=normalize_court(quote))
+        return cls(
+            node_id=node_id,
+            quote=quote,
+            span=span,
+            **normalization_record(lambda: normalize_court(quote)),
+        )
 
     @classmethod
     def inferred(cls, court_id: str, *, node_id: str) -> Self:
-        return cls(node_id=node_id, normalized=Court.from_id(court_id))
+        return cls(
+            node_id=node_id,
+            normalizable=True,
+            normalized=Court.from_id(court_id),
+            normalization_error=None,
+        )
 
     @model_validator(mode="after")
     def _validate_normalization(self) -> Self:
-        if self.normalized != Court.from_id(self.normalized.id):
+        if self.quote is not None:
+            self.validate_normalization(lambda: normalize_court(self.quote))
+        elif not self.normalizable or self.unchecked_normalized is None:
+            raise ValueError("An inferred court needs a normalized court ID")
+        elif self.unchecked_normalized != Court.from_id(self.unchecked_normalized.id):
             raise ValueError("Court normalization does not match its court ID")
-        if self.quote is not None and self.normalized != normalize_court(self.quote):
-            raise ValueError("Court normalization does not match its quote")
         return self

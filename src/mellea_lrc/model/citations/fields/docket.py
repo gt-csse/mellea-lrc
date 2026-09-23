@@ -7,13 +7,20 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from mellea_lrc.model.citations.fields.base import CitationField, source_quote
+from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
 from mellea_lrc.model.span import Span
 
 _ENTRY_NUMBER = re.compile(
     r"(?:Doc(?:ument)?\.?|Dkt\.?|ECF)\s*(?:No\.?\s*)?(?P<number>\d+(?:-\d+)?)",
     re.I,
 )
+
+
+def normalize_docket_entry(quote: str) -> str:
+    match = _ENTRY_NUMBER.fullmatch(quote)
+    if match is None:
+        raise ValueError(f"Cannot normalize docket entry: {quote!r}")
+    return match.group("number")
 
 
 class DocketLocatorValue(BaseModel):
@@ -48,7 +55,7 @@ class FullDocketLocator(CitationField[DocketLocatorValue]):
             quote=quote,
             span=span,
             number_span=number_span,
-            normalized=DocketLocatorValue(docket_number=number),
+            **normalization_record(lambda: DocketLocatorValue(docket_number=number)),
         )
 
     @model_validator(mode="after")
@@ -57,8 +64,7 @@ class FullDocketLocator(CitationField[DocketLocatorValue]):
             raise ValueError("Docket number span must be inside the locator")
         start = self.number_span.start - self.span.start
         end = self.number_span.end - self.span.start
-        if self.quote[start:end] != self.normalized.docket_number:
-            raise ValueError("Docket number normalization does not match its locator quote")
+        self.validate_normalization(lambda: DocketLocatorValue(docket_number=self.quote[start:end]))
         return self
 
 
@@ -71,14 +77,14 @@ class DocketEntryField(CitationField[str]):
     @classmethod
     def from_source(cls, source: str, span: Span, *, node_id: str) -> Self:
         quote = source_quote(source, span)
-        match = _ENTRY_NUMBER.fullmatch(quote)
-        if match is None:
-            raise ValueError(f"Cannot normalize docket entry: {quote!r}")
-        return cls(node_id=node_id, quote=quote, span=span, normalized=match.group("number"))
+        return cls(
+            node_id=node_id,
+            quote=quote,
+            span=span,
+            **normalization_record(lambda: normalize_docket_entry(quote)),
+        )
 
     @model_validator(mode="after")
     def _validate_normalization(self) -> Self:
-        match = _ENTRY_NUMBER.fullmatch(self.quote)
-        if match is None or self.normalized != match.group("number"):
-            raise ValueError("Docket entry normalization does not match its quote")
+        self.validate_normalization(lambda: normalize_docket_entry(self.quote))
         return self

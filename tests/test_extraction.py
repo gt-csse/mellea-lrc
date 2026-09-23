@@ -79,11 +79,11 @@ def test_locator_stages_preserve_exact_occurrences_and_create_one_node() -> None
     assert isinstance(reporter.locator[-1], FullReporterLocator)
     assert isinstance(reporter.locator[-1], CitationField)
     _assert_exact_quote(reporter_only, reporter.locator[-1])
-    assert reporter.locator[-1].normalized.volume == 2024
-    assert reporter.locator[-1].normalized.edition == "WL"
-    assert reporter.locator[-1].normalized.page == "1234567"
-    assert isinstance(reporter.locator[-1].normalized.reporter, Reporter)
-    assert reporter.locator[-1].normalized.reporter.short_name == "WL"
+    assert reporter.locator[-1].get_normalized().volume == 2024
+    assert reporter.locator[-1].get_normalized().edition == "WL"
+    assert reporter.locator[-1].get_normalized().page == "1234567"
+    assert isinstance(reporter.locator[-1].get_normalized().reporter, Reporter)
+    assert reporter.locator[-1].get_normalized().reporter.short_name == "WL"
     assert all(
         update.node_id == reporter.nodes[0].id for log in _field_logs(reporter).values() for update in log
     )
@@ -98,7 +98,7 @@ def test_locator_stages_preserve_exact_occurrences_and_create_one_node() -> None
         ("reporter", "2024 WL 1234567"),
     ]
     assert _read_span(both, 0) == "No. 1:24-cv-00123"
-    assert docket.locator[-1].normalized.docket_number == "1:24-cv-00123"
+    assert docket.locator[-1].get_normalized().docket_number == "1:24-cv-00123"
     assert isinstance(docket.locator[-1], FullDocketLocator)
     _assert_exact_quote(both, docket.locator[-1])
     assert not hasattr(reporter, "docket_number")
@@ -144,12 +144,12 @@ def test_full_reporter_locator_has_one_quote_and_normalized_components() -> None
     assert isinstance(entry, FullReporterLocator)
     _assert_exact_quote(document, entry)
     assert entry.quote == "347 U.S. 483"
-    assert isinstance(entry.normalized, ReporterLocatorValue)
-    assert entry.normalized.volume == 347
-    assert isinstance(entry.normalized.reporter, Reporter)
-    assert entry.normalized.reporter.short_name == "U.S."
-    assert entry.normalized.edition == "U.S."
-    assert entry.normalized.page == "483"
+    assert isinstance(entry.get_normalized(), ReporterLocatorValue)
+    assert entry.get_normalized().volume == 347
+    assert isinstance(entry.get_normalized().reporter, Reporter)
+    assert entry.get_normalized().reporter.short_name == "U.S."
+    assert entry.get_normalized().edition == "U.S."
+    assert entry.get_normalized().page == "483"
 
     tampered = document.model_dump(mode="json")
     tampered["citations"][0]["locator"][-1]["quote"] = "not in the document"
@@ -204,25 +204,25 @@ def test_field_readers_keep_adjacent_cases_and_source_spans_separate() -> None:
     for entry in (name, court, date, pin):
         _assert_exact_quote(document, entry)
     assert name.quote == "Brown v. Board of Education"
-    assert name.normalized.as_citation() == name.quote
+    assert name.get_normalized().as_citation() == name.quote
     assert court.quote == "D. Ariz."
-    assert court.normalized.id == "azd"
-    assert court.normalized.name
+    assert court.get_normalized().id == "azd"
+    assert court.get_normalized().name
     assert date.quote == "Jan. 1, 2024"
-    assert date.normalized == CitationDate(year=2024, month=1, day=1)
+    assert date.get_normalized() == CitationDate(year=2024, month=1, day=1)
     assert pin.quote == "495"
-    assert pin.normalized == (PinCiteTarget(first=495, last=495, kind=PinCiteKind.PAGE),)
+    assert pin.get_normalized() == (PinCiteTarget(first=495, last=495, kind=PinCiteKind.PAGE),)
     inferred_court = reporter.court[-1]
     assert inferred_court.quote is None
     assert inferred_court.span is None
-    assert inferred_court.normalized.id == "scotus"
+    assert inferred_court.get_normalized().id == "scotus"
     encoded = document.model_dump(mode="json")
     assert encoded["citations"][1]["court"][-1]["normalized"] == {
         "id": "azd",
-        "name": court.normalized.name,
+        "name": court.get_normalized().name,
     }
     encoded["citations"][1]["court"][-1]["normalized"]["name"] = "Incorrect court"
-    with pytest.raises(ValueError, match="Court normalization"):
+    with pytest.raises(ValueError, match="normalization"):
         Document.model_validate(encoded)
     _assert_roundtrip(document)
 
@@ -270,14 +270,14 @@ def test_adjacent_docket_entry_has_its_own_evidence_span() -> None:
     assert len(document.citations) == 1
     citation = document.citations[0]
     assert isinstance(citation, FullDocketCitation)
-    assert citation.locator[-1].normalized.docket_number == "1:24-cv-00123"
+    assert citation.locator[-1].get_normalized().docket_number == "1:24-cv-00123"
     assert latest(citation.docket_entry) == "10-1"
     entry = citation.docket_entry[-1]
     assert isinstance(entry, DocketEntryField)
     assert entry.span is not None
     _assert_exact_quote(document, entry)
     assert entry.quote == "Doc. 10-1"
-    assert entry.normalized == "10-1"
+    assert entry.get_normalized() == "10-1"
 
 
 def test_synchronous_pipeline_and_json_roundtrip() -> None:
@@ -288,7 +288,7 @@ def test_synchronous_pipeline_and_json_roundtrip() -> None:
     assert isinstance(document.citations[0], FullDocketCitation)
     assert isinstance(document.citations[1], FullReporterCitation)
     assert document.text == text
-    assert all(citation.nodes and citation.locator[-1].normalized for citation in document.citations)
+    assert all(citation.nodes and citation.locator[-1].get_normalized() for citation in document.citations)
     assert document.stage_runs
     assert len(document.citations) == 2
     assert len(document.colocations) == 1
@@ -348,13 +348,13 @@ def test_explicit_methods_append_a_traceable_history() -> None:
     assert rooted.root_id[-1].node_id == rooted.nodes[4].id
     assert rooted.case_name[-1].span == Span(0, len(name))
     assert rooted.case_name[-1].quote == name
-    assert rooted.case_name[-1].normalized == CaseName(
+    assert rooted.case_name[-1].get_normalized() == CaseName(
         kind=CaseNameKind.ADVERSARIAL, plaintiff="Smith", defendant="Jones"
     )
     assert rooted.court[-1].quote == court_text
-    assert rooted.court[-1].normalized.id == "azd"
+    assert rooted.court[-1].get_normalized().id == "azd"
     assert rooted.date[-1].quote == date_text
-    assert rooted.date[-1].normalized == CitationDate(year=2024)
+    assert rooted.date[-1].get_normalized() == CitationDate(year=2024)
     assert latest(rooted.root_id) == citation.id
     _assert_roundtrip(document)
 
@@ -374,11 +374,11 @@ def test_normalized_case_name_can_differ_from_its_exact_quote() -> None:
     _assert_exact_quote(document, entry)
     assert entry.quote == "Smith   v.   Jones"
     assert (
-        entry.normalized
+        entry.get_normalized()
         == latest(named.case_name)
         == CaseName(kind=CaseNameKind.ADVERSARIAL, plaintiff="Smith", defendant="Jones")
     )
-    assert entry.quote != entry.normalized.as_citation()
+    assert entry.quote != entry.get_normalized().as_citation()
     _assert_roundtrip(document)
 
 
