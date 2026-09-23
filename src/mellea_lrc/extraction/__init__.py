@@ -7,7 +7,7 @@ from mellea_lrc.extraction.context import (
     resolve_pin_cites,
 )
 from mellea_lrc.extraction.locators import find_docket_locators, find_full_reporter_locators
-from mellea_lrc.extraction.pipeline import extract, grow_roots, start_extraction
+from mellea_lrc.extraction.pipeline import extract, grow_roots
 from mellea_lrc.extraction.roots import form_roots
 from mellea_lrc.extraction.rules import ExtractionRules, stable
 from mellea_lrc.extraction.structure import resolve_colocations
@@ -25,5 +25,4 @@ __all__ = [
     "resolve_dates",
     "resolve_pin_cites",
     "stable",
-    "start_extraction",
 ]

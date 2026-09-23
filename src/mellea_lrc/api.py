@@ -17,7 +17,6 @@ from mellea_lrc.extraction import (
     resolve_dates,
     resolve_pin_cites,
     stable,
-    start_extraction,
 )
 from mellea_lrc.model.document import Document
 from mellea_lrc.preprocessing import preprocess
@@ -37,5 +36,4 @@ __all__ = [
     "resolve_dates",
     "resolve_pin_cites",
     "stable",
-    "start_extraction",
 ]

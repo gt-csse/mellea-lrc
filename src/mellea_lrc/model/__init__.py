@@ -2,7 +2,6 @@
 
 from mellea_lrc.model.citations import (
     CitationDate,
-    CitationField,
     FieldUpdate,
     FullCitation,
     FullCitationKind,
@@ -26,7 +25,6 @@ from mellea_lrc.model.span import Span
 __all__ = [
     "DEFAULT_RULES",
     "CitationDate",
-    "CitationField",
     "Colocation",
     "Document",
     "DocumentBase",

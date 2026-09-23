@@ -18,28 +18,15 @@ from mellea_lrc.model.document import Document
 from mellea_lrc.model.preprocessed_document import PreprocessedDocument
 
 
-def start_extraction(source: Document | PreprocessedDocument) -> Document:
-    """Keep an existing checkpoint or wrap a preprocessed document."""
-    return source if isinstance(source, Document) else Document.from_preprocessed(source)
-
-
-async def grow_roots(
+def grow_roots(
     document: Document,
     *,
     rules: ExtractionRules | None = None,
-    hunt_dockets: bool = False,
 ) -> Document:
-    """Run first-pass extraction through root formation.
-
-    The optional model-backed hunting stage has not been rebuilt yet. It must
-    run before colocation and field reading so later model reviews cannot be
-    overwritten by a fresh deterministic parse.
-    """
+    """Run the current rule-based stages through root formation."""
     config = rules or stable()
-    document = find_full_reporter_locators(document, config)
-    document = find_docket_locators(document, config)
-    if hunt_dockets:
-        raise NotImplementedError("Docket site hunting has not been rebuilt in the active package")
+    document = find_full_reporter_locators(document)
+    document = find_docket_locators(document)
     document = resolve_colocations(document, config)
     document = resolve_case_names(document, config)
     document = resolve_courts(document, config)
@@ -48,13 +35,16 @@ async def grow_roots(
     return form_roots(document)
 
 
-async def extract(
+def extract(
     source: Path | str | PreprocessedDocument | Document,
     *,
     rules: ExtractionRules | None = None,
 ) -> Document:
     """Preprocess if needed, then compose the extraction stages."""
-    document = (
-        start_extraction(source) if isinstance(source, PreprocessedDocument) else Document.from_source(source)
-    )
-    return await grow_roots(document, rules=rules)
+    if isinstance(source, Document):
+        document = source
+    elif isinstance(source, PreprocessedDocument):
+        document = Document.from_preprocessed(source)
+    else:
+        document = Document.from_source(source)
+    return grow_roots(document, rules=rules)
