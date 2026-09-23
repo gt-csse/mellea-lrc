@@ -1,0 +1,382 @@
+{
+  "after_artifacts": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/run-artifacts/37-primary-current-identity-body-v1/root_body_corroboration_resolution",
+  "annotations": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/primary/documents",
+  "artifact_type": "primary_root_identity_saved_run_comparison",
+  "before_artifacts": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/run-artifacts/35-primary-body-retry-main-v1/root_body_corroboration_resolution",
+  "changed_annotated_root_count": 24,
+  "changed_root_outcomes": [
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "resolved",
+      "document": "003__chakma-v-sushi-katsuei-inc__letter",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 2012,
+        "start": 1993
+      },
+      "locator_text": "444 F. Supp. 3d 593"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "no_match",
+      "document": "004__taiujuan-burches-v-equifax-information-services-llc-et-__memorandum-in-opposition-to-defendant-trans-union-llc-s",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 4202,
+        "start": 4191
+      },
+      "locator_text": "No. 05-4206"
+    },
+    {
+      "after": "resolved",
+      "before": "deferred_to_open_web_search",
+      "document": "005__coomer-v-lindell-mypillow-inc__response-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 14608,
+        "start": 14594
+      },
+      "locator_text": "2009 WL 902437"
+    },
+    {
+      "after": "no_match",
+      "before": "deferred_to_open_web_search",
+      "document": "006__coomer-v-lindell-mypillow-inc__response-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 11829,
+        "start": 11806
+      },
+      "locator_text": "No. CIVA03CV00031WDMMEH"
+    },
+    {
+      "after": "resolved",
+      "before": "deferred_to_open_web_search",
+      "document": "006__coomer-v-lindell-mypillow-inc__response-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 11985,
+        "start": 11970
+      },
+      "locator_text": "2013 WL 1658203"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "no_match",
+      "document": "008__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 2659,
+        "start": 2644
+      },
+      "locator_text": "2010 WL 4722279"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "no_match",
+      "document": "008__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 6276,
+        "start": 6262
+      },
+      "locator_text": "206 A.D.3d 558"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "no_match",
+      "document": "009__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 10526,
+        "start": 10511
+      },
+      "locator_text": "39 N.Y.S.3d 580"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "no_match",
+      "document": "010__brandon-rulund-akins-v-tashi-latwon-ratliff-et-al__complaint",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 22870,
+        "start": 22856
+      },
+      "locator_text": "2021 WL 254667"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "no_match",
+      "document": "011__anthony-c-hill-v-workday-inc__joint-discovery-letter-brief",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 13908,
+        "start": 13892
+      },
+      "locator_text": "2017 WL 11570668"
+    },
+    {
+      "after": "resolved",
+      "before": "deferred_to_open_web_search",
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 22911,
+        "start": 22899
+      },
+      "locator_text": "No. 25-11030"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "no_match",
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 23554,
+        "start": 23542
+      },
+      "locator_text": "No. 06-01147"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "no_match",
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 27121,
+        "start": 27104
+      },
+      "locator_text": "No. 1:25-bk-11282"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "no_match",
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 33054,
+        "start": 33043
+      },
+      "locator_text": "No. 2010712"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "resolved",
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 30153,
+        "start": 30138
+      },
+      "locator_text": "2023 WL 1428572"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "resolved",
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 46644,
+        "start": 46629
+      },
+      "locator_text": "2025 WL 1583480"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "no_match",
+      "document": "019__modern-floor-specialists-inc-et-al-v-city-of-los-angele__opposition-brief-to-city-defendants-motion-to-dismiss",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 30334,
+        "start": 30318
+      },
+      "locator_text": "784 F. App'x 585"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "resolved",
+      "document": "021__chelsea-montes-v-suns-legacy-partners-llc__response-to-defendant-s-motion-to-dismiss",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 3937,
+        "start": 3922
+      },
+      "locator_text": "2024 WL 4634082"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "no_match",
+      "document": "021__chelsea-montes-v-suns-legacy-partners-llc__response-to-defendant-s-motion-to-dismiss",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 4496,
+        "start": 4481
+      },
+      "locator_text": "2021 WL 7540814"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "no_match",
+      "document": "024__elbert-coleman-iii-elbert-coleman-iv-v-nexo-capital-inc__brief-in-opposition",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 1017,
+        "start": 1005
+      },
+      "locator_text": "24 F.3d 1001"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "no_match",
+      "document": "025__andrea-k-tantaros-v-fox-news-network-llc-et-al__opposition-to-brown-s-motion-to-dismiss-the-complaint",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 1718,
+        "start": 1705
+      },
+      "locator_text": "180 A.D.3d 83"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "no_match",
+      "document": "025__andrea-k-tantaros-v-fox-news-network-llc-et-al__opposition-to-brown-s-motion-to-dismiss-the-complaint",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 2551,
+        "start": 2536
+      },
+      "locator_text": "205 A.D. 3d 180"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "no_match",
+      "document": "025__andrea-k-tantaros-v-fox-news-network-llc-et-al__opposition-to-brown-s-motion-to-dismiss-the-complaint",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 2730,
+        "start": 2716
+      },
+      "locator_text": "334 F.R.D. 393"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "resolved",
+      "document": "025__andrea-k-tantaros-v-fox-news-network-llc-et-al__opposition-to-brown-s-motion-to-dismiss-the-complaint",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 2888,
+        "start": 2870
+      },
+      "locator_text": "558 F. Supp. 3d 73"
+    }
+  ],
+  "document_count": 26,
+  "interpretation": "Observed saved-run difference only; repeated model judgments and provider availability may both change outcomes. Neither run imposed a retrospective evidence date.",
+  "provider_transient_failures": {
+    "after": {
+      "affected_roots": {
+        "either": 87,
+        "fetch": 28,
+        "search": 59
+      },
+      "affected_roots_429": {
+        "either": 86,
+        "fetch": 28,
+        "search": 58
+      },
+      "fetch_error_attempts": {
+        "429": 57,
+        "502": 1
+      },
+      "fetch_terminal_failures": {
+        "429": 26
+      },
+      "scope": "All serialized roots, including roots without an identity gold label.",
+      "search_error_events": {
+        "429": 113,
+        "500": 2
+      }
+    },
+    "before": {
+      "affected_roots": {
+        "either": 72,
+        "fetch": 22,
+        "search": 50
+      },
+      "affected_roots_429": {
+        "either": 69,
+        "fetch": 22,
+        "search": 47
+      },
+      "fetch_error_attempts": {
+        "429": 46
+      },
+      "fetch_terminal_failures": {
+        "429": 20
+      },
+      "scope": "All serialized roots, including roots without an identity gold label.",
+      "search_error_events": {
+        "429": 91,
+        "500": 5,
+        "502": 1
+      }
+    },
+    "definition": "429, 500, 502, 503, 504, or timeout recorded in root body search/fetch traces; repeated trace entries remain separate attempts."
+  },
+  "score": {
+    "after": {
+      "f1": 0.8602150537634409,
+      "false_admissions": 4,
+      "gold_correct_roots": 367,
+      "labeled_roots": 440,
+      "missed_correct_roots": 87,
+      "precision": 0.9859154929577465,
+      "reached_roots": 438,
+      "recall": 0.7629427792915532,
+      "true_admissions": 280
+    },
+    "before": {
+      "f1": 0.8637059724349159,
+      "false_admissions": 4,
+      "gold_correct_roots": 367,
+      "labeled_roots": 440,
+      "missed_correct_roots": 85,
+      "precision": 0.986013986013986,
+      "reached_roots": 438,
+      "recall": 0.7683923705722071,
+      "true_admissions": 282
+    },
+    "delta": {
+      "f1": -0.0034909186714749962,
+      "false_admissions": 0,
+      "missed_correct_roots": 2,
+      "precision": -9.849305623954585e-05,
+      "recall": -0.00544959128065392,
+      "true_admissions": -2
+    }
+  }
+}

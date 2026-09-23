@@ -1,0 +1,119 @@
+{
+  "annotations": "data/primary/documents",
+  "artifact_type": "root_identity_score",
+  "artifacts": "data/run-artifacts/47-primary-body-search-shared-main-v1/root_body_corroboration_resolution",
+  "decision": {
+    "accuracy": 0.9780564263322884,
+    "correct": 312,
+    "decided": 319,
+    "deferred_or_unreached": 121
+  },
+  "incorrect_admissions": [
+    {
+      "document": "026__the-advocates-for-human-rights-and-l-h-m-v-u-s-departme__opposition-brief",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 35392,
+        "start": 35380
+      },
+      "outcome": "resolved"
+    }
+  ],
+  "incorrect_rejections": [
+    {
+      "document": "006__coomer-v-lindell-mypillow-inc__response-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 28320,
+        "start": 28300
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "014__alishia-monique-jones-v-ahmed-taylor-et-al__response-to-the-show-cause-order",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 1699,
+        "start": 1681
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "018__gamez-v-county-of-fresno__brief-opposing-defendant-county-of-fresno-s-motion-for-",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 7715,
+        "start": 7701
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "021__chelsea-montes-v-suns-legacy-partners-llc__response-to-defendant-s-motion-to-dismiss",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 4617,
+        "start": 4604
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "022__chelsea-montes-v-suns-legacy-partners-llc__reply-in-support-of-plaintiff-s-motion-to-proceed-anony",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 4608,
+        "start": 4590
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "022__chelsea-montes-v-suns-legacy-partners-llc__reply-in-support-of-plaintiff-s-motion-to-proceed-anony",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 5469,
+        "start": 5450
+      },
+      "outcome": "no_match"
+    }
+  ],
+  "labeled_roots": 440,
+  "outcome_by_gold_label": {
+    "deferred_to_open_web_search": {
+      "correct_identity": 75,
+      "wrong_identity": 44
+    },
+    "no_match": {
+      "correct_identity": 6,
+      "wrong_identity": 29
+    },
+    "not_reached": {
+      "correct_identity": 2,
+      "wrong_identity": 0
+    },
+    "resolved": {
+      "correct_identity": 283,
+      "wrong_identity": 1
+    }
+  },
+  "positive_admission": {
+    "f1": 0.8707692307692307,
+    "fn": 83,
+    "fp": 1,
+    "gold": 366,
+    "precision": 0.9964788732394366,
+    "predicted": 284,
+    "recall": 0.773224043715847,
+    "tp": 283
+  },
+  "stage_coverage": {
+    "gold": 440,
+    "not_reached": 2,
+    "reached": 438
+  }
+}

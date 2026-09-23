@@ -1,0 +1,25 @@
+{
+  "annotations": "data/reliable-low-profile/documents",
+  "artifact_type": "root_formation_score",
+  "artifacts": "data/run-artifacts/55-schema21-reliable-low-profile-roots-v1/root_formation",
+  "locator_attribution": {
+    "f1": 0.9935304990757856,
+    "fn": 7,
+    "fp": 7,
+    "gold": 1082,
+    "precision": 0.9935304990757856,
+    "predicted": 1082,
+    "recall": 0.9935304990757856,
+    "tp": 1075
+  },
+  "root_locators": {
+    "f1": 0.9931623931623932,
+    "fn": 2,
+    "fp": 6,
+    "gold": 583,
+    "precision": 0.989778534923339,
+    "predicted": 587,
+    "recall": 0.9965694682675815,
+    "tp": 581
+  }
+}

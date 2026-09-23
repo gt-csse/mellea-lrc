@@ -1,0 +1,112 @@
+{
+  "annotations": "data/primary/documents",
+  "artifact_type": "root_identity_score",
+  "artifacts": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/run-artifacts/54-schema21-primary-v1/shared_body_evidence_review",
+  "corpus_manifest": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/run-artifacts/54-schema21-primary-v1/corpus-manifest.json",
+  "decision": {
+    "accuracy": 0.9765625,
+    "correct": 250,
+    "decided": 256,
+    "deferred_or_unreached": 75
+  },
+  "document_count": 18,
+  "incorrect_admissions": [
+    {
+      "document": "026__the-advocates-for-human-rights-and-l-h-m-v-u-s-departme__opposition-brief",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 35392,
+        "start": 35380
+      },
+      "outcome": "resolved"
+    }
+  ],
+  "incorrect_rejections": [
+    {
+      "document": "006__coomer-v-lindell-mypillow-inc__response-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 15892,
+        "start": 15878
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "016__in-re-prince-global-holdings-limited-et-al__declaration-of-paul-pretlove",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 7477,
+        "start": 7465
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "019__modern-floor-specialists-inc-et-al-v-city-of-los-angele__opposition-brief-to-city-defendants-motion-to-dismiss",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 13678,
+        "start": 13666
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "019__modern-floor-specialists-inc-et-al-v-city-of-los-angele__opposition-brief-to-city-defendants-motion-to-dismiss",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 28648,
+        "start": 28636
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "022__chelsea-montes-v-suns-legacy-partners-llc__reply-in-support-of-plaintiff-s-motion-to-proceed-anony",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 4608,
+        "start": 4590
+      },
+      "outcome": "no_match"
+    }
+  ],
+  "labeled_roots": 331,
+  "outcome_by_gold_label": {
+    "deferred_to_open_web_search": {
+      "correct_identity": 46,
+      "wrong_identity": 28
+    },
+    "no_match": {
+      "correct_identity": 5,
+      "wrong_identity": 12
+    },
+    "not_reached": {
+      "correct_identity": 1,
+      "wrong_identity": 0
+    },
+    "resolved": {
+      "correct_identity": 238,
+      "wrong_identity": 1
+    }
+  },
+  "positive_admission": {
+    "f1": 0.8998109640831757,
+    "fn": 52,
+    "fp": 1,
+    "gold": 290,
+    "precision": 0.99581589958159,
+    "predicted": 239,
+    "recall": 0.8206896551724138,
+    "tp": 238
+  },
+  "scope": "retrospective_evaluable_documents",
+  "stage_coverage": {
+    "gold": 331,
+    "not_reached": 1,
+    "reached": 330
+  }
+}

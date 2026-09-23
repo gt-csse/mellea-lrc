@@ -4,15 +4,15 @@ One function and one list of rules: `preprocess(source, rules)`. Everything
 else here is a type it returns.
 """
 
-from mellea_lrc.core.documents import DocumentBase, SourceFormat, SourceMetadata
-from mellea_lrc.preprocessing.pipeline import preprocess
-from mellea_lrc.preprocessing.types import (
+from mellea_lrc.model.documents import DocumentBase, SourceFormat, SourceMetadata
+from mellea_lrc.model.preprocessed import (
     DEFAULT_RULES,
     PreprocessedDocument,
     PreprocessingBackend,
     PreprocessingMetadata,
     Rule,
 )
+from mellea_lrc.preprocessing.pipeline import preprocess
 
 __all__ = [
     "DEFAULT_RULES",

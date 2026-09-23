@@ -1,0 +1,407 @@
+"""Read federal CM/ECF docket locators before later root-stage audits.
+
+The first-pass reader has one intentionally narrow contract: an explicit docket
+label followed by the common federal CM/ECF case-number family.  It does not
+infer a court-local, state, appellate, historical, or malformed docket grammar.
+Those candidates belong to site hunting, where they can be separately reviewed.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from functools import cache, lru_cache
+
+import ahocorasick
+from courts_db import courts
+from eyecite.models import CitationToken, Edition, Reporter, TokenExtractor
+from eyecite.tokenizers import Tokenizer, default_tokenizer
+
+from mellea_lrc.extraction.reading.courts import resolve_court
+from mellea_lrc.model.citations import DocketEntry
+from mellea_lrc.model.fuzziness import FuzzinessOption, fuzzy_literal
+from mellea_lrc.model.spans import Span
+
+# The group that marks a citation token as a docket rather than a reporter.
+DOCKET_GROUP = "docket"
+
+# Keep the label spelling literal while treating horizontal whitespace as
+# converter noise: ``Civil Action No.``, ``CivilActionNo.``, ``No .``, and a
+# justified ``Civil   Action  No.`` are one label. A label never crosses a
+# line here.
+_PREFIXES = (
+    "No. ",
+    "Case No. ",
+    "Civil Action No. ",
+    "Civ. A. No. ",
+    "Docket No. ",
+)
+_PREFIX_FUZZINESS = FuzzinessOption.whitespace_relaxation()
+DOCKET_PREFIX = r"\b(?:" + "|".join(fuzzy_literal(prefix, _PREFIX_FUZZINESS) for prefix in _PREFIXES) + ")"
+"""The shared explicit label used by first-pass reading and site generation."""
+
+# The federal CM/ECF family is office/year/type/sequence, with optional judge
+# and referral-judge codes.  Offices are normally separated by a colon, though
+# bankruptcy systems also write a hyphen.  The type code stays opaque here:
+# the numbering convention supplies its position, not a finite vocabulary.
+_FEDERAL_CMECF = r"(?:\d{1,3}[:-])?\d{2}-[A-Za-z]{2,4}-\d{1,6}(?:-[A-Za-z]{2,5}){0,2}"
+
+DOCKET_NUMBER = rf"""
+{DOCKET_PREFIX}
+(?P<{DOCKET_GROUP}>{_FEDERAL_CMECF})
+# A slash, backslash, or colon may continue a local docket suffix. Do not
+# admit only the CM/ECF-looking prefix of a longer number: site review can
+# inspect the complete opaque token instead.
+(?![A-Za-z0-9:/\\-])
+"""
+"""An explicitly labelled federal CM/ECF docket identifier."""
+
+# A document-entry reference belongs to a docket citation only when it is
+# immediately joined to that docket's locator.  This deliberately does not
+# scan a paragraph for every ``ECF No.``: those are usually references to
+# entries in the filing's own case.  The shape covers the ordinary cited-file
+# forms and leaves any unnumbered document description as case-level only.
+_DOCKET_ENTRY = re.compile(
+    r"\b(?:Doc(?:ument)?\.?|Dkt\.?|ECF)\s*(?:No\.?\s*)?(?P<number>\d+(?:-\d+)?)",
+    re.IGNORECASE,
+)
+# A filing entry and a case locator are one written reference only when they
+# are truly adjacent.  Whitespace is relaxed by default, including a page-line
+# break, but the whole intervening join remains deliberately short.
+MAX_ENTRY_ADJACENCY = 12
+_ENTRY_JOIN = re.compile(rf"^[\s,;:\[\]()]{{0,{MAX_ENTRY_ADJACENCY}}}$")
+_ENTRY_LOOKBACK = 96
+
+
+def docket_entry_before(text: str, locator_span: Span) -> DocketEntry | None:
+    """Return the immediately preceding written docket entry, if any.
+
+    ``Doc. 10-1, Case No. 2:25-cv-02337`` names an attachment on that case's
+    docket.  A bar number or an ECF entry elsewhere in the paragraph does not:
+    only punctuation and whitespace may stand between the entry reference and
+    the case locator.
+    """
+    start = max(0, locator_span.start - _ENTRY_LOOKBACK)
+    candidates = tuple(_DOCKET_ENTRY.finditer(text, start, locator_span.start))
+    if not candidates:
+        return None
+    match = candidates[-1]
+    if not _ENTRY_JOIN.fullmatch(text[match.end() : locator_span.start]):
+        return None
+    return DocketEntry(
+        number=match.group("number"),
+        span=Span(start=match.start(), end=match.end()),
+    )
+
+
+# How far past the number the court may be written, and how much of a gap is
+# still the same citation. One line ending is a citation broken by the page;
+# two is a different thing on the page.
+_COURT_WINDOW = 70
+_PARAGRAPH_BREAK = re.compile(r"\r?\n[^\S\r\n]*\r?\n")
+_BRACKETED = re.compile(r"[(\[]([^)\]\r\n]*)[)\]]")
+
+# courts-db stores one-letter and two-letter citation strings that would match
+# a judge's initials; four characters is the shortest real court abbreviation.
+_MIN_COURT_STRING = 4
+_NOT_ALPHANUMERIC = re.compile(r"[^0-9a-z]")
+
+# How many words into a parenthetical a court name may run: `Bankr. S.D.N.Y.`
+# is two, `E.D. Pa.` is two, and nothing real is longer than four.
+_MAX_COURT_WORDS = 4
+_WORD = re.compile(r"\S+")
+
+
+@dataclass(frozen=True, slots=True)
+class CourtCandidate:
+    """One court string found in the text, resolved against courts-db."""
+
+    span_start: int
+    span_end: int
+    text: str
+    court_id: str
+    court_name: str
+
+
+def _normalize(value: str) -> str:
+    """Compare court strings ignoring case and trailing punctuation.
+
+    courts-db is not internally consistent about the final period -- the Eastern
+    District of New York is stored as ``E.D.N.Y`` while the Southern District is
+    ``S.D.N.Y.`` -- so an exact match would silently miss whole courts.
+    """
+    return value.casefold().rstrip(". ")
+
+
+def _tight(value: str) -> str:
+    """Compare court strings ignoring everything but their letters and digits.
+
+    A converter that drops the space out of ``D. Ariz.`` has not written a
+    different court, but it has written a string that matches ``Ariz.`` -- the
+    Arizona Supreme Court -- and nothing else. Document 022 does exactly that.
+    Answering `ariz` there would be inventing a court out of a typo, so the
+    reading that ignores the spacing has to be available.
+    """
+    return _NOT_ALPHANUMERIC.sub("", value.casefold())
+
+
+def _literal_key(value: str) -> str:
+    """Key a court spelling while preserving its non-whitespace characters."""
+    return re.sub(r"\s+", " ", value).strip().casefold().rstrip(". ")
+
+
+def _build_court_index() -> tuple[
+    ahocorasick.Automaton,
+    dict[str, tuple[str, str]],
+    dict[str, tuple[str, str]],
+    dict[str, tuple[tuple[str, tuple[str, str]], ...]],
+]:
+    """Index every court citation string courts-db knows, three ways."""
+    lookup: dict[str, tuple[str, str]] = {}
+    tight: dict[str, tuple[str, str]] = {}
+    literal: dict[str, list[tuple[str, tuple[str, str]]]] = {}
+    for court in courts:
+        citation_string = court.get("citation_string")
+        if not citation_string or len(citation_string) < _MIN_COURT_STRING:
+            continue
+        entry = (court["id"], court["name"])
+        lookup.setdefault(_normalize(citation_string), entry)
+        tight.setdefault(_tight(citation_string), entry)
+        literal.setdefault(_literal_key(citation_string), []).append((citation_string, entry))
+    automaton = ahocorasick.Automaton()
+    for normalized in lookup:
+        automaton.add_word(normalized, normalized)
+    automaton.make_automaton()
+    return automaton, lookup, tight, {key: tuple(value) for key, value in literal.items()}
+
+
+_COURT_AUTOMATON, _COURT_LOOKUP, _COURT_TIGHT, _COURT_LITERAL = _build_court_index()
+_COURT_NAMES = {str(court["id"]): court["name"] for court in courts}
+
+
+def courts_in(text: str, start: int, end: int) -> tuple[CourtCandidate, ...]:
+    """Every courts-db citation string written in ``text[start:end]``."""
+    left = max(0, start)
+    region = text[left:end]
+    normalized = region.casefold()
+    found: dict[tuple[int, int], CourtCandidate] = {}
+    for finish, matched in _COURT_AUTOMATON.iter(normalized):
+        begin = finish - len(matched) + 1
+        before = normalized[begin - 1] if begin else " "
+        after = normalized[finish + 1] if finish + 1 < len(normalized) else " "
+        if before.isalnum() or after.isalnum():
+            continue
+        court_id, court_name = _COURT_LOOKUP[matched]
+        found[(left + begin, left + finish + 1)] = CourtCandidate(
+            span_start=left + begin,
+            span_end=left + finish + 1,
+            text=text[left + begin : left + finish + 1],
+            court_id=court_id,
+            court_name=court_name,
+        )
+    # Court abbreviations nest: "N.C" sits inside "D.N.C" inside "M.D.N.C", and
+    # each is a real courts-db entry. Only the longest reading is the court
+    # actually written, so drop any candidate contained in another.
+    maximal = [
+        candidate
+        for candidate in found.values()
+        if not any(
+            other.span_start <= candidate.span_start
+            and candidate.span_end <= other.span_end
+            and (other.span_end - other.span_start) > (candidate.span_end - candidate.span_start)
+            for other in found.values()
+        )
+    ]
+    return tuple(sorted(maximal, key=lambda candidate: candidate.span_start))
+
+
+def court_for_docket(text: str, end: int, *, stop: int | None = None) -> CourtCandidate | None:
+    """The court written with the docket number that ends at ``end``.
+
+    A cited docket carries its court in the parenthesis that follows it, in the
+    same block of text. Nothing else counts: a court string merely nearby
+    belongs to whatever citation put it there, which on a page of ECF stamps is
+    never this one.
+    """
+    limit = min(end + _COURT_WINDOW, stop if stop is not None else len(text))
+    for bracket in _BRACKETED.finditer(text, end, limit):
+        if _PARAGRAPH_BREAK.search(text, end, bracket.start()):
+            return None
+        court = _court_opening(text, bracket.start(1), bracket.end(1))
+        if court is not None:
+            return court
+    return None
+
+
+def _court_opening(text: str, start: int, end: int) -> CourtCandidate | None:
+    """The court a parenthetical opens with, if it opens with one.
+
+    A citation parenthetical begins with the court and then gives the date --
+    ``(E.D.N.Y. filed Oct. 8, 2025)`` -- so the court is read from the front
+    rather than searched for anywhere inside. That is stricter than scanning,
+    and the strictness is the point: a parenthetical that merely mentions a
+    court somewhere in the middle is quoting another citation, not naming this
+    docket's court.
+    """
+    words = list(_WORD.finditer(text, start, end))
+    for count in range(min(_MAX_COURT_WORDS, len(words)), 0, -1):
+        opening = text[words[0].start() : words[count - 1].end()]
+        if not _is_written_as_a_court(opening):
+            continue
+        # This is the ordinary literal spelling first, except that whitespace
+        # is not evidence.  A source can write ``Bankr.  S.D.N.Y.`` with a
+        # doubled space and still mean the exact court string courts-db holds.
+        # It is intentionally checked before the older punctuation-tolerant
+        # fallback so a full bankruptcy court wins over its nested district.
+        entry = _fuzzy_literal_court(opening)
+        if entry is None:
+            entry = _COURT_TIGHT.get(_tight(opening))
+        if entry is None:
+            # courts-db spells some courts out where a filing abbreviates:
+            # `Bankr. S.D. Florida` is stored and `Bankr. S.D. Fla.` is written.
+            # `resolve_court` reads the abbreviation; it decides nothing this
+            # index would have decided differently.
+            resolved = resolve_court(opening)
+            entry = (resolved, _COURT_NAMES[resolved]) if resolved else None
+        if entry is None:
+            continue
+        court_id, court_name = entry
+        return CourtCandidate(
+            span_start=words[0].start(),
+            span_end=words[count - 1].end(),
+            text=opening,
+            court_id=court_id,
+            court_name=court_name,
+        )
+    return None
+
+
+def _fuzzy_literal_court(opening: str) -> tuple[str, str] | None:
+    """Resolve an exact court spelling whose whitespace was damaged.
+
+    The index narrows the comparison to literal spellings with the same words
+    and punctuation; :func:`fuzzy_literal` then accepts any amount of
+    horizontal whitespace between them.  This is not the punctuation-dropping
+    fallback below -- ``Bankr.  S.D.N.Y.`` is still the exact bankruptcy court,
+    rather than a substring that happens to name the Southern District.
+    """
+    possibilities = _COURT_LITERAL.get(_literal_key(opening), ())
+    matched = {
+        entry
+        for spelling, entry in possibilities
+        if re.fullmatch(
+            fuzzy_literal(spelling.rstrip(". "), _PREFIX_FUZZINESS),
+            opening.rstrip(". "),
+            flags=re.IGNORECASE,
+        )
+    }
+    return next(iter(matched)) if len(matched) == 1 else None
+
+
+def _is_written_as_a_court(opening: str) -> bool:
+    """Whether this reads as a court abbreviation rather than as initials.
+
+    Ignoring the periods is what lets ``D.Ariz.`` be read; the cost is that it
+    also lets ``(SC)`` be read as South Carolina, and the parenthesis after a
+    caption's docket number holds the assigned judge's initials -- ``(JMW)``,
+    ``(RPK)``. A court is written as an abbreviation, with the periods, or as a
+    whole word; initials are neither.
+    """
+    return "." in opening or (opening.isalpha() and len(opening) >= _MIN_COURT_STRING)
+
+
+@cache
+def _edition(court_id: str, court_name: str, case_type: str) -> Edition:
+    """An internal edition used to keep eyecite from merging unknown dockets.
+
+    Before court resolution, each occurrence gets a unique edition, so equal
+    numbers in unknown jurisdictions cannot share an eyecite resource. Once a
+    court is known, the later root stage groups equal docket numbers within it.
+    """
+    return Edition(
+        reporter=Reporter(
+            short_name=court_id,
+            name=court_name,
+            # Not one of reporters-db's cite types. `source` must be
+            # "reporters", because that is what tells eyecite to build a
+            # FullCaseCitation rather than a statute or a journal article.
+            cite_type="docket",
+            source="reporters",
+        ),
+        short_name=f"{court_id} {case_type}",
+        start=None,
+        end=None,
+    )
+
+
+def docket_token(match: re.Match[str], extra: dict, offset: int = 0) -> CitationToken:
+    """Build one opaque docket locator as a full-case citation token.
+
+    Eyecite requires numeric volume and page fields even though a docket has
+    neither.  Per-occurrence stand-ins satisfy that transport requirement; the
+    text in ``DOCKET_GROUP`` remains the only actual identifier.  Court lookup
+    happens after locator detection, so the internal edition is unique until a
+    later reader supplies a court.
+    """
+    del extra
+    docket_number = match.group(DOCKET_GROUP)
+    token_position = str(match.start() + offset + 1)
+    court_id = f"unresolved-{match.start() + offset}"
+    court_name = "Unresolved docket court"
+    return CitationToken(
+        match.group(0),
+        match.start() + offset,
+        match.end() + offset,
+        groups={
+            "volume": token_position,
+            "reporter": f"{court_id} docket",
+            "page": token_position,
+            DOCKET_GROUP: docket_number,
+            "court": None,
+            "court_name": None,
+            "court_text": None,
+        },
+        exact_editions=(_edition(court_id, court_name, "docket"),),
+    )
+
+
+@lru_cache(maxsize=1)
+def docket_extractors() -> tuple[TokenExtractor, ...]:
+    """Return the one contextual docket reader registered with eyecite.
+
+    There is no literal every docket contains, so the tokenizer must run this
+    regular expression directly.  The reader intentionally has one grammar:
+    docket syntax belongs to courts, while citation context is the general fact
+    extraction can establish without knowing a court's local numbering scheme.
+    """
+    return (
+        TokenExtractor(
+            regex=DOCKET_NUMBER,
+            constructor=docket_token,
+            flags=re.IGNORECASE | re.VERBOSE,
+            strings=[],
+        ),
+    )
+
+
+@dataclass
+class _DocketAwareTokenizer(Tokenizer):
+    """Whatever a tokenizer already reads, plus docket numbers.
+
+    Composed rather than substituted because the two questions are unrelated.
+    ``Relaxation`` decides how much whitespace damage a *reporter* pattern will
+    tolerate, and it has nothing to say about a docket number -- so a docket is
+    read the same way at every level, and each level's own prefilter is left
+    exactly as it was.
+    """
+
+    base: Tokenizer = field(default_factory=lambda: default_tokenizer)
+
+    def get_extractors(self, text: str) -> list[TokenExtractor]:
+        """Run the base tokenizer's extractors, and then ours."""
+        return [*self.base.get_extractors(text), *docket_extractors()]
+
+
+def with_dockets(tokenizer: Tokenizer) -> Tokenizer:
+    """Return a tokenizer that also reads docket numbers."""
+    return _DocketAwareTokenizer(base=tokenizer)

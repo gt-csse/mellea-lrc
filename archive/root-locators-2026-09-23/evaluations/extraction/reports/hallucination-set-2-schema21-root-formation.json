@@ -1,0 +1,25 @@
+{
+  "annotations": "data/hallucination-set-2/documents",
+  "artifact_type": "root_formation_score",
+  "artifacts": "data/run-artifacts/55-schema21-hallucination-set-2-roots-v1/root_formation",
+  "locator_attribution": {
+    "f1": 0.9987096774193548,
+    "fn": 1,
+    "fp": 0,
+    "gold": 388,
+    "precision": 1.0,
+    "predicted": 387,
+    "recall": 0.9974226804123711,
+    "tp": 387
+  },
+  "root_locators": {
+    "f1": 0.9983471074380166,
+    "fn": 1,
+    "fp": 0,
+    "gold": 303,
+    "precision": 1.0,
+    "predicted": 302,
+    "recall": 0.9966996699669967,
+    "tp": 302
+  }
+}

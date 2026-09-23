@@ -1,0 +1,76 @@
+{
+  "annotations": "data/reliable-high-profile/documents",
+  "artifact_type": "root_identity_score",
+  "artifacts": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/run-artifacts/54-schema21-reliable-high-profile-v1/shared_body_evidence_review",
+  "corpus_manifest": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/run-artifacts/54-schema21-reliable-high-profile-v1/corpus-manifest.json",
+  "decision": {
+    "accuracy": 0.9789473684210527,
+    "correct": 93,
+    "decided": 95,
+    "deferred_or_unreached": 251
+  },
+  "document_count": 7,
+  "incorrect_admissions": [
+    {
+      "document": "4234232_20220812",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 64803,
+        "start": 64792
+      },
+      "outcome": "resolved"
+    }
+  ],
+  "incorrect_rejections": [
+    {
+      "document": "4234232_20220812",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 13342,
+        "start": 13330
+      },
+      "outcome": "no_match"
+    }
+  ],
+  "labeled_roots": 346,
+  "outcome_by_gold_label": {
+    "deferred_to_open_web_search": {
+      "correct_identity": 37,
+      "wrong_identity": 0
+    },
+    "no_match": {
+      "correct_identity": 1,
+      "wrong_identity": 1
+    },
+    "not_reached": {
+      "correct_identity": 1,
+      "wrong_identity": 0
+    },
+    "resolved": {
+      "correct_identity": 92,
+      "wrong_identity": 1
+    },
+    "unjudged": {
+      "correct_identity": 209,
+      "wrong_identity": 4
+    }
+  },
+  "positive_admission": {
+    "f1": 0.4249422632794457,
+    "fn": 248,
+    "fp": 1,
+    "gold": 340,
+    "precision": 0.989247311827957,
+    "predicted": 93,
+    "recall": 0.27058823529411763,
+    "tp": 92
+  },
+  "scope": "retrospective_evaluable_documents",
+  "stage_coverage": {
+    "gold": 346,
+    "not_reached": 1,
+    "reached": 345
+  }
+}

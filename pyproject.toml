@@ -7,7 +7,7 @@ version = "0.1.9"
 #
 #   uv run python -m AutoGitSemVer.scripts.UpdatePythonVersion ./pyproject.toml ./src
 
-description = "Mellea contrib package to provide requirements for the legal domain"
+description = "Document preprocessing foundation for legal citation analysis"
 readme = "README.md"
 authors = [
     { name = "Di Wu (Woody)", email = "dwu400@gatech.edu" },
@@ -16,12 +16,7 @@ authors = [
 ]
 requires-python = ">= 3.11"
 dependencies = [
-    "courts-db>=0.10.27,<0.11",
-    "eyecite>=2.7,<3",
-    "pydantic>=2.11,<3",
-    "pyahocorasick>=2.3,<3",
-    "reporters-db>=3.2,<4",
-    "requests>=2.32,<3",
+    "pydantic>=2,<3",
 ]
 classifiers = [
     "Operating System :: MacOS",
@@ -43,43 +38,21 @@ Homepage = "https://github.com/gt-csse/mellea-lrc"
 Documentation = "https://github.com/gt-csse/mellea-lrc"
 Repository = "https://github.com/gt-csse/mellea-lrc"
 
-[project.scripts]
-mellea-lrc = "mellea_lrc.cli:main"
-
 [build-system]
 requires = ["uv_build>=0.11.16,<0.12.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
 preprocessing = [
-    "charset-normalizer>=3.4.7",
     "docling>=2.0",
 ]
-extraction = [
-    "docling>=2.102.2",
-    "dotenv>=0.9.9",
-    "eyecite>=2.6",
-    "mellea>=0.6",
-    "rapidfuzz>=3.14.5",
-]
 dev = [
-    { include-group = "extraction" },
+    { include-group = "preprocessing" },
     "autogitsemver>=0.9.13",
-    "openai>=2.42.0",
     "pre-commit>=4.6.0",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
     "ruff~=0.16.0",
-    "typer<0.26",
-]
-eval = [
-    "matplotlib>=3.10.9",
-    "pandas>=2.3.3",
-]
-notebook = [
-    "ipykernel>=7.2.0",
-    "ipython>=8.39.0",
-    "jupyter>=1.1.1",
 ]
 
 [tool.pytest.ini_options]
@@ -96,6 +69,7 @@ markers = [
 
 [tool.ruff]
 line-length = 110
+extend-exclude = ["archive"]
 
 [tool.ruff.lint]
 exclude = ["benchmarks/Extraction/notebooks", "tests/**"]

@@ -1,0 +1,159 @@
+{
+  "annotations": "data/primary/documents",
+  "artifact_type": "root_identity_score",
+  "artifacts": "data/run-artifacts/37-primary-current-identity-body-v1/root_body_corroboration_resolution",
+  "decision": {
+    "accuracy": 0.965625,
+    "correct": 309,
+    "decided": 320,
+    "deferred_or_unreached": 120
+  },
+  "incorrect_admissions": [
+    {
+      "document": "008__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 7253,
+        "start": 7232
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "009__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 8933,
+        "start": 8918
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 30580,
+        "start": 30564
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "026__the-advocates-for-human-rights-and-l-h-m-v-u-s-departme__opposition-brief",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 35392,
+        "start": 35380
+      },
+      "outcome": "resolved"
+    }
+  ],
+  "incorrect_rejections": [
+    {
+      "document": "006__coomer-v-lindell-mypillow-inc__response-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 11829,
+        "start": 11806
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "006__coomer-v-lindell-mypillow-inc__response-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 28320,
+        "start": 28300
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "014__alishia-monique-jones-v-ahmed-taylor-et-al__response-to-the-show-cause-order",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 1699,
+        "start": 1681
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "018__gamez-v-county-of-fresno__brief-opposing-defendant-county-of-fresno-s-motion-for-",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 7715,
+        "start": 7701
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "021__chelsea-montes-v-suns-legacy-partners-llc__response-to-defendant-s-motion-to-dismiss",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 4617,
+        "start": 4604
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "022__chelsea-montes-v-suns-legacy-partners-llc__reply-in-support-of-plaintiff-s-motion-to-proceed-anony",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 4608,
+        "start": 4590
+      },
+      "outcome": "no_match"
+    },
+    {
+      "document": "022__chelsea-montes-v-suns-legacy-partners-llc__reply-in-support-of-plaintiff-s-motion-to-proceed-anony",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 5469,
+        "start": 5450
+      },
+      "outcome": "no_match"
+    }
+  ],
+  "labeled_roots": 440,
+  "outcome_by_gold_label": {
+    "deferred_to_open_web_search": {
+      "correct_identity": 77,
+      "wrong_identity": 41
+    },
+    "no_match": {
+      "correct_identity": 7,
+      "wrong_identity": 29
+    },
+    "not_reached": {
+      "correct_identity": 2,
+      "wrong_identity": 0
+    },
+    "resolved": {
+      "correct_identity": 280,
+      "wrong_identity": 4
+    }
+  },
+  "positive_admission": {
+    "f1": 0.8615384615384615,
+    "fn": 86,
+    "fp": 4,
+    "gold": 366,
+    "precision": 0.9859154929577465,
+    "predicted": 284,
+    "recall": 0.7650273224043715,
+    "tp": 280
+  },
+  "stage_coverage": {
+    "gold": 440,
+    "not_reached": 2,
+    "reached": 438
+  }
+}

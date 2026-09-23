@@ -1,0 +1,189 @@
+{
+  "after_artifacts": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/run-artifacts/43-primary-current-body-resolution-v1/root_body_corroboration_resolution",
+  "annotations": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/primary/documents",
+  "artifact_type": "primary_root_identity_saved_run_comparison",
+  "before_artifacts": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/run-artifacts/37-primary-current-identity-body-v1/root_body_corroboration_resolution",
+  "changed_annotated_root_count": 8,
+  "changed_root_outcomes": [
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "no_match",
+      "document": "006__coomer-v-lindell-mypillow-inc__response-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 11829,
+        "start": 11806
+      },
+      "locator_text": "No. CIVA03CV00031WDMMEH"
+    },
+    {
+      "after": "no_match",
+      "before": "deferred_to_open_web_search",
+      "document": "008__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 2659,
+        "start": 2644
+      },
+      "locator_text": "2010 WL 4722279"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "resolved",
+      "document": "008__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 7253,
+        "start": 7232
+      },
+      "locator_text": "2019 NY Slip Op 50388"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "resolved",
+      "document": "009__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 8933,
+        "start": 8918
+      },
+      "locator_text": "2009 WL 2103627"
+    },
+    {
+      "after": "resolved",
+      "before": "deferred_to_open_web_search",
+      "document": "011__anthony-c-hill-v-workday-inc__joint-discovery-letter-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 3644,
+        "start": 3629
+      },
+      "locator_text": "2018 WL 9802098"
+    },
+    {
+      "after": "resolved",
+      "before": "deferred_to_open_web_search",
+      "document": "011__anthony-c-hill-v-workday-inc__joint-discovery-letter-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 4014,
+        "start": 3999
+      },
+      "locator_text": "2016 WL 1019669"
+    },
+    {
+      "after": "resolved",
+      "before": "deferred_to_open_web_search",
+      "document": "011__anthony-c-hill-v-workday-inc__joint-discovery-letter-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 4862,
+        "start": 4848
+      },
+      "locator_text": "2024 WL 778395"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "resolved",
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 30580,
+        "start": 30564
+      },
+      "locator_text": "2022 WL 17985951"
+    }
+  ],
+  "document_count": 26,
+  "interpretation": "Observed saved-run difference only; repeated model judgments and provider availability may both change outcomes. Neither run imposed a retrospective evidence date.",
+  "provider_transient_failures": {
+    "after": {
+      "affected_roots": {
+        "either": 88,
+        "fetch": 29,
+        "search": 59
+      },
+      "affected_roots_429": {
+        "either": 87,
+        "fetch": 29,
+        "search": 58
+      },
+      "fetch_error_attempts": {
+        "429": 29
+      },
+      "fetch_terminal_failures": {
+        "429": 29
+      },
+      "scope": "All serialized roots, including roots without an identity gold label.",
+      "search_error_events": {
+        "429": 113,
+        "500": 2
+      }
+    },
+    "before": {
+      "affected_roots": {
+        "either": 87,
+        "fetch": 28,
+        "search": 59
+      },
+      "affected_roots_429": {
+        "either": 86,
+        "fetch": 28,
+        "search": 58
+      },
+      "fetch_error_attempts": {
+        "429": 57,
+        "502": 1
+      },
+      "fetch_terminal_failures": {
+        "429": 26
+      },
+      "scope": "All serialized roots, including roots without an identity gold label.",
+      "search_error_events": {
+        "429": 113,
+        "500": 2
+      }
+    },
+    "definition": "429, 500, 502, 503, 504, or timeout recorded in root body search/fetch traces; repeated trace entries remain separate attempts."
+  },
+  "score": {
+    "after": {
+      "f1": 0.8707692307692307,
+      "false_admissions": 1,
+      "gold_correct_roots": 366,
+      "labeled_roots": 440,
+      "missed_correct_roots": 83,
+      "precision": 0.9964788732394366,
+      "reached_roots": 438,
+      "recall": 0.773224043715847,
+      "true_admissions": 283
+    },
+    "before": {
+      "f1": 0.8615384615384615,
+      "false_admissions": 4,
+      "gold_correct_roots": 366,
+      "labeled_roots": 440,
+      "missed_correct_roots": 86,
+      "precision": 0.9859154929577465,
+      "reached_roots": 438,
+      "recall": 0.7650273224043715,
+      "true_admissions": 280
+    },
+    "delta": {
+      "f1": 0.009230769230769265,
+      "false_admissions": -3,
+      "missed_correct_roots": -3,
+      "precision": 0.010563380281690127,
+      "recall": 0.008196721311475419,
+      "true_admissions": 3
+    }
+  }
+}

@@ -1,0 +1,173 @@
+"""Group citations that occupy the same place in the text.
+
+A filing citing an authority in parallel writes one citation and several
+identifiers for it::
+
+    St. Amant v. Thompson, 390 U.S. 727, 731, 88 S.Ct. 1323, 20 L.Ed.2d 262
+
+eyecite extracts three full citations there, one per reporter, and links them
+to nothing. Downstream every count that is per-authority is then wrong: this
+corpus reports about 4% more authorities than it has, and a claim about the
+case attaches to whichever reporter happened to come last.
+
+**This reports co-location. It does not decide identity.** Locators that are
+written next to one another are grouped and given a shared id; whether they
+name one case is a question for validation, which can resolve each against
+CourtListener and compare the opinion cluster. That division matters, because
+co-location alone cannot settle it:
+
+    See Brown, 347 U.S. 483, 349 U.S. 294 (1955).
+
+has one case name, one year parenthetical and identical spans, and is two
+decisions. A rule deciding identity here would merge them; a rule reporting
+candidacy hands both to a layer that can tell.
+
+One refusal is applied, because it needs no lookup and cannot be wrong: **two
+citations sharing a reporter are two cases**, since a case has one first page
+in one reporter. That is what separates Brown I from Brown II, and it is
+deliberately the only judgement made here.
+
+A second refusal is about the text rather than about the cases. In a table of
+authorities eyecite gives every entry a full span running to the end of the
+table, so two entries coincide by span while the page shows them on different
+lines::
+
+    Donovan v. City of Dallas , 377 U.S. 408 (1964)……… 6  Gucci America , 768 F.3d 122
+
+Those are two cases, and nothing about the identifiers says so. What says so is
+what lies between them: a leader, a page number and another case name. So the
+locators of a co-located set must have nothing between them that begins another
+citation -- no leader dots, no `v.`. In a real parallel citation the locators
+are separated by a comma, a pin cite, a judge's initials or a short
+parenthetical, never by more than that.
+
+Measured over the 26 documents of `false-citation-bench`: **31 groups covering
+64 citations**, every one a genuine parallel citation. Sixteen pair a docket
+number with the reporter or database page written beside it; the rest are a
+state reporter beside its regional reporter, or the three Supreme Court
+reporters together, and are concentrated in two filings, because citing the
+official and regional reporter together is a jurisdiction's house style rather
+than a property of briefs in general.
+
+The locator output is unaffected: this reads the spans extraction produced and
+writes an id onto each citation. Nothing about which citations are found, or
+where, changes.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import TYPE_CHECKING
+
+from mellea_lrc.model.operations import record_colocation
+from mellea_lrc.model.record import Node, Reads
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from mellea_lrc.model.record import CitationRecord
+
+# What kind of thing a citation names. Only a citation that names an authority
+# outright can be one of several identifiers for it -- a short form or an `id.`
+# is a reference to an authority, not another name for one.
+#
+# A docket citation names a case, which is why it sits with the reporter ones.
+# `In re Iovate Health Scis. Int'l Inc. , No. 25-11958 (MG), 2025 Bankr. LEXIS
+# 2284` is one authority written twice, and seven citations on this corpus are
+# that shape; without this each was counted as two authorities.
+_NAMES = {
+    "FullCaseCitation": "case",
+    "DocketCitation": "case",
+    "FullLawCitation": "law",
+    "FullJournalCitation": "journal",
+}
+
+
+def _reporter(citation: CitationRecord) -> str:
+    """The citation's reporter, normalised so spacing does not split a group."""
+    return "".join(str(getattr(citation.fields, "reporter", "") or "").split()).lower()
+
+
+# What separates one citation from the next: the leader dots of an index, or the
+# `v.` of another case name. Between two identifiers for one case there is a
+# comma, a pin cite, a judge's initials or a short parenthetical, and nothing of
+# this kind.
+_ANOTHER_CITATION = re.compile(r"…|\.{2,}|\bvs?\.")
+
+# Adjacent locators can have a comma, whitespace, a pin cite, or a judge's
+# initials between them.  Those characters do not make the identifiers farther
+# apart.  A handful of ordinary characters covers the actual pin-page bridge
+# (``, 731,``) without treating a case name as an identifier separator.
+_MAX_MEANINGFUL_GAP = 5
+
+
+def _co_located(text: str, left: CitationRecord, right: CitationRecord) -> bool:
+    """Whether adjacent locator spans name the same written citation site."""
+    first, second = sorted((left, right), key=lambda c: c.locator_span.start)
+    between = text[first.locator_span.end : second.locator_span.start]
+    if _ANOTHER_CITATION.search(between):
+        return False
+    return sum(character.isalnum() for character in between) <= _MAX_MEANINGFUL_GAP
+
+
+def colocation_groups(text: str, citations: Sequence[CitationRecord]) -> list[list[CitationRecord]]:
+    """Return each set of two or more locators written at one citation site.
+
+    A group is built by locator proximity and then rejected if any reporter
+    appears twice in it, so a group is always a set of distinct identifiers for
+    what may be one authority.
+    """
+    eligible = [c for c in citations if type(c.fields).__name__ in _NAMES]
+    ordered = sorted(eligible, key=lambda c: (c.locator_span.start, c.locator_span.end))
+
+    groups: list[list[CitationRecord]] = []
+    for citation in ordered:
+        if groups and any(_co_located(text, citation, member) for member in groups[-1]):
+            groups[-1].append(citation)
+        else:
+            groups.append([citation])
+
+    return [
+        group
+        for group in groups
+        if len(group) > 1
+        # Distinct reporters: a case has one first page in one reporter, so a
+        # repeat means two authorities, not two names for one.
+        and len({_reporter(member) for member in group}) == len(group)
+        # One kind of thing named: a statute is not another name for a case,
+        # however close it sits, and overlap grouped the two before this test
+        # existed. A docket and a reporter page *are* two names for one case, so
+        # the test is on what is named rather than on the citation's type.
+        and len({_NAMES[type(member.fields).__name__] for member in group}) == 1
+    ]
+
+
+def assign_colocation(text: str, citations: Sequence[CitationRecord]) -> tuple[CitationRecord, ...]:
+    """Return the citations with a shared `colocation_id` on each co-located set.
+
+    The id is the citation id of the group's first member, which makes it stable
+    against re-running and readable when a serialized document is inspected by
+    hand. A citation in no group keeps `None`, which is the common case.
+    """
+    assigned: dict[str, str] = {}
+    for group in colocation_groups(text, citations):
+        identifier = group[0].citation_id
+        for member in group:
+            assigned[member.citation_id] = identifier
+
+    result = []
+    for citation in citations:
+        group_id = assigned.get(citation.citation_id)
+        if citation.colocation_id == group_id:
+            result.append(citation)
+            continue
+        node = Node(
+            node_id=f"colocation:{citation.citation_id}:{group_id or 'none'}",
+            reads=Reads.RECORD,
+            stage="colocation",
+            made_by=__name__,
+            outcome="grouped" if group_id else "ungrouped",
+            details={"colocation_id": group_id},
+        )
+        result.append(record_colocation(citation, group_id, node))
+    return tuple(result)

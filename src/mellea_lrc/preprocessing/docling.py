@@ -7,19 +7,19 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from mellea_lrc.core.documents import SourceFormat, SourceMetadata
-from mellea_lrc.core.spans import Span
-from mellea_lrc.preprocessing.docket_stamp import reclassify_docket_stamps
-from mellea_lrc.preprocessing.document_index import index_table_spans
-from mellea_lrc.preprocessing.margin_line_numbers import reclassify_margin_line_numbers
-from mellea_lrc.preprocessing.repeated_furniture import reclassify_repeated_furniture
-from mellea_lrc.preprocessing.types import (
+from mellea_lrc.model.documents import SourceFormat, SourceMetadata
+from mellea_lrc.model.preprocessed import (
     DEFAULT_RULES,
     PreprocessedDocument,
     PreprocessingBackend,
     PreprocessingMetadata,
     Rule,
 )
+from mellea_lrc.model.spans import Span
+from mellea_lrc.preprocessing.docket_stamp import reclassify_docket_stamps
+from mellea_lrc.preprocessing.document_index import index_table_spans
+from mellea_lrc.preprocessing.margin_line_numbers import reclassify_margin_line_numbers
+from mellea_lrc.preprocessing.repeated_furniture import reclassify_repeated_furniture
 
 if TYPE_CHECKING:
     from docling_core.types.doc.document import DoclingDocument
@@ -90,49 +90,10 @@ def preprocess_with_docling(
     *,
     rules: Sequence[Rule] = DEFAULT_RULES,
 ) -> PreprocessedDocument:
-    """Convert a raw document to plain text using Docling.
+    """Convert a file to text, applying the selected layout rules before export.
 
-    ``rules`` says which page furniture to take out before the text is
-    written. Docling reads all of it correctly and files some of it under the
-    body layer, where it survives into the text and lands wherever the page
-    broke -- a margin number inside a citation, the `9` of "Page 3 of 9" read
-    together with the date after it.
-
-    All three run by default. None of it is the document's text, and a rendering
-    that interleaves it into a citation is wrong about the document. Pass a
-    shorter list to keep some of it, or an empty one to keep all of it.
-
-    Each rule moves the offsets of everything after it, so two renderings made
-    under different lists are different coordinate spaces. Which ran is recorded
-    on the result rather than assumed.
-
-    ## Tables are read, not rebuilt
-
-    ``do_table_structure`` is off, so docling's layout model still finds a table
-    and still labels it -- a table of authorities still comes back as
-    ``document_index`` -- but its structure model does not divide it into cells.
-    The region is written out as one block, in the order the page reads.
-
-    A brief's table of authorities is not a table. It is indented lines with dot
-    leaders, which the layout model classifies as one because of the alignment,
-    and dividing it into cells does two kinds of damage. It interleaves cell
-    separators into the text, so seven citations on this corpus carry a `|`
-    inside their own span -- characters the filing does not contain. And it
-    assigns lines to the wrong cells, which reorders them: document 021's
-    `Loos v. Lowe's` and `796 F. Supp. 2d 1013, 1023` come out with the page
-    before its own reporter and the reporter beside the *next* case's name, a
-    citation no relaxation can read because the parts are out of order rather
-    than merely separated.
-
-    Reading the region as text instead is worth, over the 26 filings of
-    `false-citation-bench`: pipes 915 to 80, one authority recovered that
-    appeared nowhere else in its filing, none lost, and 24 fewer case names left
-    with no locator beside them. Where a document has no table it changes
-    nothing at all.
-
-    What is given up is the column structure of the genuine tables -- a table of
-    evidence, a list of proceedings. Nothing here reads columns, and a citation
-    inside one is read in the same order a person would read it.
+    ``TABLE_AS_TEXT`` disables cell reconstruction. The other rules classify
+    page furniture or mark index regions. The returned text is the span space.
     """
     try:
         from docling.datamodel.base_models import InputFormat

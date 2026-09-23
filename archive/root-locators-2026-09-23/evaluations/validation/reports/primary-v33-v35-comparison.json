@@ -1,0 +1,180 @@
+{
+  "after_artifacts": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/run-artifacts/35-primary-body-retry-main-v1/root_body_corroboration_resolution",
+  "annotations": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/primary/documents",
+  "artifact_type": "primary_root_identity_saved_run_comparison",
+  "before_artifacts": "/Users/woodygoodenough/CodingProjects/mellea-lrc-datasets/run-artifacts/33-primary-third-party-body-reviewed-v1/root_body_corroboration_resolution",
+  "changed_annotated_root_count": 7,
+  "changed_root_outcomes": [
+    {
+      "after": "resolved",
+      "before": "deferred_to_open_web_search",
+      "document": "008__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 7253,
+        "start": 7232
+      },
+      "locator_text": "2019 NY Slip Op 50388"
+    },
+    {
+      "after": "resolved",
+      "before": "deferred_to_open_web_search",
+      "document": "009__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 8933,
+        "start": 8918
+      },
+      "locator_text": "2009 WL 2103627"
+    },
+    {
+      "after": "resolved",
+      "before": "deferred_to_open_web_search",
+      "document": "009__sai-malena-jimenez-fogarty-v-thomas-fogarty-et-al__memorandum-of-law-in-opposition",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 12596,
+        "start": 12582
+      },
+      "locator_text": "2022 WL 884973"
+    },
+    {
+      "after": "deferred_to_open_web_search",
+      "before": "resolved",
+      "document": "011__anthony-c-hill-v-workday-inc__joint-discovery-letter-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 3644,
+        "start": 3629
+      },
+      "locator_text": "2018 WL 9802098"
+    },
+    {
+      "after": "resolved",
+      "before": "deferred_to_open_web_search",
+      "document": "011__anthony-c-hill-v-workday-inc__joint-discovery-letter-brief",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 7678,
+        "start": 7663
+      },
+      "locator_text": "2011 WL 4749104"
+    },
+    {
+      "after": "resolved",
+      "before": "deferred_to_open_web_search",
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 22694,
+        "start": 22682
+      },
+      "locator_text": "No. 25-11958"
+    },
+    {
+      "after": "no_match",
+      "before": "deferred_to_open_web_search",
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part",
+      "gold_label": "CORRECT_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 33054,
+        "start": 33043
+      },
+      "locator_text": "No. 2010712"
+    }
+  ],
+  "document_count": 26,
+  "interpretation": "Observed saved-run difference only; repeated model judgments and provider availability may both change outcomes. Neither run imposed a retrospective evidence date.",
+  "provider_transient_failures": {
+    "after": {
+      "affected_roots": {
+        "either": 72,
+        "fetch": 22,
+        "search": 50
+      },
+      "affected_roots_429": {
+        "either": 69,
+        "fetch": 22,
+        "search": 47
+      },
+      "fetch_error_attempts": {
+        "429": 46
+      },
+      "fetch_terminal_failures": {
+        "429": 20
+      },
+      "scope": "All serialized roots, including roots without an identity gold label.",
+      "search_error_events": {
+        "429": 91,
+        "500": 5,
+        "502": 1
+      }
+    },
+    "before": {
+      "affected_roots": {
+        "either": 102,
+        "fetch": 45,
+        "search": 57
+      },
+      "affected_roots_429": {
+        "either": 98,
+        "fetch": 44,
+        "search": 54
+      },
+      "fetch_error_attempts": {
+        "429": 88,
+        "timeout": 1
+      },
+      "fetch_terminal_failures": {
+        "429": 44,
+        "timeout": 1
+      },
+      "scope": "All serialized roots, including roots without an identity gold label.",
+      "search_error_events": {
+        "429": 105,
+        "500": 5,
+        "502": 1
+      }
+    },
+    "definition": "429, 500, 502, 503, 504, or timeout recorded in root body search/fetch traces; repeated trace entries remain separate attempts."
+  },
+  "score": {
+    "after": {
+      "f1": 0.8637059724349159,
+      "false_admissions": 4,
+      "gold_correct_roots": 367,
+      "labeled_roots": 440,
+      "missed_correct_roots": 85,
+      "precision": 0.986013986013986,
+      "reached_roots": 438,
+      "recall": 0.7683923705722071,
+      "true_admissions": 282
+    },
+    "before": {
+      "f1": 0.8628659476117103,
+      "false_admissions": 2,
+      "gold_correct_roots": 367,
+      "labeled_roots": 440,
+      "missed_correct_roots": 87,
+      "precision": 0.9929078014184397,
+      "reached_roots": 438,
+      "recall": 0.7629427792915532,
+      "true_admissions": 280
+    },
+    "delta": {
+      "f1": 0.000840024823205554,
+      "false_admissions": 2,
+      "missed_correct_roots": -2,
+      "precision": -0.006893815404453663,
+      "recall": 0.00544959128065392,
+      "true_admissions": 2
+    }
+  }
+}

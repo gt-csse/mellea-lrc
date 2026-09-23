@@ -1,0 +1,120 @@
+{
+  "annotations": "data/hallucination-set-1/documents",
+  "artifact_type": "root_identity_score",
+  "artifacts": "data/run-artifacts/18-persisted-root-identity/hallucination-set-1-luna-v2/root_body_corroboration_resolution",
+  "decision": {
+    "accuracy": 0.9683794466403162,
+    "correct": 245,
+    "decided": 253,
+    "deferred_or_unreached": 80
+  },
+  "incorrect_admissions": [
+    {
+      "document": "67673016_163",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 68295,
+        "start": 68283
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "70607460_15",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 18482,
+        "start": 18470
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "70607460_15",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 19929,
+        "start": 19917
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "70607460_15",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 19956,
+        "start": 19941
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "70655948_74",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 15621,
+        "start": 15609
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "70655948_74",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 24549,
+        "start": 24536
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "70655948_74",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "FullCaseCitation",
+      "locator_span": {
+        "end": 24564,
+        "start": 24551
+      },
+      "outcome": "resolved"
+    },
+    {
+      "document": "70655948_74",
+      "gold_label": "WRONG_IDENTITY",
+      "kind": "DocketCitation",
+      "locator_span": {
+        "end": 61669,
+        "start": 61647
+      },
+      "outcome": "resolved"
+    }
+  ],
+  "incorrect_rejections": [],
+  "labeled_roots": 333,
+  "outcome_by_gold_label": {
+    "deferred_to_open_web_search": {
+      "correct_identity": 23,
+      "wrong_identity": 57
+    },
+    "resolved": {
+      "correct_identity": 245,
+      "wrong_identity": 8
+    }
+  },
+  "positive_admission": {
+    "f1": 0.9404990403071017,
+    "fn": 23,
+    "fp": 8,
+    "gold": 268,
+    "precision": 0.9683794466403162,
+    "predicted": 253,
+    "recall": 0.914179104477612,
+    "tp": 245
+  },
+  "stage_coverage": {
+    "gold": 333,
+    "not_reached": 0,
+    "reached": 333
+  }
+}
