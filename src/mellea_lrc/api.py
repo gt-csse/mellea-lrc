@@ -1,7 +1,8 @@
 """Outer compositional API for preprocessing and extraction.
 
-Callers may compose each `Document -> Document` stage explicitly. `grow_roots`
-is the convenience composition; validation and leaf growth are later layers.
+Callers may compose each `Document -> Document` stage explicitly; the docket
+hunting stage is awaitable. `grow_roots` is the async convenience composition.
+Validation and leaf growth are later layers.
 """
 
 from mellea_lrc.extraction import (
@@ -11,6 +12,7 @@ from mellea_lrc.extraction import (
     find_short_reporter_citations,
     form_roots,
     grow_roots,
+    hunt_docket_locators,
     resolve_case_names,
     resolve_colocations,
     resolve_courts,
@@ -29,6 +31,7 @@ __all__ = [
     "find_short_reporter_citations",
     "form_roots",
     "grow_roots",
+    "hunt_docket_locators",
     "preprocess",
     "resolve_case_names",
     "resolve_colocations",

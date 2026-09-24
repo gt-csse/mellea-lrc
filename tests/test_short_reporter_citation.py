@@ -1,5 +1,6 @@
 """Short reporter occurrences stay separate from full locator roots."""
 
+import asyncio
 from eyecite.models import FullCaseCitation, ShortCaseCitation
 import pytest
 
@@ -18,7 +19,7 @@ def test_shared_reader_retains_eyecite_full_and_short_kinds() -> None:
 
 def test_short_reporter_is_a_distinct_checkpointed_citation() -> None:
     source = "Smith v. Jones, 347 U.S. 483 (1954). See Smith, 347 U.S. at 495 n.4."
-    roots = grow_roots(Document.from_source(source))
+    roots = asyncio.run(grow_roots(Document.from_source(source)))
     document = find_short_reporter_citations(roots)
 
     assert len(document.full_locators) == len(document.roots) == 1
@@ -42,7 +43,7 @@ def test_short_reporter_discovery_is_optional_and_idempotent() -> None:
     source = "See Smith, 347 U.S. at 495."
     with pytest.raises(ValueError, match="Form full roots"):
         find_short_reporter_citations(Document.from_source(source))
-    before = grow_roots(Document.from_source(source))
+    before = asyncio.run(grow_roots(Document.from_source(source)))
     after = find_short_reporter_citations(before)
 
     assert before.citations == ()
@@ -53,7 +54,7 @@ def test_short_reporter_discovery_is_optional_and_idempotent() -> None:
 
 def test_short_reporter_can_later_attach_without_changing_its_checkpoint() -> None:
     source = "Smith v. Jones, 347 U.S. 483 (1954). See Smith, 347 U.S. at 495."
-    found = find_short_reporter_citations(grow_roots(Document.from_source(source)))
+    found = find_short_reporter_citations(asyncio.run(grow_roots(Document.from_source(source))))
     short = found.short_reporters[0]
     attached = found.replace_citation(short.record("attach_short").with_root(found.roots[0].id))
     attached = attached.complete("attach_short")

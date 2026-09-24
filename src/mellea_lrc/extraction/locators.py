@@ -12,11 +12,13 @@ from mellea_lrc.reporter_reading import full_reporter_readings, short_reporter_r
 from mellea_lrc.text_match import fuzzy_literal
 
 _PREFIXES = ("No. ", "Case No. ", "Civil Action No. ", "Civ. A. No. ", "Docket No. ")
-_PREFIX = r"\b(?:" + "|".join(fuzzy_literal(prefix, whitespace=True) for prefix in _PREFIXES) + ")"
+DOCKET_PREFIX_PATTERN = (
+    r"\b(?:" + "|".join(fuzzy_literal(prefix, whitespace=True) for prefix in _PREFIXES) + ")"
+)
 # Office/year/type/sequence, with optional judge codes. Other jurisdictions and
 # malformed forms belong to a later, independently reviewable hunting pass.
 _CMECF = r"(?:\d{1,3}[:-])?\d{2}-[A-Za-z]{2,4}-\d{1,6}(?:-[A-Za-z]{2,5}){0,2}"
-_DOCKET = re.compile(rf"{_PREFIX}(?P<number>{_CMECF})(?![A-Za-z0-9:/\\-])", re.IGNORECASE)
+_DOCKET = re.compile(rf"{DOCKET_PREFIX_PATTERN}(?P<number>{_CMECF})(?![A-Za-z0-9:/\\-])", re.IGNORECASE)
 _ENTRY = re.compile(r"\b(?:Doc(?:ument)?\.?|Dkt\.?|ECF)\s*(?:No\.?\s*)?(?P<number>\d+(?:-\d+)?)", re.I)
 _ENTRY_JOIN = re.compile(r"^[\s,;:\[\]()]{0,12}$")
 

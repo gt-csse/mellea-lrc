@@ -1,5 +1,6 @@
 """Court labels use both external abbreviation data and preserve unresolved readings."""
 
+import asyncio
 import pytest
 
 from mellea_lrc.extraction import grow_roots
@@ -28,7 +29,7 @@ def test_bluebook_state_abbreviation_resolves_courts_db_label(written: str, cour
 
 def test_bluebook_fallback_is_used_by_document_extraction() -> None:
     source = "See Case No. 1:24-cv-00123 (M.D. Pa. 2024)."
-    document = grow_roots(Document.from_source(source))
+    document = asyncio.run(grow_roots(Document.from_source(source)))
     court = document.citations[0].court[-1]
 
     assert court.quote == "M.D. Pa."
