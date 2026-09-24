@@ -14,6 +14,11 @@ from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.reporter_reading import full_reporter_readings
 
+CASE_NAMES_STAGE = "case_names"
+COURTS_STAGE = "courts"
+DATES_STAGE = "dates"
+PIN_CITES_STAGE = "pin_cites"
+
 _CASE = re.compile(r"(?:In re|Ex parte)\s+[^,;\n]{2,100}|[A-Z][^,;\n]{0,100}?\s+v\.\s+[^,;\n]{1,100}")
 _SIGNAL = re.compile(r"^(?:See(?: also)?|Cf\.|But see|Accord|Compare)\s+", re.I)
 _PAREN = re.compile(r"\((?P<body>[^()\r\n]{0,100})\)")
@@ -142,16 +147,17 @@ def _reporter_name_span(citation: FullCitationVariant, before: str, start: int) 
 
 def resolve_case_names(document: Document, rules: ExtractionRules | None = None) -> Document:
     """Read a name before each citation site, never through another locator."""
-    stage = "case_names"
-    if stage in document.stage_runs:
-        return document
+    if CASE_NAMES_STAGE in document.stage_runs:
+        raise ValueError(f"Stage already completed: {CASE_NAMES_STAGE}")
     _require_structure(document)
     config = rules or stable()
     for citation in document.full_locators:
         before, start = _before(document, citation, config.case_name_window)
         span = _reporter_name_span(citation, before, start)
         if span is not None:
-            document = document.replace_citation(citation.record(stage).with_case_name(document.text, span))
+            document = document.replace_citation(
+                citation.record(CASE_NAMES_STAGE).with_case_name(document.text, span)
+            )
             continue
         matches = tuple(_CASE.finditer(before))
         if not matches:
@@ -164,8 +170,10 @@ def resolve_case_names(document: Document, rules: ExtractionRules | None = None)
         if not name:
             continue
         span = Span(start + match.start() + offset, start + match.start() + offset + len(name))
-        document = document.replace_citation(citation.record(stage).with_case_name(document.text, span))
-    return document.complete(stage)
+        document = document.replace_citation(
+            citation.record(CASE_NAMES_STAGE).with_case_name(document.text, span)
+        )
+    return document.complete(CASE_NAMES_STAGE)
 
 
 def _court_from_reporter(citation: FullCitationVariant) -> str | None:
@@ -184,9 +192,8 @@ def _court_from_reporter(citation: FullCitationVariant) -> str | None:
 
 def resolve_courts(document: Document, rules: ExtractionRules | None = None) -> Document:
     """Read an explicit post-site court or infer a unique reporter court."""
-    stage = "courts"
-    if stage in document.stage_runs:
-        return document
+    if COURTS_STAGE in document.stage_runs:
+        raise ValueError(f"Stage already completed: {COURTS_STAGE}")
     _require_structure(document)
     config = rules or stable()
     for citation in document.full_locators:
@@ -206,19 +213,20 @@ def resolve_courts(document: Document, rules: ExtractionRules | None = None) -> 
                     stripped = len(court_region) - len(court_region.lstrip(" ,;"))
                     span = Span(body_start + stripped, body_start + stripped + len(written))
         if span is not None:
-            document = document.replace_citation(citation.record(stage).with_court(document.text, span))
+            document = document.replace_citation(
+                citation.record(COURTS_STAGE).with_court(document.text, span)
+            )
             continue
         court = _court_from_reporter(citation)
         if court is not None:
-            document = document.replace_citation(citation.record(stage).with_inferred_court(court))
-    return document.complete(stage)
+            document = document.replace_citation(citation.record(COURTS_STAGE).with_inferred_court(court))
+    return document.complete(COURTS_STAGE)
 
 
 def resolve_dates(document: Document, rules: ExtractionRules | None = None) -> Document:
     """Read an exact day or year from the bounded post-site parenthetical."""
-    stage = "dates"
-    if stage in document.stage_runs:
-        return document
+    if DATES_STAGE in document.stage_runs:
+        raise ValueError(f"Stage already completed: {DATES_STAGE}")
     _require_structure(document)
     config = rules or stable()
     for citation in document.full_locators:
@@ -234,15 +242,14 @@ def resolve_dates(document: Document, rules: ExtractionRules | None = None) -> D
             start + parenthetical.start("body") + match.start(),
             start + parenthetical.start("body") + match.end(),
         )
-        document = document.replace_citation(citation.record(stage).with_date(document.text, span))
-    return document.complete(stage)
+        document = document.replace_citation(citation.record(DATES_STAGE).with_date(document.text, span))
+    return document.complete(DATES_STAGE)
 
 
 def resolve_pin_cites(document: Document, rules: ExtractionRules | None = None) -> Document:
     """Read an adjacent pin, retaining malformed continuations for later review."""
-    stage = "pin_cites"
-    if stage in document.stage_runs:
-        return document
+    if PIN_CITES_STAGE in document.stage_runs:
+        raise ValueError(f"Stage already completed: {PIN_CITES_STAGE}")
     _require_structure(document)
     config = rules or stable()
     for citation in document.full_locators:
@@ -270,5 +277,7 @@ def resolve_pin_cites(document: Document, rules: ExtractionRules | None = None) 
             # Keep the unread token, without swallowing the following prose.
             end = len(region[: continuation.end()].rstrip())
         span = Span(site.end + match.start("pin"), site.end + end)
-        document = document.replace_citation(citation.record(stage).with_pin_cite(document.text, span))
-    return document.complete(stage)
+        document = document.replace_citation(
+            citation.record(PIN_CITES_STAGE).with_pin_cite(document.text, span)
+        )
+    return document.complete(PIN_CITES_STAGE)

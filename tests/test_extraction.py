@@ -7,6 +7,7 @@ import pytest
 from mellea_lrc.extraction import (
     find_docket_locators,
     find_full_reporter_locators,
+    find_short_reporter_citations,
     form_roots,
     grow_roots,
     resolve_case_names,
@@ -283,6 +284,26 @@ def test_adjacent_docket_entry_has_its_own_evidence_span() -> None:
     _assert_exact_quote(document, entry)
     assert entry.quote == "Doc. 10-1"
     assert entry.get_normalized() == "10-1"
+
+
+def test_completed_extraction_stages_reject_repeat_calls() -> None:
+    document = Document.from_source("See Case No. 1:24-cv-00123 (D. Ariz. 2024).")
+    stages = (
+        find_full_reporter_locators,
+        find_docket_locators,
+        resolve_docket_entries,
+        resolve_colocations,
+        resolve_case_names,
+        resolve_courts,
+        resolve_dates,
+        resolve_pin_cites,
+        form_roots,
+        find_short_reporter_citations,
+    )
+    for run in stages:
+        document = run(document)
+        with pytest.raises(ValueError, match="Stage already completed"):
+            run(document)
 
 
 def test_synchronous_pipeline_and_json_roundtrip() -> None:
@@ -569,6 +590,13 @@ def test_get_stage_reconstructs_each_committed_document() -> None:
         assert loaded.get_stage(name) == expected
     with pytest.raises(KeyError):
         document.get_stage("never_completed")
+
+
+def test_complete_rejects_a_stage_that_has_already_run() -> None:
+    completed = Document.from_source("No citations.").complete("empty_stage")
+
+    with pytest.raises(ValueError):
+        completed.complete("empty_stage")
 
 
 def test_get_stage_excludes_later_citations_and_uncommitted_changes() -> None:

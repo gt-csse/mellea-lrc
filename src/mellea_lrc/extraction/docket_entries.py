@@ -40,7 +40,7 @@ def resolve_docket_entries(document: Document) -> Document:
     plausible owners stays unread for later review rather than being guessed.
     """
     if STAGE in document.stage_runs:
-        return document
+        raise ValueError(f"Stage already completed: {STAGE}")
     if "docket_locators" not in document.stage_runs:
         raise ValueError("Find docket locators before reading docket entries")
     if "colocations" in document.stage_runs:

@@ -1,8 +1,9 @@
 """Short reporter occurrences stay separate from full locator roots."""
 
 import asyncio
-from eyecite.models import FullCaseCitation, ShortCaseCitation
+
 import pytest
+from eyecite.models import FullCaseCitation, ShortCaseCitation
 
 from mellea_lrc.api import Document, find_short_reporter_citations, grow_roots
 from mellea_lrc.model import FullReporterCitation, ShortReporterCitation, Span
@@ -39,7 +40,7 @@ def test_short_reporter_is_a_distinct_checkpointed_citation() -> None:
     assert Document.model_validate_json(document.model_dump_json()) == document
 
 
-def test_short_reporter_discovery_is_optional_and_idempotent() -> None:
+def test_short_reporter_discovery_is_optional_and_rejects_a_repeat_run() -> None:
     source = "See Smith, 347 U.S. at 495."
     with pytest.raises(ValueError, match="Form full roots"):
         find_short_reporter_citations(Document.from_source(source))
@@ -49,7 +50,8 @@ def test_short_reporter_discovery_is_optional_and_idempotent() -> None:
     assert before.citations == ()
     assert after.full_locators == after.roots == ()
     assert len(after.short_reporters) == 1
-    assert find_short_reporter_citations(after) == after
+    with pytest.raises(ValueError):
+        find_short_reporter_citations(after)
 
 
 def test_short_reporter_can_later_attach_without_changing_its_checkpoint() -> None:

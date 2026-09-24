@@ -166,13 +166,14 @@ def test_standalone_entry_never_creates_a_root() -> None:
     assert formed.roots == ()
 
 
-def test_entry_stage_is_idempotent_and_survives_json_and_later_stages() -> None:
+def test_entry_stage_rejects_a_repeat_run_and_survives_json_and_later_stages() -> None:
     before = _rule_ready("Case No. 1:24-cv-00123, ECF No. 113.")
     resolved = resolve_docket_entries(before)
     grouped = resolve_colocations(resolved)
     restored = Document.model_validate_json(grouped.model_dump_json())
 
-    assert resolve_docket_entries(resolved) == resolved
+    with pytest.raises(ValueError):
+        resolve_docket_entries(resolved)
     assert restored == grouped
     assert grouped.get_stage("docket_locators") == before
     assert grouped.get_stage(STAGE) == resolved

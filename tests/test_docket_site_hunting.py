@@ -175,7 +175,7 @@ def test_hunt_ignores_index_occurrence_and_keeps_repeated_body_sites_distinct() 
     assert len({item.id for item in hunted.citations}) == 2
 
 
-def test_hunt_is_idempotent_and_checkpoint_survives_later_colocation() -> None:
+def test_hunt_rejects_a_repeat_run_and_checkpoint_survives_later_colocation() -> None:
     source = "See Doe v. Townes, No. 19 Civ. 8034; Smith v. Jones, 347 U.S. 483."
     before = _ready(source)
     calls = 0
@@ -187,7 +187,8 @@ def test_hunt_is_idempotent_and_checkpoint_survives_later_colocation() -> None:
 
     hunted = asyncio.run(hunt_docket_locators(before, reviewer=reviewer))
     assert calls == 1
-    assert asyncio.run(hunt_docket_locators(hunted, reviewer=reviewer)) == hunted
+    with pytest.raises(ValueError):
+        asyncio.run(hunt_docket_locators(hunted, reviewer=reviewer))
     assert calls == 1
 
     grouped = resolve_colocations(hunted)
