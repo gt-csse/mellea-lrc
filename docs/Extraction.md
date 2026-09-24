@@ -10,6 +10,7 @@ from mellea_lrc.api import Document, grow_roots, stable
 document = Document.from_source("See 347 U.S. 483 (1954).")
 document = asyncio.run(grow_roots(document, rules=stable()))
 after_dockets = document.get_stage("docket_locators")
+after_entries = document.get_stage("docket_entries")
 ```
 
 `grow_roots` is async. It runs reporter locator discovery, docket locator discovery, optional docket site hunting, docket-entry reading, colocation, case-name/court/date/pin-cite reading, and root formation in that order. Omit `hunt_dockets=True` for the rule-only pass. Each stage can also be called separately through the same API. Colocation sets parsing boundaries; it does not establish case identity.
@@ -17,6 +18,8 @@ after_dockets = document.get_stage("docket_locators")
 `hunt_docket_locators(document)` is the independent optional stage between rule discovery and colocation. It proposes labelled opaque identifiers and bounded unlabelled candidates in citation context, then asks a model whether each proposed span is a cited case docket. A positive answer must reproduce both the complete locator and its number, with only whitespace variation permitted. An accepted answer creates a `FullDocketCitation` using exact source spans; the next proposal sees that new locator in its mask. Declines and failed grounding remain in `document.site_reviews`, including model attempts. The stage does not read other fields or create short citations. A supplied async `reviewer` makes it runnable offline; the default uses the configured OpenRouter-compatible model endpoint.
 
 `resolve_docket_entries(document)` then attaches an optional nearby `Doc.`, `Dkt.`, `ECF`, or `D.I.` entry to an already found docket citation. It reads both sides, with a narrower rule after the locator: an immediate comma or a short bracketed reference. Entries never create case-docket roots. Competing associations remain unread for later review. The hunter temporarily masks these entry references while looking for case dockets; it does not alter the source text.
+
+For development scoring, `uv run python -m scripts.evaluate_docket_entries` replays saved hunting decisions without another model call, writes complete `docket_entries` stage Documents to `local/docket-entry-stage/documents`, and records occurrence-level normalization results. Earlier saved hunting artifacts may still contain entries on their creation nodes; the replay moves those readings to the dedicated stage without changing the accepted locator sites or review traces.
 
 ```python
 from pathlib import Path
