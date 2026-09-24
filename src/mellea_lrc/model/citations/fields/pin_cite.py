@@ -11,7 +11,11 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
 from mellea_lrc.model.span import Span
 
-_PAGE_PIN = re.compile(r"(?P<star>\*)?(?P<first>\d+)(?:[-–](?P<last>\d+))?\Z")
+# PDF text extraction may insert horizontal space on either side of a range
+# separator. Share this bounded relaxation with the reader so the exact quote
+# it captures is also a quote this normalizer can interpret.
+PIN_RANGE_JOIN = r"[^\S\r\n]*[-–][^\S\r\n]*"
+_PAGE_PIN = re.compile(rf"(?P<star>\*)?(?P<first>\d+)(?:{PIN_RANGE_JOIN}(?P<last>\d+))?\Z")
 
 
 class PinCiteKind(StrEnum):
