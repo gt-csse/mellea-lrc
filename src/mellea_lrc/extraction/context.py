@@ -4,25 +4,35 @@ from __future__ import annotations
 
 import re
 
-from eyecite import get_citations
-from eyecite.models import FullCaseCitation
-
 from mellea_lrc.extraction.rules import ExtractionRules, stable
 from mellea_lrc.model.citations import CaseName, FullCitationVariant, FullReporterCitation
 from mellea_lrc.model.citations.fields.court import court_id_if_unique
 from mellea_lrc.model.citations.fields.date import FULL_DATE_RE, YEAR_RE
-from mellea_lrc.model.citations.fields.pin_cite import PIN_RANGE_JOIN
+from mellea_lrc.model.citations.fields.pin_cite import PIN_PREFIX
 from mellea_lrc.model.citations.history import latest
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
+from mellea_lrc.reporter_reading import full_reporter_readings
 
 _CASE = re.compile(r"(?:In re|Ex parte)\s+[^,;\n]{2,100}|[A-Z][^,;\n]{0,100}?\s+v\.\s+[^,;\n]{1,100}")
 _SIGNAL = re.compile(r"^(?:See(?: also)?|Cf\.|But see|Accord|Compare)\s+", re.I)
 _PAREN = re.compile(r"\((?P<body>[^()\r\n]{0,100})\)")
-# A damaged range must not fall back to a plausible-looking single page.
-_PIN = re.compile(
-    rf"^\s*,?\s*(?:at\s+)?(?P<pin>\*?\d+(?:{PIN_RANGE_JOIN}\d+)?)"
-    r"(?![\d:]|[^\S\r\n]*[-–])"
+_BARE_NOTE = re.compile(r"^\s*,?\s*(?:at\s+)?(?P<pin>(?:n{1,2}\.|fn\.?)\s*\d+)", re.I)
+_COURT_ORDINAL = re.compile(r"(?:st|nd|rd|th|d)\b\s+(?:Cir\.|Dept\.|Dist\.)", re.I)
+# A comma-plus-number may start a parallel citation's volume. Its following
+# reporter-like token and page distinguish it from another pinpoint target.
+_PARALLEL_REPORTER = re.compile(
+    r"\s+(?:[A-Z][A-Za-z0-9.]*\.[A-Za-z0-9.]*|[A-Z]{2,})"
+    r"(?:\s+[A-Za-z0-9.]+){0,3}\s+\d+\b"
+)
+_PIN_CONTINUATION = re.compile(
+    r"(?:[A-Za-z0-9]+"
+    r"|[^\S\r\n]*[-–]\s*(?:[A-Za-z0-9*¶]+)?"
+    r"|\s*,\s*(?:\d[\dA-Za-z]*|\*\d+|¶+\s*\d+|n{1,2}\.\s*\w+|fn\.?\s*\w+)"
+    r"|[^\S\r\n]+(?:n{1,2}\.|fn\.?)\s*[^\s;(),]+"
+    r"|[^\S\r\n]+(?:and|&)\s*(?:\d+|n{1,2}\.\s*\w+|fn\.?\s*\w+)"
+    r"|[^\S\r\n]*&\s*(?:n{1,2}\.\s*\w+|fn\.?\s*\w+))",
+    re.I,
 )
 _NAME_TOKEN = re.compile(r"[\w.'’&-]+")
 _VERSUS = re.compile(r"\s+v\.\s+")
@@ -101,17 +111,13 @@ def _reporter_name_span(citation: FullCitationVariant, before: str, start: int) 
     site = citation.locator[-1].quote
     excerpt = before + site
     parsed = next(
-        (
-            item
-            for item in get_citations(excerpt)
-            if isinstance(item, FullCaseCitation) and item.span() == (len(before), len(excerpt))
-        ),
+        (item for item in full_reporter_readings(excerpt) if item.span == (len(before), len(excerpt))),
         None,
     )
-    if parsed is None or not parsed.metadata.plaintiff or not parsed.metadata.defendant:
+    if parsed is None or not parsed.citation.metadata.plaintiff or not parsed.citation.metadata.defendant:
         return None
-    plaintiff_tokens = _NAME_TOKEN.findall(parsed.metadata.plaintiff)
-    defendant_tokens = _NAME_TOKEN.findall(parsed.metadata.defendant)
+    plaintiff_tokens = _NAME_TOKEN.findall(parsed.citation.metadata.plaintiff)
+    defendant_tokens = _NAME_TOKEN.findall(parsed.citation.metadata.defendant)
     if not plaintiff_tokens or not defendant_tokens:
         return None
     first, last = plaintiff_tokens[0], defendant_tokens[-1]
@@ -168,9 +174,9 @@ def _court_from_reporter(citation: FullCitationVariant) -> str | None:
     locator = citation.locator[-1]
     # Eyecite's isolated locator may infer a unique reporter court. Running it
     # on this exact span avoids its unbounded post-citation metadata leak.
-    isolated = get_citations(locator.quote)
-    if len(isolated) == 1 and isinstance(isolated[0], FullCaseCitation):
-        return isolated[0].metadata.court
+    isolated = full_reporter_readings(locator.quote)
+    if len(isolated) == 1 and isolated[0].span == (0, len(locator.quote)):
+        return isolated[0].citation.metadata.court
     if not locator.normalizable:
         return None
     return court_id_if_unique(locator.get_normalized().edition)
@@ -233,7 +239,7 @@ def resolve_dates(document: Document, rules: ExtractionRules | None = None) -> D
 
 
 def resolve_pin_cites(document: Document, rules: ExtractionRules | None = None) -> Document:
-    """Read each locator's own immediately adjacent page or star-page pin."""
+    """Read an adjacent pin, retaining malformed continuations for later review."""
     stage = "pin_cites"
     if stage in document.stage_runs:
         return document
@@ -246,9 +252,23 @@ def resolve_pin_cites(document: Document, rules: ExtractionRules | None = None) 
             default=len(document.text),
         )
         region = document.text[site.end : min(next_start, site.end + config.post_locator_window)]
-        match = _PIN.match(region)
+        match = PIN_PREFIX.match(region) or _BARE_NOTE.match(region)
         if match is None:
             continue
-        span = Span(site.end + match.start("pin"), site.end + match.end("pin"))
+        end = match.end("pin")
+        if _COURT_ORDINAL.match(region, end):
+            continue
+        if region[end : end + 1] == ":":
+            # A colon immediately after digits is ordinarily prose numbering,
+            # not a pin cite after the locator.
+            continue
+        pin_text = match.group("pin")
+        parallel_reporter = "," in pin_text and _PARALLEL_REPORTER.match(region, end)
+        if parallel_reporter:
+            end = match.start("pin") + pin_text.rfind(",")
+        elif continuation := _PIN_CONTINUATION.match(region, end):
+            # Keep the unread token, without swallowing the following prose.
+            end = len(region[: continuation.end()].rstrip())
+        span = Span(site.end + match.start("pin"), site.end + end)
         document = document.replace_citation(citation.record(stage).with_pin_cite(document.text, span))
     return document.complete(stage)

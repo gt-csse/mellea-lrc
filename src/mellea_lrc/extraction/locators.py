@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import re
 
-from eyecite import get_citations
-from eyecite.models import FullCaseCitation
-
-from mellea_lrc.model.citations import FullDocketCitation, FullReporterCitation
+from mellea_lrc.model.citations import FullDocketCitation, FullReporterCitation, ShortReporterCitation
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.preprocessing.document_index import is_within
+from mellea_lrc.reporter_reading import full_reporter_readings, short_reporter_readings
 from mellea_lrc.text_match import fuzzy_literal
 
 _PREFIXES = ("No. ", "Case No. ", "Civil Action No. ", "Civ. A. No. ", "Docket No. ")
@@ -25,31 +23,58 @@ _ENTRY_JOIN = re.compile(r"^[\s,;:\[\]()]{0,12}$")
 
 def _overlaps(span: Span, document: Document) -> bool:
     for item in document.citations:
-        site = item.locator_span
+        site = item.site_span
         if site.start < span.end and span.start < site.end:
             return True
     return False
 
 
 def find_full_reporter_locators(document: Document) -> Document:
-    """Create one typed occurrence for each eyecite full case reporter span."""
+    """Create one typed occurrence for each shared-reader reporter span.
+
+    The field re-reads its exact quote with the same reader. That keeps its
+    normalized identity recoverable from a serialized citation even if eyecite
+    used surrounding document context while finding the span.
+    """
     stage = "full_reporter_locators"
     if stage in document.stage_runs:
         return document
     if "colocations" in document.stage_runs:
         raise ValueError("Discover all locators before resolving colocations")
-    found = sorted(
-        (citation for citation in get_citations(document.text) if isinstance(citation, FullCaseCitation)),
-        key=lambda citation: citation.span(),
-    )
-    for match in found:
-        start, end = match.span()
-        span = Span(start, end)
+    for reading in sorted(full_reporter_readings(document.text), key=lambda item: item.span):
+        span = Span(*reading.span)
         if is_within(span, document.index_spans) or _overlaps(span, document):
             continue
-        identifier = f"reporter:{start}:{end}"
+        identifier = f"reporter:{span.start}:{span.end}"
         document = document.add_citation(
             FullReporterCitation.from_locator(
+                citation_id=identifier,
+                stage=stage,
+                source=document.text,
+                span=span,
+            )
+        )
+    return document.complete(stage)
+
+
+def find_short_reporter_citations(document: Document) -> Document:
+    """Record eyecite short-case sites as short citations, without growing leaves.
+
+    This optional stage does not participate in full-locator colocation or
+    root formation. Later leaf growth may attach its occurrences to roots.
+    """
+    stage = "short_reporter_citations"
+    if stage in document.stage_runs:
+        return document
+    if "roots" not in document.stage_runs:
+        raise ValueError("Form full roots before finding short reporter citations")
+    for reading in sorted(short_reporter_readings(document.text), key=lambda item: item.span):
+        span = Span(*reading.span)
+        if is_within(span, document.index_spans) or _overlaps(span, document):
+            continue
+        identifier = f"short-reporter:{span.start}:{span.end}"
+        document = document.add_citation(
+            ShortReporterCitation.from_short_locator(
                 citation_id=identifier,
                 stage=stage,
                 source=document.text,

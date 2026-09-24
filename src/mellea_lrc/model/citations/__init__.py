@@ -5,6 +5,7 @@ from typing import Annotated, TypeAlias
 from eyecite.models import Reporter
 from pydantic import Field
 
+from mellea_lrc.model.citations.citation import Citation
 from mellea_lrc.model.citations.fields import (
     CaseName,
     CaseNameField,
@@ -23,6 +24,8 @@ from mellea_lrc.model.citations.fields import (
     PinCiteTarget,
     PinCiteValue,
     ReporterLocatorValue,
+    ShortReporterLocator,
+    ShortReporterLocatorValue,
 )
 from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.full_docket import FullDocketCitation
@@ -32,10 +35,15 @@ from mellea_lrc.model.citations.history import (
     RelationshipUpdate,
     latest,
 )
-from mellea_lrc.model.citations.kind import FullCitationKind
+from mellea_lrc.model.citations.kind import FullCitationKind, ShortCitationKind
+from mellea_lrc.model.citations.short_reporter import ShortReporterCitation
 
 FullCitationVariant: TypeAlias = Annotated[
     FullReporterCitation | FullDocketCitation,
+    Field(discriminator="kind"),
+]
+CitationVariant: TypeAlias = Annotated[
+    FullReporterCitation | FullDocketCitation | ShortReporterCitation,
     Field(discriminator="kind"),
 ]
 
@@ -44,8 +52,10 @@ __all__ = [
     "CaseName",
     "CaseNameField",
     "CaseNameKind",
+    "Citation",
     "CitationDate",
     "CitationField",
+    "CitationVariant",
     "Court",
     "CourtField",
     "DateField",
@@ -66,5 +76,9 @@ __all__ = [
     "RelationshipUpdate",
     "Reporter",
     "ReporterLocatorValue",
+    "ShortCitationKind",
+    "ShortReporterCitation",
+    "ShortReporterLocator",
+    "ShortReporterLocatorValue",
     "latest",
 ]

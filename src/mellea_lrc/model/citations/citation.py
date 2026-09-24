@@ -1,110 +1,75 @@
-"""Immutable citation occurrences with local decisions and typed field histories."""
+"""Citation-local history shared by full citations and short forms."""
 
 from __future__ import annotations
 
-from typing import Annotated, Self
+from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
-from mellea_lrc.model.citations.fields import (
-    CaseName,
-    CaseNameField,
-    CaseNameKind,
-    PinCiteField,
-    PinCiteValue,
-)
-from mellea_lrc.model.citations.fields.base import CitationField, NotStatedField, current_reading
-from mellea_lrc.model.citations.history import Node
+from mellea_lrc.model.citations.fields.base import CitationField
+from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, Node, RelationshipUpdate
 from mellea_lrc.model.span import Span
 
 
 class Citation(BaseModel):
-    """An immutable occurrence whose readings point to its decision nodes."""
+    """An immutable citation whose field readings point to decision nodes."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    id: str = Field(min_length=1, pattern=r"\S")
+    id: str
     kind: str
     nodes: tuple[Node, ...]
-    case_name: tuple[CaseNameField | NotStatedField, ...] = ()
-    pin_cite: Annotated[tuple[PinCiteField | NotStatedField, ...], Field(min_length=1)] | None = None
+    root_id: tuple[RelationshipUpdate[str | None], ...] = ()
 
     @property
     def site_span(self) -> Span:
-        """The written source site used to order citation occurrences."""
+        """The source site used to order citation occurrences."""
         raise NotImplementedError
 
-    def record(self, substage: str) -> Self:
-        """Append a decision node that named field updates can share."""
-        node = Node(id=f"{self.id}:node:{len(self.nodes)}", substage=substage)
-        return self._with_log(nodes=(*self.nodes, node))
+    def record(self, stage: str) -> Self:
+        """Record one decision; named field methods may share its node."""
+        node = Node(id=f"{self.id}:node:{len(self.nodes)}", stage=stage)
+        return type(self).model_validate({**self.model_dump(mode="python"), "nodes": (*self.nodes, node)})
 
     def _decision_node_id(self) -> str:
-        if len(self.nodes) < 2:
+        if len(self.nodes) == 1:
             raise ValueError("Record a decision node before changing citation fields")
         return self.nodes[-1].id
 
-    def _with_log(self, **logs: object) -> Self:
-        """Revalidate every immutable update, including ownership and ordering."""
+    def _with_log(self, **logs: tuple[CitationField | RelationshipUpdate, ...]) -> Self:
+        """Validate the immutable citation after a named field method changes it."""
         return type(self).model_validate({**self.model_dump(mode="python"), **logs})
 
     def _through_node_count(self, count: int) -> Self:
-        """Recover the citation and its readings through a decision boundary."""
+        """Recover the citation and field readings through one node boundary."""
         if not 1 <= count <= len(self.nodes):
             raise ValueError("Citation cutoff must retain its creation node")
         nodes = self.nodes[:count]
         node_ids = {node.id for node in nodes}
         data = {**self.model_dump(mode="python"), "nodes": nodes}
-        for name, field in type(self).model_fields.items():
-            if name in {"id", "kind", "nodes"}:
-                continue
-            retained = tuple(reading for reading in getattr(self, name) or () if reading.node_id in node_ids)
-            data[name] = retained if retained else field.get_default()
+        for name in type(self).model_fields:
+            if name not in {"id", "kind", "nodes"}:
+                data[name] = tuple(update for update in getattr(self, name) if update.node_id in node_ids)
         return type(self).model_validate(data)
 
-    def with_case_name(self, source: str, span: Span, *, normalized: CaseName | None = None) -> Self:
-        """Append an exact source quote with deterministic or model normalization."""
-        reading = (
-            CaseNameField.from_source(source, span, node_id=self._decision_node_id())
-            if normalized is None
-            else CaseNameField.from_model(source, span, normalized, node_id=self._decision_node_id())
+    def with_root(self, root_id: str) -> Self:
+        """Append a root attachment without erasing earlier assignments."""
+        return self._with_log(
+            root_id=(*self.root_id, RelationshipUpdate(value=root_id, node_id=self._decision_node_id())),
         )
-        return self._with_log(case_name=(*self.case_name, reading))
 
-    def with_case_name_not_stated(self) -> Self:
-        """Append absence without removing a previously quoted name."""
-        reading = NotStatedField(node_id=self._decision_node_id())
-        return self._with_log(case_name=(*self.case_name, reading))
-
-    def get_case_name(self) -> CaseName:
-        """Read the current name or its explicit unstated form."""
-        reading = current_reading(self.case_name)
-        return CaseName(kind=CaseNameKind.NOT_STATED) if reading is None else reading.get_normalized()
-
-    def with_pin_cite(self, source: str, span: Span) -> Self:
-        """Append a grounded pinpoint using the existing typed normalizer."""
-        reading = PinCiteField.from_source(source, span, node_id=self._decision_node_id())
-        return self._with_log(pin_cite=(*(self.pin_cite or ()), reading))
-
-    def with_pin_cite_not_stated(self) -> Self:
-        """Append absence without removing earlier pinpoint readings."""
-        reading = NotStatedField(node_id=self._decision_node_id())
-        return self._with_log(pin_cite=(*(self.pin_cite or ()), reading))
-
-    def get_pin_cite(self) -> PinCiteValue | None:
-        """Read current targets; an unnormalizable quoted pinpoint raises."""
-        reading = current_reading(self.pin_cite)
-        return None if reading is None else reading.get_normalized()
+    def withdraw(self) -> Self:
+        """Reattach to the dummy head, retaining all previous values."""
+        return self.with_root(WITHDRAWN_ROOT_ID)
 
     def validate_source(self, source: str) -> None:
-        """Check every historical quote against the owning source after loading."""
+        """Check all stored quotes against the source, including after JSON loading."""
         for name in type(self).model_fields:
             if name in {"id", "kind", "nodes"}:
                 continue
-            log = getattr(self, name)
-            for reading in log or ():
-                if isinstance(reading, CitationField):
-                    reading.validate_source(source)
+            for entry in getattr(self, name):
+                if isinstance(entry, CitationField):
+                    entry.validate_source(source)
 
     @model_validator(mode="after")
     def _validate_history(self) -> Self:
@@ -113,20 +78,15 @@ class Citation(BaseModel):
         positions = {node.id: index for index, node in enumerate(self.nodes)}
         if len(positions) != len(self.nodes):
             raise ValueError("Duplicate citation node")
-        for index, node in enumerate(self.nodes):
-            if node.id != f"{self.id}:node:{index}":
-                raise ValueError("Decision node ID must belong to its citation and position")
         for name in type(self).model_fields:
             if name in {"id", "kind", "nodes"}:
                 continue
             previous = -1
-            for reading in getattr(self, name) or ():
-                position = positions.get(reading.node_id)
+            for update in getattr(self, name):
+                position = positions.get(update.node_id)
                 if position is None:
                     raise ValueError(f"{name} refers to a missing node")
                 if position <= previous:
                     raise ValueError(f"{name} updates are out of order")
-                if position == 0 and name != "locator":
-                    raise ValueError(f"{name} requires a later decision node")
                 previous = position
         return self

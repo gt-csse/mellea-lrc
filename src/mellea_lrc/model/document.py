@@ -7,7 +7,13 @@ from typing import Self
 
 from pydantic import model_validator
 
-from mellea_lrc.model.citations import FullCitationVariant, latest
+from mellea_lrc.model.citations import (
+    CitationVariant,
+    FullCitation,
+    FullCitationVariant,
+    ShortReporterCitation,
+    latest,
+)
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID
 from mellea_lrc.model.colocation import Colocation
 from mellea_lrc.model.preprocessed_document import PreprocessedDocument
@@ -16,7 +22,7 @@ from mellea_lrc.model.preprocessed_document import PreprocessedDocument
 class Document(PreprocessedDocument):
     """Source text, citation histories, and ordered atomic stage runs."""
 
-    citations: tuple[FullCitationVariant, ...] = ()
+    citations: tuple[CitationVariant, ...] = ()
     stage_runs: tuple[str, ...] = ()
 
     @classmethod
@@ -32,30 +38,35 @@ class Document(PreprocessedDocument):
     @property
     def full_locators(self) -> tuple[FullCitationVariant, ...]:
         """Every full locator occurrence, including repeated roots."""
-        return self.citations
+        return tuple(citation for citation in self.citations if isinstance(citation, FullCitation))
+
+    @property
+    def short_reporters(self) -> tuple[ShortReporterCitation, ...]:
+        """Short reporter occurrences, kept outside full-locator parsing."""
+        return tuple(citation for citation in self.citations if isinstance(citation, ShortReporterCitation))
 
     @property
     def roots(self) -> tuple[FullCitationVariant, ...]:
-        return tuple(citation for citation in self.citations if latest(citation.root_id) == citation.id)
+        return tuple(citation for citation in self.full_locators if latest(citation.root_id) == citation.id)
 
     @property
     def colocations(self) -> tuple[Colocation, ...]:
         """Rebuild parsing groups from citation-local assignment logs."""
         groups: dict[str, list[str]] = {}
-        for citation in self.citations:
+        for citation in self.full_locators:
             group_id = latest(citation.colocation_id)
             if group_id is not None:
                 groups.setdefault(group_id, []).append(citation.id)
         return tuple(Colocation(id=group_id, citation_ids=tuple(ids)) for group_id, ids in groups.items())
 
-    def add_citation(self, citation: FullCitationVariant) -> Self:
+    def add_citation(self, citation: CitationVariant) -> Self:
         if any(existing.id == citation.id for existing in self.citations):
             raise ValueError(f"Citation already exists: {citation.id}")
         if citation.nodes[0].stage in self.stage_runs:
             raise ValueError("Cannot create a citation in a completed stage")
         return self._with_citation(citation)
 
-    def replace_citation(self, citation: FullCitationVariant) -> Self:
+    def replace_citation(self, citation: CitationVariant) -> Self:
         original = next((item for item in self.citations if item.id == citation.id), None)
         if original is None:
             raise KeyError(f"Unknown citation: {citation.id}")
@@ -78,9 +89,9 @@ class Document(PreprocessedDocument):
                 raise ValueError("New field readings need a new decision node")
         return self._with_citation(citation)
 
-    def _with_citation(self, citation: FullCitationVariant) -> Self:
+    def _with_citation(self, citation: CitationVariant) -> Self:
         remaining = (item for item in self.citations if item.id != citation.id)
-        ordered = tuple(sorted((*remaining, citation), key=lambda item: (item.locator_span.start, item.id)))
+        ordered = tuple(sorted((*remaining, citation), key=lambda item: (item.site_span.start, item.id)))
         return type(self).model_validate({**self.model_dump(mode="python"), "citations": ordered})
 
     def complete(self, stage: str) -> Self:
@@ -106,7 +117,7 @@ class Document(PreprocessedDocument):
         except ValueError as exc:
             raise KeyError(f"Stage has not run: {stage}") from exc
         included = set(self.stage_runs[:cutoff])
-        citations: list[FullCitationVariant] = []
+        citations: list[CitationVariant] = []
         for citation in self.citations:
             count = 0
             for node in citation.nodes:
@@ -115,7 +126,7 @@ class Document(PreprocessedDocument):
                 count += 1
             if count:
                 citations.append(citation._through_node_count(count))
-        citations.sort(key=lambda item: (item.locator_span.start, item.id))
+        citations.sort(key=lambda item: (item.site_span.start, item.id))
         return type(self).model_validate(
             {
                 **self.model_dump(mode="python"),
@@ -133,11 +144,8 @@ class Document(PreprocessedDocument):
         by_id = {citation.id: citation for citation in self.citations}
         if len(by_id) != len(self.citations):
             raise ValueError("Duplicate citation in document state")
-        if (
-            tuple(sorted(self.citations, key=lambda item: (item.locator_span.start, item.id)))
-            != self.citations
-        ):
-            raise ValueError("Citations must be ordered by locator span and ID")
+        if tuple(sorted(self.citations, key=lambda item: (item.site_span.start, item.id))) != self.citations:
+            raise ValueError("Citations must be ordered by site span and ID")
         for citation in self.citations:
             previous_stage = -1
             for node in citation.nodes:
@@ -157,6 +165,8 @@ class Document(PreprocessedDocument):
                 target = by_id.get(update.value)
                 if target is None:
                     raise ValueError("Citation points to an unknown root")
+                if not isinstance(target, FullCitation):
+                    raise ValueError("Citation root must be a full citation")
                 target_stage = stage_positions.get(target.nodes[0].stage, len(self.stage_runs))
                 update_stage = stage_positions.get(node_stages[update.node_id], len(self.stage_runs))
                 if target_stage > update_stage:
@@ -166,7 +176,7 @@ class Document(PreprocessedDocument):
         # A later stage must not make an invalid earlier checkpoint look valid.
         for cutoff in range(len(self.stage_runs)):
             group_sizes: dict[str, int] = {}
-            for citation in self.citations:
+            for citation in self.full_locators:
                 if stage_positions.get(citation.nodes[0].stage, len(self.stage_runs)) > cutoff:
                     continue
                 node_positions = {

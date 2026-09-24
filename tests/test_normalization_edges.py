@@ -71,6 +71,63 @@ def test_reporter_locator_keeps_written_variant_and_eyecite_identity() -> None:
     assert entry.get_normalized().reporter.short_name == "U.S."
 
 
+@pytest.mark.parametrize(
+    ("written", "edition", "page"),
+    [
+        ("2005  WL  465431", "WL", "465431"),
+        ("937\n\nS.W.2d  796", "S.W.2d", "796"),
+        ("347 U.\n\nS. 483", "U.S.", "483"),
+        ("539  F.  App'x  937", "F. App'x", "937"),
+        ("58  N.Y .2d  916", "N.Y.2d", "916"),
+        ("777 F. App ' x 516", "F. App'x", "516"),
+    ],
+)
+def test_reporter_discovery_and_normalization_share_the_relaxed_eyecite_reader(
+    written: str, edition: str, page: str
+) -> None:
+    from mellea_lrc.extraction import find_full_reporter_locators
+
+    source = f"See {written}."
+    document = find_full_reporter_locators(Document.from_source(source))
+    assert len(document.citations) == 1
+    entry = document.citations[0].locator[-1]
+    assert entry.quote == written
+    assert entry.span == Span(4, 4 + len(written))
+    assert source[entry.span.start : entry.span.end] == written
+    assert entry.get_normalized().edition == edition
+    assert entry.get_normalized().page == page
+    assert FullReporterLocator.model_validate_json(entry.model_dump_json()) == entry
+    assert Document.model_validate_json(document.model_dump_json()) == document
+
+
+def test_relaxed_reporter_reader_keeps_repeated_source_offsets_distinct() -> None:
+    from mellea_lrc.extraction import find_full_reporter_locators
+
+    source = "See 2005  WL  465431. Later, 2005\nWL\n465431."
+    document = find_full_reporter_locators(Document.from_source(source))
+    assert [citation.locator[-1].quote for citation in document.citations] == [
+        "2005  WL  465431",
+        "2005\nWL\n465431",
+    ]
+    assert len({citation.id for citation in document.citations}) == 2
+    assert all(
+        source[citation.locator_span.start : citation.locator_span.end] == citation.locator[-1].quote
+        for citation in document.citations
+    )
+
+
+def test_relaxed_reporter_reader_supplies_context_to_root_formation() -> None:
+    source = "Smith v. Jones, 347  U.S.  483 (1954)."
+    document = grow_roots(Document.from_source(source))
+    citation = document.citations[0]
+
+    assert citation.locator[-1].quote == "347  U.S.  483"
+    assert citation.case_name[-1].get_normalized().as_citation() == "Smith v. Jones"
+    assert citation.court[-1].get_normalized().id == "scotus"
+    assert citation.date[-1].get_normalized().year == 1954
+    assert Document.model_validate_json(document.model_dump_json()) == document
+
+
 def test_ambiguous_eyecite_reporter_keeps_its_failed_reading() -> None:
     # eyecite identifies this as a full citation but cannot choose an edition.
     source = "1 Wash. 2"

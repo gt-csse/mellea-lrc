@@ -5,12 +5,12 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Self
 
-from eyecite import get_citations
-from eyecite.models import FullCaseCitation, Reporter
+from eyecite.models import Reporter
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
 from mellea_lrc.model.span import Span
+from mellea_lrc.reporter_reading import full_reporter_readings
 
 
 class ReporterLocatorValue(BaseModel):
@@ -34,18 +34,15 @@ class ReporterLocatorValue(BaseModel):
 
 @lru_cache(maxsize=8192)
 def normalize_reporter_locator(quote: str) -> ReporterLocatorValue:
-    """Re-read one locator in isolation using eyecite's reporter edition."""
-    matches = [
-        cite
-        for cite in get_citations(quote)
-        if isinstance(cite, FullCaseCitation) and cite.span() == (0, len(quote))
-    ]
+    """Re-read one locator with the same eyecite path used for discovery."""
+    matches = [reading for reading in full_reporter_readings(quote) if reading.span == (0, len(quote))]
     if len(matches) != 1:
         raise ValueError(f"Cannot normalize full reporter locator: {quote!r}")
-    match = matches[0]
+    reading = matches[0]
+    match = reading.citation
 
-    # corrected_reporter() falls back to raw text when the edition is unknown;
-    # require an actual eyecite edition before recording a normalized value.
+    # A parsed spelling is not necessarily a resolved reporter edition.
+    # Preserve that uncertainty instead of recording raw text as normalized.
     edition = match.edition_guess
     if edition is None:
         raise ValueError(f"Cannot normalize ambiguous reporter locator: {quote!r}")
