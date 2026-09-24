@@ -8,7 +8,14 @@ import pytest
 
 from evaluations.docket_proposals import score, score_set
 from mellea_lrc.extraction import find_docket_locators, find_full_reporter_locators
-from scripts import run_docket_site_hunt as runner
+from mellea_lrc.model import (
+    Document,
+    PreprocessingBackend,
+    PreprocessingMetadata,
+    SourceFormat,
+    SourceMetadata,
+    Span,
+)
 
 
 def test_score_counts_rule_proposal_and_remaining_gold_after_index_exclusion(tmp_path: Path) -> None:
@@ -32,14 +39,18 @@ def test_score_counts_rule_proposal_and_remaining_gold_after_index_exclusion(tmp
     )
 
     run_dir = tmp_path / "run"
-    source_document = runner._source_document(tmp_path, "primary", filename, metadata)
+    source_document = Document(
+        source_metadata=SourceMetadata(path=str(text_dir / filename), format=SourceFormat.TEXT),
+        text=source,
+        preprocessing_metadata=PreprocessingMetadata(backend=PreprocessingBackend.DOCLING),
+        index_spans=(Span(0, index_end),),
+    )
     document = find_docket_locators(find_full_reporter_locators(source_document))
-    checkpoint = runner._checkpoint(run_dir, "primary", filename)
+    checkpoint = run_dir / "documents" / "primary" / f"{filename}.json"
     checkpoint.parent.mkdir(parents=True)
     checkpoint.write_text(document.model_dump_json(), encoding="utf-8")
 
-    # Unlike the runner, an evaluator must load the annotation, and it must
-    # fail loudly if the gold file for a saved prediction is missing.
+    # Evaluation needs gold, and must fail loudly if a saved prediction has none.
     with pytest.raises(FileNotFoundError):
         score_set(tmp_path, run_dir, "primary")
 

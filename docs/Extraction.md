@@ -19,9 +19,7 @@ after_entries = document.get_stage("docket_entries")
 
 `resolve_docket_entries(document)` then attaches an optional nearby `Doc.`, `Dkt.`, `ECF`, or `D.I.` entry to an already found docket citation. It reads both sides, with a narrower rule after the locator: an immediate comma or a short bracketed reference. Entries never create case-docket roots. Competing associations remain unread for later review. The hunter temporarily masks these entry references while looking for case dockets; it does not alter the source text.
 
-For older saved hunting runs, `uv run python -m scripts.replay_docket_entries` replays site decisions without another model call and writes complete `docket_entries` stage Documents to `local/docket-entry-stage/documents`. Earlier artifacts may contain entries on creation nodes; the replay moves those readings to the dedicated stage without changing locator sites or review traces. The replay does not read annotations.
-
-Evaluation reads saved Documents independently. For example, `uv run python -m evaluations.score_stages --run-dir local/docket-entry-stage --stage docket_entries --output-dir local/evaluations/docket_entries` writes a summary and occurrence-level results. The same command accepts any completed extraction stage: locator and field stages score only readings written at that stage, while colocation and root stages score only their new relationships. A final Document can score an earlier stage because `get_stage(stage)` restores its exact checkpoint and every field reading points to its decision node. Later field scores count only annotated citations whose parent locator was already present before the stage, so upstream locator misses are reported separately. Source spans and normalized values receive separate counts; case-name annotations have spans but no independent normalized-party target. Unannotated docket entries inside a labeled citation are listed separately rather than called false positives. `evaluations.docket_proposals` remains a separate diagnostic for unreviewed sites, since proposals are not admitted stage output.
+Evaluation reads saved Documents independently. For example, `uv run python -m evaluations.score_stages --run-dir local/run --stage docket_entries --output-dir local/evaluations/docket_entries` writes a summary and occurrence-level results. The same command accepts any completed extraction stage: locator and field stages score only readings written at that stage, while colocation and root stages score only their new relationships. A final Document can score an earlier stage because `get_stage(stage)` restores its exact checkpoint and every field reading points to its decision node. Later field scores count only annotated citations whose parent locator was already present before the stage, so upstream locator misses are reported separately. Source spans and normalized values receive separate counts; case-name annotations have spans but no independent normalized-party target. Unannotated docket entries inside a labeled citation are listed separately rather than called false positives. `evaluations.docket_proposals` remains a separate diagnostic for unreviewed sites, since proposals are not admitted stage output.
 
 ```python
 from pathlib import Path
@@ -32,6 +30,20 @@ document = find_full_reporter_locators(Document.from_source(Path("filing.txt")))
 document = find_docket_locators(document)
 document = asyncio.run(hunt_docket_locators(document))
 document = resolve_docket_entries(document)
+```
+
+To continue from a saved rule-locator checkpoint, restore its `Document` and call the stage directly. If the saved artifact is from a later stage, `get_stage("docket_locators")` recovers the input to hunting. A new full run uses `grow_roots(document, hunt_dockets=True)` instead.
+
+```python
+import asyncio
+from pathlib import Path
+
+from mellea_lrc.api import Document, hunt_docket_locators
+
+saved = Path("rule-checkpoint.json")
+document = Document.model_validate_json(saved.read_text(encoding="utf-8"))
+document = asyncio.run(hunt_docket_locators(document.get_stage("docket_locators")))
+Path("hunted-checkpoint.json").write_text(document.model_dump_json(indent=2), encoding="utf-8")
 ```
 
 The default reviewer reads `MELLEA_LRC_LLM_API_BASE`, `MELLEA_LRC_LLM_API_KEY`, and `MELLEA_LRC_LLM_MODEL` from the environment or `.env`. `MELLEA_LRC_LLM_SERVICE_TIER` is optional. A provider error aborts the run so it cannot be mistaken for a declined citation.
