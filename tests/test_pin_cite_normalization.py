@@ -36,10 +36,51 @@ def test_simple_parsed_pin_cites_have_typed_ranges(
     assert normalize_pin_cite(quote) == (PinCiteTarget(first=first, last=last, kind=kind),)
 
 
-@pytest.mark.parametrize("quote", ["", "at 4", "p. 4", "3-2", "*0", "4a"])
+@pytest.mark.parametrize("quote", ["", "p. 4", "3-2", "*0", "4a", "495 nn. 3 and 4"])
 def test_unrecognized_or_invalid_pin_cites_raise(quote: str) -> None:
     with pytest.raises(ValueError):
         normalize_pin_cite(quote)
+
+
+@pytest.mark.parametrize(
+    ("quote", "expected"),
+    [
+        (
+            "495, 497-99",
+            (
+                PinCiteTarget(first=495, last=495, kind=PinCiteKind.PAGE),
+                PinCiteTarget(first=497, last=499, kind=PinCiteKind.PAGE),
+            ),
+        ),
+        (
+            "¶¶ 4, 6-8",
+            (
+                PinCiteTarget(first=4, last=4, kind=PinCiteKind.PARAGRAPH),
+                PinCiteTarget(first=6, last=8, kind=PinCiteKind.PARAGRAPH),
+            ),
+        ),
+        ("¶ 4", (PinCiteTarget(first=4, last=4, kind=PinCiteKind.PARAGRAPH),)),
+        ("495 n.3", (PinCiteTarget(first=495, last=495, kind=PinCiteKind.PAGE, footnote="3"),)),
+        ("495 & n.3", (PinCiteTarget(first=495, last=495, kind=PinCiteKind.PAGE, footnote="3"),)),
+        ("495 nn.3-4", (PinCiteTarget(first=495, last=495, kind=PinCiteKind.PAGE, footnote="3-4"),)),
+        ("at 4", (PinCiteTarget(first=4, last=4, kind=PinCiteKind.PAGE),)),
+        ("at *4", (PinCiteTarget(first=4, last=4, kind=PinCiteKind.STAR),)),
+    ],
+)
+def test_structured_pin_cites_normalize_and_pipeline_quotes_are_grounded(
+    quote: str, expected: tuple[PinCiteTarget, ...]
+) -> None:
+    assert normalize_pin_cite(quote) == expected
+
+    source = f"See 347 U.S. 483, {quote} (1954)."
+    document = grow_roots(Document.from_source(source))
+    pin = document.citations[0].pin_cite[-1]
+    written_pin = quote.removeprefix("at ")
+
+    assert pin.quote == written_pin
+    assert source[pin.span.start : pin.span.end] == written_pin
+    assert pin.get_normalized() == expected
+    assert Document.model_validate_json(document.model_dump_json()) == document
 
 
 def test_normalizable_field_requires_a_matching_payload_and_no_error() -> None:
@@ -127,7 +168,31 @@ def test_spaced_range_is_read_whole_with_its_exact_source_span() -> None:
     assert Document.model_validate_json(document.model_dump_json()) == document
 
 
-def test_incomplete_spaced_range_is_not_silently_read_as_one_page() -> None:
-    document = grow_roots(Document.from_source("See 347 U.S. 483, 998 - (1954)."))
+@pytest.mark.parametrize("quote", ["495a", "495, 497a", "495 n.x", "998 -", "907-\n\n08"])
+def test_malformed_pin_continuation_is_kept_for_review(quote: str) -> None:
+    source = f"See 347 U.S. 483, {quote} (1954)."
+    document = grow_roots(Document.from_source(source))
+    pin = document.citations[0].pin_cite[-1]
+
+    assert pin.quote == quote
+    assert source[pin.span.start : pin.span.end] == quote
+    assert pin.normalizable is False
+    assert pin.normalization_error
+    with pytest.raises(ValueError, match="not normalizable"):
+        pin.get_normalized()
+    assert Document.model_validate_json(document.model_dump_json()) == document
+
+
+def test_adjacent_court_ordinal_is_not_a_pin_cite() -> None:
+    document = grow_roots(Document.from_source("See 155 A.D.3d 781, 2d Dept. 2017."))
 
     assert document.citations[0].pin_cite == ()
+
+
+def test_parallel_reporter_volume_is_not_a_second_pin_target() -> None:
+    source = "See 347 U.S. 483, 495, 150 X.2d 250 (1954)."
+    document = grow_roots(Document.from_source(source))
+
+    pin = document.citations[0].pin_cite[-1]
+    assert pin.quote == "495"
+    assert pin.get_normalized() == (PinCiteTarget(first=495, last=495, kind=PinCiteKind.PAGE),)
