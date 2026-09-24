@@ -1,13 +1,15 @@
-"""Strict, repairable OpenRouter review of one proposed docket site."""
+"""Mellea IVR review of one proposed docket locator."""
 
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-import httpx
 from dotenv import load_dotenv
+from mellea.core import ValidationResult
+from mellea.stdlib.requirements import req
+from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import ValidationError
 
 from mellea_lrc.extraction.docket_hunting import (
@@ -16,136 +18,91 @@ from mellea_lrc.extraction.docket_hunting import (
     DocketSiteDecision,
     _grounded,
 )
-from mellea_lrc.model.site_review import ReviewAttempt
+from mellea_lrc.llm.config import llm_api_config_from_env, start_mellea_session_from_env
+from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
 
+if TYPE_CHECKING:
+    from mellea import MelleaSession
+
+
+MAX_TOKENS = 1800
+MAX_MODEL_ATTEMPTS = 3  # Initial answer plus at most two repairs.
+SESSION_ID = "mellea-lrc-docket-site-hunting-v1"
+
+# The invariant instruction is a prefix so repeated candidate reviews can use
+# the provider's prompt cache. It describes the task without jurisdictional or
+# corpus-specific docket conventions.
 _PREFIX = """Decide whether a proposed span in a legal filing is a docket locator cited for a court case. A docket number is a court-assigned identifier for a case or proceeding.
 
-Quote the complete proposed locator and its docket-number portion exactly as written. Do not add nearby court, date, pinpoint, or case-name text. An exhibit number, docket-entry number, statute, filing reference, or internal cross-reference is not a case docket citation. Give a short reason for either decision.
+Quote the complete proposed locator and its docket-number portion as written. Do not add nearby court, date, pinpoint, or case-name text. An exhibit number, docket-entry number, statute, filing reference, or internal cross-reference is not a case docket citation. Give a short reason for either decision.
 
-Return only the requested structured fields: is_docket_citation, locator, docket_number, reason. If this is not a docket citation, set the two quoted fields to null."""
+Return only the required structured fields: is_docket_citation, locator, docket_number, reason. If this is not a docket citation, set the two quoted fields to null."""
 
-_INSTRUCTION = """Proposed span: {locator}
+_INSTRUCTION = """Proposed span: {{locator}}
 
 Decide whether that span cites a case docket. Keep the quoted fields within the proposed span.
 
 Filing window:
-{window}"""
+{{window}}"""
 
 
-class DocketReviewServiceError(RuntimeError):
-    """A provider failure that must not be mistaken for a model refusal."""
+def _validate_grounding(ctx: object, candidate: DocketSiteCandidate) -> ValidationResult:
+    """Let the wrapper handle schema repair, then check source evidence."""
+    try:
+        answer = DocketSiteDecision.model_validate_json(str(ctx.last_output().value))
+    except ValidationError:
+        return ValidationResult(result=True)
+    if not answer.is_docket_citation or _grounded(candidate, answer):
+        return ValidationResult(result=True)
+    return ValidationResult(
+        result=False,
+        reason=(
+            "The locator and docket_number must reproduce the proposed span and its "
+            "docket-number portion. Copy their source characters; whitespace variation is permitted."
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)
-class OpenRouterDocketReviewer:
-    """One focused model decision with bounded schema and grounding repairs."""
+class IvrDocketReviewer:
+    """One bounded IVR decision, with every attempt retained on the result."""
 
-    api_key: str
-    base_url: str
-    model: str
-    service_tier: str | None = None
-    temperature: float | None = None
-    max_tokens: int = 1800
-    max_attempts: int = 3
-    timeout_seconds: float = 120.0
+    session: MelleaSession
+    model_options: dict[str, object]
+    max_attempts: int = MAX_MODEL_ATTEMPTS
 
     @classmethod
-    def from_env(cls) -> OpenRouterDocketReviewer:
+    def from_env(cls) -> IvrDocketReviewer:
         load_dotenv(override=False)
-        key = os.getenv("MELLEA_LRC_LLM_API_KEY")
-        base = os.getenv("MELLEA_LRC_LLM_API_BASE")
-        model = os.getenv("MELLEA_LRC_LLM_MODEL")
-        if not key or not base or not model:
-            raise RuntimeError("Docket site hunting needs model key, base URL, and model in the environment")
-        temperature = os.getenv("MELLEA_LRC_LLM_TEMPERATURE")
+        config = llm_api_config_from_env(os.environ)
         return cls(
-            api_key=key,
-            base_url=base,
-            model=model,
-            service_tier=os.getenv("MELLEA_LRC_LLM_SERVICE_TIER") or None,
-            temperature=float(temperature) if temperature else None,
+            session=start_mellea_session_from_env(),
+            model_options={
+                **config.mellea_call_options(max_tokens=MAX_TOKENS),
+                "extra_body": {"session_id": SESSION_ID},
+            },
         )
 
     async def __call__(self, candidate: DocketSiteCandidate) -> DocketReviewOutcome:
-        messages: list[dict[str, str]] = [
-            {"role": "system", "content": _PREFIX},
-            {
-                "role": "user",
-                "content": _INSTRUCTION.format(locator=candidate.locator_text, window=candidate.context),
-            },
-        ]
-        attempts: list[ReviewAttempt] = []
-        endpoint = f"{self.base_url.rstrip('/')}/chat/completions"
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-            for _ in range(self.max_attempts):
-                payload: dict[str, object] = {
-                    "model": self.model,
-                    "messages": messages,
-                    "max_tokens": self.max_tokens,
-                    "response_format": {
-                        "type": "json_schema",
-                        "json_schema": {
-                            "name": "docket_site_decision",
-                            "strict": True,
-                            "schema": DocketSiteDecision.model_json_schema(),
-                        },
-                    },
-                    "session_id": "mellea-lrc-docket-site-hunting-v1",
-                }
-                if self.service_tier:
-                    payload["service_tier"] = self.service_tier
-                if self.temperature is not None:
-                    payload["temperature"] = self.temperature
-                response = await client.post(
-                    endpoint,
-                    headers={"Authorization": f"Bearer {self.api_key}"},
-                    json=payload,
-                )
-                response.raise_for_status()
-                body = response.json()
-                if error := body.get("error"):
-                    message = str(error.get("message", error)) if isinstance(error, dict) else str(error)
-                    raise DocketReviewServiceError(f"Docket review provider error: {message}")
-                if not body.get("choices"):
-                    raise DocketReviewServiceError("Docket review provider returned no choices")
-                choice = body.get("choices", [{}])[0]
-                message = choice.get("message") or {}
-                content = message.get("content") or ""
-                if not isinstance(content, str):
-                    content = str(content)
-                provider_id = body.get("id")
-                raw_usage = body.get("usage") or {}
-                usage = {key: value for key, value in raw_usage.items() if isinstance(value, int)}
-                feedback: str | None = None
-                try:
-                    decision = DocketSiteDecision.model_validate_json(content)
-                except (ValidationError, ValueError) as exc:
-                    feedback = f"Return the required JSON object. Schema validation: {str(exc)[:1000]}"
-                else:
-                    if decision.is_docket_citation and not _grounded(candidate, decision):
-                        feedback = (
-                            "The quoted locator or docket number does not match the proposed span. "
-                            "Copy its source characters exactly; spacing differences are permitted."
-                        )
-                attempts.append(
-                    ReviewAttempt(
-                        model=self.model,
-                        response=content,
-                        feedback=feedback,
-                        request_json=json.dumps(payload, ensure_ascii=False),
-                        response_json=response.text,
-                        provider_id=str(provider_id) if provider_id is not None else None,
-                        finish_reason=choice.get("finish_reason"),
-                        usage=usage or None,
-                    )
-                )
-                if feedback is None:
-                    return DocketReviewOutcome(decision=decision, attempts=tuple(attempts))
-                if content:
-                    messages.append({"role": "assistant", "content": content})
-                messages.append({"role": "user", "content": feedback})
-        return DocketReviewOutcome(
-            decision=None,
-            attempts=tuple(attempts),
-            failure_reason=attempts[-1].feedback if attempts else "No model response",
+        run = await run_instruct_ivr(
+            self.session,
+            InstructIvrSpec(
+                description=_INSTRUCTION,
+                prefix=_PREFIX,
+                user_variables={"locator": candidate.locator_text, "window": candidate.context},
+                output_format=DocketSiteDecision,
+                requirements=(
+                    req(
+                        "Quote the candidate's complete locator and docket number from the source.",
+                        validation_fn=lambda ctx: _validate_grounding(ctx, candidate),
+                    ),
+                ),
+            ),
+            strategy=MultiTurnStrategy(loop_budget=self.max_attempts),
+            model_options=dict(self.model_options),
         )
+        if not run.success:
+            return DocketReviewOutcome(None, run=run, failure_reason=run.failure_reason)
+        # A successful IVR run has passed schema validation. The stage still
+        # verifies grounding before admission as a final boundary check.
+        return DocketReviewOutcome(DocketSiteDecision.model_validate_json(run.output), run=run)

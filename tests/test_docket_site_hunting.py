@@ -1,9 +1,10 @@
 """Optional docket site hunting adds source-grounded full locators before colocation."""
 
 import asyncio
+from types import SimpleNamespace
 
-import httpx
 import pytest
+from mellea.backends import ModelOption
 
 from mellea_lrc.extraction import (
     find_docket_locators,
@@ -13,7 +14,7 @@ from mellea_lrc.extraction import (
     resolve_colocations,
 )
 from mellea_lrc.extraction.docket_hunting import DocketSiteDecision, suspected_dockets
-from mellea_lrc.llm.docket_review import DocketReviewServiceError, OpenRouterDocketReviewer
+from mellea_lrc.llm.docket_review import IvrDocketReviewer
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation, Span
 
 STAGE = "docket_locator_site_hunting"
@@ -265,88 +266,129 @@ def test_grow_roots_hunts_before_context_and_does_not_find_short_citations() -> 
     assert "short_reporter_citations" not in document.stage_runs
 
 
-def test_provider_error_in_successful_http_response_aborts_hunt(monkeypatch: pytest.MonkeyPatch) -> None:
-    before = _ready("See No. 19 Civ. 8034.")
-    real_client = httpx.AsyncClient
+def _mellea_context(output: str) -> SimpleNamespace:
+    return SimpleNamespace(last_output=lambda: SimpleNamespace(value=output))
 
-    def respond(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"error": {"code": 429, "message": "Upstream rate limit"}})
 
-    monkeypatch.setattr(
-        "mellea_lrc.llm.docket_review.httpx.AsyncClient",
-        lambda **kwargs: real_client(transport=httpx.MockTransport(respond), **kwargs),
+def _sampled_answers(requirements: object, outputs: list[str], *, success: bool) -> SimpleNamespace:
+    """Model the public Mellea trace while exercising our installed requirements."""
+    checks = [
+        [(requirement, requirement.validation_fn(_mellea_context(output))) for requirement in requirements]
+        for output in outputs
+    ]
+    requests: list[dict[str, str]] = [{"role": "user", "content": "Review the proposed docket."}]
+    generations = []
+    for index, output in enumerate(outputs):
+        generations.append(
+            SimpleNamespace(
+                value=output,
+                _generate_log=SimpleNamespace(
+                    prompt=list(requests),
+                    model_output={
+                        "id": f"answer-{index}",
+                        "choices": [{"finish_reason": "stop"}],
+                        "usage": {"completion_tokens": 25 + index},
+                    },
+                ),
+            )
+        )
+        requests.extend(
+            [
+                {"role": "assistant", "content": output},
+                {
+                    "role": "user",
+                    "content": "\n".join(
+                        validation.reason or ""
+                        for _requirement, validation in checks[index]
+                        if not validation.as_bool()
+                    ),
+                },
+            ]
+        )
+    return SimpleNamespace(
+        success=success,
+        result_index=len(outputs) - 1,
+        sample_generations=generations,
+        sample_validations=checks,
     )
-    reviewer = OpenRouterDocketReviewer(api_key="test", base_url="https://example.invalid", model="test")
-
-    with pytest.raises(DocketReviewServiceError, match="Upstream rate limit"):
-        asyncio.run(hunt_docket_locators(before, reviewer=reviewer))
-    assert STAGE not in before.stage_runs
 
 
-def test_structured_provider_answer_is_grounded_and_traced(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ivr_reviewer_repairs_schema_and_grounding_then_persists_the_trace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     before = _ready("See No. 19 Civ. 8034.")
-    real_client = httpx.AsyncClient
-    decision = DocketSiteDecision(
+    accepted = DocketSiteDecision(
         is_docket_citation=True,
         locator="No. 19 Civ. 8034",
         docket_number="19 Civ. 8034",
         reason="Court-assigned case identifier.",
     )
+    wrong_number = accepted.model_copy(update={"docket_number": "19 Civ. 8035"})
 
-    def respond(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            json={
-                "id": "response-1",
-                "choices": [{"finish_reason": "stop", "message": {"content": decision.model_dump_json()}}],
-                "usage": {"prompt_tokens": 120, "completion_tokens": 40},
-            },
+    def instruct(_description: str, **kwargs: object) -> SimpleNamespace:
+        assert kwargs["format"] is DocketSiteDecision
+        assert kwargs["strategy"].loop_budget == 3
+        assert "docket locator" in kwargs["model_options"][ModelOption.SYSTEM_PROMPT]
+        sample = _sampled_answers(
+            kwargs["requirements"],
+            [
+                '{"complete_locator":"No. 19 Civ. 8034"}',
+                wrong_number.model_dump_json(),
+                accepted.model_dump_json(),
+            ],
+            success=True,
         )
+        assert not sample.sample_validations[0][0][1].as_bool()
+        assert "is_docket_citation" in sample.sample_validations[0][0][1].reason
+        assert sample.sample_validations[0][1][1].as_bool()  # Domain check waits for valid JSON.
+        assert sample.sample_validations[1][0][1].as_bool()
+        assert not sample.sample_validations[1][1][1].as_bool()
+        assert all(validation.as_bool() for _requirement, validation in sample.sample_validations[2])
+        return sample
 
-    monkeypatch.setattr(
-        "mellea_lrc.llm.docket_review.httpx.AsyncClient",
-        lambda **kwargs: real_client(transport=httpx.MockTransport(respond), **kwargs),
+    monkeypatch.setattr("mellea.stdlib.functional.instruct", instruct)
+    reviewer = IvrDocketReviewer(
+        session=SimpleNamespace(backend=SimpleNamespace(model_id="test-model")),
+        model_options={"max_tokens": 1800},
+        max_attempts=3,
     )
-    reviewer = OpenRouterDocketReviewer(api_key="test", base_url="https://example.invalid", model="test")
     document = asyncio.run(hunt_docket_locators(before, reviewer=reviewer))
 
     assert document.full_locators[0].locator[-1].get_normalized().docket_number == "19 Civ. 8034"
     assert document.site_reviews[0].outcome == "accepted"
-    attempt = document.site_reviews[0].attempts[0]
-    assert attempt.provider_id == "response-1"
-    assert attempt.finish_reason == "stop"
-    assert attempt.usage == {"prompt_tokens": 120, "completion_tokens": 40}
-    assert attempt.request_json and attempt.response_json
+    run = document.site_reviews[0].ivr
+    assert run is not None and run.success
+    assert len(run.attempts) == 3
+    assert run.attempts[0].response["id"] == "answer-0"
+    assert "docket-number portion" in run.attempts[1].requirements[1].reason
+    assert run.attempts[2].request[-1]["content"] == run.attempts[1].requirements[1].reason
+    assert run.output == accepted.model_dump_json()
+    assert document.get_stage(STAGE) == document
     assert Document.model_validate_json(document.model_dump_json()) == document
 
 
-def test_provider_schema_repair_is_recorded(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_exhausted_ivr_review_is_durable_without_creating_a_citation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     before = _ready("See No. 19 Civ. 8034.")
-    real_client = httpx.AsyncClient
-    responses = iter(
-        (
-            '{"is_docket_citation":true,"complete_locator":"No. 19 Civ. 8034",'
-            '"docket_number":"19 Civ. 8034","reason":"Case docket."}',
-            DocketSiteDecision(
-                is_docket_citation=True,
-                locator="No. 19 Civ. 8034",
-                docket_number="19 Civ. 8034",
-                reason="Case docket.",
-            ).model_dump_json(),
+
+    def instruct(_description: str, **kwargs: object) -> SimpleNamespace:
+        return _sampled_answers(
+            kwargs["requirements"],
+            ['{"complete_locator":"No. 19 Civ. 8034"}', '{"complete_locator":"No. 19 Civ. 8034"}'],
+            success=False,
         )
-    )
 
-    def respond(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"choices": [{"message": {"content": next(responses)}}]})
-
-    monkeypatch.setattr(
-        "mellea_lrc.llm.docket_review.httpx.AsyncClient",
-        lambda **kwargs: real_client(transport=httpx.MockTransport(respond), **kwargs),
+    monkeypatch.setattr("mellea.stdlib.functional.instruct", instruct)
+    reviewer = IvrDocketReviewer(
+        session=SimpleNamespace(backend=SimpleNamespace(model_id="test-model")),
+        model_options={"max_tokens": 1800},
     )
-    reviewer = OpenRouterDocketReviewer(api_key="test", base_url="https://example.invalid", model="test")
     document = asyncio.run(hunt_docket_locators(before, reviewer=reviewer))
 
-    assert document.site_reviews[0].outcome == "accepted"
-    assert len(document.site_reviews[0].attempts) == 2
-    assert "locator" in (document.site_reviews[0].attempts[0].feedback or "")
-    assert document.site_reviews[0].attempts[1].feedback is None
+    assert document.citations == ()
+    assert document.site_reviews[0].outcome == "failed"
+    assert "is_docket_citation" in document.site_reviews[0].reason
+    assert document.site_reviews[0].ivr is not None
+    assert len(document.site_reviews[0].ivr.attempts) == 2
+    assert Document.model_validate_json(document.model_dump_json()) == document

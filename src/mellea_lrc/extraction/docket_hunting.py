@@ -14,13 +14,14 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from mellea_lrc.extraction.locators import DOCKET_PREFIX_PATTERN
+from mellea_lrc.llm.grounding import EvidenceCandidate, FuzzinessOption, GroundingEvidence
+from mellea_lrc.llm.ivr import IvrRun
 from mellea_lrc.model.citations import FullDocketCitation, FullReporterCitation
 from mellea_lrc.model.citations.fields.docket import DOCKET_ENTRY_PATTERN
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.site_review import ReviewAttempt, SiteReview
+from mellea_lrc.model.site_review import SiteReview
 from mellea_lrc.model.span import Span
 from mellea_lrc.preprocessing.document_index import is_within
-from mellea_lrc.text_match import fuzzy_literal
 
 STAGE = "docket_locator_site_hunting"
 _CONTEXT = 170
@@ -67,7 +68,7 @@ class DocketReviewOutcome:
     """A validated answer plus the full model-attempt history, if any."""
 
     decision: DocketSiteDecision | None
-    attempts: tuple[ReviewAttempt, ...] = ()
+    run: IvrRun | None = None
     failure_reason: str | None = None
 
 
@@ -159,9 +160,12 @@ def _grounded(candidate: DocketSiteCandidate, decision: DocketSiteDecision) -> b
     """Permit spacing noise, but never a changed docket character."""
     if not decision.locator or not decision.docket_number:
         return False
-    return bool(
-        re.fullmatch(fuzzy_literal(decision.locator, whitespace=True), candidate.locator_text)
-        and re.fullmatch(fuzzy_literal(decision.docket_number, whitespace=True), candidate.docket_number)
+    policy = FuzzinessOption.whitespace_relaxation()
+    locator = GroundingEvidence((EvidenceCandidate(candidate.locator_text, candidate.locator_span),))
+    number = GroundingEvidence((EvidenceCandidate(candidate.docket_number, candidate.number_span),))
+    return (
+        locator.resolve(decision.locator, policy) is not None
+        and number.resolve(decision.docket_number, policy) is not None
     )
 
 
@@ -192,9 +196,9 @@ async def hunt_docket_locators(
             return current.complete(STAGE)
         inspected.add((candidate.locator_span.start, candidate.locator_span.end))
         if reviewer is None:
-            from mellea_lrc.llm.docket_review import OpenRouterDocketReviewer
+            from mellea_lrc.llm.docket_review import IvrDocketReviewer
 
-            reviewer = OpenRouterDocketReviewer.from_env()
+            reviewer = IvrDocketReviewer.from_env()
         review = await reviewer(candidate)
         outcome = review if isinstance(review, DocketReviewOutcome) else DocketReviewOutcome(review)
         decision = outcome.decision
@@ -231,6 +235,6 @@ async def hunt_docket_locators(
                 proposed_locator=decision.locator if decision is not None else None,
                 proposed_identifier=decision.docket_number if decision is not None else None,
                 citation_id=citation_id,
-                attempts=outcome.attempts,
+                ivr=outcome.run,
             )
         )
