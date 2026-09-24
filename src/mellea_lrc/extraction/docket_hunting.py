@@ -13,8 +13,9 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from mellea_lrc.extraction.locators import DOCKET_ENTRY_PATTERN, DOCKET_PREFIX_PATTERN
+from mellea_lrc.extraction.locators import DOCKET_PREFIX_PATTERN
 from mellea_lrc.model.citations import FullDocketCitation, FullReporterCitation
+from mellea_lrc.model.citations.fields.docket import DOCKET_ENTRY_PATTERN
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.site_review import ReviewAttempt, SiteReview
 from mellea_lrc.model.span import Span
@@ -83,7 +84,7 @@ def _masked_text(document: Document) -> str:
         masked[span.start : span.end] = " " * (span.end - span.start)
     for span in document.index_spans:
         masked[span.start : span.end] = " " * (span.end - span.start)
-    # An ECF/Doc./Dkt. entry number identifies a filing within a docket,
+    # An ECF/Doc./Dkt./D.I. entry number identifies a filing within a docket,
     # not the case docket itself. Reuse the entry reader's syntax so an inner
     # "No." cannot be proposed as a full docket locator.
     for entry in DOCKET_ENTRY_PATTERN.finditer(document.text):

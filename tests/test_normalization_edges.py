@@ -1,6 +1,7 @@
 """Invalid readings retain their source evidence and normalization failure."""
 
 import asyncio
+
 import pytest
 
 from mellea_lrc.extraction import find_docket_locators, grow_roots
@@ -176,13 +177,16 @@ def test_docket_entry_that_cannot_be_normalized_stays_on_citation() -> None:
     source = "Doc. unresolved, Case No. 1:24-cv-00123."
     locator = "Case No. 1:24-cv-00123"
     number = "1:24-cv-00123"
-    citation = FullDocketCitation.from_locator(
-        citation_id="docket:0",
-        stage="docket_locators",
-        source=source,
-        span=Span(source.index(locator), source.index(locator) + len(locator)),
-        number_span=Span(source.index(number), source.index(number) + len(number)),
-        docket_entry_span=Span(0, len("Doc. unresolved")),
+    citation = (
+        FullDocketCitation.from_locator(
+            citation_id="docket:0",
+            stage="docket_locators",
+            source=source,
+            span=Span(source.index(locator), source.index(locator) + len(locator)),
+            number_span=Span(source.index(number), source.index(number) + len(number)),
+        )
+        .record("docket_entries")
+        .with_docket_entry(source, Span(0, len("Doc. unresolved")))
     )
     entry = citation.docket_entry[-1]
     assert entry.quote == "Doc. unresolved"

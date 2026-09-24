@@ -12,18 +12,21 @@ document = asyncio.run(grow_roots(document, rules=stable()))
 after_dockets = document.get_stage("docket_locators")
 ```
 
-`grow_roots` is async. It runs reporter locator discovery, docket locator discovery, optional docket site hunting, colocation, case-name/court/date/pin-cite reading, and root formation in that order. Omit `hunt_dockets=True` for the rule-only pass. Each stage can also be called separately through the same API. Colocation sets parsing boundaries; it does not establish case identity.
+`grow_roots` is async. It runs reporter locator discovery, docket locator discovery, optional docket site hunting, docket-entry reading, colocation, case-name/court/date/pin-cite reading, and root formation in that order. Omit `hunt_dockets=True` for the rule-only pass. Each stage can also be called separately through the same API. Colocation sets parsing boundaries; it does not establish case identity.
 
 `hunt_docket_locators(document)` is the independent optional stage between rule discovery and colocation. It proposes labelled opaque identifiers and bounded unlabelled candidates in citation context, then asks a model whether each proposed span is a cited case docket. A positive answer must reproduce both the complete locator and its number, with only whitespace variation permitted. An accepted answer creates a `FullDocketCitation` using exact source spans; the next proposal sees that new locator in its mask. Declines and failed grounding remain in `document.site_reviews`, including model attempts. The stage does not read other fields or create short citations. A supplied async `reviewer` makes it runnable offline; the default uses the configured OpenRouter-compatible model endpoint.
+
+`resolve_docket_entries(document)` then attaches an optional nearby `Doc.`, `Dkt.`, `ECF`, or `D.I.` entry to an already found docket citation. It reads both sides, with a narrower rule after the locator: an immediate comma or a short bracketed reference. Entries never create case-docket roots. Competing associations remain unread for later review. The hunter temporarily masks these entry references while looking for case dockets; it does not alter the source text.
 
 ```python
 from pathlib import Path
 
-from mellea_lrc.api import find_docket_locators, find_full_reporter_locators, hunt_docket_locators
+from mellea_lrc.api import find_docket_locators, find_full_reporter_locators, hunt_docket_locators, resolve_docket_entries
 
 document = find_full_reporter_locators(Document.from_source(Path("filing.txt")))
 document = find_docket_locators(document)
 document = asyncio.run(hunt_docket_locators(document))
+document = resolve_docket_entries(document)
 ```
 
 The default reviewer reads `MELLEA_LRC_LLM_API_BASE`, `MELLEA_LRC_LLM_API_KEY`, and `MELLEA_LRC_LLM_MODEL` from the environment or `.env`. `MELLEA_LRC_LLM_SERVICE_TIER` is optional. A provider error aborts the run so it cannot be mistaken for a declined citation.

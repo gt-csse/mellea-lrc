@@ -1,6 +1,7 @@
 """Behavioral checks for extraction and citation-local field histories."""
 
 import asyncio
+
 import pytest
 
 from mellea_lrc.extraction import (
@@ -12,6 +13,7 @@ from mellea_lrc.extraction import (
     resolve_colocations,
     resolve_courts,
     resolve_dates,
+    resolve_docket_entries,
     resolve_pin_cites,
 )
 from mellea_lrc.model import (
@@ -266,7 +268,9 @@ def test_courtless_docket_occurrences_are_not_deduplicated_by_number_alone() -> 
 
 
 def test_adjacent_docket_entry_has_its_own_evidence_span() -> None:
-    document = find_docket_locators(Document.from_source("Doc. 10-1, Case No. 1:24-cv-00123."))
+    document = resolve_docket_entries(
+        find_docket_locators(Document.from_source("Doc. 10-1, Case No. 1:24-cv-00123."))
+    )
 
     assert len(document.citations) == 1
     citation = document.citations[0]

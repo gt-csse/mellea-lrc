@@ -17,6 +17,7 @@ from mellea_lrc.extraction import (
     resolve_colocations,
     resolve_courts,
     resolve_dates,
+    resolve_docket_entries,
     resolve_pin_cites,
     stable,
 )
@@ -37,6 +38,7 @@ __all__ = [
     "resolve_colocations",
     "resolve_courts",
     "resolve_dates",
+    "resolve_docket_entries",
     "resolve_pin_cites",
     "stable",
 ]

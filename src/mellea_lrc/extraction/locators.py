@@ -19,10 +19,6 @@ DOCKET_PREFIX_PATTERN = (
 # malformed forms belong to a later, independently reviewable hunting pass.
 _CMECF = r"(?:\d{1,3}[:-])?\d{2}-[A-Za-z]{2,4}-\d{1,6}(?:-[A-Za-z]{2,5}){0,2}"
 _DOCKET = re.compile(rf"{DOCKET_PREFIX_PATTERN}(?P<number>{_CMECF})(?![A-Za-z0-9:/\\-])", re.IGNORECASE)
-DOCKET_ENTRY_PATTERN = re.compile(
-    r"\b(?:Doc(?:ument)?\.?|Dkt\.?|ECF)\s*(?:No\.?\s*)?(?P<number>\d+(?:-\d+)?)", re.I
-)
-_ENTRY_JOIN = re.compile(r"^[\s,;:\[\]()]{0,12}$")
 
 
 def _overlaps(span: Span, document: Document) -> bool:
@@ -99,11 +95,6 @@ def find_docket_locators(document: Document) -> Document:
         span = Span(*match.span())
         if is_within(span, document.index_spans) or _overlaps(span, document):
             continue
-        entry_span: Span | None = None
-        before = tuple(DOCKET_ENTRY_PATTERN.finditer(document.text, max(0, span.start - 96), span.start))
-        if before and _ENTRY_JOIN.fullmatch(document.text[before[-1].end() : span.start]):
-            entry = before[-1]
-            entry_span = Span(*entry.span())
         identifier = f"docket:{span.start}:{span.end}"
         document = document.add_citation(
             FullDocketCitation.from_locator(
@@ -112,7 +103,6 @@ def find_docket_locators(document: Document) -> Document:
                 source=document.text,
                 span=span,
                 number_span=Span(*match.span("number")),
-                docket_entry_span=entry_span,
             )
         )
     return document.complete(stage)

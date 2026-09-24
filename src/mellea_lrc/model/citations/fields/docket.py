@@ -10,14 +10,14 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
 from mellea_lrc.model.span import Span
 
-_ENTRY_NUMBER = re.compile(
-    r"(?:Doc(?:ument)?\.?|Dkt\.?|ECF)\s*(?:No\.?\s*)?(?P<number>\d+(?:-\d+)?)",
+DOCKET_ENTRY_PATTERN = re.compile(
+    r"\b(?:Doc(?:ument)?\.?|Dkt\.?|ECF|D\.I\.)\s*(?:No\.?\s*)?(?P<number>\d+(?:-\d+)?)(?![A-Za-z0-9/-]|\.\d)",
     re.I,
 )
 
 
 def normalize_docket_entry(quote: str) -> str:
-    match = _ENTRY_NUMBER.fullmatch(quote)
+    match = DOCKET_ENTRY_PATTERN.fullmatch(quote)
     if match is None:
         raise ValueError(f"Cannot normalize docket entry: {quote!r}")
     return match.group("number")

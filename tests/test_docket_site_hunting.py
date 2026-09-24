@@ -71,6 +71,12 @@ def test_hunt_recomputes_mask_after_each_admission_and_adds_only_full_dockets() 
         assert citation.root_id == ()
 
 
+def test_docket_item_reference_cannot_propose_its_inner_number_as_a_case_docket() -> None:
+    before = _ready("In re Holdings, No. 21-11854 (DSJ) [D.I. No. 17].")
+
+    assert [site.locator_text for site in suspected_dockets(before)] == ["No. 21-11854"]
+
+
 @pytest.mark.parametrize(
     ("locator", "number"),
     [
@@ -226,10 +232,11 @@ def test_grow_roots_hunts_before_context_and_does_not_find_short_citations() -> 
 
     document = asyncio.run(grow_roots(Document.from_source(source), hunt_dockets=True, reviewer=reviewer))
 
-    assert document.stage_runs[:4] == (
+    assert document.stage_runs[:5] == (
         "full_reporter_locators",
         "docket_locators",
         STAGE,
+        "docket_entries",
         "colocations",
     )
     assert document.stage_runs[-1] == "roots"
