@@ -17,8 +17,8 @@ import json
 from pathlib import Path
 
 from evaluations.annotations import SETS, annotated_documents, span
+from mellea_lrc.extraction._site_hunting.candidates import suspected_dockets
 from mellea_lrc.extraction.docket_locator import STAGE as DOCKET_LOCATORS_STAGE
-from mellea_lrc.extraction.site_hunting.docket_candidates import suspected_dockets
 from mellea_lrc.model import FullDocketCitation
 
 COUNT_FIELDS = (

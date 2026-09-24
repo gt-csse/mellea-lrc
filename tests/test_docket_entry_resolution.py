@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from mellea_lrc.extraction import (
+from mellea_lrc.api import (
     find_docket_locators,
     find_full_reporter_locators,
     form_roots,
@@ -12,8 +12,8 @@ from mellea_lrc.extraction import (
     resolve_colocations,
     resolve_docket_entries,
 )
-from mellea_lrc.extraction.site_hunting.docket_candidates import DocketSiteCandidate
-from mellea_lrc.extraction.site_hunting.docket_review import DocketSiteDecision
+from mellea_lrc.extraction._site_hunting.candidates import DocketSiteCandidate
+from mellea_lrc.extraction._site_hunting.review import DocketSiteDecision
 from mellea_lrc.model import DocketEntryField, Document, FullDocketCitation
 
 STAGE = "docket_entries"

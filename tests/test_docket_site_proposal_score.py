@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from evaluations.docket_proposals import score, score_set
-from mellea_lrc.extraction import find_docket_locators, find_full_reporter_locators
+from mellea_lrc.api import find_docket_locators, find_full_reporter_locators
 from mellea_lrc.model import (
     Document,
     PreprocessingBackend,

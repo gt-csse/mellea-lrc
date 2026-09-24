@@ -21,19 +21,17 @@ from typing import Any
 
 from evaluations.annotations import SETS
 from evaluations.score_stages import ELIGIBILITY, FIELD_STAGES, RELATIONSHIP_STAGES, STAGES
-from mellea_lrc.extraction.context import (
-    CASE_NAMES_STAGE,
-    COURTS_STAGE,
-    DATES_STAGE,
-    PIN_CITES_STAGE,
-)
+from mellea_lrc.extraction.case_names import STAGE as CASE_NAMES_STAGE
+from mellea_lrc.extraction.colocations import STAGE as COLOCATIONS_STAGE
+from mellea_lrc.extraction.courts import STAGE as COURTS_STAGE
+from mellea_lrc.extraction.dates import STAGE as DATES_STAGE
 from mellea_lrc.extraction.docket_entries import STAGE as DOCKET_ENTRIES_STAGE
 from mellea_lrc.extraction.docket_locator import STAGE as DOCKET_LOCATORS_STAGE
+from mellea_lrc.extraction.docket_site_hunting import STAGE as DOCKET_HUNT_STAGE
 from mellea_lrc.extraction.full_reporter_locator import STAGE as FULL_REPORTER_LOCATORS_STAGE
+from mellea_lrc.extraction.pin_cites import STAGE as PIN_CITES_STAGE
 from mellea_lrc.extraction.roots import STAGE as ROOTS_STAGE
 from mellea_lrc.extraction.short_reporter_locator import STAGE as SHORT_REPORTER_CITATIONS_STAGE
-from mellea_lrc.extraction.site_hunting.docket import STAGE as DOCKET_HUNT_STAGE
-from mellea_lrc.extraction.structure import STAGE as COLOCATIONS_STAGE
 
 STAGE_NAMES = {
     FULL_REPORTER_LOCATORS_STAGE: "Full reporter locators (rule)",
