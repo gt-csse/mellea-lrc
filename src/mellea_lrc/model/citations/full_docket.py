@@ -33,27 +33,26 @@ class FullDocketCitation(FullCitation):
         source: str,
         span: Span,
         number_span: Span,
-        docket_entry_span: Span | None = None,
     ) -> Self:
-        """Create the citation and grounded identifier readings together."""
+        """Create the citation with only its grounded docket locator."""
         node = Node(id=f"{citation_id}:node:0", stage=stage)
         return cls(
             id=citation_id,
             nodes=(node,),
             locator=(FullDocketLocator.from_source(source, span, number_span, node_id=node.id),),
+        )
+
+    def with_docket_entry(self, source: str, span: Span) -> Self:
+        """Quote an adjacent entry under the current decision node."""
+        return self._with_log(
             docket_entry=(
-                (DocketEntryField.from_source(source, docket_entry_span, node_id=node.id),)
-                if docket_entry_span is not None
-                else ()
+                *self.docket_entry,
+                DocketEntryField.from_source(source, span, node_id=self._decision_node_id()),
             ),
         )
 
     @model_validator(mode="after")
     def _validate_locator(self) -> Self:
-        if (
-            not self.locator
-            or self.locator[0].node_id != self.nodes[0].id
-            or (self.docket_entry and self.docket_entry[0].node_id != self.nodes[0].id)
-        ):
+        if not self.locator or self.locator[0].node_id != self.nodes[0].id:
             raise ValueError("Docket citation needs a source-spanned locator")
         return self
