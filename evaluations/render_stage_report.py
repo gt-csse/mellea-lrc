@@ -87,7 +87,16 @@ def _field_row(label: str, summary: Mapping[str, Any]) -> str:
     return "| " + " | ".join(cells) + " |"
 
 
-def _relationship_row(label: str, summary: Mapping[str, Any]) -> str:
+def _group_row(label: str, summary: Mapping[str, Any]) -> str:
+    cells = (
+        label,
+        f"{_count(summary, 'eligible_locators')}/{_count(summary, 'gold_locators')}",
+        _fraction(_count(summary, "exact_groups"), _count(summary, "gold_groups")),
+    )
+    return "| " + " | ".join(cells) + " |"
+
+
+def _colocation_row(label: str, summary: Mapping[str, Any]) -> str:
     cells = (
         label,
         f"{_count(summary, 'eligible_locators')}/{_count(summary, 'gold_locators')}",
@@ -118,7 +127,6 @@ def render_stage_report(results: Mapping[str, Mapping[str, Any]], *, source_labe
         _count(results[stage]["totals"], "documents") != documents for stage in REPORT_ORDER
     ):
         raise ValueError("Every stage must score the same nonempty document set")
-    root_totals = results[ROOTS_STAGE]["totals"]
     lines = [
         "# Incremental extraction stage evaluation",
         "",
@@ -143,13 +151,9 @@ def render_stage_report(results: Mapping[str, Mapping[str, Any]], *, source_labe
         "denominator. Inferred courts may have no source span. Case names and short reporter "
         "citations have no independent normalized-gold target.",
         "",
-        "For relationships, a **link** is one unordered pair of full-locator occurrences "
-        "assigned to the same group within a document. A three-locator group contributes "
-        "three links; a four-locator group contributes six. Root link recall is the fraction "
-        "of annotated same-root pairs also grouped together by the system. It is not the "
-        "fraction of roots or locators found. Splitting a large root loses many pair links.",
-        "Gold root groups may use identity evidence unavailable to this first-pass stage; "
-        "a missed link can therefore represent a deliberate deferral.",
+        "Colocation pair scores count unordered pairs of full locators placed in the "
+        "same colocation group. Root formation reports exact groups only. Root/leaf "
+        "linkage scoring belongs after `grow_leaves`.",
         "",
         "## Totals at a glance",
         "",
@@ -162,22 +166,22 @@ def render_stage_report(results: Mapping[str, Mapping[str, Any]], *, source_labe
     lines.extend(
         (
             "",
-            "| Relationship stage | Eligible full locators | Exact groups / gold groups | "
-            "Correct links / predicted links | Correct links / gold links |",
-            "| --- | ---: | ---: | ---: | ---: |",
+            "| Group stage | Eligible full locators | Exact groups / gold groups |",
+            "| --- | ---: | ---: |",
         )
     )
     for stage in REPORT_ORDER:
         if stage in RELATIONSHIP_STAGES:
-            lines.append(_relationship_row(STAGE_NAMES[stage], results[stage]["totals"]))
+            lines.append(_group_row(STAGE_NAMES[stage], results[stage]["totals"]))
+    colocation_totals = results[COLOCATIONS_STAGE]["totals"]
     lines.extend(
         (
             "",
-            f"Root formation misses "
-            f"{_count(root_totals, 'gold_links') - _count(root_totals, 'correct_links')} "
-            "annotated same-root pairs and adds "
-            f"{_count(root_totals, 'predicted_links') - _count(root_totals, 'correct_links')} "
-            "incorrect pairs. Its exact-group rate includes singleton roots.",
+            "Colocation pairs: "
+            f"{_fraction(_count(colocation_totals, 'correct_links'), _count(colocation_totals, 'predicted_links'))} "
+            "precision; "
+            f"{_fraction(_count(colocation_totals, 'correct_links'), _count(colocation_totals, 'gold_links'))} "
+            "recall. Root groups include singletons.",
         )
     )
 
@@ -227,15 +231,24 @@ def render_stage_report(results: Mapping[str, Mapping[str, Any]], *, source_labe
                 )
             )
             row = _field_row
-        else:
+        elif stage == COLOCATIONS_STAGE:
             lines.extend(
                 (
                     "| Set (documents) | Eligible full locators | Exact groups / gold groups | "
-                    "Correct links / predicted links | Correct links / gold links |",
+                    "Correct colocated pairs / predicted pairs | "
+                    "Correct colocated pairs / gold pairs |",
                     "| --- | ---: | ---: | ---: | ---: |",
                 )
             )
-            row = _relationship_row
+            row = _colocation_row
+        else:
+            lines.extend(
+                (
+                    "| Set (documents) | Eligible full locators | Exact groups / gold groups |",
+                    "| --- | ---: | ---: |",
+                )
+            )
+            row = _group_row
         for name in set_names:
             summary = result["sets"][name]
             lines.append(row(f"{name} ({_count(summary, 'documents')})", summary))

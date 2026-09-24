@@ -10,8 +10,7 @@ Each score concerns only readings or relationships written by that stage. A down
 
 For fields, span precision uses scored predictions and span recall uses eligible annotated spans. Predictions for unlabeled fields are excluded from precision. Normalization accuracy uses matched source evidence with independent normalized gold; normalization recall uses all eligible normalized gold. A dash means there is no denominator. Inferred courts may have no source span. Case names and short reporter citations have no independent normalized-gold target.
 
-For relationships, a **link** is one unordered pair of full-locator occurrences assigned to the same group within a document. A three-locator group contributes three links; a four-locator group contributes six. Root link recall is the fraction of annotated same-root pairs also grouped together by the system. It is not the fraction of roots or locators found. Splitting a large root loses many pair links.
-Gold root groups may use identity evidence unavailable to this first-pass stage; a missed link can therefore represent a deliberate deferral.
+Colocation pair scores count unordered pairs of full locators placed in the same colocation group. Root formation reports exact groups only. Root/leaf linkage scoring belongs after `grow_leaves`.
 
 ## Totals at a glance
 
@@ -27,12 +26,12 @@ Gold root groups may use identity evidence unavailable to this first-pass stage;
 | Pin cites | 1758 | 1763 | 1746/1756 (99.4%) | 1746/1758 (99.3%) | 1696/1746 (97.1%) | 1696/1758 (96.5%) |
 | Short reporter citations | 565 | 580 | 530/580 (91.4%) | 530/565 (93.8%) | — | — |
 
-| Relationship stage | Eligible full locators | Exact groups / gold groups | Correct links / predicted links | Correct links / gold links |
-| --- | ---: | ---: | ---: | ---: |
-| Colocation | 2381/2385 | 190/193 (98.4%) | 238/239 (99.6%) | 238/241 (98.8%) |
-| Root formation | 2381/2385 | 2036/2053 (99.2%) | 442/442 (100.0%) | 442/534 (82.8%) |
+| Group stage | Eligible full locators | Exact groups / gold groups |
+| --- | ---: | ---: |
+| Colocation | 2381/2385 | 190/193 (98.4%) |
+| Root formation | 2381/2385 | 2036/2053 (99.2%) |
 
-Root formation misses 92 annotated same-root pairs and adds 0 incorrect pairs. Its exact-group rate includes singleton roots.
+Colocation pairs: 238/239 (99.6%) precision; 238/241 (98.8%) recall. Root groups include singletons.
 
 ## Diagnostic counts
 
@@ -108,7 +107,7 @@ Eligibility: Annotated entries whose docket locator existed before this stage.
 
 Eligibility: Annotated full locators present before colocation.
 
-| Set (documents) | Eligible full locators | Exact groups / gold groups | Correct links / predicted links | Correct links / gold links |
+| Set (documents) | Eligible full locators | Exact groups / gold groups | Correct colocated pairs / predicted pairs | Correct colocated pairs / gold pairs |
 | --- | ---: | ---: | ---: | ---: |
 | primary (26) | 534/534 | 43/43 (100.0%) | 47/47 (100.0%) | 47/47 (100.0%) |
 | hallucination-set-1 (10) | 408/408 | 38/39 (97.4%) | 42/43 (97.7%) | 42/43 (97.7%) |
@@ -173,14 +172,14 @@ Eligibility: Annotated pin cites whose full locator existed before this stage.
 
 Eligibility: Annotated full locators present before root formation.
 
-| Set (documents) | Eligible full locators | Exact groups / gold groups | Correct links / predicted links | Correct links / gold links |
-| --- | ---: | ---: | ---: | ---: |
-| primary (26) | 534/534 | 426/430 (99.1%) | 163/163 (100.0%) | 163/172 (94.8%) |
-| hallucination-set-1 (10) | 408/408 | 332/335 (99.1%) | 76/76 (100.0%) | 76/145 (52.4%) |
-| hallucination-set-2 (10) | 387/388 | 301/302 (99.7%) | 124/124 (100.0%) | 124/125 (99.2%) |
-| reliable-high-profile (10) | 436/437 | 405/412 (98.3%) | 20/20 (100.0%) | 20/31 (64.5%) |
-| reliable-low-profile (10) | 616/618 | 572/574 (99.7%) | 59/59 (100.0%) | 59/61 (96.7%) |
-| **Total** (66) | 2381/2385 | 2036/2053 (99.2%) | 442/442 (100.0%) | 442/534 (82.8%) |
+| Set (documents) | Eligible full locators | Exact groups / gold groups |
+| --- | ---: | ---: |
+| primary (26) | 534/534 | 426/430 (99.1%) |
+| hallucination-set-1 (10) | 408/408 | 332/335 (99.1%) |
+| hallucination-set-2 (10) | 387/388 | 301/302 (99.7%) |
+| reliable-high-profile (10) | 436/437 | 405/412 (98.3%) |
+| reliable-low-profile (10) | 616/618 | 572/574 (99.7%) |
+| **Total** (66) | 2381/2385 | 2036/2053 (99.2%) |
 
 ### Short reporter citations
 

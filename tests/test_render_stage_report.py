@@ -43,11 +43,11 @@ def _empty_result(stage: str, *, documents: int = 1) -> dict:
             "gold_locators": 0,
             "eligible_locators": 0,
             "gold_groups": 0,
+            "predicted_groups": 0,
             "exact_groups": 0,
-            "gold_links": 0,
-            "predicted_links": 0,
-            "correct_links": 0,
         }
+        if stage == "colocations":
+            counts.update({"gold_links": 0, "predicted_links": 0, "correct_links": 0})
     return _result(stage, counts)
 
 
@@ -154,7 +154,7 @@ def test_field_normalization_accuracy_and_recall_use_distinct_denominators() -> 
     )
 
 
-def test_root_link_recall_uses_gold_pairs_and_plain_markdown_header() -> None:
+def test_root_report_shows_group_recall_without_link_columns() -> None:
     counts = {
         "documents": 66,
         "gold_locators": 2385,
@@ -162,23 +162,40 @@ def test_root_link_recall_uses_gold_pairs_and_plain_markdown_header() -> None:
         "gold_groups": 2053,
         "predicted_groups": 2092,
         "exact_groups": 2036,
-        "gold_links": 534,
-        "predicted_links": 442,
-        "correct_links": 442,
         "exact_group_recall": 0.9917,
-        "link_precision": 1.0,
-        "link_recall": 0.8277,
     }
     markdown = render_stage_report(
         _all_results("roots", counts, documents=66), source_label="saved summaries"
     )
 
     section = _section(markdown, "roots")
-    assert "| Correct links / predicted links | Correct links / gold links |" in section
-    assert (
-        "| **Total** (66) | 2381/2385 | 2036/2053 (99.2%) | 442/442 (100.0%) | 442/534 (82.8%) |" in section
+    assert "| Set (documents) | Eligible full locators | Exact groups / gold groups |" in section
+    assert "| **Total** (66) | 2381/2385 | 2036/2053 (99.2%) |" in section
+    assert "links" not in section.lower()
+    assert "| Root formation | 2381/2385 | 2036/2053 (99.2%) |" in markdown
+    assert "Root link recall" not in markdown
+    assert "Root formation misses" not in markdown
+
+
+def test_colocation_report_keeps_pair_scores() -> None:
+    counts = {
+        "documents": 3,
+        "gold_locators": 7,
+        "eligible_locators": 6,
+        "gold_groups": 2,
+        "predicted_groups": 2,
+        "exact_groups": 1,
+        "gold_links": 3,
+        "predicted_links": 2,
+        "correct_links": 1,
+    }
+    markdown = render_stage_report(
+        _all_results("colocations", counts, documents=3), source_label="saved summaries"
     )
-    assert "links&#x20;" not in markdown
+
+    section = _section(markdown, "colocations")
+    assert "| Correct colocated pairs / predicted pairs | Correct colocated pairs / gold pairs |" in section
+    assert "| **Total** (3) | 6/7 | 1/2 (50.0%) | 1/2 (50.0%) | 1/3 (33.3%) |" in section
 
 
 def test_occurrence_details_do_not_change_the_report() -> None:

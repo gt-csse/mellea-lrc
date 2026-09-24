@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from evaluations.score_stages import score_document
+from evaluations.score_stages import _summary, score_document
 from evaluations.stage_products import stage_product
 from mellea_lrc.model import (
     Document,
@@ -268,6 +268,22 @@ def test_colocation_and_root_scores_use_only_their_relationship_stage() -> None:
     colocations, _ = score_document(document, "colocations", gold)
     assert colocations["gold_groups"] == colocations["predicted_groups"] == 1
     assert colocations["exact_groups"] == colocations["correct_links"] == 1
+    colocation_summary = _summary(colocations, "colocations")
+    assert colocation_summary["gold_links"] == colocation_summary["predicted_links"] == 1
+    assert colocation_summary["link_precision"] == colocation_summary["link_recall"] == 1.0
+
     roots, _ = score_document(document, "roots", gold)
-    assert roots["gold_links"] == 1
-    assert roots["predicted_links"] == roots["correct_links"] == 0
+    assert roots["gold_groups"] == 1
+    assert roots["predicted_groups"] == 2
+    assert roots["exact_groups"] == 0
+    root_summary = _summary(roots, "roots")
+    assert root_summary["exact_group_recall"] == 0.0
+    link_keys = {
+        "gold_links",
+        "predicted_links",
+        "correct_links",
+        "link_precision",
+        "link_recall",
+    }
+    assert link_keys.isdisjoint(roots)
+    assert link_keys.isdisjoint(root_summary)
