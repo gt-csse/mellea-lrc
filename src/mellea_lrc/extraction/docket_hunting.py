@@ -172,7 +172,7 @@ async def hunt_docket_locators(
 ) -> Document:
     """Review one site at a time; accepted sites affect the next proposal mask."""
     if STAGE in document.stage_runs:
-        return document
+        raise ValueError(f"Stage already completed: {STAGE}")
     if "full_reporter_locators" not in document.stage_runs or "docket_locators" not in document.stage_runs:
         raise ValueError("Run both rule locator stages before docket site hunting")
     if "colocations" in document.stage_runs:

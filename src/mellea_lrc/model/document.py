@@ -25,6 +25,8 @@ class Document(PreprocessedDocument):
 
     citations: tuple[CitationVariant, ...] = ()
     site_reviews: tuple[SiteReview, ...] = ()
+    # TODO: Type stage names (including Node.stage and SiteReview.stage) once
+    # the stage catalog settles. Strings currently allow development checkpoints.
     stage_runs: tuple[str, ...] = ()
 
     @classmethod
@@ -107,7 +109,7 @@ class Document(PreprocessedDocument):
     def complete(self, stage: str) -> Self:
         """Commit one atomic run, including runs with no citation changes."""
         if stage in self.stage_runs:
-            return self
+            raise ValueError(f"Stage already completed: {stage}")
         pending = {
             node.stage
             for citation in self.citations

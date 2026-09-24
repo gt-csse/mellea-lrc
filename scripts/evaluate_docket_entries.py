@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from mellea_lrc.extraction import find_docket_locators, find_full_reporter_locators, resolve_docket_entries
+from mellea_lrc.extraction.docket_entries import STAGE as ENTRY_STAGE
 from mellea_lrc.extraction.docket_hunting import STAGE as HUNT_STAGE
 from mellea_lrc.model import Document, FullDocketCitation, Span
 from mellea_lrc.preprocessing.document_index import is_within
@@ -172,7 +173,7 @@ def evaluate(data_root: Path, input_dir: Path, output_dir: Path, sets: tuple[str
     for counts in by_set.values():
         totals.update(counts)
     summary = {
-        "stage": "docket_entries",
+        "stage": ENTRY_STAGE,
         "basis": "Saved docket-site decisions replayed without model calls; exact source spans outside index masks",
         "sets": {name: dict(counts) for name, counts in by_set.items()},
         "totals": dict(totals),

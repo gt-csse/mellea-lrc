@@ -11,6 +11,10 @@ from mellea_lrc.preprocessing.document_index import is_within
 from mellea_lrc.reporter_reading import full_reporter_readings, short_reporter_readings
 from mellea_lrc.text_match import fuzzy_literal
 
+FULL_REPORTER_LOCATORS_STAGE = "full_reporter_locators"
+SHORT_REPORTER_CITATIONS_STAGE = "short_reporter_citations"
+DOCKET_LOCATORS_STAGE = "docket_locators"
+
 _PREFIXES = ("No. ", "Case No. ", "Civil Action No. ", "Civ. A. No. ", "Docket No. ")
 DOCKET_PREFIX_PATTERN = (
     r"\b(?:" + "|".join(fuzzy_literal(prefix, whitespace=True) for prefix in _PREFIXES) + ")"
@@ -36,9 +40,8 @@ def find_full_reporter_locators(document: Document) -> Document:
     normalized identity recoverable from a serialized citation even if eyecite
     used surrounding document context while finding the span.
     """
-    stage = "full_reporter_locators"
-    if stage in document.stage_runs:
-        return document
+    if FULL_REPORTER_LOCATORS_STAGE in document.stage_runs:
+        raise ValueError(f"Stage already completed: {FULL_REPORTER_LOCATORS_STAGE}")
     if "colocations" in document.stage_runs:
         raise ValueError("Discover all locators before resolving colocations")
     for reading in sorted(full_reporter_readings(document.text), key=lambda item: item.span):
@@ -49,12 +52,12 @@ def find_full_reporter_locators(document: Document) -> Document:
         document = document.add_citation(
             FullReporterCitation.from_locator(
                 citation_id=identifier,
-                stage=stage,
+                stage=FULL_REPORTER_LOCATORS_STAGE,
                 source=document.text,
                 span=span,
             )
         )
-    return document.complete(stage)
+    return document.complete(FULL_REPORTER_LOCATORS_STAGE)
 
 
 def find_short_reporter_citations(document: Document) -> Document:
@@ -63,9 +66,8 @@ def find_short_reporter_citations(document: Document) -> Document:
     This optional stage does not participate in full-locator colocation or
     root formation. Later leaf growth may attach its occurrences to roots.
     """
-    stage = "short_reporter_citations"
-    if stage in document.stage_runs:
-        return document
+    if SHORT_REPORTER_CITATIONS_STAGE in document.stage_runs:
+        raise ValueError(f"Stage already completed: {SHORT_REPORTER_CITATIONS_STAGE}")
     if "roots" not in document.stage_runs:
         raise ValueError("Form full roots before finding short reporter citations")
     for reading in sorted(short_reporter_readings(document.text), key=lambda item: item.span):
@@ -76,19 +78,18 @@ def find_short_reporter_citations(document: Document) -> Document:
         document = document.add_citation(
             ShortReporterCitation.from_short_locator(
                 citation_id=identifier,
-                stage=stage,
+                stage=SHORT_REPORTER_CITATIONS_STAGE,
                 source=document.text,
                 span=span,
             )
         )
-    return document.complete(stage)
+    return document.complete(SHORT_REPORTER_CITATIONS_STAGE)
 
 
 def find_docket_locators(document: Document) -> Document:
     """Create courtless docket occurrences from labelled CM/ECF numbers."""
-    stage = "docket_locators"
-    if stage in document.stage_runs:
-        return document
+    if DOCKET_LOCATORS_STAGE in document.stage_runs:
+        raise ValueError(f"Stage already completed: {DOCKET_LOCATORS_STAGE}")
     if "colocations" in document.stage_runs:
         raise ValueError("Discover all locators before resolving colocations")
     for match in _DOCKET.finditer(document.text):
@@ -99,10 +100,10 @@ def find_docket_locators(document: Document) -> Document:
         document = document.add_citation(
             FullDocketCitation.from_locator(
                 citation_id=identifier,
-                stage=stage,
+                stage=DOCKET_LOCATORS_STAGE,
                 source=document.text,
                 span=span,
                 number_span=Span(*match.span("number")),
             )
         )
-    return document.complete(stage)
+    return document.complete(DOCKET_LOCATORS_STAGE)
