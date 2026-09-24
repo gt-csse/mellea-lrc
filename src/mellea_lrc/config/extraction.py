@@ -1,5 +1,7 @@
 """Small, explicit rules for the first extraction pass."""
 
+from __future__ import annotations
+
 from pydantic import BaseModel, ConfigDict, Field
 
 

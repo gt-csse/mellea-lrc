@@ -5,13 +5,12 @@ hunting stage is awaitable. `grow_roots` is the async convenience composition.
 Validation and leaf growth are later layers.
 """
 
+from mellea_lrc.config.extraction import ExtractionRules, stable
 from mellea_lrc.extraction import (
-    ExtractionRules,
     find_docket_locators,
     find_full_reporter_locators,
     find_short_reporter_citations,
     form_roots,
-    grow_roots,
     hunt_docket_locators,
     resolve_case_names,
     resolve_colocations,
@@ -19,10 +18,10 @@ from mellea_lrc.extraction import (
     resolve_dates,
     resolve_docket_entries,
     resolve_pin_cites,
-    stable,
 )
 from mellea_lrc.model.document import Document
 from mellea_lrc.preprocessing import preprocess
+from mellea_lrc.workflows.grow_roots import grow_roots
 
 __all__ = [
     "Document",

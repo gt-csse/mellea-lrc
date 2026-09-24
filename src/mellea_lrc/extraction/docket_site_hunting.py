@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from mellea_lrc.extraction.site_hunting.docket_candidates import suspected_dockets
-from mellea_lrc.extraction.site_hunting.docket_review import (
+from mellea_lrc.extraction._site_hunting.candidates import suspected_dockets
+from mellea_lrc.extraction._site_hunting.review import (
     DocketReviewOutcome,
     DocketSiteReviewer,
     IvrDocketReviewer,

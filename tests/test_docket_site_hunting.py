@@ -6,15 +6,15 @@ from types import SimpleNamespace
 import pytest
 from mellea.backends import ModelOption
 
-from mellea_lrc.extraction import (
+from mellea_lrc.api import (
     find_docket_locators,
     find_full_reporter_locators,
     grow_roots,
     hunt_docket_locators,
     resolve_colocations,
 )
-from mellea_lrc.extraction.site_hunting.docket_candidates import suspected_dockets
-from mellea_lrc.extraction.site_hunting.docket_review import DocketSiteDecision, IvrDocketReviewer
+from mellea_lrc.extraction._site_hunting.candidates import suspected_dockets
+from mellea_lrc.extraction._site_hunting.review import DocketSiteDecision, IvrDocketReviewer
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation, Span
 
 STAGE = "docket_locator_site_hunting"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from mellea_lrc.extraction.rules import ExtractionRules, stable
+from mellea_lrc.config.extraction import ExtractionRules, stable
 from mellea_lrc.model.citations import FullCitationVariant, FullReporterCitation
 from mellea_lrc.model.document import Document
 

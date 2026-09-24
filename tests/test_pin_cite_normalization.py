@@ -3,7 +3,7 @@
 import asyncio
 import pytest
 
-from mellea_lrc.extraction import grow_roots
+from mellea_lrc.api import grow_roots
 from mellea_lrc.model import (
     CaseName,
     CaseNameField,

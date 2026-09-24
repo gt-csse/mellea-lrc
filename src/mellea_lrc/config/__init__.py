@@ -1,1 +1,1 @@
-"""Explicit configuration for native processing stages."""
+"""Configuration for extraction workflows and stages."""

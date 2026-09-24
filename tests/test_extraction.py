@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from mellea_lrc.extraction import (
+from mellea_lrc.api import (
     find_docket_locators,
     find_full_reporter_locators,
     find_short_reporter_citations,

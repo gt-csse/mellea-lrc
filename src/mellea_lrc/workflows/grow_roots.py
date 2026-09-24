@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-from mellea_lrc.extraction.context import (
-    resolve_case_names,
-    resolve_courts,
-    resolve_dates,
-    resolve_pin_cites,
-)
+from mellea_lrc.config.extraction import ExtractionRules, stable
+from mellea_lrc.extraction._site_hunting.review import DocketSiteReviewer
+from mellea_lrc.extraction.case_names import resolve_case_names
+from mellea_lrc.extraction.colocations import resolve_colocations
+from mellea_lrc.extraction.courts import resolve_courts
+from mellea_lrc.extraction.dates import resolve_dates
 from mellea_lrc.extraction.docket_entries import resolve_docket_entries
 from mellea_lrc.extraction.docket_locator import find_docket_locators
+from mellea_lrc.extraction.docket_site_hunting import hunt_docket_locators
 from mellea_lrc.extraction.full_reporter_locator import find_full_reporter_locators
+from mellea_lrc.extraction.pin_cites import resolve_pin_cites
 from mellea_lrc.extraction.roots import form_roots
-from mellea_lrc.extraction.rules import ExtractionRules, stable
-from mellea_lrc.extraction.site_hunting import hunt_docket_locators
-from mellea_lrc.extraction.site_hunting.docket_review import DocketSiteReviewer
-from mellea_lrc.extraction.structure import resolve_colocations
 from mellea_lrc.model.document import Document
 
 

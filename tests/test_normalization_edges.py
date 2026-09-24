@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from mellea_lrc.extraction import find_docket_locators, grow_roots
+from mellea_lrc.api import find_docket_locators, grow_roots
 from mellea_lrc.model import (
     CaseNameField,
     CitationDate,
@@ -87,7 +87,7 @@ def test_reporter_locator_keeps_written_variant_and_eyecite_identity() -> None:
 def test_reporter_discovery_and_normalization_share_the_relaxed_eyecite_reader(
     written: str, edition: str, page: str
 ) -> None:
-    from mellea_lrc.extraction import find_full_reporter_locators
+    from mellea_lrc.api import find_full_reporter_locators
 
     source = f"See {written}."
     document = find_full_reporter_locators(Document.from_source(source))
@@ -103,7 +103,7 @@ def test_reporter_discovery_and_normalization_share_the_relaxed_eyecite_reader(
 
 
 def test_relaxed_reporter_reader_keeps_repeated_source_offsets_distinct() -> None:
-    from mellea_lrc.extraction import find_full_reporter_locators
+    from mellea_lrc.api import find_full_reporter_locators
 
     source = "See 2005  WL  465431. Later, 2005\nWL\n465431."
     document = find_full_reporter_locators(Document.from_source(source))
