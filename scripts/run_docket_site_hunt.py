@@ -1,7 +1,8 @@
 """Run and resume live docket site hunting on selected annotated documents.
 
 Only manifest-listed text and index spans reach the rule readers and reviewer.
-Each completed Document is saved before its annotation file is opened. A failed
+Each completed Document is saved without reading annotation files. Score the
+saved product separately with ``python -m evaluations.score_stages``. A failed
 provider request stops the run; previously completed documents remain reusable.
 
 Examples, from the repository root::
@@ -29,10 +30,9 @@ from typing import Any
 from mellea_lrc.extraction import find_docket_locators, find_full_reporter_locators, hunt_docket_locators
 from mellea_lrc.extraction.docket_hunting import STAGE, DocketSiteReviewer
 from mellea_lrc.llm.docket_review import OpenRouterDocketReviewer
-from mellea_lrc.model import Document, FullDocketCitation, Span
+from mellea_lrc.model import Document, Span
 from mellea_lrc.model.preprocessed_document import PreprocessingBackend, PreprocessingMetadata
 from mellea_lrc.model.source import SourceFormat, SourceMetadata
-from mellea_lrc.preprocessing.document_index import is_within
 
 SETS = (
     "primary",
@@ -44,19 +44,10 @@ SETS = (
 )
 COUNT_FIELDS = (
     "documents",
-    "gold_docket_locators",
-    "rule_locators",
-    "rule_exact",
     "reviewed_sites",
     "hunt_admissions",
-    "hunt_exact",
-    "hunt_nonmatching",
     "hunt_declined",
     "hunt_failed",
-    "combined_locators",
-    "combined_exact",
-    "combined_nonmatching",
-    "remaining_gold_misses",
 )
 
 
@@ -132,30 +123,6 @@ def _source_document(data_root: Path, name: str, filename: str, metadata: dict[s
     )
 
 
-def _gold_spans(path: Path, *, filename: str, digest: str, index_spans: tuple[Span, ...]) -> set[Span]:
-    """Read annotation data only after predictions are complete and persisted."""
-    lines = path.read_text(encoding="utf-8").splitlines()
-    if not lines:
-        raise ValueError(f"{path}: empty annotation file")
-    header = json.loads(lines[0])
-    if header.get("unit") != "header" or header.get("document") != filename:
-        raise ValueError(f"{path}: annotation header does not match {filename}")
-    if header.get("text", {}).get("sha256") != digest:
-        raise ValueError(f"{path}: annotation text hash differs from documents.json")
-    gold: set[Span] = set()
-    for line in lines[1:]:
-        row = json.loads(line)
-        if row.get("unit") != "citation" or row.get("kind") != "DocketCitation":
-            continue
-        locator = row.get("locator")
-        if not isinstance(locator, dict):
-            raise ValueError(f"{path}: docket citation lacks a locator span")
-        span = _span(locator)
-        if not is_within(span, index_spans):
-            gold.add(span)
-    return gold
-
-
 def _atomic_write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary: str | None = None
@@ -204,34 +171,15 @@ def _validate_checkpoint(saved: Document, source: Document, path: Path) -> None:
         raise ValueError(f"{path}: saved Document does not match this completed input")
 
 
-def _score_document(document: Document, gold: set[Span]) -> dict[str, int]:
-    rule = {
-        citation.locator_span
-        for citation in document.citations
-        if isinstance(citation, FullDocketCitation) and citation.nodes[0].stage == "docket_locators"
-    }
-    admitted = {
-        citation.locator_span
-        for citation in document.citations
-        if isinstance(citation, FullDocketCitation) and citation.nodes[0].stage == STAGE
-    }
+def _run_counts(document: Document) -> dict[str, int]:
+    """Operational counts only; annotated accuracy belongs in evaluations/."""
     reviews = tuple(review for review in document.site_reviews if review.stage == STAGE)
-    combined = rule | admitted
     return {
         "documents": 1,
-        "gold_docket_locators": len(gold),
-        "rule_locators": len(rule),
-        "rule_exact": len(rule & gold),
         "reviewed_sites": len(reviews),
-        "hunt_admissions": len(admitted),
-        "hunt_exact": len(admitted & gold),
-        "hunt_nonmatching": len(admitted - gold),
+        "hunt_admissions": sum(review.outcome == "accepted" for review in reviews),
         "hunt_declined": sum(review.outcome == "declined" for review in reviews),
         "hunt_failed": sum(review.outcome == "failed" for review in reviews),
-        "combined_locators": len(combined),
-        "combined_exact": len(combined & gold),
-        "combined_nonmatching": len(combined - gold),
-        "remaining_gold_misses": len(gold - combined),
     }
 
 
@@ -245,7 +193,6 @@ def _overall_summary(
     totals = {field: sum(counts[field] for counts in sets.values()) for field in COUNT_FIELDS}
     return {
         "status": "complete" if complete else "in_progress",
-        "metric": "Exact annotated DocketCitation locator spans outside manifest index_spans",
         "selected_documents": len(items),
         "completed_documents": totals["documents"],
         "resumed_documents": resumed,
@@ -254,7 +201,7 @@ def _overall_summary(
     }
 
 
-async def evaluate(
+async def run(
     data_root: Path,
     output_dir: Path,
     items: tuple[tuple[str, str, dict[str, Any]], ...],
@@ -262,7 +209,7 @@ async def evaluate(
     reviewer: DocketSiteReviewer | None = None,
     config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Resume completed documents, then write per-document and aggregate scores."""
+    """Resume completed documents and persist their cumulative checkpoints."""
     _run_config(output_dir, config)
     sets: dict[str, dict[str, int]] = {}
     resumed = 0
@@ -282,14 +229,7 @@ async def evaluate(
             document = await hunt_docket_locators(document, reviewer=reviewer)
             _atomic_write(checkpoint, document.model_dump_json(indent=2) + "\n")
 
-        # Keep this read below the completed prediction checkpoint.
-        gold = _gold_spans(
-            data_root / name / "documents" / f"{Path(filename).stem}.jsonl",
-            filename=filename,
-            digest=metadata["sha256"],
-            index_spans=source.index_spans,
-        )
-        counts = _score_document(document, gold)
+        counts = _run_counts(document)
         _write_json(
             _summary_path(output_dir, name, filename), {"set": name, "document": filename, "counts": counts}
         )
@@ -367,9 +307,7 @@ def main() -> None:
         }
         print(
             json.dumps(
-                asyncio.run(
-                    evaluate(args.data_root, args.output_dir, items, reviewer=reviewer, config=config)
-                ),
+                asyncio.run(run(args.data_root, args.output_dir, items, reviewer=reviewer, config=config)),
                 indent=2,
             )
         )
