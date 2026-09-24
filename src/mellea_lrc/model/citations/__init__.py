@@ -36,6 +36,12 @@ from mellea_lrc.model.citations.history import (
     latest,
 )
 from mellea_lrc.model.citations.kind import FullCitationKind, ShortCitationKind
+from mellea_lrc.model.citations.reporter_lookup import (
+    ReporterExactCandidateCheck,
+    ReporterExactLookup,
+    ReporterExactLookupOutcome,
+    ReporterExactLookupQuery,
+)
 from mellea_lrc.model.citations.short_reporter import ShortReporterCitation
 
 FullCitationVariant: TypeAlias = Annotated[
@@ -75,6 +81,10 @@ __all__ = [
     "PinCiteValue",
     "RelationshipUpdate",
     "Reporter",
+    "ReporterExactCandidateCheck",
+    "ReporterExactLookup",
+    "ReporterExactLookupOutcome",
+    "ReporterExactLookupQuery",
     "ReporterLocatorValue",
     "ShortCitationKind",
     "ShortReporterCitation",
