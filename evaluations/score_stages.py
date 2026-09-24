@@ -2,7 +2,7 @@
 
 Run from the repository root, for example::
 
-    uv run python -m evaluations.score_stages --run-dir local/docket-entry-stage --stage docket_entries
+    uv run python -m evaluations.score_stages --run-dir local/run --stage docket_entries
 
 The input is a saved Document, not an extraction command. A final Document may
 contain later stages: ``get_stage`` and each reading's node recover the exact

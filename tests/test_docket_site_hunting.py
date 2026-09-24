@@ -225,6 +225,21 @@ def test_empty_hunt_commits_a_checkpoint_without_calling_reviewer() -> None:
     assert Document.model_validate_json(hunted.model_dump_json()) == hunted
 
 
+def test_hunt_continues_from_a_serialized_rule_checkpoint() -> None:
+    before = _ready("See No. 19 Civ. 8034.")
+    restored = Document.model_validate_json(before.model_dump_json())
+
+    async def reviewer(site: object) -> DocketSiteDecision:
+        return _accept(site)
+
+    hunted = asyncio.run(hunt_docket_locators(restored, reviewer=reviewer))
+
+    assert hunted.get_stage("docket_locators") == before
+    assert hunted.stage_runs[-1] == STAGE
+    assert [review.outcome for review in hunted.site_reviews] == ["accepted"]
+    assert Document.model_validate_json(hunted.model_dump_json()) == hunted
+
+
 def test_grow_roots_hunts_before_context_and_does_not_find_short_citations() -> None:
     source = "Doe v. Townes, No. 19 Civ. 8034 (S.D.N.Y. 2020). See Doe, 347 U.S. at 495."
 

@@ -7,7 +7,7 @@ It makes no model call and changes no citation.
 
 Run from the repository root::
 
-    uv run python -m evaluations.docket_proposals --run-dir local/docket-entry-stage
+    uv run python -m evaluations.docket_proposals --run-dir local/run
 """
 
 from __future__ import annotations
