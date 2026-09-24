@@ -65,4 +65,4 @@ restored = Document.model_validate_json(saved)
 assert restored.get_stage("docket_locators") == after_dockets
 ```
 
-Identity validation, search, and leaf growth are later layers and are not active in this pipeline.
+Exact reporter-root lookup is the first independent validation stage after root formation; see [Validation](Validation.md). Search and leaf growth remain later layers.

@@ -1,8 +1,8 @@
-"""Outer compositional API for preprocessing and extraction.
+"""Outer compositional API for preprocessing, extraction, and validation.
 
 Callers may compose each `Document -> Document` stage explicitly; the docket
 hunting stage is awaitable. `grow_roots` is the async convenience composition.
-Validation and leaf growth are later layers.
+Validation stages remain independently callable; leaf growth is a later layer.
 """
 
 from mellea_lrc.config.extraction import ExtractionRules, stable
@@ -21,6 +21,7 @@ from mellea_lrc.extraction import (
 )
 from mellea_lrc.model.document import Document
 from mellea_lrc.preprocessing import preprocess
+from mellea_lrc.validation import reporter_root_exact_lookup
 from mellea_lrc.workflows.grow_roots import grow_roots
 
 __all__ = [
@@ -33,6 +34,7 @@ __all__ = [
     "grow_roots",
     "hunt_docket_locators",
     "preprocess",
+    "reporter_root_exact_lookup",
     "resolve_case_names",
     "resolve_colocations",
     "resolve_courts",

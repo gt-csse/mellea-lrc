@@ -7,7 +7,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from mellea_lrc.model.citations.fields.base import CitationField
-from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, Node, RelationshipUpdate
+from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, Node, NodeLinked, RelationshipUpdate
 from mellea_lrc.model.span import Span
 
 
@@ -36,7 +36,7 @@ class Citation(BaseModel):
             raise ValueError("Record a decision node before changing citation fields")
         return self.nodes[-1].id
 
-    def _with_log(self, **logs: tuple[CitationField | RelationshipUpdate, ...]) -> Self:
+    def _with_log(self, **logs: tuple[NodeLinked, ...]) -> Self:
         """Validate the immutable citation after a named field method changes it."""
         return type(self).model_validate({**self.model_dump(mode="python"), **logs})
 
