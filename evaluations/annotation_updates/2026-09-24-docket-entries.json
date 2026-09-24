@@ -1,0 +1,165 @@
+{
+  "schema": "docket-entry-annotation-updates-v1",
+  "updates": [
+    {
+      "set": "primary",
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part.txt",
+      "text_sha256": "8b27bdd9dbf2741c082071ed1db27000cccaccf662e859e116918f3a59e5f417",
+      "citation_id": "015-o59",
+      "locator_span": {
+        "start": 24309,
+        "end": 24321
+      },
+      "docket_entry": {
+        "start": 24329,
+        "end": 24340,
+        "quote": "D.I. No. 17",
+        "number": "17"
+      }
+    },
+    {
+      "set": "primary",
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part.txt",
+      "text_sha256": "8b27bdd9dbf2741c082071ed1db27000cccaccf662e859e116918f3a59e5f417",
+      "citation_id": "015-o08",
+      "locator_span": {
+        "start": 27104,
+        "end": 27121
+      },
+      "docket_entry": {
+        "start": 27128,
+        "end": 27135,
+        "quote": "D.I. 21",
+        "number": "21"
+      }
+    },
+    {
+      "set": "primary",
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part.txt",
+      "text_sha256": "8b27bdd9dbf2741c082071ed1db27000cccaccf662e859e116918f3a59e5f417",
+      "citation_id": "015-o60",
+      "locator_span": {
+        "start": 33043,
+        "end": 33054
+      },
+      "docket_entry": {
+        "start": 33061,
+        "end": 33068,
+        "quote": "D.I. 23",
+        "number": "23"
+      }
+    },
+    {
+      "set": "primary",
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part.txt",
+      "text_sha256": "8b27bdd9dbf2741c082071ed1db27000cccaccf662e859e116918f3a59e5f417",
+      "citation_id": "015-o61",
+      "locator_span": {
+        "start": 33136,
+        "end": 33147
+      },
+      "docket_entry": {
+        "start": 33155,
+        "end": 33162,
+        "quote": "D.I. 28",
+        "number": "28"
+      }
+    },
+    {
+      "set": "primary",
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part.txt",
+      "text_sha256": "8b27bdd9dbf2741c082071ed1db27000cccaccf662e859e116918f3a59e5f417",
+      "citation_id": "015-o62",
+      "locator_span": {
+        "start": 33230,
+        "end": 33241
+      },
+      "docket_entry": {
+        "start": 33249,
+        "end": 33256,
+        "quote": "D.I. 47",
+        "number": "47"
+      }
+    },
+    {
+      "set": "primary",
+      "document": "015__in-re-prince-global-holdings-limited-et-al__emergency-motion-for-entry-of-orders-granting-i-ex-part.txt",
+      "text_sha256": "8b27bdd9dbf2741c082071ed1db27000cccaccf662e859e116918f3a59e5f417",
+      "citation_id": "015-o63",
+      "locator_span": {
+        "start": 35177,
+        "end": 35194
+      },
+      "docket_entry": {
+        "start": 35197,
+        "end": 35208,
+        "quote": "Dkt. No. 17",
+        "number": "17"
+      }
+    },
+    {
+      "set": "reliable-high-profile",
+      "document": "72520538_28.txt",
+      "text_sha256": "158a8ed4c076cdd7ee41bca5bdef28f9354ead02eef85e9a760fe6657e3b856e",
+      "citation_id": "72520538_28-o146",
+      "locator_span": {
+        "start": 69364,
+        "end": 69381
+      },
+      "docket_entry": {
+        "start": 69383,
+        "end": 69390,
+        "quote": "Dkt. 35",
+        "number": "35"
+      }
+    },
+    {
+      "set": "reliable-high-profile",
+      "document": "72520538_28.txt",
+      "text_sha256": "158a8ed4c076cdd7ee41bca5bdef28f9354ead02eef85e9a760fe6657e3b856e",
+      "citation_id": "72520538_28-o157",
+      "locator_span": {
+        "start": 72113,
+        "end": 72128
+      },
+      "docket_entry": {
+        "start": 72130,
+        "end": 72137,
+        "quote": "Dkt. 75",
+        "number": "75"
+      }
+    },
+    {
+      "set": "reliable-low-profile",
+      "document": "70448448_37.txt",
+      "text_sha256": "45a0430543ee268c9d396065e7665156844ce6c7b455ae3ce985f8f62591698f",
+      "citation_id": "70448448_37-o107",
+      "locator_span": {
+        "start": 55864,
+        "end": 55875
+      },
+      "docket_entry": {
+        "start": 55877,
+        "end": 55888,
+        "quote": "Dkt. No. 27",
+        "number": "27"
+      }
+    },
+    {
+      "set": "reliable-low-profile",
+      "document": "70448448_37.txt",
+      "text_sha256": "45a0430543ee268c9d396065e7665156844ce6c7b455ae3ce985f8f62591698f",
+      "citation_id": "70448448_37-o113",
+      "locator_span": {
+        "start": 56803,
+        "end": 56817
+      },
+      "docket_entry": {
+        "start": 56819,
+        "end": 56830,
+        "quote": "ECF No. 113",
+        "number": "113"
+      }
+    }
+  ]
+}
