@@ -347,8 +347,6 @@ def _score_relationships(
     ]
     gold_groups = _groups(gold_pairs, singletons=singletons)
     predicted_groups = _groups(predicted_pairs, singletons=singletons)
-    gold_links = _pairs(gold_groups)
-    predicted_links = _pairs(predicted_groups)
     counts: Counter[str] = Counter(
         documents=1,
         gold_locators=len([key for key in rows if key[0] in {"FullCaseCitation", "DocketCitation"}]),
@@ -357,11 +355,17 @@ def _score_relationships(
         gold_groups=len(gold_groups),
         predicted_groups=len(predicted_groups),
         exact_groups=len(gold_groups & predicted_groups),
-        gold_links=len(gold_links),
-        predicted_links=len(predicted_links),
-        correct_links=len(gold_links & predicted_links),
         unmatched_assignments=sum(key not in rows for _, key in predicted_pairs),
     )
+    if product.stage == COLOCATIONS_STAGE:
+        gold_links = _pairs(gold_groups)
+        predicted_links = _pairs(predicted_groups)
+        counts.update(
+            gold_links=len(gold_links),
+            predicted_links=len(predicted_links),
+            correct_links=len(gold_links & predicted_links),
+        )
+    # Root pairwise linkage belongs to the later leaf-attachment evaluation.
     details = [
         {
             "citation_id": item.citation.id,
@@ -437,8 +441,9 @@ def _summary(counts: Counter[str], stage: str) -> dict[str, Any]:
         )
     else:
         result["exact_group_recall"] = _ratio(counts["exact_groups"], counts["gold_groups"])
-        result["link_precision"] = _ratio(counts["correct_links"], counts["predicted_links"])
-        result["link_recall"] = _ratio(counts["correct_links"], counts["gold_links"])
+        if stage == COLOCATIONS_STAGE:
+            result["link_precision"] = _ratio(counts["correct_links"], counts["predicted_links"])
+            result["link_recall"] = _ratio(counts["correct_links"], counts["gold_links"])
     return result
 
 
