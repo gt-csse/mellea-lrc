@@ -1,28 +1,64 @@
-"""Mellea IVR review of one proposed docket locator."""
+"""Review proposed docket sites with shared IVR and source-grounding services."""
 
 from __future__ import annotations
 
 import os
+from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from dotenv import load_dotenv
 from mellea.core import ValidationResult
 from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from mellea_lrc.extraction.docket_hunting import (
-    DocketReviewOutcome,
-    DocketSiteCandidate,
-    DocketSiteDecision,
-    _grounded,
-)
+from mellea_lrc.extraction.site_hunting.docket_candidates import DocketSiteCandidate
 from mellea_lrc.llm.config import llm_api_config_from_env, start_mellea_session_from_env
-from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
+from mellea_lrc.llm.grounding import EvidenceCandidate, FuzzinessOption, GroundingEvidence
+from mellea_lrc.llm.ivr import InstructIvrSpec, IvrRun, run_instruct_ivr
 
 if TYPE_CHECKING:
     from mellea import MelleaSession
+
+
+class DocketSiteDecision(BaseModel):
+    """The model's four-field answer; source grounding is a separate check."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    is_docket_citation: bool
+    locator: str | None
+    docket_number: str | None
+    reason: str = Field(min_length=1)
+
+
+@dataclass(frozen=True, slots=True)
+class DocketReviewOutcome:
+    """A validated answer plus the full model-attempt history, if any."""
+
+    decision: DocketSiteDecision | None
+    run: IvrRun | None = None
+    failure_reason: str | None = None
+
+
+class DocketSiteReviewer(Protocol):
+    def __call__(
+        self, candidate: DocketSiteCandidate
+    ) -> Awaitable[DocketSiteDecision | DocketReviewOutcome]: ...
+
+
+def grounded_docket_decision(candidate: DocketSiteCandidate, decision: DocketSiteDecision) -> bool:
+    """Permit spacing noise, but never a changed docket character."""
+    if not decision.locator or not decision.docket_number:
+        return False
+    policy = FuzzinessOption.whitespace_relaxation()
+    locator = GroundingEvidence((EvidenceCandidate(candidate.locator_text, candidate.locator_span),))
+    number = GroundingEvidence((EvidenceCandidate(candidate.docket_number, candidate.number_span),))
+    return (
+        locator.resolve(decision.locator, policy) is not None
+        and number.resolve(decision.docket_number, policy) is not None
+    )
 
 
 MAX_TOKENS = 1800
@@ -52,7 +88,7 @@ def _validate_grounding(ctx: object, candidate: DocketSiteCandidate) -> Validati
         answer = DocketSiteDecision.model_validate_json(str(ctx.last_output().value))
     except ValidationError:
         return ValidationResult(result=True)
-    if not answer.is_docket_citation or _grounded(candidate, answer):
+    if not answer.is_docket_citation or grounded_docket_decision(candidate, answer):
         return ValidationResult(result=True)
     return ValidationResult(
         result=False,

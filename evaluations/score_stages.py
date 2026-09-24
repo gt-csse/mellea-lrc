@@ -27,13 +27,13 @@ from mellea_lrc.extraction.context import (
     PIN_CITES_STAGE,
 )
 from mellea_lrc.extraction.docket_entries import STAGE as DOCKET_ENTRIES_STAGE
-from mellea_lrc.extraction.docket_hunting import STAGE as DOCKET_HUNT_STAGE
 from mellea_lrc.extraction.locators import (
     DOCKET_LOCATORS_STAGE,
     FULL_REPORTER_LOCATORS_STAGE,
     SHORT_REPORTER_CITATIONS_STAGE,
 )
 from mellea_lrc.extraction.roots import STAGE as ROOTS_STAGE
+from mellea_lrc.extraction.site_hunting.docket import STAGE as DOCKET_HUNT_STAGE
 from mellea_lrc.extraction.structure import STAGE as COLOCATIONS_STAGE
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation, ShortReporterCitation, Span
 from mellea_lrc.model.citations import CitationVariant

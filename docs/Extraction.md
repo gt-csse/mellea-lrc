@@ -17,14 +17,17 @@ after_entries = document.get_stage("docket_entries")
 
 `hunt_docket_locators(document)` is the independent optional stage between rule discovery and colocation. It proposes labelled opaque identifiers and bounded unlabelled candidates in citation context, then asks a model whether each proposed span is a cited case docket. The default reviewer uses Mellea's instruct/validate/repair loop, including a schema check and source-grounding check. A positive answer must reproduce both the complete locator and its number, with only whitespace variation permitted. An accepted answer creates a `FullDocketCitation` using exact source spans; the next proposal sees that new locator in its mask. Declines and failed grounding remain in `document.site_reviews`. Each model-backed review contains its entire `ivr` run: answers, validation feedback, and provider requests and responses when the backend exposes them. The stage does not read other fields or create short citations. A supplied async `reviewer` makes it runnable offline.
 
+The proposal type, reviewer contract, model reviewer, and hunting stage live together in [`mellea_lrc.extraction.site_hunting`](../src/mellea_lrc/extraction/site_hunting/__init__.py). For a custom reviewer, import `DocketSiteCandidate` and `DocketSiteDecision` from that package.
+
 `resolve_docket_entries(document)` then attaches an optional nearby `Doc.`, `Dkt.`, `ECF`, or `D.I.` entry to an already found docket citation. It reads both sides, with a narrower rule after the locator: an immediate comma or a short bracketed reference. Entries never create case-docket roots. Competing associations remain unread for later review. The hunter temporarily masks these entry references while looking for case dockets; it does not alter the source text.
 
 Evaluation reads saved Documents independently. For example, `uv run python -m evaluations.score_stages --run-dir local/run --stage docket_entries --output-dir local/evaluations/docket_entries` writes a summary and occurrence-level results. The same command accepts any completed extraction stage: locator and field stages score only readings written at that stage, while colocation and root stages score only their new relationships. A final Document can score an earlier stage because `get_stage(stage)` restores its exact checkpoint and every field reading points to its decision node. Later field scores count only annotated citations whose parent locator was already present before the stage, so upstream locator misses are reported separately. Source spans and normalized values receive separate counts; case-name annotations have spans but no independent normalized-party target. Unannotated docket entries inside a labeled citation are listed separately rather than called false positives. `evaluations.docket_proposals` remains a separate diagnostic for unreviewed sites, since proposals are not admitted stage output.
 
 ```python
+import asyncio
 from pathlib import Path
 
-from mellea_lrc.api import find_docket_locators, find_full_reporter_locators, hunt_docket_locators, resolve_docket_entries
+from mellea_lrc.api import Document, find_docket_locators, find_full_reporter_locators, hunt_docket_locators, resolve_docket_entries
 
 document = find_full_reporter_locators(Document.from_source(Path("filing.txt")))
 document = find_docket_locators(document)
