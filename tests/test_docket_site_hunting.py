@@ -8,8 +8,8 @@ import pytest
 from mellea_lrc.extraction import (
     find_docket_locators,
     find_full_reporter_locators,
-    hunt_docket_locators,
     grow_roots,
+    hunt_docket_locators,
     resolve_colocations,
 )
 from mellea_lrc.extraction.docket_hunting import DocketSiteDecision, suspected_dockets
@@ -140,6 +140,13 @@ def test_hunt_skips_existing_locators_and_reporter_pinpoints() -> None:
     assert before.citations[0] in hunted.citations
     for left, right in zip(hunted.citations, hunted.citations[1:]):
         assert left.site_span.end <= right.site_span.start
+
+
+def test_entry_reference_is_not_a_full_docket_proposal() -> None:
+    source = "See (ECF No. 82) and Doe v. Townes, No. 19 Civ. 8034."
+    before = _ready(source)
+    proposals = suspected_dockets(before)
+    assert [site.locator_text for site in proposals] == ["No. 19 Civ. 8034"]
 
 
 def test_hunt_ignores_index_occurrence_and_keeps_repeated_body_sites_distinct() -> None:
