@@ -13,13 +13,13 @@ from pydantic import BaseModel, ConfigDict
 
 from mellea_lrc.llm.ivr import (
     InstructIvrSpec,
-    IvrRun,
     _requirements_for,
     _schema_requirement,
     _timed_out_ivr_run,
     _to_ivr_run,
     run_instruct_ivr,
 )
+from mellea_lrc.model.ivr import IvrRun
 
 
 class _Output(BaseModel):

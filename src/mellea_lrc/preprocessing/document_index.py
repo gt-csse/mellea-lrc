@@ -102,12 +102,3 @@ def _trimmed(text: str, start: int, end: int) -> Span | None:
     while end > start and text[end - 1].isspace():
         end -= 1
     return Span(start, end) if start < end else None
-
-
-def is_within(span: Span, regions: tuple[Span, ...]) -> bool:
-    """Whether a span falls inside any of the regions.
-
-    Containment rather than overlap: a citation that merely abuts an index is
-    argued text, and treating it as indexed would silently drop a real claim.
-    """
-    return any(region.start <= span.start and span.end <= region.end for region in regions)

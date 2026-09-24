@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
 from mellea_lrc.model.span import Span
-from mellea_lrc.reporter_reading import short_reporter_readings
 
 
 class ShortReporterLocatorValue(BaseModel):
@@ -34,7 +33,10 @@ class ShortReporterLocatorValue(BaseModel):
 
 @lru_cache(maxsize=8192)
 def normalize_short_reporter_locator(quote: str) -> ShortReporterLocatorValue:
-    """Read one complete short citation through the shared eyecite service."""
+    """Read one complete short citation through its stage-local eyecite reader."""
+    # Keep the stage's tokenizer as the single authority for source reading.
+    from mellea_lrc.extraction.short_reporter_locator import short_reporter_readings
+
     matches = [reading for reading in short_reporter_readings(quote) if reading.span == (0, len(quote))]
     if len(matches) != 1:
         raise ValueError(f"Cannot normalize short reporter locator: {quote!r}")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from mellea_lrc.model.fuzziness import FuzzinessOption, FuzzinessType
+from mellea_lrc.llm.fuzziness import FuzzinessOption, FuzzinessType
 from mellea_lrc.llm.grounding import (
     EvidenceCandidate,
     GroundingEvidence,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from mellea_lrc.extraction.full_reporter_locator import full_reporter_readings
 from mellea_lrc.extraction.rules import ExtractionRules, stable
 from mellea_lrc.model.citations import CaseName, FullCitationVariant, FullReporterCitation
 from mellea_lrc.model.citations.fields.court import court_id_if_unique
@@ -12,7 +13,6 @@ from mellea_lrc.model.citations.fields.pin_cite import PIN_PREFIX
 from mellea_lrc.model.citations.history import latest
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
-from mellea_lrc.reporter_reading import full_reporter_readings
 
 CASE_NAMES_STAGE = "case_names"
 COURTS_STAGE = "courts"
