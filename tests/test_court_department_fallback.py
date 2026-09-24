@@ -1,5 +1,6 @@
 """New York department labels retain their text while sharing one court ID."""
 
+import asyncio
 import pytest
 
 from mellea_lrc.extraction import grow_roots
@@ -35,7 +36,7 @@ def test_unrelated_department_text_is_not_a_new_york_appellate_court(written: st
 
 def test_extraction_preserves_a_department_quote_and_normalizes_its_court() -> None:
     source = "See 139 A.D.3d 695 (2d Dept. 2016)."
-    document = grow_roots(Document.from_source(source))
+    document = asyncio.run(grow_roots(Document.from_source(source)))
     court = document.citations[0].court[-1]
 
     assert court.quote == "2d Dept."

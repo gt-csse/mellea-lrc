@@ -1,5 +1,6 @@
 """Invalid readings retain their source evidence and normalization failure."""
 
+import asyncio
 import pytest
 
 from mellea_lrc.extraction import find_docket_locators, grow_roots
@@ -33,7 +34,7 @@ from mellea_lrc.model.citations.fields.docket import DocketEntryField
 )
 def test_court_label_uses_data_derived_token_variants(written: str, court_id: str) -> None:
     source = f"See Case No. 1:24-cv-00123 ({written} 2024)."
-    document = grow_roots(Document.from_source(source))
+    document = asyncio.run(grow_roots(Document.from_source(source)))
     court = document.citations[0].court[-1]
     assert court.quote == written
     assert court.get_normalized().id == court_id
@@ -42,7 +43,7 @@ def test_court_label_uses_data_derived_token_variants(written: str, court_id: st
 
 def test_filing_date_verb_is_not_part_of_the_court_quote() -> None:
     source = "See Case No. 1:24-cv-00123 (E.D.N.Y. filed Oct. 14, 2025)."
-    document = grow_roots(Document.from_source(source))
+    document = asyncio.run(grow_roots(Document.from_source(source)))
     court = document.citations[0].court[-1]
     assert court.quote == "E.D.N.Y."
     assert court.get_normalized().id == "nyed"
@@ -118,7 +119,7 @@ def test_relaxed_reporter_reader_keeps_repeated_source_offsets_distinct() -> Non
 
 def test_relaxed_reporter_reader_supplies_context_to_root_formation() -> None:
     source = "Smith v. Jones, 347  U.S.  483 (1954)."
-    document = grow_roots(Document.from_source(source))
+    document = asyncio.run(grow_roots(Document.from_source(source)))
     citation = document.citations[0]
 
     assert citation.locator[-1].quote == "347  U.S.  483"
@@ -245,7 +246,7 @@ def test_failed_reading_remains_loadable_after_normalizer_improves(monkeypatch: 
     ],
 )
 def test_reporter_name_quote_excludes_prior_names_and_prose(source: str) -> None:
-    document = grow_roots(Document.from_source(source))
+    document = asyncio.run(grow_roots(Document.from_source(source)))
     name = document.citations[0].case_name[-1]
     assert name.quote == source[name.span.start : name.span.end]
     assert name.get_normalized().defendant == "Jones"
@@ -295,7 +296,7 @@ def test_citation_date_rejects_day_without_month() -> None:
     ],
 )
 def test_unresolved_written_court_survives_full_pipeline(source: str) -> None:
-    document = grow_roots(Document.from_source(source))
+    document = asyncio.run(grow_roots(Document.from_source(source)))
     court = document.citations[0].court[-1]
     assert court.quote is not None
     assert source[court.span.start : court.span.end] == court.quote
@@ -311,5 +312,5 @@ def test_unresolved_written_court_survives_full_pipeline(source: str) -> None:
 
 
 def test_absent_written_court_can_still_be_inferred_from_reporter() -> None:
-    document = grow_roots(Document.from_source("See 347 U.S. 483 (1954)."))
+    document = asyncio.run(grow_roots(Document.from_source("See 347 U.S. 483 (1954).")))
     assert latest(document.citations[0].court).id == "scotus"

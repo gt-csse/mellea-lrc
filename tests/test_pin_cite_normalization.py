@@ -1,5 +1,6 @@
 """Pin-cite readings have typed targets and explicit normalization state."""
 
+import asyncio
 import pytest
 
 from mellea_lrc.extraction import grow_roots
@@ -73,7 +74,7 @@ def test_structured_pin_cites_normalize_and_pipeline_quotes_are_grounded(
     assert normalize_pin_cite(quote) == expected
 
     source = f"See 347 U.S. 483, {quote} (1954)."
-    document = grow_roots(Document.from_source(source))
+    document = asyncio.run(grow_roots(Document.from_source(source)))
     pin = document.citations[0].pin_cite[-1]
     written_pin = quote.removeprefix("at ")
 
@@ -150,7 +151,7 @@ def test_failed_field_rejects_inconsistent_serialized_state() -> None:
 
 
 def test_pipeline_pin_cite_normalization_roundtrips() -> None:
-    document = grow_roots(Document.from_source("See 347 U.S. 483, 495-97 (1954)."))
+    document = asyncio.run(grow_roots(Document.from_source("See 347 U.S. 483, 495-97 (1954).")))
     pin = document.citations[0].pin_cite[-1]
     assert pin.quote == "495-97"
     assert pin.get_normalized() == (PinCiteTarget(first=495, last=497, kind=PinCiteKind.PAGE),)
@@ -159,7 +160,7 @@ def test_pipeline_pin_cite_normalization_roundtrips() -> None:
 
 def test_spaced_range_is_read_whole_with_its_exact_source_span() -> None:
     source = "See 347 U.S. 483, 998 -1003 (1954)."
-    document = grow_roots(Document.from_source(source))
+    document = asyncio.run(grow_roots(Document.from_source(source)))
     pin = document.citations[0].pin_cite[-1]
 
     assert pin.quote == "998 -1003"
@@ -171,7 +172,7 @@ def test_spaced_range_is_read_whole_with_its_exact_source_span() -> None:
 @pytest.mark.parametrize("quote", ["495a", "495, 497a", "495 n.x", "998 -", "907-\n\n08"])
 def test_malformed_pin_continuation_is_kept_for_review(quote: str) -> None:
     source = f"See 347 U.S. 483, {quote} (1954)."
-    document = grow_roots(Document.from_source(source))
+    document = asyncio.run(grow_roots(Document.from_source(source)))
     pin = document.citations[0].pin_cite[-1]
 
     assert pin.quote == quote
@@ -184,14 +185,14 @@ def test_malformed_pin_continuation_is_kept_for_review(quote: str) -> None:
 
 
 def test_adjacent_court_ordinal_is_not_a_pin_cite() -> None:
-    document = grow_roots(Document.from_source("See 155 A.D.3d 781, 2d Dept. 2017."))
+    document = asyncio.run(grow_roots(Document.from_source("See 155 A.D.3d 781, 2d Dept. 2017.")))
 
     assert document.citations[0].pin_cite == ()
 
 
 def test_parallel_reporter_volume_is_not_a_second_pin_target() -> None:
     source = "See 347 U.S. 483, 495, 150 X.2d 250 (1954)."
-    document = grow_roots(Document.from_source(source))
+    document = asyncio.run(grow_roots(Document.from_source(source)))
 
     pin = document.citations[0].pin_cite[-1]
     assert pin.quote == "495"

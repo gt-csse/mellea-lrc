@@ -6,6 +6,7 @@ from mellea_lrc.extraction.context import (
     resolve_dates,
     resolve_pin_cites,
 )
+from mellea_lrc.extraction.docket_hunting import hunt_docket_locators
 from mellea_lrc.extraction.locators import (
     find_docket_locators,
     find_full_reporter_locators,
@@ -23,6 +24,7 @@ __all__ = [
     "find_short_reporter_citations",
     "form_roots",
     "grow_roots",
+    "hunt_docket_locators",
     "resolve_case_names",
     "resolve_colocations",
     "resolve_courts",

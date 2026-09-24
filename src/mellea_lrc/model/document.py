@@ -17,12 +17,14 @@ from mellea_lrc.model.citations import (
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID
 from mellea_lrc.model.colocation import Colocation
 from mellea_lrc.model.preprocessed_document import PreprocessedDocument
+from mellea_lrc.model.site_review import SiteReview
 
 
 class Document(PreprocessedDocument):
     """Source text, citation histories, and ordered atomic stage runs."""
 
     citations: tuple[CitationVariant, ...] = ()
+    site_reviews: tuple[SiteReview, ...] = ()
     stage_runs: tuple[str, ...] = ()
 
     @classmethod
@@ -66,6 +68,14 @@ class Document(PreprocessedDocument):
             raise ValueError("Cannot create a citation in a completed stage")
         return self._with_citation(citation)
 
+    def add_site_review(self, review: SiteReview) -> Self:
+        """Append a review even when no citation was created at that site."""
+        if review.stage in self.stage_runs:
+            raise ValueError("Cannot review a site in a completed stage")
+        return type(self).model_validate(
+            {**self.model_dump(mode="python"), "site_reviews": (*self.site_reviews, review)}
+        )
+
     def replace_citation(self, citation: CitationVariant) -> Self:
         original = next((item for item in self.citations if item.id == citation.id), None)
         if original is None:
@@ -104,6 +114,7 @@ class Document(PreprocessedDocument):
             for node in citation.nodes
             if node.stage not in self.stage_runs
         }
+        pending.update(review.stage for review in self.site_reviews if review.stage not in self.stage_runs)
         if pending - {stage}:
             raise ValueError("Complete the pending stage before starting another stage run")
         return type(self).model_validate(
@@ -131,6 +142,7 @@ class Document(PreprocessedDocument):
             {
                 **self.model_dump(mode="python"),
                 "citations": tuple(citations),
+                "site_reviews": tuple(review for review in self.site_reviews if review.stage in included),
                 "stage_runs": self.stage_runs[:cutoff],
             }
         )
@@ -141,9 +153,30 @@ class Document(PreprocessedDocument):
             raise ValueError("Stage runs must be unique")
         stage_positions = {stage: index for index, stage in enumerate(self.stage_runs)}
         pending_stages: set[str] = set()
+        for review in self.site_reviews:
+            if review.candidate_span.start == review.candidate_span.end or not review.candidate_text.strip():
+                raise ValueError("Site review needs a nonempty source span")
+            if self.text[review.candidate_span.start : review.candidate_span.end] != review.candidate_text:
+                raise ValueError("Site review quote does not match its source span")
+            if review.stage not in stage_positions:
+                pending_stages.add(review.stage)
+            if review.outcome == "accepted" and review.citation_id is None:
+                raise ValueError("Accepted site review needs a citation ID")
+            if review.outcome != "accepted" and review.citation_id is not None:
+                raise ValueError("Unaccepted site review cannot point to a citation")
         by_id = {citation.id: citation for citation in self.citations}
         if len(by_id) != len(self.citations):
             raise ValueError("Duplicate citation in document state")
+        for review in self.site_reviews:
+            if review.citation_id is None:
+                continue
+            citation = by_id.get(review.citation_id)
+            if (
+                citation is None
+                or citation.nodes[0].stage != review.stage
+                or citation.site_span != review.candidate_span
+            ):
+                raise ValueError("Accepted site review must point to its created citation")
         if tuple(sorted(self.citations, key=lambda item: (item.site_span.start, item.id))) != self.citations:
             raise ValueError("Citations must be ordered by site span and ID")
         for citation in self.citations:

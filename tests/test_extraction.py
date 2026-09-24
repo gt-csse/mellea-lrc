@@ -1,5 +1,6 @@
 """Behavioral checks for extraction and citation-local field histories."""
 
+import asyncio
 import pytest
 
 from mellea_lrc.extraction import (
@@ -282,7 +283,7 @@ def test_adjacent_docket_entry_has_its_own_evidence_span() -> None:
 
 def test_synchronous_pipeline_and_json_roundtrip() -> None:
     text = "Smith v. Jones, No. 1:24-cv-00123, 2024 WL 1234567 (D. Ariz. 2024)."
-    document = grow_roots(Document.from_preprocessed(preprocess(text)))
+    document = asyncio.run(grow_roots(Document.from_preprocessed(preprocess(text))))
     _assert_roundtrip(document)
 
     assert isinstance(document.citations[0], FullDocketCitation)
