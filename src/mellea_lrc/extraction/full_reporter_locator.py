@@ -1,4 +1,4 @@
-"""One eyecite reporter reader for discovery and field normalization.
+"""Full reporter locator stage with the shared eyecite tokenizer.
 
 Eyecite generates reporter patterns with literal single-space joins. Widening
 those joins in its tokenizer lets it read PDF whitespace on the original text,
@@ -14,8 +14,12 @@ from functools import lru_cache
 
 import ahocorasick
 from eyecite import get_citations
-from eyecite.models import FullCaseCitation, ShortCaseCitation, TokenExtractor
+from eyecite.models import FullCaseCitation, TokenExtractor
 from eyecite.tokenizers import EXTRACTORS, AhocorasickTokenizer
+
+from mellea_lrc.model.citations import FullReporterCitation
+from mellea_lrc.model.document import Document
+from mellea_lrc.model.span import Span, is_within
 
 _ANY_WHITESPACE = r"\s*"
 _REPORTER_GROUP = re.compile(r"\(\?P<reporter>((?:[^()\\]|\\.)*)\)")
@@ -23,11 +27,11 @@ _TIGHT_PUNCTUATION = re.compile(r"\\\.|['’]")
 
 
 @dataclass(frozen=True)
-class ReporterReading:
-    """An eyecite result whose span indexes the unchanged source string."""
+class FullReporterReading:
+    """A full-case eyecite result indexed to unchanged source text."""
 
     span: tuple[int, int]
-    citation: FullCaseCitation | ShortCaseCitation
+    citation: FullCaseCitation
 
 
 def _relax_reporter_punctuation(match: re.Match[str]) -> str:
@@ -90,31 +94,42 @@ def _reporter_tokenizer() -> _ReporterTokenizer:
     )
 
 
-def reporter_readings(source: str) -> tuple[ReporterReading, ...]:
-    """Return full and short reporter readings with their eyecite kind intact."""
+def full_reporter_readings(source: str) -> tuple[FullReporterReading, ...]:
+    """Read full reporter locators with exact source spans."""
     return tuple(
-        ReporterReading(
-            # A short citation's `span()` can end at "at "; its pinpoint is
-            # part of the short site and belongs in the source-grounded quote.
-            span=(
-                citation.span() if isinstance(citation, FullCaseCitation) else citation.span_with_pincite()
-            ),
-            citation=citation,
-        )
+        FullReporterReading(span=citation.span(), citation=citation)
         for citation in get_citations(source, tokenizer=_reporter_tokenizer())
-        if isinstance(citation, (FullCaseCitation, ShortCaseCitation))
+        if isinstance(citation, FullCaseCitation)
     )
 
 
-def full_reporter_readings(source: str) -> tuple[ReporterReading, ...]:
-    """Return only eyecite full-case readings, preserving the shared matcher."""
-    return tuple(
-        reading for reading in reporter_readings(source) if isinstance(reading.citation, FullCaseCitation)
-    )
+STAGE = "full_reporter_locators"
 
 
-def short_reporter_readings(source: str) -> tuple[ReporterReading, ...]:
-    """Return only eyecite short-case readings, preserving the shared matcher."""
-    return tuple(
-        reading for reading in reporter_readings(source) if isinstance(reading.citation, ShortCaseCitation)
-    )
+def find_full_reporter_locators(document: Document) -> Document:
+    """Create one typed occurrence for each shared-reader reporter span.
+
+    The field re-reads its exact quote with the same reader. That keeps its
+    normalized identity recoverable from a serialized citation even if eyecite
+    used surrounding document context while finding the span.
+    """
+    if STAGE in document.stage_runs:
+        raise ValueError(f"Stage already completed: {STAGE}")
+    if "colocations" in document.stage_runs:
+        raise ValueError("Discover all locators before resolving colocations")
+    for reading in sorted(full_reporter_readings(document.text), key=lambda item: item.span):
+        span = Span(*reading.span)
+        if is_within(span, document.index_spans) or any(
+            span.overlaps(item.site_span) for item in document.citations
+        ):
+            continue
+        identifier = f"reporter:{span.start}:{span.end}"
+        document = document.add_citation(
+            FullReporterCitation.from_locator(
+                citation_id=identifier,
+                stage=STAGE,
+                source=document.text,
+                span=span,
+            )
+        )
+    return document.complete(STAGE)

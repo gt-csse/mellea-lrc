@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from mellea_lrc.model import Document, Span
-from mellea_lrc.preprocessing.document_index import is_within
+from mellea_lrc.model.span import is_within
 
 SETS = (
     "primary",

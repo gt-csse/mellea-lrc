@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
 from mellea_lrc.model.span import Span
-from mellea_lrc.reporter_reading import full_reporter_readings
 
 
 class ReporterLocatorValue(BaseModel):
@@ -35,6 +34,10 @@ class ReporterLocatorValue(BaseModel):
 @lru_cache(maxsize=8192)
 def normalize_reporter_locator(quote: str) -> ReporterLocatorValue:
     """Re-read one locator with the same eyecite path used for discovery."""
+    # The stage owns the tokenizer. Import at call time so model definitions
+    # can load before the stage while quote validation uses that same reader.
+    from mellea_lrc.extraction.full_reporter_locator import full_reporter_readings
+
     matches = [reading for reading in full_reporter_readings(quote) if reading.span == (0, len(quote))]
     if len(matches) != 1:
         raise ValueError(f"Cannot normalize full reporter locator: {quote!r}")

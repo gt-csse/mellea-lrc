@@ -7,15 +7,17 @@ from eyecite.models import FullCaseCitation, ShortCaseCitation
 
 from mellea_lrc.api import Document, find_short_reporter_citations, grow_roots
 from mellea_lrc.model import FullReporterCitation, ShortReporterCitation, Span
-from mellea_lrc.reporter_reading import reporter_readings
+from mellea_lrc.extraction.full_reporter_locator import full_reporter_readings
+from mellea_lrc.extraction.short_reporter_locator import short_reporter_readings
 
 
-def test_shared_reader_retains_eyecite_full_and_short_kinds() -> None:
+def test_stage_readers_share_eyecite_matching_for_full_and_short_kinds() -> None:
     source = "Smith v. Jones, 347 U.S. 483. See Smith, 347 U.S. at 495."
-    readings = reporter_readings(source)
+    full = full_reporter_readings(source)
+    short = short_reporter_readings(source)
 
-    assert [type(reading.citation) for reading in readings] == [FullCaseCitation, ShortCaseCitation]
-    assert [source[slice(*reading.span)] for reading in readings] == ["347 U.S. 483", "347 U.S. at 495"]
+    assert [type(reading.citation) for reading in full + short] == [FullCaseCitation, ShortCaseCitation]
+    assert [source[slice(*reading.span)] for reading in full + short] == ["347 U.S. 483", "347 U.S. at 495"]
 
 
 def test_short_reporter_is_a_distinct_checkpointed_citation() -> None:

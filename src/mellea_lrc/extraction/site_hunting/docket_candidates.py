@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from mellea_lrc.extraction.locators import DOCKET_PREFIX_PATTERN
+from mellea_lrc.extraction.docket_locator import DOCKET_PREFIX_PATTERN
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.fields.docket import DOCKET_ENTRY_PATTERN
 from mellea_lrc.model.document import Document
