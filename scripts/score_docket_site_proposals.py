@@ -36,7 +36,7 @@ SETS = (
 )
 COUNT_FIELDS = (
     "documents",
-    "eligible_gold_docket_numbers",
+    "eligible_gold_docket_locators",
     "rule_found",
     "exact_proposed_among_rule_misses",
     "remaining_misses",
@@ -49,7 +49,7 @@ def _span(raw: dict[str, Any]) -> Span:
 
 
 def _gold_spans(path: Path, *, filename: str, digest: str, index_spans: tuple[Span, ...]) -> set[Span]:
-    """Read numbered docket occurrences only after all predictions are fixed."""
+    """Read annotated docket locator spans only after predictions are fixed."""
     lines = path.read_text(encoding="utf-8").splitlines()
     if not lines:
         raise ValueError(f"{path}: empty annotation file")
@@ -64,11 +64,9 @@ def _gold_spans(path: Path, *, filename: str, digest: str, index_spans: tuple[Sp
         row = json.loads(line)
         if row.get("unit") != "citation" or row.get("kind") != "DocketCitation":
             continue
-        if not (row.get("identifier") or {}).get("docket_number"):
-            continue
         locator = row.get("locator")
         if not isinstance(locator, dict):
-            raise ValueError(f"{path}: numbered docket citation lacks a locator span")
+            raise ValueError(f"{path}: docket citation lacks a locator span")
         span = _span(locator)
         if not is_within(span, index_spans):
             gold.add(span)
@@ -117,7 +115,7 @@ def score_set(data_root: Path, name: str) -> dict[str, int]:
         )
         missed_by_rule = gold - rule
         counts["documents"] += 1
-        counts["eligible_gold_docket_numbers"] += len(gold)
+        counts["eligible_gold_docket_locators"] += len(gold)
         counts["rule_found"] += len(gold & rule)
         counts["exact_proposed_among_rule_misses"] += len(missed_by_rule & proposals)
         counts["remaining_misses"] += len(missed_by_rule - proposals)
@@ -131,7 +129,7 @@ def score(data_root: Path, names: tuple[str, ...] = SETS) -> dict[str, object]:
     totals = {field: sum(counts[field] for counts in sets.values()) for field in COUNT_FIELDS}
     return {
         "metric": (
-            "Exact locator-span occurrences with an annotated docket number outside "
+            "Exact annotated DocketCitation locator spans outside "
             "documents.json index_spans; proposals are unreviewed candidates"
         ),
         "sets": sets,
