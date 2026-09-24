@@ -25,6 +25,9 @@ from mellea_lrc.model.citations.fields.pin_cite import normalize_pin_cite
         ("123-25", 123, 125, PinCiteKind.PAGE),
         ("199–02", 199, 202, PinCiteKind.PAGE),
         ("*2-3", 2, 3, PinCiteKind.STAR),
+        ("998 -1003", 998, 1003, PinCiteKind.PAGE),
+        ("337 - 38", 337, 338, PinCiteKind.PAGE),
+        ("*2 -3", 2, 3, PinCiteKind.STAR),
     ],
 )
 def test_simple_parsed_pin_cites_have_typed_ranges(
@@ -111,3 +114,20 @@ def test_pipeline_pin_cite_normalization_roundtrips() -> None:
     assert pin.quote == "495-97"
     assert pin.get_normalized() == (PinCiteTarget(first=495, last=497, kind=PinCiteKind.PAGE),)
     assert Document.model_validate_json(document.model_dump_json()) == document
+
+
+def test_spaced_range_is_read_whole_with_its_exact_source_span() -> None:
+    source = "See 347 U.S. 483, 998 -1003 (1954)."
+    document = grow_roots(Document.from_source(source))
+    pin = document.citations[0].pin_cite[-1]
+
+    assert pin.quote == "998 -1003"
+    assert source[pin.span.start : pin.span.end] == pin.quote
+    assert pin.get_normalized() == (PinCiteTarget(first=998, last=1003, kind=PinCiteKind.PAGE),)
+    assert Document.model_validate_json(document.model_dump_json()) == document
+
+
+def test_incomplete_spaced_range_is_not_silently_read_as_one_page() -> None:
+    document = grow_roots(Document.from_source("See 347 U.S. 483, 998 - (1954)."))
+
+    assert document.citations[0].pin_cite == ()

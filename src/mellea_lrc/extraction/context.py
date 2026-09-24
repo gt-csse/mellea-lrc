@@ -11,6 +11,7 @@ from mellea_lrc.extraction.rules import ExtractionRules, stable
 from mellea_lrc.model.citations import CaseName, FullCitationVariant, FullReporterCitation
 from mellea_lrc.model.citations.fields.court import court_id_if_unique
 from mellea_lrc.model.citations.fields.date import FULL_DATE_RE, YEAR_RE
+from mellea_lrc.model.citations.fields.pin_cite import PIN_RANGE_JOIN
 from mellea_lrc.model.citations.history import latest
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
@@ -18,7 +19,11 @@ from mellea_lrc.model.span import Span
 _CASE = re.compile(r"(?:In re|Ex parte)\s+[^,;\n]{2,100}|[A-Z][^,;\n]{0,100}?\s+v\.\s+[^,;\n]{1,100}")
 _SIGNAL = re.compile(r"^(?:See(?: also)?|Cf\.|But see|Accord|Compare)\s+", re.I)
 _PAREN = re.compile(r"\((?P<body>[^()\r\n]{0,100})\)")
-_PIN = re.compile(r"^\s*,?\s*(?:at\s+)?(?P<pin>\*?\d+(?:[-–]\d+)?)(?![\d:])")
+# A damaged range must not fall back to a plausible-looking single page.
+_PIN = re.compile(
+    rf"^\s*,?\s*(?:at\s+)?(?P<pin>\*?\d+(?:{PIN_RANGE_JOIN}\d+)?)"
+    r"(?![\d:]|[^\S\r\n]*[-–])"
+)
 _NAME_TOKEN = re.compile(r"[\w.'’&-]+")
 _VERSUS = re.compile(r"\s+v\.\s+")
 _DATE_EVENT = re.compile(r"\s+\b(?:filed|decided|issued)\b\s*$", re.I)
