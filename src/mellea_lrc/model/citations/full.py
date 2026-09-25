@@ -7,6 +7,14 @@ from typing import Self
 from mellea_lrc.model.citations.citation import Citation
 from mellea_lrc.model.citations.fields import CaseNameField, CourtField, DateField, PinCiteField
 from mellea_lrc.model.citations.history import RelationshipUpdate
+from mellea_lrc.model.citations.judgments import (
+    IdentityJudgment,
+    IdentityNextStep,
+    IdentityVerdict,
+    ReporterExactCaseNameJudgment,
+    ReporterExactCourtJudgment,
+    ReporterExactDateJudgment,
+)
 from mellea_lrc.model.citations.kind import FullCitationKind
 from mellea_lrc.model.span import Span
 
@@ -20,6 +28,10 @@ class FullCitation(Citation):
     date: tuple[DateField, ...] = ()
     pin_cite: tuple[PinCiteField, ...] = ()
     colocation_id: tuple[RelationshipUpdate[str | None], ...] = ()
+    case_name_judgments: tuple[ReporterExactCaseNameJudgment, ...] = ()
+    court_judgments: tuple[ReporterExactCourtJudgment, ...] = ()
+    date_judgments: tuple[ReporterExactDateJudgment, ...] = ()
+    identity_judgments: tuple[IdentityJudgment, ...] = ()
 
     @property
     def locator_span(self) -> Span:
@@ -72,3 +84,10 @@ class FullCitation(Citation):
                 RelationshipUpdate(value=group_id, node_id=self._decision_node_id()),
             ),
         )
+
+    def with_identity_judgment(
+        self, verdict: IdentityVerdict, next_step: IdentityNextStep | None = None
+    ) -> Self:
+        """Append a verdict without changing any earlier decision."""
+        judgment = IdentityJudgment(node_id=self._decision_node_id(), verdict=verdict, next_step=next_step)
+        return self._with_log(identity_judgments=(*self.identity_judgments, judgment))

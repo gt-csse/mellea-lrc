@@ -55,4 +55,6 @@ class FullDocketCitation(FullCitation):
     def _validate_locator(self) -> Self:
         if not self.locator or self.locator[0].node_id != self.nodes[0].id:
             raise ValueError("Docket citation needs a source-spanned locator")
+        if self.case_name_judgments or self.court_judgments or self.date_judgments:
+            raise ValueError("Reporter exact judgments cannot belong to a docket citation")
         return self

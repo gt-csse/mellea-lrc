@@ -1,4 +1,4 @@
-"""Read only the durable work committed by one extraction stage."""
+"""Read the durable citation work committed by one stage."""
 
 from __future__ import annotations
 
@@ -7,6 +7,13 @@ from dataclasses import dataclass
 from mellea_lrc.model.citations import CitationVariant
 from mellea_lrc.model.citations.fields.base import CitationField
 from mellea_lrc.model.citations.history import RelationshipUpdate
+from mellea_lrc.model.citations.judgments import (
+    IdentityJudgment,
+    ReporterExactCaseNameJudgment,
+    ReporterExactCourtJudgment,
+    ReporterExactDateJudgment,
+)
+from mellea_lrc.model.citations.reporter_lookup import ReporterExactLookup
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.site_review import SiteReview
 
@@ -25,6 +32,22 @@ class RelationshipProduct:
     update: RelationshipUpdate
 
 
+ValidationRecord = (
+    ReporterExactLookup
+    | ReporterExactCaseNameJudgment
+    | ReporterExactCourtJudgment
+    | ReporterExactDateJudgment
+    | IdentityJudgment
+)
+
+
+@dataclass(frozen=True)
+class RecordProduct:
+    citation: CitationVariant
+    name: str
+    record: ValidationRecord
+
+
 @dataclass(frozen=True)
 class StageProduct:
     stage: str
@@ -33,6 +56,7 @@ class StageProduct:
     created: tuple[CitationVariant, ...]
     fields: tuple[FieldProduct, ...]
     relationships: tuple[RelationshipProduct, ...]
+    records: tuple[RecordProduct, ...]
     reviews: tuple[SiteReview, ...]
 
 
@@ -48,6 +72,7 @@ def stage_product(document: Document, stage: str) -> StageProduct:
     created: list[CitationVariant] = []
     fields: list[FieldProduct] = []
     relationships: list[RelationshipProduct] = []
+    records: list[RecordProduct] = []
     for citation in after.citations:
         node_ids = {node.id for node in citation.nodes if node.stage == stage}
         if not node_ids:
@@ -57,13 +82,26 @@ def stage_product(document: Document, stage: str) -> StageProduct:
         for name in type(citation).model_fields:
             if name in {"id", "kind", "nodes"}:
                 continue
-            for entry in getattr(citation, name):
+            value = getattr(citation, name)
+            entries = value if isinstance(value, tuple) else (value,) if value is not None else ()
+            for entry in entries:
                 if entry.node_id not in node_ids:
                     continue
                 if isinstance(entry, CitationField):
                     fields.append(FieldProduct(citation, name, entry))
                 elif isinstance(entry, RelationshipUpdate):
                     relationships.append(RelationshipProduct(citation, name, entry))
+                elif isinstance(
+                    entry,
+                    (
+                        ReporterExactLookup,
+                        ReporterExactCaseNameJudgment,
+                        ReporterExactCourtJudgment,
+                        ReporterExactDateJudgment,
+                        IdentityJudgment,
+                    ),
+                ):
+                    records.append(RecordProduct(citation, name, entry))
                 else:
                     raise TypeError(f"Unknown citation history entry: {type(entry).__name__}")
     return StageProduct(
@@ -73,5 +111,6 @@ def stage_product(document: Document, stage: str) -> StageProduct:
         created=tuple(created),
         fields=tuple(fields),
         relationships=tuple(relationships),
+        records=tuple(records),
         reviews=tuple(review for review in after.site_reviews if review.stage == stage),
     )
