@@ -474,7 +474,7 @@ def main() -> None:
     parser.add_argument("--set", dest="sets", action="append", choices=SETS)
     parser.add_argument("--output-dir", type=Path, help="Write summary.json and occurrences.json here")
     args = parser.parse_args()
-    result = evaluate(args.data_root, args.run_dir, args.stage, tuple(args.sets or SETS))
+    result = evaluate(args.data_root, args.run_dir, args.stage, tuple(args.sets or ("primary",)))
     occurrences = result.pop("occurrences")
     if args.output_dir is not None:
         args.output_dir.mkdir(parents=True, exist_ok=True)

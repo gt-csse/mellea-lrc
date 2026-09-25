@@ -1,0 +1,317 @@
+{
+  "stage": "reporter_root_exact_lookup",
+  "prediction_run": {
+    "root_rules": "stable",
+    "hunt_dockets": false,
+    "checkpoints": [
+      "roots",
+      "reporter_root_exact_lookup"
+    ],
+    "court_docket_fetch": true
+  },
+  "basis": "Stage-written reporter-root identity and field judgments. Deferred identity roots abstain; identity recall uses all labeled roots represented by unmasked full citations. Field judgments are scored only against labels for the same annotated root occurrence and aligned field reading.",
+  "sets": {
+    "primary": {
+      "documents": 26,
+      "identity_labeled_documents": 26,
+      "gold_reporter_roots": 385,
+      "gold_correct_reporter_roots": 323,
+      "gold_wrong_reporter_roots": 62,
+      "gold_all_roots": 430,
+      "field_gold_roots": 283,
+      "predicted_reporter_roots": 385,
+      "correct": 178,
+      "decided_total": 178,
+      "scored_decisions": 178,
+      "correct_decisions": 178,
+      "scored_admissions": 178,
+      "correct_admissions": 178,
+      "locator_membership_match": 242,
+      "deferred": 207,
+      "deferred_total": 207,
+      "deferred_to_ambiguity": 51,
+      "reached_gold_reporter_roots": 385,
+      "missing_gold_reporter_roots": 0,
+      "deferred_to_review": 76,
+      "deferred_to_search": 80,
+      "predicted_roots_without_field_gold": 102,
+      "locator_membership_mismatch": 12,
+      "decision_precision": 1.0,
+      "reporter_root_decision_recall": 0.4623,
+      "conditional_decision_recall": 0.4623,
+      "all_root_decision_recall": 0.414,
+      "admission_precision": 1.0,
+      "admission_recall": 0.5511,
+      "fields": {
+        "case_name": {
+          "gold_stated": 280,
+          "gold_agrees": 245,
+          "gold_disagrees": 35,
+          "gold_not_stated": 3,
+          "gold_unlabeled": 0,
+          "unique_gold": 188,
+          "eligible_gold": 175,
+          "missing_reading": 6,
+          "misaligned_reading": 7,
+          "judgments": 242,
+          "decided": 170,
+          "correct_predictions": 155,
+          "incorrect_predictions": 15,
+          "undetermined": 5,
+          "omitted_gold": 0,
+          "not_stated_judgments": 0,
+          "unscored_judgments": 67,
+          "changed_occurrence_judgments": 60,
+          "misaligned_judgments": 7,
+          "unmatched_or_unlabeled_judgments": 0,
+          "correct_gold": 155,
+          "precision": 0.9118,
+          "conditional_recall": 0.8857,
+          "unique_lookup_recall": 0.8245,
+          "global_recall": 0.5536,
+          "confusion": {
+            "agrees": {
+              "match": 142,
+              "mismatch": 15,
+              "undetermined": 5
+            },
+            "disagrees": {
+              "match": 0,
+              "mismatch": 13,
+              "undetermined": 0
+            }
+          }
+        },
+        "court": {
+          "gold_stated": 262,
+          "gold_agrees": 247,
+          "gold_disagrees": 15,
+          "gold_not_stated": 21,
+          "gold_unlabeled": 0,
+          "unique_gold": 182,
+          "eligible_gold": 168,
+          "missing_reading": 14,
+          "misaligned_reading": 0,
+          "judgments": 223,
+          "decided": 168,
+          "correct_predictions": 167,
+          "incorrect_predictions": 1,
+          "undetermined": 0,
+          "omitted_gold": 0,
+          "not_stated_judgments": 1,
+          "unscored_judgments": 54,
+          "changed_occurrence_judgments": 54,
+          "misaligned_judgments": 0,
+          "unmatched_or_unlabeled_judgments": 0,
+          "correct_gold": 167,
+          "precision": 0.994,
+          "conditional_recall": 0.994,
+          "unique_lookup_recall": 0.9176,
+          "global_recall": 0.6374,
+          "confusion": {
+            "agrees": {
+              "match": 154,
+              "mismatch": 1,
+              "undetermined": 0
+            },
+            "disagrees": {
+              "match": 0,
+              "mismatch": 13,
+              "undetermined": 0
+            }
+          }
+        },
+        "date": {
+          "gold_stated": 270,
+          "gold_agrees": 267,
+          "gold_disagrees": 3,
+          "gold_not_stated": 13,
+          "gold_unlabeled": 0,
+          "unique_gold": 186,
+          "eligible_gold": 186,
+          "missing_reading": 0,
+          "misaligned_reading": 0,
+          "judgments": 247,
+          "decided": 186,
+          "correct_predictions": 183,
+          "incorrect_predictions": 3,
+          "undetermined": 0,
+          "omitted_gold": 0,
+          "not_stated_judgments": 1,
+          "unscored_judgments": 60,
+          "changed_occurrence_judgments": 60,
+          "misaligned_judgments": 0,
+          "unmatched_or_unlabeled_judgments": 0,
+          "correct_gold": 183,
+          "precision": 0.9839,
+          "conditional_recall": 0.9839,
+          "unique_lookup_recall": 0.9839,
+          "global_recall": 0.6778,
+          "confusion": {
+            "agrees": {
+              "match": 181,
+              "mismatch": 3,
+              "undetermined": 0
+            },
+            "disagrees": {
+              "match": 0,
+              "mismatch": 2,
+              "undetermined": 0
+            }
+          }
+        }
+      }
+    }
+  },
+  "totals": {
+    "documents": 26,
+    "identity_labeled_documents": 26,
+    "gold_reporter_roots": 385,
+    "gold_correct_reporter_roots": 323,
+    "gold_wrong_reporter_roots": 62,
+    "gold_all_roots": 430,
+    "field_gold_roots": 283,
+    "predicted_reporter_roots": 385,
+    "correct": 178,
+    "decided_total": 178,
+    "scored_decisions": 178,
+    "correct_decisions": 178,
+    "scored_admissions": 178,
+    "correct_admissions": 178,
+    "locator_membership_match": 242,
+    "deferred": 207,
+    "deferred_total": 207,
+    "deferred_to_ambiguity": 51,
+    "reached_gold_reporter_roots": 385,
+    "missing_gold_reporter_roots": 0,
+    "deferred_to_review": 76,
+    "deferred_to_search": 80,
+    "predicted_roots_without_field_gold": 102,
+    "locator_membership_mismatch": 12,
+    "decision_precision": 1.0,
+    "reporter_root_decision_recall": 0.4623,
+    "conditional_decision_recall": 0.4623,
+    "all_root_decision_recall": 0.414,
+    "admission_precision": 1.0,
+    "admission_recall": 0.5511,
+    "fields": {
+      "case_name": {
+        "gold_stated": 280,
+        "gold_agrees": 245,
+        "gold_disagrees": 35,
+        "gold_not_stated": 3,
+        "gold_unlabeled": 0,
+        "unique_gold": 188,
+        "eligible_gold": 175,
+        "missing_reading": 6,
+        "misaligned_reading": 7,
+        "judgments": 242,
+        "decided": 170,
+        "correct_predictions": 155,
+        "incorrect_predictions": 15,
+        "undetermined": 5,
+        "omitted_gold": 0,
+        "not_stated_judgments": 0,
+        "unscored_judgments": 67,
+        "changed_occurrence_judgments": 60,
+        "misaligned_judgments": 7,
+        "unmatched_or_unlabeled_judgments": 0,
+        "correct_gold": 155,
+        "precision": 0.9118,
+        "conditional_recall": 0.8857,
+        "unique_lookup_recall": 0.8245,
+        "global_recall": 0.5536,
+        "confusion": {
+          "agrees": {
+            "match": 142,
+            "mismatch": 15,
+            "undetermined": 5
+          },
+          "disagrees": {
+            "match": 0,
+            "mismatch": 13,
+            "undetermined": 0
+          }
+        }
+      },
+      "court": {
+        "gold_stated": 262,
+        "gold_agrees": 247,
+        "gold_disagrees": 15,
+        "gold_not_stated": 21,
+        "gold_unlabeled": 0,
+        "unique_gold": 182,
+        "eligible_gold": 168,
+        "missing_reading": 14,
+        "misaligned_reading": 0,
+        "judgments": 223,
+        "decided": 168,
+        "correct_predictions": 167,
+        "incorrect_predictions": 1,
+        "undetermined": 0,
+        "omitted_gold": 0,
+        "not_stated_judgments": 1,
+        "unscored_judgments": 54,
+        "changed_occurrence_judgments": 54,
+        "misaligned_judgments": 0,
+        "unmatched_or_unlabeled_judgments": 0,
+        "correct_gold": 167,
+        "precision": 0.994,
+        "conditional_recall": 0.994,
+        "unique_lookup_recall": 0.9176,
+        "global_recall": 0.6374,
+        "confusion": {
+          "agrees": {
+            "match": 154,
+            "mismatch": 1,
+            "undetermined": 0
+          },
+          "disagrees": {
+            "match": 0,
+            "mismatch": 13,
+            "undetermined": 0
+          }
+        }
+      },
+      "date": {
+        "gold_stated": 270,
+        "gold_agrees": 267,
+        "gold_disagrees": 3,
+        "gold_not_stated": 13,
+        "gold_unlabeled": 0,
+        "unique_gold": 186,
+        "eligible_gold": 186,
+        "missing_reading": 0,
+        "misaligned_reading": 0,
+        "judgments": 247,
+        "decided": 186,
+        "correct_predictions": 183,
+        "incorrect_predictions": 3,
+        "undetermined": 0,
+        "omitted_gold": 0,
+        "not_stated_judgments": 1,
+        "unscored_judgments": 60,
+        "changed_occurrence_judgments": 60,
+        "misaligned_judgments": 0,
+        "unmatched_or_unlabeled_judgments": 0,
+        "correct_gold": 183,
+        "precision": 0.9839,
+        "conditional_recall": 0.9839,
+        "unique_lookup_recall": 0.9839,
+        "global_recall": 0.6778,
+        "confusion": {
+          "agrees": {
+            "match": 181,
+            "mismatch": 3,
+            "undetermined": 0
+          },
+          "disagrees": {
+            "match": 0,
+            "mismatch": 2,
+            "undetermined": 0
+          }
+        }
+      }
+    }
+  }
+}
