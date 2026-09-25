@@ -62,6 +62,21 @@ class CourtListenerCluster(_CourtListenerPayload):
         return value
 
 
+class CourtListenerDocket(_CourtListenerPayload):
+    """The docket that identifies the court for an opinion cluster."""
+
+    id: str
+    court_id: str | None = None
+    court: str | None = None
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def stringify_identifier(cls, value: Any) -> Any:
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
+        return value
+
+
 class CourtListenerCitationLookup(_CourtListenerPayload):
     """The single result returned for one exact reporter citation request."""
 

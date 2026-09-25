@@ -7,7 +7,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from mellea_lrc.courtlistener.models import CourtListenerCitationLookup
+from mellea_lrc.courtlistener.models import CourtListenerCitationLookup, CourtListenerDocket
 
 
 class ReporterExactLookupOutcome(str, Enum):
@@ -57,4 +57,20 @@ class ReporterExactLookup(BaseModel):
         )
         if self.outcome is not expected:
             raise ValueError("Lookup outcome must reflect the returned candidate count")
+        return self
+
+
+class ReporterExactDocket(BaseModel):
+    """Saved docket response used to check the court of one unique cluster."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    node_id: str
+    docket_id: str
+    response: CourtListenerDocket | None
+
+    @model_validator(mode="after")
+    def _validate_docket(self) -> Self:
+        if not self.docket_id or (self.response is not None and self.response.id != self.docket_id):
+            raise ValueError("Reporter docket evidence must match the requested docket ID")
         return self
