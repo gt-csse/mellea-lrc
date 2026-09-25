@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Generic, Protocol, TypeVar
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -11,12 +11,6 @@ from mellea_lrc.model.citations.fields import CitationField
 WITHDRAWN_ROOT_ID = "__withdrawn__"
 
 T = TypeVar("T")
-
-
-class NodeLinked(Protocol):
-    """Any durable citation entry anchored to a decision node."""
-
-    node_id: str
 
 
 class RelationshipUpdate(BaseModel, Generic[T]):

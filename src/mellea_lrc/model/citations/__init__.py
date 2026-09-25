@@ -35,9 +35,17 @@ from mellea_lrc.model.citations.history import (
     RelationshipUpdate,
     latest,
 )
+from mellea_lrc.model.citations.judgments import (
+    IdentityJudgment,
+    IdentityNextStep,
+    IdentityVerdict,
+    MatchResult,
+    ReporterExactCaseNameJudgment,
+    ReporterExactCourtJudgment,
+    ReporterExactDateJudgment,
+)
 from mellea_lrc.model.citations.kind import FullCitationKind, ShortCitationKind
 from mellea_lrc.model.citations.reporter_lookup import (
-    ReporterExactCandidateCheck,
     ReporterExactLookup,
     ReporterExactLookupOutcome,
     ReporterExactLookupQuery,
@@ -74,6 +82,10 @@ __all__ = [
     "FullDocketLocator",
     "FullReporterCitation",
     "FullReporterLocator",
+    "IdentityJudgment",
+    "IdentityNextStep",
+    "IdentityVerdict",
+    "MatchResult",
     "Node",
     "PinCiteField",
     "PinCiteKind",
@@ -81,7 +93,9 @@ __all__ = [
     "PinCiteValue",
     "RelationshipUpdate",
     "Reporter",
-    "ReporterExactCandidateCheck",
+    "ReporterExactCaseNameJudgment",
+    "ReporterExactCourtJudgment",
+    "ReporterExactDateJudgment",
     "ReporterExactLookup",
     "ReporterExactLookupOutcome",
     "ReporterExactLookupQuery",

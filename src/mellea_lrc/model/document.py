@@ -95,10 +95,16 @@ class Document(PreprocessedDocument):
                 continue
             prior = getattr(original, name)
             current = getattr(citation, name)
-            if current[: len(prior)] != prior:
-                raise ValueError(f"Citation {name} must be append-only")
-            if any(update.node_id not in new_nodes for update in current[len(prior) :]):
-                raise ValueError("New field readings need a new decision node")
+            if isinstance(prior, tuple):
+                if current[: len(prior)] != prior:
+                    raise ValueError(f"Citation {name} must be append-only")
+                added = current[len(prior) :]
+            else:
+                if prior is not None and current != prior:
+                    raise ValueError(f"Citation {name} must be append-only")
+                added = (current,) if prior is None and current is not None else ()
+            if any(update.node_id not in new_nodes for update in added):
+                raise ValueError("New citation records need a new decision node")
         return self._with_citation(citation)
 
     def _with_citation(self, citation: CitationVariant) -> Self:

@@ -53,7 +53,7 @@ def _field_logs(citation: FullCitation) -> dict[str, tuple]:
     return {
         name: getattr(citation, name)
         for name in type(citation).model_fields
-        if name not in {"id", "kind", "nodes"}
+        if name not in {"id", "kind", "nodes"} and isinstance(getattr(citation, name), tuple)
     }
 
 
