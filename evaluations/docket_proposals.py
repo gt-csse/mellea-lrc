@@ -53,7 +53,7 @@ def score_set(data_root: Path, run_dir: Path, name: str) -> dict[str, int]:
     return counts
 
 
-def score(data_root: Path, run_dir: Path, names: tuple[str, ...] = SETS) -> dict[str, object]:
+def score(data_root: Path, run_dir: Path, names: tuple[str, ...] = ("primary",)) -> dict[str, object]:
     sets = {name: score_set(data_root, run_dir, name) for name in names}
     totals = {field: sum(counts[field] for counts in sets.values()) for field in COUNT_FIELDS}
     return {
@@ -70,7 +70,7 @@ def main() -> None:
     parser.add_argument("--set", dest="sets", action="append", choices=SETS)
     parser.add_argument("--output", type=Path, help="Write JSON here instead of stdout")
     args = parser.parse_args()
-    result = json.dumps(score(args.data_root, args.run_dir, tuple(args.sets or SETS)), indent=2) + "\n"
+    result = json.dumps(score(args.data_root, args.run_dir, tuple(args.sets or ("primary",))), indent=2) + "\n"
     if args.output is None:
         print(result, end="")
     else:

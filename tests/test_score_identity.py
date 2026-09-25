@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import sys
+from pathlib import Path
 
+import pytest
+
+from evaluations import score_identity
 from evaluations.render_identity_report import render_identity_report
 from evaluations.score_identity import _summary, score_document
 from mellea_lrc.api import Document, grow_roots, reporter_root_exact_lookup
@@ -11,6 +16,29 @@ from mellea_lrc.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.model.citations.judgments import IdentityVerdict
 
 SOURCE = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
+
+
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        ([], ("primary",)),
+        (["--set", "hallucination-set-1"], ("hallucination-set-1",)),
+        (["--set", "primary", "--set", "hallucination-set-1"], ("primary", "hallucination-set-1")),
+    ],
+)
+def test_cli_set_selection_defaults_to_primary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, options: list[str], expected: tuple[str, ...]
+) -> None:
+    selected: list[tuple[str, ...]] = []
+
+    def fake_evaluate(_data_root: Path, _run_dir: Path, sets: tuple[str, ...]) -> dict:
+        selected.append(sets)
+        return {"occurrences": {}}
+
+    monkeypatch.setattr(score_identity, "evaluate", fake_evaluate)
+    monkeypatch.setattr(sys, "argv", ["score_identity", "--run-dir", str(tmp_path), *options])
+    score_identity.main()
+    assert selected == [expected]
 
 
 class FakeLookupClient:

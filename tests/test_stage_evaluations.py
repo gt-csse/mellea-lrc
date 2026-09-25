@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pytest
 
+from evaluations import score_stages
 from evaluations.score_stages import _summary, score_document
 from evaluations.stage_products import stage_product
 from mellea_lrc.model import (
@@ -15,6 +19,31 @@ from mellea_lrc.model import (
     SourceMetadata,
     Span,
 )
+
+
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        ([], ("primary",)),
+        (["--set", "hallucination-set-1"], ("hallucination-set-1",)),
+        (["--set", "primary", "--set", "hallucination-set-1"], ("primary", "hallucination-set-1")),
+    ],
+)
+def test_cli_set_selection_defaults_to_primary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, options: list[str], expected: tuple[str, ...]
+) -> None:
+    selected: list[tuple[str, ...]] = []
+
+    def fake_evaluate(_data_root: Path, _run_dir: Path, _stage: str, sets: tuple[str, ...]) -> dict:
+        selected.append(sets)
+        return {"occurrences": {}}
+
+    monkeypatch.setattr(score_stages, "evaluate", fake_evaluate)
+    monkeypatch.setattr(
+        sys, "argv", ["score_stages", "--run-dir", str(tmp_path), "--stage", score_stages.STAGES[0], *options]
+    )
+    score_stages.main()
+    assert selected == [expected]
 
 
 def _document(source: str) -> Document:

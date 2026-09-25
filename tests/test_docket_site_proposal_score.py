@@ -2,10 +2,12 @@
 
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
+from evaluations import docket_proposals
 from evaluations.docket_proposals import score, score_set
 from mellea_lrc.api import find_docket_locators, find_full_reporter_locators
 from mellea_lrc.model import (
@@ -16,6 +18,41 @@ from mellea_lrc.model import (
     SourceMetadata,
     Span,
 )
+
+
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        ([], ("primary",)),
+        (["--set", "hallucination-set-1"], ("hallucination-set-1",)),
+        (["--set", "primary", "--set", "hallucination-set-1"], ("primary", "hallucination-set-1")),
+    ],
+)
+def test_cli_set_selection_defaults_to_primary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, options: list[str], expected: tuple[str, ...]
+) -> None:
+    selected: list[tuple[str, ...]] = []
+
+    def fake_score(_data_root: Path, _run_dir: Path, names: tuple[str, ...]) -> dict:
+        selected.append(names)
+        return {}
+
+    monkeypatch.setattr(docket_proposals, "score", fake_score)
+    monkeypatch.setattr(sys, "argv", ["docket_proposals", "--run-dir", str(tmp_path), *options])
+    docket_proposals.main()
+    assert selected == [expected]
+
+
+def test_score_defaults_to_primary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    selected: list[str] = []
+
+    def fake_score_set(_data_root: Path, _run_dir: Path, name: str) -> dict[str, int]:
+        selected.append(name)
+        return dict.fromkeys(docket_proposals.COUNT_FIELDS, 0)
+
+    monkeypatch.setattr(docket_proposals, "score_set", fake_score_set)
+    score(tmp_path, tmp_path)
+    assert selected == ["primary"]
 
 
 def test_score_counts_rule_proposal_and_remaining_gold_after_index_exclusion(tmp_path: Path) -> None:
