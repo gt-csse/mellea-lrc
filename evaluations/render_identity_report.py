@@ -16,6 +16,12 @@ from typing import Any
 
 from evaluations.annotations import SETS
 
+FIELDS = (
+    ("case_name", "Case name"),
+    ("court", "Court"),
+    ("date", "Date"),
+)
+
 
 def _count(row: dict[str, Any], key: str) -> int:
     return int(row.get(key, 0))
@@ -36,6 +42,54 @@ def _row(name: str, row: dict[str, Any]) -> str:
         _fraction(_count(row, "correct_decisions"), _count(row, "gold_reporter_roots")),
         _fraction(_count(row, "correct_admissions"), _count(row, "scored_admissions")),
         _fraction(_count(row, "correct_admissions"), _count(row, "gold_correct_reporter_roots")),
+    )
+    return "| " + " | ".join(cells) + " |"
+
+
+def _field_row(name: str, label: str, field: dict[str, Any]) -> str:
+    cells = (
+        name,
+        label,
+        str(field["gold_stated"]),
+        str(field["unique_gold"]),
+        str(field["eligible_gold"]),
+        _fraction(field["correct_predictions"], field["decided"]),
+        _fraction(field["decided"], field["eligible_gold"]),
+        _fraction(field["correct_gold"], field["gold_stated"]),
+    )
+    return "| " + " | ".join(cells) + " |"
+
+
+def _field_gap_row(name: str, label: str, field: dict[str, Any]) -> str:
+    no_unique = field["gold_stated"] - field["unique_gold"]
+    if no_unique < 0:
+        raise ValueError("Field's unique lookup count exceeds its stated gold count")
+    cells = (
+        name,
+        label,
+        str(no_unique),
+        str(field["missing_reading"]),
+        str(field["misaligned_reading"]),
+        str(field["incorrect_predictions"]),
+        str(field["undetermined"]),
+        str(field["omitted_gold"]),
+        str(field["unscored_judgments"]),
+    )
+    return "| " + " | ".join(cells) + " |"
+
+
+def _confusion_row(label: str, field: dict[str, Any]) -> str:
+    confusion = field["confusion"]
+    agrees = confusion["agrees"]
+    disagrees = confusion["disagrees"]
+    cells = (
+        label,
+        str(agrees["match"]),
+        str(agrees["mismatch"]),
+        str(disagrees["match"]),
+        str(disagrees["mismatch"]),
+        str(agrees["undetermined"]),
+        str(disagrees["undetermined"]),
     )
     return "| " + " | ".join(cells) + " |"
 
@@ -90,8 +144,92 @@ def render_identity_report(result: dict[str, Any], *, source_label: str) -> str:
             f"ambiguity {_count(total, 'deferred_to_ambiguity')}, "
             f"search {_count(total, 'deferred_to_search')}).",
             "",
+            "## Field judgments",
+            "",
+            "Gold field labels belong to the annotated root occurrence. A predicted root represented "
+            "by a later citation is unscored for fields, even when its identity can be scored. "
+            "A field comparison is scored only when its reading matches the annotated quote, span, "
+            "and available normalized value; a court inferred from its reporter must have the "
+            "annotated court ID. Misaligned readings are extraction or normalization errors. "
+            "Gold marked `not_stated` is excluded from "
+            "field accuracy and recall. An undetermined judgment is an abstention.",
+            "",
+            "Annotated representative roots available for field scoring: "
+            f"{_count(total, 'field_gold_roots')} of {_count(total, 'gold_reporter_roots')} "
+            "identity-labeled reporter roots.",
+            "",
+            "Comparison accuracy is correct determinate judgments divided by scored determinate "
+            "judgments. Judgment coverage is determinate judgments divided by aligned readings "
+            "at unique exact lookups. Correct / stated gold shows this stage's field recall across "
+            "the available unmasked annotated root occurrences with that field stated, including "
+            "those without a unique exact lookup.",
+            "",
+            "| Set | Field | Stated gold | Unique exact | Aligned reading | Comparison accuracy | Judgment coverage | Correct / stated gold |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        )
+    )
+    for name in SETS:
+        if name in result["sets"]:
+            lines.extend(
+                _field_row(name, label, result["sets"][name]["fields"][field]) for field, label in FIELDS
+            )
+    lines.extend(_field_row("Total", label, total["fields"][field]) for field, label in FIELDS)
+    lines.extend(
+        (
+            "",
+            "Gold fields marked `not_stated`: "
+            + ", ".join(
+                f"{total['fields'][field]['gold_not_stated']} {label.lower()}" for field, label in FIELDS
+            )
+            + ". These are not counted as agreeing or disagreeing fields.",
+            "",
+            "A field can lack a unique exact lookup, have no aligned reading, or receive no "
+            "determinate judgment. Unscored outputs include judgments on later representative "
+            "occurrences, misaligned readings, and unmatched or unlabeled occurrences; they do "
+            "not enter comparison accuracy.",
+            "",
+            "| Set | Field | No unique exact | Missing reading | Misaligned reading | Wrong judgment | Undetermined | Omitted judgment | Unscored outputs |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        )
+    )
+    for name in SETS:
+        if name in result["sets"]:
+            lines.extend(
+                _field_gap_row(name, label, result["sets"][name]["fields"][field]) for field, label in FIELDS
+            )
+    lines.extend(_field_gap_row("Total", label, total["fields"][field]) for field, label in FIELDS)
+    lines.extend(
+        (
+            "",
+            "Of the unscored outputs, judgments on later representative occurrences account for "
+            + ", ".join(
+                f"{total['fields'][field]['changed_occurrence_judgments']} {label.lower()}"
+                for field, label in FIELDS
+            )
+            + ".",
+            "",
+            "### Comparison directions across scored sets",
+            "",
+            "`Agrees → mismatch` rejects an agreeing field; `Disagrees → match` accepts a "
+            "disagreeing field. These counts use only aligned readings of the annotated root occurrence.",
+            "",
+            "| Field | Agrees → match | Agrees → mismatch | Disagrees → match | Disagrees → mismatch | Agrees → undetermined | Disagrees → undetermined |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        )
+    )
+    lines.extend(_confusion_row(label, total["fields"][field]) for field, label in FIELDS)
+    lines.extend(
+        (
+            "",
+            "The reporter-locator membership gate found the queried citation in "
+            f"{_count(total, 'locator_membership_match')} unique lookup records, found a different "
+            f"listed citation in {_count(total, 'locator_membership_mismatch')}, and could not parse "
+            f"the listing in {_count(total, 'locator_membership_unknown')}. This is a saved-response "
+            "diagnostic; the annotations do not label the provider's citation list independently.",
+            "",
             "The occurrence file beside this summary lists each prediction and each gold root that "
-            "was not correctly decided, including its exact locator span.",
+            "was not correctly decided, plus field judgments, readings, returned record values, "
+            "locator membership, and gaps, with exact locator spans.",
             "",
         )
     )
