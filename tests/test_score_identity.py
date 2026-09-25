@@ -51,6 +51,99 @@ def _gold(document: Document, *, label: str = "CORRECT_IDENTITY", gold_id: str =
     }
 
 
+def _gold_with_fields(document: Document) -> dict:
+    (root,) = document.roots
+    case_name = root.case_name[-1]
+    date = root.date[-1]
+    return {
+        **_gold(document),
+        "case_name": {
+            "start": case_name.span.start,
+            "end": case_name.span.end,
+            "quote": case_name.quote,
+        },
+        "court": {"id": "scotus", "how": "reporter"},
+        "date": {"start": date.span.start, "end": date.span.end, "quote": date.quote, "normalized": "2007"},
+        "validation": {
+            "identity": {
+                "label": "CORRECT_IDENTITY",
+                "fields": {
+                    "case_name": {"label": "agrees"},
+                    "court": {"label": "agrees"},
+                    "date": {"label": "agrees"},
+                },
+            }
+        },
+    }
+
+
+def test_field_judgments_score_each_view_used_by_exact_identity() -> None:
+    document = _document()
+    counts, details = score_document(document, (_gold_with_fields(document),))
+    fields = _summary(counts)["fields"]
+
+    for field in ("case_name", "court", "date"):
+        assert fields[field]["gold_stated"] == 1
+        assert fields[field]["unique_gold"] == 1
+        assert fields[field]["eligible_gold"] == 1
+        assert fields[field]["decided"] == 1
+        assert fields[field]["precision"] == 1.0
+        assert fields[field]["conditional_recall"] == 1.0
+        assert fields[field]["confusion"]["agrees"]["match"] == 1
+        assert any(
+            row["product"] == "field_judgment" and row["field"] == field and row["outcome"] == "correct"
+            for row in details
+        )
+    assert counts["locator_membership_match"] == 1
+    assert any(row["product"] == "locator_membership" and row["result"] == "match" for row in details)
+
+
+def test_field_judgment_does_not_borrow_label_for_wrong_reading() -> None:
+    document = _document()
+    gold = _gold_with_fields(document)
+    gold["case_name"] = {"start": 0, "end": 9, "quote": "Bell Atl."}
+    counts, details = score_document(document, (gold,))
+    case_name = _summary(counts)["fields"]["case_name"]
+
+    assert case_name["unique_gold"] == 1
+    assert case_name["eligible_gold"] == 0
+    assert case_name["misaligned_reading"] == 1
+    assert case_name["decided"] == 0
+    assert case_name["unscored_judgments"] == 1
+    assert any(
+        row["product"] == "field_judgment"
+        and row["field"] == "case_name"
+        and row["outcome"] == "misaligned_reading"
+        for row in details
+    )
+
+
+def test_field_judgment_excludes_wrong_normalized_court() -> None:
+    document = _document()
+    gold = _gold_with_fields(document)
+    gold["court"]["id"] = "ca1"
+    counts, _ = score_document(document, (gold,))
+    court = _summary(counts)["fields"]["court"]
+
+    assert court["misaligned_reading"] == 1
+    assert court["decided"] == 0
+    assert court["unscored_judgments"] == 1
+
+
+def test_not_stated_field_is_excluded_from_comparison_accuracy() -> None:
+    document = _document()
+    gold = _gold_with_fields(document)
+    gold["validation"]["identity"]["fields"]["court"]["label"] = "not_stated"
+    counts, _ = score_document(document, (gold,))
+    court = _summary(counts)["fields"]["court"]
+
+    assert court["gold_not_stated"] == 1
+    assert court["gold_stated"] == 0
+    assert court["not_stated_judgments"] == 1
+    assert court["decided"] == 0
+    assert court["precision"] is None
+
+
 def test_exact_identity_score_uses_uppercase_gold_and_includes_missing_gold() -> None:
     document = _document()
     missed = {
