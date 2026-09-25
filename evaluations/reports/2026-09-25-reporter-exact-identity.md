@@ -4,7 +4,7 @@
 
 **Score input:** `evaluations/results/2026-09-25-reporter-exact-identity/summary.json`. This report makes no provider or model calls.
 
-Prediction run: `stable` extraction rules; docket site hunting off.
+Prediction run: `stable` extraction rules; docket site hunting off; linked docket court retrieval off.
 
 A decided root is a CORRECT_IDENTITY or WRONG_IDENTITY verdict; deferred roots abstain. Decision precision divides correct decided roots by scored decided roots. Decision recall uses every labeled gold reporter root represented by an unmasked full citation, including roots missed by extraction. Admission precision and recall count only correct-identity admissions, with all gold-correct reporter roots as the recall denominator. Unlabeled identity sets show a dash, not a zero score.
 

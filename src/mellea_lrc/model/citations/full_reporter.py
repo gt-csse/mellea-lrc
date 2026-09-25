@@ -16,7 +16,11 @@ from mellea_lrc.model.citations.judgments import (
     ReporterExactDateJudgment,
 )
 from mellea_lrc.model.citations.kind import FullCitationKind
-from mellea_lrc.model.citations.reporter_lookup import ReporterExactLookup
+from mellea_lrc.model.citations.reporter_lookup import (
+    ReporterExactDocket,
+    ReporterExactLookup,
+    ReporterExactLookupOutcome,
+)
 from mellea_lrc.model.span import Span
 
 
@@ -26,6 +30,7 @@ class FullReporterCitation(FullCitation):
     kind: Literal[FullCitationKind.REPORTER] = FullCitationKind.REPORTER
     locator: tuple[FullReporterLocator, ...]
     reporter_exact_lookup: ReporterExactLookup | None = None
+    reporter_exact_docket: ReporterExactDocket | None = None
 
     @property
     def locator_span(self) -> Span:
@@ -38,6 +43,14 @@ class FullReporterCitation(FullCitation):
         if result.node_id != self._decision_node_id():
             raise ValueError("Reporter lookup must point to the current decision node")
         return self._with_log(reporter_exact_lookup=result)
+
+    def with_reporter_exact_docket(self, result: ReporterExactDocket) -> Self:
+        """Save the linked docket before using its court in a judgment."""
+        if self.reporter_exact_docket is not None:
+            raise ValueError("Reporter exact docket is already recorded")
+        if result.node_id != self._decision_node_id():
+            raise ValueError("Reporter docket must point to the current decision node")
+        return self._with_log(reporter_exact_docket=result)
 
     def with_case_name_judgment(self, reading_index: int, candidate_index: int, result: MatchResult) -> Self:
         judgment = ReporterExactCaseNameJudgment(
@@ -88,7 +101,18 @@ class FullReporterCitation(FullCitation):
         if not self.locator or self.locator[0].node_id != self.nodes[0].id:
             raise ValueError("Reporter citation needs a source-spanned locator")
         lookup = self.reporter_exact_lookup
+        docket = self.reporter_exact_docket
         positions = {node.id: index for index, node in enumerate(self.nodes)}
+        if docket is not None:
+            if (
+                lookup is None
+                or lookup.outcome is not ReporterExactLookupOutcome.UNIQUE
+                or lookup.response is None
+                or lookup.response.clusters[0].docket_id != docket.docket_id
+            ):
+                raise ValueError("Reporter docket must belong to the unique lookup cluster")
+            if positions[lookup.node_id] > positions[docket.node_id]:
+                raise ValueError("Reporter docket cannot precede its lookup response")
         for log, readings in (
             (self.case_name_judgments, self.case_name),
             (self.court_judgments, self.court),

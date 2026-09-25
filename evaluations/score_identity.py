@@ -412,7 +412,21 @@ def score_document(
             counts[f"{field}_judgments"] += 1
             candidate_value = {
                 "case_name": candidate.case_name_full,
-                "court": {"court_id": candidate.court_id, "court": candidate.court},
+                "court": {
+                    "cluster_court_id": candidate.court_id,
+                    "cluster_court": candidate.court,
+                    "docket_id": root.reporter_exact_docket.docket_id
+                    if root.reporter_exact_docket is not None
+                    else None,
+                    "docket_court_id": root.reporter_exact_docket.response.court_id
+                    if root.reporter_exact_docket is not None
+                    and root.reporter_exact_docket.response is not None
+                    else None,
+                    "docket_court": root.reporter_exact_docket.response.court
+                    if root.reporter_exact_docket is not None
+                    and root.reporter_exact_docket.response is not None
+                    else None,
+                },
                 "date": candidate.date_filed,
             }[field]
             if comparable_id is None:
@@ -514,7 +528,10 @@ def evaluate(data_root: Path, run_dir: Path, sets: tuple[str, ...]) -> dict[str,
     run_spec_path = run_dir / "run.json"
     run_spec = json.loads(run_spec_path.read_text(encoding="utf-8")) if run_spec_path.exists() else None
     run_configuration = (
-        {key: run_spec[key] for key in ("root_rules", "hunt_dockets", "checkpoints")}
+        {
+            **{key: run_spec[key] for key in ("root_rules", "hunt_dockets", "checkpoints")},
+            "court_docket_fetch": bool(run_spec.get("court_docket_fetch", False)),
+        }
         if run_spec is not None
         else None
     )

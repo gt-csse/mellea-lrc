@@ -10,6 +10,7 @@ from mellea_lrc.courtlistener import (
     CourtListenerCitationLookup,
     CourtListenerClient,
     CourtListenerCluster,
+    CourtListenerDocket,
     CourtListenerError,
 )
 from mellea_lrc.model.citations import FullReporterCitation
@@ -17,6 +18,7 @@ from mellea_lrc.model.citations.fields.court import Court, court_id_if_unique
 from mellea_lrc.model.citations.fields.reporter import normalize_reporter_locator
 from mellea_lrc.model.citations.judgments import IdentityNextStep, IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import (
+    ReporterExactDocket,
     ReporterExactLookup,
     ReporterExactLookupOutcome,
     ReporterExactLookupQuery,
@@ -28,9 +30,11 @@ STAGE = "reporter_root_exact_lookup"
 
 
 class ReporterLookupClient(Protocol):
-    """The one CourtListener operation this stage needs."""
+    """The exact citation lookup and its linked docket court retrieval."""
 
     def lookup_citation(self, volume: str, reporter: str, page: str) -> CourtListenerCitationLookup: ...
+
+    def get_docket(self, docket_id: str) -> CourtListenerDocket | None: ...
 
 
 def _locator_present(cluster: CourtListenerCluster, query: ReporterExactLookupQuery) -> bool | None:
@@ -58,12 +62,20 @@ def _case_name_result(citation: FullReporterCitation, candidate: CourtListenerCl
     )
 
 
-def _candidate_court_id(candidate: CourtListenerCluster) -> str | None:
-    """Use a recognized provider court ID or label; conflicting values stay unknown."""
+def _candidate_court_id(
+    candidate: CourtListenerCluster, docket: CourtListenerDocket | None = None
+) -> str | None:
+    """Use the linked docket when the citation-lookup cluster omits its court."""
     ids: set[str] = set()
-    for value in (candidate.court_id, candidate.court):
+    values = (candidate.court_id, candidate.court)
+    if docket is not None:
+        values += (docket.court_id, docket.court)
+    for value in values:
         if not value:
             continue
+        # CourtListener can send a court URL instead of its short identifier.
+        if "/courts/" in value:
+            value = value.rstrip("/").rsplit("/", maxsplit=1)[-1]
         try:
             ids.add(Court.from_id(value).id)
         except ValueError:
@@ -72,9 +84,11 @@ def _candidate_court_id(candidate: CourtListenerCluster) -> str | None:
     return next(iter(ids)) if len(ids) == 1 else None
 
 
-def _court_result(citation: FullReporterCitation, candidate: CourtListenerCluster) -> MatchResult:
+def _court_result(
+    citation: FullReporterCitation, candidate: CourtListenerCluster, docket: CourtListenerDocket | None
+) -> MatchResult:
     reading = citation.court[-1]
-    court_id = _candidate_court_id(candidate)
+    court_id = _candidate_court_id(candidate, docket)
     if not reading.normalizable or court_id is None:
         return MatchResult.UNDETERMINED
     return MatchResult.MATCH if reading.get_normalized().id == court_id else MatchResult.MISMATCH
@@ -107,19 +121,16 @@ def _judge_unique(citation: FullReporterCitation, query: ReporterExactLookupQuer
     if lookup is None or lookup.response is None or len(lookup.response.clusters) != 1:
         raise ValueError("Unique reporter judgment requires one saved candidate")
     candidate = lookup.response.clusters[0]
+    docket = citation.reporter_exact_docket.response if citation.reporter_exact_docket is not None else None
     field_results: list[MatchResult] = []
     if citation.case_name:
         result = _case_name_result(citation, candidate)
         citation = citation.with_case_name_judgment(len(citation.case_name) - 1, 0, result)
         field_results.append(result)
     if citation.court:
-        court_reading = citation.court[-1]
-        # The exact-lookup cluster commonly omits court metadata. A court
-        # inferred solely from the reporter adds no independent written claim.
-        if _candidate_court_id(candidate) is not None or court_reading.span is not None:
-            result = _court_result(citation, candidate)
-            citation = citation.with_court_judgment(len(citation.court) - 1, 0, result)
-            field_results.append(result)
+        result = _court_result(citation, candidate, docket)
+        citation = citation.with_court_judgment(len(citation.court) - 1, 0, result)
+        field_results.append(result)
     # If either side has no date, there is no date opinion and no identity penalty.
     if citation.date and candidate.date_filed:
         result = _date_result(citation, candidate)
@@ -150,6 +161,7 @@ def reporter_root_exact_lookup(
     if "roots" not in document.stage_runs:
         raise ValueError("Form roots before exact reporter lookup")
     roots = tuple(root for root in document.roots if isinstance(root, FullReporterCitation))
+    docket_cache: dict[str, CourtListenerDocket | None] = {}
     with ExitStack() as stack:
         service = client
         for citation in roots:
@@ -194,6 +206,18 @@ def reporter_root_exact_lookup(
                 )
                 recorded = recorded.with_reporter_exact_lookup(result)
                 if outcome is ReporterExactLookupOutcome.UNIQUE:
+                    candidate = response.clusters[0]
+                    if recorded.court and candidate.docket_id and _candidate_court_id(candidate) is None:
+                        docket_id = candidate.docket_id
+                        if docket_id not in docket_cache:
+                            docket_cache[docket_id] = service.get_docket(docket_id)
+                        recorded = recorded.with_reporter_exact_docket(
+                            ReporterExactDocket(
+                                node_id=recorded.nodes[-1].id,
+                                docket_id=docket_id,
+                                response=docket_cache[docket_id],
+                            )
+                        )
                     recorded = _judge_unique(recorded, query)
                 elif outcome is ReporterExactLookupOutcome.AMBIGUOUS:
                     recorded = recorded.with_identity_judgment(

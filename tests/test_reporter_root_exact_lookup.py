@@ -8,7 +8,7 @@ import pytest
 
 from evaluations.stage_products import stage_product
 from mellea_lrc.api import Document, grow_roots, reporter_root_exact_lookup
-from mellea_lrc.courtlistener import CourtListenerCitationLookup, CourtListenerError
+from mellea_lrc.courtlistener import CourtListenerCitationLookup, CourtListenerDocket, CourtListenerError
 from mellea_lrc.model import FullReporterCitation, Span
 from mellea_lrc.model.citations.judgments import IdentityNextStep, IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactLookupOutcome
@@ -17,13 +17,24 @@ STAGE = "reporter_root_exact_lookup"
 
 
 class FakeLookupClient:
-    def __init__(self, response: CourtListenerCitationLookup):
+    def __init__(
+        self,
+        response: CourtListenerCitationLookup,
+        *,
+        dockets: dict[str, CourtListenerDocket | None] | None = None,
+    ):
         self.response = response
         self.calls: list[tuple[str, str, str]] = []
+        self.dockets = dockets or {}
+        self.docket_calls: list[str] = []
 
     def lookup_citation(self, volume: str, reporter: str, page: str) -> CourtListenerCitationLookup:
         self.calls.append((volume, reporter, page))
         return self.response
+
+    def get_docket(self, docket_id: str) -> CourtListenerDocket | None:
+        self.docket_calls.append(docket_id)
+        return self.dockets[docket_id]
 
 
 def _document(text: str = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007).") -> Document:
@@ -131,14 +142,65 @@ def test_missing_full_name_is_undetermined_and_routes_to_review() -> None:
     assert root.reporter_exact_lookup.response == response
 
 
-def test_missing_provider_court_does_not_penalize_reporter_inference() -> None:
+def test_missing_provider_court_defers_inferred_court_as_undetermined() -> None:
     response = _response(_matching_cluster(court_id=None))
     after = reporter_root_exact_lookup(_document(), client=FakeLookupClient(response))
     root = after.roots[0]
 
     assert root.court[-1].span is None
-    assert root.court_judgments == ()
+    assert root.court_judgments[-1].result is MatchResult.UNDETERMINED
+    assert root.identity_judgments[-1].next_step is IdentityNextStep.REVIEW
+
+
+def test_unique_lookup_fetches_linked_docket_and_judges_court_before_identity() -> None:
+    response = _response(_matching_cluster(court_id=None, docketId=10))
+    docket = CourtListenerDocket.model_validate(
+        {"id": 10, "court_id": "scotus", "court": "https://www.courtlistener.com/api/rest/v4/courts/scotus/"}
+    )
+    client = FakeLookupClient(response, dockets={"10": docket})
+
+    after = reporter_root_exact_lookup(_document(), client=client)
+    root = after.roots[0]
+
+    assert client.docket_calls == ["10"]
+    assert root.reporter_exact_docket is not None
+    assert root.reporter_exact_docket.docket_id == "10"
+    assert root.reporter_exact_docket.response == docket
+    assert root.court_judgments[-1].result is MatchResult.MATCH
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
+    assert "reporter_exact_docket" in {item.name for item in stage_product(after, STAGE).records}
+    assert Document.model_validate_json(after.model_dump_json()) == after
+    altered = after.model_dump(mode="json")
+    altered["citations"][0]["reporter_exact_docket"]["docket_id"] = "11"
+    with pytest.raises(ValueError, match="docket"):
+        Document.model_validate(altered)
+
+
+def test_linked_docket_court_mismatch_defers_identity() -> None:
+    response = _response(_matching_cluster(court_id=None, docketId=10))
+    docket = CourtListenerDocket.model_validate({"id": 10, "court_id": "ca2"})
+    client = FakeLookupClient(response, dockets={"10": docket})
+
+    after = reporter_root_exact_lookup(_document(), client=client)
+    root = after.roots[0]
+
+    assert root.case_name_judgments[-1].result is MatchResult.MATCH
+    assert root.date_judgments[-1].result is MatchResult.MATCH
+    assert root.court_judgments[-1].result is MatchResult.MISMATCH
+    assert root.identity_judgments[-1].next_step is IdentityNextStep.REVIEW
+
+
+def test_missing_linked_docket_cannot_silently_admit_inferred_court() -> None:
+    response = _response(_matching_cluster(court_id=None, docketId=10))
+    client = FakeLookupClient(response, dockets={"10": None})
+
+    after = reporter_root_exact_lookup(_document(), client=client)
+    root = after.roots[0]
+
+    assert root.reporter_exact_docket is not None
+    assert root.reporter_exact_docket.response is None
+    assert root.court_judgments[-1].result is MatchResult.UNDETERMINED
+    assert root.identity_judgments[-1].next_step is IdentityNextStep.REVIEW
 
 
 def test_missing_provider_court_routes_explicit_court_to_review() -> None:

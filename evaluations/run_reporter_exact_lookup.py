@@ -94,6 +94,7 @@ def _run_spec(data_root: Path) -> str:
                 "source_data_root": str(data_root.resolve()),
                 "root_rules": "stable",
                 "hunt_dockets": False,
+                "court_docket_fetch": True,
                 "checkpoints": [ROOTS_STAGE, EXACT_STAGE],
             },
             indent=2,

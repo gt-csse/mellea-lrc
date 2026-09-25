@@ -13,6 +13,7 @@ from mellea_lrc.courtlistener.models import (
     CourtListenerCitationLookup,
     CourtListenerCluster,
     CourtListenerClusterCitation,
+    CourtListenerDocket,
 )
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     "CourtListenerClusterCitation",
     "CourtListenerConfig",
     "CourtListenerConfigurationError",
+    "CourtListenerDocket",
     "CourtListenerError",
     "CourtListenerHTTPError",
     "CourtListenerPayloadError",

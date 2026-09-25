@@ -78,6 +78,11 @@ def _summary() -> dict:
     row = {"documents": 1, "gold_reporter_roots": 8, "field_gold_roots": 7, "fields": fields}
     return {
         "stage": "reporter_root_exact_lookup",
+        "prediction_run": {
+            "root_rules": "stable",
+            "hunt_dockets": False,
+            "court_docket_fetch": False,
+        },
         "sets": {"primary": row},
         "totals": row,
     }
@@ -87,6 +92,7 @@ def test_field_report_shows_accuracy_coverage_and_failure_categories() -> None:
     report = render_identity_report(_summary(), source_label="saved/summary.json")
 
     assert "saved/summary.json" in report
+    assert "linked docket court retrieval off" in report
     assert "Decision precision" in report
     assert "later citation is unscored for fields" in report
     assert "7 of 8 identity-labeled reporter roots" in report

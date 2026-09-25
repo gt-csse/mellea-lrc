@@ -1,4 +1,4 @@
-"""Narrow HTTP client for CourtListener's exact citation lookup route."""
+"""Narrow HTTP client for CourtListener citation lookup and docket metadata."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import httpx
 from dotenv import load_dotenv
 from pydantic import ValidationError
 
-from mellea_lrc.courtlistener.models import CourtListenerCitationLookup
+from mellea_lrc.courtlistener.models import CourtListenerCitationLookup, CourtListenerDocket
 
 _USER_AGENT = "mellea-lrc (+https://github.com/gt-csse/mellea-lrc)"
 
@@ -44,7 +44,7 @@ class CourtListenerTransportError(CourtListenerError):
 
 
 class CourtListenerHTTPError(CourtListenerError):
-    """The citation lookup endpoint returned an HTTP error."""
+    """A CourtListener endpoint returned an HTTP error."""
 
 
 class CourtListenerPayloadError(CourtListenerError):
@@ -77,7 +77,7 @@ class CourtListenerConfig:
 
 
 class CourtListenerClient:
-    """POST one exact volume/reporter/page locator to CourtListener."""
+    """Look up an exact reporter citation and its candidate docket."""
 
     def __init__(
         self,
@@ -95,19 +95,22 @@ class CourtListenerClient:
         self._http_client = http_client if http_client is not None else httpx.Client()
         self._owns_http_client = http_client is None
 
-    def lookup_citation(self, volume: str, reporter: str, page: str) -> CourtListenerCitationLookup:
-        """Return CourtListener's one result, including every candidate cluster."""
-        url = self.config.base_url.rstrip("/") + "/citation-lookup/"
+    def _headers(self) -> dict[str, str]:
         headers = {"Accept": "application/json", "User-Agent": _USER_AGENT}
         if self.config.token:
             headers["Authorization"] = f"Token {self.config.token}"
         if self.config.pool:
             headers["x-cl-pool"] = self.config.pool
+        return headers
+
+    def lookup_citation(self, volume: str, reporter: str, page: str) -> CourtListenerCitationLookup:
+        """Return CourtListener's one result, including every candidate cluster."""
+        url = self.config.base_url.rstrip("/") + "/citation-lookup/"
         try:
             response = self._http_client.post(
                 url,
                 data={"volume": volume, "reporter": reporter, "page": page},
-                headers=headers,
+                headers=self._headers(),
                 timeout=45,
             )
         except httpx.TransportError as exc:
@@ -155,6 +158,61 @@ class CourtListenerClient:
                 url=str(response.url),
                 upstream_detail=exc.errors(include_url=False),
             ) from exc
+
+    def get_docket(self, docket_id: str) -> CourtListenerDocket | None:
+        """Return a docket's court metadata, or None when it no longer exists."""
+        if not docket_id.isdecimal():
+            raise ValueError("CourtListener docket ID must contain only decimal digits")
+        url = self.config.base_url.rstrip("/") + f"/dockets/{docket_id}/"
+        try:
+            response = self._http_client.get(url, headers=self._headers(), timeout=45)
+        except httpx.TransportError as exc:
+            raise CourtListenerTransportError(
+                "CourtListener docket lookup failed before a response was received",
+                failure_type="transport_error",
+                url=url,
+                upstream_detail=str(exc),
+            ) from exc
+
+        if response.status_code == 404:
+            return None
+        if response.status_code >= 400:
+            raise CourtListenerHTTPError(
+                f"CourtListener docket lookup returned HTTP {response.status_code}",
+                failure_type="http_error",
+                upstream_status_code=response.status_code,
+                url=str(response.url),
+                upstream_detail=response.text[:500],
+            )
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise CourtListenerPayloadError(
+                "CourtListener docket lookup returned invalid JSON",
+                failure_type="invalid_json",
+                upstream_status_code=response.status_code,
+                url=str(response.url),
+                upstream_detail=response.text[:500],
+            ) from exc
+        try:
+            docket = CourtListenerDocket.model_validate(payload)
+        except ValidationError as exc:
+            raise CourtListenerPayloadError(
+                "CourtListener docket lookup returned an invalid result",
+                failure_type="invalid_payload",
+                upstream_status_code=response.status_code,
+                url=str(response.url),
+                upstream_detail=exc.errors(include_url=False),
+            ) from exc
+        if docket.id != docket_id:
+            raise CourtListenerPayloadError(
+                "CourtListener docket lookup returned a different docket ID",
+                failure_type="invalid_payload",
+                upstream_status_code=response.status_code,
+                url=str(response.url),
+            )
+        return docket
 
     def close(self) -> None:
         """Close the HTTP client when this instance created it."""

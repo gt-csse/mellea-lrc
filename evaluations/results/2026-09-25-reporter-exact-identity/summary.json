@@ -6,7 +6,8 @@
     "checkpoints": [
       "roots",
       "reporter_root_exact_lookup"
-    ]
+    ],
+    "court_docket_fetch": false
   },
   "basis": "Stage-written reporter-root identity and field judgments. Deferred identity roots abstain; identity recall uses all labeled roots represented by unmasked full citations. Field judgments are scored only against labels for the same annotated root occurrence and aligned field reading.",
   "sets": {

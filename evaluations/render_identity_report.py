@@ -107,7 +107,8 @@ def render_identity_report(result: dict[str, Any], *, source_label: str) -> str:
     run_lines = (
         [
             f"Prediction run: `{run['root_rules']}` extraction rules; "
-            f"docket site hunting {'on' if run['hunt_dockets'] else 'off'}.",
+            f"docket site hunting {'on' if run['hunt_dockets'] else 'off'}; "
+            f"linked docket court retrieval {'on' if run['court_docket_fetch'] else 'off'}.",
             "",
         ]
         if isinstance(run, dict)
