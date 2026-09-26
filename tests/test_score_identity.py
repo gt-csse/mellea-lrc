@@ -11,7 +11,7 @@ import pytest
 from evaluations import score_identity
 from evaluations.render_identity_report import render_identity_report
 from evaluations.score_identity import _summary, score_document
-from mellea_lrc.api import Document, grow_roots, reporter_root_exact_lookup
+from mellea_lrc.api import Document, grow_roots, reporter_root_lookup
 from mellea_lrc.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.model.citations.judgments import IdentityVerdict
 
@@ -63,7 +63,7 @@ class FakeLookupClient:
 
 def _document(source: str = SOURCE) -> Document:
     roots = asyncio.run(grow_roots(Document.from_source(source), hunt_dockets=False))
-    return reporter_root_exact_lookup(roots, client=FakeLookupClient())
+    return reporter_root_lookup(roots, client=FakeLookupClient())
 
 
 def _gold(document: Document, *, label: str = "CORRECT_IDENTITY", gold_id: str = "gold-1") -> dict:
@@ -303,7 +303,7 @@ def test_two_decided_roots_for_one_gold_root_receive_only_one_credit() -> None:
     before = asyncio.run(grow_roots(Document.from_source(f"{SOURCE} {SOURCE}"), hunt_dockets=False))
     (_, second) = before.full_locators
     split = before.replace_citation(second.record("split").with_root(second.id)).complete("split")
-    document = reporter_root_exact_lookup(split, client=FakeLookupClient())
+    document = reporter_root_lookup(split, client=FakeLookupClient())
     first, second = document.full_locators
     gold_root = {
         "id": "gold-root",
@@ -337,7 +337,7 @@ def test_report_renders_saved_counts_without_rescoring() -> None:
     counts, _ = score_document(document, (_gold(document),))
     summary = _summary(counts)
     report = render_identity_report(
-        {"stage": "reporter_root_exact_lookup", "sets": {"primary": summary}, "totals": summary},
+        {"stage": "reporter_root_lookup", "sets": {"primary": summary}, "totals": summary},
         source_label="saved/summary.json",
     )
 

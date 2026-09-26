@@ -48,6 +48,9 @@ from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactLookup,
     ReporterExactLookupOutcome,
     ReporterExactLookupQuery,
+    ReporterUniqueFieldAssessment,
+    ReporterUniqueReview,
+    ReporterUniqueReviewDecision,
 )
 from mellea_lrc.model.citations.short_reporter import ShortReporterCitation
 
@@ -98,6 +101,9 @@ __all__ = [
     "ReporterExactLookupOutcome",
     "ReporterExactLookupQuery",
     "ReporterLocatorValue",
+    "ReporterUniqueFieldAssessment",
+    "ReporterUniqueReview",
+    "ReporterUniqueReviewDecision",
     "ShortCitationKind",
     "ShortReporterCitation",
     "ShortReporterLocator",

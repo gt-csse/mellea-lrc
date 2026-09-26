@@ -77,7 +77,7 @@ def _summary() -> dict:
     fields["date"]["confusion"]["agrees"]["match"] = 3
     row = {"documents": 1, "gold_reporter_roots": 8, "field_gold_roots": 7, "fields": fields}
     return {
-        "stage": "reporter_root_exact_lookup",
+        "stage": "reporter_root_lookup",
         "prediction_run": {
             "root_rules": "stable",
             "hunt_dockets": False,

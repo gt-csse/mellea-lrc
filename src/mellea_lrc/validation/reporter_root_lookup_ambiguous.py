@@ -1,4 +1,4 @@
-"""Rule-only resolution of saved ambiguous reporter exact-lookup results."""
+"""Rule-only assessment of saved reporter lookups with multiple candidates."""
 
 from __future__ import annotations
 
@@ -23,14 +23,14 @@ from mellea_lrc.validation._support.reporter_exact_fields import (
     locator_present,
 )
 from mellea_lrc.validation.stage_names import (
-    REPORTER_ROOT_EXACT_AMBIGUITY,
-    REPORTER_ROOT_EXACT_AMBIGUITY_REVIEW,
-    REPORTER_ROOT_EXACT_LOOKUP,
-    REPORTER_ROOT_LARGE_CANDIDATE_REVIEW,
+    REPORTER_ROOT_LOOKUP,
+    REPORTER_ROOT_LOOKUP_AMBIGUOUS,
+    REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM,
+    REPORTER_ROOT_LOOKUP_LARGE_CANDIDATE_REVIEW,
 )
 
-STAGE = REPORTER_ROOT_EXACT_AMBIGUITY
-EXACT_STAGE = REPORTER_ROOT_EXACT_LOOKUP
+STAGE = REPORTER_ROOT_LOOKUP_AMBIGUOUS
+LOOKUP_STAGE = REPORTER_ROOT_LOOKUP
 CANDIDATE_LIMIT = 20
 
 
@@ -40,7 +40,7 @@ class ReporterDocketClient(Protocol):
     def get_docket(self, docket_id: str) -> CourtListenerDocket | None: ...
 
 
-def reporter_root_exact_ambiguity(
+def reporter_root_lookup_ambiguous(
     document: Document,
     *,
     client: ReporterDocketClient | None = None,
@@ -53,8 +53,8 @@ def reporter_root_exact_ambiguity(
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if EXACT_STAGE not in document.stage_runs:
-        raise ValueError("Complete exact reporter lookup before ambiguity review")
+    if LOOKUP_STAGE not in document.stage_runs:
+        raise ValueError("Complete reporter lookup before ambiguous-candidate review")
     roots = tuple(root for root in document.roots if isinstance(root, FullReporterCitation))
     docket_cache: dict[str, CourtListenerDocket | None] = {}
     with ExitStack() as stack:
@@ -69,7 +69,7 @@ def reporter_root_exact_ambiguity(
                 or lookup.query is None
                 or lookup.response is None
             ):
-                raise ValueError("Ambiguity route requires a saved multi-candidate exact lookup")
+                raise ValueError("Ambiguous route requires a saved multi-candidate reporter lookup")
             recorded = root.record(STAGE)
             candidates = lookup.response.clusters
             if len(candidates) >= CANDIDATE_LIMIT:
@@ -79,7 +79,7 @@ def reporter_root_exact_ambiguity(
                 )
                 recorded = recorded.with_reporter_exact_ambiguity_resolution(resolution)
                 recorded = recorded.with_identity_judgment(
-                    IdentityVerdict.DEFERRED, REPORTER_ROOT_LARGE_CANDIDATE_REVIEW
+                    IdentityVerdict.DEFERRED, REPORTER_ROOT_LOOKUP_LARGE_CANDIDATE_REVIEW
                 )
             else:
                 passing: list[int] = []
@@ -103,7 +103,9 @@ def reporter_root_exact_ambiguity(
                     results: list[MatchResult] = []
                     if recorded.case_name:
                         result = case_name_result(recorded, candidate)
-                        recorded = recorded.with_case_name_judgment(len(recorded.case_name) - 1, index, result)
+                        recorded = recorded.with_case_name_judgment(
+                            len(recorded.case_name) - 1, index, result
+                        )
                         results.append(result)
                     if recorded.court:
                         result = court_result(recorded, candidate, docket)
@@ -137,7 +139,7 @@ def reporter_root_exact_ambiguity(
                     recorded.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
                     if selected is not None
                     else recorded.with_identity_judgment(
-                        IdentityVerdict.DEFERRED, REPORTER_ROOT_EXACT_AMBIGUITY_REVIEW
+                        IdentityVerdict.DEFERRED, REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM
                     )
                 )
             document = document.replace_citation(recorded)

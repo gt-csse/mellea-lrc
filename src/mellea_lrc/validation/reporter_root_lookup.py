@@ -1,4 +1,4 @@
-"""Rule-only exact retrieval and field judgments for reporter roots."""
+"""Retrieve reporter-root candidates and rule-judge one-candidate results."""
 
 from __future__ import annotations
 
@@ -28,13 +28,13 @@ from mellea_lrc.validation._support.reporter_exact_fields import (
     locator_present,
 )
 from mellea_lrc.validation.stage_names import (
-    REPORTER_ROOT_EXACT_AMBIGUITY,
-    REPORTER_ROOT_EXACT_LOOKUP,
-    REPORTER_ROOT_EXACT_REVIEW,
+    REPORTER_ROOT_LOOKUP,
+    REPORTER_ROOT_LOOKUP_AMBIGUOUS,
+    REPORTER_ROOT_LOOKUP_UNIQUE_LLM,
     REPORTER_ROOT_SEARCH,
 )
 
-STAGE = REPORTER_ROOT_EXACT_LOOKUP
+STAGE = REPORTER_ROOT_LOOKUP
 
 
 class ReporterLookupClient(Protocol):
@@ -72,18 +72,18 @@ def _judge_unique(citation: FullReporterCitation, query: ReporterExactLookupQuer
         and locator_present(candidate, query) is not False
     ):
         return citation.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
-    return citation.with_identity_judgment(IdentityVerdict.DEFERRED, REPORTER_ROOT_EXACT_REVIEW)
+    return citation.with_identity_judgment(IdentityVerdict.DEFERRED, REPORTER_ROOT_LOOKUP_UNIQUE_LLM)
 
 
-def reporter_root_exact_lookup(
+def reporter_root_lookup(
     document: Document,
     *,
     client: ReporterLookupClient | None = None,
 ) -> Document:
-    """Look up each reporter root once and decide unique rule-checkable identities.
+    """Look up each reporter root once and decide one-candidate rule matches.
 
-    A unique candidate with any disagreement goes to one later review; multiple
-    candidates go to ambiguity review, and an absent candidate goes to search.
+    A unique candidate with any disagreement goes to model review; multiple
+    candidates go to the separate ambiguous stage, and a miss goes to search.
     Provider failures abort instead of masquerading as a lookup miss.
     """
     if STAGE in document.stage_runs:
@@ -151,11 +151,9 @@ def reporter_root_exact_lookup(
                     recorded = _judge_unique(recorded, query)
                 elif outcome is ReporterExactLookupOutcome.AMBIGUOUS:
                     recorded = recorded.with_identity_judgment(
-                        IdentityVerdict.DEFERRED, REPORTER_ROOT_EXACT_AMBIGUITY
+                        IdentityVerdict.DEFERRED, REPORTER_ROOT_LOOKUP_AMBIGUOUS
                     )
                 else:
-                    recorded = recorded.with_identity_judgment(
-                        IdentityVerdict.DEFERRED, REPORTER_ROOT_SEARCH
-                    )
+                    recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, REPORTER_ROOT_SEARCH)
             document = document.replace_citation(recorded)
     return document.complete(STAGE)

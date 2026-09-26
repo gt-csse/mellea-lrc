@@ -18,6 +18,7 @@ from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactCandidateDocket,
     ReporterExactDocket,
     ReporterExactLookup,
+    ReporterUniqueReview,
 )
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.site_review import SiteReview
@@ -42,6 +43,7 @@ ValidationRecord = (
     | ReporterExactDocket
     | ReporterExactCandidateDocket
     | ReporterExactAmbiguityResolution
+    | ReporterUniqueReview
     | ReporterExactCaseNameJudgment
     | ReporterExactCourtJudgment
     | ReporterExactDateJudgment
@@ -106,6 +108,7 @@ def stage_product(document: Document, stage: str) -> StageProduct:
                         ReporterExactDocket,
                         ReporterExactCandidateDocket,
                         ReporterExactAmbiguityResolution,
+                        ReporterUniqueReview,
                         ReporterExactCaseNameJudgment,
                         ReporterExactCourtJudgment,
                         ReporterExactDateJudgment,

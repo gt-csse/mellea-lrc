@@ -9,9 +9,10 @@ from pathlib import Path
 
 import pytest
 
-from evaluations import run_reporter_exact_ambiguity as ambiguity_runner
-from evaluations import run_reporter_exact_lookup as runner
-from mellea_lrc.api import Document, reporter_root_exact_lookup
+from evaluations import run_reporter_root_lookup as runner
+from evaluations import run_reporter_root_lookup_ambiguous as ambiguity_runner
+from evaluations import run_reporter_root_lookup_unique_llm as unique_runner
+from mellea_lrc.api import Document, reporter_root_lookup
 from mellea_lrc.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.model import Span
 
@@ -70,16 +71,16 @@ def test_provider_failure_preserves_root_checkpoint_and_resume_does_not_reextrac
     def fail_lookup(_document: Document) -> Document:
         raise RuntimeError("provider unavailable")
 
-    monkeypatch.setattr(runner, "reporter_root_exact_lookup", fail_lookup)
+    monkeypatch.setattr(runner, "reporter_root_lookup", fail_lookup)
     with pytest.raises(RuntimeError, match="provider unavailable"):
         asyncio.run(runner.run_documents(data_root, run_dir, (name,)))
 
     root_path = run_dir / "root_documents" / name / f"{filename}.json"
-    exact_path = run_dir / "documents" / name / f"{filename}.json"
+    lookup_path = run_dir / "documents" / name / f"{filename}.json"
     roots = Document.model_validate_json(root_path.read_text(encoding="utf-8"))
     assert roots.index_spans == (Span(roots.text.index("INDEX"), len(roots.text)),)
     assert roots.stage_runs[-1] == "roots"
-    assert not exact_path.exists()
+    assert not lookup_path.exists()
 
     async def reject_reextract(_document: Document, **_options: object) -> Document:
         raise AssertionError("roots were already saved")
@@ -87,17 +88,17 @@ def test_provider_failure_preserves_root_checkpoint_and_resume_does_not_reextrac
     monkeypatch.setattr(runner, "grow_roots", reject_reextract)
     monkeypatch.setattr(
         runner,
-        "reporter_root_exact_lookup",
-        lambda document: reporter_root_exact_lookup(document, client=FakeLookupClient()),
+        "reporter_root_lookup",
+        lambda document: reporter_root_lookup(document, client=FakeLookupClient()),
     )
     counts = asyncio.run(runner.run_documents(data_root, run_dir, (name,)))
-    assert counts == {"roots_created": 0, "roots_reused": 1, "exact_created": 1, "exact_reused": 0}
-    exact = Document.model_validate_json(exact_path.read_text(encoding="utf-8"))
+    assert counts == {"roots_created": 0, "roots_reused": 1, "lookup_created": 1, "lookup_reused": 0}
+    exact = Document.model_validate_json(lookup_path.read_text(encoding="utf-8"))
     assert exact.get_stage("roots") == roots
     assert exact.roots[0].identity_judgments[-1].verdict.value == "correct_identity"
 
     counts = asyncio.run(runner.run_documents(data_root, run_dir, (name,)))
-    assert counts == {"roots_created": 0, "roots_reused": 1, "exact_created": 0, "exact_reused": 1}
+    assert counts == {"roots_created": 0, "roots_reused": 1, "lookup_created": 0, "lookup_reused": 1}
 
     ambiguity_dir = tmp_path / "ambiguity-run"
     counts = ambiguity_runner.run_documents(data_root, run_dir, ambiguity_dir, (name,))
@@ -105,8 +106,8 @@ def test_provider_failure_preserves_root_checkpoint_and_resume_does_not_reextrac
     ambiguity = Document.model_validate_json(
         (ambiguity_dir / "documents" / name / f"{filename}.json").read_text(encoding="utf-8")
     )
-    assert ambiguity.get_stage("reporter_root_exact_lookup") == exact
-    assert ambiguity.stage_runs[-1] == "reporter_root_exact_ambiguity"
+    assert ambiguity.get_stage("reporter_root_lookup") == exact
+    assert ambiguity.stage_runs[-1] == "reporter_root_lookup_ambiguous"
     assert ambiguity_runner.run_documents(data_root, run_dir, ambiguity_dir, (name,)) == {
         "ambiguity_created": 0,
         "ambiguity_reused": 1,
@@ -123,3 +124,44 @@ def test_manifest_drift_rejects_saved_run(tmp_path: Path) -> None:
     source.write_text(source.read_text(encoding="utf-8") + " changed", encoding="utf-8")
     with pytest.raises(ValueError, match=r"source differs from documents\.json"):
         asyncio.run(runner.run_documents(data_root, run_dir, (name,), through="roots"))
+
+
+def test_unique_review_runner_preserves_lookup_checkpoint_and_resumes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root = tmp_path / "data"
+    lookup_dir = tmp_path / "lookup"
+    review_dir = tmp_path / "review"
+    name, filename = _corpus(data_root)
+    monkeypatch.setattr(
+        runner,
+        "reporter_root_lookup",
+        lambda document: reporter_root_lookup(document, client=FakeLookupClient()),
+    )
+    asyncio.run(runner.run_documents(data_root, lookup_dir, (name,)))
+
+    async def fake_review(document: Document) -> Document:
+        return document.complete(unique_runner.STAGE)
+
+    monkeypatch.setattr(unique_runner, "reporter_root_lookup_unique_llm", fake_review)
+    assert asyncio.run(unique_runner.run_documents(data_root, lookup_dir, review_dir, (name,))) == {
+        "review_created": 1,
+        "review_reused": 0,
+    }
+    lookup = Document.model_validate_json(
+        (lookup_dir / "documents" / name / f"{filename}.json").read_text(encoding="utf-8")
+    )
+    reviewed = Document.model_validate_json(
+        (review_dir / "documents" / name / f"{filename}.json").read_text(encoding="utf-8")
+    )
+    assert reviewed.get_stage("reporter_root_lookup") == lookup
+    assert reviewed.stage_runs[-1] == unique_runner.STAGE
+
+    async def reject_repeat(_document: Document) -> Document:
+        raise AssertionError("Completed review must not run again")
+
+    monkeypatch.setattr(unique_runner, "reporter_root_lookup_unique_llm", reject_repeat)
+    assert asyncio.run(unique_runner.run_documents(data_root, lookup_dir, review_dir, (name,))) == {
+        "review_created": 0,
+        "review_reused": 1,
+    }

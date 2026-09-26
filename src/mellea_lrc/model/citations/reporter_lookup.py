@@ -5,9 +5,11 @@ from __future__ import annotations
 from enum import Enum
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mellea_lrc.courtlistener.models import CourtListenerCitationLookup, CourtListenerDocket
+from mellea_lrc.model.citations.judgments import MatchResult
+from mellea_lrc.model.ivr import IvrRun
 
 
 class ReporterExactLookupOutcome(str, Enum):
@@ -120,13 +122,56 @@ class ReporterExactAmbiguityResolution(BaseModel):
                 raise ValueError("A unique rule match must select its sole passing candidate")
         elif self.selected_candidate_index is not None:
             raise ValueError("Only a unique rule match selects a candidate")
-        if self.outcome is ReporterExactAmbiguityOutcome.NO_UNIQUE_RULE_MATCH and len(
-            self.passing_candidate_indices
-        ) == 1:
+        if (
+            self.outcome is ReporterExactAmbiguityOutcome.NO_UNIQUE_RULE_MATCH
+            and len(self.passing_candidate_indices) == 1
+        ):
             raise ValueError("One passing candidate must be admitted as a unique rule match")
         if (
             self.outcome is ReporterExactAmbiguityOutcome.CANDIDATE_LIMIT_EXCEEDED
             and self.passing_candidate_indices
         ):
             raise ValueError("An unassessed large candidate set cannot report passing candidates")
+        return self
+
+
+class ReporterUniqueFieldAssessment(BaseModel):
+    """One model comparison, optionally proposing a replacement source quote."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    quote: str | None
+    result: MatchResult
+    reason: str = Field(min_length=1)
+
+
+class ReporterUniqueReviewDecision(BaseModel):
+    """One combined re-reading and comparison against a unique lookup record."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    case_name: ReporterUniqueFieldAssessment
+    court: ReporterUniqueFieldAssessment
+    date: ReporterUniqueFieldAssessment
+    reason: str = Field(min_length=1)
+
+
+class ReporterUniqueReview(BaseModel):
+    """Durable model decision and full IVR trace at one citation node."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    node_id: str
+    decision: ReporterUniqueReviewDecision | None = None
+    ivr: IvrRun | None = None
+    failure_reason: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_outcome(self) -> Self:
+        if (self.decision is None) == (self.failure_reason is None):
+            raise ValueError("Review must contain either a decision or a failure reason")
+        # A successful IVR answer can still fail the stage's final source
+        # grounding check. Keep that run and the boundary failure together.
+        if self.ivr is not None and not self.ivr.success and self.decision is not None:
+            raise ValueError("A failed IVR run cannot supply an accepted decision")
         return self
