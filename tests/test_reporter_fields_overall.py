@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 
 import pytest
 
 from evaluations.combine_reporter_reviews import combine_documents
-from evaluations.score_reporter_fields_overall import _summary, score_document
+from evaluations.render_reporter_fields_overall import render_report
+from evaluations.score_reporter_fields_overall import NAME, _summary, score_document
 from mellea_lrc.api import Document, grow_roots, reporter_root_lookup, reporter_root_lookup_ambiguous
 from mellea_lrc.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.model import FullReporterCitation
@@ -234,3 +236,25 @@ def test_repeated_reporter_occurrence_counts_as_locator_but_not_field_gold() -> 
         "unmasked_canonical_roots": 3,
     }
     assert _summary(counts)["fields"]["case_name"]["gold"] == 3
+
+
+def test_overall_report_shows_root_population_separately_from_field_denominator() -> None:
+    summary = _summary(
+        Counter(
+            gold_reporter_locator_occurrences=4,
+            gold_reporter_identities=3,
+            gold_canonical_reporter_roots=2,
+            case_name_correct=1,
+            case_name_scored=1,
+            case_name_gold=1,
+        )
+    )
+
+    report = render_report(
+        {"name": NAME, "sets": {"primary": summary}, "totals": summary},
+        source_label="saved-score.json",
+    )
+
+    assert "| Set | Field | Full reporter locator roots | Precision | Recall |" in report
+    assert "| primary | case name | 2 | 1/1 (100.0%) | 1/1 (100.0%) |" in report
+    assert "4 unmasked reporter locator occurrences represent 3 distinct annotated identities" in report

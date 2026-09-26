@@ -23,23 +23,33 @@ def render_report(result: dict[str, Any], *, source_label: str) -> str:
         "The checkpoint combines rule checks and both model-review routes. Precision is among "
         "decided judgments with a comparable annotated root, aligned source reading, and an "
         "evidence-linked selected record. Recall includes every explicitly labeled, unmasked "
-        "canonical reporter-root field; unresolved roots count as misses. Repeated locator "
-        "occurrences do not inherit their canonical root's field labels.",
+        "canonical full-reporter root; unresolved roots count as misses. Masked canonical "
+        "occurrences are excluded because a later citation to the same case can state different "
+        "fields. A field marked not stated has no match/mismatch label and is excluded from "
+        "that field's denominator.",
         "",
     ]
     for name, summary in result["sets"].items():
         population = summary["population"]
         lines.append(
             f"**{name}:** {population['reporter_locator_occurrences']} unmasked reporter locator "
-            f"occurrences, {population['reporter_identities']} annotated identities, and "
-            f"{population['unmasked_canonical_roots']} unmasked canonical-root occurrences."
+            f"occurrences represent {population['reporter_identities']} distinct annotated "
+            f"identities; {population['unmasked_canonical_roots']} have an unmasked canonical "
+            "full-reporter root eligible for field recall."
         )
-    lines.extend(("", "| Set | Field | Precision | Recall |", "| --- | --- | ---: | ---: |"))
+    lines.extend(
+        (
+            "",
+            "| Set | Field | Full reporter locator roots | Precision | Recall |",
+            "| --- | --- | ---: | ---: | ---: |",
+        )
+    )
     for name, summary in (*result["sets"].items(), ("Total", result["totals"])):
         for field in FIELDS:
             metric = summary["fields"][field]
             lines.append(
                 f"| {name} | {field.replace('_', ' ')} | "
+                f"{summary['population']['unmasked_canonical_roots']} | "
                 f"{metric['correct']}/{metric['scored']} ({_percent(metric['precision'])}) | "
                 f"{metric['correct']}/{metric['gold']} ({_percent(metric['recall'])}) |"
             )
