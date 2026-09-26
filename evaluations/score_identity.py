@@ -287,7 +287,7 @@ def score_document(
         counts[outcome] += 1
         if judgment.verdict is IdentityVerdict.DEFERRED:
             counts["deferred_total"] += 1
-            counts[f"deferred_to_{judgment.next_step.value}"] += 1
+            counts[f"deferred_to_{judgment.next_stage}"] += 1
         else:
             counts["decided_total"] += 1
             if outcome in {"correct", "wrong", "duplicate_decision", "other_labeled_root"} or (
@@ -312,7 +312,7 @@ def score_document(
                 "gold_root_id": gold_id,
                 "gold_label": label if label in LABELS else None,
                 "verdict": verdict,
-                "next_step": judgment.next_step.value if judgment.next_step else None,
+                "next_stage": judgment.next_stage,
                 "lookup_outcome": root.reporter_exact_lookup.outcome.value
                 if root.reporter_exact_lookup is not None
                 else None,

@@ -9,7 +9,6 @@ from mellea_lrc.model.citations.fields import CaseNameField, CourtField, DateFie
 from mellea_lrc.model.citations.history import RelationshipUpdate
 from mellea_lrc.model.citations.judgments import (
     IdentityJudgment,
-    IdentityNextStep,
     IdentityVerdict,
     ReporterExactCaseNameJudgment,
     ReporterExactCourtJudgment,
@@ -86,8 +85,8 @@ class FullCitation(Citation):
         )
 
     def with_identity_judgment(
-        self, verdict: IdentityVerdict, next_step: IdentityNextStep | None = None
+        self, verdict: IdentityVerdict, next_stage: str | None = None
     ) -> Self:
         """Append a verdict without changing any earlier decision."""
-        judgment = IdentityJudgment(node_id=self._decision_node_id(), verdict=verdict, next_step=next_step)
+        judgment = IdentityJudgment(node_id=self._decision_node_id(), verdict=verdict, next_stage=next_stage)
         return self._with_log(identity_judgments=(*self.identity_judgments, judgment))

@@ -176,7 +176,7 @@ class FullReporterCitation(FullCitation):
             if positions[lookup.node_id] > positions[resolution.node_id]:
                 raise ValueError("Ambiguity resolution cannot precede its lookup response")
             if (
-                resolution.outcome is ReporterExactAmbiguityOutcome.TOO_MANY_CANDIDATES
+                resolution.outcome is ReporterExactAmbiguityOutcome.CANDIDATE_LIMIT_EXCEEDED
             ) != (len(lookup.response.clusters) >= 20):
                 raise ValueError("Large candidate deferral must match the lookup candidate count")
         for log, readings in (

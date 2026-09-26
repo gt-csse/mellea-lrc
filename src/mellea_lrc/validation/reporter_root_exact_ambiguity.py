@@ -7,7 +7,7 @@ from typing import Protocol
 
 from mellea_lrc.courtlistener import CourtListenerClient, CourtListenerDocket
 from mellea_lrc.model.citations import FullReporterCitation
-from mellea_lrc.model.citations.judgments import IdentityNextStep, IdentityVerdict, MatchResult
+from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactAmbiguityOutcome,
     ReporterExactAmbiguityResolution,
@@ -22,9 +22,15 @@ from mellea_lrc.validation._support.reporter_exact_fields import (
     date_result,
     locator_present,
 )
-from mellea_lrc.validation.reporter_root_exact_lookup import STAGE as EXACT_STAGE
+from mellea_lrc.validation.stage_names import (
+    REPORTER_ROOT_EXACT_AMBIGUITY,
+    REPORTER_ROOT_EXACT_AMBIGUITY_REVIEW,
+    REPORTER_ROOT_EXACT_LOOKUP,
+    REPORTER_ROOT_LARGE_CANDIDATE_REVIEW,
+)
 
-STAGE = "reporter_root_exact_ambiguity"
+STAGE = REPORTER_ROOT_EXACT_AMBIGUITY
+EXACT_STAGE = REPORTER_ROOT_EXACT_LOOKUP
 CANDIDATE_LIMIT = 20
 
 
@@ -54,7 +60,7 @@ def reporter_root_exact_ambiguity(
     with ExitStack() as stack:
         service = client
         for root in roots:
-            if not root.identity_judgments or root.identity_judgments[-1].next_step is not IdentityNextStep.AMBIGUITY:
+            if not root.identity_judgments or root.identity_judgments[-1].next_stage != STAGE:
                 continue
             lookup = root.reporter_exact_lookup
             if (
@@ -69,11 +75,11 @@ def reporter_root_exact_ambiguity(
             if len(candidates) >= CANDIDATE_LIMIT:
                 resolution = ReporterExactAmbiguityResolution(
                     node_id=recorded.nodes[-1].id,
-                    outcome=ReporterExactAmbiguityOutcome.TOO_MANY_CANDIDATES,
+                    outcome=ReporterExactAmbiguityOutcome.CANDIDATE_LIMIT_EXCEEDED,
                 )
                 recorded = recorded.with_reporter_exact_ambiguity_resolution(resolution)
                 recorded = recorded.with_identity_judgment(
-                    IdentityVerdict.DEFERRED, IdentityNextStep.FUTURE_IMPLEMENTATION
+                    IdentityVerdict.DEFERRED, REPORTER_ROOT_LARGE_CANDIDATE_REVIEW
                 )
             else:
                 passing: list[int] = []
@@ -121,7 +127,7 @@ def reporter_root_exact_ambiguity(
                     outcome=(
                         ReporterExactAmbiguityOutcome.UNIQUE_RULE_MATCH
                         if selected is not None
-                        else ReporterExactAmbiguityOutcome.REVIEW_REQUIRED
+                        else ReporterExactAmbiguityOutcome.NO_UNIQUE_RULE_MATCH
                     ),
                     passing_candidate_indices=tuple(passing),
                     selected_candidate_index=selected,
@@ -130,7 +136,9 @@ def reporter_root_exact_ambiguity(
                 recorded = (
                     recorded.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
                     if selected is not None
-                    else recorded.with_identity_judgment(IdentityVerdict.DEFERRED, IdentityNextStep.AMBIGUITY)
+                    else recorded.with_identity_judgment(
+                        IdentityVerdict.DEFERRED, REPORTER_ROOT_EXACT_AMBIGUITY_REVIEW
+                    )
                 )
             document = document.replace_citation(recorded)
     return document.complete(STAGE)

@@ -14,7 +14,7 @@ from mellea_lrc.api import (
     reporter_root_exact_lookup,
 )
 from mellea_lrc.courtlistener import CourtListenerCitationLookup, CourtListenerDocket
-from mellea_lrc.model.citations.judgments import IdentityNextStep, IdentityVerdict, MatchResult
+from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactAmbiguityOutcome
 from mellea_lrc.validation.reporter_root_exact_ambiguity import STAGE
 
@@ -77,7 +77,7 @@ def test_unique_passing_candidate_is_admitted_and_all_comparisons_are_saved() ->
     assert [item.candidate_index for item in root.court_judgments] == [0, 1]
     assert [item.candidate_index for item in root.date_judgments] == [0, 1]
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
-    assert root.identity_judgments[-1].next_step is None
+    assert root.identity_judgments[-1].next_stage is None
     records = stage_product(after, STAGE).records
     assert {item.name for item in records} == {
         "case_name_judgments", "court_judgments", "date_judgments",
@@ -105,11 +105,11 @@ def test_zero_or_multiple_passing_candidates_wait_for_model_review(
     root = after.roots[0]
     resolution = root.reporter_exact_ambiguity_resolution
     assert resolution is not None
-    assert resolution.outcome is ReporterExactAmbiguityOutcome.REVIEW_REQUIRED
+    assert resolution.outcome is ReporterExactAmbiguityOutcome.NO_UNIQUE_RULE_MATCH
     assert resolution.passing_candidate_indices == passing
     assert resolution.selected_candidate_index is None
     assert root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
-    assert root.identity_judgments[-1].next_step is IdentityNextStep.AMBIGUITY
+    assert root.identity_judgments[-1].next_stage == "reporter_root_exact_ambiguity_review"
 
 
 def test_large_candidate_set_is_preserved_without_review_or_truncation() -> None:
@@ -121,11 +121,11 @@ def test_large_candidate_set_is_preserved_without_review_or_truncation() -> None
     root = after.roots[0]
     resolution = root.reporter_exact_ambiguity_resolution
     assert resolution is not None
-    assert resolution.outcome is ReporterExactAmbiguityOutcome.TOO_MANY_CANDIDATES
+    assert resolution.outcome is ReporterExactAmbiguityOutcome.CANDIDATE_LIMIT_EXCEEDED
     assert resolution.passing_candidate_indices == ()
     assert len(root.reporter_exact_lookup.response.clusters) == 20
     assert root.case_name_judgments == root.court_judgments == root.date_judgments == ()
-    assert root.identity_judgments[-1].next_step is IdentityNextStep.FUTURE_IMPLEMENTATION
+    assert root.identity_judgments[-1].next_stage == "reporter_root_large_candidate_review"
     assert client.docket_calls == []
 
 
@@ -158,3 +158,20 @@ def test_nonambiguous_root_does_not_gain_a_node() -> None:
     assert after.stage_runs[-1] == STAGE
     assert after.roots == before.roots
     assert after.get_stage("reporter_root_exact_lookup") == before
+
+
+def test_only_exactly_routed_roots_are_processed() -> None:
+    roots = asyncio.run(grow_roots(Document.from_source(SOURCE), hunt_dockets=False))
+    client = FakeClient([cluster(1), cluster(2, caseNameFull="Jones v. Smith")])
+    before = reporter_root_exact_lookup(roots, client=client)
+    root = before.roots[0]
+    almost_stage = root.record("route_setup").with_identity_judgment(
+        IdentityVerdict.DEFERRED, f"{STAGE}_review"
+    )
+    routed = before.replace_citation(almost_stage).complete("route_setup")
+
+    after = reporter_root_exact_ambiguity(routed, client=client)
+
+    assert after.roots[0].nodes == routed.roots[0].nodes
+    assert after.roots[0].reporter_exact_ambiguity_resolution is None
+    assert after.roots[0].identity_judgments[-1].next_stage == f"{STAGE}_review"
