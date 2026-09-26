@@ -66,7 +66,7 @@ def test_unique_lookup_records_matching_fields_and_identity_and_roundtrips() -> 
 
     assert client.calls == [("550", "U.S.", "544")]
     assert after.stage_runs[-1] == STAGE
-    assert after.get_stage("roots") == before
+    assert after.get_stage("10_roots") == before
     assert after.get_stage(STAGE) == after
     (root,) = after.roots
     assert isinstance(root, FullReporterCitation)
@@ -105,7 +105,7 @@ def test_unique_lookup_records_matching_fields_and_identity_and_roundtrips() -> 
 
     loaded = Document.model_validate_json(after.model_dump_json())
     assert loaded == after
-    assert loaded.get_stage("roots") == before
+    assert loaded.get_stage("10_roots") == before
     assert loaded.get_stage(STAGE) == after
     with pytest.raises(ValueError, match="already completed"):
         reporter_root_lookup(after, client=client)
@@ -256,12 +256,12 @@ def test_no_candidate_routes_to_search_but_provider_failure_does_not_complete() 
     assert root.reporter_exact_lookup.outcome is ReporterExactLookupOutcome.NOT_FOUND
     assert root.case_name_judgments == root.court_judgments == root.date_judgments == ()
     assert root.identity_judgments[-1].next_stage == "reporter_root_search"
-    assert empty.get_stage("roots") == before
+    assert empty.get_stage("10_roots") == before
 
     with pytest.raises(CourtListenerError, match="item status 429"):
         reporter_root_lookup(before, client=FakeLookupClient(_response(status=429)))
     assert before.roots[0].reporter_exact_lookup is None
-    assert before.stage_runs[-1] == "roots"
+    assert before.stage_runs[-1] == "10_roots"
 
 
 def test_repeated_locator_occurrences_make_one_query_for_one_root() -> None:
@@ -279,10 +279,13 @@ def test_unnormalizable_root_records_search_without_request() -> None:
     source = "Unparsed reporter"
     empty = Document.from_source(source)
     citation = FullReporterCitation.from_locator(
-        citation_id="reporter:0:17", stage="full_reporter_locators", source=source, span=Span(0, len(source))
+        citation_id="reporter:0:17",
+        stage="1_full_reporter_locators",
+        source=source,
+        span=Span(0, len(source)),
     )
-    before = empty.add_citation(citation).complete("full_reporter_locators")
-    before = before.replace_citation(citation.record("roots").with_root(citation.id)).complete("roots")
+    before = empty.add_citation(citation).complete("1_full_reporter_locators")
+    before = before.replace_citation(citation.record("10_roots").with_root(citation.id)).complete("10_roots")
     client = FakeLookupClient(_response())
 
     after = reporter_root_lookup(before, client=client)
@@ -326,7 +329,7 @@ def test_judgments_use_absolute_reading_indices_and_survive_later_history() -> N
     final = after.replace_citation(later).complete("later_review")
     restored = Document.model_validate_json(final.model_dump_json())
     assert restored == final
-    assert restored.get_stage("roots") == before.get_stage("roots")
+    assert restored.get_stage("10_roots") == before.get_stage("10_roots")
     assert restored.get_stage(STAGE) == after
     assert restored.roots[0].case_name_judgments[0].reading_index == 1
 

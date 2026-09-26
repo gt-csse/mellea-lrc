@@ -7,7 +7,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from evaluations.grow_roots import WorkflowScore, render_markdown, score_grow_roots_workflow
+from evaluations.grow_roots import WorkflowScore, render_grow_roots, score_grow_roots
 from mellea_lrc.api import Document, grow_roots
 
 _SET = "primary"
@@ -27,7 +27,7 @@ async def _run(data_root: Path, output_dir: Path, saved_documents: Path | None) 
             artifact = output_dir / "documents" / f"{filename}.json"
             artifact.parent.mkdir(parents=True, exist_ok=True)
             artifact.write_text(document.model_dump_json(indent=2) + "\n", encoding="utf-8")
-        score = score_grow_roots_workflow(document)
+        score = score_grow_roots(document)
         total = score if total is None else total + score
     if total is None:
         raise ValueError(f"No documents in {_SET}")
@@ -44,7 +44,7 @@ def main() -> None:
     result = {"set": _SET, **score.as_dict()}
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "summary.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-    report = render_markdown(result)
+    report = render_grow_roots(score, set_name=_SET)
     (args.output_dir / "report.md").write_text(report, encoding="utf-8")
     print(report, end="")
 

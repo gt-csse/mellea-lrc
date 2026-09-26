@@ -79,7 +79,7 @@ def test_locator_stages_preserve_exact_occurrences_and_create_one_node() -> None
     assert reporter.case_name == reporter.court == reporter.date == ()
     assert reporter_only.colocations == ()
     assert len(reporter.nodes) == 1
-    assert reporter.nodes[0].stage == "full_reporter_locators"
+    assert reporter.nodes[0].stage == "1_full_reporter_locators"
     assert isinstance(reporter.locator[-1], FullReporterLocator)
     assert isinstance(reporter.locator[-1], CitationField)
     _assert_exact_quote(reporter_only, reporter.locator[-1])
@@ -108,8 +108,8 @@ def test_locator_stages_preserve_exact_occurrences_and_create_one_node() -> None
     assert not hasattr(reporter, "docket_number")
     assert both.colocations == ()
     assert reporter == reporter_only.citations[0]
-    assert both.get_stage("full_reporter_locators") == reporter_only
-    assert both.get_stage("docket_locators") == both
+    assert both.get_stage("1_full_reporter_locators") == reporter_only
+    assert both.get_stage("2_docket_locators") == both
     assert len(docket.nodes) == 1
     assert all(update.node_id == docket.nodes[0].id for log in _field_logs(docket).values() for update in log)
     assert "updates" not in FullCitation.model_fields
@@ -355,7 +355,17 @@ def test_synchronous_pipeline_and_json_roundtrip() -> None:
     assert isinstance(document.citations[1], FullReporterCitation)
     assert document.text == text
     assert all(citation.nodes and citation.locator[-1].get_normalized() for citation in document.citations)
-    assert document.stage_runs
+    assert document.stage_runs == (
+        "1_full_reporter_locators",
+        "2_docket_locators",
+        "4_docket_entries",
+        "5_colocations",
+        "6_case_names",
+        "7_courts",
+        "8_dates",
+        "9_pin_cites",
+        "10_roots",
+    )
     assert len(document.citations) == 2
     assert len(document.colocations) == 1
     assert all(latest(citation.root_id) is not None for citation in document.citations)
@@ -385,25 +395,25 @@ def test_explicit_methods_append_a_traceable_history() -> None:
     date_text = "2024"
     court_text = "D. Ariz."
 
-    named = citation.record("case_names").with_case_name(source, Span(0, len(name)))
-    document = document.replace_citation(named).complete("case_names")
-    courted = named.record("courts").with_court(
+    named = citation.record("6_case_names").with_case_name(source, Span(0, len(name)))
+    document = document.replace_citation(named).complete("6_case_names")
+    courted = named.record("7_courts").with_court(
         source, Span(source.index(court_text), source.index(court_text) + len(court_text))
     )
-    document = document.replace_citation(courted).complete("courts")
-    dated = courted.record("dates").with_date(
+    document = document.replace_citation(courted).complete("7_courts")
+    dated = courted.record("8_dates").with_date(
         source, Span(source.index(date_text), source.index(date_text) + 4)
     )
-    document = document.replace_citation(dated).complete("dates")
-    rooted = dated.record("roots").with_root(citation.id)
-    document = document.replace_citation(rooted).complete("roots")
+    document = document.replace_citation(dated).complete("8_dates")
+    rooted = dated.record("10_roots").with_root(citation.id)
+    document = document.replace_citation(rooted).complete("10_roots")
 
     assert [node.stage for node in rooted.nodes] == [
-        "docket_locators",
-        "case_names",
-        "courts",
-        "dates",
-        "roots",
+        "2_docket_locators",
+        "6_case_names",
+        "7_courts",
+        "8_dates",
+        "10_roots",
     ]
     assert named.nodes == rooted.nodes[:2]
     assert courted.nodes == rooted.nodes[:3]
@@ -433,8 +443,8 @@ def test_normalized_case_name_can_differ_from_its_exact_quote() -> None:
     document = find_docket_locators(Document.from_source(source))
     citation = document.citations[0]
     name_span = Span(0, source.index(","))
-    named = citation.record("case_names").with_case_name(source, name_span)
-    document = document.replace_citation(named).complete("case_names")
+    named = citation.record("6_case_names").with_case_name(source, name_span)
+    document = document.replace_citation(named).complete("6_case_names")
 
     entry = document.citations[0].case_name[-1]
     _assert_exact_quote(document, entry)
@@ -516,10 +526,10 @@ def test_source_mismatches_are_rejected_at_write_time_and_after_json_loading() -
             number_span=name_span,
         )
 
-    updated = citation.record("case_names").with_case_name(source, name_span)
-    document = document.replace_citation(updated).complete("case_names")
-    updated = updated.record("pin_cites").with_pin_cite(source, pin_span)
-    document = document.replace_citation(updated).complete("pin_cites")
+    updated = citation.record("6_case_names").with_case_name(source, name_span)
+    document = document.replace_citation(updated).complete("6_case_names")
+    updated = updated.record("9_pin_cites").with_pin_cite(source, pin_span)
+    document = document.replace_citation(updated).complete("9_pin_cites")
     _assert_roundtrip(document)
 
     for field in ("locator", "case_name", "pin_cite"):
@@ -627,14 +637,14 @@ def test_get_stage_reconstructs_each_committed_document() -> None:
     text = "Brown v. Board of Education, 347 U.S. 483, 495 (1954)."
     document = Document.from_source(text)
     stages = (
-        ("full_reporter_locators", find_full_reporter_locators),
-        ("docket_locators", find_docket_locators),
-        ("colocations", resolve_colocations),
-        ("case_names", resolve_case_names),
-        ("courts", resolve_courts),
-        ("dates", resolve_dates),
-        ("pin_cites", resolve_pin_cites),
-        ("roots", form_roots),
+        ("1_full_reporter_locators", find_full_reporter_locators),
+        ("2_docket_locators", find_docket_locators),
+        ("5_colocations", resolve_colocations),
+        ("6_case_names", resolve_case_names),
+        ("7_courts", resolve_courts),
+        ("8_dates", resolve_dates),
+        ("9_pin_cites", resolve_pin_cites),
+        ("10_roots", form_roots),
     )
     checkpoints: dict[str, Document] = {}
     for name, stage in stages:
@@ -642,11 +652,11 @@ def test_get_stage_reconstructs_each_committed_document() -> None:
         checkpoints[name] = document
         assert document.stage_runs == tuple(checkpoints)
 
-    reporter_only = checkpoints["full_reporter_locators"]
-    after_empty_docket = checkpoints["docket_locators"]
+    reporter_only = checkpoints["1_full_reporter_locators"]
+    after_empty_docket = checkpoints["2_docket_locators"]
     assert len(after_empty_docket.citations) == 1
     assert after_empty_docket.citations == reporter_only.citations
-    assert all(node.stage != "docket_locators" for node in after_empty_docket.citations[0].nodes)
+    assert all(node.stage != "2_docket_locators" for node in after_empty_docket.citations[0].nodes)
     assert after_empty_docket != reporter_only
 
     loaded = Document.model_validate_json(document.model_dump_json())
@@ -681,12 +691,12 @@ def test_get_stage_excludes_later_citations_and_uncommitted_changes() -> None:
         )
 
     pending = reporter_only.add_citation(docket("1:24-cv-00123"))
-    assert pending.get_stage("full_reporter_locators") == reporter_only
+    assert pending.get_stage("1_full_reporter_locators") == reporter_only
     with pytest.raises(KeyError):
         pending.get_stage("manual_review")
 
     reviewed = pending.complete("manual_review")
-    assert reviewed.get_stage("full_reporter_locators") == reporter_only
+    assert reviewed.get_stage("1_full_reporter_locators") == reporter_only
     assert reviewed.get_stage("manual_review") == reviewed
 
     with pytest.raises(ValueError, match="completed"):
@@ -714,9 +724,9 @@ def test_native_reload_rejects_histories_that_cannot_restore_prior_stages() -> N
         Document.model_validate(reordered)
 
     late_group_member = document.model_dump(mode="python")
-    late_group_member["stage_runs"] = [*document.stage_runs, "colocations", "later"]
+    late_group_member["stage_runs"] = [*document.stage_runs, "5_colocations", "later"]
     for citation, stage, raw in (
-        (first, "colocations", late_group_member["citations"][0]),
+        (first, "5_colocations", late_group_member["citations"][0]),
         (second, "later", late_group_member["citations"][1]),
     ):
         node_id = f"{citation.id}:node:1"

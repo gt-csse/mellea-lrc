@@ -151,7 +151,7 @@ def test_docket_number_span_must_be_inside_its_locator() -> None:
     with pytest.raises(ValueError, match="inside the locator"):
         FullDocketCitation.from_locator(
             citation_id="docket:0",
-            stage="docket_locators",
+            stage="2_docket_locators",
             source=source,
             span=Span(source.index(locator), source.index(locator) + len(locator)),
             number_span=Span(0, len("Doc. 10-1")),
@@ -180,12 +180,12 @@ def test_docket_entry_that_cannot_be_normalized_stays_on_citation() -> None:
     citation = (
         FullDocketCitation.from_locator(
             citation_id="docket:0",
-            stage="docket_locators",
+            stage="2_docket_locators",
             source=source,
             span=Span(source.index(locator), source.index(locator) + len(locator)),
             number_span=Span(source.index(number), source.index(number) + len(number)),
         )
-        .record("docket_entries")
+        .record("4_docket_entries")
         .with_docket_entry(source, Span(0, len("Doc. unresolved")))
     )
     entry = citation.docket_entry[-1]
@@ -311,7 +311,7 @@ def test_unresolved_written_court_survives_full_pipeline(source: str) -> None:
         court.get_normalized()
     restored = Document.model_validate_json(document.model_dump_json())
     assert restored == document
-    at_courts = restored.get_stage("courts")
+    at_courts = restored.get_stage("7_courts")
     assert at_courts.citations[0].court[-1] == court
 
 

@@ -88,7 +88,7 @@ def reporter_root_lookup(
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "roots" not in document.stage_runs:
+    if "10_roots" not in document.stage_runs:
         raise ValueError("Form roots before exact reporter lookup")
     roots = tuple(root for root in document.roots if isinstance(root, FullReporterCitation))
     docket_cache: dict[str, CourtListenerDocket | None] = {}

@@ -1,6 +1,6 @@
 # Reporter root lookup
 
-`reporter_root_lookup(document)` is the first validation stage and requires the `roots` checkpoint. It looks up each full reporter root once by normalized volume, reporter edition, and first page. Docket roots and repeated reporter occurrences are untouched. The citation stores one `ReporterExactLookup` object containing the query and complete CourtListener response. Provider failures raise; they are not recorded as lookup misses.
+`reporter_root_lookup(document)` is the first validation stage and requires the `10_roots` checkpoint. It looks up each full reporter root once by normalized volume, reporter edition, and first page. Docket roots and repeated reporter occurrences are untouched. The citation stores one `ReporterExactLookup` object containing the query and complete CourtListener response. Provider failures raise; they are not recorded as lookup misses.
 
 When the response has one cluster, the stage compares the citation's latest case-name, court, and date readings with that cluster. Case-name comparison requires both parties to appear separately in `caseNameFull`, allowing abbreviations from `reporters-db` without treating different full words as synonyms. Courts are compared by recognized court ID when the response has one. CourtListener exact-lookup clusters can omit court metadata: in that case, a court inferred only from the reporter is left unjudged, while an explicitly written court routes to review. A written full date requires the same full date; a written year requires the same year. If either side has no date, the stage makes no date judgment and does not penalize identity for it.
 
@@ -16,11 +16,11 @@ document = Document.model_validate_json(checkpoint.read_text())
 document = reporter_root_lookup(document)
 checkpoint.write_text(document.model_dump_json())
 
-before_lookup = document.get_stage("roots")
+before_lookup = document.get_stage("10_roots")
 after_lookup = document.get_stage("reporter_root_lookup")
 ```
 
-The single lookup object, field judgments, and identity judgment are part of the citation's append-only history. A later checkpoint retains them, while `get_stage("roots")` removes them from the recovered earlier view.
+The single lookup object, field judgments, and identity judgment are part of the citation's append-only history. A later checkpoint retains them, while `get_stage("10_roots")` removes them from the recovered earlier view.
 
 ## Unique lookup model review
 

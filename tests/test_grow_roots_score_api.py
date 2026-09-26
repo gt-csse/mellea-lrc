@@ -19,17 +19,18 @@ SOURCE = (
 )
 
 STAGE_SCORERS = {
-    "full_reporter_locators": "score_full_reporter_locators",
-    "docket_locators": "score_docket_locators",
-    "docket_locator_site_hunting": "score_docket_locator_site_hunting",
-    "docket_entries": "score_docket_entries",
-    "colocations": "score_colocations",
-    "case_names": "score_case_names",
-    "courts": "score_courts",
-    "dates": "score_dates",
-    "pin_cites": "score_pin_cites",
-    "roots": "score_roots",
+    "1_full_reporter_locators": "score_full_reporter_locators",
+    "2_docket_locators": "score_docket_locators",
+    "3_docket_locator_site_hunting": "score_docket_locator_site_hunting",
+    "4_docket_entries": "score_docket_entries",
+    "5_colocations": "score_colocations",
+    "6_case_names": "score_case_names",
+    "7_courts": "score_courts",
+    "8_dates": "score_dates",
+    "9_pin_cites": "score_pin_cites",
+    "10_roots": "score_roots",
 }
+STAGE_RENDERERS = {stage: name.replace("score_", "render_") for stage, name in STAGE_SCORERS.items()}
 
 
 def _span(text: str, quote: str) -> dict[str, str | int]:
@@ -125,7 +126,7 @@ def annotated_document(tmp_path: Path) -> Document:
     return asyncio.run(grow_roots(Document.from_source(source_path), hunt_dockets=True))
 
 
-@pytest.mark.parametrize("name", (*STAGE_SCORERS.values(), "score_grow_roots_workflow"))
+@pytest.mark.parametrize("name", (*STAGE_SCORERS.values(), "score_grow_roots"))
 def test_public_scorer_has_one_document_parameter(name: str) -> None:
     scorer = getattr(evaluation, name)
     parameters = tuple(inspect.signature(scorer).parameters.values())
@@ -135,6 +136,7 @@ def test_public_scorer_has_one_document_parameter(name: str) -> None:
     assert parameters[0].default is inspect.Parameter.empty
     assert not hasattr(evaluation, "score_stage")
     assert not hasattr(evaluation, "_field_stage")
+    assert not hasattr(evaluation, "score_grow_roots_workflow")
 
 
 @pytest.mark.parametrize("stage,name", STAGE_SCORERS.items())
@@ -148,28 +150,26 @@ def test_stage_scorer_uses_its_exact_checkpoint(annotated_document: Document, st
 
 
 def test_optional_hunting_scorer_requires_completed_stage(annotated_document: Document) -> None:
-    without_hunting = annotated_document.get_stage("docket_locators")
+    without_hunting = annotated_document.get_stage("2_docket_locators")
     with pytest.raises(KeyError, match="Stage has not run"):
         evaluation.score_docket_locator_site_hunting(without_hunting)
 
 
 def test_workflow_scorer_accepts_saved_annotated_document(annotated_document: Document) -> None:
     restored = Document.model_validate_json(annotated_document.model_dump_json())
-    assert evaluation.score_grow_roots_workflow(annotated_document) == evaluation.score_grow_roots_workflow(
-        restored
-    )
+    assert evaluation.score_grow_roots(annotated_document) == evaluation.score_grow_roots(restored)
 
 
 def test_workflow_reports_each_root_field_with_annotated_denominators(
     annotated_document: Document,
 ) -> None:
-    score = evaluation.score_grow_roots_workflow(annotated_document)
+    score = evaluation.score_grow_roots(annotated_document)
     stages = {item.stage: item.metrics for item in score.stages}
-    assert stages["case_names"] == {
+    assert stages["6_case_names"] == {
         "span": evaluation.Precision(2, 2),
         "normalization": evaluation.Precision(2, 2),
     }
-    assert stages["courts"] == {
+    assert stages["7_courts"] == {
         "span": evaluation.Precision(1, 1),
         "normalization": evaluation.Precision(2, 2),
     }
@@ -198,7 +198,7 @@ def test_normalization_disagreement_does_not_change_span_score(
     annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
     stage = evaluation.score_case_names(annotated_document)
-    workflow = evaluation.score_grow_roots_workflow(annotated_document)
+    workflow = evaluation.score_grow_roots(annotated_document)
     assert stage.metrics["span"] == evaluation.Precision(2, 2)
     assert stage.metrics["normalization"] == evaluation.Precision(1, 2)
     assert workflow.root_fields["case_name"]["span"] == evaluation.FieldScore(2, 2, 2)
@@ -206,9 +206,9 @@ def test_normalization_disagreement_does_not_change_span_score(
 
 
 def test_workflow_rejects_a_missing_mandatory_checkpoint(annotated_document: Document) -> None:
-    incomplete = annotated_document.get_stage("docket_locators").complete("roots")
+    incomplete = annotated_document.get_stage("2_docket_locators").complete("10_roots")
     with pytest.raises(ValueError, match="Incomplete grow_roots workflow"):
-        evaluation.score_grow_roots_workflow(incomplete)
+        evaluation.score_grow_roots(incomplete)
 
 
 def test_unannotated_normalization_and_absent_field_are_distinct(
@@ -225,6 +225,35 @@ def test_unannotated_normalization_and_absent_field_are_distinct(
     names = evaluation.score_case_names(annotated_document).metrics
     assert courts["normalization"] == evaluation.Precision(1, 2)
     assert names["normalization"] == evaluation.Precision(1, 1)
-    workflow = evaluation.score_grow_roots_workflow(annotated_document)
+    workflow = evaluation.score_grow_roots(annotated_document)
     assert workflow.root_fields["court"]["normalization"] == evaluation.FieldScore(1, 2, 1)
     assert workflow.root_fields["case_name"]["normalization"] == evaluation.FieldScore(1, 1, 1)
+
+
+@pytest.mark.parametrize("stage,name", STAGE_RENDERERS.items())
+def test_each_stage_has_its_own_renderer(annotated_document: Document, stage: str, name: str) -> None:
+    stage_score = getattr(evaluation, STAGE_SCORERS[stage])(annotated_document)
+    rendered = getattr(evaluation, name)(stage_score)
+    assert rendered.startswith(f"## {stage}\n")
+    assert "precision" in rendered
+    other = next(item for item in STAGE_SCORERS if item != stage)
+    with pytest.raises(ValueError, match="Expected"):
+        getattr(evaluation, name)(getattr(evaluation, STAGE_SCORERS[other])(annotated_document))
+
+
+def test_workflow_renderer_includes_numbered_stages_in_order_by_default(
+    annotated_document: Document,
+) -> None:
+    score = evaluation.score_grow_roots(annotated_document)
+    report = evaluation.render_grow_roots(score, set_name="primary")
+    positions = [report.index(f"## {stage}\n") for stage in STAGE_SCORERS]
+    assert positions == sorted(positions)
+    assert report.index("## Root fields\n") > positions[-1]
+    assert "Docket site hunting: included" in report
+
+    summary_only = evaluation.render_grow_roots(score, include_stages=False)
+    assert "## Root fields\n" in summary_only
+    assert all(f"## {stage}\n" not in summary_only for stage in STAGE_SCORERS)
+
+    with pytest.raises(ValueError, match="missing or out of order"):
+        evaluation.render_grow_roots(evaluation.WorkflowScore(score.stages[:-1], score.root_fields))

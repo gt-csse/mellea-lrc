@@ -10,7 +10,7 @@ from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.text_match import fuzzy_literal
 
-STAGE = "docket_locators"
+STAGE = "2_docket_locators"
 
 _PREFIXES = ("No. ", "Case No. ", "Civil Action No. ", "Civ. A. No. ", "Docket No. ")
 DOCKET_PREFIX_PATTERN = (
@@ -39,7 +39,7 @@ def find_docket_locators(document: Document) -> Document:
     """Create courtless docket occurrences from labelled CM/ECF numbers."""
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "colocations" in document.stage_runs:
+    if "5_colocations" in document.stage_runs:
         raise ValueError("Discover all locators before resolving colocations")
     for reading in docket_readings(document.text):
         span = Span(*reading.span)

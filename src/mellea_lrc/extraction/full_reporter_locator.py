@@ -103,7 +103,7 @@ def full_reporter_readings(source: str) -> tuple[FullReporterReading, ...]:
     )
 
 
-STAGE = "full_reporter_locators"
+STAGE = "1_full_reporter_locators"
 
 
 def find_full_reporter_locators(document: Document) -> Document:
@@ -115,7 +115,7 @@ def find_full_reporter_locators(document: Document) -> Document:
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "colocations" in document.stage_runs:
+    if "5_colocations" in document.stage_runs:
         raise ValueError("Discover all locators before resolving colocations")
     for reading in sorted(full_reporter_readings(document.text), key=lambda item: item.span):
         span = Span(*reading.span)

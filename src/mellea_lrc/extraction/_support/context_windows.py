@@ -14,9 +14,9 @@ _PAREN = re.compile(r"\((?P<body>[^()\r\n]{0,100})\)")
 
 
 def require_structure(document: Document) -> None:
-    if "colocations" not in document.stage_runs:
+    if "5_colocations" not in document.stage_runs:
         raise ValueError("Resolve colocations before reading contextual fields")
-    if "roots" in document.stage_runs:
+    if "10_roots" in document.stage_runs:
         raise ValueError("Read contextual fields before forming roots")
 
 

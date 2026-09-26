@@ -12,7 +12,7 @@ from mellea_lrc.model.citations import CaseName, FullCitationVariant, FullReport
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 
-STAGE = "case_names"
+STAGE = "6_case_names"
 
 _CASE = re.compile(r"(?:In re|Ex parte)\s+[^,;\n]{2,100}|[A-Z][^,;\n]{0,100}?\s+v\.\s+[^,;\n]{1,100}")
 _SIGNAL = re.compile(r"^(?:See(?: also)?|Cf\.|But see|Accord|Compare)\s+", re.I)

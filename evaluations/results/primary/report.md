@@ -2,26 +2,59 @@
 
 Docket site hunting: not run
 
-## Stage precision
+## 1_full_reporter_locators
 
-| Stage | Decision | Precision |
-| --- | --- | ---: |
-| full_reporter_locators | span | 589/589 (100.0%) |
-| full_reporter_locators | normalization | 392/392 (100.0%) |
-| docket_locators | span | 19/20 (95.0%) |
-| docket_locators | normalization | 13/14 (92.9%) |
-| docket_entries | span | 1/1 (100.0%) |
-| docket_entries | normalization | 1/1 (100.0%) |
-| colocations | groups | 23/23 (100.0%) |
-| case_names | span | 513/576 (89.1%) |
-| case_names | normalization | 513/571 (89.8%) |
-| courts | span | 424/426 (99.5%) |
-| courts | normalization | 500/501 (99.8%) |
-| dates | span | 550/552 (99.6%) |
-| dates | normalization | 550/552 (99.6%) |
-| pin_cites | span | 391/392 (99.7%) |
-| pin_cites | normalization | 391/392 (99.7%) |
-| roots | root_assignment | 607/609 (99.7%) |
+| Span precision | Normalization precision |
+| ---: | ---: |
+| 589/589 (100.0%) | 392/392 (100.0%) |
+
+## 2_docket_locators
+
+| Span precision | Normalization precision |
+| ---: | ---: |
+| 19/20 (95.0%) | 13/14 (92.9%) |
+
+## 4_docket_entries
+
+| Span precision | Normalization precision |
+| ---: | ---: |
+| 1/1 (100.0%) | 1/1 (100.0%) |
+
+## 5_colocations
+
+| Group precision |
+| ---: |
+| 23/23 (100.0%) |
+
+## 6_case_names
+
+| Span precision | Normalization precision |
+| ---: | ---: |
+| 513/576 (89.1%) | 513/571 (89.8%) |
+
+## 7_courts
+
+| Span precision | Normalization precision |
+| ---: | ---: |
+| 424/426 (99.5%) | 500/501 (99.8%) |
+
+## 8_dates
+
+| Span precision | Normalization precision |
+| ---: | ---: |
+| 550/552 (99.6%) | 550/552 (99.6%) |
+
+## 9_pin_cites
+
+| Span precision | Normalization precision |
+| ---: | ---: |
+| 391/392 (99.7%) | 391/392 (99.7%) |
+
+## 10_roots
+
+| Root assignment precision |
+| ---: |
+| 607/609 (99.7%) |
 
 ## Root fields
 
