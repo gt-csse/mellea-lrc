@@ -23,8 +23,9 @@ def render_report(result: dict[str, Any], *, source_label: str) -> str:
         f"<!-- Generated from {source_label} by evaluations.render_reporter_ambiguity_report. -->",
         "",
         "Admission precision scores unique rule admissions against labeled root identity. Field precision "
-        "scores only the selected candidate when its judgment aligns with the annotated root field reading. "
-        "Each value shows correct/scored comparisons; a dash means no eligible comparisons.",
+        "scores the selected candidate's field judgments against explicit root-level field labels, "
+        "including judgments on later occurrences of that root. Each value shows correct/scored "
+        "judgments; a dash means no labeled judgment was scored.",
         "",
         "| Set | Admission | Case name | Court | Date |",
         "| --- | ---: | ---: | ---: | ---: |",

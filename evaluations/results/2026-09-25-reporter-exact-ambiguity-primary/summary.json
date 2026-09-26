@@ -761,7 +761,7 @@
     },
     "reporter_root_exact_ambiguity": {
       "stage": "reporter_root_exact_ambiguity",
-      "basis": "Admission precision uses labeled root identities. Field precision uses only the uniquely selected candidate and an aligned annotated root field reading.",
+      "basis": "Admission precision uses labeled root identities. Field precision compares the selected candidate's stored judgments with explicit root-level field labels, without scoring extraction spans.",
       "sets": {
         "primary": {
           "documents": 26,
@@ -770,12 +770,12 @@
           "predicted_admissions": 9,
           "scored_admissions": 9,
           "correct_admissions": 9,
-          "case_name_scored": 5,
-          "case_name_correct": 5,
-          "court_scored": 4,
-          "court_correct": 4,
-          "date_scored": 5,
-          "date_correct": 5,
+          "case_name_scored": 9,
+          "case_name_correct": 9,
+          "court_scored": 8,
+          "court_correct": 8,
+          "date_scored": 9,
+          "date_correct": 9,
           "selection_with_cluster_evidence": 9,
           "selected_cluster_listed_in_evidence": 9,
           "admission_precision": {
@@ -786,18 +786,18 @@
           "field_precision": {
             "case_name": {
               "value": 1.0,
-              "correct": 5,
-              "scored": 5
+              "correct": 9,
+              "scored": 9
             },
             "court": {
               "value": 1.0,
-              "correct": 4,
-              "scored": 4
+              "correct": 8,
+              "scored": 8
             },
             "date": {
               "value": 1.0,
-              "correct": 5,
-              "scored": 5
+              "correct": 9,
+              "scored": 9
             }
           },
           "route_outcomes": {
@@ -814,12 +814,12 @@
         "predicted_admissions": 9,
         "scored_admissions": 9,
         "correct_admissions": 9,
-        "case_name_scored": 5,
-        "case_name_correct": 5,
-        "court_scored": 4,
-        "court_correct": 4,
-        "date_scored": 5,
-        "date_correct": 5,
+        "case_name_scored": 9,
+        "case_name_correct": 9,
+        "court_scored": 8,
+        "court_correct": 8,
+        "date_scored": 9,
+        "date_correct": 9,
         "selection_with_cluster_evidence": 9,
         "selected_cluster_listed_in_evidence": 9,
         "admission_precision": {
@@ -830,18 +830,18 @@
         "field_precision": {
           "case_name": {
             "value": 1.0,
-            "correct": 5,
-            "scored": 5
+            "correct": 9,
+            "scored": 9
           },
           "court": {
             "value": 1.0,
-            "correct": 4,
-            "scored": 4
+            "correct": 8,
+            "scored": 8
           },
           "date": {
             "value": 1.0,
-            "correct": 5,
-            "scored": 5
+            "correct": 9,
+            "scored": 9
           }
         },
         "route_outcomes": {
