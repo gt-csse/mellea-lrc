@@ -1,4 +1,4 @@
-"""Combined reporter reviews and overall field scores use saved, aligned evidence."""
+"""Combined reporter reviews and overall scores use the saved field judgments."""
 
 from __future__ import annotations
 
@@ -207,7 +207,7 @@ def test_merge_rejects_different_lookup_checkpoints() -> None:
         combine_documents(ambiguous, unique)
 
 
-def test_overall_recall_includes_unresolved_gold_and_precision_requires_alignment() -> None:
+def test_overall_recall_includes_unresolved_gold_without_requiring_cluster_id() -> None:
     ambiguous, unique = _branches(_lookup())
     combined = combine_documents(ambiguous, unique)
     rows = tuple(
@@ -222,15 +222,15 @@ def test_overall_recall_includes_unresolved_gold_and_precision_requires_alignmen
     assert counts["gold_roots_with_lookup_clusters"] == 2
     for field in ("case_name", "court", "date"):
         assert fields[field] == {
-            "correct": 1,
-            "scored": 1,
+            "correct": 2,
+            "scored": 2,
             "gold": 3,
             "precision": 1.0,
-            "recall": 0.3333,
+            "recall": 0.6667,
         }
         assert [item["outcome"] for item in details if item["field"] == field] == [
             "correct",
-            "candidate_alignment_unverified",
+            "correct",
             "no_selected_candidate",
         ]
 
@@ -292,7 +292,7 @@ def test_overall_report_shows_root_population_separately_from_field_denominator(
     assert "including 1 first cited in a table of authorities" in report
 
 
-def test_toa_root_uses_same_field_on_body_representative_but_not_changed_field() -> None:
+def test_toa_root_judgment_scores_even_when_body_representative_has_different_quote() -> None:
     ambiguous, unique = _branches(_lookup())
     combined = combine_documents(ambiguous, unique)
     body = _gold(combined.roots[0], combined, "1")
@@ -313,5 +313,5 @@ def test_toa_root_uses_same_field_on_body_representative_but_not_changed_field()
 
     toa["case_name"]["quote"] = "Different v. Name"
     counts, details = score_document(combined, (toa, body))
-    assert _summary(counts)["fields"]["case_name"]["correct"] == 0
-    assert next(item for item in details if item["field"] == "case_name")["outcome"] == "changed_occurrence"
+    assert _summary(counts)["fields"]["case_name"]["correct"] == 1
+    assert next(item for item in details if item["field"] == "case_name")["outcome"] == "correct"

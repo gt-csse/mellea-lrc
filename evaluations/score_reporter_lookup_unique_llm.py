@@ -1,8 +1,8 @@
 """Score field judgments written by the saved unique-reporter model stage.
 
-Only explicit annotated field labels on the same root occurrence can score a
-judgment. The judged reading must be the checkpoint's latest reading and must
-match the annotated source reading. Identity decisions are outside this score.
+An explicit field judgment is compared with its annotated root's field label.
+The source reading, selected record, and representative occurrence are saved
+for diagnosis, but their extraction details do not gate judgment scoring.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from evaluations.annotations import SETS, annotated_documents, span
-from evaluations.score_identity import FIELD_LOGS, FIELD_TYPES, GOLD_FIELD_RESULT, _same_annotated_reading
+from evaluations.score_identity import FIELD_LOGS, FIELD_TYPES, GOLD_FIELD_RESULT
 from evaluations.stage_products import stage_product
 from mellea_lrc.model import Document, FullReporterCitation, latest
 from mellea_lrc.model.citations.judgments import MatchResult
@@ -38,7 +38,7 @@ def _summary(counts: Counter[str]) -> dict[str, Any]:
 def score_document(
     document: Document, rows: tuple[dict[str, Any], ...]
 ) -> tuple[Counter[str], list[dict[str, Any]]]:
-    """Compare the unique model stage's field products with aligned labels."""
+    """Compare the unique model stage's field judgments with root labels."""
     product = stage_product(document, STAGE)
     if product.before is None:
         raise ValueError("Unique reporter review needs a prior reporter-lookup checkpoint")
@@ -63,6 +63,13 @@ def score_document(
         if key in by_locator:
             raise ValueError("Duplicate annotated reporter locator")
         by_locator[key] = row
+    canonical_roots = {
+        row["id"]: row
+        for row in rows
+        if row.get("kind") == "FullCaseCitation"
+        and row.get("is_root") is True
+        and row.get("identifier", {}).get("kind") == "reporter"
+    }
 
     reviews: dict[str, list[ReporterUniqueReview]] = defaultdict(list)
     judgments: dict[tuple[str, str], list[Any]] = defaultdict(list)
@@ -107,8 +114,6 @@ def score_document(
             "date": candidate.date_filed,
         }
         review = reviews[root_id][0]
-        annotated = by_locator.get((root.locator_span.start, root.locator_span.end))
-        gold_id = annotated.get("root_id") if annotated is not None else None
         member_gold_ids = {
             row["root_id"]
             for member in checkpoint.full_locators
@@ -116,14 +121,8 @@ def score_document(
             if latest(member.root_id) == root.id
             if (row := by_locator.get((member.locator_span.start, member.locator_span.end))) is not None
         }
-        same_root_occurrence = (
-            annotated is not None
-            and annotated.get("is_root") is True
-            and annotated.get("id") == gold_id
-            and annotated.get("identifier", {}).get("kind") == "reporter"
-            and len(member_gold_ids) <= 1
-        )
-        gold = annotated if same_root_occurrence else None
+        gold_id = next(iter(member_gold_ids)) if len(member_gold_ids) == 1 else None
+        gold = canonical_roots.get(gold_id) if gold_id is not None else None
         for field in FIELDS:
             log_name = FIELD_LOGS[field]
             records = judgments.get((root_id, log_name), ())
@@ -158,18 +157,10 @@ def score_document(
                     outcome = (
                         "conflicting_gold_roots"
                         if len(member_gold_ids) > 1
-                        else "changed_occurrence"
-                        if annotated is not None
-                        else "unmatched_locator"
+                        else "unmatched_or_unlabeled_root"
                     )
                 elif gold_label not in GOLD_FIELD_RESULT:
                     outcome = "not_stated" if gold_label == "not_stated" else "unlabeled"
-                elif newest is None:
-                    outcome = "missing_reading"
-                elif not _same_annotated_reading(field, newest, gold_reading):
-                    outcome = "misaligned_reading"
-                elif record.reading_index != newest_index:
-                    outcome = "stale_reading"
                 elif record.result is MatchResult.UNDETERMINED:
                     outcome = "undetermined"
                     counts[f"{field}_undetermined"] += 1
@@ -229,7 +220,7 @@ def evaluate(data_root: Path, run_dir: Path, sets: tuple[str, ...]) -> dict[str,
         "stage": STAGE,
         "basis": (
             "Only this stage's decided case-name, court, and date judgments score against explicit "
-            "field labels on the same annotated root occurrence with the latest aligned reading."
+            "annotated root field labels, independent of extraction reading or selected record provenance."
         ),
         "sets": {name: _summary(counts) for name, counts in by_set.items()},
         "totals": _summary(totals),
