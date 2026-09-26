@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from evaluations.annotations import SETS
-from evaluations.score_stages import ELIGIBILITY, FIELD_STAGES, STAGES
+from evaluations.score_stages import ELIGIBILITY, FIELD_STAGES, RELATIONSHIP_STAGES, STAGES
 from mellea_lrc.extraction.case_names import STAGE as CASE_NAMES_STAGE
 from mellea_lrc.extraction.colocations import STAGE as COLOCATIONS_STAGE
 from mellea_lrc.extraction.courts import STAGE as COURTS_STAGE
@@ -103,24 +103,6 @@ def _colocation_row(label: str, summary: Mapping[str, Any]) -> str:
     return "| " + " | ".join(cells) + " |"
 
 
-def _roots_row(label: str, summary: Mapping[str, Any]) -> str:
-    complete = _count(summary, "global_exact_root_groups")
-    cells = (
-        label,
-        _fraction(_count(summary, "eligible_locators"), _count(summary, "gold_locators")),
-        _fraction(_count(summary, "canonical_root_locators_found"), _count(summary, "global_gold_roots")),
-        _fraction(_count(summary, "toa_canonical_root_locators_found"), _count(summary, "toa_gold_roots")),
-        _fraction(
-            _count(summary, "canonical_root_anchors_correct"),
-            _count(summary, "canonical_root_locators_found"),
-        ),
-        _fraction(_count(summary, "exact_groups"), _count(summary, "gold_groups")),
-        _fraction(complete, _count(summary, "predicted_groups")),
-        _fraction(complete, _count(summary, "global_gold_roots")),
-    )
-    return "| " + " | ".join(cells) + " |"
-
-
 def render_stage_report(results: Mapping[str, Mapping[str, Any]], *, source_label: str) -> str:
     """Format the completed extraction stages in a fixed display order."""
     if set(STAGE_NAMES) != set(STAGES):
@@ -168,10 +150,8 @@ def render_stage_report(results: Mapping[str, Mapping[str, Any]], *, source_labe
         "independent normalized-gold target.",
         "",
         "Colocation pair scores count unordered pairs of full locators placed in the "
-        "same colocation group. Root formation shows both grouping of locators available "
-        "at that stage and complete-root scores over every annotated full locator. "
-        "The latter exposes upstream extraction misses. Root/leaf linkage scoring "
-        "belongs after `grow_leaves`.",
+        "same colocation group. Root formation reports exact groups only. Root/leaf "
+        "linkage scoring belongs after `grow_leaves`.",
         "",
         "## Totals at a glance",
         "",
@@ -181,25 +161,16 @@ def render_stage_report(results: Mapping[str, Mapping[str, Any]], *, source_labe
     for stage in available_order:
         if stage in FIELD_STAGES:
             lines.append(_field_row(STAGE_NAMES[stage], results[stage]["totals"]))
-    if COLOCATIONS_STAGE in results:
-        lines.extend(
-            (
-                "",
-                "| Group stage | Eligible full locators | Exact groups / gold groups |",
-                "| --- | ---: | ---: |",
-            )
+    lines.extend(
+        (
+            "",
+            "| Group stage | Eligible full locators | Exact groups / gold groups |",
+            "| --- | ---: | ---: |",
         )
-        lines.append(_group_row(STAGE_NAMES[COLOCATIONS_STAGE], results[COLOCATIONS_STAGE]["totals"]))
-    if ROOTS_STAGE in results:
-        lines.extend(
-            (
-                "",
-                "| Root stage | Full locators found | Canonical roots found | TOA roots found | "
-                "Correct anchors | Exact groups on input | Complete roots P | Complete roots R |",
-                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-                _roots_row(STAGE_NAMES[ROOTS_STAGE], results[ROOTS_STAGE]["totals"]),
-            )
-        )
+    )
+    for stage in available_order:
+        if stage in RELATIONSHIP_STAGES:
+            lines.append(_group_row(STAGE_NAMES[stage], results[stage]["totals"]))
     if COLOCATIONS_STAGE in results:
         colocation_totals = results[COLOCATIONS_STAGE]["totals"]
         lines.extend(
@@ -209,7 +180,7 @@ def render_stage_report(results: Mapping[str, Mapping[str, Any]], *, source_labe
                 f"{_fraction(_count(colocation_totals, 'correct_links'), _count(colocation_totals, 'predicted_links'))} "
                 "precision; "
                 f"{_fraction(_count(colocation_totals, 'correct_links'), _count(colocation_totals, 'gold_links'))} "
-                "recall. Conditional root groups include singletons.",
+                "recall. Root groups include singletons.",
             )
         )
 
@@ -269,15 +240,6 @@ def render_stage_report(results: Mapping[str, Mapping[str, Any]], *, source_labe
                 )
             )
             row = _colocation_row
-        elif stage == ROOTS_STAGE:
-            lines.extend(
-                (
-                    "| Set (documents) | Full locators found | Canonical roots found | TOA roots found | "
-                    "Correct anchors | Exact groups on input | Complete roots P | Complete roots R |",
-                    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-                )
-            )
-            row = _roots_row
         else:
             lines.extend(
                 (
@@ -290,31 +252,6 @@ def render_stage_report(results: Mapping[str, Mapping[str, Any]], *, source_labe
             summary = result["sets"][name]
             lines.append(row(f"{name} ({_count(summary, 'documents')})", summary))
         lines.extend((row(f"**Total** ({documents})", result["totals"]), ""))
-        if stage == ROOTS_STAGE:
-            lines.extend(
-                (
-                    "A complete root group must contain every annotated occurrence and no extra "
-                    "locator. The input-group column scores only locators found before root formation. "
-                    "Correct anchors checks whether a found canonical occurrence remains the root.",
-                    "",
-                    "| Set | No locator found | Canonical missing, alternate found | "
-                    "Repeated locator missing | Split root | Merged or extra locator | Wrong anchor |",
-                    "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
-                )
-            )
-            for name, summary in (
-                *((name, result["sets"][name]) for name in set_names),
-                ("Total", result["totals"]),
-            ):
-                lines.append(
-                    f"| {name} | {_count(summary, 'root_outcome_no_locator_found')} | "
-                    f"{_count(summary, 'alternate_representative_roots')} | "
-                    f"{_count(summary, 'root_outcome_repeated_locator_missing')} | "
-                    f"{_count(summary, 'root_outcome_split_root')} | "
-                    f"{_count(summary, 'root_outcome_merged_or_extra_locator')} | "
-                    f"{_count(summary, 'root_outcome_wrong_anchor')} |"
-                )
-            lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 

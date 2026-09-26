@@ -3,8 +3,8 @@
 Run from the repository root::
 
     uv run python -m evaluations.render_identity_report \
-        --summary evaluations/results/2026-09-25-reporter-exact-identity-primary-court/summary.json \
-        --output local/reporter-exact-field-report.md
+        --summary path/to/exact-lookup-score.json \
+        --output path/to/field-report.md
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ def _percent(value: float | None) -> str:
 
 
 def _field_row(name: str, label: str, field: dict[str, Any]) -> str:
-    return f"| {name} | {label} | {_percent(field['precision'])} | {_percent(field['global_recall'])} |"
+    return f"| {name} | {label} | {_percent(field['precision'])} | {_percent(field['conditional_recall'])} |"
 
 
 def render_identity_report(result: dict[str, Any], *, source_label: str) -> str:

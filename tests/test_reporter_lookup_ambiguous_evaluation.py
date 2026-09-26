@@ -102,19 +102,41 @@ def _stage_document(outcome: ReporterExactAmbiguityOutcome, label: str):
     return document, (gold,)
 
 
-def test_ambiguity_score_reports_only_selected_candidate_field_precision():
+def test_ambiguity_score_reports_precision_and_recall_for_routed_fields():
     document, rows = _stage_document(ReporterExactAmbiguityOutcome.UNIQUE_RULE_MATCH, "CORRECT_IDENTITY")
     counts, details = score_document(document, rows)
     summary = _summary(counts)
 
     assert summary == {
-        "field_precision": {
-            "case_name": {"value": 1.0, "correct": 1, "scored": 1},
-            "court": {"value": None, "correct": 0, "scored": 0},
-            "date": {"value": None, "correct": 0, "scored": 0},
+        "fields": {
+            "case_name": {
+                "correct": 1,
+                "scored": 1,
+                "eligible": 1,
+                "correct_gold": 1,
+                "precision": 1.0,
+                "recall": 1.0,
+            },
+            "court": {
+                "correct": 0,
+                "scored": 0,
+                "eligible": 1,
+                "correct_gold": 0,
+                "precision": None,
+                "recall": 0.0,
+            },
+            "date": {
+                "correct": 0,
+                "scored": 0,
+                "eligible": 1,
+                "correct_gold": 0,
+                "precision": None,
+                "recall": 0.0,
+            },
         }
     }
-    assert set(counts) == {"case_name_scored", "case_name_correct"}
+    assert counts["case_name_scored"] == counts["case_name_correct"] == 1
+    assert all(counts[f"{field}_eligible"] == 1 for field in ("case_name", "court", "date"))
     assert details[0]["selected_candidate_index"] == 0
     assert details[0]["candidates"][0]["field_judgments"]["case_name"] == [
         {"reading_index": 0, "candidate_index": 0, "result": "match"}
@@ -122,13 +144,14 @@ def test_ambiguity_score_reports_only_selected_candidate_field_precision():
     assert details[0]["candidates"][1]["field_judgments"]["case_name"] == []
 
 
-def test_identity_label_does_not_change_field_precision():
+def test_identity_label_does_not_change_field_scores():
     document, rows = _stage_document(ReporterExactAmbiguityOutcome.UNIQUE_RULE_MATCH, "WRONG_IDENTITY")
     counts, _ = score_document(document, rows)
     summary = _summary(counts)
 
-    assert set(summary) == {"field_precision"}
-    assert summary["field_precision"]["case_name"] == {"value": 1.0, "correct": 1, "scored": 1}
+    assert set(summary) == {"fields"}
+    assert summary["fields"]["case_name"]["precision"] == 1.0
+    assert summary["fields"]["case_name"]["recall"] == 1.0
 
 
 def test_annotated_repeated_occurrence_uses_its_canonical_root_label():
@@ -156,8 +179,9 @@ def test_annotated_repeated_occurrence_uses_its_canonical_root_label():
 
     counts, details = score_document(document, (repeated,), identity_roots=(canonical,))
 
-    assert set(counts) == {"case_name_scored", "case_name_correct"}
-    assert _summary(counts)["field_precision"]["case_name"] == {"value": 1.0, "correct": 1, "scored": 1}
+    assert counts["case_name_scored"] == counts["case_name_correct"] == 1
+    assert _summary(counts)["fields"]["case_name"]["precision"] == 1.0
+    assert _summary(counts)["fields"]["case_name"]["recall"] == 1.0
     assert details[0]["gold_root_id"] == "gold-root"
 
 
@@ -181,20 +205,40 @@ def test_ambiguity_score_uses_only_citations_routed_to_the_stage():
 
     assert details == []
     assert _summary(counts) == {
-        "field_precision": {
-            field: {"value": None, "correct": 0, "scored": 0} for field in ("case_name", "court", "date")
+        "fields": {
+            field: {
+                "correct": 0,
+                "scored": 0,
+                "eligible": 0,
+                "correct_gold": 0,
+                "precision": None,
+                "recall": None,
+            }
+            for field in ("case_name", "court", "date")
         }
     }
 
 
-def test_ambiguity_report_shows_precision_and_explicit_denominators_only():
+def test_ambiguity_recall_counts_routed_roots_when_no_candidate_is_selected():
+    document, rows = _stage_document(ReporterExactAmbiguityOutcome.NO_UNIQUE_RULE_MATCH, "CORRECT_IDENTITY")
+
+    counts, _ = score_document(document, rows)
+    for field in ("case_name", "court", "date"):
+        metric = _summary(counts)["fields"][field]
+        assert metric["eligible"] == 1
+        assert metric["scored"] == 0
+        assert metric["precision"] is None
+        assert metric["recall"] == 0.0
+
+
+def test_ambiguity_report_shows_only_precision_and_recall():
     counts = {
         "admission_precision": {"value": 0.75, "correct": 3, "scored": 4},
         "route_outcomes": {"unique_rule_match": 4},
-        "field_precision": {
-            "case_name": {"value": 1.0, "correct": 3, "scored": 3},
-            "court": {"value": None, "correct": 0, "scored": 0},
-            "date": {"value": 0.5, "correct": 1, "scored": 2},
+        "fields": {
+            "case_name": {"precision": 1.0, "recall": 0.75},
+            "court": {"precision": None, "recall": None},
+            "date": {"precision": 0.5, "recall": 0.25},
         },
     }
     report = render_report(
@@ -202,10 +246,11 @@ def test_ambiguity_report_shows_precision_and_explicit_denominators_only():
         source_label="saved/summary.json",
     )
 
-    assert "| Set | Case name | Court | Date |" in report
-    assert "| primary | 3/3 (100.0%) | 0/0 (—) | 1/2 (50.0%) |" in report
+    assert "| Set | Field | Precision | Recall |" in report
+    assert "| primary | Case name | 100.0% | 75.0% |" in report
+    assert "| primary | Court | — | — |" in report
+    assert "| primary | Date | 50.0% | 25.0% |" in report
     assert "admission" not in report.lower()
     assert "identity" not in report.lower()
     assert "route" not in report.lower()
-    assert "recall" not in report.lower()
     assert "gold ambiguous roots" not in report.lower()

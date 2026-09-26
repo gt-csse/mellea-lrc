@@ -1,4 +1,4 @@
-"""Saved unique-review scores use only its own aligned field judgments."""
+"""Saved unique-review scores use only its own field judgments."""
 
 from __future__ import annotations
 
@@ -153,7 +153,14 @@ def test_corrected_latest_reading_is_scored_from_unique_stage() -> None:
 
     assert counts["routed_roots"] == 1
     for field in ("case_name", "court", "date"):
-        assert summary["field_precision"][field] == {"correct": 1, "scored": 1, "value": 1.0}
+        assert summary["fields"][field] == {
+            "correct": 1,
+            "scored": 1,
+            "eligible": 1,
+            "correct_gold": 1,
+            "precision": 1.0,
+            "recall": 1.0,
+        }
     case_name = next(item for item in details if item["field"] == "case_name")
     assert case_name["latest_reading_index"] == len(after.roots[0].case_name) - 1
     assert case_name["reading_index"] == case_name["latest_reading_index"]
@@ -172,7 +179,15 @@ def test_rule_stage_judgments_are_not_included_when_unique_stage_did_not_review(
     assert details == []
     assert counts["routed_roots"] == 0
     assert all(
-        _summary(counts)["field_precision"][field] == {"correct": 0, "scored": 0, "value": None}
+        _summary(counts)["fields"][field]
+        == {
+            "correct": 0,
+            "scored": 0,
+            "eligible": 0,
+            "correct_gold": 0,
+            "precision": None,
+            "recall": None,
+        }
         for field in ("case_name", "court", "date")
     )
 
@@ -188,7 +203,7 @@ def test_new_judgment_overrides_prior_rule_match_for_field_precision() -> None:
 
     counts, details = score_document(after, (_gold(after, case_name_label="disagrees"),))
 
-    assert _summary(counts)["field_precision"]["case_name"]["correct"] == 1
+    assert _summary(counts)["fields"]["case_name"]["correct"] == 1
     case_name = next(item for item in details if item["field"] == "case_name")
     assert case_name["result"] == "mismatch"
     assert case_name["gold_label"] == "disagrees"
@@ -201,18 +216,33 @@ def test_field_judgment_uses_root_label_across_reading_and_occurrence_changes() 
     gold = _gold(after)
     wrong_reading = {**gold, "case_name": {"start": 0, "end": 9, "quote": "Bell Atl."}}
     counts, details = score_document(after, (wrong_reading,))
-    assert _summary(counts)["field_precision"]["case_name"] == {"correct": 1, "scored": 1, "value": 1.0}
+    assert _summary(counts)["fields"]["case_name"] == {
+        "correct": 1,
+        "scored": 1,
+        "eligible": 1,
+        "correct_gold": 1,
+        "precision": 1.0,
+        "recall": 1.0,
+    }
     assert next(item for item in details if item["field"] == "case_name")["outcome"] == "correct"
 
 
-def test_failed_review_has_per_field_gaps_and_no_scored_judgments() -> None:
+def test_failed_review_has_per_field_gaps_and_recall_misses() -> None:
     before = _lookup()
     after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=_FailedReviewer()))
 
     counts, details = score_document(after, (_gold(after),))
 
     assert all(
-        _summary(counts)["field_precision"][field] == {"correct": 0, "scored": 0, "value": None}
+        _summary(counts)["fields"][field]
+        == {
+            "correct": 0,
+            "scored": 0,
+            "eligible": 1,
+            "correct_gold": 0,
+            "precision": None,
+            "recall": 0.0,
+        }
         for field in ("case_name", "court", "date")
     )
     assert [item["field"] for item in details] == ["case_name", "court", "date"]
@@ -265,19 +295,16 @@ def test_cumulative_cli_writes_unique_stage_field_scores_and_occurrences(
     report = (output_dir / "report.md").read_text(encoding="utf-8")
     assert summary["stage_order"][-1] == STAGE
     unique = summary["stages"][STAGE]
-    assert set(unique["totals"]) == {"field_precision"}
+    assert set(unique["totals"]) == {"case_name", "court", "date"}
     for field in ("case_name", "court", "date"):
-        assert unique["totals"]["field_precision"][field] == {
-            "correct": 1,
-            "scored": 1,
-            "value": 1.0,
-        }
+        assert unique["totals"][field] == {"precision": 1.0, "recall": 1.0}
     assert [item["field"] for item in occurrences[STAGE]["primary/sample.txt"]] == [
         "case_name",
         "court",
         "date",
     ]
-    section = report.split(f"## Field judgment precision at `{STAGE}`", 1)[1]
-    assert "| primary | 1/1 (100.0%) | 1/1 (100.0%) | 1/1 (100.0%) |" in section
-    assert "admission" not in section.lower()
-    assert "decision precision" not in section.lower()
+    assert f"| {STAGE} | primary | case name | 100.0% | 100.0% |" in report
+    assert f"| {STAGE} | primary | court | 100.0% | 100.0% |" in report
+    assert f"| {STAGE} | primary | date | 100.0% | 100.0% |" in report
+    assert "admission" not in report.lower()
+    assert "decision precision" not in report.lower()
