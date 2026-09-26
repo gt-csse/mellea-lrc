@@ -1,22 +1,29 @@
-"""Precision of decisions made by the first two grow_roots stages."""
+"""Score individual grow_roots stages and final root fields from one Document."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mellea_lrc.extraction.docket_locator import find_docket_locators
-from mellea_lrc.extraction.full_reporter_locator import find_full_reporter_locators
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation
+from mellea_lrc.model.citations.full import FullCitation
+from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, latest
 
 REPORTER_STAGE = "full_reporter_locators"
 DOCKET_STAGE = "docket_locators"
-STAGES = (REPORTER_STAGE, DOCKET_STAGE)
-GOLD_KIND = {REPORTER_STAGE: "FullCaseCitation", DOCKET_STAGE: "DocketCitation"}
+HUNT_STAGE = "docket_locator_site_hunting"
+ENTRY_STAGE = "docket_entries"
+COLOCATION_STAGE = "colocations"
+CASE_NAME_STAGE = "case_names"
+COURT_STAGE = "courts"
+DATE_STAGE = "dates"
+PIN_STAGE = "pin_cites"
+ROOT_STAGE = "roots"
 
 
 @dataclass(frozen=True)
@@ -36,187 +43,434 @@ class Precision:
 
 
 @dataclass(frozen=True)
-class StagePrecision:
-    stage: str
-    span: Precision
-    normalization: Precision
+class FieldScore:
+    correct: int = 0
+    predicted: int = 0
+    gold: int = 0
 
-    def __add__(self, other: StagePrecision) -> StagePrecision:
-        if self.stage != other.stage:
-            raise ValueError("Cannot combine different stages")
-        return StagePrecision(self.stage, self.span + other.span, self.normalization + other.normalization)
+    def __add__(self, other: FieldScore) -> FieldScore:
+        return FieldScore(
+            self.correct + other.correct, self.predicted + other.predicted, self.gold + other.gold
+        )
 
-    def as_dict(self) -> dict[str, Any]:
+    def as_dict(self) -> dict[str, int | float | None]:
         return {
-            "stage": self.stage,
-            "span": self.span.as_dict(),
-            "normalization": self.normalization.as_dict(),
+            "correct": self.correct,
+            "predicted": self.predicted,
+            "gold": self.gold,
+            "precision": self.correct / self.predicted if self.predicted else None,
+            "recall": self.correct / self.gold if self.gold else None,
         }
 
 
-def _reporter_label(value: str) -> str:
-    return re.sub(r"\s+", "", value).casefold()
+@dataclass(frozen=True)
+class StageScore:
+    stage: str
+    metrics: dict[str, Precision]
 
-
-def _normalized_agrees(
-    citation: FullReporterCitation | FullDocketCitation, identifier: dict[str, Any]
-) -> bool:
-    reading = citation.locator[0]
-    value = reading.get_normalized()
-    if isinstance(citation, FullReporterCitation):
-        return (
-            value.volume == int(identifier["volume"])
-            and _reporter_label(value.edition) == _reporter_label(str(identifier["reporter"]))
-            and value.page == str(identifier["page"])
+    def __add__(self, other: StageScore) -> StageScore:
+        if self.stage != other.stage or self.metrics.keys() != other.metrics.keys():
+            raise ValueError("Cannot combine different stage scores")
+        return StageScore(
+            self.stage, {key: value + other.metrics[key] for key, value in self.metrics.items()}
         )
-    return value.docket_number == identifier["docket_number"]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"stage": self.stage, "metrics": {key: value.as_dict() for key, value in self.metrics.items()}}
 
 
-def _complete_identifier(stage: str, row: dict[str, Any]) -> dict[str, Any] | None:
-    identifier = row.get("identifier")
-    if not isinstance(identifier, dict):
-        return None
-    if stage == REPORTER_STAGE:
-        if identifier.get("kind") != "reporter" or any(
-            identifier.get(key) in (None, "") for key in ("volume", "reporter", "page")
-        ):
-            return None
-        try:
-            int(identifier["volume"])
-        except (ValueError, TypeError):
-            return None
-    elif stage == DOCKET_STAGE:
-        if identifier.get("kind") != "docket" or not identifier.get("docket_number"):
-            return None
-    else:
-        raise ValueError(f"Unsupported stage: {stage}")
-    return identifier
+@dataclass(frozen=True)
+class WorkflowScore:
+    stages: tuple[StageScore, ...]
+    root_fields: dict[str, dict[str, FieldScore]]
+
+    def __add__(self, other: WorkflowScore) -> WorkflowScore:
+        if tuple(item.stage for item in self.stages) != tuple(item.stage for item in other.stages):
+            raise ValueError("Cannot combine workflows with different stage runs")
+        return WorkflowScore(
+            tuple(left + right for left, right in zip(self.stages, other.stages, strict=True)),
+            {
+                name: {
+                    measure: value + other.root_fields[name][measure] for measure, value in measures.items()
+                }
+                for name, measures in self.root_fields.items()
+            },
+        )
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "stages": [item.as_dict() for item in self.stages],
+            "root_fields": {
+                name: {measure: score.as_dict() for measure, score in measures.items()}
+                for name, measures in self.root_fields.items()
+            },
+        }
 
 
-def score_document(document: Document, rows: tuple[dict[str, Any], ...], stage: str) -> StagePrecision:
-    """Score only locator fields created at one completed stage.
-
-    A normalized output is scored only when its own exact locator span has a
-    complete normalized target on that annotation row. Root links are not
-    substituted: a leaf may write a different locator for the same case.
-    """
-    if stage not in STAGES:
-        raise ValueError(f"Unsupported stage: {stage}")
-    checkpoint = document.get_stage(stage)
-    gold: dict[tuple[int, int], dict[str, Any]] = {}
+def _rows(document: Document) -> tuple[dict[str, Any], ...]:
+    """Resolve official annotations from the source path; reject stale gold."""
+    if document.source_path is None:
+        raise ValueError("Evaluation needs a Document with an official source path")
+    source = Path(document.source_path).resolve()
+    dataset = source.parent.parent
+    annotation = dataset / "documents" / f"{source.stem}.jsonl"
+    lines = annotation.read_text(encoding="utf-8").splitlines()
+    if not lines:
+        raise ValueError(f"Empty annotation file: {annotation}")
+    header = json.loads(lines[0])
+    text = header.get("text", {})
+    expected_path = (dataset.parent / text.get("path", "")).resolve()
+    if (
+        header.get("unit") != "header"
+        or header.get("dataset") != dataset.name
+        or header.get("document") != source.name
+        or expected_path != source
+        or text.get("length") != len(document.text)
+        or text.get("sha256") != hashlib.sha256(document.text.encode("utf-8")).hexdigest()
+    ):
+        raise ValueError(f"Annotation does not match Document source: {annotation}")
+    rows = tuple(row for line in lines[1:] if (row := json.loads(line)).get("unit") == "citation")
+    seen: set[tuple[str, int, int]] = set()
     for row in rows:
-        if row.get("kind") != GOLD_KIND[stage]:
+        if row.get("kind") not in {"FullCaseCitation", "DocketCitation"}:
             continue
         locator = row.get("locator")
         if not isinstance(locator, dict):
-            raise ValueError(f"Annotated {GOLD_KIND[stage]} has no locator")
-        key = (int(locator["start"]), int(locator["end"]))
-        if key in gold:
-            raise ValueError(f"Duplicate annotated {GOLD_KIND[stage]} locator: {key}")
-        if checkpoint.text[key[0] : key[1]] != locator["quote"]:
-            raise ValueError(f"Annotated locator differs from source: {row.get('id')}")
-        gold[key] = row
+            raise ValueError(f"Full citation has no locator: {row.get('id')}")
+        key = (row["kind"], locator["start"], locator["end"])
+        if key in seen:
+            raise ValueError(f"Duplicate annotated locator: {key}")
+        seen.add(key)
+        for name in ("locator", "case_name", "court", "date", "pin_cite", "docket_entry"):
+            target = row.get(name)
+            if isinstance(target, dict) and "start" in target:
+                if document.text[target["start"] : target["end"]] != target["quote"]:
+                    raise ValueError(f"Annotated {name} differs from source: {row.get('id')}")
+    return rows
 
-    expected_type = FullReporterCitation if stage == REPORTER_STAGE else FullDocketCitation
+
+def _kind(citation: FullCitation) -> str:
+    return "FullCaseCitation" if isinstance(citation, FullReporterCitation) else "DocketCitation"
+
+
+def _key(citation: FullCitation) -> tuple[str, int, int]:
+    span = citation.locator[-1].span
+    return _kind(citation), span.start, span.end
+
+
+def _gold(rows: tuple[dict[str, Any], ...]) -> dict[tuple[str, int, int], dict[str, Any]]:
+    return {
+        (row["kind"], row["locator"]["start"], row["locator"]["end"]): row
+        for row in rows
+        if row.get("kind") in {"FullCaseCitation", "DocketCitation"}
+    }
+
+
+def _span(reading: Any) -> tuple[int, int] | None:
+    return None if reading is None or reading.span is None else (reading.span.start, reading.span.end)
+
+
+def _gold_span(target: Any) -> tuple[int, int] | None:
+    return (target["start"], target["end"]) if isinstance(target, dict) and "start" in target else None
+
+
+def _has_target(name: str, row: dict[str, Any]) -> bool:
+    if name in {"full_reporter_locator", "docket_locator"}:
+        identifier = row.get("identifier")
+        if not isinstance(identifier, dict):
+            return False
+        if name == "docket_locator":
+            return identifier.get("kind") == "docket" and bool(identifier.get("docket_number"))
+        return identifier.get("kind") == "reporter" and all(
+            identifier.get(key) not in (None, "") for key in ("volume", "reporter", "page")
+        )
+    value = row.get(name)
+    if not isinstance(value, dict):
+        return False
+    key = {
+        "docket_entry": "number",
+        "case_name": "normalized",
+        "court": "id",
+        "date": "normalized",
+        "pin_cite": "normalized",
+    }[name]
+    return value.get(key) is not None
+
+
+def _agrees(name: str, reading: Any, row: dict[str, Any]) -> bool:
+    value = reading.get_normalized()
+    if name == "full_reporter_locator":
+        target = row["identifier"]
+        return (
+            str(value.volume) == str(target["volume"])
+            and re.sub(r"\s+", "", value.edition).casefold()
+            == re.sub(r"\s+", "", str(target["reporter"])).casefold()
+            and value.page == str(target["page"])
+        )
+    if name == "docket_locator":
+        return value.docket_number == row["identifier"]["docket_number"]
+    if name == "docket_entry":
+        return str(value) == str(row["docket_entry"]["number"])
+    if name == "case_name":
+        return value.model_dump(mode="json") == row["case_name"]["normalized"]
+    if name == "court":
+        return value.id == row["court"]["id"]
+    if name == "date":
+        actual = f"{value.year:04d}"
+        if value.month is not None:
+            actual += f"-{value.month:02d}"
+        if value.day is not None:
+            actual += f"-{value.day:02d}"
+        return actual == row["date"]["normalized"]
+    if name == "pin_cite":
+        return [item.model_dump(mode="json", exclude_none=True) for item in value] == row["pin_cite"][
+            "normalized"
+        ]
+    raise ValueError(f"Unknown field: {name}")
+
+
+def _field_stage(
+    document: Document, stage: str, name: str, attribute: str, citation_type: type[FullCitation] | None = None
+) -> StageScore:
+    checkpoint = document.get_stage(stage)
+    gold = _gold(_rows(checkpoint))
     span = Precision()
     normalization = Precision()
-    for citation in checkpoint.citations:
-        if citation.nodes[0].stage != stage:
+    for citation in checkpoint.full_locators:
+        if citation_type is not None and not isinstance(citation, citation_type):
             continue
-        if not isinstance(citation, expected_type):
-            raise TypeError(f"Unexpected citation created by {stage}: {type(citation).__name__}")
-        reading = citation.locator[0]
-        if reading.node_id != citation.nodes[0].id:
-            raise ValueError("Locator decision does not point to its creation node")
-        key = (reading.span.start, reading.span.end)
-        row = gold.get(key)
-        span = Precision(span.correct + int(row is not None), span.total + 1)
-        if row is None or not reading.normalizable:
+        row = gold.get(_key(citation))
+        node_ids = {node.id for node in citation.nodes if node.stage == stage}
+        for reading in getattr(citation, attribute):
+            if reading.node_id not in node_ids:
+                continue
+            target = row.get("locator" if attribute == "locator" else attribute) if row else None
+            if reading.span is not None:
+                span = Precision(span.correct + int(_span(reading) == _gold_span(target)), span.total + 1)
+            if not reading.normalizable:
+                continue
+            if row is None:
+                normalization = Precision(normalization.correct, normalization.total + 1)
+                continue
+            if not _has_target(name, row):
+                continue
+            normalization = Precision(
+                normalization.correct + int(_agrees(name, reading, row)), normalization.total + 1
+            )
+    return StageScore(stage, {"span": span, "normalization": normalization})
+
+
+def score_full_reporter_locators(document: Document) -> StageScore:
+    return _field_stage(document, REPORTER_STAGE, "full_reporter_locator", "locator", FullReporterCitation)
+
+
+def score_docket_locators(document: Document) -> StageScore:
+    return _field_stage(document, DOCKET_STAGE, "docket_locator", "locator", FullDocketCitation)
+
+
+def score_docket_locator_site_hunting(document: Document) -> StageScore:
+    return _field_stage(document, HUNT_STAGE, "docket_locator", "locator", FullDocketCitation)
+
+
+def score_docket_entries(document: Document) -> StageScore:
+    return _field_stage(document, ENTRY_STAGE, "docket_entry", "docket_entry", FullDocketCitation)
+
+
+def score_case_names(document: Document) -> StageScore:
+    return _field_stage(document, CASE_NAME_STAGE, "case_name", "case_name")
+
+
+def score_courts(document: Document) -> StageScore:
+    return _field_stage(document, COURT_STAGE, "court", "court")
+
+
+def score_dates(document: Document) -> StageScore:
+    return _field_stage(document, DATE_STAGE, "date", "date")
+
+
+def score_pin_cites(document: Document) -> StageScore:
+    return _field_stage(document, PIN_STAGE, "pin_cite", "pin_cite")
+
+
+def score_colocations(document: Document) -> StageScore:
+    checkpoint = document.get_stage(COLOCATION_STAGE)
+    gold = _gold(_rows(checkpoint))
+    by_id = {citation.id: citation for citation in checkpoint.full_locators}
+    available = {_key(citation) for citation in checkpoint.full_locators}
+    groups: dict[str, set[str]] = {}
+    for citation in checkpoint.full_locators:
+        group_id = latest(citation.colocation_id)
+        if group_id is not None:
+            groups.setdefault(group_id, set()).add(citation.id)
+    correct = 0
+    for ids in groups.values():
+        predicted = {_key(by_id[citation_id]) for citation_id in ids}
+        rows = [gold.get(key) for key in predicted]
+        if not rows or any(row is None or row.get("colocation_id") is None for row in rows):
             continue
-        target = _complete_identifier(stage, row)
-        if target is None:
+        gold_ids = {row["colocation_id"] for row in rows}
+        if len(gold_ids) == 1:
+            gold_available = {
+                key for key, row in gold.items() if key in available and row.get("colocation_id") in gold_ids
+            }
+            correct += int(predicted == gold_available)
+    return StageScore(COLOCATION_STAGE, {"groups": Precision(correct, len(groups))})
+
+
+def score_roots(document: Document) -> StageScore:
+    checkpoint = document.get_stage(ROOT_STAGE)
+    gold = _gold(_rows(checkpoint))
+    by_id = {citation.id: citation for citation in checkpoint.full_locators}
+    available_gold_ids = {
+        row["id"] for citation in checkpoint.full_locators if (row := gold.get(_key(citation))) is not None
+    }
+    correct = total = 0
+    for citation in checkpoint.full_locators:
+        if not any(node.stage == ROOT_STAGE for node in citation.nodes):
             continue
-        normalization = Precision(
-            normalization.correct + int(_normalized_agrees(citation, target)),
-            normalization.total + 1,
-        )
-    return StagePrecision(stage, span, normalization)
-
-
-def _load_rows(
-    path: Path, data_root: Path, set_name: str, filename: str, metadata: dict[str, Any]
-) -> tuple[Path, tuple[dict[str, Any], ...]]:
-    lines = path.read_text(encoding="utf-8").splitlines()
-    if not lines:
-        raise ValueError(f"Empty annotation file: {path}")
-    header = json.loads(lines[0])
-    if (
-        header.get("unit") != "header"
-        or header.get("document") != filename
-        or header.get("dataset") != set_name
-        or header.get("text", {}).get("sha256") != metadata["sha256"]
-        or header.get("text", {}).get("length") != metadata["length"]
-    ):
-        raise ValueError(f"Annotation header does not match source: {path}")
-    source_path = (data_root / header["text"]["path"]).resolve()
-    if not source_path.is_relative_to((data_root / set_name).resolve()) or source_path.name != filename:
-        raise ValueError(f"Annotation source path is outside this dataset: {path}")
-    rows = tuple(row for line in lines[1:] if (row := json.loads(line)).get("unit") == "citation")
-    return source_path, rows
-
-
-def evaluate_set(data_root: Path, set_name: str, *, run_dir: Path | None = None) -> dict[str, Any]:
-    """Load saved Documents, or run only the first two rule stages from source."""
-    base = data_root / set_name
-    manifest = json.loads((base / "documents.json").read_text(encoding="utf-8"))["documents"]
-    totals = {stage: StagePrecision(stage, Precision(), Precision()) for stage in STAGES}
-    for filename, metadata in sorted(manifest.items()):
-        source_path, rows = _load_rows(
-            base / "documents" / f"{Path(filename).stem}.jsonl", data_root, set_name, filename, metadata
-        )
-        if run_dir is None:
-            document = Document.from_source(source_path)
-            document = find_full_reporter_locators(document)
-            document = find_docket_locators(document)
+        root_id = latest(citation.root_id)
+        if root_id is None or root_id == WITHDRAWN_ROOT_ID:
+            continue
+        total += 1
+        row = gold.get(_key(citation))
+        root = by_id.get(root_id)
+        root_row = gold.get(_key(root)) if root is not None else None
+        if row is None or root_row is None:
+            continue
+        # A missed locator must not become a root-formation error. If the
+        # annotated representative was found, however, the chosen head matters.
+        if row["root_id"] in available_gold_ids:
+            correct += int(root_row["id"] == row["root_id"])
         else:
-            artifact = run_dir / "documents" / set_name / f"{filename}.json"
-            document = Document.model_validate_json(artifact.read_text(encoding="utf-8"))
-        digest = hashlib.sha256(document.text.encode("utf-8")).hexdigest()
-        if digest != metadata["sha256"] or len(document.text) != metadata["length"]:
-            raise ValueError(f"Document differs from dataset manifest: {set_name}/{filename}")
-        for stage in STAGES:
-            totals[stage] += score_document(document, rows, stage)
-    return {"set": set_name, "stages": [totals[stage].as_dict() for stage in STAGES]}
+            correct += int(root_row["root_id"] == row["root_id"])
+    return StageScore(ROOT_STAGE, {"root_assignment": Precision(correct, total)})
 
 
-def render_markdown(results: list[dict[str, Any]]) -> str:
-    """Render the same two precision measures for every set and stage."""
+GROW_ROOTS_STAGES: tuple[tuple[str, Callable[[Document], StageScore]], ...] = (
+    (REPORTER_STAGE, score_full_reporter_locators),
+    (DOCKET_STAGE, score_docket_locators),
+    (HUNT_STAGE, score_docket_locator_site_hunting),
+    (ENTRY_STAGE, score_docket_entries),
+    (COLOCATION_STAGE, score_colocations),
+    (CASE_NAME_STAGE, score_case_names),
+    (COURT_STAGE, score_courts),
+    (DATE_STAGE, score_dates),
+    (PIN_STAGE, score_pin_cites),
+    (ROOT_STAGE, score_roots),
+)
 
-    def cell(metric: dict[str, Any]) -> str:
-        if metric["total"] == 0:
-            return "—"
-        return f"{metric['correct']}/{metric['total']} ({metric['precision']:.1%})"
+
+def score_grow_roots_workflow(document: Document) -> WorkflowScore:
+    """All stage precision, then precision/recall for final root fields."""
+    final = document.get_stage(ROOT_STAGE)
+    missing = [
+        stage for stage, _ in GROW_ROOTS_STAGES if stage != HUNT_STAGE and stage not in final.stage_runs
+    ]
+    if missing:
+        raise ValueError(f"Incomplete grow_roots workflow; missing stages: {', '.join(missing)}")
+    stages = tuple(
+        score(final)
+        for stage, score in GROW_ROOTS_STAGES
+        if stage != HUNT_STAGE or HUNT_STAGE in final.stage_runs
+    )
+    gold = _gold(tuple(row for row in _rows(final) if row.get("is_root")))
+    names = (
+        "full_reporter_locator",
+        "docket_locator",
+        "docket_entry",
+        "case_name",
+        "court",
+        "date",
+        "pin_cite",
+    )
+    attributes = {
+        "full_reporter_locator": "locator",
+        "docket_locator": "locator",
+        "docket_entry": "docket_entry",
+        "case_name": "case_name",
+        "court": "court",
+        "date": "date",
+        "pin_cite": "pin_cite",
+    }
+    result: dict[str, dict[str, FieldScore]] = {}
+    for name in names:
+        gold_kind = (
+            "FullCaseCitation"
+            if name == "full_reporter_locator"
+            else "DocketCitation"
+            if name in {"docket_locator", "docket_entry"}
+            else None
+        )
+        gold_rows = [row for row in gold.values() if gold_kind is None or row["kind"] == gold_kind]
+        target_name = "locator" if name.endswith("_locator") else name
+        span_gold = sum(_gold_span(row.get(target_name)) is not None for row in gold_rows)
+        norm_gold = sum(_has_target(name, row) for row in gold_rows)
+        span_correct = span_predicted = norm_correct = norm_predicted = 0
+        for citation in final.roots:
+            if gold_kind is not None and _kind(citation) != gold_kind:
+                continue
+            if name == "docket_entry" and not isinstance(citation, FullDocketCitation):
+                continue
+            readings = getattr(citation, attributes[name])
+            if not readings:
+                continue
+            reading = readings[-1]
+            row = gold.get(_key(citation))
+            target = row.get(target_name) if row else None
+            span_match = reading.span is not None and _span(reading) == _gold_span(target)
+            if reading.span is not None:
+                span_predicted += 1
+                span_correct += int(span_match)
+            if reading.normalizable and not (row is not None and not _has_target(name, row)):
+                norm_predicted += 1
+                norm_correct += int(
+                    row is not None and _has_target(name, row) and _agrees(name, reading, row)
+                )
+        result[name] = {
+            "span": FieldScore(span_correct, span_predicted, span_gold),
+            "normalization": FieldScore(norm_correct, norm_predicted, norm_gold),
+        }
+    return WorkflowScore(stages, result)
+
+
+def render_markdown(result: dict[str, Any]) -> str:
+    """Render only the stage and root-field measures in the score."""
+
+    def precision(value: dict[str, Any]) -> str:
+        return (
+            "—" if value["total"] == 0 else f"{value['correct']}/{value['total']} ({value['precision']:.1%})"
+        )
+
+    def field(value: dict[str, Any], key: str) -> str:
+        denominator = value["predicted" if key == "precision" else "gold"]
+        return "—" if denominator == 0 else f"{value['correct']}/{denominator} ({value[key]:.1%})"
 
     lines = [
-        "# Grow-roots extraction precision",
+        f"# Grow-roots evaluation: {result['set']}",
         "",
-        "| Set | Stage | Span precision | Normalization precision |",
-        "| --- | --- | ---: | ---: |",
+        "Docket site hunting: "
+        + ("included" if any(stage["stage"] == HUNT_STAGE for stage in result["stages"]) else "not run"),
+        "",
+        "## Stage precision",
+        "",
+        "| Stage | Decision | Precision |",
+        "| --- | --- | ---: |",
     ]
-    for result in results:
-        for stage in result["stages"]:
-            lines.append(
-                f"| {result['set']} | {stage['stage']} | {cell(stage['span'])} | "
-                f"{cell(stage['normalization'])} |"
-            )
-    lines.extend(
-        (
-            "",
-            "Span precision requires an exact same-kind annotated locator span. "
-            "Normalization precision is conditional on that span and on a complete "
-            "normalized identifier in the same annotation row; unnormalizable readings "
-            "and rows without that target are not normalization decisions scored here.",
-            "",
+    for stage in result["stages"]:
+        for name, value in stage["metrics"].items():
+            lines.append(f"| {stage['stage']} | {name} | {precision(value)} |")
+    lines += [
+        "",
+        "## Root fields",
+        "",
+        "| Field | Span precision | Span recall | Normalization precision | Normalization recall |",
+        "| --- | ---: | ---: | ---: | ---: |",
+    ]
+    for name, measures in result["root_fields"].items():
+        span, norm = measures["span"], measures["normalization"]
+        lines.append(
+            f"| {name} | {field(span, 'precision')} | {field(span, 'recall')} | "
+            f"{field(norm, 'precision')} | {field(norm, 'recall')} |"
         )
-    )
+    lines.append("")
     return "\n".join(lines)

@@ -1,11 +1,15 @@
 # Grow-roots evaluation
 
-The active evaluator covers the first two extraction stages, `full_reporter_locators` and `docket_locators`. Each stage uses the same two measures: exact locator-span precision and normalization precision conditional on an exact span and a complete normalized identifier on that same annotation row. These are stage decisions, not root-deduplicated citations. The scorer never follows `root_id` to supply missing normalization gold; a repeated citation may spell its locator differently from its root.
+Each named stage scorer takes one serialized or in-memory `Document`, recovers its checkpoint with `document.get_stage(stage)`, and scores only decisions made at that stage. Field-reading stages report span precision and normalization precision. Colocation and root-formation stages report group and root-assignment precision. A missing checkpoint raises.
 
-Run the rule stages directly on the official text:
+`score_grow_roots_workflow(document)` calls the stage scorers and reports span and normalization precision and recall for the final roots' reporter locator, docket locator, docket entry, case name, court, date, and pin cite. Span and normalization are checked independently. The gold denominators come from the official annotations. An unannotated normalized target is excluded from normalization scoring; a missing annotation for a predicted citation counts against precision. Inferred courts have no span to score, but their normalized court IDs are scored.
+
+The scorer locates the annotation beside the document's official source file and checks its text length, SHA-256 digest, source path, and every quoted span. It does not accept an annotation path or extra stage arguments.
+
+Run the primary set from source:
 
 ```sh
-python -m evaluations --data-root /path/to/mellea-lrc-datasets --output-dir local/grow-roots-evaluation
+.venv/bin/python -m evaluations
 ```
 
-Pass `--set NAME` more than once to include other annotated sets. Pass `--run-dir PATH` to score serialized Documents under `PATH/documents/SET/FILENAME.txt.json` instead of rerunning the two stages. The command writes `summary.json` and `report.md`. It fails on missing stage checkpoints, changed source text, inconsistent annotation quotes, or duplicate gold spans.
+The runner sets `_SET = "primary"` in `evaluations/__main__.py`. It writes each full `Document` to `evaluations/results/primary/documents/` and the combined `summary.json` and `report.md` beside them. Use `--saved-documents PATH` to score previously saved documents without rerunning extraction. `--data-root` and `--output-dir` change file locations, not the scorer API or selected set.
