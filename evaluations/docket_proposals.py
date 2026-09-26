@@ -32,7 +32,7 @@ COUNT_FIELDS = (
 
 
 def score_set(data_root: Path, run_dir: Path, name: str) -> dict[str, int]:
-    """Count exact half-open spans, excluding the document's index masks."""
+    """Count exact half-open spans, including table-of-authorities citations."""
     counts = dict.fromkeys(COUNT_FIELDS, 0)
     for _, _, saved, rows in annotated_documents(data_root, run_dir, (name,)):
         document = saved.get_stage(DOCKET_LOCATORS_STAGE)

@@ -19,7 +19,7 @@ from eyecite.tokenizers import EXTRACTORS, AhocorasickTokenizer
 
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span, is_within
+from mellea_lrc.model.span import Span
 
 _ANY_WHITESPACE = r"\s*"
 _REPORTER_GROUP = re.compile(r"\(\?P<reporter>((?:[^()\\]|\\.)*)\)")
@@ -119,9 +119,7 @@ def find_full_reporter_locators(document: Document) -> Document:
         raise ValueError("Discover all locators before resolving colocations")
     for reading in sorted(full_reporter_readings(document.text), key=lambda item: item.span):
         span = Span(*reading.span)
-        if is_within(span, document.index_spans) or any(
-            span.overlaps(item.site_span) for item in document.citations
-        ):
+        if any(span.overlaps(item.site_span) for item in document.citations):
             continue
         identifier = f"reporter:{span.start}:{span.end}"
         document = document.add_citation(

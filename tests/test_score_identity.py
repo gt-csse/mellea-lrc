@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -282,6 +283,33 @@ def test_masked_gold_root_label_applies_to_unmasked_full_citation() -> None:
     assert counts["gold_reporter_roots"] == 1
     assert counts["correct_decisions"] == 1
     assert counts["missing_gold_reporter_roots"] == 0
+
+
+def test_toa_root_field_label_applies_to_identical_body_field_only() -> None:
+    document = _document()
+    body = _gold_with_fields(document)
+    toa = deepcopy(body)
+    toa["id"] = toa["root_id"] = "toa-root"
+    toa["locator"] = {"start": 0, "end": 1}
+    toa["in_table_of_authorities"] = True
+    body["id"] = "body-repeat"
+    body["root_id"] = "toa-root"
+    body["is_root"] = False
+    body.pop("validation")
+
+    counts, _ = score_document(document, (toa, body))
+    assert counts["gold_reporter_roots"] == 1
+    assert all(_summary(counts)["fields"][field]["correct_predictions"] == 1 for field in ("case_name", "court", "date"))
+
+    toa["case_name"]["quote"] = "Different v. Name"
+    counts, details = score_document(document, (toa, body))
+    assert _summary(counts)["fields"]["case_name"]["correct_predictions"] == 0
+    assert any(
+        row["product"] == "field_judgment"
+        and row["field"] == "case_name"
+        and row["outcome"] == "changed_occurrence"
+        for row in details
+    )
 
 
 def test_merge_of_two_gold_roots_is_false_decision_and_two_misses() -> None:

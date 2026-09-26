@@ -34,6 +34,7 @@ from mellea_lrc.extraction.short_reporter_locator import STAGE as SHORT_REPORTER
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation, ShortReporterCitation, Span
 from mellea_lrc.model.citations import CitationVariant
 from mellea_lrc.model.citations.fields.base import CitationField
+from mellea_lrc.model.span import is_within
 
 GoldKey: TypeAlias = tuple[str, Span]
 NO_GOLD = object()
@@ -54,15 +55,15 @@ RELATIONSHIP_STAGES = {
 }
 STAGES = (*FIELD_STAGES, *RELATIONSHIP_STAGES)
 ELIGIBILITY = {
-    FULL_REPORTER_LOCATORS_STAGE: "All unmasked annotated full reporter locators",
-    DOCKET_LOCATORS_STAGE: "All unmasked annotated docket locators",
+    FULL_REPORTER_LOCATORS_STAGE: "All annotated full reporter locators, including table-of-authorities sites",
+    DOCKET_LOCATORS_STAGE: "All annotated docket locators, including table-of-authorities sites",
     DOCKET_HUNT_STAGE: "Annotated docket locators not already found by the rule stage",
     DOCKET_ENTRIES_STAGE: "Annotated entries whose docket locator existed before this stage",
     CASE_NAMES_STAGE: "Annotated case names whose full locator existed before this stage",
     COURTS_STAGE: "Annotated courts whose full locator existed before this stage",
     DATES_STAGE: "Annotated dates whose full locator existed before this stage",
-    PIN_CITES_STAGE: "Annotated pin cites whose full locator existed before this stage",
-    SHORT_REPORTER_CITATIONS_STAGE: "All unmasked annotated short reporter citations",
+    PIN_CITES_STAGE: "Annotated pin cites outside table-of-authorities sites whose full locator existed before this stage",
+    SHORT_REPORTER_CITATIONS_STAGE: "All annotated short reporter citations",
     COLOCATIONS_STAGE: "Annotated full locators present before colocation",
     ROOTS_STAGE: "Annotated full locators present before root formation",
 }
@@ -174,6 +175,12 @@ def _eligible_field_gold(
         relevant = {key: row for key, row in rows.items() if key[0] == "ShortCaseCitation"}
     else:
         relevant = {key: row for key, row in rows.items() if key[0] in {"FullCaseCitation", "DocketCitation"}}
+    if stage == PIN_CITES_STAGE:
+        relevant = {
+            key: row
+            for key, row in relevant.items()
+            if not is_within(key[1], product.after.index_spans)
+        }
     relevant = {key: row for key, row in relevant.items() if _gold_field(row, field) is not None}
     if stage in {FULL_REPORTER_LOCATORS_STAGE, DOCKET_LOCATORS_STAGE, SHORT_REPORTER_CITATIONS_STAGE}:
         return relevant, len(relevant)
@@ -195,12 +202,21 @@ def _score_fields(
     if unexpected or product.relationships:
         raise ValueError(f"{product.stage} wrote unscored fields or relationships: {unexpected}")
     eligible, total_gold = _eligible_field_gold(product, rows, field)
+    predictions = (
+        tuple(
+            item
+            for item in product.fields
+            if not is_within(_citation_key(item.citation)[1], product.after.index_spans)
+        )
+        if product.stage == PIN_CITES_STAGE
+        else product.fields
+    )
     counts: Counter[str] = Counter(
         documents=1,
         gold_fields=total_gold,
         eligible_gold=len(eligible),
         gold_outside_stage_scope=total_gold - len(eligible),
-        predicted=len(product.fields),
+        predicted=len(predictions),
     )
     counts["gold_with_span"] = sum(
         _gold_span(_gold_field(row, field)) is not None for row in eligible.values()
@@ -213,7 +229,7 @@ def _score_fields(
         counts[f"site_review_{review.outcome}"] += 1
     matched: set[GoldKey] = set()
     details = []
-    for item in product.fields:
+    for item in predictions:
         key = _citation_key(item.citation)
         reading = item.reading
         predicted_span = getattr(reading, "span", None)

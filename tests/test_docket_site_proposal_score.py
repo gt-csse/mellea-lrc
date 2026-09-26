@@ -1,4 +1,4 @@
-"""The offline proposal score uses source spans and excludes index annotations."""
+"""The offline proposal score includes table-of-authorities docket sites."""
 
 import hashlib
 import json
@@ -55,7 +55,7 @@ def test_score_defaults_to_primary(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert selected == ["primary"]
 
 
-def test_score_counts_rule_proposal_and_remaining_gold_after_index_exclusion(tmp_path: Path) -> None:
+def test_score_counts_rule_proposal_and_remaining_gold_including_index(tmp_path: Path) -> None:
     source = "INDEX: Case No. 035547/2021\nSee Case No. 1:24-cv-00123. Later No. 19 Civ. 8034; Misc 77/4."
     root = tmp_path / "primary"
     text_dir = root / "documents_txt"
@@ -118,10 +118,10 @@ def test_score_counts_rule_proposal_and_remaining_gold_after_index_exclusion(tmp
 
     assert result["sets"]["primary"] == {
         "documents": 1,
-        "eligible_gold_docket_locators": 3,
+        "eligible_gold_docket_locators": 4,
         "rule_found": 1,
-        "exact_proposed_among_rule_misses": 1,
+        "exact_proposed_among_rule_misses": 2,
         "remaining_misses": 1,
-        "total_proposals": 1,
+        "total_proposals": 2,
     }
     assert result["totals"] == result["sets"]["primary"]

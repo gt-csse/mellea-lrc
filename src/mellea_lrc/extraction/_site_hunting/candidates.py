@@ -44,8 +44,6 @@ def _masked_text(document: Document) -> str:
     for citation in document.full_locators:
         span = citation.locator_span
         masked[span.start : span.end] = " " * (span.end - span.start)
-    for span in document.index_spans:
-        masked[span.start : span.end] = " " * (span.end - span.start)
     # An ECF/Doc./Dkt./D.I. entry number identifies a filing within a docket,
     # not the case docket itself. Reuse the entry reader's syntax so an inner
     # "No." cannot be proposed as a full docket locator.

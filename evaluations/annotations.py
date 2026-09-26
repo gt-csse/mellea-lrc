@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from mellea_lrc.model import Document, Span
-from mellea_lrc.model.span import is_within
 
 SETS = (
     "primary",
@@ -63,7 +62,7 @@ def annotated_documents(
                 if row.get("unit") != "citation":
                     continue
                 locator = row.get("locator")
-                if isinstance(locator, dict) and not is_within(span(locator), document.index_spans):
+                if isinstance(locator, dict):
                     for field in SPAN_FIELDS:
                         evidence = row.get(field)
                         if not isinstance(evidence, dict) or "start" not in evidence:

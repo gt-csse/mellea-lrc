@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span, is_within
+from mellea_lrc.model.span import Span
 from mellea_lrc.text_match import fuzzy_literal
 
 STAGE = "docket_locators"
@@ -43,9 +43,7 @@ def find_docket_locators(document: Document) -> Document:
         raise ValueError("Discover all locators before resolving colocations")
     for reading in docket_readings(document.text):
         span = Span(*reading.span)
-        if is_within(span, document.index_spans) or any(
-            span.overlaps(item.site_span) for item in document.citations
-        ):
+        if any(span.overlaps(item.site_span) for item in document.citations):
             continue
         identifier = f"docket:{span.start}:{span.end}"
         document = document.add_citation(

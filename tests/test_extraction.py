@@ -253,6 +253,46 @@ def test_repeated_reporter_occurrences_share_a_root_without_losing_spans() -> No
     assert [_read_span(document, index) for index in range(2)] == ["556 U.S. 662"] * 2
 
 
+def test_table_of_authorities_reporter_occurrence_can_be_the_root() -> None:
+    text = (
+        "TABLE OF AUTHORITIES\n"
+        "Ashcroft v. Iqbal, 556 U.S. 662 (2009).\n"
+        "ARGUMENT\n"
+        "Ashcroft v. Iqbal, 556 U.S. 662 (2009)."
+    )
+    source = Document.from_source(text)
+    source = Document.model_validate(
+        {
+            **source.model_dump(mode="python"),
+            "index_spans": (Span(0, text.index("\nARGUMENT")),),
+        }
+    )
+
+    document = asyncio.run(grow_roots(source))
+
+    assert len(document.full_locators) == 2
+    toa, body = document.full_locators
+    assert toa.locator_span.end <= source.index_spans[0].end
+    assert body.locator_span.start > source.index_spans[0].end
+    assert [_read_span(document, index) for index in range(2)] == ["556 U.S. 662"] * 2
+    assert latest(toa.root_id) == toa.id
+    assert latest(body.root_id) == toa.id
+    assert document.roots == (toa,)
+
+
+def test_table_of_authorities_docket_locator_is_discovered() -> None:
+    text = "TABLE OF AUTHORITIES\nSmith v. Jones, Case No. 1:24-cv-00123 (D. Ariz. 2024)."
+    source = Document.from_source(text)
+    source = Document.model_validate(
+        {**source.model_dump(mode="python"), "index_spans": (Span(0, len(text)),)}
+    )
+
+    document = find_docket_locators(source)
+
+    assert len(document.full_locators) == 1
+    assert _read_span(document, 0) == "Case No. 1:24-cv-00123"
+
+
 def test_courtless_docket_occurrences_are_not_deduplicated_by_number_alone() -> None:
     document = form_roots(
         resolve_colocations(
