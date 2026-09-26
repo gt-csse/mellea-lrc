@@ -32,16 +32,31 @@
       }
     },
     {
-      "stage": "4_docket_entries",
+      "stage": "3_docket_locator_site_hunting",
       "metrics": {
         "span": {
-          "correct": 1,
-          "total": 1,
+          "correct": 38,
+          "total": 38,
           "precision": 1.0
         },
         "normalization": {
-          "correct": 1,
-          "total": 1,
+          "correct": 33,
+          "total": 34,
+          "precision": 0.9705882352941176
+        }
+      }
+    },
+    {
+      "stage": "4_docket_entries",
+      "metrics": {
+        "span": {
+          "correct": 6,
+          "total": 6,
+          "precision": 1.0
+        },
+        "normalization": {
+          "correct": 6,
+          "total": 6,
           "precision": 1.0
         }
       }
@@ -50,8 +65,8 @@
       "stage": "5_colocations",
       "metrics": {
         "groups": {
-          "correct": 23,
-          "total": 23,
+          "correct": 44,
+          "total": 44,
           "precision": 1.0
         }
       }
@@ -60,14 +75,14 @@
       "stage": "6_case_names",
       "metrics": {
         "span": {
-          "correct": 513,
-          "total": 576,
-          "precision": 0.890625
+          "correct": 548,
+          "total": 610,
+          "precision": 0.898360655737705
         },
         "normalization": {
-          "correct": 513,
-          "total": 571,
-          "precision": 0.8984238178633975
+          "correct": 548,
+          "total": 605,
+          "precision": 0.9057851239669421
         }
       }
     },
@@ -75,14 +90,14 @@
       "stage": "7_courts",
       "metrics": {
         "span": {
-          "correct": 424,
-          "total": 426,
-          "precision": 0.9953051643192489
+          "correct": 457,
+          "total": 459,
+          "precision": 0.9956427015250545
         },
         "normalization": {
-          "correct": 500,
-          "total": 501,
-          "precision": 0.998003992015968
+          "correct": 533,
+          "total": 534,
+          "precision": 0.99812734082397
         }
       }
     },
@@ -90,14 +105,14 @@
       "stage": "8_dates",
       "metrics": {
         "span": {
-          "correct": 550,
-          "total": 552,
-          "precision": 0.9963768115942029
+          "correct": 583,
+          "total": 585,
+          "precision": 0.9965811965811966
         },
         "normalization": {
-          "correct": 550,
-          "total": 552,
-          "precision": 0.9963768115942029
+          "correct": 583,
+          "total": 585,
+          "precision": 0.9965811965811966
         }
       }
     },
@@ -120,9 +135,9 @@
       "stage": "10_roots",
       "metrics": {
         "root_assignment": {
-          "correct": 607,
-          "total": 609,
-          "precision": 0.9967159277504105
+          "correct": 641,
+          "total": 647,
+          "precision": 0.990726429675425
         }
       }
     }
@@ -146,82 +161,98 @@
     },
     "docket_locator": {
       "span": {
-        "correct": 13,
-        "predicted": 15,
+        "correct": 47,
+        "predicted": 53,
         "gold": 47,
-        "precision": 0.8666666666666667,
-        "recall": 0.2765957446808511
+        "precision": 0.8867924528301887,
+        "recall": 1.0
       },
       "normalization": {
-        "correct": 13,
-        "predicted": 15,
+        "correct": 46,
+        "predicted": 53,
         "gold": 47,
-        "precision": 0.8666666666666667,
-        "recall": 0.2765957446808511
+        "precision": 0.8679245283018868,
+        "recall": 0.9787234042553191
+      }
+    },
+    "overall_locator": {
+      "span": {
+        "correct": 439,
+        "predicted": 445,
+        "gold": 440,
+        "precision": 0.9865168539325843,
+        "recall": 0.9977272727272727
+      },
+      "normalization": {
+        "correct": 438,
+        "predicted": 445,
+        "gold": 439,
+        "precision": 0.9842696629213483,
+        "recall": 0.9977220956719818
       }
     },
     "docket_entry": {
       "span": {
-        "correct": 1,
-        "predicted": 1,
+        "correct": 6,
+        "predicted": 6,
         "gold": 6,
         "precision": 1.0,
-        "recall": 0.16666666666666666
+        "recall": 1.0
       },
       "normalization": {
-        "correct": 1,
-        "predicted": 1,
+        "correct": 6,
+        "predicted": 6,
         "gold": 6,
         "precision": 1.0,
-        "recall": 0.16666666666666666
+        "recall": 1.0
       }
     },
     "case_name": {
       "span": {
-        "correct": 352,
-        "predicted": 395,
+        "correct": 382,
+        "predicted": 429,
         "gold": 436,
-        "precision": 0.8911392405063291,
-        "recall": 0.8073394495412844
+        "precision": 0.8904428904428905,
+        "recall": 0.8761467889908257
       },
       "normalization": {
-        "correct": 352,
-        "predicted": 395,
+        "correct": 382,
+        "predicted": 429,
         "gold": 434,
-        "precision": 0.8911392405063291,
-        "recall": 0.8110599078341014
+        "precision": 0.8904428904428905,
+        "recall": 0.880184331797235
       }
     },
     "court": {
       "span": {
-        "correct": 304,
-        "predicted": 307,
+        "correct": 333,
+        "predicted": 340,
         "gold": 341,
-        "precision": 0.990228013029316,
-        "recall": 0.8914956011730205
+        "precision": 0.9794117647058823,
+        "recall": 0.9765395894428153
       },
       "normalization": {
-        "correct": 360,
-        "predicted": 362,
+        "correct": 389,
+        "predicted": 395,
         "gold": 420,
-        "precision": 0.994475138121547,
-        "recall": 0.8571428571428571
+        "precision": 0.9848101265822785,
+        "recall": 0.9261904761904762
       }
     },
     "date": {
       "span": {
-        "correct": 390,
-        "predicted": 393,
+        "correct": 419,
+        "predicted": 426,
         "gold": 426,
-        "precision": 0.9923664122137404,
-        "recall": 0.9154929577464789
+        "precision": 0.9835680751173709,
+        "recall": 0.9835680751173709
       },
       "normalization": {
-        "correct": 390,
-        "predicted": 393,
+        "correct": 419,
+        "predicted": 426,
         "gold": 426,
-        "precision": 0.9923664122137404,
-        "recall": 0.9154929577464789
+        "precision": 0.9835680751173709,
+        "recall": 0.9835680751173709
       }
     },
     "pin_cite": {

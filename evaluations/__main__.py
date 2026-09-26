@@ -23,7 +23,10 @@ async def _run(data_root: Path, output_dir: Path, saved_documents: Path | None) 
         if artifact is not None:
             document = Document.model_validate_json(artifact.read_text(encoding="utf-8"))
         else:
-            document = await grow_roots(Document.from_source(data_root / _SET / "documents_txt" / filename))
+            document = await grow_roots(
+                Document.from_source(data_root / _SET / "documents_txt" / filename),
+                hunt_dockets=True,
+            )
             artifact = output_dir / "documents" / f"{filename}.json"
             artifact.parent.mkdir(parents=True, exist_ok=True)
             artifact.write_text(document.model_dump_json(indent=2) + "\n", encoding="utf-8")

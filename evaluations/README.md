@@ -6,7 +6,7 @@ Each named stage scorer takes one serialized or in-memory `Document`, recovers i
 
 The scorer locates the annotation beside the document's official source file and checks its text length, SHA-256 digest, source path, and every quoted span. It does not accept an annotation path or extra stage arguments.
 
-Run the primary set from source:
+Run the primary set from source with docket site hunting enabled:
 
 ```sh
 .venv/bin/python -m evaluations

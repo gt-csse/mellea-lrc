@@ -651,6 +651,11 @@ def score_grow_roots(document: Document) -> WorkflowScore:
             "span": FieldScore(span_correct, span_predicted, span_gold),
             "normalization": FieldScore(norm_correct, norm_predicted, norm_gold),
         }
+        if name == "docket_locator":
+            result["overall_locator"] = {
+                measure: result["full_reporter_locator"][measure] + result["docket_locator"][measure]
+                for measure in ("span", "normalization")
+            }
     return WorkflowScore(stages, result)
 
 
@@ -837,8 +842,9 @@ def render_grow_roots(
     ]
     for name, measures in score.root_fields.items():
         span, norm = measures["span"], measures["normalization"]
+        label = "**overall_locator subtotal**" if name == "overall_locator" else name
         lines.append(
-            f"| {name} | {_field_cell(span, recall=False)} | {_field_cell(span, recall=True)} | "
+            f"| {label} | {_field_cell(span, recall=False)} | {_field_cell(span, recall=True)} | "
             f"{_field_cell(norm, recall=False)} | {_field_cell(norm, recall=True)} |"
         )
     sections.append("\n".join(lines))
