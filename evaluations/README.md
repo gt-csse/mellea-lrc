@@ -2,7 +2,7 @@
 
 Each named stage scorer takes one serialized or in-memory `Document`, recovers its checkpoint with `document.get_stage(stage)`, and scores only decisions made at that stage. Field-reading stages report span precision and normalization precision. Colocation and root-formation stages report group and root-assignment precision. A missing checkpoint raises.
 
-`score_grow_roots_workflow(document)` calls the stage scorers and reports span and normalization precision and recall for the final roots' reporter locator, docket locator, docket entry, case name, court, date, and pin cite. Span and normalization are checked independently. The gold denominators come from the official annotations. An unannotated normalized target is excluded from normalization scoring; a missing annotation for a predicted citation counts against precision. Inferred courts have no span to score, but their normalized court IDs are scored.
+`score_grow_roots_workflow(document)` calls the stage scorers and reports span and normalization precision and recall for the final roots' reporter locator, docket locator, docket entry, case name, court, date, and pin cite. Span and normalization are checked independently. The gold denominators come from the official annotations. A present field without normalized gold is excluded from normalization scoring; a predicted field absent from the annotation counts against precision. Inferred courts have no span to score, but their normalized court IDs are scored.
 
 The scorer locates the annotation beside the document's official source file and checks its text length, SHA-256 digest, source path, and every quoted span. It does not accept an annotation path or extra stage arguments.
 

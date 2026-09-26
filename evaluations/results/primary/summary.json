@@ -81,8 +81,8 @@
         },
         "normalization": {
           "correct": 500,
-          "total": 500,
-          "precision": 1.0
+          "total": 501,
+          "precision": 0.998003992015968
         }
       }
     },
@@ -96,8 +96,8 @@
         },
         "normalization": {
           "correct": 550,
-          "total": 551,
-          "precision": 0.9981851179673321
+          "total": 552,
+          "precision": 0.9963768115942029
         }
       }
     },
@@ -202,9 +202,9 @@
       },
       "normalization": {
         "correct": 360,
-        "predicted": 361,
+        "predicted": 362,
         "gold": 420,
-        "precision": 0.997229916897507,
+        "precision": 0.994475138121547,
         "recall": 0.8571428571428571
       }
     },
@@ -218,9 +218,9 @@
       },
       "normalization": {
         "correct": 390,
-        "predicted": 392,
+        "predicted": 393,
         "gold": 426,
-        "precision": 0.9948979591836735,
+        "precision": 0.9923664122137404,
         "recall": 0.9154929577464789
       }
     },
