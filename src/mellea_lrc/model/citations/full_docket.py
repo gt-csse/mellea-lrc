@@ -6,6 +6,7 @@ from typing import Literal, Self
 
 from pydantic import model_validator
 
+from mellea_lrc.model.citations.docket_root_equivalence import DocketRootReview
 from mellea_lrc.model.citations.fields import DocketEntryField, FullDocketLocator
 from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.history import Node
@@ -19,6 +20,7 @@ class FullDocketCitation(FullCitation):
     kind: Literal[FullCitationKind.DOCKET] = FullCitationKind.DOCKET
     locator: tuple[FullDocketLocator, ...]
     docket_entry: tuple[DocketEntryField, ...] = ()
+    docket_root_reviews: tuple[DocketRootReview, ...] = ()
 
     @property
     def locator_span(self) -> Span:
@@ -50,6 +52,12 @@ class FullDocketCitation(FullCitation):
                 DocketEntryField.from_source(source, span, node_id=self._decision_node_id()),
             ),
         )
+
+    def with_docket_root_review(self, review: DocketRootReview) -> Self:
+        """Append one decision without changing any root assignment itself."""
+        if review.node_id != self._decision_node_id():
+            raise ValueError("Docket review must belong to the current decision node")
+        return self._with_log(docket_root_reviews=(*self.docket_root_reviews, review))
 
     @model_validator(mode="after")
     def _validate_locator(self) -> Self:

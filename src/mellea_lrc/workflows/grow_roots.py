@@ -10,6 +10,10 @@ from mellea_lrc.extraction.courts import resolve_courts
 from mellea_lrc.extraction.dates import resolve_dates
 from mellea_lrc.extraction.docket_entries import resolve_docket_entries
 from mellea_lrc.extraction.docket_locator import find_docket_locators
+from mellea_lrc.extraction.docket_root_equivalence import (
+    DocketRootReviewer,
+    review_docket_root_equivalence,
+)
 from mellea_lrc.extraction.docket_site_hunting import hunt_docket_locators
 from mellea_lrc.extraction.full_reporter_locator import find_full_reporter_locators
 from mellea_lrc.extraction.pin_cites import resolve_pin_cites
@@ -23,8 +27,10 @@ async def grow_roots(
     rules: ExtractionRules | None = None,
     hunt_dockets: bool = False,
     reviewer: DocketSiteReviewer | None = None,
+    review_docket_roots: bool = False,
+    docket_root_reviewer: DocketRootReviewer | None = None,
 ) -> Document:
-    """Read full locators, optionally hunt dockets, then form roots once."""
+    """Read full locators, form roots, then optionally review docket identity."""
     config = rules or stable()
     document = find_full_reporter_locators(document)
     document = find_docket_locators(document)
@@ -36,4 +42,7 @@ async def grow_roots(
     document = resolve_courts(document, config)
     document = resolve_dates(document, config)
     document = resolve_pin_cites(document, config)
-    return form_roots(document)
+    document = form_roots(document)
+    if review_docket_roots:
+        document = await review_docket_root_equivalence(document, reviewer=docket_root_reviewer)
+    return document
