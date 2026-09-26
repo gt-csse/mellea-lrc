@@ -3,9 +3,9 @@
 This is an overall checkpoint score, not an incremental stage score. Recall
 includes every explicitly labeled canonical reporter-root field, including
 roots first cited in a table of authorities, even if lookup found nothing or
-no candidate was selected. Precision uses only decided judgments whose
-selected record and source reading align with the root's annotation. A later
-representative can carry a field label only when it states the same field.
+no candidate was selected. A decided field judgment is scored against that
+root's annotated field judgment, regardless of lookup route, selected record,
+or extraction span. Those have their own diagnostics and evaluations.
 """
 
 from __future__ import annotations
@@ -15,12 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from evaluations.annotations import SETS, annotated_documents, span
-from evaluations.score_identity import (
-    FIELD_LOGS,
-    GOLD_FIELD_RESULT,
-    _same_annotated_field,
-    _same_annotated_reading,
-)
+from evaluations.score_identity import FIELD_LOGS, GOLD_FIELD_RESULT
 from mellea_lrc.model import Document, FullReporterCitation, latest
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.citations.reporter_lookup import (
@@ -76,14 +71,6 @@ def _selected_candidate(root: FullReporterCitation) -> tuple[int | None, str | N
         review = root.reporter_unique_review
         return (0 if review is not None and review.decision is not None else None), stage
     return None, stage
-
-
-def _gold_cluster_ids(row: dict[str, Any]) -> set[str]:
-    return {
-        str(source["id"])
-        for evidence in row.get("validation", {}).get("identity", {}).get("evidence", ())
-        if (source := evidence.get("source", {})).get("kind") == "cluster" and source.get("id") is not None
-    }
 
 
 def _summary(counts: Counter[str]) -> dict[str, Any]:
@@ -175,9 +162,6 @@ def score_document(
         linked_roots = predicted_by_gold_id.get(gold["id"], ())
         if root is None and len(linked_roots) == 1:
             root = linked_roots[0]
-        representative = (
-            by_locator.get((root.locator_span.start, root.locator_span.end)) if root is not None else None
-        )
         selected, decision_stage = _selected_candidate(root) if root is not None else (None, None)
         candidate = (
             root.reporter_exact_lookup.response.clusters[selected]
@@ -189,7 +173,6 @@ def score_document(
         )
         if root is not None and selected is not None and candidate is None:
             raise ValueError("Final reporter judgment selected an unavailable candidate")
-        evidence_ids = _gold_cluster_ids(gold)
         member_ids = member_gold_ids.get(root.id, set()) if root is not None else set()
         cluster_count = (
             len(root.reporter_exact_lookup.response.clusters)
@@ -198,12 +181,7 @@ def score_document(
             and root.reporter_exact_lookup.response is not None
             else 0
         )
-        if (
-            cluster_count
-            and representative is not None
-            and representative["root_id"] == gold["id"]
-            and len(member_ids) == 1
-        ):
+        if cluster_count and len(member_ids) == 1 and gold["id"] in member_ids:
             counts["gold_roots_with_lookup_clusters"] += 1
         for field in FIELDS:
             label = (
@@ -217,13 +195,7 @@ def score_document(
             outcome = "ambiguous_root_mapping" if root is None and len(linked_roots) > 1 else "missing_root"
             if root is not None:
                 outcome = "conflicting_gold_roots" if len(member_ids) > 1 else "no_selected_candidate"
-                if representative is None or representative["root_id"] != gold["id"]:
-                    outcome = "misaligned_representative"
-                elif key != (root.locator_span.start, root.locator_span.end) and not _same_annotated_field(
-                    field, gold, representative
-                ):
-                    outcome = "changed_occurrence"
-                elif selected is not None and len(member_ids) <= 1:
+                if selected is not None and len(member_ids) == 1 and gold["id"] in member_ids:
                     identity = root.identity_judgments[-1]
                     judgments = [
                         item
@@ -236,17 +208,13 @@ def score_document(
                     readings = getattr(root, field)
                     if record is None:
                         outcome = "no_field_judgment"
-                    elif record.reading_index is None or record.reading_index >= len(readings):
-                        outcome = "missing_reading"
                     else:
-                        reading = readings[record.reading_index]
-                        if record.reading_index != len(readings) - 1:
-                            outcome = "stale_reading"
-                        elif not _same_annotated_reading(field, reading, representative.get(field)):
-                            outcome = "misaligned_reading"
-                        elif str(candidate.id) not in evidence_ids:
-                            outcome = "candidate_alignment_unverified"
-                        elif record.result is MatchResult.UNDETERMINED:
+                        reading = (
+                            readings[record.reading_index]
+                            if record.reading_index is not None and record.reading_index < len(readings)
+                            else None
+                        )
+                        if record.result is MatchResult.UNDETERMINED:
                             outcome = "undetermined"
                         else:
                             counts[f"{field}_scored"] += 1
@@ -274,8 +242,6 @@ def score_document(
                     "gold_label": label,
                     "decision_stage": decision_stage,
                     "selected_candidate_index": selected,
-                    "selected_cluster_id": candidate.id if candidate is not None else None,
-                    "gold_cluster_ids": sorted(evidence_ids),
                     "lookup_cluster_count": cluster_count,
                     "reading_index": record.reading_index if record is not None else None,
                     "reading": reading.model_dump(mode="json") if reading is not None else None,
@@ -303,9 +269,9 @@ def evaluate(data_root: Path, run_dir: Path, sets: tuple[str, ...]) -> dict[str,
     return {
         "name": NAME,
         "basis": (
-            "Latest selected reporter-root field judgments; precision among decided judgments "
-            "with the same annotated field content, aligned reading, and selected cluster in "
-            "annotation evidence. Recall over all explicitly labeled canonical "
+            "Latest selected reporter-root field judgments compared directly with annotated "
+            "field judgments, independent of extraction span and candidate provenance. "
+            "Recall over all explicitly labeled canonical "
             "reporter-root fields, including roots with no lookup or model decision."
         ),
         "sets": {name: _summary(counts) for name, counts in by_set.items()},

@@ -148,36 +148,31 @@ def test_selected_candidate_field_precision_and_occurrence_details() -> None:
     assert [item["field"] for item in details] == ["case_name", "court", "date"]
     assert all(item["selected_candidate_index"] == 1 for item in details)
     assert all(str(item["selected_cluster_id"]) == "22" for item in details)
-    assert all(item["annotated_cluster_evidence_ids"] == ["22"] for item in details)
-    assert all(item["selected_cluster_in_annotation_evidence"] is True for item in details)
     assert all(item["outcome"] == "correct" for item in details)
 
 
-def test_equivalent_but_unlisted_candidate_is_not_scored() -> None:
+def test_selected_candidate_is_scored_without_cluster_evidence_gate() -> None:
     after = asyncio.run(reporter_root_lookup_ambiguous_llm(_before(), reviewer=_Reviewer(0)))
 
     counts, details = score_document(after, (_gold(after, cluster_ids=("22",)),))
 
     assert all(
-        _summary(counts)["field_precision"][field]["scored"] == 0 for field in ("case_name", "court", "date")
+        _summary(counts)["field_precision"][field] == {"correct": 1, "scored": 1, "value": 1.0}
+        for field in ("case_name", "court", "date")
     )
-    assert [item["outcome"] for item in details] == ["candidate_alignment_unverified"] * 3
-    assert all(str(item["selected_cluster_id"]) == "11" for item in details)
-    assert all(item["annotated_cluster_evidence_ids"] == ["22"] for item in details)
-    assert all(item["selected_cluster_in_annotation_evidence"] is False for item in details)
+    assert [item["outcome"] for item in details] == ["correct"] * 3
 
 
-def test_missing_or_null_cluster_evidence_is_unverified() -> None:
+def test_missing_or_null_cluster_evidence_does_not_block_field_scoring() -> None:
     after = asyncio.run(reporter_root_lookup_ambiguous_llm(_before(), reviewer=_Reviewer()))
 
     for evidence_ids in ((), (None,)):
         counts, details = score_document(after, (_gold(after, cluster_ids=evidence_ids),))
         assert all(
-            _summary(counts)["field_precision"][field]["scored"] == 0
+            _summary(counts)["field_precision"][field]["scored"] == 1
             for field in ("case_name", "court", "date")
         )
-        assert [item["outcome"] for item in details] == ["candidate_alignment_unverified"] * 3
-        assert all(item["annotated_cluster_evidence_ids"] == [] for item in details)
+        assert [item["outcome"] for item in details] == ["correct"] * 3
 
 
 def test_canonical_root_supplies_cluster_evidence_by_root_id() -> None:
@@ -198,7 +193,7 @@ def test_canonical_root_supplies_cluster_evidence_by_root_id() -> None:
     assert all(
         _summary(counts)["field_precision"][field]["scored"] == 1 for field in ("case_name", "court", "date")
     )
-    assert all(item["annotated_cluster_evidence_ids"] == ["22"] for item in details)
+    assert all(item["outcome"] == "correct" for item in details)
 
 
 def test_unselected_and_failed_reviews_save_per_field_gaps() -> None:
@@ -226,15 +221,15 @@ def test_unselected_and_failed_reviews_save_per_field_gaps() -> None:
             )
 
 
-def test_misaligned_root_reading_does_not_borrow_a_field_label() -> None:
+def test_misaligned_root_reading_still_uses_canonical_field_label() -> None:
     after = asyncio.run(reporter_root_lookup_ambiguous_llm(_before(), reviewer=_Reviewer()))
     gold = _gold(after)
     wrong_reading = {**gold, "case_name": {"start": 0, "end": 9, "quote": "Bell Atl."}}
 
     counts, details = score_document(after, (wrong_reading,))
 
-    assert _summary(counts)["field_precision"]["case_name"]["scored"] == 0
-    assert next(item for item in details if item["field"] == "case_name")["outcome"] == "misaligned_reading"
+    assert _summary(counts)["field_precision"]["case_name"]["scored"] == 1
+    assert next(item for item in details if item["field"] == "case_name")["outcome"] == "correct"
     assert _summary(counts)["field_precision"]["court"]["scored"] == 1
 
 

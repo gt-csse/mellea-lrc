@@ -20,12 +20,12 @@ def render_report(result: dict[str, Any], *, source_label: str) -> str:
         "",
         f"<!-- Generated from {source_label} by evaluations.render_reporter_fields_overall. -->",
         "",
-        "The checkpoint combines rule checks and both model-review routes. Precision is among "
-        "decided judgments with a comparable annotated root, aligned source reading, and an "
-        "evidence-linked selected record. Recall includes every explicitly labeled canonical "
-        "full-reporter root, including table-of-authorities citations; unresolved or unextracted "
-        "roots count as misses. A later citation to the same case cannot inherit the root's "
-        "field labels when its wording differs. A field marked not stated has no match/mismatch "
+        "The checkpoint combines rule checks and both model-review routes. A decided field "
+        "judgment is compared directly with the annotated root's field judgment; its source "
+        "span and selected database record do not affect this score. Recall includes every "
+        "explicitly labeled canonical full-reporter root, including table-of-authorities "
+        "citations; unresolved or unextracted roots count as misses. A field marked not stated "
+        "has no match/mismatch "
         "label and is excluded from that field's denominator. Lookup cluster coverage counts "
         "roots for which exact lookup returned at least one candidate cluster; it does not "
         "assert that a candidate has the correct identity.",

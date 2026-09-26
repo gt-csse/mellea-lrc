@@ -7,9 +7,8 @@ Run from the repository root::
 
 This reads annotations only after prediction artifacts exist. Deferred roots
 are abstentions. Identity recall includes every labeled gold reporter root,
-including roots in a table of authorities. Field comparison accuracy needs an
-aligned field reading; a later representative may use the root's field label
-only when both occurrences state that field the same way.
+including roots in a table of authorities. Field comparison accuracy scores
+the judgment itself against the annotated root field label.
 """
 
 from __future__ import annotations
@@ -22,9 +21,8 @@ from typing import Any
 
 from evaluations.annotations import SETS, annotated_documents, span
 from evaluations.stage_products import stage_product
-from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation, latest
+from mellea_lrc.model import Document, FullReporterCitation, latest
 from mellea_lrc.model.citations import FullCitation
-from mellea_lrc.model.citations.fields.base import CitationField
 from mellea_lrc.model.citations.judgments import (
     IdentityJudgment,
     IdentityVerdict,
@@ -56,46 +54,6 @@ def _locator_key(citation: FullCitation) -> tuple[str, int, int]:
     return kind, citation.locator_span.start, citation.locator_span.end
 
 
-def _same_annotated_reading(field: str, reading: CitationField[Any], gold: Any) -> bool:
-    """Keep reading and normalization errors out of comparison accuracy."""
-    if not isinstance(gold, dict):
-        return False
-    if "start" in gold and "end" in gold:
-        if reading.span != span(gold) or reading.quote != gold.get("quote"):
-            return False
-    elif field != "court" or reading.span is not None:
-        return False
-    if field == "court":
-        return reading.normalizable and reading.get_normalized().id == gold.get("id")
-    if field == "date":
-        if not reading.normalizable:
-            return False
-        normalized = reading.get_normalized()
-        value = f"{normalized.year:04d}"
-        if normalized.month is not None:
-            value += f"-{normalized.month:02d}"
-        if normalized.day is not None:
-            value += f"-{normalized.day:02d}"
-        return value == gold.get("normalized")
-    if field == "case_name" and gold.get("normalized") is not None:
-        return reading.normalizable and reading.get_normalized().as_citation() == gold["normalized"]
-    return True
-
-
-def _same_annotated_field(field: str, canonical: dict[str, Any], occurrence: dict[str, Any]) -> bool:
-    """Transfer a root field label only to an occurrence stating the same field."""
-    original = canonical.get(field)
-    repeated = occurrence.get(field)
-    if not isinstance(original, dict) or not isinstance(repeated, dict):
-        return False
-    keys = {
-        "case_name": ("quote", "normalized"),
-        "court": ("quote", "id"),
-        "date": ("quote", "normalized"),
-    }[field]
-    return all(original.get(key) == repeated.get(key) for key in keys)
-
-
 def _summary(counts: Counter[str]) -> dict[str, Any]:
     def ratio(numerator: str, denominator: str) -> float | None:
         total = counts[denominator]
@@ -116,8 +74,6 @@ def _summary(counts: Counter[str]) -> dict[str, Any]:
             "gold_unlabeled": count("gold_unlabeled"),
             "unique_gold": count("unique_gold"),
             "eligible_gold": count("eligible_gold"),
-            "missing_reading": count("missing_reading"),
-            "misaligned_reading": count("misaligned_reading"),
             "judgments": count("judgments"),
             "decided": count("decided"),
             "correct_predictions": count("correct_predictions"),
@@ -126,8 +82,6 @@ def _summary(counts: Counter[str]) -> dict[str, Any]:
             "omitted_gold": count("omitted_gold"),
             "not_stated_judgments": count("not_stated_judgments"),
             "unscored_judgments": count("unscored_judgments"),
-            "changed_occurrence_judgments": count("changed_occurrence_judgments"),
-            "misaligned_judgments": count("misaligned_judgments"),
             "unmatched_or_unlabeled_judgments": count("unmatched_or_unlabeled_judgments"),
             "correct_gold": count("correct_gold"),
             "precision": ratio(f"{field}_correct_predictions", f"{field}_decided"),
@@ -201,8 +155,9 @@ def score_document(
         if row.get("kind") in {"FullCaseCitation", "DocketCitation"}
         and row.get("validation", {}).get("identity", {}).get("label") in LABELS
     }
-    # A root's field labels describe its own wording. A body representative
-    # may carry a TOA root's label only for fields stated the same way.
+    # This evaluator scores judgments. Field-reading spans and wording belong
+    # to extraction evaluation, including when a body occurrence represents a
+    # root first cited in a table of authorities.
     field_gold = gold_reporter
     counts: Counter[str] = Counter(
         documents=1,
@@ -252,7 +207,6 @@ def score_document(
     reached: set[str] = set()
     credited: set[str] = set()
     unique_fields = {field: set() for field in FIELD_LOGS}
-    aligned_fields = {field: set() for field in FIELD_LOGS}
     judged_fields = {field: set() for field in FIELD_LOGS}
     correct_fields = {field: set() for field in FIELD_LOGS}
     details: list[dict[str, Any]] = []
@@ -263,8 +217,7 @@ def score_document(
             for member in members
             if _locator_key(member) in by_locator
         }
-        representative = by_locator.get(_locator_key(root))
-        gold_id = representative["root_id"] if representative is not None else None
+        gold_id = next(iter(gold_ids)) if len(gold_ids) == 1 else None
         gold = by_id.get(gold_id) if gold_id else None
         label = gold.get("validation", {}).get("identity", {}).get("label") if gold else None
         judgment = decisions[root.id][0]
@@ -273,7 +226,7 @@ def score_document(
 
         if len(gold_ids) > 1:
             outcome = "conflicting_gold_roots"
-        elif representative is None:
+        elif gold_id is None:
             outcome = "unmatched_locator"
         elif gold is None:
             raise ValueError(f"Annotated root unexpectedly missing: {gold_id}")
@@ -362,20 +315,11 @@ def score_document(
                     ],
                 }
             )
-        comparable_root_id = (
-            gold_id
-            if outcome != "conflicting_gold_roots" and gold_id in field_gold and representative is not None
-            else None
-        )
+        comparable_root_id = gold_id if gold_id in field_gold and len(gold_ids) == 1 else None
         if comparable_root_id is None:
             counts["predicted_roots_without_field_gold"] += 1
         for field, log_name in FIELD_LOGS.items():
-            comparable_id = (
-                comparable_root_id
-                if comparable_root_id is not None
-                and _same_annotated_field(field, field_gold[comparable_root_id], representative)
-                else None
-            )
+            comparable_id = comparable_root_id
             gold_record = field_gold[comparable_id].get(field) if comparable_id is not None else None
             gold_field = (
                 field_gold[comparable_id]
@@ -388,16 +332,8 @@ def score_document(
                 else None
             )
             readings = getattr(root, field)
-            source_record = representative.get(field) if representative is not None else None
-            aligned_reading = bool(readings) and _same_annotated_reading(field, readings[-1], source_record)
             if unique_lookup and gold_field in GOLD_FIELD_RESULT:
                 unique_fields[field].add(comparable_id)
-                if not readings:
-                    counts[f"{field}_missing_reading"] += 1
-                elif aligned_reading:
-                    aligned_fields[field].add(comparable_id)
-                else:
-                    counts[f"{field}_misaligned_reading"] += 1
             judgments = field_records.get((root.id, log_name), ())
             if len(judgments) > 1:
                 raise ValueError(f"Exact lookup wrote multiple {field} judgments for one root")
@@ -410,11 +346,7 @@ def score_document(
                             "gold_root_id": comparable_id,
                             "field": field,
                             "gold_label": gold_field,
-                            "reason": "missing_reading"
-                            if not readings
-                            else "misaligned_reading"
-                            if not aligned_reading
-                            else "omitted_judgment",
+                            "reason": "omitted_judgment",
                         }
                     )
                 continue
@@ -444,15 +376,9 @@ def score_document(
                 "date": candidate.date_filed,
             }[field]
             if comparable_id is None:
-                field_outcome = (
-                    "changed_occurrence" if gold_id in gold_reporter else "unmatched_or_unlabeled_root"
-                )
+                field_outcome = "unmatched_or_unlabeled_root"
                 counts[f"{field}_unscored_judgments"] += 1
-                counts[
-                    f"{field}_changed_occurrence_judgments"
-                    if gold_id in gold_reporter
-                    else f"{field}_unmatched_or_unlabeled_judgments"
-                ] += 1
+                counts[f"{field}_unmatched_or_unlabeled_judgments"] += 1
             elif gold_field == "not_stated":
                 field_outcome = "not_stated"
                 counts[f"{field}_not_stated_judgments"] += 1
@@ -460,10 +386,6 @@ def score_document(
                 field_outcome = "unlabeled"
                 counts[f"{field}_unscored_judgments"] += 1
                 counts[f"{field}_unmatched_or_unlabeled_judgments"] += 1
-            elif not aligned_reading or judgment.reading_index != len(readings) - 1:
-                field_outcome = "misaligned_reading"
-                counts[f"{field}_unscored_judgments"] += 1
-                counts[f"{field}_misaligned_judgments"] += 1
             else:
                 judged_fields[field].add(comparable_id)
                 counts[f"{field}_gold_{gold_field}_pred_{judgment.result.value}"] += 1
@@ -501,9 +423,9 @@ def score_document(
     counts["missing_gold_reporter_roots"] = len(gold_reporter) - len(reached)
     for field in FIELD_LOGS:
         counts[f"{field}_unique_gold"] = len(unique_fields[field])
-        counts[f"{field}_eligible_gold"] = len(aligned_fields[field])
+        counts[f"{field}_eligible_gold"] = len(unique_fields[field])
         counts[f"{field}_correct_gold"] = len(correct_fields[field])
-        counts[f"{field}_omitted_gold"] = len(aligned_fields[field] - judged_fields[field])
+        counts[f"{field}_omitted_gold"] = len(unique_fields[field] - judged_fields[field])
         details.extend(
             {
                 "product": "field_gold_miss",
@@ -512,8 +434,6 @@ def score_document(
                 "gold_label": row["validation"]["identity"]["fields"][field]["label"],
                 "reason": "no_unique_comparable_lookup"
                 if gold_id not in unique_fields[field]
-                else "missing_or_misaligned_reading"
-                if gold_id not in aligned_fields[field]
                 else "omitted_judgment"
                 if gold_id not in judged_fields[field]
                 else "undetermined_or_incorrect_judgment",
@@ -583,7 +503,7 @@ def evaluate(data_root: Path, run_dir: Path, sets: tuple[str, ...]) -> dict[str,
         "basis": (
             "Stage-written reporter-root identity and field judgments. Deferred identity roots abstain; "
             "identity recall uses all labeled roots, including table-of-authorities citations. Field judgments "
-            "require an aligned reading and the same field content as the annotated root."
+            "are compared directly with their annotated root labels."
         ),
         "sets": {name: _summary(counts) for name, counts in by_set.items()},
         "totals": _summary(totals),

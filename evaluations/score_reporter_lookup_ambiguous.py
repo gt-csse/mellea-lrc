@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from evaluations.annotations import SETS, annotated_documents, span
-from mellea_lrc.model import Document, FullReporterCitation
+from mellea_lrc.model import Document, FullReporterCitation, latest
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactAmbiguityOutcome
 from mellea_lrc.validation.reporter_root_lookup_ambiguous import STAGE
@@ -87,8 +87,14 @@ def score_document(
         lookup = root.reporter_exact_lookup
         if lookup is None or lookup.outcome.value != "ambiguous":
             raise ValueError(f"Routed reporter citation lacks an ambiguous lookup: {root.id}")
-        annotated = reporter_rows.get((root.locator_span.start, root.locator_span.end))
-        gold_id = annotated.get("root_id") if annotated else None
+        member_gold_ids = {
+            row["root_id"]
+            for member in checkpoint.full_locators
+            if isinstance(member, FullReporterCitation)
+            if latest(member.root_id) == root.id
+            if (row := reporter_rows.get((member.locator_span.start, member.locator_span.end))) is not None
+        }
+        gold_id = next(iter(member_gold_ids)) if len(member_gold_ids) == 1 else None
         gold = gold_by_id.get(gold_id) if gold_id else None
         label = gold.get("validation", {}).get("identity", {}).get("label") if gold else None
 
@@ -113,12 +119,6 @@ def score_document(
             raise ValueError("Deferred ambiguity outcome has the wrong route")
         candidates = []
         candidate_total = len(lookup.response.clusters) if lookup.response else 0
-        annotated_cluster_ids = {
-            str(evidence.get("source", {}).get("id"))
-            for evidence in (gold or {}).get("validation", {}).get("identity", {}).get("evidence", ())
-            if evidence.get("source", {}).get("kind") == "cluster"
-            and evidence.get("source", {}).get("id") is not None
-        }
         selected_cluster_id = (
             lookup.response.clusters[resolution.selected_candidate_index].id
             if resolution.selected_candidate_index is not None and lookup.response is not None
@@ -178,11 +178,6 @@ def score_document(
                 "passing_candidate_indices": list(resolution.passing_candidate_indices),
                 "selected_candidate_index": resolution.selected_candidate_index,
                 "selected_cluster_id": selected_cluster_id,
-                "selected_cluster_in_annotation_evidence": (
-                    selected_cluster_id in annotated_cluster_ids
-                    if selected_cluster_id is not None and annotated_cluster_ids
-                    else None
-                ),
                 "identity_verdict": judgment.verdict.value,
                 "next_stage": judgment.next_stage,
                 "candidates": candidates,

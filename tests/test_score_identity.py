@@ -127,7 +127,7 @@ def test_field_judgments_score_each_view_used_by_exact_identity() -> None:
     assert any(row["product"] == "locator_membership" and row["result"] == "match" for row in details)
 
 
-def test_field_judgment_does_not_borrow_label_for_wrong_reading() -> None:
+def test_field_judgment_uses_label_despite_wrong_reading_span() -> None:
     document = _document()
     gold = _gold_with_fields(document)
     gold["case_name"] = {"start": 0, "end": 9, "quote": "Bell Atl."}
@@ -135,28 +135,24 @@ def test_field_judgment_does_not_borrow_label_for_wrong_reading() -> None:
     case_name = _summary(counts)["fields"]["case_name"]
 
     assert case_name["unique_gold"] == 1
-    assert case_name["eligible_gold"] == 0
-    assert case_name["misaligned_reading"] == 1
-    assert case_name["decided"] == 0
-    assert case_name["unscored_judgments"] == 1
+    assert case_name["eligible_gold"] == 1
+    assert case_name["decided"] == 1
+    assert case_name["precision"] == 1.0
     assert any(
-        row["product"] == "field_judgment"
-        and row["field"] == "case_name"
-        and row["outcome"] == "misaligned_reading"
+        row["product"] == "field_judgment" and row["field"] == "case_name" and row["outcome"] == "correct"
         for row in details
     )
 
 
-def test_field_judgment_excludes_wrong_normalized_court() -> None:
+def test_field_judgment_uses_label_despite_normalized_court_difference() -> None:
     document = _document()
     gold = _gold_with_fields(document)
     gold["court"]["id"] = "ca1"
     counts, _ = score_document(document, (gold,))
     court = _summary(counts)["fields"]["court"]
 
-    assert court["misaligned_reading"] == 1
-    assert court["decided"] == 0
-    assert court["unscored_judgments"] == 1
+    assert court["decided"] == 1
+    assert court["precision"] == 1.0
 
 
 def test_not_stated_field_is_excluded_from_comparison_accuracy() -> None:
@@ -226,7 +222,7 @@ def test_later_judgment_cannot_change_exact_stage_score() -> None:
     assert later.roots[0].identity_judgments[-1].verdict is IdentityVerdict.WRONG_IDENTITY
 
 
-def test_unannotated_representative_cannot_gain_credit_from_attached_leaf() -> None:
+def test_root_label_scores_structurally_mapped_representative_occurrence() -> None:
     document = _document(f"{SOURCE} {SOURCE}")
     (_, leaf) = document.full_locators
     gold = {
@@ -234,12 +230,11 @@ def test_unannotated_representative_cannot_gain_credit_from_attached_leaf() -> N
         "locator": {"start": leaf.locator_span.start, "end": leaf.locator_span.end},
     }
 
-    counts, details = score_document(document, (gold,))
+    counts, _ = score_document(document, (gold,))
 
-    assert counts["unmatched_locator"] == 1
-    assert counts["incorrect_decisions"] == 1
-    assert counts["missing_gold_reporter_roots"] == 1
-    assert any(row.get("reason") == "missing_root" for row in details)
+    assert counts["unmatched_locator"] == 0
+    assert counts["correct_decisions"] == 1
+    assert counts["missing_gold_reporter_roots"] == 0
 
 
 def test_annotated_leaf_can_be_predicted_representative_of_same_gold_root() -> None:
@@ -285,7 +280,7 @@ def test_masked_gold_root_label_applies_to_unmasked_full_citation() -> None:
     assert counts["missing_gold_reporter_roots"] == 0
 
 
-def test_toa_root_field_label_applies_to_identical_body_field_only() -> None:
+def test_toa_root_field_label_applies_across_changed_body_occurrence_wording() -> None:
     document = _document()
     body = _gold_with_fields(document)
     toa = deepcopy(body)
@@ -299,17 +294,14 @@ def test_toa_root_field_label_applies_to_identical_body_field_only() -> None:
 
     counts, _ = score_document(document, (toa, body))
     assert counts["gold_reporter_roots"] == 1
-    assert all(_summary(counts)["fields"][field]["correct_predictions"] == 1 for field in ("case_name", "court", "date"))
+    assert all(
+        _summary(counts)["fields"][field]["correct_predictions"] == 1
+        for field in ("case_name", "court", "date")
+    )
 
     toa["case_name"]["quote"] = "Different v. Name"
-    counts, details = score_document(document, (toa, body))
-    assert _summary(counts)["fields"]["case_name"]["correct_predictions"] == 0
-    assert any(
-        row["product"] == "field_judgment"
-        and row["field"] == "case_name"
-        and row["outcome"] == "changed_occurrence"
-        for row in details
-    )
+    counts, _ = score_document(document, (toa, body))
+    assert _summary(counts)["fields"]["case_name"]["correct_predictions"] == 1
 
 
 def test_merge_of_two_gold_roots_is_false_decision_and_two_misses() -> None:

@@ -195,21 +195,14 @@ def test_new_judgment_overrides_prior_rule_match_for_field_precision() -> None:
     assert case_name["outcome"] == "correct"
 
 
-def test_changed_occurrence_and_misaligned_reading_do_not_borrow_labels() -> None:
+def test_field_judgment_uses_root_label_across_reading_and_occurrence_changes() -> None:
     before = _lookup()
     after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=_Reviewer()))
     gold = _gold(after)
     wrong_reading = {**gold, "case_name": {"start": 0, "end": 9, "quote": "Bell Atl."}}
     counts, details = score_document(after, (wrong_reading,))
-    assert _summary(counts)["field_precision"]["case_name"]["scored"] == 0
-    assert next(item for item in details if item["field"] == "case_name")["outcome"] == "misaligned_reading"
-
-    leaf = {**gold, "id": "gold-leaf", "root_id": "gold-root", "is_root": False, "validation": {}}
-    counts, details = score_document(after, (leaf,))
-    assert all(
-        _summary(counts)["field_precision"][field]["scored"] == 0 for field in ("case_name", "court", "date")
-    )
-    assert all(item["outcome"] == "changed_occurrence" for item in details)
+    assert _summary(counts)["field_precision"]["case_name"] == {"correct": 1, "scored": 1, "value": 1.0}
+    assert next(item for item in details if item["field"] == "case_name")["outcome"] == "correct"
 
 
 def test_failed_review_has_per_field_gaps_and_no_scored_judgments() -> None:

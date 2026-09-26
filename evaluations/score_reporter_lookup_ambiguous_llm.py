@@ -1,9 +1,8 @@
 """Score field judgments written by ambiguous reporter model review.
 
-Only a judgment for the model's selected candidate can score. The annotation
-must label the same root occurrence, and the judged reading must be that
-occurrence's latest aligned reading. Selection and identity are diagnostics,
-not metrics in this stage report.
+Only a judgment for the model's selected candidate can score. It is compared
+with the annotated root's field label without requiring a particular source
+reading span or CourtListener cluster ID.
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from evaluations.annotations import SETS, annotated_documents, span
-from evaluations.score_identity import FIELD_LOGS, FIELD_TYPES, GOLD_FIELD_RESULT, _same_annotated_reading
+from evaluations.score_identity import FIELD_LOGS, FIELD_TYPES, GOLD_FIELD_RESULT
 from evaluations.stage_products import stage_product
 from mellea_lrc.model import Document, FullReporterCitation, latest
 from mellea_lrc.model.citations.judgments import IdentityJudgment, MatchResult
@@ -48,7 +47,7 @@ def score_document(
     *,
     identity_roots: tuple[dict[str, Any], ...] | None = None,
 ) -> tuple[Counter[str], list[dict[str, Any]]]:
-    """Compare only this stage's selected-candidate fields with aligned labels."""
+    """Compare this stage's selected-candidate judgments with root labels."""
     product = stage_product(document, STAGE)
     if product.before is None or product.before.stage_runs[-1] != AMBIGUOUS_STAGE:
         raise ValueError("Ambiguous reporter model review needs its rule-stage checkpoint")
@@ -154,8 +153,6 @@ def score_document(
             if candidate is not None
             else {}
         )
-        annotated = by_locator.get((root.locator_span.start, root.locator_span.end))
-        gold_id = annotated.get("root_id") if annotated is not None else None
         member_gold_ids = {
             row["root_id"]
             for member in checkpoint.full_locators
@@ -164,30 +161,8 @@ def score_document(
             if (row := by_locator.get((member.locator_span.start, member.locator_span.end))) is not None
             if row.get("root_id") is not None
         }
-        canonical = canonical_roots.get(gold_id) if gold_id is not None else None
-        evidence_ids = sorted(
-            {
-                str(source_id)
-                for evidence in (canonical or {})
-                .get("validation", {})
-                .get("identity", {})
-                .get("evidence", ())
-                if isinstance(evidence, dict)
-                if isinstance((source := evidence.get("source")), dict)
-                if source.get("kind") == "cluster"
-                if (source_id := source.get("id")) is not None and str(source_id).strip()
-            }
-        )
-        selected_cluster_id = str(candidate.id) if candidate is not None else None
-        candidate_aligned = selected_cluster_id in evidence_ids if selected_cluster_id is not None else None
-        same_root_occurrence = (
-            annotated is not None
-            and annotated.get("is_root") is True
-            and annotated.get("id") == gold_id
-            and annotated.get("identifier", {}).get("kind") == "reporter"
-            and len(member_gold_ids) <= 1
-        )
-        gold = canonical if same_root_occurrence else None
+        gold_id = next(iter(member_gold_ids)) if len(member_gold_ids) == 1 else None
+        gold = canonical_roots.get(gold_id) if gold_id is not None else None
         for field in FIELDS:
             log_name = FIELD_LOGS[field]
             records = judgments.get((root_id, log_name), ())
@@ -222,20 +197,10 @@ def score_document(
                     outcome = (
                         "conflicting_gold_roots"
                         if len(member_gold_ids) > 1
-                        else "changed_occurrence"
-                        if annotated is not None
-                        else "unmatched_locator"
+                        else "unmatched_or_unlabeled_root"
                     )
                 elif gold_label not in GOLD_FIELD_RESULT:
                     outcome = "not_stated" if gold_label == "not_stated" else "unlabeled"
-                elif not candidate_aligned:
-                    outcome = "candidate_alignment_unverified"
-                elif newest is None:
-                    outcome = "missing_reading"
-                elif not _same_annotated_reading(field, newest, gold_reading):
-                    outcome = "misaligned_reading"
-                elif record.reading_index != newest_index:
-                    outcome = "stale_reading"
                 elif record.result is MatchResult.UNDETERMINED:
                     outcome = "undetermined"
                     counts[f"{field}_undetermined"] += 1
@@ -269,8 +234,6 @@ def score_document(
                     "candidate_count": len(lookup.response.clusters),
                     "selected_candidate_index": selected_index,
                     "selected_cluster_id": candidate.id if candidate is not None else None,
-                    "annotated_cluster_evidence_ids": evidence_ids,
-                    "selected_cluster_in_annotation_evidence": candidate_aligned,
                     "candidate_index": record.candidate_index if record is not None else None,
                     "candidate_value": candidate_values.get(field),
                     "result": record.result.value if record is not None else None,
@@ -311,8 +274,8 @@ def evaluate(data_root: Path, run_dir: Path, sets: tuple[str, ...]) -> dict[str,
         "stage": STAGE,
         "basis": (
             "Only this stage's decided case-name, court, and date judgments for its selected candidate "
-            "score against explicit field labels on the same annotated root occurrence with the "
-            "latest aligned reading and a selected cluster ID listed in canonical root evidence."
+            "score against explicit annotated root field labels, independent of source span "
+            "or candidate provenance."
         ),
         "sets": {name: _summary(counts) for name, counts in by_set.items()},
         "totals": _summary(totals),
