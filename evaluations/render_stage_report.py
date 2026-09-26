@@ -4,7 +4,7 @@ Run from the repository root::
 
     python -m evaluations.render_stage_report \
         --summary-dir local/evaluations/root-stage-eval \
-        --output evaluations/reports/extraction-stages.md
+        --output local/evaluations/extraction-stages.md
 
 Each stage's ``summary.json`` is produced by ``evaluations.score_stages``.
 The renderer only formats those saved counts; it does not read filings, call a
