@@ -70,6 +70,26 @@ the latest aligned reading. The occurrence details retain the selected
 candidate, review decision or failure, field labels, readings, and score
 outcomes. Lookups with no returned candidates route to reporter-root search.
 
+To evaluate the latest field judgments across both independent model-review
+routes, combine their saved Documents without another provider call:
+
+```bash
+uv run python -m evaluations.combine_reporter_reviews \
+  --ambiguous-run-dir local/reporter-root-lookup-ambiguous-llm \
+  --unique-run-dir local/reporter-root-lookup-unique-llm \
+  --run-dir local/reporter-root-lookup-combined-llm
+uv run python -m evaluations.evaluate_run \
+  --run-dir local/reporter-root-lookup-combined-llm
+```
+
+The combination verifies the identical reporter-lookup checkpoint and each
+appended citation history before committing the final Document. The cumulative
+report adds overall case-name, court, and date precision and recall. Precision
+uses decided judgments with an aligned canonical annotation and selected
+cluster in its evidence; recall counts every explicitly labeled, unmasked
+canonical reporter-root field, including unresolved roots. Repeated locator
+occurrences do not borrow the canonical root's field labels.
+
 When docket-locator rules have run, the report also includes the separate
 unreviewed site-proposal diagnostic; proposals are not counted as admitted
 locators. A missing document, inconsistent stage chain, or completed stage

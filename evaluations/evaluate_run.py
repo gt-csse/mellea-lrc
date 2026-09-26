@@ -21,11 +21,14 @@ from typing import Any
 from evaluations.annotations import SETS, annotated_documents
 from evaluations.docket_proposals import score as score_docket_proposals
 from evaluations.render_identity_report import render_identity_report
+from evaluations.render_reporter_fields_overall import render_report as render_overall_reporter_fields
 from evaluations.render_reporter_lookup_ambiguous import render_report as render_ambiguity_report
 from evaluations.render_reporter_lookup_ambiguous_llm import render_report as render_ambiguous_llm_report
 from evaluations.render_reporter_lookup_unique_llm import render_report as render_unique_llm_report
 from evaluations.render_stage_report import render_stage_report
 from evaluations.score_identity import evaluate as score_identity
+from evaluations.score_reporter_fields_overall import NAME as OVERALL_REPORTER_FIELDS
+from evaluations.score_reporter_fields_overall import evaluate as score_overall_reporter_fields
 from evaluations.score_reporter_lookup_ambiguous import evaluate as score_ambiguity
 from evaluations.score_reporter_lookup_ambiguous_llm import evaluate as score_ambiguous_llm
 from evaluations.score_reporter_lookup_unique_llm import evaluate as score_unique_llm
@@ -96,11 +99,20 @@ def evaluate(data_root: Path, run_dir: Path, sets: tuple[str, ...] = ("primary",
         if DOCKET_LOCATORS_STAGE in order
         else {}
     )
+    overall_reporter_fields = None
+    if REPORTER_UNIQUE_LLM_STAGE in order and REPORTER_AMBIGUOUS_LLM_STAGE in order:
+        overall_reporter_fields = score_overall_reporter_fields(data_root, run_dir, selected)
+        occurrences[OVERALL_REPORTER_FIELDS] = overall_reporter_fields.pop("occurrences")
     return {
         "sets": list(selected),
         "stage_order": list(order),
         "stages": summaries,
         "diagnostics": diagnostics,
+        **(
+            {"overall_reporter_fields": overall_reporter_fields}
+            if overall_reporter_fields is not None
+            else {}
+        ),
         "occurrences": occurrences,
     }
 
@@ -173,6 +185,16 @@ def render_report(result: dict[str, Any], *, source_label: str) -> str:
             (
                 _demote_headings(
                     render_ambiguous_llm_report(ambiguous_llm, source_label=source_label)
+                ).rstrip(),
+                "",
+            )
+        )
+    overall_reporter_fields = result.get("overall_reporter_fields")
+    if overall_reporter_fields is not None:
+        lines.extend(
+            (
+                _demote_headings(
+                    render_overall_reporter_fields(overall_reporter_fields, source_label=source_label)
                 ).rstrip(),
                 "",
             )
