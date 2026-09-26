@@ -13,7 +13,7 @@ from mellea_lrc.model.citations.fields.date import FULL_DATE_RE, YEAR_RE
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 
-STAGE = "courts"
+STAGE = "7_courts"
 
 _DATE_EVENT = re.compile(r"\s+\b(?:filed|decided|issued)\b\s*$", re.I)
 

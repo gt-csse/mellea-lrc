@@ -9,8 +9,8 @@ from mellea_lrc.api import Document, grow_roots, stable
 
 document = Document.from_source("See 347 U.S. 483 (1954).")
 document = asyncio.run(grow_roots(document, rules=stable()))
-after_dockets = document.get_stage("docket_locators")
-after_entries = document.get_stage("docket_entries")
+after_dockets = document.get_stage("2_docket_locators")
+after_entries = document.get_stage("4_docket_entries")
 ```
 
 `grow_roots` is async. It runs reporter locator discovery, docket locator discovery, optional docket site hunting, docket-entry reading, colocation, case-name/court/date/pin-cite reading, and root formation in that order. Omit `hunt_dockets=True` for the rule-only pass. Each stage can also be called separately through the same API. Colocation sets parsing boundaries; it does not establish case identity.
@@ -23,13 +23,19 @@ Every public module directly under `extraction/` now writes a named Document sta
 
 `resolve_docket_entries(document)` then attaches an optional nearby `Doc.`, `Dkt.`, `ECF`, or `D.I.` entry to an already found docket citation. It reads both sides, with a narrower rule after the locator: an immediate comma or a short bracketed reference. Entries never create case-docket roots. Competing associations remain unread for later review. The hunter temporarily masks these entry references while looking for case dockets; it does not alter the source text.
 
-The active evaluator covers only the first two `grow_roots` extraction stages. It scores the precision of locator spans and normalized values written by each stage, using exact stage checkpoints. See [Grow-roots evaluation](../evaluations/README.md) for the scoring contract and command. Later stages will get their own incremental evaluation as their contracts are redesigned.
+The evaluator scores each `grow_roots` extraction stage independently using its exact stage checkpoint. See [Grow-roots evaluation](../evaluations/README.md) for the scoring contract and command. Validation stages have separate contracts.
 
 ```python
 import asyncio
 from pathlib import Path
 
-from mellea_lrc.api import Document, find_docket_locators, find_full_reporter_locators, hunt_docket_locators, resolve_docket_entries
+from mellea_lrc.api import (
+    Document,
+    find_docket_locators,
+    find_full_reporter_locators,
+    hunt_docket_locators,
+    resolve_docket_entries,
+)
 
 document = find_full_reporter_locators(Document.from_source(Path("filing.txt")))
 document = find_docket_locators(document)
@@ -37,7 +43,7 @@ document = asyncio.run(hunt_docket_locators(document))
 document = resolve_docket_entries(document)
 ```
 
-To continue from a saved rule-locator checkpoint, restore its `Document` and call the stage directly. If the saved artifact is from a later stage, `get_stage("docket_locators")` recovers the input to hunting. A new full run uses `grow_roots(document, hunt_dockets=True)` instead.
+To continue from a saved rule-locator checkpoint, restore its `Document` and call the stage directly. If the saved artifact is from a later stage, `get_stage("2_docket_locators")` recovers the input to hunting. A new full run uses `grow_roots(document, hunt_dockets=True)` instead.
 
 ```python
 import asyncio
@@ -47,7 +53,7 @@ from mellea_lrc.api import Document, hunt_docket_locators
 
 saved = Path("rule-checkpoint.json")
 document = Document.model_validate_json(saved.read_text(encoding="utf-8"))
-document = asyncio.run(hunt_docket_locators(document.get_stage("docket_locators")))
+document = asyncio.run(hunt_docket_locators(document.get_stage("2_docket_locators")))
 Path("hunted-checkpoint.json").write_text(document.model_dump_json(indent=2), encoding="utf-8")
 ```
 
@@ -62,7 +68,7 @@ The default reviewer reads `MELLEA_LRC_LLM_API_BASE`, `MELLEA_LRC_LLM_API_KEY`, 
 ```python
 saved = document.model_dump_json()
 restored = Document.model_validate_json(saved)
-assert restored.get_stage("docket_locators") == after_dockets
+assert restored.get_stage("2_docket_locators") == after_dockets
 ```
 
 Exact reporter-root lookup is the first independent validation stage after root formation; see [Validation](Validation.md). Search and leaf growth remain later layers.

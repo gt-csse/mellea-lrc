@@ -11,7 +11,7 @@ from mellea_lrc.model.citations.fields.pin_cite import PIN_PREFIX
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 
-STAGE = "pin_cites"
+STAGE = "9_pin_cites"
 
 _BARE_NOTE = re.compile(r"^\s*,?\s*(?:at\s+)?(?P<pin>(?:n{1,2}\.|fn\.?)\s*\d+)", re.I)
 _COURT_ORDINAL = re.compile(r"(?:st|nd|rd|th|d)\b\s+(?:Cir\.|Dept\.|Dist\.)", re.I)

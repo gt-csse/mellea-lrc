@@ -13,7 +13,7 @@ from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.site_review import SiteReview
 
-STAGE = "docket_locator_site_hunting"
+STAGE = "3_docket_locator_site_hunting"
 
 
 async def hunt_docket_locators(
@@ -24,9 +24,12 @@ async def hunt_docket_locators(
     """Review one site at a time; accepted sites affect the next proposal mask."""
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "full_reporter_locators" not in document.stage_runs or "docket_locators" not in document.stage_runs:
+    if (
+        "1_full_reporter_locators" not in document.stage_runs
+        or "2_docket_locators" not in document.stage_runs
+    ):
         raise ValueError("Run both rule locator stages before docket site hunting")
-    if "colocations" in document.stage_runs:
+    if "5_colocations" in document.stage_runs:
         raise ValueError("Docket site hunting must precede colocation")
     inspected: set[tuple[int, int]] = set()
     current = document

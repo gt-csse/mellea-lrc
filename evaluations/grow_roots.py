@@ -14,16 +14,16 @@ from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation
 from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, latest
 
-REPORTER_STAGE = "full_reporter_locators"
-DOCKET_STAGE = "docket_locators"
-HUNT_STAGE = "docket_locator_site_hunting"
-ENTRY_STAGE = "docket_entries"
-COLOCATION_STAGE = "colocations"
-CASE_NAME_STAGE = "case_names"
-COURT_STAGE = "courts"
-DATE_STAGE = "dates"
-PIN_STAGE = "pin_cites"
-ROOT_STAGE = "roots"
+REPORTER_STAGE = "1_full_reporter_locators"
+DOCKET_STAGE = "2_docket_locators"
+HUNT_STAGE = "3_docket_locator_site_hunting"
+ENTRY_STAGE = "4_docket_entries"
+COLOCATION_STAGE = "5_colocations"
+CASE_NAME_STAGE = "6_case_names"
+COURT_STAGE = "7_courts"
+DATE_STAGE = "8_dates"
+PIN_STAGE = "9_pin_cites"
+ROOT_STAGE = "10_roots"
 
 
 @dataclass(frozen=True)
@@ -579,7 +579,7 @@ def _root_normalization_agrees(name: str, reading: Any, row: dict[str, Any]) -> 
     raise ValueError(f"Unknown root field: {name}")
 
 
-def score_grow_roots_workflow(document: Document) -> WorkflowScore:
+def score_grow_roots(document: Document) -> WorkflowScore:
     """All stage precision, then precision/recall for final root fields."""
     final = document.get_stage(ROOT_STAGE)
     missing = [
@@ -654,44 +654,192 @@ def score_grow_roots_workflow(document: Document) -> WorkflowScore:
     return WorkflowScore(stages, result)
 
 
-def render_markdown(result: dict[str, Any]) -> str:
-    """Render only the stage and root-field measures in the score."""
+def _precision_cell(value: Precision) -> str:
+    return "—" if value.total == 0 else f"{value.correct}/{value.total} ({value.correct / value.total:.1%})"
 
-    def precision(value: dict[str, Any]) -> str:
-        return (
-            "—" if value["total"] == 0 else f"{value['correct']}/{value['total']} ({value['precision']:.1%})"
+
+def _field_cell(value: FieldScore, *, recall: bool) -> str:
+    denominator = value.gold if recall else value.predicted
+    return "—" if denominator == 0 else f"{value.correct}/{denominator} ({value.correct / denominator:.1%})"
+
+
+def _require_stage(score: StageScore, stage: str) -> None:
+    if score.stage != stage:
+        raise ValueError(f"Expected {stage} score, got {score.stage}")
+
+
+def render_full_reporter_locators(score: StageScore) -> str:
+    _require_stage(score, REPORTER_STAGE)
+    return "\n".join(
+        (
+            f"## {REPORTER_STAGE}",
+            "",
+            "| Span precision | Normalization precision |",
+            "| ---: | ---: |",
+            f"| {_precision_cell(score.metrics['span'])} | {_precision_cell(score.metrics['normalization'])} |",
         )
+    )
 
-    def field(value: dict[str, Any], key: str) -> str:
-        denominator = value["predicted" if key == "precision" else "gold"]
-        return "—" if denominator == 0 else f"{value['correct']}/{denominator} ({value[key]:.1%})"
 
-    lines = [
-        f"# Grow-roots evaluation: {result['set']}",
-        "",
-        "Docket site hunting: "
-        + ("included" if any(stage["stage"] == HUNT_STAGE for stage in result["stages"]) else "not run"),
-        "",
-        "## Stage precision",
-        "",
-        "| Stage | Decision | Precision |",
-        "| --- | --- | ---: |",
+def render_docket_locators(score: StageScore) -> str:
+    _require_stage(score, DOCKET_STAGE)
+    return "\n".join(
+        (
+            f"## {DOCKET_STAGE}",
+            "",
+            "| Span precision | Normalization precision |",
+            "| ---: | ---: |",
+            f"| {_precision_cell(score.metrics['span'])} | {_precision_cell(score.metrics['normalization'])} |",
+        )
+    )
+
+
+def render_docket_locator_site_hunting(score: StageScore) -> str:
+    _require_stage(score, HUNT_STAGE)
+    return "\n".join(
+        (
+            f"## {HUNT_STAGE}",
+            "",
+            "| Span precision | Normalization precision |",
+            "| ---: | ---: |",
+            f"| {_precision_cell(score.metrics['span'])} | {_precision_cell(score.metrics['normalization'])} |",
+        )
+    )
+
+
+def render_docket_entries(score: StageScore) -> str:
+    _require_stage(score, ENTRY_STAGE)
+    return "\n".join(
+        (
+            f"## {ENTRY_STAGE}",
+            "",
+            "| Span precision | Normalization precision |",
+            "| ---: | ---: |",
+            f"| {_precision_cell(score.metrics['span'])} | {_precision_cell(score.metrics['normalization'])} |",
+        )
+    )
+
+
+def render_colocations(score: StageScore) -> str:
+    _require_stage(score, COLOCATION_STAGE)
+    return "\n".join(
+        (
+            f"## {COLOCATION_STAGE}",
+            "",
+            "| Group precision |",
+            "| ---: |",
+            f"| {_precision_cell(score.metrics['groups'])} |",
+        )
+    )
+
+
+def render_case_names(score: StageScore) -> str:
+    _require_stage(score, CASE_NAME_STAGE)
+    return "\n".join(
+        (
+            f"## {CASE_NAME_STAGE}",
+            "",
+            "| Span precision | Normalization precision |",
+            "| ---: | ---: |",
+            f"| {_precision_cell(score.metrics['span'])} | {_precision_cell(score.metrics['normalization'])} |",
+        )
+    )
+
+
+def render_courts(score: StageScore) -> str:
+    _require_stage(score, COURT_STAGE)
+    return "\n".join(
+        (
+            f"## {COURT_STAGE}",
+            "",
+            "| Span precision | Normalization precision |",
+            "| ---: | ---: |",
+            f"| {_precision_cell(score.metrics['span'])} | {_precision_cell(score.metrics['normalization'])} |",
+        )
+    )
+
+
+def render_dates(score: StageScore) -> str:
+    _require_stage(score, DATE_STAGE)
+    return "\n".join(
+        (
+            f"## {DATE_STAGE}",
+            "",
+            "| Span precision | Normalization precision |",
+            "| ---: | ---: |",
+            f"| {_precision_cell(score.metrics['span'])} | {_precision_cell(score.metrics['normalization'])} |",
+        )
+    )
+
+
+def render_pin_cites(score: StageScore) -> str:
+    _require_stage(score, PIN_STAGE)
+    return "\n".join(
+        (
+            f"## {PIN_STAGE}",
+            "",
+            "| Span precision | Normalization precision |",
+            "| ---: | ---: |",
+            f"| {_precision_cell(score.metrics['span'])} | {_precision_cell(score.metrics['normalization'])} |",
+        )
+    )
+
+
+def render_roots(score: StageScore) -> str:
+    _require_stage(score, ROOT_STAGE)
+    return "\n".join(
+        (
+            f"## {ROOT_STAGE}",
+            "",
+            "| Root assignment precision |",
+            "| ---: |",
+            f"| {_precision_cell(score.metrics['root_assignment'])} |",
+        )
+    )
+
+
+GROW_ROOTS_RENDERERS: dict[str, Callable[[StageScore], str]] = {
+    REPORTER_STAGE: render_full_reporter_locators,
+    DOCKET_STAGE: render_docket_locators,
+    HUNT_STAGE: render_docket_locator_site_hunting,
+    ENTRY_STAGE: render_docket_entries,
+    COLOCATION_STAGE: render_colocations,
+    CASE_NAME_STAGE: render_case_names,
+    COURT_STAGE: render_courts,
+    DATE_STAGE: render_dates,
+    PIN_STAGE: render_pin_cites,
+    ROOT_STAGE: render_roots,
+}
+
+
+def render_grow_roots(
+    score: WorkflowScore, *, include_stages: bool = True, set_name: str | None = None
+) -> str:
+    """Render the workflow; include every completed stage in order by default."""
+    stage_names = tuple(item.stage for item in score.stages)
+    expected = tuple(
+        stage for stage, _ in GROW_ROOTS_STAGES if stage != HUNT_STAGE or HUNT_STAGE in stage_names
+    )
+    if stage_names != expected:
+        raise ValueError("Grow-roots stage scores are missing or out of order")
+    title = "# Grow-roots evaluation" + (f": {set_name}" if set_name else "")
+    sections = [
+        title,
+        "Docket site hunting: " + ("included" if HUNT_STAGE in stage_names else "not run"),
     ]
-    for stage in result["stages"]:
-        for name, value in stage["metrics"].items():
-            lines.append(f"| {stage['stage']} | {name} | {precision(value)} |")
-    lines += [
-        "",
+    if include_stages:
+        sections.extend(GROW_ROOTS_RENDERERS[item.stage](item) for item in score.stages)
+    lines = [
         "## Root fields",
         "",
         "| Field | Span precision | Span recall | Normalization precision | Normalization recall |",
         "| --- | ---: | ---: | ---: | ---: |",
     ]
-    for name, measures in result["root_fields"].items():
+    for name, measures in score.root_fields.items():
         span, norm = measures["span"], measures["normalization"]
         lines.append(
-            f"| {name} | {field(span, 'precision')} | {field(span, 'recall')} | "
-            f"{field(norm, 'precision')} | {field(norm, 'recall')} |"
+            f"| {name} | {_field_cell(span, recall=False)} | {_field_cell(span, recall=True)} | "
+            f"{_field_cell(norm, recall=False)} | {_field_cell(norm, recall=True)} |"
         )
-    lines.append("")
-    return "\n".join(lines)
+    sections.append("\n".join(lines))
+    return "\n\n".join(sections) + "\n"

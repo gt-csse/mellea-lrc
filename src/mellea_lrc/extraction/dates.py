@@ -8,7 +8,7 @@ from mellea_lrc.model.citations.fields.date import FULL_DATE_RE, YEAR_RE
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 
-STAGE = "dates"
+STAGE = "8_dates"
 
 
 def resolve_dates(document: Document, rules: ExtractionRules | None = None) -> Document:

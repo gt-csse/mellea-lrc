@@ -2,7 +2,7 @@
   "set": "primary",
   "stages": [
     {
-      "stage": "full_reporter_locators",
+      "stage": "1_full_reporter_locators",
       "metrics": {
         "span": {
           "correct": 589,
@@ -17,7 +17,7 @@
       }
     },
     {
-      "stage": "docket_locators",
+      "stage": "2_docket_locators",
       "metrics": {
         "span": {
           "correct": 19,
@@ -32,7 +32,7 @@
       }
     },
     {
-      "stage": "docket_entries",
+      "stage": "4_docket_entries",
       "metrics": {
         "span": {
           "correct": 1,
@@ -47,7 +47,7 @@
       }
     },
     {
-      "stage": "colocations",
+      "stage": "5_colocations",
       "metrics": {
         "groups": {
           "correct": 23,
@@ -57,7 +57,7 @@
       }
     },
     {
-      "stage": "case_names",
+      "stage": "6_case_names",
       "metrics": {
         "span": {
           "correct": 513,
@@ -72,7 +72,7 @@
       }
     },
     {
-      "stage": "courts",
+      "stage": "7_courts",
       "metrics": {
         "span": {
           "correct": 424,
@@ -87,7 +87,7 @@
       }
     },
     {
-      "stage": "dates",
+      "stage": "8_dates",
       "metrics": {
         "span": {
           "correct": 550,
@@ -102,7 +102,7 @@
       }
     },
     {
-      "stage": "pin_cites",
+      "stage": "9_pin_cites",
       "metrics": {
         "span": {
           "correct": 391,
@@ -117,7 +117,7 @@
       }
     },
     {
-      "stage": "roots",
+      "stage": "10_roots",
       "metrics": {
         "root_assignment": {
           "correct": 607,

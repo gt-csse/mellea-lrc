@@ -17,7 +17,7 @@ from mellea_lrc.extraction._site_hunting.candidates import suspected_dockets
 from mellea_lrc.extraction._site_hunting.review import DocketSiteDecision, IvrDocketReviewer
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation, Span
 
-STAGE = "docket_locator_site_hunting"
+STAGE = "3_docket_locator_site_hunting"
 
 
 def _ready(source: str, *, index_spans: tuple[Span, ...] = ()) -> Document:
@@ -62,7 +62,7 @@ def test_hunt_recomputes_mask_after_each_admission_and_adds_only_full_dockets() 
     ]
     assert hunted.short_reporters == ()
     assert "short_reporter_citations" not in hunted.stage_runs
-    assert "colocations" not in hunted.stage_runs
+    assert "5_colocations" not in hunted.stage_runs
     for citation, written_number in zip(hunted.citations, ("19 Civ. 8034", "035547/2021")):
         locator = citation.locator[-1]
         assert source[locator.span.start : locator.span.end] == locator.quote
@@ -195,7 +195,7 @@ def test_hunt_rejects_a_repeat_run_and_checkpoint_survives_later_colocation() ->
     grouped = resolve_colocations(hunted)
     restored = Document.model_validate_json(grouped.model_dump_json())
     assert restored == grouped
-    assert grouped.get_stage("docket_locators") == before
+    assert grouped.get_stage("2_docket_locators") == before
     assert grouped.get_stage(STAGE) == hunted
     assert restored.get_stage(STAGE) == hunted
     assert restored.site_reviews == grouped.site_reviews
@@ -235,7 +235,7 @@ def test_hunt_continues_from_a_serialized_rule_checkpoint() -> None:
 
     hunted = asyncio.run(hunt_docket_locators(restored, reviewer=reviewer))
 
-    assert hunted.get_stage("docket_locators") == before
+    assert hunted.get_stage("2_docket_locators") == before
     assert hunted.stage_runs[-1] == STAGE
     assert [review.outcome for review in hunted.site_reviews] == ["accepted"]
     assert Document.model_validate_json(hunted.model_dump_json()) == hunted
@@ -249,14 +249,18 @@ def test_grow_roots_hunts_before_context_and_does_not_find_short_citations() -> 
 
     document = asyncio.run(grow_roots(Document.from_source(source), hunt_dockets=True, reviewer=reviewer))
 
-    assert document.stage_runs[:5] == (
-        "full_reporter_locators",
-        "docket_locators",
+    assert document.stage_runs == (
+        "1_full_reporter_locators",
+        "2_docket_locators",
         STAGE,
-        "docket_entries",
-        "colocations",
+        "4_docket_entries",
+        "5_colocations",
+        "6_case_names",
+        "7_courts",
+        "8_dates",
+        "9_pin_cites",
+        "10_roots",
     )
-    assert document.stage_runs[-1] == "roots"
     assert len(document.full_locators) == 1
     assert document.full_locators[0].locator[-1].get_normalized().docket_number == "19 Civ. 8034"
     assert document.full_locators[0].case_name

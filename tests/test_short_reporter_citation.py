@@ -37,7 +37,7 @@ def test_short_reporter_is_a_distinct_checkpointed_citation() -> None:
     assert short.short_locator[-1].quote == "347 U.S. at 495"
     assert short.short_locator[-1].get_normalized().pin_page == "495"
     assert short.root_id == ()
-    assert document.get_stage("roots") == roots
+    assert document.get_stage("10_roots") == roots
     assert document.get_stage("short_reporter_citations") == document
     assert Document.model_validate_json(document.model_dump_json()) == document
 

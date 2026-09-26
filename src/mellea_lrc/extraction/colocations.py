@@ -8,7 +8,7 @@ from mellea_lrc.config.extraction import ExtractionRules, stable
 from mellea_lrc.model.citations import FullCitationVariant, FullReporterCitation
 from mellea_lrc.model.document import Document
 
-STAGE = "colocations"
+STAGE = "5_colocations"
 
 _SEPARATE_CITATION = re.compile(r"…|\.{2,}|\bvs?\.|\n\s*\n|\.\s+[A-Z]", re.I)
 
@@ -30,7 +30,7 @@ def resolve_colocations(document: Document, rules: ExtractionRules | None = None
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if not {"full_reporter_locators", "docket_locators"} & set(document.stage_runs):
+    if not {"1_full_reporter_locators", "2_docket_locators"} & set(document.stage_runs):
         raise ValueError("Discover at least one kind of full locator before resolving colocations")
     config = rules or stable()
     groups: list[list[FullCitationVariant]] = []

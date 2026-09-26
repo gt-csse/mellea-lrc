@@ -40,7 +40,7 @@ def find_short_reporter_citations(document: Document) -> Document:
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "roots" not in document.stage_runs:
+    if "10_roots" not in document.stage_runs:
         raise ValueError("Form full roots before finding short reporter citations")
     for reading in sorted(short_reporter_readings(document.text), key=lambda item: item.span):
         span = Span(*reading.span)

@@ -7,7 +7,7 @@ import re
 from mellea_lrc.model.citations import FullDocketCitation, FullReporterCitation
 from mellea_lrc.model.document import Document
 
-STAGE = "roots"
+STAGE = "10_roots"
 
 
 def _reporter_key(citation: FullReporterCitation) -> tuple[str, ...] | None:
@@ -43,7 +43,7 @@ def form_roots(document: Document) -> Document:
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "colocations" not in document.stage_runs:
+    if "5_colocations" not in document.stage_runs:
         raise ValueError("Resolve colocations before forming roots")
     known: dict[tuple[str, ...], str] = {}
     for citation in document.full_locators:

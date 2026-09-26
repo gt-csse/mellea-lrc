@@ -10,7 +10,7 @@ from mellea_lrc.model.citations.fields.docket import DOCKET_ENTRY_PATTERN
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 
-STAGE = "docket_entries"
+STAGE = "4_docket_entries"
 
 # Entry references before a case docket often precede it by a comma or a
 # bracket. Sentence/paragraph breaks and semicolons are not adjacency.
@@ -41,9 +41,9 @@ def resolve_docket_entries(document: Document) -> Document:
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "docket_locators" not in document.stage_runs:
+    if "2_docket_locators" not in document.stage_runs:
         raise ValueError("Find docket locators before reading docket entries")
-    if "colocations" in document.stage_runs:
+    if "5_colocations" in document.stage_runs:
         raise ValueError("Read docket entries before resolving colocations")
 
     entries = tuple(DOCKET_ENTRY_PATTERN.finditer(document.text))
