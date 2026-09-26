@@ -51,6 +51,25 @@ occurrence and the latest corrected field reading align with an explicit field
 label. Its `occurrences.json` entries retain each field's reading, label,
 prediction, and scoring outcome.
 
+For a multi-candidate lookup where the rule stage found zero or several passing
+candidates, resume from the saved ambiguity checkpoint and evaluate the model
+review:
+
+```bash
+uv run python -m evaluations.run_reporter_root_lookup_ambiguous_llm \
+  --input-run-dir local/reporter-root-lookup-ambiguous \
+  --run-dir local/reporter-root-lookup-ambiguous-llm
+uv run python -m evaluations.evaluate_run \
+  --run-dir local/reporter-root-lookup-ambiguous-llm
+```
+
+This report shows case-name, court, and date judgment precision for the
+model-selected candidate, with scored denominators by set and in total. It
+scores only stage-written judgments on the same annotated root occurrence with
+the latest aligned reading. The occurrence details retain the selected
+candidate, review decision or failure, field labels, readings, and score
+outcomes. Lookups with no returned candidates route to reporter-root search.
+
 When docket-locator rules have run, the report also includes the separate
 unreviewed site-proposal diagnostic; proposals are not counted as admitted
 locators. A missing document, inconsistent stage chain, or completed stage

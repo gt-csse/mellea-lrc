@@ -24,6 +24,7 @@ from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.validation import (
     reporter_root_lookup,
     reporter_root_lookup_ambiguous,
+    reporter_root_lookup_ambiguous_llm,
     reporter_root_lookup_unique_llm,
 )
 from mellea_lrc.workflows.grow_roots import grow_roots
@@ -40,6 +41,7 @@ __all__ = [
     "preprocess",
     "reporter_root_lookup",
     "reporter_root_lookup_ambiguous",
+    "reporter_root_lookup_ambiguous_llm",
     "reporter_root_lookup_unique_llm",
     "resolve_case_names",
     "resolve_colocations",

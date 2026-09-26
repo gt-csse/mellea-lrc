@@ -17,22 +17,19 @@ from pydantic import ValidationError
 from mellea_lrc.courtlistener import CourtListenerCluster, CourtListenerDocket
 from mellea_lrc.extraction._support.context_windows import after, before
 from mellea_lrc.llm.config import llm_api_config_from_env, start_mellea_session_from_env
-from mellea_lrc.llm.fuzziness import FuzzinessOption
-from mellea_lrc.llm.grounding import EvidenceCandidate, GroundingEvidence
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
 from mellea_lrc.model.citations import FullReporterCitation
-from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterUniqueReviewDecision
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.model.span import Span
+from mellea_lrc.validation._support.reporter_review_grounding import ReporterReviewGrounding
 
 if TYPE_CHECKING:
     from mellea import MelleaSession
 
 
 @dataclass(frozen=True, slots=True)
-class ReporterUniqueReviewContext:
+class ReporterUniqueReviewContext(ReporterReviewGrounding):
     """Bounded source text and the sole saved opinion record for one review."""
 
     source: str
@@ -79,49 +76,6 @@ class ReporterUniqueReviewContext:
             candidate=lookup.response.clusters[0],
             docket=root.reporter_exact_docket.response if root.reporter_exact_docket else None,
         )
-
-    def ground(self, field: str, quote: str) -> Span | None:
-        """Resolve a proposed reading to exact source bytes in its allowed window."""
-        if field == "case_name":
-            window, offset = self.case_name_window, self.case_name_offset
-        elif field in {"court", "date"}:
-            window, offset = self.following_window, self.following_offset
-        else:
-            raise ValueError(f"Unknown reporter review field: {field}")
-        found = GroundingEvidence((EvidenceCandidate(window, offset),)).find_fragment(
-            quote,
-            FuzzinessOption.edit_distance(similarity_percent=90, whitespace_relaxation=True),
-        )
-        if found is None:
-            return None
-        return Span(offset + found.start, offset + found.end)
-
-    def grounded_corrections(self, decision: ReporterUniqueReviewDecision) -> dict[str, Span] | None:
-        """Validate stated intent and ground every quote before a correction commits."""
-        corrections: dict[str, Span] = {}
-        for field in ("case_name", "court", "date"):
-            assessment = getattr(decision, field)
-            quote = assessment.quote
-            if not assessment.propose_replacement:
-                if quote is not None:
-                    return None
-                continue
-            if quote is None or not quote.strip():
-                return None
-            span = self.ground(field, quote)
-            if span is None:
-                return None
-            corrections[field] = span
-        return corrections
-
-    def assessment_error(self, decision: ReporterUniqueReviewDecision) -> str | None:
-        """A match or mismatch needs a source reading, existing or proposed."""
-        for field in ("case_name", "court", "date"):
-            assessment = getattr(decision, field)
-            if not getattr(self, f"has_{field}") and not assessment.propose_replacement:
-                if assessment.result is not MatchResult.UNDETERMINED:
-                    return f"{field} has no filing reading; use undetermined or quote one from the filing"
-        return None
 
 
 @dataclass(frozen=True, slots=True)
