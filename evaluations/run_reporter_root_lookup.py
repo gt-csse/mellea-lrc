@@ -2,12 +2,12 @@
 
 Run from the repository root::
 
-    uv run python -m evaluations.run_reporter_exact_lookup \
-        --sets primary --run-dir local/reporter-exact-rule-only
+    uv run python -m evaluations.run_reporter_root_lookup \
+        --sets primary --run-dir local/reporter-root-lookup
 
 The runner reads only manifest-listed source text and index masks. It saves
 ``root_documents`` immediately after ``grow_roots`` and ``documents`` after
-``reporter_root_exact_lookup``. A provider error leaves completed documents
+``reporter_root_lookup``. A provider error leaves completed documents
 and the current document's root checkpoint available for the same command to
 resume. Use ``--through roots`` to create only the extraction checkpoint.
 Annotations are read later by the independent scorer.
@@ -26,10 +26,10 @@ from pathlib import Path
 from typing import Any
 
 from evaluations.annotations import SETS
-from mellea_lrc.api import Document, grow_roots, reporter_root_exact_lookup
+from mellea_lrc.api import Document, grow_roots, reporter_root_lookup
 from mellea_lrc.extraction.roots import STAGE as ROOTS_STAGE
 from mellea_lrc.model import Span
-from mellea_lrc.validation.reporter_root_exact_lookup import STAGE as EXACT_STAGE
+from mellea_lrc.validation.reporter_root_lookup import STAGE as LOOKUP_STAGE
 
 
 def _save(path: Path, content: str) -> None:
@@ -95,7 +95,7 @@ def _run_spec(data_root: Path) -> str:
                 "root_rules": "stable",
                 "hunt_dockets": False,
                 "court_docket_fetch": True,
-                "checkpoints": [ROOTS_STAGE, EXACT_STAGE],
+                "checkpoints": [ROOTS_STAGE, LOOKUP_STAGE],
             },
             indent=2,
             sort_keys=True,
@@ -105,13 +105,13 @@ def _run_spec(data_root: Path) -> str:
 
 
 async def run_documents(
-    data_root: Path, run_dir: Path, sets: Iterable[str], *, through: str = "exact"
+    data_root: Path, run_dir: Path, sets: Iterable[str], *, through: str = "lookup"
 ) -> dict[str, int]:
     """Persist complete Document checkpoints and resume by document."""
     names = tuple(dict.fromkeys(sets))
     if not names or any(name not in SETS for name in names):
         raise ValueError("Select one or more known annotated sets")
-    if through not in {"roots", "exact"}:
+    if through not in {"roots", "lookup"}:
         raise ValueError(f"Unsupported checkpoint: {through}")
     specification = _run_spec(data_root)
     spec_path = run_dir / "run.json"
@@ -121,7 +121,7 @@ async def run_documents(
     else:
         _save(spec_path, specification)
 
-    counts = {"roots_created": 0, "roots_reused": 0, "exact_created": 0, "exact_reused": 0}
+    counts = {"roots_created": 0, "roots_reused": 0, "lookup_created": 0, "lookup_reused": 0}
     for name in names:
         manifest_path = data_root / name / "documents.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))["documents"]
@@ -140,24 +140,24 @@ async def run_documents(
             if through == "roots":
                 continue
 
-            exact_path = run_dir / "documents" / name / f"{filename}.json"
-            if exact_path.exists():
-                exact = _checkpoint(exact_path, EXACT_STAGE, source)
+            lookup_path = run_dir / "documents" / name / f"{filename}.json"
+            if lookup_path.exists():
+                exact = _checkpoint(lookup_path, LOOKUP_STAGE, source)
                 if exact.get_stage(ROOTS_STAGE) != roots:
-                    raise ValueError(f"{exact_path}: saved exact stage has a different root checkpoint")
-                counts["exact_reused"] += 1
+                    raise ValueError(f"{lookup_path}: saved lookup stage has a different root checkpoint")
+                counts["lookup_reused"] += 1
                 continue
             try:
-                exact = reporter_root_exact_lookup(roots)
+                exact = reporter_root_lookup(roots)
             except Exception:
                 print(
-                    f"Exact lookup stopped at {name}/{filename}; rerun this command to resume.",
+                    f"Reporter lookup stopped at {name}/{filename}; rerun this command to resume.",
                     file=sys.stderr,
                 )
                 raise
-            _persist_document(exact_path, exact)
-            counts["exact_created"] += 1
-            print(f"Saved exact lookup: {name}/{filename}", flush=True)
+            _persist_document(lookup_path, exact)
+            counts["lookup_created"] += 1
+            print(f"Saved reporter lookup: {name}/{filename}", flush=True)
     return counts
 
 
@@ -166,7 +166,7 @@ def main() -> None:
     parser.add_argument("--data-root", type=Path, default=Path("data"))
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--sets", nargs="+", choices=SETS, default=["primary"])
-    parser.add_argument("--through", choices=("roots", "exact"), default="exact")
+    parser.add_argument("--through", choices=("roots", "lookup"), default="lookup")
     args = parser.parse_args()
 
     import asyncio

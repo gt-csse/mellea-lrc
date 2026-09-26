@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from evaluations import evaluate_run
-from mellea_lrc.api import Document, grow_roots, reporter_root_exact_lookup
+from mellea_lrc.api import Document, grow_roots, reporter_root_lookup
 from mellea_lrc.courtlistener import CourtListenerCitationLookup
 
 
@@ -194,7 +194,7 @@ def test_exact_identity_field_judgments_appear_in_cumulative_json_and_markdown(
     output_dir = tmp_path / "evaluation"
     source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
     roots = asyncio.run(grow_roots(Document.from_source(source), hunt_dockets=False))
-    document = reporter_root_exact_lookup(roots, client=_LookupClient())
+    document = reporter_root_lookup(roots, client=_LookupClient())
     (root,) = document.roots
     case_name = root.case_name[-1]
     date = root.date[-1]
@@ -253,14 +253,14 @@ def test_exact_identity_field_judgments_appear_in_cumulative_json_and_markdown(
     summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
     occurrences = json.loads((output_dir / "occurrences.json").read_text(encoding="utf-8"))
     report = (output_dir / "report.md").read_text(encoding="utf-8")
-    identity = summary["stages"]["reporter_root_exact_lookup"]
-    assert summary["stage_order"][-1] == "reporter_root_exact_lookup"
+    identity = summary["stages"]["reporter_root_lookup"]
+    assert summary["stage_order"][-1] == "reporter_root_lookup"
     for field in ("case_name", "court", "date"):
         assert identity["totals"]["fields"][field]["gold_stated"] == 1
         assert identity["totals"]["fields"][field]["correct_predictions"] == 1
     assert any(
         item["product"] == "field_judgment" and item["field"] == "court"
-        for item in occurrences["reporter_root_exact_lookup"]["primary/sample.txt"]
+        for item in occurrences["reporter_root_lookup"]["primary/sample.txt"]
     )
     assert "| Set | Field | Judgment precision | Judgment recall |" in report
     assert "| primary | Case name | 100.0% | 100.0% |" in report

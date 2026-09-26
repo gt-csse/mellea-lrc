@@ -35,7 +35,7 @@ from mellea_lrc.model.citations.judgments import (
 )
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactLookupOutcome
 from mellea_lrc.validation._support.reporter_exact_fields import locator_present
-from mellea_lrc.validation.reporter_root_exact_lookup import STAGE
+from mellea_lrc.validation.reporter_root_lookup import STAGE
 
 LABELS = frozenset((IdentityVerdict.CORRECT_IDENTITY.name, IdentityVerdict.WRONG_IDENTITY.name))
 FIELD_LOGS = {

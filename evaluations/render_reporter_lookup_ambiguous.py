@@ -14,21 +14,21 @@ def _precision(metric: dict[str, Any]) -> str:
 
 
 def render_report(result: dict[str, Any], *, source_label: str) -> str:
-    """Render admission and selected-candidate field precision with denominators."""
-    if result.get("stage") != "reporter_root_exact_ambiguity" or not result.get("sets"):
+    """Render selected-candidate field precision with denominators."""
+    if result.get("stage") != "reporter_root_lookup_ambiguous" or not result.get("sets"):
         raise ValueError("Expected a nonempty reporter ambiguity-stage summary")
     lines = [
         f"# Precision at `{result['stage']}`",
         "",
-        f"<!-- Generated from {source_label} by evaluations.render_reporter_ambiguity_report. -->",
+        f"<!-- Generated from {source_label} by evaluations.render_reporter_lookup_ambiguous. -->",
         "",
-        "Admission precision scores unique rule admissions against labeled root identity. Field precision "
-        "scores the selected candidate's field judgments against explicit root-level field labels, "
+        "Field precision scores the selected candidate's case-name, court, and date judgments "
+        "against explicit root-level field labels, "
         "including judgments on later occurrences of that root. Each value shows correct/scored "
         "judgments; a dash means no labeled judgment was scored.",
         "",
-        "| Set | Admission | Case name | Court | Date |",
-        "| --- | ---: | ---: | ---: | ---: |",
+        "| Set | Case name | Court | Date |",
+        "| --- | ---: | ---: | ---: |",
     ]
     for name in SETS:
         if name not in result["sets"]:
@@ -40,8 +40,13 @@ def render_report(result: dict[str, Any], *, source_label: str) -> str:
 
 def _row(name: str, data: dict[str, Any]) -> str:
     fields = data.get("field_precision", {})
-    return "| " + " | ".join((
-        name,
-        _precision(data.get("admission_precision", {})),
-        *(_precision(fields.get(field, {})) for field in ("case_name", "court", "date")),
-    )) + " |"
+    return (
+        "| "
+        + " | ".join(
+            (
+                name,
+                *(_precision(fields.get(field, {})) for field in ("case_name", "court", "date")),
+            )
+        )
+        + " |"
+    )
