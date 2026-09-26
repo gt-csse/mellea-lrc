@@ -22,10 +22,12 @@ from evaluations.annotations import SETS, annotated_documents
 from evaluations.docket_proposals import score as score_docket_proposals
 from evaluations.render_identity_report import render_identity_report
 from evaluations.render_reporter_lookup_ambiguous import render_report as render_ambiguity_report
+from evaluations.render_reporter_lookup_ambiguous_llm import render_report as render_ambiguous_llm_report
 from evaluations.render_reporter_lookup_unique_llm import render_report as render_unique_llm_report
 from evaluations.render_stage_report import render_stage_report
 from evaluations.score_identity import evaluate as score_identity
 from evaluations.score_reporter_lookup_ambiguous import evaluate as score_ambiguity
+from evaluations.score_reporter_lookup_ambiguous_llm import evaluate as score_ambiguous_llm
 from evaluations.score_reporter_lookup_unique_llm import evaluate as score_unique_llm
 from evaluations.score_stages import STAGES as EXTRACTION_STAGES
 from evaluations.score_stages import evaluate as score_extraction_stage
@@ -33,9 +35,18 @@ from mellea_lrc.extraction.docket_locator import STAGE as DOCKET_LOCATORS_STAGE
 from mellea_lrc.validation.reporter_root_lookup import STAGE as REPORTER_IDENTITY_STAGE
 from mellea_lrc.validation.reporter_root_lookup_ambiguous import STAGE as REPORTER_AMBIGUITY_STAGE
 from mellea_lrc.validation.reporter_root_lookup_unique_llm import STAGE as REPORTER_UNIQUE_LLM_STAGE
+from mellea_lrc.validation.stage_names import (
+    REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM as REPORTER_AMBIGUOUS_LLM_STAGE,
+)
 
 SCORED_STAGES = frozenset(
-    (*EXTRACTION_STAGES, REPORTER_IDENTITY_STAGE, REPORTER_AMBIGUITY_STAGE, REPORTER_UNIQUE_LLM_STAGE)
+    (
+        *EXTRACTION_STAGES,
+        REPORTER_IDENTITY_STAGE,
+        REPORTER_AMBIGUITY_STAGE,
+        REPORTER_UNIQUE_LLM_STAGE,
+        REPORTER_AMBIGUOUS_LLM_STAGE,
+    )
 )
 
 
@@ -72,6 +83,8 @@ def evaluate(data_root: Path, run_dir: Path, sets: tuple[str, ...] = ("primary",
             result = score_ambiguity(data_root, run_dir, selected)
         elif stage == REPORTER_UNIQUE_LLM_STAGE:
             result = score_unique_llm(data_root, run_dir, selected)
+        elif stage == REPORTER_AMBIGUOUS_LLM_STAGE:
+            result = score_ambiguous_llm(data_root, run_dir, selected)
         else:
             result = score_extraction_stage(data_root, run_dir, stage, selected)
         occurrences[stage] = result.pop("occurrences")
@@ -149,6 +162,18 @@ def render_report(result: dict[str, Any], *, source_label: str) -> str:
         lines.extend(
             (
                 _demote_headings(render_unique_llm_report(unique_llm, source_label=source_label)).rstrip(),
+                "",
+            )
+        )
+    if REPORTER_AMBIGUOUS_LLM_STAGE in stages:
+        ambiguous_llm = stages[REPORTER_AMBIGUOUS_LLM_STAGE]
+        if set(ambiguous_llm["sets"]) != set(result["sets"]):
+            raise ValueError("Ambiguous-reporter model set coverage differs from the cumulative report")
+        lines.extend(
+            (
+                _demote_headings(
+                    render_ambiguous_llm_report(ambiguous_llm, source_label=source_label)
+                ).rstrip(),
                 "",
             )
         )

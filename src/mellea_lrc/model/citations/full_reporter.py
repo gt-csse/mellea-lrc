@@ -17,6 +17,7 @@ from mellea_lrc.model.citations.judgments import (
 )
 from mellea_lrc.model.citations.kind import FullCitationKind
 from mellea_lrc.model.citations.reporter_lookup import (
+    ReporterAmbiguousReview,
     ReporterExactAmbiguityOutcome,
     ReporterExactAmbiguityResolution,
     ReporterExactCandidateDocket,
@@ -38,6 +39,7 @@ class FullReporterCitation(FullCitation):
     reporter_exact_candidate_dockets: tuple[ReporterExactCandidateDocket, ...] = ()
     reporter_exact_ambiguity_resolution: ReporterExactAmbiguityResolution | None = None
     reporter_unique_review: ReporterUniqueReview | None = None
+    reporter_ambiguous_review: ReporterAmbiguousReview | None = None
 
     @property
     def locator_span(self) -> Span:
@@ -86,6 +88,14 @@ class FullReporterCitation(FullCitation):
         if result.node_id != self._decision_node_id():
             raise ValueError("Reporter review must point to the current decision node")
         return self._with_log(reporter_unique_review=result)
+
+    def with_reporter_ambiguous_review(self, result: ReporterAmbiguousReview) -> Self:
+        """Save one model choice over the retained ambiguous lookup candidates."""
+        if self.reporter_ambiguous_review is not None:
+            raise ValueError("Reporter ambiguous lookup has already been reviewed")
+        if result.node_id != self._decision_node_id():
+            raise ValueError("Reporter review must point to the current decision node")
+        return self._with_log(reporter_ambiguous_review=result)
 
     def with_case_name_judgment(
         self, reading_index: int | None, candidate_index: int, result: MatchResult
@@ -203,6 +213,24 @@ class FullReporterCitation(FullCitation):
                 raise ValueError("Unique reporter review requires one saved lookup candidate")
             if positions[lookup.node_id] >= positions[review.node_id]:
                 raise ValueError("Unique reporter review must follow its lookup")
+        ambiguous_review = self.reporter_ambiguous_review
+        if ambiguous_review is not None:
+            if (
+                lookup is None
+                or lookup.outcome is not ReporterExactLookupOutcome.AMBIGUOUS
+                or resolution is None
+                or resolution.outcome is not ReporterExactAmbiguityOutcome.NO_UNIQUE_RULE_MATCH
+            ):
+                raise ValueError("Ambiguous reporter review requires unresolved bounded candidates")
+            if positions[resolution.node_id] >= positions[ambiguous_review.node_id]:
+                raise ValueError("Ambiguous reporter review must follow the rule assessment")
+            selected = (
+                ambiguous_review.decision.selected_candidate_index
+                if ambiguous_review.decision is not None
+                else None
+            )
+            if selected is not None and selected >= len(lookup.response.clusters):
+                raise ValueError("Ambiguous reporter review selected an unavailable candidate")
         for log, readings in (
             (self.case_name_judgments, self.case_name),
             (self.court_judgments, self.court),

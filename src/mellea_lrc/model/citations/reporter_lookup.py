@@ -185,3 +185,45 @@ class ReporterUniqueReview(BaseModel):
         if self.ivr is not None and not self.ivr.success and self.decision is not None:
             raise ValueError("A failed IVR run cannot supply an accepted decision")
         return self
+
+
+class ReporterAmbiguousReviewDecision(BaseModel):
+    """One representative choice, source rereading, and field comparison."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    selected_candidate_index: int | None
+    case_name: ReporterUniqueFieldAssessment
+    court: ReporterUniqueFieldAssessment
+    date: ReporterUniqueFieldAssessment
+    reason: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_choice(self) -> Self:
+        if self.selected_candidate_index is not None and self.selected_candidate_index < 0:
+            raise ValueError("Selected candidate index must be nonnegative")
+        if self.selected_candidate_index is None and any(
+            assessment.result is not MatchResult.UNDETERMINED
+            for assessment in (self.case_name, self.court, self.date)
+        ):
+            raise ValueError("No candidate selection cannot make candidate-relative field judgments")
+        return self
+
+
+class ReporterAmbiguousReview(BaseModel):
+    """Durable representative review and its complete IVR attempt trace."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    node_id: str
+    decision: ReporterAmbiguousReviewDecision | None = None
+    ivr: IvrRun | None = None
+    failure_reason: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_outcome(self) -> Self:
+        if (self.decision is None) == (self.failure_reason is None):
+            raise ValueError("Review must contain either a decision or a failure reason")
+        if self.ivr is not None and not self.ivr.success and self.decision is not None:
+            raise ValueError("A failed IVR run cannot supply an accepted decision")
+        return self
