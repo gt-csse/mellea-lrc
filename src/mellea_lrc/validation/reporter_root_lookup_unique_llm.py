@@ -85,7 +85,7 @@ async def reporter_root_lookup_unique_llm(
             recorded = recorded.with_reporter_unique_review(
                 ReporterUniqueReview(node_id=recorded.nodes[-1].id, decision=decision, ivr=outcome.run)
             )
-            recorded = append_corrections(recorded, document.text, corrections)
+            recorded = append_corrections(recorded, document.text, corrections, decision)
             recorded = append_field_judgments(recorded, decision, 0)
             verdict = identity_verdict(
                 recorded,

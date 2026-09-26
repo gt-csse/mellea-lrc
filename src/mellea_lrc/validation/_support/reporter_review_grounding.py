@@ -61,6 +61,11 @@ class ReporterReviewGrounding:
 
     def assessment_error(self, decision: ReporterReviewDecision) -> str | None:
         """A match or mismatch needs a filing reading, existing or proposed."""
+        has_name = self.has_case_name or decision.case_name.propose_replacement
+        if has_name and decision.case_name.normalized is None:
+            return "case_name has a grounded reading; supply its normalized name"
+        if not has_name and decision.case_name.normalized is not None:
+            return "case_name normalization needs an existing or proposed grounded reading"
         for field in ("case_name", "court", "date"):
             assessment = getattr(decision, field)
             if not getattr(self, f"has_{field}") and not assessment.propose_replacement:

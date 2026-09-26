@@ -84,6 +84,17 @@ class _UniqueReviewer:
                     }
                     for field in ("case_name", "court", "date")
                 },
+                "case_name": {
+                    "propose_replacement": False,
+                    "quote": None,
+                    "normalized": {
+                        "kind": "adversarial",
+                        "plaintiff": "Bell Atl. Corp.",
+                        "defendant": "Twombly",
+                    },
+                    "result": "match",
+                    "reason": "The filing and saved record agree.",
+                },
                 "reason": "The saved candidate agrees with the filing.",
             }
         )
@@ -102,6 +113,17 @@ class _AmbiguousReviewer:
                         "reason": "The filing and saved record agree.",
                     }
                     for field in ("case_name", "court", "date")
+                },
+                "case_name": {
+                    "propose_replacement": False,
+                    "quote": None,
+                    "normalized": {
+                        "kind": "adversarial",
+                        "plaintiff": "Roe",
+                        "defendant": "Wade",
+                    },
+                    "result": "match",
+                    "reason": "The filing and saved record agree.",
                 },
                 "reason": "The first saved candidate is selected.",
             }

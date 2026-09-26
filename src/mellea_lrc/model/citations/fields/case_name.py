@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -14,6 +14,18 @@ from mellea_lrc.model.span import Span
 _VERSUS = re.compile(r"\s+v\.\s+")
 _IN_RE = re.compile(r"In re\s+(.+)", re.IGNORECASE)
 _EX_PARTE = re.compile(r"Ex parte\s+(.+)", re.IGNORECASE)
+
+
+def require_all_json_properties(schema: dict[str, Any]) -> None:
+    """Make nullable model fields explicit for strict provider JSON schemas.
+
+    Python defaults keep ordinary case-name construction concise, but a
+    structured model answer must state every field, using null when absent.
+    """
+    properties = schema.get("properties", {})
+    schema["required"] = list(properties)
+    for property_schema in properties.values():
+        property_schema.pop("default", None)
 
 
 class CaseNameKind(str, Enum):
@@ -27,7 +39,7 @@ class CaseNameKind(str, Enum):
 class CaseName(BaseModel):
     """The parties or subject represented by a written case name."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", json_schema_extra=require_all_json_properties)
 
     kind: CaseNameKind
     plaintiff: str | None = None
@@ -82,10 +94,11 @@ class CaseName(BaseModel):
 
 
 class CaseNameField(CitationField[CaseName]):
-    """A quoted name whose normalized parties must match that quote."""
+    """A quoted name with either a rule or model reading of its parties."""
 
     quote: str
     span: Span
+    normalized_by: Literal["rule", "model"] = "rule"
 
     @classmethod
     def from_source(cls, source: str, span: Span, *, node_id: str) -> Self:
@@ -97,7 +110,21 @@ class CaseNameField(CitationField[CaseName]):
             **normalization_record(lambda: CaseName.from_quote(quote)),
         )
 
+    @classmethod
+    def from_model(cls, source: str, span: Span, normalized: CaseName, *, node_id: str) -> Self:
+        """Keep the exact source span and the model's typed normalization."""
+        return cls(
+            node_id=node_id,
+            quote=source_quote(source, span),
+            span=span,
+            normalized_by="model",
+            normalizable=True,
+            normalized=normalized,
+            normalization_error=None,
+        )
+
     @model_validator(mode="after")
     def _validate_normalization(self) -> Self:
-        self.validate_normalization(lambda: CaseName.from_quote(self.quote))
+        if self.normalized_by == "rule":
+            self.validate_normalization(lambda: CaseName.from_quote(self.quote))
         return self

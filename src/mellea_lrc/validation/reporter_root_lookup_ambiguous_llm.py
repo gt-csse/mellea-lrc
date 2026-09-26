@@ -90,7 +90,7 @@ async def reporter_root_lookup_ambiguous_llm(
             recorded = recorded.with_reporter_ambiguous_review(
                 ReporterAmbiguousReview(node_id=recorded.nodes[-1].id, decision=decision, ivr=outcome.run)
             )
-            recorded = append_corrections(recorded, document.text, corrections)
+            recorded = append_corrections(recorded, document.text, corrections, decision)
             selected = decision.selected_candidate_index
             if selected is None:
                 recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, REPORTER_ROOT_SEARCH)

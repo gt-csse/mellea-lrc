@@ -145,8 +145,9 @@ def render_stage_report(results: Mapping[str, Mapping[str, Any]], *, source_labe
         "annotated spans. Predictions for unlabeled fields are excluded from precision. "
         "Normalization accuracy uses matched source evidence with independent normalized gold; "
         "normalization recall uses all eligible normalized gold. A dash means there is no "
-        "denominator. Inferred courts may have no source span. Case names and short reporter "
-        "citations have no independent normalized-gold target.",
+        "denominator. Inferred courts may have no source span. Case-name normalization "
+        "is scored only where explicitly annotated; short reporter citations have no "
+        "independent normalized-gold target.",
         "",
         "Colocation pair scores count unordered pairs of full locators placed in the "
         "same colocation group. Root formation reports exact groups only. Root/leaf "

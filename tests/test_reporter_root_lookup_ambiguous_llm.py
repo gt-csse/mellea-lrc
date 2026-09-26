@@ -23,6 +23,7 @@ from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm import (
 )
 
 SOURCE = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
+NORMALIZED_NAME = {"kind": "adversarial", "plaintiff": "Bell Atl. Corp.", "defendant": "Twombly"}
 
 
 def _cluster(identifier: int, name: str, *, full_name_available: bool = True) -> dict[str, object]:
@@ -85,6 +86,7 @@ def _decision(
             "case_name": {
                 "propose_replacement": case_name_quote is not None,
                 "quote": case_name_quote,
+                "normalized": NORMALIZED_NAME,
                 "result": result,
                 "reason": "The source and candidate parties were compared.",
             },

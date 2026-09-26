@@ -8,6 +8,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mellea_lrc.courtlistener.models import CourtListenerCitationLookup, CourtListenerDocket
+from mellea_lrc.model.citations.fields.case_name import CaseName, require_all_json_properties
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.ivr import IvrRun
 
@@ -155,12 +156,20 @@ class ReporterUniqueFieldAssessment(BaseModel):
         return self
 
 
+class ReporterCaseNameAssessment(ReporterUniqueFieldAssessment):
+    """The model's source-grounded name reading and its own normalization."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", json_schema_extra=require_all_json_properties)
+
+    normalized: CaseName | None = None
+
+
 class ReporterUniqueReviewDecision(BaseModel):
     """One combined re-reading and comparison against a unique lookup record."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    case_name: ReporterUniqueFieldAssessment
+    case_name: ReporterCaseNameAssessment
     court: ReporterUniqueFieldAssessment
     date: ReporterUniqueFieldAssessment
     reason: str = Field(min_length=1)
@@ -193,7 +202,7 @@ class ReporterAmbiguousReviewDecision(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     selected_candidate_index: int | None
-    case_name: ReporterUniqueFieldAssessment
+    case_name: ReporterCaseNameAssessment
     court: ReporterUniqueFieldAssessment
     date: ReporterUniqueFieldAssessment
     reason: str = Field(min_length=1)

@@ -448,6 +448,31 @@ def test_normalized_case_name_can_differ_from_its_exact_quote() -> None:
     _assert_roundtrip(document)
 
 
+def test_model_case_name_keeps_layout_noise_in_span_but_not_normalization() -> None:
+    source = "Robinson\nPage 11\nv. Mo. Pac. R.R. Co., Case No. 1:24-cv-00123."
+    document = find_docket_locators(Document.from_source(source))
+    quote = source[: source.index(", Case No.")]
+    normalized = CaseName(
+        kind=CaseNameKind.ADVERSARIAL,
+        plaintiff="Robinson",
+        defendant="Mo. Pac. R.R. Co.",
+    )
+    named = (
+        document.citations[0]
+        .record("review")
+        .with_case_name(source, Span(0, len(quote)), normalized=normalized)
+    )
+    document = document.replace_citation(named)
+
+    reading = document.citations[0].case_name[-1]
+    assert reading.quote == quote
+    assert reading.span == Span(0, len(quote))
+    assert reading.normalized_by == "model"
+    assert reading.get_normalized() == normalized
+    assert CaseName.from_quote(quote) != normalized
+    _assert_roundtrip(document)
+
+
 def test_one_recorded_decision_can_update_two_fields() -> None:
     source = "Smith v. Jones, Case No. 1:24-cv-00123 (D. Ariz. 2024)."
     document = find_docket_locators(Document.from_source(source))
