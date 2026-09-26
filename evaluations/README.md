@@ -17,7 +17,20 @@ each stage's new product against the annotations. Its JSON groups summaries and
 occurrences by stage. The Markdown report includes extraction span,
 normalization, colocation, and root-formation scores, followed by reporter
 exact-lookup case-name, court, and date judgment precision and recall when that
-stage has run. When docket-locator rules have run, it also includes the separate
+stage has run. After a rule-only reporter ambiguity run, it also reports how
+many saved multi-candidate lookups had one fully matching candidate, still need
+model review, or exceeded the 20-candidate limit. To resume the saved exact
+lookups without repeating them, run:
+
+```bash
+uv run python -m evaluations.run_reporter_exact_ambiguity \
+  --input-run-dir local/reporter-exact-court-primary \
+  --run-dir local/reporter-exact-ambiguity-primary
+uv run python -m evaluations.evaluate_run \
+  --run-dir local/reporter-exact-ambiguity-primary
+```
+
+When docket-locator rules have run, the report also includes the separate
 unreviewed site-proposal diagnostic; proposals are not counted as admitted
 locators. A missing document, inconsistent stage chain, or completed stage
 without an evaluator is an error rather than an omitted score.

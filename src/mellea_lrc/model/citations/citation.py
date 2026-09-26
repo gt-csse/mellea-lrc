@@ -94,7 +94,12 @@ class Citation(BaseModel):
                 position = positions.get(update.node_id)
                 if position is None:
                     raise ValueError(f"{name} refers to a missing node")
-                if position <= previous:
+                # Field readings and relationships are successive updates.
+                # One decision may, however, assess several lookup candidates
+                # and append several evidence records to the same log.
+                if position < previous or (
+                    position == previous and isinstance(update, (CitationField, RelationshipUpdate))
+                ):
                     raise ValueError(f"{name} updates are out of order")
                 previous = position
         return self

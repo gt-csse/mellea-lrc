@@ -34,7 +34,8 @@ from mellea_lrc.model.citations.judgments import (
     ReporterExactDateJudgment,
 )
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactLookupOutcome
-from mellea_lrc.validation.reporter_root_exact_lookup import STAGE, _locator_present
+from mellea_lrc.validation._support.reporter_exact_fields import locator_present
+from mellea_lrc.validation.reporter_root_exact_lookup import STAGE
 
 LABELS = frozenset((IdentityVerdict.CORRECT_IDENTITY.name, IdentityVerdict.WRONG_IDENTITY.name))
 FIELD_LOGS = {
@@ -326,7 +327,7 @@ def score_document(
             if lookup.query is None or lookup.response is None or len(lookup.response.clusters) != 1:
                 raise ValueError("Unique reporter lookup needs one saved query and cluster")
             candidate = lookup.response.clusters[0]
-            membership = _locator_present(candidate, lookup.query)
+            membership = locator_present(candidate, lookup.query)
             counts[
                 "locator_membership_match"
                 if membership is True

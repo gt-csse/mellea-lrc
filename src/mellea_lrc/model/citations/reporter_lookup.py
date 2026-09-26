@@ -74,3 +74,56 @@ class ReporterExactDocket(BaseModel):
         if not self.docket_id or (self.response is not None and self.response.id != self.docket_id):
             raise ValueError("Reporter docket evidence must match the requested docket ID")
         return self
+
+
+class ReporterExactCandidateDocket(ReporterExactDocket):
+    """Linked court evidence for one candidate of an ambiguous response."""
+
+    candidate_index: int
+
+    @model_validator(mode="after")
+    def _validate_index(self) -> Self:
+        if self.candidate_index < 0:
+            raise ValueError("Candidate index must be nonnegative")
+        return self
+
+
+class ReporterExactAmbiguityOutcome(str, Enum):
+    """Rule-only resolution of a saved multi-candidate exact lookup."""
+
+    UNIQUE_RULE_MATCH = "unique_rule_match"
+    REVIEW_REQUIRED = "review_required"
+    TOO_MANY_CANDIDATES = "too_many_candidates"
+
+
+class ReporterExactAmbiguityResolution(BaseModel):
+    """Explicit result of assessing every bounded exact-lookup candidate."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    node_id: str
+    outcome: ReporterExactAmbiguityOutcome
+    passing_candidate_indices: tuple[int, ...] = ()
+    selected_candidate_index: int | None = None
+
+    @model_validator(mode="after")
+    def _validate_selection(self) -> Self:
+        if tuple(sorted(set(self.passing_candidate_indices))) != self.passing_candidate_indices:
+            raise ValueError("Passing candidate indices must be distinct and ordered")
+        if any(index < 0 for index in self.passing_candidate_indices):
+            raise ValueError("Passing candidate indices must be nonnegative")
+        if self.outcome is ReporterExactAmbiguityOutcome.UNIQUE_RULE_MATCH:
+            if (
+                len(self.passing_candidate_indices) != 1
+                or self.selected_candidate_index != self.passing_candidate_indices[0]
+            ):
+                raise ValueError("A unique rule match must select its sole passing candidate")
+        elif self.selected_candidate_index is not None:
+            raise ValueError("Only a unique rule match selects a candidate")
+        if self.outcome is ReporterExactAmbiguityOutcome.REVIEW_REQUIRED and len(
+            self.passing_candidate_indices
+        ) == 1:
+            raise ValueError("One passing candidate must be admitted as a unique rule match")
+        if self.outcome is ReporterExactAmbiguityOutcome.TOO_MANY_CANDIDATES and self.passing_candidate_indices:
+            raise ValueError("An unassessed large candidate set cannot report passing candidates")
+        return self

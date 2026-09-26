@@ -17,6 +17,9 @@ from mellea_lrc.model.citations.judgments import (
 )
 from mellea_lrc.model.citations.kind import FullCitationKind
 from mellea_lrc.model.citations.reporter_lookup import (
+    ReporterExactAmbiguityOutcome,
+    ReporterExactAmbiguityResolution,
+    ReporterExactCandidateDocket,
     ReporterExactDocket,
     ReporterExactLookup,
     ReporterExactLookupOutcome,
@@ -31,6 +34,8 @@ class FullReporterCitation(FullCitation):
     locator: tuple[FullReporterLocator, ...]
     reporter_exact_lookup: ReporterExactLookup | None = None
     reporter_exact_docket: ReporterExactDocket | None = None
+    reporter_exact_candidate_dockets: tuple[ReporterExactCandidateDocket, ...] = ()
+    reporter_exact_ambiguity_resolution: ReporterExactAmbiguityResolution | None = None
 
     @property
     def locator_span(self) -> Span:
@@ -52,7 +57,30 @@ class FullReporterCitation(FullCitation):
             raise ValueError("Reporter docket must point to the current decision node")
         return self._with_log(reporter_exact_docket=result)
 
+    def with_reporter_exact_candidate_docket(self, result: ReporterExactCandidateDocket) -> Self:
+        """Save a candidate's linked docket before judging its court."""
+        if result.node_id != self._decision_node_id():
+            raise ValueError("Candidate docket must point to the current decision node")
+        if any(item.candidate_index == result.candidate_index for item in self.reporter_exact_candidate_dockets):
+            raise ValueError("Candidate docket is already recorded")
+        return self._with_log(
+            reporter_exact_candidate_dockets=(*self.reporter_exact_candidate_dockets, result)
+        )
+
+    def with_reporter_exact_ambiguity_resolution(self, result: ReporterExactAmbiguityResolution) -> Self:
+        """Append one explicit rule-only selection result."""
+        if self.reporter_exact_ambiguity_resolution is not None:
+            raise ValueError("Reporter exact ambiguity is already resolved")
+        if result.node_id != self._decision_node_id():
+            raise ValueError("Ambiguity resolution must point to the current decision node")
+        return self._with_log(reporter_exact_ambiguity_resolution=result)
+
     def with_case_name_judgment(self, reading_index: int, candidate_index: int, result: MatchResult) -> Self:
+        if any(
+            item.node_id == self._decision_node_id() and item.candidate_index == candidate_index
+            for item in self.case_name_judgments
+        ):
+            raise ValueError("Case-name judgment is already recorded for this candidate at this node")
         judgment = ReporterExactCaseNameJudgment(
             node_id=self._decision_node_id(),
             reading_index=reading_index,
@@ -62,6 +90,11 @@ class FullReporterCitation(FullCitation):
         return self._with_log(case_name_judgments=(*self.case_name_judgments, judgment))
 
     def with_court_judgment(self, reading_index: int, candidate_index: int, result: MatchResult) -> Self:
+        if any(
+            item.node_id == self._decision_node_id() and item.candidate_index == candidate_index
+            for item in self.court_judgments
+        ):
+            raise ValueError("Court judgment is already recorded for this candidate at this node")
         judgment = ReporterExactCourtJudgment(
             node_id=self._decision_node_id(),
             reading_index=reading_index,
@@ -71,6 +104,11 @@ class FullReporterCitation(FullCitation):
         return self._with_log(court_judgments=(*self.court_judgments, judgment))
 
     def with_date_judgment(self, reading_index: int, candidate_index: int, result: MatchResult) -> Self:
+        if any(
+            item.node_id == self._decision_node_id() and item.candidate_index == candidate_index
+            for item in self.date_judgments
+        ):
+            raise ValueError("Date judgment is already recorded for this candidate at this node")
         judgment = ReporterExactDateJudgment(
             node_id=self._decision_node_id(),
             reading_index=reading_index,
@@ -113,6 +151,34 @@ class FullReporterCitation(FullCitation):
                 raise ValueError("Reporter docket must belong to the unique lookup cluster")
             if positions[lookup.node_id] > positions[docket.node_id]:
                 raise ValueError("Reporter docket cannot precede its lookup response")
+        for candidate_docket in self.reporter_exact_candidate_dockets:
+            if (
+                lookup is None
+                or lookup.outcome is not ReporterExactLookupOutcome.AMBIGUOUS
+                or lookup.response is None
+                or candidate_docket.candidate_index >= len(lookup.response.clusters)
+                or lookup.response.clusters[candidate_docket.candidate_index].docket_id
+                != candidate_docket.docket_id
+            ):
+                raise ValueError("Candidate docket must belong to the indexed ambiguous cluster")
+            if positions[lookup.node_id] > positions[candidate_docket.node_id]:
+                raise ValueError("Candidate docket cannot precede its lookup response")
+        if len({item.candidate_index for item in self.reporter_exact_candidate_dockets}) != len(
+            self.reporter_exact_candidate_dockets
+        ):
+            raise ValueError("Candidate dockets must have distinct indices")
+        resolution = self.reporter_exact_ambiguity_resolution
+        if resolution is not None:
+            if lookup is None or lookup.outcome is not ReporterExactLookupOutcome.AMBIGUOUS:
+                raise ValueError("Ambiguity resolution requires an ambiguous exact lookup")
+            if any(index >= len(lookup.response.clusters) for index in resolution.passing_candidate_indices):
+                raise ValueError("Ambiguity resolution points beyond the lookup candidates")
+            if positions[lookup.node_id] > positions[resolution.node_id]:
+                raise ValueError("Ambiguity resolution cannot precede its lookup response")
+            if (
+                resolution.outcome is ReporterExactAmbiguityOutcome.TOO_MANY_CANDIDATES
+            ) != (len(lookup.response.clusters) >= 20):
+                raise ValueError("Large candidate deferral must match the lookup candidate count")
         for log, readings in (
             (self.case_name_judgments, self.case_name),
             (self.court_judgments, self.court),
@@ -131,4 +197,6 @@ class FullReporterCitation(FullCitation):
                     raise ValueError("Judgment cannot assess a later field reading")
                 if positions[lookup.node_id] > positions[judgment.node_id]:
                     raise ValueError("Judgment cannot precede its lookup response")
+            if len({(item.node_id, item.candidate_index) for item in log}) != len(log):
+                raise ValueError("Reporter field judgments must have distinct candidates within a node")
         return self

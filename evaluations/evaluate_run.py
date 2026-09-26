@@ -21,14 +21,17 @@ from typing import Any
 from evaluations.annotations import SETS, annotated_documents
 from evaluations.docket_proposals import score as score_docket_proposals
 from evaluations.render_identity_report import render_identity_report
+from evaluations.render_reporter_ambiguity_report import render_report as render_ambiguity_report
 from evaluations.render_stage_report import render_stage_report
 from evaluations.score_identity import evaluate as score_identity
+from evaluations.score_reporter_ambiguity import evaluate as score_ambiguity
 from evaluations.score_stages import STAGES as EXTRACTION_STAGES
 from evaluations.score_stages import evaluate as score_extraction_stage
 from mellea_lrc.extraction.docket_locator import STAGE as DOCKET_LOCATORS_STAGE
+from mellea_lrc.validation.reporter_root_exact_ambiguity import STAGE as REPORTER_AMBIGUITY_STAGE
 from mellea_lrc.validation.reporter_root_exact_lookup import STAGE as REPORTER_IDENTITY_STAGE
 
-SCORED_STAGES = frozenset((*EXTRACTION_STAGES, REPORTER_IDENTITY_STAGE))
+SCORED_STAGES = frozenset((*EXTRACTION_STAGES, REPORTER_IDENTITY_STAGE, REPORTER_AMBIGUITY_STAGE))
 
 
 def _stage_order(data_root: Path, run_dir: Path, sets: tuple[str, ...]) -> tuple[str, ...]:
@@ -58,11 +61,12 @@ def evaluate(data_root: Path, run_dir: Path, sets: tuple[str, ...] = ("primary",
     summaries: dict[str, dict[str, Any]] = {}
     occurrences: dict[str, dict[str, list[dict[str, Any]]]] = {}
     for stage in order:
-        result = (
-            score_identity(data_root, run_dir, selected)
-            if stage == REPORTER_IDENTITY_STAGE
-            else score_extraction_stage(data_root, run_dir, stage, selected)
-        )
+        if stage == REPORTER_IDENTITY_STAGE:
+            result = score_identity(data_root, run_dir, selected)
+        elif stage == REPORTER_AMBIGUITY_STAGE:
+            result = score_ambiguity(data_root, run_dir, selected)
+        else:
+            result = score_extraction_stage(data_root, run_dir, stage, selected)
         occurrences[stage] = result.pop("occurrences")
         if set(result["sets"]) != set(selected):
             raise ValueError(f"{stage}: scored sets differ from the requested sets")
@@ -118,6 +122,16 @@ def render_report(result: dict[str, Any], *, source_label: str) -> str:
         lines.extend(
             (
                 _demote_headings(render_identity_report(identity, source_label=source_label)).rstrip(),
+                "",
+            )
+        )
+    if REPORTER_AMBIGUITY_STAGE in stages:
+        ambiguity = stages[REPORTER_AMBIGUITY_STAGE]
+        if set(ambiguity["sets"]) != set(result["sets"]):
+            raise ValueError("Ambiguity set coverage differs from the cumulative report")
+        lines.extend(
+            (
+                _demote_headings(render_ambiguity_report(ambiguity, source_label=source_label)).rstrip(),
                 "",
             )
         )

@@ -3,19 +3,15 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
-from datetime import date
 from typing import Protocol
 
 from mellea_lrc.courtlistener import (
     CourtListenerCitationLookup,
     CourtListenerClient,
-    CourtListenerCluster,
     CourtListenerDocket,
     CourtListenerError,
 )
 from mellea_lrc.model.citations import FullReporterCitation
-from mellea_lrc.model.citations.fields.court import Court, court_id_if_unique
-from mellea_lrc.model.citations.fields.reporter import normalize_reporter_locator
 from mellea_lrc.model.citations.judgments import IdentityNextStep, IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactDocket,
@@ -24,7 +20,13 @@ from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactLookupQuery,
 )
 from mellea_lrc.model.document import Document
-from mellea_lrc.validation._support.party_names import compare_case_names
+from mellea_lrc.validation._support.reporter_exact_fields import (
+    candidate_court_id,
+    case_name_result,
+    court_result,
+    date_result,
+    locator_present,
+)
 
 STAGE = "reporter_root_exact_lookup"
 
@@ -37,84 +39,6 @@ class ReporterLookupClient(Protocol):
     def get_docket(self, docket_id: str) -> CourtListenerDocket | None: ...
 
 
-def _locator_present(cluster: CourtListenerCluster, query: ReporterExactLookupQuery) -> bool | None:
-    """Check listed cluster citations when present; unreadable lists stay unknown."""
-    parsed_any = False
-    for citation in cluster.citations:
-        try:
-            listed = normalize_reporter_locator(f"{citation.volume} {citation.reporter} {citation.page}")
-        except ValueError:
-            continue
-        parsed_any = True
-        if (listed.volume, listed.edition, listed.page) == (query.volume, query.edition, query.page):
-            return True
-    return False if parsed_any else None
-
-
-def _case_name_result(citation: FullReporterCitation, candidate: CourtListenerCluster) -> MatchResult:
-    reading = citation.case_name[-1]
-    if not reading.normalizable or not candidate.case_name_full:
-        return MatchResult.UNDETERMINED
-    return (
-        MatchResult.MATCH
-        if compare_case_names(reading.get_normalized(), candidate.case_name_full).qualifies
-        else MatchResult.MISMATCH
-    )
-
-
-def _candidate_court_id(
-    candidate: CourtListenerCluster, docket: CourtListenerDocket | None = None
-) -> str | None:
-    """Use the linked docket when the citation-lookup cluster omits its court."""
-    ids: set[str] = set()
-    values = (candidate.court_id, candidate.court)
-    if docket is not None:
-        values += (docket.court_id, docket.court)
-    for value in values:
-        if not value:
-            continue
-        # CourtListener can send a court URL instead of its short identifier.
-        if "/courts/" in value:
-            value = value.rstrip("/").rsplit("/", maxsplit=1)[-1]
-        try:
-            ids.add(Court.from_id(value).id)
-        except ValueError:
-            if mapped := court_id_if_unique(value):
-                ids.add(mapped)
-    return next(iter(ids)) if len(ids) == 1 else None
-
-
-def _court_result(
-    citation: FullReporterCitation, candidate: CourtListenerCluster, docket: CourtListenerDocket | None
-) -> MatchResult:
-    reading = citation.court[-1]
-    court_id = _candidate_court_id(candidate, docket)
-    if not reading.normalizable or court_id is None:
-        return MatchResult.UNDETERMINED
-    return MatchResult.MATCH if reading.get_normalized().id == court_id else MatchResult.MISMATCH
-
-
-def _date_result(citation: FullReporterCitation, candidate: CourtListenerCluster) -> MatchResult:
-    reading = citation.date[-1]
-    if not reading.normalizable:
-        return MatchResult.UNDETERMINED
-    source = reading.get_normalized()
-    written = candidate.date_filed or ""
-    try:
-        filed = date.fromisoformat(written[:10])
-    except ValueError:
-        if len(written) == 4 and written.isdecimal() and source.month is None:
-            return MatchResult.MATCH if source.year == int(written) else MatchResult.MISMATCH
-        return MatchResult.UNDETERMINED
-    if source.month is None:
-        agrees = source.year == filed.year
-    elif source.day is None:
-        agrees = (source.year, source.month) == (filed.year, filed.month)
-    else:
-        agrees = (source.year, source.month, source.day) == (filed.year, filed.month, filed.day)
-    return MatchResult.MATCH if agrees else MatchResult.MISMATCH
-
-
 def _judge_unique(citation: FullReporterCitation, query: ReporterExactLookupQuery) -> FullReporterCitation:
     """Compare one cluster, retaining independent field results and one route."""
     lookup = citation.reporter_exact_lookup
@@ -124,22 +48,22 @@ def _judge_unique(citation: FullReporterCitation, query: ReporterExactLookupQuer
     docket = citation.reporter_exact_docket.response if citation.reporter_exact_docket is not None else None
     field_results: list[MatchResult] = []
     if citation.case_name:
-        result = _case_name_result(citation, candidate)
+        result = case_name_result(citation, candidate)
         citation = citation.with_case_name_judgment(len(citation.case_name) - 1, 0, result)
         field_results.append(result)
     if citation.court:
-        result = _court_result(citation, candidate, docket)
+        result = court_result(citation, candidate, docket)
         citation = citation.with_court_judgment(len(citation.court) - 1, 0, result)
         field_results.append(result)
     # If either side has no date, there is no date opinion and no identity penalty.
     if citation.date and candidate.date_filed:
-        result = _date_result(citation, candidate)
+        result = date_result(citation, candidate)
         citation = citation.with_date_judgment(len(citation.date) - 1, 0, result)
         field_results.append(result)
     if (
         citation.case_name_judgments
         and all(result is MatchResult.MATCH for result in field_results)
-        and _locator_present(candidate, query) is not False
+        and locator_present(candidate, query) is not False
     ):
         return citation.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
     return citation.with_identity_judgment(IdentityVerdict.DEFERRED, IdentityNextStep.REVIEW)
@@ -207,7 +131,7 @@ def reporter_root_exact_lookup(
                 recorded = recorded.with_reporter_exact_lookup(result)
                 if outcome is ReporterExactLookupOutcome.UNIQUE:
                     candidate = response.clusters[0]
-                    if recorded.court and candidate.docket_id and _candidate_court_id(candidate) is None:
+                    if recorded.court and candidate.docket_id and candidate_court_id(candidate) is None:
                         docket_id = candidate.docket_id
                         if docket_id not in docket_cache:
                             docket_cache[docket_id] = service.get_docket(docket_id)
