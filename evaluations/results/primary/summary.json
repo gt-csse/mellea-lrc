@@ -21,13 +21,13 @@
       "metrics": {
         "span": {
           "correct": 19,
-          "total": 20,
-          "precision": 0.95
+          "total": 19,
+          "precision": 1.0
         },
         "normalization": {
           "correct": 13,
-          "total": 14,
-          "precision": 0.9285714285714286
+          "total": 13,
+          "precision": 1.0
         }
       }
     },
@@ -76,13 +76,13 @@
       "metrics": {
         "span": {
           "correct": 548,
-          "total": 610,
-          "precision": 0.898360655737705
+          "total": 609,
+          "precision": 0.8998357963875205
         },
         "normalization": {
           "correct": 548,
-          "total": 605,
-          "precision": 0.9057851239669421
+          "total": 604,
+          "precision": 0.9072847682119205
         }
       }
     },
@@ -136,8 +136,8 @@
       "metrics": {
         "root_assignment": {
           "correct": 641,
-          "total": 647,
-          "precision": 0.990726429675425
+          "total": 646,
+          "precision": 0.9922600619195047
         }
       }
     }
@@ -162,32 +162,32 @@
     "docket_locator": {
       "span": {
         "correct": 47,
-        "predicted": 53,
+        "predicted": 52,
         "gold": 47,
-        "precision": 0.8867924528301887,
+        "precision": 0.9038461538461539,
         "recall": 1.0
       },
       "normalization": {
         "correct": 46,
-        "predicted": 53,
+        "predicted": 52,
         "gold": 47,
-        "precision": 0.8679245283018868,
+        "precision": 0.8846153846153846,
         "recall": 0.9787234042553191
       }
     },
     "overall_locator": {
       "span": {
         "correct": 439,
-        "predicted": 445,
+        "predicted": 444,
         "gold": 440,
-        "precision": 0.9865168539325843,
+        "precision": 0.9887387387387387,
         "recall": 0.9977272727272727
       },
       "normalization": {
         "correct": 438,
-        "predicted": 445,
+        "predicted": 444,
         "gold": 439,
-        "precision": 0.9842696629213483,
+        "precision": 0.9864864864864865,
         "recall": 0.9977220956719818
       }
     },
@@ -210,16 +210,16 @@
     "case_name": {
       "span": {
         "correct": 382,
-        "predicted": 429,
+        "predicted": 428,
         "gold": 438,
-        "precision": 0.8904428904428905,
+        "precision": 0.8925233644859814,
         "recall": 0.8721461187214612
       },
       "normalization": {
         "correct": 382,
-        "predicted": 429,
+        "predicted": 428,
         "gold": 436,
-        "precision": 0.8904428904428905,
+        "precision": 0.8925233644859814,
         "recall": 0.8761467889908257
       }
     },
