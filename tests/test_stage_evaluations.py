@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import pytest
 from evaluations import score_stages
 from evaluations.score_stages import _summary, score_document
 from evaluations.stage_products import stage_product
+from mellea_lrc.api import grow_roots
 from mellea_lrc.model import (
     Document,
     FullDocketCitation,
@@ -74,6 +76,31 @@ def _docket_document(source: str, locator_text: str = "Case No. 1:24-cv-00123") 
         number_span=number,
     )
     return _document(source).add_citation(citation).complete("docket_locators")
+
+
+def test_toa_reporter_locator_is_scored_but_its_pin_is_not_checkable() -> None:
+    source = "TABLE OF AUTHORITIES\nBrown v. Board of Education, 347 U.S. 483, 489 (1954).\n"
+    initial = Document.model_validate(
+        {**_document(source).model_dump(mode="python"), "index_spans": (Span(0, len(source)),)}
+    )
+    final = asyncio.run(grow_roots(initial, hunt_dockets=False))
+    citation = final.roots[0]
+    assert isinstance(citation, FullReporterCitation)
+    assert len(citation.pin_cite) == 1
+    gold = (
+        {
+            "id": "toa-root",
+            "kind": "FullCaseCitation",
+            "locator": _gold_span(citation.locator_span),
+            "pin_cite": _gold_span(citation.pin_cite[-1].span),
+        },
+    )
+
+    locator_counts, _ = score_document(final, "full_reporter_locators", gold)
+    pin_counts, _ = score_document(final, "pin_cites", gold)
+
+    assert locator_counts["eligible_gold"] == locator_counts["exact_spans"] == 1
+    assert pin_counts["eligible_gold"] == pin_counts["predicted"] == 0
 
 
 def test_stage_product_inherits_previous_checkpoint_without_reclaiming_its_citations() -> None:

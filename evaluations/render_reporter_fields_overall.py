@@ -22,20 +22,20 @@ def render_report(result: dict[str, Any], *, source_label: str) -> str:
         "",
         "The checkpoint combines rule checks and both model-review routes. Precision is among "
         "decided judgments with a comparable annotated root, aligned source reading, and an "
-        "evidence-linked selected record. Recall includes every explicitly labeled, unmasked "
-        "canonical full-reporter root; unresolved roots count as misses. Masked canonical "
-        "occurrences are excluded because a later citation to the same case can state different "
-        "fields. A field marked not stated has no match/mismatch label and is excluded from "
-        "that field's denominator.",
+        "evidence-linked selected record. Recall includes every explicitly labeled canonical "
+        "full-reporter root, including table-of-authorities citations; unresolved or unextracted "
+        "roots count as misses. A later citation to the same case cannot inherit the root's "
+        "field labels when its wording differs. A field marked not stated has no match/mismatch "
+        "label and is excluded from that field's denominator.",
         "",
     ]
     for name, summary in result["sets"].items():
         population = summary["population"]
         lines.append(
-            f"**{name}:** {population['reporter_locator_occurrences']} unmasked reporter locator "
-            f"occurrences represent {population['reporter_identities']} distinct annotated "
-            f"identities; {population['unmasked_canonical_roots']} have an unmasked canonical "
-            "full-reporter root eligible for field recall."
+            f"**{name}:** {population['reporter_locator_occurrences']} annotated reporter locator "
+            f"occurrences represent {population['reporter_identities']} full-reporter roots, "
+            f"including {population['table_of_authorities_roots']} first cited in a table of "
+            "authorities."
         )
     lines.extend(
         (
@@ -49,7 +49,7 @@ def render_report(result: dict[str, Any], *, source_label: str) -> str:
             metric = summary["fields"][field]
             lines.append(
                 f"| {name} | {field.replace('_', ' ')} | "
-                f"{summary['population']['unmasked_canonical_roots']} | "
+                f"{summary['population']['full_reporter_roots']} | "
                 f"{metric['correct']}/{metric['scored']} ({_percent(metric['precision'])}) | "
                 f"{metric['correct']}/{metric['gold']} ({_percent(metric['recall'])}) |"
             )

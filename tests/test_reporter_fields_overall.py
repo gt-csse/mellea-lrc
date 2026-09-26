@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
+from copy import deepcopy
 
 import pytest
 
@@ -233,7 +234,8 @@ def test_repeated_reporter_occurrence_counts_as_locator_but_not_field_gold() -> 
     assert population == {
         "reporter_locator_occurrences": 4,
         "reporter_identities": 3,
-        "unmasked_canonical_roots": 3,
+        "full_reporter_roots": 3,
+        "table_of_authorities_roots": 0,
     }
     assert _summary(counts)["fields"]["case_name"]["gold"] == 3
 
@@ -244,6 +246,7 @@ def test_overall_report_shows_root_population_separately_from_field_denominator(
             gold_reporter_locator_occurrences=4,
             gold_reporter_identities=3,
             gold_canonical_reporter_roots=2,
+            gold_table_of_authorities_roots=1,
             case_name_correct=1,
             case_name_scored=1,
             case_name_gold=1,
@@ -257,4 +260,30 @@ def test_overall_report_shows_root_population_separately_from_field_denominator(
 
     assert "| Set | Field | Full reporter locator roots | Precision | Recall |" in report
     assert "| primary | case name | 2 | 1/1 (100.0%) | 1/1 (100.0%) |" in report
-    assert "4 unmasked reporter locator occurrences represent 3 distinct annotated identities" in report
+    assert "4 annotated reporter locator occurrences represent 3 full-reporter roots" in report
+    assert "including 1 first cited in a table of authorities" in report
+
+
+def test_toa_root_uses_same_field_on_body_representative_but_not_changed_field() -> None:
+    ambiguous, unique = _branches(_lookup())
+    combined = combine_documents(ambiguous, unique)
+    body = _gold(combined.roots[0], combined, "1")
+    toa = deepcopy(body)
+    toa["id"] = toa["root_id"] = "toa-root"
+    toa["locator"] = {"start": 0, "end": 1, "quote": combined.text[:1]}
+    toa["in_table_of_authorities"] = True
+    body["id"] = "body-repeat"
+    body["root_id"] = "toa-root"
+    body["is_root"] = False
+    body.pop("validation")
+
+    counts, details = score_document(combined, (toa, body))
+    assert counts["gold_canonical_reporter_roots"] == 1
+    assert counts["gold_table_of_authorities_roots"] == 1
+    assert all(_summary(counts)["fields"][field]["correct"] == 1 for field in ("case_name", "court", "date"))
+    assert all(item["outcome"] == "correct" for item in details)
+
+    toa["case_name"]["quote"] = "Different v. Name"
+    counts, details = score_document(combined, (toa, body))
+    assert _summary(counts)["fields"]["case_name"]["correct"] == 0
+    assert next(item for item in details if item["field"] == "case_name")["outcome"] == "changed_occurrence"

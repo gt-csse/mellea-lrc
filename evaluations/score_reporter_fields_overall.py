@@ -1,10 +1,11 @@
 """Score the latest reporter-root field judgments across every completed route.
 
 This is an overall checkpoint score, not an incremental stage score. Recall
-includes every explicitly labeled, unmasked canonical reporter-root field,
-even if lookup found nothing or no candidate was selected. Precision uses only
-decided judgments whose selected record and source reading can be aligned with
-that canonical annotation; unsupported comparisons remain visible as gaps.
+includes every explicitly labeled canonical reporter-root field, including
+roots first cited in a table of authorities, even if lookup found nothing or
+no candidate was selected. Precision uses only decided judgments whose
+selected record and source reading align with the root's annotation. A later
+representative can carry a field label only when it states the same field.
 """
 
 from __future__ import annotations
@@ -14,7 +15,12 @@ from pathlib import Path
 from typing import Any
 
 from evaluations.annotations import SETS, annotated_documents, span
-from evaluations.score_identity import FIELD_LOGS, GOLD_FIELD_RESULT, _same_annotated_reading
+from evaluations.score_identity import (
+    FIELD_LOGS,
+    GOLD_FIELD_RESULT,
+    _same_annotated_field,
+    _same_annotated_reading,
+)
 from mellea_lrc.model import Document, FullReporterCitation, latest
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.citations.reporter_lookup import (
@@ -97,7 +103,8 @@ def _summary(counts: Counter[str]) -> dict[str, Any]:
         "population": {
             "reporter_locator_occurrences": counts["gold_reporter_locator_occurrences"],
             "reporter_identities": counts["gold_reporter_identities"],
-            "unmasked_canonical_roots": counts["gold_canonical_reporter_roots"],
+            "full_reporter_roots": counts["gold_canonical_reporter_roots"],
+            "table_of_authorities_roots": counts["gold_table_of_authorities_roots"],
         },
         "fields": fields,
     }
@@ -147,16 +154,29 @@ def score_document(
         root_id = latest(member.root_id)
         if annotation is not None and root_id is not None:
             member_gold_ids.setdefault(root_id, set()).add(annotation["root_id"])
+    predicted_by_gold_id: dict[str, list[FullReporterCitation]] = {}
+    for root in predicted_roots.values():
+        for gold_id in member_gold_ids.get(root.id, ()):
+            predicted_by_gold_id.setdefault(gold_id, []).append(root)
 
     counts: Counter[str] = Counter(
         documents=1,
         gold_reporter_locator_occurrences=len(by_locator),
         gold_reporter_identities=len({row["root_id"] for row in by_locator.values()}),
         gold_canonical_reporter_roots=len(gold_roots),
+        gold_table_of_authorities_roots=sum(
+            row.get("in_table_of_authorities") is True for row in gold_roots.values()
+        ),
     )
     details: list[dict[str, Any]] = []
     for key, gold in sorted(gold_roots.items()):
         root = predicted_roots.get(key)
+        linked_roots = predicted_by_gold_id.get(gold["id"], ())
+        if root is None and len(linked_roots) == 1:
+            root = linked_roots[0]
+        representative = (
+            by_locator.get((root.locator_span.start, root.locator_span.end)) if root is not None else None
+        )
         selected, decision_stage = _selected_candidate(root) if root is not None else (None, None)
         candidate = (
             root.reporter_exact_lookup.response.clusters[selected]
@@ -179,10 +199,16 @@ def score_document(
             counts[f"{field}_gold"] += 1
             record = None
             reading = None
-            outcome = "missing_root"
+            outcome = "ambiguous_root_mapping" if root is None and len(linked_roots) > 1 else "missing_root"
             if root is not None:
                 outcome = "conflicting_gold_roots" if len(member_ids) > 1 else "no_selected_candidate"
-                if selected is not None and len(member_ids) <= 1:
+                if representative is None or representative["root_id"] != gold["id"]:
+                    outcome = "misaligned_representative"
+                elif key != (root.locator_span.start, root.locator_span.end) and not _same_annotated_field(
+                    field, gold, representative
+                ):
+                    outcome = "changed_occurrence"
+                elif selected is not None and len(member_ids) <= 1:
                     identity = root.identity_judgments[-1]
                     judgments = [
                         item
@@ -201,7 +227,7 @@ def score_document(
                         reading = readings[record.reading_index]
                         if record.reading_index != len(readings) - 1:
                             outcome = "stale_reading"
-                        elif not _same_annotated_reading(field, reading, gold.get(field)):
+                        elif not _same_annotated_reading(field, reading, representative.get(field)):
                             outcome = "misaligned_reading"
                         elif str(candidate.id) not in evidence_ids:
                             outcome = "candidate_alignment_unverified"
@@ -221,6 +247,14 @@ def score_document(
                     "gold_root_id": gold["id"],
                     "locator_span": {"start": key[0], "end": key[1]},
                     "citation_id": root.id if root is not None else None,
+                    "representative_locator_span": (
+                        {
+                            "start": root.locator_span.start,
+                            "end": root.locator_span.end,
+                        }
+                        if root is not None
+                        else None
+                    ),
                     "field": field,
                     "gold_label": label,
                     "decision_stage": decision_stage,
@@ -254,8 +288,8 @@ def evaluate(data_root: Path, run_dir: Path, sets: tuple[str, ...]) -> dict[str,
         "name": NAME,
         "basis": (
             "Latest selected reporter-root field judgments; precision among decided judgments "
-            "with the same canonical gold occurrence, aligned reading, and selected cluster in "
-            "annotation evidence. Recall over all explicitly labeled unmasked canonical "
+            "with the same annotated field content, aligned reading, and selected cluster in "
+            "annotation evidence. Recall over all explicitly labeled canonical "
             "reporter-root fields, including roots with no lookup or model decision."
         ),
         "sets": {name: _summary(counts) for name, counts in by_set.items()},

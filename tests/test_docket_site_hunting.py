@@ -156,9 +156,9 @@ def test_entry_reference_is_not_a_full_docket_proposal() -> None:
     assert [site.locator_text for site in proposals] == ["No. 19 Civ. 8034"]
 
 
-def test_hunt_ignores_index_occurrence_and_keeps_repeated_body_sites_distinct() -> None:
+def test_hunt_proposes_index_occurrence_and_keeps_repeated_body_sites_distinct() -> None:
     locator = "Case No. 035547/2021"
-    source = f"INDEX: {locator}\nBODY: {locator}; later {locator}."
+    source = f"INDEX: {locator};\nBODY: {locator}; later {locator}."
     index_start = source.index(locator)
     body_start = source.index(locator, index_start + 1)
     later_start = source.index(locator, body_start + 1)
@@ -171,9 +171,9 @@ def test_hunt_ignores_index_occurrence_and_keeps_repeated_body_sites_distinct() 
 
     hunted = asyncio.run(hunt_docket_locators(before, reviewer=reviewer))
 
-    assert seen == [body_start, later_start]
-    assert [item.site_span.start for item in hunted.citations] == [body_start, later_start]
-    assert len({item.id for item in hunted.citations}) == 2
+    assert seen == [index_start, body_start, later_start]
+    assert [item.site_span.start for item in hunted.citations] == [index_start, body_start, later_start]
+    assert len({item.id for item in hunted.citations}) == 3
 
 
 def test_hunt_rejects_a_repeat_run_and_checkpoint_survives_later_colocation() -> None:

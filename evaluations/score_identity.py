@@ -6,10 +6,10 @@ Run from the repository root::
         --output-dir local/evaluations/reporter-exact
 
 This reads annotations only after prediction artifacts exist. Deferred roots
-are abstentions. Identity recall includes every labeled gold reporter root
-represented by an unmasked full citation, even when extraction missed it.
-Field comparison accuracy needs the annotated root occurrence and an aligned
-field reading; later representative occurrences are not assigned that label.
+are abstentions. Identity recall includes every labeled gold reporter root,
+including roots in a table of authorities. Field comparison accuracy needs an
+aligned field reading; a later representative may use the root's field label
+only when both occurrences state that field the same way.
 """
 
 from __future__ import annotations
@@ -78,6 +78,20 @@ def _same_annotated_reading(field: str, reading: CitationField[Any], gold: Any) 
             value += f"-{normalized.day:02d}"
         return value == gold.get("normalized")
     return True
+
+
+def _same_annotated_field(field: str, canonical: dict[str, Any], occurrence: dict[str, Any]) -> bool:
+    """Transfer a root field label only to an occurrence stating the same field."""
+    original = canonical.get(field)
+    repeated = occurrence.get(field)
+    if not isinstance(original, dict) or not isinstance(repeated, dict):
+        return False
+    keys = {
+        "case_name": ("quote",),
+        "court": ("quote", "id"),
+        "date": ("quote", "normalized"),
+    }[field]
+    return all(original.get(key) == repeated.get(key) for key in keys)
 
 
 def _summary(counts: Counter[str]) -> dict[str, Any]:
@@ -149,9 +163,8 @@ def score_document(
 ) -> tuple[Counter[str], list[dict[str, Any]]]:
     """Compare exact-lookup judgments with active gold roots.
 
-    ``gold_rows`` contains only unmasked occurrences. ``identity_roots`` may
-    also contain masked root rows so an unmasked later citation can inherit its
-    annotated identity without treating the masked locator as a prediction.
+    ``gold_rows`` includes table-of-authorities occurrences. An unextracted
+    TOA-only root remains in the identity denominator as a miss.
     """
     product = stage_product(document, STAGE)
     checkpoint = product.after
@@ -186,15 +199,9 @@ def score_document(
         if row.get("kind") in {"FullCaseCitation", "DocketCitation"}
         and row.get("validation", {}).get("identity", {}).get("label") in LABELS
     }
-    # A root's field labels describe that occurrence, not every later citation
-    # attached to it. A masked root may still supply identity gold through an
-    # unmasked leaf, but its field labels cannot score that leaf's readings.
-    field_gold = {
-        root_id: row
-        for root_id, row in gold_reporter.items()
-        if (occurrence := by_locator.get((row["kind"], span(row["locator"]).start, span(row["locator"]).end)))
-        and occurrence["id"] == root_id
-    }
+    # A root's field labels describe its own wording. A body representative
+    # may carry a TOA root's label only for fields stated the same way.
+    field_gold = gold_reporter
     counts: Counter[str] = Counter(
         documents=1,
         identity_labeled_documents=int(identity_labeled),
@@ -353,17 +360,22 @@ def score_document(
                     ],
                 }
             )
-        comparable_id = (
+        comparable_root_id = (
             gold_id
             if outcome != "conflicting_gold_roots"
             and gold_id in field_gold
             and representative is not None
-            and representative["id"] == gold_id
             else None
         )
-        if comparable_id is None:
+        if comparable_root_id is None:
             counts["predicted_roots_without_field_gold"] += 1
         for field, log_name in FIELD_LOGS.items():
+            comparable_id = (
+                comparable_root_id
+                if comparable_root_id is not None
+                and _same_annotated_field(field, field_gold[comparable_root_id], representative)
+                else None
+            )
             gold_record = field_gold[comparable_id].get(field) if comparable_id is not None else None
             gold_field = (
                 field_gold[comparable_id]
@@ -376,7 +388,8 @@ def score_document(
                 else None
             )
             readings = getattr(root, field)
-            aligned_reading = bool(readings) and _same_annotated_reading(field, readings[-1], gold_record)
+            source_record = representative.get(field) if representative is not None else None
+            aligned_reading = bool(readings) and _same_annotated_reading(field, readings[-1], source_record)
             if unique_lookup and gold_field in GOLD_FIELD_RESULT:
                 unique_fields[field].add(comparable_id)
                 if not readings:
@@ -569,8 +582,8 @@ def evaluate(data_root: Path, run_dir: Path, sets: tuple[str, ...]) -> dict[str,
         "prediction_run": run_configuration,
         "basis": (
             "Stage-written reporter-root identity and field judgments. Deferred identity roots abstain; "
-            "identity recall uses all labeled roots represented by unmasked full citations. Field judgments "
-            "are scored only against labels for the same annotated root occurrence and aligned field reading."
+            "identity recall uses all labeled roots, including table-of-authorities citations. Field judgments "
+            "require an aligned reading and the same field content as the annotated root."
         ),
         "sets": {name: _summary(counts) for name, counts in by_set.items()},
         "totals": _summary(totals),

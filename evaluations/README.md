@@ -85,12 +85,14 @@ uv run python -m evaluations.evaluate_run \
 The combination verifies the identical reporter-lookup checkpoint and each
 appended citation history before committing the final Document. The cumulative
 report adds overall case-name, court, and date precision and recall. Precision
-uses decided judgments with an aligned canonical annotation and selected
-cluster in its evidence; recall counts every explicitly labeled, unmasked
-canonical reporter-root field, including unresolved roots. The report shows
-the number of unmasked canonical full-reporter roots separately from each
-field's labeled denominator. Repeated locator occurrences do not borrow the
-canonical root's field labels.
+uses decided judgments with an aligned source reading and a selected cluster
+in the root's evidence; recall counts every explicitly labeled canonical
+reporter-root field, including table-of-authorities and unresolved roots. The
+report shows the full-reporter root population separately from each field's
+labeled denominator. A later occurrence may use the canonical root's field
+label only when that field has the same content in both occurrences. A TOA pin
+may still be extracted, but its validation is skipped because no proposition
+is attached to the table entry.
 
 When docket-locator rules have run, the report also includes the separate
 unreviewed site-proposal diagnostic; proposals are not counted as admitted
