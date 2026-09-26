@@ -6,12 +6,11 @@ import asyncio
 
 import pytest
 
-from evaluations.stage_products import stage_product
 from mellea_lrc.api import (
     Document,
     grow_roots,
-    reporter_root_lookup_ambiguous,
     reporter_root_lookup,
+    reporter_root_lookup_ambiguous,
 )
 from mellea_lrc.courtlistener import CourtListenerCitationLookup, CourtListenerDocket
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
@@ -81,14 +80,16 @@ def test_unique_passing_candidate_is_admitted_and_all_comparisons_are_saved() ->
     assert [item.candidate_index for item in root.date_judgments] == [0, 1]
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
     assert root.identity_judgments[-1].next_stage is None
-    records = stage_product(after, STAGE).records
-    assert {item.name for item in records} == {
-        "case_name_judgments",
-        "court_judgments",
-        "date_judgments",
-        "reporter_exact_ambiguity_resolution",
-        "identity_judgments",
-    }
+    assert all(
+        record.node_id == root.nodes[-1].id
+        for record in (
+            *root.case_name_judgments,
+            *root.court_judgments,
+            *root.date_judgments,
+            resolution,
+            root.identity_judgments[-1],
+        )
+    )
     restored = Document.model_validate_json(after.model_dump_json())
     assert restored == after
     assert restored.get_stage("reporter_root_lookup") == before

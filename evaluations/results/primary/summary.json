@@ -1,0 +1,33 @@
+[
+  {
+    "set": "primary",
+    "stages": [
+      {
+        "stage": "full_reporter_locators",
+        "span": {
+          "correct": 589,
+          "total": 589,
+          "precision": 1.0
+        },
+        "normalization": {
+          "correct": 392,
+          "total": 392,
+          "precision": 1.0
+        }
+      },
+      {
+        "stage": "docket_locators",
+        "span": {
+          "correct": 19,
+          "total": 20,
+          "precision": 0.95
+        },
+        "normalization": {
+          "correct": 13,
+          "total": 13,
+          "precision": 1.0
+        }
+      }
+    ]
+  }
+]
