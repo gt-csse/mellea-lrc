@@ -125,7 +125,7 @@ async def reporter_root_lookup_unique_llm(
         corrections = context.grounded_corrections(decision) if decision is not None else None
         failure = outcome.failure_reason
         if decision is not None and corrections is None:
-            failure = "Proposed field correction could not be grounded in the filing window"
+            failure = "Replacement intent or source quote is inconsistent or ungrounded"
         if decision is not None and (assessment_error := context.assessment_error(decision)) is not None:
             failure = assessment_error
         if decision is None or corrections is None or failure is not None:
