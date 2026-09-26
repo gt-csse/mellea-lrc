@@ -162,17 +162,29 @@ def test_root_report_shows_group_recall_without_link_columns() -> None:
         "gold_groups": 2053,
         "predicted_groups": 2092,
         "exact_groups": 2036,
-        "exact_group_recall": 0.9917,
+        "global_gold_roots": 2100,
+        "global_exact_root_groups": 2000,
+        "canonical_root_locators_found": 2050,
+        "canonical_root_anchors_correct": 2048,
+        "toa_gold_roots": 80,
+        "toa_canonical_root_locators_found": 76,
+        "root_outcome_no_locator_found": 3,
+        "alternate_representative_roots": 4,
     }
     markdown = render_stage_report(
         _all_results("roots", counts, documents=66), source_label="saved summaries"
     )
 
     section = _section(markdown, "roots")
-    assert "| Set (documents) | Eligible full locators | Exact groups / gold groups |" in section
-    assert "| **Total** (66) | 2381/2385 | 2036/2053 (99.2%) |" in section
+    assert "| Set (documents) | Full locators found | Canonical roots found | TOA roots found |" in section
+    assert (
+        "| **Total** (66) | 2381/2385 (99.8%) | 2050/2100 (97.6%) | "
+        "76/80 (95.0%) | 2048/2050 (99.9%) | 2036/2053 (99.2%) | "
+        "2000/2092 (95.6%) | 2000/2100 (95.2%) |"
+    ) in section
+    assert "| Total | 3 | 4 |" in section
     assert "links" not in section.lower()
-    assert "| Root formation | 2381/2385 | 2036/2053 (99.2%) |" in markdown
+    assert "| Root formation | 2381/2385 (99.8%) | 2050/2100 (97.6%) |" in markdown
     assert "Root link recall" not in markdown
     assert "Root formation misses" not in markdown
 
