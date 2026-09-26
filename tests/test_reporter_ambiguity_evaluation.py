@@ -110,7 +110,17 @@ def test_annotated_repeated_occurrence_uses_its_canonical_root_label():
     document, (canonical,) = _stage_document(
         ReporterExactAmbiguityOutcome.UNIQUE_RULE_MATCH, "CORRECT_IDENTITY"
     )
-    canonical = {**canonical, "id": "gold-root", "root_id": "gold-root"}
+    canonical_name = canonical["case_name"]
+    canonical = {
+        **canonical,
+        "id": "gold-root",
+        "root_id": "gold-root",
+        "case_name": {
+            **canonical_name,
+            "start": canonical_name["start"] + 100,
+            "end": canonical_name["end"] + 100,
+        },
+    }
     repeated = {
         "id": "gold-leaf",
         "root_id": "gold-root",
@@ -123,6 +133,7 @@ def test_annotated_repeated_occurrence_uses_its_canonical_root_label():
 
     assert counts["scored_admissions"] == 1
     assert counts["correct_admissions"] == 1
+    assert _summary(counts)["field_precision"]["case_name"] == {"value": 1.0, "correct": 1, "scored": 1}
     assert details[0]["gold_root_id"] == "gold-root"
 
 

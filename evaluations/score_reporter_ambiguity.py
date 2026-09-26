@@ -2,7 +2,7 @@
 
 This evaluator only reads completed documents and annotations. It makes no
 provider or model calls. Admissions use root-level identity labels; field
-judgments use aligned root-field labels for the selected candidate only.
+judgments use root-level field labels for the selected candidate only.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 from evaluations.annotations import SETS, annotated_documents, span
-from evaluations.score_identity import _same_annotated_reading
 from mellea_lrc.model import Document, FullReporterCitation
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactAmbiguityOutcome
@@ -91,7 +90,6 @@ def score_document(
     counts: Counter[str] = Counter(documents=1)
     details: list[dict[str, Any]] = []
     credited_gold: set[str] = set()
-    field_credited_gold: set[str] = set()
     for root in checkpoint.roots:
         if root.id not in routed_ids:
             continue
@@ -147,36 +145,28 @@ def score_document(
             else None
         )
         selected_index = resolution.selected_candidate_index
-        if selected_index is not None and gold is not None and gold_id not in field_credited_gold:
+        if selected_index is not None and gold is not None:
             fields = gold.get("validation", {}).get("identity", {}).get("fields", {})
-            scored_field = False
             for field in ("case_name", "court", "date"):
                 gold_field = fields.get(field, {})
                 gold_label = gold_field.get("label")
                 if gold_label not in {"agrees", "disagrees"}:
                     continue
-                readings = getattr(root, field)
-                reading_index = len(readings) - 1
-                gold_reading = gold.get(field)
-                if reading_index < 0 or not _same_annotated_reading(field, readings[reading_index], gold_reading):
-                    continue
                 selected_judgments = [
                     item for item in getattr(root, f"{field}_judgments")
                     if item.candidate_index == selected_index
-                    and item.reading_index == reading_index
                     and any(node.id == item.node_id and node.stage == STAGE for node in root.nodes)
                 ]
-                if len(selected_judgments) != 1:
+                if len(selected_judgments) > 1:
+                    raise ValueError(f"Multiple selected-candidate {field} judgments at ambiguity stage")
+                if not selected_judgments:
                     continue
                 prediction = selected_judgments[0].result
                 if prediction is MatchResult.UNDETERMINED:
                     continue
-                scored_field = True
                 counts[f"{field}_scored"] += 1
                 if prediction is (MatchResult.MATCH if gold_label == "agrees" else MatchResult.MISMATCH):
                     counts[f"{field}_correct"] += 1
-            if scored_field:
-                field_credited_gold.add(gold_id)
         if selected_cluster_id is not None:
             if annotated_cluster_ids:
                 counts["selection_with_cluster_evidence"] += 1
@@ -248,7 +238,7 @@ def evaluate(data_root: Path, run_dir: Path, sets: tuple[str, ...]) -> dict[str,
         totals.update(counts)
     return {
         "stage": STAGE,
-        "basis": "Admission precision uses labeled root identities. Field precision uses only the uniquely selected candidate and an aligned annotated root field reading.",
+        "basis": "Admission precision uses labeled root identities. Field precision compares the selected candidate's stored judgments with explicit root-level field labels, without scoring extraction spans.",
         "sets": {name: _summary(counts) for name, counts in by_set.items()},
         "totals": _summary(totals),
         "occurrences": occurrences,

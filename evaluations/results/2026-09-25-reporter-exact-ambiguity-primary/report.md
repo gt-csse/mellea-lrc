@@ -153,12 +153,12 @@ Eligibility: Annotated full locators present before root formation.
 
 <!-- Generated from evaluations/results/2026-09-25-reporter-exact-ambiguity-primary/summary.json by evaluations.render_reporter_ambiguity_report. -->
 
-Admission precision scores unique rule admissions against labeled root identity. Field precision scores only the selected candidate when its judgment aligns with the annotated root field reading. Each value shows correct/scored comparisons; a dash means no eligible comparisons.
+Admission precision scores unique rule admissions against labeled root identity. Field precision scores the selected candidate's field judgments against explicit root-level field labels, including judgments on later occurrences of that root. Each value shows correct/scored judgments; a dash means no labeled judgment was scored.
 
 | Set | Admission | Case name | Court | Date |
 | --- | ---: | ---: | ---: | ---: |
-| primary | 9/9 (100.0%) | 5/5 (100.0%) | 4/4 (100.0%) | 5/5 (100.0%) |
-| Total | 9/9 (100.0%) | 5/5 (100.0%) | 4/4 (100.0%) | 5/5 (100.0%) |
+| primary | 9/9 (100.0%) | 9/9 (100.0%) | 8/8 (100.0%) | 9/9 (100.0%) |
+| Total | 9/9 (100.0%) | 9/9 (100.0%) | 8/8 (100.0%) | 9/9 (100.0%) |
 
 ## Docket site proposal diagnostic
 
