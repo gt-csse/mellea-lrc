@@ -41,3 +41,4 @@ paper/
 
 .playwright*
 
+evaluations/results/*/documents/

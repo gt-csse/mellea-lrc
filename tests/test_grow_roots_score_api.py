@@ -208,3 +208,22 @@ def test_workflow_rejects_a_missing_mandatory_checkpoint(annotated_document: Doc
     incomplete = annotated_document.get_stage("docket_locators").complete("roots")
     with pytest.raises(ValueError, match="Incomplete grow_roots workflow"):
         evaluation.score_grow_roots_workflow(incomplete)
+
+
+def test_unannotated_normalization_and_absent_field_are_distinct(
+    annotated_document: Document,
+) -> None:
+    source = Path(annotated_document.source_path)
+    annotation = source.parent.parent / "documents" / f"{source.stem}.jsonl"
+    rows = [json.loads(line) for line in annotation.read_text(encoding="utf-8").splitlines()]
+    rows[1].pop("court")
+    rows[2]["case_name"].pop("normalized")
+    annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    courts = evaluation.score_courts(annotated_document).metrics
+    names = evaluation.score_case_names(annotated_document).metrics
+    assert courts["normalization"] == evaluation.Precision(1, 2)
+    assert names["normalization"] == evaluation.Precision(1, 1)
+    workflow = evaluation.score_grow_roots_workflow(annotated_document)
+    assert workflow.root_fields["court"]["normalization"] == evaluation.FieldScore(1, 2, 1)
+    assert workflow.root_fields["case_name"]["normalization"] == evaluation.FieldScore(1, 1, 1)

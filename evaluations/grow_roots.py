@@ -197,6 +197,13 @@ def _has_target(name: str, row: dict[str, Any]) -> bool:
     return value.get(key) is not None
 
 
+def _normalization_unannotated(name: str, row: dict[str, Any]) -> bool:
+    """A quoted field with no normalized gold is unscored; an absent field is not."""
+    if name in {"full_reporter_locator", "docket_locator"}:
+        return not _has_target(name, row)
+    return isinstance(row.get(name), dict) and not _has_target(name, row)
+
+
 def _agrees(name: str, reading: Any, row: dict[str, Any]) -> bool:
     value = reading.get_normalized()
     if name == "full_reporter_locator":
@@ -252,10 +259,11 @@ def _field_stage(
             if row is None:
                 normalization = Precision(normalization.correct, normalization.total + 1)
                 continue
-            if not _has_target(name, row):
+            if _normalization_unannotated(name, row):
                 continue
             normalization = Precision(
-                normalization.correct + int(_agrees(name, reading, row)), normalization.total + 1
+                normalization.correct + int(_has_target(name, row) and _agrees(name, reading, row)),
+                normalization.total + 1,
             )
     return StageScore(stage, {"span": span, "normalization": normalization})
 
@@ -421,7 +429,7 @@ def score_grow_roots_workflow(document: Document) -> WorkflowScore:
             if reading.span is not None:
                 span_predicted += 1
                 span_correct += int(span_match)
-            if reading.normalizable and not (row is not None and not _has_target(name, row)):
+            if reading.normalizable and not (row is not None and _normalization_unannotated(name, row)):
                 norm_predicted += 1
                 norm_correct += int(
                     row is not None and _has_target(name, row) and _agrees(name, reading, row)
