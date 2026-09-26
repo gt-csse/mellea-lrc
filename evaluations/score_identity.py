@@ -77,6 +77,8 @@ def _same_annotated_reading(field: str, reading: CitationField[Any], gold: Any) 
         if normalized.day is not None:
             value += f"-{normalized.day:02d}"
         return value == gold.get("normalized")
+    if field == "case_name" and gold.get("normalized") is not None:
+        return reading.normalizable and reading.get_normalized().as_citation() == gold["normalized"]
     return True
 
 
@@ -87,7 +89,7 @@ def _same_annotated_field(field: str, canonical: dict[str, Any], occurrence: dic
     if not isinstance(original, dict) or not isinstance(repeated, dict):
         return False
     keys = {
-        "case_name": ("quote",),
+        "case_name": ("quote", "normalized"),
         "court": ("quote", "id"),
         "date": ("quote", "normalized"),
     }[field]
@@ -362,9 +364,7 @@ def score_document(
             )
         comparable_root_id = (
             gold_id
-            if outcome != "conflicting_gold_roots"
-            and gold_id in field_gold
-            and representative is not None
+            if outcome != "conflicting_gold_roots" and gold_id in field_gold and representative is not None
             else None
         )
         if comparable_root_id is None:

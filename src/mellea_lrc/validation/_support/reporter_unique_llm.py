@@ -39,6 +39,7 @@ class ReporterUniqueReviewContext(ReporterReviewGrounding):
     following_window: str
     following_offset: int
     current_case_name: str | None
+    current_case_name_normalized: str | None
     current_court: str | None
     current_date: str | None
     has_case_name: bool
@@ -68,6 +69,11 @@ class ReporterUniqueReviewContext(ReporterReviewGrounding):
             following_window=following_window,
             following_offset=following_offset,
             current_case_name=root.case_name[-1].quote if root.case_name else None,
+            current_case_name_normalized=(
+                root.case_name[-1].get_normalized().as_citation()
+                if root.case_name and root.case_name[-1].normalizable
+                else None
+            ),
             current_court=current_court,
             current_date=root.date[-1].quote if root.date else None,
             has_case_name=bool(root.case_name),
@@ -95,11 +101,13 @@ class ReporterUniqueReviewer(Protocol):
 
 MAX_TOKENS = 3000
 MAX_MODEL_ATTEMPTS = 3
-SESSION_ID = "mellea-lrc-reporter-unique-review-v2"
+SESSION_ID = "mellea-lrc-reporter-unique-review-v3"
 
 _PREFIX = """Review one reporter citation against one retrieved opinion record. Do all rereading, correction proposals, and field comparisons in this one answer.
 
 The reporter locator is fixed. For case name, court, and date, first reread the filing text. Set propose_replacement to true only when you intend to change or supply that field; then quote the replacement exactly from the filing. If the current reading is fine, set propose_replacement to false and quote to null. Do not quote a value merely to restate a reading you are keeping. A proposal must be within the text before the locator for case name, or after it for court and date. Do not quote values from the retrieved record as corrections to the filing.
+
+For case_name, also supply normalized as the structured name read from the filing (kind and its party or subject fields). Supply it even when keeping an existing grounded quote; use null only when no case name is grounded. The quote may contain page headers or other layout noise between name parts. Include that noise in the quoted span, but omit it from normalized. Do not take the normalized name from the retrieved record.
 
 Compare the corrected or existing filing reading with the retrieved record. For each field return match, mismatch, or undetermined and a specific reason. Conventional abbreviations and equivalent party forms can match; a misspelling is a mismatch, not an abbreviation. Compare the full date when both sides provide it, otherwise compare the available precision. An absent value gives no opinion for that field. A reporter may itself identify a court even if none is written. Do not force agreement between an opinion date and a docket filing date.
 
@@ -166,7 +174,10 @@ class IvrReporterUniqueReviewer:
         candidate = context.candidate.model_dump_json(exclude={"raw_json"})
         docket = context.docket.model_dump_json(exclude={"raw_json"}) if context.docket else "null"
         readings = {
-            "case_name": context.current_case_name,
+            "case_name": {
+                "quote": context.current_case_name,
+                "normalized": context.current_case_name_normalized,
+            },
             "court": context.current_court,
             "date": context.current_date,
         }

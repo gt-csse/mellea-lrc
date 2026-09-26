@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Self
 
 from mellea_lrc.model.citations.citation import Citation
-from mellea_lrc.model.citations.fields import CaseNameField, CourtField, DateField, PinCiteField
+from mellea_lrc.model.citations.fields import CaseName, CaseNameField, CourtField, DateField, PinCiteField
 from mellea_lrc.model.citations.history import RelationshipUpdate
 from mellea_lrc.model.citations.judgments import (
     IdentityJudgment,
@@ -41,13 +41,15 @@ class FullCitation(Citation):
     def site_span(self) -> Span:
         return self.locator_span
 
-    def with_case_name(self, source: str, span: Span) -> Self:
-        """Quote a case name and parse its parties or subject."""
+    def with_case_name(self, source: str, span: Span, *, normalized: CaseName | None = None) -> Self:
+        """Append a grounded case name, using a model reading when supplied."""
+        reading = (
+            CaseNameField.from_source(source, span, node_id=self._decision_node_id())
+            if normalized is None
+            else CaseNameField.from_model(source, span, normalized, node_id=self._decision_node_id())
+        )
         return self._with_log(
-            case_name=(
-                *self.case_name,
-                CaseNameField.from_source(source, span, node_id=self._decision_node_id()),
-            ),
+            case_name=(*self.case_name, reading),
         )
 
     def with_court(self, source: str, span: Span) -> Self:
@@ -84,9 +86,7 @@ class FullCitation(Citation):
             ),
         )
 
-    def with_identity_judgment(
-        self, verdict: IdentityVerdict, next_stage: str | None = None
-    ) -> Self:
+    def with_identity_judgment(self, verdict: IdentityVerdict, next_stage: str | None = None) -> Self:
         """Append a verdict without changing any earlier decision."""
         judgment = IdentityJudgment(node_id=self._decision_node_id(), verdict=verdict, next_stage=next_stage)
         return self._with_log(identity_judgments=(*self.identity_judgments, judgment))

@@ -13,15 +13,29 @@ def append_corrections(
     root: FullReporterCitation,
     source: str,
     corrections: dict[str, Span],
+    decision: ReporterReviewDecision,
 ) -> FullReporterCitation:
-    """Append only readings whose grounded source span differs from the latest."""
+    """Write a model name normalization and any changed source readings."""
+    name_span = corrections.get("case_name")
+    if name_span is None and root.case_name:
+        name_span = root.case_name[-1].span
+    normalized_name = decision.case_name.normalized
+    if name_span is not None and normalized_name is not None:
+        prior = root.case_name[-1] if root.case_name else None
+        if (
+            prior is None
+            or prior.span != name_span
+            or not prior.normalizable
+            or prior.get_normalized() != normalized_name
+        ):
+            root = root.with_case_name(source, name_span, normalized=normalized_name)
     for field, span in corrections.items():
+        if field == "case_name":
+            continue
         prior = getattr(root, field)
         if prior and prior[-1].span == span:
             continue
-        if field == "case_name":
-            root = root.with_case_name(source, span)
-        elif field == "court":
+        if field == "court":
             root = root.with_court(source, span)
         else:
             root = root.with_date(source, span)

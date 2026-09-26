@@ -40,6 +40,7 @@ class ReporterAmbiguousReviewContext(ReporterReviewGrounding):
     following_window: str
     following_offset: int
     current_case_name: str | None
+    current_case_name_normalized: str | None
     current_court: str | None
     current_date: str | None
     has_case_name: bool
@@ -87,6 +88,11 @@ class ReporterAmbiguousReviewContext(ReporterReviewGrounding):
             following_window=following_window,
             following_offset=following_offset,
             current_case_name=root.case_name[-1].quote if root.case_name else None,
+            current_case_name_normalized=(
+                root.case_name[-1].get_normalized().as_citation()
+                if root.case_name and root.case_name[-1].normalizable
+                else None
+            ),
             current_court=current_court,
             current_date=root.date[-1].quote if root.date else None,
             has_case_name=bool(root.case_name),
@@ -125,13 +131,13 @@ class ReporterAmbiguousReviewer(Protocol):
 
 MAX_TOKENS = 5000
 MAX_MODEL_ATTEMPTS = 3
-SESSION_ID = "mellea-lrc-reporter-ambiguous-review-v1"
+SESSION_ID = "mellea-lrc-reporter-ambiguous-review-v2"
 
 _PREFIX = """Review one reporter citation against the complete bounded list of retrieved opinion records. In one answer, choose the single best representative record (by its candidate_index) or select null when none is supportable; reread the filing's case name, court, and date; and compare each field with your chosen record.
 
 Every candidate remains available, including candidates that failed a preliminary rule comparison. Those comparisons are hints, not a filter or a verdict. If several records plausibly represent the same case, choose the best representative with a reason. A wrong case name, court, or date in the filing does not by itself remove the real record from consideration: select it when the locator and context support it, then mark that field mismatch. Do not invent another candidate, alter the reporter locator, or use outside knowledge.
 
-For each filing field, set propose_replacement to true only to change or supply its reading, and quote replacement text exactly from the filing. Case name must come from before the locator; court and date must come from after it. Otherwise set propose_replacement to false and quote to null. Do not quote a retrieved record as a filing correction. Compare the corrected or existing filing reading with the selected candidate and return match, mismatch, or undetermined with a specific reason for each field. Conventional abbreviations and equivalent party forms can match; a misspelling is a mismatch, not an abbreviation. An absent value gives no opinion for that field. If you select null, all three comparisons must be undetermined, though you may still correct filing readings for later search.
+For each filing field, set propose_replacement to true only to change or supply its reading, and quote replacement text exactly from the filing. Case name must come from before the locator; court and date must come from after it. Otherwise set propose_replacement to false and quote to null. Do not quote a retrieved record as a filing correction. For case_name, also return normalized as the structured name read from the filing (kind and its party or subject fields), even when keeping an existing grounded quote; use null only when no name is grounded. A source quote may include intervening layout noise: include it in the quoted span but omit it from normalized. Never copy a candidate's name as the filing's normalization. Compare the corrected or existing filing reading with the selected candidate and return match, mismatch, or undetermined with a specific reason for each field. Conventional abbreviations and equivalent party forms can match; a misspelling is a mismatch, not an abbreviation. An absent value gives no opinion for that field. If you select null, all three comparisons must be undetermined, though you may still correct filing readings for later search.
 
 The cluster's date_filed is an opinion-record date, not a linked docket's case-filing date; it may differ from a reporter publication year. Compare at the precision the filing states, but use undetermined if the supplied evidence does not establish the claimed decision date. A linked docket here supplies court evidence only. A reporter can itself identify a court when none is written.
 
@@ -204,7 +210,10 @@ class IvrReporterAmbiguousReviewer:
             for index, (cluster, docket) in enumerate(zip(context.candidates, context.dockets))
         ]
         readings = {
-            "case_name": context.current_case_name,
+            "case_name": {
+                "quote": context.current_case_name,
+                "normalized": context.current_case_name_normalized,
+            },
             "court": context.current_court,
             "date": context.current_date,
         }

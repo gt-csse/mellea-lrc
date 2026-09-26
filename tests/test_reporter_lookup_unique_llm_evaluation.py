@@ -59,6 +59,11 @@ class _Reviewer:
                 "case_name": {
                     "propose_replacement": True,
                     "quote": "Bell Atl. Corp. v. Twombly",
+                    "normalized": {
+                        "kind": "adversarial",
+                        "plaintiff": "Bell Atl. Corp.",
+                        "defendant": "Twombly",
+                    },
                     "result": self.case_name_result,
                     "reason": "The cited parties were checked against the opinion record.",
                 },

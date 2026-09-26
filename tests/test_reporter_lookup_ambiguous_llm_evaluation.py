@@ -68,6 +68,17 @@ class _Reviewer:
                     }
                     for field in ("case_name", "court", "date")
                 },
+                "case_name": {
+                    "propose_replacement": False,
+                    "quote": None,
+                    "normalized": {
+                        "kind": "adversarial",
+                        "plaintiff": "Bell Atl. Corp.",
+                        "defendant": "Twombly",
+                    },
+                    "result": result,
+                    "reason": "Compared with the saved candidate.",
+                },
                 "reason": "The candidate evidence supports this selection."
                 if self.selected is not None
                 else "No candidate can be selected.",

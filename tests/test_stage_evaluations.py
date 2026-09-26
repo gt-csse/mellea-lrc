@@ -166,12 +166,13 @@ def test_later_field_update_does_not_change_earlier_stage_product_or_score() -> 
             "id": "gold-docket",
             "kind": "DocketCitation",
             "locator": _gold_span(located.citations[0].locator_span),
-            "case_name": _gold_span(first_name),
+            "case_name": {**_gold_span(first_name), "normalized": "Alpha v. Beta"},
         },
     )
     assert score_document(revised, "case_names", gold) == score_document(named, "case_names", gold)
     counts, _ = score_document(revised, "case_names", gold)
     assert counts["exact_spans"] == 1
+    assert counts["normalization_checked"] == counts["normalization_correct"] == 1
     assert counts["predicted"] == 1
 
 

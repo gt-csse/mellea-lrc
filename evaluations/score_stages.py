@@ -128,7 +128,7 @@ def _predicted_normalized(field: str, reading: CitationField) -> Any:
     if field == "pin_cite":
         return [item.model_dump(mode="json", exclude_none=True) for item in value]
     if field == "case_name":
-        return value.model_dump(mode="json")
+        return value.as_citation()
     return value
 
 
@@ -157,9 +157,11 @@ def _gold_normalized(row: dict[str, Any], field: str) -> Any:
         return gold.get("normalized", NO_GOLD)
     if field == "pin_cite":
         return gold.get("normalized", NO_GOLD)
+    if field == "case_name":
+        return gold.get("normalized", NO_GOLD)
     if field == "docket_entry":
         return str(gold["number"]) if "number" in gold else NO_GOLD
-    # Gold has no independent normalized parties or short-reporter identity.
+    # Short reporter citations have no independent normalized-identity gold.
     return NO_GOLD
 
 
@@ -177,9 +179,7 @@ def _eligible_field_gold(
         relevant = {key: row for key, row in rows.items() if key[0] in {"FullCaseCitation", "DocketCitation"}}
     if stage == PIN_CITES_STAGE:
         relevant = {
-            key: row
-            for key, row in relevant.items()
-            if not is_within(key[1], product.after.index_spans)
+            key: row for key, row in relevant.items() if not is_within(key[1], product.after.index_spans)
         }
     relevant = {key: row for key, row in relevant.items() if _gold_field(row, field) is not None}
     if stage in {FULL_REPORTER_LOCATORS_STAGE, DOCKET_LOCATORS_STAGE, SHORT_REPORTER_CITATIONS_STAGE}:
