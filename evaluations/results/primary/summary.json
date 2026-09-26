@@ -1,9 +1,9 @@
-[
-  {
-    "set": "primary",
-    "stages": [
-      {
-        "stage": "full_reporter_locators",
+{
+  "set": "primary",
+  "stages": [
+    {
+      "stage": "full_reporter_locators",
+      "metrics": {
         "span": {
           "correct": 589,
           "total": 589,
@@ -14,9 +14,11 @@
           "total": 392,
           "precision": 1.0
         }
-      },
-      {
-        "stage": "docket_locators",
+      }
+    },
+    {
+      "stage": "docket_locators",
+      "metrics": {
         "span": {
           "correct": 19,
           "total": 20,
@@ -24,10 +26,219 @@
         },
         "normalization": {
           "correct": 13,
-          "total": 13,
+          "total": 14,
+          "precision": 0.9285714285714286
+        }
+      }
+    },
+    {
+      "stage": "docket_entries",
+      "metrics": {
+        "span": {
+          "correct": 1,
+          "total": 1,
+          "precision": 1.0
+        },
+        "normalization": {
+          "correct": 1,
+          "total": 1,
           "precision": 1.0
         }
       }
-    ]
+    },
+    {
+      "stage": "colocations",
+      "metrics": {
+        "groups": {
+          "correct": 23,
+          "total": 23,
+          "precision": 1.0
+        }
+      }
+    },
+    {
+      "stage": "case_names",
+      "metrics": {
+        "span": {
+          "correct": 513,
+          "total": 576,
+          "precision": 0.890625
+        },
+        "normalization": {
+          "correct": 513,
+          "total": 571,
+          "precision": 0.8984238178633975
+        }
+      }
+    },
+    {
+      "stage": "courts",
+      "metrics": {
+        "span": {
+          "correct": 424,
+          "total": 426,
+          "precision": 0.9953051643192489
+        },
+        "normalization": {
+          "correct": 500,
+          "total": 500,
+          "precision": 1.0
+        }
+      }
+    },
+    {
+      "stage": "dates",
+      "metrics": {
+        "span": {
+          "correct": 550,
+          "total": 552,
+          "precision": 0.9963768115942029
+        },
+        "normalization": {
+          "correct": 550,
+          "total": 551,
+          "precision": 0.9981851179673321
+        }
+      }
+    },
+    {
+      "stage": "pin_cites",
+      "metrics": {
+        "span": {
+          "correct": 391,
+          "total": 392,
+          "precision": 0.9974489795918368
+        },
+        "normalization": {
+          "correct": 391,
+          "total": 392,
+          "precision": 0.9974489795918368
+        }
+      }
+    },
+    {
+      "stage": "roots",
+      "metrics": {
+        "root_assignment": {
+          "correct": 607,
+          "total": 609,
+          "precision": 0.9967159277504105
+        }
+      }
+    }
+  ],
+  "root_fields": {
+    "full_reporter_locator": {
+      "span": {
+        "correct": 392,
+        "predicted": 392,
+        "gold": 393,
+        "precision": 1.0,
+        "recall": 0.9974554707379135
+      },
+      "normalization": {
+        "correct": 392,
+        "predicted": 392,
+        "gold": 392,
+        "precision": 1.0,
+        "recall": 1.0
+      }
+    },
+    "docket_locator": {
+      "span": {
+        "correct": 13,
+        "predicted": 15,
+        "gold": 47,
+        "precision": 0.8666666666666667,
+        "recall": 0.2765957446808511
+      },
+      "normalization": {
+        "correct": 13,
+        "predicted": 15,
+        "gold": 47,
+        "precision": 0.8666666666666667,
+        "recall": 0.2765957446808511
+      }
+    },
+    "docket_entry": {
+      "span": {
+        "correct": 1,
+        "predicted": 1,
+        "gold": 6,
+        "precision": 1.0,
+        "recall": 0.16666666666666666
+      },
+      "normalization": {
+        "correct": 1,
+        "predicted": 1,
+        "gold": 6,
+        "precision": 1.0,
+        "recall": 0.16666666666666666
+      }
+    },
+    "case_name": {
+      "span": {
+        "correct": 352,
+        "predicted": 395,
+        "gold": 436,
+        "precision": 0.8911392405063291,
+        "recall": 0.8073394495412844
+      },
+      "normalization": {
+        "correct": 352,
+        "predicted": 395,
+        "gold": 434,
+        "precision": 0.8911392405063291,
+        "recall": 0.8110599078341014
+      }
+    },
+    "court": {
+      "span": {
+        "correct": 304,
+        "predicted": 307,
+        "gold": 341,
+        "precision": 0.990228013029316,
+        "recall": 0.8914956011730205
+      },
+      "normalization": {
+        "correct": 360,
+        "predicted": 361,
+        "gold": 420,
+        "precision": 0.997229916897507,
+        "recall": 0.8571428571428571
+      }
+    },
+    "date": {
+      "span": {
+        "correct": 390,
+        "predicted": 393,
+        "gold": 426,
+        "precision": 0.9923664122137404,
+        "recall": 0.9154929577464789
+      },
+      "normalization": {
+        "correct": 390,
+        "predicted": 392,
+        "gold": 426,
+        "precision": 0.9948979591836735,
+        "recall": 0.9154929577464789
+      }
+    },
+    "pin_cite": {
+      "span": {
+        "correct": 264,
+        "predicted": 264,
+        "gold": 264,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "normalization": {
+        "correct": 264,
+        "predicted": 264,
+        "gold": 264,
+        "precision": 1.0,
+        "recall": 1.0
+      }
+    }
   }
-]
+}
