@@ -88,8 +88,10 @@ report adds overall case-name, court, and date precision and recall. Precision
 uses decided judgments with an aligned source reading and a selected cluster
 in the root's evidence; recall counts every explicitly labeled canonical
 reporter-root field, including table-of-authorities and unresolved roots. The
-report shows the full-reporter root population separately from each field's
-labeled denominator. A later occurrence may use the canonical root's field
+report shows the full-reporter root population and how many of those roots
+received at least one candidate CourtListener cluster at exact lookup, separately
+from each field's labeled denominator. This is retrieval coverage, not proof that
+the retrieved cluster identifies the cited case. A later occurrence may use the canonical root's field
 label only when that field has the same content in both occurrences. A TOA pin
 may still be extracted, but its validation is skipped because no proposition
 is attached to the table entry.

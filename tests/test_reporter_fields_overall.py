@@ -197,6 +197,7 @@ def test_overall_recall_includes_unresolved_gold_and_precision_requires_alignmen
     fields = _summary(counts)["fields"]
 
     assert counts["gold_canonical_reporter_roots"] == 3
+    assert counts["gold_roots_with_lookup_clusters"] == 2
     for field in ("case_name", "court", "date"):
         assert fields[field] == {
             "correct": 1,
@@ -236,6 +237,7 @@ def test_repeated_reporter_occurrence_counts_as_locator_but_not_field_gold() -> 
         "reporter_identities": 3,
         "full_reporter_roots": 3,
         "table_of_authorities_roots": 0,
+        "roots_with_lookup_clusters": 2,
     }
     assert _summary(counts)["fields"]["case_name"]["gold"] == 3
 
@@ -247,6 +249,7 @@ def test_overall_report_shows_root_population_separately_from_field_denominator(
             gold_reporter_identities=3,
             gold_canonical_reporter_roots=2,
             gold_table_of_authorities_roots=1,
+            gold_roots_with_lookup_clusters=1,
             case_name_correct=1,
             case_name_scored=1,
             case_name_gold=1,
@@ -258,8 +261,11 @@ def test_overall_report_shows_root_population_separately_from_field_denominator(
         source_label="saved-score.json",
     )
 
-    assert "| Set | Field | Full reporter locator roots | Precision | Recall |" in report
-    assert "| primary | case name | 2 | 1/1 (100.0%) | 1/1 (100.0%) |" in report
+    assert (
+        "| Set | Field | Full reporter locator roots | Roots with ≥1 lookup cluster | Precision | Recall |"
+        in report
+    )
+    assert "| primary | case name | 2 | 1/2 (50.0%) | 1/1 (100.0%) | 1/1 (100.0%) |" in report
     assert "4 annotated reporter locator occurrences represent 3 full-reporter roots" in report
     assert "including 1 first cited in a table of authorities" in report
 
