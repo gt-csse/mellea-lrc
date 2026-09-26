@@ -37,7 +37,6 @@ from mellea_lrc.model.citations.history import (
 )
 from mellea_lrc.model.citations.judgments import (
     IdentityJudgment,
-    IdentityNextStep,
     IdentityVerdict,
     MatchResult,
     ReporterExactCaseNameJudgment,
@@ -83,7 +82,6 @@ __all__ = [
     "FullReporterCitation",
     "FullReporterLocator",
     "IdentityJudgment",
-    "IdentityNextStep",
     "IdentityVerdict",
     "MatchResult",
     "Node",

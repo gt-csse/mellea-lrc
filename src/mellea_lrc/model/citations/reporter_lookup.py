@@ -89,11 +89,11 @@ class ReporterExactCandidateDocket(ReporterExactDocket):
 
 
 class ReporterExactAmbiguityOutcome(str, Enum):
-    """Rule-only resolution of a saved multi-candidate exact lookup."""
+    """Facts about a saved multi-candidate rule check, separate from routing."""
 
     UNIQUE_RULE_MATCH = "unique_rule_match"
-    REVIEW_REQUIRED = "review_required"
-    TOO_MANY_CANDIDATES = "too_many_candidates"
+    NO_UNIQUE_RULE_MATCH = "no_unique_rule_match"
+    CANDIDATE_LIMIT_EXCEEDED = "candidate_limit_exceeded"
 
 
 class ReporterExactAmbiguityResolution(BaseModel):
@@ -120,10 +120,13 @@ class ReporterExactAmbiguityResolution(BaseModel):
                 raise ValueError("A unique rule match must select its sole passing candidate")
         elif self.selected_candidate_index is not None:
             raise ValueError("Only a unique rule match selects a candidate")
-        if self.outcome is ReporterExactAmbiguityOutcome.REVIEW_REQUIRED and len(
+        if self.outcome is ReporterExactAmbiguityOutcome.NO_UNIQUE_RULE_MATCH and len(
             self.passing_candidate_indices
         ) == 1:
             raise ValueError("One passing candidate must be admitted as a unique rule match")
-        if self.outcome is ReporterExactAmbiguityOutcome.TOO_MANY_CANDIDATES and self.passing_candidate_indices:
+        if (
+            self.outcome is ReporterExactAmbiguityOutcome.CANDIDATE_LIMIT_EXCEEDED
+            and self.passing_candidate_indices
+        ):
             raise ValueError("An unassessed large candidate set cannot report passing candidates")
         return self

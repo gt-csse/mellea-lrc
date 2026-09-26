@@ -12,7 +12,7 @@ from mellea_lrc.courtlistener import (
     CourtListenerError,
 )
 from mellea_lrc.model.citations import FullReporterCitation
-from mellea_lrc.model.citations.judgments import IdentityNextStep, IdentityVerdict, MatchResult
+from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactDocket,
     ReporterExactLookup,
@@ -27,8 +27,14 @@ from mellea_lrc.validation._support.reporter_exact_fields import (
     date_result,
     locator_present,
 )
+from mellea_lrc.validation.stage_names import (
+    REPORTER_ROOT_EXACT_AMBIGUITY,
+    REPORTER_ROOT_EXACT_LOOKUP,
+    REPORTER_ROOT_EXACT_REVIEW,
+    REPORTER_ROOT_SEARCH,
+)
 
-STAGE = "reporter_root_exact_lookup"
+STAGE = REPORTER_ROOT_EXACT_LOOKUP
 
 
 class ReporterLookupClient(Protocol):
@@ -66,7 +72,7 @@ def _judge_unique(citation: FullReporterCitation, query: ReporterExactLookupQuer
         and locator_present(candidate, query) is not False
     ):
         return citation.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
-    return citation.with_identity_judgment(IdentityVerdict.DEFERRED, IdentityNextStep.REVIEW)
+    return citation.with_identity_judgment(IdentityVerdict.DEFERRED, REPORTER_ROOT_EXACT_REVIEW)
 
 
 def reporter_root_exact_lookup(
@@ -97,7 +103,7 @@ def reporter_root_exact_lookup(
                     outcome=ReporterExactLookupOutcome.UNNORMALIZABLE,
                 )
                 recorded = recorded.with_reporter_exact_lookup(result)
-                recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, IdentityNextStep.SEARCH)
+                recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, REPORTER_ROOT_SEARCH)
             else:
                 locator = reading.get_normalized()
                 query = ReporterExactLookupQuery(
@@ -145,11 +151,11 @@ def reporter_root_exact_lookup(
                     recorded = _judge_unique(recorded, query)
                 elif outcome is ReporterExactLookupOutcome.AMBIGUOUS:
                     recorded = recorded.with_identity_judgment(
-                        IdentityVerdict.DEFERRED, IdentityNextStep.AMBIGUITY
+                        IdentityVerdict.DEFERRED, REPORTER_ROOT_EXACT_AMBIGUITY
                     )
                 else:
                     recorded = recorded.with_identity_judgment(
-                        IdentityVerdict.DEFERRED, IdentityNextStep.SEARCH
+                        IdentityVerdict.DEFERRED, REPORTER_ROOT_SEARCH
                     )
             document = document.replace_citation(recorded)
     return document.complete(STAGE)

@@ -1,4 +1,4 @@
-"""Render ambiguity-stage admission precision/recall and route counts."""
+"""Render precision for reporter exact-lookup ambiguity decisions."""
 
 from __future__ import annotations
 
@@ -7,41 +7,40 @@ from typing import Any
 from evaluations.annotations import SETS
 
 
-def _percent(value: float | None) -> str:
-    return f"{value:.1%}" if value is not None else "—"
+def _precision(metric: dict[str, Any]) -> str:
+    value = metric.get("value")
+    percent = f"{value:.1%}" if value is not None else "—"
+    return f"{metric.get('correct', 0)}/{metric.get('scored', 0)} ({percent})"
 
 
 def render_report(result: dict[str, Any], *, source_label: str) -> str:
-    """Render compact stage metrics and candidate route totals."""
+    """Render admission and selected-candidate field precision with denominators."""
     if result.get("stage") != "reporter_root_exact_ambiguity" or not result.get("sets"):
         raise ValueError("Expected a nonempty reporter ambiguity-stage summary")
     lines = [
-        f"# Ambiguous reporter lookup decisions at `{result['stage']}`",
+        f"# Precision at `{result['stage']}`",
         "",
         f"<!-- Generated from {source_label} by evaluations.render_reporter_ambiguity_report. -->",
         "",
-        "Admission means the rule stage selected one candidate as a unique match. "
-        "Recall uses gold-correct reporter roots reached by an ambiguous exact lookup; "
-        "candidate field judgments are retained as evidence, not scored against root-level field labels.",
+        "Admission precision scores unique rule admissions against labeled root identity. Field precision "
+        "scores only the selected candidate when its judgment aligns with the annotated root field reading. "
+        "Each value shows correct/scored comparisons; a dash means no eligible comparisons.",
         "",
-        "| Set | Admission precision | Admission recall | Gold ambiguous roots | Rule admissions | Review required | Too many candidates |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Set | Admission | Case name | Court | Date |",
+        "| --- | ---: | ---: | ---: | ---: |",
     ]
     for name in SETS:
         if name not in result["sets"]:
             continue
-        row = result["sets"][name]
-        routes = row.get("route_outcomes", {})
-        lines.append(
-            f"| {name} | {_percent(row.get('admission_precision'))} | {_percent(row.get('admission_recall'))} | "
-            f"{row.get('gold_ambiguous_roots', 0)} | {routes.get('unique_rule_match', 0)} | "
-            f"{routes.get('review_required', 0)} | {routes.get('too_many_candidates', 0)} |"
-        )
-    row = result["totals"]
-    routes = row.get("route_outcomes", {})
-    lines.append(
-        f"| Total | {_percent(row.get('admission_precision'))} | {_percent(row.get('admission_recall'))} | "
-        f"{row.get('gold_ambiguous_roots', 0)} | {routes.get('unique_rule_match', 0)} | "
-        f"{routes.get('review_required', 0)} | {routes.get('too_many_candidates', 0)} |"
-    )
+        lines.append(_row(name, result["sets"][name]))
+    lines.append(_row("Total", result["totals"]))
     return "\n".join(lines) + "\n"
+
+
+def _row(name: str, data: dict[str, Any]) -> str:
+    fields = data.get("field_precision", {})
+    return "| " + " | ".join((
+        name,
+        _precision(data.get("admission_precision", {})),
+        *(_precision(fields.get(field, {})) for field in ("case_name", "court", "date")),
+    )) + " |"

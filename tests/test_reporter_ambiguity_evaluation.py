@@ -4,14 +4,15 @@ import asyncio
 
 from evaluations.render_reporter_ambiguity_report import render_report
 from evaluations.score_reporter_ambiguity import _summary, score_document
-from mellea_lrc.api import Document, grow_roots, reporter_root_exact_lookup
+from mellea_lrc.api import Document, grow_roots, reporter_root_exact_ambiguity, reporter_root_exact_lookup
 from mellea_lrc.courtlistener import CourtListenerCitationLookup
-from mellea_lrc.model.citations.judgments import IdentityNextStep, IdentityVerdict, MatchResult
+from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactAmbiguityOutcome,
     ReporterExactAmbiguityResolution,
 )
 from mellea_lrc.validation.reporter_root_exact_ambiguity import STAGE
+from mellea_lrc.validation.stage_names import REPORTER_ROOT_EXACT_AMBIGUITY_REVIEW
 
 
 class AmbiguousClient:
@@ -44,27 +45,50 @@ def _stage_document(outcome: ReporterExactAmbiguityOutcome, label: str):
     root = (
         root.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
         if passing
-        else root.with_identity_judgment(IdentityVerdict.DEFERRED, IdentityNextStep.AMBIGUITY)
+        else root.with_identity_judgment(IdentityVerdict.DEFERRED, REPORTER_ROOT_EXACT_AMBIGUITY_REVIEW)
     )
     document = exact.replace_citation(root).complete(STAGE)
+    field_gold = {}
+    for field in ("case_name", "court", "date"):
+        readings = getattr(root, field)
+        if not readings:
+            continue
+        reading = readings[-1]
+        span = reading.span
+        field_gold[field] = {"label": "agrees"}
+        if span is not None:
+            field_gold[field].update(start=span.start, end=span.end, quote=reading.quote)
+        if field == "court":
+            field_gold[field]["id"] = reading.get_normalized().id
+        if field == "date":
+            normalized = reading.get_normalized()
+            value = f"{normalized.year:04d}"
+            if normalized.month is not None:
+                value += f"-{normalized.month:02d}"
+            if normalized.day is not None:
+                value += f"-{normalized.day:02d}"
+            field_gold[field]["normalized"] = value
     gold = {
         "id": "gold-1", "root_id": "gold-1", "is_root": True,
         "kind": "FullCaseCitation", "identifier": {"kind": "reporter"},
         "locator": {"start": root.locator_span.start, "end": root.locator_span.end},
-        "validation": {"identity": {"label": label}},
+        "case_name": field_gold.get("case_name"),
+        "court": field_gold.get("court"),
+        "date": field_gold.get("date"),
+        "validation": {"identity": {"label": label, "fields": {key: {"label": value["label"]} for key, value in field_gold.items()}}},
     }
     return document, (gold,)
 
 
-def test_ambiguity_score_uses_only_root_identity_for_admission():
+def test_ambiguity_score_uses_identity_and_selected_candidate_fields_only():
     document, rows = _stage_document(
         ReporterExactAmbiguityOutcome.UNIQUE_RULE_MATCH, "CORRECT_IDENTITY"
     )
     counts, details = score_document(document, rows)
     summary = _summary(counts)
 
-    assert summary["admission_precision"] == 1.0
-    assert summary["admission_recall"] == 1.0
+    assert summary["admission_precision"] == {"value": 1.0, "correct": 1, "scored": 1}
+    assert summary["field_precision"]["case_name"] == {"value": 1.0, "correct": 1, "scored": 1}
     assert details[0]["selected_candidate_index"] == 0
     assert details[0]["candidates"][0]["field_judgments"]["case_name"] == [
         {"reading_index": 0, "candidate_index": 0, "result": "match"}
@@ -79,8 +103,7 @@ def test_admitting_a_wrong_identity_is_an_incorrect_admission():
     counts, _ = score_document(document, rows)
     summary = _summary(counts)
 
-    assert summary["admission_precision"] == 0.0
-    assert summary["admission_recall"] is None
+    assert summary["admission_precision"] == {"value": 0.0, "correct": 0, "scored": 1}
 
 
 def test_annotated_repeated_occurrence_uses_its_canonical_root_label():
@@ -98,20 +121,36 @@ def test_annotated_repeated_occurrence_uses_its_canonical_root_label():
 
     counts, details = score_document(document, (repeated,), identity_roots=(canonical,))
 
-    assert counts["gold_ambiguous_roots"] == 1
+    assert counts["scored_admissions"] == 1
     assert counts["correct_admissions"] == 1
     assert details[0]["gold_root_id"] == "gold-root"
 
 
-def test_ambiguity_report_shows_only_stage_admission_and_route_counts():
+def test_ambiguity_score_uses_only_citations_routed_to_the_stage():
+    roots = asyncio.run(grow_roots(
+        Document.from_source("Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."),
+        hunt_dockets=False,
+    ))
+    exact = reporter_root_exact_lookup(roots, client=AmbiguousClient())
+    other_route = exact.roots[0].record("route_setup").with_identity_judgment(
+        IdentityVerdict.DEFERRED, REPORTER_ROOT_EXACT_AMBIGUITY_REVIEW
+    )
+    before = exact.replace_citation(other_route).complete("route_setup")
+    after = reporter_root_exact_ambiguity(before)
+
+    counts, details = score_document(after, ())
+
+    assert details == []
+    assert _summary(counts)["admission_precision"]["scored"] == 0
+
+
+def test_ambiguity_report_shows_precision_and_explicit_denominators_only():
     counts = {
-        "admission_precision": 0.75,
-        "admission_recall": 0.5,
-        "gold_ambiguous_roots": 4,
-        "route_outcomes": {
-            "unique_rule_match": 3,
-            "review_required": 1,
-            "too_many_candidates": 2,
+        "admission_precision": {"value": 0.75, "correct": 3, "scored": 4},
+        "field_precision": {
+            "case_name": {"value": 1.0, "correct": 3, "scored": 3},
+            "court": {"value": None, "correct": 0, "scored": 0},
+            "date": {"value": 0.5, "correct": 1, "scored": 2},
         },
     }
     report = render_report(
@@ -119,5 +158,6 @@ def test_ambiguity_report_shows_only_stage_admission_and_route_counts():
         source_label="saved/summary.json",
     )
 
-    assert "| primary | 75.0% | 50.0% | 4 | 3 | 1 | 2 |" in report
-    assert "Field judgment precision" not in report
+    assert "| primary | 3/4 (75.0%) | 3/3 (100.0%) | 0/0 (—) | 1/2 (50.0%) |" in report
+    assert "recall" not in report.lower()
+    assert "gold ambiguous roots" not in report.lower()

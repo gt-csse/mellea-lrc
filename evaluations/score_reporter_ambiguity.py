@@ -1,8 +1,8 @@
 """Score saved decisions for reporter exact-lookup ambiguity.
 
 This evaluator only reads completed documents and annotations. It makes no
-provider or model calls and scores admission against the root-level identity
-annotation, never against candidate-specific field labels.
+provider or model calls. Admissions use root-level identity labels; field
+judgments use aligned root-field labels for the selected candidate only.
 """
 
 from __future__ import annotations
@@ -13,12 +13,17 @@ from pathlib import Path
 from typing import Any
 
 from evaluations.annotations import SETS, annotated_documents, span
+from evaluations.score_identity import _same_annotated_reading
 from mellea_lrc.model import Document, FullReporterCitation
-from mellea_lrc.model.citations.judgments import IdentityNextStep, IdentityVerdict
+from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactAmbiguityOutcome
 from mellea_lrc.validation.reporter_root_exact_ambiguity import STAGE
+from mellea_lrc.validation.stage_names import (
+    REPORTER_ROOT_EXACT_AMBIGUITY_REVIEW,
+    REPORTER_ROOT_LARGE_CANDIDATE_REVIEW,
+)
 
-OUTCOMES = ("unique_rule_match", "review_required", "too_many_candidates")
+OUTCOMES = ("unique_rule_match", "no_unique_rule_match", "candidate_limit_exceeded")
 GOLD_LABELS = {"CORRECT_IDENTITY", "WRONG_IDENTITY"}
 FIELD_LOGS = ("case_name_judgments", "court_judgments", "date_judgments")
 
@@ -30,8 +35,19 @@ def _summary(counts: Counter[str]) -> dict[str, Any]:
 
     return {
         **dict(counts),
-        "admission_precision": ratio("correct_admissions", "predicted_admissions"),
-        "admission_recall": ratio("correct_admissions", "gold_correct_roots"),
+        "admission_precision": {
+            "value": ratio("correct_admissions", "scored_admissions"),
+            "correct": counts["correct_admissions"],
+            "scored": counts["scored_admissions"],
+        },
+        "field_precision": {
+            field: {
+                "value": ratio(f"{field}_correct", f"{field}_scored"),
+                "correct": counts[f"{field}_correct"],
+                "scored": counts[f"{field}_scored"],
+            }
+            for field in ("case_name", "court", "date")
+        },
         "route_outcomes": {outcome: counts[f"outcome_{outcome}"] for outcome in OUTCOMES},
     }
 
@@ -44,6 +60,14 @@ def score_document(
 ) -> tuple[Counter[str], list[dict[str, Any]]]:
     """Score one ambiguity-stage checkpoint and return occurrence evidence."""
     checkpoint = document.get_stage(STAGE)
+    previous = document.get_stage(checkpoint.stage_runs[-2])
+    routed_ids = {
+        root.id
+        for root in previous.roots
+        if isinstance(root, FullReporterCitation)
+        and root.identity_judgments
+        and root.identity_judgments[-1].next_stage == STAGE
+    }
     reporter_rows: dict[tuple[int, int], dict[str, Any]] = {}
     for row in rows:
         # A predicted root may correspond to an annotated repeated occurrence;
@@ -66,23 +90,20 @@ def score_document(
         raise ValueError("Duplicate annotated reporter root ID")
     counts: Counter[str] = Counter(documents=1)
     details: list[dict[str, Any]] = []
-    seen_gold: set[str] = set()
-    correct_gold: set[str] = set()
     credited_gold: set[str] = set()
+    field_credited_gold: set[str] = set()
     for root in checkpoint.roots:
-        if not isinstance(root, FullReporterCitation):
+        if root.id not in routed_ids:
             continue
+        if not isinstance(root, FullReporterCitation):
+            raise ValueError(f"Routed reporter citation changed type: {root.id}")
         lookup = root.reporter_exact_lookup
         if lookup is None or lookup.outcome.value != "ambiguous":
-            continue
+            raise ValueError(f"Routed reporter citation lacks an ambiguous lookup: {root.id}")
         annotated = reporter_rows.get((root.locator_span.start, root.locator_span.end))
         gold_id = annotated.get("root_id") if annotated else None
         gold = gold_by_id.get(gold_id) if gold_id else None
         label = gold.get("validation", {}).get("identity", {}).get("label") if gold else None
-        if label in GOLD_LABELS and gold_id not in seen_gold:
-            seen_gold.add(gold_id)
-            if label == "CORRECT_IDENTITY":
-                correct_gold.add(gold_id)
 
         resolution = root.reporter_exact_ambiguity_resolution
         if resolution is None:
@@ -97,17 +118,19 @@ def score_document(
         if outcome == ReporterExactAmbiguityOutcome.UNIQUE_RULE_MATCH.value:
             if judgment.verdict is not IdentityVerdict.CORRECT_IDENTITY:
                 raise ValueError("A unique rule match must admit the root identity")
-        elif judgment.verdict is not IdentityVerdict.DEFERRED or judgment.next_step is not (
-            IdentityNextStep.FUTURE_IMPLEMENTATION
-            if outcome == ReporterExactAmbiguityOutcome.TOO_MANY_CANDIDATES.value
-            else IdentityNextStep.AMBIGUITY
+        elif judgment.verdict is not IdentityVerdict.DEFERRED or judgment.next_stage != (
+            REPORTER_ROOT_LARGE_CANDIDATE_REVIEW
+            if outcome == "candidate_limit_exceeded"
+            else REPORTER_ROOT_EXACT_AMBIGUITY_REVIEW
         ):
             raise ValueError("Deferred ambiguity outcome has the wrong route")
         counts[f"outcome_{outcome}"] += 1
         if outcome == "unique_rule_match":
             counts["predicted_admissions"] += 1
-            if label == "CORRECT_IDENTITY" and gold_id not in credited_gold:
-                counts["correct_admissions"] += 1
+            if label in GOLD_LABELS and gold_id not in credited_gold:
+                counts["scored_admissions"] += 1
+                if label == "CORRECT_IDENTITY":
+                    counts["correct_admissions"] += 1
                 credited_gold.add(gold_id)
 
         candidates = []
@@ -123,6 +146,37 @@ def score_document(
             if resolution.selected_candidate_index is not None and lookup.response is not None
             else None
         )
+        selected_index = resolution.selected_candidate_index
+        if selected_index is not None and gold is not None and gold_id not in field_credited_gold:
+            fields = gold.get("validation", {}).get("identity", {}).get("fields", {})
+            scored_field = False
+            for field in ("case_name", "court", "date"):
+                gold_field = fields.get(field, {})
+                gold_label = gold_field.get("label")
+                if gold_label not in {"agrees", "disagrees"}:
+                    continue
+                readings = getattr(root, field)
+                reading_index = len(readings) - 1
+                gold_reading = gold.get(field)
+                if reading_index < 0 or not _same_annotated_reading(field, readings[reading_index], gold_reading):
+                    continue
+                selected_judgments = [
+                    item for item in getattr(root, f"{field}_judgments")
+                    if item.candidate_index == selected_index
+                    and item.reading_index == reading_index
+                    and any(node.id == item.node_id and node.stage == STAGE for node in root.nodes)
+                ]
+                if len(selected_judgments) != 1:
+                    continue
+                prediction = selected_judgments[0].result
+                if prediction is MatchResult.UNDETERMINED:
+                    continue
+                scored_field = True
+                counts[f"{field}_scored"] += 1
+                if prediction is (MatchResult.MATCH if gold_label == "agrees" else MatchResult.MISMATCH):
+                    counts[f"{field}_correct"] += 1
+            if scored_field:
+                field_credited_gold.add(gold_id)
         if selected_cluster_id is not None:
             if annotated_cluster_ids:
                 counts["selection_with_cluster_evidence"] += 1
@@ -163,11 +217,12 @@ def score_document(
                 else None
             ),
             "identity_verdict": judgment.verdict.value,
+            "next_stage": judgment.next_stage,
             "candidates": candidates,
         })
 
-    counts["gold_ambiguous_roots"] = len(seen_gold)
-    counts["gold_correct_roots"] = len(correct_gold)
+    if len(details) != len(routed_ids):
+        raise ValueError("An ambiguity-stage route has no resulting citation")
     return counts, details
 
 
@@ -193,7 +248,7 @@ def evaluate(data_root: Path, run_dir: Path, sets: tuple[str, ...]) -> dict[str,
         totals.update(counts)
     return {
         "stage": STAGE,
-        "basis": "Ambiguous reporter roots admitted by unique_rule_match, scored against root-level identity labels; candidate field labels are not used.",
+        "basis": "Admission precision uses labeled root identities. Field precision uses only the uniquely selected candidate and an aligned annotated root field reading.",
         "sets": {name: _summary(counts) for name, counts in by_set.items()},
         "totals": _summary(totals),
         "occurrences": occurrences,

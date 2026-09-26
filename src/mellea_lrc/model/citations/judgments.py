@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 from typing import Self
 
@@ -20,13 +21,6 @@ class IdentityVerdict(str, Enum):
     DEFERRED = "deferred"
 
 
-class IdentityNextStep(str, Enum):
-    REVIEW = "review"
-    AMBIGUITY = "ambiguity"
-    SEARCH = "search"
-    FUTURE_IMPLEMENTATION = "future_implementation"
-
-
 class IdentityJudgment(BaseModel):
     """The durable overall result and route after one citation decision."""
 
@@ -34,12 +28,14 @@ class IdentityJudgment(BaseModel):
 
     node_id: str
     verdict: IdentityVerdict
-    next_step: IdentityNextStep | None = None
+    next_stage: str | None = None
 
     @model_validator(mode="after")
     def _validate_route(self) -> Self:
-        if (self.verdict is IdentityVerdict.DEFERRED) != (self.next_step is not None):
-            raise ValueError("Only a deferred identity judgment has a next step")
+        if (self.verdict is IdentityVerdict.DEFERRED) != (self.next_stage is not None):
+            raise ValueError("Only a deferred identity judgment has a next stage")
+        if self.next_stage is not None and re.fullmatch(r"[a-z][a-z0-9_]*", self.next_stage) is None:
+            raise ValueError("A route must name a lowercase stage ID")
         return self
 
 

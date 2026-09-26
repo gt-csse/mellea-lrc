@@ -149,16 +149,16 @@ Eligibility: Annotated full locators present before root formation.
 | Total | Court | 99.4% | 63.7% |
 | Total | Date | 98.4% | 67.8% |
 
-## Ambiguous reporter lookup decisions at `reporter_root_exact_ambiguity`
+## Precision at `reporter_root_exact_ambiguity`
 
 <!-- Generated from evaluations/results/2026-09-25-reporter-exact-ambiguity-primary/summary.json by evaluations.render_reporter_ambiguity_report. -->
 
-Admission means the rule stage selected one candidate as a unique match. Recall uses gold-correct reporter roots reached by an ambiguous exact lookup; candidate field judgments are retained as evidence, not scored against root-level field labels.
+Admission precision scores unique rule admissions against labeled root identity. Field precision scores only the selected candidate when its judgment aligns with the annotated root field reading. Each value shows correct/scored comparisons; a dash means no eligible comparisons.
 
-| Set | Admission precision | Admission recall | Gold ambiguous roots | Rule admissions | Review required | Too many candidates |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| primary | 100.0% | 19.6% | 51 | 9 | 42 | 0 |
-| Total | 100.0% | 19.6% | 51 | 9 | 42 | 0 |
+| Set | Admission | Case name | Court | Date |
+| --- | ---: | ---: | ---: | ---: |
+| primary | 9/9 (100.0%) | 5/5 (100.0%) | 4/4 (100.0%) | 5/5 (100.0%) |
+| Total | 9/9 (100.0%) | 5/5 (100.0%) | 4/4 (100.0%) | 5/5 (100.0%) |
 
 ## Docket site proposal diagnostic
 

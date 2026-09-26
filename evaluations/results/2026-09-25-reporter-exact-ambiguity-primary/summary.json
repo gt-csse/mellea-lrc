@@ -473,11 +473,11 @@
           "locator_membership_match": 242,
           "deferred": 207,
           "deferred_total": 207,
-          "deferred_to_ambiguity": 51,
+          "deferred_to_reporter_root_exact_ambiguity": 51,
           "reached_gold_reporter_roots": 385,
           "missing_gold_reporter_roots": 0,
-          "deferred_to_review": 76,
-          "deferred_to_search": 80,
+          "deferred_to_reporter_root_exact_review": 76,
+          "deferred_to_reporter_root_search": 80,
           "predicted_roots_without_field_gold": 102,
           "locator_membership_mismatch": 12,
           "decision_precision": 1.0,
@@ -625,11 +625,11 @@
         "locator_membership_match": 242,
         "deferred": 207,
         "deferred_total": 207,
-        "deferred_to_ambiguity": 51,
+        "deferred_to_reporter_root_exact_ambiguity": 51,
         "reached_gold_reporter_roots": 385,
         "missing_gold_reporter_roots": 0,
-        "deferred_to_review": 76,
-        "deferred_to_search": 80,
+        "deferred_to_reporter_root_exact_review": 76,
+        "deferred_to_reporter_root_search": 80,
         "predicted_roots_without_field_gold": 102,
         "locator_membership_mismatch": 12,
         "decision_precision": 1.0,
@@ -761,43 +761,93 @@
     },
     "reporter_root_exact_ambiguity": {
       "stage": "reporter_root_exact_ambiguity",
-      "basis": "Ambiguous reporter roots admitted by unique_rule_match, scored against root-level identity labels; candidate field labels are not used.",
+      "basis": "Admission precision uses labeled root identities. Field precision uses only the uniquely selected candidate and an aligned annotated root field reading.",
       "sets": {
         "primary": {
           "documents": 26,
-          "outcome_review_required": 42,
-          "gold_ambiguous_roots": 51,
-          "gold_correct_roots": 46,
+          "outcome_no_unique_rule_match": 42,
           "outcome_unique_rule_match": 9,
           "predicted_admissions": 9,
+          "scored_admissions": 9,
           "correct_admissions": 9,
+          "case_name_scored": 5,
+          "case_name_correct": 5,
+          "court_scored": 4,
+          "court_correct": 4,
+          "date_scored": 5,
+          "date_correct": 5,
           "selection_with_cluster_evidence": 9,
           "selected_cluster_listed_in_evidence": 9,
-          "admission_precision": 1.0,
-          "admission_recall": 0.1957,
+          "admission_precision": {
+            "value": 1.0,
+            "correct": 9,
+            "scored": 9
+          },
+          "field_precision": {
+            "case_name": {
+              "value": 1.0,
+              "correct": 5,
+              "scored": 5
+            },
+            "court": {
+              "value": 1.0,
+              "correct": 4,
+              "scored": 4
+            },
+            "date": {
+              "value": 1.0,
+              "correct": 5,
+              "scored": 5
+            }
+          },
           "route_outcomes": {
             "unique_rule_match": 9,
-            "review_required": 42,
-            "too_many_candidates": 0
+            "no_unique_rule_match": 42,
+            "candidate_limit_exceeded": 0
           }
         }
       },
       "totals": {
         "documents": 26,
-        "outcome_review_required": 42,
-        "gold_ambiguous_roots": 51,
-        "gold_correct_roots": 46,
+        "outcome_no_unique_rule_match": 42,
         "outcome_unique_rule_match": 9,
         "predicted_admissions": 9,
+        "scored_admissions": 9,
         "correct_admissions": 9,
+        "case_name_scored": 5,
+        "case_name_correct": 5,
+        "court_scored": 4,
+        "court_correct": 4,
+        "date_scored": 5,
+        "date_correct": 5,
         "selection_with_cluster_evidence": 9,
         "selected_cluster_listed_in_evidence": 9,
-        "admission_precision": 1.0,
-        "admission_recall": 0.1957,
+        "admission_precision": {
+          "value": 1.0,
+          "correct": 9,
+          "scored": 9
+        },
+        "field_precision": {
+          "case_name": {
+            "value": 1.0,
+            "correct": 5,
+            "scored": 5
+          },
+          "court": {
+            "value": 1.0,
+            "correct": 4,
+            "scored": 4
+          },
+          "date": {
+            "value": 1.0,
+            "correct": 5,
+            "scored": 5
+          }
+        },
         "route_outcomes": {
           "unique_rule_match": 9,
-          "review_required": 42,
-          "too_many_candidates": 0
+          "no_unique_rule_match": 42,
+          "candidate_limit_exceeded": 0
         }
       }
     }
