@@ -21,7 +21,7 @@ from mellea_lrc.extraction import (
 )
 from mellea_lrc.model.document import Document
 from mellea_lrc.preprocessing import preprocess
-from mellea_lrc.validation import reporter_root_exact_lookup
+from mellea_lrc.validation import reporter_root_exact_ambiguity, reporter_root_exact_lookup
 from mellea_lrc.workflows.grow_roots import grow_roots
 
 __all__ = [
@@ -34,6 +34,7 @@ __all__ = [
     "grow_roots",
     "hunt_docket_locators",
     "preprocess",
+    "reporter_root_exact_ambiguity",
     "reporter_root_exact_lookup",
     "resolve_case_names",
     "resolve_colocations",

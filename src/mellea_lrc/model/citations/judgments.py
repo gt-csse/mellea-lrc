@@ -24,6 +24,7 @@ class IdentityNextStep(str, Enum):
     REVIEW = "review"
     AMBIGUITY = "ambiguity"
     SEARCH = "search"
+    FUTURE_IMPLEMENTATION = "future_implementation"
 
 
 class IdentityJudgment(BaseModel):

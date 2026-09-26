@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from evaluations import run_reporter_exact_ambiguity as ambiguity_runner
 from evaluations import run_reporter_exact_lookup as runner
 from mellea_lrc.api import Document, reporter_root_exact_lookup
 from mellea_lrc.courtlistener import CourtListenerCitationLookup
@@ -97,6 +98,19 @@ def test_provider_failure_preserves_root_checkpoint_and_resume_does_not_reextrac
 
     counts = asyncio.run(runner.run_documents(data_root, run_dir, (name,)))
     assert counts == {"roots_created": 0, "roots_reused": 1, "exact_created": 0, "exact_reused": 1}
+
+    ambiguity_dir = tmp_path / "ambiguity-run"
+    counts = ambiguity_runner.run_documents(data_root, run_dir, ambiguity_dir, (name,))
+    assert counts == {"ambiguity_created": 1, "ambiguity_reused": 0}
+    ambiguity = Document.model_validate_json(
+        (ambiguity_dir / "documents" / name / f"{filename}.json").read_text(encoding="utf-8")
+    )
+    assert ambiguity.get_stage("reporter_root_exact_lookup") == exact
+    assert ambiguity.stage_runs[-1] == "reporter_root_exact_ambiguity"
+    assert ambiguity_runner.run_documents(data_root, run_dir, ambiguity_dir, (name,)) == {
+        "ambiguity_created": 0,
+        "ambiguity_reused": 1,
+    }
 
 
 def test_manifest_drift_rejects_saved_run(tmp_path: Path) -> None:

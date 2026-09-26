@@ -13,7 +13,12 @@ from mellea_lrc.model.citations.judgments import (
     ReporterExactCourtJudgment,
     ReporterExactDateJudgment,
 )
-from mellea_lrc.model.citations.reporter_lookup import ReporterExactDocket, ReporterExactLookup
+from mellea_lrc.model.citations.reporter_lookup import (
+    ReporterExactAmbiguityResolution,
+    ReporterExactCandidateDocket,
+    ReporterExactDocket,
+    ReporterExactLookup,
+)
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.site_review import SiteReview
 
@@ -35,6 +40,8 @@ class RelationshipProduct:
 ValidationRecord = (
     ReporterExactLookup
     | ReporterExactDocket
+    | ReporterExactCandidateDocket
+    | ReporterExactAmbiguityResolution
     | ReporterExactCaseNameJudgment
     | ReporterExactCourtJudgment
     | ReporterExactDateJudgment
@@ -97,6 +104,8 @@ def stage_product(document: Document, stage: str) -> StageProduct:
                     (
                         ReporterExactLookup,
                         ReporterExactDocket,
+                        ReporterExactCandidateDocket,
+                        ReporterExactAmbiguityResolution,
                         ReporterExactCaseNameJudgment,
                         ReporterExactCourtJudgment,
                         ReporterExactDateJudgment,
