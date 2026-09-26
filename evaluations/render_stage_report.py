@@ -104,23 +104,24 @@ def _colocation_row(label: str, summary: Mapping[str, Any]) -> str:
 
 
 def render_stage_report(results: Mapping[str, Mapping[str, Any]], *, source_label: str) -> str:
-    """Format all stage summaries in a fixed order from saved numeric counts."""
+    """Format the completed extraction stages in a fixed display order."""
     if set(STAGE_NAMES) != set(STAGES):
         raise ValueError("Stage display names must cover every scored stage")
-    if set(results) != set(STAGES):
-        raise ValueError(f"Expected exactly these stages: {', '.join(STAGES)}")
+    if not results or set(results) - set(STAGES):
+        raise ValueError("Expected one or more known extraction stages")
+    available_order = tuple(stage for stage in REPORT_ORDER if stage in results)
     for stage, result in results.items():
         if result.get("stage") != stage:
             raise ValueError(f"Summary stage mismatch for {stage}")
-    set_names = tuple(name for name in SETS if name in results[REPORT_ORDER[0]]["sets"])
+    set_names = tuple(name for name in SETS if name in results[available_order[0]]["sets"])
     expected_sets = set(set_names)
-    for stage in REPORT_ORDER:
+    for stage in available_order:
         if set(results[stage]["sets"]) != expected_sets:
             raise ValueError(f"Set coverage differs in {stage}")
 
-    documents = _count(results[REPORT_ORDER[0]]["totals"], "documents")
+    documents = _count(results[available_order[0]]["totals"], "documents")
     if documents == 0 or any(
-        _count(results[stage]["totals"], "documents") != documents for stage in REPORT_ORDER
+        _count(results[stage]["totals"], "documents") != documents for stage in available_order
     ):
         raise ValueError("Every stage must score the same nonempty document set")
     lines = [
@@ -156,7 +157,7 @@ def render_stage_report(results: Mapping[str, Mapping[str, Any]], *, source_labe
         "| Field stage | Eligible gold | Predictions | Span P | Span R | Norm accuracy | Norm recall |",
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
-    for stage in REPORT_ORDER:
+    for stage in available_order:
         if stage in FIELD_STAGES:
             lines.append(_field_row(STAGE_NAMES[stage], results[stage]["totals"]))
     lines.extend(
@@ -166,20 +167,21 @@ def render_stage_report(results: Mapping[str, Mapping[str, Any]], *, source_labe
             "| --- | ---: | ---: |",
         )
     )
-    for stage in REPORT_ORDER:
+    for stage in available_order:
         if stage in RELATIONSHIP_STAGES:
             lines.append(_group_row(STAGE_NAMES[stage], results[stage]["totals"]))
-    colocation_totals = results[COLOCATIONS_STAGE]["totals"]
-    lines.extend(
-        (
-            "",
-            "Colocation pairs: "
-            f"{_fraction(_count(colocation_totals, 'correct_links'), _count(colocation_totals, 'predicted_links'))} "
-            "precision; "
-            f"{_fraction(_count(colocation_totals, 'correct_links'), _count(colocation_totals, 'gold_links'))} "
-            "recall. Root groups include singletons.",
+    if COLOCATIONS_STAGE in results:
+        colocation_totals = results[COLOCATIONS_STAGE]["totals"]
+        lines.extend(
+            (
+                "",
+                "Colocation pairs: "
+                f"{_fraction(_count(colocation_totals, 'correct_links'), _count(colocation_totals, 'predicted_links'))} "
+                "precision; "
+                f"{_fraction(_count(colocation_totals, 'correct_links'), _count(colocation_totals, 'gold_links'))} "
+                "recall. Root groups include singletons.",
+            )
         )
-    )
 
     lines.extend(
         (
@@ -195,7 +197,7 @@ def render_stage_report(results: Mapping[str, Mapping[str, Any]], *, source_labe
             "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
         )
     )
-    for stage in REPORT_ORDER:
+    for stage in available_order:
         if stage not in FIELD_STAGES:
             continue
         total = results[stage]["totals"]
@@ -215,7 +217,7 @@ def render_stage_report(results: Mapping[str, Mapping[str, Any]], *, source_labe
         )
         lines.append("| " + " | ".join(values) + " |")
     lines.extend(("", "## Results by stage and set", ""))
-    for stage in REPORT_ORDER:
+    for stage in available_order:
         result = results[stage]
         lines.extend((f"### {STAGE_NAMES[stage]}", "", f"Eligibility: {ELIGIBILITY[stage]}.", ""))
         if stage in FIELD_STAGES:
