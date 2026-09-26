@@ -1,8 +1,6 @@
-"""Field reports expose comparison accuracy separately from extraction and routing gaps."""
+"""The identity Markdown report shows only three field judgments per set."""
 
 from __future__ import annotations
-
-import pytest
 
 from evaluations.render_identity_report import render_identity_report
 
@@ -30,6 +28,8 @@ def _field(
         "correct_predictions": correct,
         "correct_gold": correct,
         "decided": decided,
+        "precision": round(correct / decided, 4) if decided else None,
+        "global_recall": round(correct / stated, 4) if stated else None,
         "missing_reading": missing,
         "misaligned_reading": misaligned,
         "incorrect_predictions": wrong,
@@ -88,27 +88,63 @@ def _summary() -> dict:
     }
 
 
-def test_field_report_shows_accuracy_coverage_and_failure_categories() -> None:
+def test_field_report_has_only_judgment_precision_and_recall() -> None:
     report = render_identity_report(_summary(), source_label="saved/summary.json")
 
     assert "saved/summary.json" in report
-    assert "linked docket court retrieval off" in report
-    assert "Decision precision" in report
-    assert "later citation is unscored for fields" in report
-    assert "7 of 8 identity-labeled reporter roots" in report
-    assert "`not_stated` is excluded" in report
-    assert "| primary | Case name | 7 | 6 | 4 | 2/3 (66.7%) | 3/4 (75.0%) | 2/7 (28.6%) |" in report
-    assert "| primary | Court | 5 | 4 | 4 | — | 0/4 (0.0%) | 0/5 (0.0%) |" in report
-    assert "| Total | Date | 3 | 3 | 3 | 3/3 (100.0%) | 3/3 (100.0%) | 3/3 (100.0%) |" in report
-    assert "| primary | Case name | 1 | 1 | 1 | 1 | 1 | 0 | 2 |" in report
-    assert "| Total | Court | 1 | 0 | 0 | 0 | 2 | 2 | 1 |" in report
-    assert "| Case name | 2 | 1 | 0 | 0 | 1 | 0 |" in report
-    assert "1 case name, 1 court, 0 date" in report
+    table = [line for line in report.splitlines() if line.startswith("|")]
+    assert table[0] == "| Set | Field | Judgment precision | Judgment recall |"
+    assert all(set(cell.strip()) <= {"-", ":"} for cell in table[1].strip("|").split("|"))
+    assert table[2:] == [
+        "| primary | Case name | 66.7% | 28.6% |",
+        "| primary | Court | — | 0.0% |",
+        "| primary | Date | 100.0% | 100.0% |",
+        "| Total | Case name | 66.7% | 28.6% |",
+        "| Total | Court | — | 0.0% |",
+        "| Total | Date | 100.0% | 100.0% |",
+    ]
+    for old_metric in (
+        "Decision precision",
+        "Decision recall",
+        "Admission precision",
+        "Admission recall",
+        "Judgment coverage",
+        "Comparison accuracy",
+        "Missing reading",
+        "Misaligned reading",
+        "Comparison directions",
+        "locator membership",
+    ):
+        assert old_metric.lower() not in report.lower()
 
 
-def test_field_report_rejects_impossible_unique_lookup_count() -> None:
+def test_field_report_uses_saved_rates_without_rescoring() -> None:
     result = _summary()
-    result["sets"]["primary"]["fields"]["date"]["unique_gold"] = 4
+    result["sets"]["primary"]["fields"]["case_name"]["precision"] = 0.1234
+    result["sets"]["primary"]["fields"]["case_name"]["global_recall"] = 0.5678
 
-    with pytest.raises(ValueError, match="unique lookup count exceeds"):
-        render_identity_report(result, source_label="saved/summary.json")
+    report = render_identity_report(result, source_label="saved/summary.json")
+
+    assert "| primary | Case name | 12.3% | 56.8% |" in report
+
+
+def test_field_report_includes_three_rows_for_each_selected_set() -> None:
+    result = _summary()
+    result["sets"]["hallucination-set-1"] = {
+        "documents": 1,
+        "fields": {
+            field: _field(stated=0, unique=0, aligned=0, correct=0, decided=0)
+            for field in ("case_name", "court", "date")
+        },
+    }
+    result["totals"] = {**result["totals"], "documents": 2}
+
+    report = render_identity_report(result, source_label="saved/summary.json")
+    table = [line for line in report.splitlines() if line.startswith("|")]
+
+    assert len(table) == 2 + 3 * (len(result["sets"]) + 1)
+    assert table[5:8] == [
+        "| hallucination-set-1 | Case name | — | — |",
+        "| hallucination-set-1 | Court | — | — |",
+        "| hallucination-set-1 | Date | — | — |",
+    ]

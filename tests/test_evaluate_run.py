@@ -262,7 +262,8 @@ def test_exact_identity_field_judgments_appear_in_cumulative_json_and_markdown(
         item["product"] == "field_judgment" and item["field"] == "court"
         for item in occurrences["reporter_root_exact_lookup"]["primary/sample.txt"]
     )
-    assert "## Field judgments" in report
-    assert "| primary | Case name | 1 | 1 | 1 | 1/1 (100.0%)" in report
-    assert "| primary | Court | 1 | 1 | 1 | 1/1 (100.0%)" in report
-    assert "| primary | Date | 1 | 1 | 1 | 1/1 (100.0%)" in report
+    assert "| Set | Field | Judgment precision | Judgment recall |" in report
+    assert "| primary | Case name | 100.0% | 100.0% |" in report
+    assert "| primary | Court | 100.0% | 100.0% |" in report
+    assert "| primary | Date | 100.0% | 100.0% |" in report
+    assert "Decision precision" not in report

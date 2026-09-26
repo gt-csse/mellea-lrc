@@ -341,6 +341,9 @@ def test_report_renders_saved_counts_without_rescoring() -> None:
         source_label="saved/summary.json",
     )
 
-    assert "1/1 (100.0%)" in report
     assert "saved/summary.json" in report
-    assert "Decision recall" in report
+    assert "| Set | Field | Judgment precision | Judgment recall |" in report
+    assert "| primary | Case name | — | — |" in report
+    assert "| primary | Court | — | — |" in report
+    assert "| primary | Date | — | — |" in report
+    assert "Decision recall" not in report

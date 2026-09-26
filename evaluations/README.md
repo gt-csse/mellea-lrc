@@ -16,8 +16,8 @@ The evaluator discovers the completed stages in the saved Documents and scores
 each stage's new product against the annotations. Its JSON groups summaries and
 occurrences by stage. The Markdown report includes extraction span,
 normalization, colocation, and root-formation scores, followed by reporter
-identity and its case-name, court, and date field judgments when that stage has
-run. When docket-locator rules have run, it also includes the separate
+exact-lookup case-name, court, and date judgment precision and recall when that
+stage has run. When docket-locator rules have run, it also includes the separate
 unreviewed site-proposal diagnostic; proposals are not counted as admitted
 locators. A missing document, inconsistent stage chain, or completed stage
 without an evaluator is an error rather than an omitted score.
