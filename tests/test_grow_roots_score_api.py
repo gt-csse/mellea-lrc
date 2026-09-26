@@ -186,6 +186,28 @@ def test_workflow_reports_each_root_field_with_annotated_denominators(
             "span": evaluation.FieldScore(1, 1, 1),
             "normalization": evaluation.FieldScore(1, 1, 1),
         }
+    assert score.root_fields["overall_locator"] == {
+        "span": evaluation.FieldScore(2, 2, 2),
+        "normalization": evaluation.FieldScore(2, 2, 2),
+    }
+    assert tuple(score.root_fields)[:3] == (
+        "full_reporter_locator",
+        "docket_locator",
+        "overall_locator",
+    )
+
+
+def test_overall_locator_subtotal_adds_counts_across_documents(
+    annotated_document: Document,
+) -> None:
+    score = evaluation.score_grow_roots(annotated_document)
+    combined = score + score
+    assert combined.root_fields["overall_locator"] == {
+        measure: combined.root_fields["full_reporter_locator"][measure]
+        + combined.root_fields["docket_locator"][measure]
+        for measure in ("span", "normalization")
+    }
+    assert combined.root_fields["overall_locator"]["span"] == evaluation.FieldScore(4, 4, 4)
 
 
 def test_normalization_disagreement_does_not_change_span_score(
@@ -250,6 +272,9 @@ def test_workflow_renderer_includes_numbered_stages_in_order_by_default(
     assert positions == sorted(positions)
     assert report.index("## Root fields\n") > positions[-1]
     assert "Docket site hunting: included" in report
+    assert (
+        "| **overall_locator subtotal** | 2/2 (100.0%) | 2/2 (100.0%) | 2/2 (100.0%) | 2/2 (100.0%) |"
+    ) in report
 
     summary_only = evaluation.render_grow_roots(score, include_stages=False)
     assert "## Root fields\n" in summary_only
