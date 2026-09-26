@@ -26,7 +26,9 @@ def render_report(result: dict[str, Any], *, source_label: str) -> str:
         "full-reporter root, including table-of-authorities citations; unresolved or unextracted "
         "roots count as misses. A later citation to the same case cannot inherit the root's "
         "field labels when its wording differs. A field marked not stated has no match/mismatch "
-        "label and is excluded from that field's denominator.",
+        "label and is excluded from that field's denominator. Lookup cluster coverage counts "
+        "roots for which exact lookup returned at least one candidate cluster; it does not "
+        "assert that a candidate has the correct identity.",
         "",
     ]
     for name, summary in result["sets"].items():
@@ -40,16 +42,21 @@ def render_report(result: dict[str, Any], *, source_label: str) -> str:
     lines.extend(
         (
             "",
-            "| Set | Field | Full reporter locator roots | Precision | Recall |",
-            "| --- | --- | ---: | ---: | ---: |",
+            "| Set | Field | Full reporter locator roots | Roots with ≥1 lookup cluster | Precision | Recall |",
+            "| --- | --- | ---: | ---: | ---: | ---: |",
         )
     )
     for name, summary in (*result["sets"].items(), ("Total", result["totals"])):
+        population = summary["population"]
+        cluster_count = population["roots_with_lookup_clusters"]
+        root_count = population["full_reporter_roots"]
+        cluster_coverage = round(cluster_count / root_count, 4) if root_count else None
         for field in FIELDS:
             metric = summary["fields"][field]
             lines.append(
                 f"| {name} | {field.replace('_', ' ')} | "
-                f"{summary['population']['full_reporter_roots']} | "
+                f"{root_count} | "
+                f"{cluster_count}/{root_count} ({_percent(cluster_coverage)}) | "
                 f"{metric['correct']}/{metric['scored']} ({_percent(metric['precision'])}) | "
                 f"{metric['correct']}/{metric['gold']} ({_percent(metric['recall'])}) |"
             )

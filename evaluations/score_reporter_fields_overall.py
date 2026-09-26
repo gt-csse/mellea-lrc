@@ -105,6 +105,7 @@ def _summary(counts: Counter[str]) -> dict[str, Any]:
             "reporter_identities": counts["gold_reporter_identities"],
             "full_reporter_roots": counts["gold_canonical_reporter_roots"],
             "table_of_authorities_roots": counts["gold_table_of_authorities_roots"],
+            "roots_with_lookup_clusters": counts["gold_roots_with_lookup_clusters"],
         },
         "fields": fields,
     }
@@ -190,6 +191,20 @@ def score_document(
             raise ValueError("Final reporter judgment selected an unavailable candidate")
         evidence_ids = _gold_cluster_ids(gold)
         member_ids = member_gold_ids.get(root.id, set()) if root is not None else set()
+        cluster_count = (
+            len(root.reporter_exact_lookup.response.clusters)
+            if root is not None
+            and root.reporter_exact_lookup is not None
+            and root.reporter_exact_lookup.response is not None
+            else 0
+        )
+        if (
+            cluster_count
+            and representative is not None
+            and representative["root_id"] == gold["id"]
+            and len(member_ids) == 1
+        ):
+            counts["gold_roots_with_lookup_clusters"] += 1
         for field in FIELDS:
             label = (
                 gold.get("validation", {}).get("identity", {}).get("fields", {}).get(field, {}).get("label")
@@ -261,6 +276,7 @@ def score_document(
                     "selected_candidate_index": selected,
                     "selected_cluster_id": candidate.id if candidate is not None else None,
                     "gold_cluster_ids": sorted(evidence_ids),
+                    "lookup_cluster_count": cluster_count,
                     "reading_index": record.reading_index if record is not None else None,
                     "reading": reading.model_dump(mode="json") if reading is not None else None,
                     "result": record.result.value if record is not None else None,
