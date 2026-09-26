@@ -57,16 +57,19 @@ class _Reviewer:
         return ReporterUniqueReviewDecision.model_validate(
             {
                 "case_name": {
+                    "propose_replacement": True,
                     "quote": "Bell Atl. Corp. v. Twombly",
                     "result": self.case_name_result,
                     "reason": "The cited parties were checked against the opinion record.",
                 },
                 "court": {
+                    "propose_replacement": False,
                     "quote": None,
                     "result": "match",
                     "reason": "The reporter and record identify the same court.",
                 },
                 "date": {
+                    "propose_replacement": True,
                     "quote": "2007",
                     "result": "match",
                     "reason": "The cited year agrees with the opinion date.",

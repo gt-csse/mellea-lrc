@@ -136,13 +136,23 @@ class ReporterExactAmbiguityResolution(BaseModel):
 
 
 class ReporterUniqueFieldAssessment(BaseModel):
-    """One model comparison, optionally proposing a replacement source quote."""
+    """One field comparison with an explicit, source-grounded replacement intent."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    propose_replacement: bool
     quote: str | None
     result: MatchResult
     reason: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_replacement_intent(self) -> Self:
+        if self.propose_replacement:
+            if self.quote is None or not self.quote.strip():
+                raise ValueError("A proposed replacement requires a nonempty source quote")
+        elif self.quote is not None:
+            raise ValueError("A field without a proposed replacement must have a null quote")
+        return self
 
 
 class ReporterUniqueReviewDecision(BaseModel):

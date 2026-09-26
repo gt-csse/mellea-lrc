@@ -3,8 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
+from pydantic import ValidationError
+
+from mellea_lrc.api import Document, grow_roots, reporter_root_lookup
+from mellea_lrc.courtlistener import CourtListenerCitationLookup
+from mellea_lrc.model import Span
+from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
+from mellea_lrc.model.citations.reporter_lookup import ReporterUniqueFieldAssessment
+from mellea_lrc.model.ivr import IvrRun
 from mellea_lrc.validation._support.reporter_unique_llm import (
     ReporterUniqueReviewDecision,
     ReporterUniqueReviewOutcome,
@@ -13,12 +22,6 @@ from mellea_lrc.validation.reporter_root_lookup_unique_llm import (
     STAGE,
     reporter_root_lookup_unique_llm,
 )
-
-from mellea_lrc.api import Document, grow_roots, reporter_root_lookup
-from mellea_lrc.courtlistener import CourtListenerCitationLookup
-from mellea_lrc.model import Span
-from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
-from mellea_lrc.model.ivr import IvrRun
 
 SOURCE = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
 
@@ -65,22 +68,26 @@ def _decision(
     case_name_quote: str | None = "Bell Atl. Corp. v. Twombly",
     case_name_result: str = "match",
     court_result: str = "match",
+    date_quote: str | None = "2007",
     date_result: str = "match",
 ) -> ReporterUniqueReviewDecision:
     return ReporterUniqueReviewDecision.model_validate(
         {
             "case_name": {
+                "propose_replacement": case_name_quote is not None,
                 "quote": case_name_quote,
                 "result": case_name_result,
                 "reason": "The written parties identify the retrieved case.",
             },
             "court": {
+                "propose_replacement": False,
                 "quote": None,
                 "result": court_result,
                 "reason": "The reporter supplies the stated court.",
             },
             "date": {
-                "quote": "2007",
+                "propose_replacement": date_quote is not None,
+                "quote": date_quote,
                 "result": date_result,
                 "reason": "The stated year agrees with the opinion date.",
             },
@@ -132,10 +139,53 @@ def _trace() -> IvrRun:
     )
 
 
-def test_nullable_correction_quotes_are_required_by_the_provider_schema() -> None:
+def test_replacement_intent_and_nullable_quotes_are_required_by_the_provider_schema() -> None:
     schema = ReporterUniqueReviewDecision.model_json_schema()
     assessment = schema["$defs"]["ReporterUniqueFieldAssessment"]
-    assert set(assessment["required"]) == {"quote", "result", "reason"}
+    assert set(assessment["required"]) == {"propose_replacement", "quote", "result", "reason"}
+
+
+@pytest.mark.parametrize(
+    ("propose_replacement", "quote", "valid"),
+    [
+        (False, None, True),
+        (True, "Bell Atl. Corp. v. Twombly", True),
+        (True, None, False),
+        (True, "", False),
+        (False, "Bell Atl. Corp. v. Twombly", False),
+    ],
+)
+def test_replacement_intent_agrees_with_quote(
+    propose_replacement: bool, quote: str | None, valid: bool
+) -> None:
+    assessment = {
+        "propose_replacement": propose_replacement,
+        "quote": quote,
+        "result": "match",
+        "reason": "The filing and opinion agree.",
+    }
+    if valid:
+        parsed = ReporterUniqueFieldAssessment.model_validate(assessment)
+        assert parsed.propose_replacement is propose_replacement
+        assert parsed.quote == quote
+    else:
+        with pytest.raises(ValidationError):
+            ReporterUniqueFieldAssessment.model_validate(assessment)
+
+
+@pytest.mark.parametrize(
+    ("propose_replacement", "quote"),
+    [(True, None), (False, "Bell Atl. Corp. v. Twombly")],
+)
+def test_generated_review_json_rejects_inconsistent_replacement_intent(
+    propose_replacement: bool, quote: str | None
+) -> None:
+    generated = json.loads(_decision().model_dump_json())
+    generated["case_name"]["propose_replacement"] = propose_replacement
+    generated["case_name"]["quote"] = quote
+
+    with pytest.raises(ValidationError):
+        ReporterUniqueReviewDecision.model_validate_json(json.dumps(generated))
 
 
 def test_combined_review_corrects_grounded_name_and_judges_latest_readings() -> None:
@@ -169,6 +219,24 @@ def test_combined_review_corrects_grounded_name_and_judges_latest_readings() -> 
     assert restored == after
     assert restored.get_stage("reporter_root_lookup") == before
     assert restored.get_stage(STAGE) == after
+
+
+def test_no_replacement_proposal_keeps_existing_readings() -> None:
+    before = _review_input()
+    previous = before.roots[0]
+    reviewer = FakeReviewer(_decision(case_name_quote=None, date_quote=None))
+
+    after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=reviewer))
+
+    root = after.roots[0]
+    assert len(reviewer.contexts) == 1
+    assert root.case_name == previous.case_name
+    assert root.court == previous.court
+    assert root.date == previous.date
+    assert root.reporter_unique_review.decision.case_name.propose_replacement is False
+    assert root.reporter_unique_review.decision.date.propose_replacement is False
+    assert root.case_name_judgments[-1].reading_index == len(previous.case_name) - 1
+    assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
 
 
 def test_unique_review_processes_only_citations_routed_to_its_stage() -> None:
@@ -239,9 +307,7 @@ def test_review_records_an_undetermined_field_without_a_source_reading() -> None
     roots = asyncio.run(grow_roots(Document.from_source(source), hunt_dockets=False))
     before = reporter_root_lookup(roots, client=FakeLookupClient())
     assert before.roots[0].identity_judgments[-1].next_stage == STAGE
-    decision = _decision(date_result="undetermined").model_copy(
-        update={"date": _decision(date_result="undetermined").date.model_copy(update={"quote": None})}
-    )
+    decision = _decision(date_quote=None, date_result="undetermined")
 
     after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=FakeReviewer(decision)))
 

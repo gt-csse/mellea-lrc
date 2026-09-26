@@ -97,12 +97,17 @@ class ReporterUniqueReviewContext:
         return Span(offset + found.start, offset + found.end)
 
     def grounded_corrections(self, decision: ReporterUniqueReviewDecision) -> dict[str, Span] | None:
-        """Validate every proposed quote before any correction is committed."""
+        """Validate stated intent and ground every quote before a correction commits."""
         corrections: dict[str, Span] = {}
         for field in ("case_name", "court", "date"):
-            quote = getattr(decision, field).quote
-            if quote is None:
+            assessment = getattr(decision, field)
+            quote = assessment.quote
+            if not assessment.propose_replacement:
+                if quote is not None:
+                    return None
                 continue
+            if quote is None or not quote.strip():
+                return None
             span = self.ground(field, quote)
             if span is None:
                 return None
@@ -113,7 +118,7 @@ class ReporterUniqueReviewContext:
         """A match or mismatch needs a source reading, existing or proposed."""
         for field in ("case_name", "court", "date"):
             assessment = getattr(decision, field)
-            if not getattr(self, f"has_{field}") and assessment.quote is None:
+            if not getattr(self, f"has_{field}") and not assessment.propose_replacement:
                 if assessment.result is not MatchResult.UNDETERMINED:
                     return f"{field} has no filing reading; use undetermined or quote one from the filing"
         return None
@@ -136,11 +141,11 @@ class ReporterUniqueReviewer(Protocol):
 
 MAX_TOKENS = 3000
 MAX_MODEL_ATTEMPTS = 3
-SESSION_ID = "mellea-lrc-reporter-unique-review-v1"
+SESSION_ID = "mellea-lrc-reporter-unique-review-v2"
 
 _PREFIX = """Review one reporter citation against one retrieved opinion record. Do all rereading, correction proposals, and field comparisons in this one answer.
 
-The reporter locator is fixed. For case name, court, and date, first reread the filing text. If an existing reading is wrong or absent and the filing supplies a better one, quote that replacement exactly from the filing. Otherwise set quote to null. A proposal must be within the text before the locator for case name, or after it for court and date. Do not quote values from the retrieved record as corrections to the filing.
+The reporter locator is fixed. For case name, court, and date, first reread the filing text. Set propose_replacement to true only when you intend to change or supply that field; then quote the replacement exactly from the filing. If the current reading is fine, set propose_replacement to false and quote to null. Do not quote a value merely to restate a reading you are keeping. A proposal must be within the text before the locator for case name, or after it for court and date. Do not quote values from the retrieved record as corrections to the filing.
 
 Compare the corrected or existing filing reading with the retrieved record. For each field return match, mismatch, or undetermined and a specific reason. Conventional abbreviations and equivalent party forms can match; a misspelling is a mismatch, not an abbreviation. Compare the full date when both sides provide it, otherwise compare the available precision. An absent value gives no opinion for that field. A reporter may itself identify a court even if none is written. Do not force agreement between an opinion date and a docket filing date.
 
@@ -177,8 +182,8 @@ def _validate_grounding(ctx: object, context: ReporterUniqueReviewContext) -> Va
     return ValidationResult(
         result=False,
         reason=(
-            "A proposed case_name, court, or date quote is outside its allowed filing window. "
-            "Copy the filing's characters exactly, or set that quote to null."
+            "A replacement must have a nonempty quote inside its allowed filing window; "
+            "when propose_replacement is false, quote must be null."
         ),
     )
 
