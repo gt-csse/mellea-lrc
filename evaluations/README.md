@@ -1,36 +1,11 @@
-# Reporter-root field evaluation
+# Grow-roots evaluation
 
-Use a new, empty run directory when repeating an experiment. The runners resume
-saved documents if their output directory already contains them.
+The active evaluator covers the first two extraction stages, `full_reporter_locators` and `docket_locators`. Each stage uses the same two measures: exact locator-span precision and normalization precision conditional on an exact span and a complete normalized identifier on that same annotation row. These are stage decisions, not root-deduplicated citations. The scorer never follows `root_id` to supply missing normalization gold; a repeated citation may spell its locator differently from its root.
 
-The run proceeds from the source filings through root extraction, unique
-reporter lookup, rule review of ambiguous lookups, and the two separate model
-review routes. Combine the model-review branches only after both have finished.
-Pass the same `--data-root` and `--sets` to each runner.
+Run the rule stages directly on the official text:
 
-```bash
-python -m evaluations.run_reporter_root_lookup \
-  --data-root /path/to/datasets --sets primary --run-dir local/new-run/lookup
-python -m evaluations.run_reporter_root_lookup_ambiguous \
-  --data-root /path/to/datasets --sets primary \
-  --input-run-dir local/new-run/lookup --run-dir local/new-run/ambiguous
-python -m evaluations.run_reporter_root_lookup_unique_llm \
-  --data-root /path/to/datasets --sets primary \
-  --input-run-dir local/new-run/lookup --run-dir local/new-run/unique-review
-python -m evaluations.run_reporter_root_lookup_ambiguous_llm \
-  --data-root /path/to/datasets --sets primary \
-  --input-run-dir local/new-run/ambiguous --run-dir local/new-run/ambiguous-review
-python -m evaluations.combine_reporter_reviews \
-  --data-root /path/to/datasets --sets primary \
-  --ambiguous-run-dir local/new-run/ambiguous-review \
-  --unique-run-dir local/new-run/unique-review --run-dir local/new-run/combined
-python -m evaluations.evaluate_run \
-  --data-root /path/to/datasets --set primary --run-dir local/new-run/combined
+```sh
+python -m evaluations --data-root /path/to/mellea-lrc-datasets --output-dir local/grow-roots-evaluation
 ```
 
-The default cumulative report contains only case-name, court, and date
-judgment precision and recall at each reporter-validation stage. Each stage
-scores judgments it wrote. Precision is the share of its decided judgments
-that agree with annotation; recall is the share of its eligible annotated
-field judgments it gets right. An abstention counts as a recall miss. The
-serialized Documents and occurrence details remain available for diagnosis.
+Pass `--set NAME` more than once to include other annotated sets. Pass `--run-dir PATH` to score serialized Documents under `PATH/documents/SET/FILENAME.txt.json` instead of rerunning the two stages. The command writes `summary.json` and `report.md`. It fails on missing stage checkpoints, changed source text, inconsistent annotation quotes, or duplicate gold spans.

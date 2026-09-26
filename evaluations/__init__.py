@@ -1,1 +1,1 @@
-"""Offline scoring of saved, stage-recoverable Documents."""
+"""Independent, stage-local evaluation of durable Documents."""

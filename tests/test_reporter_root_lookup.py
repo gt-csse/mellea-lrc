@@ -6,7 +6,6 @@ import asyncio
 
 import pytest
 
-from evaluations.stage_products import stage_product
 from mellea_lrc.api import Document, grow_roots, reporter_root_lookup
 from mellea_lrc.courtlistener import CourtListenerCitationLookup, CourtListenerDocket, CourtListenerError
 from mellea_lrc.model import FullReporterCitation, Span
@@ -94,13 +93,15 @@ def test_unique_lookup_records_matching_fields_and_identity_and_roundtrips() -> 
     assert identity.node_id == lookup.node_id
     assert identity.verdict is IdentityVerdict.CORRECT_IDENTITY
     assert identity.next_stage is None
-    assert {item.name for item in stage_product(after, STAGE).records} == {
-        "reporter_exact_lookup",
-        "case_name_judgments",
-        "court_judgments",
-        "date_judgments",
-        "identity_judgments",
-    }
+    assert all(
+        record.node_id == lookup.node_id
+        for record in (
+            *root.case_name_judgments,
+            *root.court_judgments,
+            *root.date_judgments,
+            *root.identity_judgments,
+        )
+    )
 
     loaded = Document.model_validate_json(after.model_dump_json())
     assert loaded == after
@@ -168,7 +169,7 @@ def test_unique_lookup_fetches_linked_docket_and_judges_court_before_identity() 
     assert root.reporter_exact_docket.response == docket
     assert root.court_judgments[-1].result is MatchResult.MATCH
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
-    assert "reporter_exact_docket" in {item.name for item in stage_product(after, STAGE).records}
+    assert root.reporter_exact_docket.node_id == root.nodes[-1].id
     assert Document.model_validate_json(after.model_dump_json()) == after
     altered = after.model_dump(mode="json")
     altered["citations"][0]["reporter_exact_docket"]["docket_id"] = "11"
