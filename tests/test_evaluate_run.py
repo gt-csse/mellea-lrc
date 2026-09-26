@@ -1,4 +1,4 @@
-"""One saved run produces cumulative stage scores and a field-level report."""
+"""One saved run reports only incremental reporter field scores."""
 
 from __future__ import annotations
 
@@ -49,25 +49,25 @@ def _empty_document(*stages: str) -> Document:
     return document
 
 
-def test_evaluate_discovers_only_completed_stages_from_saved_document(tmp_path: Path) -> None:
+def test_evaluate_selects_only_completed_reporter_stages(tmp_path: Path) -> None:
     data_root = tmp_path / "data"
     run_dir = tmp_path / "run"
     _save_document(
         data_root,
         run_dir,
         "primary",
-        _empty_document("full_reporter_locators", "docket_locators"),
+        _empty_document("full_reporter_locators", "docket_locators", "reporter_root_lookup"),
     )
 
     result = evaluate_run.evaluate(data_root, run_dir, ("primary",))
 
     assert result["sets"] == ["primary"]
-    assert result["stage_order"] == ["full_reporter_locators", "docket_locators"]
+    assert result["stage_order"] == ["reporter_root_lookup"]
     assert list(result["stages"]) == result["stage_order"]
     assert list(result["occurrences"]) == result["stage_order"]
-    assert result["diagnostics"]["docket_site_proposals"]["totals"]["documents"] == 1
+    assert "diagnostics" not in result
     for stage in result["stage_order"]:
-        assert result["stages"][stage]["totals"]["documents"] == 1
+        assert set(result["stages"][stage]["totals"]) == {"case_name", "court", "date"}
         assert "occurrences" not in result["stages"][stage]
         assert result["occurrences"][stage] == {"primary/sample.txt": []}
 
@@ -87,7 +87,12 @@ def test_cli_selects_sets_and_writes_all_artifacts(
     run_dir = tmp_path / "run"
     output_dir = tmp_path / "evaluation"
     for name in ("primary", "hallucination-set-1"):
-        _save_document(data_root, run_dir, name, _empty_document("full_reporter_locators"))
+        _save_document(
+            data_root,
+            run_dir,
+            name,
+            _empty_document("full_reporter_locators", "reporter_root_lookup"),
+        )
 
     monkeypatch.setattr(
         sys,
@@ -109,10 +114,11 @@ def test_cli_selects_sets_and_writes_all_artifacts(
     occurrences = json.loads((output_dir / "occurrences.json").read_text(encoding="utf-8"))
     report = (output_dir / "report.md").read_text(encoding="utf-8")
     assert summary["sets"] == selected
-    assert summary["stage_order"] == ["full_reporter_locators"]
-    assert set(summary["stages"]["full_reporter_locators"]["sets"]) == set(selected)
-    assert set(occurrences["full_reporter_locators"]) == {f"{name}/sample.txt" for name in selected}
-    assert "Full reporter locators" in report
+    assert summary["stage_order"] == ["reporter_root_lookup"]
+    assert set(summary["stages"]["reporter_root_lookup"]["sets"]) == set(selected)
+    assert set(occurrences["reporter_root_lookup"]) == {f"{name}/sample.txt" for name in selected}
+    assert "| Stage | Set | Field | Precision | Recall |" in report
+    assert "Full reporter locators" not in report
     assert all(name in report for name in selected)
 
 
@@ -121,7 +127,12 @@ def test_cli_defaults_output_to_run_evaluation_directory(
 ) -> None:
     data_root = tmp_path / "data"
     run_dir = tmp_path / "run"
-    _save_document(data_root, run_dir, "primary", _empty_document("full_reporter_locators"))
+    _save_document(
+        data_root,
+        run_dir,
+        "primary",
+        _empty_document("full_reporter_locators", "reporter_root_lookup"),
+    )
     monkeypatch.setattr(
         sys,
         "argv",
@@ -254,16 +265,15 @@ def test_exact_identity_field_judgments_appear_in_cumulative_json_and_markdown(
     occurrences = json.loads((output_dir / "occurrences.json").read_text(encoding="utf-8"))
     report = (output_dir / "report.md").read_text(encoding="utf-8")
     identity = summary["stages"]["reporter_root_lookup"]
-    assert summary["stage_order"][-1] == "reporter_root_lookup"
+    assert summary["stage_order"] == ["reporter_root_lookup"]
     for field in ("case_name", "court", "date"):
-        assert identity["totals"]["fields"][field]["gold_stated"] == 1
-        assert identity["totals"]["fields"][field]["correct_predictions"] == 1
+        assert identity["totals"][field] == {"precision": 1.0, "recall": 1.0}
     assert any(
         item["product"] == "field_judgment" and item["field"] == "court"
         for item in occurrences["reporter_root_lookup"]["primary/sample.txt"]
     )
-    assert "| Set | Field | Judgment precision | Judgment recall |" in report
-    assert "| primary | Case name | 100.0% | 100.0% |" in report
-    assert "| primary | Court | 100.0% | 100.0% |" in report
-    assert "| primary | Date | 100.0% | 100.0% |" in report
+    assert "| Stage | Set | Field | Precision | Recall |" in report
+    assert "| reporter_root_lookup | primary | case name | 100.0% | 100.0% |" in report
+    assert "| reporter_root_lookup | primary | court | 100.0% | 100.0% |" in report
+    assert "| reporter_root_lookup | primary | date | 100.0% | 100.0% |" in report
     assert "Decision precision" not in report

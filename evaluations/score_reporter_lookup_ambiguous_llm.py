@@ -36,9 +36,14 @@ def _summary(counts: Counter[str]) -> dict[str, Any]:
         fields[field] = {
             "correct": correct,
             "scored": scored,
-            "value": round(correct / scored, 4) if scored else None,
+            "eligible": counts[f"{field}_eligible"],
+            "correct_gold": counts[f"{field}_correct_gold"],
+            "precision": round(correct / scored, 4) if scored else None,
+            "recall": round(counts[f"{field}_correct_gold"] / counts[f"{field}_eligible"], 4)
+            if counts[f"{field}_eligible"]
+            else None,
         }
-    return {"field_precision": fields}
+    return {"fields": fields}
 
 
 def score_document(
@@ -110,6 +115,8 @@ def score_document(
 
     counts: Counter[str] = Counter(documents=1, routed_roots=len(routed))
     details: list[dict[str, Any]] = []
+    eligible: dict[str, set[str]] = {field: set() for field in FIELDS}
+    correct_gold: dict[str, set[str]] = {field: set() for field in FIELDS}
     for root_id in sorted(routed):
         root = roots[root_id]
         lookup = root.reporter_exact_lookup
@@ -180,6 +187,8 @@ def score_document(
             )
             if gold_label not in {*GOLD_FIELD_RESULT, "not_stated", None}:
                 raise ValueError(f"Unknown annotated {field} judgment: {gold_label}")
+            if gold_id is not None and gold_label in GOLD_FIELD_RESULT:
+                eligible[field].add(gold_id)
             readings = getattr(root, field)
             newest_index = len(readings) - 1 if readings else None
             newest = readings[-1] if readings else None
@@ -209,6 +218,7 @@ def score_document(
                     if record.result is GOLD_FIELD_RESULT[gold_label]:
                         outcome = "correct"
                         counts[f"{field}_correct"] += 1
+                        correct_gold[field].add(gold_id)
                     else:
                         outcome = "incorrect"
                         counts[f"{field}_incorrect"] += 1
@@ -247,6 +257,9 @@ def score_document(
                     "outcome": outcome,
                 }
             )
+    for field in FIELDS:
+        counts[f"{field}_eligible"] = len(eligible[field])
+        counts[f"{field}_correct_gold"] = len(correct_gold[field])
     return counts, details
 
 

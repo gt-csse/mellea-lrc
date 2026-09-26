@@ -1,230 +1,114 @@
-"""Score every completed stage in one saved run and write one cumulative report.
+"""Evaluate the three reporter-root field judgments at each completed stage.
 
-Run from the repository root::
-
-    uv run python -m evaluations.evaluate_run --run-dir local/reporter-exact-court-primary
-
-The default set is ``primary`` and the default output directory is
-``<run-dir>/evaluation``. This command reads saved Documents and annotations;
-it does not repeat extraction, contact a provider, or call a model. Select
-other sets explicitly with repeated ``--set`` options.
+This reads saved Documents and annotations. It never reruns extraction, a
+lookup, or a model review. Each stage scores only judgments it wrote.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import re
 from pathlib import Path
 from typing import Any
 
 from evaluations.annotations import SETS, annotated_documents
-from evaluations.docket_proposals import score as score_docket_proposals
-from evaluations.render_identity_report import render_identity_report
-from evaluations.render_reporter_fields_overall import render_report as render_overall_reporter_fields
-from evaluations.render_reporter_lookup_ambiguous import render_report as render_ambiguity_report
-from evaluations.render_reporter_lookup_ambiguous_llm import render_report as render_ambiguous_llm_report
-from evaluations.render_reporter_lookup_unique_llm import render_report as render_unique_llm_report
-from evaluations.render_stage_report import render_stage_report
-from evaluations.score_identity import evaluate as score_identity
-from evaluations.score_reporter_fields_overall import NAME as OVERALL_REPORTER_FIELDS
-from evaluations.score_reporter_fields_overall import evaluate as score_overall_reporter_fields
-from evaluations.score_reporter_lookup_ambiguous import evaluate as score_ambiguity
-from evaluations.score_reporter_lookup_ambiguous_llm import evaluate as score_ambiguous_llm
-from evaluations.score_reporter_lookup_unique_llm import evaluate as score_unique_llm
+from evaluations.score_identity import evaluate as score_unique_lookup
+from evaluations.score_reporter_lookup_ambiguous import evaluate as score_ambiguous_lookup
+from evaluations.score_reporter_lookup_ambiguous_llm import evaluate as score_ambiguous_review
+from evaluations.score_reporter_lookup_unique_llm import evaluate as score_unique_review
 from evaluations.score_stages import STAGES as EXTRACTION_STAGES
-from evaluations.score_stages import evaluate as score_extraction_stage
-from mellea_lrc.extraction.docket_locator import STAGE as DOCKET_LOCATORS_STAGE
-from mellea_lrc.validation.reporter_root_lookup import STAGE as REPORTER_IDENTITY_STAGE
-from mellea_lrc.validation.reporter_root_lookup_ambiguous import STAGE as REPORTER_AMBIGUITY_STAGE
-from mellea_lrc.validation.reporter_root_lookup_unique_llm import STAGE as REPORTER_UNIQUE_LLM_STAGE
 from mellea_lrc.validation.stage_names import (
-    REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM as REPORTER_AMBIGUOUS_LLM_STAGE,
+    REPORTER_ROOT_LOOKUP,
+    REPORTER_ROOT_LOOKUP_AMBIGUOUS,
+    REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM,
+    REPORTER_ROOT_LOOKUP_UNIQUE_LLM,
 )
 
-SCORED_STAGES = frozenset(
-    (
-        *EXTRACTION_STAGES,
-        REPORTER_IDENTITY_STAGE,
-        REPORTER_AMBIGUITY_STAGE,
-        REPORTER_UNIQUE_LLM_STAGE,
-        REPORTER_AMBIGUOUS_LLM_STAGE,
-    )
-)
+FIELDS = ("case_name", "court", "date")
+EVALUATORS = {
+    REPORTER_ROOT_LOOKUP: score_unique_lookup,
+    REPORTER_ROOT_LOOKUP_AMBIGUOUS: score_ambiguous_lookup,
+    REPORTER_ROOT_LOOKUP_UNIQUE_LLM: score_unique_review,
+    REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM: score_ambiguous_review,
+}
 
 
 def _stage_order(data_root: Path, run_dir: Path, sets: tuple[str, ...]) -> tuple[str, ...]:
-    """Require every selected Document to have the same completed stage chain."""
     order: tuple[str, ...] | None = None
-    found = False
     for name, filename, document, _ in annotated_documents(data_root, run_dir, sets):
-        found = True
         if order is None:
             order = document.stage_runs
         elif document.stage_runs != order:
             raise ValueError(f"{name}/{filename}: completed stages differ from the rest of the run")
-    if not found or not order:
+    if not order:
         raise ValueError("No completed stages in the selected run")
-    unsupported = set(order) - SCORED_STAGES
+    unsupported = set(order) - set(EXTRACTION_STAGES) - set(EVALUATORS)
     if unsupported:
         raise ValueError(f"Completed stages have no evaluator: {', '.join(sorted(unsupported))}")
-    return order
+    selected = tuple(stage for stage in order if stage in EVALUATORS)
+    if not selected:
+        raise ValueError("Run has no completed reporter field-judgment stage")
+    return selected
+
+
+def _field_scores(summary: dict[str, Any], stage: str) -> dict[str, dict[str, float | None]]:
+    fields = summary["fields"]
+    return {
+        field: {
+            "precision": fields[field]["precision"],
+            "recall": fields[field]["conditional_recall" if stage == REPORTER_ROOT_LOOKUP else "recall"],
+        }
+        for field in FIELDS
+    }
 
 
 def evaluate(data_root: Path, run_dir: Path, sets: tuple[str, ...] = ("primary",)) -> dict[str, Any]:
-    """Return cumulative scores and occurrence details from saved checkpoints."""
+    """Score only case-name, court, and date judgments newly written per stage."""
     selected = tuple(dict.fromkeys(sets))
     if not selected or any(name not in SETS for name in selected):
         raise ValueError("Select one or more known annotated sets")
     order = _stage_order(data_root, run_dir, selected)
-    summaries: dict[str, dict[str, Any]] = {}
-    occurrences: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    stages: dict[str, Any] = {}
+    occurrences: dict[str, Any] = {}
     for stage in order:
-        if stage == REPORTER_IDENTITY_STAGE:
-            result = score_identity(data_root, run_dir, selected)
-        elif stage == REPORTER_AMBIGUITY_STAGE:
-            result = score_ambiguity(data_root, run_dir, selected)
-        elif stage == REPORTER_UNIQUE_LLM_STAGE:
-            result = score_unique_llm(data_root, run_dir, selected)
-        elif stage == REPORTER_AMBIGUOUS_LLM_STAGE:
-            result = score_ambiguous_llm(data_root, run_dir, selected)
-        else:
-            result = score_extraction_stage(data_root, run_dir, stage, selected)
-        occurrences[stage] = result.pop("occurrences")
-        if set(result["sets"]) != set(selected):
+        scored = EVALUATORS[stage](data_root, run_dir, selected)
+        if set(scored["sets"]) != set(selected):
             raise ValueError(f"{stage}: scored sets differ from the requested sets")
-        summaries[stage] = result
-    diagnostics = (
-        {"docket_site_proposals": score_docket_proposals(data_root, run_dir, selected)}
-        if DOCKET_LOCATORS_STAGE in order
-        else {}
-    )
-    overall_reporter_fields = None
-    if REPORTER_UNIQUE_LLM_STAGE in order and REPORTER_AMBIGUOUS_LLM_STAGE in order:
-        overall_reporter_fields = score_overall_reporter_fields(data_root, run_dir, selected)
-        occurrences[OVERALL_REPORTER_FIELDS] = overall_reporter_fields.pop("occurrences")
+        occurrences[stage] = scored.pop("occurrences")
+        stages[stage] = {
+            "sets": {name: _field_scores(scored["sets"][name], stage) for name in selected},
+            "totals": _field_scores(scored["totals"], stage),
+        }
     return {
         "sets": list(selected),
         "stage_order": list(order),
-        "stages": summaries,
-        "diagnostics": diagnostics,
-        **(
-            {"overall_reporter_fields": overall_reporter_fields}
-            if overall_reporter_fields is not None
-            else {}
-        ),
+        "stages": stages,
         "occurrences": occurrences,
     }
 
 
-def _demote_headings(markdown: str) -> str:
-    return re.sub(r"^(#+) ", lambda match: f"#{match.group(1)} ", markdown, flags=re.MULTILINE)
-
-
 def render_report(result: dict[str, Any], *, source_label: str) -> str:
-    """Compose stage reports, including identity field judgments, from scores."""
-    stages = result["stages"]
-    order = result["stage_order"]
-    if set(order) != set(stages) or not order:
-        raise ValueError("Cumulative summary must contain every completed stage once")
-    extraction = {stage: stages[stage] for stage in order if stage in EXTRACTION_STAGES}
+    """Render only the requested precision and recall for the three fields."""
     lines = [
-        "# Cumulative stage evaluation",
+        "# Incremental reporter field judgments",
         "",
-        "<!-- Generated by evaluations.evaluate_run from saved Document checkpoints. -->",
+        f"<!-- Generated from {source_label} by evaluations.evaluate_run. -->",
         "",
-        f"**Sets:** {', '.join(result['sets'])}. **Score input:** `{source_label}`.",
+        "Each row scores judgments written by that stage. Precision divides correct decided "
+        "judgments by decided judgments; recall divides correctly judged annotated roots by "
+        "annotated roots eligible for that stage. An unresolved judgment counts as a recall miss.",
         "",
-        "Each completed stage is scored independently from its saved checkpoint. The "
-        "reporter sections include case-name, court, and date field judgments; "
-        "extraction field scores use different denominators.",
-        "",
+        "| Stage | Set | Field | Precision | Recall |",
+        "| --- | --- | --- | ---: | ---: |",
     ]
-    if extraction:
-        lines.extend(
-            (
-                _demote_headings(render_stage_report(extraction, source_label=source_label)).rstrip(),
-                "",
-            )
-        )
-    if REPORTER_IDENTITY_STAGE in stages:
-        identity = stages[REPORTER_IDENTITY_STAGE]
-        if set(identity["sets"]) != set(result["sets"]):
-            raise ValueError("Identity set coverage differs from the cumulative report")
-        lines.extend(
-            (
-                _demote_headings(render_identity_report(identity, source_label=source_label)).rstrip(),
-                "",
-            )
-        )
-    if REPORTER_AMBIGUITY_STAGE in stages:
-        ambiguity = stages[REPORTER_AMBIGUITY_STAGE]
-        if set(ambiguity["sets"]) != set(result["sets"]):
-            raise ValueError("Ambiguity set coverage differs from the cumulative report")
-        lines.extend(
-            (
-                _demote_headings(render_ambiguity_report(ambiguity, source_label=source_label)).rstrip(),
-                "",
-            )
-        )
-    if REPORTER_UNIQUE_LLM_STAGE in stages:
-        unique_llm = stages[REPORTER_UNIQUE_LLM_STAGE]
-        if set(unique_llm["sets"]) != set(result["sets"]):
-            raise ValueError("Unique-reporter model set coverage differs from the cumulative report")
-        lines.extend(
-            (
-                _demote_headings(render_unique_llm_report(unique_llm, source_label=source_label)).rstrip(),
-                "",
-            )
-        )
-    if REPORTER_AMBIGUOUS_LLM_STAGE in stages:
-        ambiguous_llm = stages[REPORTER_AMBIGUOUS_LLM_STAGE]
-        if set(ambiguous_llm["sets"]) != set(result["sets"]):
-            raise ValueError("Ambiguous-reporter model set coverage differs from the cumulative report")
-        lines.extend(
-            (
-                _demote_headings(
-                    render_ambiguous_llm_report(ambiguous_llm, source_label=source_label)
-                ).rstrip(),
-                "",
-            )
-        )
-    overall_reporter_fields = result.get("overall_reporter_fields")
-    if overall_reporter_fields is not None:
-        lines.extend(
-            (
-                _demote_headings(
-                    render_overall_reporter_fields(overall_reporter_fields, source_label=source_label)
-                ).rstrip(),
-                "",
-            )
-        )
-    proposals = result.get("diagnostics", {}).get("docket_site_proposals")
-    if proposals is not None:
-        if set(proposals["sets"]) != set(result["sets"]):
-            raise ValueError("Docket proposal set coverage differs from the cumulative report")
-        lines.extend(
-            (
-                "## Docket site proposal diagnostic",
-                "",
-                "These proposals have not been reviewed or admitted as locators. The counts "
-                "measure how often the candidate generator covers docket locators missed by "
-                "the rule stage.",
-                "",
-                "| Set | Gold docket locators | Found by rule | Rule misses proposed | "
-                "Remaining gold misses | Total proposals |",
-                "| --- | ---: | ---: | ---: | ---: | ---: |",
-            )
-        )
+    for stage in result["stage_order"]:
         for name in result["sets"]:
-            row = proposals["sets"][name]
-            lines.append(
-                f"| {name} | {row['eligible_gold_docket_locators']} | {row['rule_found']} | "
-                f"{row['exact_proposed_among_rule_misses']} | {row['remaining_misses']} | "
-                f"{row['total_proposals']} |"
-            )
-        lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+            for field in FIELDS:
+                score = result["stages"][stage]["sets"][name][field]
+                precision = "—" if score["precision"] is None else f"{score['precision']:.1%}"
+                recall = "—" if score["recall"] is None else f"{score['recall']:.1%}"
+                lines.append(f"| {stage} | {name} | {field.replace('_', ' ')} | {precision} | {recall} |")
+    return "\n".join(lines) + "\n"
 
 
 def main() -> None:

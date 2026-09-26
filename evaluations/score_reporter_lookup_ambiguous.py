@@ -27,16 +27,19 @@ FIELD_LOGS = ("case_name_judgments", "court_judgments", "date_judgments")
 
 
 def _summary(counts: Counter[str]) -> dict[str, Any]:
-    def ratio(numerator: str, denominator: str) -> float | None:
-        total = counts[denominator]
-        return round(counts[numerator] / total, 4) if total else None
-
     return {
-        "field_precision": {
+        "fields": {
             field: {
-                "value": ratio(f"{field}_correct", f"{field}_scored"),
                 "correct": counts[f"{field}_correct"],
                 "scored": counts[f"{field}_scored"],
+                "eligible": counts[f"{field}_eligible"],
+                "correct_gold": counts[f"{field}_correct_gold"],
+                "precision": round(counts[f"{field}_correct"] / counts[f"{field}_scored"], 4)
+                if counts[f"{field}_scored"]
+                else None,
+                "recall": round(counts[f"{field}_correct_gold"] / counts[f"{field}_eligible"], 4)
+                if counts[f"{field}_eligible"]
+                else None,
             }
             for field in ("case_name", "court", "date")
         },
@@ -79,6 +82,8 @@ def score_document(
         raise ValueError("Duplicate annotated reporter root ID")
     counts: Counter[str] = Counter()
     details: list[dict[str, Any]] = []
+    eligible: dict[str, set[str]] = {field: set() for field in ("case_name", "court", "date")}
+    correct_gold: dict[str, set[str]] = {field: set() for field in eligible}
     for root in checkpoint.roots:
         if root.id not in routed_ids:
             continue
@@ -97,6 +102,10 @@ def score_document(
         gold_id = next(iter(member_gold_ids)) if len(member_gold_ids) == 1 else None
         gold = gold_by_id.get(gold_id) if gold_id else None
         label = gold.get("validation", {}).get("identity", {}).get("label") if gold else None
+        fields = gold.get("validation", {}).get("identity", {}).get("fields", {}) if gold else {}
+        for field in eligible:
+            if gold_id is not None and fields.get(field, {}).get("label") in {"agrees", "disagrees"}:
+                eligible[field].add(gold_id)
 
         resolution = root.reporter_exact_ambiguity_resolution
         if resolution is None:
@@ -126,7 +135,6 @@ def score_document(
         )
         selected_index = resolution.selected_candidate_index
         if selected_index is not None and gold is not None:
-            fields = gold.get("validation", {}).get("identity", {}).get("fields", {})
             for field in ("case_name", "court", "date"):
                 gold_field = fields.get(field, {})
                 gold_label = gold_field.get("label")
@@ -148,6 +156,7 @@ def score_document(
                 counts[f"{field}_scored"] += 1
                 if prediction is (MatchResult.MATCH if gold_label == "agrees" else MatchResult.MISMATCH):
                     counts[f"{field}_correct"] += 1
+                    correct_gold[field].add(gold_id)
         for index in range(candidate_total):
             field_judgments = {}
             for log_name in FIELD_LOGS:
@@ -186,6 +195,9 @@ def score_document(
 
     if len(details) != len(routed_ids):
         raise ValueError("An ambiguity-stage route has no resulting citation")
+    for field in eligible:
+        counts[f"{field}_eligible"] = len(eligible[field])
+        counts[f"{field}_correct_gold"] = len(correct_gold[field])
     return counts, details
 
 
@@ -211,7 +223,7 @@ def evaluate(data_root: Path, run_dir: Path, sets: tuple[str, ...]) -> dict[str,
         totals.update(counts)
     return {
         "stage": STAGE,
-        "basis": "Field precision compares the selected candidate's stored case-name, court, and date judgments with explicit root-level field labels, without scoring extraction spans.",
+        "basis": "Each field's precision scores this stage's decided judgments; recall counts its correctly judged routed annotated roots.",
         "sets": {name: _summary(counts) for name, counts in by_set.items()},
         "totals": _summary(totals),
         "occurrences": occurrences,

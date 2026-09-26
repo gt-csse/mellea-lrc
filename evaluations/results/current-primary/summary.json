@@ -1,0 +1,141 @@
+{
+  "sets": [
+    "primary"
+  ],
+  "stage_order": [
+    "reporter_root_lookup",
+    "reporter_root_lookup_ambiguous",
+    "reporter_root_lookup_ambiguous_llm",
+    "reporter_root_lookup_unique_llm"
+  ],
+  "stages": {
+    "reporter_root_lookup": {
+      "sets": {
+        "primary": {
+          "case_name": {
+            "precision": 0.8866,
+            "recall": 0.8275
+          },
+          "court": {
+            "precision": 0.9826,
+            "recall": 0.9004
+          },
+          "date": {
+            "precision": 0.9882,
+            "recall": 0.9843
+          }
+        }
+      },
+      "totals": {
+        "case_name": {
+          "precision": 0.8866,
+          "recall": 0.8275
+        },
+        "court": {
+          "precision": 0.9826,
+          "recall": 0.9004
+        },
+        "date": {
+          "precision": 0.9882,
+          "recall": 0.9843
+        }
+      }
+    },
+    "reporter_root_lookup_ambiguous": {
+      "sets": {
+        "primary": {
+          "case_name": {
+            "precision": 1.0,
+            "recall": 0.1731
+          },
+          "court": {
+            "precision": 1.0,
+            "recall": 0.16
+          },
+          "date": {
+            "precision": 1.0,
+            "recall": 0.1765
+          }
+        }
+      },
+      "totals": {
+        "case_name": {
+          "precision": 1.0,
+          "recall": 0.1731
+        },
+        "court": {
+          "precision": 1.0,
+          "recall": 0.16
+        },
+        "date": {
+          "precision": 1.0,
+          "recall": 0.1765
+        }
+      }
+    },
+    "reporter_root_lookup_ambiguous_llm": {
+      "sets": {
+        "primary": {
+          "case_name": {
+            "precision": 0.9756,
+            "recall": 0.9302
+          },
+          "court": {
+            "precision": 1.0,
+            "recall": 0.9286
+          },
+          "date": {
+            "precision": 1.0,
+            "recall": 0.9762
+          }
+        }
+      },
+      "totals": {
+        "case_name": {
+          "precision": 0.9756,
+          "recall": 0.9302
+        },
+        "court": {
+          "precision": 1.0,
+          "recall": 0.9286
+        },
+        "date": {
+          "precision": 1.0,
+          "recall": 0.9762
+        }
+      }
+    },
+    "reporter_root_lookup_unique_llm": {
+      "sets": {
+        "primary": {
+          "case_name": {
+            "precision": 0.9726,
+            "recall": 0.9595
+          },
+          "court": {
+            "precision": 0.9538,
+            "recall": 0.8378
+          },
+          "date": {
+            "precision": 1.0,
+            "recall": 0.92
+          }
+        }
+      },
+      "totals": {
+        "case_name": {
+          "precision": 0.9726,
+          "recall": 0.9595
+        },
+        "court": {
+          "precision": 0.9538,
+          "recall": 0.8378
+        },
+        "date": {
+          "precision": 1.0,
+          "recall": 0.92
+        }
+      }
+    }
+  }
+}

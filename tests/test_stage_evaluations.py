@@ -304,7 +304,6 @@ def test_colocation_and_root_scores_use_only_their_relationship_stage() -> None:
     gold = tuple(
         {
             "id": f"gold-{index}",
-            "is_root": index == 1,
             "kind": "DocketCitation",
             "locator": _gold_span(citation.locator_span),
             "colocation_id": "gold-parallel",
@@ -334,10 +333,6 @@ def test_colocation_and_root_scores_use_only_their_relationship_stage() -> None:
     assert roots["gold_groups"] == 1
     assert roots["predicted_groups"] == 2
     assert roots["exact_groups"] == 0
-    assert roots["global_gold_roots"] == 1
-    assert roots["global_exact_root_groups"] == 0
-    assert roots["canonical_root_locators_found"] == 1
-    assert roots["canonical_root_anchors_correct"] == 1
     root_summary = _summary(roots, "roots")
     assert root_summary["exact_group_recall"] == 0.0
     link_keys = {

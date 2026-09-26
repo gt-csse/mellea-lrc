@@ -135,7 +135,7 @@ def _gold(
     }
 
 
-def test_selected_candidate_field_precision_and_occurrence_details() -> None:
+def test_selected_candidate_field_scores_and_occurrence_details() -> None:
     before = _before()
     assert before.roots[0].identity_judgments[-1].next_stage == STAGE
     after = asyncio.run(reporter_root_lookup_ambiguous_llm(before, reviewer=_Reviewer()))
@@ -144,7 +144,14 @@ def test_selected_candidate_field_precision_and_occurrence_details() -> None:
 
     assert counts["routed_roots"] == 1
     for field in ("case_name", "court", "date"):
-        assert _summary(counts)["field_precision"][field] == {"correct": 1, "scored": 1, "value": 1.0}
+        assert _summary(counts)["fields"][field] == {
+            "correct": 1,
+            "scored": 1,
+            "eligible": 1,
+            "correct_gold": 1,
+            "precision": 1.0,
+            "recall": 1.0,
+        }
     assert [item["field"] for item in details] == ["case_name", "court", "date"]
     assert all(item["selected_candidate_index"] == 1 for item in details)
     assert all(str(item["selected_cluster_id"]) == "22" for item in details)
@@ -157,7 +164,8 @@ def test_selected_candidate_is_scored_without_cluster_evidence_gate() -> None:
     counts, details = score_document(after, (_gold(after, cluster_ids=("22",)),))
 
     assert all(
-        _summary(counts)["field_precision"][field] == {"correct": 1, "scored": 1, "value": 1.0}
+        _summary(counts)["fields"][field]["precision"] == 1.0
+        and _summary(counts)["fields"][field]["recall"] == 1.0
         for field in ("case_name", "court", "date")
     )
     assert [item["outcome"] for item in details] == ["correct"] * 3
@@ -169,8 +177,7 @@ def test_missing_or_null_cluster_evidence_does_not_block_field_scoring() -> None
     for evidence_ids in ((), (None,)):
         counts, details = score_document(after, (_gold(after, cluster_ids=evidence_ids),))
         assert all(
-            _summary(counts)["field_precision"][field]["scored"] == 1
-            for field in ("case_name", "court", "date")
+            _summary(counts)["fields"][field]["scored"] == 1 for field in ("case_name", "court", "date")
         )
         assert [item["outcome"] for item in details] == ["correct"] * 3
 
@@ -190,13 +197,11 @@ def test_canonical_root_supplies_cluster_evidence_by_root_id() -> None:
 
     counts, details = score_document(after, (occurrence_without_evidence,), identity_roots=(canonical,))
 
-    assert all(
-        _summary(counts)["field_precision"][field]["scored"] == 1 for field in ("case_name", "court", "date")
-    )
+    assert all(_summary(counts)["fields"][field]["scored"] == 1 for field in ("case_name", "court", "date"))
     assert all(item["outcome"] == "correct" for item in details)
 
 
-def test_unselected_and_failed_reviews_save_per_field_gaps() -> None:
+def test_unselected_and_failed_reviews_count_recall_misses() -> None:
     before = _before()
     for reviewer, outcome in (
         (_Reviewer(None), "no_candidate_selected"),
@@ -205,7 +210,15 @@ def test_unselected_and_failed_reviews_save_per_field_gaps() -> None:
         after = asyncio.run(reporter_root_lookup_ambiguous_llm(before, reviewer=reviewer))
         counts, details = score_document(after, (_gold(after),))
         assert all(
-            _summary(counts)["field_precision"][field]["scored"] == 0
+            _summary(counts)["fields"][field]
+            == {
+                "correct": 0,
+                "scored": 0,
+                "eligible": 1,
+                "correct_gold": 0,
+                "precision": None,
+                "recall": 0.0,
+            }
             for field in ("case_name", "court", "date")
         )
         assert [item["outcome"] for item in details] == [outcome] * 3
@@ -228,12 +241,12 @@ def test_misaligned_root_reading_still_uses_canonical_field_label() -> None:
 
     counts, details = score_document(after, (wrong_reading,))
 
-    assert _summary(counts)["field_precision"]["case_name"]["scored"] == 1
+    assert _summary(counts)["fields"]["case_name"]["scored"] == 1
     assert next(item for item in details if item["field"] == "case_name")["outcome"] == "correct"
-    assert _summary(counts)["field_precision"]["court"]["scored"] == 1
+    assert _summary(counts)["fields"]["court"]["scored"] == 1
 
 
-def test_cumulative_cli_writes_only_field_precision_for_ambiguous_model(
+def test_cumulative_cli_writes_only_field_precision_and_recall_for_ambiguous_model(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     after = asyncio.run(reporter_root_lookup_ambiguous_llm(_before(), reviewer=_Reviewer()))
@@ -279,16 +292,17 @@ def test_cumulative_cli_writes_only_field_precision_for_ambiguous_model(
     report = (output_dir / "report.md").read_text(encoding="utf-8")
     assert summary["stage_order"][-1] == STAGE
     ambiguous_llm = summary["stages"][STAGE]
-    assert set(ambiguous_llm["totals"]) == {"field_precision"}
+    assert set(ambiguous_llm["totals"]) == {"case_name", "court", "date"}
     assert all(
-        ambiguous_llm["totals"]["field_precision"][field] == {"correct": 1, "scored": 1, "value": 1.0}
+        ambiguous_llm["totals"][field] == {"precision": 1.0, "recall": 1.0}
         for field in ("case_name", "court", "date")
     )
     assert len(occurrences[STAGE]["primary/sample.txt"]) == 3
-    section = report.split(f"## Field judgment precision at `{STAGE}`", 1)[1]
-    assert "| primary | 1/1 (100.0%) | 1/1 (100.0%) | 1/1 (100.0%) |" in section
-    assert "admission" not in section.lower()
-    assert "decision precision" not in section.lower()
+    assert f"| {STAGE} | primary | case name | 100.0% | 100.0% |" in report
+    assert f"| {STAGE} | primary | court | 100.0% | 100.0% |" in report
+    assert f"| {STAGE} | primary | date | 100.0% | 100.0% |" in report
+    assert "admission" not in report.lower()
+    assert "decision precision" not in report.lower()
 
 
 def test_review_runner_resumes_from_ambiguous_rule_checkpoint(
@@ -337,21 +351,23 @@ def test_review_runner_resumes_from_ambiguous_rule_checkpoint(
     }
 
 
-def test_report_shows_precision_with_denominators_only() -> None:
+def test_report_shows_only_precision_and_recall() -> None:
     fields = {
-        "case_name": {"value": 1.0, "correct": 3, "scored": 3},
-        "court": {"value": None, "correct": 0, "scored": 0},
-        "date": {"value": 0.5, "correct": 1, "scored": 2},
+        "case_name": {"precision": 1.0, "recall": 0.75},
+        "court": {"precision": None, "recall": None},
+        "date": {"precision": 0.5, "recall": 0.25},
     }
     report = render_report(
         {
             "stage": STAGE,
-            "sets": {"primary": {"field_precision": fields}},
-            "totals": {"field_precision": fields},
+            "sets": {"primary": {"fields": fields}},
+            "totals": {"fields": fields},
         },
         source_label="saved/summary.json",
     )
 
-    assert "| primary | 3/3 (100.0%) | 0/0 (—) | 1/2 (50.0%) |" in report
+    assert "| primary | Case name | 100.0% | 75.0% |" in report
+    assert "| primary | Court | — | — |" in report
+    assert "| primary | Date | 50.0% | 25.0% |" in report
     assert "admission" not in report.lower()
     assert "decision precision" not in report.lower()

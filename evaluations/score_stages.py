@@ -65,7 +65,7 @@ ELIGIBILITY = {
     PIN_CITES_STAGE: "Annotated pin cites outside table-of-authorities sites whose full locator existed before this stage",
     SHORT_REPORTER_CITATIONS_STAGE: "All annotated short reporter citations",
     COLOCATIONS_STAGE: "Annotated full locators present before colocation",
-    ROOTS_STAGE: "All annotated full roots, with grouping of available locators scored separately",
+    ROOTS_STAGE: "Annotated full locators present before root formation",
 }
 
 
@@ -335,115 +335,6 @@ def _pairs(groups: set[frozenset[GoldKey]]) -> set[frozenset[GoldKey]]:
     return result
 
 
-def _score_root_coverage(
-    product: StageProduct,
-    rows: dict[GoldKey, dict[str, Any]],
-    before_keys: set[GoldKey],
-    predicted_pairs: list[tuple[str, GoldKey]],
-    predicted_groups: set[frozenset[GoldKey]],
-) -> tuple[Counter[str], list[dict[str, Any]]]:
-    """Expose both conditional grouping and the complete annotated root graph.
-
-    Missing locators are charged to global root coverage, not to the rule that
-    groups the locators actually available when root formation starts.
-    """
-    full_rows = {key: row for key, row in rows.items() if key[0] in {"FullCaseCitation", "DocketCitation"}}
-    root_rows = {row["id"]: (key, row) for key, row in full_rows.items() if row.get("is_root") is True}
-    if len(root_rows) != sum(row.get("is_root") is True for row in full_rows.values()):
-        raise ValueError("Duplicate annotated full root ID")
-    gold_ids = {row.get("root_id") for row in full_rows.values()}
-    if None in gold_ids or gold_ids != root_rows.keys():
-        raise ValueError("Every annotated full locator must point to a canonical full root")
-
-    gold_members: dict[str, set[GoldKey]] = defaultdict(set)
-    for key, row in full_rows.items():
-        gold_members[row["root_id"]].add(key)
-    assignments: dict[GoldKey, str] = {}
-    for root_id, key in predicted_pairs:
-        if key in assignments:
-            raise ValueError("Root formation wrote multiple assignments for one locator")
-        assignments[key] = root_id
-    citations_by_key = {_citation_key(citation): citation for citation in product.before.full_locators}
-    if len(citations_by_key) != len(product.before.full_locators):
-        raise ValueError("Root input contains duplicate locator spans")
-
-    counts: Counter[str] = Counter(
-        global_gold_roots=len(root_rows),
-        global_gold_non_singleton_roots=sum(len(members) > 1 for members in gold_members.values()),
-        index_gold_locators=sum(is_within(key[1], product.after.index_spans) for key in full_rows),
-        index_locators_found=sum(
-            key in before_keys and is_within(key[1], product.after.index_spans) for key in full_rows
-        ),
-    )
-    details: list[dict[str, Any]] = []
-    for gold_id, (canonical_key, row) in sorted(root_rows.items()):
-        members = gold_members[gold_id]
-        found = members & before_keys
-        canonical_found = canonical_key in before_keys
-        anchor_correct = (
-            canonical_found and assignments.get(canonical_key) == citations_by_key[canonical_key].id
-        )
-        exact_global = frozenset(members) in predicted_groups and anchor_correct
-        exact_conditional = bool(found) and frozenset(found) in predicted_groups
-        in_toa = row.get("in_table_of_authorities") is True
-        in_index = is_within(canonical_key[1], product.after.index_spans)
-        counts["canonical_root_locators_found"] += int(canonical_found)
-        counts["canonical_root_anchors_correct"] += int(anchor_correct)
-        counts["toa_gold_roots"] += int(in_toa)
-        counts["toa_canonical_root_locators_found"] += int(in_toa and canonical_found)
-        counts["index_gold_roots"] += int(in_index)
-        counts["index_canonical_root_locators_found"] += int(in_index and canonical_found)
-        counts["alternate_representative_roots"] += int(not canonical_found and bool(found))
-        counts["roots_with_no_locator"] += int(not found)
-        counts["global_exact_root_groups"] += int(exact_global)
-        counts["global_exact_non_singleton_roots"] += int(exact_global and len(members) > 1)
-        predicted_ids = {assignments[key] for key in found if key in assignments}
-        if not found:
-            outcome = "no_locator_found"
-        elif not canonical_found:
-            outcome = "canonical_locator_missing"
-        elif found != members:
-            outcome = "repeated_locator_missing"
-        elif any(key not in assignments for key in found):
-            outcome = "unassigned_locator"
-        elif len(predicted_ids) > 1:
-            outcome = "split_root"
-        elif not exact_global:
-            outcome = "wrong_anchor" if frozenset(members) in predicted_groups else "merged_or_extra_locator"
-        else:
-            outcome = "exact_root"
-        counts[f"root_outcome_{outcome}"] += 1
-        details.append(
-            {
-                "product": "gold_root",
-                "gold_root_id": gold_id,
-                "kind": canonical_key[0],
-                "canonical_locator_span": _span_json(canonical_key[1]),
-                "canonical_locator_quote": row["locator"].get("quote"),
-                "in_table_of_authorities": in_toa,
-                "in_index_span": in_index,
-                "gold_member_count": len(members),
-                "found_member_count": len(found),
-                "missing_members": [
-                    {
-                        "gold_id": full_rows[key]["id"],
-                        "kind": key[0],
-                        "span": _span_json(key[1]),
-                        "quote": full_rows[key]["locator"].get("quote"),
-                    }
-                    for key in sorted(members - found, key=lambda key: key[1].start)
-                ],
-                "predicted_root_ids": sorted(predicted_ids),
-                "canonical_locator_found": canonical_found,
-                "canonical_anchor_correct": anchor_correct,
-                "exact_conditional_group": exact_conditional,
-                "exact_global_group": exact_global,
-                "outcome": outcome,
-            }
-        )
-    return counts, details
-
-
 def _score_relationships(
     product: StageProduct, rows: dict[GoldKey, dict[str, Any]]
 ) -> tuple[Counter[str], list[dict[str, Any]]]:
@@ -486,8 +377,7 @@ def _score_relationships(
             predicted_links=len(predicted_links),
             correct_links=len(gold_links & predicted_links),
         )
-    # This stage's conditional groups do not count locators missed upstream.
-    # Root formation also reports a global score over every annotated root.
+    # Root pairwise linkage belongs to the later leaf-attachment evaluation.
     details = [
         {
             "citation_id": item.citation.id,
@@ -512,12 +402,6 @@ def _score_relationships(
         }
         for group in predicted_groups - gold_groups
     )
-    if product.stage == ROOTS_STAGE:
-        root_counts, root_details = _score_root_coverage(
-            product, rows, before_keys, predicted_pairs, predicted_groups
-        )
-        counts.update(root_counts)
-        details.extend(root_details)
     return counts, details
 
 
@@ -572,19 +456,6 @@ def _summary(counts: Counter[str], stage: str) -> dict[str, Any]:
         if stage == COLOCATIONS_STAGE:
             result["link_precision"] = _ratio(counts["correct_links"], counts["predicted_links"])
             result["link_recall"] = _ratio(counts["correct_links"], counts["gold_links"])
-        elif stage == ROOTS_STAGE:
-            result["global_root_group_precision"] = _ratio(
-                counts["global_exact_root_groups"], counts["predicted_groups"]
-            )
-            result["global_root_group_recall"] = _ratio(
-                counts["global_exact_root_groups"], counts["global_gold_roots"]
-            )
-            result["canonical_root_locator_recall"] = _ratio(
-                counts["canonical_root_locators_found"], counts["global_gold_roots"]
-            )
-            result["canonical_anchor_accuracy"] = _ratio(
-                counts["canonical_root_anchors_correct"], counts["canonical_root_locators_found"]
-            )
     return result
 
 
@@ -603,10 +474,7 @@ def evaluate(data_root: Path, run_dir: Path, stage: str, sets: tuple[str, ...]) 
         totals.update(counts)
     return {
         "stage": stage,
-        "basis": (
-            "Stage-written readings or relationships; root formation additionally reports "
-            "complete annotated root coverage so upstream locator misses remain visible."
-        ),
+        "basis": "Only readings or relationships written by this stage; normalized agreement requires matched source evidence",
         "eligibility": ELIGIBILITY[stage],
         "sets": {name: _summary(counts, stage) for name, counts in by_set.items()},
         "totals": _summary(totals, stage),

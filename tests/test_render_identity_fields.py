@@ -29,6 +29,7 @@ def _field(
         "correct_gold": correct,
         "decided": decided,
         "precision": round(correct / decided, 4) if decided else None,
+        "conditional_recall": round(correct / aligned, 4) if aligned else None,
         "global_recall": round(correct / stated, 4) if stated else None,
         "missing_reading": missing,
         "misaligned_reading": misaligned,
@@ -96,10 +97,10 @@ def test_field_report_has_only_judgment_precision_and_recall() -> None:
     assert table[0] == "| Set | Field | Judgment precision | Judgment recall |"
     assert all(set(cell.strip()) <= {"-", ":"} for cell in table[1].strip("|").split("|"))
     assert table[2:] == [
-        "| primary | Case name | 66.7% | 28.6% |",
+        "| primary | Case name | 66.7% | 50.0% |",
         "| primary | Court | — | 0.0% |",
         "| primary | Date | 100.0% | 100.0% |",
-        "| Total | Case name | 66.7% | 28.6% |",
+        "| Total | Case name | 66.7% | 50.0% |",
         "| Total | Court | — | 0.0% |",
         "| Total | Date | 100.0% | 100.0% |",
     ]
@@ -121,7 +122,7 @@ def test_field_report_has_only_judgment_precision_and_recall() -> None:
 def test_field_report_uses_saved_rates_without_rescoring() -> None:
     result = _summary()
     result["sets"]["primary"]["fields"]["case_name"]["precision"] = 0.1234
-    result["sets"]["primary"]["fields"]["case_name"]["global_recall"] = 0.5678
+    result["sets"]["primary"]["fields"]["case_name"]["conditional_recall"] = 0.5678
 
     report = render_identity_report(result, source_label="saved/summary.json")
 
