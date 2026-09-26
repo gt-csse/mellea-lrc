@@ -134,6 +134,7 @@ def test_public_scorer_has_one_document_parameter(name: str) -> None:
     assert parameters[0].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
     assert parameters[0].default is inspect.Parameter.empty
     assert not hasattr(evaluation, "score_stage")
+    assert not hasattr(evaluation, "_field_stage")
 
 
 @pytest.mark.parametrize("stage,name", STAGE_SCORERS.items())
