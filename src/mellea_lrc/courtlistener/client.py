@@ -65,7 +65,11 @@ class CourtListenerConfig:
 
     @classmethod
     def from_env(cls) -> CourtListenerConfig:
-        """Read the endpoint and optional headers from the environment or .env."""
+        """Use the configured proxy with its own rotating CourtListener tokens.
+
+        Credentials kept in the environment are not sent by default. Callers
+        must construct an explicit config to select a token or proxy pool.
+        """
         load_dotenv(override=False)
         base_url = os.getenv("COURTLISTENER_BASE_URL", "").strip()
         if not base_url:
@@ -73,11 +77,7 @@ class CourtListenerConfig:
                 "COURTLISTENER_BASE_URL must be configured for citation lookup",
                 failure_type="missing_base_url",
             )
-        return cls(
-            base_url=base_url,
-            token=os.getenv("COURTLISTENER_API_TOKEN", "").strip() or None,
-            pool=os.getenv("MELLEA_LRC_COURTLISTENER_POOL", "").strip() or None,
-        )
+        return cls(base_url=base_url)
 
 
 class CourtListenerClient:
