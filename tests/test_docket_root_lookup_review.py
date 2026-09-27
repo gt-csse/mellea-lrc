@@ -448,6 +448,8 @@ def test_empty_partial_search_records_its_limitation_without_model_call() -> Non
         ("2004", "2005-01-01", MatchResult.MISMATCH),
         ("Jan. 1, 2005", "2005-01-01", MatchResult.MATCH),
         ("Dec. 31, 2004", "2005-01-01", MatchResult.MISMATCH),
+        ("Dec.  2024", "2024-11-16", MatchResult.MATCH),
+        ("Nov. 2024", "2024-12-01", MatchResult.MISMATCH),
         (None, "2005-01-01", MatchResult.UNAVAILABLE),
         ("2007", None, MatchResult.UNAVAILABLE),
     ],
