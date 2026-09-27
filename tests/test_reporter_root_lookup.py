@@ -355,18 +355,17 @@ def test_json_reload_rejects_invalid_judgment_indices(
         Document.model_validate(altered)
 
 
-@pytest.mark.parametrize(
-    ("reading_index", "result"),
-    [(None, "match"), (0, "not_stated")],
-)
-def test_json_reload_rejects_judgment_state_inconsistent_with_reading(
-    reading_index: int | None, result: str
-) -> None:
+def test_field_judgments_expose_only_three_results() -> None:
+    assert {result.value for result in MatchResult} == {"match", "mismatch", "unavailable"}
+
+
+@pytest.mark.parametrize("result", ["match", "mismatch"])
+def test_json_reload_rejects_comparison_without_a_filing_reading(result: str) -> None:
     after = reporter_root_lookup(_document(), client=FakeLookupClient(_response(_matching_cluster())))
     altered = after.model_dump(mode="json")
     judgment = altered["citations"][0]["case_name_judgments"][0]
-    judgment["reading_index"] = reading_index
+    judgment["reading_index"] = None
     judgment["result"] = result
 
-    with pytest.raises(ValueError, match="Not-stated judgments"):
+    with pytest.raises(ValueError):
         Document.model_validate(altered)

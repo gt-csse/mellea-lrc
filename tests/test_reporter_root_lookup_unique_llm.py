@@ -221,6 +221,9 @@ def test_combined_review_corrects_grounded_name_and_judges_latest_readings() -> 
     after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=reviewer))
 
     assert len(reviewer.contexts) == 1
+    assert reviewer.contexts[0].inferred_court_note is not None
+    assert "U.S." in reviewer.contexts[0].inferred_court_note
+    assert "Supreme Court" in reviewer.contexts[0].inferred_court_note
     assert after.stage_runs[-1] == STAGE
     root = after.roots[0]
     assert len(root.nodes) == len(previous.nodes) + 1
@@ -369,7 +372,7 @@ def test_model_normalization_without_a_grounded_name_is_rejected() -> None:
     after = asyncio.run(
         reporter_root_lookup_unique_llm(
             before,
-            reviewer=FakeReviewer(_decision(case_name_quote=None, case_name_result="not_stated")),
+            reviewer=FakeReviewer(_decision(case_name_quote=None, case_name_result="unavailable")),
         )
     )
 
@@ -443,19 +446,19 @@ def test_ungrounded_model_correction_is_not_written_and_routes_to_search() -> No
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
-def test_review_records_not_stated_field_without_a_source_reading() -> None:
+def test_review_records_unavailable_field_without_a_source_reading() -> None:
     source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544."
     roots = asyncio.run(grow_roots(Document.from_source(source), hunt_dockets=False))
     before = reporter_root_lookup(roots, client=FakeLookupClient())
     assert before.roots[0].identity_judgments[-1].next_stage == STAGE
-    decision = _decision(date_quote=None, date_result="not_stated")
+    decision = _decision(date_quote=None, date_result="unavailable")
 
     after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=FakeReviewer(decision)))
 
     root = after.roots[0]
     assert not root.date
     assert root.date_judgments[-1].reading_index is None
-    assert root.date_judgments[-1].result is MatchResult.NOT_STATED
+    assert root.date_judgments[-1].result is MatchResult.UNAVAILABLE
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
     assert Document.model_validate_json(after.model_dump_json()) == after
 
@@ -464,10 +467,9 @@ def test_review_records_not_stated_field_without_a_source_reading() -> None:
     ("source", "decision", "expected_reason"),
     [
         (SOURCE, _decision(case_name_result="unavailable"), "both have evidence"),
-        (SOURCE, _decision(case_name_result="not_stated"), "has a filing reading"),
         (
             "Bell Atl. Corp. v. Twombly, 550 U.S. 544.",
-            _decision(date_quote=None, date_result="unavailable"),
+            _decision(date_quote=None, date_result="match"),
             "has no filing reading",
         ),
     ],
@@ -497,15 +499,14 @@ def test_review_rejects_match_when_candidate_has_no_name_evidence() -> None:
     assert root.identity_judgments[-1].next_stage == "reporter_root_search"
 
 
-def test_review_accepts_not_stated_when_filing_and_candidate_lack_date() -> None:
-    source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544."
-    before = _review_input(source=source, client=FakeLookupClient(date_filed=None))
-    decision = _decision(date_quote=None, date_result="not_stated")
+def test_review_accepts_unavailable_when_candidate_lacks_date_evidence() -> None:
+    before = _review_input(client=FakeLookupClient(date_filed=None))
+    decision = _decision(date_quote=None, date_result="unavailable")
 
     after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=FakeReviewer(decision)))
 
     root = after.roots[0]
     assert root.reporter_unique_review.decision == decision
-    assert root.date_judgments[-1].reading_index is None
-    assert root.date_judgments[-1].result is MatchResult.NOT_STATED
+    assert root.date_judgments[-1].reading_index == len(root.date) - 1
+    assert root.date_judgments[-1].result is MatchResult.UNAVAILABLE
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY

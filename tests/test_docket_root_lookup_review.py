@@ -80,7 +80,7 @@ def _document(
     verbose: bool = False,
     name_quote: str = "Smith v. Jones",
     court_quote: str = "2d Cir.",
-    date_quote: str = "2007",
+    date_quote: str | None = "2007",
 ) -> Document:
     start = SOURCE.index("No. ")
     number_start = SOURCE.index("05-4206")
@@ -92,13 +92,14 @@ def _document(
         number_span=Span(number_start, number_start + len("05-4206")),
     )
     document = Document.from_source(SOURCE).add_citation(root).complete("test_sites")
-    year_start = SOURCE.index(date_quote)
     name_start = SOURCE.index(name_quote)
     court_start = SOURCE.index(court_quote)
     read = root.record("test_readings")
     read = read.with_case_name(SOURCE, Span(name_start, name_start + len(name_quote)))
     read = read.with_court(SOURCE, Span(court_start, court_start + len(court_quote)))
-    read = read.with_date(SOURCE, Span(year_start, year_start + len(date_quote)))
+    if date_quote is not None:
+        year_start = SOURCE.index(date_quote)
+        read = read.with_date(SOURCE, Span(year_start, year_start + len(date_quote)))
     document = document.replace_citation(read).complete("test_readings")
     root = read
     document = document.replace_citation(root.record("10_roots").with_root(root.id)).complete("10_roots")
@@ -312,22 +313,30 @@ def test_selected_record_requires_a_comparison_when_both_names_are_present() -> 
     context = DocketLookupReviewContext.from_document(before, root)
 
     assert "judge match or mismatch" in context.choice_error(_decision(0, case_name="unavailable"))
-    assert "not_stated is invalid" in context.choice_error(_decision(0, case_name="not_stated"))
 
 
-def test_no_selected_record_requires_unavailable_for_a_present_field() -> None:
+def test_absent_filing_reading_uses_unavailable_even_with_selected_record() -> None:
+    before = _document(shortlist=(0,), date_quote=None)
+    root = before.roots[0]
+    assert isinstance(root, FullDocketCitation)
+    context = DocketLookupReviewContext.from_document(before, root)
+    assert context.choice_error(_decision(0, date="unavailable")) is None
+    assert "no filing reading" in context.choice_error(_decision(0, date="match"))
+
+
+def test_no_selected_record_requires_unavailable_for_present_fields() -> None:
     before = _document(shortlist=(0,))
     root = before.roots[0]
     assert isinstance(root, FullDocketCitation)
     context = DocketLookupReviewContext.from_document(before, root)
-    decision = DocketLookupReviewDecision.model_validate(
-        {
-            **_decision(None).model_dump(),
-            "case_name": {**_decision(None).case_name.model_dump(), "result": "not_stated"},
-        }
-    )
-
-    assert "not_stated is invalid" in context.choice_error(decision)
+    assert context.choice_error(_decision(None)) is None
+    with pytest.raises(ValueError, match="No selection cannot make candidate-relative field judgments"):
+        DocketLookupReviewDecision.model_validate(
+            {
+                **_decision(None).model_dump(),
+                "case_name": {**_decision(None).case_name.model_dump(), "result": "match"},
+            }
+        )
 
 
 def test_review_appends_grounded_field_corrections_and_preserves_stage16() -> None:
@@ -439,7 +448,7 @@ def test_empty_partial_search_records_its_limitation_without_model_call() -> Non
         ("2004", "2005-01-01", MatchResult.MISMATCH),
         ("Jan. 1, 2005", "2005-01-01", MatchResult.MATCH),
         ("Dec. 31, 2004", "2005-01-01", MatchResult.MISMATCH),
-        (None, "2005-01-01", MatchResult.NOT_STATED),
+        (None, "2005-01-01", MatchResult.UNAVAILABLE),
         ("2007", None, MatchResult.UNAVAILABLE),
     ],
 )

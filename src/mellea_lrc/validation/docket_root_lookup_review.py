@@ -43,17 +43,17 @@ if TYPE_CHECKING:
 STAGE = "17_docket_root_lookup_review"
 MAX_TOKENS = 6000
 MAX_MODEL_ATTEMPTS = 3
-SESSION_ID = "mellea-lrc-docket-review-v3"
+SESSION_ID = "mellea-lrc-docket-review-v4"
 
 _PREFIX = """Review one docket citation against every shortlisted CourtListener search record in one answer. Reread the filing fields, propose any grounded corrections, and compare the resulting readings with one selected candidate. Select the best candidate by its candidate_index, or select null if the supplied evidence does not support any candidate. The shortlisted records are the complete choice set. A similarity score helps find plausible docket numbers; it is not a case-identity verdict.
 
 For each field, set propose_replacement to true only if the current filing reading is missing or incorrect, and quote the replacement exactly from the filing. Otherwise set propose_replacement to false and quote to null. The docket number must come from the number text after its label, the case name from the filing text before the locator, and court and date from the text after its colocation group. Never copy a retrieved record as a filing correction. For case_name also supply the structured normalized name read from the filing, even when keeping the existing quote; use null only when no case name is grounded. A quoted span may contain layout noise; keep that noise in the quote but omit it from the normalized name. The program grounds proposals to source spans and normalizes court and date quotes afterward.
 
-The cited case name, court, date, or even docket number may be wrong. Candidate choice asks which record the locator identifies, not whether every field in the citation is correct. When an equivalent docket number and compatible court identify a record, select it even if its case name disagrees; report that disagreement as a case-name mismatch. Do not reject the record merely because a field you are checking is wrong. If the locator and independent context do not identify any record, select null. Compare the corrected or existing docket number, case name, court, and date independently with the selected record. For each field, give match or mismatch and a specific reason when both sides have evidence. Use not_stated only if the filing has no reading; use unavailable only if a filing reading exists but there is no usable selected-record evidence. Make a best-effort comparison when both sides have evidence. If you select null, use unavailable for present filing readings and not_stated for absent ones; you may still correct filing readings for later stages. Do not issue an overall identity verdict.
+The cited case name, court, date, or even docket number may be wrong. Candidate choice asks which record the locator identifies, not whether every field in the citation is correct. When an equivalent docket number and compatible court identify a record, select it even if its case name disagrees; report that disagreement as a case-name mismatch. Do not reject the record merely because a field you are checking is wrong. If the locator and independent context do not identify any record, select null. Compare the corrected or existing docket number, case name, court, and date independently with the selected record. For each field, give match or mismatch and a specific reason when both sides have evidence. Use unavailable if either side lacks usable evidence for that field. Make a best-effort comparison when both sides have evidence. If you select null, use unavailable for every field; you may still correct filing readings for later stages. Do not issue an overall identity verdict.
 
 For docket numbers, consider meaningful formatting differences such as punctuation, leading zeroes, and omitted administrative prefixes for a division or case type, but do not assume distinct numbers are equivalent. For case names, consider conventional abbreviations and equivalent party forms, but treat a misspelling as a mismatch. A docket record's case title (caption) may shorten a party list or change over time; inspect the supplied party names and do not call a field mismatched solely because a matching party is absent from the lead caption. If a historical name relationship is plausible but unsupported, make a best-effort match or mismatch based on the supplied evidence and explain the uncertainty. For courts, compare the actual tribunal, including district or department, rather than relying on similar labels. A federal district court and a bankruptcy court in that district are different courts. The citation's written court label determines what it states; do not silently add a bankruptcy designation from the docket number, nearby context, or retrieved record. Court-name context expands known court codes on each side while preserving the original labels.
 
-The cited date is an opinion or decision date. In a type=d docket search record, dateFiled is when the case docket was initiated. Judge only chronological compatibility: a cited decision date on or after the docket filing date is compatible (match); an earlier cited decision date is incompatible (mismatch). A cited year alone is compatible when it is the filing year or later, because the day is unstated. If the filing states no date, use not_stated; if it states a date but the record has no readable date, use unavailable. This compatibility check does not establish the exact opinion date. In a type=o opinion search record, dateFiled is the opinion-record filing date and can be compared with the cited opinion date at the precision stated in the citation.
+The cited date is an opinion or decision date. In a type=d docket search record, dateFiled is when the case docket was initiated. Judge only chronological compatibility: a cited decision date on or after the docket filing date is compatible (match); an earlier cited decision date is incompatible (mismatch). A cited year alone is compatible when it is the filing year or later, because the day is unstated. If either date is missing or unreadable, use unavailable. This compatibility check does not establish the exact opinion date. In a type=o opinion search record, dateFiled is the opinion-record filing date and can be compared with the cited opinion date at the precision stated in the citation.
 
 Different search hits can describe the same case but different opinions, orders, or docket cards. When more than one hit identifies the case, prefer a record that also supports the cited decision date, if one is supplied. A matching docket card can establish chronological compatibility without proving the exact decision date. Do not prefer a differently dated opinion merely because it appears first.
 
@@ -149,7 +149,7 @@ def _failure_summary(failure: DocketLookupFailure | None) -> dict[str, object] |
 def _docket_date_compatibility(cited_quote: str | None, filed_value: object) -> MatchResult:
     """Compare a cited decision date with case initiation at the cited precision."""
     if cited_quote is None:
-        return MatchResult.NOT_STATED
+        return MatchResult.UNAVAILABLE
     if not isinstance(filed_value, str):
         return MatchResult.UNAVAILABLE
     try:
@@ -325,10 +325,8 @@ class DocketLookupReviewContext:
         for field in ("docket_number", "case_name", "court", "date"):
             has_reading = field == "docket_number" or self.readings[field] is not None or field in corrections
             result = getattr(decision, field).result
-            if not has_reading and result is not MatchResult.NOT_STATED:
-                return f"{field} has no filing reading; use not_stated or quote one from the filing"
-            if has_reading and result is MatchResult.NOT_STATED:
-                return f"{field} has a filing reading; not_stated is invalid"
+            if not has_reading and result is not MatchResult.UNAVAILABLE:
+                return f"{field} has no filing reading; use unavailable or quote one from the filing"
             if has_reading and not availability[field] and result is not MatchResult.UNAVAILABLE:
                 return f"{field} has no usable selected-record evidence; use unavailable"
             if has_reading and availability[field] and result is MatchResult.UNAVAILABLE:
@@ -437,15 +435,9 @@ class IvrDocketLookupReviewer:
 
 def _no_candidate_decision(context: DocketLookupReviewContext) -> DocketLookupReviewDecision:
     reason = "No shortlisted CourtListener record is available for comparison."
-
-    def assessment(field: str) -> DocketLookupFieldAssessment:
-        return DocketLookupFieldAssessment(
-            propose_replacement=False,
-            quote=None,
-            result=(MatchResult.NOT_STATED if context.readings[field] is None else MatchResult.UNAVAILABLE),
-            reason=reason,
-        )
-
+    unavailable = DocketLookupFieldAssessment(
+        propose_replacement=False, quote=None, result=MatchResult.UNAVAILABLE, reason=reason
+    )
     selection_reason = (
         "The search stopped before all results were available, and no candidate was shortlisted "
         "from the saved pages."
@@ -454,18 +446,16 @@ def _no_candidate_decision(context: DocketLookupReviewContext) -> DocketLookupRe
     )
     return DocketLookupReviewDecision(
         selected_candidate_index=None,
-        docket_number=assessment("docket_number"),
+        docket_number=unavailable,
         case_name=DocketLookupCaseNameAssessment(
             propose_replacement=False,
             quote=None,
             normalized=None,
-            result=(
-                MatchResult.NOT_STATED if context.readings["case_name"] is None else MatchResult.UNAVAILABLE
-            ),
+            result=MatchResult.UNAVAILABLE,
             reason=reason,
         ),
-        court=assessment("court"),
-        date=assessment("date"),
+        court=unavailable,
+        date=unavailable,
         reason=selection_reason,
     )
 

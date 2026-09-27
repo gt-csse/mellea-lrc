@@ -262,29 +262,14 @@ def _selected_candidate(root: FullReporterCitation, stage: str) -> int | None:
     raise ValueError(f"Unknown validation stage: {stage}")
 
 
-def _label(judgment: object) -> str:
-    result = judgment.result
+def _label(result: MatchResult, *, source_present: bool) -> str:
     if result is MatchResult.MATCH:
         return "agrees"
     if result is MatchResult.MISMATCH:
         return "disagrees"
-    if result is MatchResult.NOT_STATED:
-        return "not_stated"
     if result is MatchResult.UNAVAILABLE:
-        return "unavailable"
+        return "unavailable" if source_present else "not_stated"
     raise ValueError(f"Unknown field judgment: {result}")
-
-
-def _docket_label(result: MatchResult) -> str:
-    if result is MatchResult.MATCH:
-        return "agrees"
-    if result is MatchResult.MISMATCH:
-        return "disagrees"
-    if result is MatchResult.NOT_STATED:
-        return "not_stated"
-    if result is MatchResult.UNAVAILABLE:
-        return "unavailable"
-    raise ValueError(f"Unknown docket field assessment: {result}")
 
 
 def _selected_docket_review(root: FullDocketCitation) -> DocketLookupReviewDecision | None:
@@ -307,7 +292,7 @@ def score_docket_root_lookup_review(document: Document) -> StageScore:
         gold_root = gold[aligned[prediction_index]] if prediction_index in aligned else None
         for field in FIELDS:
             result = getattr(decision, field).result
-            label = _docket_label(result)
+            label = _label(result, source_present=bool(getattr(root, field)))
             counts[field][1] += 1
             counts[field][0] += int(gold_root is not None and label == gold_root.labels[field])
     return StageScore(
@@ -343,7 +328,8 @@ def _stage_judgments(
             if not decisions:
                 continue
             counts[field][1] += 1
-            counts[field][0] += int(gold_root is not None and _label(decisions[0]) == gold_root.labels[field])
+            label = _label(decisions[0].result, source_present=bool(getattr(root, field)))
+            counts[field][0] += int(gold_root is not None and label == gold_root.labels[field])
     return StageScore(stage, {field: Precision(*counts[field]) for field in FIELDS})
 
 
@@ -411,7 +397,7 @@ def _final_reporter_field_label(
         if len(selected) > 1:
             raise ValueError("A stage produced duplicate selected-candidate field judgments")
         if selected:
-            return _label(selected[0])
+            return _label(selected[0].result, source_present=True)
     return None
 
 
@@ -419,7 +405,7 @@ def _final_docket_field_label(root: FullDocketCitation, field: str) -> str | Non
     decision = _selected_docket_review(root)
     if decision is None:
         return None
-    return _docket_label(getattr(decision, field).result)
+    return _label(getattr(decision, field).result, source_present=bool(getattr(root, field)))
 
 
 def _final_field_label(root: FullCitation, field: str, stage_runs: tuple[str, ...]) -> str | None:

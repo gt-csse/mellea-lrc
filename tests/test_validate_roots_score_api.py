@@ -458,8 +458,8 @@ def test_docket_review_scores_selected_fields_by_locator_and_preserves_stage_bou
     assert "## 16_docket_root_lookup\n" not in report
 
 
-def test_docket_not_stated_without_source_date_matches_gold(tmp_path: Path) -> None:
-    reviewed = _reviewed_docket(tmp_path, source=SOURCE_WITHOUT_DOCKET_DATE, date="not_stated")
+def test_docket_unavailable_without_source_date_matches_not_stated_gold(tmp_path: Path) -> None:
+    reviewed = _reviewed_docket(tmp_path, source=SOURCE_WITHOUT_DOCKET_DATE, date="unavailable")
     docket = next(root for root in reviewed.roots if isinstance(root, FullDocketCitation))
     assert not docket.date
     assert evaluation.score_docket_root_lookup_review(reviewed).metrics["date"] == (
@@ -469,20 +469,13 @@ def test_docket_not_stated_without_source_date_matches_gold(tmp_path: Path) -> N
     assert evaluation.score_validate_roots(final).fields["date"] == evaluation.FieldScore(1, 1, 2)
 
 
-def test_docket_unavailable_does_not_match_not_stated_gold(tmp_path: Path) -> None:
-    reviewed = _reviewed_docket(tmp_path, source=SOURCE_WITHOUT_DOCKET_DATE, date="unavailable")
+def test_docket_unavailable_with_source_date_does_not_match_gold(tmp_path: Path) -> None:
+    reviewed = _reviewed_docket(tmp_path, date="unavailable")
     assert evaluation.score_docket_root_lookup_review(reviewed).metrics["date"] == (
         evaluation.Precision(0, 1)
     )
     final = _complete_reporter_stages(reviewed)
     assert evaluation.score_validate_roots(final).fields["date"] == evaluation.FieldScore(0, 1, 2)
-
-
-def test_docket_not_stated_with_source_date_does_not_match_gold(tmp_path: Path) -> None:
-    reviewed = _reviewed_docket(tmp_path, date="not_stated")
-    assert evaluation.score_docket_root_lookup_review(reviewed).metrics["date"] == (
-        evaluation.Precision(0, 1)
-    )
 
 
 @pytest.mark.parametrize("failed", (False, True))
@@ -631,7 +624,7 @@ def test_lookup_miss_does_not_predict_an_absent_citation_field(tmp_path: Path) -
     }
 
 
-def test_explicit_not_stated_for_an_absent_field_agrees_with_gold(
+def test_unavailable_for_an_absent_reporter_field_agrees_with_not_stated_gold(
     tmp_path: Path,
 ) -> None:
     client = FakeLookupClient(_cluster(1, "Bell Atlantic Corporation v. Twombly"))
@@ -642,7 +635,7 @@ def test_explicit_not_stated_for_an_absent_field_agrees_with_gold(
             "date": {
                 "propose_replacement": False,
                 "quote": None,
-                "result": "not_stated",
+                "result": "unavailable",
                 "reason": "The filing states no date for this reporter root.",
             },
         }
@@ -651,7 +644,7 @@ def test_explicit_not_stated_for_an_absent_field_agrees_with_gold(
     reviewed = asyncio.run(reporter_root_lookup_unique_llm(before_review, reviewer=FakeReviewer(decision)))
     reviewed = asyncio.run(reporter_root_lookup_ambiguous_llm(reviewed))
     reporter = next(root for root in reviewed.roots if isinstance(root, FullReporterCitation))
-    assert reporter.date_judgments[-1].result is MatchResult.NOT_STATED
+    assert reporter.date_judgments[-1].result is MatchResult.UNAVAILABLE
     assert reporter.date_judgments[-1].reading_index is None
     assert evaluation.score_reporter_root_lookup_unique_llm(reviewed).metrics["date"] == (
         evaluation.Precision(1, 1)
@@ -759,7 +752,7 @@ def test_primary_sized_gold_keeps_all_440_roots_in_each_recall_denominator(tmp_p
     )
     document = document.add_citation(docket).complete("test_sites")
     document = document.replace_citation(docket.record("10_roots").with_root(docket.id)).complete("10_roots")
-    document = _add_docket_review(document, case_name="not_stated", court="not_stated", date="not_stated")
+    document = _add_docket_review(document, case_name="unavailable", court="unavailable", date="unavailable")
     document = _complete_reporter_stages(document)
 
     score = evaluation.score_validate_roots(document)

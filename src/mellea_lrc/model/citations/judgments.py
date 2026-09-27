@@ -12,7 +12,6 @@ from pydantic import BaseModel, ConfigDict, model_validator
 class MatchResult(str, Enum):
     MATCH = "match"
     MISMATCH = "mismatch"
-    NOT_STATED = "not_stated"
     UNAVAILABLE = "unavailable"
 
 
@@ -57,8 +56,8 @@ class _ReporterExactFieldJudgment(BaseModel):
     def _validate_indices(self) -> Self:
         if (self.reading_index is not None and self.reading_index < 0) or self.candidate_index < 0:
             raise ValueError("Judgment references must be nonnegative absolute indices")
-        if (self.reading_index is None) != (self.result is MatchResult.NOT_STATED):
-            raise ValueError("Not-stated judgments require no filing reading, and vice versa")
+        if self.reading_index is None and self.result is not MatchResult.UNAVAILABLE:
+            raise ValueError("A field without a filing reading is unavailable for comparison")
         return self
 
 

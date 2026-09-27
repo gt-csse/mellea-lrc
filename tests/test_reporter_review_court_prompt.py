@@ -182,12 +182,16 @@ def test_inferred_court_note_identifies_reporter_and_latest_court_only() -> None
     assert root.locator[-1].get_normalized().reporter.name in note
     assert Court.from_id("scotus").name in note
     assert "No court label was extracted near this locator" in note
+    assert "Treat this as court evidence" in note
+    assert "explain any conflict" in note
     assert "forbid" not in note
 
     explicit_source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2d Cir. 2007)."
     explicit = (
         _reporter_citation(explicit_source)
         .record("7_courts")
+        .with_inferred_court("scotus")
+        .record("8_explicit_court")
         .with_court(
             explicit_source,
             Span(explicit_source.index("2d Cir."), explicit_source.index("2d Cir.") + len("2d Cir.")),
@@ -230,8 +234,8 @@ def test_inferred_court_note_is_conditional_in_both_reporter_review_prompts(monk
         spec = _capture_spec(monkeypatch, module, reviewer, context)
         assert "{{inferred_court_note}}" in spec.description
         assert spec.user_variables["inferred_court_note"] == note
-        assert "Use not_stated only when the filing has no reading" in spec.prefix
-        assert "unavailable only when" in spec.prefix
+        assert "unavailable" in spec.prefix.lower()
+        assert "not_stated" not in spec.prefix.lower()
 
         without_note = replace(context, inferred_court_note=None)
         plain_spec = _capture_spec(monkeypatch, module, reviewer, without_note)

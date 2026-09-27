@@ -17,6 +17,12 @@ To resume saved Documents at `10_roots`, then perform the docket-root review
 and root validation, use `--from-roots-documents PATH`. This preserves the
 earlier extraction history in the new timestamped run.
 
+To repeat the model reviews without repeating extraction or reporter lookup,
+use `--from-reporter-review-documents PATH`. The saved Documents must contain
+stage `13_reporter_root_lookup_ambiguous`. Add `--reuse-docket-lookups` when
+they also contain stage `16_docket_root_lookup`: the runner reuses those docket
+search results, then reruns both reporter reviews and the docket review.
+
 If a run is interrupted, use `--resume-run RUN_DIR`. It verifies the saved
 source and completed Documents, then continues in the same timestamped
 directory without repeating completed filings.

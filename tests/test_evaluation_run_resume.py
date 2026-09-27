@@ -91,6 +91,92 @@ def test_resume_rejects_stale_saved_source_before_provider_calls(
         asyncio.run(runner._run(data_root, tmp_path / "results", roots_dir))
 
 
+def test_resume_from_reporter_llm_checkpoint_only_runs_later_stages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root = _dataset(tmp_path, ("001.txt",))
+    checkpoint_dir = tmp_path / "reporter-review-input"
+    checkpoint_dir.mkdir()
+    source = data_root / "primary" / "documents_txt" / "001.txt"
+    ready = _complete(Document.from_source(source), runner._REPORTER_REVIEW_INPUT_STAGES)
+    (checkpoint_dir / "001.txt.json").write_text(ready.model_dump_json(), encoding="utf-8")
+    calls: list[str] = []
+
+    async def unique(document: Document) -> Document:
+        calls.append("14")
+        return document.complete(runner._RUN_STAGES[13])
+
+    async def ambiguous(document: Document) -> Document:
+        calls.append("15")
+        return document.complete(runner._RUN_STAGES[14])
+
+    def docket(document: Document) -> Document:
+        calls.append("16")
+        return document.complete(runner._RUN_STAGES[15])
+
+    async def docket_review(document: Document) -> Document:
+        calls.append("17")
+        return document.complete(runner._RUN_STAGES[16])
+
+    monkeypatch.setattr(runner, "reporter_root_lookup_unique_llm", unique)
+    monkeypatch.setattr(runner, "reporter_root_lookup_ambiguous_llm", ambiguous)
+    monkeypatch.setattr(runner, "docket_root_lookup", docket)
+    monkeypatch.setattr(runner, "docket_root_lookup_review", docket_review)
+    run_dir = asyncio.run(runner._run(data_root, tmp_path / "results", None, None, checkpoint_dir))
+
+    assert calls == ["14", "15", "16", "17"]
+    assert json.loads((run_dir / "run.json").read_text(encoding="utf-8"))["status"] == "complete"
+    saved = Document.model_validate_json((run_dir / "documents" / "001.txt.json").read_text(encoding="utf-8"))
+    assert saved.get_stage(runner._REPORTER_REVIEW_INPUT_STAGE) == ready
+    assert asyncio.run(runner._run(tmp_path / "ignored", tmp_path / "unused", None, run_dir)) == run_dir
+    assert calls == ["14", "15", "16", "17"]
+
+
+def test_reporter_review_replay_reuses_saved_docket_lookup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root = _dataset(tmp_path, ("001.txt",))
+    source_path = data_root / "primary" / "documents_txt" / "001.txt"
+    source_path.write_text("Acme v. Reed, Case No. 2:31-cv-45821 (S.D.N.Y. 2031).", encoding="utf-8")
+    monkeypatch.setattr("mellea_lrc.extraction.docket_site_hunting.suspected_dockets", lambda _: ())
+    ready = asyncio.run(grow_roots(Document.from_source(source_path), hunt_dockets=True))
+    ready = _complete(ready, runner._RUN_STAGES[10:13])
+    root = next(root for root in ready.roots if isinstance(root, FullDocketCitation))
+    prior = _complete(ready, runner._RUN_STAGES[13:15])
+    recorded = root.record(runner._DOCKET_LOOKUP_STAGE)
+    lookup = DocketLookup(
+        node_id=recorded.nodes[-1].id,
+        attempts=(DocketLookupAttempt(source_type="d", query="docketNumber:(2:31-cv-45821)"),),
+    )
+    prior = prior.replace_citation(recorded.with_docket_lookup(lookup)).complete(runner._DOCKET_LOOKUP_STAGE)
+    checkpoint_dir = tmp_path / "reporter-review-input"
+    checkpoint_dir.mkdir()
+    (checkpoint_dir / "001.txt.json").write_text(prior.model_dump_json(), encoding="utf-8")
+
+    async def unique(document: Document) -> Document:
+        return document.complete(runner._RUN_STAGES[13])
+
+    async def ambiguous(document: Document) -> Document:
+        return document.complete(runner._RUN_STAGES[14])
+
+    def unexpected_lookup(_document: Document) -> Document:
+        pytest.fail("Saved docket lookup must be reused")
+
+    async def docket_review(document: Document) -> Document:
+        return document.complete(runner._RUN_STAGES[16])
+
+    monkeypatch.setattr(runner, "reporter_root_lookup_unique_llm", unique)
+    monkeypatch.setattr(runner, "reporter_root_lookup_ambiguous_llm", ambiguous)
+    monkeypatch.setattr(runner, "docket_root_lookup", unexpected_lookup)
+    monkeypatch.setattr(runner, "docket_root_lookup_review", docket_review)
+    run_dir = asyncio.run(runner._run(data_root, tmp_path / "results", None, None, checkpoint_dir, True))
+
+    saved = Document.model_validate_json((run_dir / "documents" / "001.txt.json").read_text(encoding="utf-8"))
+    replayed_root = next(root for root in saved.roots if isinstance(root, FullDocketCitation))
+    assert replayed_root.docket_lookup == lookup
+    assert saved.get_stage(runner._REPORTER_REVIEW_INPUT_STAGE) == ready
+
+
 @pytest.mark.parametrize(
     ("failure_type", "status"),
     [("http_error", 429), ("transport_error", None)],
