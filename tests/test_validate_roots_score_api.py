@@ -299,13 +299,24 @@ def _add_docket_review(
         }
         if not selected:
             results = dict.fromkeys(results, "undetermined")
+        assessments = {
+            field: {
+                "propose_replacement": False,
+                "quote": None,
+                "result": result,
+                "reason": "Compared with the saved record.",
+            }
+            for field, result in results.items()
+        }
+        assessments["case_name"]["normalized"] = (
+            root.case_name[-1].get_normalized().model_dump(mode="python")
+            if root.case_name and root.case_name[-1].normalizable
+            else None
+        )
         decision = DocketLookupReviewDecision.model_validate(
             {
                 "selected_candidate_index": 0 if selected else None,
-                **{
-                    field: {"result": result, "reason": "Compared with the saved record."}
-                    for field, result in results.items()
-                },
+                **assessments,
                 "reason": "Reviewed the shortlist.",
             }
         )

@@ -56,6 +56,14 @@ class FullDocketCitation(FullCitation):
             ),
         )
 
+    def with_docket_number(self, source: str, number_span: Span) -> Self:
+        """Reread the number within this locator without moving its source site."""
+        locator = self.locator[-1]
+        reading = FullDocketLocator.from_source(
+            source, locator.span, number_span, node_id=self._decision_node_id()
+        )
+        return self._with_log(locator=(*self.locator, reading))
+
     def with_docket_root_review(self, review: DocketRootReview) -> Self:
         """Append one decision without changing any root assignment itself."""
         if review.node_id != self._decision_node_id():

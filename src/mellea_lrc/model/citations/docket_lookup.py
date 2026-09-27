@@ -6,6 +6,8 @@ from typing import Literal, Self, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
+from mellea_lrc.model.citations.fields.base import require_all_json_properties
+from mellea_lrc.model.citations.fields.case_name import CaseName
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.ivr import IvrRun
 
@@ -131,12 +133,31 @@ class DocketLookup(BaseModel):
 
 
 class DocketLookupFieldAssessment(BaseModel):
-    """A field comparison for the selected CourtListener record."""
+    """One comparison and an optional grounded correction to the filing."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    propose_replacement: bool
+    quote: str | None
     result: MatchResult
     reason: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_replacement_intent(self) -> Self:
+        if self.propose_replacement:
+            if self.quote is None or not self.quote.strip():
+                raise ValueError("A proposed replacement requires a nonempty source quote")
+        elif self.quote is not None:
+            raise ValueError("A field without a proposed replacement must have a null quote")
+        return self
+
+
+class DocketLookupCaseNameAssessment(DocketLookupFieldAssessment):
+    """A filing name and its model reading, independent of the record caption."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", json_schema_extra=require_all_json_properties)
+
+    normalized: CaseName | None = None
 
 
 class DocketLookupReviewDecision(BaseModel):
@@ -146,7 +167,7 @@ class DocketLookupReviewDecision(BaseModel):
 
     selected_candidate_index: int | None
     docket_number: DocketLookupFieldAssessment
-    case_name: DocketLookupFieldAssessment
+    case_name: DocketLookupCaseNameAssessment
     court: DocketLookupFieldAssessment
     date: DocketLookupFieldAssessment
     reason: str = Field(min_length=1)
