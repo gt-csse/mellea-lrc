@@ -396,7 +396,7 @@ def test_ivr_prompt_distinguishes_docket_and_opinion_dates(monkeypatch: pytest.M
     assert spec.output_format is DocketLookupReviewDecision
     assert "type=d" in spec.prefix
     assert "type=o" in spec.prefix
-    assert "do not compare" in spec.prefix
+    assert "date assessment must be undetermined" in spec.prefix
     assert "may be wrong" in spec.prefix
     assert '"candidate_index":0' in spec.user_variables["candidates"]
     assert json.loads(spec.user_variables["search_status"])["incomplete"] is False
