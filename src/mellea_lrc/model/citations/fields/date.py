@@ -18,6 +18,12 @@ FULL_DATE_RE = re.compile(
     r"\.?\s+(?P<day>\d{1,2}),?\s+(?P<year>(?:1[6789]|20|21)\d{2})\b",
     re.I,
 )
+MONTH_YEAR_RE = re.compile(
+    r"\b(?P<month>Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r"\.?\s+(?P<year>(?:1[6789]|20|21)\d{2})\b",
+    re.I,
+)
 _MONTHS = {
     "jan": 1,
     "feb": 2,
@@ -59,12 +65,17 @@ class CitationDate(BaseModel):
 
 
 def normalize_date(quote: str) -> CitationDate:
-    """Parse a complete written day or year; never return a null date."""
+    """Parse a written day, month, or year; never return a null date."""
     if match := FULL_DATE_RE.fullmatch(quote):
         return CitationDate(
             year=int(match.group("year")),
             month=_MONTHS[match.group("month")[:3].lower()],
             day=int(match.group("day")),
+        )
+    if match := MONTH_YEAR_RE.fullmatch(quote):
+        return CitationDate(
+            year=int(match.group("year")),
+            month=_MONTHS[match.group("month")[:3].lower()],
         )
     if YEAR_RE.fullmatch(quote):
         return CitationDate(year=int(quote))

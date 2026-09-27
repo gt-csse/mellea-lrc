@@ -19,6 +19,7 @@ from mellea_lrc.model import (
     latest,
 )
 from mellea_lrc.model.citations.fields.court import normalize_court
+from mellea_lrc.model.citations.fields.date import normalize_date
 from mellea_lrc.model.citations.fields.docket import DocketEntryField
 
 
@@ -267,6 +268,11 @@ def test_reporter_name_quote_excludes_prior_names_and_prose(source: str) -> None
 )
 def test_citation_date_accepts_valid_precisions(components: dict[str, int]) -> None:
     assert CitationDate(**components).model_dump(exclude_none=True) == components
+
+
+@pytest.mark.parametrize("quote", ["Dec.  2024", "December 2024", "Dec 2024"])
+def test_citation_date_normalizes_written_month_and_year(quote: str) -> None:
+    assert normalize_date(quote) == CitationDate(year=2024, month=12)
 
 
 @pytest.mark.parametrize(
