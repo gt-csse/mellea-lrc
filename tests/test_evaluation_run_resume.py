@@ -16,6 +16,7 @@ from mellea_lrc.model import (
     DocketLookupFailure,
     FullDocketCitation,
 )
+from mellea_lrc.model.citations.govinfo_lookup import GovInfoDocketLookup, GovInfoLookupAttempt
 
 
 def _dataset(tmp_path: Path, filenames: tuple[str, ...]) -> Path:
@@ -118,18 +119,28 @@ def test_resume_from_reporter_llm_checkpoint_only_runs_later_stages(
         calls.append("17")
         return document.complete(runner._RUN_STAGES[16])
 
+    def govinfo(document: Document) -> Document:
+        calls.append("18")
+        return document.complete(runner._RUN_STAGES[17])
+
+    async def govinfo_review(document: Document) -> Document:
+        calls.append("19")
+        return document.complete(runner._RUN_STAGES[18])
+
     monkeypatch.setattr(runner, "reporter_root_lookup_unique_llm", unique)
     monkeypatch.setattr(runner, "reporter_root_lookup_ambiguous_llm", ambiguous)
     monkeypatch.setattr(runner, "docket_root_lookup", docket)
     monkeypatch.setattr(runner, "docket_root_lookup_review", docket_review)
+    monkeypatch.setattr(runner, "govinfo_docket_lookup", govinfo)
+    monkeypatch.setattr(runner, "govinfo_docket_lookup_review", govinfo_review)
     run_dir = asyncio.run(runner._run(data_root, tmp_path / "results", None, None, checkpoint_dir))
 
-    assert calls == ["14", "15", "16", "17"]
+    assert calls == ["14", "15", "16", "17", "18", "19"]
     assert json.loads((run_dir / "run.json").read_text(encoding="utf-8"))["status"] == "complete"
     saved = Document.model_validate_json((run_dir / "documents" / "001.txt.json").read_text(encoding="utf-8"))
     assert saved.get_stage(runner._REPORTER_REVIEW_INPUT_STAGE) == ready
     assert asyncio.run(runner._run(tmp_path / "ignored", tmp_path / "unused", None, run_dir)) == run_dir
-    assert calls == ["14", "15", "16", "17"]
+    assert calls == ["14", "15", "16", "17", "18", "19"]
 
 
 def test_reporter_review_replay_reuses_saved_docket_lookup(
@@ -165,16 +176,55 @@ def test_reporter_review_replay_reuses_saved_docket_lookup(
     async def docket_review(document: Document) -> Document:
         return document.complete(runner._RUN_STAGES[16])
 
+    def govinfo(document: Document) -> Document:
+        return document.complete(runner._RUN_STAGES[17])
+
+    async def govinfo_review(document: Document) -> Document:
+        return document.complete(runner._RUN_STAGES[18])
+
     monkeypatch.setattr(runner, "reporter_root_lookup_unique_llm", unique)
     monkeypatch.setattr(runner, "reporter_root_lookup_ambiguous_llm", ambiguous)
     monkeypatch.setattr(runner, "docket_root_lookup", unexpected_lookup)
     monkeypatch.setattr(runner, "docket_root_lookup_review", docket_review)
+    monkeypatch.setattr(runner, "govinfo_docket_lookup", govinfo)
+    monkeypatch.setattr(runner, "govinfo_docket_lookup_review", govinfo_review)
     run_dir = asyncio.run(runner._run(data_root, tmp_path / "results", None, None, checkpoint_dir, True))
 
     saved = Document.model_validate_json((run_dir / "documents" / "001.txt.json").read_text(encoding="utf-8"))
     replayed_root = next(root for root in saved.roots if isinstance(root, FullDocketCitation))
     assert replayed_root.docket_lookup == lookup
     assert saved.get_stage(runner._REPORTER_REVIEW_INPUT_STAGE) == ready
+
+
+def test_resume_from_docket_review_checkpoint_only_runs_govinfo_stages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root = _dataset(tmp_path, ("001.txt",))
+    checkpoint_dir = tmp_path / "docket-review-input"
+    checkpoint_dir.mkdir()
+    source = data_root / "primary" / "documents_txt" / "001.txt"
+    ready = _complete(Document.from_source(source), runner._DOCKET_REVIEW_INPUT_STAGES)
+    (checkpoint_dir / "001.txt.json").write_text(ready.model_dump_json(), encoding="utf-8")
+    calls: list[str] = []
+
+    def govinfo(document: Document) -> Document:
+        calls.append("18")
+        return document.complete(runner._RUN_STAGES[17])
+
+    async def govinfo_review(document: Document) -> Document:
+        calls.append("19")
+        return document.complete(runner._RUN_STAGES[18])
+
+    monkeypatch.setattr(runner, "govinfo_docket_lookup", govinfo)
+    monkeypatch.setattr(runner, "govinfo_docket_lookup_review", govinfo_review)
+    run_dir = asyncio.run(
+        runner._run(data_root, tmp_path / "results", None, None, None, False, checkpoint_dir)
+    )
+
+    assert calls == ["18", "19"]
+    saved = Document.model_validate_json((run_dir / "documents" / "001.txt.json").read_text(encoding="utf-8"))
+    assert saved.stage_runs == runner._RUN_STAGES
+    assert saved.get_stage(runner._DOCKET_REVIEW_INPUT_STAGE) == ready
 
 
 @pytest.mark.parametrize(
@@ -204,6 +254,28 @@ def test_transient_docket_search_failure_requires_a_rerun(failure_type: str, sta
 
     assert runner._has_transient_docket_lookup_failure(incomplete)
     assert not runner._has_transient_docket_lookup_failure(document)
+
+
+def test_transient_govinfo_search_failure_requires_a_rerun() -> None:
+    document = asyncio.run(grow_roots(Document.from_source("Acme v. Reed, Case No. 2:31-cv-45821.")))
+    root = document.roots[0]
+    assert isinstance(root, FullDocketCitation)
+    recorded = root.record("18_govinfo_docket_lookup")
+    lookup = GovInfoDocketLookup(
+        node_id=recorded.nodes[-1].id,
+        attempts=(
+            GovInfoLookupAttempt(
+                query='collection:uscourts casenumber:("2:31-cv-45821")',
+                failure=DocketLookupFailure(
+                    failure_type="http_error",
+                    message="Provider quota reached",
+                    upstream_status_code=429,
+                ),
+            ),
+        ),
+    )
+    incomplete = document.replace_citation(recorded.with_govinfo_docket_lookup(lookup))
+    assert runner._has_transient_docket_lookup_failure(incomplete)
 
 
 def test_new_run_stays_failed_when_a_saved_search_is_transiently_incomplete(

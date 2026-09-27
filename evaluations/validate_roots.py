@@ -18,6 +18,8 @@ from mellea_lrc.model.citations.reporter_lookup import (
 )
 from mellea_lrc.validation.docket_root_lookup import STAGE as DOCKET_ROOT_LOOKUP
 from mellea_lrc.validation.docket_root_lookup_review import STAGE as DOCKET_ROOT_LOOKUP_REVIEW
+from mellea_lrc.validation.govinfo_docket_lookup import STAGE as GOVINFO_DOCKET_LOOKUP
+from mellea_lrc.validation.govinfo_docket_lookup_review import STAGE as GOVINFO_DOCKET_LOOKUP_REVIEW
 from mellea_lrc.validation.reporter_root_lookup import STAGE as REPORTER_ROOT_LOOKUP
 from mellea_lrc.validation.reporter_root_lookup_ambiguous import STAGE as REPORTER_ROOT_LOOKUP_AMBIGUOUS
 from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm import (
@@ -33,8 +35,15 @@ STAGES = (
     REPORTER_ROOT_LOOKUP_UNIQUE_LLM,
     REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM,
     DOCKET_ROOT_LOOKUP_REVIEW,
+    GOVINFO_DOCKET_LOOKUP_REVIEW,
 )
-WORKFLOW_STAGES = (*STAGES[:-1], DOCKET_ROOT_LOOKUP, STAGES[-1])
+WORKFLOW_STAGES = (
+    *STAGES[:-2],
+    DOCKET_ROOT_LOOKUP,
+    DOCKET_ROOT_LOOKUP_REVIEW,
+    GOVINFO_DOCKET_LOOKUP,
+    STAGES[-1],
+)
 
 
 @dataclass(frozen=True)
@@ -281,6 +290,26 @@ def _selected_docket_review(root: FullDocketCitation) -> DocketLookupReviewDecis
     return review.decision
 
 
+def _selected_govinfo_docket_review(root: FullDocketCitation) -> DocketLookupReviewDecision | None:
+    review = root.govinfo_docket_review
+    lookup = root.govinfo_docket_lookup
+    if (
+        review is None
+        or review.decision is None
+        or review.decision.selected_candidate_index is None
+        or lookup is None
+        or review.decision.selected_candidate_index not in lookup.shortlisted_candidate_indices
+    ):
+        return None
+    if not any(
+        node.id == lookup.node_id and node.stage == GOVINFO_DOCKET_LOOKUP for node in root.nodes
+    ) or not any(
+        node.id == review.node_id and node.stage == GOVINFO_DOCKET_LOOKUP_REVIEW for node in root.nodes
+    ):
+        return None
+    return review.decision
+
+
 def score_docket_root_lookup_review(document: Document) -> StageScore:
     checkpoint = document.get_stage(DOCKET_ROOT_LOOKUP_REVIEW)
     gold = _gold_roots(checkpoint)
@@ -297,6 +326,29 @@ def score_docket_root_lookup_review(document: Document) -> StageScore:
             counts[field][0] += int(gold_root is not None and label == gold_root.labels[field])
     return StageScore(
         DOCKET_ROOT_LOOKUP_REVIEW,
+        {field: Precision(*counts[field]) for field in FIELDS},
+    )
+
+
+def score_govinfo_docket_lookup_review(document: Document) -> StageScore:
+    checkpoint = document.get_stage(GOVINFO_DOCKET_LOOKUP_REVIEW)
+    gold = _gold_roots(checkpoint)
+    aligned = _align(checkpoint.roots, gold)
+    counts = {field: [0, 0] for field in FIELDS}
+    for prediction_index, root in enumerate(checkpoint.roots):
+        if (
+            not isinstance(root, FullDocketCitation)
+            or (decision := _selected_govinfo_docket_review(root)) is None
+        ):
+            continue
+        gold_root = gold[aligned[prediction_index]] if prediction_index in aligned else None
+        for field in FIELDS:
+            result = getattr(decision, field).result
+            counts[field][1] += 1
+            label = _label(result, source_present=bool(getattr(root, field)))
+            counts[field][0] += int(gold_root is not None and label == gold_root.labels[field])
+    return StageScore(
+        GOVINFO_DOCKET_LOOKUP_REVIEW,
         {field: Precision(*counts[field]) for field in FIELDS},
     )
 
@@ -371,6 +423,7 @@ STAGE_SCORERS: tuple[tuple[str, Callable[[Document], StageScore]], ...] = (
     (REPORTER_ROOT_LOOKUP_UNIQUE_LLM, score_reporter_root_lookup_unique_llm),
     (REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM, score_reporter_root_lookup_ambiguous_llm),
     (DOCKET_ROOT_LOOKUP_REVIEW, score_docket_root_lookup_review),
+    (GOVINFO_DOCKET_LOOKUP_REVIEW, score_govinfo_docket_lookup_review),
 )
 
 
@@ -380,7 +433,7 @@ def _final_reporter_field_label(
     selected_stages = [
         (stage, candidate_index)
         for stage in stage_runs
-        if stage in STAGES and stage != DOCKET_ROOT_LOOKUP_REVIEW
+        if stage in STAGES[:-2]
         if (candidate_index := _selected_candidate(root, stage)) is not None
     ]
     if not selected_stages:
@@ -402,7 +455,7 @@ def _final_reporter_field_label(
 
 
 def _final_docket_field_label(root: FullDocketCitation, field: str) -> str | None:
-    decision = _selected_docket_review(root)
+    decision = _selected_govinfo_docket_review(root) or _selected_docket_review(root)
     if decision is None:
         return None
     return _label(getattr(decision, field).result, source_present=bool(getattr(root, field)))
@@ -471,6 +524,10 @@ def render_reporter_root_lookup(score: StageScore) -> str:
 
 def render_docket_root_lookup_review(score: StageScore) -> str:
     return _render_stage(score, DOCKET_ROOT_LOOKUP_REVIEW) + "\n"
+
+
+def render_govinfo_docket_lookup_review(score: StageScore) -> str:
+    return _render_stage(score, GOVINFO_DOCKET_LOOKUP_REVIEW) + "\n"
 
 
 def render_reporter_root_lookup_ambiguous(score: StageScore) -> str:

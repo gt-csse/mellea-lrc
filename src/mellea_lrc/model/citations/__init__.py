@@ -41,6 +41,12 @@ from mellea_lrc.model.citations.fields import (
 from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.full_docket import FullDocketCitation
 from mellea_lrc.model.citations.full_reporter import FullReporterCitation
+from mellea_lrc.model.citations.govinfo_lookup import (
+    GovInfoDocketLookup,
+    GovInfoDocketReview,
+    GovInfoLookupAttempt,
+    GovInfoLookupCandidate,
+)
 from mellea_lrc.model.citations.history import (
     Node,
     RelationshipUpdate,
@@ -104,6 +110,10 @@ __all__ = [
     "FullDocketLocator",
     "FullReporterCitation",
     "FullReporterLocator",
+    "GovInfoDocketLookup",
+    "GovInfoDocketReview",
+    "GovInfoLookupAttempt",
+    "GovInfoLookupCandidate",
     "IdentityJudgment",
     "IdentityVerdict",
     "MatchResult",

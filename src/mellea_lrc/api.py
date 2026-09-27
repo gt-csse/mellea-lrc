@@ -26,6 +26,8 @@ from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.validation import (
     docket_root_lookup,
     docket_root_lookup_review,
+    govinfo_docket_lookup,
+    govinfo_docket_lookup_review,
     reporter_root_lookup,
     reporter_root_lookup_ambiguous,
     reporter_root_lookup_ambiguous_llm,
@@ -43,6 +45,8 @@ __all__ = [
     "find_full_reporter_locators",
     "find_short_reporter_citations",
     "form_roots",
+    "govinfo_docket_lookup",
+    "govinfo_docket_lookup_review",
     "grow_roots",
     "hunt_docket_locators",
     "preprocess",

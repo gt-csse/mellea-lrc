@@ -6,6 +6,8 @@ from mellea_lrc.model.document import Document
 from mellea_lrc.validation import (
     docket_root_lookup,
     docket_root_lookup_review,
+    govinfo_docket_lookup,
+    govinfo_docket_lookup_review,
     reporter_root_lookup,
     reporter_root_lookup_ambiguous,
     reporter_root_lookup_ambiguous_llm,
@@ -14,7 +16,7 @@ from mellea_lrc.validation import (
 
 
 async def validate_roots(document: Document) -> Document:
-    """Run reporter lookup and review, then docket candidate review.
+    """Run reporter review, CourtListener docket review, then GovInfo fallback.
 
     Reporter search and large-candidate review remain future stages. Docket
     retrieval and its model choice preserve independent field assessments.
@@ -25,6 +27,8 @@ async def validate_roots(document: Document) -> Document:
     document = await reporter_root_lookup_ambiguous_llm(document)
     document = docket_root_lookup(document)
     document = await docket_root_lookup_review(document)
+    document = govinfo_docket_lookup(document)
+    document = await govinfo_docket_lookup_review(document)
     # TODO: Review opinion evidence for a securely identified record whose
     # cited court or date still disagrees. The cluster's linked docket may
     # contain imported court metadata that identifies the case but assigns
