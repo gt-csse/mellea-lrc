@@ -9,12 +9,12 @@ from mellea_lrc.model.citations.reporter_lookup import (
     ReporterUniqueReview,
 )
 from mellea_lrc.model.document import Document
-from mellea_lrc.validation._support.reporter_review_fields import (
+from mellea_lrc.validation.reporter_review.fields import (
     append_corrections,
     append_field_judgments,
     identity_verdict,
 )
-from mellea_lrc.validation._support.reporter_unique_llm import (
+from mellea_lrc.validation.reporter_root_lookup_unique_llm.reviewer import (
     IvrReporterUniqueReviewer,
     ReporterUniqueReviewContext,
     ReporterUniqueReviewer,

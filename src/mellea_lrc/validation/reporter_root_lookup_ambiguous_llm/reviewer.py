@@ -15,18 +15,18 @@ from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import ValidationError
 
 from mellea_lrc.courtlistener import CourtListenerCluster, CourtListenerDocket
-from mellea_lrc.extraction._support.context_windows import after, before
 from mellea_lrc.llm.config import llm_api_config_from_env, start_mellea_session_from_env
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
+from mellea_lrc.model.citation_windows import after, before
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.reporter_lookup import ReporterAmbiguousReviewDecision
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.validation._support.reporter_court_context import (
+from mellea_lrc.validation.reporter_review.court_context import (
     inferred_reporter_court_note,
     reporter_court_context,
 )
-from mellea_lrc.validation._support.reporter_review_grounding import ReporterReviewGrounding
+from mellea_lrc.validation.reporter_review.grounding import ReporterReviewGrounding
 
 if TYPE_CHECKING:
     from mellea import MelleaSession

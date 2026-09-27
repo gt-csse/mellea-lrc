@@ -18,8 +18,8 @@ from typing import Generic, TypeVar
 from rapidfuzz import fuzz
 from rapidfuzz.distance import Levenshtein
 
-from mellea_lrc.llm.fuzziness import FuzzinessOption, FuzzinessType
-from mellea_lrc.text_match import fuzzy_literal
+from mellea_lrc.matching.fuzziness import FuzzinessOption, FuzzinessType
+from mellea_lrc.matching.literal import fuzzy_literal
 
 T = TypeVar("T")
 

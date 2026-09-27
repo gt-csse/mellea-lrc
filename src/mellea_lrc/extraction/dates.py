@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from mellea_lrc.config.extraction import ExtractionRules, stable
-from mellea_lrc.extraction._support.context_windows import dated_parenthetical, require_structure
+from mellea_lrc.extraction.contextual_reading import dated_parenthetical, require_structure
 from mellea_lrc.model.citations.fields.date import FULL_DATE_RE, YEAR_RE
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span

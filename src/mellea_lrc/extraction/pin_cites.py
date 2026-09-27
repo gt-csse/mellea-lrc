@@ -5,8 +5,7 @@ from __future__ import annotations
 import re
 
 from mellea_lrc.config.extraction import ExtractionRules, stable
-from mellea_lrc.extraction._support.context_windows import require_structure
-from mellea_lrc.extraction._support.context_windows import site as locator_site
+from mellea_lrc.extraction.contextual_reading import require_structure
 from mellea_lrc.model.citations.fields.pin_cite import PIN_PREFIX
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
@@ -39,12 +38,12 @@ def resolve_pin_cites(document: Document, rules: ExtractionRules | None = None) 
     require_structure(document)
     config = rules or stable()
     for citation in document.full_locators:
-        site = locator_site(citation)
+        site = citation.locator_span
         next_start = min(
             (
-                locator_site(item).start
+                item.locator_span.start
                 for item in document.full_locators
-                if locator_site(item).start >= site.end
+                if item.locator_span.start >= site.end
             ),
             default=len(document.text),
         )

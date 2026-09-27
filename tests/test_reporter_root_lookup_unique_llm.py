@@ -15,7 +15,7 @@ from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterUniqueFieldAssessment
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.validation._support.reporter_unique_llm import (
+from mellea_lrc.validation.reporter_root_lookup_unique_llm.reviewer import (
     ReporterUniqueReviewDecision,
     ReporterUniqueReviewOutcome,
 )

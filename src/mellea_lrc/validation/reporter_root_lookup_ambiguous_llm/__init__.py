@@ -10,16 +10,16 @@ from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactLookupOutcome,
 )
 from mellea_lrc.model.document import Document
-from mellea_lrc.validation._support.reporter_ambiguous_llm import (
+from mellea_lrc.validation.reporter_review.fields import (
+    append_corrections,
+    append_field_judgments,
+    identity_verdict,
+)
+from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm.reviewer import (
     IvrReporterAmbiguousReviewer,
     ReporterAmbiguousReviewContext,
     ReporterAmbiguousReviewer,
     ReporterAmbiguousReviewOutcome,
-)
-from mellea_lrc.validation._support.reporter_review_fields import (
-    append_corrections,
-    append_field_judgments,
-    identity_verdict,
 )
 
 STAGE = "15_reporter_root_lookup_ambiguous_llm"

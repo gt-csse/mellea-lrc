@@ -1,1 +1,1 @@
-"""Deterministic text-matching helpers."""
+"""Deterministic text matching and evidence grounding services."""

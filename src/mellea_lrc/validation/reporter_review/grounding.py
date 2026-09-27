@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from mellea_lrc.llm.fuzziness import FuzzinessOption
-from mellea_lrc.llm.grounding import EvidenceCandidate, GroundingEvidence
+from mellea_lrc.matching.fuzziness import FuzzinessOption
+from mellea_lrc.matching.grounding import EvidenceCandidate, GroundingEvidence
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.citations.reporter_lookup import (
     ReporterAmbiguousReviewDecision,

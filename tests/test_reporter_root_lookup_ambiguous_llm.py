@@ -13,7 +13,7 @@ from mellea_lrc.model import Span
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactAmbiguityOutcome
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.validation._support.reporter_ambiguous_llm import (
+from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm.reviewer import (
     ReporterAmbiguousReviewDecision,
     ReporterAmbiguousReviewOutcome,
 )

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from mellea_lrc.config.extraction import ExtractionRules, stable
-from mellea_lrc.extraction._site_hunting.review import DocketSiteReviewer
 from mellea_lrc.extraction.case_names import resolve_case_names
 from mellea_lrc.extraction.colocations import resolve_colocations
 from mellea_lrc.extraction.courts import resolve_courts
@@ -15,6 +14,7 @@ from mellea_lrc.extraction.docket_root_equivalence import (
     review_docket_root_equivalence,
 )
 from mellea_lrc.extraction.docket_site_hunting import hunt_docket_locators
+from mellea_lrc.extraction.docket_site_hunting.review import DocketSiteReviewer
 from mellea_lrc.extraction.full_reporter_locator import find_full_reporter_locators
 from mellea_lrc.extraction.pin_cites import resolve_pin_cites
 from mellea_lrc.extraction.roots import form_roots

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
 import json
 
 import pytest
@@ -21,10 +20,13 @@ from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.ivr import IvrRun
 from mellea_lrc.validation.docket_root_lookup_review import (
     STAGE,
+    docket_root_lookup_review,
+)
+from mellea_lrc.validation.docket_root_lookup_review import reviewer as review_module
+from mellea_lrc.validation.docket_root_lookup_review.reviewer import (
     DocketLookupReviewContext,
     DocketLookupReviewOutcome,
     IvrDocketLookupReviewer,
-    docket_root_lookup_review,
 )
 
 SOURCE = "Smith v. Jones, No. 05-4206 (2d Cir. 2007)."
@@ -282,9 +284,7 @@ def test_supported_search_aliases_reach_the_review_context() -> None:
         "date_filed": "2007-09-03",
     }
     parsed = CourtListenerSearchResult.model_validate(raw)
-    module = importlib.import_module("mellea_lrc.validation.docket_root_lookup_review")
-
-    summary = module._record_summary(raw, parsed, "o")
+    summary = review_module._record_summary(raw, parsed, "o")
 
     assert summary["docketNumber"] == "05-4206"
     assert summary["caseName"] == summary["caseNameFull"] == "Smith v. Jones"
@@ -457,9 +457,7 @@ def test_empty_partial_search_records_its_limitation_without_model_call() -> Non
 def test_docket_date_checks_chronological_compatibility(
     cited: str | None, filed: str | None, expected: MatchResult
 ) -> None:
-    module = importlib.import_module("mellea_lrc.validation.docket_root_lookup_review")
-
-    assert module._docket_date_compatibility(cited, filed) is expected
+    assert review_module._docket_date_compatibility(cited, filed) is expected
 
 
 @pytest.mark.parametrize("decision", [_decision(99), _decision(0, date="mismatch")])
@@ -517,8 +515,7 @@ def test_ivr_prompt_distinguishes_docket_and_opinion_dates(monkeypatch: pytest.M
         captured.append(spec)
         return _run()
 
-    module = importlib.import_module("mellea_lrc.validation.docket_root_lookup_review")
-    monkeypatch.setattr(module, "run_instruct_ivr", fake_ivr)
+    monkeypatch.setattr(review_module, "run_instruct_ivr", fake_ivr)
 
     outcome = asyncio.run(IvrDocketLookupReviewer(session=object(), model_options={})(context))
 

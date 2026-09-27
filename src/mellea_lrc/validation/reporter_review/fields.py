@@ -6,7 +6,7 @@ from mellea_lrc.courtlistener import CourtListenerDocket
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.span import Span
-from mellea_lrc.validation._support.reporter_review_grounding import ReporterReviewDecision
+from mellea_lrc.validation.reporter_review.grounding import ReporterReviewDecision
 
 
 def append_corrections(

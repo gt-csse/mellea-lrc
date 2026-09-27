@@ -10,7 +10,7 @@ from mellea_lrc.model.citations.fields.court import Court, court_id_if_unique
 from mellea_lrc.model.citations.fields.reporter import normalize_reporter_locator
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactLookupQuery
-from mellea_lrc.validation._support.party_names import compare_case_names
+from mellea_lrc.validation.reporter_exact.party_names import compare_case_names
 
 
 def locator_present(cluster: CourtListenerCluster, query: ReporterExactLookupQuery) -> bool | None:

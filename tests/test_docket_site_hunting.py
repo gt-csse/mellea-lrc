@@ -13,8 +13,8 @@ from mellea_lrc.api import (
     hunt_docket_locators,
     resolve_colocations,
 )
-from mellea_lrc.extraction._site_hunting.candidates import suspected_dockets
-from mellea_lrc.extraction._site_hunting.review import DocketSiteDecision, IvrDocketReviewer
+from mellea_lrc.extraction.docket_site_hunting import suspected_dockets
+from mellea_lrc.extraction.docket_site_hunting.review import DocketSiteDecision, IvrDocketReviewer
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation, Span
 
 STAGE = "3_docket_locator_site_hunting"

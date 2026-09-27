@@ -3,7 +3,7 @@
 import pytest
 
 from mellea_lrc.model.citations.fields.case_name import CaseName
-from mellea_lrc.validation._support.party_names import compare_case_names
+from mellea_lrc.validation.reporter_exact.party_names import compare_case_names
 
 
 @pytest.mark.parametrize(

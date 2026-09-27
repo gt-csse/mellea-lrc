@@ -5,10 +5,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from mellea_lrc.matching.literal import fuzzy_literal
 from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
-from mellea_lrc.text_match import fuzzy_literal
 
 STAGE = "2_docket_locators"
 

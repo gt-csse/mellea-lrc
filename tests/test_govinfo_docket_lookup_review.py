@@ -14,10 +14,8 @@ from mellea_lrc.model.citations.docket_lookup import (
 from mellea_lrc.model.citations.fields.case_name import CaseName
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.validation.govinfo_docket_lookup import govinfo_docket_lookup
-from mellea_lrc.validation.govinfo_docket_lookup_review import (
-    GovInfoDocketReviewContext,
-    govinfo_docket_lookup_review,
-)
+from mellea_lrc.validation.govinfo_docket_lookup_review import govinfo_docket_lookup_review
+from mellea_lrc.validation.govinfo_docket_lookup_review.reviewer import GovInfoDocketReviewContext
 
 
 def _input(*, results: list[dict[str, object]]) -> Document:

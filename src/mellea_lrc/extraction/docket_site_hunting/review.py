@@ -13,11 +13,11 @@ from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from mellea_lrc.extraction._site_hunting.candidates import DocketSiteCandidate
+from mellea_lrc.extraction.docket_site_hunting.candidates import DocketSiteCandidate
 from mellea_lrc.llm.config import llm_api_config_from_env, start_mellea_session_from_env
-from mellea_lrc.llm.fuzziness import FuzzinessOption
-from mellea_lrc.llm.grounding import EvidenceCandidate, GroundingEvidence
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
+from mellea_lrc.matching.fuzziness import FuzzinessOption
+from mellea_lrc.matching.grounding import EvidenceCandidate, GroundingEvidence
 from mellea_lrc.model.ivr import IvrRun
 
 if TYPE_CHECKING:
