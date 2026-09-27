@@ -189,6 +189,38 @@ def test_partial_page_failure_is_saved_and_other_queries_continue() -> None:
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
+def test_proxy_rate_limit_retries_same_page_and_retains_failure_trace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(lookup_module.time, "sleep", lambda _seconds: None)
+    query = r"docketNumber:(24\-cv\-123)"
+    failures = 0
+
+    def respond(q: str, kind: Literal["d", "o"], cursor: str | None) -> CourtListenerSearchPage:
+        nonlocal failures
+        if (q, kind, cursor) == (query, "d", None) and failures == 0:
+            failures += 1
+            raise CourtListenerHTTPError(
+                "CourtListener search returned HTTP 429",
+                failure_type="http_error",
+                upstream_status_code=429,
+                url="https://proxy.example/search/",
+                upstream_detail='{"detail":"all tokens exhausted","retry_after_seconds":0}',
+            )
+        return _page({"docket_id": 1, "docketNumber": "24-cv-123"}) if kind == "d" else _page()
+
+    client = FakeSearchClient(respond)
+    after = lookup_module.docket_root_lookup(_rooted("Case No. 24-cv-123."), client=client)
+    lookup = after.roots[0].docket_lookup
+    assert lookup is not None
+    assert client.calls[:2] == [(query, "d", None), (query, "d", None)]
+    assert len(lookup.attempts[0].retry_failures) == 1
+    assert lookup.attempts[0].retry_failures[0].upstream_status_code == 429
+    assert lookup.attempts[0].failure is None
+    assert lookup.candidates[0].record_id == "1"
+    assert Document.model_validate_json(after.model_dump_json()) == after
+
+
 def test_page_budget_records_truncation_and_keeps_last_next_link(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(lookup_module, "MAX_PAGES_PER_ATTEMPT", 2)
     query = r"docketNumber:(24\-cv\-123)"

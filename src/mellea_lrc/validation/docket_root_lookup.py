@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from contextlib import ExitStack
 from typing import Literal, Protocol
 from urllib.parse import parse_qs, urlparse
@@ -26,6 +27,8 @@ MINIMUM_SIMILARITY_PERCENT = 40.0
 # Each saved page retains its upstream `next` link. Reaching this budget is
 # recorded as an attempt failure, so a partial search cannot look complete.
 MAX_PAGES_PER_ATTEMPT = 10
+MAX_RETRIES_PER_PAGE = 2
+MAX_RETRY_DELAY_SECONDS = 60.0
 
 _SEARCH_TYPES: tuple[Literal["d", "o"], ...] = ("d", "o")
 _QUERY_SPECIAL = re.compile(r"(\\|&&|\|\||[+!(){}\[\]^\"~*?:/\-])")
@@ -94,6 +97,22 @@ def _next_cursor(url: str) -> str | None:
     return values[0] if len(values) == 1 and values[0] else None
 
 
+def _retry_after_seconds(error: CourtListenerError) -> float | None:
+    """Honor a proxy's bounded retry delay for an exhausted search token pool."""
+    if error.upstream_status_code != 429 or not isinstance(error.upstream_detail, str):
+        return None
+    try:
+        detail = json.loads(error.upstream_detail)
+    except ValueError:
+        return None
+    if not isinstance(detail, dict):
+        return None
+    seconds = detail.get("retry_after_seconds")
+    if not isinstance(seconds, int | float) or isinstance(seconds, bool) or seconds < 0:
+        return None
+    return min(float(seconds), MAX_RETRY_DELAY_SECONDS)
+
+
 def _shortlist(candidates: list[DocketLookupCandidate]) -> tuple[int, ...]:
     """Present each identified record once while keeping all raw hit pointers."""
     indices: list[int] = []
@@ -119,15 +138,24 @@ def _search_attempt(
 ) -> tuple[DocketLookupAttempt, tuple[DocketLookupCandidate, ...]]:
     pages: list[dict] = []
     candidates: list[DocketLookupCandidate] = []
+    retry_failures: list[DocketLookupFailure] = []
     failure: DocketLookupFailure | None = None
     cursor: str | None = None
     seen_cursors: set[str] = set()
 
     while len(pages) < MAX_PAGES_PER_ATTEMPT:
-        try:
-            page = service.search(query, search_type, cursor=cursor)
-        except CourtListenerError as error:
-            failure = _failure(error)
+        for retry_index in range(MAX_RETRIES_PER_PAGE + 1):
+            try:
+                page = service.search(query, search_type, cursor=cursor)
+                break
+            except CourtListenerError as error:
+                delay = _retry_after_seconds(error)
+                if delay is None or retry_index == MAX_RETRIES_PER_PAGE:
+                    failure = _failure(error)
+                    break
+                retry_failures.append(_failure(error))
+                time.sleep(delay)
+        if failure is not None:
             break
 
         page_index = len(pages)
@@ -169,7 +197,13 @@ def _search_attempt(
         cursor = next_cursor
 
     return (
-        DocketLookupAttempt(source_type=search_type, query=query, pages=tuple(pages), failure=failure),
+        DocketLookupAttempt(
+            source_type=search_type,
+            query=query,
+            pages=tuple(pages),
+            retry_failures=tuple(retry_failures),
+            failure=failure,
+        ),
         tuple(candidates),
     )
 

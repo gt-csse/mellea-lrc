@@ -14,6 +14,7 @@ from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import ValidationError
 
+from mellea_lrc.courtlistener.models import CourtListenerSearchResult
 from mellea_lrc.extraction._support.context_windows import after, before
 from mellea_lrc.llm.config import llm_api_config_from_env, start_mellea_session_from_env
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
@@ -87,19 +88,21 @@ def _short_names(value: object) -> list[str]:
     return names
 
 
-def _record_summary(record: dict[str, object], source_type: str) -> dict[str, object]:
+def _record_summary(
+    record: dict[str, object], parsed: CourtListenerSearchResult, source_type: str
+) -> dict[str, object]:
     """Bound model context while leaving the complete result in the saved lookup."""
     fields: dict[str, object] = {
-        "docketNumber": _short_string(record.get("docketNumber"), 180),
-        "caseName": _short_string(record.get("caseName"), 180),
-        "caseNameFull": _short_string(record.get("caseNameFull"), 220),
-        "court": _short_string(record.get("court"), 160),
-        "court_id": _short_string(record.get("court_id"), 80),
-        "dateFiled": _short_string(record.get("dateFiled"), 40),
+        "docketNumber": _short_string(parsed.docket_number, 180),
+        "caseName": _short_string(parsed.case_name, 180),
+        "caseNameFull": _short_string(parsed.case_name_full, 220),
+        "court": _short_string(parsed.court, 160),
+        "court_id": _short_string(parsed.court_id, 80),
+        "dateFiled": _short_string(parsed.date_filed, 40),
         "dateFiled_meaning": ("case_docket_initiation" if source_type == "d" else "opinion_record_filing"),
-        "absolute_url": _short_string(record.get("absolute_url"), 200),
-        "docket_id": record.get("docket_id"),
-        "cluster_id": record.get("cluster_id"),
+        "absolute_url": _short_string(parsed.absolute_url, 200),
+        "docket_id": parsed.docket_id,
+        "cluster_id": parsed.cluster_id,
     }
     summary = {key: value for key, value in fields.items() if value is not None}
     names = _short_names(record.get("parties") or record.get("party"))
@@ -146,9 +149,9 @@ class DocketLookupReviewContext:
     shortlisted_candidate_indices: tuple[int, ...]
 
     @staticmethod
-    def _court_name_context(record: dict[str, object]) -> dict[str, str | None]:
-        raw_id = record.get("court_id")
-        if not isinstance(raw_id, str):
+    def _court_name_context(record: CourtListenerSearchResult) -> dict[str, str | None]:
+        raw_id = record.court_id
+        if raw_id is None:
             return {"raw_court_id": None, "full_name": None}
         try:
             full_name = Court.from_id(raw_id).name
@@ -174,6 +177,7 @@ class DocketLookupReviewContext:
                 "source_type": attempt.source_type,
                 "query": _short_string(attempt.query, 220),
                 "pages_seen": len(attempt.pages),
+                "retries": len(attempt.retry_failures),
                 "next_page_available": bool(attempt.pages and attempt.pages[-1].get("next")),
                 "failure": _failure_summary(attempt.failure),
             }
@@ -197,6 +201,7 @@ class DocketLookupReviewContext:
             result = results[pointer.result_index]
             if not isinstance(result, dict):
                 raise ValueError("Shortlisted docket candidate must point to a search object")
+            parsed = CourtListenerSearchResult.model_validate(result)
             candidates.append(
                 {
                     "candidate_index": index,
@@ -204,8 +209,8 @@ class DocketLookupReviewContext:
                     "record_id": pointer.record_id,
                     "docket_number": pointer.docket_number,
                     "docket_similarity": pointer.docket_similarity,
-                    "court_name_context": cls._court_name_context(result),
-                    "record_summary": _record_summary(result, pointer.source_type),
+                    "court_name_context": cls._court_name_context(parsed),
+                    "record_summary": _record_summary(result, parsed, pointer.source_type),
                 }
             )
         return cls(

@@ -56,6 +56,7 @@ class DocketLookupAttempt(BaseModel):
     source_type: DocketSearchSource
     query: str = Field(min_length=1)
     pages: tuple[dict[str, JsonValue], ...] = ()
+    retry_failures: tuple[DocketLookupFailure, ...] = ()
     failure: DocketLookupFailure | None = None
 
 
