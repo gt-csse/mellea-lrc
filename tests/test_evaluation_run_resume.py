@@ -9,7 +9,13 @@ from pathlib import Path
 import pytest
 
 from evaluations import __main__ as runner
-from mellea_lrc.api import Document
+from mellea_lrc.api import Document, grow_roots
+from mellea_lrc.model import (
+    DocketLookup,
+    DocketLookupAttempt,
+    DocketLookupFailure,
+    FullDocketCitation,
+)
 
 
 def _dataset(tmp_path: Path, filenames: tuple[str, ...]) -> Path:
@@ -83,3 +89,28 @@ def test_resume_rejects_stale_saved_source_before_provider_calls(
     monkeypatch.setattr(runner, "review_docket_root_equivalence", unexpected_review)
     with pytest.raises(ValueError, match="Saved Document text differs"):
         asyncio.run(runner._run(data_root, tmp_path / "results", roots_dir))
+
+
+def test_transient_docket_search_failure_requires_a_rerun() -> None:
+    document = asyncio.run(grow_roots(Document.from_source("Acme v. Reed, Case No. 2:31-cv-45821.")))
+    root = document.roots[0]
+    assert isinstance(root, FullDocketCitation)
+    recorded = root.record("docket_root_lookup")
+    lookup = DocketLookup(
+        node_id=recorded.nodes[-1].id,
+        attempts=(
+            DocketLookupAttempt(
+                source_type="d",
+                query="docketNumber:(2:31-cv-45821)",
+                failure=DocketLookupFailure(
+                    failure_type="http_error",
+                    message="Rate limit exceeded",
+                    upstream_status_code=429,
+                ),
+            ),
+        ),
+    )
+    incomplete = document.replace_citation(recorded.with_docket_lookup(lookup))
+
+    assert runner._has_transient_docket_lookup_failure(incomplete)
+    assert not runner._has_transient_docket_lookup_failure(document)
