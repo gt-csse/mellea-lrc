@@ -5,9 +5,9 @@ from __future__ import annotations
 import re
 
 from mellea_lrc.config.extraction import ExtractionRules, stable
-from mellea_lrc.extraction._support.context_windows import before as bounded_before
-from mellea_lrc.extraction._support.context_windows import require_structure
+from mellea_lrc.extraction.contextual_reading import require_structure
 from mellea_lrc.extraction.full_reporter_locator import full_reporter_readings
+from mellea_lrc.model.citation_windows import before as bounded_before
 from mellea_lrc.model.citations import CaseName, FullCitationVariant, FullReporterCitation
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span

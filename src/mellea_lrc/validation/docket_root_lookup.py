@@ -11,8 +11,8 @@ from urllib.parse import parse_qs, urlparse
 
 from mellea_lrc.courtlistener import CourtListenerClient, CourtListenerError
 from mellea_lrc.courtlistener.models import CourtListenerSearchPage
-from mellea_lrc.llm.fuzziness import FuzzinessOption
-from mellea_lrc.llm.grounding import EvidenceCandidate, GroundingEvidence
+from mellea_lrc.matching.fuzziness import FuzzinessOption
+from mellea_lrc.matching.grounding import EvidenceCandidate, GroundingEvidence
 from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.citations.docket_lookup import (
     DocketLookup,

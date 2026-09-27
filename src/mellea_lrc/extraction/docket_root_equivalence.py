@@ -14,9 +14,9 @@ from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
 
 from mellea_lrc.llm.config import llm_api_config_from_env, start_mellea_session_from_env
-from mellea_lrc.llm.fuzziness import FuzzinessOption
-from mellea_lrc.llm.grounding import EvidenceCandidate, GroundingEvidence
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
+from mellea_lrc.matching.fuzziness import FuzzinessOption
+from mellea_lrc.matching.grounding import EvidenceCandidate, GroundingEvidence
 from mellea_lrc.model.citations import FullDocketCitation, latest
 from mellea_lrc.model.citations.docket_root_equivalence import DocketRootPartition, DocketRootReview
 from mellea_lrc.model.document import Document

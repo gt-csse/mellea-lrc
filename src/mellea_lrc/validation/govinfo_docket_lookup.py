@@ -9,8 +9,8 @@ from contextlib import ExitStack
 from typing import Protocol
 
 from mellea_lrc.govinfo import GovInfoClient, GovInfoError, GovInfoSearchPage, govinfo_uscourts_docket_query
-from mellea_lrc.llm.fuzziness import FuzzinessOption
-from mellea_lrc.llm.grounding import EvidenceCandidate, GroundingEvidence
+from mellea_lrc.matching.fuzziness import FuzzinessOption
+from mellea_lrc.matching.grounding import EvidenceCandidate, GroundingEvidence
 from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.citations.docket_lookup import DocketLookupFailure
 from mellea_lrc.model.citations.govinfo_lookup import (

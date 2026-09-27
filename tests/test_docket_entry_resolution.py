@@ -12,8 +12,8 @@ from mellea_lrc.api import (
     resolve_colocations,
     resolve_docket_entries,
 )
-from mellea_lrc.extraction._site_hunting.candidates import DocketSiteCandidate
-from mellea_lrc.extraction._site_hunting.review import DocketSiteDecision
+from mellea_lrc.extraction.docket_site_hunting.candidates import DocketSiteCandidate
+from mellea_lrc.extraction.docket_site_hunting.review import DocketSiteDecision
 from mellea_lrc.model import DocketEntryField, Document, FullDocketCitation
 
 STAGE = "4_docket_entries"

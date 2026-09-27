@@ -15,7 +15,7 @@ from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactLookupOutcome,
 )
 from mellea_lrc.model.document import Document
-from mellea_lrc.validation._support.reporter_exact_fields import (
+from mellea_lrc.validation.reporter_exact.fields import (
     candidate_court_id,
     case_name_result,
     court_result,
