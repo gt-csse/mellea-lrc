@@ -10,7 +10,7 @@ from typing import Literal
 import pytest
 
 from mellea_lrc.api import Document, grow_roots
-from mellea_lrc.courtlistener import CourtListenerHTTPError
+from mellea_lrc.courtlistener import CourtListenerHTTPError, CourtListenerTransportError
 from mellea_lrc.courtlistener.models import CourtListenerSearchPage
 from mellea_lrc.model import FullDocketCitation
 
@@ -270,9 +270,61 @@ def test_plain_text_rate_limit_uses_bounded_backoff_and_recovers(
     assert lookup.candidates[0].record_id == "1"
 
 
+def test_read_timeout_retries_same_page_and_keeps_failure_trace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delays: list[float] = []
+    monkeypatch.setattr(lookup_module.time, "sleep", delays.append)
+    query = r"docketNumber:(24\-cv\-123)"
+    next_url = "https://www.courtlistener.com/api/rest/v4/search/?cursor=second"
+    first_page = _page({"docket_id": 1, "docketNumber": "24-cv-123"}, next_url=next_url)
+    second_page = _page({"docket_id": 2, "docketNumber": "24-cv-124"})
+    timeouts = 0
+
+    def respond(q: str, kind: Literal["d", "o"], cursor: str | None) -> CourtListenerSearchPage:
+        nonlocal timeouts
+        if (q, kind, cursor) == (query, "d", None):
+            return first_page
+        if (q, kind, cursor) == (query, "d", "second"):
+            if timeouts < 2:
+                timeouts += 1
+                raise CourtListenerTransportError(
+                    "CourtListener search failed before a response was received",
+                    failure_type="transport_error",
+                    url="https://proxy.example/search/",
+                    upstream_detail="The read operation timed out",
+                )
+            return second_page
+        return _page()
+
+    client = FakeSearchClient(respond)
+    after = lookup_module.docket_root_lookup(_rooted("Case No. 24-cv-123."), client=client)
+    lookup = after.roots[0].docket_lookup
+    assert lookup is not None
+    assert client.calls[:4] == [
+        (query, "d", None),
+        (query, "d", "second"),
+        (query, "d", "second"),
+        (query, "d", "second"),
+    ]
+    assert delays == [1.0, 2.0]
+    assert lookup.attempts[0].pages == (first_page.raw_json, second_page.raw_json)
+    assert [failure.failure_type for failure in lookup.attempts[0].retry_failures] == [
+        "transport_error",
+        "transport_error",
+    ]
+    assert [failure.upstream_detail for failure in lookup.attempts[0].retry_failures] == [
+        "The read operation timed out",
+        "The read operation timed out",
+    ]
+    assert lookup.attempts[0].failure is None
+    assert [candidate.record_id for candidate in lookup.candidates[:2]] == ["1", "2"]
+
+
 @pytest.mark.parametrize("detail", ['{"retry_after_seconds":1359}', {"retry_after_seconds": 1359}])
 def test_provider_delay_beyond_retry_bound_is_saved_without_waiting(
-    monkeypatch: pytest.MonkeyPatch, detail: str | dict[str, int],
+    monkeypatch: pytest.MonkeyPatch,
+    detail: str | dict[str, int],
 ) -> None:
     monkeypatch.setattr(lookup_module.time, "sleep", lambda _seconds: pytest.fail("Unexpected wait"))
     query = r"docketNumber:(24\-cv\-123)"
