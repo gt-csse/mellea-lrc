@@ -149,3 +149,20 @@ def test_base_url_must_be_configured_without_public_fallback(monkeypatch: pytest
 
     with pytest.raises(CourtListenerConfigurationError):
         CourtListenerClient()
+
+
+def test_default_proxy_config_does_not_send_saved_token_or_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("COURTLISTENER_BASE_URL", "https://proxy.example/api/rest/v4/")
+    monkeypatch.setenv("COURTLISTENER_API_TOKEN", "saved-token")
+    monkeypatch.setenv("MELLEA_LRC_COURTLISTENER_POOL", "reserved")
+
+    client = CourtListenerClient()
+    try:
+        assert client.config.token is None
+        assert client.config.pool is None
+        assert "Authorization" not in client._headers()
+        assert "x-cl-pool" not in client._headers()
+    finally:
+        client.close()
