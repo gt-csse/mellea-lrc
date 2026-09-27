@@ -81,7 +81,7 @@ class CourtListenerConfig:
 
 
 class CourtListenerClient:
-    """Look up exact citations, docket metadata, and docket or opinion search hits."""
+    """Look up citations, search hits, and records through the configured proxy."""
 
     def __init__(
         self,
@@ -218,12 +218,64 @@ class CourtListenerClient:
             )
         return docket
 
+    def _get_raw_record(self, endpoint: str, record_id: str, label: str) -> dict[str, Any] | None:
+        if not record_id.isdecimal():
+            raise ValueError(f"CourtListener {label} ID must contain only decimal digits")
+        url = self.config.base_url.rstrip("/") + f"/{endpoint}/{record_id}/"
+        try:
+            response = self._http_client.get(url, headers=self._headers(), timeout=45)
+        except httpx.TransportError as exc:
+            raise CourtListenerTransportError(
+                f"CourtListener {label} lookup failed before a response was received",
+                failure_type="transport_error",
+                url=url,
+                upstream_detail=str(exc),
+            ) from exc
+
+        if response.status_code == 404:
+            return None
+        if response.status_code >= 400:
+            raise CourtListenerHTTPError(
+                f"CourtListener {label} lookup returned HTTP {response.status_code}",
+                failure_type="http_error",
+                upstream_status_code=response.status_code,
+                url=str(response.url),
+                upstream_detail=response.text[:500],
+            )
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise CourtListenerPayloadError(
+                f"CourtListener {label} lookup returned invalid JSON",
+                failure_type="invalid_json",
+                upstream_status_code=response.status_code,
+                url=str(response.url),
+                upstream_detail=response.text[:500],
+            ) from exc
+        if not isinstance(payload, dict):
+            raise CourtListenerPayloadError(
+                f"CourtListener {label} lookup returned an invalid result",
+                failure_type="invalid_payload",
+                upstream_status_code=response.status_code,
+                url=str(response.url),
+            )
+        return payload
+
+    def get_opinion(self, opinion_id: str) -> dict[str, Any] | None:
+        """Return an opinion's full upstream JSON, or None when it is missing."""
+        return self._get_raw_record("opinions", opinion_id, "opinion")
+
+    def get_recap_document(self, recap_document_id: str) -> dict[str, Any] | None:
+        """Return a RECAP document's full upstream JSON, or None when missing."""
+        return self._get_raw_record("recap-documents", recap_document_id, "RECAP document")
+
     def search(
-        self, q: str, search_type: Literal["d", "o"], cursor: str | None = None
+        self, q: str, search_type: Literal["d", "o", "rd"], cursor: str | None = None
     ) -> CourtListenerSearchPage:
-        """Search dockets or opinions and return one page in upstream order."""
-        if search_type not in {"d", "o"}:
-            raise ValueError("CourtListener search type must be 'd' or 'o'")
+        """Search dockets, opinions, or RECAP documents in upstream order."""
+        if search_type not in {"d", "o", "rd"}:
+            raise ValueError("CourtListener search type must be 'd', 'o', or 'rd'")
         url = self.config.base_url.rstrip("/") + "/search/"
         params = {"q": q, "type": search_type}
         if cursor is not None:

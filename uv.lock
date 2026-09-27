@@ -1385,6 +1385,7 @@ dependencies = [
     { name = "httpx" },
     { name = "mellea" },
     { name = "pydantic" },
+    { name = "pypdf" },
     { name = "python-dotenv" },
     { name = "rapidfuzz" },
     { name = "reporters-db" },
@@ -1410,6 +1411,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "mellea", specifier = ">=0.7,<0.8" },
     { name = "pydantic", specifier = ">=2,<3" },
+    { name = "pypdf", specifier = ">=6,<7" },
     { name = "python-dotenv", specifier = ">=1,<2" },
     { name = "rapidfuzz", specifier = ">=3.14.5,<4" },
     { name = "reporters-db", specifier = ">=3.2,<4" },
@@ -2341,6 +2343,15 @@ name = "pylatexenc"
 version = "2.10"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5d/ab/34ec41718af73c00119d0351b7a2531d2ebddb51833a36448fc7b862be60/pylatexenc-2.10.tar.gz", hash = "sha256:3dd8fd84eb46dc30bee1e23eaab8d8fb5a7f507347b23e5f38ad9675c84f40d3", size = 162597, upload-time = "2021-04-06T07:56:07.854Z" }
+
+[[package]]
+name = "pypdf"
+version = "6.19.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1f/ac/63d71aaedb59acbcdef491e6ca6469165e3771c9c74358204818fd9bc5a6/pypdf-6.19.0.tar.gz", hash = "sha256:bbc43aca292369ccc6cbc8a921991ecf2538a3587ab5a116eff06c321d647155", size = 7033266, upload-time = "2026-09-16T09:32:05.946Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3c/2c/c43c03eaf630435f023f1dc61ec4a4a78951ad5530a62c71cc89bde307b7/pypdf-6.19.0-py3-none-any.whl", hash = "sha256:7e5d6e730e7dae87d560a2cee218b852f6498c8be61966f3cd02ead971e48d14", size = 395480, upload-time = "2026-09-16T09:32:04.087Z" },
+]
 
 [[package]]
 name = "pypdfium2"

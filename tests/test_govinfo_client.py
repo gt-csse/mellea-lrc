@@ -13,6 +13,7 @@ from mellea_lrc.govinfo import (
     GovInfoClient,
     GovInfoConfig,
     GovInfoError,
+    GovInfoGranulesPage,
     govinfo_uscourts_docket_query,
 )
 
@@ -76,6 +77,23 @@ def test_govinfo_search_sends_package_query_and_returns_raw_page() -> None:
             "timeout": 45,
         }
     ]
+
+
+def test_govinfo_search_can_request_default_granule_results() -> None:
+    payload = {
+        "count": 1,
+        "results": [{"packageId": "USCOURTS-nyd-1_24-cv-123", "granuleId": "opinion-1"}],
+    }
+    session = _Session(_Response(payload))
+    client = GovInfoClient(GovInfoConfig(api_key="test-secret"), session=session)  # type: ignore[arg-type]
+
+    result = client.search('collection:uscourts and "550 U.S. 544"', result_level="default")
+
+    assert result.results[0]["granuleId"] == "opinion-1"
+    assert session.calls[0]["json"]["resultLevel"] == "default"
+    with pytest.raises(ValueError, match="result level"):
+        client.search("query", result_level="granule")  # type: ignore[arg-type]
+    assert len(session.calls) == 1
 
 
 def test_govinfo_key_uses_environment_and_redacts_error_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -146,3 +164,171 @@ def test_govinfo_docket_query_keeps_literal_number() -> None:
         'collection:uscourts casenumber:("20 Civ. 6835")'
     )
     assert govinfo_uscourts_docket_query('X " y') == ('collection:uscourts casenumber:("X \\" y")')
+
+
+def test_govinfo_granules_page_uses_next_page_mark_and_preserves_raw_metadata() -> None:
+    requests: list[httpx.Request] = []
+    payload = {
+        "count": 2,
+        "nextPage": "https://api.govinfo.gov/packages/USCOURTS-nyd-1_24-cv-123/granules?offsetMark=next%2Bmark&pageSize=1&api_key=secret",
+        "granules": [
+            {
+                "granuleId": "USCOURTS-nyd-1_24-cv-123-0",
+                "title": "Opinion",
+                "granuleLink": "https://api.govinfo.gov/packages/USCOURTS-nyd-1_24-cv-123/granules/USCOURTS-nyd-1_24-cv-123-0/summary",
+            }
+        ],
+        "otherMetadata": {"requestKey": "secret"},
+    }
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=payload)
+
+    session = httpx.Client(transport=httpx.MockTransport(respond))
+    client = GovInfoClient(GovInfoConfig(api_key="secret"), session=session)
+    first = client.list_granules("USCOURTS-nyd-1_24-cv-123", page_size=1)
+    client.list_granules("USCOURTS-nyd-1_24-cv-123", offset_mark=first.next_offset_mark or "")
+
+    assert isinstance(first, GovInfoGranulesPage)
+    assert first.count == 2
+    assert first.next_offset_mark == "next+mark"
+    assert first.granules == tuple(payload["granules"])
+    assert first.raw_json["otherMetadata"] == {"requestKey": "[redacted]"}
+    assert "secret" not in first.raw_json["nextPage"]
+    assert requests[0].url.path == "/packages/USCOURTS-nyd-1_24-cv-123/granules"
+    assert dict(requests[0].url.params) == {"offsetMark": "*", "pageSize": "1", "api_key": "secret"}
+    assert requests[1].url.params["offsetMark"] == "next+mark"
+
+
+def test_govinfo_granule_summary_returns_raw_download_links_and_checks_identity() -> None:
+    requests: list[httpx.Request] = []
+    summary = {
+        "packageId": "USCOURTS-nyd-1_24-cv-123",
+        "granuleId": "opinion-1",
+        "dateIssued": "2024-06-01",
+        "download": {
+            "pdfLink": "https://api.govinfo.gov/packages/USCOURTS-nyd-1_24-cv-123/granules/opinion-1/pdf"
+        },
+        "nested": {"value": 4, "echoed_key": "secret"},
+    }
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=summary)
+
+    session = httpx.Client(transport=httpx.MockTransport(respond))
+    client = GovInfoClient(GovInfoConfig(api_key="secret"), session=session)
+
+    result = client.get_granule_summary("USCOURTS-nyd-1_24-cv-123", "opinion-1")
+    assert result["download"] == summary["download"]
+    assert result["nested"] == {"value": 4, "echoed_key": "[redacted]"}
+    assert requests[0].url.path.endswith("/granules/opinion-1/summary")
+    assert requests[0].url.params["api_key"] == "secret"
+    summary["granuleId"] = "different"
+    with pytest.raises(GovInfoError) as raised:
+        client.get_granule_summary("USCOURTS-nyd-1_24-cv-123", "opinion-1")
+    assert raised.value.failure_type == "invalid_payload"
+
+
+def test_govinfo_download_pdf_uses_configured_key_only_on_valid_api_link() -> None:
+    requests: list[httpx.Request] = []
+    pdf = b"%PDF-1.7\nbody bytes"
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, content=pdf, headers={"Content-Type": "application/pdf"})
+
+    session = httpx.Client(transport=httpx.MockTransport(respond))
+    client = GovInfoClient(GovInfoConfig(api_key="secret"), session=session)
+    url = "https://api.govinfo.gov/packages/USCOURTS-nyd-1_24-cv-123/granules/opinion-1/pdf"
+
+    assert client.download_pdf(url) == pdf
+    assert dict(requests[0].url.params) == {"api_key": "secret"}
+    assert requests[0].headers["Accept"] == "application/pdf"
+    for invalid in (
+        "https://evil.example/packages/USCOURTS-nyd-1_24-cv-123/granules/opinion-1/pdf",
+        "https://api.govinfo.gov.evil.example/packages/USCOURTS-nyd-1_24-cv-123/pdf",
+        "http://api.govinfo.gov/packages/USCOURTS-nyd-1_24-cv-123/pdf",
+        "https://api.govinfo.gov/packages/USCOURTS-nyd-1_24-cv-123/granules/opinion-1/summary",
+        url + "?api_key=attacker-key",
+        "https://api.govinfo.gov/packages/USCOURTS-nyd-1_24-cv-123/granules/%2E%2E/pdf",
+    ):
+        with pytest.raises(ValueError, match="PDF URL"):
+            client.download_pdf(invalid)
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("method", ["list", "summary", "pdf"])
+def test_govinfo_granule_get_errors_are_structured_and_redacted(method: str) -> None:
+    def respond(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"message": "secret unavailable"})
+
+    session = httpx.Client(transport=httpx.MockTransport(respond))
+    client = GovInfoClient(GovInfoConfig(api_key="secret"), session=session)
+    with pytest.raises(GovInfoError) as raised:
+        if method == "list":
+            client.list_granules("USCOURTS-nyd-1_24-cv-123")
+        elif method == "summary":
+            client.get_granule_summary("USCOURTS-nyd-1_24-cv-123", "opinion-1")
+        else:
+            client.download_pdf("https://api.govinfo.gov/packages/USCOURTS-nyd-1_24-cv-123/pdf")
+    error = raised.value
+    assert error.failure_type == "http_error"
+    assert error.upstream_status_code == 503
+    assert "secret" not in str(error)
+    assert "secret" not in (error.url or "")
+    assert "secret" not in repr(error.upstream_detail)
+
+
+@pytest.mark.parametrize(
+    "payload", [[], {"count": 1, "granules": ["bad"]}, {"count": 1, "granules": [], "nextPage": "?page=2"}]
+)
+def test_govinfo_rejects_invalid_granule_pages(payload: object) -> None:
+    session = httpx.Client(transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=payload)))
+    client = GovInfoClient(GovInfoConfig(api_key="secret"), session=session)
+    with pytest.raises(GovInfoError) as raised:
+        client.list_granules("USCOURTS-nyd-1_24-cv-123")
+    assert raised.value.failure_type == "invalid_payload"
+
+
+def test_govinfo_granule_transport_error_and_invalid_json_are_structured() -> None:
+    def disconnected(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(f"secret failed at {request.url}", request=request)
+
+    client = GovInfoClient(
+        GovInfoConfig(api_key="secret"), session=httpx.Client(transport=httpx.MockTransport(disconnected))
+    )
+    with pytest.raises(GovInfoError) as raised:
+        client.list_granules("USCOURTS-nyd-1_24-cv-123")
+    assert raised.value.failure_type == "transport_error"
+    assert "secret" not in str(raised.value)
+    assert "secret" not in repr(raised.value.upstream_detail)
+
+    client = GovInfoClient(
+        GovInfoConfig(api_key="secret"),
+        session=httpx.Client(
+            transport=httpx.MockTransport(lambda _request: httpx.Response(200, text="secret invalid"))
+        ),
+    )
+    with pytest.raises(GovInfoError) as raised:
+        client.get_granule_summary("USCOURTS-nyd-1_24-cv-123", "opinion-1")
+    assert raised.value.failure_type == "invalid_json"
+    assert "secret" not in repr(raised.value.upstream_detail)
+
+
+def test_govinfo_pdf_redirect_is_a_structured_failure() -> None:
+    client = GovInfoClient(
+        GovInfoConfig(api_key="secret"),
+        session=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(
+                    302, headers={"Location": "https://outside.example/document.pdf"}
+                )
+            )
+        ),
+    )
+    with pytest.raises(GovInfoError) as raised:
+        client.download_pdf("https://api.govinfo.gov/packages/USCOURTS-nyd-1_24-cv-123/pdf")
+    assert raised.value.failure_type == "http_error"
+    assert raised.value.upstream_status_code == 302
