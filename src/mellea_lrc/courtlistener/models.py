@@ -1,4 +1,4 @@
-"""Values returned by CourtListener's exact reporter citation lookup."""
+"""Values returned by CourtListener's citation lookup, docket, and search APIs."""
 
 from __future__ import annotations
 
@@ -84,3 +84,38 @@ class CourtListenerCitationLookup(_CourtListenerPayload):
     status: int
     clusters: list[CourtListenerCluster] = Field(default_factory=list)
     error_message: str | None = ""
+
+
+class CourtListenerSearchResult(_CourtListenerPayload):
+    """One docket or opinion search hit, with the full upstream object retained."""
+
+    id: str | None = None
+    docket_id: str | None = Field(default=None, validation_alias=AliasChoices("docket_id", "docketId"))
+    cluster_id: str | None = Field(default=None, validation_alias=AliasChoices("cluster_id", "clusterId"))
+    docket_number: str | None = Field(
+        default=None, validation_alias=AliasChoices("docketNumber", "docket_number")
+    )
+    case_name: str | None = Field(default=None, validation_alias=AliasChoices("caseName", "case_name"))
+    case_name_full: str | None = Field(
+        default=None, validation_alias=AliasChoices("caseNameFull", "case_name_full")
+    )
+    court_id: str | None = Field(default=None, validation_alias=AliasChoices("court_id", "courtId"))
+    court: str | None = None
+    date_filed: str | None = Field(default=None, validation_alias=AliasChoices("dateFiled", "date_filed"))
+    absolute_url: str | None = None
+
+    @field_validator("id", "docket_id", "cluster_id", mode="before")
+    @classmethod
+    def stringify_identifier(cls, value: Any) -> Any:
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
+        return value
+
+
+class CourtListenerSearchPage(_CourtListenerPayload):
+    """One page of search hits and its unmodified pagination links."""
+
+    count: int
+    next: str | None
+    previous: str | None
+    results: list[CourtListenerSearchResult]

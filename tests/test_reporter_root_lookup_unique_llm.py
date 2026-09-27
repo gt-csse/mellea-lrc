@@ -70,6 +70,7 @@ def _decision(
     case_name_quote: str | None = "Bell Atl. Corp. v. Twombly",
     case_name_result: str = "match",
     court_result: str = "match",
+    court_quote: str | None = None,
     date_quote: str | None = "2007",
     date_result: str = "match",
     case_name_normalized: dict[str, str] | None = NORMALIZED_NAME,
@@ -84,8 +85,8 @@ def _decision(
                 "reason": "The written parties identify the retrieved case.",
             },
             "court": {
-                "propose_replacement": False,
-                "quote": None,
+                "propose_replacement": court_quote is not None,
+                "quote": court_quote,
                 "result": court_result,
                 "reason": "The reporter supplies the stated court.",
             },
@@ -145,8 +146,19 @@ def _trace() -> IvrRun:
 
 def test_replacement_intent_and_nullable_quotes_are_required_by_the_provider_schema() -> None:
     schema = ReporterUniqueReviewDecision.model_json_schema()
-    assessment = schema["$defs"]["ReporterUniqueFieldAssessment"]
-    assert set(assessment["required"]) == {"propose_replacement", "quote", "result", "reason"}
+    assert set(schema["$defs"]["ReporterCaseNameAssessment"]["required"]) == {
+        "propose_replacement",
+        "quote",
+        "normalized",
+        "result",
+        "reason",
+    }
+    assert set(schema["$defs"]["ReporterUniqueFieldAssessment"]["required"]) == {
+        "propose_replacement",
+        "quote",
+        "result",
+        "reason",
+    }
 
 
 @pytest.mark.parametrize(
@@ -285,6 +297,40 @@ def test_model_can_change_only_the_normalization_of_an_existing_grounded_name() 
         kind=CaseNameKind.ADVERSARIAL, plaintiff="Bell Atlantic Corp.", defendant="Twombly"
     )
     assert root.case_name_judgments[-1].reading_index == len(root.case_name) - 1
+    assert Document.model_validate_json(after.model_dump_json()) == after
+
+
+def test_grounded_court_and_date_replacements_are_normalized_by_rules() -> None:
+    source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007). Later 2d Cir. 2008."
+    before = _review_input(source=source, incorrect_case_name=True)
+    previous = before.roots[0]
+    decision = _decision(
+        court_quote="2d Cir.",
+        date_quote="2008",
+    )
+
+    after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=FakeReviewer(decision)))
+
+    root = after.roots[0]
+    assert root.reporter_unique_review.decision == decision
+    for field, expected_quote, normalized_attribute, normalized_value in (
+        ("court", "2d Cir.", "id", "ca2"),
+        ("date", "2008", "year", 2008),
+    ):
+        old_readings = getattr(previous, field)
+        readings = getattr(root, field)
+        judgment = getattr(root, f"{field}_judgments")[-1]
+        assert readings[:-1] == old_readings
+        assert len(readings) == len(old_readings) + 1
+        assert readings[-1].quote == expected_quote
+        assert readings[-1].span == Span(
+            source.index(expected_quote), source.index(expected_quote) + len(expected_quote)
+        )
+        assert readings[-1].normalizable
+        assert getattr(readings[-1].get_normalized(), normalized_attribute) == normalized_value
+        assert readings[-1].node_id == root.nodes[-1].id
+        assert judgment.reading_index == len(readings) - 1
+        assert judgment.result is MatchResult.MATCH
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 

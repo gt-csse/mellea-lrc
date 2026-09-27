@@ -20,13 +20,8 @@ from mellea_lrc.validation._support.reporter_unique_llm import (
     ReporterUniqueReviewer,
     ReporterUniqueReviewOutcome,
 )
-from mellea_lrc.validation.stage_names import (
-    REPORTER_ROOT_LOOKUP,
-    REPORTER_ROOT_LOOKUP_UNIQUE_LLM,
-    REPORTER_ROOT_SEARCH,
-)
 
-STAGE = REPORTER_ROOT_LOOKUP_UNIQUE_LLM
+STAGE = "reporter_root_lookup_unique_llm"
 
 
 async def reporter_root_lookup_unique_llm(
@@ -41,7 +36,7 @@ async def reporter_root_lookup_unique_llm(
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if REPORTER_ROOT_LOOKUP not in document.stage_runs:
+    if "reporter_root_lookup" not in document.stage_runs:
         raise ValueError("Complete reporter lookup before its unique model review")
     service = reviewer
     for root in tuple(item for item in document.roots if isinstance(item, FullReporterCitation)):
@@ -80,7 +75,7 @@ async def reporter_root_lookup_unique_llm(
                     failure_reason=failure or "Model review produced no decision",
                 )
             )
-            recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, REPORTER_ROOT_SEARCH)
+            recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, "reporter_root_search")
         else:
             recorded = recorded.with_reporter_unique_review(
                 ReporterUniqueReview(node_id=recorded.nodes[-1].id, decision=decision, ivr=outcome.run)
@@ -95,7 +90,7 @@ async def reporter_root_lookup_unique_llm(
             )
             recorded = recorded.with_identity_judgment(
                 verdict,
-                REPORTER_ROOT_SEARCH if verdict is IdentityVerdict.DEFERRED else None,
+                "reporter_root_search" if verdict is IdentityVerdict.DEFERRED else None,
             )
         document = document.replace_citation(recorded)
     return document.complete(STAGE)

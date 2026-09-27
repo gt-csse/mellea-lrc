@@ -22,15 +22,9 @@ from mellea_lrc.validation._support.reporter_exact_fields import (
     date_result,
     locator_present,
 )
-from mellea_lrc.validation.stage_names import (
-    REPORTER_ROOT_LOOKUP,
-    REPORTER_ROOT_LOOKUP_AMBIGUOUS,
-    REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM,
-    REPORTER_ROOT_LOOKUP_LARGE_CANDIDATE_REVIEW,
-)
 
-STAGE = REPORTER_ROOT_LOOKUP_AMBIGUOUS
-LOOKUP_STAGE = REPORTER_ROOT_LOOKUP
+STAGE = "reporter_root_lookup_ambiguous"
+LOOKUP_STAGE = "reporter_root_lookup"
 CANDIDATE_LIMIT = 20
 
 
@@ -79,7 +73,7 @@ def reporter_root_lookup_ambiguous(
                 )
                 recorded = recorded.with_reporter_exact_ambiguity_resolution(resolution)
                 recorded = recorded.with_identity_judgment(
-                    IdentityVerdict.DEFERRED, REPORTER_ROOT_LOOKUP_LARGE_CANDIDATE_REVIEW
+                    IdentityVerdict.DEFERRED, "reporter_root_lookup_large_candidate_review"
                 )
             else:
                 passing: list[int] = []
@@ -139,7 +133,7 @@ def reporter_root_lookup_ambiguous(
                     recorded.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
                     if selected is not None
                     else recorded.with_identity_judgment(
-                        IdentityVerdict.DEFERRED, REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM
+                        IdentityVerdict.DEFERRED, "reporter_root_lookup_ambiguous_llm"
                     )
                 )
             document = document.replace_citation(recorded)

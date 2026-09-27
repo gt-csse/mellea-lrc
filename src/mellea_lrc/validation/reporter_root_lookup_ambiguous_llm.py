@@ -21,13 +21,8 @@ from mellea_lrc.validation._support.reporter_review_fields import (
     append_field_judgments,
     identity_verdict,
 )
-from mellea_lrc.validation.stage_names import (
-    REPORTER_ROOT_LOOKUP_AMBIGUOUS,
-    REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM,
-    REPORTER_ROOT_SEARCH,
-)
 
-STAGE = REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM
+STAGE = "reporter_root_lookup_ambiguous_llm"
 
 
 async def reporter_root_lookup_ambiguous_llm(
@@ -43,7 +38,7 @@ async def reporter_root_lookup_ambiguous_llm(
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if REPORTER_ROOT_LOOKUP_AMBIGUOUS not in document.stage_runs:
+    if "reporter_root_lookup_ambiguous" not in document.stage_runs:
         raise ValueError("Complete rule-only reporter ambiguity review before model choice")
     service = reviewer
     for root in tuple(item for item in document.roots if isinstance(item, FullReporterCitation)):
@@ -85,7 +80,7 @@ async def reporter_root_lookup_ambiguous_llm(
                     failure_reason=failure or "Model review produced no decision",
                 )
             )
-            recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, REPORTER_ROOT_SEARCH)
+            recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, "reporter_root_search")
         else:
             recorded = recorded.with_reporter_ambiguous_review(
                 ReporterAmbiguousReview(node_id=recorded.nodes[-1].id, decision=decision, ivr=outcome.run)
@@ -93,13 +88,13 @@ async def reporter_root_lookup_ambiguous_llm(
             recorded = append_corrections(recorded, document.text, corrections, decision)
             selected = decision.selected_candidate_index
             if selected is None:
-                recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, REPORTER_ROOT_SEARCH)
+                recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, "reporter_root_search")
             else:
                 recorded = append_field_judgments(recorded, decision, selected)
                 verdict = identity_verdict(recorded, decision, selected, context.selected_docket(selected))
                 recorded = recorded.with_identity_judgment(
                     verdict,
-                    REPORTER_ROOT_SEARCH if verdict is IdentityVerdict.DEFERRED else None,
+                    "reporter_root_search" if verdict is IdentityVerdict.DEFERRED else None,
                 )
         document = document.replace_citation(recorded)
     return document.complete(STAGE)

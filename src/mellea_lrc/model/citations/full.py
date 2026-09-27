@@ -53,7 +53,7 @@ class FullCitation(Citation):
         )
 
     def with_court(self, source: str, span: Span) -> Self:
-        """Quote and normalize an explicit court."""
+        """Append a grounded court and normalize its source quote."""
         reading = CourtField.from_source(source, span, node_id=self._decision_node_id())
         return self._with_log(court=(*self.court, reading))
 
@@ -63,9 +63,10 @@ class FullCitation(Citation):
         return self._with_log(court=(*self.court, reading))
 
     def with_date(self, source: str, span: Span) -> Self:
-        """Quote and normalize a written calendar date."""
+        """Append a grounded date and normalize its source quote."""
+        reading = DateField.from_source(source, span, node_id=self._decision_node_id())
         return self._with_log(
-            date=(*self.date, DateField.from_source(source, span, node_id=self._decision_node_id())),
+            date=(*self.date, reading),
         )
 
     def with_pin_cite(self, source: str, span: Span) -> Self:

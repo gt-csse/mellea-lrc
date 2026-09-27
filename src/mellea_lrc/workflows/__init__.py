@@ -1,1 +1,1 @@
-"""Workflows that compose extraction stages into complete products."""
+"""Readable compositions of independently callable document stages."""

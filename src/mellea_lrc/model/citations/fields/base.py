@@ -12,6 +12,17 @@ from mellea_lrc.model.span import Span
 T = TypeVar("T")
 
 
+def require_all_json_properties(schema: dict[str, object]) -> None:
+    """Require nullable fields explicitly in structured model responses."""
+    properties = schema.get("properties", {})
+    if not isinstance(properties, dict):
+        return
+    schema["required"] = list(properties)
+    for property_schema in properties.values():
+        if isinstance(property_schema, dict):
+            property_schema.pop("default", None)
+
+
 def source_quote(source: str, span: Span) -> str:
     """Return an exact nonempty slice or fail at the quoting boundary."""
     if span.start == span.end or span.end > len(source):

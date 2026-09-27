@@ -27,14 +27,8 @@ from mellea_lrc.validation._support.reporter_exact_fields import (
     date_result,
     locator_present,
 )
-from mellea_lrc.validation.stage_names import (
-    REPORTER_ROOT_LOOKUP,
-    REPORTER_ROOT_LOOKUP_AMBIGUOUS,
-    REPORTER_ROOT_LOOKUP_UNIQUE_LLM,
-    REPORTER_ROOT_SEARCH,
-)
 
-STAGE = REPORTER_ROOT_LOOKUP
+STAGE = "reporter_root_lookup"
 
 
 class ReporterLookupClient(Protocol):
@@ -72,7 +66,7 @@ def _judge_unique(citation: FullReporterCitation, query: ReporterExactLookupQuer
         and locator_present(candidate, query) is not False
     ):
         return citation.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
-    return citation.with_identity_judgment(IdentityVerdict.DEFERRED, REPORTER_ROOT_LOOKUP_UNIQUE_LLM)
+    return citation.with_identity_judgment(IdentityVerdict.DEFERRED, "reporter_root_lookup_unique_llm")
 
 
 def reporter_root_lookup(
@@ -103,7 +97,7 @@ def reporter_root_lookup(
                     outcome=ReporterExactLookupOutcome.UNNORMALIZABLE,
                 )
                 recorded = recorded.with_reporter_exact_lookup(result)
-                recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, REPORTER_ROOT_SEARCH)
+                recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, "reporter_root_search")
             else:
                 locator = reading.get_normalized()
                 query = ReporterExactLookupQuery(
@@ -151,9 +145,11 @@ def reporter_root_lookup(
                     recorded = _judge_unique(recorded, query)
                 elif outcome is ReporterExactLookupOutcome.AMBIGUOUS:
                     recorded = recorded.with_identity_judgment(
-                        IdentityVerdict.DEFERRED, REPORTER_ROOT_LOOKUP_AMBIGUOUS
+                        IdentityVerdict.DEFERRED, "reporter_root_lookup_ambiguous"
                     )
                 else:
-                    recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, REPORTER_ROOT_SEARCH)
+                    recorded = recorded.with_identity_judgment(
+                        IdentityVerdict.DEFERRED, "reporter_root_search"
+                    )
             document = document.replace_citation(recorded)
     return document.complete(STAGE)

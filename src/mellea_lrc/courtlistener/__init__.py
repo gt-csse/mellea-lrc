@@ -14,6 +14,8 @@ from mellea_lrc.courtlistener.models import (
     CourtListenerCluster,
     CourtListenerClusterCitation,
     CourtListenerDocket,
+    CourtListenerSearchPage,
+    CourtListenerSearchResult,
 )
 
 __all__ = [
@@ -27,5 +29,7 @@ __all__ = [
     "CourtListenerError",
     "CourtListenerHTTPError",
     "CourtListenerPayloadError",
+    "CourtListenerSearchPage",
+    "CourtListenerSearchResult",
     "CourtListenerTransportError",
 ]

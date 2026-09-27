@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import httpx
 from dotenv import load_dotenv
 from pydantic import ValidationError
 
-from mellea_lrc.courtlistener.models import CourtListenerCitationLookup, CourtListenerDocket
+from mellea_lrc.courtlistener.models import (
+    CourtListenerCitationLookup,
+    CourtListenerDocket,
+    CourtListenerSearchPage,
+)
 
 _USER_AGENT = "mellea-lrc (+https://github.com/gt-csse/mellea-lrc)"
 
@@ -77,7 +81,7 @@ class CourtListenerConfig:
 
 
 class CourtListenerClient:
-    """Look up an exact reporter citation and its candidate docket."""
+    """Look up exact citations, docket metadata, and docket or opinion search hits."""
 
     def __init__(
         self,
@@ -213,6 +217,57 @@ class CourtListenerClient:
                 url=str(response.url),
             )
         return docket
+
+    def search(
+        self, q: str, search_type: Literal["d", "o"], cursor: str | None = None
+    ) -> CourtListenerSearchPage:
+        """Search dockets or opinions and return one page in upstream order."""
+        if search_type not in {"d", "o"}:
+            raise ValueError("CourtListener search type must be 'd' or 'o'")
+        url = self.config.base_url.rstrip("/") + "/search/"
+        params = {"q": q, "type": search_type}
+        if cursor is not None:
+            params["cursor"] = cursor
+        try:
+            response = self._http_client.get(url, params=params, headers=self._headers(), timeout=45)
+        except httpx.TransportError as exc:
+            raise CourtListenerTransportError(
+                "CourtListener search failed before a response was received",
+                failure_type="transport_error",
+                url=url,
+                upstream_detail=str(exc),
+            ) from exc
+
+        if response.status_code >= 400:
+            raise CourtListenerHTTPError(
+                f"CourtListener search returned HTTP {response.status_code}",
+                failure_type="http_error",
+                upstream_status_code=response.status_code,
+                url=str(response.url),
+                upstream_detail=response.text[:500],
+            )
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise CourtListenerPayloadError(
+                "CourtListener search returned invalid JSON",
+                failure_type="invalid_json",
+                upstream_status_code=response.status_code,
+                url=str(response.url),
+                upstream_detail=response.text[:500],
+            ) from exc
+
+        try:
+            return CourtListenerSearchPage.model_validate(payload)
+        except ValidationError as exc:
+            raise CourtListenerPayloadError(
+                "CourtListener search returned an invalid result page",
+                failure_type="invalid_payload",
+                upstream_status_code=response.status_code,
+                url=str(response.url),
+                upstream_detail=exc.errors(include_url=False),
+            ) from exc
 
     def close(self) -> None:
         """Close the HTTP client when this instance created it."""

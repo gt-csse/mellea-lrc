@@ -6,6 +6,16 @@ from eyecite.models import Reporter
 from pydantic import Field
 
 from mellea_lrc.model.citations.citation import Citation
+from mellea_lrc.model.citations.docket_lookup import (
+    DocketLookup,
+    DocketLookupAttempt,
+    DocketLookupCandidate,
+    DocketLookupFailure,
+    DocketLookupFieldAssessment,
+    DocketLookupReview,
+    DocketLookupReviewDecision,
+    DocketSearchSource,
+)
 from mellea_lrc.model.citations.fields import (
     CaseName,
     CaseNameField,
@@ -77,6 +87,14 @@ __all__ = [
     "DateField",
     "DocketEntryField",
     "DocketLocatorValue",
+    "DocketLookup",
+    "DocketLookupAttempt",
+    "DocketLookupCandidate",
+    "DocketLookupFailure",
+    "DocketLookupFieldAssessment",
+    "DocketLookupReview",
+    "DocketLookupReviewDecision",
+    "DocketSearchSource",
     "FullCitation",
     "FullCitationKind",
     "FullCitationVariant",

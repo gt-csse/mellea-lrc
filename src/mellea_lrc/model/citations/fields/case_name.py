@@ -4,28 +4,21 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import Any, Literal, Self
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
+from mellea_lrc.model.citations.fields.base import (
+    CitationField,
+    normalization_record,
+    require_all_json_properties,
+    source_quote,
+)
 from mellea_lrc.model.span import Span
 
 _VERSUS = re.compile(r"\s+v\.\s+")
 _IN_RE = re.compile(r"In re\s+(.+)", re.IGNORECASE)
 _EX_PARTE = re.compile(r"Ex parte\s+(.+)", re.IGNORECASE)
-
-
-def require_all_json_properties(schema: dict[str, Any]) -> None:
-    """Make nullable model fields explicit for strict provider JSON schemas.
-
-    Python defaults keep ordinary case-name construction concise, but a
-    structured model answer must state every field, using null when absent.
-    """
-    properties = schema.get("properties", {})
-    schema["required"] = list(properties)
-    for property_schema in properties.values():
-        property_schema.pop("default", None)
 
 
 class CaseNameKind(str, Enum):
