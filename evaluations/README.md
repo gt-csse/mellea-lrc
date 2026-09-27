@@ -23,6 +23,10 @@ stage `13_reporter_root_lookup_ambiguous`. Add `--reuse-docket-lookups` when
 they also contain stage `16_docket_root_lookup`: the runner reuses those docket
 search results, then reruns both reporter reviews and the docket review.
 
+To start after docket review, use `--from-docket-review-documents PATH`. The
+saved Documents must contain stage `17_docket_root_lookup_review`; the runner
+then performs GovInfo docket lookup and its review (stages `18` and `19`).
+
 If a run is interrupted, use `--resume-run RUN_DIR`. It verifies the saved
 source and completed Documents, then continues in the same timestamped
 directory without repeating completed filings.
@@ -51,10 +55,10 @@ stage `11_docket_root_equivalence_review`. Its stage score checks assignments fo
 the docket roots it reviewed. The grow-roots field summary uses the roots
 after that review; the `10_roots` stage score remains available separately.
 
-Root validation continues with numbered stages `12` through `17`: four reporter
-lookup and review stages, then CourtListener docket/opinion search and its
-number-based shortlist review. `17_docket_root_lookup_review` is the final
-stage. The docket retrieval stage records evidence but makes no field
-judgment, so only its review appears in the validation stage-precision table.
-The workflow summary includes both docket and reporter root judgments against
-the same annotated-root denominator.
+Root validation continues with numbered stages `12` through `19`: four reporter
+lookup and review stages, CourtListener docket/opinion search and its
+number-based shortlist review, then GovInfo docket lookup and review.
+`19_govinfo_docket_lookup_review` is the final stage. Retrieval stages record
+evidence but make no field judgment, so only the reviews appear in the
+validation stage-precision table. The workflow summary includes docket and
+reporter root judgments against the same annotated-root denominator.

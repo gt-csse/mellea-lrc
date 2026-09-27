@@ -10,6 +10,7 @@ from mellea_lrc.model.citations.docket_lookup import DocketLookup, DocketLookupR
 from mellea_lrc.model.citations.docket_root_equivalence import DocketRootReview
 from mellea_lrc.model.citations.fields import DocketEntryField, FullDocketLocator
 from mellea_lrc.model.citations.full import FullCitation
+from mellea_lrc.model.citations.govinfo_lookup import GovInfoDocketLookup, GovInfoDocketReview
 from mellea_lrc.model.citations.history import Node
 from mellea_lrc.model.citations.kind import FullCitationKind
 from mellea_lrc.model.span import Span
@@ -24,6 +25,8 @@ class FullDocketCitation(FullCitation):
     docket_root_reviews: tuple[DocketRootReview, ...] = ()
     docket_lookup: DocketLookup | None = None
     docket_lookup_review: DocketLookupReview | None = None
+    govinfo_docket_lookup: GovInfoDocketLookup | None = None
+    govinfo_docket_review: GovInfoDocketReview | None = None
 
     @property
     def locator_span(self) -> Span:
@@ -86,6 +89,22 @@ class FullDocketCitation(FullCitation):
             raise ValueError("Docket review must point to the current decision node")
         return self._with_log(docket_lookup_review=result)
 
+    def with_govinfo_docket_lookup(self, result: GovInfoDocketLookup) -> Self:
+        """Save GovInfo opinion-search evidence at the current decision node."""
+        if self.govinfo_docket_lookup is not None:
+            raise ValueError("GovInfo docket lookup is already recorded")
+        if result.node_id != self._decision_node_id():
+            raise ValueError("GovInfo docket lookup must point to the current decision node")
+        return self._with_log(govinfo_docket_lookup=result)
+
+    def with_govinfo_docket_review(self, result: GovInfoDocketReview) -> Self:
+        """Save a later GovInfo review at the current decision node."""
+        if self.govinfo_docket_review is not None:
+            raise ValueError("GovInfo docket lookup is already reviewed")
+        if result.node_id != self._decision_node_id():
+            raise ValueError("GovInfo review must point to the current decision node")
+        return self._with_log(govinfo_docket_review=result)
+
     @model_validator(mode="after")
     def _validate_locator(self) -> Self:
         if not self.locator or self.locator[0].node_id != self.nodes[0].id:
@@ -107,4 +126,23 @@ class FullDocketCitation(FullCitation):
                 and decision.selected_candidate_index not in self.docket_lookup.shortlisted_candidate_indices
             ):
                 raise ValueError("Docket review must select a shortlisted candidate")
+        if self.govinfo_docket_lookup is not None:
+            positions = {node.id: index for index, node in enumerate(self.nodes)}
+            lookup_position = positions.get(self.govinfo_docket_lookup.node_id, -1)
+            if lookup_position < 1:
+                raise ValueError("GovInfo docket lookup must point to a later decision node")
+            if self.govinfo_docket_review is not None:
+                review_position = positions.get(self.govinfo_docket_review.node_id, -1)
+                if review_position <= lookup_position:
+                    raise ValueError("GovInfo review must follow the lookup at a later node")
+                decision = self.govinfo_docket_review.decision
+                if (
+                    decision is not None
+                    and decision.selected_candidate_index is not None
+                    and decision.selected_candidate_index
+                    not in self.govinfo_docket_lookup.shortlisted_candidate_indices
+                ):
+                    raise ValueError("GovInfo review must select a shortlisted candidate")
+        elif self.govinfo_docket_review is not None:
+            raise ValueError("GovInfo review requires a saved lookup")
         return self

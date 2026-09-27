@@ -29,6 +29,12 @@ from mellea_lrc.model.citations.docket_lookup import (
     DocketLookupReview,
     DocketLookupReviewDecision,
 )
+from mellea_lrc.model.citations.govinfo_lookup import (
+    GovInfoDocketLookup,
+    GovInfoDocketReview,
+    GovInfoLookupAttempt,
+    GovInfoLookupCandidate,
+)
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.citations.reporter_lookup import (
     ReporterAmbiguousReviewDecision,
@@ -41,8 +47,15 @@ STAGES = (
     "14_reporter_root_lookup_unique_llm",
     "15_reporter_root_lookup_ambiguous_llm",
     "17_docket_root_lookup_review",
+    "19_govinfo_docket_lookup_review",
 )
-WORKFLOW_STAGES = (*STAGES[:-1], "16_docket_root_lookup", STAGES[-1])
+WORKFLOW_STAGES = (
+    *STAGES[:-2],
+    "16_docket_root_lookup",
+    "17_docket_root_lookup_review",
+    "18_govinfo_docket_lookup",
+    STAGES[-1],
+)
 SCORERS = {stage: f"score_{stage.split('_', 1)[1]}" for stage in STAGES}
 RENDERERS = {stage: f"render_{stage.split('_', 1)[1]}" for stage in STAGES}
 FIELDS = {"case_name", "court", "date"}
@@ -187,7 +200,13 @@ def _roots(tmp_path: Path, source: str = SOURCE, *, docket_stages: bool = True) 
     document = asyncio.run(grow_roots(Document.from_source(_write_source(tmp_path, source))))
     assert len(document.roots) == 2
     if docket_stages:
-        document = document.complete("16_docket_root_lookup").complete("17_docket_root_lookup_review")
+        for stage in (
+            "16_docket_root_lookup",
+            "17_docket_root_lookup_review",
+            "18_govinfo_docket_lookup",
+            "19_govinfo_docket_lookup_review",
+        ):
+            document = document.complete(stage)
     return document
 
 
@@ -326,6 +345,76 @@ def _add_docket_review(
     )
 
 
+def _add_govinfo_review(
+    document: Document,
+    *,
+    selected: bool = True,
+    case_name: str = "match",
+    court: str = "mismatch",
+    date: str = "unavailable",
+) -> Document:
+    root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
+    number_span = root.locator[-1].number_span
+    docket_number = document.text[number_span.start : number_span.end]
+    lookup_node = root.record("18_govinfo_docket_lookup")
+    result = {
+        "packageId": "USCOURTS-nysd-1_24-cv-08705",
+        "granuleId": "USCOURTS-nysd-1_24-cv-08705-0",
+        "caseNumber": docket_number,
+    }
+    lookup = GovInfoDocketLookup(
+        node_id=lookup_node.nodes[-1].id,
+        attempts=(GovInfoLookupAttempt(query="docketNumber:1:24-cv-08705", pages=({"results": [result]},)),),
+        candidates=(
+            GovInfoLookupCandidate(
+                attempt_index=0,
+                page_index=0,
+                result_index=0,
+                package_id=result["packageId"],
+                granule_id=result["granuleId"],
+                court_code="nysd",
+                docket_number=docket_number,
+                docket_similarity=100,
+            ),
+        ),
+        shortlisted_candidate_indices=(0,),
+    )
+    document = document.replace_citation(lookup_node.with_govinfo_docket_lookup(lookup)).complete(
+        "18_govinfo_docket_lookup"
+    )
+    root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
+    review_node = root.record("19_govinfo_docket_lookup_review")
+    assessments = {
+        field: {
+            "propose_replacement": False,
+            "quote": None,
+            "result": result,
+            "reason": "Compared with the selected GovInfo package.",
+        }
+        for field, result in {
+            "docket_number": "match",
+            "case_name": case_name,
+            "court": court,
+            "date": date,
+        }.items()
+    }
+    if not selected:
+        for assessment in assessments.values():
+            assessment["result"] = "unavailable"
+    assessments["case_name"]["normalized"] = NORMALIZED_NAME
+    decision = DocketLookupReviewDecision.model_validate(
+        {
+            "selected_candidate_index": 0 if selected else None,
+            **assessments,
+            "reason": "Reviewed the GovInfo shortlist.",
+        }
+    )
+    review = GovInfoDocketReview(node_id=review_node.nodes[-1].id, decision=decision)
+    return document.replace_citation(review_node.with_govinfo_docket_review(review)).complete(
+        "19_govinfo_docket_lookup_review"
+    )
+
+
 def _model_fields() -> dict[str, object]:
     return {
         "case_name": {
@@ -358,8 +447,11 @@ def _finish_unrouted_stages(document: Document) -> Document:
 
 
 def _complete_reporter_stages(document: Document) -> Document:
-    for stage in STAGES[:-1]:
+    for stage in STAGES[:4]:
         document = document.complete(stage)
+    for stage in ("18_govinfo_docket_lookup", "19_govinfo_docket_lookup_review"):
+        if stage not in document.stage_runs:
+            document = document.complete(stage)
     return document
 
 
@@ -403,11 +495,12 @@ def test_final_score_uses_docket_review_as_latest_checkpoint(tmp_path: Path) -> 
     reporter_lookup = reporter_root_lookup(roots, client=client)
     reviewed_reporter = _finish_unrouted_stages(reporter_lookup)
     final = _add_docket_review(reviewed_reporter)
+    final = final.complete("18_govinfo_docket_lookup").complete("19_govinfo_docket_lookup_review")
 
-    assert final.stage_runs[-6:] == WORKFLOW_STAGES
+    assert final.stage_runs[-len(WORKFLOW_STAGES) :] == WORKFLOW_STAGES
     score = evaluation.score_validate_roots(final)
     assert tuple(stage.stage for stage in score.stages) == STAGES
-    assert score == evaluation.score_validate_roots(final.get_stage("17_docket_root_lookup_review"))
+    assert score == evaluation.score_validate_roots(final.get_stage("19_govinfo_docket_lookup_review"))
 
 
 @pytest.mark.parametrize("name", (*SCORERS.values(), "score_validate_roots"))
@@ -456,6 +549,38 @@ def test_docket_review_scores_selected_fields_by_locator_and_preserves_stage_bou
         "## 17_docket_root_lookup_review"
     )
     assert "## 16_docket_root_lookup\n" not in report
+
+
+def test_govinfo_review_scores_selected_candidate_and_supplies_final_docket_labels(
+    tmp_path: Path,
+) -> None:
+    reviewed = _reviewed_docket(tmp_path)
+    final = _add_govinfo_review(reviewed)
+    docket = next(root for root in final.roots if isinstance(root, FullDocketCitation))
+    assert docket.govinfo_docket_review is not None
+    assert docket.govinfo_docket_review.decision is not None
+    assert docket.govinfo_docket_review.decision.selected_candidate_index == 0
+
+    stage = evaluation.score_govinfo_docket_lookup_review(final)
+    assert stage.metrics == {
+        "case_name": evaluation.Precision(1, 1),
+        "court": evaluation.Precision(0, 1),
+        "date": evaluation.Precision(0, 1),
+    }
+    assert "## 19_govinfo_docket_lookup_review" in evaluation.render_govinfo_docket_lookup_review(stage)
+    assert evaluation._final_docket_field_label(docket, "case_name") == "agrees"
+    assert evaluation._final_docket_field_label(docket, "court") == "disagrees"
+    assert evaluation._final_docket_field_label(docket, "date") == "unavailable"
+
+
+def test_govinfo_lookup_stage_makes_no_judgments(tmp_path: Path) -> None:
+    reviewed = _reviewed_docket(tmp_path)
+    looked_up = _add_govinfo_review(reviewed, selected=False)
+    assert evaluation.score_govinfo_docket_lookup_review(looked_up).metrics == {
+        field: evaluation.Precision(0, 0) for field in FIELDS
+    }
+    docket = next(root for root in looked_up.roots if isinstance(root, FullDocketCitation))
+    assert evaluation._final_docket_field_label(docket, "court") == "agrees"
 
 
 def test_docket_unavailable_without_source_date_matches_not_stated_gold(tmp_path: Path) -> None:
