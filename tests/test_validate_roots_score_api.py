@@ -36,15 +36,15 @@ from mellea_lrc.model.citations.reporter_lookup import (
 )
 
 STAGES = (
-    "docket_root_lookup_review",
-    "reporter_root_lookup",
-    "reporter_root_lookup_ambiguous",
-    "reporter_root_lookup_unique_llm",
-    "reporter_root_lookup_ambiguous_llm",
+    "12_reporter_root_lookup",
+    "13_reporter_root_lookup_ambiguous",
+    "14_reporter_root_lookup_unique_llm",
+    "15_reporter_root_lookup_ambiguous_llm",
+    "17_docket_root_lookup_review",
 )
-WORKFLOW_STAGES = ("docket_root_lookup", *STAGES)
-SCORERS = {stage: f"score_{stage}" for stage in STAGES}
-RENDERERS = {stage: f"render_{stage}" for stage in STAGES}
+WORKFLOW_STAGES = (*STAGES[:-1], "16_docket_root_lookup", STAGES[-1])
+SCORERS = {stage: f"score_{stage.split('_', 1)[1]}" for stage in STAGES}
+RENDERERS = {stage: f"render_{stage.split('_', 1)[1]}" for stage in STAGES}
 FIELDS = {"case_name", "court", "date"}
 SOURCE = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007). Gamma v. Delta, No. 1:24-cv-08705 (S.D.N.Y. 2024)."
 SOURCE_WITHOUT_REPORTER_DATE = (
@@ -187,7 +187,7 @@ def _roots(tmp_path: Path, source: str = SOURCE, *, docket_stages: bool = True) 
     document = asyncio.run(grow_roots(Document.from_source(_write_source(tmp_path, source))))
     assert len(document.roots) == 2
     if docket_stages:
-        document = document.complete("docket_root_lookup").complete("docket_root_lookup_review")
+        document = document.complete("16_docket_root_lookup").complete("17_docket_root_lookup_review")
     return document
 
 
@@ -259,7 +259,7 @@ def _add_docket_review(
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
     number_span = root.locator[-1].number_span
     docket_number = document.text[number_span.start : number_span.end]
-    lookup_node = root.record("docket_root_lookup")
+    lookup_node = root.record("16_docket_root_lookup")
     result = {"cluster_id": 999999, "docketNumber": docket_number}
     lookup = DocketLookup(
         node_id=lookup_node.nodes[-1].id,
@@ -284,10 +284,10 @@ def _add_docket_review(
         shortlisted_candidate_indices=(0,),
     )
     document = document.replace_citation(lookup_node.with_docket_lookup(lookup)).complete(
-        "docket_root_lookup"
+        "16_docket_root_lookup"
     )
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
-    review_node = root.record("docket_root_lookup_review")
+    review_node = root.record("17_docket_root_lookup_review")
     if failed:
         review = DocketLookupReview(node_id=review_node.nodes[-1].id, failure_reason="Model unavailable")
     else:
@@ -311,7 +311,7 @@ def _add_docket_review(
         )
         review = DocketLookupReview(node_id=review_node.nodes[-1].id, decision=decision)
     return document.replace_citation(review_node.with_docket_lookup_review(review)).complete(
-        "docket_root_lookup_review"
+        "17_docket_root_lookup_review"
     )
 
 
@@ -347,7 +347,7 @@ def _finish_unrouted_stages(document: Document) -> Document:
 
 
 def _complete_reporter_stages(document: Document) -> Document:
-    for stage in STAGES[1:]:
+    for stage in STAGES[:-1]:
         document = document.complete(stage)
     return document
 
@@ -377,11 +377,26 @@ def test_validate_roots_composes_stages_in_execution_order(
 
     for stage in WORKFLOW_STAGES:
         runner = run_async if stage.endswith(("_review", "_llm")) else run_sync
-        monkeypatch.setattr(workflow, stage, runner(stage))
+        monkeypatch.setattr(workflow, stage.split("_", 1)[1], runner(stage))
 
     result = asyncio.run(workflow.validate_roots(initial))
     assert tuple(called) == WORKFLOW_STAGES
     assert result.stage_runs == (*initial.stage_runs, *WORKFLOW_STAGES)
+
+
+def test_final_score_uses_docket_review_as_latest_checkpoint(tmp_path: Path) -> None:
+    roots = _roots(tmp_path, docket_stages=False)
+    client = FakeLookupClient(
+        _cluster(1, "Bell Atlantic Corporation v. Twombly", full_name="Bell Atlantic Corporation v. Twombly")
+    )
+    reporter_lookup = reporter_root_lookup(roots, client=client)
+    reviewed_reporter = _finish_unrouted_stages(reporter_lookup)
+    final = _add_docket_review(reviewed_reporter)
+
+    assert final.stage_runs[-6:] == WORKFLOW_STAGES
+    score = evaluation.score_validate_roots(final)
+    assert tuple(stage.stage for stage in score.stages) == STAGES
+    assert score == evaluation.score_validate_roots(final.get_stage("17_docket_root_lookup_review"))
 
 
 @pytest.mark.parametrize("name", (*SCORERS.values(), "score_validate_roots"))
@@ -408,14 +423,16 @@ def test_docket_review_scores_selected_fields_by_locator_and_preserves_stage_bou
     restored = Document.model_validate_json(final.model_dump_json())
     stage = evaluation.score_docket_root_lookup_review(final)
     assert stage == evaluation.score_docket_root_lookup_review(reviewed)
-    assert stage == evaluation.score_docket_root_lookup_review(final.get_stage("docket_root_lookup_review"))
+    assert stage == evaluation.score_docket_root_lookup_review(
+        final.get_stage("17_docket_root_lookup_review")
+    )
     assert stage == evaluation.score_docket_root_lookup_review(restored)
     assert stage.metrics == {
         "case_name": evaluation.Precision(1, 1),
         "court": evaluation.Precision(0, 1),
         "date": evaluation.Precision(0, 1),
     }
-    assert "## docket_root_lookup_review" in evaluation.render_docket_root_lookup_review(stage)
+    assert "## 17_docket_root_lookup_review" in evaluation.render_docket_root_lookup_review(stage)
     workflow = evaluation.score_validate_roots(final)
     assert tuple(score.stage for score in workflow.stages) == STAGES
     assert workflow.fields == {
@@ -424,8 +441,10 @@ def test_docket_review_scores_selected_fields_by_locator_and_preserves_stage_bou
         "date": evaluation.FieldScore(0, 1, 2),
     }
     report = evaluation.render_validate_roots(workflow)
-    assert report.index("## docket_root_lookup_review") < report.index("## reporter_root_lookup\n")
-    assert "## docket_root_lookup\n" not in report
+    assert report.index("## 15_reporter_root_lookup_ambiguous_llm") < report.index(
+        "## 17_docket_root_lookup_review"
+    )
+    assert "## 16_docket_root_lookup\n" not in report
 
 
 def test_docket_undetermined_without_source_date_counts_as_not_stated(tmp_path: Path) -> None:
@@ -572,7 +591,7 @@ def test_not_stated_is_a_final_outcome_only_for_a_processed_root(tmp_path: Path)
 def test_lookup_miss_does_not_predict_an_absent_citation_field(tmp_path: Path) -> None:
     lookup = reporter_root_lookup(_roots(tmp_path, SOURCE_WITHOUT_REPORTER_DATE), client=FakeLookupClient())
     reporter = next(root for root in lookup.roots if isinstance(root, FullReporterCitation))
-    assert any(node.stage == "reporter_root_lookup" for node in reporter.nodes)
+    assert any(node.stage == "12_reporter_root_lookup" for node in reporter.nodes)
     assert not reporter.date
     assert reporter.case_name_judgments == reporter.court_judgments == reporter.date_judgments == ()
 

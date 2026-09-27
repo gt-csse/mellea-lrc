@@ -172,7 +172,7 @@ def test_model_can_select_one_of_all_saved_candidates_after_zero_or_multiple_rul
     assert context.passing_candidate_indices == passing
     assert len(context.rule_results) == len(names)
     assert before.roots[0].reporter_exact_ambiguity_resolution.passing_candidate_indices == passing
-    assert after.get_stage("reporter_root_lookup_ambiguous") == before
+    assert after.get_stage("13_reporter_root_lookup_ambiguous") == before
     root = after.roots[0]
     previous = before.roots[0]
     assert len(root.nodes) == len(previous.nodes) + 1
@@ -195,7 +195,7 @@ def test_model_can_select_one_of_all_saved_candidates_after_zero_or_multiple_rul
     assert root.identity_judgments[-1].next_stage is None
     restored = Document.model_validate_json(after.model_dump_json())
     assert restored == after
-    assert restored.get_stage("reporter_root_lookup_ambiguous") == before
+    assert restored.get_stage("13_reporter_root_lookup_ambiguous") == before
 
 
 def test_no_model_selection_remains_deferred_without_new_candidate_judgments() -> None:
@@ -371,6 +371,6 @@ def test_stage_ignores_rule_selected_root_and_does_not_call_reviewer() -> None:
     assert reviewer.contexts == []
     assert after.roots == before.roots
     assert after.stage_runs[-1] == STAGE
-    assert after.get_stage("reporter_root_lookup_ambiguous") == before
+    assert after.get_stage("13_reporter_root_lookup_ambiguous") == before
     with pytest.raises(ValueError, match="already completed"):
         asyncio.run(reporter_root_lookup_ambiguous_llm(after, reviewer=reviewer))

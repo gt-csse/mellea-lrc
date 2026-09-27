@@ -233,7 +233,7 @@ def test_combined_review_corrects_grounded_name_and_judges_latest_readings() -> 
     assert root.identity_judgments[-1].next_stage is None
     restored = Document.model_validate_json(after.model_dump_json())
     assert restored == after
-    assert restored.get_stage("reporter_root_lookup") == before
+    assert restored.get_stage("12_reporter_root_lookup") == before
     assert restored.get_stage(STAGE) == after
 
 

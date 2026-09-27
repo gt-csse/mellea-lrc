@@ -34,7 +34,10 @@ class IdentityJudgment(BaseModel):
     def _validate_route(self) -> Self:
         if (self.verdict is IdentityVerdict.DEFERRED) != (self.next_stage is not None):
             raise ValueError("Only a deferred identity judgment has a next stage")
-        if self.next_stage is not None and re.fullmatch(r"[a-z][a-z0-9_]*", self.next_stage) is None:
+        if (
+            self.next_stage is not None
+            and re.fullmatch(r"(?:[0-9]+_)?[a-z][a-z0-9_]*", self.next_stage) is None
+        ):
             raise ValueError("A route must name a lowercase stage ID")
         return self
 

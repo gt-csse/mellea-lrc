@@ -99,7 +99,7 @@ def test_transient_docket_search_failure_requires_a_rerun(failure_type: str, sta
     document = asyncio.run(grow_roots(Document.from_source("Acme v. Reed, Case No. 2:31-cv-45821.")))
     root = document.roots[0]
     assert isinstance(root, FullDocketCitation)
-    recorded = root.record("docket_root_lookup")
+    recorded = root.record("16_docket_root_lookup")
     lookup = DocketLookup(
         node_id=recorded.nodes[-1].id,
         attempts=(

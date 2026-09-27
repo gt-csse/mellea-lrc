@@ -14,18 +14,17 @@ from mellea_lrc.validation import (
 
 
 async def validate_roots(document: Document) -> Document:
-    """Run docket candidate review, then reporter exact lookup and review.
+    """Run reporter lookup and review, then docket candidate review.
 
-    Docket retrieval and its model choice preserve independent field assessments;
-    overall docket identity is a subsequent stage. Reporter search and
-    large-candidate review likewise remain later stages.
+    Reporter search and large-candidate review remain future stages. Docket
+    retrieval and its model choice preserve independent field assessments.
     """
-    document = docket_root_lookup(document)
-    document = await docket_root_lookup_review(document)
     document = reporter_root_lookup(document)
     document = reporter_root_lookup_ambiguous(document)
     document = await reporter_root_lookup_unique_llm(document)
     document = await reporter_root_lookup_ambiguous_llm(document)
+    document = docket_root_lookup(document)
+    document = await docket_root_lookup_review(document)
     # TODO: Review opinion evidence for a securely identified record whose
     # cited court or date still disagrees. The cluster's linked docket may
     # contain imported court metadata that identifies the case but assigns

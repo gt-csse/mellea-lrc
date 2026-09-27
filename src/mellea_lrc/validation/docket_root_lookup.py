@@ -22,7 +22,7 @@ from mellea_lrc.model.citations.docket_lookup import (
 )
 from mellea_lrc.model.document import Document
 
-STAGE = "docket_root_lookup"
+STAGE = "16_docket_root_lookup"
 MINIMUM_SIMILARITY_PERCENT = 40.0
 # Each saved page retains its upstream `next` link. Reaching this budget is
 # recorded as an attempt failure, so a partial search cannot look complete.

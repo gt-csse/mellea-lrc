@@ -6,6 +6,7 @@ import json
 import os
 from collections.abc import Awaitable
 from dataclasses import dataclass
+from datetime import date
 from typing import TYPE_CHECKING, Protocol
 
 from dotenv import load_dotenv
@@ -26,6 +27,7 @@ from mellea_lrc.model.citations.docket_lookup import (
     DocketLookupReviewDecision,
 )
 from mellea_lrc.model.citations.fields.court import Court
+from mellea_lrc.model.citations.fields.date import normalize_date
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
@@ -34,7 +36,7 @@ if TYPE_CHECKING:
     from mellea import MelleaSession
 
 
-STAGE = "docket_root_lookup_review"
+STAGE = "17_docket_root_lookup_review"
 MAX_TOKENS = 4000
 MAX_MODEL_ATTEMPTS = 3
 SESSION_ID = "mellea-lrc-docket-review-v1"
@@ -45,9 +47,9 @@ The cited case name, court, date, or even docket number may be wrong. Candidate 
 
 For docket numbers, consider meaningful formatting differences such as punctuation, leading zeroes, and omitted administrative prefixes for a division or case type, but do not assume distinct numbers are equivalent. For case names, consider conventional abbreviations and equivalent party forms, but treat a misspelling as a mismatch. For courts, compare the actual tribunal, including district or department, rather than relying on similar labels. A federal district court and a bankruptcy court in that district are different courts. The citation's written court label determines what it states; do not silently add a bankruptcy designation from the docket number, nearby context, or retrieved record. Court-name context expands known court codes on each side while preserving the original labels. Use undetermined when the evidence cannot establish a comparison.
 
-The cited date is an opinion or decision date. In a type=d docket search record, dateFiled is the date the case docket was initiated; it does not establish the cited opinion date, so the date assessment must be undetermined for a selected type=d record. In a type=o opinion search record, dateFiled is the opinion-record filing date and can be compared with the cited opinion date at the precision stated in the citation. Do not treat a docket initiation date as an opinion date merely because the record also contains a docket_id.
+The cited date is an opinion or decision date. In a type=d docket search record, dateFiled is when the case docket was initiated. Judge only chronological compatibility: a cited decision date on or after the docket filing date is compatible (match); an earlier cited decision date is incompatible (mismatch). A cited year alone is compatible when it is the filing year or later, because the day is unstated. If either date is missing or cannot be read, use undetermined. This compatibility check does not establish the exact opinion date. In a type=o opinion search record, dateFiled is the opinion-record filing date and can be compared with the cited opinion date at the precision stated in the citation.
 
-Different search hits can describe the same case but different opinions, orders, or docket cards. When more than one hit identifies the case, prefer a record that also supports the cited decision date, if one is supplied. If no opinion record supports that date, a matching docket card can still identify the case, but its initiation date leaves the cited decision date undetermined. Do not prefer a differently dated opinion merely because it appears first.
+Different search hits can describe the same case but different opinions, orders, or docket cards. When more than one hit identifies the case, prefer a record that also supports the cited decision date, if one is supplied. A matching docket card can establish chronological compatibility without proving the exact decision date. Do not prefer a differently dated opinion merely because it appears first.
 
 The search-status summary shows whether pagination stopped with another page available or a provider failure occurred. Such a partial candidate set can still be reviewed; make a best-effort choice from the supplied records and explain the limitation in your reason. Do not imply that unseen search results were ruled out.
 
@@ -136,6 +138,24 @@ def _failure_summary(failure: DocketLookupFailure | None) -> dict[str, object] |
         "upstream_status_code": failure.upstream_status_code,
         "url": _short_string(failure.url, 240),
     }
+
+
+def _docket_date_compatibility(cited_quote: str | None, filed_value: object) -> MatchResult:
+    """Compare a cited decision date with case initiation at the cited precision."""
+    if cited_quote is None or not isinstance(filed_value, str):
+        return MatchResult.UNDETERMINED
+    try:
+        cited = normalize_date(cited_quote)
+        filed = date.fromisoformat(filed_value[:10])
+    except ValueError:
+        return MatchResult.UNDETERMINED
+    if cited.month is None:
+        compatible = cited.year >= filed.year
+    elif cited.day is None:
+        compatible = (cited.year, cited.month) >= (filed.year, filed.month)
+    else:
+        compatible = date(cited.year, cited.month, cited.day) >= filed
+    return MatchResult.MATCH if compatible else MatchResult.MISMATCH
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,8 +257,16 @@ class DocketLookupReviewContext:
         if index not in self.shortlisted_candidate_indices:
             return f"selected_candidate_index must be one of {self.shortlisted_candidate_indices}, or null"
         candidate = next(item for item in self.candidates if item["candidate_index"] == index)
-        if candidate["source_type"] == "d" and decision.date.result is not MatchResult.UNDETERMINED:
-            return "A type=d docket dateFiled cannot establish the cited opinion date"
+        if candidate["source_type"] == "d":
+            summary = candidate["record_summary"]
+            if not isinstance(summary, dict):
+                raise ValueError("Saved docket candidate has no record summary")
+            expected = _docket_date_compatibility(self.readings["date"], summary.get("dateFiled"))
+            if decision.date.result is not expected:
+                return (
+                    "For a type=d record, compare the cited decision date only for chronological "
+                    f"compatibility with dateFiled; expected date result: {expected.value}"
+                )
         return None
 
 
@@ -305,7 +333,7 @@ class IvrDocketLookupReviewer:
                 output_format=DocketLookupReviewDecision,
                 requirements=(
                     req(
-                        "Choose only a shortlisted record and assess its supported date evidence.",
+                        "Choose only a shortlisted record and assess its date at the supported precision.",
                         validation_fn=lambda ctx: _validate_review(ctx, context),
                     ),
                 ),
@@ -351,7 +379,7 @@ async def docket_root_lookup_review(
     """Review each docket root once, retaining the choice or complete failure."""
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "docket_root_lookup" not in document.stage_runs:
+    if "16_docket_root_lookup" not in document.stage_runs:
         raise ValueError("Complete docket root lookup before its model review")
     service = reviewer
     for root in tuple(item for item in document.roots if isinstance(item, FullDocketCitation)):

@@ -45,9 +45,10 @@ stage `11_docket_root_equivalence_review`. Its stage score checks assignments fo
 the docket roots it reviewed. The grow-roots field summary uses the roots
 after that review; the `10_roots` stage score remains available separately.
 
-Root validation then saves a CourtListener docket/opinion search for each
-docket root and reviews the number-based shortlist, followed by the reporter
-lookup stages. The docket retrieval stage records evidence but makes no field
+Root validation continues with numbered stages `12` through `17`: four reporter
+lookup and review stages, then CourtListener docket/opinion search and its
+number-based shortlist review. `17_docket_root_lookup_review` is the final
+stage. The docket retrieval stage records evidence but makes no field
 judgment, so only its review appears in the validation stage-precision table.
 The workflow summary includes both docket and reporter root judgments against
 the same annotated-root denominator.
