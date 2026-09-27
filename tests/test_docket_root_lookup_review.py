@@ -8,6 +8,7 @@ import json
 
 import pytest
 
+from mellea_lrc.courtlistener.models import CourtListenerSearchResult
 from mellea_lrc.model import Document, FullDocketCitation, Span
 from mellea_lrc.model.citations.docket_lookup import (
     DocketLookup,
@@ -233,6 +234,28 @@ def test_review_selects_opinion_from_mixed_shortlist_and_saves_independent_field
     assert root.nodes[-1].stage == STAGE
     assert after.get_stage("docket_root_lookup") == before
     assert Document.model_validate_json(after.model_dump_json()) == after
+
+
+def test_supported_search_aliases_reach_the_review_context() -> None:
+    raw = {
+        "docket_number": "05-4206",
+        "case_name": "Smith v. Jones",
+        "case_name_full": "Smith v. Jones",
+        "courtId": "ca2",
+        "date_filed": "2007-09-03",
+    }
+    parsed = CourtListenerSearchResult.model_validate(raw)
+    module = importlib.import_module("mellea_lrc.validation.docket_root_lookup_review")
+
+    summary = module._record_summary(raw, parsed, "o")
+
+    assert summary["docketNumber"] == "05-4206"
+    assert summary["caseName"] == summary["caseNameFull"] == "Smith v. Jones"
+    assert summary["court_id"] == "ca2"
+    assert summary["dateFiled"] == "2007-09-03"
+    assert DocketLookupReviewContext._court_name_context(parsed)["full_name"] == (
+        "Court of Appeals for the Second Circuit"
+    )
 
 
 def test_single_candidate_still_gets_one_model_call() -> None:
