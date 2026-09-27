@@ -79,9 +79,10 @@ def _decision(
     case_name_result: str | None = None,
     court_quote: str | None = None,
     date_quote: str | None = None,
+    date_result: str | None = None,
 ) -> ReporterAmbiguousReviewDecision:
-    result = case_name_result or ("match" if selected_candidate_index is not None else "undetermined")
-    other_result = "match" if selected_candidate_index is not None else "undetermined"
+    result = case_name_result or ("match" if selected_candidate_index is not None else "unavailable")
+    other_result = "match" if selected_candidate_index is not None else "unavailable"
     return ReporterAmbiguousReviewDecision.model_validate(
         {
             "selected_candidate_index": selected_candidate_index,
@@ -101,7 +102,7 @@ def _decision(
             "date": {
                 "propose_replacement": date_quote is not None,
                 "quote": date_quote,
-                "result": other_result,
+                "result": date_result or other_result,
                 "reason": "The stated year and candidate date were compared.",
             },
             "reason": "The saved candidates were considered together.",
@@ -217,6 +218,51 @@ def test_no_model_selection_remains_deferred_without_new_candidate_judgments() -
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
+def test_no_selection_records_not_stated_for_absent_date() -> None:
+    source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544."
+    before, _ = _review_input(("Bell Atlantic Corporation v. Twombly",) * 2, source=source)
+
+    after = asyncio.run(
+        reporter_root_lookup_ambiguous_llm(
+            before, reviewer=FakeReviewer(_decision(None, date_result="not_stated"))
+        )
+    )
+
+    root = after.roots[0]
+    assert root.reporter_ambiguous_review.decision.date.result is MatchResult.NOT_STATED
+    assert root.identity_judgments[-1].next_stage == "reporter_root_search"
+
+
+@pytest.mark.parametrize(
+    ("names", "no_full_names", "selection", "case_name_result", "expected_reason"),
+    [
+        (("Bell Atlantic Corporation v. Twombly",) * 2, (), None, "not_stated", "has a filing reading"),
+        (("Bell Atlantic Corporation v. Twombly",) * 2, (), 1, "unavailable", "both have evidence"),
+        (("Jones v. Smith", ""), (1,), 1, "match", "no usable selected-record evidence"),
+    ],
+)
+def test_review_rejects_field_state_inconsistent_with_selected_context(
+    names: tuple[str, ...],
+    no_full_names: tuple[int, ...],
+    selection: int | None,
+    case_name_result: str,
+    expected_reason: str,
+) -> None:
+    before, _ = _review_input(names, no_full_names=no_full_names)
+
+    after = asyncio.run(
+        reporter_root_lookup_ambiguous_llm(
+            before, reviewer=FakeReviewer(_decision(selection, case_name_result=case_name_result))
+        )
+    )
+
+    root = after.roots[0]
+    assert root.reporter_ambiguous_review.decision is None
+    assert expected_reason in root.reporter_ambiguous_review.failure_reason
+    assert root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
+    assert root.identity_judgments[-1].next_stage == "reporter_root_search"
+
+
 def test_no_selection_can_save_a_grounded_replacement_for_search() -> None:
     before, _ = _review_input(
         ("Bell Atlantic Corporation v. Twombly", "Jones v. Smith"),
@@ -261,16 +307,26 @@ def test_selected_candidate_uses_grounded_corrected_reading() -> None:
 
 
 @pytest.mark.parametrize(
-    ("case_name_result", "verdict", "next_stage"),
+    ("names", "no_full_names", "case_name_result", "verdict", "next_stage"),
     [
-        ("mismatch", IdentityVerdict.WRONG_IDENTITY, None),
-        ("undetermined", IdentityVerdict.DEFERRED, "reporter_root_search"),
+        (
+            ("Bell Atlantic Corporation v. Twombly",) * 2,
+            (),
+            "mismatch",
+            IdentityVerdict.WRONG_IDENTITY,
+            None,
+        ),
+        (("Jones v. Smith", ""), (1,), "unavailable", IdentityVerdict.DEFERRED, "reporter_root_search"),
     ],
 )
 def test_selected_candidate_identity_follows_field_assessments(
-    case_name_result: str, verdict: IdentityVerdict, next_stage: str | None
+    names: tuple[str, ...],
+    no_full_names: tuple[int, ...],
+    case_name_result: str,
+    verdict: IdentityVerdict,
+    next_stage: str | None,
 ) -> None:
-    before, _ = _review_input(("Bell Atlantic Corporation v. Twombly",) * 2)
+    before, _ = _review_input(names, no_full_names=no_full_names)
 
     after = asyncio.run(
         reporter_root_lookup_ambiguous_llm(

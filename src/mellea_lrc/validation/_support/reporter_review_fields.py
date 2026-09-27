@@ -90,8 +90,8 @@ def identity_verdict(
     has_candidate_court = bool(
         candidate.court_id or candidate.court or (docket and (docket.court_id or docket.court))
     )
-    if root.court and has_candidate_court and decision.court.result is MatchResult.UNDETERMINED:
+    if root.court and has_candidate_court and decision.court.result is MatchResult.UNAVAILABLE:
         return IdentityVerdict.DEFERRED
-    if root.date and candidate.date_filed and decision.date.result is MatchResult.UNDETERMINED:
+    if root.date and candidate.date_filed and decision.date.result is MatchResult.UNAVAILABLE:
         return IdentityVerdict.DEFERRED
     return IdentityVerdict.CORRECT_IDENTITY

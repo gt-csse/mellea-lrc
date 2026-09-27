@@ -132,24 +132,24 @@ def test_unique_field_mismatch_routes_to_review(changed_cluster: dict[str, objec
     assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
 
 
-def test_missing_full_name_is_undetermined_and_routes_to_review() -> None:
+def test_missing_full_name_is_unavailable_and_routes_to_review() -> None:
     response = _response(_matching_cluster(caseNameFull=None))
     after = reporter_root_lookup(_document(), client=FakeLookupClient(response))
     root = after.roots[0]
 
-    assert root.case_name_judgments[0].result is MatchResult.UNDETERMINED
+    assert root.case_name_judgments[0].result is MatchResult.UNAVAILABLE
     assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
     assert root.reporter_exact_lookup is not None
     assert root.reporter_exact_lookup.response == response
 
 
-def test_missing_provider_court_defers_inferred_court_as_undetermined() -> None:
+def test_missing_provider_court_defers_inferred_court_as_unavailable() -> None:
     response = _response(_matching_cluster(court_id=None))
     after = reporter_root_lookup(_document(), client=FakeLookupClient(response))
     root = after.roots[0]
 
     assert root.court[-1].span is None
-    assert root.court_judgments[-1].result is MatchResult.UNDETERMINED
+    assert root.court_judgments[-1].result is MatchResult.UNAVAILABLE
     assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
 
 
@@ -200,7 +200,7 @@ def test_missing_linked_docket_cannot_silently_admit_inferred_court() -> None:
 
     assert root.reporter_exact_docket is not None
     assert root.reporter_exact_docket.response is None
-    assert root.court_judgments[-1].result is MatchResult.UNDETERMINED
+    assert root.court_judgments[-1].result is MatchResult.UNAVAILABLE
     assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
 
 
@@ -211,7 +211,7 @@ def test_missing_provider_court_routes_explicit_court_to_review() -> None:
     root = after.roots[0]
 
     assert root.court[-1].quote == "S.D.N.Y."
-    assert root.court_judgments[-1].result is MatchResult.UNDETERMINED
+    assert root.court_judgments[-1].result is MatchResult.UNAVAILABLE
     assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
 
 
@@ -352,4 +352,21 @@ def test_json_reload_rejects_invalid_judgment_indices(
     altered["citations"][0][field_log][0][index_name] = bad_value
 
     with pytest.raises(ValueError, match="Judgment"):
+        Document.model_validate(altered)
+
+
+@pytest.mark.parametrize(
+    ("reading_index", "result"),
+    [(None, "match"), (0, "not_stated")],
+)
+def test_json_reload_rejects_judgment_state_inconsistent_with_reading(
+    reading_index: int | None, result: str
+) -> None:
+    after = reporter_root_lookup(_document(), client=FakeLookupClient(_response(_matching_cluster())))
+    altered = after.model_dump(mode="json")
+    judgment = altered["citations"][0]["case_name_judgments"][0]
+    judgment["reading_index"] = reading_index
+    judgment["result"] = result
+
+    with pytest.raises(ValueError, match="Not-stated judgments"):
         Document.model_validate(altered)

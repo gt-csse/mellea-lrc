@@ -29,7 +29,14 @@ NORMALIZED_NAME = {"kind": "adversarial", "plaintiff": "Bell Atl. Corp.", "defen
 
 
 class FakeLookupClient:
-    def __init__(self, *, case_name_full: str | None = None, court_id: str = "scotus") -> None:
+    def __init__(
+        self,
+        *,
+        case_name: str | None = "Bell Atlantic Corporation v. Twombly",
+        case_name_full: str | None = None,
+        court_id: str = "scotus",
+        date_filed: str | None = "2007-05-21",
+    ) -> None:
         self.response = CourtListenerCitationLookup.model_validate(
             {
                 "citation": "550 U.S. 544",
@@ -37,10 +44,10 @@ class FakeLookupClient:
                 "clusters": [
                     {
                         "id": 1,
-                        "caseName": "Bell Atlantic Corporation v. Twombly",
+                        "caseName": case_name,
                         "caseNameFull": case_name_full,
                         "court_id": court_id,
-                        "dateFiled": "2007-05-21",
+                        "dateFiled": date_filed,
                         "citations": [{"volume": 550, "reporter": "U.S.", "page": "544"}],
                     }
                 ],
@@ -101,7 +108,9 @@ def _decision(
     )
 
 
-def _review_input(*, incorrect_case_name: bool = False, source: str = SOURCE) -> Document:
+def _review_input(
+    *, incorrect_case_name: bool = False, source: str = SOURCE, client: FakeLookupClient | None = None
+) -> Document:
     roots = asyncio.run(grow_roots(Document.from_source(source), hunt_dockets=False))
     if incorrect_case_name:
         root = roots.roots[0]
@@ -109,7 +118,7 @@ def _review_input(*, incorrect_case_name: bool = False, source: str = SOURCE) ->
         end = source.index(", 550")
         misread = root.record("test_incorrect_reading").with_case_name(source, Span(start, end))
         roots = roots.replace_citation(misread).complete("test_incorrect_reading")
-    result = reporter_root_lookup(roots, client=FakeLookupClient())
+    result = reporter_root_lookup(roots, client=client or FakeLookupClient())
     assert result.roots[0].identity_judgments[-1].next_stage == STAGE
     return result
 
@@ -360,7 +369,7 @@ def test_model_normalization_without_a_grounded_name_is_rejected() -> None:
     after = asyncio.run(
         reporter_root_lookup_unique_llm(
             before,
-            reviewer=FakeReviewer(_decision(case_name_quote=None, case_name_result="undetermined")),
+            reviewer=FakeReviewer(_decision(case_name_quote=None, case_name_result="not_stated")),
         )
     )
 
@@ -434,18 +443,69 @@ def test_ungrounded_model_correction_is_not_written_and_routes_to_search() -> No
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
-def test_review_records_an_undetermined_field_without_a_source_reading() -> None:
+def test_review_records_not_stated_field_without_a_source_reading() -> None:
     source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544."
     roots = asyncio.run(grow_roots(Document.from_source(source), hunt_dockets=False))
     before = reporter_root_lookup(roots, client=FakeLookupClient())
     assert before.roots[0].identity_judgments[-1].next_stage == STAGE
-    decision = _decision(date_quote=None, date_result="undetermined")
+    decision = _decision(date_quote=None, date_result="not_stated")
 
     after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=FakeReviewer(decision)))
 
     root = after.roots[0]
     assert not root.date
     assert root.date_judgments[-1].reading_index is None
-    assert root.date_judgments[-1].result is MatchResult.UNDETERMINED
+    assert root.date_judgments[-1].result is MatchResult.NOT_STATED
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
     assert Document.model_validate_json(after.model_dump_json()) == after
+
+
+@pytest.mark.parametrize(
+    ("source", "decision", "expected_reason"),
+    [
+        (SOURCE, _decision(case_name_result="unavailable"), "both have evidence"),
+        (SOURCE, _decision(case_name_result="not_stated"), "has a filing reading"),
+        (
+            "Bell Atl. Corp. v. Twombly, 550 U.S. 544.",
+            _decision(date_quote=None, date_result="unavailable"),
+            "has no filing reading",
+        ),
+    ],
+)
+def test_review_rejects_field_state_inconsistent_with_context(
+    source: str, decision: ReporterUniqueReviewDecision, expected_reason: str
+) -> None:
+    before = _review_input(source=source)
+
+    after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=FakeReviewer(decision)))
+
+    root = after.roots[0]
+    assert root.reporter_unique_review.decision is None
+    assert expected_reason in root.reporter_unique_review.failure_reason
+    assert root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
+    assert root.identity_judgments[-1].next_stage == "reporter_root_search"
+
+
+def test_review_rejects_match_when_candidate_has_no_name_evidence() -> None:
+    before = _review_input(client=FakeLookupClient(case_name=None))
+
+    after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=FakeReviewer(_decision())))
+
+    root = after.roots[0]
+    assert root.reporter_unique_review.decision is None
+    assert "case_name has no usable selected-record evidence" in root.reporter_unique_review.failure_reason
+    assert root.identity_judgments[-1].next_stage == "reporter_root_search"
+
+
+def test_review_accepts_not_stated_when_filing_and_candidate_lack_date() -> None:
+    source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544."
+    before = _review_input(source=source, client=FakeLookupClient(date_filed=None))
+    decision = _decision(date_quote=None, date_result="not_stated")
+
+    after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=FakeReviewer(decision)))
+
+    root = after.roots[0]
+    assert root.reporter_unique_review.decision == decision
+    assert root.date_judgments[-1].reading_index is None
+    assert root.date_judgments[-1].result is MatchResult.NOT_STATED
+    assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY

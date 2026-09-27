@@ -65,7 +65,15 @@ async def reporter_root_lookup_unique_llm(
         failure = outcome.failure_reason
         if decision is not None and corrections is None:
             failure = "Replacement intent or source quote is inconsistent or ungrounded"
-        if decision is not None and (assessment_error := context.assessment_error(decision)) is not None:
+        if (
+            decision is not None
+            and (
+                assessment_error := context.assessment_error(
+                    decision, candidate_available=context.candidate_available()
+                )
+            )
+            is not None
+        ):
             failure = assessment_error
         if decision is None or corrections is None or failure is not None:
             recorded = recorded.with_reporter_unique_review(

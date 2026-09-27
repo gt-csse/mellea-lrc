@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from mellea_lrc.courtlistener import CourtListenerCluster, CourtListenerDocket
+from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.fields.court import Court, court_id_if_unique
 
 
@@ -39,3 +40,21 @@ def reporter_court_context(
     expansion means the database has no unique name for that raw value.
     """
     return {"opinion_cluster": _names(candidate), "linked_docket": _names(docket)}
+
+
+def inferred_reporter_court_note(root: FullReporterCitation) -> str | None:
+    """Explain a current court inference using the reporter that supplied it."""
+    if not root.court or not root.locator:
+        return None
+    reading = root.court[-1]
+    locator = root.locator[-1]
+    if reading.quote is not None or not reading.normalizable or not locator.normalizable:
+        return None
+    court = reading.get_normalized()
+    reporter = locator.get_normalized()
+    return (
+        f"No court label was extracted near this locator. Extraction inferred {court.name} ({court.id}) "
+        f"from the court-specific reporter edition {reporter.edition} "
+        f"({reporter.reporter.name}). Treat this as court evidence when comparing "
+        "with the retrieved record; explain any conflict."
+    )

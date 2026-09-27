@@ -22,7 +22,10 @@ from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.reporter_lookup import ReporterAmbiguousReviewDecision
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.validation._support.reporter_court_context import reporter_court_context
+from mellea_lrc.validation._support.reporter_court_context import (
+    inferred_reporter_court_note,
+    reporter_court_context,
+)
 from mellea_lrc.validation._support.reporter_review_grounding import ReporterReviewGrounding
 
 if TYPE_CHECKING:
@@ -50,6 +53,7 @@ class ReporterAmbiguousReviewContext(ReporterReviewGrounding):
     dockets: tuple[CourtListenerDocket | None, ...]
     rule_results: tuple[dict[str, str | None], ...]
     passing_candidate_indices: tuple[int, ...]
+    inferred_court_note: str | None = None
 
     @classmethod
     def from_document(cls, document: Document, root: FullReporterCitation) -> ReporterAmbiguousReviewContext:
@@ -103,6 +107,7 @@ class ReporterAmbiguousReviewContext(ReporterReviewGrounding):
             dockets=tuple(docket_by_index.get(index) for index in range(len(candidates))),
             rule_results=tuple(rule_results),
             passing_candidate_indices=resolution.passing_candidate_indices,
+            inferred_court_note=inferred_reporter_court_note(root),
         )
 
     def selected_docket(self, index: int) -> CourtListenerDocket | None:
@@ -112,7 +117,20 @@ class ReporterAmbiguousReviewContext(ReporterReviewGrounding):
         index = decision.selected_candidate_index
         if index is not None and index >= len(self.candidates):
             return f"selected_candidate_index must be one of 0 through {len(self.candidates) - 1}, or null"
-        return self.assessment_error(decision)
+        if index is None:
+            return self.assessment_error(decision, candidate_available=None)
+        cluster = self.candidates[index]
+        docket = self.dockets[index]
+        return self.assessment_error(
+            decision,
+            candidate_available={
+                "case_name": bool(cluster.case_name_full or cluster.case_name),
+                "court": bool(
+                    cluster.court_id or cluster.court or (docket and (docket.court_id or docket.court))
+                ),
+                "date": bool(cluster.date_filed),
+            },
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,19 +150,19 @@ class ReporterAmbiguousReviewer(Protocol):
 
 MAX_TOKENS = 5000
 MAX_MODEL_ATTEMPTS = 3
-SESSION_ID = "mellea-lrc-reporter-ambiguous-review-v5"
+SESSION_ID = "mellea-lrc-reporter-ambiguous-review-v6"
 
 _PREFIX = """Review one reporter citation against the complete bounded list of retrieved opinion records. In one answer, choose the single best representative record (by its candidate_index) or select null when none is supportable; reread the filing's case name, court, and date; and compare each field with your chosen record.
 
 Every candidate remains available, including candidates that failed a preliminary rule comparison. Those comparisons are hints, not a filter or a verdict. If several records plausibly represent the same case, choose the best representative with a reason. A wrong case name, court, or date in the filing does not by itself remove the real record from consideration: select it when the locator and context support it, then mark that field mismatch. Do not invent another candidate or alter the reporter locator.
 
-For each filing field, set propose_replacement to true only to change or supply its reading, and quote replacement text exactly from the filing. Case name must come from before the locator; court and date must come from after it. Otherwise set propose_replacement to false and quote to null. Do not quote a retrieved record as a filing correction. For case_name, also return normalized as the structured name read from the filing (kind and its party or subject fields), even when keeping an existing grounded quote; use null only when no name is grounded. A source quote may include intervening layout noise: include it in the quoted span but omit it from normalized. Never copy a candidate's name as the filing's normalization. Compare the corrected or existing filing reading with the selected candidate and return match, mismatch, or undetermined with a specific reason for each field. Conventional abbreviations and equivalent party forms can match; a misspelling is a mismatch, not an abbreviation. An absent value gives no opinion for that field. If you select null, all three comparisons must be undetermined, though you may still correct filing readings for later search.
+For each filing field, set propose_replacement to true only to change or supply its reading, and quote replacement text exactly from the filing. Case name must come from before the locator; court and date must come from after it. Otherwise set propose_replacement to false and quote to null. Do not quote a retrieved record as a filing correction. For case_name, also return normalized as the structured name read from the filing (kind and its party or subject fields), even when keeping an existing grounded quote; use null only when no name is grounded. A source quote may include intervening layout noise: include it in the quoted span but omit it from normalized. Never copy a candidate's name as the filing's normalization. Compare the corrected or existing filing reading with the selected candidate and return match or mismatch with a specific reason when both sides have evidence. Use not_stated only when the filing has no reading, and unavailable only when a filing reading lacks usable candidate evidence. Make a best-effort comparison when both sides have evidence. Conventional abbreviations and equivalent party forms can match; a misspelling is a mismatch, not an abbreviation. If you select null, use unavailable for present filing readings and not_stated for absent ones, though you may still correct filing readings for later search.
 
 For court and date, judge the filing reading against the selected candidate directly. If you propose a replacement quote, the program will normalize that quote afterward; you do not need to supply a normalized court or date.
 
-The cluster's date_filed is an opinion-record date, not a linked docket's case-filing date; it may differ from a reporter publication year. Compare at the precision the filing states, but use undetermined if the supplied evidence does not establish the claimed decision date. A linked docket here supplies court evidence only. A reporter can itself identify a court when none is written.
+The cluster's date_filed is an opinion-record date, not a linked docket's case-filing date; it may differ from a reporter publication year. Compare at the precision the filing states. If the cluster has no usable opinion date, use unavailable when the filing states a date. A linked docket here supplies court evidence only. A reporter can itself identify a court when none is written.
 
-Court codes, citation abbreviations, and full court names can differ while identifying the same tribunal. The supplied court-name expansions explain recognized record codes; compare the actual courts, not their spelling. A different district or department is not equivalent merely because it is nearby or shares a broader court name. The opinion record and its linked docket are separate sources of court evidence; if they conflict, weigh their provenance and explain your court assessment. Use undetermined when the evidence does not establish equivalence or a genuine conflict. You may use ordinary court-naming conventions to interpret supplied labels, but do not invent case-specific facts.
+Court codes, citation abbreviations, and full court names can differ while identifying the same tribunal. The supplied court-name expansions explain recognized record codes; compare the actual courts, not their spelling. A different district or department is not equivalent merely because it is nearby or shares a broader court name. The opinion record and its linked docket are separate sources of court evidence; if they conflict, weigh their provenance and explain your court assessment. You may use ordinary court-naming conventions to interpret supplied labels, but do not invent case-specific facts.
 
 Use only the supplied filing windows and candidates for case-specific facts. Do not issue an overall identity verdict. Return selected_candidate_index, case_name, court, date, and reason in the required structured output."""
 
@@ -226,7 +244,12 @@ class IvrReporterAmbiguousReviewer:
         run = await run_instruct_ivr(
             self.session,
             InstructIvrSpec(
-                description=_INSTRUCTION,
+                description=_INSTRUCTION
+                + (
+                    "\n\nReporter-based court inference:\n{{inferred_court_note}}"
+                    if context.inferred_court_note
+                    else ""
+                ),
                 prefix=_PREFIX,
                 user_variables={
                     "locator": context.locator,
@@ -234,6 +257,11 @@ class IvrReporterAmbiguousReviewer:
                     "after": context.following_window,
                     "readings": json.dumps(readings, ensure_ascii=False),
                     "candidates": json.dumps(candidates, ensure_ascii=False, separators=(",", ":")),
+                    **(
+                        {"inferred_court_note": context.inferred_court_note}
+                        if context.inferred_court_note
+                        else {}
+                    ),
                 },
                 output_format=ReporterAmbiguousReviewDecision,
                 requirements=(

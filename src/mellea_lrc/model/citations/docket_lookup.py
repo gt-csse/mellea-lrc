@@ -177,7 +177,7 @@ class DocketLookupReviewDecision(BaseModel):
         if self.selected_candidate_index is not None and self.selected_candidate_index < 0:
             raise ValueError("Selected candidate index must be nonnegative")
         if self.selected_candidate_index is None and any(
-            assessment.result is not MatchResult.UNDETERMINED
+            assessment.result in {MatchResult.MATCH, MatchResult.MISMATCH}
             for assessment in (self.docket_number, self.case_name, self.court, self.date)
         ):
             raise ValueError("No selection cannot make candidate-relative field judgments")
