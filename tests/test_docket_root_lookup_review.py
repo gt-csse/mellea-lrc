@@ -37,23 +37,50 @@ def _decision(
     case_name: str = "match",
     court: str = "match",
     date: str = "match",
+    case_name_proposal: str | None = None,
+    docket_number_proposal: str | None = None,
+    court_proposal: str | None = None,
+    date_proposal: str | None = None,
 ) -> DocketLookupReviewDecision:
     if selected is None:
         docket_number = case_name = court = date = "undetermined"
+
+    def assessment(result: str, quote: str | None = None) -> dict[str, object]:
+        return {
+            "propose_replacement": quote is not None,
+            "quote": quote,
+            "result": result,
+            "reason": "The filing and candidate were compared.",
+        }
+
     return DocketLookupReviewDecision.model_validate(
         {
             "selected_candidate_index": selected,
-            "docket_number": {"result": docket_number, "reason": "Docket numbers were compared."},
-            "case_name": {"result": case_name, "reason": "Parties were compared."},
-            "court": {"result": court, "reason": "Tribunals were compared."},
-            "date": {"result": date, "reason": "Opinion dates were compared."},
+            "docket_number": assessment(docket_number, docket_number_proposal),
+            "case_name": {
+                **assessment(case_name, case_name_proposal),
+                "normalized": {
+                    "kind": "adversarial",
+                    "plaintiff": "Smith",
+                    "defendant": "Jones",
+                    "subject": None,
+                },
+            },
+            "court": assessment(court, court_proposal),
+            "date": assessment(date, date_proposal),
             "reason": "The supplied records and citation context were considered together.",
         }
     )
 
 
 def _document(
-    *, shortlist: tuple[int, ...] = (0, 1), partial: bool = False, verbose: bool = False
+    *,
+    shortlist: tuple[int, ...] = (0, 1),
+    partial: bool = False,
+    verbose: bool = False,
+    name_quote: str = "Smith v. Jones",
+    court_quote: str = "2d Cir.",
+    date_quote: str = "2007",
 ) -> Document:
     start = SOURCE.index("No. ")
     number_start = SOURCE.index("05-4206")
@@ -65,10 +92,15 @@ def _document(
         number_span=Span(number_start, number_start + len("05-4206")),
     )
     document = Document.from_source(SOURCE).add_citation(root).complete("test_sites")
-    year_start = SOURCE.index("2007")
-    dated = root.record("test_date").with_date(SOURCE, Span(year_start, year_start + 4))
-    document = document.replace_citation(dated).complete("test_date")
-    root = dated
+    year_start = SOURCE.index(date_quote)
+    name_start = SOURCE.index(name_quote)
+    court_start = SOURCE.index(court_quote)
+    read = root.record("test_readings")
+    read = read.with_case_name(SOURCE, Span(name_start, name_start + len(name_quote)))
+    read = read.with_court(SOURCE, Span(court_start, court_start + len(court_quote)))
+    read = read.with_date(SOURCE, Span(year_start, year_start + len(date_quote)))
+    document = document.replace_citation(read).complete("test_readings")
+    root = read
     document = document.replace_citation(root.record("10_roots").with_root(root.id)).complete("10_roots")
     root = document.roots[0]
     assert isinstance(root, FullDocketCitation)
@@ -273,6 +305,47 @@ def test_single_candidate_still_gets_one_model_call() -> None:
     assert after.roots[0].docket_lookup_review.decision.selected_candidate_index == 0
 
 
+def test_review_appends_grounded_field_corrections_and_preserves_stage16() -> None:
+    before = _document(shortlist=(0,), name_quote="v. Jones", court_quote="Cir.", date_quote="200")
+    reviewer = FakeReviewer(
+        _decision(
+            0,
+            case_name_proposal="Smith v. Jones",
+            court_proposal="2d Cir.",
+            date_proposal="2007",
+            docket_number_proposal="4206",
+            docket_number="mismatch",
+        )
+    )
+
+    after = asyncio.run(docket_root_lookup_review(before, reviewer=reviewer))
+
+    root = after.roots[0]
+    assert [reading.get_normalized().docket_number for reading in root.locator] == ["05-4206", "4206"]
+    assert [reading.quote for reading in root.case_name] == ["v. Jones", "Smith v. Jones"]
+    assert root.case_name[-1].get_normalized().as_citation() == "Smith v. Jones"
+    assert [reading.quote for reading in root.court] == ["Cir.", "2d Cir."]
+    assert root.court[-1].normalizable
+    assert [reading.quote for reading in root.date] == ["200", "2007"]
+    assert root.date[-1].get_normalized().year == 2007
+    assert root.docket_lookup_review.decision.date.result is MatchResult.MATCH
+    assert after.get_stage("16_docket_root_lookup") == before
+    assert Document.model_validate_json(after.model_dump_json()) == after
+
+
+def test_ungrounded_correction_records_failure_without_partial_updates() -> None:
+    before = _document(shortlist=(0,))
+    reviewer = FakeReviewer(_decision(0, case_name_proposal="Invented v. Party"))
+
+    after = asyncio.run(docket_root_lookup_review(before, reviewer=reviewer))
+
+    root = after.roots[0]
+    assert root.docket_lookup_review.decision is None
+    assert "quote text inside" in root.docket_lookup_review.failure_reason
+    assert root.case_name == before.roots[0].case_name
+    assert root.locator == before.roots[0].locator
+
+
 def test_partial_search_is_visible_to_review_and_preserved_in_lookup() -> None:
     before = _document(partial=True)
     reviewer = FakeReviewer(_decision(None))
@@ -296,9 +369,9 @@ def test_model_context_truncates_large_search_hit_without_losing_saved_raw() -> 
 
     context = DocketLookupReviewContext.from_document(before, root)
 
-    assert len(json.dumps(context.candidates)) < 2000
+    assert len(json.dumps(context.candidates)) < 3500
     summary = context.candidates[0]["record_summary"]
-    assert len(summary["party_names"]) == 4
+    assert len(summary["party_names"]) == 12
     assert len(summary["snippets"][0]) <= 241
     assert len(root.docket_lookup.attempts[0].pages[0]["results"][0]["snippet"]) == 10000
 

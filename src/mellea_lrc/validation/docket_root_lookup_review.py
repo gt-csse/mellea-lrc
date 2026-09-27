@@ -18,9 +18,12 @@ from pydantic import ValidationError
 from mellea_lrc.courtlistener.models import CourtListenerSearchResult
 from mellea_lrc.extraction._support.context_windows import after, before
 from mellea_lrc.llm.config import llm_api_config_from_env, start_mellea_session_from_env
+from mellea_lrc.llm.fuzziness import FuzzinessOption
+from mellea_lrc.llm.grounding import EvidenceCandidate, GroundingEvidence
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
 from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.citations.docket_lookup import (
+    DocketLookupCaseNameAssessment,
     DocketLookupFailure,
     DocketLookupFieldAssessment,
     DocketLookupReview,
@@ -31,21 +34,24 @@ from mellea_lrc.model.citations.fields.date import normalize_date
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
+from mellea_lrc.model.span import Span
 
 if TYPE_CHECKING:
     from mellea import MelleaSession
 
 
 STAGE = "17_docket_root_lookup_review"
-MAX_TOKENS = 4000
+MAX_TOKENS = 6000
 MAX_MODEL_ATTEMPTS = 3
-SESSION_ID = "mellea-lrc-docket-review-v1"
+SESSION_ID = "mellea-lrc-docket-review-v2"
 
-_PREFIX = """Review one docket citation against every shortlisted CourtListener search record in one answer. Select the best candidate by its candidate_index, or select null if the supplied evidence does not support any candidate. The shortlisted records are the complete choice set. A similarity score helps find plausible docket numbers; it is not a case-identity verdict.
+_PREFIX = """Review one docket citation against every shortlisted CourtListener search record in one answer. Reread the filing fields, propose any grounded corrections, and compare the resulting readings with one selected candidate. Select the best candidate by its candidate_index, or select null if the supplied evidence does not support any candidate. The shortlisted records are the complete choice set. A similarity score helps find plausible docket numbers; it is not a case-identity verdict.
 
-The cited case name, court, date, or even docket number may be wrong. Candidate choice asks which record the locator identifies, not whether every field in the citation is correct. When an equivalent docket number and compatible court identify a record, select it even if its case name disagrees; report that disagreement as a case-name mismatch. Do not reject the record merely because a field you are checking is wrong. If the locator and independent context do not identify any record, select null. Compare docket number, case name, court, and date independently with the selected record; return match, mismatch, or undetermined and a specific reason for each. If you select null, all four field results must be undetermined. Do not issue an overall identity verdict or change the citation's extracted readings.
+For each field, set propose_replacement to true only if the current filing reading is missing or incorrect, and quote the replacement exactly from the filing. Otherwise set propose_replacement to false and quote to null. The docket number must come from the number text after its label, the case name from the filing text before the locator, and court and date from the text after its colocation group. Never copy a retrieved record as a filing correction. For case_name also supply the structured normalized name read from the filing, even when keeping the existing quote; use null only when no case name is grounded. A quoted span may contain layout noise; keep that noise in the quote but omit it from the normalized name. The program grounds proposals to source spans and normalizes court and date quotes afterward.
 
-For docket numbers, consider meaningful formatting differences such as punctuation, leading zeroes, and omitted administrative prefixes for a division or case type, but do not assume distinct numbers are equivalent. For case names, consider conventional abbreviations and equivalent party forms, but treat a misspelling as a mismatch. For courts, compare the actual tribunal, including district or department, rather than relying on similar labels. A federal district court and a bankruptcy court in that district are different courts. The citation's written court label determines what it states; do not silently add a bankruptcy designation from the docket number, nearby context, or retrieved record. Court-name context expands known court codes on each side while preserving the original labels. Use undetermined when the evidence cannot establish a comparison.
+The cited case name, court, date, or even docket number may be wrong. Candidate choice asks which record the locator identifies, not whether every field in the citation is correct. When an equivalent docket number and compatible court identify a record, select it even if its case name disagrees; report that disagreement as a case-name mismatch. Do not reject the record merely because a field you are checking is wrong. If the locator and independent context do not identify any record, select null. Compare the corrected or existing docket number, case name, court, and date independently with the selected record; return match, mismatch, or undetermined and a specific reason for each. If you select null, all four field results must be undetermined, but you may still correct filing readings for later stages. Do not issue an overall identity verdict.
+
+For docket numbers, consider meaningful formatting differences such as punctuation, leading zeroes, and omitted administrative prefixes for a division or case type, but do not assume distinct numbers are equivalent. For case names, consider conventional abbreviations and equivalent party forms, but treat a misspelling as a mismatch. Docket captions may shorten a party list or change over time; inspect the supplied party names and do not call a field mismatched solely because a matching party is absent from the lead caption. Use undetermined if a historical name relationship is plausible but unsupported. For courts, compare the actual tribunal, including district or department, rather than relying on similar labels. A federal district court and a bankruptcy court in that district are different courts. The citation's written court label determines what it states; do not silently add a bankruptcy designation from the docket number, nearby context, or retrieved record. Court-name context expands known court codes on each side while preserving the original labels. Use undetermined when the evidence cannot establish a comparison.
 
 The cited date is an opinion or decision date. In a type=d docket search record, dateFiled is when the case docket was initiated. Judge only chronological compatibility: a cited decision date on or after the docket filing date is compatible (match); an earlier cited decision date is incompatible (mismatch). A cited year alone is compatible when it is the filing year or later, because the day is unstated. If either date is missing or cannot be read, use undetermined. This compatibility check does not establish the exact opinion date. In a type=o opinion search record, dateFiled is the opinion-record filing date and can be compared with the cited opinion date at the precision stated in the citation.
 
@@ -53,7 +59,7 @@ Different search hits can describe the same case but different opinions, orders,
 
 The search-status summary shows whether pagination stopped with another page available or a provider failure occurred. Such a partial candidate set can still be reviewed; make a best-effort choice from the supplied records and explain the limitation in your reason. Do not imply that unseen search results were ruled out.
 
-Use only the supplied filing context and search records for case-specific facts. Explain why the selected record represents the same case, or why none can be selected. Return the required structured fields: selected_candidate_index, docket_number, case_name, court, date, and reason."""
+Use only the supplied filing context and search records for case-specific facts. Explain why the selected record represents the same case, or why none can be selected. Return the required structured fields: selected_candidate_index, docket_number, case_name, court, date, and reason, including each field's correction intent and quote."""
 
 _INSTRUCTION = """Cited docket locator: {{locator}}
 
@@ -87,7 +93,7 @@ def _short_names(value: object) -> list[str]:
         name = item.get("name") or item.get("partyName") if isinstance(item, dict) else item
         if short := _short_string(name, 120):
             names.append(short)
-        if len(names) == 4:
+        if len(names) == 12:
             break
     return names
 
@@ -162,9 +168,14 @@ def _docket_date_compatibility(cited_quote: str | None, filed_value: object) -> 
 class DocketLookupReviewContext:
     """Bounded source context and all shortlisted records for one docket root."""
 
+    source: str
     locator: str
+    number_window: str
+    number_offset: int
     before_window: str
+    before_offset: int
     after_window: str
+    after_offset: int
     readings: dict[str, str | None]
     search_status: dict[str, object]
     candidates: tuple[dict[str, object], ...]
@@ -186,8 +197,8 @@ class DocketLookupReviewContext:
         lookup = root.docket_lookup
         if lookup is None:
             raise ValueError("Docket review requires a saved lookup")
-        before_window, _ = before(document, root, 300)
-        after_window, _ = after(document, root, 240)
+        before_window, before_offset = before(document, root, 300)
+        after_window, after_offset = after(document, root, 240)
         locator = root.locator[-1]
         court_reading = root.court[-1] if root.court else None
         court = court_reading.quote if court_reading else None
@@ -236,12 +247,22 @@ class DocketLookupReviewContext:
                 }
             )
         return cls(
+            source=document.text,
             locator=locator.quote,
+            number_window=document.text[locator.number_span.start : locator.span.end],
+            number_offset=locator.number_span.start,
             before_window=before_window,
+            before_offset=before_offset,
             after_window=after_window,
+            after_offset=after_offset,
             readings={
                 "docket_number": document.text[locator.number_span.start : locator.number_span.end],
                 "case_name": root.case_name[-1].quote if root.case_name else None,
+                "case_name_normalized": (
+                    root.case_name[-1].get_normalized().as_citation()
+                    if root.case_name and root.case_name[-1].normalizable
+                    else None
+                ),
                 "court": court,
                 "date": root.date[-1].quote if root.date else None,
             },
@@ -250,7 +271,43 @@ class DocketLookupReviewContext:
             shortlisted_candidate_indices=lookup.shortlisted_candidate_indices,
         )
 
+    def grounded_corrections(self, decision: DocketLookupReviewDecision) -> dict[str, Span] | None:
+        """Locate every proposed reading in its allowed filing window."""
+        corrections: dict[str, Span] = {}
+        windows = {
+            "docket_number": (self.number_window, self.number_offset),
+            "case_name": (self.before_window, self.before_offset),
+            "court": (self.after_window, self.after_offset),
+            "date": (self.after_window, self.after_offset),
+        }
+        for field, (window, offset) in windows.items():
+            assessment = getattr(decision, field)
+            if not assessment.propose_replacement:
+                continue
+            if assessment.quote is None:
+                return None
+            found = GroundingEvidence((EvidenceCandidate(window, offset),)).find_fragment(
+                assessment.quote,
+                FuzzinessOption.edit_distance(similarity_percent=90, whitespace_relaxation=True),
+            )
+            if found is None:
+                return None
+            corrections[field] = Span(offset + found.start, offset + found.end)
+        return corrections
+
     def choice_error(self, decision: DocketLookupReviewDecision) -> str | None:
+        corrections = self.grounded_corrections(decision)
+        if corrections is None:
+            return "A proposed replacement must quote text inside its allowed filing window"
+        has_name = self.readings["case_name"] is not None or "case_name" in corrections
+        if has_name and decision.case_name.normalized is None:
+            return "A grounded case name needs its structured normalization"
+        if not has_name and decision.case_name.normalized is not None:
+            return "Case-name normalization needs an existing or proposed filing quote"
+        for field in ("case_name", "court", "date"):
+            if self.readings[field] is None and field not in corrections:
+                if getattr(decision, field).result is not MatchResult.UNDETERMINED:
+                    return f"{field} has no filing reading; use undetermined or quote one from the filing"
         index = decision.selected_candidate_index
         if index is None:
             return None
@@ -261,7 +318,12 @@ class DocketLookupReviewContext:
             summary = candidate["record_summary"]
             if not isinstance(summary, dict):
                 raise ValueError("Saved docket candidate has no record summary")
-            expected = _docket_date_compatibility(self.readings["date"], summary.get("dateFiled"))
+            cited_date = (
+                self.source[corrections["date"].start : corrections["date"].end]
+                if "date" in corrections
+                else self.readings["date"]
+            )
+            expected = _docket_date_compatibility(cited_date, summary.get("dateFiled"))
             if decision.date.result is not expected:
                 return (
                     "For a type=d record, compare the cited decision date only for chronological "
@@ -356,7 +418,9 @@ class IvrDocketLookupReviewer:
 
 def _no_candidate_decision(context: DocketLookupReviewContext) -> DocketLookupReviewDecision:
     reason = "No shortlisted CourtListener record is available for comparison."
-    undetermined = DocketLookupFieldAssessment(result=MatchResult.UNDETERMINED, reason=reason)
+    undetermined = DocketLookupFieldAssessment(
+        propose_replacement=False, quote=None, result=MatchResult.UNDETERMINED, reason=reason
+    )
     selection_reason = (
         "The search stopped before all results were available, and no candidate was shortlisted "
         "from the saved pages."
@@ -366,11 +430,51 @@ def _no_candidate_decision(context: DocketLookupReviewContext) -> DocketLookupRe
     return DocketLookupReviewDecision(
         selected_candidate_index=None,
         docket_number=undetermined,
-        case_name=undetermined,
+        case_name=DocketLookupCaseNameAssessment(
+            propose_replacement=False,
+            quote=None,
+            normalized=None,
+            result=MatchResult.UNDETERMINED,
+            reason=reason,
+        ),
         court=undetermined,
         date=undetermined,
         reason=selection_reason,
     )
+
+
+def _append_corrections(
+    root: FullDocketCitation,
+    source: str,
+    corrections: dict[str, Span],
+    decision: DocketLookupReviewDecision,
+) -> FullDocketCitation:
+    """Append source-grounded readings under the review's decision node."""
+    number_span = corrections.get("docket_number")
+    if number_span is not None and number_span != root.locator[-1].number_span:
+        root = root.with_docket_number(source, number_span)
+    name_span = corrections.get("case_name")
+    if name_span is None and root.case_name:
+        name_span = root.case_name[-1].span
+    normalized_name = decision.case_name.normalized
+    if name_span is not None and normalized_name is not None:
+        prior_name = root.case_name[-1] if root.case_name else None
+        if (
+            prior_name is None
+            or prior_name.span != name_span
+            or not prior_name.normalizable
+            or prior_name.get_normalized() != normalized_name
+        ):
+            root = root.with_case_name(source, name_span, normalized=normalized_name)
+    for field in ("court", "date"):
+        span = corrections.get(field)
+        if span is None:
+            continue
+        prior = getattr(root, field)
+        if prior and prior[-1].span == span:
+            continue
+        root = root.with_court(source, span) if field == "court" else root.with_date(source, span)
+    return root
 
 
 async def docket_root_lookup_review(
@@ -405,6 +509,11 @@ async def docket_root_lookup_review(
                 failure = failure or outcome.run.failure_reason or "IVR review failed"
             if outcome.decision is not None and (error := context.choice_error(outcome.decision)):
                 failure = error
+            if failure is None and outcome.decision is not None:
+                corrections = context.grounded_corrections(outcome.decision)
+                if corrections is None:
+                    raise ValueError("Accepted docket review has ungrounded corrections")
+                recorded = _append_corrections(recorded, document.text, corrections, outcome.decision)
             review = (
                 DocketLookupReview(
                     node_id=recorded.nodes[-1].id,
