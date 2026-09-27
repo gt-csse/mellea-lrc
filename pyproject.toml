@@ -21,6 +21,7 @@ dependencies = [
     "httpx>=0.28,<1",
     "mellea>=0.7,<0.8",
     "pydantic>=2,<3",
+    "pypdf>=6,<7",
     "python-dotenv>=1,<2",
     "rapidfuzz>=3.14.5,<4",
     "reporters-db>=3.2,<4",

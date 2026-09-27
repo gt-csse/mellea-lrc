@@ -1,6 +1,6 @@
 # mellea-lrc
 
-The active package provides preprocessing, extraction through root formation, and independently callable root-lookup validation stages. Docket site hunting is optional and runs before colocation. Text-body corroboration, open search, and leaf growth are later work.
+The active package provides preprocessing, extraction through root formation, independently callable root-lookup validation stages, and third-party text-body corroboration. Docket site hunting is optional and runs before colocation. Open-web search and leaf growth are later work.
 
 ```python
 from pathlib import Path

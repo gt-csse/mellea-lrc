@@ -21,6 +21,10 @@ class IdentityVerdict(str, Enum):
     DEFERRED = "deferred"
 
 
+class IdentityBasis(str, Enum):
+    THIRD_PARTY = "third_party"
+
+
 class IdentityJudgment(BaseModel):
     """The durable overall result and route after one citation decision."""
 
@@ -29,6 +33,7 @@ class IdentityJudgment(BaseModel):
     node_id: str
     verdict: IdentityVerdict
     next_stage: str | None = None
+    basis: IdentityBasis | None = None
 
     @model_validator(mode="after")
     def _validate_route(self) -> Self:

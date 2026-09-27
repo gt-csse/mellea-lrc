@@ -1,11 +1,12 @@
-"""Small client for GovInfo's package search API."""
+"""Small client for GovInfo package search and granule retrieval."""
 
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
-from typing import Any
-from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
+from typing import Any, Literal
+from urllib.parse import parse_qs, parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import httpx
 from dotenv import load_dotenv
@@ -37,10 +38,20 @@ class GovInfoError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class GovInfoSearchPage:
-    """One complete raw API page and its package results."""
+    """One complete raw search page and its package or granule results."""
 
     raw_json: dict[str, Any]
     results: tuple[dict[str, Any], ...]
+    count: int
+    next_offset_mark: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class GovInfoGranulesPage:
+    """One complete raw granule-list page and its entries."""
+
+    raw_json: dict[str, Any]
+    granules: tuple[dict[str, Any], ...]
     count: int
     next_offset_mark: str | None
 
@@ -59,7 +70,7 @@ class GovInfoConfig:
 
 
 class GovInfoClient:
-    """Search GovInfo packages while preserving each returned page."""
+    """Search packages and retrieve granules while preserving source metadata."""
 
     def __init__(
         self,
@@ -77,8 +88,11 @@ class GovInfoClient:
         *,
         offset_mark: str = "*",
         page_size: int = 100,
+        result_level: Literal["package", "default"] = "package",
     ) -> GovInfoSearchPage:
-        """POST a package query and validate the response page shape."""
+        """POST a package or mixed-granule query and validate its page shape."""
+        if result_level not in {"package", "default"}:
+            raise ValueError("GovInfo search result level must be 'package' or 'default'")
         url = self.config.base_url.rstrip("/") + "/search"
         try:
             response = self.session.post(
@@ -88,7 +102,7 @@ class GovInfoClient:
                     "query": query,
                     "pageSize": page_size,
                     "offsetMark": offset_mark,
-                    "resultLevel": "package",
+                    "resultLevel": result_level,
                     "sorts": [{"field": "score", "sortOrder": "DESC"}],
                 },
                 headers={"Accept": "application/json", "User-Agent": _USER_AGENT},
@@ -103,7 +117,7 @@ class GovInfoClient:
                 api_key=self.config.api_key,
             ) from None
 
-        response_url = getattr(response, "url", None) or url
+        response_url = str(getattr(response, "url", None) or url)
         if response.status_code >= 400:
             raise GovInfoError(
                 f"GovInfo search returned HTTP {response.status_code}",
@@ -149,6 +163,162 @@ class GovInfoClient:
             next_offset_mark=next_mark if isinstance(next_mark, str) and next_mark else None,
         )
 
+    def list_granules(
+        self,
+        package_id: str,
+        *,
+        offset_mark: str = "*",
+        page_size: int = 100,
+    ) -> GovInfoGranulesPage:
+        """GET one granule page; use ``next_offset_mark`` for the next call."""
+        package = _path_id(package_id, "package")
+        url = self.config.base_url.rstrip("/") + f"/packages/{package}/granules"
+        response = self._get(
+            url,
+            operation="granule list",
+            params={"offsetMark": offset_mark, "pageSize": page_size, "api_key": self.config.api_key},
+            accept="application/json",
+        )
+        payload = self._json(response, "granule list")
+        if not isinstance(payload, dict):
+            raise self._payload_error(
+                "GovInfo granule list returned an invalid non-object response", str(response.url), payload
+            )
+        granules = payload.get("granules")
+        count = payload.get("count")
+        if (
+            not isinstance(granules, list)
+            or any(not isinstance(item, dict) for item in granules)
+            or not isinstance(count, int)
+            or isinstance(count, bool)
+            or count < 0
+        ):
+            raise self._payload_error(
+                "GovInfo granule list returned an invalid page", str(response.url), payload
+            )
+        next_page = payload.get("nextPage")
+        if next_page is None:
+            next_mark = None
+        elif isinstance(next_page, str) and next_page:
+            marks = parse_qs(urlsplit(next_page).query).get("offsetMark", [])
+            if len(marks) != 1 or not marks[0]:
+                raise self._payload_error(
+                    "GovInfo granule list returned an invalid nextPage", str(response.url), payload
+                )
+            next_mark = marks[0]
+        else:
+            raise self._payload_error(
+                "GovInfo granule list returned an invalid nextPage", str(response.url), payload
+            )
+        raw_json = _redact(payload, self.config.api_key)
+        return GovInfoGranulesPage(
+            raw_json=raw_json,
+            granules=tuple(raw_json["granules"]),
+            count=count,
+            next_offset_mark=next_mark,
+        )
+
+    def get_granule_summary(self, package_id: str, granule_id: str) -> dict[str, Any]:
+        """GET a granule's full summary, including its download links."""
+        package = _path_id(package_id, "package")
+        granule = _path_id(granule_id, "granule")
+        url = self.config.base_url.rstrip("/") + f"/packages/{package}/granules/{granule}/summary"
+        response = self._get(
+            url,
+            operation="granule summary",
+            params={"api_key": self.config.api_key},
+            accept="application/json",
+        )
+        payload = self._json(response, "granule summary")
+        if (
+            not isinstance(payload, dict)
+            or payload.get("packageId") != package_id
+            or payload.get("granuleId") != granule_id
+        ):
+            raise self._payload_error(
+                "GovInfo granule summary returned an invalid result", str(response.url), payload
+            )
+        return _redact(payload, self.config.api_key)
+
+    def download_pdf(self, pdf_url: str) -> bytes:
+        """GET bytes from a validated GovInfo package or granule PDF link."""
+        url = self._validated_pdf_url(pdf_url)
+        response = self._get(
+            url,
+            operation="PDF download",
+            params={"api_key": self.config.api_key},
+            accept="application/pdf",
+        )
+        return response.content
+
+    def _get(self, url: str, *, operation: str, params: dict[str, str | int], accept: str) -> httpx.Response:
+        try:
+            response = self.session.get(
+                url,
+                params=params,
+                headers={"Accept": accept, "User-Agent": _USER_AGENT},
+                timeout=45,
+            )
+        except httpx.TransportError as exc:
+            raise GovInfoError(
+                f"GovInfo {operation} failed before a response was received",
+                failure_type="transport_error",
+                url=url,
+                upstream_detail=str(exc),
+                api_key=self.config.api_key,
+            ) from None
+        if response.status_code >= 300:
+            raise GovInfoError(
+                f"GovInfo {operation} returned HTTP {response.status_code}",
+                failure_type="http_error",
+                upstream_status_code=response.status_code,
+                url=str(response.url),
+                upstream_detail=_response_detail(response),
+                api_key=self.config.api_key,
+            )
+        return response
+
+    def _json(self, response: httpx.Response, operation: str) -> object:
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise GovInfoError(
+                f"GovInfo {operation} returned invalid JSON",
+                failure_type="invalid_json",
+                upstream_status_code=response.status_code,
+                url=str(response.url),
+                upstream_detail=response.text[:1000],
+                api_key=self.config.api_key,
+            ) from exc
+
+    def _validated_pdf_url(self, pdf_url: str) -> str:
+        base = urlsplit(self.config.base_url)
+        link = urlsplit(pdf_url)
+        prefix = base.path.rstrip("/") + "/packages/"
+        if (
+            link.scheme != base.scheme
+            or link.netloc != base.netloc
+            or link.username is not None
+            or link.password is not None
+            or link.query
+            or link.fragment
+            or not link.path.startswith(prefix)
+        ):
+            raise ValueError("PDF URL must be a GovInfo API package or granule PDF link")
+        parts = link.path[len(prefix) :].split("/")
+        if not (
+            (len(parts) == 2 and parts[1] == "pdf" and _is_path_id(parts[0]))
+            or (
+                len(parts) == 4
+                and parts[1] == "granules"
+                and parts[3] == "pdf"
+                and _is_path_id(parts[0])
+                and _is_path_id(parts[2])
+            )
+        ):
+            raise ValueError("PDF URL must be a GovInfo API package or granule PDF link")
+        return pdf_url
+
     def _payload_error(self, message: str, url: str, detail: object) -> GovInfoError:
         return GovInfoError(
             message,
@@ -174,6 +344,19 @@ def govinfo_uscourts_docket_query(number: str) -> str:
     """Build a literal USCOURTS case-number query from the citation text."""
     escaped = number.replace("\\", "\\\\").replace('"', '\\"')
     return f'collection:uscourts casenumber:("{escaped}")'
+
+
+_PATH_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]*\Z")
+
+
+def _is_path_id(value: str) -> bool:
+    return _PATH_ID.fullmatch(value) is not None
+
+
+def _path_id(value: str, kind: str) -> str:
+    if not _is_path_id(value):
+        raise ValueError(f"GovInfo {kind} ID has invalid characters")
+    return quote(value, safe="")
 
 
 def _safe_url(value: str | None, secret: str | None) -> str | None:

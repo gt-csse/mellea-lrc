@@ -118,6 +118,38 @@ def test_opinion_search_passes_cursor_without_other_filters() -> None:
     assert dict(requests[0].url.params) == {"q": "Brown", "type": "o", "cursor": "a+/="}
 
 
+def test_recap_document_search_preserves_hit_and_passes_cursor() -> None:
+    requests: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "count": 1,
+                "next": None,
+                "previous": None,
+                "results": [
+                    {
+                        "id": 87,
+                        "docket_id": 34,
+                        "caseName": "Brown v. Board",
+                        "description": "Memorandum opinion",
+                        "plain_text": "The court holds...",
+                    }
+                ],
+            },
+        )
+
+    page = _client(httpx.MockTransport(respond)).search("Brown", "rd", cursor="a+/=")
+
+    assert page.results[0].id == "87"
+    assert page.results[0].docket_id == "34"
+    assert page.results[0].raw_json["description"] == "Memorandum opinion"
+    assert page.results[0].raw_json["plain_text"] == "The court holds..."
+    assert dict(requests[0].url.params) == {"q": "Brown", "type": "rd", "cursor": "a+/="}
+
+
 @pytest.mark.parametrize("status", [404, 429, 500])
 def test_search_http_errors_are_typed(status: int) -> None:
     client = _client(httpx.MockTransport(lambda _request: httpx.Response(status, text="unavailable")))
