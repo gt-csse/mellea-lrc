@@ -270,8 +270,9 @@ def test_plain_text_rate_limit_uses_bounded_backoff_and_recovers(
     assert lookup.candidates[0].record_id == "1"
 
 
+@pytest.mark.parametrize("detail", ['{"retry_after_seconds":1359}', {"retry_after_seconds": 1359}])
 def test_provider_delay_beyond_retry_bound_is_saved_without_waiting(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, detail: str | dict[str, int],
 ) -> None:
     monkeypatch.setattr(lookup_module.time, "sleep", lambda _seconds: pytest.fail("Unexpected wait"))
     query = r"docketNumber:(24\-cv\-123)"
@@ -283,7 +284,7 @@ def test_provider_delay_beyond_retry_bound_is_saved_without_waiting(
                 failure_type="http_error",
                 upstream_status_code=429,
                 url="https://proxy.example/search/",
-                upstream_detail='{"retry_after_seconds":1359}',
+                upstream_detail=detail,
             )
         return _page()
 
