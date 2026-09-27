@@ -68,16 +68,16 @@ def _load_document(path: Path, source: Document) -> Document:
 
 
 def _has_transient_docket_lookup_failure(document: Document) -> bool:
-    """A saved 429/5xx search is incomplete evidence, even if stages finished."""
+    """A saved failed search is incomplete evidence, even if stages finished."""
     for root in document.roots:
         if not isinstance(root, FullDocketCitation) or root.docket_lookup is None:
             continue
         for attempt in root.docket_lookup.attempts:
             failure = attempt.failure
-            if (
-                failure is not None
-                and failure.upstream_status_code is not None
-                and (failure.upstream_status_code == 429 or failure.upstream_status_code >= 500)
+            if failure is not None and (
+                failure.failure_type == "transport_error"
+                or failure.upstream_status_code == 429
+                or (failure.upstream_status_code is not None and failure.upstream_status_code >= 500)
             ):
                 return True
     return False
@@ -194,6 +194,19 @@ async def _run(
                 raise ValueError(f"Run did not complete every stage for {filename}")
             _write_json(artifact, document.model_dump(mode="json"))
             print(f"{index}/{len(filenames)} {filename}", flush=True)
+        incomplete = [
+            filename
+            for filename in filenames
+            if _has_transient_docket_lookup_failure(
+                _load_document(documents_dir / f"{filename}.json", sources[filename])
+            )
+        ]
+        if incomplete:
+            raise RuntimeError(
+                "Docket search ended with transient provider failures in "
+                + ", ".join(incomplete)
+                + "; resume this run after the provider recovers"
+            )
     except BaseException:
         run_record["status"] = "failed"
         _write_json(record_path, run_record)

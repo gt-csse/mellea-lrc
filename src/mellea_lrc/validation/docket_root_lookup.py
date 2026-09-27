@@ -98,9 +98,10 @@ def _next_cursor(url: str) -> str | None:
 
 
 def _retry_after_seconds(error: CourtListenerError, retry_index: int) -> float | None:
-    """Honor short proxy waits, or back off for other 429 responses."""
+    """Honor short proxy waits, or back off after throttling and transport errors."""
+    backoff = min(2.0**retry_index, MAX_RETRY_DELAY_SECONDS)
     if error.upstream_status_code != 429:
-        return None
+        return backoff if error.failure_type == "transport_error" else None
     detail = error.upstream_detail
     if isinstance(detail, str):
         try:
@@ -114,7 +115,7 @@ def _retry_after_seconds(error: CourtListenerError, retry_index: int) -> float |
                 return None
             if seconds >= 0:
                 return float(seconds)
-    return min(2.0**retry_index, MAX_RETRY_DELAY_SECONDS)
+    return backoff
 
 
 def _shortlist(candidates: list[DocketLookupCandidate]) -> tuple[int, ...]:
