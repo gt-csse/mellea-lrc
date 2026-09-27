@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from mellea_lrc.api import Document, grow_roots, review_docket_root_equivalence, validate_roots
+from mellea_lrc.model import FullDocketCitation
 
 _SET = "primary"
 _DATA_ROOT = Path(__file__).resolve().parents[2] / "mellea-lrc-datasets"
@@ -64,6 +65,22 @@ def _load_document(path: Path, source: Document) -> Document:
     document = Document.model_validate_json(path.read_text(encoding="utf-8"))
     _check_source(document, source)
     return document
+
+
+def _has_transient_docket_lookup_failure(document: Document) -> bool:
+    """A saved 429/5xx search is incomplete evidence, even if stages finished."""
+    for root in document.roots:
+        if not isinstance(root, FullDocketCitation) or root.docket_lookup is None:
+            continue
+        for attempt in root.docket_lookup.attempts:
+            failure = attempt.failure
+            if (
+                failure is not None
+                and failure.upstream_status_code is not None
+                and (failure.upstream_status_code == 429 or failure.upstream_status_code >= 500)
+            ):
+                return True
+    return False
 
 
 async def _run(
@@ -144,7 +161,9 @@ async def _run(
             artifact = documents_dir / f"{filename}.json"
             if artifact.exists():
                 saved_document = _load_document(artifact, source)
-                if saved_document.stage_runs == _RUN_STAGES:
+                if saved_document.stage_runs == _RUN_STAGES and not _has_transient_docket_lookup_failure(
+                    saved_document
+                ):
                     completed.add(filename)
             if filename not in completed and from_roots_documents is not None:
                 saved = from_roots_documents / f"{filename}.json"

@@ -155,7 +155,11 @@ def test_every_distinct_docket_root_receives_its_own_lookup() -> None:
     assert [root.docket_lookup.node_id for root in after.roots] == [root.nodes[-1].id for root in after.roots]
 
 
-def test_partial_page_failure_is_saved_and_other_queries_continue() -> None:
+def test_partial_page_failure_is_saved_and_other_queries_continue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delays: list[float] = []
+    monkeypatch.setattr(lookup_module.time, "sleep", delays.append)
     first_query = r"docketNumber:(24\-cv\-123)"
     next_url = "https://www.courtlistener.com/api/rest/v4/search/?cursor=abc%2B%2F%3D"
     first_page = _page({"docket_id": 1, "docketNumber": "24-cv-123"}, next_url=next_url)
@@ -177,9 +181,16 @@ def test_partial_page_failure_is_saved_and_other_queries_continue() -> None:
     after = lookup_module.docket_root_lookup(_rooted("Case No. 24-cv-123."), client=client)
     lookup = after.roots[0].docket_lookup
     assert lookup is not None
-    assert client.calls[:2] == [(first_query, "d", None), (first_query, "d", "abc+/=")]
+    assert client.calls[:4] == [
+        (first_query, "d", None),
+        (first_query, "d", "abc+/="),
+        (first_query, "d", "abc+/="),
+        (first_query, "d", "abc+/="),
+    ]
+    assert delays == [1.0, 2.0]
     assert len(lookup.attempts) == 4
     assert lookup.attempts[0].pages == (first_page.raw_json,)
+    assert len(lookup.attempts[0].retry_failures) == 2
     failure = lookup.attempts[0].failure
     assert failure is not None
     assert (failure.failure_type, failure.upstream_status_code) == ("http_error", 429)
@@ -192,7 +203,8 @@ def test_partial_page_failure_is_saved_and_other_queries_continue() -> None:
 def test_proxy_rate_limit_retries_same_page_and_retains_failure_trace(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(lookup_module.time, "sleep", lambda _seconds: None)
+    delays: list[float] = []
+    monkeypatch.setattr(lookup_module.time, "sleep", delays.append)
     query = r"docketNumber:(24\-cv\-123)"
     failures = 0
 
@@ -214,11 +226,48 @@ def test_proxy_rate_limit_retries_same_page_and_retains_failure_trace(
     lookup = after.roots[0].docket_lookup
     assert lookup is not None
     assert client.calls[:2] == [(query, "d", None), (query, "d", None)]
+    assert delays == [0.0]
     assert len(lookup.attempts[0].retry_failures) == 1
     assert lookup.attempts[0].retry_failures[0].upstream_status_code == 429
     assert lookup.attempts[0].failure is None
     assert lookup.candidates[0].record_id == "1"
     assert Document.model_validate_json(after.model_dump_json()) == after
+
+
+def test_plain_text_rate_limit_uses_bounded_backoff_and_recovers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delays: list[float] = []
+    monkeypatch.setattr(lookup_module.time, "sleep", delays.append)
+    query = r"docketNumber:(24\-cv\-123)"
+    failures = 0
+    detail = "Request was throttled. Rate limit exceeded: 10/min. Expected available in 1 second."
+
+    def respond(q: str, kind: Literal["d", "o"], cursor: str | None) -> CourtListenerSearchPage:
+        nonlocal failures
+        if (q, kind, cursor) == (query, "d", None) and failures < 2:
+            failures += 1
+            raise CourtListenerHTTPError(
+                "CourtListener search returned HTTP 429",
+                failure_type="http_error",
+                upstream_status_code=429,
+                url="https://proxy.example/search/",
+                upstream_detail=detail,
+            )
+        return _page({"docket_id": 1, "docketNumber": "24-cv-123"}) if kind == "d" else _page()
+
+    client = FakeSearchClient(respond)
+    after = lookup_module.docket_root_lookup(_rooted("Case No. 24-cv-123."), client=client)
+    lookup = after.roots[0].docket_lookup
+    assert lookup is not None
+    assert client.calls[:3] == [(query, "d", None)] * 3
+    assert delays == [1.0, 2.0]
+    assert [failure.upstream_detail for failure in lookup.attempts[0].retry_failures] == [
+        detail,
+        detail,
+    ]
+    assert lookup.attempts[0].failure is None
+    assert lookup.candidates[0].record_id == "1"
 
 
 def test_provider_delay_beyond_retry_bound_is_saved_without_waiting(

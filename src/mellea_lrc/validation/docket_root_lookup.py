@@ -97,25 +97,24 @@ def _next_cursor(url: str) -> str | None:
     return values[0] if len(values) == 1 and values[0] else None
 
 
-def _retry_after_seconds(error: CourtListenerError) -> float | None:
-    """Honor short proxy waits; retain long quota waits as explicit failures."""
-    if error.upstream_status_code != 429 or not isinstance(error.upstream_detail, str):
+def _retry_after_seconds(error: CourtListenerError, retry_index: int) -> float | None:
+    """Honor short proxy waits, or back off for other 429 responses."""
+    if error.upstream_status_code != 429:
         return None
-    try:
-        detail = json.loads(error.upstream_detail)
-    except ValueError:
-        return None
-    if not isinstance(detail, dict):
-        return None
-    seconds = detail.get("retry_after_seconds")
-    if (
-        not isinstance(seconds, int | float)
-        or isinstance(seconds, bool)
-        or seconds < 0
-        or seconds > MAX_RETRY_DELAY_SECONDS
-    ):
-        return None
-    return float(seconds)
+    detail = error.upstream_detail
+    if isinstance(detail, str):
+        try:
+            detail = json.loads(detail)
+        except ValueError:
+            detail = None
+    if isinstance(detail, dict):
+        seconds = detail.get("retry_after_seconds")
+        if isinstance(seconds, int | float) and not isinstance(seconds, bool):
+            if seconds > MAX_RETRY_DELAY_SECONDS:
+                return None
+            if seconds >= 0:
+                return float(seconds)
+    return min(2.0**retry_index, MAX_RETRY_DELAY_SECONDS)
 
 
 def _shortlist(candidates: list[DocketLookupCandidate]) -> tuple[int, ...]:
@@ -154,7 +153,7 @@ def _search_attempt(
                 page = service.search(query, search_type, cursor=cursor)
                 break
             except CourtListenerError as error:
-                delay = _retry_after_seconds(error)
+                delay = _retry_after_seconds(error, retry_index)
                 if delay is None or retry_index == MAX_RETRIES_PER_PAGE:
                     failure = _failure(error)
                     break
