@@ -12,7 +12,7 @@ from mellea_lrc.model import FullReporterCitation, Span
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactLookupOutcome
 
-STAGE = "reporter_root_lookup"
+STAGE = "12_reporter_root_lookup"
 
 
 class FakeLookupClient:
@@ -129,7 +129,7 @@ def test_unique_field_mismatch_routes_to_review(changed_cluster: dict[str, objec
 
     assert getattr(root, field_log)[0].result is MatchResult.MISMATCH
     assert root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
-    assert root.identity_judgments[-1].next_stage == "reporter_root_lookup_unique_llm"
+    assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
 
 
 def test_missing_full_name_is_undetermined_and_routes_to_review() -> None:
@@ -138,7 +138,7 @@ def test_missing_full_name_is_undetermined_and_routes_to_review() -> None:
     root = after.roots[0]
 
     assert root.case_name_judgments[0].result is MatchResult.UNDETERMINED
-    assert root.identity_judgments[-1].next_stage == "reporter_root_lookup_unique_llm"
+    assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
     assert root.reporter_exact_lookup is not None
     assert root.reporter_exact_lookup.response == response
 
@@ -150,7 +150,7 @@ def test_missing_provider_court_defers_inferred_court_as_undetermined() -> None:
 
     assert root.court[-1].span is None
     assert root.court_judgments[-1].result is MatchResult.UNDETERMINED
-    assert root.identity_judgments[-1].next_stage == "reporter_root_lookup_unique_llm"
+    assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
 
 
 def test_unique_lookup_fetches_linked_docket_and_judges_court_before_identity() -> None:
@@ -188,7 +188,7 @@ def test_linked_docket_court_mismatch_defers_identity() -> None:
     assert root.case_name_judgments[-1].result is MatchResult.MATCH
     assert root.date_judgments[-1].result is MatchResult.MATCH
     assert root.court_judgments[-1].result is MatchResult.MISMATCH
-    assert root.identity_judgments[-1].next_stage == "reporter_root_lookup_unique_llm"
+    assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
 
 
 def test_missing_linked_docket_cannot_silently_admit_inferred_court() -> None:
@@ -201,7 +201,7 @@ def test_missing_linked_docket_cannot_silently_admit_inferred_court() -> None:
     assert root.reporter_exact_docket is not None
     assert root.reporter_exact_docket.response is None
     assert root.court_judgments[-1].result is MatchResult.UNDETERMINED
-    assert root.identity_judgments[-1].next_stage == "reporter_root_lookup_unique_llm"
+    assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
 
 
 def test_missing_provider_court_routes_explicit_court_to_review() -> None:
@@ -212,7 +212,7 @@ def test_missing_provider_court_routes_explicit_court_to_review() -> None:
 
     assert root.court[-1].quote == "S.D.N.Y."
     assert root.court_judgments[-1].result is MatchResult.UNDETERMINED
-    assert root.identity_judgments[-1].next_stage == "reporter_root_lookup_unique_llm"
+    assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
 
 
 def test_nonmatching_listed_locator_routes_to_review_even_when_fields_match() -> None:
@@ -223,7 +223,7 @@ def test_nonmatching_listed_locator_routes_to_review_even_when_fields_match() ->
     assert root.case_name_judgments[0].result is MatchResult.MATCH
     assert root.court_judgments[0].result is MatchResult.MATCH
     assert root.date_judgments[0].result is MatchResult.MATCH
-    assert root.identity_judgments[-1].next_stage == "reporter_root_lookup_unique_llm"
+    assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
 
 
 def test_multiple_results_preserve_all_clusters_and_route_to_ambiguity() -> None:
@@ -244,7 +244,7 @@ def test_multiple_results_preserve_all_clusters_and_route_to_ambiguity() -> None
     assert lookup.response.clusters[0].raw_json["extra_provider_detail"] == {"source": "first"}
     assert root.case_name_judgments == root.court_judgments == root.date_judgments == ()
     assert root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
-    assert root.identity_judgments[-1].next_stage == "reporter_root_lookup_ambiguous"
+    assert root.identity_judgments[-1].next_stage == "13_reporter_root_lookup_ambiguous"
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 

@@ -65,10 +65,14 @@ def _document(
         number_span=Span(number_start, number_start + len("05-4206")),
     )
     document = Document.from_source(SOURCE).add_citation(root).complete("test_sites")
+    year_start = SOURCE.index("2007")
+    dated = root.record("test_date").with_date(SOURCE, Span(year_start, year_start + 4))
+    document = document.replace_citation(dated).complete("test_date")
+    root = dated
     document = document.replace_citation(root.record("10_roots").with_root(root.id)).complete("10_roots")
     root = document.roots[0]
     assert isinstance(root, FullDocketCitation)
-    lookup_node = root.record("docket_root_lookup")
+    lookup_node = root.record("16_docket_root_lookup")
     attempts = (
         DocketLookupAttempt(
             source_type="d",
@@ -157,7 +161,7 @@ def _document(
             else None
         ),
     )
-    return document.replace_citation(lookup_node.with_docket_lookup(lookup)).complete("docket_root_lookup")
+    return document.replace_citation(lookup_node.with_docket_lookup(lookup)).complete("16_docket_root_lookup")
 
 
 class FakeReviewer:
@@ -232,7 +236,7 @@ def test_review_selects_opinion_from_mixed_shortlist_and_saves_independent_field
     assert root.docket_lookup == before.roots[0].docket_lookup
     assert root.docket_lookup.attempts[0].pages[0]["results"][0]["unmodeled"] == {"saved": True}
     assert root.nodes[-1].stage == STAGE
-    assert after.get_stage("docket_root_lookup") == before
+    assert after.get_stage("16_docket_root_lookup") == before
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -260,7 +264,7 @@ def test_supported_search_aliases_reach_the_review_context() -> None:
 
 def test_single_candidate_still_gets_one_model_call() -> None:
     before = _document(shortlist=(0,))
-    reviewer = FakeReviewer(_decision(0, date="undetermined"))
+    reviewer = FakeReviewer(_decision(0, date="match"))
 
     after = asyncio.run(docket_root_lookup_review(before, reviewer=reviewer))
 
@@ -329,8 +333,28 @@ def test_empty_partial_search_records_its_limitation_without_model_call() -> Non
     assert "stopped before all results" in review.decision.reason
 
 
+@pytest.mark.parametrize(
+    ("cited", "filed", "expected"),
+    [
+        ("2007", "2005-01-01", MatchResult.MATCH),
+        ("2005", "2005-12-31", MatchResult.MATCH),
+        ("2004", "2005-01-01", MatchResult.MISMATCH),
+        ("Jan. 1, 2005", "2005-01-01", MatchResult.MATCH),
+        ("Dec. 31, 2004", "2005-01-01", MatchResult.MISMATCH),
+        (None, "2005-01-01", MatchResult.UNDETERMINED),
+        ("2007", None, MatchResult.UNDETERMINED),
+    ],
+)
+def test_docket_date_checks_chronological_compatibility(
+    cited: str | None, filed: str | None, expected: MatchResult
+) -> None:
+    module = importlib.import_module("mellea_lrc.validation.docket_root_lookup_review")
+
+    assert module._docket_date_compatibility(cited, filed) is expected
+
+
 @pytest.mark.parametrize("decision", [_decision(99), _decision(0, date="mismatch")])
-def test_invalid_choice_or_docket_filing_date_judgment_becomes_review_failure(
+def test_invalid_choice_or_incompatible_date_judgment_becomes_review_failure(
     decision: DocketLookupReviewDecision,
 ) -> None:
     before = _document()
@@ -396,7 +420,7 @@ def test_ivr_prompt_distinguishes_docket_and_opinion_dates(monkeypatch: pytest.M
     assert spec.output_format is DocketLookupReviewDecision
     assert "type=d" in spec.prefix
     assert "type=o" in spec.prefix
-    assert "date assessment must be undetermined" in spec.prefix
+    assert "chronological compatibility" in spec.prefix
     assert "may be wrong" in spec.prefix
     assert '"candidate_index":0' in spec.user_variables["candidates"]
     assert json.loads(spec.user_variables["search_status"])["incomplete"] is False

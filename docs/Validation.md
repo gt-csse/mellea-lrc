@@ -1,10 +1,10 @@
-# Reporter root lookup
+# Root validation
 
-`reporter_root_lookup(document)` is the first validation stage and requires the `10_roots` checkpoint. It looks up each full reporter root once by normalized volume, reporter edition, and first page. Docket roots and repeated reporter occurrences are untouched. The citation stores one `ReporterExactLookup` object containing the query and complete CourtListener response. Provider failures raise; they are not recorded as lookup misses.
+`reporter_root_lookup(document)` runs as stage `12_reporter_root_lookup` after extraction, which ends with `11_docket_root_equivalence_review` when that optional review is enabled. It requires the `10_roots` checkpoint. It looks up each full reporter root once by normalized volume, reporter edition, and first page. Docket roots and repeated reporter occurrences are untouched. The citation stores one `ReporterExactLookup` object containing the query and complete CourtListener response. Provider failures raise; they are not recorded as lookup misses.
 
 When the response has one cluster, the stage compares the citation's latest case-name, court, and date readings with that cluster. Case-name comparison requires both parties to appear separately in `caseNameFull`, allowing abbreviations from `reporters-db` without treating different full words as synonyms. Courts are compared by recognized court ID when the response has one. CourtListener exact-lookup clusters can omit court metadata: in that case, a court inferred only from the reporter is left unjudged, while an explicitly written court routes to review. A written full date requires the same full date; a written year requires the same year. If either side has no date, the stage makes no date judgment and does not penalize identity for it.
 
-Each available comparison appends a field-specific judgment referencing the absolute index of its citation reading and the index of the cluster in the saved response. It does not copy either value. A unique cluster is marked `CORRECT_IDENTITY` when the case name and all applicable court and date checks match and its listed locator does not conflict. A mismatch or unreadable comparison routes to `reporter_root_lookup_unique_llm`; the rule stage does not declare a wrong identity. Multiple clusters route to `reporter_root_lookup_ambiguous` without selecting one, and no cluster routes to `reporter_root_search`. The latest identity judgment names the next stage directly. The first stage is called `reporter_root_lookup` because it can retrieve zero, one, or several records; only its one-record branch makes a rule-based identity decision.
+Each available comparison appends a field-specific judgment referencing the absolute index of its citation reading and the index of the cluster in the saved response. It does not copy either value. A unique cluster is marked `CORRECT_IDENTITY` when the case name and all applicable court and date checks match and its listed locator does not conflict. A mismatch or unreadable comparison routes to `14_reporter_root_lookup_unique_llm`; the rule stage does not declare a wrong identity. Multiple clusters route to `13_reporter_root_lookup_ambiguous` without selecting one, and no cluster routes to `reporter_root_search`. The latest identity judgment names the next stage directly. The lookup can retrieve zero, one, or several records; only its one-record branch makes a rule-based identity decision.
 
 ```python
 from pathlib import Path
@@ -17,7 +17,7 @@ document = reporter_root_lookup(document)
 checkpoint.write_text(document.model_dump_json())
 
 before_lookup = document.get_stage("10_roots")
-after_lookup = document.get_stage("reporter_root_lookup")
+after_lookup = document.get_stage("12_reporter_root_lookup")
 ```
 
 The single lookup object, field judgments, and identity judgment are part of the citation's append-only history. A later checkpoint retains them, while `get_stage("10_roots")` removes them from the recovered earlier view.
@@ -32,6 +32,10 @@ The stages remain separate and return a complete `Document`:
 from mellea_lrc.api import reporter_root_lookup_unique_llm
 
 document = await reporter_root_lookup_unique_llm(document)
-before_review = document.get_stage("reporter_root_lookup")
-after_review = document.get_stage("reporter_root_lookup_unique_llm")
+before_review = document.get_stage("12_reporter_root_lookup")
+after_review = document.get_stage("14_reporter_root_lookup_unique_llm")
 ```
+
+## Docket lookup review
+
+After the reporter stages, `docket_root_lookup(document)` saves the CourtListener search responses at `16_docket_root_lookup`. `docket_root_lookup_review(document)` selects from that saved shortlist and records separate docket-number, case-name, court, and date assessments at `17_docket_root_lookup_review`. A selected docket card's `dateFiled` is the case filing date. Its date assessment checks only whether the cited decision date could be on or after filing; it does not confirm that an opinion was issued on the cited day. A selected opinion record can instead support a comparison with its own opinion filing date. The review preserves the full model trace and does not yet issue an overall docket-root identity judgment.

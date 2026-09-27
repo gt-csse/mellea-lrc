@@ -22,7 +22,7 @@ from mellea_lrc.validation._support.reporter_review_fields import (
     identity_verdict,
 )
 
-STAGE = "reporter_root_lookup_ambiguous_llm"
+STAGE = "15_reporter_root_lookup_ambiguous_llm"
 
 
 async def reporter_root_lookup_ambiguous_llm(
@@ -38,7 +38,7 @@ async def reporter_root_lookup_ambiguous_llm(
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "reporter_root_lookup_ambiguous" not in document.stage_runs:
+    if "13_reporter_root_lookup_ambiguous" not in document.stage_runs:
         raise ValueError("Complete rule-only reporter ambiguity review before model choice")
     service = reviewer
     for root in tuple(item for item in document.roots if isinstance(item, FullReporterCitation)):

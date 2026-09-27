@@ -21,7 +21,7 @@ from mellea_lrc.validation._support.reporter_unique_llm import (
     ReporterUniqueReviewOutcome,
 )
 
-STAGE = "reporter_root_lookup_unique_llm"
+STAGE = "14_reporter_root_lookup_unique_llm"
 
 
 async def reporter_root_lookup_unique_llm(
@@ -36,7 +36,7 @@ async def reporter_root_lookup_unique_llm(
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "reporter_root_lookup" not in document.stage_runs:
+    if "12_reporter_root_lookup" not in document.stage_runs:
         raise ValueError("Complete reporter lookup before its unique model review")
     service = reviewer
     for root in tuple(item for item in document.roots if isinstance(item, FullReporterCitation)):

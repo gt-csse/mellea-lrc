@@ -28,7 +28,7 @@ from mellea_lrc.validation._support.reporter_exact_fields import (
     locator_present,
 )
 
-STAGE = "reporter_root_lookup"
+STAGE = "12_reporter_root_lookup"
 
 
 class ReporterLookupClient(Protocol):
@@ -66,7 +66,7 @@ def _judge_unique(citation: FullReporterCitation, query: ReporterExactLookupQuer
         and locator_present(candidate, query) is not False
     ):
         return citation.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
-    return citation.with_identity_judgment(IdentityVerdict.DEFERRED, "reporter_root_lookup_unique_llm")
+    return citation.with_identity_judgment(IdentityVerdict.DEFERRED, "14_reporter_root_lookup_unique_llm")
 
 
 def reporter_root_lookup(
@@ -145,7 +145,7 @@ def reporter_root_lookup(
                     recorded = _judge_unique(recorded, query)
                 elif outcome is ReporterExactLookupOutcome.AMBIGUOUS:
                     recorded = recorded.with_identity_judgment(
-                        IdentityVerdict.DEFERRED, "reporter_root_lookup_ambiguous"
+                        IdentityVerdict.DEFERRED, "13_reporter_root_lookup_ambiguous"
                     )
                 else:
                     recorded = recorded.with_identity_judgment(

@@ -27,13 +27,13 @@ from mellea_lrc.validation.reporter_root_lookup_unique_llm import STAGE as REPOR
 
 FIELDS = ("case_name", "court", "date")
 STAGES = (
-    DOCKET_ROOT_LOOKUP_REVIEW,
     REPORTER_ROOT_LOOKUP,
     REPORTER_ROOT_LOOKUP_AMBIGUOUS,
     REPORTER_ROOT_LOOKUP_UNIQUE_LLM,
     REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM,
+    DOCKET_ROOT_LOOKUP_REVIEW,
 )
-WORKFLOW_STAGES = (DOCKET_ROOT_LOOKUP, *STAGES)
+WORKFLOW_STAGES = (*STAGES[:-1], DOCKET_ROOT_LOOKUP, STAGES[-1])
 
 
 @dataclass(frozen=True)
@@ -369,11 +369,11 @@ def score_reporter_root_lookup_unique_llm(document: Document) -> StageScore:
 
 
 STAGE_SCORERS: tuple[tuple[str, Callable[[Document], StageScore]], ...] = (
-    (DOCKET_ROOT_LOOKUP_REVIEW, score_docket_root_lookup_review),
     (REPORTER_ROOT_LOOKUP, score_reporter_root_lookup),
     (REPORTER_ROOT_LOOKUP_AMBIGUOUS, score_reporter_root_lookup_ambiguous),
     (REPORTER_ROOT_LOOKUP_UNIQUE_LLM, score_reporter_root_lookup_unique_llm),
     (REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM, score_reporter_root_lookup_ambiguous_llm),
+    (DOCKET_ROOT_LOOKUP_REVIEW, score_docket_root_lookup_review),
 )
 
 

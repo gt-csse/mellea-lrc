@@ -31,12 +31,12 @@ _ROOT_STAGES = (
 _RUN_STAGES = (
     *_ROOT_STAGES,
     "11_docket_root_equivalence_review",
-    "docket_root_lookup",
-    "docket_root_lookup_review",
-    "reporter_root_lookup",
-    "reporter_root_lookup_ambiguous",
-    "reporter_root_lookup_unique_llm",
-    "reporter_root_lookup_ambiguous_llm",
+    "12_reporter_root_lookup",
+    "13_reporter_root_lookup_ambiguous",
+    "14_reporter_root_lookup_unique_llm",
+    "15_reporter_root_lookup_ambiguous_llm",
+    "16_docket_root_lookup",
+    "17_docket_root_lookup_review",
 )
 
 

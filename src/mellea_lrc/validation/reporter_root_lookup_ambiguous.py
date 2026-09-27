@@ -23,8 +23,8 @@ from mellea_lrc.validation._support.reporter_exact_fields import (
     locator_present,
 )
 
-STAGE = "reporter_root_lookup_ambiguous"
-LOOKUP_STAGE = "reporter_root_lookup"
+STAGE = "13_reporter_root_lookup_ambiguous"
+LOOKUP_STAGE = "12_reporter_root_lookup"
 CANDIDATE_LIMIT = 20
 
 
@@ -133,7 +133,7 @@ def reporter_root_lookup_ambiguous(
                     recorded.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
                     if selected is not None
                     else recorded.with_identity_judgment(
-                        IdentityVerdict.DEFERRED, "reporter_root_lookup_ambiguous_llm"
+                        IdentityVerdict.DEFERRED, "15_reporter_root_lookup_ambiguous_llm"
                     )
                 )
             document = document.replace_citation(recorded)

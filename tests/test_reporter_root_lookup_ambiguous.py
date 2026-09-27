@@ -65,7 +65,7 @@ def test_unique_passing_candidate_is_admitted_and_all_comparisons_are_saved() ->
     assert client.lookup_calls == 1
     assert client.docket_calls == []
     assert after.stage_runs[-1] == STAGE
-    assert after.get_stage("reporter_root_lookup") == before
+    assert after.get_stage("12_reporter_root_lookup") == before
     root = after.roots[0]
     resolution = root.reporter_exact_ambiguity_resolution
     assert resolution is not None
@@ -92,7 +92,7 @@ def test_unique_passing_candidate_is_admitted_and_all_comparisons_are_saved() ->
     )
     restored = Document.model_validate_json(after.model_dump_json())
     assert restored == after
-    assert restored.get_stage("reporter_root_lookup") == before
+    assert restored.get_stage("12_reporter_root_lookup") == before
     with pytest.raises(ValueError, match="already completed"):
         reporter_root_lookup_ambiguous(after, client=client)
 
@@ -116,7 +116,7 @@ def test_zero_or_multiple_passing_candidates_wait_for_model_review(
     assert resolution.passing_candidate_indices == passing
     assert resolution.selected_candidate_index is None
     assert root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
-    assert root.identity_judgments[-1].next_stage == "reporter_root_lookup_ambiguous_llm"
+    assert root.identity_judgments[-1].next_stage == "15_reporter_root_lookup_ambiguous_llm"
 
 
 def test_large_candidate_set_is_preserved_without_review_or_truncation() -> None:
@@ -165,7 +165,7 @@ def test_nonambiguous_root_does_not_gain_a_node() -> None:
 
     assert after.stage_runs[-1] == STAGE
     assert after.roots == before.roots
-    assert after.get_stage("reporter_root_lookup") == before
+    assert after.get_stage("12_reporter_root_lookup") == before
 
 
 def test_only_exactly_routed_roots_are_processed() -> None:
