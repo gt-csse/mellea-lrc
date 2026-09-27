@@ -65,7 +65,7 @@ class ReporterReviewGrounding:
         *,
         candidate_available: dict[str, bool] | None,
     ) -> str | None:
-        """Keep absence and unavailable evidence distinct from a comparison."""
+        """Require unavailable when either side lacks field evidence."""
         has_name = self.has_case_name or decision.case_name.propose_replacement
         if has_name and decision.case_name.normalized is None:
             return "case_name has a grounded reading; supply its normalized name"
@@ -74,19 +74,13 @@ class ReporterReviewGrounding:
         for field in ("case_name", "court", "date"):
             assessment = getattr(decision, field)
             has_reading = getattr(self, f"has_{field}") or assessment.propose_replacement
-            if not has_reading and assessment.result is not MatchResult.NOT_STATED:
-                return f"{field} has no filing reading; use not_stated or quote one from the filing"
-            if has_reading and assessment.result is MatchResult.NOT_STATED:
-                return f"{field} has a filing reading; not_stated is invalid"
+            if not has_reading and assessment.result is not MatchResult.UNAVAILABLE:
+                return f"{field} has no filing reading; use unavailable or quote one from the filing"
             if candidate_available is None:
                 if has_reading and assessment.result is not MatchResult.UNAVAILABLE:
                     return f"{field} has no selected record; use unavailable"
-            elif (
-                has_reading
-                and not candidate_available[field]
-                and assessment.result is not MatchResult.UNAVAILABLE
-            ):
+            elif not candidate_available[field] and assessment.result is not MatchResult.UNAVAILABLE:
                 return f"{field} has no usable selected-record evidence; use unavailable"
-            elif candidate_available[field] and assessment.result is MatchResult.UNAVAILABLE:
+            elif has_reading and candidate_available[field] and assessment.result is MatchResult.UNAVAILABLE:
                 return f"{field} and the selected record both have evidence; judge match or mismatch"
         return None

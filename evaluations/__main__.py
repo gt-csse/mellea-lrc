@@ -9,7 +9,16 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from mellea_lrc.api import Document, grow_roots, review_docket_root_equivalence, validate_roots
+from mellea_lrc.api import (
+    Document,
+    docket_root_lookup,
+    docket_root_lookup_review,
+    grow_roots,
+    reporter_root_lookup_ambiguous_llm,
+    reporter_root_lookup_unique_llm,
+    review_docket_root_equivalence,
+    validate_roots,
+)
 from mellea_lrc.model import FullDocketCitation
 
 _SET = "primary"
@@ -38,6 +47,9 @@ _RUN_STAGES = (
     "16_docket_root_lookup",
     "17_docket_root_lookup_review",
 )
+_REPORTER_REVIEW_INPUT_STAGE = "13_reporter_root_lookup_ambiguous"
+_REPORTER_REVIEW_INPUT_STAGES = _RUN_STAGES[: _RUN_STAGES.index(_REPORTER_REVIEW_INPUT_STAGE) + 1]
+_DOCKET_LOOKUP_STAGE = "16_docket_root_lookup"
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -83,12 +95,27 @@ def _has_transient_docket_lookup_failure(document: Document) -> bool:
     return False
 
 
+def _reuse_docket_lookup(document: Document, saved: Document) -> Document:
+    """Replay the unchanged docket roots' saved lookup nodes after reporter review."""
+    checkpoint = saved.get_stage(_DOCKET_LOOKUP_STAGE)
+    for root in checkpoint.roots:
+        if isinstance(root, FullDocketCitation) and root.nodes[-1].stage == _DOCKET_LOOKUP_STAGE:
+            document = document.replace_citation(root)
+    return document.complete(_DOCKET_LOOKUP_STAGE)
+
+
 async def _run(
     data_root: Path,
     results_root: Path,
     from_roots_documents: Path | None,
     resume_run: Path | None = None,
+    from_reporter_review_documents: Path | None = None,
+    reuse_docket_lookups: bool = False,
 ) -> Path:
+    if from_roots_documents is not None and from_reporter_review_documents is not None:
+        raise ValueError("Choose one saved Document checkpoint")
+    if reuse_docket_lookups and from_reporter_review_documents is None and resume_run is None:
+        raise ValueError("Reusing docket lookups requires reporter-review Documents")
     if resume_run is None:
         filenames = sorted(
             json.loads((data_root / _SET / "documents.json").read_text(encoding="utf-8"))["documents"]
@@ -107,6 +134,10 @@ async def _run(
             "filings": filenames,
             "data_root": str(data_root),
             "from_roots_documents": str(from_roots_documents) if from_roots_documents else None,
+            "from_reporter_review_documents": (
+                str(from_reporter_review_documents) if from_reporter_review_documents else None
+            ),
+            "reuse_docket_lookups": reuse_docket_lookups,
             "source_sha256": {
                 filename: hashlib.sha256(
                     (data_root / _SET / "documents_txt" / filename).read_bytes()
@@ -125,6 +156,13 @@ async def _run(
         data_root = Path(run_record.get("data_root") or _DATA_ROOT)
         saved_roots = run_record.get("from_roots_documents")
         from_roots_documents = Path(saved_roots) if saved_roots else None
+        saved_reporter_review = run_record.get("from_reporter_review_documents")
+        from_reporter_review_documents = Path(saved_reporter_review) if saved_reporter_review else None
+        reuse_docket_lookups = bool(run_record.get("reuse_docket_lookups", False))
+        if from_roots_documents is not None and from_reporter_review_documents is not None:
+            raise ValueError("Saved run has more than one Document checkpoint")
+        if reuse_docket_lookups and from_reporter_review_documents is None:
+            raise ValueError("Saved run cannot reuse docket lookups without reporter-review Documents")
         filenames = run_record["filings"]
         current_filenames = sorted(
             json.loads((data_root / _SET / "documents.json").read_text(encoding="utf-8"))["documents"]
@@ -170,6 +208,14 @@ async def _run(
                 roots = _load_document(saved, source).get_stage(_ROOT_STAGE)
                 if roots.stage_runs != _ROOT_STAGES:
                     raise ValueError(f"Saved roots are incomplete for {filename}")
+            if filename not in completed and from_reporter_review_documents is not None:
+                saved = from_reporter_review_documents / f"{filename}.json"
+                saved_document = _load_document(saved, source)
+                ready = saved_document.get_stage(_REPORTER_REVIEW_INPUT_STAGE)
+                if ready.stage_runs != _REPORTER_REVIEW_INPUT_STAGES:
+                    raise ValueError(f"Saved reporter-review input is incomplete for {filename}")
+                if reuse_docket_lookups:
+                    saved_document.get_stage(_DOCKET_LOOKUP_STAGE)
 
         for index, filename in enumerate(filenames, start=1):
             source = sources[filename]
@@ -179,7 +225,19 @@ async def _run(
                 continue
             if artifact.exists():
                 print(f"{index}/{len(filenames)} {filename} (incomplete; rerunning)", flush=True)
-            if from_roots_documents is None:
+            if from_reporter_review_documents is not None:
+                saved = from_reporter_review_documents / f"{filename}.json"
+                saved_document = _load_document(saved, source)
+                document = saved_document.get_stage(_REPORTER_REVIEW_INPUT_STAGE)
+                document = await reporter_root_lookup_unique_llm(document)
+                document = await reporter_root_lookup_ambiguous_llm(document)
+                document = (
+                    _reuse_docket_lookup(document, saved_document)
+                    if reuse_docket_lookups
+                    else docket_root_lookup(document)
+                )
+                document = await docket_root_lookup_review(document)
+            elif from_roots_documents is None:
                 document = await grow_roots(
                     source,
                     hunt_dockets=True,
@@ -189,7 +247,8 @@ async def _run(
                 saved = from_roots_documents / f"{filename}.json"
                 document = _load_document(saved, source).get_stage(_ROOT_STAGE)
                 document = await review_docket_root_equivalence(document)
-            document = await validate_roots(document)
+            if from_reporter_review_documents is None:
+                document = await validate_roots(document)
             if document.stage_runs != _RUN_STAGES:
                 raise ValueError(f"Run did not complete every stage for {filename}")
             _write_json(artifact, document.model_dump(mode="json"))
@@ -228,11 +287,31 @@ def main() -> None:
         help="Resume saved Documents at their 10_roots checkpoint before the docket-root review",
     )
     parser.add_argument(
+        "--from-reporter-review-documents",
+        type=Path,
+        help="Resume saved Documents at stage 13 before the reporter LLM reviews",
+    )
+    parser.add_argument(
+        "--reuse-docket-lookups",
+        action="store_true",
+        help="Reuse saved stage-16 docket lookups while rerunning reporter and docket LLM reviews",
+    )
+    parser.add_argument(
         "--resume-run", type=Path, help="Continue an interrupted run in its existing timestamp directory"
     )
     args = parser.parse_args()
+    if args.from_roots_documents and args.from_reporter_review_documents:
+        parser.error("Choose one saved Document checkpoint")
+    if args.reuse_docket_lookups and not args.from_reporter_review_documents:
+        parser.error("--reuse-docket-lookups requires --from-reporter-review-documents")
     if args.resume_run and any(
-        value is not None for value in (args.data_root, args.results_root, args.from_roots_documents)
+        value is not None
+        for value in (
+            args.data_root,
+            args.results_root,
+            args.from_roots_documents,
+            args.from_reporter_review_documents,
+        )
     ):
         parser.error("--resume-run reuses its run.json inputs; do not pass other input paths")
     run_dir = asyncio.run(
@@ -241,6 +320,8 @@ def main() -> None:
             (args.results_root or _RESULTS_ROOT).resolve(),
             args.from_roots_documents.resolve() if args.from_roots_documents else None,
             args.resume_run.resolve() if args.resume_run else None,
+            args.from_reporter_review_documents.resolve() if args.from_reporter_review_documents else None,
+            args.reuse_docket_lookups,
         )
     )
     print(run_dir)

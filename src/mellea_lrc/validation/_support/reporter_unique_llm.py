@@ -119,7 +119,7 @@ class ReporterUniqueReviewer(Protocol):
 
 MAX_TOKENS = 3000
 MAX_MODEL_ATTEMPTS = 3
-SESSION_ID = "mellea-lrc-reporter-unique-review-v7"
+SESSION_ID = "mellea-lrc-reporter-unique-review-v8"
 
 _PREFIX = """Review one reporter citation against one retrieved opinion record. Do all rereading, correction proposals, and field comparisons in this one answer.
 
@@ -129,7 +129,7 @@ For case_name, also supply normalized as the structured name read from the filin
 
 For court and date, judge the filing reading against the retrieved evidence directly. If you propose a replacement quote, the program will normalize that quote afterward; you do not need to supply a normalized court or date.
 
-Compare the corrected or existing filing reading with the retrieved record. For each field return match or mismatch with a specific reason when both sides have evidence. Use not_stated only when the filing has no reading for that field, and unavailable only when a filing reading exists but the retrieved record has no usable evidence for comparison. Make a best-effort judgment when both sides have evidence; do not use unavailable merely because equivalence is difficult to decide. Conventional abbreviations and equivalent party forms can match; a misspelling is a mismatch, not an abbreviation. Compare the full date when both sides provide it, otherwise compare the available precision. A reporter may itself identify a court even if none is written. Do not force agreement between an opinion date and a docket filing date.
+Compare the corrected or existing filing reading with the retrieved record. For each field return match or mismatch with a specific reason when both sides have evidence. Use unavailable if either side lacks usable evidence for that field. Make a best-effort judgment when both sides have evidence; do not use unavailable merely because equivalence is difficult to decide. Conventional abbreviations and equivalent party forms can match; a misspelling is a mismatch, not an abbreviation. Compare the full date when both sides provide it, otherwise compare the available precision. A reporter may itself identify a court even if none is written. Do not force agreement between an opinion date and a docket filing date.
 
 Court codes, citation abbreviations, and full court names can differ while identifying the same tribunal. The supplied court-name expansions explain recognized record codes; compare the actual courts, not their spelling. A different district or department is not equivalent merely because it is nearby or shares a broader court name. The opinion record and its linked docket are separate sources of court evidence; if they conflict, weigh their provenance and explain your court assessment. You may use ordinary court-naming conventions to interpret supplied labels, but do not invent case-specific facts.
 

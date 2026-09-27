@@ -167,6 +167,9 @@ def test_model_can_select_one_of_all_saved_candidates_after_zero_or_multiple_rul
     assert client.lookup_calls == 1
     assert len(reviewer.contexts) == 1
     context = reviewer.contexts[0]
+    assert context.inferred_court_note is not None
+    assert "U.S." in context.inferred_court_note
+    assert "Supreme Court" in context.inferred_court_note
     assert tuple(cluster.id for cluster in context.candidates) == tuple(
         str(index) for index in range(1, len(names) + 1)
     )
@@ -218,25 +221,24 @@ def test_no_model_selection_remains_deferred_without_new_candidate_judgments() -
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
-def test_no_selection_records_not_stated_for_absent_date() -> None:
+def test_no_selection_records_unavailable_for_absent_date() -> None:
     source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544."
     before, _ = _review_input(("Bell Atlantic Corporation v. Twombly",) * 2, source=source)
 
     after = asyncio.run(
         reporter_root_lookup_ambiguous_llm(
-            before, reviewer=FakeReviewer(_decision(None, date_result="not_stated"))
+            before, reviewer=FakeReviewer(_decision(None, date_result="unavailable"))
         )
     )
 
     root = after.roots[0]
-    assert root.reporter_ambiguous_review.decision.date.result is MatchResult.NOT_STATED
+    assert root.reporter_ambiguous_review.decision.date.result is MatchResult.UNAVAILABLE
     assert root.identity_judgments[-1].next_stage == "reporter_root_search"
 
 
 @pytest.mark.parametrize(
     ("names", "no_full_names", "selection", "case_name_result", "expected_reason"),
     [
-        (("Bell Atlantic Corporation v. Twombly",) * 2, (), None, "not_stated", "has a filing reading"),
         (("Bell Atlantic Corporation v. Twombly",) * 2, (), 1, "unavailable", "both have evidence"),
         (("Jones v. Smith", ""), (1,), 1, "match", "no usable selected-record evidence"),
     ],
