@@ -77,6 +77,8 @@ def _decision(
     *,
     case_name_quote: str | None = None,
     case_name_result: str | None = None,
+    court_quote: str | None = None,
+    date_quote: str | None = None,
 ) -> ReporterAmbiguousReviewDecision:
     result = case_name_result or ("match" if selected_candidate_index is not None else "undetermined")
     other_result = "match" if selected_candidate_index is not None else "undetermined"
@@ -91,14 +93,14 @@ def _decision(
                 "reason": "The source and candidate parties were compared.",
             },
             "court": {
-                "propose_replacement": False,
-                "quote": None,
+                "propose_replacement": court_quote is not None,
+                "quote": court_quote,
                 "result": other_result,
                 "reason": "The reporter and candidate court were compared.",
             },
             "date": {
-                "propose_replacement": False,
-                "quote": None,
+                "propose_replacement": date_quote is not None,
+                "quote": date_quote,
                 "result": other_result,
                 "reason": "The stated year and candidate date were compared.",
             },
@@ -108,15 +110,19 @@ def _decision(
 
 
 def _review_input(
-    names: tuple[str, ...], *, incorrect_case_name: bool = False, no_full_names: tuple[int, ...] = ()
+    names: tuple[str, ...],
+    *,
+    incorrect_case_name: bool = False,
+    no_full_names: tuple[int, ...] = (),
+    source: str = SOURCE,
 ) -> tuple[Document, FakeLookupClient]:
     client = FakeLookupClient(names, no_full_names=no_full_names)
-    roots = asyncio.run(grow_roots(Document.from_source(SOURCE), hunt_dockets=False))
+    roots = asyncio.run(grow_roots(Document.from_source(source), hunt_dockets=False))
     if incorrect_case_name:
         root = roots.roots[0]
-        start = SOURCE.index("Corp. v.")
-        end = SOURCE.index(", 550")
-        misread = root.record("test_incorrect_reading").with_case_name(SOURCE, Span(start, end))
+        start = source.index("Corp. v.")
+        end = source.index(", 550")
+        misread = root.record("test_incorrect_reading").with_case_name(source, Span(start, end))
         roots = roots.replace_citation(misread).complete("test_incorrect_reading")
     lookup = reporter_root_lookup(roots, client=client)
     before = reporter_root_lookup_ambiguous(lookup, client=client)

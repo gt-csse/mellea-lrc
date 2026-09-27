@@ -22,6 +22,7 @@ from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.reporter_lookup import ReporterUniqueReviewDecision
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
+from mellea_lrc.validation._support.reporter_court_context import reporter_court_context
 from mellea_lrc.validation._support.reporter_review_grounding import ReporterReviewGrounding
 
 if TYPE_CHECKING:
@@ -60,7 +61,8 @@ class ReporterUniqueReviewContext(ReporterReviewGrounding):
             reading = root.court[-1]
             current_court = reading.quote
             if reading.quote is None and reading.normalizable:
-                current_court = f"inferred court {reading.get_normalized().id}"
+                inferred = reading.get_normalized()
+                current_court = f"inferred court {inferred.id} ({inferred.name})"
         return cls(
             source=document.text,
             locator=document.text[root.locator_span.start : root.locator_span.end],
@@ -101,7 +103,7 @@ class ReporterUniqueReviewer(Protocol):
 
 MAX_TOKENS = 3000
 MAX_MODEL_ATTEMPTS = 3
-SESSION_ID = "mellea-lrc-reporter-unique-review-v3"
+SESSION_ID = "mellea-lrc-reporter-unique-review-v6"
 
 _PREFIX = """Review one reporter citation against one retrieved opinion record. Do all rereading, correction proposals, and field comparisons in this one answer.
 
@@ -109,9 +111,13 @@ The reporter locator is fixed. For case name, court, and date, first reread the 
 
 For case_name, also supply normalized as the structured name read from the filing (kind and its party or subject fields). Supply it even when keeping an existing grounded quote; use null only when no case name is grounded. The quote may contain page headers or other layout noise between name parts. Include that noise in the quoted span, but omit it from normalized. Do not take the normalized name from the retrieved record.
 
+For court and date, judge the filing reading against the retrieved evidence directly. If you propose a replacement quote, the program will normalize that quote afterward; you do not need to supply a normalized court or date.
+
 Compare the corrected or existing filing reading with the retrieved record. For each field return match, mismatch, or undetermined and a specific reason. Conventional abbreviations and equivalent party forms can match; a misspelling is a mismatch, not an abbreviation. Compare the full date when both sides provide it, otherwise compare the available precision. An absent value gives no opinion for that field. A reporter may itself identify a court even if none is written. Do not force agreement between an opinion date and a docket filing date.
 
-Use only the supplied filing window and record. Do not select another candidate or decide a separate overall identity verdict. Return the required structured fields: case_name, court, date, and reason."""
+Court codes, citation abbreviations, and full court names can differ while identifying the same tribunal. The supplied court-name expansions explain recognized record codes; compare the actual courts, not their spelling. A different district or department is not equivalent merely because it is nearby or shares a broader court name. The opinion record and its linked docket are separate sources of court evidence; if they conflict, weigh their provenance and explain your court assessment. Use undetermined when the evidence does not establish equivalence or a genuine conflict. You may use ordinary court-naming conventions to interpret supplied labels, but do not invent case-specific facts.
+
+Use only the supplied filing window and record for case-specific facts. Do not select another candidate or decide a separate overall identity verdict. Return the required structured fields: case_name, court, date, and reason."""
 
 _INSTRUCTION = """Reporter locator: {{locator}}
 
@@ -128,7 +134,10 @@ Sole retrieved opinion record:
 {{candidate}}
 
 Linked docket court evidence, if retrieved:
-{{docket}}"""
+{{docket}}
+
+Known full names for retrieved court codes, kept separate by source:
+{{court_name_context}}"""
 
 
 def _validate_grounding(ctx: object, context: ReporterUniqueReviewContext) -> ValidationResult:
@@ -193,6 +202,10 @@ class IvrReporterUniqueReviewer:
                     "readings": json.dumps(readings, ensure_ascii=False),
                     "candidate": candidate,
                     "docket": docket,
+                    "court_name_context": json.dumps(
+                        reporter_court_context(context.candidate, context.docket),
+                        ensure_ascii=False,
+                    ),
                 },
                 output_format=ReporterUniqueReviewDecision,
                 requirements=(

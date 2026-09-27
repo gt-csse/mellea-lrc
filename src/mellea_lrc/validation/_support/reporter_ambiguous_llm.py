@@ -22,8 +22,8 @@ from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.reporter_lookup import ReporterAmbiguousReviewDecision
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
+from mellea_lrc.validation._support.reporter_court_context import reporter_court_context
 from mellea_lrc.validation._support.reporter_review_grounding import ReporterReviewGrounding
-from mellea_lrc.validation.stage_names import REPORTER_ROOT_LOOKUP_AMBIGUOUS
 
 if TYPE_CHECKING:
     from mellea import MelleaSession
@@ -65,7 +65,8 @@ class ReporterAmbiguousReviewContext(ReporterReviewGrounding):
             reading = root.court[-1]
             current_court = reading.quote
             if reading.quote is None and reading.normalizable:
-                current_court = f"inferred court {reading.get_normalized().id}"
+                inferred = reading.get_normalized()
+                current_court = f"inferred court {inferred.id} ({inferred.name})"
         docket_by_index = {
             item.candidate_index: item.response for item in root.reporter_exact_candidate_dockets
         }
@@ -131,17 +132,21 @@ class ReporterAmbiguousReviewer(Protocol):
 
 MAX_TOKENS = 5000
 MAX_MODEL_ATTEMPTS = 3
-SESSION_ID = "mellea-lrc-reporter-ambiguous-review-v2"
+SESSION_ID = "mellea-lrc-reporter-ambiguous-review-v5"
 
 _PREFIX = """Review one reporter citation against the complete bounded list of retrieved opinion records. In one answer, choose the single best representative record (by its candidate_index) or select null when none is supportable; reread the filing's case name, court, and date; and compare each field with your chosen record.
 
-Every candidate remains available, including candidates that failed a preliminary rule comparison. Those comparisons are hints, not a filter or a verdict. If several records plausibly represent the same case, choose the best representative with a reason. A wrong case name, court, or date in the filing does not by itself remove the real record from consideration: select it when the locator and context support it, then mark that field mismatch. Do not invent another candidate, alter the reporter locator, or use outside knowledge.
+Every candidate remains available, including candidates that failed a preliminary rule comparison. Those comparisons are hints, not a filter or a verdict. If several records plausibly represent the same case, choose the best representative with a reason. A wrong case name, court, or date in the filing does not by itself remove the real record from consideration: select it when the locator and context support it, then mark that field mismatch. Do not invent another candidate or alter the reporter locator.
 
 For each filing field, set propose_replacement to true only to change or supply its reading, and quote replacement text exactly from the filing. Case name must come from before the locator; court and date must come from after it. Otherwise set propose_replacement to false and quote to null. Do not quote a retrieved record as a filing correction. For case_name, also return normalized as the structured name read from the filing (kind and its party or subject fields), even when keeping an existing grounded quote; use null only when no name is grounded. A source quote may include intervening layout noise: include it in the quoted span but omit it from normalized. Never copy a candidate's name as the filing's normalization. Compare the corrected or existing filing reading with the selected candidate and return match, mismatch, or undetermined with a specific reason for each field. Conventional abbreviations and equivalent party forms can match; a misspelling is a mismatch, not an abbreviation. An absent value gives no opinion for that field. If you select null, all three comparisons must be undetermined, though you may still correct filing readings for later search.
 
+For court and date, judge the filing reading against the selected candidate directly. If you propose a replacement quote, the program will normalize that quote afterward; you do not need to supply a normalized court or date.
+
 The cluster's date_filed is an opinion-record date, not a linked docket's case-filing date; it may differ from a reporter publication year. Compare at the precision the filing states, but use undetermined if the supplied evidence does not establish the claimed decision date. A linked docket here supplies court evidence only. A reporter can itself identify a court when none is written.
 
-Use only the supplied filing windows and candidates. Do not issue an overall identity verdict. Return selected_candidate_index, case_name, court, date, and reason in the required structured output."""
+Court codes, citation abbreviations, and full court names can differ while identifying the same tribunal. The supplied court-name expansions explain recognized record codes; compare the actual courts, not their spelling. A different district or department is not equivalent merely because it is nearby or shares a broader court name. The opinion record and its linked docket are separate sources of court evidence; if they conflict, weigh their provenance and explain your court assessment. Use undetermined when the evidence does not establish equivalence or a genuine conflict. You may use ordinary court-naming conventions to interpret supplied labels, but do not invent case-specific facts.
+
+Use only the supplied filing windows and candidates for case-specific facts. Do not issue an overall identity verdict. Return selected_candidate_index, case_name, court, date, and reason in the required structured output."""
 
 _INSTRUCTION = """Reporter locator: {{locator}}
 
@@ -204,6 +209,7 @@ class IvrReporterAmbiguousReviewer:
                 "linked_docket_court": (
                     docket.model_dump(mode="json", exclude={"raw_json"}) if docket else None
                 ),
+                "court_name_context": reporter_court_context(cluster, docket),
                 "preliminary_rule_results": context.rule_results[index],
                 "preliminary_full_match": index in context.passing_candidate_indices,
             }

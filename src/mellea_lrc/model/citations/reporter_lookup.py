@@ -8,7 +8,8 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mellea_lrc.courtlistener.models import CourtListenerCitationLookup, CourtListenerDocket
-from mellea_lrc.model.citations.fields.case_name import CaseName, require_all_json_properties
+from mellea_lrc.model.citations.fields.base import require_all_json_properties
+from mellea_lrc.model.citations.fields.case_name import CaseName
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.ivr import IvrRun
 

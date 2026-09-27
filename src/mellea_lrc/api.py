@@ -24,16 +24,21 @@ from mellea_lrc.extraction import (
 from mellea_lrc.model.document import Document
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.validation import (
+    docket_root_lookup,
+    docket_root_lookup_review,
     reporter_root_lookup,
     reporter_root_lookup_ambiguous,
     reporter_root_lookup_ambiguous_llm,
     reporter_root_lookup_unique_llm,
 )
 from mellea_lrc.workflows.grow_roots import grow_roots
+from mellea_lrc.workflows.validate_roots import validate_roots
 
 __all__ = [
     "Document",
     "ExtractionRules",
+    "docket_root_lookup",
+    "docket_root_lookup_review",
     "find_docket_locators",
     "find_full_reporter_locators",
     "find_short_reporter_citations",
@@ -53,4 +58,5 @@ __all__ = [
     "resolve_pin_cites",
     "review_docket_root_equivalence",
     "stable",
+    "validate_roots",
 ]

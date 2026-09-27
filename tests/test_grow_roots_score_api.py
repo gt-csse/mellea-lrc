@@ -38,6 +38,34 @@ def _span(text: str, quote: str) -> dict[str, str | int]:
     return {"start": start, "end": start + len(quote), "quote": quote}
 
 
+def _quoted(text: str, quote: str, value: object) -> dict[str, object]:
+    return {
+        "source": {"kind": "quoted", **_span(text, quote)},
+        "normalization": {"kind": "value", "value": value},
+    }
+
+
+def _not_stated() -> dict[str, object]:
+    return {"source": {"kind": "not_stated"}, "normalization": {"kind": "unavailable"}}
+
+
+def _not_applicable() -> dict[str, object]:
+    return {
+        "source": {"kind": "not_applicable"},
+        "normalization": {"kind": "not_applicable"},
+    }
+
+
+def _inferred_court() -> dict[str, object]:
+    return {
+        "source": {"kind": "inferred", "basis": "reporter"},
+        "normalization": {
+            "kind": "value",
+            "value": {"id": "scotus", "name": "Supreme Court of the United States"},
+        },
+    }
+
+
 def _write_annotated_source(tmp_path: Path) -> Path:
     set_dir = tmp_path / "primary"
     source_dir = set_dir / "documents_txt"
@@ -64,23 +92,25 @@ def _write_annotated_source(tmp_path: Path) -> Path:
         "is_root": True,
         "root_id": "example-o01",
         "kind": "FullCaseCitation",
-        "identifier": {"kind": "reporter", "volume": "550", "reporter": "U.S.", "page": "544"},
-        "locator": _span(SOURCE, "550 U.S. 544"),
-        "case_name": {
-            **_span(SOURCE, "Alpha v. Beta"),
-            "normalized": {
+        "locator": _quoted(
+            SOURCE,
+            "550 U.S. 544",
+            {"kind": "reporter", "volume": "550", "reporter": "U.S.", "page": "544"},
+        ),
+        "case_name": _quoted(
+            SOURCE,
+            "Alpha v. Beta",
+            {
                 "kind": "adversarial",
                 "plaintiff": "Alpha",
                 "defendant": "Beta",
                 "subject": None,
             },
-        },
-        "court": {"id": "scotus", "name": "Supreme Court of the United States", "how": "reporter"},
-        "date": {**_span(SOURCE, "2007"), "normalized": "2007", "precision": "year"},
-        "pin_cite": {
-            **_span(SOURCE, "545"),
-            "normalized": [{"first": 545, "last": 545, "kind": "page"}],
-        },
+        ),
+        "court": _inferred_court(),
+        "date": _quoted(SOURCE, "2007", {"normalized": "2007", "precision": "year"}),
+        "pin_cite": _quoted(SOURCE, "545", [{"first": 545, "last": 545, "kind": "page"}]),
+        "docket_entry": _not_applicable(),
     }
     docket = {
         "unit": "citation",
@@ -88,25 +118,29 @@ def _write_annotated_source(tmp_path: Path) -> Path:
         "is_root": True,
         "root_id": "example-o02",
         "kind": "DocketCitation",
-        "identifier": {"kind": "docket", "docket_number": "1:24-cv-08705"},
-        "locator": _span(SOURCE, "No. 1:24-cv-08705"),
-        "docket_entry": {**_span(SOURCE, "Dkt. 17"), "number": "17"},
-        "case_name": {
-            **_span(SOURCE, "Gamma v. Delta"),
-            "normalized": {
+        "locator": _quoted(
+            SOURCE,
+            "No. 1:24-cv-08705",
+            {"kind": "docket", "docket_number": "1:24-cv-08705"},
+        ),
+        "docket_entry": _quoted(SOURCE, "Dkt. 17", "17"),
+        "case_name": _quoted(
+            SOURCE,
+            "Gamma v. Delta",
+            {
                 "kind": "adversarial",
                 "plaintiff": "Gamma",
                 "defendant": "Delta",
                 "subject": None,
             },
-        },
-        "court": {
-            **_span(SOURCE, "S.D.N.Y."),
-            "id": "nysd",
-            "name": "District Court, S.D. New York",
-            "how": "stated",
-        },
-        "date": {**_span(SOURCE, "2024"), "normalized": "2024", "precision": "year"},
+        ),
+        "court": _quoted(
+            SOURCE,
+            "S.D.N.Y.",
+            {"id": "nysd", "name": "District Court, S.D. New York"},
+        ),
+        "date": _quoted(SOURCE, "2024", {"normalized": "2024", "precision": "year"}),
+        "pin_cite": _not_stated(),
     }
     annotation_path = annotation_dir / "example.jsonl"
     annotation_path.write_text(
@@ -115,6 +149,52 @@ def _write_annotated_source(tmp_path: Path) -> Path:
     )
     (set_dir / "documents.json").write_text(
         json.dumps({"documents": {source_path.name: {"sha256": digest, "length": len(SOURCE)}}}),
+        encoding="utf-8",
+    )
+    return source_path
+
+
+def _write_single_reporter_source(tmp_path: Path, text: str, case_name: dict[str, object]) -> Path:
+    set_dir = tmp_path / "primary"
+    source_dir = set_dir / "documents_txt"
+    annotation_dir = set_dir / "documents"
+    source_dir.mkdir(parents=True)
+    annotation_dir.mkdir(parents=True)
+    source_path = source_dir / "example.txt"
+    source_path.write_text(text, encoding="utf-8")
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    header = {
+        "unit": "header",
+        "dataset": "primary",
+        "document": source_path.name,
+        "text": {
+            "path": "primary/documents_txt/example.txt",
+            "sha256": digest,
+            "length": len(text),
+        },
+    }
+    root = {
+        "unit": "citation",
+        "id": "example-o01",
+        "is_root": True,
+        "root_id": "example-o01",
+        "kind": "FullCaseCitation",
+        "locator": _quoted(
+            text,
+            "550 U.S. 544",
+            {"kind": "reporter", "volume": "550", "reporter": "U.S.", "page": "544"},
+        ),
+        "case_name": case_name,
+        "court": _inferred_court(),
+        "date": _not_stated(),
+        "pin_cite": _not_stated(),
+        "docket_entry": _not_applicable(),
+    }
+    (annotation_dir / "example.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in (header, root)) + "\n", encoding="utf-8"
+    )
+    (set_dir / "documents.json").write_text(
+        json.dumps({"documents": {source_path.name: {"sha256": digest, "length": len(text)}}}),
         encoding="utf-8",
     )
     return source_path
@@ -155,6 +235,15 @@ def test_optional_hunting_scorer_requires_completed_stage(annotated_document: Do
         evaluation.score_docket_locator_site_hunting(without_hunting)
 
 
+def test_docket_root_review_score_handles_mixed_citation_types(
+    annotated_document: Document,
+) -> None:
+    document = annotated_document.complete("11_docket_root_equivalence_review")
+    stage = evaluation.score_docket_root_equivalence_review(document)
+    assert stage.metrics["root_assignment"] == evaluation.Precision(0, 0)
+    assert evaluation.score_grow_roots(document).stages[-1] == stage
+
+
 def test_workflow_scorer_accepts_saved_annotated_document(annotated_document: Document) -> None:
     restored = Document.model_validate_json(annotated_document.model_dump_json())
     assert evaluation.score_grow_roots(annotated_document) == evaluation.score_grow_roots(restored)
@@ -175,19 +264,29 @@ def test_workflow_reports_each_root_field_with_annotated_denominators(
     }
     assert score.root_fields["case_name"] == {
         "span": evaluation.FieldScore(2, 2, 2),
+        "span_overlap": evaluation.RecallScore(2, 2),
         "normalization": evaluation.FieldScore(2, 2, 2),
     }
     assert score.root_fields["court"] == {
-        "span": evaluation.FieldScore(1, 1, 1),
+        "span": evaluation.FieldScore(2, 2, 2),
+        "span_overlap": evaluation.RecallScore(2, 2),
         "normalization": evaluation.FieldScore(2, 2, 2),
     }
-    for name in ("full_reporter_locator", "docket_locator", "docket_entry", "pin_cite"):
+    for name in ("full_reporter_locator", "docket_locator", "docket_entry"):
         assert score.root_fields[name] == {
             "span": evaluation.FieldScore(1, 1, 1),
+            "span_overlap": evaluation.RecallScore(1, 1),
             "normalization": evaluation.FieldScore(1, 1, 1),
+        }
+    for name in ("date", "pin_cite"):
+        assert score.root_fields[name] == {
+            "span": evaluation.FieldScore(2, 2, 2),
+            "span_overlap": evaluation.RecallScore(2, 2),
+            "normalization": evaluation.FieldScore(2, 2, 2),
         }
     assert score.root_fields["overall_locator"] == {
         "span": evaluation.FieldScore(2, 2, 2),
+        "span_overlap": evaluation.RecallScore(2, 2),
         "normalization": evaluation.FieldScore(2, 2, 2),
     }
     assert tuple(score.root_fields)[:3] == (
@@ -205,7 +304,7 @@ def test_overall_locator_subtotal_adds_counts_across_documents(
     assert combined.root_fields["overall_locator"] == {
         measure: combined.root_fields["full_reporter_locator"][measure]
         + combined.root_fields["docket_locator"][measure]
-        for measure in ("span", "normalization")
+        for measure in ("span", "span_overlap", "normalization")
     }
     assert combined.root_fields["overall_locator"]["span"] == evaluation.FieldScore(4, 4, 4)
 
@@ -216,7 +315,7 @@ def test_normalization_disagreement_does_not_change_span_score(
     source = Path(annotated_document.source_path)
     annotation = source.parent.parent / "documents" / f"{source.stem}.jsonl"
     rows = [json.loads(line) for line in annotation.read_text(encoding="utf-8").splitlines()]
-    rows[1]["case_name"]["normalized"]["plaintiff"] = "Different party"
+    rows[1]["case_name"]["normalization"]["value"]["plaintiff"] = "Different party"
     annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
     stage = evaluation.score_case_names(annotated_document)
@@ -227,29 +326,156 @@ def test_normalization_disagreement_does_not_change_span_score(
     assert workflow.root_fields["case_name"]["normalization"] == evaluation.FieldScore(1, 2, 2)
 
 
+def test_partial_nonroot_identifier_is_not_scored_as_normalization(
+    annotated_document: Document,
+) -> None:
+    source = Path(annotated_document.source_path)
+    annotation = source.parent.parent / "documents" / f"{source.stem}.jsonl"
+    rows = [json.loads(line) for line in annotation.read_text(encoding="utf-8").splitlines()]
+    rows[1]["is_root"] = False
+    rows[1]["locator"] = _span(SOURCE, "550 U.S. 544")
+    rows[1]["identifier"] = {"kind": "reporter", "volume": "550"}
+    annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    score = evaluation.score_full_reporter_locators(annotated_document)
+    assert score.metrics["span"] == evaluation.Precision(1, 1)
+    assert score.metrics["normalization"] == evaluation.Precision(0, 0)
+
+
+def test_overlap_recall_accepts_partial_locator_and_field_spans(
+    annotated_document: Document,
+) -> None:
+    source = Path(annotated_document.source_path)
+    annotation = source.parent.parent / "documents" / f"{source.stem}.jsonl"
+    rows = [json.loads(line) for line in annotation.read_text(encoding="utf-8").splitlines()]
+    rows[1]["locator"]["source"] = {"kind": "quoted", **_span(SOURCE, "550 U.S. 544,")}
+    rows[1]["case_name"]["source"] = {"kind": "quoted", **_span(SOURCE, "Alpha v. Beta,")}
+    annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    score = evaluation.score_grow_roots(annotated_document)
+    assert score.root_fields["full_reporter_locator"]["span"] == evaluation.FieldScore(0, 1, 1)
+    assert score.root_fields["full_reporter_locator"]["span_overlap"] == evaluation.RecallScore(1, 1)
+    assert score.root_fields["case_name"]["span"] == evaluation.FieldScore(1, 2, 2)
+    assert score.root_fields["case_name"]["span_overlap"] == evaluation.RecallScore(2, 2)
+
+
+def test_overlap_recall_cannot_credit_one_predicted_root_twice(tmp_path: Path) -> None:
+    text = "550 U.S. 544, as cited."
+    source = _write_single_reporter_source(tmp_path, text, _not_stated())
+    document = asyncio.run(grow_roots(Document.from_source(source)))
+    annotation = source.parent.parent / "documents" / "example.jsonl"
+    rows = [json.loads(line) for line in annotation.read_text(encoding="utf-8").splitlines()]
+    second = json.loads(json.dumps(rows[1]))
+    second["id"] = second["root_id"] = "example-o02"
+    second["locator"]["source"] = {"kind": "quoted", **_span(text, "550 U.S. 544,")}
+    annotation.write_text("\n".join(json.dumps(row) for row in (*rows, second)) + "\n", encoding="utf-8")
+
+    score = evaluation.score_grow_roots(document)
+    assert score.root_fields["full_reporter_locator"]["span_overlap"] == evaluation.RecallScore(1, 2)
+    assert score.root_fields["case_name"]["span_overlap"] == evaluation.RecallScore(1, 2)
+
+
 def test_workflow_rejects_a_missing_mandatory_checkpoint(annotated_document: Document) -> None:
     incomplete = annotated_document.get_stage("2_docket_locators").complete("10_roots")
     with pytest.raises(ValueError, match="Incomplete grow_roots workflow"):
         evaluation.score_grow_roots(incomplete)
 
 
-def test_unannotated_normalization_and_absent_field_are_distinct(
-    annotated_document: Document,
-) -> None:
+@pytest.mark.parametrize("malformation", ["missing", "null", "legacy"])
+def test_malformed_root_gold_is_rejected(annotated_document: Document, malformation: str) -> None:
     source = Path(annotated_document.source_path)
     annotation = source.parent.parent / "documents" / f"{source.stem}.jsonl"
     rows = [json.loads(line) for line in annotation.read_text(encoding="utf-8").splitlines()]
-    rows[1].pop("court")
-    rows[2]["case_name"].pop("normalized")
+    if malformation == "missing":
+        rows[1].pop("court")
+    elif malformation == "null":
+        rows[1]["court"] = None
+    else:
+        rows[1]["court"] = {"id": "scotus", "name": "Supreme Court of the United States"}
     annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
-    courts = evaluation.score_courts(annotated_document).metrics
-    names = evaluation.score_case_names(annotated_document).metrics
-    assert courts["normalization"] == evaluation.Precision(1, 2)
-    assert names["normalization"] == evaluation.Precision(1, 1)
-    workflow = evaluation.score_grow_roots(annotated_document)
-    assert workflow.root_fields["court"]["normalization"] == evaluation.FieldScore(1, 2, 1)
-    assert workflow.root_fields["case_name"]["normalization"] == evaluation.FieldScore(1, 1, 1)
+    with pytest.raises(ValueError):
+        evaluation.score_courts(annotated_document)
+    with pytest.raises(ValueError):
+        evaluation.score_grow_roots(annotated_document)
+
+
+def test_absent_case_name_scores_as_correct_only_for_not_stated(tmp_path: Path) -> None:
+    source = _write_single_reporter_source(tmp_path, "550 U.S. 544.", _not_stated())
+    document = asyncio.run(grow_roots(Document.from_source(source)))
+    score = evaluation.score_grow_roots(document)
+    assert score.root_fields["case_name"] == {
+        "span": evaluation.FieldScore(1, 1, 1),
+        "span_overlap": evaluation.RecallScore(1, 1),
+        "normalization": evaluation.FieldScore(1, 1, 1),
+    }
+    assert score.root_fields["date"]["normalization"] == evaluation.FieldScore(1, 1, 1)
+    assert score.root_fields["pin_cite"]["normalization"] == evaluation.FieldScore(1, 1, 1)
+
+
+def test_not_stated_gold_rejects_a_predicted_case_name(tmp_path: Path) -> None:
+    source = _write_single_reporter_source(tmp_path, "Alpha v. Beta, 550 U.S. 544.", _not_stated())
+    document = asyncio.run(grow_roots(Document.from_source(source)))
+    score = evaluation.score_grow_roots(document)
+    assert score.root_fields["case_name"] == {
+        "span": evaluation.FieldScore(0, 1, 1),
+        "span_overlap": evaluation.RecallScore(0, 1),
+        "normalization": evaluation.FieldScore(0, 1, 1),
+    }
+
+
+def test_failed_normalization_matches_only_quoted_unavailable_gold(tmp_path: Path) -> None:
+    text = "Smith v. ?, 550 U.S. 544."
+    unavailable = {
+        "source": {"kind": "quoted", **_span(text, "Smith v. ?")},
+        "normalization": {"kind": "unavailable", "reason": "underdetermined"},
+    }
+    source = _write_single_reporter_source(tmp_path, text, unavailable)
+    document = asyncio.run(grow_roots(Document.from_source(source)))
+    reading = document.roots[0].case_name[-1]
+    assert reading.normalizable is False
+
+    score = evaluation.score_grow_roots(document)
+    assert score.root_fields["case_name"] == {
+        "span": evaluation.FieldScore(1, 1, 1),
+        "span_overlap": evaluation.RecallScore(1, 1),
+        "normalization": evaluation.FieldScore(1, 1, 1),
+    }
+    assert evaluation.score_case_names(document).metrics["normalization"] == evaluation.Precision(1, 1)
+
+    annotation = source.parent.parent / "documents" / "example.jsonl"
+    rows = [json.loads(line) for line in annotation.read_text(encoding="utf-8").splitlines()]
+    rows[1]["case_name"]["source"] = {"kind": "quoted", **_span(text, "Smith")}
+    annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    wrong_quote = evaluation.score_grow_roots(document)
+    assert wrong_quote.root_fields["case_name"]["span"] == evaluation.FieldScore(0, 1, 1)
+    assert wrong_quote.root_fields["case_name"]["span_overlap"] == evaluation.RecallScore(1, 1)
+    assert wrong_quote.root_fields["case_name"]["normalization"] == evaluation.FieldScore(0, 1, 1)
+
+    rows[1]["case_name"]["source"] = {"kind": "quoted", **_span(text, "Smith v. ?")}
+    rows[1]["case_name"]["normalization"] = {
+        "kind": "value",
+        "value": {"kind": "adversarial", "plaintiff": "Smith", "defendant": "Jones", "subject": None},
+    }
+    annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    changed = evaluation.score_grow_roots(document)
+    assert changed.root_fields["case_name"]["span"] == evaluation.FieldScore(1, 1, 1)
+    assert changed.root_fields["case_name"]["normalization"] == evaluation.FieldScore(0, 1, 1)
+
+
+def test_normalizable_case_name_does_not_match_unavailable_gold(tmp_path: Path) -> None:
+    text = "Alpha v. Beta, 550 U.S. 544."
+    unavailable = {
+        "source": {"kind": "quoted", **_span(text, "Alpha v. Beta")},
+        "normalization": {"kind": "unavailable", "reason": "underdetermined"},
+    }
+    source = _write_single_reporter_source(tmp_path, text, unavailable)
+    document = asyncio.run(grow_roots(Document.from_source(source)))
+    assert document.roots[0].case_name[-1].normalizable is True
+    score = evaluation.score_grow_roots(document)
+    assert score.root_fields["case_name"]["span"] == evaluation.FieldScore(1, 1, 1)
+    assert score.root_fields["case_name"]["span_overlap"] == evaluation.RecallScore(1, 1)
+    assert score.root_fields["case_name"]["normalization"] == evaluation.FieldScore(0, 1, 1)
 
 
 @pytest.mark.parametrize("stage,name", STAGE_RENDERERS.items())
@@ -273,7 +499,7 @@ def test_workflow_renderer_includes_numbered_stages_in_order_by_default(
     assert report.index("## Root fields\n") > positions[-1]
     assert "Docket site hunting: included" in report
     assert (
-        "| **overall_locator subtotal** | 2/2 (100.0%) | 2/2 (100.0%) | 2/2 (100.0%) | 2/2 (100.0%) |"
+        "| **overall_locator subtotal** | 2/2 (100.0%) | 2/2 (100.0%) | 2/2 (100.0%) | 2/2 (100.0%) | 2/2 (100.0%) |"
     ) in report
 
     summary_only = evaluation.render_grow_roots(score, include_stages=False)
