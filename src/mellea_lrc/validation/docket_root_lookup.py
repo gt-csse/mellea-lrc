@@ -98,7 +98,7 @@ def _next_cursor(url: str) -> str | None:
 
 
 def _retry_after_seconds(error: CourtListenerError) -> float | None:
-    """Honor a proxy's bounded retry delay for an exhausted search token pool."""
+    """Honor short proxy waits; retain long quota waits as explicit failures."""
     if error.upstream_status_code != 429 or not isinstance(error.upstream_detail, str):
         return None
     try:
@@ -108,9 +108,14 @@ def _retry_after_seconds(error: CourtListenerError) -> float | None:
     if not isinstance(detail, dict):
         return None
     seconds = detail.get("retry_after_seconds")
-    if not isinstance(seconds, int | float) or isinstance(seconds, bool) or seconds < 0:
+    if (
+        not isinstance(seconds, int | float)
+        or isinstance(seconds, bool)
+        or seconds < 0
+        or seconds > MAX_RETRY_DELAY_SECONDS
+    ):
         return None
-    return min(float(seconds), MAX_RETRY_DELAY_SECONDS)
+    return float(seconds)
 
 
 def _shortlist(candidates: list[DocketLookupCandidate]) -> tuple[int, ...]:

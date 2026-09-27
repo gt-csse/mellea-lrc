@@ -221,6 +221,32 @@ def test_proxy_rate_limit_retries_same_page_and_retains_failure_trace(
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
+def test_provider_delay_beyond_retry_bound_is_saved_without_waiting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(lookup_module.time, "sleep", lambda _seconds: pytest.fail("Unexpected wait"))
+    query = r"docketNumber:(24\-cv\-123)"
+
+    def respond(q: str, kind: Literal["d", "o"], _cursor: str | None) -> CourtListenerSearchPage:
+        if (q, kind) == (query, "d"):
+            raise CourtListenerHTTPError(
+                "CourtListener search returned HTTP 429",
+                failure_type="http_error",
+                upstream_status_code=429,
+                url="https://proxy.example/search/",
+                upstream_detail='{"retry_after_seconds":1359}',
+            )
+        return _page()
+
+    client = FakeSearchClient(respond)
+    after = lookup_module.docket_root_lookup(_rooted("Case No. 24-cv-123."), client=client)
+    lookup = after.roots[0].docket_lookup
+    assert lookup is not None
+    assert len([call for call in client.calls if call[:2] == (query, "d")]) == 1
+    assert lookup.attempts[0].retry_failures == ()
+    assert lookup.attempts[0].failure.upstream_status_code == 429
+
+
 def test_page_budget_records_truncation_and_keeps_last_next_link(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(lookup_module, "MAX_PAGES_PER_ATTEMPT", 2)
     query = r"docketNumber:(24\-cv\-123)"
