@@ -26,6 +26,7 @@ from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm import (
 from mellea_lrc.validation.reporter_root_lookup_unique_llm import STAGE as REPORTER_ROOT_LOOKUP_UNIQUE_LLM
 
 FIELDS = ("case_name", "court", "date")
+GOLD_LABELS = frozenset({"agrees", "disagrees", "not_stated"})
 STAGES = (
     REPORTER_ROOT_LOOKUP,
     REPORTER_ROOT_LOOKUP_AMBIGUOUS,
@@ -162,9 +163,15 @@ def _gold_roots(document: Document) -> tuple[_GoldRoot, ...]:
         identity = (row.get("validation") or {}).get("identity") or {}
         labels = identity.get("fields") or {}
         if set(labels) != set(FIELDS) or any(
-            not isinstance(labels[field], dict) or not labels[field].get("label") for field in FIELDS
+            not isinstance(labels[field], dict) or labels[field].get("label") not in GOLD_LABELS
+            for field in FIELDS
         ):
             raise ValueError(f"{row.get('id')}: incomplete field-level identity gold")
+        for field in FIELDS:
+            if labels[field]["label"] == "not_stated" and ((row.get(field) or {}).get("source") or {}).get(
+                "kind"
+            ) not in {None, "not_stated"}:
+                raise ValueError(f"{row.get('id')}: {field} gold is not_stated despite a source reading")
         key = (row["kind"], start, end)
         if key in spans:
             raise ValueError(f"Duplicate annotated root locator: {key}")
@@ -261,18 +268,22 @@ def _label(judgment: object) -> str:
         return "agrees"
     if result is MatchResult.MISMATCH:
         return "disagrees"
-    if result is MatchResult.UNDETERMINED:
-        return "not_stated" if judgment.reading_index is None else "undetermined"
+    if result is MatchResult.NOT_STATED:
+        return "not_stated"
+    if result is MatchResult.UNAVAILABLE:
+        return "unavailable"
     raise ValueError(f"Unknown field judgment: {result}")
 
 
-def _docket_label(result: MatchResult, *, source_present: bool) -> str:
+def _docket_label(result: MatchResult) -> str:
     if result is MatchResult.MATCH:
         return "agrees"
     if result is MatchResult.MISMATCH:
         return "disagrees"
-    if result is MatchResult.UNDETERMINED:
-        return "undetermined" if source_present else "not_stated"
+    if result is MatchResult.NOT_STATED:
+        return "not_stated"
+    if result is MatchResult.UNAVAILABLE:
+        return "unavailable"
     raise ValueError(f"Unknown docket field assessment: {result}")
 
 
@@ -296,7 +307,7 @@ def score_docket_root_lookup_review(document: Document) -> StageScore:
         gold_root = gold[aligned[prediction_index]] if prediction_index in aligned else None
         for field in FIELDS:
             result = getattr(decision, field).result
-            label = _docket_label(result, source_present=bool(getattr(root, field)))
+            label = _docket_label(result)
             counts[field][1] += 1
             counts[field][0] += int(gold_root is not None and label == gold_root.labels[field])
     return StageScore(
@@ -408,7 +419,7 @@ def _final_docket_field_label(root: FullDocketCitation, field: str) -> str | Non
     decision = _selected_docket_review(root)
     if decision is None:
         return None
-    return _docket_label(getattr(decision, field).result, source_present=bool(getattr(root, field)))
+    return _docket_label(getattr(decision, field).result)
 
 
 def _final_field_label(root: FullCitation, field: str, stage_runs: tuple[str, ...]) -> str | None:

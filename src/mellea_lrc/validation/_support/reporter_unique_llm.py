@@ -22,7 +22,10 @@ from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.reporter_lookup import ReporterUniqueReviewDecision
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.validation._support.reporter_court_context import reporter_court_context
+from mellea_lrc.validation._support.reporter_court_context import (
+    inferred_reporter_court_note,
+    reporter_court_context,
+)
 from mellea_lrc.validation._support.reporter_review_grounding import ReporterReviewGrounding
 
 if TYPE_CHECKING:
@@ -48,6 +51,18 @@ class ReporterUniqueReviewContext(ReporterReviewGrounding):
     has_date: bool
     candidate: CourtListenerCluster
     docket: CourtListenerDocket | None
+    inferred_court_note: str | None = None
+
+    def candidate_available(self) -> dict[str, bool]:
+        return {
+            "case_name": bool(self.candidate.case_name_full or self.candidate.case_name),
+            "court": bool(
+                self.candidate.court_id
+                or self.candidate.court
+                or (self.docket and (self.docket.court_id or self.docket.court))
+            ),
+            "date": bool(self.candidate.date_filed),
+        }
 
     @classmethod
     def from_document(cls, document: Document, root: FullReporterCitation) -> ReporterUniqueReviewContext:
@@ -83,6 +98,7 @@ class ReporterUniqueReviewContext(ReporterReviewGrounding):
             has_date=bool(root.date),
             candidate=lookup.response.clusters[0],
             docket=root.reporter_exact_docket.response if root.reporter_exact_docket else None,
+            inferred_court_note=inferred_reporter_court_note(root),
         )
 
 
@@ -103,7 +119,7 @@ class ReporterUniqueReviewer(Protocol):
 
 MAX_TOKENS = 3000
 MAX_MODEL_ATTEMPTS = 3
-SESSION_ID = "mellea-lrc-reporter-unique-review-v6"
+SESSION_ID = "mellea-lrc-reporter-unique-review-v7"
 
 _PREFIX = """Review one reporter citation against one retrieved opinion record. Do all rereading, correction proposals, and field comparisons in this one answer.
 
@@ -113,9 +129,9 @@ For case_name, also supply normalized as the structured name read from the filin
 
 For court and date, judge the filing reading against the retrieved evidence directly. If you propose a replacement quote, the program will normalize that quote afterward; you do not need to supply a normalized court or date.
 
-Compare the corrected or existing filing reading with the retrieved record. For each field return match, mismatch, or undetermined and a specific reason. Conventional abbreviations and equivalent party forms can match; a misspelling is a mismatch, not an abbreviation. Compare the full date when both sides provide it, otherwise compare the available precision. An absent value gives no opinion for that field. A reporter may itself identify a court even if none is written. Do not force agreement between an opinion date and a docket filing date.
+Compare the corrected or existing filing reading with the retrieved record. For each field return match or mismatch with a specific reason when both sides have evidence. Use not_stated only when the filing has no reading for that field, and unavailable only when a filing reading exists but the retrieved record has no usable evidence for comparison. Make a best-effort judgment when both sides have evidence; do not use unavailable merely because equivalence is difficult to decide. Conventional abbreviations and equivalent party forms can match; a misspelling is a mismatch, not an abbreviation. Compare the full date when both sides provide it, otherwise compare the available precision. A reporter may itself identify a court even if none is written. Do not force agreement between an opinion date and a docket filing date.
 
-Court codes, citation abbreviations, and full court names can differ while identifying the same tribunal. The supplied court-name expansions explain recognized record codes; compare the actual courts, not their spelling. A different district or department is not equivalent merely because it is nearby or shares a broader court name. The opinion record and its linked docket are separate sources of court evidence; if they conflict, weigh their provenance and explain your court assessment. Use undetermined when the evidence does not establish equivalence or a genuine conflict. You may use ordinary court-naming conventions to interpret supplied labels, but do not invent case-specific facts.
+Court codes, citation abbreviations, and full court names can differ while identifying the same tribunal. The supplied court-name expansions explain recognized record codes; compare the actual courts, not their spelling. A different district or department is not equivalent merely because it is nearby or shares a broader court name. The opinion record and its linked docket are separate sources of court evidence; if they conflict, weigh their provenance and explain your court assessment. You may use ordinary court-naming conventions to interpret supplied labels, but do not invent case-specific facts.
 
 Use only the supplied filing window and record for case-specific facts. Do not select another candidate or decide a separate overall identity verdict. Return the required structured fields: case_name, court, date, and reason."""
 
@@ -145,7 +161,7 @@ def _validate_grounding(ctx: object, context: ReporterUniqueReviewContext) -> Va
         answer = ReporterUniqueReviewDecision.model_validate_json(str(ctx.last_output().value))
     except ValidationError:
         return ValidationResult(result=True)
-    assessment_error = context.assessment_error(answer)
+    assessment_error = context.assessment_error(answer, candidate_available=context.candidate_available())
     if assessment_error is not None:
         return ValidationResult(result=False, reason=assessment_error)
     if context.grounded_corrections(answer) is not None:
@@ -193,7 +209,12 @@ class IvrReporterUniqueReviewer:
         run = await run_instruct_ivr(
             self.session,
             InstructIvrSpec(
-                description=_INSTRUCTION,
+                description=_INSTRUCTION
+                + (
+                    "\n\nReporter-based court inference:\n{{inferred_court_note}}"
+                    if context.inferred_court_note
+                    else ""
+                ),
                 prefix=_PREFIX,
                 user_variables={
                     "locator": context.locator,
@@ -205,6 +226,11 @@ class IvrReporterUniqueReviewer:
                     "court_name_context": json.dumps(
                         reporter_court_context(context.candidate, context.docket),
                         ensure_ascii=False,
+                    ),
+                    **(
+                        {"inferred_court_note": context.inferred_court_note}
+                        if context.inferred_court_note
+                        else {}
                     ),
                 },
                 output_format=ReporterUniqueReviewDecision,

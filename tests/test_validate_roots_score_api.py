@@ -298,7 +298,7 @@ def _add_docket_review(
             "date": date,
         }
         if not selected:
-            results = dict.fromkeys(results, "undetermined")
+            results = dict.fromkeys(results, "unavailable")
         assessments = {
             field: {
                 "propose_replacement": False,
@@ -422,7 +422,7 @@ def test_public_scorers_take_only_a_document(name: str) -> None:
 def test_docket_review_scores_selected_fields_by_locator_and_preserves_stage_boundary(
     tmp_path: Path,
 ) -> None:
-    reviewed = _reviewed_docket(tmp_path, court="mismatch", date="undetermined")
+    reviewed = _reviewed_docket(tmp_path, court="mismatch", date="unavailable")
     docket = next(root for root in reviewed.roots if isinstance(root, FullDocketCitation))
     assert docket.docket_lookup_review is not None
     assert docket.docket_lookup_review.decision is not None
@@ -458,8 +458,8 @@ def test_docket_review_scores_selected_fields_by_locator_and_preserves_stage_bou
     assert "## 16_docket_root_lookup\n" not in report
 
 
-def test_docket_undetermined_without_source_date_counts_as_not_stated(tmp_path: Path) -> None:
-    reviewed = _reviewed_docket(tmp_path, source=SOURCE_WITHOUT_DOCKET_DATE, date="undetermined")
+def test_docket_not_stated_without_source_date_matches_gold(tmp_path: Path) -> None:
+    reviewed = _reviewed_docket(tmp_path, source=SOURCE_WITHOUT_DOCKET_DATE, date="not_stated")
     docket = next(root for root in reviewed.roots if isinstance(root, FullDocketCitation))
     assert not docket.date
     assert evaluation.score_docket_root_lookup_review(reviewed).metrics["date"] == (
@@ -467,6 +467,22 @@ def test_docket_undetermined_without_source_date_counts_as_not_stated(tmp_path: 
     )
     final = _complete_reporter_stages(reviewed)
     assert evaluation.score_validate_roots(final).fields["date"] == evaluation.FieldScore(1, 1, 2)
+
+
+def test_docket_unavailable_does_not_match_not_stated_gold(tmp_path: Path) -> None:
+    reviewed = _reviewed_docket(tmp_path, source=SOURCE_WITHOUT_DOCKET_DATE, date="unavailable")
+    assert evaluation.score_docket_root_lookup_review(reviewed).metrics["date"] == (
+        evaluation.Precision(0, 1)
+    )
+    final = _complete_reporter_stages(reviewed)
+    assert evaluation.score_validate_roots(final).fields["date"] == evaluation.FieldScore(0, 1, 2)
+
+
+def test_docket_not_stated_with_source_date_does_not_match_gold(tmp_path: Path) -> None:
+    reviewed = _reviewed_docket(tmp_path, date="not_stated")
+    assert evaluation.score_docket_root_lookup_review(reviewed).metrics["date"] == (
+        evaluation.Precision(0, 1)
+    )
 
 
 @pytest.mark.parametrize("failed", (False, True))
@@ -530,11 +546,11 @@ def test_rule_ambiguity_scores_only_the_selected_candidate_and_keeps_stage_bound
     assert "identity" not in score.as_dict()["fields"]
 
 
-def test_unique_undetermined_is_an_explicit_incorrect_judgment(tmp_path: Path) -> None:
+def test_unique_unavailable_is_an_explicit_incorrect_judgment(tmp_path: Path) -> None:
     client = FakeLookupClient(_cluster(1, "Bell Atlantic Corporation v. Twombly"))
     lookup = reporter_root_lookup(_roots(tmp_path), client=client)
     root = next(root for root in lookup.roots if isinstance(root, FullReporterCitation))
-    assert root.case_name_judgments[-1].result is MatchResult.UNDETERMINED
+    assert root.case_name_judgments[-1].result is MatchResult.UNAVAILABLE
     assert evaluation.score_reporter_root_lookup(lookup).metrics == {
         "case_name": evaluation.Precision(0, 1),
         "court": evaluation.Precision(1, 1),
@@ -615,7 +631,7 @@ def test_lookup_miss_does_not_predict_an_absent_citation_field(tmp_path: Path) -
     }
 
 
-def test_explicit_undetermined_for_an_absent_field_agrees_with_not_stated_gold(
+def test_explicit_not_stated_for_an_absent_field_agrees_with_gold(
     tmp_path: Path,
 ) -> None:
     client = FakeLookupClient(_cluster(1, "Bell Atlantic Corporation v. Twombly"))
@@ -626,7 +642,7 @@ def test_explicit_undetermined_for_an_absent_field_agrees_with_not_stated_gold(
             "date": {
                 "propose_replacement": False,
                 "quote": None,
-                "result": "undetermined",
+                "result": "not_stated",
                 "reason": "The filing states no date for this reporter root.",
             },
         }
@@ -635,12 +651,35 @@ def test_explicit_undetermined_for_an_absent_field_agrees_with_not_stated_gold(
     reviewed = asyncio.run(reporter_root_lookup_unique_llm(before_review, reviewer=FakeReviewer(decision)))
     reviewed = asyncio.run(reporter_root_lookup_ambiguous_llm(reviewed))
     reporter = next(root for root in reviewed.roots if isinstance(root, FullReporterCitation))
-    assert reporter.date_judgments[-1].result is MatchResult.UNDETERMINED
+    assert reporter.date_judgments[-1].result is MatchResult.NOT_STATED
     assert reporter.date_judgments[-1].reading_index is None
     assert evaluation.score_reporter_root_lookup_unique_llm(reviewed).metrics["date"] == (
         evaluation.Precision(1, 1)
     )
     assert evaluation.score_validate_roots(reviewed).fields["date"] == evaluation.FieldScore(1, 1, 2)
+
+
+@pytest.mark.parametrize("invalid_label", ("unavailable", "undetermined"))
+def test_gold_rejects_non_identity_labels(tmp_path: Path, invalid_label: str) -> None:
+    source_path = _write_source(tmp_path)
+    annotation = source_path.parent.parent / "documents" / "example.jsonl"
+    rows = [json.loads(line) for line in annotation.read_text(encoding="utf-8").splitlines()]
+    rows[1]["validation"]["identity"]["fields"]["date"]["label"] = invalid_label
+    annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="incomplete field-level identity gold"):
+        evaluation._gold_roots(Document.from_source(source_path))
+
+
+def test_gold_not_stated_requires_no_source_reading(tmp_path: Path) -> None:
+    source_path = _write_source(tmp_path)
+    annotation = source_path.parent.parent / "documents" / "example.jsonl"
+    rows = [json.loads(line) for line in annotation.read_text(encoding="utf-8").splitlines()]
+    rows[1]["validation"]["identity"]["fields"]["date"]["label"] = "not_stated"
+    annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="date gold is not_stated despite a source reading"):
+        evaluation._gold_roots(Document.from_source(source_path))
 
 
 def test_primary_sized_gold_keeps_all_440_roots_in_each_recall_denominator(tmp_path: Path) -> None:
@@ -720,9 +759,7 @@ def test_primary_sized_gold_keeps_all_440_roots_in_each_recall_denominator(tmp_p
     )
     document = document.add_citation(docket).complete("test_sites")
     document = document.replace_citation(docket.record("10_roots").with_root(docket.id)).complete("10_roots")
-    document = _add_docket_review(
-        document, case_name="undetermined", court="undetermined", date="undetermined"
-    )
+    document = _add_docket_review(document, case_name="not_stated", court="not_stated", date="not_stated")
     document = _complete_reporter_stages(document)
 
     score = evaluation.score_validate_roots(document)

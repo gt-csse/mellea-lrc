@@ -30,7 +30,7 @@ def locator_present(cluster: CourtListenerCluster, query: ReporterExactLookupQue
 def case_name_result(citation: FullReporterCitation, candidate: CourtListenerCluster) -> MatchResult:
     reading = citation.case_name[-1]
     if not reading.normalizable or not candidate.case_name_full:
-        return MatchResult.UNDETERMINED
+        return MatchResult.UNAVAILABLE
     return (
         MatchResult.MATCH
         if compare_case_names(reading.get_normalized(), candidate.case_name_full).qualifies
@@ -65,14 +65,14 @@ def court_result(
     reading = citation.court[-1]
     court_id = candidate_court_id(candidate, docket)
     if not reading.normalizable or court_id is None:
-        return MatchResult.UNDETERMINED
+        return MatchResult.UNAVAILABLE
     return MatchResult.MATCH if reading.get_normalized().id == court_id else MatchResult.MISMATCH
 
 
 def date_result(citation: FullReporterCitation, candidate: CourtListenerCluster) -> MatchResult:
     reading = citation.date[-1]
     if not reading.normalizable:
-        return MatchResult.UNDETERMINED
+        return MatchResult.UNAVAILABLE
     source = reading.get_normalized()
     written = candidate.date_filed or ""
     try:
@@ -80,7 +80,7 @@ def date_result(citation: FullReporterCitation, candidate: CourtListenerCluster)
     except ValueError:
         if len(written) == 4 and written.isdecimal() and source.month is None:
             return MatchResult.MATCH if source.year == int(written) else MatchResult.MISMATCH
-        return MatchResult.UNDETERMINED
+        return MatchResult.UNAVAILABLE
     if source.month is None:
         agrees = source.year == filed.year
     elif source.day is None:

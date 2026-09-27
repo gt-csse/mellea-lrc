@@ -43,7 +43,7 @@ def _decision(
     date_proposal: str | None = None,
 ) -> DocketLookupReviewDecision:
     if selected is None:
-        docket_number = case_name = court = date = "undetermined"
+        docket_number = case_name = court = date = "unavailable"
 
     def assessment(result: str, quote: str | None = None) -> dict[str, object]:
         return {
@@ -305,6 +305,31 @@ def test_single_candidate_still_gets_one_model_call() -> None:
     assert after.roots[0].docket_lookup_review.decision.selected_candidate_index == 0
 
 
+def test_selected_record_requires_a_comparison_when_both_names_are_present() -> None:
+    before = _document(shortlist=(0,))
+    root = before.roots[0]
+    assert isinstance(root, FullDocketCitation)
+    context = DocketLookupReviewContext.from_document(before, root)
+
+    assert "judge match or mismatch" in context.choice_error(_decision(0, case_name="unavailable"))
+    assert "not_stated is invalid" in context.choice_error(_decision(0, case_name="not_stated"))
+
+
+def test_no_selected_record_requires_unavailable_for_a_present_field() -> None:
+    before = _document(shortlist=(0,))
+    root = before.roots[0]
+    assert isinstance(root, FullDocketCitation)
+    context = DocketLookupReviewContext.from_document(before, root)
+    decision = DocketLookupReviewDecision.model_validate(
+        {
+            **_decision(None).model_dump(),
+            "case_name": {**_decision(None).case_name.model_dump(), "result": "not_stated"},
+        }
+    )
+
+    assert "not_stated is invalid" in context.choice_error(decision)
+
+
 def test_review_appends_grounded_field_corrections_and_preserves_stage16() -> None:
     before = _document(shortlist=(0,), name_quote="v. Jones", court_quote="Cir.", date_quote="200")
     reviewer = FakeReviewer(
@@ -388,7 +413,7 @@ def test_empty_shortlist_persists_explicit_no_selection_without_model_call() -> 
     assert review.ivr is None
     assert review.failure_reason is None
     assert all(
-        getattr(review.decision, field).result is MatchResult.UNDETERMINED
+        getattr(review.decision, field).result is MatchResult.UNAVAILABLE
         for field in ("docket_number", "case_name", "court", "date")
     )
     assert Document.model_validate_json(after.model_dump_json()) == after
@@ -414,8 +439,8 @@ def test_empty_partial_search_records_its_limitation_without_model_call() -> Non
         ("2004", "2005-01-01", MatchResult.MISMATCH),
         ("Jan. 1, 2005", "2005-01-01", MatchResult.MATCH),
         ("Dec. 31, 2004", "2005-01-01", MatchResult.MISMATCH),
-        (None, "2005-01-01", MatchResult.UNDETERMINED),
-        ("2007", None, MatchResult.UNDETERMINED),
+        (None, "2005-01-01", MatchResult.NOT_STATED),
+        ("2007", None, MatchResult.UNAVAILABLE),
     ],
 )
 def test_docket_date_checks_chronological_compatibility(
