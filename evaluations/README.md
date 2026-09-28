@@ -35,6 +35,13 @@ timestamped directory. `--retrospective-date YYYY-MM-DD` limits body evidence
 to documents issued on or before that date. The cutoff is saved in `run.json`
 and reused by `--resume-run`.
 
+Add `--courtlistener-pool reserved` to use `COURTLISTENER_API_TOKEN_RESERVED`
+for the CourtListener opinion and RECAP body stages. The proxy URL still comes
+from `COURTLISTENER_BASE_URL`. The runner saves only the pool name in `run.json`
+and reuses it on resume; the token stays in the environment. You can also add
+the flag to `--resume-run RUN_DIR` for a run created before selecting a pool.
+Without this flag or a saved pool, the proxy selects its usual rotating tokens.
+
 If a run is interrupted, use `--resume-run RUN_DIR`. It verifies the saved
 source and completed Documents, then continues in the same timestamped
 directory without repeating completed filings. When a locator-body provider

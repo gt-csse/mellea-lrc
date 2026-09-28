@@ -15,10 +15,16 @@ from mellea_lrc.validation import (
     reporter_root_lookup_ambiguous_llm,
     reporter_root_lookup_unique_llm,
 )
+from mellea_lrc.validation.body_search._courtlistener import CourtListenerBodyClient
 from mellea_lrc.workflows.corroborate_root_locator_bodies import corroborate_root_locator_bodies
 
 
-async def validate_roots(document: Document, *, retrospective_date: date | None = None) -> Document:
+async def validate_roots(
+    document: Document,
+    *,
+    retrospective_date: date | None = None,
+    courtlistener_client: CourtListenerBodyClient | None = None,
+) -> Document:
     """Run root lookup and then locator-anchored third-party body review.
 
     Reporter search and large-candidate review remain future stages. The
@@ -41,4 +47,7 @@ async def validate_roots(document: Document, *, retrospective_date: date | None 
     # the specific subopinion or order may print another signed or issued
     # date. Retrieve that opinion/subopinion text or its original court PDF
     # and compare its header and signature before changing field judgments.
-    return await corroborate_root_locator_bodies(document, retrospective_date=retrospective_date)
+    client_kwargs = {"courtlistener_client": courtlistener_client} if courtlistener_client is not None else {}
+    return await corroborate_root_locator_bodies(
+        document, retrospective_date=retrospective_date, **client_kwargs
+    )
