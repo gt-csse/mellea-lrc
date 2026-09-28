@@ -16,9 +16,13 @@ from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.validation.body_search.courtlistener_opinion import (
     STAGE as OPINION_STAGE,
 )
-from mellea_lrc.validation.body_search.courtlistener_opinion import courtlistener_opinion_body_search
+from mellea_lrc.validation.body_search.courtlistener_opinion import (
+    courtlistener_opinion_locator_body_search,
+)
 from mellea_lrc.validation.body_search.courtlistener_recap import STAGE as RECAP_STAGE
-from mellea_lrc.validation.body_search.courtlistener_recap import courtlistener_recap_body_search
+from mellea_lrc.validation.body_search.courtlistener_recap import (
+    courtlistener_recap_locator_body_search,
+)
 
 
 class FakeBodyClient:
@@ -74,6 +78,7 @@ def _page(*results: dict[str, Any], next_url: str | None = None) -> CourtListene
 
 
 def test_opinion_stage_uses_nested_opinion_id_and_multiple_full_body_occurrences() -> None:
+    assert OPINION_STAGE == "20_courtlistener_opinion_locator_body_search"
     before = _rooted()
     first = _page(
         {
@@ -91,7 +96,9 @@ def test_opinion_stage_uses_nested_opinion_id_and_multiple_full_body_occurrences
         opinions={"901": {"id": 901, "plain_text": text, "absolute_url": "/api/opinions/901/"}},
     )
 
-    after = courtlistener_opinion_body_search(before, client=client, retrospective_date=date(1970, 1, 1))
+    after = courtlistener_opinion_locator_body_search(
+        before, client=client, retrospective_date=date(1970, 1, 1)
+    )
 
     assert client.search_calls == [('"347 U.S. 483"', "o", None)]
     assert client.opinion_calls == ["901"]
@@ -119,7 +126,7 @@ def test_opinion_stage_never_uses_cluster_id_as_opinion_id() -> None:
     before = _rooted()
     client = FakeBodyClient(lambda *_args: _page({"cluster_id": 900, "dateFiled": "1960-01-01"}))
 
-    after = courtlistener_opinion_body_search(before, client=client)
+    after = courtlistener_opinion_locator_body_search(before, client=client)
 
     assert client.opinion_calls == []
     search = after.roots[0].body_searches[0]
@@ -127,7 +134,7 @@ def test_opinion_stage_never_uses_cluster_id_as_opinion_id() -> None:
     assert any(
         failure.failure_type == "missing_body_id" and failure.item_id == "900" for failure in search.failures
     )
-    assert len(search.attempts) == 2  # concise case-name fallback after the locator query
+    assert len(search.attempts) == 1
 
 
 def test_opinion_detail_must_belong_to_search_cluster() -> None:
@@ -142,7 +149,7 @@ def test_opinion_detail_must_belong_to_search_cluster() -> None:
         },
     )
 
-    after = courtlistener_opinion_body_search(_rooted("347 U.S. 483."), client=client)
+    after = courtlistener_opinion_locator_body_search(_rooted("347 U.S. 483."), client=client)
 
     search = after.roots[0].body_searches[0]
     assert search.evidence == ()
@@ -155,7 +162,7 @@ def test_detail_must_identify_the_fetched_opinion() -> None:
         opinions={"901": {"plain_text": "The later court cited 347 U.S. 483."}},
     )
 
-    after = courtlistener_opinion_body_search(_rooted("347 U.S. 483."), client=client)
+    after = courtlistener_opinion_locator_body_search(_rooted("347 U.S. 483."), client=client)
 
     search = after.roots[0].body_searches[0]
     assert search.evidence == ()
@@ -163,6 +170,7 @@ def test_detail_must_identify_the_fetched_opinion() -> None:
 
 
 def test_recap_stage_uses_document_id_and_entry_date_not_case_date() -> None:
+    assert RECAP_STAGE == "21_courtlistener_recap_locator_body_search"
     before = _rooted()
     client = FakeBodyClient(
         lambda *_args: _page(
@@ -177,7 +185,9 @@ def test_recap_stage_uses_document_id_and_entry_date_not_case_date() -> None:
         recap_documents={"44": {"id": 44, "plain_text": "This filing cites 347 U.S. 483."}},
     )
 
-    after = courtlistener_recap_body_search(before, client=client, retrospective_date=date(1970, 1, 1))
+    after = courtlistener_recap_locator_body_search(
+        before, client=client, retrospective_date=date(1970, 1, 1)
+    )
 
     assert client.recap_calls == ["44"]
     assert client.opinion_calls == []
@@ -202,7 +212,9 @@ def test_multi_opinion_cluster_date_cannot_certify_an_individual_opinion_cutoff(
             "902": {"id": 902, "plain_text": "A separate order cited 347 U.S. 483."},
         },
     )
-    result = courtlistener_opinion_body_search(_rooted(), client=client, retrospective_date=date(1970, 1, 1))
+    result = courtlistener_opinion_locator_body_search(
+        _rooted(), client=client, retrospective_date=date(1970, 1, 1)
+    )
     search = result.roots[0].body_searches[-1]
     assert search.evidence == ()
     assert [failure.failure_type for failure in search.failures] == [
@@ -227,7 +239,9 @@ def test_recap_stage_requires_fetched_full_text_and_exact_item_date() -> None:
         recap_documents={"44": {"id": 44, "plain_text": "This filing cites 347 U.S. 483."}},
     )
 
-    after = courtlistener_recap_body_search(before, client=client, retrospective_date=date(1970, 1, 1))
+    after = courtlistener_recap_locator_body_search(
+        before, client=client, retrospective_date=date(1970, 1, 1)
+    )
 
     assert client.search_calls == [('"347 U.S. 483"', "rd", None)]
     search = after.roots[0].body_searches[0]
@@ -247,18 +261,16 @@ def test_search_snippet_never_becomes_evidence_without_fetched_locator() -> None
         recap_documents={"44": {"id": 44, "plain_text": "No cited case appears in this body."}},
     )
 
-    after = courtlistener_recap_body_search(before, client=client)
+    after = courtlistener_recap_locator_body_search(before, client=client)
 
     search = after.roots[0].body_searches[0]
     assert search.evidence == ()
     assert [failure.failure_type for failure in search.failures] == ["no_grounded_anchor"]
 
 
-def test_case_name_fallback_can_find_a_different_cited_locator() -> None:
+def test_locator_search_hit_with_only_a_case_name_does_not_become_evidence() -> None:
     def respond(query: str, _kind: Literal["o", "rd"], _cursor: str | None) -> CourtListenerSearchPage:
-        if query == '"347 U.S. 483"':
-            return _page()
-        assert query == "Brown Board Education"
+        assert query == '"347 U.S. 483"'
         return _page({"cluster_id": 900, "opinions": [{"id": 901}], "dateFiled": "1960-01-01"})
 
     client = FakeBodyClient(
@@ -271,19 +283,13 @@ def test_case_name_fallback_can_find_a_different_cited_locator() -> None:
         },
     )
 
-    after = courtlistener_opinion_body_search(_rooted(), client=client)
+    after = courtlistener_opinion_locator_body_search(_rooted(), client=client)
 
-    assert [call[0] for call in client.search_calls] == ['"347 U.S. 483"', "Brown Board Education"]
+    assert [call[0] for call in client.search_calls] == ['"347 U.S. 483"']
     search = after.roots[0].body_searches[0]
-    assert len(search.attempts) == 2
-    assert len(search.evidence) == 1
-    evidence = search.evidence[0]
-    assert evidence.anchor_kind == "case_name"
-    assert (
-        evidence.excerpt[evidence.anchor_span.start : evidence.anchor_span.end]
-        == "Brown v. Board of Education"
-    )
-    assert "349 U.S. 294" in evidence.excerpt
+    assert len(search.attempts) == 1
+    assert search.evidence == ()
+    assert any(failure.failure_type == "no_grounded_anchor" for failure in search.failures)
 
 
 def test_opinion_html_full_text_is_read_when_plain_text_is_empty() -> None:
@@ -298,7 +304,7 @@ def test_opinion_html_full_text_is_read_when_plain_text_is_empty() -> None:
         },
     )
 
-    after = courtlistener_opinion_body_search(_rooted("347 U.S. 483."), client=client)
+    after = courtlistener_opinion_locator_body_search(_rooted("347 U.S. 483."), client=client)
 
     evidence = after.roots[0].body_searches[0].evidence
     assert len(evidence) == 1
@@ -312,7 +318,7 @@ def test_retrospective_run_excludes_undated_item_even_with_body_match() -> None:
         recap_documents={"44": {"id": 44, "plain_text": "A later filing cites 347 U.S. 483."}},
     )
 
-    after = courtlistener_recap_body_search(
+    after = courtlistener_recap_locator_body_search(
         _rooted("347 U.S. 483."), client=client, retrospective_date=date(1970, 1, 1)
     )
 
@@ -331,7 +337,7 @@ def test_detail_fetch_budget_records_truncation() -> None:
         },
     )
 
-    after = courtlistener_recap_body_search(_rooted("347 U.S. 483."), client=client)
+    after = courtlistener_recap_locator_body_search(_rooted("347 U.S. 483."), client=client)
 
     search = after.roots[0].body_searches[0]
     assert client.recap_calls == [str(index) for index in range(1, 9)]
@@ -343,7 +349,7 @@ def test_search_hit_budget_records_truncation_without_fetching() -> None:
     hits = tuple({"cluster_id": index} for index in range(1, 42))
     client = FakeBodyClient(lambda *_args: _page(*hits))
 
-    after = courtlistener_opinion_body_search(_rooted("347 U.S. 483."), client=client)
+    after = courtlistener_opinion_locator_body_search(_rooted("347 U.S. 483."), client=client)
 
     search = after.roots[0].body_searches[0]
     assert len(search.attempts[0].pages[0]["results"]) == 41
@@ -365,7 +371,7 @@ def test_detail_failure_retains_status_url_and_message() -> None:
         opinions={"901": error},
     )
 
-    after = courtlistener_opinion_body_search(_rooted("347 U.S. 483."), client=client)
+    after = courtlistener_opinion_locator_body_search(_rooted("347 U.S. 483."), client=client)
 
     failure = after.roots[0].body_searches[0].failures[0]
     assert (failure.failure_type, failure.status_code, failure.item_id) == ("http_error", 429, "901")
@@ -387,7 +393,7 @@ def test_pagination_failure_retains_prior_raw_page() -> None:
 
     client = FakeBodyClient(respond)
 
-    after = courtlistener_opinion_body_search(_rooted("347 U.S. 483."), client=client)
+    after = courtlistener_opinion_locator_body_search(_rooted("347 U.S. 483."), client=client)
 
     attempt = after.roots[0].body_searches[0].attempts[0]
     assert attempt.pages == (first.raw_json,)
@@ -402,8 +408,8 @@ def test_both_sources_append_independently_and_reject_repeat() -> None:
     client = FakeBodyClient(lambda *_args: _page())
     before = _rooted("347 U.S. 483.")
 
-    after_opinion = courtlistener_opinion_body_search(before, client=client)
-    after_recap = courtlistener_recap_body_search(after_opinion, client=client)
+    after_opinion = courtlistener_opinion_locator_body_search(before, client=client)
+    after_recap = courtlistener_recap_locator_body_search(after_opinion, client=client)
 
     assert [item.source for item in after_recap.roots[0].body_searches] == [
         BodySource.COURTLISTENER_OPINION,
@@ -411,4 +417,4 @@ def test_both_sources_append_independently_and_reject_repeat() -> None:
     ]
     assert after_recap.stage_runs[-2:] == (OPINION_STAGE, RECAP_STAGE)
     with pytest.raises(ValueError, match="already completed"):
-        courtlistener_opinion_body_search(after_recap, client=client)
+        courtlistener_opinion_locator_body_search(after_recap, client=client)

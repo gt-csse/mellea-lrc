@@ -27,7 +27,7 @@ from mellea_lrc.validation.body_search.common import (
     roots_for_body_search,
 )
 
-STAGE = "22_govinfo_opinion_body_search"
+STAGE = "22_govinfo_opinion_locator_body_search"
 SEARCH_PAGE_SIZE = 25
 MAX_SEARCH_PAGES = 2
 MAX_FALLBACK_PACKAGES = 2
@@ -76,16 +76,6 @@ def _problem(failure_type: str, message: str, *, item_id: str | None = None) -> 
 def _query(phrase: str) -> str:
     escaped = phrase.replace("\\", "\\\\").replace('"', '\\"')
     return f'collection:uscourts and "{escaped}"'
-
-
-def _queries(root: FullCitationVariant) -> tuple[str, ...]:
-    locator = locator_text(root)
-    queries = [_query(locator)] if locator else []
-    if root.case_name:
-        name = " ".join(root.case_name[-1].quote.split())
-        if 3 <= len(name) <= 100 and name.casefold() != locator.casefold():
-            queries.append(_query(name))
-    return tuple(queries)
 
 
 def _search_results(service: GovInfoBodyClient, query: str) -> tuple[BodySearchAttempt, list[dict]]:
@@ -208,7 +198,6 @@ def _fetch_granule(
     entry: dict,
     entry_date_basis: str | None,
     locator: str,
-    case_name: str | None,
     source_text: str,
     retrospective_date: date | None,
 ) -> tuple[tuple[BodyEvidence, ...], BodyEvidenceFailure | None, bool]:
@@ -274,13 +263,12 @@ def _fetch_granule(
         },
         body_text=body_text,
         locator=locator,
-        case_name=case_name,
         source_text=source_text,
     )
     if not evidence:
         return (
             (),
-            _problem("no_locator", "Fetched GovInfo granule has no citation anchor", item_id=granule_id),
+            _problem("no_locator", "Fetched GovInfo granule does not contain the cited locator", item_id=granule_id),
             True,
         )
     return evidence, None, True
@@ -290,7 +278,6 @@ def _search_root(
     document: Document, root: FullCitationVariant, service: GovInfoBodyClient, retrospective_date: date | None
 ) -> BodySearch:
     locator = locator_text(root)
-    case_name = root.case_name[-1].quote if root.case_name else None
     attempts: list[BodySearchAttempt] = []
     discovery_pages: list[dict] = []
     evidence: list[BodyEvidence] = []
@@ -299,7 +286,8 @@ def _search_root(
     fallback_packages: set[str] = set()
     pdf_downloads = 0
     limit_reached = False
-    for query in _queries(root):
+    if locator:
+        query = _query(locator)
         attempt, results = _search_results(service, query)
         attempts.append(attempt)
         for search_result in results:
@@ -345,7 +333,6 @@ def _search_root(
                     entry=entry,
                     entry_date_basis=entry_date_basis,
                     locator=locator,
-                    case_name=case_name,
                     source_text=document.text,
                     retrospective_date=retrospective_date,
                 )
@@ -355,8 +342,6 @@ def _search_root(
                     failures.append(failure)
             if limit_reached:
                 break
-        if evidence or limit_reached or pdf_downloads >= MAX_PDF_DOWNLOADS or len(evidence) >= MAX_EVIDENCE:
-            break
     return BodySearch(
         node_id=root.nodes[-1].id,
         source=BodySource.GOVINFO_OPINION,
@@ -368,13 +353,13 @@ def _search_root(
     )
 
 
-def govinfo_opinion_body_search(
+def govinfo_opinion_locator_body_search(
     document: Document,
     *,
     client: GovInfoBodyClient | None = None,
     retrospective_date: date | None = None,
 ) -> Document:
-    """Save fetched USCOURTS granule excerpts for unresolved citation roots."""
+    """Save locator matches from fetched USCOURTS opinion granules."""
     if STAGE in document.stage_runs:
         raise ValueError("GovInfo opinion body search has already completed")
     with ExitStack() as stack:

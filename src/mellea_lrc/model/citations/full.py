@@ -148,4 +148,10 @@ class FullCitation(Citation):
                 or excerpt[span.start : span.end] != review.grounded_quote
             ):
                 raise ValueError("Body review quote must match the saved evidence excerpt")
+            context_span = review.context_span
+            if context_span is not None and (
+                context_span.end > len(excerpt)
+                or excerpt[context_span.start : context_span.end] != review.grounded_context
+            ):
+                raise ValueError("Body review context must match the saved evidence excerpt")
         return self

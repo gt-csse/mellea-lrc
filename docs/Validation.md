@@ -42,11 +42,11 @@ after_review = document.get_stage("14_reporter_root_lookup_unique_llm")
 
 After the reporter stages, `docket_root_lookup(document)` saves the CourtListener search responses at `16_docket_root_lookup`. `docket_root_lookup_review(document)` rereads the citation, selects from the saved shortlist, and records separate docket-number, case-name, court, and date assessments at `17_docket_root_lookup_review`. Each assessment explicitly proposes a replacement quote or keeps the current reading. Proposed quotes must ground to the appropriate filing window before they become append-only field readings; the case-name assessment also supplies its normalized name. If no record was shortlisted, the stage records unavailable field comparisons without a model call. A selected docket card's `dateFiled` is the case filing date. Its date assessment checks only whether the cited decision date could be on or after filing; it does not confirm that an opinion was issued on the cited day. A selected opinion record can instead support a comparison with its own opinion filing date. The review preserves the full model trace and does not yet issue an overall docket-root identity judgment.
 
-## Third-party body corroboration
+## Locator evidence in other document bodies
 
-After root lookup, unresolved roots can be checked against citations in other opinions and filings. Retrieval has one stage per source: CourtListener opinion bodies (`20_courtlistener_opinion_body_search`), CourtListener RECAP filing bodies (`21_courtlistener_recap_body_search`), and GovInfo opinion granules (`22_govinfo_opinion_body_search`). Each stage saves its search responses, fetched body excerpts, source identifiers, dates, and failures on the citation. Search snippets alone are not corroborating evidence.
+After root lookup, unresolved roots can be checked for their reporter or docket locator in other opinions and filings. Retrieval has one stage per source: CourtListener opinion bodies (`20_courtlistener_opinion_locator_body_search`), CourtListener RECAP filing bodies (`21_courtlistener_recap_locator_body_search`), and GovInfo opinion granules (`22_govinfo_opinion_locator_body_search`). These stages search by locator and retain only fetched bodies containing that locator. They save responses, grounded excerpts with surrounding discussion, source identifiers, dates, and failures on the citation. A case-name-only hit cannot establish the locator's identity in this workflow.
 
-`body_corroboration_review(document)` is one shared review stage (`23_body_corroboration_review`). It presents evidence from all three sources together, lets the model select a citation in a third-party document, and grounds the quoted citation back to that document. The review records the source filing's reread fields, the third-party citation's fields, separate field comparisons, and the complete model trace. A grounded mismatch yields `WRONG_IDENTITY`; an adequately supported agreement yields `CORRECT_IDENTITY`. Both use `basis=third_party`. Proposed changes to the source filing append field readings through the citation's usual update methods. The selected review and identity judgment are saved on that citation, so later stages can inspect them without searching the whole document.
+`review_locator_body_evidence(document)` is stage `23_locator_body_review`. It selects a grounded occurrence, rereads the source filing, compares the two printed citations field by field, and records how the other document treats that citation. An explicit challenge to a fictitious or incorrect citation needs its own grounded context quote and produces `WRONG_IDENTITY`, even when the printed fields match. A mere mention leaves identity unresolved. An affirmative citation is judged from its field comparisons. These judgments use `basis=third_party`; the citation also retains the selected quote, context, field updates, and complete model trace. Later case-name-led discovery is separate and is not part of this workflow.
 
 Use the stages individually when developing a provider, or run their composition:
 
@@ -54,22 +54,22 @@ Use the stages individually when developing a provider, or run their composition
 from datetime import date
 
 from mellea_lrc.api import (
-    body_corroboration_review,
-    corroborate_root_bodies,
-    courtlistener_opinion_body_search,
-    courtlistener_recap_body_search,
-    govinfo_opinion_body_search,
+    corroborate_root_locator_bodies,
+    courtlistener_opinion_locator_body_search,
+    courtlistener_recap_locator_body_search,
+    govinfo_opinion_locator_body_search,
+    review_locator_body_evidence,
 )
 
 cutoff = date(2024, 1, 1)  # Optional filing date for retrospective evaluation.
 starting_document = document
-document = courtlistener_opinion_body_search(document, retrospective_date=cutoff)
-document = courtlistener_recap_body_search(document, retrospective_date=cutoff)
-document = govinfo_opinion_body_search(document, retrospective_date=cutoff)
-document = await body_corroboration_review(document)
+document = courtlistener_opinion_locator_body_search(document, retrospective_date=cutoff)
+document = courtlistener_recap_locator_body_search(document, retrospective_date=cutoff)
+document = govinfo_opinion_locator_body_search(document, retrospective_date=cutoff)
+document = await review_locator_body_evidence(document)
 
 # Alternatively, start from the same earlier checkpoint:
-document = await corroborate_root_bodies(starting_document, retrospective_date=cutoff)
+document = await corroborate_root_locator_bodies(starting_document, retrospective_date=cutoff)
 ```
 
 With a cutoff, retrieved evidence must have its own reliable issue date on or before that date; undated evidence is excluded. Omitting the cutoff permits later evidence for ordinary research. Every stage returns a serializable `Document`, and `get_stage(...)` recovers its checkpoint.
