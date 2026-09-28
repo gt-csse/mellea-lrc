@@ -379,8 +379,58 @@ def test_detail_failure_retains_status_url_and_message(monkeypatch: pytest.Monke
     assert (failure.failure_type, failure.status_code, failure.item_id) == ("http_error", 429, "901")
     assert "proxy.example" in failure.message
     assert "retry later" in failure.message
+    assert client.opinion_calls == ["901"] * 3
+    assert sleep_calls == [2.0, 4.0]
+
+
+def test_long_proxy_quota_hint_does_not_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleep_calls: list[float] = []
+    monkeypatch.setattr("time.sleep", sleep_calls.append)
+    error = CourtListenerHTTPError(
+        "CourtListener proxy returned HTTP 429",
+        failure_type="http_error",
+        upstream_status_code=429,
+        upstream_detail='{"retry_after_seconds": 17000}',
+    )
+    client = FakeBodyClient(
+        lambda *_args: _page({"cluster_id": 900, "opinions": [{"id": 901}]}),
+        opinions={"901": error},
+    )
+
+    after = courtlistener_opinion_locator_body_search(_rooted("347 U.S. 483."), client=client)
+
+    assert after.roots[0].body_searches[0].failures[0].status_code == 429
     assert client.opinion_calls == ["901"]
     assert sleep_calls == []
+
+
+def test_unhinted_short_429_recovers_on_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleep_calls: list[float] = []
+    monkeypatch.setattr("time.sleep", sleep_calls.append)
+    error = CourtListenerHTTPError(
+        "CourtListener lookup returned HTTP 429",
+        failure_type="http_error",
+        upstream_status_code=429,
+        upstream_detail='{"detail":"Request was throttled."}',
+    )
+
+    class RetryOnceBodyClient(FakeBodyClient):
+        def get_opinion(self, opinion_id: str) -> dict[str, Any] | None:
+            if not self.opinion_calls:
+                self.opinion_calls.append(opinion_id)
+                raise error
+            return super().get_opinion(opinion_id)
+
+    client = RetryOnceBodyClient(
+        lambda *_args: _page({"cluster_id": 900, "opinions": [{"id": 901}]}),
+        opinions={"901": {"id": 901, "plain_text": "A later court cited 347 U.S. 483."}},
+    )
+
+    after = courtlistener_opinion_locator_body_search(_rooted("347 U.S. 483."), client=client)
+
+    assert client.opinion_calls == ["901", "901"]
+    assert sleep_calls == [2.0]
+    assert after.roots[0].body_searches[0].failures == ()
 
 
 @pytest.mark.parametrize("rate_limited_step", ["search", "detail"])

@@ -63,20 +63,21 @@ class CourtListenerBodyClient(Protocol):
 _Result = TypeVar("_Result")
 
 
-def _retry_after(error: CourtListenerError) -> float | None:
-    """Honor a bounded wait supplied by the proxy for its rotating token pool."""
-    if error.upstream_status_code != 429 or not isinstance(error.upstream_detail, str):
+def _retry_after(error: CourtListenerError, attempt: int) -> float | None:
+    """Honor short quota hints, or briefly back off for an unhinted 429."""
+    if error.upstream_status_code != 429:
         return None
-    try:
-        detail = json.loads(error.upstream_detail)
-    except ValueError:
-        return None
-    if not isinstance(detail, dict):
-        return None
-    seconds = detail.get("retry_after_seconds")
-    if type(seconds) not in {int, float} or not 0 <= seconds <= MAX_RETRY_AFTER_SECONDS:
-        return None
-    return min(float(seconds) + 0.25, MAX_RETRY_AFTER_SECONDS)
+    if isinstance(error.upstream_detail, str):
+        try:
+            detail = json.loads(error.upstream_detail)
+        except ValueError:
+            detail = None
+        if isinstance(detail, dict) and "retry_after_seconds" in detail:
+            seconds = detail["retry_after_seconds"]
+            if type(seconds) not in {int, float} or not 0 <= seconds <= MAX_RETRY_AFTER_SECONDS:
+                return None
+            return min(float(seconds) + 0.25, MAX_RETRY_AFTER_SECONDS)
+    return float(2 ** (attempt + 1))
 
 
 def _retry_rate_limit(action: Callable[[], _Result]) -> _Result:
@@ -85,7 +86,7 @@ def _retry_rate_limit(action: Callable[[], _Result]) -> _Result:
         try:
             return action()
         except CourtListenerError as error:
-            delay = _retry_after(error)
+            delay = _retry_after(error, attempt)
             if delay is None or attempt == MAX_RATE_LIMIT_RETRIES:
                 raise
             time.sleep(delay)
