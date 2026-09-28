@@ -118,7 +118,10 @@ def _annotated_source(
             "kind": kind,
             "locator": {"source": {"kind": "quoted", "start": start, "end": start + len(locator)}},
             "validation": {
-                "identity": {"fields": {field: {"label": label} for field, label in labels.items()}}
+                "identity": {
+                    "label": "WRONG_IDENTITY" if "disagrees" in labels.values() else "CORRECT_IDENTITY",
+                    "fields": {field: {"label": label} for field, label in labels.items()},
+                }
             },
         },
     ]

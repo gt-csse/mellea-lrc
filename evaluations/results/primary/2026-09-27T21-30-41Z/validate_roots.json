@@ -144,5 +144,13 @@
       "precision": 0.9798270893371758,
       "recall": 0.7727272727272727
     }
+  },
+  "identity": {
+    "correct": 334,
+    "predicted": 344,
+    "gold": 440,
+    "undetermined": 3,
+    "precision": 0.9709302325581395,
+    "recall": 0.759090909090909
   }
 }

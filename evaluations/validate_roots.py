@@ -1,4 +1,4 @@
-"""Score the field judgments made by each root-validation stage."""
+"""Score field and identity judgments through the root-lookup workflow."""
 
 from __future__ import annotations
 
@@ -33,6 +33,7 @@ from mellea_lrc.validation.reporter_root_lookup_unique_llm import STAGE as REPOR
 
 FIELDS = ("case_name", "court", "date")
 GOLD_LABELS = frozenset({"agrees", "disagrees", "not_stated"})
+GOLD_IDENTITIES = frozenset({"CORRECT_IDENTITY", "WRONG_IDENTITY"})
 STAGES = (
     REPORTER_ROOT_LOOKUP,
     REPORTER_ROOT_LOOKUP_AMBIGUOUS,
@@ -96,6 +97,32 @@ class FieldScore:
 
 
 @dataclass(frozen=True)
+class IdentityScore:
+    correct: int = 0
+    predicted: int = 0
+    gold: int = 0
+    undetermined: int = 0
+
+    def __add__(self, other: IdentityScore) -> IdentityScore:
+        return IdentityScore(
+            self.correct + other.correct,
+            self.predicted + other.predicted,
+            self.gold + other.gold,
+            self.undetermined + other.undetermined,
+        )
+
+    def as_dict(self) -> dict[str, int | float | None]:
+        return {
+            "correct": self.correct,
+            "predicted": self.predicted,
+            "gold": self.gold,
+            "undetermined": self.undetermined,
+            "precision": self.correct / self.predicted if self.predicted else None,
+            "recall": self.correct / self.gold if self.gold else None,
+        }
+
+
+@dataclass(frozen=True)
 class StageScore:
     stage: str
     metrics: dict[str, Precision]
@@ -119,6 +146,7 @@ class StageScore:
 class WorkflowScore:
     stages: tuple[StageScore, ...]
     fields: dict[str, FieldScore]
+    identity: IdentityScore
     checkpoint: str | None = None
 
     def __add__(self, other: WorkflowScore) -> WorkflowScore:
@@ -131,6 +159,7 @@ class WorkflowScore:
         return WorkflowScore(
             tuple(left + right for left, right in zip(self.stages, other.stages, strict=True)),
             {field: score + other.fields[field] for field, score in self.fields.items()},
+            self.identity + other.identity,
             self.checkpoint,
         )
 
@@ -138,6 +167,7 @@ class WorkflowScore:
         result = {
             "stages": [stage.as_dict() for stage in self.stages],
             "fields": {field: score.as_dict() for field, score in self.fields.items()},
+            "identity": self.identity.as_dict(),
         }
         if self.checkpoint is not None:
             result["checkpoint"] = self.checkpoint
@@ -150,6 +180,7 @@ class _GoldRoot:
     start: int
     end: int
     labels: dict[str, str]
+    identity: str
 
 
 def _gold_roots(document: Document) -> tuple[_GoldRoot, ...]:
@@ -187,6 +218,8 @@ def _gold_roots(document: Document) -> tuple[_GoldRoot, ...]:
             raise ValueError(f"{row.get('id')}: root locator has no span")
         start, end = locator["start"], locator["end"]
         identity = (row.get("validation") or {}).get("identity") or {}
+        if identity.get("label") not in GOLD_IDENTITIES:
+            raise ValueError(f"{row.get('id')}: missing or invalid root identity gold")
         labels = identity.get("fields") or {}
         if set(labels) != set(FIELDS) or any(
             not isinstance(labels[field], dict) or labels[field].get("label") not in GOLD_LABELS
@@ -208,6 +241,7 @@ def _gold_roots(document: Document) -> tuple[_GoldRoot, ...]:
                 start,
                 end,
                 {field: labels[field]["label"] for field in FIELDS},
+                identity["label"],
             )
         )
     return tuple(roots)
@@ -486,6 +520,19 @@ def _final_field_label(root: FullCitation, field: str, stage_runs: tuple[str, ..
     raise ValueError(f"Unsupported validation root kind: {type(root).__name__}")
 
 
+def _identity_value(labels: dict[str, str]) -> str:
+    """Resolve one selected lookup's field judgments without inventing missing evidence."""
+    if set(labels) != set(FIELDS) or any(
+        label not in {"agrees", "disagrees", "unavailable", "not_stated"} for label in labels.values()
+    ):
+        raise ValueError("Identity requires three explicit field judgments")
+    if "disagrees" in labels.values():
+        return "WRONG_IDENTITY"
+    if labels["case_name"] in {"unavailable", "not_stated"}:
+        return "UNDETERMINED"
+    return "CORRECT_IDENTITY"
+
+
 def score_validate_roots(document: Document) -> WorkflowScore:
     """Score completed validation judgments and every annotated root's final fields."""
     if any(stage not in document.stage_runs for stage in WORKFLOW_STAGES):
@@ -505,19 +552,31 @@ def score_validate_roots(document: Document) -> WorkflowScore:
     judged = final.get_stage(judgment_stage)
     aligned = _align(judged.roots, gold)
     counts = {field: [0, 0] for field in FIELDS}
+    identity_correct = identity_predicted = undetermined = 0
     for prediction_index, root in enumerate(judged.roots):
         if isinstance(root, FullReporterCitation) and not any(node.stage in STAGES for node in root.nodes):
             continue
         gold_root = gold[aligned[prediction_index]] if prediction_index in aligned else None
+        outcomes: dict[str, str] = {}
         for field in FIELDS:
             outcome = _final_field_label(root, field, judged.stage_runs)
             if outcome is None:
                 continue
+            outcomes[field] = outcome
             counts[field][1] += 1
             counts[field][0] += int(gold_root is not None and outcome == gold_root.labels[field])
+        if not outcomes:
+            continue
+        verdict = _identity_value(outcomes)
+        if verdict == "UNDETERMINED":
+            undetermined += 1
+        else:
+            identity_predicted += 1
+            identity_correct += int(gold_root is not None and verdict == gold_root.identity)
     return WorkflowScore(
         stage_scores,
         {field: FieldScore(counts[field][0], counts[field][1], len(gold)) for field in FIELDS},
+        IdentityScore(identity_correct, identity_predicted, len(gold), undetermined),
         LOCATOR_BODY_REVIEW if body_stages else None,
     )
 
@@ -597,4 +656,19 @@ def render_validate_roots(
         for field in FIELDS
     )
     sections.append("\n".join(lines))
+    sections.append(
+        "\n".join(
+            (
+                "## Lookup-derived root identity",
+                "",
+                "A selected lookup record is required. Undetermined case names are excluded from precision and remain in the recall denominator.",
+                "",
+                "| Precision | Recall | Undetermined |",
+                "| ---: | ---: | ---: |",
+                f"| {_field_cell(FieldScore(score.identity.correct, score.identity.predicted, score.identity.gold), recall=False)} | "
+                f"{_field_cell(FieldScore(score.identity.correct, score.identity.predicted, score.identity.gold), recall=True)} | "
+                f"{score.identity.undetermined} |",
+            )
+        )
+    )
     return "\n\n".join(sections) + "\n"
