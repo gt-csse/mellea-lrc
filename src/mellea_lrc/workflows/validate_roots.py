@@ -39,6 +39,9 @@ async def validate_roots(
     document = await docket_root_lookup_review(document)
     document = govinfo_docket_lookup(document)
     document = await govinfo_docket_lookup_review(document)
+    # A selected docket record now routes to fields_aggregated_identity. That
+    # decision can run after this checkpoint; body search leaves queued roots
+    # alone until the field judgments have been combined.
     # TODO: Review opinion evidence for a securely identified record whose
     # cited court or date still disagrees. The cluster's linked docket may
     # contain imported court metadata that identifies the case but assigns

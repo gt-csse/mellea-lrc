@@ -13,6 +13,8 @@ from mellea_lrc.api import Document, grow_roots
 from mellea_lrc.courtlistener import CourtListenerHTTPError
 from mellea_lrc.courtlistener.models import CourtListenerSearchPage
 from mellea_lrc.model.citations.body_evidence import BodySource
+from mellea_lrc.model.citations.judgments import IdentityVerdict
+from mellea_lrc.validation.body_search.common import roots_for_body_search
 from mellea_lrc.validation.body_search.courtlistener_opinion import (
     STAGE as OPINION_STAGE,
 )
@@ -75,6 +77,26 @@ def _page(*results: dict[str, Any], next_url: str | None = None) -> CourtListene
             "upstream_marker": {"preserve": True},
         }
     )
+
+
+def test_queued_field_identity_root_waits_for_aggregation_before_body_search() -> None:
+    before = _rooted()
+    route = before.roots[0].record("reporter_review")
+    queued = before.replace_citation(
+        route.with_identity_judgment(IdentityVerdict.DEFERRED, "fields_aggregated_identity")
+    ).complete("reporter_review")
+    assert roots_for_body_search(queued) == ()
+
+    client = FakeBodyClient(lambda *_args: pytest.fail("Queued root must not be searched"))
+    skipped = courtlistener_opinion_locator_body_search(queued, client=client)
+    assert client.search_calls == []
+    assert skipped.roots[0].body_searches == ()
+
+    aggregate = queued.roots[0].record("fields_aggregated_identity")
+    ready = queued.replace_citation(
+        aggregate.with_identity_judgment(IdentityVerdict.DEFERRED, OPINION_STAGE)
+    ).complete("fields_aggregated_identity")
+    assert roots_for_body_search(ready) == ready.roots
 
 
 def test_opinion_stage_uses_nested_opinion_id_and_multiple_full_body_occurrences() -> None:
