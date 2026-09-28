@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from datetime import date
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
+from evaluations import validate_roots as evaluation
 from mellea_lrc.model.citations import FullDocketCitation, FullReporterCitation
 from mellea_lrc.model.citations.body_evidence import (
     BodyCitationTreatment,
@@ -32,7 +35,13 @@ STAGES = (
 )
 
 
-def _document(*, include_evidence: bool = True, body: str = BODY) -> Document:
+def _document(
+    *,
+    include_evidence: bool = True,
+    body: str = BODY,
+    source_input: Path | str = SOURCE,
+    include_validation_history: bool = False,
+) -> Document:
     number_start = SOURCE.index("05-4206")
     root = FullDocketCitation.from_locator(
         citation_id="docket:0",
@@ -41,13 +50,16 @@ def _document(*, include_evidence: bool = True, body: str = BODY) -> Document:
         span=Span(SOURCE.index("No."), number_start + len("05-4206")),
         number_span=Span(number_start, number_start + len("05-4206")),
     )
-    document = Document.from_source(SOURCE).add_citation(root).complete("sites")
+    document = Document.from_source(source_input).add_citation(root).complete("sites")
     root = root.record("fields")
     root = root.with_case_name(SOURCE, Span(0, len("Smith v. Jones")))
     root = root.with_court(SOURCE, Span(SOURCE.index("2d Cir."), SOURCE.index("2d Cir.") + 7))
     root = root.with_date(SOURCE, Span(SOURCE.index("2007"), SOURCE.index("2007") + 4))
     document = document.replace_citation(root).complete("fields")
     document = document.replace_citation(root.record("roots").with_root(root.id)).complete("roots")
+    if include_validation_history:
+        for stage in evaluation.WORKFLOW_STAGES:
+            document = document.complete(stage)
     for source, stage in STAGES:
         root = document.roots[0].record(stage)
         evidence = (
@@ -70,6 +82,109 @@ def _document(*, include_evidence: bool = True, body: str = BODY) -> Document:
         )
         document = document.replace_citation(root).complete(stage)
     return document
+
+
+def _annotated_source(
+    tmp_path: Path,
+    *,
+    source: str,
+    locator: str,
+    kind: str,
+    labels: dict[str, str],
+) -> Path:
+    dataset = tmp_path / "primary"
+    source_dir = dataset / "documents_txt"
+    annotation_dir = dataset / "documents"
+    source_dir.mkdir(parents=True)
+    annotation_dir.mkdir()
+    source_path = source_dir / "example.txt"
+    source_path.write_text(source, encoding="utf-8")
+    start = source.index(locator)
+    rows = [
+        {
+            "unit": "header",
+            "dataset": "primary",
+            "document": source_path.name,
+            "text": {
+                "path": "primary/documents_txt/example.txt",
+                "length": len(source),
+                "sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+            },
+        },
+        {
+            "unit": "citation",
+            "id": "example-o01",
+            "is_root": True,
+            "kind": kind,
+            "locator": {"source": {"kind": "quoted", "start": start, "end": start + len(locator)}},
+            "validation": {
+                "identity": {"fields": {field: {"label": label} for field, label in labels.items()}}
+            },
+        },
+    ]
+    (annotation_dir / "example.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
+    )
+    return source_path
+
+
+def test_body_review_keeps_field_scores_and_marks_final_checkpoint(tmp_path: Path) -> None:
+    source_path = _annotated_source(
+        tmp_path,
+        source=SOURCE,
+        locator="No. 05-4206",
+        kind="DocketCitation",
+        labels={"case_name": "agrees", "court": "disagrees", "date": "agrees"},
+    )
+    ready = _document(source_input=source_path, include_validation_history=True)
+    prior = evaluation.score_validate_roots(ready.get_stage(evaluation.WORKFLOW_STAGES[-1]))
+    assert all(score == evaluation.FieldScore(0, 0, 1) for score in prior.fields.values())
+
+    reviewed = asyncio.run(
+        review_locator_body_evidence(ready, reviewer=FakeReviewer(_decision(court_result="mismatch")))
+    )
+    score = evaluation.score_validate_roots(Document.model_validate_json(reviewed.model_dump_json()))
+    assert reviewed.roots[0].identity_judgments[-1].verdict is IdentityVerdict.WRONG_IDENTITY
+    assert score.stages == prior.stages
+    assert score.fields == prior.fields
+    assert score.checkpoint == evaluation.LOCATOR_BODY_REVIEW
+    assert score.as_dict()["checkpoint"] == evaluation.LOCATOR_BODY_REVIEW
+    report = evaluation.render_validate_roots(score)
+    assert "Checkpoint: 23_locator_body_review completed" in report
+    assert "## 23_locator_body_review" not in report
+    assert "printed citation comparisons have no corresponding field identity gold" in report
+
+    declined = asyncio.run(
+        review_locator_body_evidence(
+            _document(source_input=source_path, include_evidence=False, include_validation_history=True)
+        )
+    )
+    assert evaluation.score_validate_roots(declined).fields == prior.fields
+
+
+def test_disputed_third_party_quote_does_not_become_field_identity_gold(tmp_path: Path) -> None:
+    source_path = _annotated_source(
+        tmp_path,
+        source=SOURCE,
+        locator="No. 05-4206",
+        kind="DocketCitation",
+        labels={"case_name": "disagrees", "court": "disagrees", "date": "disagrees"},
+    )
+    body = "This citation is fabricated: Smith v. Jones, No. 05-4206 (2d Cir. 2007)."
+    ready = _document(source_input=source_path, body=body, include_validation_history=True)
+    decision = _decision(
+        treatment=BodyCitationTreatment.EXPLICITLY_DISPUTES,
+        context_quote="This citation is fabricated",
+    )
+    reviewed = asyncio.run(review_locator_body_evidence(ready, reviewer=FakeReviewer(decision)))
+    assert reviewed.roots[0].identity_judgments[-1].verdict is IdentityVerdict.WRONG_IDENTITY
+    assert (
+        evaluation.score_validate_roots(reviewed).stages
+        == evaluation.score_validate_roots(ready.get_stage(evaluation.WORKFLOW_STAGES[-1])).stages
+    )
+    assert evaluation.score_validate_roots(reviewed).fields == {
+        field: evaluation.FieldScore(0, 0, 1) for field in evaluation.FIELDS
+    }
 
 
 def _decision(

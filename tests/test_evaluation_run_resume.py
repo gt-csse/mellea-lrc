@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,13 @@ from mellea_lrc.model import (
     DocketLookupAttempt,
     DocketLookupFailure,
     FullDocketCitation,
+    Span,
+)
+from mellea_lrc.model.citations.body_evidence import (
+    BodyEvidenceFailure,
+    BodySearch,
+    BodySearchAttempt,
+    BodySource,
 )
 from mellea_lrc.model.citations.govinfo_lookup import GovInfoDocketLookup, GovInfoLookupAttempt
 
@@ -37,6 +45,14 @@ def _complete(document: Document, stages: tuple[str, ...]) -> Document:
     return document
 
 
+@pytest.fixture(autouse=True)
+def _offline_body_stages(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def body(document: Document, *, retrospective_date: date | None = None) -> Document:
+        return _complete(document, runner._RUN_STAGES[19:])
+
+    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", body)
+
+
 def test_resume_skips_valid_documents_and_reuses_timestamp_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -49,7 +65,7 @@ def test_resume_skips_valid_documents_and_reuses_timestamp_directory(
         calls.append(Path(document.source_path or "").name)
         return _complete(document, runner._RUN_STAGES[:11])
 
-    async def fake_validate(document: Document) -> Document:
+    async def fake_validate(document: Document, *, retrospective_date: date | None = None) -> Document:
         return _complete(document, runner._RUN_STAGES[11:])
 
     monkeypatch.setattr(runner, "grow_roots", fake_grow)
@@ -227,6 +243,220 @@ def test_resume_from_docket_review_checkpoint_only_runs_govinfo_stages(
     assert saved.get_stage(runner._DOCKET_REVIEW_INPUT_STAGE) == ready
 
 
+def test_resume_from_validation_checkpoint_runs_only_body_stages_and_reuses_cutoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    filenames = ("001.txt", "002.txt")
+    data_root = _dataset(tmp_path, filenames)
+    checkpoint_dir = tmp_path / "validation-input"
+    checkpoint_dir.mkdir()
+    for filename in filenames:
+        source = data_root / "primary" / "documents_txt" / filename
+        ready = _complete(Document.from_source(source), runner._VALIDATION_INPUT_STAGES)
+        (checkpoint_dir / f"{filename}.json").write_text(ready.model_dump_json(), encoding="utf-8")
+    calls: list[tuple[str, date | None]] = []
+
+    async def body(document: Document, *, retrospective_date: date | None = None) -> Document:
+        calls.append((Path(document.source_path or "").name, retrospective_date))
+        assert document.stage_runs == runner._VALIDATION_INPUT_STAGES
+        return _complete(document, runner._RUN_STAGES[19:])
+
+    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", body)
+    cutoff = date(2024, 6, 1)
+    run_dir = asyncio.run(
+        runner._run(
+            data_root,
+            tmp_path / "results",
+            None,
+            from_validation_documents=checkpoint_dir,
+            retrospective_date=cutoff,
+        )
+    )
+    record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert record["from_validation_documents"] == str(checkpoint_dir)
+    assert record["retrospective_date"] == cutoff.isoformat()
+    assert calls == [(filename, cutoff) for filename in filenames]
+    for filename in filenames:
+        saved = Document.model_validate_json((run_dir / "documents" / f"{filename}.json").read_text())
+        assert saved.stage_runs == runner._RUN_STAGES
+        assert saved.get_stage(runner._VALIDATION_INPUT_STAGE) == Document.model_validate_json(
+            (checkpoint_dir / f"{filename}.json").read_text()
+        )
+
+    (run_dir / "documents" / "002.txt.json").unlink()
+    record["status"] = "failed"
+    (run_dir / "run.json").write_text(json.dumps(record), encoding="utf-8")
+    assert asyncio.run(runner._run(tmp_path / "unused", tmp_path / "unused", None, run_dir)) == run_dir
+    assert calls == [(filename, cutoff) for filename in filenames] + [("002.txt", cutoff)]
+
+
+def test_validation_replay_checks_all_sources_before_body_provider_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    filenames = ("001.txt", "002.txt")
+    data_root = _dataset(tmp_path, filenames)
+    checkpoint_dir = tmp_path / "validation-input"
+    checkpoint_dir.mkdir()
+    for filename in filenames:
+        source = data_root / "primary" / "documents_txt" / filename
+        ready = _complete(Document.from_source(source), runner._VALIDATION_INPUT_STAGES)
+        (checkpoint_dir / f"{filename}.json").write_text(ready.model_dump_json(), encoding="utf-8")
+    (data_root / "primary" / "documents_txt" / "002.txt").write_text("changed source\n", encoding="utf-8")
+
+    async def unexpected_body(_document: Document, *, retrospective_date: date | None = None) -> Document:
+        pytest.fail("A stale validation checkpoint must not reach body providers")
+
+    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", unexpected_body)
+    with pytest.raises(ValueError, match="Saved Document text differs"):
+        asyncio.run(
+            runner._run(data_root, tmp_path / "results", None, from_validation_documents=checkpoint_dir)
+        )
+
+
+@pytest.mark.parametrize(
+    ("failed_stage", "failure_type", "status"),
+    [
+        (runner._COURTLISTENER_OPINION_STAGE, "http_error", 429),
+        (runner._COURTLISTENER_RECAP_STAGE, "transport_error", None),
+        (runner._GOVINFO_OPINION_STAGE, "http_error", 503),
+    ],
+)
+def test_transient_body_search_failure_replays_from_failed_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failed_stage: str,
+    failure_type: str,
+    status: int | None,
+) -> None:
+    filenames = ("001.txt", "002.txt")
+    data_root = _dataset(tmp_path, filenames)
+    source = "Acme v. Reed, Case No. 2:31-cv-45821 (S.D.N.Y. 2031)."
+    checkpoint_dir = tmp_path / "validation-input"
+    checkpoint_dir.mkdir()
+    locator = "Case No. 2:31-cv-45821"
+    number = "2:31-cv-45821"
+    for filename in filenames:
+        source_path = data_root / "primary" / "documents_txt" / filename
+        source_path.write_text(source, encoding="utf-8")
+        ready = Document.from_source(source_path).complete(runner._RUN_STAGES[0])
+        root = FullDocketCitation.from_locator(
+            citation_id="docket:0",
+            stage=runner._RUN_STAGES[1],
+            source=source,
+            span=Span(source.index(locator), source.index(locator) + len(locator)),
+            number_span=Span(source.index(number), source.index(number) + len(number)),
+        )
+        ready = ready.add_citation(root).complete(runner._RUN_STAGES[1])
+        ready = _complete(ready, runner._RUN_STAGES[2:9])
+        ready = ready.replace_citation(root.record(runner._ROOT_STAGE).with_root(root.id)).complete(
+            runner._ROOT_STAGE
+        )
+        ready = _complete(ready, runner._RUN_STAGES[10:19])
+        (checkpoint_dir / f"{filename}.json").write_text(ready.model_dump_json(), encoding="utf-8")
+
+    cutoff = date(2024, 6, 1)
+    calls: list[tuple[str, str]] = []
+    stages = (
+        (runner._COURTLISTENER_OPINION_STAGE, BodySource.COURTLISTENER_OPINION),
+        (runner._COURTLISTENER_RECAP_STAGE, BodySource.COURTLISTENER_RECAP),
+        (runner._GOVINFO_OPINION_STAGE, BodySource.GOVINFO_OPINION),
+    )
+
+    def fake_provider(stage: str, body_source: BodySource):
+        def run(document: Document, *, retrospective_date: date | None = None) -> Document:
+            filename = Path(document.source_path or "").name
+            assert retrospective_date == cutoff
+            assert document.stage_runs == runner._RUN_STAGES[: runner._RUN_STAGES.index(stage)]
+            first_call = (filename, stage) not in calls
+            calls.append((filename, stage))
+            root = document.roots[0].record(stage)
+            failure = (
+                BodyEvidenceFailure(
+                    failure_type=failure_type,
+                    message="Provider request failed",
+                    status_code=status,
+                )
+                if filename == "001.txt" and stage == failed_stage and first_call
+                else None
+            )
+            search = BodySearch(
+                node_id=root.nodes[-1].id,
+                source=body_source,
+                retrospective_date=retrospective_date,
+                attempts=(BodySearchAttempt(query=number, failure=failure),),
+                failures=(failure,) if failure is not None else (),
+            )
+            return document.replace_citation(root.with_body_search(search)).complete(stage)
+
+        return run
+
+    monkeypatch.setattr(runner, "courtlistener_opinion_locator_body_search", fake_provider(*stages[0]))
+    monkeypatch.setattr(runner, "courtlistener_recap_locator_body_search", fake_provider(*stages[1]))
+    monkeypatch.setattr(runner, "govinfo_opinion_locator_body_search", fake_provider(*stages[2]))
+
+    async def review(document: Document) -> Document:
+        filename = Path(document.source_path or "").name
+        assert document.stage_runs == runner._RUN_STAGES[:-1]
+        calls.append((filename, runner._LOCATOR_BODY_REVIEW_STAGE))
+        return document.complete(runner._LOCATOR_BODY_REVIEW_STAGE)
+
+    monkeypatch.setattr(runner, "review_locator_body_evidence", review)
+
+    async def body(document: Document, *, retrospective_date: date | None = None) -> Document:
+        assert document.stage_runs == runner._VALIDATION_INPUT_STAGES
+        for stage, _source in stages:
+            if stage == runner._COURTLISTENER_OPINION_STAGE:
+                document = runner.courtlistener_opinion_locator_body_search(
+                    document, retrospective_date=retrospective_date
+                )
+            elif stage == runner._COURTLISTENER_RECAP_STAGE:
+                document = runner.courtlistener_recap_locator_body_search(
+                    document, retrospective_date=retrospective_date
+                )
+            else:
+                document = runner.govinfo_opinion_locator_body_search(
+                    document, retrospective_date=retrospective_date
+                )
+        return await runner.review_locator_body_evidence(document)
+
+    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", body)
+    with pytest.raises(RuntimeError, match="transient provider failures"):
+        asyncio.run(
+            runner._run(
+                data_root,
+                tmp_path / "results",
+                None,
+                from_validation_documents=checkpoint_dir,
+                retrospective_date=cutoff,
+            )
+        )
+    run_dir = next((tmp_path / "results").iterdir())
+    record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert record["status"] == "failed"
+    assert record["transient_failures"] == {"docket": [], "body": ["001.txt"]}
+    initial = Document.model_validate_json(
+        (run_dir / "documents" / "001.txt.json").read_text(encoding="utf-8")
+    )
+    assert runner._transient_body_failure_stage(initial) == failed_stage
+    previous_stage = runner._RUN_STAGES[runner._RUN_STAGES.index(failed_stage) - 1]
+    first_calls = len(calls)
+
+    assert asyncio.run(runner._run(tmp_path / "unused", tmp_path / "unused", None, run_dir)) == run_dir
+    record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert record["status"] == "complete"
+    assert "transient_failures" not in record
+    assert calls[first_calls:] == [
+        ("001.txt", stage)
+        for stage in (
+            *runner._BODY_SEARCH_STAGES[runner._BODY_SEARCH_STAGES.index(failed_stage) :],
+            runner._LOCATOR_BODY_REVIEW_STAGE,
+        )
+    ]
+    final = Document.model_validate_json((run_dir / "documents" / "001.txt.json").read_text(encoding="utf-8"))
+    assert final.get_stage(previous_stage) == initial.get_stage(previous_stage)
+    assert not runner._has_transient_body_search_failure(final)
+
+
 @pytest.mark.parametrize(
     ("failure_type", "status"),
     [("http_error", 429), ("transport_error", None)],
@@ -286,7 +516,7 @@ def test_new_run_stays_failed_when_a_saved_search_is_transiently_incomplete(
     async def fake_grow(document: Document, *, hunt_dockets: bool, review_docket_roots: bool) -> Document:
         return _complete(document, runner._RUN_STAGES[:11])
 
-    async def fake_validate(document: Document) -> Document:
+    async def fake_validate(document: Document, *, retrospective_date: date | None = None) -> Document:
         return _complete(document, runner._RUN_STAGES[11:])
 
     monkeypatch.setattr(runner, "grow_roots", fake_grow)

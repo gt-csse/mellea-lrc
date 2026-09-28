@@ -358,7 +358,9 @@ def test_search_hit_budget_records_truncation_without_fetching() -> None:
     assert client.opinion_calls == []
 
 
-def test_detail_failure_retains_status_url_and_message() -> None:
+def test_detail_failure_retains_status_url_and_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleep_calls: list[float] = []
+    monkeypatch.setattr("time.sleep", sleep_calls.append)
     error = CourtListenerHTTPError(
         "CourtListener opinion lookup returned HTTP 429",
         failure_type="http_error",
@@ -377,6 +379,61 @@ def test_detail_failure_retains_status_url_and_message() -> None:
     assert (failure.failure_type, failure.status_code, failure.item_id) == ("http_error", 429, "901")
     assert "proxy.example" in failure.message
     assert "retry later" in failure.message
+    assert client.opinion_calls == ["901"]
+    assert sleep_calls == []
+
+
+@pytest.mark.parametrize("rate_limited_step", ["search", "detail"])
+def test_proxy_429_retry_hint_recovers_grounded_opinion_evidence(
+    monkeypatch: pytest.MonkeyPatch, rate_limited_step: str
+) -> None:
+    sleep_calls: list[float] = []
+    monkeypatch.setattr("time.sleep", sleep_calls.append)
+    page = _page({"cluster_id": 900, "opinions": [{"id": 901}], "dateFiled": "1960-01-01"})
+    error = CourtListenerHTTPError(
+        "CourtListener proxy returned HTTP 429",
+        failure_type="http_error",
+        upstream_status_code=429,
+        url="https://proxy.example/api/rest/v4/",
+        upstream_detail='{"retry_after_seconds": 0.25}',
+    )
+
+    class RetryOnceBodyClient(FakeBodyClient):
+        def search(
+            self, q: str, search_type: Literal["o", "rd"], cursor: str | None = None
+        ) -> CourtListenerSearchPage:
+            if rate_limited_step == "search" and not self.search_calls:
+                self.search_calls.append((q, search_type, cursor))
+                raise error
+            return super().search(q, search_type, cursor)
+
+        def get_opinion(self, opinion_id: str) -> dict[str, Any] | None:
+            if rate_limited_step == "detail" and not self.opinion_calls:
+                self.opinion_calls.append(opinion_id)
+                raise error
+            return super().get_opinion(opinion_id)
+
+    client = RetryOnceBodyClient(
+        lambda *_args: page,
+        opinions={"901": {"id": 901, "plain_text": "A later court cited 347 U.S. 483."}},
+    )
+
+    after = courtlistener_opinion_locator_body_search(
+        _rooted("347 U.S. 483."), client=client, retrospective_date=date(1970, 1, 1)
+    )
+
+    query = ('"347 U.S. 483"', "o", None)
+    assert client.search_calls == [query] * (2 if rate_limited_step == "search" else 1)
+    assert client.opinion_calls == ["901"] * (2 if rate_limited_step == "detail" else 1)
+    assert sleep_calls == [0.5]
+    search = after.roots[0].body_searches[0]
+    assert search.attempts[0].pages == (page.raw_json,)
+    assert search.attempts[0].failure is None
+    assert search.failures == ()
+    assert len(search.evidence) == 1
+    evidence = search.evidence[0]
+    assert evidence.body_id == "901"
+    assert evidence.excerpt[evidence.anchor_span.start : evidence.anchor_span.end] == "347 U.S. 483"
 
 
 def test_pagination_failure_retains_prior_raw_page() -> None:
