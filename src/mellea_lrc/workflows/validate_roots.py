@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 from mellea_lrc.model.document import Document
 from mellea_lrc.validation import (
     docket_root_lookup,
@@ -13,13 +15,15 @@ from mellea_lrc.validation import (
     reporter_root_lookup_ambiguous_llm,
     reporter_root_lookup_unique_llm,
 )
+from mellea_lrc.workflows.corroborate_root_locator_bodies import corroborate_root_locator_bodies
 
 
-async def validate_roots(document: Document) -> Document:
-    """Run reporter review, CourtListener docket review, then GovInfo fallback.
+async def validate_roots(document: Document, *, retrospective_date: date | None = None) -> Document:
+    """Run root lookup and then locator-anchored third-party body review.
 
-    Reporter search and large-candidate review remain future stages. Docket
-    retrieval and its model choice preserve independent field assessments.
+    Reporter search and large-candidate review remain future stages. The
+    optional cutoff limits each later body-evidence item to material available
+    on or before that date.
     """
     document = reporter_root_lookup(document)
     document = reporter_root_lookup_ambiguous(document)
@@ -37,4 +41,4 @@ async def validate_roots(document: Document) -> Document:
     # the specific subopinion or order may print another signed or issued
     # date. Retrieve that opinion/subopinion text or its original court PDF
     # and compare its header and signature before changing field judgments.
-    return document
+    return await corroborate_root_locator_bodies(document, retrospective_date=retrospective_date)

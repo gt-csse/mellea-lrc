@@ -16,10 +16,14 @@ from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactAmbiguityOutcome,
     ReporterExactLookupOutcome,
 )
+from mellea_lrc.validation.body_search.courtlistener_opinion import STAGE as COURTLISTENER_OPINION_BODY_SEARCH
+from mellea_lrc.validation.body_search.courtlistener_recap import STAGE as COURTLISTENER_RECAP_BODY_SEARCH
+from mellea_lrc.validation.body_search.govinfo import STAGE as GOVINFO_OPINION_BODY_SEARCH
 from mellea_lrc.validation.docket_root_lookup import STAGE as DOCKET_ROOT_LOOKUP
 from mellea_lrc.validation.docket_root_lookup_review import STAGE as DOCKET_ROOT_LOOKUP_REVIEW
 from mellea_lrc.validation.govinfo_docket_lookup import STAGE as GOVINFO_DOCKET_LOOKUP
 from mellea_lrc.validation.govinfo_docket_lookup_review import STAGE as GOVINFO_DOCKET_LOOKUP_REVIEW
+from mellea_lrc.validation.locator_body_review import STAGE as LOCATOR_BODY_REVIEW
 from mellea_lrc.validation.reporter_root_lookup import STAGE as REPORTER_ROOT_LOOKUP
 from mellea_lrc.validation.reporter_root_lookup_ambiguous import STAGE as REPORTER_ROOT_LOOKUP_AMBIGUOUS
 from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm import (
@@ -43,6 +47,12 @@ WORKFLOW_STAGES = (
     DOCKET_ROOT_LOOKUP_REVIEW,
     GOVINFO_DOCKET_LOOKUP,
     STAGES[-1],
+)
+BODY_WORKFLOW_STAGES = (
+    COURTLISTENER_OPINION_BODY_SEARCH,
+    COURTLISTENER_RECAP_BODY_SEARCH,
+    GOVINFO_OPINION_BODY_SEARCH,
+    LOCATOR_BODY_REVIEW,
 )
 
 
@@ -109,22 +119,29 @@ class StageScore:
 class WorkflowScore:
     stages: tuple[StageScore, ...]
     fields: dict[str, FieldScore]
+    checkpoint: str | None = None
 
     def __add__(self, other: WorkflowScore) -> WorkflowScore:
         if tuple(stage.stage for stage in self.stages) != tuple(stage.stage for stage in other.stages):
             raise ValueError("Cannot combine different validation workflows")
         if self.fields.keys() != other.fields.keys():
             raise ValueError("Cannot combine different validation fields")
+        if self.checkpoint != other.checkpoint:
+            raise ValueError("Cannot combine different validation checkpoints")
         return WorkflowScore(
             tuple(left + right for left, right in zip(self.stages, other.stages, strict=True)),
             {field: score + other.fields[field] for field, score in self.fields.items()},
+            self.checkpoint,
         )
 
     def as_dict(self) -> dict[str, object]:
-        return {
+        result = {
             "stages": [stage.as_dict() for stage in self.stages],
             "fields": {field: score.as_dict() for field, score in self.fields.items()},
         }
+        if self.checkpoint is not None:
+            result["checkpoint"] = self.checkpoint
+        return result
 
 
 @dataclass(frozen=True)
@@ -474,18 +491,26 @@ def score_validate_roots(document: Document) -> WorkflowScore:
     if any(stage not in document.stage_runs for stage in WORKFLOW_STAGES):
         missing = [stage for stage in WORKFLOW_STAGES if stage not in document.stage_runs]
         raise ValueError(f"Incomplete validate_roots workflow; missing stages: {', '.join(missing)}")
-    final_stage = max(WORKFLOW_STAGES, key=document.stage_runs.index)
+    body_stages = set(BODY_WORKFLOW_STAGES).intersection(document.stage_runs)
+    if body_stages and body_stages != set(BODY_WORKFLOW_STAGES):
+        missing = [stage for stage in BODY_WORKFLOW_STAGES if stage not in document.stage_runs]
+        raise ValueError(f"Incomplete locator-body workflow; missing stages: {', '.join(missing)}")
+    judgment_stage = max(WORKFLOW_STAGES, key=document.stage_runs.index)
+    final_stage = LOCATOR_BODY_REVIEW if body_stages else judgment_stage
     final = document.get_stage(final_stage)
     stage_scores = tuple(score(final) for _, score in STAGE_SCORERS)
     gold = _gold_roots(final)
-    aligned = _align(final.roots, gold)
+    # Body review can correct extracted readings, but it does not judge whether
+    # those fields identify the same case as an external validation candidate.
+    judged = final.get_stage(judgment_stage)
+    aligned = _align(judged.roots, gold)
     counts = {field: [0, 0] for field in FIELDS}
-    for prediction_index, root in enumerate(final.roots):
+    for prediction_index, root in enumerate(judged.roots):
         if isinstance(root, FullReporterCitation) and not any(node.stage in STAGES for node in root.nodes):
             continue
         gold_root = gold[aligned[prediction_index]] if prediction_index in aligned else None
         for field in FIELDS:
-            outcome = _final_field_label(root, field, final.stage_runs)
+            outcome = _final_field_label(root, field, judged.stage_runs)
             if outcome is None:
                 continue
             counts[field][1] += 1
@@ -493,6 +518,7 @@ def score_validate_roots(document: Document) -> WorkflowScore:
     return WorkflowScore(
         stage_scores,
         {field: FieldScore(counts[field][0], counts[field][1], len(gold)) for field in FIELDS},
+        LOCATOR_BODY_REVIEW if body_stages else None,
     )
 
 
@@ -551,6 +577,12 @@ def render_validate_roots(
     if tuple(stage.stage for stage in score.stages) != STAGES or tuple(score.fields) != FIELDS:
         raise ValueError("Validate-roots score has missing or out-of-order stages or fields")
     sections = [f"# Validate-roots evaluation{f': {set_name}' if set_name else ''}"]
+    if score.checkpoint == LOCATOR_BODY_REVIEW:
+        sections.append(
+            f"Checkpoint: {LOCATOR_BODY_REVIEW} completed. Field identity judgments are scored through "
+            f"{WORKFLOW_STAGES[-1]}; the body review's printed citation comparisons have no corresponding "
+            "field identity gold."
+        )
     if include_stages:
         sections.extend(_render_stage(stage, stage.stage) for stage in score.stages)
     lines = [

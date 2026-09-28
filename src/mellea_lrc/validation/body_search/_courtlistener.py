@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import re
+import time
+from collections.abc import Callable
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import date
 from html.parser import HTMLParser
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, TypeVar
 from urllib.parse import parse_qs, urlparse
 
 from mellea_lrc.courtlistener import CourtListenerClient, CourtListenerError
@@ -32,6 +35,8 @@ from mellea_lrc.validation.body_search.common import (
 MAX_PAGES_PER_QUERY = 2
 MAX_HITS_PER_QUERY = 40
 MAX_FETCHES_PER_CITATION = 8
+MAX_RATE_LIMIT_RETRIES = 2
+MAX_RETRY_AFTER_SECONDS = 60
 _OPINION_TEXT_FIELDS = (
     "plain_text",
     "html_with_citations",
@@ -53,6 +58,38 @@ class CourtListenerBodyClient(Protocol):
     def get_opinion(self, opinion_id: str) -> dict[str, Any] | None: ...
 
     def get_recap_document(self, recap_document_id: str) -> dict[str, Any] | None: ...
+
+
+_Result = TypeVar("_Result")
+
+
+def _retry_after(error: CourtListenerError) -> float | None:
+    """Honor a bounded wait supplied by the proxy for its rotating token pool."""
+    if error.upstream_status_code != 429 or not isinstance(error.upstream_detail, str):
+        return None
+    try:
+        detail = json.loads(error.upstream_detail)
+    except ValueError:
+        return None
+    if not isinstance(detail, dict):
+        return None
+    seconds = detail.get("retry_after_seconds")
+    if type(seconds) not in {int, float} or not 0 <= seconds <= MAX_RETRY_AFTER_SECONDS:
+        return None
+    return min(float(seconds) + 0.25, MAX_RETRY_AFTER_SECONDS)
+
+
+def _retry_rate_limit(action: Callable[[], _Result]) -> _Result:
+    """Retry a short proxy quota pause; preserve longer failures for the run artifact."""
+    for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
+        try:
+            return action()
+        except CourtListenerError as error:
+            delay = _retry_after(error)
+            if delay is None or attempt == MAX_RATE_LIMIT_RETRIES:
+                raise
+            time.sleep(delay)
+    raise AssertionError("Rate-limit retry loop did not return or raise")
 
 
 @dataclass(slots=True)
@@ -225,9 +262,9 @@ def _fetch_evidence(
 ) -> tuple[tuple[BodyEvidence, ...], BodyEvidenceFailure | None]:
     try:
         record = (
-            service.get_opinion(item_id)
+            _retry_rate_limit(lambda: service.get_opinion(item_id))
             if source is BodySource.COURTLISTENER_OPINION
-            else service.get_recap_document(item_id)
+            else _retry_rate_limit(lambda: service.get_recap_document(item_id))
         )
     except CourtListenerError as error:
         return (), _service_failure(error, item_id=item_id)
@@ -308,7 +345,7 @@ def _search_query(
 
     while len(pages) < MAX_PAGES_PER_QUERY:
         try:
-            page = service.search(query, search_type, cursor=cursor)
+            page = _retry_rate_limit(lambda: service.search(query, search_type, cursor=cursor))
         except CourtListenerError as error:
             attempt_failure = _service_failure(error)
             break

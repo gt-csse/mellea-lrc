@@ -7,6 +7,7 @@ import hashlib
 import importlib
 import inspect
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -482,9 +483,26 @@ def test_validate_roots_composes_stages_in_execution_order(
         runner = run_async if stage.endswith(("_review", "_llm")) else run_sync
         monkeypatch.setattr(workflow, stage.split("_", 1)[1], runner(stage))
 
-    result = asyncio.run(workflow.validate_roots(initial))
-    assert tuple(called) == WORKFLOW_STAGES
-    assert result.stage_runs == (*initial.stage_runs, *WORKFLOW_STAGES)
+    body_stages = (
+        "20_courtlistener_opinion_locator_body_search",
+        "21_courtlistener_recap_locator_body_search",
+        "22_govinfo_opinion_locator_body_search",
+        "23_locator_body_review",
+    )
+    cutoff = date(2024, 1, 1)
+
+    async def run_body(document: Document, *, retrospective_date: date | None) -> Document:
+        assert retrospective_date == cutoff
+        for stage in body_stages:
+            assert document.stage_runs == (*initial.stage_runs, *called)
+            called.append(stage)
+            document = document.complete(stage)
+        return document
+
+    monkeypatch.setattr(workflow, "corroborate_root_locator_bodies", run_body)
+    result = asyncio.run(workflow.validate_roots(initial, retrospective_date=cutoff))
+    assert tuple(called) == (*WORKFLOW_STAGES, *body_stages)
+    assert result.stage_runs == (*initial.stage_runs, *WORKFLOW_STAGES, *body_stages)
 
 
 def test_final_score_uses_docket_review_as_latest_checkpoint(tmp_path: Path) -> None:

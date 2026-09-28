@@ -6,22 +6,31 @@ import argparse
 import asyncio
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from mellea_lrc.api import (
     Document,
+    corroborate_root_locator_bodies,
+    courtlistener_opinion_locator_body_search,
+    courtlistener_recap_locator_body_search,
     docket_root_lookup,
     docket_root_lookup_review,
     govinfo_docket_lookup,
     govinfo_docket_lookup_review,
+    govinfo_opinion_locator_body_search,
     grow_roots,
     reporter_root_lookup_ambiguous_llm,
     reporter_root_lookup_unique_llm,
     review_docket_root_equivalence,
+    review_locator_body_evidence,
     validate_roots,
 )
 from mellea_lrc.model import FullDocketCitation
+from mellea_lrc.validation.body_search.courtlistener_opinion import STAGE as _COURTLISTENER_OPINION_STAGE
+from mellea_lrc.validation.body_search.courtlistener_recap import STAGE as _COURTLISTENER_RECAP_STAGE
+from mellea_lrc.validation.body_search.govinfo import STAGE as _GOVINFO_OPINION_STAGE
+from mellea_lrc.validation.locator_body_review import STAGE as _LOCATOR_BODY_REVIEW_STAGE
 
 _SET = "primary"
 _DATA_ROOT = Path(__file__).resolve().parents[2] / "mellea-lrc-datasets"
@@ -50,12 +59,23 @@ _RUN_STAGES = (
     "17_docket_root_lookup_review",
     "18_govinfo_docket_lookup",
     "19_govinfo_docket_lookup_review",
+    _COURTLISTENER_OPINION_STAGE,
+    _COURTLISTENER_RECAP_STAGE,
+    _GOVINFO_OPINION_STAGE,
+    _LOCATOR_BODY_REVIEW_STAGE,
+)
+_BODY_SEARCH_STAGES = (
+    _COURTLISTENER_OPINION_STAGE,
+    _COURTLISTENER_RECAP_STAGE,
+    _GOVINFO_OPINION_STAGE,
 )
 _REPORTER_REVIEW_INPUT_STAGE = "13_reporter_root_lookup_ambiguous"
 _REPORTER_REVIEW_INPUT_STAGES = _RUN_STAGES[: _RUN_STAGES.index(_REPORTER_REVIEW_INPUT_STAGE) + 1]
 _DOCKET_LOOKUP_STAGE = "16_docket_root_lookup"
 _DOCKET_REVIEW_INPUT_STAGE = "17_docket_root_lookup_review"
 _DOCKET_REVIEW_INPUT_STAGES = _RUN_STAGES[: _RUN_STAGES.index(_DOCKET_REVIEW_INPUT_STAGE) + 1]
+_VALIDATION_INPUT_STAGE = "19_govinfo_docket_lookup_review"
+_VALIDATION_INPUT_STAGES = _RUN_STAGES[: _RUN_STAGES.index(_VALIDATION_INPUT_STAGE) + 1]
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -103,6 +123,39 @@ def _has_transient_docket_lookup_failure(document: Document) -> bool:
     return False
 
 
+def _transient_body_failure_stage(document: Document) -> str | None:
+    """Find the first provider stage whose saved search or fetch needs retry."""
+    failed_stages: set[str] = set()
+    for root in document.roots:
+        node_stages = {node.id: node.stage for node in root.nodes}
+        for search in root.body_searches:
+            for failure in (*search.failures, *(attempt.failure for attempt in search.attempts)):
+                if failure is not None and (
+                    failure.failure_type == "transport_error"
+                    or failure.status_code == 429
+                    or (failure.status_code is not None and failure.status_code >= 500)
+                ):
+                    failed_stages.add(node_stages[search.node_id])
+    return next((stage for stage in _BODY_SEARCH_STAGES if stage in failed_stages), None)
+
+
+def _has_transient_body_search_failure(document: Document) -> bool:
+    """A transient body search or fetch cannot be treated as a negative result."""
+    return _transient_body_failure_stage(document) is not None
+
+
+async def _retry_body_stages(
+    document: Document, first_stage: str, retrospective_date: date | None
+) -> Document:
+    """Run the failed provider, later providers, and the cross-provider review."""
+    if first_stage == _COURTLISTENER_OPINION_STAGE:
+        document = courtlistener_opinion_locator_body_search(document, retrospective_date=retrospective_date)
+    if first_stage in (_COURTLISTENER_OPINION_STAGE, _COURTLISTENER_RECAP_STAGE):
+        document = courtlistener_recap_locator_body_search(document, retrospective_date=retrospective_date)
+    document = govinfo_opinion_locator_body_search(document, retrospective_date=retrospective_date)
+    return await review_locator_body_evidence(document)
+
+
 def _reuse_docket_lookup(document: Document, saved: Document) -> Document:
     """Replay the unchanged docket roots' saved lookup nodes after reporter review."""
     checkpoint = saved.get_stage(_DOCKET_LOOKUP_STAGE)
@@ -120,11 +173,18 @@ async def _run(
     from_reporter_review_documents: Path | None = None,
     reuse_docket_lookups: bool = False,
     from_docket_review_documents: Path | None = None,
+    from_validation_documents: Path | None = None,
+    retrospective_date: date | None = None,
 ) -> Path:
     if (
         sum(
             item is not None
-            for item in (from_roots_documents, from_reporter_review_documents, from_docket_review_documents)
+            for item in (
+                from_roots_documents,
+                from_reporter_review_documents,
+                from_docket_review_documents,
+                from_validation_documents,
+            )
         )
         > 1
     ):
@@ -155,6 +215,10 @@ async def _run(
             "from_docket_review_documents": (
                 str(from_docket_review_documents) if from_docket_review_documents else None
             ),
+            "from_validation_documents": (
+                str(from_validation_documents) if from_validation_documents else None
+            ),
+            "retrospective_date": retrospective_date.isoformat() if retrospective_date else None,
             "reuse_docket_lookups": reuse_docket_lookups,
             "source_sha256": {
                 filename: hashlib.sha256(
@@ -178,6 +242,12 @@ async def _run(
         from_reporter_review_documents = Path(saved_reporter_review) if saved_reporter_review else None
         saved_docket_review = run_record.get("from_docket_review_documents")
         from_docket_review_documents = Path(saved_docket_review) if saved_docket_review else None
+        saved_validation = run_record.get("from_validation_documents")
+        from_validation_documents = Path(saved_validation) if saved_validation else None
+        saved_retrospective_date = run_record.get("retrospective_date")
+        retrospective_date = (
+            date.fromisoformat(saved_retrospective_date) if saved_retrospective_date else None
+        )
         reuse_docket_lookups = bool(run_record.get("reuse_docket_lookups", False))
         if (
             sum(
@@ -186,6 +256,7 @@ async def _run(
                     from_roots_documents,
                     from_reporter_review_documents,
                     from_docket_review_documents,
+                    from_validation_documents,
                 )
             )
             > 1
@@ -215,6 +286,7 @@ async def _run(
         run_record["data_root"] = str(data_root)
         run_record["status"] = "running"
         run_record.pop("completed_at", None)
+        run_record.pop("transient_failures", None)
         _write_json(record_path, run_record)
 
     try:
@@ -224,15 +296,22 @@ async def _run(
             for filename in filenames
         }
         completed: set[str] = set()
+        retry_body: dict[str, tuple[Document, str]] = {}
         for filename in filenames:
             source = sources[filename]
             artifact = documents_dir / f"{filename}.json"
             if artifact.exists():
                 saved_document = _load_document(artifact, source)
-                if saved_document.stage_runs == _RUN_STAGES and not _has_transient_docket_lookup_failure(
-                    saved_document
-                ):
-                    completed.add(filename)
+                if saved_document.stage_runs == _RUN_STAGES:
+                    if not _has_transient_docket_lookup_failure(saved_document):
+                        if failed_stage := _transient_body_failure_stage(saved_document):
+                            previous_stage = _RUN_STAGES[_RUN_STAGES.index(failed_stage) - 1]
+                            retry_body[filename] = (
+                                saved_document.get_stage(previous_stage),
+                                failed_stage,
+                            )
+                        else:
+                            completed.add(filename)
             if filename not in completed and from_roots_documents is not None:
                 saved = from_roots_documents / f"{filename}.json"
                 roots = _load_document(saved, source).get_stage(_ROOT_STAGE)
@@ -251,6 +330,11 @@ async def _run(
                 ready = _load_document(saved, source).get_stage(_DOCKET_REVIEW_INPUT_STAGE)
                 if ready.stage_runs != _DOCKET_REVIEW_INPUT_STAGES:
                     raise ValueError(f"Saved docket-review input is incomplete for {filename}")
+            if filename not in completed and from_validation_documents is not None:
+                saved = from_validation_documents / f"{filename}.json"
+                ready = _load_document(saved, source).get_stage(_VALIDATION_INPUT_STAGE)
+                if ready.stage_runs != _VALIDATION_INPUT_STAGES:
+                    raise ValueError(f"Saved validation input is incomplete for {filename}")
 
         for index, filename in enumerate(filenames, start=1):
             source = sources[filename]
@@ -260,7 +344,12 @@ async def _run(
                 continue
             if artifact.exists():
                 print(f"{index}/{len(filenames)} {filename} (incomplete; rerunning)", flush=True)
-            if from_docket_review_documents is not None:
+            if filename in retry_body:
+                document, failed_stage = retry_body[filename]
+            elif from_validation_documents is not None:
+                saved = from_validation_documents / f"{filename}.json"
+                document = _load_document(saved, source).get_stage(_VALIDATION_INPUT_STAGE)
+            elif from_docket_review_documents is not None:
                 saved = from_docket_review_documents / f"{filename}.json"
                 document = _load_document(saved, source).get_stage(_DOCKET_REVIEW_INPUT_STAGE)
                 document = govinfo_docket_lookup(document)
@@ -289,23 +378,34 @@ async def _run(
                 saved = from_roots_documents / f"{filename}.json"
                 document = _load_document(saved, source).get_stage(_ROOT_STAGE)
                 document = await review_docket_root_equivalence(document)
-            if from_docket_review_documents is None and from_reporter_review_documents is None:
-                document = await validate_roots(document)
+            if filename in retry_body:
+                document = await _retry_body_stages(document, failed_stage, retrospective_date)
+            elif (
+                from_validation_documents is not None
+                or from_docket_review_documents is not None
+                or from_reporter_review_documents is not None
+            ):
+                document = await corroborate_root_locator_bodies(
+                    document, retrospective_date=retrospective_date
+                )
+            else:
+                document = await validate_roots(document, retrospective_date=retrospective_date)
             if document.stage_runs != _RUN_STAGES:
                 raise ValueError(f"Run did not complete every stage for {filename}")
             _write_json(artifact, document.model_dump(mode="json"))
             print(f"{index}/{len(filenames)} {filename}", flush=True)
-        incomplete = [
-            filename
-            for filename in filenames
-            if _has_transient_docket_lookup_failure(
-                _load_document(documents_dir / f"{filename}.json", sources[filename])
-            )
-        ]
-        if incomplete:
+        transient_failures = {"docket": [], "body": []}
+        for filename in filenames:
+            saved_document = _load_document(documents_dir / f"{filename}.json", sources[filename])
+            if _has_transient_docket_lookup_failure(saved_document):
+                transient_failures["docket"].append(filename)
+            if _has_transient_body_search_failure(saved_document):
+                transient_failures["body"].append(filename)
+        if any(transient_failures.values()):
+            run_record["transient_failures"] = transient_failures
             raise RuntimeError(
-                "Docket search ended with transient provider failures in "
-                + ", ".join(incomplete)
+                "Search ended with transient provider failures in "
+                + ", ".join(sorted({*transient_failures["docket"], *transient_failures["body"]}))
                 + "; resume this run after the provider recovers"
             )
     except BaseException:
@@ -339,6 +439,16 @@ def main() -> None:
         help="Resume saved Documents at stage 17 before GovInfo docket lookup and review",
     )
     parser.add_argument(
+        "--from-validation-documents",
+        type=Path,
+        help="Resume saved Documents at stage 19 before locator-first body search and review",
+    )
+    parser.add_argument(
+        "--retrospective-date",
+        type=date.fromisoformat,
+        help="Use only body evidence issued on or before this ISO date",
+    )
+    parser.add_argument(
         "--reuse-docket-lookups",
         action="store_true",
         help="Reuse saved stage-16 docket lookups while rerunning reporter and docket LLM reviews",
@@ -354,6 +464,7 @@ def main() -> None:
                 args.from_roots_documents,
                 args.from_reporter_review_documents,
                 args.from_docket_review_documents,
+                args.from_validation_documents,
             )
         )
         > 1
@@ -369,6 +480,8 @@ def main() -> None:
             args.from_roots_documents,
             args.from_reporter_review_documents,
             args.from_docket_review_documents,
+            args.from_validation_documents,
+            args.retrospective_date,
         )
     ):
         parser.error("--resume-run reuses its run.json inputs; do not pass other input paths")
@@ -381,6 +494,8 @@ def main() -> None:
             args.from_reporter_review_documents.resolve() if args.from_reporter_review_documents else None,
             args.reuse_docket_lookups,
             args.from_docket_review_documents.resolve() if args.from_docket_review_documents else None,
+            args.from_validation_documents.resolve() if args.from_validation_documents else None,
+            args.retrospective_date,
         )
     )
     print(run_dir)
