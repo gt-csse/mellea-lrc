@@ -568,6 +568,7 @@ def test_docket_review_scores_selected_fields_by_locator_and_preserves_stage_bou
         "court": evaluation.FieldScore(0, 1, 2),
         "date": evaluation.FieldScore(0, 1, 2),
     }
+    assert workflow.identity == evaluation.IdentityScore(0, 1, 2, 0)
     report = evaluation.render_validate_roots(workflow)
     assert report.index("## 15_reporter_root_lookup_ambiguous_llm") < report.index(
         "## 17_docket_root_lookup_review"
@@ -637,6 +638,19 @@ def test_docket_review_without_selection_makes_no_prediction(tmp_path: Path, fai
     assert evaluation.score_validate_roots(final).fields == {
         field: evaluation.FieldScore(0, 0, 2) for field in FIELDS
     }
+    assert evaluation.score_validate_roots(final).identity == evaluation.IdentityScore(0, 0, 2, 0)
+
+
+def test_lookup_identity_abstains_when_case_name_is_unavailable(tmp_path: Path) -> None:
+    reviewed = _reviewed_docket(tmp_path, case_name="unavailable", court="match", date="match")
+    final = _complete_reporter_stages(reviewed)
+    assert evaluation.score_validate_roots(final).identity == evaluation.IdentityScore(0, 0, 2, 1)
+
+
+def test_lookup_identity_ignores_unavailable_court_and_date(tmp_path: Path) -> None:
+    reviewed = _reviewed_docket(tmp_path, case_name="match", court="unavailable", date="unavailable")
+    final = _complete_reporter_stages(reviewed)
+    assert evaluation.score_validate_roots(final).identity == evaluation.IdentityScore(1, 1, 2, 0)
 
 
 def test_rule_ambiguity_scores_only_the_selected_candidate_and_keeps_stage_boundaries(
@@ -681,11 +695,52 @@ def test_rule_ambiguity_scores_only_the_selected_candidate_and_keeps_stage_bound
     score = evaluation.score_validate_roots(final)
     assert tuple(stage.stage for stage in score.stages) == STAGES
     assert set(score.fields) == FIELDS
-    assert set(score.as_dict()) == {"stages", "fields"}
+    assert set(score.as_dict()) == {"stages", "fields", "identity"}
     assert score.fields == {field: evaluation.FieldScore(1, 1, 2) for field in FIELDS}
     report = evaluation.render_validate_roots(score)
     assert "| Field | Precision | Recall |" in report
     assert "identity" not in score.as_dict()["fields"]
+
+
+@pytest.mark.parametrize(
+    "labels",
+    (
+        {"case_name": "disagrees", "court": "unavailable", "date": "not_stated"},
+        {"case_name": "unavailable", "court": "disagrees", "date": "unavailable"},
+        {"case_name": "not_stated", "court": "unavailable", "date": "disagrees"},
+    ),
+)
+def test_identity_value_mismatch_takes_precedence_over_unavailable_case_name(
+    labels: dict[str, str],
+) -> None:
+    assert evaluation._identity_value(labels) == "WRONG_IDENTITY"
+
+
+@pytest.mark.parametrize("case_name", ("unavailable", "not_stated"))
+def test_identity_value_needs_a_case_name_match(case_name: str) -> None:
+    assert (
+        evaluation._identity_value({"case_name": case_name, "court": "agrees", "date": "unavailable"})
+        == "UNDETERMINED"
+    )
+
+
+@pytest.mark.parametrize(
+    ("court", "date"),
+    (("unavailable", "agrees"), ("agrees", "not_stated"), ("unavailable", "unavailable")),
+)
+def test_identity_value_ignores_unavailable_court_and_date(court: str, date: str) -> None:
+    assert (
+        evaluation._identity_value({"case_name": "agrees", "court": court, "date": date})
+        == "CORRECT_IDENTITY"
+    )
+
+
+@pytest.mark.parametrize("missing_field", ("case_name", "court", "date"))
+def test_identity_value_requires_all_three_fields(missing_field: str) -> None:
+    labels = {"case_name": "agrees", "court": "agrees", "date": "agrees"}
+    del labels[missing_field]
+    with pytest.raises(ValueError):
+        evaluation._identity_value(labels)
 
 
 def test_unique_unavailable_is_an_explicit_incorrect_judgment(tmp_path: Path) -> None:

@@ -55,3 +55,11 @@
 | case_name | 342/347 (98.6%) | 342/440 (77.7%) |
 | court | 340/347 (98.0%) | 340/440 (77.3%) |
 | date | 340/347 (98.0%) | 340/440 (77.3%) |
+
+## Lookup-derived root identity
+
+A selected lookup record is required. Undetermined case names are excluded from precision and remain in the recall denominator.
+
+| Precision | Recall | Undetermined |
+| ---: | ---: | ---: |
+| 334/344 (97.1%) | 334/440 (75.9%) | 3 |
