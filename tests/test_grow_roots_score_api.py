@@ -13,6 +13,7 @@ import pytest
 
 from evaluations import grow_roots as evaluation
 from mellea_lrc.api import Document, grow_roots
+from mellea_lrc.model import FullReporterCitation, Span
 
 SOURCE = (
     "Alpha v. Beta, 550 U.S. 544, 545 (2007). Gamma v. Delta, No. 1:24-cv-08705, Dkt. 17 (S.D.N.Y. 2024)."
@@ -294,6 +295,97 @@ def test_workflow_reports_each_root_field_with_annotated_denominators(
         "docket_locator",
         "overall_locator",
     )
+
+
+def _validated_document_with_changed_fields(document: Document) -> Document:
+    for stage in (
+        "11_docket_root_equivalence_review",
+        "12_reporter_root_lookup",
+        "13_reporter_root_lookup_ambiguous",
+        "14_reporter_root_lookup_unique_llm",
+        "15_reporter_root_lookup_ambiguous_llm",
+        "16_docket_root_lookup",
+        "17_docket_root_lookup_review",
+        "18_govinfo_docket_lookup",
+    ):
+        document = document.complete(stage)
+    reporter = next(root for root in document.roots if isinstance(root, FullReporterCitation))
+    changed = reporter.record("19_govinfo_docket_lookup_review")
+    for method, quote in (
+        ("with_case_name", "Gamma v. Delta"),
+        ("with_court", "S.D.N.Y."),
+        ("with_date", "2024"),
+    ):
+        source_span = _span(SOURCE, quote)
+        changed = getattr(changed, method)(SOURCE, Span(source_span["start"], source_span["end"]))
+    return document.replace_citation(changed).complete("19_govinfo_docket_lookup_review")
+
+
+def test_validation_checkpoint_scores_latest_root_fields_without_changing_baseline(
+    annotated_document: Document,
+) -> None:
+    baseline_document = annotated_document.complete("11_docket_root_equivalence_review")
+    baseline = evaluation.score_grow_roots(baseline_document)
+    assert baseline.validated_root_fields is None
+
+    validated = _validated_document_with_changed_fields(annotated_document)
+    score = evaluation.score_grow_roots(validated)
+    assert score.root_fields == baseline.root_fields
+    assert score.stages == baseline.stages
+    assert score.validated_root_fields is not None
+    assert set(score.validated_root_fields) == {"case_name", "court", "date"}
+    for field in ("case_name", "court", "date"):
+        assert score.root_fields[field] == {
+            "span": evaluation.FieldScore(2, 2, 2),
+            "span_overlap": evaluation.RecallScore(2, 2),
+            "normalization": evaluation.FieldScore(2, 2, 2),
+        }
+        assert score.validated_root_fields[field] == {
+            "span": evaluation.FieldScore(1, 2, 2),
+            "span_overlap": evaluation.RecallScore(1, 2),
+            "normalization": evaluation.FieldScore(1, 2, 2),
+        }
+
+    assert score.as_dict()["validated_root_fields"]["case_name"]["span"] == {
+        "correct": 1,
+        "predicted": 2,
+        "gold": 2,
+        "precision": 0.5,
+        "recall": 0.5,
+    }
+    report = evaluation.render_grow_roots(score, include_stages=False)
+    assert report.count("| case_name |") == 2
+    assert "| case_name | 1/2 (50.0%)" in report
+    assert "19_govinfo_docket_lookup_review" in report
+
+    doubled = score + score
+    assert doubled.validated_root_fields is not None
+    assert doubled.validated_root_fields["case_name"]["span"] == evaluation.FieldScore(2, 4, 4)
+    assert doubled.validated_root_fields["case_name"]["span_overlap"] == evaluation.RecallScore(2, 4)
+
+
+def test_later_body_reading_does_not_change_validation_checkpoint_score(
+    annotated_document: Document,
+) -> None:
+    validated = _validated_document_with_changed_fields(annotated_document)
+    expected = evaluation.score_grow_roots(validated)
+    for stage in (
+        "20_courtlistener_opinion_locator_body_search",
+        "21_courtlistener_recap_locator_body_search",
+        "22_govinfo_opinion_locator_body_search",
+    ):
+        validated = validated.complete(stage)
+    reporter = next(root for root in validated.roots if isinstance(root, FullReporterCitation))
+    changed = reporter.record("23_locator_body_review")
+    for method, quote in (("with_case_name", "Alpha v. Beta"), ("with_date", "2007")):
+        source_span = _span(SOURCE, quote)
+        changed = getattr(changed, method)(SOURCE, Span(source_span["start"], source_span["end"]))
+    reviewed = validated.replace_citation(changed).complete("23_locator_body_review")
+    assert (
+        reviewed.roots[0].case_name[-1]
+        != reviewed.get_stage("19_govinfo_docket_lookup_review").roots[0].case_name[-1]
+    )
+    assert evaluation.score_grow_roots(reviewed) == expected
 
 
 def test_overall_locator_subtotal_adds_counts_across_documents(

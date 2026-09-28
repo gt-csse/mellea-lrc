@@ -13,6 +13,7 @@ from typing import Any
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation
 from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, latest
+from mellea_lrc.validation.govinfo_docket_lookup_review import STAGE as VALIDATED_FIELDS_STAGE
 
 REPORTER_STAGE = "1_full_reporter_locators"
 DOCKET_STAGE = "2_docket_locators"
@@ -103,10 +104,13 @@ class StageScore:
 class WorkflowScore:
     stages: tuple[StageScore, ...]
     root_fields: dict[str, dict[str, FieldScore | RecallScore]]
+    validated_root_fields: dict[str, dict[str, FieldScore | RecallScore]] | None = None
 
     def __add__(self, other: WorkflowScore) -> WorkflowScore:
         if tuple(item.stage for item in self.stages) != tuple(item.stage for item in other.stages):
             raise ValueError("Cannot combine workflows with different stage runs")
+        if (self.validated_root_fields is None) != (other.validated_root_fields is None):
+            raise ValueError("Cannot combine workflows with different validation checkpoints")
         return WorkflowScore(
             tuple(left + right for left, right in zip(self.stages, other.stages, strict=True)),
             {
@@ -115,16 +119,33 @@ class WorkflowScore:
                 }
                 for name, measures in self.root_fields.items()
             },
+            (
+                {
+                    name: {
+                        measure: value + other.validated_root_fields[name][measure]
+                        for measure, value in measures.items()
+                    }
+                    for name, measures in self.validated_root_fields.items()
+                }
+                if self.validated_root_fields is not None and other.validated_root_fields is not None
+                else None
+            ),
         )
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "stages": [item.as_dict() for item in self.stages],
             "root_fields": {
                 name: {measure: score.as_dict() for measure, score in measures.items()}
                 for name, measures in self.root_fields.items()
             },
         }
+        if self.validated_root_fields is not None:
+            result["validated_root_fields"] = {
+                name: {measure: score.as_dict() for measure, score in measures.items()}
+                for name, measures in self.validated_root_fields.items()
+            }
+        return result
 
 
 def _rows(document: Document) -> tuple[dict[str, Any], ...]:
@@ -687,19 +708,9 @@ GROW_ROOTS_STAGES: tuple[tuple[str, Callable[[Document], StageScore]], ...] = (
 )
 
 
-def score_grow_roots(document: Document) -> WorkflowScore:
-    """All stage precision, then exact and overlap outcomes for applicable roots."""
-    final_stage = ROOT_REVIEW_STAGE if ROOT_REVIEW_STAGE in document.stage_runs else ROOT_STAGE
-    final = document.get_stage(final_stage)
-    missing = [
-        stage
-        for stage, _ in GROW_ROOTS_STAGES
-        if stage not in {HUNT_STAGE, ROOT_REVIEW_STAGE} and stage not in final.stage_runs
-    ]
-    if missing:
-        raise ValueError(f"Incomplete grow_roots workflow; missing stages: {', '.join(missing)}")
-    stages = tuple(score(final) for stage, score in GROW_ROOTS_STAGES if stage in final.stage_runs)
-    gold = _gold(tuple(row for row in _rows(final) if row.get("is_root")))
+def _score_root_fields(document: Document) -> dict[str, dict[str, FieldScore | RecallScore]]:
+    """Use the same root-field comparisons at any explicit Document checkpoint."""
+    gold = _gold(tuple(row for row in _rows(document) if row.get("is_root")))
     names = (
         "full_reporter_locator",
         "docket_locator",
@@ -732,7 +743,7 @@ def score_grow_roots(document: Document) -> WorkflowScore:
         # Reviewed absence and unavailability count once, just like a value.
         span_gold = norm_gold = len(gold_rows)
         span_correct = span_predicted = norm_correct = norm_predicted = 0
-        for citation in final.roots:
+        for citation in document.roots:
             if gold_kind is not None and _kind(citation) != gold_kind:
                 continue
             if name == "docket_entry" and not isinstance(citation, FullDocketCitation):
@@ -747,7 +758,7 @@ def score_grow_roots(document: Document) -> WorkflowScore:
         result[name] = {
             "span": FieldScore(span_correct, span_predicted, span_gold),
             "span_overlap": _root_field_overlap_recall(
-                final.roots, gold_rows, attribute=attributes[name], target_name=target_name
+                document.roots, gold_rows, attribute=attributes[name], target_name=target_name
             ),
             "normalization": FieldScore(norm_correct, norm_predicted, norm_gold),
         }
@@ -756,7 +767,26 @@ def score_grow_roots(document: Document) -> WorkflowScore:
                 measure: result["full_reporter_locator"][measure] + result["docket_locator"][measure]
                 for measure in ("span", "span_overlap", "normalization")
             }
-    return WorkflowScore(stages, result)
+    return result
+
+
+def score_grow_roots(document: Document) -> WorkflowScore:
+    """Score extraction at its endpoint and, when present, validated root readings."""
+    final_stage = ROOT_REVIEW_STAGE if ROOT_REVIEW_STAGE in document.stage_runs else ROOT_STAGE
+    final = document.get_stage(final_stage)
+    missing = [
+        stage
+        for stage, _ in GROW_ROOTS_STAGES
+        if stage not in {HUNT_STAGE, ROOT_REVIEW_STAGE} and stage not in final.stage_runs
+    ]
+    if missing:
+        raise ValueError(f"Incomplete grow_roots workflow; missing stages: {', '.join(missing)}")
+    stages = tuple(score(final) for stage, score in GROW_ROOTS_STAGES if stage in final.stage_runs)
+    validated = None
+    if VALIDATED_FIELDS_STAGE in document.stage_runs:
+        validated_fields = _score_root_fields(document.get_stage(VALIDATED_FIELDS_STAGE))
+        validated = {name: validated_fields[name] for name in ("case_name", "court", "date")}
+    return WorkflowScore(stages, _score_root_fields(final), validated)
 
 
 def _precision_cell(value: Precision) -> str:
@@ -935,6 +965,29 @@ GROW_ROOTS_RENDERERS: dict[str, Callable[[StageScore], str]] = {
 }
 
 
+def _render_root_fields(fields: dict[str, dict[str, FieldScore | RecallScore]], heading: str) -> str:
+    lines = [
+        heading,
+        "",
+        "| Field | Source/span precision | Source/span recall | Source/span overlap recall | Normalization precision | Normalization recall |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for name, measures in fields.items():
+        span, overlap, norm = measures["span"], measures["span_overlap"], measures["normalization"]
+        if (
+            not isinstance(span, FieldScore)
+            or not isinstance(overlap, RecallScore)
+            or not isinstance(norm, FieldScore)
+        ):
+            raise ValueError("Root field score has an invalid measure type")
+        label = "**overall_locator subtotal**" if name == "overall_locator" else name
+        lines.append(
+            f"| {label} | {_field_cell(span, recall=False)} | {_field_cell(span, recall=True)} | "
+            f"{_recall_cell(overlap)} | {_field_cell(norm, recall=False)} | {_field_cell(norm, recall=True)} |"
+        )
+    return "\n".join(lines)
+
+
 def render_grow_roots(
     score: WorkflowScore, *, include_stages: bool = True, set_name: str | None = None
 ) -> str:
@@ -955,24 +1008,14 @@ def render_grow_roots(
     ]
     if include_stages:
         sections.extend(GROW_ROOTS_RENDERERS[item.stage](item) for item in score.stages)
-    lines = [
-        "## Root fields",
-        "",
-        "| Field | Source/span precision | Source/span recall | Source/span overlap recall | Normalization precision | Normalization recall |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for name, measures in score.root_fields.items():
-        span, overlap, norm = measures["span"], measures["span_overlap"], measures["normalization"]
-        if (
-            not isinstance(span, FieldScore)
-            or not isinstance(overlap, RecallScore)
-            or not isinstance(norm, FieldScore)
-        ):
-            raise ValueError("Root field score has an invalid measure type")
-        label = "**overall_locator subtotal**" if name == "overall_locator" else name
-        lines.append(
-            f"| {label} | {_field_cell(span, recall=False)} | {_field_cell(span, recall=True)} | "
-            f"{_recall_cell(overlap)} | {_field_cell(norm, recall=False)} | {_field_cell(norm, recall=True)} |"
+    sections.append(_render_root_fields(score.root_fields, "## Root fields"))
+    if score.validated_root_fields is not None:
+        if tuple(score.validated_root_fields) != ("case_name", "court", "date"):
+            raise ValueError("Validated root fields must contain case name, court, and date")
+        sections.append(
+            _render_root_fields(
+                score.validated_root_fields,
+                f"## Root fields after {VALIDATED_FIELDS_STAGE}",
+            )
         )
-    sections.append("\n".join(lines))
     return "\n\n".join(sections) + "\n"
