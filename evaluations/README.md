@@ -63,7 +63,11 @@ executes extraction or validation.
 workflow scorers. Each named stage scorer takes only a `Document`, recovers
 its own checkpoint, and reports precision for that stage's decisions. The
 grow-roots workflow summary adds precision and recall for final root fields;
-the validate-roots summary adds precision and recall for case-name, court, and
+when stage `19_govinfo_docket_lookup_review` is present, it also scores the
+case-name, court, and date readings at that checkpoint with the same field
+scorer. The original root-field table remains fixed at stage `11`, and later
+body-review changes do not enter the stage-`19` comparison. The validate-roots
+summary adds precision and recall for case-name, court, and
 date judgments. Both use the official annotations identified by the saved
 Document's source path. The body review compares two printed citations and
 records a separate identity verdict; those comparisons are not identity-field
