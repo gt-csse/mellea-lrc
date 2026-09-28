@@ -41,8 +41,6 @@ _OPINION_TEXT_FIELDS = (
     "html",
     "xml_harvard",
 )
-_WORD = re.compile(r"[A-Za-z0-9]+(?:['’][A-Za-z0-9]+)?")
-_SKIP_NAME_WORDS = frozenset({"v", "vs", "in", "re", "ex", "parte", "of", "the", "and"})
 
 
 class CourtListenerBodyClient(Protocol):
@@ -188,17 +186,8 @@ def _next_cursor(url: str) -> str | None:
     return values[0] if len(values) == 1 and values[0] else None
 
 
-def _queries(root: FullCitationVariant, locator: str) -> tuple[str, ...]:
-    quoted = '"' + locator.replace("\\", "\\\\").replace('"', '\\"') + '"'
-    if not root.case_name:
-        return (quoted,)
-    words = [
-        word
-        for word in _WORD.findall(root.case_name[-1].quote)
-        if len(word) >= 3 and word.casefold() not in _SKIP_NAME_WORDS
-    ][:6]
-    fallback = " ".join(words)
-    return (quoted, fallback) if len(words) >= 2 and fallback != quoted else (quoted,)
+def _locator_query(locator: str) -> str:
+    return '"' + locator.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def _parent_id(hit: CourtListenerSearchResult, source: BodySource) -> str | None:
@@ -230,7 +219,6 @@ def _fetch_evidence(
     hit: CourtListenerSearchResult,
     source: BodySource,
     locator: str,
-    case_name: str | None,
     source_text: str,
     retrospective_date: date | None,
     query: str,
@@ -288,13 +276,12 @@ def _fetch_evidence(
         metadata=metadata,
         body_text=body_text,
         locator=locator,
-        case_name=case_name,
         source_text=source_text,
     )
     if not evidence:
         return (), _failure(
             "no_grounded_anchor",
-            "Fetched body does not supply an independent locator or case-name match",
+            "Fetched body does not contain the cited locator",
             item_id=item_id,
         )
     return evidence, None
@@ -306,7 +293,6 @@ def _search_query(
     query: str,
     source: BodySource,
     locator: str,
-    case_name: str | None,
     source_text: str,
     retrospective_date: date | None,
     budget: _CandidateBudget,
@@ -358,7 +344,6 @@ def _search_query(
                     hit=hit,
                     source=source,
                     locator=locator,
-                    case_name=case_name,
                     source_text=source_text,
                     retrospective_date=retrospective_date,
                     query=query,
@@ -439,22 +424,18 @@ def run_courtlistener_body_search(
                 failures.append(_failure("unsearchable_locator", "Citation has no searchable locator"))
             if locator:
                 budget = _CandidateBudget()
-                case_name = root.case_name[-1].quote if root.case_name else None
-                for query in _queries(root, locator):
-                    if evidence or budget.fetched == MAX_FETCHES_PER_CITATION:
-                        break
-                    if service is None:
-                        try:
-                            service = stack.enter_context(CourtListenerClient())
-                        except CourtListenerError as error:
-                            attempts.append(BodySearchAttempt(query=query, failure=_service_failure(error)))
-                            break
+                query = _locator_query(locator)
+                if service is None:
+                    try:
+                        service = stack.enter_context(CourtListenerClient())
+                    except CourtListenerError as error:
+                        attempts.append(BodySearchAttempt(query=query, failure=_service_failure(error)))
+                if service is not None:
                     attempt, found, failed = _search_query(
                         service,
                         query=query,
                         source=source,
                         locator=locator,
-                        case_name=case_name,
                         source_text=document.text,
                         retrospective_date=retrospective_date,
                         budget=budget,

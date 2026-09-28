@@ -11,16 +11,16 @@ from mellea_lrc.validation.body_search._courtlistener import (
     run_courtlistener_body_search,
 )
 
-STAGE = "21_courtlistener_recap_body_search"
+STAGE = "21_courtlistener_recap_locator_body_search"
 
 
-def courtlistener_recap_body_search(
+def courtlistener_recap_locator_body_search(
     document: Document,
     *,
     retrospective_date: date | None = None,
     client: CourtListenerBodyClient | None = None,
 ) -> Document:
-    """Save bounded RECAP searches and excerpts from fetched document bodies."""
+    """Save locator matches from independently fetched RECAP filings."""
     return run_courtlistener_body_search(
         document,
         stage=STAGE,

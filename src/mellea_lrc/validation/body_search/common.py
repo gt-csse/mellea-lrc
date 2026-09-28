@@ -19,9 +19,8 @@ from mellea_lrc.model.span import Span
 
 _SPACE = re.compile(r"\s+")
 _LOCATOR_MATCH = FuzzinessOption.edit_distance(similarity_percent=90, whitespace_relaxation=True)
-_NAME_MATCH = FuzzinessOption.edit_distance(similarity_percent=75, whitespace_relaxation=True)
-_BEFORE_CHARS = 350
-_AFTER_CHARS = 250
+_BEFORE_CHARS = 2000
+_AFTER_CHARS = 600
 _SAME_DOCUMENT_SIMILARITY = 90
 
 
@@ -67,9 +66,8 @@ def make_body_evidences(
     body_text: str,
     locator: str,
     source_text: str,
-    case_name: str | None = None,
 ) -> tuple[BodyEvidence, ...]:
-    """Retain up to three exact excerpts per locator/name anchor.
+    """Retain up to three locator-anchored excerpts from a fetched body.
 
     An identical copy of the source filing cannot independently corroborate
     itself. Search snippets are not accepted here; callers supply fetched body
@@ -90,41 +88,35 @@ def make_body_evidences(
         return ()
     digest = hashlib.sha256(body_text.encode("utf-8")).hexdigest()
     results: list[BodyEvidence] = []
-    anchors = [("locator", locator, _LOCATOR_MATCH)]
-    if case_name and len(case_name.strip()) >= 8:
-        anchors.append(("case_name", case_name, _NAME_MATCH))
-    for anchor_kind, anchor, policy in anchors:
-        scan_from = 0
-        found_count = 0
-        examined_count = 0
-        while found_count < 3 and examined_count < 12:
-            matched = fuzzy_find(anchor, body_text[scan_from:], policy)
-            if matched is None:
-                break
-            examined_count += 1
-            local_start = body_text[scan_from:].find(matched)
-            if local_start < 0 or not matched:
-                raise ValueError("Grounded body anchor must occur in the fetched body")
-            match_start = scan_from + local_start
-            scan_from = match_start + len(matched)
-            if any(item.source_offset + item.anchor_span.start == match_start for item in results):
-                continue
-            start = max(0, match_start - _BEFORE_CHARS)
-            end = min(len(body_text), match_start + len(matched) + _AFTER_CHARS)
-            results.append(
-                BodyEvidence(
-                    body_id=body_id,
-                    parent_id=parent_id,
-                    url=url,
-                    issued_on=issued_on,
-                    date_basis=date_basis,
-                    metadata=metadata,
-                    body_sha256=digest,
-                    excerpt=body_text[start:end],
-                    source_offset=start,
-                    anchor_kind=anchor_kind,
-                    anchor_span=Span(match_start - start, match_start - start + len(matched)),
-                )
+    scan_from = 0
+    found_count = 0
+    examined_count = 0
+    while found_count < 3 and examined_count < 12:
+        matched = fuzzy_find(locator, body_text[scan_from:], _LOCATOR_MATCH)
+        if matched is None:
+            break
+        examined_count += 1
+        local_start = body_text[scan_from:].find(matched)
+        if local_start < 0 or not matched:
+            raise ValueError("Grounded body anchor must occur in the fetched body")
+        match_start = scan_from + local_start
+        scan_from = match_start + len(matched)
+        start = max(0, match_start - _BEFORE_CHARS)
+        end = min(len(body_text), match_start + len(matched) + _AFTER_CHARS)
+        results.append(
+            BodyEvidence(
+                body_id=body_id,
+                parent_id=parent_id,
+                url=url,
+                issued_on=issued_on,
+                date_basis=date_basis,
+                metadata=metadata,
+                body_sha256=digest,
+                excerpt=body_text[start:end],
+                source_offset=start,
+                anchor_kind="locator",
+                anchor_span=Span(match_start - start, match_start - start + len(matched)),
             )
-            found_count += 1
+        )
+        found_count += 1
     return tuple(results)

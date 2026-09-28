@@ -20,6 +20,14 @@ class BodySource(str, Enum):
     GOVINFO_OPINION = "govinfo_opinion"
 
 
+class BodyCitationTreatment(str, Enum):
+    """How the independent document treats its printed citation."""
+
+    CITES_AS_AUTHORITY = "cites_as_authority"
+    EXPLICITLY_DISPUTES = "explicitly_disputes"
+    MENTIONS_ONLY = "mentions_only"
+
+
 class BodyEvidenceFailure(BaseModel):
     """A search or body fetch that did not supply reviewable text."""
 
@@ -60,7 +68,7 @@ class BodyEvidence(BaseModel):
     body_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     excerpt: str = Field(min_length=1)
     source_offset: int = Field(ge=0)
-    anchor_kind: Literal["locator", "case_name"]
+    anchor_kind: Literal["locator"]
     anchor_span: Span
 
     @model_validator(mode="after")
@@ -159,6 +167,8 @@ class BodyCorroborationDecision(BaseModel):
     source: BodySource | None
     evidence_index: int | None = Field(ge=0)
     citation_quote: str | None
+    context_quote: str | None
+    treatment: BodyCitationTreatment | None
     filing: BodyFilingFields | None
     third_party: BodyCitationFields | None
     comparisons: BodyFieldComparisons | None
@@ -170,16 +180,21 @@ class BodyCorroborationDecision(BaseModel):
         details = (
             self.evidence_index,
             self.citation_quote,
+            self.treatment,
             self.filing,
             self.third_party,
             self.comparisons,
         )
         if selected != all(value is not None for value in details):
             raise ValueError("A selected body citation needs both sides and every comparison")
-        if not selected and any(value is not None for value in details):
+        if not selected and any(value is not None for value in (*details, self.context_quote)):
             raise ValueError("A declined body citation cannot compare a candidate")
         if self.citation_quote is not None and not self.citation_quote.strip():
             raise ValueError("A selected citation quote cannot be blank")
+        if self.context_quote is not None and not self.context_quote.strip():
+            raise ValueError("A context quote cannot be blank")
+        if self.treatment is BodyCitationTreatment.EXPLICITLY_DISPUTES and not self.context_quote:
+            raise ValueError("An explicit challenge requires a quote from its surrounding discussion")
         if selected and (not self.filing.locator or not self.third_party.locator):
             raise ValueError("Both citations need a locator for body corroboration")
         return self
@@ -195,6 +210,9 @@ class BodyCorroborationReview(BaseModel):
     grounded_quote: str | None = None
     quote_span: Span | None = None
     quote_similarity: float | None = Field(default=None, ge=0, le=100)
+    grounded_context: str | None = None
+    context_span: Span | None = None
+    context_similarity: float | None = Field(default=None, ge=0, le=100)
     ivr: IvrRun | None = None
     failure_reason: str | None = None
 
@@ -208,6 +226,11 @@ class BodyCorroborationReview(BaseModel):
             value is not None for value in (self.grounded_quote, self.quote_span, self.quote_similarity)
         ):
             raise ValueError("A selected body review needs its grounded quote and span")
+        if (decided and self.decision.context_quote is not None) != all(
+            value is not None
+            for value in (self.grounded_context, self.context_span, self.context_similarity)
+        ):
+            raise ValueError("A supplied context quote must ground in the saved excerpt")
         if self.ivr is not None and not self.ivr.success and decided:
             raise ValueError("A failed model run cannot provide a decision")
         return self
