@@ -456,8 +456,9 @@ def _complete_reporter_stages(document: Document) -> Document:
     return document
 
 
+@pytest.mark.parametrize("with_client", [False, True])
 def test_validate_roots_composes_stages_in_execution_order(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, with_client: bool
 ) -> None:
     workflow = importlib.import_module("mellea_lrc.workflows.validate_roots")
     initial = Document.from_source(_write_source(tmp_path))
@@ -490,9 +491,13 @@ def test_validate_roots_composes_stages_in_execution_order(
         "23_locator_body_review",
     )
     cutoff = date(2024, 1, 1)
+    selected_client = object() if with_client else None
 
-    async def run_body(document: Document, *, retrospective_date: date | None) -> Document:
+    async def run_body(
+        document: Document, *, retrospective_date: date | None, courtlistener_client: object = None
+    ) -> Document:
         assert retrospective_date == cutoff
+        assert courtlistener_client is selected_client
         for stage in body_stages:
             assert document.stage_runs == (*initial.stage_runs, *called)
             called.append(stage)
@@ -500,7 +505,8 @@ def test_validate_roots_composes_stages_in_execution_order(
         return document
 
     monkeypatch.setattr(workflow, "corroborate_root_locator_bodies", run_body)
-    result = asyncio.run(workflow.validate_roots(initial, retrospective_date=cutoff))
+    client_kwargs = {"courtlistener_client": selected_client} if selected_client is not None else {}
+    result = asyncio.run(workflow.validate_roots(initial, retrospective_date=cutoff, **client_kwargs))
     assert tuple(called) == (*WORKFLOW_STAGES, *body_stages)
     assert result.stage_runs == (*initial.stage_runs, *WORKFLOW_STAGES, *body_stages)
 

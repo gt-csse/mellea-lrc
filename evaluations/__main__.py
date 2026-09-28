@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import os
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from mellea_lrc.api import (
     review_locator_body_evidence,
     validate_roots,
 )
+from mellea_lrc.courtlistener import CourtListenerClient, CourtListenerConfig
 from mellea_lrc.model import FullDocketCitation
 from mellea_lrc.validation.body_search.courtlistener_opinion import STAGE as _COURTLISTENER_OPINION_STAGE
 from mellea_lrc.validation.body_search.courtlistener_recap import STAGE as _COURTLISTENER_RECAP_STAGE
@@ -145,13 +147,21 @@ def _has_transient_body_search_failure(document: Document) -> bool:
 
 
 async def _retry_body_stages(
-    document: Document, first_stage: str, retrospective_date: date | None
+    document: Document,
+    first_stage: str,
+    retrospective_date: date | None,
+    courtlistener_client: CourtListenerClient | None = None,
 ) -> Document:
     """Run the failed provider, later providers, and the cross-provider review."""
+    client_kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
     if first_stage == _COURTLISTENER_OPINION_STAGE:
-        document = courtlistener_opinion_locator_body_search(document, retrospective_date=retrospective_date)
+        document = courtlistener_opinion_locator_body_search(
+            document, retrospective_date=retrospective_date, **client_kwargs
+        )
     if first_stage in (_COURTLISTENER_OPINION_STAGE, _COURTLISTENER_RECAP_STAGE):
-        document = courtlistener_recap_locator_body_search(document, retrospective_date=retrospective_date)
+        document = courtlistener_recap_locator_body_search(
+            document, retrospective_date=retrospective_date, **client_kwargs
+        )
     document = govinfo_opinion_locator_body_search(document, retrospective_date=retrospective_date)
     return await review_locator_body_evidence(document)
 
@@ -175,7 +185,10 @@ async def _run(
     from_docket_review_documents: Path | None = None,
     from_validation_documents: Path | None = None,
     retrospective_date: date | None = None,
+    courtlistener_pool: str | None = None,
 ) -> Path:
+    if courtlistener_pool not in (None, "reserved"):
+        raise ValueError(f"Unsupported CourtListener pool: {courtlistener_pool}")
     if (
         sum(
             item is not None
@@ -219,6 +232,7 @@ async def _run(
                 str(from_validation_documents) if from_validation_documents else None
             ),
             "retrospective_date": retrospective_date.isoformat() if retrospective_date else None,
+            "courtlistener_pool": courtlistener_pool,
             "reuse_docket_lookups": reuse_docket_lookups,
             "source_sha256": {
                 filename: hashlib.sha256(
@@ -248,6 +262,12 @@ async def _run(
         retrospective_date = (
             date.fromisoformat(saved_retrospective_date) if saved_retrospective_date else None
         )
+        saved_pool = run_record.get("courtlistener_pool")
+        if saved_pool not in (None, "reserved"):
+            raise ValueError(f"Unsupported saved CourtListener pool: {saved_pool}")
+        courtlistener_pool = courtlistener_pool or saved_pool
+        if courtlistener_pool is not None:
+            run_record["courtlistener_pool"] = courtlistener_pool
         reuse_docket_lookups = bool(run_record.get("reuse_docket_lookups", False))
         if (
             sum(
@@ -289,6 +309,7 @@ async def _run(
         run_record.pop("transient_failures", None)
         _write_json(record_path, run_record)
 
+    courtlistener_client: CourtListenerClient | None = None
     try:
         # Check every saved checkpoint before any provider-backed stage starts.
         sources = {
@@ -336,6 +357,15 @@ async def _run(
                 if ready.stage_runs != _VALIDATION_INPUT_STAGES:
                     raise ValueError(f"Saved validation input is incomplete for {filename}")
 
+        if courtlistener_pool == "reserved" and len(completed) != len(filenames):
+            base_url = CourtListenerConfig.from_env().base_url
+            token = os.getenv("COURTLISTENER_API_TOKEN_RESERVED", "").strip()
+            if not token:
+                raise ValueError("COURTLISTENER_API_TOKEN_RESERVED must be configured for the reserved pool")
+            courtlistener_client = CourtListenerClient(
+                CourtListenerConfig(base_url=base_url, pool="reserved", token=token)
+            )
+
         for index, filename in enumerate(filenames, start=1):
             source = sources[filename]
             artifact = documents_dir / f"{filename}.json"
@@ -379,17 +409,27 @@ async def _run(
                 document = _load_document(saved, source).get_stage(_ROOT_STAGE)
                 document = await review_docket_root_equivalence(document)
             if filename in retry_body:
-                document = await _retry_body_stages(document, failed_stage, retrospective_date)
+                document = await _retry_body_stages(
+                    document, failed_stage, retrospective_date, courtlistener_client
+                )
             elif (
                 from_validation_documents is not None
                 or from_docket_review_documents is not None
                 or from_reporter_review_documents is not None
             ):
+                client_kwargs = (
+                    {"courtlistener_client": courtlistener_client} if courtlistener_client is not None else {}
+                )
                 document = await corroborate_root_locator_bodies(
-                    document, retrospective_date=retrospective_date
+                    document, retrospective_date=retrospective_date, **client_kwargs
                 )
             else:
-                document = await validate_roots(document, retrospective_date=retrospective_date)
+                client_kwargs = (
+                    {"courtlistener_client": courtlistener_client} if courtlistener_client is not None else {}
+                )
+                document = await validate_roots(
+                    document, retrospective_date=retrospective_date, **client_kwargs
+                )
             if document.stage_runs != _RUN_STAGES:
                 raise ValueError(f"Run did not complete every stage for {filename}")
             _write_json(artifact, document.model_dump(mode="json"))
@@ -412,6 +452,9 @@ async def _run(
         run_record["status"] = "failed"
         _write_json(record_path, run_record)
         raise
+    finally:
+        if courtlistener_client is not None:
+            courtlistener_client.close()
 
     run_record["status"] = "complete"
     run_record["completed_at"] = datetime.now(UTC).isoformat()
@@ -456,6 +499,11 @@ def main() -> None:
     parser.add_argument(
         "--resume-run", type=Path, help="Continue an interrupted run in its existing timestamp directory"
     )
+    parser.add_argument(
+        "--courtlistener-pool",
+        choices=("reserved",),
+        help="Use the reserved CourtListener token for body searches",
+    )
     args = parser.parse_args()
     if (
         sum(
@@ -496,6 +544,7 @@ def main() -> None:
             args.from_docket_review_documents.resolve() if args.from_docket_review_documents else None,
             args.from_validation_documents.resolve() if args.from_validation_documents else None,
             args.retrospective_date,
+            args.courtlistener_pool,
         )
     )
     print(run_dir)

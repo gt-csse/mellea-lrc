@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 from datetime import date
 from pathlib import Path
@@ -11,6 +12,7 @@ import pytest
 
 from evaluations import __main__ as runner
 from mellea_lrc.api import Document, grow_roots
+from mellea_lrc.courtlistener import CourtListenerClient
 from mellea_lrc.model import (
     DocketLookup,
     DocketLookupAttempt,
@@ -288,6 +290,194 @@ def test_resume_from_validation_checkpoint_runs_only_body_stages_and_reuses_cuto
     (run_dir / "run.json").write_text(json.dumps(record), encoding="utf-8")
     assert asyncio.run(runner._run(tmp_path / "unused", tmp_path / "unused", None, run_dir)) == run_dir
     assert calls == [(filename, cutoff) for filename in filenames] + [("002.txt", cutoff)]
+
+
+def test_reserved_pool_is_saved_reused_and_closed_without_saving_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    filenames = ("001.txt", "002.txt")
+    data_root = _dataset(tmp_path, filenames)
+    checkpoint_dir = tmp_path / "validation-input"
+    checkpoint_dir.mkdir()
+    for filename in filenames:
+        source = data_root / "primary" / "documents_txt" / filename
+        ready = _complete(Document.from_source(source), runner._VALIDATION_INPUT_STAGES)
+        (checkpoint_dir / f"{filename}.json").write_text(ready.model_dump_json(), encoding="utf-8")
+
+    monkeypatch.setenv("COURTLISTENER_BASE_URL", "https://proxy.example/api/rest/v4/")
+    monkeypatch.setenv("COURTLISTENER_API_TOKEN_RESERVED", "offline-reserved-token")
+    calls: list[tuple[str, CourtListenerClient]] = []
+    closed: list[CourtListenerClient] = []
+    original_close = CourtListenerClient.close
+
+    def close(client: CourtListenerClient) -> None:
+        closed.append(client)
+        original_close(client)
+
+    async def body(
+        document: Document, *, retrospective_date: date | None, courtlistener_client: CourtListenerClient
+    ) -> Document:
+        assert retrospective_date is None
+        calls.append((Path(document.source_path or "").name, courtlistener_client))
+        return _complete(document, runner._RUN_STAGES[19:])
+
+    monkeypatch.setattr(CourtListenerClient, "close", close)
+    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", body)
+    run_dir = asyncio.run(
+        runner._run(
+            data_root,
+            tmp_path / "results",
+            None,
+            from_validation_documents=checkpoint_dir,
+            courtlistener_pool="reserved",
+        )
+    )
+
+    record_text = (run_dir / "run.json").read_text(encoding="utf-8")
+    assert json.loads(record_text)["courtlistener_pool"] == "reserved"
+    assert "offline-reserved-token" not in record_text
+    assert [filename for filename, _client in calls] == list(filenames)
+    assert calls[0][1] is calls[1][1]
+    assert closed == [calls[0][1]]
+    assert calls[0][1].config.base_url == "https://proxy.example/api/rest/v4/"
+    assert calls[0][1].config.pool == "reserved"
+    assert calls[0][1].config.token == "offline-reserved-token"
+
+    (run_dir / "documents" / "002.txt.json").unlink()
+    assert asyncio.run(runner._run(tmp_path / "unused", tmp_path / "unused", None, run_dir)) == run_dir
+    assert [filename for filename, _client in calls] == [*filenames, "002.txt"]
+    assert calls[2][1] is not calls[0][1]
+    assert closed == [calls[0][1], calls[2][1]]
+
+
+def test_resume_existing_run_can_select_and_save_reserved_pool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root = _dataset(tmp_path, ("001.txt",))
+    checkpoint_dir = tmp_path / "validation-input"
+    checkpoint_dir.mkdir()
+    source = data_root / "primary" / "documents_txt" / "001.txt"
+    ready = _complete(Document.from_source(source), runner._VALIDATION_INPUT_STAGES)
+    (checkpoint_dir / "001.txt.json").write_text(ready.model_dump_json(), encoding="utf-8")
+    monkeypatch.setenv("COURTLISTENER_BASE_URL", "https://proxy.example/api/rest/v4/")
+    monkeypatch.setenv("COURTLISTENER_API_TOKEN_RESERVED", "offline-reserved-token")
+    clients: list[CourtListenerClient | None] = []
+
+    async def body(
+        document: Document,
+        *,
+        retrospective_date: date | None,
+        courtlistener_client: CourtListenerClient | None = None,
+    ) -> Document:
+        clients.append(courtlistener_client)
+        return _complete(document, runner._RUN_STAGES[19:])
+
+    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", body)
+    run_dir = asyncio.run(
+        runner._run(data_root, tmp_path / "results", None, from_validation_documents=checkpoint_dir)
+    )
+    record_path = run_dir / "run.json"
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    record.pop("courtlistener_pool")  # Older runs did not record a pool.
+    record_path.write_text(json.dumps(record), encoding="utf-8")
+    (run_dir / "documents" / "001.txt.json").unlink()
+
+    assert (
+        asyncio.run(
+            runner._run(
+                tmp_path / "unused",
+                tmp_path / "unused",
+                None,
+                run_dir,
+                courtlistener_pool="reserved",
+            )
+        )
+        == run_dir
+    )
+    assert clients[0] is None
+    assert clients[1] is not None
+    assert clients[1].config.pool == "reserved"
+    record_text = record_path.read_text(encoding="utf-8")
+    assert json.loads(record_text)["courtlistener_pool"] == "reserved"
+    assert "offline-reserved-token" not in record_text
+
+    (run_dir / "documents" / "001.txt.json").unlink()
+    assert asyncio.run(runner._run(tmp_path / "unused", tmp_path / "unused", None, run_dir)) == run_dir
+    assert clients[2] is not None
+    assert clients[2].config.pool == "reserved"
+
+
+def test_retry_body_stages_passes_selected_client_to_both_courtlistener_stages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document = _complete(Document.from_source("source"), runner._VALIDATION_INPUT_STAGES)
+    selected_client = object()
+    calls: list[str] = []
+
+    def opinion(document: Document, *, retrospective_date: date | None, client: object) -> Document:
+        assert client is selected_client
+        calls.append("opinion")
+        return document.complete(runner._COURTLISTENER_OPINION_STAGE)
+
+    def recap(document: Document, *, retrospective_date: date | None, client: object) -> Document:
+        assert client is selected_client
+        calls.append("recap")
+        return document.complete(runner._COURTLISTENER_RECAP_STAGE)
+
+    def govinfo(document: Document, *, retrospective_date: date | None) -> Document:
+        calls.append("govinfo")
+        return document.complete(runner._GOVINFO_OPINION_STAGE)
+
+    async def review(document: Document) -> Document:
+        calls.append("review")
+        return document.complete(runner._LOCATOR_BODY_REVIEW_STAGE)
+
+    monkeypatch.setattr(runner, "courtlistener_opinion_locator_body_search", opinion)
+    monkeypatch.setattr(runner, "courtlistener_recap_locator_body_search", recap)
+    monkeypatch.setattr(runner, "govinfo_opinion_locator_body_search", govinfo)
+    monkeypatch.setattr(runner, "review_locator_body_evidence", review)
+    result = asyncio.run(
+        runner._retry_body_stages(document, runner._COURTLISTENER_OPINION_STAGE, None, selected_client)
+    )
+    assert result.stage_runs == runner._RUN_STAGES
+    assert calls == ["opinion", "recap", "govinfo", "review"]
+
+
+def test_corroboration_workflow_passes_selected_client_to_both_stages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = importlib.import_module("mellea_lrc.workflows.corroborate_root_locator_bodies")
+    document = _complete(Document.from_source("source"), runner._VALIDATION_INPUT_STAGES)
+    selected_client = object()
+    calls: list[str] = []
+
+    def opinion(document: Document, *, retrospective_date: date | None, client: object) -> Document:
+        assert client is selected_client
+        calls.append("opinion")
+        return document.complete(runner._COURTLISTENER_OPINION_STAGE)
+
+    def recap(document: Document, *, retrospective_date: date | None, client: object) -> Document:
+        assert client is selected_client
+        calls.append("recap")
+        return document.complete(runner._COURTLISTENER_RECAP_STAGE)
+
+    def govinfo(document: Document, *, retrospective_date: date | None) -> Document:
+        calls.append("govinfo")
+        return document.complete(runner._GOVINFO_OPINION_STAGE)
+
+    async def review(document: Document) -> Document:
+        calls.append("review")
+        return document.complete(runner._LOCATOR_BODY_REVIEW_STAGE)
+
+    monkeypatch.setattr(workflow, "courtlistener_opinion_locator_body_search", opinion)
+    monkeypatch.setattr(workflow, "courtlistener_recap_locator_body_search", recap)
+    monkeypatch.setattr(workflow, "govinfo_opinion_locator_body_search", govinfo)
+    monkeypatch.setattr(workflow, "review_locator_body_evidence", review)
+    result = asyncio.run(
+        workflow.corroborate_root_locator_bodies(document, courtlistener_client=selected_client)
+    )
+    assert result.stage_runs == runner._RUN_STAGES
+    assert calls == ["opinion", "recap", "govinfo", "review"]
 
 
 def test_validation_replay_checks_all_sources_before_body_provider_calls(
