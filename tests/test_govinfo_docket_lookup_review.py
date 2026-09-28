@@ -12,7 +12,7 @@ from mellea_lrc.model.citations.docket_lookup import (
     DocketLookupReviewDecision,
 )
 from mellea_lrc.model.citations.fields.case_name import CaseName
-from mellea_lrc.model.citations.judgments import MatchResult
+from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.validation.govinfo_docket_lookup import govinfo_docket_lookup
 from mellea_lrc.validation.govinfo_docket_lookup_review import govinfo_docket_lookup_review
 from mellea_lrc.validation.govinfo_docket_lookup_review.reviewer import GovInfoDocketReviewContext
@@ -83,6 +83,10 @@ def test_review_records_field_decisions_and_replays_from_document() -> None:
     assert review is not None and review.decision is not None
     assert review.decision.selected_candidate_index == 0
     assert review.decision.date.result is MatchResult.MATCH
+    assert len(after.roots[0].identity_judgments) == len(before.roots[0].identity_judgments) + 1
+    assert after.roots[0].identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
+    assert after.roots[0].identity_judgments[-1].next_stage == "fields_aggregated_identity"
+    assert after.roots[0].identity_judgments[-1].node_id == review.node_id
     assert seen[0].candidates[0]["filing_year_digits"] == "31"
     assert review.node_id == after.roots[0].nodes[-1].id
     assert "dateIssued" not in str(seen[0].candidates)
@@ -101,6 +105,7 @@ def test_review_without_shortlisted_package_is_deterministic() -> None:
     assert review is not None and review.decision is not None
     assert review.decision.selected_candidate_index is None
     assert review.decision.docket_number.result is MatchResult.UNAVAILABLE
+    assert after.roots[0].identity_judgments == before.roots[0].identity_judgments
 
 
 def test_ungrounded_correction_is_saved_as_failure() -> None:
@@ -114,3 +119,4 @@ def test_ungrounded_correction_is_saved_as_failure() -> None:
     assert review is not None and review.decision is None
     assert review.failure_reason is not None and "allowed filing window" in review.failure_reason
     assert after.roots[0].locator == before.roots[0].locator
+    assert after.roots[0].identity_judgments == before.roots[0].identity_judgments

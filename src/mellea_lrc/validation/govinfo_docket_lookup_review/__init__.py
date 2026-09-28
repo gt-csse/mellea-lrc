@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.citations.govinfo_lookup import GovInfoDocketReview
+from mellea_lrc.model.citations.judgments import IdentityVerdict
 from mellea_lrc.model.document import Document
 from mellea_lrc.validation.govinfo_docket_lookup_review.reviewer import (
     GovInfoDocketReviewContext,
@@ -15,6 +16,7 @@ from mellea_lrc.validation.govinfo_docket_lookup_review.reviewer import (
 )
 
 STAGE = "19_govinfo_docket_lookup_review"
+NEXT_STAGE = "fields_aggregated_identity"
 
 
 async def govinfo_docket_lookup_review(
@@ -67,5 +69,8 @@ async def govinfo_docket_lookup_review(
                     ivr=outcome.run,
                 )
             )
-        document = document.replace_citation(recorded.with_govinfo_docket_review(review))
+        recorded = recorded.with_govinfo_docket_review(review)
+        if review.decision is not None and review.decision.selected_candidate_index is not None:
+            recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, NEXT_STAGE)
+        document = document.replace_citation(recorded)
     return document.complete(STAGE)

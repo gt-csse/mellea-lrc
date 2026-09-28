@@ -9,7 +9,7 @@ from mellea_lrc.model.citations.docket_lookup import (
     DocketLookupReview,
     DocketLookupReviewDecision,
 )
-from mellea_lrc.model.citations.judgments import MatchResult
+from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 
@@ -21,6 +21,7 @@ from .reviewer import (
 )
 
 STAGE = "17_docket_root_lookup_review"
+NEXT_STAGE = "fields_aggregated_identity"
 
 
 def _no_candidate_decision(context: DocketLookupReviewContext) -> DocketLookupReviewDecision:
@@ -134,5 +135,10 @@ async def docket_root_lookup_review(
                     ivr=outcome.run,
                 )
             )
-        document = document.replace_citation(recorded.with_docket_lookup_review(review))
+        recorded = recorded.with_docket_lookup_review(review)
+        if review.decision is not None and review.decision.selected_candidate_index is not None:
+            # The selected record's field judgments are saved here; overall
+            # identity is a separate decision that can run after other reviews.
+            recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, NEXT_STAGE)
+        document = document.replace_citation(recorded)
     return document.complete(STAGE)

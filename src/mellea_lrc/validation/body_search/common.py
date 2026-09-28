@@ -25,11 +25,15 @@ _SAME_DOCUMENT_SIMILARITY = 90
 
 
 def roots_for_body_search(document: Document) -> tuple[FullCitationVariant, ...]:
-    """Only roots without a final identity verdict need another evidence route."""
+    """Search unresolved roots, except those awaiting selected-record aggregation."""
     return tuple(
         root
         for root in document.roots
-        if not root.identity_judgments or root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
+        if not root.identity_judgments
+        or (
+            root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
+            and root.identity_judgments[-1].next_stage != "fields_aggregated_identity"
+        )
     )
 
 
