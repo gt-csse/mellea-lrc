@@ -141,3 +141,10 @@ these do not enter the field-identity precision table. The workflow summary
 uses the latest comparable field judgment for each root against the same
 annotated-root denominator.
 Saved runs ending at stage `19` retain their original six-stage report format.
+
+Runs that continue through stages `24`–`27` list those stages after `23` in the
+same report. Stages `24`–`26` retrieve case-name evidence and receive no score.
+Stage `27` counts selected likely or possible intended-case candidates,
+declines, and review failures. The annotations have no intended-case candidate
+gold, so these counts have no precision or recall. Field judgments remain
+scored through `19`, and root identity remains scored after `23`.
