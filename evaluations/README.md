@@ -46,6 +46,26 @@ before provider calls. This option cannot be combined with
 header hashes; resume checks that the headers have not changed.
 Use `--from-validation-documents` to replay stages `20`–`23` with these cutoffs.
 
+To continue a completed stage-`23` primary run through case-name body discovery
+and intended-case review, use its saved `documents/` directory:
+
+```sh
+.venv/bin/python -m evaluations \
+  --from-locator-review-documents evaluations/results/primary/<stage-23-run>/documents \
+  --annotation-case-cutoffs \
+  --courtlistener-pool reserved
+```
+
+This creates a new timestamped run. It keeps the original stage-`23` history
+and appends stages `24` through `27` in order. Each filing's cumulative
+Document is saved after every stage under `checkpoints/stage24/` through
+`checkpoints/stage27/`; the final Document is also in `documents/`. If a run
+stops, `--resume-run RUN_DIR` verifies the saved source, annotation cutoffs,
+and checkpoints, then continues from the last completed stage. A transient
+case-name search failure stops before later providers or the model review and
+is retried from that provider stage on resume. The new run must use the same
+cutoff mode as its stage-`23` input.
+
 Add `--courtlistener-pool reserved` to use `COURTLISTENER_API_TOKEN_RESERVED`
 for the CourtListener opinion and RECAP body stages. The proxy URL still comes
 from `COURTLISTENER_BASE_URL`. The runner saves only the pool name in `run.json`

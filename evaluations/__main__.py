@@ -13,25 +13,37 @@ from pathlib import Path
 from mellea_lrc.api import (
     Document,
     corroborate_root_locator_bodies,
+    courtlistener_opinion_field_body_search,
     courtlistener_opinion_locator_body_search,
+    courtlistener_recap_field_body_search,
     courtlistener_recap_locator_body_search,
     docket_root_lookup,
     docket_root_lookup_review,
     govinfo_docket_lookup,
     govinfo_docket_lookup_review,
+    govinfo_opinion_field_body_search,
     govinfo_opinion_locator_body_search,
     grow_roots,
     reporter_root_lookup_ambiguous_llm,
     reporter_root_lookup_unique_llm,
     review_docket_root_equivalence,
+    review_intended_case_body_evidence,
     review_locator_body_evidence,
     validate_roots,
 )
 from mellea_lrc.courtlistener import CourtListenerClient, CourtListenerConfig
 from mellea_lrc.model import FullDocketCitation
 from mellea_lrc.validation.body_search.courtlistener_opinion import STAGE as _COURTLISTENER_OPINION_STAGE
+from mellea_lrc.validation.body_search.courtlistener_opinion_fields import (
+    STAGE as _COURTLISTENER_OPINION_FIELD_STAGE,
+)
 from mellea_lrc.validation.body_search.courtlistener_recap import STAGE as _COURTLISTENER_RECAP_STAGE
+from mellea_lrc.validation.body_search.courtlistener_recap_fields import (
+    STAGE as _COURTLISTENER_RECAP_FIELD_STAGE,
+)
 from mellea_lrc.validation.body_search.govinfo import STAGE as _GOVINFO_OPINION_STAGE
+from mellea_lrc.validation.body_search.govinfo_fields import STAGE as _GOVINFO_OPINION_FIELD_STAGE
+from mellea_lrc.validation.field_body_review import STAGE as _INTENDED_CASE_REVIEW_STAGE
 from mellea_lrc.validation.locator_body_review import STAGE as _LOCATOR_BODY_REVIEW_STAGE
 
 _SET = "primary"
@@ -71,6 +83,13 @@ _BODY_SEARCH_STAGES = (
     _COURTLISTENER_RECAP_STAGE,
     _GOVINFO_OPINION_STAGE,
 )
+_FIELD_STAGES = (
+    _COURTLISTENER_OPINION_FIELD_STAGE,
+    _COURTLISTENER_RECAP_FIELD_STAGE,
+    _GOVINFO_OPINION_FIELD_STAGE,
+    _INTENDED_CASE_REVIEW_STAGE,
+)
+_FIELD_RUN_STAGES = (*_RUN_STAGES, *_FIELD_STAGES)
 _REPORTER_REVIEW_INPUT_STAGE = "13_reporter_root_lookup_ambiguous"
 _REPORTER_REVIEW_INPUT_STAGES = _RUN_STAGES[: _RUN_STAGES.index(_REPORTER_REVIEW_INPUT_STAGE) + 1]
 _DOCKET_LOOKUP_STAGE = "16_docket_root_lookup"
@@ -168,7 +187,7 @@ def _annotation_case_cutoffs(data_root: Path, filenames: list[str]) -> tuple[dic
 def _check_body_search_cutoffs(document: Document, cutoff: date | None) -> None:
     """Never reuse body evidence gathered under a different retrospective date."""
     for citation in document.full_locators:
-        for search in citation.body_searches:
+        for search in (*citation.body_searches, *citation.field_body_searches):
             if search.retrospective_date != cutoff:
                 raise ValueError(
                     f"Saved body search cutoff differs for {document.source_path}: "
@@ -215,6 +234,22 @@ def _has_transient_body_search_failure(document: Document) -> bool:
     return _transient_body_failure_stage(document) is not None
 
 
+def _transient_field_failure_stage(document: Document) -> str | None:
+    """Find the first case-name provider whose saved search or fetch needs retry."""
+    failed_stages: set[str] = set()
+    for root in document.roots:
+        node_stages = {node.id: node.stage for node in root.nodes}
+        for search in root.field_body_searches:
+            for failure in (*search.failures, *(attempt.failure for attempt in search.attempts)):
+                if failure is not None and (
+                    failure.failure_type == "transport_error"
+                    or failure.status_code == 429
+                    or (failure.status_code is not None and failure.status_code >= 500)
+                ):
+                    failed_stages.add(node_stages[search.node_id])
+    return next((stage for stage in _FIELD_STAGES[:-1] if stage in failed_stages), None)
+
+
 async def _retry_body_stages(
     document: Document,
     first_stage: str,
@@ -244,6 +279,52 @@ def _reuse_docket_lookup(document: Document, saved: Document) -> Document:
     return document.complete(_DOCKET_LOOKUP_STAGE)
 
 
+def _field_checkpoint(run_dir: Path, stage: str, filename: str) -> Path:
+    return run_dir / "checkpoints" / f"stage{stage.split('_', 1)[0]}" / f"{filename}.json"
+
+
+async def _continue_field_stages(
+    document: Document,
+    *,
+    filename: str,
+    run_dir: Path,
+    retrospective_date: date | None,
+    courtlistener_client: CourtListenerClient | None,
+) -> Document:
+    """Append each remaining stage and atomically save its cumulative Document."""
+    for stage in _FIELD_STAGES:
+        if stage in document.stage_runs:
+            continue
+        if document.stage_runs != _FIELD_RUN_STAGES[: _FIELD_RUN_STAGES.index(stage)]:
+            raise ValueError(f"Field discovery cannot skip a stage for {filename}")
+        if stage == _COURTLISTENER_OPINION_FIELD_STAGE:
+            kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
+            document = courtlistener_opinion_field_body_search(
+                document, retrospective_date=retrospective_date, **kwargs
+            )
+        elif stage == _COURTLISTENER_RECAP_FIELD_STAGE:
+            kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
+            document = courtlistener_recap_field_body_search(
+                document, retrospective_date=retrospective_date, **kwargs
+            )
+        elif stage == _GOVINFO_OPINION_FIELD_STAGE:
+            document = govinfo_opinion_field_body_search(document, retrospective_date=retrospective_date)
+        else:
+            document = await review_intended_case_body_evidence(document)
+        if document.stage_runs != _FIELD_RUN_STAGES[: _FIELD_RUN_STAGES.index(stage) + 1]:
+            raise ValueError(f"Field discovery did not complete {stage} for {filename}")
+        _check_body_search_cutoffs(document, retrospective_date)
+        checkpoint = _field_checkpoint(run_dir, stage, filename)
+        checkpoint.parent.mkdir(parents=True, exist_ok=True)
+        _write_json(checkpoint, document.model_dump(mode="json"))
+        if _transient_field_failure_stage(document) == stage:
+            raise RuntimeError(
+                f"Case-name body search at {stage} had a transient provider failure for {filename}; "
+                "resume this run after the provider recovers"
+            )
+    return document
+
+
 async def _run(
     data_root: Path,
     results_root: Path,
@@ -256,6 +337,7 @@ async def _run(
     retrospective_date: date | None = None,
     courtlistener_pool: str | None = None,
     annotation_case_cutoffs: bool = False,
+    from_locator_review_documents: Path | None = None,
 ) -> Path:
     if courtlistener_pool not in (None, "reserved", "proxy"):
         raise ValueError(f"Unsupported CourtListener pool: {courtlistener_pool}")
@@ -271,6 +353,7 @@ async def _run(
                 from_reporter_review_documents,
                 from_docket_review_documents,
                 from_validation_documents,
+                from_locator_review_documents,
             )
         )
         > 1
@@ -309,6 +392,9 @@ async def _run(
             "from_validation_documents": (
                 str(from_validation_documents) if from_validation_documents else None
             ),
+            "from_locator_review_documents": (
+                str(from_locator_review_documents) if from_locator_review_documents else None
+            ),
             "retrospective_date": retrospective_date.isoformat() if retrospective_date else None,
             "annotation_case_cutoffs": annotation_case_cutoffs,
             "annotation_header_sha256": annotation_header_sha256,
@@ -339,6 +425,8 @@ async def _run(
         from_docket_review_documents = Path(saved_docket_review) if saved_docket_review else None
         saved_validation = run_record.get("from_validation_documents")
         from_validation_documents = Path(saved_validation) if saved_validation else None
+        saved_locator_review = run_record.get("from_locator_review_documents")
+        from_locator_review_documents = Path(saved_locator_review) if saved_locator_review else None
         saved_retrospective_date = run_record.get("retrospective_date")
         retrospective_date = (
             date.fromisoformat(saved_retrospective_date) if saved_retrospective_date else None
@@ -364,6 +452,7 @@ async def _run(
                     from_reporter_review_documents,
                     from_docket_review_documents,
                     from_validation_documents,
+                    from_locator_review_documents,
                 )
             )
             > 1
@@ -411,14 +500,31 @@ async def _run(
         }
         completed: set[str] = set()
         retry_body: dict[str, tuple[Document, str]] = {}
+        field_resume: dict[str, Document] = {}
         for filename in filenames:
             source = sources[filename]
             cutoff = case_cutoffs.get(filename, retrospective_date)
             artifact = documents_dir / f"{filename}.json"
+            locator_review_input: Document | None = None
+            if from_locator_review_documents is not None:
+                saved = from_locator_review_documents / f"{filename}.json"
+                locator_review_input = _load_document(saved, source).get_stage(_LOCATOR_BODY_REVIEW_STAGE)
+                if locator_review_input.stage_runs != _RUN_STAGES:
+                    raise ValueError(f"Saved locator-body review is incomplete for {filename}")
+                _check_body_search_cutoffs(locator_review_input, cutoff)
+                if _has_transient_docket_lookup_failure(locator_review_input) or (
+                    _has_transient_body_search_failure(locator_review_input)
+                ):
+                    raise ValueError(f"Saved locator-body review has transient failures for {filename}")
             if artifact.exists():
                 saved_document = _load_document(artifact, source)
                 _check_body_search_cutoffs(saved_document, cutoff)
-                if saved_document.stage_runs == _RUN_STAGES:
+                if locator_review_input is not None:
+                    if saved_document.stage_runs != _FIELD_RUN_STAGES:
+                        raise ValueError(f"Saved field-discovery Document is incomplete for {filename}")
+                    if saved_document.get_stage(_LOCATOR_BODY_REVIEW_STAGE) != locator_review_input:
+                        raise ValueError(f"Saved field-discovery input differs for {filename}")
+                elif saved_document.stage_runs == _RUN_STAGES:
                     if not _has_transient_docket_lookup_failure(saved_document):
                         if failed_stage := _transient_body_failure_stage(saved_document):
                             previous_stage = _RUN_STAGES[_RUN_STAGES.index(failed_stage) - 1]
@@ -428,6 +534,36 @@ async def _run(
                             )
                         else:
                             completed.add(filename)
+            if locator_review_input is not None:
+                previous = locator_review_input
+                missing_checkpoint = False
+                for stage in _FIELD_STAGES:
+                    checkpoint = _field_checkpoint(run_dir, stage, filename)
+                    if not checkpoint.exists():
+                        missing_checkpoint = True
+                        continue
+                    if missing_checkpoint:
+                        raise ValueError(f"Field-discovery checkpoints skip a stage for {filename}")
+                    saved_checkpoint = _load_document(checkpoint, source)
+                    expected = _FIELD_RUN_STAGES[: _FIELD_RUN_STAGES.index(stage) + 1]
+                    if saved_checkpoint.stage_runs != expected:
+                        raise ValueError(f"Saved field-discovery checkpoint is incomplete for {filename}")
+                    _check_body_search_cutoffs(saved_checkpoint, cutoff)
+                    previous_stage = _FIELD_RUN_STAGES[_FIELD_RUN_STAGES.index(stage) - 1]
+                    if saved_checkpoint.get_stage(previous_stage) != previous:
+                        raise ValueError(f"Saved field-discovery checkpoints differ for {filename}")
+                    previous = saved_checkpoint
+                if artifact.exists():
+                    if previous.stage_runs == _FIELD_RUN_STAGES and saved_document != previous:
+                        raise ValueError(f"Saved field-discovery final Document differs for {filename}")
+                    previous = saved_document
+                if failed_stage := _transient_field_failure_stage(previous):
+                    previous_stage = _FIELD_RUN_STAGES[_FIELD_RUN_STAGES.index(failed_stage) - 1]
+                    field_resume[filename] = previous.get_stage(previous_stage)
+                elif previous.stage_runs == _FIELD_RUN_STAGES and artifact.exists():
+                    completed.add(filename)
+                else:
+                    field_resume[filename] = previous
             if filename not in completed and from_roots_documents is not None:
                 saved = from_roots_documents / f"{filename}.json"
                 roots = _load_document(saved, source).get_stage(_ROOT_STAGE)
@@ -469,6 +605,19 @@ async def _run(
             artifact = documents_dir / f"{filename}.json"
             if filename in completed:
                 print(f"{index}/{len(filenames)} {filename} (saved)", flush=True)
+                continue
+            if from_locator_review_documents is not None:
+                document = await _continue_field_stages(
+                    field_resume[filename],
+                    filename=filename,
+                    run_dir=run_dir,
+                    retrospective_date=cutoff,
+                    courtlistener_client=courtlistener_client,
+                )
+                if document.stage_runs != _FIELD_RUN_STAGES:
+                    raise ValueError(f"Field discovery did not complete every stage for {filename}")
+                _write_json(artifact, document.model_dump(mode="json"))
+                print(f"{index}/{len(filenames)} {filename}", flush=True)
                 continue
             if artifact.exists():
                 print(f"{index}/{len(filenames)} {filename} (incomplete; rerunning)", flush=True)
@@ -529,18 +678,22 @@ async def _run(
             _check_body_search_cutoffs(document, cutoff)
             _write_json(artifact, document.model_dump(mode="json"))
             print(f"{index}/{len(filenames)} {filename}", flush=True)
-        transient_failures = {"docket": [], "body": []}
+        transient_failures: dict[str, list[str]] = {"docket": [], "body": []}
+        if from_locator_review_documents is not None:
+            transient_failures["field"] = []
         for filename in filenames:
             saved_document = _load_document(documents_dir / f"{filename}.json", sources[filename])
             if _has_transient_docket_lookup_failure(saved_document):
                 transient_failures["docket"].append(filename)
             if _has_transient_body_search_failure(saved_document):
                 transient_failures["body"].append(filename)
+            if from_locator_review_documents is not None and _transient_field_failure_stage(saved_document):
+                transient_failures["field"].append(filename)
         if any(transient_failures.values()):
             run_record["transient_failures"] = transient_failures
             raise RuntimeError(
                 "Search ended with transient provider failures in "
-                + ", ".join(sorted({*transient_failures["docket"], *transient_failures["body"]}))
+                + ", ".join(sorted(set().union(*transient_failures.values())))
                 + "; resume this run after the provider recovers"
             )
     except BaseException:
@@ -582,6 +735,11 @@ def main() -> None:
         help="Resume saved Documents at stage 19 before locator-first body search and review",
     )
     parser.add_argument(
+        "--from-locator-review-documents",
+        type=Path,
+        help="Continue saved stage-23 Documents through case-name body discovery and review",
+    )
+    parser.add_argument(
         "--retrospective-date",
         type=date.fromisoformat,
         help="Use only body evidence issued on or before this ISO date",
@@ -613,6 +771,7 @@ def main() -> None:
                 args.from_reporter_review_documents,
                 args.from_docket_review_documents,
                 args.from_validation_documents,
+                args.from_locator_review_documents,
             )
         )
         > 1
@@ -633,6 +792,7 @@ def main() -> None:
                 args.from_reporter_review_documents,
                 args.from_docket_review_documents,
                 args.from_validation_documents,
+                args.from_locator_review_documents,
                 args.retrospective_date,
             )
         )
@@ -651,6 +811,7 @@ def main() -> None:
             args.retrospective_date,
             args.courtlistener_pool,
             args.annotation_case_cutoffs,
+            args.from_locator_review_documents.resolve() if args.from_locator_review_documents else None,
         )
     )
     print(run_dir)
