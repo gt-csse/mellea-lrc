@@ -99,7 +99,7 @@ def test_name_hit_with_another_locator_preserves_evidence_without_confirming_ide
     assert STAGE == "26_govinfo_opinion_field_body_search"
     assert after.stage_runs == (*before.stage_runs, STAGE)
     assert after.get_stage("23_locator_body_review") == before
-    assert client.search_calls == ['collection:uscourts and "Acme"']
+    assert client.search_calls == ["collection:uscourts and Acme and Smith"]
     assert client.summary_calls == ["other"]
     search = after.roots[0].field_body_searches[0]
     assert search.source is BodySource.GOVINFO_OPINION
@@ -139,6 +139,26 @@ def test_precise_granule_date_controls_cutoff_and_unrelated_body_is_rejected(
     ]
     assert client.download_calls == ["https://api.govinfo.gov/unrelated/pdf"]
     assert after.roots[0].identity_judgments == ()
+
+
+def test_two_party_search_stops_after_four_unhelpful_pdfs_without_broad_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(govinfo_module, "_pdf_text", lambda data: data.decode("utf-8"))
+    client = FakeGovInfoClient(
+        {str(index): "An unrelated opinion." for index in range(1, 6)},
+        {str(index): "1990-01-01" for index in range(1, 6)},
+    )
+
+    after = govinfo_opinion_field_body_search(_document(), client=client)
+
+    assert client.search_calls == ["collection:uscourts and Acme and Smith"]
+    assert len(client.download_calls) == 4
+    search = after.roots[0].field_body_searches[0]
+    assert search.query_name == "Acme"
+    assert search.evidence == ()
+    assert len(search.attempts) == 1
+    assert search.failures[-1].failure_type == "fetch_limit"
 
 
 def test_missing_name_and_unrouted_root_make_no_provider_calls() -> None:

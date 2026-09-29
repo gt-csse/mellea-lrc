@@ -26,6 +26,9 @@ _SOURCE_COPY_SIMILARITY = 98.0
 _SOURCE_COPY_CONTEXT_CHARS = 500
 _SOURCE_COPY_MIN_CHARS = 300
 _ALNUM_WORDS = re.compile(r"[^\W_]+", re.UNICODE)
+_NAME_QUERY_NOISE = frozenset(
+    {"and", "co", "corp", "corporation", "inc", "llc", "ltd", "of", "or", "not", "pc", "pllc", "the"}
+)
 
 
 def roots_for_body_search(document: Document) -> tuple[FullCitationVariant, ...]:
@@ -46,12 +49,11 @@ def locator_text(root: FullCitationVariant) -> str:
 
 
 def field_query_name(root: FullCitationVariant) -> str | None:
-    """Choose one concise *printed* name fragment for open-ended discovery.
+    """Choose one concise *printed* name fragment for body grounding.
 
-    The search is deliberately broader than a full case-name equality check.
-    Court and date are left for candidate review, not used as search filters.
     A fragment only discovers possible authorities; it never verifies the
-    citation's reporter or docket identifier.
+    citation's reporter or docket identifier. Court and date are left for
+    candidate review, not used as search filters.
     """
     if not root.case_name:
         return None
@@ -70,6 +72,33 @@ def field_query_name(root: FullCitationVariant) -> str | None:
     # Keep a complete word sequence rather than clipping a long caption in
     # the middle of a token. Apart from whitespace folding, it is source text.
     return " ".join(name.split()[:3]) or None
+
+
+def field_query_parties(root: FullCitationVariant) -> tuple[str, str] | None:
+    """Take one printed, substantive word from each side of a case caption.
+
+    The two words narrow discovery without requiring an exact caption or
+    assuming that the parties are named identically in every body.
+    """
+    if not root.case_name:
+        return None
+    name = _SPACE.sub(" ", root.case_name[-1].quote).strip()
+    sides = re.split(r"\s+v\.\s+", name, maxsplit=1, flags=re.IGNORECASE)
+    if len(sides) != 2:
+        return None
+
+    def distinctive_word(side: str) -> str | None:
+        words = [
+            word
+            for word in _ALNUM_WORDS.findall(side)
+            if len(word) >= 2 and word.casefold() not in _NAME_QUERY_NOISE
+        ]
+        return max(words, key=len) if words else None
+
+    left, right = (distinctive_word(side) for side in sides)
+    if left is None or right is None or left.casefold() == right.casefold():
+        return None
+    return left, right
 
 
 def evidence_date(value: object) -> date | None:
