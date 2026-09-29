@@ -41,6 +41,26 @@ def _dataset(tmp_path: Path, filenames: tuple[str, ...]) -> Path:
     return data_root
 
 
+def _filing_dates(data_root: Path, dates: dict[str, str]) -> dict[str, object]:
+    manifest: dict[str, object] = {
+        "filings": {filename: _filing_date_entry(filename, value) for filename, value in dates.items()}
+    }
+    (data_root / "primary" / "filing_dates.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return manifest
+
+
+def _filing_date_entry(filename: str, value: str) -> dict[str, object]:
+    return {
+        "date": value,
+        "provenance": {
+            "source_pdf": filename.removesuffix(".txt") + ".pdf",
+            "page": 1,
+            "basis": "ecf_header",
+            "evidence": "Filed",
+        },
+    }
+
+
 def _complete(document: Document, stages: tuple[str, ...]) -> Document:
     for stage in stages:
         document = document.complete(stage)
@@ -292,6 +312,161 @@ def test_resume_from_validation_checkpoint_runs_only_body_stages_and_reuses_cuto
     assert calls == [(filename, cutoff) for filename in filenames] + [("002.txt", cutoff)]
 
 
+def test_primary_filing_dates_route_each_cutoff_and_are_verified_on_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    filenames = ("001.txt", "002.txt")
+    data_root = _dataset(tmp_path, filenames)
+    checkpoint_dir = tmp_path / "validation-input"
+    checkpoint_dir.mkdir()
+    for filename in filenames:
+        source = data_root / "primary" / "documents_txt" / filename
+        ready = _complete(Document.from_source(source), runner._VALIDATION_INPUT_STAGES)
+        (checkpoint_dir / f"{filename}.json").write_text(ready.model_dump_json(), encoding="utf-8")
+    dates = {"001.txt": "2024-01-02", "002.txt": "2025-03-04"}
+    manifest = _filing_dates(data_root, dates)
+    calls: list[tuple[str, date | None]] = []
+
+    async def body(document: Document, *, retrospective_date: date | None = None) -> Document:
+        calls.append((Path(document.source_path or "").name, retrospective_date))
+        return _complete(document, runner._RUN_STAGES[19:])
+
+    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", body)
+    run_dir = asyncio.run(
+        runner._run(
+            data_root,
+            tmp_path / "results",
+            None,
+            from_validation_documents=checkpoint_dir,
+            primary_filing_dates=True,
+        )
+    )
+    record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert record["primary_filing_dates"] is True
+    assert record["filing_date_manifest"] == manifest
+    assert record["filing_dates"] == dates
+    assert len(record["filing_date_manifest_sha256"]) == 64
+    assert calls == [(name, date.fromisoformat(dates[name])) for name in filenames]
+
+    (run_dir / "documents" / "002.txt.json").unlink()
+    record["status"] = "failed"
+    (run_dir / "run.json").write_text(json.dumps(record), encoding="utf-8")
+    assert asyncio.run(runner._run(tmp_path / "ignored", tmp_path / "unused", None, run_dir)) == run_dir
+    assert calls[-1] == ("002.txt", date(2025, 3, 4))
+
+    manifest_path = data_root / "primary" / "filing_dates.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    with pytest.raises(ValueError, match="Filing-date manifest differs"):
+        asyncio.run(runner._run(tmp_path / "ignored", tmp_path / "unused", None, run_dir))
+    assert len(calls) == 3
+
+
+@pytest.mark.parametrize(
+    "entries,error",
+    [
+        ({"001.txt": _filing_date_entry("001.txt", "2024-01-02")}, "coverage"),
+        (
+            {
+                "001.txt": _filing_date_entry("001.txt", "2024-01-02"),
+                "002.txt": _filing_date_entry("002.txt", "2025-03-04"),
+                "003.txt": _filing_date_entry("003.txt", "2025-03-04"),
+            },
+            "coverage",
+        ),
+        (
+            {
+                "001.txt": _filing_date_entry("001.txt", "2024-02-30"),
+                "002.txt": _filing_date_entry("002.txt", "2025-03-04"),
+            },
+            "Invalid filing date",
+        ),
+        (
+            {
+                "001.txt": {"date": "2024-01-02", "provenance": ""},
+                "002.txt": _filing_date_entry("002.txt", "2025-03-04"),
+            },
+            "source_pdf, basis, and evidence",
+        ),
+    ],
+)
+def test_primary_filing_dates_reject_incomplete_or_unsourced_manifest_before_providers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries: dict[str, object], error: str
+) -> None:
+    data_root = _dataset(tmp_path, ("001.txt", "002.txt"))
+    (data_root / "primary" / "filing_dates.json").write_text(
+        json.dumps({"filings": entries}), encoding="utf-8"
+    )
+
+    async def unexpected_grow(*_args: object, **_kwargs: object) -> Document:
+        pytest.fail("Provider-backed work must not start with invalid filing dates")
+
+    monkeypatch.setattr(runner, "grow_roots", unexpected_grow)
+    with pytest.raises(ValueError, match=error):
+        asyncio.run(runner._run(data_root, tmp_path / "results", None, primary_filing_dates=True))
+    assert not (tmp_path / "results").exists()
+
+
+def test_resume_rejects_saved_body_search_from_a_different_cutoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root = _dataset(tmp_path, ("001.txt",))
+    _filing_dates(data_root, {"001.txt": "2024-06-01"})
+    source_path = data_root / "primary" / "documents_txt" / "001.txt"
+    source = "Acme v. Reed, Case No. 2:31-cv-45821 (S.D.N.Y. 2031)."
+    source_path.write_text(source, encoding="utf-8")
+    ready = Document.from_source(source_path).complete(runner._RUN_STAGES[0])
+    locator = "Case No. 2:31-cv-45821"
+    number = "2:31-cv-45821"
+    root = FullDocketCitation.from_locator(
+        citation_id="docket:0",
+        stage=runner._RUN_STAGES[1],
+        source=source,
+        span=Span(source.index(locator), source.index(locator) + len(locator)),
+        number_span=Span(source.index(number), source.index(number) + len(number)),
+    )
+    ready = ready.add_citation(root).complete(runner._RUN_STAGES[1])
+    ready = _complete(ready, runner._RUN_STAGES[2:9])
+    ready = ready.replace_citation(root.record(runner._ROOT_STAGE).with_root(root.id)).complete(
+        runner._ROOT_STAGE
+    )
+    ready = _complete(ready, runner._RUN_STAGES[10:19])
+    checkpoint_dir = tmp_path / "validation-input"
+    checkpoint_dir.mkdir()
+    (checkpoint_dir / "001.txt.json").write_text(ready.model_dump_json(), encoding="utf-8")
+
+    async def body(document: Document, *, retrospective_date: date | None = None) -> Document:
+        assert retrospective_date == date(2024, 6, 1)
+        citation = document.roots[0].record(runner._COURTLISTENER_OPINION_STAGE)
+        search = BodySearch(
+            node_id=citation.nodes[-1].id,
+            source=BodySource.COURTLISTENER_OPINION,
+            retrospective_date=retrospective_date,
+            attempts=(BodySearchAttempt(query=number),),
+        )
+        document = document.replace_citation(citation.with_body_search(search)).complete(
+            runner._COURTLISTENER_OPINION_STAGE
+        )
+        return _complete(document, runner._RUN_STAGES[20:])
+
+    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", body)
+    run_dir = asyncio.run(
+        runner._run(
+            data_root,
+            tmp_path / "results",
+            None,
+            from_validation_documents=checkpoint_dir,
+            primary_filing_dates=True,
+        )
+    )
+    artifact = run_dir / "documents" / "001.txt.json"
+    altered = json.loads(artifact.read_text(encoding="utf-8"))
+    altered["citations"][0]["body_searches"][0]["retrospective_date"] = None
+    artifact.write_text(json.dumps(altered), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Saved body search cutoff differs"):
+        asyncio.run(runner._run(tmp_path / "ignored", tmp_path / "unused", None, run_dir))
+
+
 def test_reserved_pool_is_saved_reused_and_closed_without_saving_token(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -437,9 +612,12 @@ def test_resume_can_switch_reserved_run_to_proxy_pool(
         )
     )
     (run_dir / "documents" / "001.txt.json").unlink()
-    assert asyncio.run(
-        runner._run(tmp_path / "unused", tmp_path / "unused", None, run_dir, courtlistener_pool="proxy")
-    ) == run_dir
+    assert (
+        asyncio.run(
+            runner._run(tmp_path / "unused", tmp_path / "unused", None, run_dir, courtlistener_pool="proxy")
+        )
+        == run_dir
+    )
     assert clients[0].config.pool == "reserved"
     assert clients[1].config.pool is None
     assert clients[1].config.token is None
@@ -553,12 +731,14 @@ def test_validation_replay_checks_all_sources_before_body_provider_calls(
         (runner._GOVINFO_OPINION_STAGE, "http_error", 503),
     ],
 )
+@pytest.mark.parametrize("per_filing", [False, True])
 def test_transient_body_search_failure_replays_from_failed_provider(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     failed_stage: str,
     failure_type: str,
     status: int | None,
+    per_filing: bool,
 ) -> None:
     filenames = ("001.txt", "002.txt")
     data_root = _dataset(tmp_path, filenames)
@@ -587,6 +767,9 @@ def test_transient_body_search_failure_replays_from_failed_provider(
         (checkpoint_dir / f"{filename}.json").write_text(ready.model_dump_json(), encoding="utf-8")
 
     cutoff = date(2024, 6, 1)
+    expected_cutoffs = {"001.txt": cutoff, "002.txt": date(2025, 3, 4) if per_filing else cutoff}
+    if per_filing:
+        _filing_dates(data_root, {name: value.isoformat() for name, value in expected_cutoffs.items()})
     calls: list[tuple[str, str]] = []
     stages = (
         (runner._COURTLISTENER_OPINION_STAGE, BodySource.COURTLISTENER_OPINION),
@@ -597,7 +780,7 @@ def test_transient_body_search_failure_replays_from_failed_provider(
     def fake_provider(stage: str, body_source: BodySource):
         def run(document: Document, *, retrospective_date: date | None = None) -> Document:
             filename = Path(document.source_path or "").name
-            assert retrospective_date == cutoff
+            assert retrospective_date == expected_cutoffs[filename]
             assert document.stage_runs == runner._RUN_STAGES[: runner._RUN_STAGES.index(stage)]
             first_call = (filename, stage) not in calls
             calls.append((filename, stage))
@@ -659,7 +842,8 @@ def test_transient_body_search_failure_replays_from_failed_provider(
                 tmp_path / "results",
                 None,
                 from_validation_documents=checkpoint_dir,
-                retrospective_date=cutoff,
+                retrospective_date=None if per_filing else cutoff,
+                primary_filing_dates=per_filing,
             )
         )
     run_dir = next((tmp_path / "results").iterdir())

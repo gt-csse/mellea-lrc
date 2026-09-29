@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from mellea_lrc.model.citations import FullCitationVariant, FullDocketCitation
 from mellea_lrc.model.citations.body_evidence import (
-    BodyCitationTreatment,
     BodyCorroborationDecision,
     BodyCorroborationReview,
 )
-from mellea_lrc.model.citations.judgments import IdentityBasis, IdentityVerdict, MatchResult
+from mellea_lrc.model.citations.judgments import IdentityBasis, IdentityVerdict
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.validation.body_search.common import roots_for_body_search
@@ -21,28 +20,6 @@ from mellea_lrc.validation.locator_body_review.reviewer import (
 
 STAGE = "23_locator_body_review"
 NEXT_STAGE = "case_name_body_discovery"
-
-
-def _verdict(decision: BodyCorroborationDecision) -> IdentityVerdict:
-    if decision.source is None:
-        return IdentityVerdict.DEFERRED
-    if decision.treatment is BodyCitationTreatment.EXPLICITLY_DISPUTES:
-        return IdentityVerdict.WRONG_IDENTITY
-    if decision.treatment is BodyCitationTreatment.MENTIONS_ONLY:
-        return IdentityVerdict.DEFERRED
-    comparisons = decision.comparisons
-    assert comparisons is not None
-    results = (
-        comparisons.locator.result,
-        comparisons.case_name.result,
-        comparisons.court.result,
-        comparisons.date.result,
-    )
-    if MatchResult.MISMATCH in results:
-        return IdentityVerdict.WRONG_IDENTITY
-    if comparisons.locator.result is MatchResult.MATCH and MatchResult.MATCH in results[1:]:
-        return IdentityVerdict.CORRECT_IDENTITY
-    return IdentityVerdict.DEFERRED
 
 
 def _append_corrections(
@@ -112,6 +89,7 @@ async def review_locator_body_evidence(
                     filing=None,
                     third_party=None,
                     comparisons=None,
+                    identity_verdict=IdentityVerdict.DEFERRED,
                     reason="No fetched third-party body citation is available for comparison.",
                 )
             )
@@ -167,10 +145,14 @@ async def review_locator_body_evidence(
                 )
             )
             recorded = _append_corrections(recorded, document.text, spans, decision)
-            verdict = _verdict(decision)
+            verdict = decision.identity_verdict
             recorded = recorded.with_identity_judgment(
                 verdict,
-                NEXT_STAGE if verdict is IdentityVerdict.DEFERRED else None,
+                (
+                    NEXT_STAGE
+                    if verdict in {IdentityVerdict.DEFERRED, IdentityVerdict.CASE_IDENTITY_SUPPORTED}
+                    else None
+                ),
                 basis=IdentityBasis.THIRD_PARTY,
             )
         document = document.replace_citation(recorded)

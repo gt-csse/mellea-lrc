@@ -144,7 +144,10 @@ def test_body_review_keeps_field_scores_and_marks_final_checkpoint(tmp_path: Pat
     assert all(score == evaluation.FieldScore(0, 0, 1) for score in prior.fields.values())
 
     reviewed = asyncio.run(
-        review_locator_body_evidence(ready, reviewer=FakeReviewer(_decision(court_result="mismatch")))
+        review_locator_body_evidence(
+            ready,
+            reviewer=FakeReviewer(_decision(court_result="mismatch", verdict=IdentityVerdict.WRONG_IDENTITY)),
+        )
     )
     score = evaluation.score_validate_roots(Document.model_validate_json(reviewed.model_dump_json()))
     assert reviewed.roots[0].identity_judgments[-1].verdict is IdentityVerdict.WRONG_IDENTITY
@@ -179,7 +182,10 @@ def test_body_identity_score_counts_an_incorrect_third_party_verdict(tmp_path: P
     )
     ready = _document(source_input=source_path, include_validation_history=True)
     reviewed = asyncio.run(
-        review_locator_body_evidence(ready, reviewer=FakeReviewer(_decision(court_result="mismatch")))
+        review_locator_body_evidence(
+            ready,
+            reviewer=FakeReviewer(_decision(court_result="mismatch", verdict=IdentityVerdict.WRONG_IDENTITY)),
+        )
     )
     score = evaluation.score_validate_roots(reviewed)
     assert score.body_identity == evaluation.Precision(0, 1)
@@ -199,6 +205,7 @@ def test_disputed_third_party_quote_does_not_become_field_identity_gold(tmp_path
     decision = _decision(
         treatment=BodyCitationTreatment.EXPLICITLY_DISPUTES,
         context_quote="This citation is fabricated",
+        verdict=IdentityVerdict.WRONG_IDENTITY,
     )
     reviewed = asyncio.run(review_locator_body_evidence(ready, reviewer=FakeReviewer(decision)))
     assert reviewed.roots[0].identity_judgments[-1].verdict is IdentityVerdict.WRONG_IDENTITY
@@ -214,11 +221,16 @@ def test_disputed_third_party_quote_does_not_become_field_identity_gold(tmp_path
 def _decision(
     *,
     source: BodySource = BodySource.GOVINFO_OPINION,
+    case_name_result: str = "match",
     court_result: str = "match",
+    date_result: str = "match",
     quote: str | None = None,
     third_party_locator: str = "05-4206",
+    third_party_case_name: str = "Smith v. Jones",
+    third_party_date: str = "2007",
     treatment: BodyCitationTreatment = BodyCitationTreatment.CITES_AS_AUTHORITY,
     context_quote: str | None = None,
+    verdict: IdentityVerdict = IdentityVerdict.CORRECT_IDENTITY,
 ) -> BodyCorroborationDecision:
     return BodyCorroborationDecision.model_validate(
         {
@@ -241,17 +253,26 @@ def _decision(
             },
             "third_party": {
                 "locator": third_party_locator,
-                "case_name": "Smith v. Jones",
+                "case_name": third_party_case_name,
                 "court": "2d Cir.",
-                "date": "2007",
+                "date": third_party_date,
             },
             "comparisons": {
                 field: {
-                    "result": court_result if field == "court" else "match",
+                    "result": (
+                        case_name_result
+                        if field == "case_name"
+                        else court_result
+                        if field == "court"
+                        else date_result
+                        if field == "date"
+                        else "match"
+                    ),
                     "reason": "Compared both citations.",
                 }
                 for field in ("locator", "case_name", "court", "date")
             },
+            "identity_verdict": verdict.value,
             "reason": "The third-party filing cites the same docket and named case.",
         }
     )
@@ -283,12 +304,144 @@ def test_one_judgment_can_select_govinfo_after_other_provider_searches() -> None
     assert Document.model_validate_json(reviewed.model_dump_json()) == reviewed
 
 
-def test_independent_field_mismatch_flags_wrong_identity() -> None:
+def test_model_can_issue_wrong_identity_after_field_mismatch() -> None:
     reviewed = asyncio.run(
-        review_locator_body_evidence(_document(), reviewer=FakeReviewer(_decision(court_result="mismatch")))
+        review_locator_body_evidence(
+            _document(),
+            reviewer=FakeReviewer(_decision(court_result="mismatch", verdict=IdentityVerdict.WRONG_IDENTITY)),
+        )
     )
     assert reviewed.roots[0].identity_judgments[-1].verdict is IdentityVerdict.WRONG_IDENTITY
     assert reviewed.roots[0].body_reviews[-1].decision.comparisons.court.result.value == "mismatch"
+
+
+def test_docket_case_can_be_supported_without_admitting_a_different_order_date(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = "The court discussed Smith v. Jones, No. 05-4206 (2d Cir. 2008), in its analysis."
+    source_path = _annotated_source(
+        tmp_path,
+        source=SOURCE,
+        locator="No. 05-4206",
+        kind="DocketCitation",
+        labels={"case_name": "agrees", "court": "agrees", "date": "agrees"},
+    )
+    decision = _decision(
+        quote="Smith v. Jones, No. 05-4206 (2d Cir. 2008)",
+        third_party_date="2008",
+        date_result="mismatch",
+        verdict=IdentityVerdict.CASE_IDENTITY_SUPPORTED,
+    )
+    reviewed = asyncio.run(
+        review_locator_body_evidence(
+            _document(body=body, source_input=source_path, include_validation_history=True),
+            reviewer=FakeReviewer(decision),
+        )
+    )
+    root = reviewed.roots[0]
+    assert root.identity_judgments[-1].verdict is IdentityVerdict.CASE_IDENTITY_SUPPORTED
+    assert root.identity_judgments[-1].next_stage == "case_name_body_discovery"
+    assert root.body_reviews[-1].decision.comparisons.date.result.value == "mismatch"
+    assert evaluation.score_locator_body_review(reviewed) == evaluation.Precision(0, 0)
+    # A qualified body judgment must retract even a prior full-citation admission.
+    monkeypatch.setattr(evaluation, "_final_field_label", lambda *_: "agrees")
+    assert evaluation.score_validate_roots(
+        reviewed.get_stage(evaluation.WORKFLOW_STAGES[-1])
+    ).identity == evaluation.IdentityScore(1, 1, 1, 0)
+    assert evaluation.score_validate_roots(reviewed).identity == evaluation.IdentityScore(0, 0, 1, 1)
+    assert Document.model_validate_json(reviewed.model_dump_json()) == reviewed
+
+
+def test_qualified_docket_verdict_cannot_be_used_for_reporter_root() -> None:
+    source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
+    locator = "550 U.S. 544"
+    root = FullReporterCitation.from_locator(
+        citation_id="reporter:0",
+        stage="sites",
+        source=source,
+        span=Span(source.index(locator), source.index(locator) + len(locator)),
+    )
+    context = BodyCorroborationContext.from_document(
+        Document.from_source(source).add_citation(root).complete("sites"), root
+    )
+    decision = _decision(verdict=IdentityVerdict.CASE_IDENTITY_SUPPORTED)
+    assert "only available for docket" in context.validation_error(decision)
+
+
+def test_unqualified_admission_rejects_mismatch_or_mention() -> None:
+    with pytest.raises(ValidationError, match="conflicting printed field"):
+        _decision(court_result="mismatch")
+    with pytest.raises(ValidationError, match="mere mention"):
+        _decision(treatment=BodyCitationTreatment.MENTIONS_ONLY)
+    with pytest.raises(ValidationError, match="field conflict or explicit challenge"):
+        _decision(
+            treatment=BodyCitationTreatment.MENTIONS_ONLY,
+            verdict=IdentityVerdict.WRONG_IDENTITY,
+        )
+
+
+def test_docket_number_alone_cannot_confirm_a_full_citation() -> None:
+    candidate = _decision().model_dump(mode="python")
+    for side in ("filing", "third_party"):
+        for field in ("case_name", "court", "date"):
+            candidate[side][field] = None
+    candidate["filing"]["normalized_case_name"] = None
+    for field in ("case_name", "court", "date"):
+        candidate["comparisons"][field]["result"] = "unavailable"
+    with pytest.raises(ValidationError, match="locator and case-name support"):
+        BodyCorroborationDecision.model_validate(candidate)
+
+
+def test_docket_decision_date_must_be_supported_for_unqualified_admission() -> None:
+    decision = _decision()
+    changed = decision.model_copy(
+        update={
+            "comparisons": decision.comparisons.model_copy(
+                update={
+                    "date": decision.comparisons.date.model_copy(
+                        update={"result": evaluation.MatchResult.UNAVAILABLE}
+                    )
+                }
+            )
+        }
+    )
+    context = BodyCorroborationContext.from_document(_document(), _document().roots[0])
+    assert "date is not corroborated" in context.validation_error(changed)
+
+
+def test_incorrect_model_match_label_cannot_hide_different_written_years() -> None:
+    body = "The court discussed Smith v. Jones, No. 05-4206 (2d Cir. 2008), in its analysis."
+    decision = _decision(
+        quote="Smith v. Jones, No. 05-4206 (2d Cir. 2008)",
+        third_party_date="2008",
+        date_result="match",
+        verdict=IdentityVerdict.CORRECT_IDENTITY,
+    )
+    reviewed = asyncio.run(
+        review_locator_body_evidence(_document(body=body), reviewer=FakeReviewer(decision))
+    )
+    root = reviewed.roots[0]
+    assert root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
+    assert "written decision years differ" in root.body_reviews[-1].failure_reason
+
+
+def test_uniform_grounding_threshold_rejects_excess_ocr_contamination() -> None:
+    body = (
+        "The court discussed RCHFU, LLC v. Marriott Vacations\n14 Worldwide Corp., No. 05-4206 "
+        "(2d Cir. 2007), in its analysis."
+    )
+    decision = _decision(
+        quote="RCHFU, LLC v. Marriott Vacations Worldwide Corp., No. 05-4206 (2d Cir. 2007)",
+        third_party_case_name="RCHFU, LLC v. Marriott Vacations Worldwide Corp.",
+        case_name_result="mismatch",
+        verdict=IdentityVerdict.WRONG_IDENTITY,
+    )
+    reviewed = asyncio.run(
+        review_locator_body_evidence(_document(body=body), reviewer=FakeReviewer(decision))
+    )
+    assert reviewed.roots[0].identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
+    assert "98% similarity" in reviewed.roots[0].body_reviews[-1].failure_reason
 
 
 def test_name_only_body_cannot_substantiate_the_locator_review() -> None:
@@ -306,6 +459,7 @@ def test_explicitly_disputed_locator_produces_negative_identity_with_matching_fi
     decision = _decision(
         treatment=BodyCitationTreatment.EXPLICITLY_DISPUTES,
         context_quote=challenge,
+        verdict=IdentityVerdict.WRONG_IDENTITY,
     )
     reviewed = asyncio.run(review_locator_body_evidence(document, reviewer=FakeReviewer(decision)))
     root = reviewed.roots[0]
@@ -323,6 +477,7 @@ def test_disputed_treatment_requires_a_grounded_context_quote() -> None:
     decision = _decision(
         treatment=BodyCitationTreatment.EXPLICITLY_DISPUTES,
         context_quote="The court found this citation was verified.",
+        verdict=IdentityVerdict.WRONG_IDENTITY,
     )
     reviewed = asyncio.run(review_locator_body_evidence(document, reviewer=FakeReviewer(decision)))
     assert reviewed.roots[0].body_reviews[-1].decision is None
@@ -339,6 +494,7 @@ def test_saved_context_span_must_still_match_the_fetched_excerpt() -> None:
                 _decision(
                     treatment=BodyCitationTreatment.EXPLICITLY_DISPUTES,
                     context_quote=challenge,
+                    verdict=IdentityVerdict.WRONG_IDENTITY,
                 )
             ),
         )
@@ -353,7 +509,12 @@ def test_merely_mentioned_locator_does_not_establish_identity() -> None:
     reviewed = asyncio.run(
         review_locator_body_evidence(
             _document(),
-            reviewer=FakeReviewer(_decision(treatment=BodyCitationTreatment.MENTIONS_ONLY)),
+            reviewer=FakeReviewer(
+                _decision(
+                    treatment=BodyCitationTreatment.MENTIONS_ONLY,
+                    verdict=IdentityVerdict.DEFERRED,
+                )
+            ),
         )
     )
     assert reviewed.roots[0].identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
@@ -382,7 +543,7 @@ def test_docket_number_digit_must_match_the_grounded_citation() -> None:
     decision = _decision(third_party_locator="05-4208")
     reviewed = asyncio.run(review_locator_body_evidence(_document(), reviewer=FakeReviewer(decision)))
     assert reviewed.roots[0].identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
-    assert "numeric parts" in reviewed.roots[0].body_reviews[-1].failure_reason
+    assert "must occur inside" in reviewed.roots[0].body_reviews[-1].failure_reason
 
 
 @pytest.mark.parametrize("field,replacement", [("court", "3d Cir."), ("date", "2008")])
@@ -466,6 +627,56 @@ def test_source_filing_with_page_furniture_is_not_independent_evidence() -> None
     assert found == ()
 
 
+def test_one_source_copy_passage_excludes_all_occurrences_from_its_body() -> None:
+    continuation = "The parties filed exhibits and memoranda concerning service. " * 24
+    source = SOURCE + continuation
+    copied_body = "Page 7 of 12\n" + source + ("Unrelated appendix material. " * 45) + BODY
+    copied = make_body_evidences(
+        body_id="copied-filing",
+        parent_id=None,
+        url=None,
+        issued_on=None,
+        date_basis=None,
+        metadata={},
+        body_text=copied_body,
+        locator="05-4206",
+        source_text=source,
+    )
+    independent = make_body_evidences(
+        body_id="independent-opinion",
+        parent_id=None,
+        url=None,
+        issued_on=None,
+        date_basis=None,
+        metadata={},
+        body_text=BODY,
+        locator="05-4206",
+        source_text=source,
+    )
+    assert len(copied) == 2
+    assert independent
+
+    root = FullDocketCitation.from_locator(
+        citation_id="docket:copy",
+        stage="sites",
+        source=source,
+        span=Span(source.index("No."), source.index("05-4206") + len("05-4206")),
+        number_span=Span(source.index("05-4206"), source.index("05-4206") + len("05-4206")),
+    )
+    document = Document.from_source(source).add_citation(root).complete("sites")
+    root = root.record("copy-review")
+    root = root.with_body_search(
+        BodySearch(
+            node_id=root.nodes[-1].id,
+            source=BodySource.COURTLISTENER_RECAP,
+            retrospective_date=None,
+            evidence=(*copied, *independent),
+        )
+    )
+    context = BodyCorroborationContext.from_document(document.replace_citation(root), root)
+    assert {item.body_id for _, _, item in context.evidence} == {"independent-opinion"}
+
+
 def test_saved_body_evidence_cannot_violate_retrospective_cutoff() -> None:
     evidence = _document().roots[0].body_searches[-1].evidence
     with pytest.raises(ValidationError, match="retrospective cutoff"):
@@ -546,6 +757,7 @@ def test_reporter_root_uses_same_body_review_without_changing_its_locator() -> N
                 }
                 for field in ("locator", "case_name", "court", "date")
             },
+            "identity_verdict": IdentityVerdict.CORRECT_IDENTITY.value,
             "reason": "The third-party opinion cites the same reported authority.",
         }
     )
@@ -557,7 +769,7 @@ def test_reporter_root_uses_same_body_review_without_changing_its_locator() -> N
     )
     rejected = asyncio.run(review_locator_body_evidence(document, reviewer=FakeReviewer(fabricated)))
     assert rejected.roots[0].identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
-    assert "numeric parts" in rejected.roots[0].body_reviews[-1].failure_reason
+    assert "must occur inside" in rejected.roots[0].body_reviews[-1].failure_reason
 
 
 def test_review_shows_distinct_documents_before_repeated_citations() -> None:

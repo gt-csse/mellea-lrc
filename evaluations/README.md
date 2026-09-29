@@ -35,6 +35,16 @@ timestamped directory. `--retrospective-date YYYY-MM-DD` limits body evidence
 to documents issued on or before that date. The cutoff is saved in `run.json`
 and reused by `--resume-run`.
 
+For the primary corpus, `--primary-filing-dates` uses each source filing's date
+from `primary/filing_dates.json` as its own stage `20`–`22` cutoff. The manifest
+must cover every filename in `primary/documents.json`; each entry needs an ISO
+`date` and provenance with a source PDF, page, basis, and evidence quote. This
+option cannot be combined with `--retrospective-date`. The run saves the full
+manifest, its content hash, and the selected dates in `run.json`; resume
+verifies them before provider calls.
+Use `--from-validation-documents` to replay stages `20`–`23` from an earlier
+run after introducing these cutoffs.
+
 Add `--courtlistener-pool reserved` to use `COURTLISTENER_API_TOKEN_RESERVED`
 for the CourtListener opinion and RECAP body stages. The proxy URL still comes
 from `COURTLISTENER_BASE_URL`. The runner saves only the pool name in `run.json`
@@ -77,6 +87,11 @@ judgments and have no matching field gold. The validation report scores the
 new stage-`23` identity verdicts and cumulative root identity, while field
 identity judgments remain scored through stage `19`. An incomplete run cannot
 be scored.
+
+For docket citations, stage `23` can record `case_identity_supported` when an
+independent citation supports the case but not the particular decision. That
+qualified judgment stays in the saved `Document` and does not count as a
+correct full-citation admission in the binary identity score.
 
 The primary runner enables docket-root equivalence review after `10_roots` as
 stage `11_docket_root_equivalence_review`. Its stage score checks assignments for
