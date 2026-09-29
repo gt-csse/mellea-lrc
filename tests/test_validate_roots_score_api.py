@@ -1111,74 +1111,76 @@ def _stage23_review(
     return document.replace_citation(recorded).complete(evaluation.LOCATOR_BODY_REVIEW)
 
 
-def test_stage23_report_exposes_selected_evidence_and_comparison_reasons(tmp_path: Path) -> None:
+def test_stage23_report_counts_issued_verdicts(tmp_path: Path) -> None:
     document = _stage23_review(tmp_path, verdict=IdentityVerdict.WRONG_IDENTITY)
     detail = evaluation.score_locator_body_review(document)
-    assert detail.decisive_identity == evaluation.Precision(0, 1)
     assert detail.verdict_counts == {"wrong_identity": 1}
-    assert detail.route_counts == {}
-    assert detail.review_status_counts == {"selected": 1}
-    assert len(detail.rows) == 1
-    row = detail.rows[0]
-    assert row.review_status == "selected"
-    assert row.selected_source == "courtlistener_opinion"
-    assert row.selected_evidence_index == 0
-    assert row.selected_body_id == "opinion-123"
-    assert row.selected_source_offset == 0
-    assert row.grounded_citation_quote == "Gamma v. Delta, No. 1:24-cv-08705 (S.D.N.Y. 2024)"
-    assert row.grounded_citation_span is not None
-    assert row.grounded_citation_span["end"] > row.grounded_citation_span["start"]
-    assert row.grounded_context_quote == "The opinion cites"
-    assert row.grounded_context_span is not None
-    assert row.treatment == "cites_as_authority"
-    assert row.filing["court"] == "S.D.N.Y."
-    assert row.third_party["court"] == "N.D. Tex."
-    assert row.comparisons["court"] == {
-        "result": "mismatch",
-        "reason": "The printed court was compared.",
-    }
-    assert row.verdict == "wrong_identity"
-    assert row.gold_identity == "CORRECT_IDENTITY"
-    assert row.matches_gold is False
-    assert row.next_stage is None
     workflow = evaluation.score_validate_roots(document)
     assert workflow.body_review == detail
-    assert workflow.as_dict()["body_review"]["rows"][0]["selected_body_id"] == "opinion-123"
+    assert workflow.as_dict()["body_review"] == {
+        "stage": evaluation.LOCATOR_BODY_REVIEW,
+        "verdict_counts": {"wrong_identity": 1},
+    }
     report = evaluation.render_validate_roots(workflow)
-    assert "The printed court was compared." in report
-    assert "The independent citation supports this assessment." in report
-    assert "opinion-123" in report
-    assert "Printed-field comparisons have no corresponding gold" in report
+    assert "## 23_locator_body_review" in report
+    assert "| wrong_identity | 1 |" in report
+    assert "opinion-123" not in report
 
 
 @pytest.mark.parametrize(
     "verdict",
     (IdentityVerdict.PARTIALLY_CORROBORATED, IdentityVerdict.UNDETERMINED),
 )
-def test_stage23_nondecisive_judgment_is_reported_without_binary_accuracy(
+def test_stage23_qualified_and_undetermined_verdicts_have_distinct_identity_scores(
     tmp_path: Path, verdict: IdentityVerdict
 ) -> None:
     document = _stage23_review(tmp_path, verdict=verdict, next_stage="case_name_body_discovery")
     detail = evaluation.score_locator_body_review(document)
-    assert detail.decisive_identity == evaluation.Precision(0, 0)
     assert detail.verdict_counts == {verdict.value: 1}
-    assert detail.route_counts == {"case_name_body_discovery": 1}
-    assert detail.rows[0].verdict == verdict.value
-    assert detail.rows[0].next_stage == "case_name_body_discovery"
-    assert detail.rows[0].matches_gold is None
-    assert evaluation.score_validate_roots(document).identity == evaluation.IdentityScore(0, 0, 2, 1)
+    assert "| " + verdict.value + " | 1 |" in evaluation.render_locator_body_review(detail)
+    root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
+    assert root.next_stage == "case_name_body_discovery"
+    workflow = evaluation.score_validate_roots(document)
+    assert workflow.identity == evaluation.IdentityScore(0, 0, 2, 1)
+    assert workflow.identity_with_partial == (
+        evaluation.IdentityScore(1, 1, 2, 0)
+        if verdict is IdentityVerdict.PARTIALLY_CORROBORATED
+        else evaluation.IdentityScore(0, 0, 2, 1)
+    )
+    if verdict is IdentityVerdict.PARTIALLY_CORROBORATED:
+        report = evaluation.render_validate_roots(workflow)
+        assert (
+            "| — (including partial: 1/1 = 100.0%) | "
+            "0/2 (0.0%) (including partial: 1/2 = 50.0%) | 1 |"
+        ) in report
+
+
+def test_partial_verdict_lowers_broader_precision_on_wrong_identity_gold(tmp_path: Path) -> None:
+    document = _stage23_review(
+        tmp_path,
+        verdict=IdentityVerdict.PARTIALLY_CORROBORATED,
+        next_stage="case_name_body_discovery",
+    )
+    annotation = tmp_path / "primary" / "documents" / "example.jsonl"
+    rows = [json.loads(line) for line in annotation.read_text(encoding="utf-8").splitlines()]
+    rows[-1]["validation"]["identity"]["label"] = "WRONG_IDENTITY"
+    annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    score = evaluation.score_validate_roots(document)
+    assert score.identity == evaluation.IdentityScore(0, 0, 2, 1)
+    assert score.identity_with_partial == evaluation.IdentityScore(0, 1, 2, 0)
 
 
 @pytest.mark.parametrize(
-    ("fetched", "failure", "expected_status"),
+    ("fetched", "failure"),
     (
-        (False, False, "no_reviewable_evidence"),
-        (True, False, "model_declined"),
-        (True, True, "review_failure"),
+        (False, False),
+        (True, False),
+        (True, True),
     ),
 )
 def test_stage23_routes_without_issuing_judgment(
-    tmp_path: Path, fetched: bool, failure: bool, expected_status: str
+    tmp_path: Path, fetched: bool, failure: bool
 ) -> None:
     document = _stage23_review(
         tmp_path,
@@ -1188,17 +1190,14 @@ def test_stage23_routes_without_issuing_judgment(
         next_stage="case_name_body_discovery",
     )
     detail = evaluation.score_locator_body_review(document)
-    assert detail.decisive_identity == evaluation.Precision(0, 0)
     assert detail.verdict_counts == {}
-    assert detail.route_counts == {"case_name_body_discovery": 1}
-    assert detail.review_status_counts == {expected_status: 1}
-    assert detail.rows[0].verdict is None
-    assert detail.rows[0].matches_gold is None
-    assert detail.rows[0].failure_reason == ("The model review failed." if failure else None)
+    root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
+    assert root.next_stage == "case_name_body_discovery"
+    assert root.body_reviews[-1].failure_reason == ("The model review failed." if failure else None)
     assert evaluation.score_validate_roots(document).body_review == detail
 
 
-def test_stage23_no_reviewable_status_allows_fetched_but_filtered_excerpts(tmp_path: Path) -> None:
+def test_stage23_no_reviewable_decision_allows_fetched_but_filtered_excerpts(tmp_path: Path) -> None:
     document = _stage23_review(
         tmp_path,
         verdict=None,
@@ -1207,12 +1206,11 @@ def test_stage23_no_reviewable_status_allows_fetched_but_filtered_excerpts(tmp_p
     )
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
     assert root.body_searches[0].evidence
-    assert evaluation.score_locator_body_review(document).review_status_counts == {
-        "no_reviewable_evidence": 1
-    }
+    assert root.body_reviews[-1].decision.source is None
+    assert evaluation.score_locator_body_review(document).verdict_counts == {}
 
 
-def test_stage23_evaluation_merges_rows_and_ignores_later_routes(tmp_path: Path) -> None:
+def test_stage23_evaluation_merges_verdict_counts_and_ignores_later_routes(tmp_path: Path) -> None:
     first = _stage23_review(tmp_path / "first", next_stage=None)
     second = _stage23_review(tmp_path / "second", verdict=None, next_stage="case_name_body_discovery")
     recorded = next(root for root in first.roots if isinstance(root, FullDocketCitation)).record(
@@ -1222,11 +1220,11 @@ def test_stage23_evaluation_merges_rows_and_ignores_later_routes(tmp_path: Path)
     first_score = evaluation.score_locator_body_review(first)
     assert evaluation.score_locator_body_review(first_later) == first_score
     combined = first_score + evaluation.score_locator_body_review(second)
-    assert combined.decisive_identity == evaluation.Precision(1, 1)
     assert combined.verdict_counts == {"correct_identity": 1}
-    assert combined.route_counts == {"case_name_body_discovery": 1}
-    assert combined.review_status_counts == {"selected": 1, "model_declined": 1}
-    assert len(combined.as_dict()["rows"]) == 2
+    assert combined.as_dict() == {
+        "stage": evaluation.LOCATOR_BODY_REVIEW,
+        "verdict_counts": {"correct_identity": 1},
+    }
 
 
 @pytest.mark.parametrize(

@@ -86,19 +86,22 @@ Document's source path. The body review compares two printed citations and
 records a separate identity verdict when it selects an independent citation;
 those comparisons are not identity-field judgments and have no matching field
 gold. The stage-`23` section of `validate_roots.json` and `validate_roots.md`
-shows every reviewed root's selected source and body, grounded quotes,
-treatment, printed-field comparisons and reasons, verdict, and next-stage
-route. It also counts issued verdicts, routes, and review statuses. Only
-`correct_identity` and `wrong_identity` enter its binary identity precision.
-Field identity judgments remain scored through stage `19`, and the report
-separately scores cumulative root identity. An incomplete run cannot be scored.
+counts the identity verdicts it issued. Detailed evidence, printed-field
+comparisons, reasons, and routes remain in the serialized `Document`. Field
+identity judgments remain scored through stage `19`, and the report separately
+scores cumulative root identity. An incomplete run cannot be scored.
 
 Stage `23` can record `partially_corroborated` when an independent citation
 supports the case but not the particular decision. It can issue `undetermined`
 when the selected evidence does not support a firmer opinion. Both remain
-visible in the report without being scored against binary gold. When no
-reviewable citation is selected or the review fails, the program records a
-next-stage route without issuing an identity judgment.
+visible in its verdict table. The canonical cumulative identity score treats
+both as undetermined. Parenthetical precision and recall figures also count
+`partially_corroborated` as a positive prediction, scoring it correct only when
+the aligned binary gold is `CORRECT_IDENTITY`. A partial verdict on wrong gold
+or an unaligned root therefore lowers that broader precision; both scores use
+the same annotated-root recall denominator. When no reviewable citation is
+selected or the review fails, the program records a next-stage route without
+issuing an identity judgment.
 
 The primary runner enables docket-root equivalence review after `10_roots` as
 stage `11_docket_root_equivalence_review`. Its stage score checks assignments for
