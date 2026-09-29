@@ -35,15 +35,16 @@ timestamped directory. `--retrospective-date YYYY-MM-DD` limits body evidence
 to documents issued on or before that date. The cutoff is saved in `run.json`
 and reused by `--resume-run`.
 
-For the primary corpus, `--primary-filing-dates` uses each source filing's date
-from `primary/filing_dates.json` as its own stage `20`–`22` cutoff. The manifest
-must cover every filename in `primary/documents.json`; each entry needs an ISO
-`date` and provenance with a source PDF, page, basis, and evidence quote. This
-option cannot be combined with `--retrospective-date`. The run saves the full
-manifest, its content hash, and the selected dates in `run.json`; resume
-verifies them before provider calls.
-Use `--from-validation-documents` to replay stages `20`–`23` from an earlier
-run after introducing these cutoffs.
+For the primary corpus, `--annotation-case-cutoffs` reads `filing` and
+`case_cutoff` from the first row of each annotation JSONL file. The cutoff is
+the earliest sampled filing date for the same case, including when a later
+filing appears elsewhere in the corpus. The `filing` entry carries its source
+PDF, page, and evidence; `case_cutoff.source_document` identifies the earliest
+sampled filing. The runner checks that each cutoff equals that filing's date
+before provider calls. This option cannot be combined with
+`--retrospective-date`. `run.json` saves the selected dates and annotation
+header hashes; resume checks that the headers have not changed.
+Use `--from-validation-documents` to replay stages `20`–`23` with these cutoffs.
 
 Add `--courtlistener-pool reserved` to use `COURTLISTENER_API_TOKEN_RESERVED`
 for the CourtListener opinion and RECAP body stages. The proxy URL still comes

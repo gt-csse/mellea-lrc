@@ -7,7 +7,6 @@ import asyncio
 import hashlib
 import json
 import os
-import re
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -79,7 +78,6 @@ _DOCKET_REVIEW_INPUT_STAGE = "17_docket_root_lookup_review"
 _DOCKET_REVIEW_INPUT_STAGES = _RUN_STAGES[: _RUN_STAGES.index(_DOCKET_REVIEW_INPUT_STAGE) + 1]
 _VALIDATION_INPUT_STAGE = "19_govinfo_docket_lookup_review"
 _VALIDATION_INPUT_STAGES = _RUN_STAGES[: _RUN_STAGES.index(_VALIDATION_INPUT_STAGE) + 1]
-_FILING_DATES_FILE = "filing_dates.json"
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -109,45 +107,62 @@ def _load_document(path: Path, source: Document) -> Document:
     return document
 
 
-def _load_primary_filing_dates(
-    data_root: Path, filenames: list[str]
-) -> tuple[dict[str, object], dict[str, date], str]:
-    """Read a complete, sourced filing-date manifest before provider work."""
-    path = data_root / _SET / _FILING_DATES_FILE
-    raw = path.read_bytes()
-    digest = hashlib.sha256(raw).hexdigest()
-    manifest = json.loads(raw)
-    if not isinstance(manifest, dict) or not isinstance(manifest.get("filings"), dict):
-        raise ValueError(f"Filing-date manifest needs a filings object: {path}")
-    entries = manifest["filings"]
-    expected = set(filenames)
-    actual = set(entries)
-    if actual != expected:
-        missing = sorted(expected - actual)
-        extra = sorted(actual - expected)
-        raise ValueError(f"Filing-date manifest coverage differs: missing={missing}, extra={extra}")
-    filing_dates: dict[str, date] = {}
-    for filename in filenames:
-        entry = entries[filename]
-        if not isinstance(entry, dict):
-            raise ValueError(f"Filing-date entry must be an object: {filename}")
-        value = entry.get("date")
-        if not isinstance(value, str) or re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) is None:
-            raise ValueError(f"Filing date must be YYYY-MM-DD: {filename}")
+def _annotation_case_cutoffs(data_root: Path, filenames: list[str]) -> tuple[dict[str, date], dict[str, str]]:
+    """Read case cutoffs from annotation headers, the dataset's source of truth."""
+
+    def parse_iso(value: object, path: Path) -> date:
+        if not isinstance(value, str):
+            raise ValueError(f"Annotation header has an invalid filing or cutoff date: {path}")
         try:
-            filing_dates[filename] = date.fromisoformat(value)
+            parsed = date.fromisoformat(value)
         except ValueError as error:
-            raise ValueError(f"Invalid filing date for {filename}: {value}") from error
-        provenance = entry.get("provenance")
-        if not isinstance(provenance, dict) or any(
-            not isinstance(provenance.get(field), str) or not provenance[field].strip()
-            for field in ("source_pdf", "basis", "evidence")
+            raise ValueError(f"Annotation header has an invalid filing or cutoff date: {path}") from error
+        if parsed.isoformat() != value:
+            raise ValueError(f"Annotation header has an invalid filing or cutoff date: {path}")
+        return parsed
+
+    filing_dates: dict[str, date] = {}
+    cutoff_dates: dict[str, date] = {}
+    source_documents: dict[str, str] = {}
+    header_hashes: dict[str, str] = {}
+    for filename in filenames:
+        path = data_root / _SET / "documents" / f"{Path(filename).stem}.jsonl"
+        with path.open("rb") as rows:
+            raw = rows.readline()
+        header_hashes[filename] = hashlib.sha256(raw).hexdigest()
+        header = json.loads(raw)
+        if header.get("unit") != "header" or header.get("document") != filename:
+            raise ValueError(f"Annotation header does not identify {filename}: {path}")
+        filing = header.get("filing")
+        cutoff = header.get("case_cutoff")
+        if not isinstance(filing, dict) or not isinstance(cutoff, dict):
+            raise ValueError(f"Annotation header needs filing and case_cutoff: {path}")
+        filing_dates[filename] = parse_iso(filing.get("date"), path)
+        cutoff_dates[filename] = parse_iso(cutoff.get("date"), path)
+        provenance = filing.get("provenance")
+        if (
+            not isinstance(provenance, dict)
+            or any(
+                not isinstance(provenance.get(field), str) or not provenance[field].strip()
+                for field in ("source_pdf", "basis", "evidence")
+            )
+            or type(provenance.get("page")) is not int
+            or provenance["page"] < 1
         ):
-            raise ValueError(f"Filing date needs source_pdf, basis, and evidence: {filename}")
-        page = provenance.get("page")
-        if type(page) is not int or page < 1:
-            raise ValueError(f"Filing date provenance needs a positive page: {filename}")
-    return manifest, filing_dates, digest
+            raise ValueError(f"Annotation filing date needs sourced PDF evidence: {path}")
+        source_document = cutoff.get("source_document")
+        if not isinstance(source_document, str) or not source_document:
+            raise ValueError(f"Annotation case cutoff needs a source_document: {path}")
+        source_documents[filename] = source_document
+    for filename in filenames:
+        source = source_documents[filename]
+        group = [name for name in filenames if source_documents[name] == source]
+        if source not in group:
+            raise ValueError(f"Case cutoff source is not a sampled filing: {filename}: {source}")
+        earliest = min(filing_dates[name] for name in group)
+        if filing_dates[source] != earliest or any(cutoff_dates[name] != earliest for name in group):
+            raise ValueError(f"Case cutoff is not the earliest sampled filing: {filename}")
+    return cutoff_dates, header_hashes
 
 
 def _check_body_search_cutoffs(document: Document, cutoff: date | None) -> None:
@@ -240,14 +255,14 @@ async def _run(
     from_validation_documents: Path | None = None,
     retrospective_date: date | None = None,
     courtlistener_pool: str | None = None,
-    primary_filing_dates: bool = False,
+    annotation_case_cutoffs: bool = False,
 ) -> Path:
     if courtlistener_pool not in (None, "reserved", "proxy"):
         raise ValueError(f"Unsupported CourtListener pool: {courtlistener_pool}")
-    if primary_filing_dates and retrospective_date is not None:
-        raise ValueError("Choose either primary filing dates or one retrospective date")
-    if resume_run is not None and primary_filing_dates:
-        raise ValueError("Resume uses the filing-date mode saved in run.json")
+    if annotation_case_cutoffs and retrospective_date is not None:
+        raise ValueError("Choose either annotation case cutoffs or one retrospective date")
+    if resume_run is not None and annotation_case_cutoffs:
+        raise ValueError("Resume uses the cutoff mode saved in run.json")
     if (
         sum(
             item is not None
@@ -263,19 +278,16 @@ async def _run(
         raise ValueError("Choose one saved Document checkpoint")
     if reuse_docket_lookups and from_reporter_review_documents is None and resume_run is None:
         raise ValueError("Reusing docket lookups requires reporter-review Documents")
-    filing_dates: dict[str, date] = {}
+    case_cutoffs: dict[str, date] = {}
     if resume_run is None:
         filenames = sorted(
             json.loads((data_root / _SET / "documents.json").read_text(encoding="utf-8"))["documents"]
         )
         if not filenames:
             raise ValueError(f"No documents in {_SET}")
-        filing_date_manifest: dict[str, object] | None = None
-        filing_date_manifest_sha256: str | None = None
-        if primary_filing_dates:
-            filing_date_manifest, filing_dates, filing_date_manifest_sha256 = _load_primary_filing_dates(
-                data_root, filenames
-            )
+        annotation_header_sha256: dict[str, str] = {}
+        if annotation_case_cutoffs:
+            case_cutoffs, annotation_header_sha256 = _annotation_case_cutoffs(data_root, filenames)
         started_at = datetime.now(UTC)
         run_dir = results_root / started_at.strftime("%Y-%m-%dT%H-%M-%SZ")
         run_dir.mkdir(parents=True, exist_ok=False)
@@ -298,10 +310,9 @@ async def _run(
                 str(from_validation_documents) if from_validation_documents else None
             ),
             "retrospective_date": retrospective_date.isoformat() if retrospective_date else None,
-            "primary_filing_dates": primary_filing_dates,
-            "filing_date_manifest": filing_date_manifest,
-            "filing_date_manifest_sha256": filing_date_manifest_sha256,
-            "filing_dates": {name: value.isoformat() for name, value in filing_dates.items()},
+            "annotation_case_cutoffs": annotation_case_cutoffs,
+            "annotation_header_sha256": annotation_header_sha256,
+            "case_cutoffs": {name: value.isoformat() for name, value in case_cutoffs.items()},
             "courtlistener_pool": courtlistener_pool,
             "reuse_docket_lookups": reuse_docket_lookups,
             "source_sha256": {
@@ -332,8 +343,8 @@ async def _run(
         retrospective_date = (
             date.fromisoformat(saved_retrospective_date) if saved_retrospective_date else None
         )
-        primary_filing_dates = bool(run_record.get("primary_filing_dates", False))
-        if primary_filing_dates and retrospective_date is not None:
+        annotation_case_cutoffs = bool(run_record.get("annotation_case_cutoffs", False))
+        if annotation_case_cutoffs and retrospective_date is not None:
             raise ValueError("Saved run has conflicting retrospective date settings")
         saved_pool = run_record.get("courtlistener_pool")
         if saved_pool not in (None, "reserved", "proxy"):
@@ -365,16 +376,13 @@ async def _run(
             json.loads((data_root / _SET / "documents.json").read_text(encoding="utf-8"))["documents"]
         )
         if filenames != current_filenames:
-            raise ValueError("Run filing manifest differs from the current dataset")
-        if primary_filing_dates:
-            manifest, filing_dates, digest = _load_primary_filing_dates(data_root, filenames)
-            if (
-                run_record.get("filing_date_manifest") != manifest
-                or run_record.get("filing_date_manifest_sha256") != digest
-                or run_record.get("filing_dates")
-                != {name: value.isoformat() for name, value in filing_dates.items()}
-            ):
-                raise ValueError("Filing-date manifest differs from the original run")
+            raise ValueError("Run document list differs from the current dataset")
+        if annotation_case_cutoffs:
+            case_cutoffs, header_hashes = _annotation_case_cutoffs(data_root, filenames)
+            if run_record.get("annotation_header_sha256") != header_hashes or run_record.get(
+                "case_cutoffs"
+            ) != {name: value.isoformat() for name, value in case_cutoffs.items()}:
+                raise ValueError("Annotation case cutoffs differ from the original run")
         recorded_hashes = run_record.get("source_sha256")
         if recorded_hashes is not None:
             current_hashes = {
@@ -405,7 +413,7 @@ async def _run(
         retry_body: dict[str, tuple[Document, str]] = {}
         for filename in filenames:
             source = sources[filename]
-            cutoff = filing_dates.get(filename, retrospective_date)
+            cutoff = case_cutoffs.get(filename, retrospective_date)
             artifact = documents_dir / f"{filename}.json"
             if artifact.exists():
                 saved_document = _load_document(artifact, source)
@@ -457,7 +465,7 @@ async def _run(
 
         for index, filename in enumerate(filenames, start=1):
             source = sources[filename]
-            cutoff = filing_dates.get(filename, retrospective_date)
+            cutoff = case_cutoffs.get(filename, retrospective_date)
             artifact = documents_dir / f"{filename}.json"
             if filename in completed:
                 print(f"{index}/{len(filenames)} {filename} (saved)", flush=True)
@@ -579,9 +587,9 @@ def main() -> None:
         help="Use only body evidence issued on or before this ISO date",
     )
     parser.add_argument(
-        "--primary-filing-dates",
+        "--annotation-case-cutoffs",
         action="store_true",
-        help="Use each primary filing's sourced date from primary/filing_dates.json as its body-evidence cutoff",
+        help="Use each case's earliest sampled filing date from its annotation header",
     )
     parser.add_argument(
         "--reuse-docket-lookups",
@@ -612,10 +620,10 @@ def main() -> None:
         parser.error("Choose one saved Document checkpoint")
     if args.reuse_docket_lookups and not args.from_reporter_review_documents:
         parser.error("--reuse-docket-lookups requires --from-reporter-review-documents")
-    if args.primary_filing_dates and args.retrospective_date is not None:
-        parser.error("Choose either --primary-filing-dates or --retrospective-date")
+    if args.annotation_case_cutoffs and args.retrospective_date is not None:
+        parser.error("Choose either --annotation-case-cutoffs or --retrospective-date")
     if args.resume_run and (
-        args.primary_filing_dates
+        args.annotation_case_cutoffs
         or any(
             value is not None
             for value in (
@@ -642,7 +650,7 @@ def main() -> None:
             args.from_validation_documents.resolve() if args.from_validation_documents else None,
             args.retrospective_date,
             args.courtlistener_pool,
-            args.primary_filing_dates,
+            args.annotation_case_cutoffs,
         )
     )
     print(run_dir)

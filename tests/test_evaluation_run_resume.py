@@ -41,24 +41,27 @@ def _dataset(tmp_path: Path, filenames: tuple[str, ...]) -> Path:
     return data_root
 
 
-def _filing_dates(data_root: Path, dates: dict[str, str]) -> dict[str, object]:
-    manifest: dict[str, object] = {
-        "filings": {filename: _filing_date_entry(filename, value) for filename, value in dates.items()}
-    }
-    (data_root / "primary" / "filing_dates.json").write_text(json.dumps(manifest), encoding="utf-8")
-    return manifest
-
-
-def _filing_date_entry(filename: str, value: str) -> dict[str, object]:
-    return {
-        "date": value,
-        "provenance": {
-            "source_pdf": filename.removesuffix(".txt") + ".pdf",
-            "page": 1,
-            "basis": "ecf_header",
-            "evidence": "Filed",
-        },
-    }
+def _annotation_cutoffs(data_root: Path, dates: dict[str, str], groups: dict[str, str] | None = None) -> None:
+    documents = data_root / "primary" / "documents"
+    documents.mkdir(exist_ok=True)
+    groups = groups or {name: name for name in dates}
+    for filename, filed_on in dates.items():
+        source = groups[filename]
+        header = {
+            "unit": "header",
+            "document": filename,
+            "filing": {
+                "date": filed_on,
+                "provenance": {
+                    "source_pdf": filename.removesuffix(".txt") + ".pdf",
+                    "page": 1,
+                    "basis": "ecf_header",
+                    "evidence": "Filed",
+                },
+            },
+            "case_cutoff": {"date": dates[source], "source_document": source},
+        }
+        (documents / f"{Path(filename).stem}.jsonl").write_text(json.dumps(header) + "\n", encoding="utf-8")
 
 
 def _complete(document: Document, stages: tuple[str, ...]) -> Document:
@@ -312,10 +315,10 @@ def test_resume_from_validation_checkpoint_runs_only_body_stages_and_reuses_cuto
     assert calls == [(filename, cutoff) for filename in filenames] + [("002.txt", cutoff)]
 
 
-def test_primary_filing_dates_route_each_cutoff_and_are_verified_on_resume(
+def test_annotation_headers_route_case_cutoffs_and_are_verified_on_resume(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    filenames = ("001.txt", "002.txt")
+    filenames = ("001.txt", "002.txt", "003.txt")
     data_root = _dataset(tmp_path, filenames)
     checkpoint_dir = tmp_path / "validation-input"
     checkpoint_dir.mkdir()
@@ -323,8 +326,13 @@ def test_primary_filing_dates_route_each_cutoff_and_are_verified_on_resume(
         source = data_root / "primary" / "documents_txt" / filename
         ready = _complete(Document.from_source(source), runner._VALIDATION_INPUT_STAGES)
         (checkpoint_dir / f"{filename}.json").write_text(ready.model_dump_json(), encoding="utf-8")
-    dates = {"001.txt": "2024-01-02", "002.txt": "2025-03-04"}
-    manifest = _filing_dates(data_root, dates)
+    filing_dates = {"001.txt": "2024-01-02", "002.txt": "2025-03-04", "003.txt": "2026-05-06"}
+    _annotation_cutoffs(
+        data_root,
+        filing_dates,
+        {"001.txt": "001.txt", "002.txt": "001.txt", "003.txt": "003.txt"},
+    )
+    expected = {"001.txt": "2024-01-02", "002.txt": "2024-01-02", "003.txt": "2026-05-06"}
     calls: list[tuple[str, date | None]] = []
 
     async def body(document: Document, *, retrospective_date: date | None = None) -> Document:
@@ -338,71 +346,64 @@ def test_primary_filing_dates_route_each_cutoff_and_are_verified_on_resume(
             tmp_path / "results",
             None,
             from_validation_documents=checkpoint_dir,
-            primary_filing_dates=True,
+            annotation_case_cutoffs=True,
         )
     )
     record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
-    assert record["primary_filing_dates"] is True
-    assert record["filing_date_manifest"] == manifest
-    assert record["filing_dates"] == dates
-    assert len(record["filing_date_manifest_sha256"]) == 64
-    assert calls == [(name, date.fromisoformat(dates[name])) for name in filenames]
+    assert record["annotation_case_cutoffs"] is True
+    assert record["case_cutoffs"] == expected
+    assert set(record["annotation_header_sha256"]) == set(filenames)
+    assert all(len(digest) == 64 for digest in record["annotation_header_sha256"].values())
+    assert calls == [(name, date.fromisoformat(expected[name])) for name in filenames]
 
     (run_dir / "documents" / "002.txt.json").unlink()
     record["status"] = "failed"
     (run_dir / "run.json").write_text(json.dumps(record), encoding="utf-8")
     assert asyncio.run(runner._run(tmp_path / "ignored", tmp_path / "unused", None, run_dir)) == run_dir
-    assert calls[-1] == ("002.txt", date(2025, 3, 4))
+    assert calls[-1] == ("002.txt", date(2024, 1, 2))
 
-    manifest_path = data_root / "primary" / "filing_dates.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    with pytest.raises(ValueError, match="Filing-date manifest differs"):
+    header_path = data_root / "primary" / "documents" / "001.jsonl"
+    header = json.loads(header_path.read_text(encoding="utf-8"))
+    header["filing"]["provenance"]["evidence"] = "Changed evidence"
+    header_path.write_text(json.dumps(header) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Annotation case cutoffs differ"):
         asyncio.run(runner._run(tmp_path / "ignored", tmp_path / "unused", None, run_dir))
-    assert len(calls) == 3
+    assert len(calls) == 4
 
 
 @pytest.mark.parametrize(
-    "entries,error",
+    "headers,error",
     [
-        ({"001.txt": _filing_date_entry("001.txt", "2024-01-02")}, "coverage"),
+        ({"001.txt": {"filing": {"date": "2024-02-30"}}}, "invalid filing or cutoff date"),
+        ({"001.txt": {"filing": {"provenance": ""}}}, "sourced PDF evidence"),
         (
-            {
-                "001.txt": _filing_date_entry("001.txt", "2024-01-02"),
-                "002.txt": _filing_date_entry("002.txt", "2025-03-04"),
-                "003.txt": _filing_date_entry("003.txt", "2025-03-04"),
-            },
-            "coverage",
+            {"001.txt": {"case_cutoff": {"date": "2025-03-04", "source_document": "001.txt"}}},
+            "earliest sampled filing",
         ),
         (
-            {
-                "001.txt": _filing_date_entry("001.txt", "2024-02-30"),
-                "002.txt": _filing_date_entry("002.txt", "2025-03-04"),
-            },
-            "Invalid filing date",
-        ),
-        (
-            {
-                "001.txt": {"date": "2024-01-02", "provenance": ""},
-                "002.txt": _filing_date_entry("002.txt", "2025-03-04"),
-            },
-            "source_pdf, basis, and evidence",
+            {"001.txt": {"case_cutoff": {"date": "2024-01-02", "source_document": "missing.txt"}}},
+            "not a sampled filing",
         ),
     ],
 )
-def test_primary_filing_dates_reject_incomplete_or_unsourced_manifest_before_providers(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries: dict[str, object], error: str
+def test_annotation_cutoffs_reject_invalid_headers_before_providers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, headers: dict[str, object], error: str
 ) -> None:
     data_root = _dataset(tmp_path, ("001.txt", "002.txt"))
-    (data_root / "primary" / "filing_dates.json").write_text(
-        json.dumps({"filings": entries}), encoding="utf-8"
-    )
+    _annotation_cutoffs(data_root, {"001.txt": "2024-01-02", "002.txt": "2025-03-04"})
+    for filename, edits in headers.items():
+        path = data_root / "primary" / "documents" / f"{Path(filename).stem}.jsonl"
+        header = json.loads(path.read_text(encoding="utf-8"))
+        for key, value in edits.items():
+            header[key].update(value)
+        path.write_text(json.dumps(header) + "\n", encoding="utf-8")
 
     async def unexpected_grow(*_args: object, **_kwargs: object) -> Document:
         pytest.fail("Provider-backed work must not start with invalid filing dates")
 
     monkeypatch.setattr(runner, "grow_roots", unexpected_grow)
     with pytest.raises(ValueError, match=error):
-        asyncio.run(runner._run(data_root, tmp_path / "results", None, primary_filing_dates=True))
+        asyncio.run(runner._run(data_root, tmp_path / "results", None, annotation_case_cutoffs=True))
     assert not (tmp_path / "results").exists()
 
 
@@ -410,7 +411,7 @@ def test_resume_rejects_saved_body_search_from_a_different_cutoff(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     data_root = _dataset(tmp_path, ("001.txt",))
-    _filing_dates(data_root, {"001.txt": "2024-06-01"})
+    _annotation_cutoffs(data_root, {"001.txt": "2024-06-01"})
     source_path = data_root / "primary" / "documents_txt" / "001.txt"
     source = "Acme v. Reed, Case No. 2:31-cv-45821 (S.D.N.Y. 2031)."
     source_path.write_text(source, encoding="utf-8")
@@ -455,7 +456,7 @@ def test_resume_rejects_saved_body_search_from_a_different_cutoff(
             tmp_path / "results",
             None,
             from_validation_documents=checkpoint_dir,
-            primary_filing_dates=True,
+            annotation_case_cutoffs=True,
         )
     )
     artifact = run_dir / "documents" / "001.txt.json"
@@ -731,14 +732,14 @@ def test_validation_replay_checks_all_sources_before_body_provider_calls(
         (runner._GOVINFO_OPINION_STAGE, "http_error", 503),
     ],
 )
-@pytest.mark.parametrize("per_filing", [False, True])
+@pytest.mark.parametrize("per_case", [False, True])
 def test_transient_body_search_failure_replays_from_failed_provider(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     failed_stage: str,
     failure_type: str,
     status: int | None,
-    per_filing: bool,
+    per_case: bool,
 ) -> None:
     filenames = ("001.txt", "002.txt")
     data_root = _dataset(tmp_path, filenames)
@@ -767,9 +768,9 @@ def test_transient_body_search_failure_replays_from_failed_provider(
         (checkpoint_dir / f"{filename}.json").write_text(ready.model_dump_json(), encoding="utf-8")
 
     cutoff = date(2024, 6, 1)
-    expected_cutoffs = {"001.txt": cutoff, "002.txt": date(2025, 3, 4) if per_filing else cutoff}
-    if per_filing:
-        _filing_dates(data_root, {name: value.isoformat() for name, value in expected_cutoffs.items()})
+    expected_cutoffs = {"001.txt": cutoff, "002.txt": date(2025, 3, 4) if per_case else cutoff}
+    if per_case:
+        _annotation_cutoffs(data_root, {name: value.isoformat() for name, value in expected_cutoffs.items()})
     calls: list[tuple[str, str]] = []
     stages = (
         (runner._COURTLISTENER_OPINION_STAGE, BodySource.COURTLISTENER_OPINION),
@@ -842,8 +843,8 @@ def test_transient_body_search_failure_replays_from_failed_provider(
                 tmp_path / "results",
                 None,
                 from_validation_documents=checkpoint_dir,
-                retrospective_date=None if per_filing else cutoff,
-                primary_filing_dates=per_filing,
+                retrospective_date=None if per_case else cutoff,
+                annotation_case_cutoffs=per_case,
             )
         )
     run_dir = next((tmp_path / "results").iterdir())
