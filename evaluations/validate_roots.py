@@ -17,10 +17,20 @@ from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactLookupOutcome,
 )
 from mellea_lrc.validation.body_search.courtlistener_opinion import STAGE as COURTLISTENER_OPINION_BODY_SEARCH
+from mellea_lrc.validation.body_search.courtlistener_opinion_fields import (
+    STAGE as COURTLISTENER_OPINION_FIELD_BODY_SEARCH,
+)
 from mellea_lrc.validation.body_search.courtlistener_recap import STAGE as COURTLISTENER_RECAP_BODY_SEARCH
+from mellea_lrc.validation.body_search.courtlistener_recap_fields import (
+    STAGE as COURTLISTENER_RECAP_FIELD_BODY_SEARCH,
+)
 from mellea_lrc.validation.body_search.govinfo import STAGE as GOVINFO_OPINION_BODY_SEARCH
+from mellea_lrc.validation.body_search.govinfo_fields import STAGE as GOVINFO_OPINION_FIELD_BODY_SEARCH
 from mellea_lrc.validation.docket_root_lookup import STAGE as DOCKET_ROOT_LOOKUP
 from mellea_lrc.validation.docket_root_lookup_review import STAGE as DOCKET_ROOT_LOOKUP_REVIEW
+from mellea_lrc.validation.field_body_review import (
+    STAGE as INTENDED_CASE_BODY_REVIEW,
+)
 from mellea_lrc.validation.govinfo_docket_lookup import STAGE as GOVINFO_DOCKET_LOOKUP
 from mellea_lrc.validation.govinfo_docket_lookup_review import STAGE as GOVINFO_DOCKET_LOOKUP_REVIEW
 from mellea_lrc.validation.locator_body_review import STAGE as LOCATOR_BODY_REVIEW
@@ -54,6 +64,12 @@ BODY_WORKFLOW_STAGES = (
     COURTLISTENER_RECAP_BODY_SEARCH,
     GOVINFO_OPINION_BODY_SEARCH,
     LOCATOR_BODY_REVIEW,
+)
+FIELD_BODY_WORKFLOW_STAGES = (
+    COURTLISTENER_OPINION_FIELD_BODY_SEARCH,
+    COURTLISTENER_RECAP_FIELD_BODY_SEARCH,
+    GOVINFO_OPINION_FIELD_BODY_SEARCH,
+    INTENDED_CASE_BODY_REVIEW,
 )
 
 
@@ -173,11 +189,16 @@ class WorkflowScore:
     checkpoint: str | None = None
     body_review: BodyReviewScore | None = None
     identity_with_partial: IdentityScore | None = None
+    intended_case_outcomes: dict[str, int] | None = None
 
     @property
     def stage_order(self) -> tuple[str, ...]:
         """All completed workflow stages, including retrieval-only stages."""
-        return WORKFLOW_STAGES + (BODY_WORKFLOW_STAGES if self.body_review is not None else ())
+        return (
+            WORKFLOW_STAGES
+            + (BODY_WORKFLOW_STAGES if self.body_review is not None else ())
+            + (FIELD_BODY_WORKFLOW_STAGES if self.intended_case_outcomes is not None else ())
+        )
 
     def __add__(self, other: WorkflowScore) -> WorkflowScore:
         if tuple(stage.stage for stage in self.stages) != tuple(stage.stage for stage in other.stages):
@@ -190,6 +211,8 @@ class WorkflowScore:
             raise ValueError("Cannot combine workflows with different body-review details")
         if (self.identity_with_partial is None) != (other.identity_with_partial is None):
             raise ValueError("Cannot combine workflows with different inclusive identity scores")
+        if (self.intended_case_outcomes is None) != (other.intended_case_outcomes is None):
+            raise ValueError("Cannot combine workflows with different intended-case review outcomes")
         return WorkflowScore(
             tuple(left + right for left, right in zip(self.stages, other.stages, strict=True)),
             {field: score + other.fields[field] for field, score in self.fields.items()},
@@ -203,6 +226,14 @@ class WorkflowScore:
             (
                 self.identity_with_partial + other.identity_with_partial
                 if self.identity_with_partial is not None and other.identity_with_partial is not None
+                else None
+            ),
+            (
+                {
+                    key: self.intended_case_outcomes.get(key, 0) + other.intended_case_outcomes.get(key, 0)
+                    for key in self.intended_case_outcomes.keys() | other.intended_case_outcomes.keys()
+                }
+                if self.intended_case_outcomes is not None and other.intended_case_outcomes is not None
                 else None
             ),
         )
@@ -220,6 +251,11 @@ class WorkflowScore:
             result["body_review"] = self.body_review.as_dict()
         if self.identity_with_partial is not None:
             result["identity_with_partial"] = self.identity_with_partial.as_dict()
+        if self.intended_case_outcomes is not None:
+            result["intended_case_review"] = {
+                "stage": INTENDED_CASE_BODY_REVIEW,
+                "outcome_counts": dict(sorted(self.intended_case_outcomes.items())),
+            }
         return result
 
 
@@ -630,6 +666,32 @@ def score_locator_body_review(document: Document) -> BodyReviewScore:
     return BodyReviewScore(LOCATOR_BODY_REVIEW, verdict_counts)
 
 
+def score_intended_case_body_review(document: Document) -> dict[str, int]:
+    """Count candidate outcomes at stage 27 without judging their accuracy."""
+    checkpoint = document.get_stage(INTENDED_CASE_BODY_REVIEW)
+    outcomes: dict[str, int] = {}
+    for root in checkpoint.roots:
+        stage_nodes = {node.id for node in root.nodes if node.stage == INTENDED_CASE_BODY_REVIEW}
+        if not stage_nodes:
+            continue
+        reviews = [review for review in root.intended_case_reviews if review.node_id in stage_nodes]
+        if len(stage_nodes) != 1 or len(reviews) != 1:
+            raise ValueError("Stage 27 needs one review for each processed root")
+        if any(judgment.node_id in stage_nodes for judgment in root.identity_judgments):
+            raise ValueError("Intended-case review cannot issue an identity judgment")
+        review = reviews[0]
+        if review.failure_reason is not None:
+            outcome = "review_failure"
+        elif review.decision is not None and review.decision.source is None:
+            outcome = "declined"
+        elif review.decision is not None and review.decision.confidence is not None:
+            outcome = f"selected_{review.decision.confidence.value}"
+        else:
+            raise ValueError("Stage 27 review has no valid outcome")
+        outcomes[outcome] = outcomes.get(outcome, 0) + 1
+    return outcomes
+
+
 def score_validate_roots(document: Document) -> WorkflowScore:
     """Score completed validation judgments and every annotated root's final fields."""
     if any(stage not in document.stage_runs for stage in WORKFLOW_STAGES):
@@ -639,6 +701,12 @@ def score_validate_roots(document: Document) -> WorkflowScore:
     if body_stages and body_stages != set(BODY_WORKFLOW_STAGES):
         missing = [stage for stage in BODY_WORKFLOW_STAGES if stage not in document.stage_runs]
         raise ValueError(f"Incomplete locator-body workflow; missing stages: {', '.join(missing)}")
+    field_body_stages = set(FIELD_BODY_WORKFLOW_STAGES).intersection(document.stage_runs)
+    if field_body_stages and field_body_stages != set(FIELD_BODY_WORKFLOW_STAGES):
+        missing = [stage for stage in FIELD_BODY_WORKFLOW_STAGES if stage not in document.stage_runs]
+        raise ValueError(f"Incomplete intended-case workflow; missing stages: {', '.join(missing)}")
+    if field_body_stages and not body_stages:
+        raise ValueError("Intended-case workflow requires completed locator-body stages")
     judgment_stage = max(WORKFLOW_STAGES, key=document.stage_runs.index)
     final_stage = LOCATOR_BODY_REVIEW if body_stages else judgment_stage
     final = document.get_stage(final_stage)
@@ -720,9 +788,10 @@ def score_validate_roots(document: Document) -> WorkflowScore:
         stage_scores,
         {field: FieldScore(counts[field][0], counts[field][1], len(gold)) for field in FIELDS},
         identity,
-        LOCATOR_BODY_REVIEW if body_stages else None,
+        INTENDED_CASE_BODY_REVIEW if field_body_stages else LOCATOR_BODY_REVIEW if body_stages else None,
         body_review,
         identity_with_partial,
+        score_intended_case_body_review(document) if field_body_stages else None,
     )
 
 
@@ -788,6 +857,22 @@ def render_locator_body_review(score: BodyReviewScore) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_intended_case_body_review(outcomes: dict[str, int]) -> str:
+    """Render candidate counts without implying an accuracy measure."""
+    lines = [
+        f"## {INTENDED_CASE_BODY_REVIEW}",
+        "",
+        "Candidate outcomes only; the annotations do not label intended-case candidates.",
+        "",
+        "| Outcome | Count |",
+        "| --- | ---: |",
+    ]
+    lines.extend(f"| {outcome} | {count} |" for outcome, count in sorted(outcomes.items()))
+    if not outcomes:
+        lines.append("| — | 0 |")
+    return "\n".join(lines) + "\n"
+
+
 def _identity_cell(canonical: IdentityScore, inclusive: IdentityScore | None, *, recall: bool) -> str:
     value = _field_cell(FieldScore(canonical.correct, canonical.predicted, canonical.gold), recall=recall)
     if inclusive is None:
@@ -815,11 +900,12 @@ def render_validate_roots(
     if tuple(int(stage.split("_", 1)[0]) for stage in stage_order) != tuple(range(12, 12 + len(stage_order))):
         raise ValueError("Validate-roots stage indices are not consecutive")
     sections = [f"# Validate-roots evaluation{f': {set_name}' if set_name else ''}"]
-    if score.checkpoint == LOCATOR_BODY_REVIEW:
+    if score.checkpoint in {LOCATOR_BODY_REVIEW, INTENDED_CASE_BODY_REVIEW}:
         sections.append(
-            f"Checkpoint: {LOCATOR_BODY_REVIEW} completed. Field identity judgments are scored through "
+            f"Checkpoint: {score.checkpoint} completed. Field identity judgments are scored through "
             f"{WORKFLOW_STAGES[-1]}; the body review's printed citation comparisons have no corresponding "
-            "field identity gold. Its overall identity verdict is scored separately."
+            "field identity gold. Stage 23's overall identity verdict is scored separately. "
+            "Later intended-case candidates do not change that identity score."
         )
     lines = [
         "## Root field judgments",
@@ -842,6 +928,10 @@ def render_validate_roots(
                 if score.body_review is None:
                     raise ValueError("Missing locator-body review score")
                 sections.append(render_locator_body_review(score.body_review).rstrip())
+            elif stage == INTENDED_CASE_BODY_REVIEW:
+                if score.intended_case_outcomes is None:
+                    raise ValueError("Missing intended-case review score")
+                sections.append(render_intended_case_body_review(score.intended_case_outcomes).rstrip())
             else:
                 sections.append(f"## {stage}\n\nRetrieval only; no field judgment is scored at this stage.")
             if stage == WORKFLOW_STAGES[-1]:

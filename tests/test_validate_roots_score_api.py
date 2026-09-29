@@ -36,6 +36,12 @@ from mellea_lrc.model.citations.docket_lookup import (
     DocketLookupReview,
     DocketLookupReviewDecision,
 )
+from mellea_lrc.model.citations.field_body_evidence import (
+    FieldBodySearch,
+    IntendedCaseConfidence,
+    IntendedCaseDecision,
+    IntendedCaseReview,
+)
 from mellea_lrc.model.citations.govinfo_lookup import (
     GovInfoDocketLookup,
     GovInfoDocketReview,
@@ -1115,6 +1121,84 @@ def _stage23_review(
     return document.replace_citation(recorded).complete(evaluation.LOCATOR_BODY_REVIEW)
 
 
+def _stage27_review(tmp_path: Path, outcome: str) -> Document:
+    document = _stage23_review(tmp_path, verdict=None, next_stage="case_name_body_discovery")
+    quote = "Gamma v. Delta"
+    evidence = make_body_evidences(
+        body_id="independent-opinion",
+        parent_id=None,
+        url=None,
+        issued_on=date(2024, 1, 1),
+        date_basis=None,
+        metadata={},
+        body_text=f"Another court cites {quote} as authority.",
+        locator="Gamma",
+        source_text=document.text,
+        anchor_kind="case_name",
+    )
+    root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
+    recorded = root.record(evaluation.FIELD_BODY_WORKFLOW_STAGES[0])
+    recorded = recorded.with_field_body_search(
+        FieldBodySearch(
+            node_id=recorded.nodes[-1].id,
+            source=BodySource.COURTLISTENER_OPINION,
+            retrospective_date=None,
+            query_name="Gamma",
+            evidence=evidence,
+        )
+    )
+    document = document.replace_citation(recorded).complete(evaluation.FIELD_BODY_WORKFLOW_STAGES[0])
+    for stage in evaluation.FIELD_BODY_WORKFLOW_STAGES[1:-1]:
+        document = document.complete(stage)
+    root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
+    recorded = root.record(evaluation.INTENDED_CASE_BODY_REVIEW)
+    if outcome.startswith("selected_"):
+        decision = IntendedCaseDecision(
+            source=BodySource.COURTLISTENER_OPINION,
+            evidence_index=0,
+            citation_quote=quote,
+            case_name=quote,
+            locator=None,
+            court=None,
+            date=None,
+            confidence=IntendedCaseConfidence(outcome.removeprefix("selected_")),
+            reason="The independent citation identifies a possible intended case.",
+        )
+        review = IntendedCaseReview(
+            node_id=recorded.nodes[-1].id,
+            decision=decision,
+            grounded_quote=quote,
+            quote_span=Span(evidence[0].excerpt.index(quote), evidence[0].excerpt.index(quote) + len(quote)),
+            quote_similarity=100,
+        )
+        route = "intended_case_resolution"
+    elif outcome == "declined":
+        review = IntendedCaseReview(
+            node_id=recorded.nodes[-1].id,
+            decision=IntendedCaseDecision(
+                source=None,
+                evidence_index=None,
+                citation_quote=None,
+                case_name=None,
+                locator=None,
+                court=None,
+                date=None,
+                confidence=None,
+                reason="No independent citation identifies the intended case.",
+            ),
+        )
+        route = "open_web_search"
+    else:
+        assert outcome == "review_failure"
+        review = IntendedCaseReview(
+            node_id=recorded.nodes[-1].id,
+            failure_reason="Review exhausted its attempts.",
+        )
+        route = "intended_case_review_retry"
+    recorded = recorded.with_intended_case_review(review).with_route(route)
+    return document.replace_citation(recorded).complete(evaluation.INTENDED_CASE_BODY_REVIEW)
+
+
 def test_stage23_report_counts_issued_verdicts(tmp_path: Path) -> None:
     document = _stage23_review(tmp_path, verdict=IdentityVerdict.WRONG_IDENTITY)
     detail = evaluation.score_locator_body_review(document)
@@ -1136,6 +1220,57 @@ def test_stage23_report_counts_issued_verdicts(tmp_path: Path) -> None:
     )
     assert numbered_headings == (*evaluation.WORKFLOW_STAGES, *evaluation.BODY_WORKFLOW_STAGES)
     assert workflow.as_dict()["stage_order"] == list(numbered_headings)
+
+
+@pytest.mark.parametrize("outcome", ("selected_likely", "selected_possible", "declined", "review_failure"))
+def test_stage27_report_lists_all_stages_without_rescoring_identity(tmp_path: Path, outcome: str) -> None:
+    document = _stage27_review(tmp_path, outcome)
+    before = evaluation.score_validate_roots(document.get_stage(evaluation.LOCATOR_BODY_REVIEW))
+    score = evaluation.score_validate_roots(document)
+    assert score.checkpoint == evaluation.INTENDED_CASE_BODY_REVIEW
+    assert score.fields == before.fields
+    assert score.identity == before.identity
+    assert score.identity_with_partial == before.identity_with_partial
+    assert score.body_review == before.body_review
+    assert score.intended_case_outcomes == {outcome: 1}
+    assert score.stage_order == (
+        *evaluation.WORKFLOW_STAGES,
+        *evaluation.BODY_WORKFLOW_STAGES,
+        *evaluation.FIELD_BODY_WORKFLOW_STAGES,
+    )
+    assert score.as_dict()["intended_case_review"] == {
+        "stage": evaluation.INTENDED_CASE_BODY_REVIEW,
+        "outcome_counts": {outcome: 1},
+    }
+    report = evaluation.render_validate_roots(score)
+    numbered_headings = tuple(
+        line.removeprefix("## ")
+        for line in report.splitlines()
+        if line.startswith("## ") and line[3:4].isdigit()
+    )
+    assert numbered_headings == score.stage_order
+    assert f"| {outcome} | 1 |" in report
+    assert "Candidate outcomes only; the annotations do not label intended-case candidates." in report
+    assert report.count("Retrieval only; no field judgment is scored at this stage.") == 8
+
+
+def test_stage27_outcome_counts_combine_without_accuracy_metrics(tmp_path: Path) -> None:
+    outcomes = ("selected_likely", "selected_possible", "declined", "review_failure")
+    scores = [
+        evaluation.score_validate_roots(_stage27_review(tmp_path / outcome, outcome)) for outcome in outcomes
+    ]
+    combined = scores[0]
+    for score in scores[1:]:
+        combined += score
+    assert combined.intended_case_outcomes == dict.fromkeys(outcomes, 1)
+    assert set(combined.as_dict()["intended_case_review"]) == {"stage", "outcome_counts"}
+
+
+def test_validate_roots_rejects_incomplete_intended_case_workflow(tmp_path: Path) -> None:
+    document = _stage23_review(tmp_path)
+    document = document.complete(evaluation.FIELD_BODY_WORKFLOW_STAGES[0])
+    with pytest.raises(ValueError, match="Incomplete intended-case workflow"):
+        evaluation.score_validate_roots(document)
 
 
 @pytest.mark.parametrize(
