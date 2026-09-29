@@ -18,6 +18,7 @@ class MatchResult(str, Enum):
 class IdentityVerdict(str, Enum):
     CORRECT_IDENTITY = "correct_identity"
     WRONG_IDENTITY = "wrong_identity"
+    CASE_IDENTITY_SUPPORTED = "case_identity_supported"
     DEFERRED = "deferred"
 
 
@@ -37,8 +38,12 @@ class IdentityJudgment(BaseModel):
 
     @model_validator(mode="after")
     def _validate_route(self) -> Self:
-        if (self.verdict is IdentityVerdict.DEFERRED) != (self.next_stage is not None):
-            raise ValueError("Only a deferred identity judgment has a next stage")
+        needs_more_evidence = self.verdict in {
+            IdentityVerdict.DEFERRED,
+            IdentityVerdict.CASE_IDENTITY_SUPPORTED,
+        }
+        if needs_more_evidence != (self.next_stage is not None):
+            raise ValueError("An unresolved citation judgment must name its next stage")
         if (
             self.next_stage is not None
             and re.fullmatch(r"(?:[0-9]+_)?[a-z][a-z0-9_]*", self.next_stage) is None

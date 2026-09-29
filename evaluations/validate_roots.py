@@ -549,9 +549,7 @@ def _body_verdict(root: FullCitation) -> IdentityVerdict | None:
     review = root.body_reviews[-1]
     if not any(node.id == review.node_id and node.stage == LOCATOR_BODY_REVIEW for node in root.nodes):
         raise ValueError("Body review does not reference its stage node")
-    judgments = [
-        judgment for judgment in root.identity_judgments if judgment.node_id == review.node_id
-    ]
+    judgments = [judgment for judgment in root.identity_judgments if judgment.node_id == review.node_id]
     if len(judgments) != 1:
         raise ValueError("Body review must produce exactly one identity judgment")
     return judgments[0].verdict
@@ -567,7 +565,7 @@ def score_locator_body_review(document: Document) -> Precision:
         verdict = _body_verdict(root)
         if verdict is None:
             continue
-        if verdict is IdentityVerdict.DEFERRED:
+        if verdict in {IdentityVerdict.DEFERRED, IdentityVerdict.CASE_IDENTITY_SUPPORTED}:
             continue
         predicted += 1
         correct += int(index in aligned and verdict.name == gold[aligned[index]].identity)
@@ -624,11 +622,13 @@ def score_validate_roots(document: Document) -> WorkflowScore:
         identity_correct = identity_predicted = undetermined = 0
         for prediction_index, root in enumerate(final.roots):
             body_verdict = _body_verdict(root)
-            verdict = (
-                body_verdict.name
-                if body_verdict is not None and body_verdict is not IdentityVerdict.DEFERRED
-                else lookup_verdicts.get(root.id)
-            )
+            if body_verdict is IdentityVerdict.CASE_IDENTITY_SUPPORTED:
+                # Case-level support explicitly retracts any earlier full-citation admission.
+                verdict = "UNDETERMINED"
+            elif body_verdict in {IdentityVerdict.CORRECT_IDENTITY, IdentityVerdict.WRONG_IDENTITY}:
+                verdict = body_verdict.name
+            else:
+                verdict = lookup_verdicts.get(root.id)
             if verdict is None:
                 continue
             if verdict == "UNDETERMINED":
@@ -696,17 +696,20 @@ def render_reporter_root_lookup_unique_llm(score: StageScore) -> str:
 
 
 def render_locator_body_review(score: Precision) -> str:
-    return "\n".join(
-        (
-            f"## {LOCATOR_BODY_REVIEW}",
-            "",
-            "Only new, non-deferred identity verdicts count as predictions.",
-            "",
-            "| Identity precision |",
-            "| ---: |",
-            f"| {_precision_cell(score)} |",
+    return (
+        "\n".join(
+            (
+                f"## {LOCATOR_BODY_REVIEW}",
+                "",
+                "Only unqualified correct or wrong identity verdicts count as predictions.",
+                "",
+                "| Identity precision |",
+                "| ---: |",
+                f"| {_precision_cell(score)} |",
+            )
         )
-    ) + "\n"
+        + "\n"
+    )
 
 
 def render_validate_roots(

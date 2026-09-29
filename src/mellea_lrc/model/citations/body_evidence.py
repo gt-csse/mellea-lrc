@@ -9,7 +9,7 @@ from typing import Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from mellea_lrc.model.citations.fields.case_name import CaseName
-from mellea_lrc.model.citations.judgments import MatchResult
+from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.ivr import IvrRun
 from mellea_lrc.model.span import Span
 
@@ -160,7 +160,7 @@ def compare_presence(decision: BodyCorroborationDecision) -> str | None:
 
 
 class BodyCorroborationDecision(BaseModel):
-    """One selected independent citation, or a reason none supports a comparison."""
+    """One selected independent citation and the model's identity judgment."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -172,6 +172,7 @@ class BodyCorroborationDecision(BaseModel):
     filing: BodyFilingFields | None
     third_party: BodyCitationFields | None
     comparisons: BodyFieldComparisons | None
+    identity_verdict: IdentityVerdict
     reason: str = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -189,6 +190,8 @@ class BodyCorroborationDecision(BaseModel):
             raise ValueError("A selected body citation needs both sides and every comparison")
         if not selected and any(value is not None for value in (*details, self.context_quote)):
             raise ValueError("A declined body citation cannot compare a candidate")
+        if not selected and self.identity_verdict is not IdentityVerdict.DEFERRED:
+            raise ValueError("Without a selected citation, identity must be deferred")
         if self.citation_quote is not None and not self.citation_quote.strip():
             raise ValueError("A selected citation quote cannot be blank")
         if self.context_quote is not None and not self.context_quote.strip():
@@ -197,6 +200,33 @@ class BodyCorroborationDecision(BaseModel):
             raise ValueError("An explicit challenge requires a quote from its surrounding discussion")
         if selected and (not self.filing.locator or not self.third_party.locator):
             raise ValueError("Both citations need a locator for body corroboration")
+        if self.identity_verdict is IdentityVerdict.WRONG_IDENTITY and not (
+            self.treatment is BodyCitationTreatment.EXPLICITLY_DISPUTES
+            or any(
+                getattr(self.comparisons, field).result is MatchResult.MISMATCH
+                for field in ("locator", "case_name", "court", "date")
+            )
+        ):
+            raise ValueError("A negative identity judgment needs a field conflict or explicit challenge")
+        if self.identity_verdict is IdentityVerdict.CASE_IDENTITY_SUPPORTED and (
+            self.treatment is not BodyCitationTreatment.CITES_AS_AUTHORITY
+            or self.comparisons.locator.result is not MatchResult.MATCH
+            or self.comparisons.case_name.result is not MatchResult.MATCH
+        ):
+            raise ValueError("Qualified case support needs a citing source, locator, and case name")
+        if self.identity_verdict is IdentityVerdict.CORRECT_IDENTITY:
+            if self.treatment is not BodyCitationTreatment.CITES_AS_AUTHORITY:
+                raise ValueError("A mere mention or challenge cannot affirm citation identity")
+            if (
+                self.comparisons.locator.result is not MatchResult.MATCH
+                or self.comparisons.case_name.result is not MatchResult.MATCH
+            ):
+                raise ValueError("An unqualified admission needs both locator and case-name support")
+            if any(
+                getattr(self.comparisons, field).result is MatchResult.MISMATCH
+                for field in ("locator", "case_name", "court", "date")
+            ):
+                raise ValueError("A conflicting printed field cannot support an unqualified admission")
         return self
 
 
@@ -227,8 +257,7 @@ class BodyCorroborationReview(BaseModel):
         ):
             raise ValueError("A selected body review needs its grounded quote and span")
         if (decided and self.decision.context_quote is not None) != all(
-            value is not None
-            for value in (self.grounded_context, self.context_span, self.context_similarity)
+            value is not None for value in (self.grounded_context, self.context_span, self.context_similarity)
         ):
             raise ValueError("A supplied context quote must ground in the saved excerpt")
         if self.ivr is not None and not self.ivr.success and decided:
