@@ -17,6 +17,12 @@ from mellea_lrc.model.citations.docket_lookup import (
     DocketLookupReviewDecision,
     DocketSearchSource,
 )
+from mellea_lrc.model.citations.field_body_evidence import (
+    FieldBodySearch,
+    IntendedCaseConfidence,
+    IntendedCaseDecision,
+    IntendedCaseReview,
+)
 from mellea_lrc.model.citations.fields import (
     CaseName,
     CaseNameField,
@@ -103,6 +109,7 @@ __all__ = [
     "DocketLookupReview",
     "DocketLookupReviewDecision",
     "DocketSearchSource",
+    "FieldBodySearch",
     "FullCitation",
     "FullCitationKind",
     "FullCitationVariant",
@@ -116,6 +123,9 @@ __all__ = [
     "GovInfoLookupCandidate",
     "IdentityJudgment",
     "IdentityVerdict",
+    "IntendedCaseConfidence",
+    "IntendedCaseDecision",
+    "IntendedCaseReview",
     "MatchResult",
     "Node",
     "PinCiteField",

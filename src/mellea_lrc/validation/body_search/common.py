@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import date
+from typing import Literal
 
 from pydantic import JsonValue
 from rapidfuzz import fuzz
@@ -12,7 +13,7 @@ from rapidfuzz import fuzz
 from mellea_lrc.matching.fuzziness import FuzzinessOption
 from mellea_lrc.matching.grounding import fuzzy_find
 from mellea_lrc.model.citations import FullCitationVariant, FullDocketCitation
-from mellea_lrc.model.citations.body_evidence import BodyEvidence
+from mellea_lrc.model.citations.body_evidence import BodyEvidence, BodySource
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 
@@ -21,6 +22,10 @@ _LOCATOR_MATCH = FuzzinessOption.edit_distance(similarity_percent=90, whitespace
 _BEFORE_CHARS = 2000
 _AFTER_CHARS = 600
 _SAME_DOCUMENT_SIMILARITY = 90
+_SOURCE_COPY_SIMILARITY = 98.0
+_SOURCE_COPY_CONTEXT_CHARS = 500
+_SOURCE_COPY_MIN_CHARS = 300
+_ALNUM_WORDS = re.compile(r"[^\W_]+", re.UNICODE)
 
 
 def roots_for_body_search(document: Document) -> tuple[FullCitationVariant, ...]:
@@ -38,6 +43,33 @@ def locator_text(root: FullCitationVariant) -> str:
     if isinstance(root, FullDocketCitation):
         return root.locator[-1].get_normalized().docket_number.strip()
     return _SPACE.sub(" ", root.locator[-1].quote).strip()
+
+
+def field_query_name(root: FullCitationVariant) -> str | None:
+    """Choose one concise *printed* name fragment for open-ended discovery.
+
+    The search is deliberately broader than a full case-name equality check.
+    Court and date are left for candidate review, not used as search filters.
+    A fragment only discovers possible authorities; it never verifies the
+    citation's reporter or docket identifier.
+    """
+    if not root.case_name:
+        return None
+    name = _SPACE.sub(" ", root.case_name[-1].quote).strip()
+    if not name:
+        return None
+    sides = re.split(r"\s+v\.\s+", name, maxsplit=1, flags=re.IGNORECASE)
+    if len(sides) == 2:
+        eligible = [side.strip(" ,;:") for side in sides if len(re.sub(r"\W", "", side)) >= 4]
+        if eligible:
+            name = min(eligible, key=lambda side: (len(side), side.casefold()))
+    elif name.casefold().startswith("in re "):
+        name = name[6:]
+    elif name.casefold().startswith("ex parte "):
+        name = name[9:]
+    # Keep a complete word sequence rather than clipping a long caption in
+    # the middle of a token. Apart from whitespace folding, it is source text.
+    return " ".join(name.split()[:3]) or None
 
 
 def evidence_date(value: object) -> date | None:
@@ -66,8 +98,9 @@ def make_body_evidences(
     body_text: str,
     locator: str,
     source_text: str,
+    anchor_kind: Literal["locator", "case_name"] = "locator",
 ) -> tuple[BodyEvidence, ...]:
-    """Retain up to three locator-anchored excerpts from a fetched body.
+    """Retain up to three excerpts grounded at the searched text.
 
     An identical copy of the source filing cannot independently corroborate
     itself. Search snippets are not accepted here; callers supply fetched body
@@ -114,9 +147,56 @@ def make_body_evidences(
                 body_sha256=digest,
                 excerpt=body_text[start:end],
                 source_offset=start,
-                anchor_kind="locator",
+                anchor_kind=anchor_kind,
                 anchor_span=Span(match_start - start, match_start - start + len(matched)),
             )
         )
         found_count += 1
     return tuple(results)
+
+
+def source_copy_bodies(
+    source_text: str, items: tuple[tuple[BodySource, BodyEvidence], ...]
+) -> set[tuple[BodySource, str]]:
+    """Exclude another rendering of the source filing from independent evidence."""
+    normalized_source = " ".join(_ALNUM_WORDS.findall(source_text.casefold()))
+    copies: set[tuple[BodySource, str]] = set()
+    for source, item in items:
+        key = (source, item.body_id)
+        if key in copies:
+            continue
+        center = (item.anchor_span.start + item.anchor_span.end) // 2
+        start = max(0, center - _SOURCE_COPY_CONTEXT_CHARS)
+        end = min(len(item.excerpt), center + _SOURCE_COPY_CONTEXT_CHARS)
+        context = " ".join(_ALNUM_WORDS.findall(item.excerpt[start:end].casefold()))
+        if len(context) < _SOURCE_COPY_MIN_CHARS:
+            continue
+        if (
+            fuzz.partial_ratio(context, normalized_source, score_cutoff=_SOURCE_COPY_SIMILARITY)
+            >= _SOURCE_COPY_SIMILARITY
+        ):
+            copies.add(key)
+    return copies
+
+
+def diverse_evidence(
+    source: BodySource, items: tuple[BodyEvidence, ...], *, max_per_source: int = 6
+) -> tuple[tuple[BodySource, int, BodyEvidence], ...]:
+    """Show distinct source documents before second occurrences in one body."""
+    groups: dict[str, list[tuple[int, BodyEvidence]]] = {}
+    for index, item in enumerate(items):
+        groups.setdefault(item.body_id, []).append((index, item))
+    selected: list[tuple[BodySource, int, BodyEvidence]] = []
+    depth = 0
+    while len(selected) < max_per_source:
+        next_round = [
+            (index, item)
+            for group in groups.values()
+            if len(group) > depth
+            for index, item in group[depth : depth + 1]
+        ]
+        if not next_round:
+            break
+        selected.extend((source, index, item) for index, item in next_round[: max_per_source - len(selected)])
+        depth += 1
+    return tuple(selected)

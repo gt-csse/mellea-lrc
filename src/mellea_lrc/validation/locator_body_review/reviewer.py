@@ -7,18 +7,16 @@ import os
 import re
 from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import TYPE_CHECKING, Protocol
 
 from dotenv import load_dotenv
 from mellea.core import ValidationResult
 from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import ValidationError
-from rapidfuzz import fuzz
 
 from mellea_lrc.llm.config import llm_api_config_from_env, start_mellea_session_from_env
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
-from mellea_lrc.matching.fuzziness import FuzzinessOption
 from mellea_lrc.matching.grounding import EvidenceCandidate, GroundedFragment, GroundingEvidence
 from mellea_lrc.model.citation_windows import after, before
 from mellea_lrc.model.citations import FullCitationVariant, FullDocketCitation, FullReporterCitation
@@ -33,7 +31,16 @@ from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
 from mellea_lrc.model.span import Span
-from mellea_lrc.validation.body_search.common import locator_text
+from mellea_lrc.validation.body_search.common import (
+    diverse_evidence as _diverse_evidence,
+)
+from mellea_lrc.validation.body_search.common import (
+    locator_text,
+)
+from mellea_lrc.validation.body_search.common import (
+    source_copy_bodies as _source_copy_bodies,
+)
+from mellea_lrc.validation.body_search.grounding import ground_body_fragment
 from mellea_lrc.validation.reporter_review.court_context import inferred_reporter_court_note
 
 if TYPE_CHECKING:
@@ -42,85 +49,8 @@ if TYPE_CHECKING:
 
 MAX_TOKENS = 5500
 MAX_MODEL_ATTEMPTS = 3
-MAX_EVIDENCE_PER_SOURCE = 6
 SESSION_ID = "mellea-lrc-locator-body-review-v1"
-_MIN_GROUNDING_SIMILARITY = 98.0
-_GROUNDING = FuzzinessOption.edit_distance(
-    similarity_percent=_MIN_GROUNDING_SIMILARITY, whitespace_relaxation=True
-)
-_SOURCE_COPY_SIMILARITY = 98.0
-_SOURCE_COPY_CONTEXT_CHARS = 500
-_SOURCE_COPY_MIN_CHARS = 300
-_ALNUM_WORDS = re.compile(r"[^\W_]+", re.UNICODE)
 _WRITTEN_YEAR = re.compile(r"(?<!\d)(?:1[6-9]|20|21)\d{2}(?!\d)")
-_EvidenceValue = TypeVar("_EvidenceValue")
-
-
-def _ground_fragment(
-    evidence: GroundingEvidence[_EvidenceValue], proposed: str
-) -> GroundedFragment[_EvidenceValue] | None:
-    """Apply the same edit allowance to every quoted fragment and field.
-
-    The shared matcher gives short strings a one-edit floor. Requiring the
-    actual similarity here keeps a one-digit change in a short locator from
-    qualifying as a high-similarity grounded quote.
-    """
-    found = evidence.find_fragment(proposed, _GROUNDING)
-    return found if found is not None and found.similarity_percent >= _MIN_GROUNDING_SIMILARITY else None
-
-
-def _source_copy_bodies(
-    source_text: str, items: tuple[tuple[BodySource, BodyEvidence], ...]
-) -> set[tuple[BodySource, str]]:
-    """Exclude a fetched body when substantial text around a locator copies the filing.
-
-    Search results may contain another rendering of the source filing whose
-    page furniture defeats a whole-document comparison. One matching local
-    passage excludes every occurrence from that body as non-independent.
-    """
-    normalized_source = " ".join(_ALNUM_WORDS.findall(source_text.casefold()))
-    copies: set[tuple[BodySource, str]] = set()
-    for source, item in items:
-        key = (source, item.body_id)
-        if key in copies:
-            continue
-        center = (item.anchor_span.start + item.anchor_span.end) // 2
-        start = max(0, center - _SOURCE_COPY_CONTEXT_CHARS)
-        end = min(len(item.excerpt), center + _SOURCE_COPY_CONTEXT_CHARS)
-        context = " ".join(_ALNUM_WORDS.findall(item.excerpt[start:end].casefold()))
-        if len(context) < _SOURCE_COPY_MIN_CHARS:
-            continue
-        if (
-            fuzz.partial_ratio(context, normalized_source, score_cutoff=_SOURCE_COPY_SIMILARITY)
-            >= _SOURCE_COPY_SIMILARITY
-        ):
-            copies.add(key)
-    return copies
-
-
-def _diverse_evidence(
-    source: BodySource, items: tuple[BodyEvidence, ...]
-) -> tuple[tuple[BodySource, int, BodyEvidence], ...]:
-    """Show distinct citing documents before second occurrences of one body."""
-    groups: dict[str, list[tuple[int, BodyEvidence]]] = {}
-    for index, item in enumerate(items):
-        groups.setdefault(item.body_id, []).append((index, item))
-    selected: list[tuple[BodySource, int, BodyEvidence]] = []
-    depth = 0
-    while len(selected) < MAX_EVIDENCE_PER_SOURCE:
-        next_round = [
-            (index, item)
-            for group in groups.values()
-            if len(group) > depth
-            for index, item in group[depth : depth + 1]
-        ]
-        if not next_round:
-            break
-        selected.extend(
-            (source, index, item) for index, item in next_round[: MAX_EVIDENCE_PER_SOURCE - len(selected)]
-        )
-        depth += 1
-    return tuple(selected)
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,7 +125,7 @@ class BodyCorroborationContext:
         evidence = self.selected(decision)
         if evidence is None or decision.citation_quote is None:
             return None
-        return _ground_fragment(
+        return ground_body_fragment(
             GroundingEvidence((EvidenceCandidate(evidence.excerpt, None),)), decision.citation_quote
         )
 
@@ -203,7 +133,7 @@ class BodyCorroborationContext:
         evidence = self.selected(decision)
         if evidence is None or decision.context_quote is None:
             return None
-        return _ground_fragment(
+        return ground_body_fragment(
             GroundingEvidence((EvidenceCandidate(evidence.excerpt, None),)), decision.context_quote
         )
 
@@ -219,7 +149,7 @@ class BodyCorroborationContext:
             window, offset = self.after_text, self.after_offset
         else:
             raise ValueError(f"Unknown citation field: {field}")
-        found = _ground_fragment(GroundingEvidence((EvidenceCandidate(window, offset),)), proposed)
+        found = ground_body_fragment(GroundingEvidence((EvidenceCandidate(window, offset),)), proposed)
         return Span(offset + found.start, offset + found.end) if found is not None else None
 
     def corrected_spans(self, decision: BodyCorroborationDecision) -> dict[str, Span] | None:
@@ -281,7 +211,7 @@ class BodyCorroborationContext:
             value = getattr(decision.third_party, field)
             if value is None:
                 continue
-            matched_field = _ground_fragment(quoted_citation, value)
+            matched_field = ground_body_fragment(quoted_citation, value)
             if matched_field is None:
                 return f"The third-party {field} reading must occur inside its quoted citation"
         if decision.comparisons.locator.result is MatchResult.UNAVAILABLE:

@@ -1,4 +1,4 @@
-"""Bounded CourtListener search and full-body retrieval for two independent stages."""
+"""Bounded CourtListener search and full-body retrieval for locator and field stages."""
 
 from __future__ import annotations
 
@@ -23,10 +23,12 @@ from mellea_lrc.model.citations.body_evidence import (
     BodySearchAttempt,
     BodySource,
 )
+from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch
 from mellea_lrc.model.document import Document
 from mellea_lrc.validation.body_search.common import (
     eligible_on,
     evidence_date,
+    field_query_name,
     locator_text,
     make_body_evidences,
     roots_for_body_search,
@@ -228,8 +230,8 @@ def _next_cursor(url: str) -> str | None:
     return values[0] if len(values) == 1 and values[0] else None
 
 
-def _locator_query(locator: str) -> str:
-    return '"' + locator.replace("\\", "\\\\").replace('"', '\\"') + '"'
+def _quoted_query(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def _parent_id(hit: CourtListenerSearchResult, source: BodySource) -> str | None:
@@ -260,10 +262,11 @@ def _fetch_evidence(
     item_id: str,
     hit: CourtListenerSearchResult,
     source: BodySource,
-    locator: str,
+    anchor_text: str,
     source_text: str,
     retrospective_date: date | None,
     query: str,
+    anchor_kind: Literal["locator", "case_name"] = "locator",
 ) -> tuple[tuple[BodyEvidence, ...], BodyEvidenceFailure | None]:
     try:
         record = (
@@ -317,13 +320,18 @@ def _fetch_evidence(
         date_basis=date_basis,
         metadata=metadata,
         body_text=body_text,
-        locator=locator,
+        locator=anchor_text,
         source_text=source_text,
+        anchor_kind=anchor_kind,
     )
     if not evidence:
         return (), _failure(
             "no_grounded_anchor",
-            "Fetched body does not contain the cited locator",
+            (
+                "Fetched body does not contain the searched case name"
+                if anchor_kind == "case_name"
+                else "Fetched body does not contain the cited locator"
+            ),
             item_id=item_id,
         )
     return evidence, None
@@ -334,10 +342,11 @@ def _search_query(
     *,
     query: str,
     source: BodySource,
-    locator: str,
+    anchor_text: str,
     source_text: str,
     retrospective_date: date | None,
     budget: _CandidateBudget,
+    anchor_kind: Literal["locator", "case_name"] = "locator",
 ) -> tuple[BodySearchAttempt, tuple[BodyEvidence, ...], tuple[BodyEvidenceFailure, ...]]:
     pages: list[dict[str, Any]] = []
     evidence: list[BodyEvidence] = []
@@ -385,10 +394,11 @@ def _search_query(
                     item_id=item_id,
                     hit=hit,
                     source=source,
-                    locator=locator,
+                    anchor_text=anchor_text,
                     source_text=source_text,
                     retrospective_date=retrospective_date,
                     query=query,
+                    anchor_kind=anchor_kind,
                 )
                 evidence.extend(found)
                 if failure is not None:
@@ -466,7 +476,7 @@ def run_courtlistener_body_search(
                 failures.append(_failure("unsearchable_locator", "Citation has no searchable locator"))
             if locator:
                 budget = _CandidateBudget()
-                query = _locator_query(locator)
+                query = _quoted_query(locator)
                 if service is None:
                     try:
                         service = stack.enter_context(CourtListenerClient())
@@ -477,7 +487,7 @@ def run_courtlistener_body_search(
                         service,
                         query=query,
                         source=source,
-                        locator=locator,
+                        anchor_text=locator,
                         source_text=document.text,
                         retrospective_date=retrospective_date,
                         budget=budget,
@@ -494,4 +504,67 @@ def run_courtlistener_body_search(
                 failures=tuple(failures),
             )
             document = document.replace_citation(recorded.with_body_search(result))
+    return document.complete(stage)
+
+
+def run_courtlistener_field_body_search(
+    document: Document,
+    *,
+    stage: str,
+    source: BodySource,
+    retrospective_date: date | None,
+    client: CourtListenerBodyClient | None,
+) -> Document:
+    """Search routed roots by a printed case name and save grounded body excerpts."""
+    if stage in document.stage_runs:
+        raise ValueError(f"Stage already completed: {stage}")
+    if "23_locator_body_review" not in document.stage_runs:
+        raise ValueError("Complete locator body review before field body search")
+
+    with ExitStack() as stack:
+        service = client
+        for root in document.roots:
+            if root.next_stage != "case_name_body_discovery":
+                continue
+            recorded = root.record(stage)
+            attempts: list[BodySearchAttempt] = []
+            evidence: list[BodyEvidence] = []
+            failures: list[BodyEvidenceFailure] = []
+            query_name = field_query_name(root)
+            if query_name is None:
+                failures.append(
+                    _failure("unsearchable_case_name", "Citation has no safe case name for body search")
+                )
+            else:
+                query = _quoted_query(query_name)
+                budget = _CandidateBudget()
+                if service is None:
+                    try:
+                        service = stack.enter_context(CourtListenerClient())
+                    except CourtListenerError as error:
+                        attempts.append(BodySearchAttempt(query=query, failure=_service_failure(error)))
+                if service is not None:
+                    attempt, found, failed = _search_query(
+                        service,
+                        query=query,
+                        source=source,
+                        anchor_text=query_name,
+                        source_text=document.text,
+                        retrospective_date=retrospective_date,
+                        budget=budget,
+                        anchor_kind="case_name",
+                    )
+                    attempts.append(attempt)
+                    evidence.extend(found)
+                    failures.extend(failed)
+            result = FieldBodySearch(
+                node_id=recorded.nodes[-1].id,
+                source=source,
+                retrospective_date=retrospective_date,
+                query_name=query_name,
+                attempts=tuple(attempts),
+                evidence=tuple(evidence),
+                failures=tuple(failures),
+            )
+            document = document.replace_citation(recorded.with_field_body_search(result))
     return document.complete(stage)
