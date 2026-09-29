@@ -154,13 +154,15 @@ def test_body_review_keeps_field_scores_and_marks_final_checkpoint(tmp_path: Pat
     assert score.stages == prior.stages
     assert score.fields == prior.fields
     assert score.body_review is not None
-    assert score.body_review.decisive_identity == evaluation.Precision(1, 1)
+    assert score.body_review.verdict_counts == {"wrong_identity": 1}
     assert score.identity == evaluation.IdentityScore(1, 1, 1, 0)
+    assert score.identity_with_partial == score.identity
     assert score.checkpoint == evaluation.LOCATOR_BODY_REVIEW
     assert score.as_dict()["checkpoint"] == evaluation.LOCATOR_BODY_REVIEW
     report = evaluation.render_validate_roots(score)
     assert "Checkpoint: 23_locator_body_review completed" in report
     assert "## 23_locator_body_review" in report
+    assert "| wrong_identity | 1 |" in report
     assert "## Root identity after locator-body review" in report
     assert "printed citation comparisons have no corresponding field identity gold" in report
 
@@ -170,9 +172,7 @@ def test_body_review_keeps_field_scores_and_marks_final_checkpoint(tmp_path: Pat
         )
     )
     assert evaluation.score_validate_roots(declined).fields == prior.fields
-    assert evaluation.score_validate_roots(declined).body_review.decisive_identity == evaluation.Precision(
-        0, 0
-    )
+    assert evaluation.score_validate_roots(declined).body_review.verdict_counts == {}
 
 
 def test_body_identity_score_counts_an_incorrect_third_party_verdict(tmp_path: Path) -> None:
@@ -192,8 +192,9 @@ def test_body_identity_score_counts_an_incorrect_third_party_verdict(tmp_path: P
     )
     score = evaluation.score_validate_roots(reviewed)
     assert score.body_review is not None
-    assert score.body_review.decisive_identity == evaluation.Precision(0, 1)
+    assert score.body_review.verdict_counts == {"wrong_identity": 1}
     assert score.identity == evaluation.IdentityScore(0, 1, 1, 0)
+    assert score.identity_with_partial == score.identity
 
 
 def test_disputed_third_party_quote_does_not_become_field_identity_gold(tmp_path: Path) -> None:
@@ -370,13 +371,18 @@ def test_docket_case_can_be_supported_without_admitting_a_different_order_date(
     assert root.identity_judgments[-1].verdict is IdentityVerdict.PARTIALLY_CORROBORATED
     assert root.next_stage == "case_name_body_discovery"
     assert root.body_reviews[-1].decision.comparisons.date.result.value == "mismatch"
-    assert evaluation.score_locator_body_review(reviewed).decisive_identity == evaluation.Precision(0, 0)
+    assert evaluation.score_locator_body_review(reviewed).verdict_counts == {
+        "partially_corroborated": 1
+    }
     # A qualified body judgment must retract even a prior full-citation admission.
     monkeypatch.setattr(evaluation, "_final_field_label", lambda *_: "agrees")
     assert evaluation.score_validate_roots(
         reviewed.get_stage(evaluation.WORKFLOW_STAGES[-1])
     ).identity == evaluation.IdentityScore(1, 1, 1, 0)
-    assert evaluation.score_validate_roots(reviewed).identity == evaluation.IdentityScore(0, 0, 1, 1)
+    body_score = evaluation.score_validate_roots(reviewed)
+    assert body_score.identity == evaluation.IdentityScore(0, 0, 1, 1)
+    assert body_score.identity_with_partial == evaluation.IdentityScore(1, 1, 1, 0)
+    assert "| partially_corroborated | 1 |" in evaluation.render_validate_roots(body_score)
     assert Document.model_validate_json(reviewed.model_dump_json()) == reviewed
 
 
