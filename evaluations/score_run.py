@@ -25,7 +25,7 @@ def score_run(run_dir: Path, workflows: tuple[str, ...] = tuple(_WORKFLOWS)) -> 
     if {path.name for path in (run_dir / "documents").glob("*.json")} != {
         f"{filename}.json" for filename in filenames
     }:
-        raise ValueError("Run Documents do not match its filing manifest")
+        raise ValueError("Run Documents do not match its document list")
     documents = tuple(
         Document.model_validate_json((run_dir / "documents" / f"{filename}.json").read_text(encoding="utf-8"))
         for filename in filenames
