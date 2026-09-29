@@ -48,7 +48,7 @@ After root lookup, unresolved roots can be checked for their reporter or docket 
 
 `review_locator_body_evidence(document)` is stage `23_locator_body_review`. It selects a grounded occurrence, rereads the source filing, compares the two printed citations field by field, and records how the other document treats that citation. An explicit challenge to a fictitious or incorrect citation needs its own grounded context quote and produces `WRONG_IDENTITY`, even when the printed fields match. A mere mention leaves identity unresolved. An affirmative citation is judged from its field comparisons. These judgments use `basis=third_party`; the citation also retains the selected quote, context, field updates, and complete model trace. Later case-name-led discovery is separate and is not part of this workflow.
 
-The printed-field comparisons are distinct from the identity-field labels in the annotated benchmark: another document can repeat a false citation verbatim. The validation field report therefore keeps the last comparable judgments from stage `19`; it marks stage `23` as the completed checkpoint without treating literal repetition as field-level identity proof.
+The printed-field comparisons are distinct from the identity-field labels in the annotated benchmark: another document can repeat a false citation verbatim. The validation field report therefore keeps the last comparable judgments from stage `19`. It scores stage `23`'s overall identity verdict separately, then reports cumulative identity after that verdict takes precedence over any lookup-derived verdict.
 
 Use the stages individually when developing a provider, or run their composition:
 

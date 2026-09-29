@@ -407,6 +407,48 @@ def test_resume_existing_run_can_select_and_save_reserved_pool(
     assert clients[2].config.pool == "reserved"
 
 
+def test_resume_can_switch_reserved_run_to_proxy_pool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root = _dataset(tmp_path, ("001.txt",))
+    checkpoint_dir = tmp_path / "validation-input"
+    checkpoint_dir.mkdir()
+    source = data_root / "primary" / "documents_txt" / "001.txt"
+    ready = _complete(Document.from_source(source), runner._VALIDATION_INPUT_STAGES)
+    (checkpoint_dir / "001.txt.json").write_text(ready.model_dump_json(), encoding="utf-8")
+    monkeypatch.setenv("COURTLISTENER_BASE_URL", "https://proxy.example/api/rest/v4/")
+    monkeypatch.setenv("COURTLISTENER_API_TOKEN_RESERVED", "offline-reserved-token")
+    clients: list[CourtListenerClient] = []
+
+    async def body(
+        document: Document, *, retrospective_date: date | None, courtlistener_client: CourtListenerClient
+    ) -> Document:
+        clients.append(courtlistener_client)
+        return _complete(document, runner._RUN_STAGES[19:])
+
+    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", body)
+    run_dir = asyncio.run(
+        runner._run(
+            data_root,
+            tmp_path / "results",
+            None,
+            from_validation_documents=checkpoint_dir,
+            courtlistener_pool="reserved",
+        )
+    )
+    (run_dir / "documents" / "001.txt.json").unlink()
+    assert asyncio.run(
+        runner._run(tmp_path / "unused", tmp_path / "unused", None, run_dir, courtlistener_pool="proxy")
+    ) == run_dir
+    assert clients[0].config.pool == "reserved"
+    assert clients[1].config.pool is None
+    assert clients[1].config.token is None
+    record_text = (run_dir / "run.json").read_text(encoding="utf-8")
+    assert json.loads(record_text)["courtlistener_pool_history"] == ["reserved", "proxy"]
+    assert json.loads(record_text)["courtlistener_pool"] == "proxy"
+    assert "offline-reserved-token" not in record_text
+
+
 def test_retry_body_stages_passes_selected_client_to_both_courtlistener_stages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

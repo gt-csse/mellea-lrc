@@ -35,8 +35,8 @@ from mellea_lrc.validation.body_search.common import (
 MAX_PAGES_PER_QUERY = 2
 MAX_HITS_PER_QUERY = 40
 MAX_FETCHES_PER_CITATION = 8
-MAX_RATE_LIMIT_RETRIES = 2
-MAX_RETRY_AFTER_SECONDS = 60
+MAX_TRANSIENT_RETRIES = 2
+MAX_RETRY_AFTER_SECONDS = 300
 _OPINION_TEXT_FIELDS = (
     "plain_text",
     "html_with_citations",
@@ -64,7 +64,11 @@ _Result = TypeVar("_Result")
 
 
 def _retry_after(error: CourtListenerError, attempt: int) -> float | None:
-    """Honor short quota hints, or briefly back off for an unhinted 429."""
+    """Retry transient transport/server failures and bounded quota pauses."""
+    if error.failure_type == "transport_error" or (
+        error.upstream_status_code is not None and error.upstream_status_code >= 500
+    ):
+        return float(2 ** (attempt + 1))
     if error.upstream_status_code != 429:
         return None
     if isinstance(error.upstream_detail, str):
@@ -80,17 +84,17 @@ def _retry_after(error: CourtListenerError, attempt: int) -> float | None:
     return float(2 ** (attempt + 1))
 
 
-def _retry_rate_limit(action: Callable[[], _Result]) -> _Result:
-    """Retry a short proxy quota pause; preserve longer failures for the run artifact."""
-    for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
+def _retry_transient(action: Callable[[], _Result]) -> _Result:
+    """Retry brief provider failures; preserve exhaustion for the run artifact."""
+    for attempt in range(MAX_TRANSIENT_RETRIES + 1):
         try:
             return action()
         except CourtListenerError as error:
             delay = _retry_after(error, attempt)
-            if delay is None or attempt == MAX_RATE_LIMIT_RETRIES:
+            if delay is None or attempt == MAX_TRANSIENT_RETRIES:
                 raise
             time.sleep(delay)
-    raise AssertionError("Rate-limit retry loop did not return or raise")
+    raise AssertionError("Transient retry loop did not return or raise")
 
 
 @dataclass(slots=True)
@@ -263,9 +267,9 @@ def _fetch_evidence(
 ) -> tuple[tuple[BodyEvidence, ...], BodyEvidenceFailure | None]:
     try:
         record = (
-            _retry_rate_limit(lambda: service.get_opinion(item_id))
+            _retry_transient(lambda: service.get_opinion(item_id))
             if source is BodySource.COURTLISTENER_OPINION
-            else _retry_rate_limit(lambda: service.get_recap_document(item_id))
+            else _retry_transient(lambda: service.get_recap_document(item_id))
         )
     except CourtListenerError as error:
         return (), _service_failure(error, item_id=item_id)
@@ -346,7 +350,7 @@ def _search_query(
 
     while len(pages) < MAX_PAGES_PER_QUERY:
         try:
-            page = _retry_rate_limit(lambda: service.search(query, search_type, cursor=cursor))
+            page = _retry_transient(lambda: service.search(query, search_type, cursor=cursor))
         except CourtListenerError as error:
             attempt_failure = _service_failure(error)
             break
