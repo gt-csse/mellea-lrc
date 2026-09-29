@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from enum import Enum
 from typing import Self
 
@@ -18,8 +17,8 @@ class MatchResult(str, Enum):
 class IdentityVerdict(str, Enum):
     CORRECT_IDENTITY = "correct_identity"
     WRONG_IDENTITY = "wrong_identity"
-    CASE_IDENTITY_SUPPORTED = "case_identity_supported"
-    DEFERRED = "deferred"
+    PARTIALLY_CORROBORATED = "partially_corroborated"
+    UNDETERMINED = "undetermined"
 
 
 class IdentityBasis(str, Enum):
@@ -27,29 +26,13 @@ class IdentityBasis(str, Enum):
 
 
 class IdentityJudgment(BaseModel):
-    """The durable overall result and route after one citation decision."""
+    """A durable identity opinion; routing is recorded separately."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     node_id: str
     verdict: IdentityVerdict
-    next_stage: str | None = None
     basis: IdentityBasis | None = None
-
-    @model_validator(mode="after")
-    def _validate_route(self) -> Self:
-        needs_more_evidence = self.verdict in {
-            IdentityVerdict.DEFERRED,
-            IdentityVerdict.CASE_IDENTITY_SUPPORTED,
-        }
-        if needs_more_evidence != (self.next_stage is not None):
-            raise ValueError("An unresolved citation judgment must name its next stage")
-        if (
-            self.next_stage is not None
-            and re.fullmatch(r"(?:[0-9]+_)?[a-z][a-z0-9_]*", self.next_stage) is None
-        ):
-            raise ValueError("A route must name a lowercase stage ID")
-        return self
 
 
 class _ReporterExactFieldJudgment(BaseModel):

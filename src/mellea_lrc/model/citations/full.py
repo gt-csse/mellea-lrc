@@ -96,14 +96,11 @@ class FullCitation(Citation):
     def with_identity_judgment(
         self,
         verdict: IdentityVerdict,
-        next_stage: str | None = None,
         *,
         basis: IdentityBasis | None = None,
     ) -> Self:
         """Append a verdict without changing any earlier decision."""
-        judgment = IdentityJudgment(
-            node_id=self._decision_node_id(), verdict=verdict, next_stage=next_stage, basis=basis
-        )
+        judgment = IdentityJudgment(node_id=self._decision_node_id(), verdict=verdict, basis=basis)
         return self._with_log(identity_judgments=(*self.identity_judgments, judgment))
 
     def with_body_search(self, result: BodySearch) -> Self:

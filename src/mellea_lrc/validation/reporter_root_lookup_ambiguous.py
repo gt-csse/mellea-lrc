@@ -54,7 +54,7 @@ def reporter_root_lookup_ambiguous(
     with ExitStack() as stack:
         service = client
         for root in roots:
-            if not root.identity_judgments or root.identity_judgments[-1].next_stage != STAGE:
+            if root.next_stage != STAGE:
                 continue
             lookup = root.reporter_exact_lookup
             if (
@@ -72,9 +72,7 @@ def reporter_root_lookup_ambiguous(
                     outcome=ReporterExactAmbiguityOutcome.CANDIDATE_LIMIT_EXCEEDED,
                 )
                 recorded = recorded.with_reporter_exact_ambiguity_resolution(resolution)
-                recorded = recorded.with_identity_judgment(
-                    IdentityVerdict.DEFERRED, "reporter_root_lookup_large_candidate_review"
-                )
+                recorded = recorded.with_route("reporter_root_lookup_large_candidate_review")
             else:
                 passing: list[int] = []
                 for index, candidate in enumerate(candidates):
@@ -130,11 +128,9 @@ def reporter_root_lookup_ambiguous(
                 )
                 recorded = recorded.with_reporter_exact_ambiguity_resolution(resolution)
                 recorded = (
-                    recorded.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
+                    recorded.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY).with_route(None)
                     if selected is not None
-                    else recorded.with_identity_judgment(
-                        IdentityVerdict.DEFERRED, "15_reporter_root_lookup_ambiguous_llm"
-                    )
+                    else recorded.with_route("15_reporter_root_lookup_ambiguous_llm")
                 )
             document = document.replace_citation(recorded)
     return document.complete(STAGE)

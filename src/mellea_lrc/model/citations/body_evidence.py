@@ -172,7 +172,7 @@ class BodyCorroborationDecision(BaseModel):
     filing: BodyFilingFields | None
     third_party: BodyCitationFields | None
     comparisons: BodyFieldComparisons | None
-    identity_verdict: IdentityVerdict
+    identity_verdict: IdentityVerdict | None
     reason: str = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -190,8 +190,8 @@ class BodyCorroborationDecision(BaseModel):
             raise ValueError("A selected body citation needs both sides and every comparison")
         if not selected and any(value is not None for value in (*details, self.context_quote)):
             raise ValueError("A declined body citation cannot compare a candidate")
-        if not selected and self.identity_verdict is not IdentityVerdict.DEFERRED:
-            raise ValueError("Without a selected citation, identity must be deferred")
+        if selected == (self.identity_verdict is None):
+            raise ValueError("Only a selected body citation can issue an identity judgment")
         if self.citation_quote is not None and not self.citation_quote.strip():
             raise ValueError("A selected citation quote cannot be blank")
         if self.context_quote is not None and not self.context_quote.strip():
@@ -208,7 +208,7 @@ class BodyCorroborationDecision(BaseModel):
             )
         ):
             raise ValueError("A negative identity judgment needs a field conflict or explicit challenge")
-        if self.identity_verdict is IdentityVerdict.CASE_IDENTITY_SUPPORTED and (
+        if self.identity_verdict is IdentityVerdict.PARTIALLY_CORROBORATED and (
             self.treatment is not BodyCitationTreatment.CITES_AS_AUTHORITY
             or self.comparisons.locator.result is not MatchResult.MATCH
             or self.comparisons.case_name.result is not MatchResult.MATCH

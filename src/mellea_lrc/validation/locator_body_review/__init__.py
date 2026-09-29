@@ -89,7 +89,7 @@ async def review_locator_body_evidence(
                     filing=None,
                     third_party=None,
                     comparisons=None,
-                    identity_verdict=IdentityVerdict.DEFERRED,
+                    identity_verdict=None,
                     reason="No fetched third-party body citation is available for comparison.",
                 )
             )
@@ -114,17 +114,18 @@ async def review_locator_body_evidence(
                     failure_reason=failure or "Model review produced no decision",
                 )
             )
-            recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, NEXT_STAGE)
+            recorded = recorded.with_route(NEXT_STAGE)
         elif decision.source is None:
             recorded = recorded.with_body_review(
                 BodyCorroborationReview(node_id=recorded.nodes[-1].id, decision=decision, ivr=outcome.run)
             )
-            recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, NEXT_STAGE)
+            recorded = recorded.with_route(NEXT_STAGE)
         else:
             grounded = context.grounded_quote(decision)
             grounded_context = context.grounded_context(decision)
             spans = context.corrected_spans(decision)
-            assert grounded is not None and spans is not None
+            if grounded is None or spans is None:
+                raise ValueError("Validated body citation lost its grounded evidence")
             recorded = recorded.with_body_review(
                 BodyCorroborationReview(
                     node_id=recorded.nodes[-1].id,
@@ -146,14 +147,13 @@ async def review_locator_body_evidence(
             )
             recorded = _append_corrections(recorded, document.text, spans, decision)
             verdict = decision.identity_verdict
-            recorded = recorded.with_identity_judgment(
-                verdict,
-                (
-                    NEXT_STAGE
-                    if verdict in {IdentityVerdict.DEFERRED, IdentityVerdict.CASE_IDENTITY_SUPPORTED}
-                    else None
-                ),
-                basis=IdentityBasis.THIRD_PARTY,
+            if verdict is None:
+                raise ValueError("A selected body citation must issue an identity opinion")
+            recorded = recorded.with_identity_judgment(verdict, basis=IdentityBasis.THIRD_PARTY)
+            recorded = recorded.with_route(
+                NEXT_STAGE
+                if verdict in {IdentityVerdict.UNDETERMINED, IdentityVerdict.PARTIALLY_CORROBORATED}
+                else None
             )
         document = document.replace_citation(recorded)
     return document.complete(STAGE)

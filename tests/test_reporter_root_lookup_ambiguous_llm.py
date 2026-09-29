@@ -13,13 +13,13 @@ from mellea_lrc.model import Span
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactAmbiguityOutcome
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm.reviewer import (
-    ReporterAmbiguousReviewDecision,
-    ReporterAmbiguousReviewOutcome,
-)
 from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm import (
     STAGE,
     reporter_root_lookup_ambiguous_llm,
+)
+from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm.reviewer import (
+    ReporterAmbiguousReviewDecision,
+    ReporterAmbiguousReviewOutcome,
 )
 
 SOURCE = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
@@ -130,7 +130,8 @@ def _review_input(
     resolution = before.roots[0].reporter_exact_ambiguity_resolution
     assert resolution is not None
     assert resolution.outcome is ReporterExactAmbiguityOutcome.NO_UNIQUE_RULE_MATCH
-    assert before.roots[0].identity_judgments[-1].next_stage == STAGE
+    assert before.roots[0].identity_judgments == ()
+    assert before.roots[0].next_stage == STAGE
     return before, client
 
 
@@ -196,13 +197,15 @@ def test_model_can_select_one_of_all_saved_candidates_after_zero_or_multiple_rul
         assert judgment.reading_index == len(readings) - 1
         assert judgment.result is MatchResult.MATCH
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
-    assert root.identity_judgments[-1].next_stage is None
+    assert root.next_stage is None
+    assert [route.value for route in root.routes] == ["13_reporter_root_lookup_ambiguous", STAGE, None]
+    assert root.routes[-1].node_id == root.nodes[-1].id
     restored = Document.model_validate_json(after.model_dump_json())
     assert restored == after
     assert restored.get_stage("13_reporter_root_lookup_ambiguous") == before
 
 
-def test_no_model_selection_remains_deferred_without_new_candidate_judgments() -> None:
+def test_no_model_selection_routes_without_new_candidate_or_identity_judgments() -> None:
     before, _ = _review_input(("Bell Atlantic Corporation v. Twombly",) * 2)
     previous = before.roots[0]
     reviewer = FakeReviewer(_decision(None))
@@ -216,8 +219,8 @@ def test_no_model_selection_remains_deferred_without_new_candidate_judgments() -
     assert root.case_name_judgments == previous.case_name_judgments
     assert root.court_judgments == previous.court_judgments
     assert root.date_judgments == previous.date_judgments
-    assert root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
-    assert root.identity_judgments[-1].next_stage == "reporter_root_search"
+    assert root.identity_judgments == previous.identity_judgments == ()
+    assert root.next_stage == "reporter_root_search"
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -233,7 +236,8 @@ def test_no_selection_records_unavailable_for_absent_date() -> None:
 
     root = after.roots[0]
     assert root.reporter_ambiguous_review.decision.date.result is MatchResult.UNAVAILABLE
-    assert root.identity_judgments[-1].next_stage == "reporter_root_search"
+    assert root.identity_judgments == ()
+    assert root.next_stage == "reporter_root_search"
 
 
 @pytest.mark.parametrize(
@@ -261,8 +265,8 @@ def test_review_rejects_field_state_inconsistent_with_selected_context(
     root = after.roots[0]
     assert root.reporter_ambiguous_review.decision is None
     assert expected_reason in root.reporter_ambiguous_review.failure_reason
-    assert root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
-    assert root.identity_judgments[-1].next_stage == "reporter_root_search"
+    assert root.identity_judgments == ()
+    assert root.next_stage == "reporter_root_search"
 
 
 def test_no_selection_can_save_a_grounded_replacement_for_search() -> None:
@@ -282,8 +286,8 @@ def test_no_selection_can_save_a_grounded_replacement_for_search() -> None:
     assert root.case_name_judgments == previous.case_name_judgments
     assert root.court_judgments == previous.court_judgments
     assert root.date_judgments == previous.date_judgments
-    assert root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
-    assert root.identity_judgments[-1].next_stage == "reporter_root_search"
+    assert root.identity_judgments == previous.identity_judgments == ()
+    assert root.next_stage == "reporter_root_search"
 
 
 def test_selected_candidate_uses_grounded_corrected_reading() -> None:
@@ -318,14 +322,14 @@ def test_selected_candidate_uses_grounded_corrected_reading() -> None:
             IdentityVerdict.WRONG_IDENTITY,
             None,
         ),
-        (("Jones v. Smith", ""), (1,), "unavailable", IdentityVerdict.DEFERRED, "reporter_root_search"),
+        (("Jones v. Smith", ""), (1,), "unavailable", None, "reporter_root_search"),
     ],
 )
 def test_selected_candidate_identity_follows_field_assessments(
     names: tuple[str, ...],
     no_full_names: tuple[int, ...],
     case_name_result: str,
-    verdict: IdentityVerdict,
+    verdict: IdentityVerdict | None,
     next_stage: str | None,
 ) -> None:
     before, _ = _review_input(names, no_full_names=no_full_names)
@@ -339,8 +343,11 @@ def test_selected_candidate_identity_follows_field_assessments(
     root = after.roots[0]
     assert root.case_name_judgments[-1].candidate_index == 1
     assert root.case_name_judgments[-1].result is MatchResult(case_name_result)
-    assert root.identity_judgments[-1].verdict is verdict
-    assert root.identity_judgments[-1].next_stage == next_stage
+    if verdict is None:
+        assert root.identity_judgments == ()
+    else:
+        assert root.identity_judgments[-1].verdict is verdict
+    assert root.next_stage == next_stage
 
 
 @pytest.mark.parametrize(
@@ -350,7 +357,7 @@ def test_selected_candidate_identity_follows_field_assessments(
         _decision(0, case_name_quote="A name absent from the filing v. Twombly"),
     ],
 )
-def test_invalid_selection_or_ungrounded_correction_defers_without_partial_updates(
+def test_invalid_selection_or_ungrounded_correction_routes_without_partial_updates(
     decision: ReporterAmbiguousReviewDecision,
 ) -> None:
     before, _ = _review_input(("Bell Atlantic Corporation v. Twombly",) * 2)
@@ -367,12 +374,12 @@ def test_invalid_selection_or_ungrounded_correction_defers_without_partial_updat
     assert root.case_name_judgments == previous.case_name_judgments
     assert root.court_judgments == previous.court_judgments
     assert root.date_judgments == previous.date_judgments
-    assert root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
-    assert root.identity_judgments[-1].next_stage == "reporter_root_search"
+    assert root.identity_judgments == previous.identity_judgments == ()
+    assert root.next_stage == "reporter_root_search"
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
-def test_failed_model_review_keeps_trace_and_defers() -> None:
+def test_failed_model_review_keeps_trace_and_routes_to_search() -> None:
     before, _ = _review_input(("Bell Atlantic Corporation v. Twombly",) * 2)
     run = IvrRun.model_validate(
         {
@@ -411,8 +418,8 @@ def test_failed_model_review_keeps_trace_and_defers() -> None:
     assert root.reporter_ambiguous_review.decision is None
     assert root.reporter_ambiguous_review.ivr == run
     assert root.reporter_ambiguous_review.failure_reason == "Incomplete JSON"
-    assert root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
-    assert root.identity_judgments[-1].next_stage == "reporter_root_search"
+    assert root.identity_judgments == ()
+    assert root.next_stage == "reporter_root_search"
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 

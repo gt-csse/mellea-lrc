@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from mellea_lrc.model.citations import FullReporterCitation
-from mellea_lrc.model.citations.judgments import IdentityVerdict
 from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactLookupOutcome,
     ReporterUniqueReview,
@@ -40,7 +39,7 @@ async def reporter_root_lookup_unique_llm(
         raise ValueError("Complete reporter lookup before its unique model review")
     service = reviewer
     for root in tuple(item for item in document.roots if isinstance(item, FullReporterCitation)):
-        if not root.identity_judgments or root.identity_judgments[-1].next_stage != STAGE:
+        if root.next_stage != STAGE:
             continue
         lookup = root.reporter_exact_lookup
         if (
@@ -83,7 +82,7 @@ async def reporter_root_lookup_unique_llm(
                     failure_reason=failure or "Model review produced no decision",
                 )
             )
-            recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, "reporter_root_search")
+            recorded = recorded.with_route("reporter_root_search")
         else:
             recorded = recorded.with_reporter_unique_review(
                 ReporterUniqueReview(node_id=recorded.nodes[-1].id, decision=decision, ivr=outcome.run)
@@ -96,9 +95,10 @@ async def reporter_root_lookup_unique_llm(
                 0,
                 recorded.reporter_exact_docket.response if recorded.reporter_exact_docket else None,
             )
-            recorded = recorded.with_identity_judgment(
-                verdict,
-                "reporter_root_search" if verdict is IdentityVerdict.DEFERRED else None,
+            recorded = (
+                recorded.with_identity_judgment(verdict).with_route(None)
+                if verdict is not None
+                else recorded.with_route("reporter_root_search")
             )
         document = document.replace_citation(recorded)
     return document.complete(STAGE)

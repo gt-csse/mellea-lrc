@@ -92,7 +92,8 @@ def test_unique_lookup_records_matching_fields_and_identity_and_roundtrips() -> 
     (identity,) = root.identity_judgments
     assert identity.node_id == lookup.node_id
     assert identity.verdict is IdentityVerdict.CORRECT_IDENTITY
-    assert identity.next_stage is None
+    assert root.next_stage is None
+    assert root.routes == ()
     assert all(
         record.node_id == lookup.node_id
         for record in (
@@ -128,8 +129,9 @@ def test_unique_field_mismatch_routes_to_review(changed_cluster: dict[str, objec
     root = after.roots[0]
 
     assert getattr(root, field_log)[0].result is MatchResult.MISMATCH
-    assert root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
-    assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
+    assert root.identity_judgments == ()
+    assert root.next_stage == "14_reporter_root_lookup_unique_llm"
+    assert root.routes[-1].node_id == root.nodes[-1].id
 
 
 def test_missing_full_name_is_unavailable_and_routes_to_review() -> None:
@@ -138,19 +140,20 @@ def test_missing_full_name_is_unavailable_and_routes_to_review() -> None:
     root = after.roots[0]
 
     assert root.case_name_judgments[0].result is MatchResult.UNAVAILABLE
-    assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
+    assert root.identity_judgments == ()
+    assert root.next_stage == "14_reporter_root_lookup_unique_llm"
     assert root.reporter_exact_lookup is not None
     assert root.reporter_exact_lookup.response == response
 
 
-def test_missing_provider_court_defers_inferred_court_as_unavailable() -> None:
+def test_missing_provider_court_routes_inferred_court_as_unavailable() -> None:
     response = _response(_matching_cluster(court_id=None))
     after = reporter_root_lookup(_document(), client=FakeLookupClient(response))
     root = after.roots[0]
 
     assert root.court[-1].span is None
     assert root.court_judgments[-1].result is MatchResult.UNAVAILABLE
-    assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
+    assert root.next_stage == "14_reporter_root_lookup_unique_llm"
 
 
 def test_unique_lookup_fetches_linked_docket_and_judges_court_before_identity() -> None:
@@ -177,7 +180,7 @@ def test_unique_lookup_fetches_linked_docket_and_judges_court_before_identity() 
         Document.model_validate(altered)
 
 
-def test_linked_docket_court_mismatch_defers_identity() -> None:
+def test_linked_docket_court_mismatch_routes_to_review() -> None:
     response = _response(_matching_cluster(court_id=None, docketId=10))
     docket = CourtListenerDocket.model_validate({"id": 10, "court_id": "ca2"})
     client = FakeLookupClient(response, dockets={"10": docket})
@@ -188,7 +191,8 @@ def test_linked_docket_court_mismatch_defers_identity() -> None:
     assert root.case_name_judgments[-1].result is MatchResult.MATCH
     assert root.date_judgments[-1].result is MatchResult.MATCH
     assert root.court_judgments[-1].result is MatchResult.MISMATCH
-    assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
+    assert root.identity_judgments == ()
+    assert root.next_stage == "14_reporter_root_lookup_unique_llm"
 
 
 def test_missing_linked_docket_cannot_silently_admit_inferred_court() -> None:
@@ -201,7 +205,7 @@ def test_missing_linked_docket_cannot_silently_admit_inferred_court() -> None:
     assert root.reporter_exact_docket is not None
     assert root.reporter_exact_docket.response is None
     assert root.court_judgments[-1].result is MatchResult.UNAVAILABLE
-    assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
+    assert root.next_stage == "14_reporter_root_lookup_unique_llm"
 
 
 def test_missing_provider_court_routes_explicit_court_to_review() -> None:
@@ -212,7 +216,7 @@ def test_missing_provider_court_routes_explicit_court_to_review() -> None:
 
     assert root.court[-1].quote == "S.D.N.Y."
     assert root.court_judgments[-1].result is MatchResult.UNAVAILABLE
-    assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
+    assert root.next_stage == "14_reporter_root_lookup_unique_llm"
 
 
 def test_nonmatching_listed_locator_routes_to_review_even_when_fields_match() -> None:
@@ -223,7 +227,8 @@ def test_nonmatching_listed_locator_routes_to_review_even_when_fields_match() ->
     assert root.case_name_judgments[0].result is MatchResult.MATCH
     assert root.court_judgments[0].result is MatchResult.MATCH
     assert root.date_judgments[0].result is MatchResult.MATCH
-    assert root.identity_judgments[-1].next_stage == "14_reporter_root_lookup_unique_llm"
+    assert root.identity_judgments == ()
+    assert root.next_stage == "14_reporter_root_lookup_unique_llm"
 
 
 def test_multiple_results_preserve_all_clusters_and_route_to_ambiguity() -> None:
@@ -243,8 +248,8 @@ def test_multiple_results_preserve_all_clusters_and_route_to_ambiguity() -> None
     assert [cluster.id for cluster in lookup.response.clusters] == ["1", "2"]
     assert lookup.response.clusters[0].raw_json["extra_provider_detail"] == {"source": "first"}
     assert root.case_name_judgments == root.court_judgments == root.date_judgments == ()
-    assert root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
-    assert root.identity_judgments[-1].next_stage == "13_reporter_root_lookup_ambiguous"
+    assert root.identity_judgments == ()
+    assert root.next_stage == "13_reporter_root_lookup_ambiguous"
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -255,7 +260,8 @@ def test_no_candidate_routes_to_search_but_provider_failure_does_not_complete() 
     assert root.reporter_exact_lookup is not None
     assert root.reporter_exact_lookup.outcome is ReporterExactLookupOutcome.NOT_FOUND
     assert root.case_name_judgments == root.court_judgments == root.date_judgments == ()
-    assert root.identity_judgments[-1].next_stage == "reporter_root_search"
+    assert root.identity_judgments == ()
+    assert root.next_stage == "reporter_root_search"
     assert empty.get_stage("10_roots") == before
 
     with pytest.raises(CourtListenerError, match="item status 429"):
@@ -296,7 +302,8 @@ def test_unnormalizable_root_records_search_without_request() -> None:
     assert root.reporter_exact_lookup.outcome is ReporterExactLookupOutcome.UNNORMALIZABLE
     assert root.reporter_exact_lookup.query is None
     assert root.reporter_exact_lookup.response is None
-    assert root.identity_judgments[-1].next_stage == "reporter_root_search"
+    assert root.identity_judgments == ()
+    assert root.next_stage == "reporter_root_search"
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -325,13 +332,15 @@ def test_judgments_use_absolute_reading_indices_and_survive_later_history() -> N
     assert looked_up.reporter_exact_lookup is not None
     assert looked_up.case_name_judgments[0].candidate_index == 0
 
-    later = looked_up.record("later_review").with_identity_judgment(IdentityVerdict.DEFERRED, "later_review")
+    later = looked_up.record("later_review").with_route("later_review")
     final = after.replace_citation(later).complete("later_review")
     restored = Document.model_validate_json(final.model_dump_json())
     assert restored == final
     assert restored.get_stage("10_roots") == before.get_stage("10_roots")
     assert restored.get_stage(STAGE) == after
     assert restored.roots[0].case_name_judgments[0].reading_index == 1
+    assert restored.roots[0].next_stage == "later_review"
+    assert restored.roots[0].routes[-1].node_id == later.nodes[-1].id
 
 
 @pytest.mark.parametrize(

@@ -23,6 +23,12 @@ from mellea_lrc.api import (
 )
 from mellea_lrc.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.model import FullDocketCitation, FullReporterCitation, Span
+from mellea_lrc.model.citations.body_evidence import (
+    BodyCorroborationDecision,
+    BodyCorroborationReview,
+    BodySearch,
+    BodySource,
+)
 from mellea_lrc.model.citations.docket_lookup import (
     DocketLookup,
     DocketLookupAttempt,
@@ -36,11 +42,12 @@ from mellea_lrc.model.citations.govinfo_lookup import (
     GovInfoLookupAttempt,
     GovInfoLookupCandidate,
 )
-from mellea_lrc.model.citations.judgments import MatchResult
+from mellea_lrc.model.citations.judgments import IdentityBasis, IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import (
     ReporterAmbiguousReviewDecision,
     ReporterUniqueReviewDecision,
 )
+from mellea_lrc.validation.body_search.common import make_body_evidences
 
 STAGES = (
     "12_reporter_root_lookup",
@@ -527,7 +534,7 @@ def test_final_score_uses_docket_review_as_latest_checkpoint(tmp_path: Path) -> 
     assert score == evaluation.score_validate_roots(final.get_stage("19_govinfo_docket_lookup_review"))
 
 
-@pytest.mark.parametrize("name", (*SCORERS.values(), "score_validate_roots"))
+@pytest.mark.parametrize("name", (*SCORERS.values(), "score_locator_body_review", "score_validate_roots"))
 def test_public_scorers_take_only_a_document(name: str) -> None:
     parameters = tuple(inspect.signature(getattr(evaluation, name)).parameters.values())
     assert len(parameters) == 1
@@ -971,3 +978,287 @@ def test_missing_stage_checkpoint_raises(tmp_path: Path) -> None:
     unvalidated = Document.from_source(roots.source_path)
     with pytest.raises(KeyError, match="Stage has not run"):
         evaluation.score_docket_root_lookup_review(unvalidated)
+
+
+def _stage23_review(
+    tmp_path: Path,
+    *,
+    verdict: IdentityVerdict | None = IdentityVerdict.CORRECT_IDENTITY,
+    fetched: bool = True,
+    no_reviewable: bool = False,
+    failure: bool = False,
+    next_stage: str | None = None,
+) -> Document:
+    document = _roots(tmp_path, docket_stages=False)
+    for stage in evaluation.WORKFLOW_STAGES:
+        document = document.complete(stage)
+    quote = "Gamma v. Delta, No. 1:24-cv-08705 (S.D.N.Y. 2024)"
+    context_quote = "The opinion cites"
+    body = f"{context_quote} {quote}."
+    evidence = (
+        make_body_evidences(
+            body_id="opinion-123",
+            parent_id="docket-456",
+            url="https://example.test/opinion-123",
+            issued_on=date(2024, 1, 1),
+            date_basis="opinion.date_filed",
+            metadata={"id": 123},
+            body_text=body,
+            locator="1:24-cv-08705",
+            source_text=document.text,
+        )
+        if fetched
+        else ()
+    )
+    for stage in evaluation.BODY_WORKFLOW_STAGES[:-1]:
+        if stage == evaluation.BODY_WORKFLOW_STAGES[0]:
+            root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
+            recorded = root.record(stage)
+            recorded = recorded.with_body_search(
+                BodySearch(
+                    node_id=recorded.nodes[-1].id,
+                    source=BodySource.COURTLISTENER_OPINION,
+                    retrospective_date=None,
+                    evidence=evidence,
+                )
+            )
+            document = document.replace_citation(recorded)
+        document = document.complete(stage)
+    root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
+    recorded = root.record(evaluation.LOCATOR_BODY_REVIEW)
+    if failure:
+        review = BodyCorroborationReview(
+            node_id=recorded.nodes[-1].id,
+            failure_reason="The model review failed.",
+        )
+    elif verdict is None or not fetched:
+        decision = BodyCorroborationDecision.model_validate(
+            {
+                "source": None,
+                "evidence_index": None,
+                "citation_quote": None,
+                "context_quote": None,
+                "treatment": None,
+                "filing": None,
+                "third_party": None,
+                "comparisons": None,
+                "identity_verdict": None,
+                "reason": (
+                    "No fetched third-party body citation is available for comparison."
+                    if no_reviewable or not fetched
+                    else "No independent citation was selected."
+                ),
+            }
+        )
+        review = BodyCorroborationReview(node_id=recorded.nodes[-1].id, decision=decision)
+    else:
+        court_result = "mismatch" if verdict is IdentityVerdict.WRONG_IDENTITY else "match"
+        decision = BodyCorroborationDecision.model_validate(
+            {
+                "source": BodySource.COURTLISTENER_OPINION.value,
+                "evidence_index": 0,
+                "citation_quote": quote,
+                "context_quote": context_quote,
+                "treatment": "cites_as_authority",
+                "filing": {
+                    "locator": "1:24-cv-08705",
+                    "case_name": "Gamma v. Delta",
+                    "normalized_case_name": {
+                        "kind": "adversarial",
+                        "plaintiff": "Gamma",
+                        "defendant": "Delta",
+                        "subject": None,
+                    },
+                    "court": "S.D.N.Y.",
+                    "date": "2024",
+                },
+                "third_party": {
+                    "locator": "1:24-cv-08705",
+                    "case_name": "Gamma v. Delta",
+                    "court": "N.D. Tex." if court_result == "mismatch" else "S.D.N.Y.",
+                    "date": "2024",
+                },
+                "comparisons": {
+                    field: {
+                        "result": court_result if field == "court" else "match",
+                        "reason": f"The printed {field} was compared.",
+                    }
+                    for field in ("locator", "case_name", "court", "date")
+                },
+                "identity_verdict": verdict.value,
+                "reason": "The independent citation supports this assessment.",
+            }
+        )
+        assert len(evidence) == 1
+        excerpt = evidence[0].excerpt
+        quote_start = excerpt.index(quote)
+        context_start = excerpt.index(context_quote)
+        review = BodyCorroborationReview(
+            node_id=recorded.nodes[-1].id,
+            decision=decision,
+            grounded_quote=quote,
+            quote_span=Span(quote_start, quote_start + len(quote)),
+            quote_similarity=100,
+            grounded_context=context_quote,
+            context_span=Span(context_start, context_start + len(context_quote)),
+            context_similarity=100,
+        )
+    recorded = recorded.with_body_review(review)
+    if review.decision is not None and review.decision.source is not None:
+        assert verdict is not None
+        recorded = recorded.with_identity_judgment(verdict, basis=IdentityBasis.THIRD_PARTY)
+    recorded = recorded.with_route(next_stage)
+    return document.replace_citation(recorded).complete(evaluation.LOCATOR_BODY_REVIEW)
+
+
+def test_stage23_report_exposes_selected_evidence_and_comparison_reasons(tmp_path: Path) -> None:
+    document = _stage23_review(tmp_path, verdict=IdentityVerdict.WRONG_IDENTITY)
+    detail = evaluation.score_locator_body_review(document)
+    assert detail.decisive_identity == evaluation.Precision(0, 1)
+    assert detail.verdict_counts == {"wrong_identity": 1}
+    assert detail.route_counts == {}
+    assert detail.review_status_counts == {"selected": 1}
+    assert len(detail.rows) == 1
+    row = detail.rows[0]
+    assert row.review_status == "selected"
+    assert row.selected_source == "courtlistener_opinion"
+    assert row.selected_evidence_index == 0
+    assert row.selected_body_id == "opinion-123"
+    assert row.selected_source_offset == 0
+    assert row.grounded_citation_quote == "Gamma v. Delta, No. 1:24-cv-08705 (S.D.N.Y. 2024)"
+    assert row.grounded_citation_span is not None
+    assert row.grounded_citation_span["end"] > row.grounded_citation_span["start"]
+    assert row.grounded_context_quote == "The opinion cites"
+    assert row.grounded_context_span is not None
+    assert row.treatment == "cites_as_authority"
+    assert row.filing["court"] == "S.D.N.Y."
+    assert row.third_party["court"] == "N.D. Tex."
+    assert row.comparisons["court"] == {
+        "result": "mismatch",
+        "reason": "The printed court was compared.",
+    }
+    assert row.verdict == "wrong_identity"
+    assert row.gold_identity == "CORRECT_IDENTITY"
+    assert row.matches_gold is False
+    assert row.next_stage is None
+    workflow = evaluation.score_validate_roots(document)
+    assert workflow.body_review == detail
+    assert workflow.as_dict()["body_review"]["rows"][0]["selected_body_id"] == "opinion-123"
+    report = evaluation.render_validate_roots(workflow)
+    assert "The printed court was compared." in report
+    assert "The independent citation supports this assessment." in report
+    assert "opinion-123" in report
+    assert "Printed-field comparisons have no corresponding gold" in report
+
+
+@pytest.mark.parametrize(
+    "verdict",
+    (IdentityVerdict.PARTIALLY_CORROBORATED, IdentityVerdict.UNDETERMINED),
+)
+def test_stage23_nondecisive_judgment_is_reported_without_binary_accuracy(
+    tmp_path: Path, verdict: IdentityVerdict
+) -> None:
+    document = _stage23_review(tmp_path, verdict=verdict, next_stage="case_name_body_discovery")
+    detail = evaluation.score_locator_body_review(document)
+    assert detail.decisive_identity == evaluation.Precision(0, 0)
+    assert detail.verdict_counts == {verdict.value: 1}
+    assert detail.route_counts == {"case_name_body_discovery": 1}
+    assert detail.rows[0].verdict == verdict.value
+    assert detail.rows[0].next_stage == "case_name_body_discovery"
+    assert detail.rows[0].matches_gold is None
+    assert evaluation.score_validate_roots(document).identity == evaluation.IdentityScore(0, 0, 2, 1)
+
+
+@pytest.mark.parametrize(
+    ("fetched", "failure", "expected_status"),
+    (
+        (False, False, "no_reviewable_evidence"),
+        (True, False, "model_declined"),
+        (True, True, "review_failure"),
+    ),
+)
+def test_stage23_routes_without_issuing_judgment(
+    tmp_path: Path, fetched: bool, failure: bool, expected_status: str
+) -> None:
+    document = _stage23_review(
+        tmp_path,
+        verdict=None,
+        fetched=fetched,
+        failure=failure,
+        next_stage="case_name_body_discovery",
+    )
+    detail = evaluation.score_locator_body_review(document)
+    assert detail.decisive_identity == evaluation.Precision(0, 0)
+    assert detail.verdict_counts == {}
+    assert detail.route_counts == {"case_name_body_discovery": 1}
+    assert detail.review_status_counts == {expected_status: 1}
+    assert detail.rows[0].verdict is None
+    assert detail.rows[0].matches_gold is None
+    assert detail.rows[0].failure_reason == ("The model review failed." if failure else None)
+    assert evaluation.score_validate_roots(document).body_review == detail
+
+
+def test_stage23_no_reviewable_status_allows_fetched_but_filtered_excerpts(tmp_path: Path) -> None:
+    document = _stage23_review(
+        tmp_path,
+        verdict=None,
+        no_reviewable=True,
+        next_stage="case_name_body_discovery",
+    )
+    root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
+    assert root.body_searches[0].evidence
+    assert evaluation.score_locator_body_review(document).review_status_counts == {
+        "no_reviewable_evidence": 1
+    }
+
+
+def test_stage23_evaluation_merges_rows_and_ignores_later_routes(tmp_path: Path) -> None:
+    first = _stage23_review(tmp_path / "first", next_stage=None)
+    second = _stage23_review(tmp_path / "second", verdict=None, next_stage="case_name_body_discovery")
+    recorded = next(root for root in first.roots if isinstance(root, FullDocketCitation)).record(
+        "24_followup"
+    )
+    first_later = first.replace_citation(recorded.with_route("unrelated_followup")).complete("24_followup")
+    first_score = evaluation.score_locator_body_review(first)
+    assert evaluation.score_locator_body_review(first_later) == first_score
+    combined = first_score + evaluation.score_locator_body_review(second)
+    assert combined.decisive_identity == evaluation.Precision(1, 1)
+    assert combined.verdict_counts == {"correct_identity": 1}
+    assert combined.route_counts == {"case_name_body_discovery": 1}
+    assert combined.review_status_counts == {"selected": 1, "model_declined": 1}
+    assert len(combined.as_dict()["rows"]) == 2
+
+
+@pytest.mark.parametrize(
+    ("missing_log", "error"),
+    (
+        ("identity_judgments", "matching identity judgment"),
+        ("routes", "exactly one route decision"),
+    ),
+)
+def test_stage23_evaluation_rejects_incomplete_selected_history(
+    tmp_path: Path, missing_log: str, error: str
+) -> None:
+    document = _stage23_review(tmp_path)
+    root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
+    review_node = root.body_reviews[-1].node_id
+    payload = document.model_dump(mode="python")
+    citation = next(item for item in payload["citations"] if item["id"] == root.id)
+    citation[missing_log] = tuple(item for item in citation[missing_log] if item["node_id"] != review_node)
+    incomplete = Document.model_validate(payload)
+    with pytest.raises(ValueError, match=error):
+        evaluation.score_locator_body_review(incomplete)
+
+
+def test_stage23_evaluation_rejects_identity_judgment_on_a_route_only_review(tmp_path: Path) -> None:
+    document = _stage23_review(tmp_path, verdict=None, next_stage="case_name_body_discovery")
+    root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
+    payload = document.model_dump(mode="python")
+    citation = next(item for item in payload["citations"] if item["id"] == root.id)
+    citation["identity_judgments"] = (
+        *citation["identity_judgments"],
+        {"node_id": root.body_reviews[-1].node_id, "verdict": "correct_identity", "basis": "third_party"},
+    )
+    invalid = Document.model_validate(payload)
+    with pytest.raises(ValueError, match="cannot issue an identity judgment"):
+        evaluation.score_locator_body_review(invalid)

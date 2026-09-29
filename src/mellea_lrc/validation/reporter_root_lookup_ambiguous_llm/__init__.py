@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from mellea_lrc.model.citations import FullReporterCitation
-from mellea_lrc.model.citations.judgments import IdentityVerdict
 from mellea_lrc.model.citations.reporter_lookup import (
     ReporterAmbiguousReview,
     ReporterExactAmbiguityOutcome,
@@ -42,7 +41,7 @@ async def reporter_root_lookup_ambiguous_llm(
         raise ValueError("Complete rule-only reporter ambiguity review before model choice")
     service = reviewer
     for root in tuple(item for item in document.roots if isinstance(item, FullReporterCitation)):
-        if not root.identity_judgments or root.identity_judgments[-1].next_stage != STAGE:
+        if root.next_stage != STAGE:
             continue
         lookup = root.reporter_exact_lookup
         resolution = root.reporter_exact_ambiguity_resolution
@@ -80,7 +79,7 @@ async def reporter_root_lookup_ambiguous_llm(
                     failure_reason=failure or "Model review produced no decision",
                 )
             )
-            recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, "reporter_root_search")
+            recorded = recorded.with_route("reporter_root_search")
         else:
             recorded = recorded.with_reporter_ambiguous_review(
                 ReporterAmbiguousReview(node_id=recorded.nodes[-1].id, decision=decision, ivr=outcome.run)
@@ -88,13 +87,14 @@ async def reporter_root_lookup_ambiguous_llm(
             recorded = append_corrections(recorded, document.text, corrections, decision)
             selected = decision.selected_candidate_index
             if selected is None:
-                recorded = recorded.with_identity_judgment(IdentityVerdict.DEFERRED, "reporter_root_search")
+                recorded = recorded.with_route("reporter_root_search")
             else:
                 recorded = append_field_judgments(recorded, decision, selected)
                 verdict = identity_verdict(recorded, decision, selected, context.selected_docket(selected))
-                recorded = recorded.with_identity_judgment(
-                    verdict,
-                    "reporter_root_search" if verdict is IdentityVerdict.DEFERRED else None,
+                recorded = (
+                    recorded.with_identity_judgment(verdict).with_route(None)
+                    if verdict is not None
+                    else recorded.with_route("reporter_root_search")
                 )
         document = document.replace_citation(recorded)
     return document.complete(STAGE)
