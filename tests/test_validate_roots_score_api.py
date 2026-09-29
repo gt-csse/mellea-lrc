@@ -577,10 +577,14 @@ def test_docket_review_scores_selected_fields_by_locator_and_preserves_stage_bou
     }
     assert workflow.identity == evaluation.IdentityScore(0, 1, 2, 0)
     report = evaluation.render_validate_roots(workflow)
-    assert report.index("## 15_reporter_root_lookup_ambiguous_llm") < report.index(
-        "## 17_docket_root_lookup_review"
+    numbered_headings = tuple(
+        line.removeprefix("## ")
+        for line in report.splitlines()
+        if line.startswith("## ") and line[3:4].isdigit()
     )
-    assert "## 16_docket_root_lookup\n" not in report
+    assert numbered_headings == WORKFLOW_STAGES
+    assert workflow.as_dict()["stage_order"] == list(WORKFLOW_STAGES)
+    assert "## 16_docket_root_lookup\n\nRetrieval only" in report
 
 
 def test_govinfo_review_scores_selected_candidate_and_supplies_final_docket_labels(
@@ -702,7 +706,7 @@ def test_rule_ambiguity_scores_only_the_selected_candidate_and_keeps_stage_bound
     score = evaluation.score_validate_roots(final)
     assert tuple(stage.stage for stage in score.stages) == STAGES
     assert set(score.fields) == FIELDS
-    assert set(score.as_dict()) == {"stages", "fields", "identity"}
+    assert set(score.as_dict()) == {"stage_order", "stages", "fields", "identity"}
     assert score.fields == {field: evaluation.FieldScore(1, 1, 2) for field in FIELDS}
     report = evaluation.render_validate_roots(score)
     assert "| Field | Precision | Recall |" in report
@@ -1125,6 +1129,13 @@ def test_stage23_report_counts_issued_verdicts(tmp_path: Path) -> None:
     assert "## 23_locator_body_review" in report
     assert "| wrong_identity | 1 |" in report
     assert "opinion-123" not in report
+    numbered_headings = tuple(
+        line.removeprefix("## ")
+        for line in report.splitlines()
+        if line.startswith("## ") and line[3:4].isdigit()
+    )
+    assert numbered_headings == (*evaluation.WORKFLOW_STAGES, *evaluation.BODY_WORKFLOW_STAGES)
+    assert workflow.as_dict()["stage_order"] == list(numbered_headings)
 
 
 @pytest.mark.parametrize(
@@ -1150,8 +1161,7 @@ def test_stage23_qualified_and_undetermined_verdicts_have_distinct_identity_scor
     if verdict is IdentityVerdict.PARTIALLY_CORROBORATED:
         report = evaluation.render_validate_roots(workflow)
         assert (
-            "| — (including partial: 1/1 = 100.0%) | "
-            "0/2 (0.0%) (including partial: 1/2 = 50.0%) | 1 |"
+            "| — (including partial: 1/1 = 100.0%) | 0/2 (0.0%) (including partial: 1/2 = 50.0%) | 1 |"
         ) in report
 
 
@@ -1179,9 +1189,7 @@ def test_partial_verdict_lowers_broader_precision_on_wrong_identity_gold(tmp_pat
         (True, True),
     ),
 )
-def test_stage23_routes_without_issuing_judgment(
-    tmp_path: Path, fetched: bool, failure: bool
-) -> None:
+def test_stage23_routes_without_issuing_judgment(tmp_path: Path, fetched: bool, failure: bool) -> None:
     document = _stage23_review(
         tmp_path,
         verdict=None,

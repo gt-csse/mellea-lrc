@@ -174,6 +174,11 @@ class WorkflowScore:
     body_review: BodyReviewScore | None = None
     identity_with_partial: IdentityScore | None = None
 
+    @property
+    def stage_order(self) -> tuple[str, ...]:
+        """All completed workflow stages, including retrieval-only stages."""
+        return WORKFLOW_STAGES + (BODY_WORKFLOW_STAGES if self.body_review is not None else ())
+
     def __add__(self, other: WorkflowScore) -> WorkflowScore:
         if tuple(stage.stage for stage in self.stages) != tuple(stage.stage for stage in other.stages):
             raise ValueError("Cannot combine different validation workflows")
@@ -204,6 +209,7 @@ class WorkflowScore:
 
     def as_dict(self) -> dict[str, object]:
         result = {
+            "stage_order": list(self.stage_order),
             "stages": [stage.as_dict() for stage in self.stages],
             "fields": {field: score.as_dict() for field, score in self.fields.items()},
             "identity": self.identity.as_dict(),
@@ -776,26 +782,19 @@ def render_locator_body_review(score: BodyReviewScore) -> str:
         "| Issued verdict | Count |",
         "| --- | ---: |",
     ]
-    lines.extend(
-        f"| {verdict} | {count} |" for verdict, count in sorted(score.verdict_counts.items())
-    )
+    lines.extend(f"| {verdict} | {count} |" for verdict, count in sorted(score.verdict_counts.items()))
     if not score.verdict_counts:
         lines.append("| — | 0 |")
     return "\n".join(lines) + "\n"
 
 
-def _identity_cell(
-    canonical: IdentityScore, inclusive: IdentityScore | None, *, recall: bool
-) -> str:
-    value = _field_cell(
-        FieldScore(canonical.correct, canonical.predicted, canonical.gold), recall=recall
-    )
+def _identity_cell(canonical: IdentityScore, inclusive: IdentityScore | None, *, recall: bool) -> str:
+    value = _field_cell(FieldScore(canonical.correct, canonical.predicted, canonical.gold), recall=recall)
     if inclusive is None:
         return value
     inclusive_denominator = inclusive.gold if recall else inclusive.predicted
     broader = (
-        f"{inclusive.correct}/{inclusive_denominator} = "
-        f"{inclusive.correct / inclusive_denominator:.1%}"
+        f"{inclusive.correct}/{inclusive_denominator} = {inclusive.correct / inclusive_denominator:.1%}"
         if inclusive_denominator
         else "—"
     )
@@ -812,6 +811,9 @@ def render_validate_roots(
         raise ValueError("Validate-roots score has missing or out-of-order stages or fields")
     if (score.body_review is None) != (score.identity_with_partial is None):
         raise ValueError("Body-review workflows require both canonical and inclusive identity scores")
+    stage_order = score.stage_order
+    if tuple(int(stage.split("_", 1)[0]) for stage in stage_order) != tuple(range(12, 12 + len(stage_order))):
+        raise ValueError("Validate-roots stage indices are not consecutive")
     sections = [f"# Validate-roots evaluation{f': {set_name}' if set_name else ''}"]
     if score.checkpoint == LOCATOR_BODY_REVIEW:
         sections.append(
@@ -819,8 +821,6 @@ def render_validate_roots(
             f"{WORKFLOW_STAGES[-1]}; the body review's printed citation comparisons have no corresponding "
             "field identity gold. Its overall identity verdict is scored separately."
         )
-    if include_stages:
-        sections.extend(_render_stage(stage, stage.stage) for stage in score.stages)
     lines = [
         "## Root field judgments",
         "",
@@ -832,9 +832,22 @@ def render_validate_roots(
         f"{_field_cell(score.fields[field], recall=True)} |"
         for field in FIELDS
     )
-    sections.append("\n".join(lines))
-    if score.body_review is not None:
-        sections.append(render_locator_body_review(score.body_review).rstrip())
+    field_summary = "\n".join(lines)
+    if include_stages:
+        scored_stages = {stage.stage: stage for stage in score.stages}
+        for stage in stage_order:
+            if stage in scored_stages:
+                sections.append(_render_stage(scored_stages[stage], stage))
+            elif stage == LOCATOR_BODY_REVIEW:
+                if score.body_review is None:
+                    raise ValueError("Missing locator-body review score")
+                sections.append(render_locator_body_review(score.body_review).rstrip())
+            else:
+                sections.append(f"## {stage}\n\nRetrieval only; no field judgment is scored at this stage.")
+            if stage == WORKFLOW_STAGES[-1]:
+                sections.append(field_summary)
+    else:
+        sections.append(field_summary)
     sections.append(
         "\n".join(
             (

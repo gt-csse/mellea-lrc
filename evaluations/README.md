@@ -112,8 +112,11 @@ Root validation continues with numbered stages `12` through `23`: four reporter
 lookup and review stages, CourtListener docket/opinion search and its
 number-based shortlist review, GovInfo docket lookup and review, then three
 locator-first body searches and `23_locator_body_review`. Retrieval stages
-record evidence but make no field judgment. When it selects a citation, the
-locator-body review records printed-field comparisons and an identity verdict;
+record evidence but make no field judgment. The Markdown report lists every
+completed stage in execution order, including retrieval-only stages; its JSON
+`stage_order` records the same sequence separately from scored stages. When it
+selects a citation, the locator-body review records printed-field comparisons
+and an identity verdict;
 these do not enter the field-identity precision table. The workflow summary
 uses the latest comparable field judgment for each root against the same
 annotated-root denominator.
