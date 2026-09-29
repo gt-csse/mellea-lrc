@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -20,6 +21,12 @@ class Citation(BaseModel):
     kind: str
     nodes: tuple[Node, ...]
     root_id: tuple[RelationshipUpdate[str | None], ...] = ()
+    routes: tuple[RelationshipUpdate[str | None], ...] = ()
+
+    @property
+    def next_stage(self) -> str | None:
+        """The currently queued stage, independent of any identity opinion."""
+        return self.routes[-1].value if self.routes else None
 
     @property
     def site_span(self) -> Span:
@@ -62,6 +69,14 @@ class Citation(BaseModel):
             root_id=(*self.root_id, RelationshipUpdate(value=root_id, node_id=self._decision_node_id())),
         )
 
+    def with_route(self, next_stage: str | None) -> Self:
+        """Append a routing decision; None clears an earlier route."""
+        if next_stage is not None and re.fullmatch(r"(?:[0-9]+_)?[a-z][a-z0-9_]*", next_stage) is None:
+            raise ValueError("A route must name a lowercase stage ID")
+        return self._with_log(
+            routes=(*self.routes, RelationshipUpdate(value=next_stage, node_id=self._decision_node_id()))
+        )
+
     def withdraw(self) -> Self:
         """Reattach to the dummy head, retaining all previous values."""
         return self.with_root(WITHDRAWN_ROOT_ID)
@@ -102,4 +117,9 @@ class Citation(BaseModel):
                 ):
                     raise ValueError(f"{name} updates are out of order")
                 previous = position
+        if any(
+            route.value is not None and re.fullmatch(r"(?:[0-9]+_)?[a-z][a-z0-9_]*", route.value) is None
+            for route in self.routes
+        ):
+            raise ValueError("A route must name a lowercase stage ID")
         return self

@@ -13,7 +13,6 @@ from mellea_lrc.api import Document, grow_roots
 from mellea_lrc.courtlistener import CourtListenerHTTPError, CourtListenerTransportError
 from mellea_lrc.courtlistener.models import CourtListenerSearchPage
 from mellea_lrc.model.citations.body_evidence import BodySource
-from mellea_lrc.model.citations.judgments import IdentityVerdict
 from mellea_lrc.validation.body_search.common import roots_for_body_search
 from mellea_lrc.validation.body_search.courtlistener_opinion import (
     STAGE as OPINION_STAGE,
@@ -82,10 +81,11 @@ def _page(*results: dict[str, Any], next_url: str | None = None) -> CourtListene
 def test_queued_field_identity_root_waits_for_aggregation_before_body_search() -> None:
     before = _rooted()
     route = before.roots[0].record("reporter_review")
-    queued = before.replace_citation(
-        route.with_identity_judgment(IdentityVerdict.DEFERRED, "fields_aggregated_identity")
-    ).complete("reporter_review")
+    queued = before.replace_citation(route.with_route("fields_aggregated_identity")).complete(
+        "reporter_review"
+    )
     assert roots_for_body_search(queued) == ()
+    assert queued.roots[0].identity_judgments == ()
 
     client = FakeBodyClient(lambda *_args: pytest.fail("Queued root must not be searched"))
     skipped = courtlistener_opinion_locator_body_search(queued, client=client)
@@ -93,10 +93,12 @@ def test_queued_field_identity_root_waits_for_aggregation_before_body_search() -
     assert skipped.roots[0].body_searches == ()
 
     aggregate = queued.roots[0].record("fields_aggregated_identity")
-    ready = queued.replace_citation(
-        aggregate.with_identity_judgment(IdentityVerdict.DEFERRED, OPINION_STAGE)
-    ).complete("fields_aggregated_identity")
+    ready = queued.replace_citation(aggregate.with_route(OPINION_STAGE)).complete(
+        "fields_aggregated_identity"
+    )
     assert roots_for_body_search(ready) == ready.roots
+    assert ready.roots[0].identity_judgments == ()
+    assert [item.value for item in ready.roots[0].routes] == ["fields_aggregated_identity", OPINION_STAGE]
 
 
 def test_opinion_stage_uses_nested_opinion_id_and_multiple_full_body_occurrences() -> None:
@@ -468,9 +470,7 @@ def test_transient_provider_failure_recovers_without_rerunning_document(
     error = (
         CourtListenerTransportError("read timed out", failure_type="transport_error")
         if failure_kind == "transport"
-        else CourtListenerHTTPError(
-            "server unavailable", failure_type="http_error", upstream_status_code=503
-        )
+        else CourtListenerHTTPError("server unavailable", failure_type="http_error", upstream_status_code=503)
     )
     search_attempts = 0
 
@@ -495,9 +495,7 @@ def test_transient_provider_failure_recovers_without_rerunning_document(
     after = courtlistener_opinion_locator_body_search(_rooted("347 U.S. 483."), client=client)
     assert sleep_calls == [2.0]
     assert after.roots[0].body_searches[0].failures == ()
-    assert client.search_calls == [('"347 U.S. 483"', "o", None)] * (
-        2 if failed_step == "search" else 1
-    )
+    assert client.search_calls == [('"347 U.S. 483"', "o", None)] * (2 if failed_step == "search" else 1)
     assert client.opinion_calls == ["901"] * (2 if failed_step == "detail" else 1)
 
 

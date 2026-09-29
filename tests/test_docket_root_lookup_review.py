@@ -16,7 +16,7 @@ from mellea_lrc.model.citations.docket_lookup import (
     DocketLookupFailure,
     DocketLookupReviewDecision,
 )
-from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
+from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.ivr import IvrRun
 from mellea_lrc.validation.docket_root_lookup_review import (
     STAGE,
@@ -267,10 +267,9 @@ def test_review_selects_opinion_from_mixed_shortlist_and_saves_independent_field
     assert root.docket_lookup_review.decision.case_name.result is MatchResult.MISMATCH
     assert root.docket_lookup_review.decision.court.result is MatchResult.MISMATCH
     assert root.docket_lookup_review.decision.date.result is MatchResult.MATCH
-    assert len(root.identity_judgments) == len(before.roots[0].identity_judgments) + 1
-    assert root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
-    assert root.identity_judgments[-1].next_stage == "fields_aggregated_identity"
-    assert root.identity_judgments[-1].node_id == root.docket_lookup_review.node_id
+    assert root.identity_judgments == before.roots[0].identity_judgments == ()
+    assert root.next_stage == "fields_aggregated_identity"
+    assert root.routes[-1].node_id == root.docket_lookup_review.node_id
     assert root.docket_lookup == before.roots[0].docket_lookup
     assert root.docket_lookup.attempts[0].pages[0]["results"][0]["unmodeled"] == {"saved": True}
     assert root.nodes[-1].stage == STAGE
@@ -382,6 +381,7 @@ def test_ungrounded_correction_records_failure_without_partial_updates() -> None
     assert root.case_name == before.roots[0].case_name
     assert root.locator == before.roots[0].locator
     assert root.identity_judgments == before.roots[0].identity_judgments
+    assert root.routes == before.roots[0].routes
 
 
 def test_partial_search_is_visible_to_review_and_preserved_in_lookup() -> None:
@@ -399,6 +399,7 @@ def test_partial_search_is_visible_to_review_and_preserved_in_lookup() -> None:
     assert after.roots[0].docket_lookup == before.roots[0].docket_lookup
     assert after.roots[0].docket_lookup_review.decision.selected_candidate_index is None
     assert after.roots[0].identity_judgments == before.roots[0].identity_judgments
+    assert after.roots[0].routes == before.roots[0].routes
 
 
 def test_model_context_truncates_large_search_hit_without_losing_saved_raw() -> None:
@@ -430,6 +431,8 @@ def test_empty_shortlist_persists_explicit_no_selection_without_model_call() -> 
         getattr(review.decision, field).result is MatchResult.UNAVAILABLE
         for field in ("docket_number", "case_name", "court", "date")
     )
+    assert after.roots[0].identity_judgments == ()
+    assert after.roots[0].next_stage is None
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -496,6 +499,7 @@ def test_failed_ivr_keeps_complete_run_and_reason() -> None:
     assert review.failure_reason == "Incomplete review JSON"
     assert review.ivr == run
     assert after.roots[0].identity_judgments == before.roots[0].identity_judgments
+    assert after.roots[0].routes == before.roots[0].routes
     assert review.ivr.attempts[0].request == [{"role": "user", "content": "review this docket"}]
     assert review.ivr.attempts[0].response == {"finish_reason": "stop"}
     assert Document.model_validate_json(after.model_dump_json()) == after

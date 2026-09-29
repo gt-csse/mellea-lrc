@@ -13,7 +13,6 @@ from mellea_lrc.matching.fuzziness import FuzzinessOption
 from mellea_lrc.matching.grounding import fuzzy_find
 from mellea_lrc.model.citations import FullCitationVariant, FullDocketCitation
 from mellea_lrc.model.citations.body_evidence import BodyEvidence
-from mellea_lrc.model.citations.judgments import IdentityVerdict
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 
@@ -29,11 +28,8 @@ def roots_for_body_search(document: Document) -> tuple[FullCitationVariant, ...]
     return tuple(
         root
         for root in document.roots
-        if not root.identity_judgments
-        or (
-            root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
-            and root.identity_judgments[-1].next_stage != "fields_aggregated_identity"
-        )
+        if (not root.identity_judgments and root.next_stage is None)
+        or (root.next_stage is not None and root.next_stage != "fields_aggregated_identity")
     )
 
 

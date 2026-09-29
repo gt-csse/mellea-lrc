@@ -70,7 +70,7 @@ def identity_verdict(
     decision: ReporterReviewDecision,
     candidate_index: int,
     docket: CourtListenerDocket | None,
-) -> IdentityVerdict:
+) -> IdentityVerdict | None:
     """Derive identity from independent field decisions for one saved cluster."""
     if any(
         assessment.result is MatchResult.MISMATCH
@@ -86,12 +86,12 @@ def identity_verdict(
         or not (candidate.case_name_full or candidate.case_name)
         or decision.case_name.result is not MatchResult.MATCH
     ):
-        return IdentityVerdict.DEFERRED
+        return None
     has_candidate_court = bool(
         candidate.court_id or candidate.court or (docket and (docket.court_id or docket.court))
     )
     if root.court and has_candidate_court and decision.court.result is MatchResult.UNAVAILABLE:
-        return IdentityVerdict.DEFERRED
+        return None
     if root.date and candidate.date_filed and decision.date.result is MatchResult.UNAVAILABLE:
-        return IdentityVerdict.DEFERRED
+        return None
     return IdentityVerdict.CORRECT_IDENTITY

@@ -83,16 +83,22 @@ body-review changes do not enter the stage-`19` comparison. The validate-roots
 summary adds precision and recall for case-name, court, and
 date judgments. Both use the official annotations identified by the saved
 Document's source path. The body review compares two printed citations and
-records a separate identity verdict; those comparisons are not identity-field
-judgments and have no matching field gold. The validation report scores the
-new stage-`23` identity verdicts and cumulative root identity, while field
-identity judgments remain scored through stage `19`. An incomplete run cannot
-be scored.
+records a separate identity verdict when it selects an independent citation;
+those comparisons are not identity-field judgments and have no matching field
+gold. The stage-`23` section of `validate_roots.json` and `validate_roots.md`
+shows every reviewed root's selected source and body, grounded quotes,
+treatment, printed-field comparisons and reasons, verdict, and next-stage
+route. It also counts issued verdicts, routes, and review statuses. Only
+`correct_identity` and `wrong_identity` enter its binary identity precision.
+Field identity judgments remain scored through stage `19`, and the report
+separately scores cumulative root identity. An incomplete run cannot be scored.
 
-For docket citations, stage `23` can record `case_identity_supported` when an
-independent citation supports the case but not the particular decision. That
-qualified judgment stays in the saved `Document` and does not count as a
-correct full-citation admission in the binary identity score.
+Stage `23` can record `partially_corroborated` when an independent citation
+supports the case but not the particular decision. It can issue `undetermined`
+when the selected evidence does not support a firmer opinion. Both remain
+visible in the report without being scored against binary gold. When no
+reviewable citation is selected or the review fails, the program records a
+next-stage route without issuing an identity judgment.
 
 The primary runner enables docket-root equivalence review after `10_roots` as
 stage `11_docket_root_equivalence_review`. Its stage score checks assignments for
@@ -103,8 +109,9 @@ Root validation continues with numbered stages `12` through `23`: four reporter
 lookup and review stages, CourtListener docket/opinion search and its
 number-based shortlist review, GovInfo docket lookup and review, then three
 locator-first body searches and `23_locator_body_review`. Retrieval stages
-record evidence but make no field judgment. The locator-body review records
-printed-field comparisons and an identity verdict, but does not enter the
-field-identity precision table. The workflow summary uses the latest comparable
-field judgment for each root against the same annotated-root denominator.
+record evidence but make no field judgment. When it selects a citation, the
+locator-body review records printed-field comparisons and an identity verdict;
+these do not enter the field-identity precision table. The workflow summary
+uses the latest comparable field judgment for each root against the same
+annotated-root denominator.
 Saved runs ending at stage `19` retain their original six-stage report format.

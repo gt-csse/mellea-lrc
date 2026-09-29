@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation
@@ -16,6 +17,7 @@ from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactAmbiguityOutcome,
     ReporterExactLookupOutcome,
 )
+from mellea_lrc.model.span import Span
 from mellea_lrc.validation.body_search.courtlistener_opinion import STAGE as COURTLISTENER_OPINION_BODY_SEARCH
 from mellea_lrc.validation.body_search.courtlistener_recap import STAGE as COURTLISTENER_RECAP_BODY_SEARCH
 from mellea_lrc.validation.body_search.govinfo import STAGE as GOVINFO_OPINION_BODY_SEARCH
@@ -143,12 +145,85 @@ class StageScore:
 
 
 @dataclass(frozen=True)
+class BodyReviewRow:
+    """One stage-23 review with the evidence behind its judgment or route."""
+
+    source_path: str
+    citation_id: str
+    citation_kind: str
+    locator_start: int
+    locator_end: int
+    locator_quote: str
+    gold_identity: str | None
+    review_status: str
+    next_stage: str | None
+    selected_source: str | None
+    selected_evidence_index: int | None
+    selected_body_id: str | None
+    selected_body_url: str | None
+    selected_source_offset: int | None
+    grounded_citation_quote: str | None
+    grounded_citation_span: dict[str, int] | None
+    grounded_context_quote: str | None
+    grounded_context_span: dict[str, int] | None
+    treatment: str | None
+    filing: dict[str, str | None] | None
+    third_party: dict[str, str | None] | None
+    comparisons: dict[str, dict[str, str]] | None
+    verdict: str | None
+    reason: str | None
+    failure_reason: str | None
+    matches_gold: bool | None
+
+    def as_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class BodyReviewScore:
+    """Stage-23 outcomes and review details, scored only where binary gold exists."""
+
+    stage: str
+    decisive_identity: Precision
+    verdict_counts: dict[str, int]
+    route_counts: dict[str, int]
+    review_status_counts: dict[str, int]
+    rows: tuple[BodyReviewRow, ...]
+
+    def __add__(self, other: BodyReviewScore) -> BodyReviewScore:
+        if self.stage != other.stage:
+            raise ValueError("Cannot combine different body-review stages")
+
+        def combine(left: dict[str, int], right: dict[str, int]) -> dict[str, int]:
+            return {key: left.get(key, 0) + right.get(key, 0) for key in left.keys() | right.keys()}
+
+        return BodyReviewScore(
+            self.stage,
+            self.decisive_identity + other.decisive_identity,
+            combine(self.verdict_counts, other.verdict_counts),
+            combine(self.route_counts, other.route_counts),
+            combine(self.review_status_counts, other.review_status_counts),
+            (*self.rows, *other.rows),
+        )
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "stage": self.stage,
+            "decisive_identity": self.decisive_identity.as_dict(),
+            "verdict_counts": dict(sorted(self.verdict_counts.items())),
+            "route_counts": dict(sorted(self.route_counts.items())),
+            "review_status_counts": dict(sorted(self.review_status_counts.items())),
+            "rows": [row.as_dict() for row in self.rows],
+        }
+
+
+@dataclass(frozen=True)
 class WorkflowScore:
     stages: tuple[StageScore, ...]
     fields: dict[str, FieldScore]
     identity: IdentityScore
     checkpoint: str | None = None
-    body_identity: Precision | None = None
+    body_review: BodyReviewScore | None = None
 
     def __add__(self, other: WorkflowScore) -> WorkflowScore:
         if tuple(stage.stage for stage in self.stages) != tuple(stage.stage for stage in other.stages):
@@ -157,16 +232,16 @@ class WorkflowScore:
             raise ValueError("Cannot combine different validation fields")
         if self.checkpoint != other.checkpoint:
             raise ValueError("Cannot combine different validation checkpoints")
-        if (self.body_identity is None) != (other.body_identity is None):
-            raise ValueError("Cannot combine workflows with different body-review scores")
+        if (self.body_review is None) != (other.body_review is None):
+            raise ValueError("Cannot combine workflows with different body-review details")
         return WorkflowScore(
             tuple(left + right for left, right in zip(self.stages, other.stages, strict=True)),
             {field: score + other.fields[field] for field, score in self.fields.items()},
             self.identity + other.identity,
             self.checkpoint,
             (
-                self.body_identity + other.body_identity
-                if self.body_identity is not None and other.body_identity is not None
+                self.body_review + other.body_review
+                if self.body_review is not None and other.body_review is not None
                 else None
             ),
         )
@@ -179,8 +254,8 @@ class WorkflowScore:
         }
         if self.checkpoint is not None:
             result["checkpoint"] = self.checkpoint
-        if self.body_identity is not None:
-            result["body_identity"] = self.body_identity.as_dict()
+        if self.body_review is not None:
+            result["body_review"] = self.body_review.as_dict()
         return result
 
 
@@ -550,26 +625,155 @@ def _body_verdict(root: FullCitation) -> IdentityVerdict | None:
     if not any(node.id == review.node_id and node.stage == LOCATOR_BODY_REVIEW for node in root.nodes):
         raise ValueError("Body review does not reference its stage node")
     judgments = [judgment for judgment in root.identity_judgments if judgment.node_id == review.node_id]
-    if len(judgments) != 1:
-        raise ValueError("Body review must produce exactly one identity judgment")
-    return judgments[0].verdict
+    selected = review.decision is not None and review.decision.source is not None
+    if selected:
+        if len(judgments) != 1 or judgments[0].verdict is not review.decision.identity_verdict:
+            raise ValueError("Selected body review must issue its matching identity judgment")
+        return judgments[0].verdict
+    if judgments:
+        raise ValueError("Body review without selected evidence cannot issue an identity judgment")
+    return None
 
 
-def score_locator_body_review(document: Document) -> Precision:
-    """Score only the identity verdicts newly issued by locator-body review."""
+def _body_route(root: FullCitation, node_id: str) -> str | None:
+    routes = [route for route in root.routes if route.node_id == node_id]
+    if len(routes) != 1:
+        raise ValueError("Body review must record exactly one route decision")
+    return routes[0].value
+
+
+def _span_dict(span: Span | None) -> dict[str, int] | None:
+    return {"start": span.start, "end": span.end} if span is not None else None
+
+
+def _body_field_values(fields: object) -> dict[str, str | None]:
+    return {field: getattr(fields, field) for field in ("locator", *FIELDS)}
+
+
+def score_locator_body_review(document: Document) -> BodyReviewScore:
+    """Expose each stage-23 result, and score only decisive identity verdicts."""
     checkpoint = document.get_stage(LOCATOR_BODY_REVIEW)
     gold = _gold_roots(checkpoint)
     aligned = _align(checkpoint.roots, gold)
     correct = predicted = 0
+    verdict_counts: dict[str, int] = {}
+    route_counts: dict[str, int] = {}
+    review_status_counts: dict[str, int] = {}
+    rows: list[BodyReviewRow] = []
     for index, root in enumerate(checkpoint.roots):
+        stage_nodes = [node for node in root.nodes if node.stage == LOCATOR_BODY_REVIEW]
+        if not stage_nodes:
+            if root.body_reviews:
+                raise ValueError("Body review does not reference its stage node")
+            continue
+        reviews = [
+            review for review in root.body_reviews if review.node_id in {node.id for node in stage_nodes}
+        ]
+        if len(stage_nodes) != 1 or len(reviews) != 1:
+            raise ValueError("Stage 23 must record exactly one body review for each processed root")
+        review = reviews[0]
+        decision = review.decision
         verdict = _body_verdict(root)
-        if verdict is None:
-            continue
-        if verdict in {IdentityVerdict.DEFERRED, IdentityVerdict.CASE_IDENTITY_SUPPORTED}:
-            continue
-        predicted += 1
-        correct += int(index in aligned and verdict.name == gold[aligned[index]].identity)
-    return Precision(correct, predicted)
+        route = _body_route(root, review.node_id)
+        if (verdict is None or verdict.name not in GOLD_IDENTITIES) != (route is not None):
+            raise ValueError("Unresolved body reviews must route; decisive verdicts must clear the route")
+        if verdict is not None:
+            verdict_counts[verdict.value] = verdict_counts.get(verdict.value, 0) + 1
+        if route is not None:
+            route_counts[route] = route_counts.get(route, 0) + 1
+        review_status = (
+            "review_failure"
+            if decision is None
+            else "no_reviewable_evidence"
+            if decision.source is None
+            and decision.reason == "No fetched third-party body citation is available for comparison."
+            and review.ivr is None
+            else "model_declined"
+            if decision.source is None
+            else "selected"
+        )
+        review_status_counts[review_status] = review_status_counts.get(review_status, 0) + 1
+        gold_identity = gold[aligned[index]].identity if index in aligned else None
+        matches_gold = None
+        if verdict is not None and verdict.name in GOLD_IDENTITIES:
+            predicted += 1
+            matches_gold = verdict.name == gold_identity
+            correct += int(matches_gold)
+
+        selected_source = decision.source if decision is not None else None
+        selected_body_id = selected_body_url = selected_source_offset = None
+        if selected_source is not None:
+            search = next((item for item in root.body_searches if item.source is selected_source), None)
+            if (
+                search is None
+                or decision.evidence_index is None
+                or decision.evidence_index >= len(search.evidence)
+            ):
+                raise ValueError("Body review selected evidence missing from its saved search")
+            evidence = search.evidence[decision.evidence_index]
+            selected_body_id, selected_body_url, selected_source_offset = (
+                evidence.body_id,
+                evidence.url,
+                evidence.source_offset,
+            )
+        comparisons = (
+            {
+                field: {
+                    "result": getattr(decision.comparisons, field).result.value,
+                    "reason": getattr(decision.comparisons, field).reason,
+                }
+                for field in ("locator", *FIELDS)
+            }
+            if decision is not None and decision.comparisons is not None
+            else None
+        )
+        span = root.locator_span
+        rows.append(
+            BodyReviewRow(
+                source_path=str(checkpoint.source_path),
+                citation_id=root.id,
+                citation_kind=_kind(root),
+                locator_start=span.start,
+                locator_end=span.end,
+                locator_quote=checkpoint.text[span.start : span.end],
+                gold_identity=gold_identity,
+                review_status=review_status,
+                next_stage=route,
+                selected_source=selected_source.value if selected_source is not None else None,
+                selected_evidence_index=decision.evidence_index if decision is not None else None,
+                selected_body_id=selected_body_id,
+                selected_body_url=selected_body_url,
+                selected_source_offset=selected_source_offset,
+                grounded_citation_quote=review.grounded_quote,
+                grounded_citation_span=_span_dict(review.quote_span),
+                grounded_context_quote=review.grounded_context,
+                grounded_context_span=_span_dict(review.context_span),
+                treatment=(decision.treatment.value if decision is not None and decision.treatment else None),
+                filing=(
+                    _body_field_values(decision.filing)
+                    if decision is not None and decision.filing is not None
+                    else None
+                ),
+                third_party=(
+                    _body_field_values(decision.third_party)
+                    if decision is not None and decision.third_party is not None
+                    else None
+                ),
+                comparisons=comparisons,
+                verdict=verdict.value if verdict is not None else None,
+                reason=decision.reason if decision is not None else None,
+                failure_reason=review.failure_reason,
+                matches_gold=matches_gold,
+            )
+        )
+    return BodyReviewScore(
+        LOCATOR_BODY_REVIEW,
+        Precision(correct, predicted),
+        verdict_counts,
+        route_counts,
+        review_status_counts,
+        tuple(rows),
+    )
 
 
 def score_validate_roots(document: Document) -> WorkflowScore:
@@ -615,17 +819,20 @@ def score_validate_roots(document: Document) -> WorkflowScore:
             identity_predicted += 1
             identity_correct += int(gold_root is not None and verdict == gold_root.identity)
     identity = IdentityScore(identity_correct, identity_predicted, len(gold), undetermined)
-    body_identity = None
+    body_review = None
     if body_stages:
-        body_identity = score_locator_body_review(final)
+        body_review = score_locator_body_review(final)
         final_aligned = _align(final.roots, gold)
         identity_correct = identity_predicted = undetermined = 0
         for prediction_index, root in enumerate(final.roots):
             body_verdict = _body_verdict(root)
-            if body_verdict is IdentityVerdict.CASE_IDENTITY_SUPPORTED:
-                # Case-level support explicitly retracts any earlier full-citation admission.
+            if body_verdict is not None and body_verdict.name in {
+                "PARTIALLY_CORROBORATED",
+                "UNDETERMINED",
+            }:
+                # A nondecisive body judgment retracts an earlier full-citation admission.
                 verdict = "UNDETERMINED"
-            elif body_verdict in {IdentityVerdict.CORRECT_IDENTITY, IdentityVerdict.WRONG_IDENTITY}:
+            elif body_verdict is not None and body_verdict.name in GOLD_IDENTITIES:
                 verdict = body_verdict.name
             else:
                 verdict = lookup_verdicts.get(root.id)
@@ -645,7 +852,7 @@ def score_validate_roots(document: Document) -> WorkflowScore:
         {field: FieldScore(counts[field][0], counts[field][1], len(gold)) for field in FIELDS},
         identity,
         LOCATOR_BODY_REVIEW if body_stages else None,
-        body_identity,
+        body_review,
     )
 
 
@@ -695,21 +902,110 @@ def render_reporter_root_lookup_unique_llm(score: StageScore) -> str:
     return _render_stage(score, REPORTER_ROOT_LOOKUP_UNIQUE_LLM) + "\n"
 
 
-def render_locator_body_review(score: Precision) -> str:
-    return (
-        "\n".join(
+def _review_cell(value: object) -> str:
+    if value is None:
+        return "—"
+    return html.escape(str(value)).replace("|", "&#124;").replace("\n", "<br>")
+
+
+def _review_span_cell(span: dict[str, int] | None) -> str:
+    return f"{span['start']}:{span['end']}" if span is not None else "—"
+
+
+def render_locator_body_review(score: BodyReviewScore) -> str:
+    """Render counts and the saved evidence for each stage-23 review."""
+    if score.stage != LOCATOR_BODY_REVIEW:
+        raise ValueError(f"Expected {LOCATOR_BODY_REVIEW} review score")
+    lines = [
+        f"## {LOCATOR_BODY_REVIEW}",
+        "",
+        "Only correct_identity and wrong_identity are scored against the annotated binary identity label. "
+        "Printed-field comparisons have no corresponding gold and are shown for review only.",
+        "",
+        "| Decisive identity precision |",
+        "| ---: |",
+        f"| {_precision_cell(score.decisive_identity)} |",
+        "",
+        "### Issued verdicts",
+        "",
+        "| Verdict | Count |",
+        "| --- | ---: |",
+    ]
+    lines.extend(
+        f"| {_review_cell(verdict)} | {count} |" for verdict, count in sorted(score.verdict_counts.items())
+    )
+    if not score.verdict_counts:
+        lines.append("| — | 0 |")
+    lines.extend(("", "### Routes", "", "| Next stage | Count |", "| --- | ---: |"))
+    lines.extend(
+        f"| {_review_cell(route)} | {count} |" for route, count in sorted(score.route_counts.items())
+    )
+    if not score.route_counts:
+        lines.append("| — | 0 |")
+    lines.extend(("", "### Review status", "", "| Status | Count |", "| --- | ---: |"))
+    lines.extend(
+        f"| {_review_cell(status)} | {count} |"
+        for status, count in sorted(score.review_status_counts.items())
+    )
+    if not score.review_status_counts:
+        lines.append("| — | 0 |")
+    lines.extend(
+        (
+            "",
+            "### Root reviews",
+            "",
+            "| Source | Locator | Status | Selected body | Treatment | Verdict | Gold | Correct | Next stage |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        )
+    )
+    for row in score.rows:
+        result = "yes" if row.matches_gold is True else "no" if row.matches_gold is False else None
+        lines.append(
+            f"| {_review_cell(Path(row.source_path).name)} | {_review_cell(row.locator_quote)} "
+            f"({row.locator_start}:{row.locator_end}) | {_review_cell(row.review_status)} | "
+            f"{_review_cell(row.selected_body_id)} | {_review_cell(row.treatment)} | "
+            f"{_review_cell(row.verdict)} | {_review_cell(row.gold_identity)} | "
+            f"{_review_cell(result)} | {_review_cell(row.next_stage)} |"
+        )
+    if not score.rows:
+        lines.append("| — | — | — | — | — | — | — | — | — |")
+    for row in score.rows:
+        lines.extend(
             (
-                f"## {LOCATOR_BODY_REVIEW}",
                 "",
-                "Only unqualified correct or wrong identity verdicts count as predictions.",
+                f"#### {_review_cell(Path(row.source_path).name)} · {_review_cell(row.citation_id)}",
                 "",
-                "| Identity precision |",
-                "| ---: |",
-                f"| {_precision_cell(score)} |",
+                "| Detail | Value |",
+                "| --- | --- |",
+                f"| Selected source | {_review_cell(row.selected_source)} |",
+                f"| Evidence index | {_review_cell(row.selected_evidence_index)} |",
+                f"| Selected body ID | {_review_cell(row.selected_body_id)} |",
+                f"| Selected body URL | {_review_cell(row.selected_body_url)} |",
+                f"| Excerpt offset in body | {_review_cell(row.selected_source_offset)} |",
+                f"| Grounded citation | {_review_cell(row.grounded_citation_quote)} |",
+                f"| Grounded citation span in excerpt | {_review_span_cell(row.grounded_citation_span)} |",
+                f"| Grounded context | {_review_cell(row.grounded_context_quote)} |",
+                f"| Grounded context span in excerpt | {_review_span_cell(row.grounded_context_span)} |",
+                f"| Judgment reason | {_review_cell(row.reason)} |",
+                f"| Review failure | {_review_cell(row.failure_reason)} |",
             )
         )
-        + "\n"
-    )
+        if row.comparisons is not None:
+            lines.extend(
+                (
+                    "",
+                    "| Printed field | Filing | Third party | Comparison | Reason |",
+                    "| --- | --- | --- | --- | --- |",
+                )
+            )
+            for field in ("locator", *FIELDS):
+                comparison = row.comparisons[field]
+                lines.append(
+                    f"| {field} | {_review_cell(row.filing[field] if row.filing else None)} | "
+                    f"{_review_cell(row.third_party[field] if row.third_party else None)} | "
+                    f"{_review_cell(comparison['result'])} | {_review_cell(comparison['reason'])} |"
+                )
+    return "\n".join(lines) + "\n"
 
 
 def render_validate_roots(
@@ -741,21 +1037,21 @@ def render_validate_roots(
         for field in FIELDS
     )
     sections.append("\n".join(lines))
-    if score.body_identity is not None:
-        sections.append(render_locator_body_review(score.body_identity).rstrip())
+    if score.body_review is not None:
+        sections.append(render_locator_body_review(score.body_review).rstrip())
     sections.append(
         "\n".join(
             (
                 (
                     "## Root identity after locator-body review"
-                    if score.body_identity is not None
+                    if score.body_review is not None
                     else "## Lookup-derived root identity"
                 ),
                 "",
                 (
                     "A locator-body verdict takes precedence over a lookup-derived verdict. "
                     "Undetermined case names remain in the recall denominator."
-                    if score.body_identity is not None
+                    if score.body_review is not None
                     else "A selected lookup record is required. Undetermined case names are excluded from precision and remain in the recall denominator."
                 ),
                 "",

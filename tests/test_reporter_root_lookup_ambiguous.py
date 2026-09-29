@@ -79,7 +79,9 @@ def test_unique_passing_candidate_is_admitted_and_all_comparisons_are_saved() ->
     assert [item.candidate_index for item in root.court_judgments] == [0, 1]
     assert [item.candidate_index for item in root.date_judgments] == [0, 1]
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
-    assert root.identity_judgments[-1].next_stage is None
+    assert root.next_stage is None
+    assert [route.value for route in root.routes] == [STAGE, None]
+    assert root.routes[-1].node_id == root.nodes[-1].id
     assert all(
         record.node_id == root.nodes[-1].id
         for record in (
@@ -115,8 +117,9 @@ def test_zero_or_multiple_passing_candidates_wait_for_model_review(
     assert resolution.outcome is ReporterExactAmbiguityOutcome.NO_UNIQUE_RULE_MATCH
     assert resolution.passing_candidate_indices == passing
     assert resolution.selected_candidate_index is None
-    assert root.identity_judgments[-1].verdict is IdentityVerdict.DEFERRED
-    assert root.identity_judgments[-1].next_stage == "15_reporter_root_lookup_ambiguous_llm"
+    assert root.identity_judgments == ()
+    assert root.next_stage == "15_reporter_root_lookup_ambiguous_llm"
+    assert [route.value for route in root.routes] == [STAGE, root.next_stage]
 
 
 def test_large_candidate_set_is_preserved_without_review_or_truncation() -> None:
@@ -132,7 +135,8 @@ def test_large_candidate_set_is_preserved_without_review_or_truncation() -> None
     assert resolution.passing_candidate_indices == ()
     assert len(root.reporter_exact_lookup.response.clusters) == 20
     assert root.case_name_judgments == root.court_judgments == root.date_judgments == ()
-    assert root.identity_judgments[-1].next_stage == "reporter_root_lookup_large_candidate_review"
+    assert root.identity_judgments == ()
+    assert root.next_stage == "reporter_root_lookup_large_candidate_review"
     assert client.docket_calls == []
 
 
@@ -173,13 +177,12 @@ def test_only_exactly_routed_roots_are_processed() -> None:
     client = FakeClient([cluster(1), cluster(2, caseNameFull="Jones v. Smith")])
     before = reporter_root_lookup(roots, client=client)
     root = before.roots[0]
-    almost_stage = root.record("route_setup").with_identity_judgment(
-        IdentityVerdict.DEFERRED, f"{STAGE}_review"
-    )
+    almost_stage = root.record("route_setup").with_route(f"{STAGE}_review")
     routed = before.replace_citation(almost_stage).complete("route_setup")
 
     after = reporter_root_lookup_ambiguous(routed, client=client)
 
     assert after.roots[0].nodes == routed.roots[0].nodes
     assert after.roots[0].reporter_exact_ambiguity_resolution is None
-    assert after.roots[0].identity_judgments[-1].next_stage == f"{STAGE}_review"
+    assert after.roots[0].identity_judgments == ()
+    assert after.roots[0].next_stage == f"{STAGE}_review"
