@@ -8,6 +8,7 @@ from pydantic import model_validator
 
 from mellea_lrc.model.citations.body_evidence import BodyCorroborationReview, BodySearch
 from mellea_lrc.model.citations.citation import Citation
+from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch, IntendedCaseReview
 from mellea_lrc.model.citations.fields import CaseName, CaseNameField, CourtField, DateField, PinCiteField
 from mellea_lrc.model.citations.history import RelationshipUpdate
 from mellea_lrc.model.citations.judgments import (
@@ -37,6 +38,8 @@ class FullCitation(Citation):
     identity_judgments: tuple[IdentityJudgment, ...] = ()
     body_searches: tuple[BodySearch, ...] = ()
     body_reviews: tuple[BodyCorroborationReview, ...] = ()
+    field_body_searches: tuple[FieldBodySearch, ...] = ()
+    intended_case_reviews: tuple[IntendedCaseReview, ...] = ()
 
     @property
     def locator_span(self) -> Span:
@@ -121,12 +124,38 @@ class FullCitation(Citation):
             raise ValueError("Body corroboration has already been reviewed")
         return self._with_log(body_reviews=(*self.body_reviews, result))
 
+    def with_field_body_search(self, result: FieldBodySearch) -> Self:
+        """Append a distinct provider search for a possible intended case."""
+        if result.node_id != self._decision_node_id():
+            raise ValueError("Field search must point to the current decision node")
+        if any(item.source is result.source for item in self.field_body_searches):
+            raise ValueError("Field body source has already been searched")
+        cutoffs = {item.retrospective_date for item in (*self.body_searches, *self.field_body_searches)}
+        if cutoffs and result.retrospective_date not in cutoffs:
+            raise ValueError("Body searches for one citation must use the same retrospective date")
+        return self._with_log(field_body_searches=(*self.field_body_searches, result))
+
+    def with_intended_case_review(self, result: IntendedCaseReview) -> Self:
+        """Save one possible authority without changing the locator judgment."""
+        if result.node_id != self._decision_node_id():
+            raise ValueError("Intended-case review must point to the current decision node")
+        if self.intended_case_reviews:
+            raise ValueError("Intended case has already been reviewed")
+        return self._with_log(intended_case_reviews=(*self.intended_case_reviews, result))
+
     @model_validator(mode="after")
     def _validate_body_history(self) -> Self:
         if len({search.source for search in self.body_searches}) != len(self.body_searches):
             raise ValueError("A body provider cannot be searched twice")
         if len({search.retrospective_date for search in self.body_searches}) > 1:
             raise ValueError("Body searches must share one retrospective date")
+        if len({search.source for search in self.field_body_searches}) != len(self.field_body_searches):
+            raise ValueError("A field body provider cannot be searched twice")
+        if (
+            len({search.retrospective_date for search in (*self.body_searches, *self.field_body_searches)})
+            > 1
+        ):
+            raise ValueError("Locator and field body searches must share one retrospective date")
         positions = {node.id: index for index, node in enumerate(self.nodes)}
         for review in self.body_reviews:
             decision = review.decision
@@ -151,4 +180,21 @@ class FullCitation(Citation):
                 or excerpt[context_span.start : context_span.end] != review.grounded_context
             ):
                 raise ValueError("Body review context must match the saved evidence excerpt")
+        for review in self.intended_case_reviews:
+            decision = review.decision
+            if decision is None or decision.source is None:
+                continue
+            search = next((item for item in self.field_body_searches if item.source is decision.source), None)
+            if search is None or decision.evidence_index >= len(search.evidence):
+                raise ValueError("Intended-case review points to missing field evidence")
+            if positions[search.node_id] >= positions[review.node_id]:
+                raise ValueError("Intended-case review must follow its provider search")
+            excerpt = search.evidence[decision.evidence_index].excerpt
+            span = review.quote_span
+            if (
+                span is None
+                or span.end > len(excerpt)
+                or excerpt[span.start : span.end] != review.grounded_quote
+            ):
+                raise ValueError("Intended-case quote must match the saved evidence excerpt")
         return self

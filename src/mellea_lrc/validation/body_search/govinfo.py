@@ -18,6 +18,7 @@ from mellea_lrc.model.citations.body_evidence import (
     BodySearchAttempt,
     BodySource,
 )
+from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch
 from mellea_lrc.model.document import Document
 from mellea_lrc.validation.body_search.common import (
     eligible_on,
@@ -197,7 +198,8 @@ def _fetch_granule(
     search_result: dict,
     entry: dict,
     entry_date_basis: str | None,
-    locator: str,
+    anchor_text: str,
+    anchor_kind: Literal["locator", "case_name"],
     source_text: str,
     retrospective_date: date | None,
 ) -> tuple[tuple[BodyEvidence, ...], BodyEvidenceFailure | None, bool]:
@@ -262,22 +264,34 @@ def _fetch_granule(
             "granule_summary": summary,
         },
         body_text=body_text,
-        locator=locator,
+        locator=anchor_text,
+        anchor_kind=anchor_kind,
         source_text=source_text,
     )
     if not evidence:
+        missing_anchor = "locator" if anchor_kind == "locator" else "case_name"
         return (
             (),
-            _problem("no_locator", "Fetched GovInfo granule does not contain the cited locator", item_id=granule_id),
+            _problem(
+                f"no_{missing_anchor}",
+                f"Fetched GovInfo granule does not contain the cited {missing_anchor.replace('_', ' ')}",
+                item_id=granule_id,
+            ),
             True,
         )
     return evidence, None, True
 
 
 def _search_root(
-    document: Document, root: FullCitationVariant, service: GovInfoBodyClient, retrospective_date: date | None
-) -> BodySearch:
-    locator = locator_text(root)
+    document: Document,
+    root: FullCitationVariant,
+    service: GovInfoBodyClient,
+    retrospective_date: date | None,
+    *,
+    query_text: str | None = None,
+    anchor_kind: Literal["locator", "case_name"] = "locator",
+) -> BodySearch | FieldBodySearch:
+    anchor_text = locator_text(root) if query_text is None else query_text
     attempts: list[BodySearchAttempt] = []
     discovery_pages: list[dict] = []
     evidence: list[BodyEvidence] = []
@@ -286,8 +300,8 @@ def _search_root(
     fallback_packages: set[str] = set()
     pdf_downloads = 0
     limit_reached = False
-    if locator:
-        query = _query(locator)
+    if anchor_text:
+        query = _query(anchor_text)
         attempt, results = _search_results(service, query)
         attempts.append(attempt)
         for search_result in results:
@@ -332,7 +346,8 @@ def _search_root(
                     search_result=search_result,
                     entry=entry,
                     entry_date_basis=entry_date_basis,
-                    locator=locator,
+                    anchor_text=anchor_text,
+                    anchor_kind=anchor_kind,
                     source_text=document.text,
                     retrospective_date=retrospective_date,
                 )
@@ -342,10 +357,12 @@ def _search_root(
                     failures.append(failure)
             if limit_reached:
                 break
-    return BodySearch(
+    search_type = BodySearch if anchor_kind == "locator" else FieldBodySearch
+    return search_type(
         node_id=root.nodes[-1].id,
         source=BodySource.GOVINFO_OPINION,
         retrospective_date=retrospective_date,
+        **({"query_name": anchor_text} if anchor_kind == "case_name" else {}),
         attempts=tuple(attempts),
         discovery_pages=tuple(discovery_pages),
         evidence=tuple(evidence),
@@ -369,5 +386,7 @@ def govinfo_opinion_locator_body_search(
             if service is None:
                 service = stack.enter_context(GovInfoClient())
             result = _search_root(document, recorded, service, retrospective_date)
+            if not isinstance(result, BodySearch):
+                raise ValueError("A locator search must return locator evidence")
             document = document.replace_citation(recorded.with_body_search(result))
     return document.complete(STAGE)

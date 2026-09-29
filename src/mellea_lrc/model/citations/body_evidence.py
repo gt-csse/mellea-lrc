@@ -68,7 +68,7 @@ class BodyEvidence(BaseModel):
     body_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     excerpt: str = Field(min_length=1)
     source_offset: int = Field(ge=0)
-    anchor_kind: Literal["locator"]
+    anchor_kind: Literal["locator", "case_name"]
     anchor_span: Span
 
     @model_validator(mode="after")
@@ -95,6 +95,8 @@ class BodySearch(BaseModel):
 
     @model_validator(mode="after")
     def _validate_cutoff(self) -> Self:
+        if any(item.anchor_kind != "locator" for item in self.evidence):
+            raise ValueError("Locator body search needs locator-anchored evidence")
         if self.retrospective_date is not None and any(
             item.issued_on is None or item.issued_on > self.retrospective_date for item in self.evidence
         ):
