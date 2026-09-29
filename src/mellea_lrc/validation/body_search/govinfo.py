@@ -289,6 +289,7 @@ def _search_root(
     retrospective_date: date | None,
     *,
     query_text: str | None = None,
+    query_parties: tuple[str, str] | None = None,
     anchor_kind: Literal["locator", "case_name"] = "locator",
 ) -> BodySearch | FieldBodySearch:
     anchor_text = locator_text(root) if query_text is None else query_text
@@ -301,9 +302,15 @@ def _search_root(
     pdf_downloads = 0
     limit_reached = False
     if anchor_text:
-        query = _query(anchor_text)
+        query = (
+            f"collection:uscourts and {query_parties[0]} and {query_parties[1]}"
+            if query_parties is not None
+            else _query(anchor_text)
+        )
         attempt, results = _search_results(service, query)
         attempts.append(attempt)
+        candidate_limit = MAX_CANDIDATES // 2 if query_parties is not None else MAX_CANDIDATES
+        fetch_limit = MAX_PDF_DOWNLOADS // 2 if query_parties is not None else MAX_PDF_DOWNLOADS
         for search_result in results:
             package_id = search_result["packageId"]
             granule_id = search_result.get("granuleId")
@@ -331,11 +338,11 @@ def _search_root(
                 key = (package_id, entry["granuleId"])
                 if key in seen_granules:
                     continue
-                if len(seen_granules) >= MAX_CANDIDATES:
+                if len(seen_granules) >= candidate_limit:
                     failures.append(_problem("candidate_limit", "GovInfo search reached its granule limit"))
                     limit_reached = True
                     break
-                if pdf_downloads >= MAX_PDF_DOWNLOADS or len(evidence) >= MAX_EVIDENCE:
+                if pdf_downloads >= fetch_limit or len(evidence) >= MAX_EVIDENCE:
                     failures.append(_problem("fetch_limit", "GovInfo opinion fetch reached its limit"))
                     limit_reached = True
                     break

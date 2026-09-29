@@ -11,7 +11,7 @@ import pytest
 from mellea_lrc.api import Document, grow_roots
 from mellea_lrc.courtlistener.models import CourtListenerSearchPage
 from mellea_lrc.model.citations.body_evidence import BodySource
-from mellea_lrc.validation.body_search.common import field_query_name
+from mellea_lrc.validation.body_search.common import field_query_name, field_query_parties
 from mellea_lrc.validation.body_search.courtlistener_opinion_fields import (
     STAGE as OPINION_STAGE,
 )
@@ -72,6 +72,7 @@ def test_opinion_field_search_saves_grounded_name_and_different_locator() -> Non
     before = _ready()
     name = field_query_name(before.roots[0])
     assert name is not None
+    assert field_query_parties(before.roots[0]) == ("Brown", "Education")
     page = _page({"cluster_id": 900, "opinions": [{"id": 901}], "dateFiled": "1960-01-01"})
     client = FakeBodyClient(
         page,
@@ -91,7 +92,7 @@ def test_opinion_field_search_saves_grounded_name_and_different_locator() -> Non
     )
 
     assert after.stage_runs[-1] == OPINION_STAGE
-    assert client.search_calls == [(f'"{name}"', "o", None)]
+    assert client.search_calls == [("Brown AND Education", "o", None)]
     assert client.opinion_calls == ["901"]
     assert after.roots[0].body_searches == ()
     assert after.roots[0].identity_judgments == ()
@@ -121,7 +122,7 @@ def test_recap_search_requires_fetched_case_name_and_item_date() -> None:
 
     after = courtlistener_recap_field_body_search(before, client=client, retrospective_date=date(1970, 1, 1))
 
-    assert client.search_calls == [(f'"{name}"', "rd", None)]
+    assert client.search_calls == [("Brown AND Education", "rd", None)]
     assert client.recap_calls == ["44"]
     search = after.roots[0].field_body_searches[0]
     assert search.attempts[0].pages == (page.raw_json,)
@@ -145,6 +146,29 @@ def test_field_search_excludes_an_opinion_after_the_retrospective_cutoff() -> No
     search = after.roots[0].field_body_searches[0]
     assert search.evidence == ()
     assert [failure.failure_type for failure in search.failures] == ["ineligible_issue_date"]
+
+
+def test_two_party_search_stops_after_four_unhelpful_details_without_broad_query() -> None:
+    before = _ready()
+    page = _page(
+        *(
+            {"cluster_id": index, "opinions": [{"id": index}], "dateFiled": "1960-01-01"}
+            for index in range(1, 6)
+        )
+    )
+    client = FakeBodyClient(
+        page,
+        opinions={str(index): {"id": index, "plain_text": "An unrelated opinion."} for index in range(1, 6)},
+    )
+
+    after = courtlistener_opinion_field_body_search(before, client=client)
+
+    assert client.search_calls == [("Brown AND Education", "o", None)]
+    assert client.opinion_calls == ["1", "2", "3", "4"]
+    search = after.roots[0].field_body_searches[0]
+    assert search.query_name == "Brown"
+    assert search.evidence == ()
+    assert search.attempts[0].failure.failure_type == "candidate_limit_reached"
 
 
 def test_field_stages_only_process_routed_roots_and_keep_independent_records() -> None:

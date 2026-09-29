@@ -29,6 +29,7 @@ from mellea_lrc.validation.body_search.common import (
     eligible_on,
     evidence_date,
     field_query_name,
+    field_query_parties,
     locator_text,
     make_body_evidences,
     roots_for_body_search,
@@ -347,6 +348,7 @@ def _search_query(
     retrospective_date: date | None,
     budget: _CandidateBudget,
     anchor_kind: Literal["locator", "case_name"] = "locator",
+    fetch_limit: int = MAX_FETCHES_PER_CITATION,
 ) -> tuple[BodySearchAttempt, tuple[BodyEvidence, ...], tuple[BodyEvidenceFailure, ...]]:
     pages: list[dict[str, Any]] = []
     evidence: list[BodyEvidence] = []
@@ -384,7 +386,7 @@ def _search_query(
             for item_id in ids:
                 if item_id in budget.seen_ids:
                     continue
-                if budget.fetched == MAX_FETCHES_PER_CITATION:
+                if budget.fetched >= fetch_limit:
                     exhausted = True
                     break
                 budget.seen_ids.add(item_id)
@@ -408,7 +410,7 @@ def _search_query(
         if exhausted:
             attempt_failure = _failure(
                 "candidate_limit_reached",
-                f"CourtListener body search stopped after {MAX_FETCHES_PER_CITATION} detail fetches",
+                f"CourtListener body search stopped after {fetch_limit} detail fetches",
             )
             break
         if hit_limit_reached or (hits_seen == MAX_HITS_PER_QUERY and page.next is not None):
@@ -417,10 +419,10 @@ def _search_query(
                 f"CourtListener body search stopped after {MAX_HITS_PER_QUERY} search hits",
             )
             break
-        if budget.fetched == MAX_FETCHES_PER_CITATION and (page.next is not None or not evidence):
+        if budget.fetched >= fetch_limit and (page.next is not None or not evidence):
             attempt_failure = _failure(
                 "candidate_limit_reached",
-                f"CourtListener body search stopped after {MAX_FETCHES_PER_CITATION} detail fetches",
+                f"CourtListener body search stopped after {fetch_limit} detail fetches",
             )
             break
         if page.next is None:
@@ -536,7 +538,8 @@ def run_courtlistener_field_body_search(
                     _failure("unsearchable_case_name", "Citation has no safe case name for body search")
                 )
             else:
-                query = _quoted_query(query_name)
+                parties = field_query_parties(root)
+                query = f"{parties[0]} AND {parties[1]}" if parties is not None else _quoted_query(query_name)
                 budget = _CandidateBudget()
                 if service is None:
                     try:
@@ -553,6 +556,9 @@ def run_courtlistener_field_body_search(
                         retrospective_date=retrospective_date,
                         budget=budget,
                         anchor_kind="case_name",
+                        fetch_limit=(
+                            MAX_FETCHES_PER_CITATION // 2 if parties is not None else MAX_FETCHES_PER_CITATION
+                        ),
                     )
                     attempts.append(attempt)
                     evidence.extend(found)

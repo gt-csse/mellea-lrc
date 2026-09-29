@@ -9,7 +9,7 @@ from mellea_lrc.govinfo import GovInfoClient
 from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch
 from mellea_lrc.model.document import Document
-from mellea_lrc.validation.body_search.common import field_query_name
+from mellea_lrc.validation.body_search.common import field_query_name, field_query_parties
 from mellea_lrc.validation.body_search.govinfo import GovInfoBodyClient, _problem, _search_root
 
 STAGE = "26_govinfo_opinion_field_body_search"
@@ -55,6 +55,7 @@ def govinfo_opinion_field_body_search(
                     service,
                     retrospective_date,
                     query_text=query_name,
+                    query_parties=field_query_parties(root),
                     anchor_kind="case_name",
                 )
                 if not isinstance(search, FieldBodySearch):
