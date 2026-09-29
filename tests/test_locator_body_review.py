@@ -150,11 +150,14 @@ def test_body_review_keeps_field_scores_and_marks_final_checkpoint(tmp_path: Pat
     assert reviewed.roots[0].identity_judgments[-1].verdict is IdentityVerdict.WRONG_IDENTITY
     assert score.stages == prior.stages
     assert score.fields == prior.fields
+    assert score.body_identity == evaluation.Precision(1, 1)
+    assert score.identity == evaluation.IdentityScore(1, 1, 1, 0)
     assert score.checkpoint == evaluation.LOCATOR_BODY_REVIEW
     assert score.as_dict()["checkpoint"] == evaluation.LOCATOR_BODY_REVIEW
     report = evaluation.render_validate_roots(score)
     assert "Checkpoint: 23_locator_body_review completed" in report
-    assert "## 23_locator_body_review" not in report
+    assert "## 23_locator_body_review" in report
+    assert "## Root identity after locator-body review" in report
     assert "printed citation comparisons have no corresponding field identity gold" in report
 
     declined = asyncio.run(
@@ -163,6 +166,24 @@ def test_body_review_keeps_field_scores_and_marks_final_checkpoint(tmp_path: Pat
         )
     )
     assert evaluation.score_validate_roots(declined).fields == prior.fields
+    assert evaluation.score_validate_roots(declined).body_identity == evaluation.Precision(0, 0)
+
+
+def test_body_identity_score_counts_an_incorrect_third_party_verdict(tmp_path: Path) -> None:
+    source_path = _annotated_source(
+        tmp_path,
+        source=SOURCE,
+        locator="No. 05-4206",
+        kind="DocketCitation",
+        labels={"case_name": "agrees", "court": "agrees", "date": "agrees"},
+    )
+    ready = _document(source_input=source_path, include_validation_history=True)
+    reviewed = asyncio.run(
+        review_locator_body_evidence(ready, reviewer=FakeReviewer(_decision(court_result="mismatch")))
+    )
+    score = evaluation.score_validate_roots(reviewed)
+    assert score.body_identity == evaluation.Precision(0, 1)
+    assert score.identity == evaluation.IdentityScore(0, 1, 1, 0)
 
 
 def test_disputed_third_party_quote_does_not_become_field_identity_gold(tmp_path: Path) -> None:

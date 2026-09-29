@@ -10,7 +10,7 @@ from typing import Any, Literal
 import pytest
 
 from mellea_lrc.api import Document, grow_roots
-from mellea_lrc.courtlistener import CourtListenerHTTPError
+from mellea_lrc.courtlistener import CourtListenerHTTPError, CourtListenerTransportError
 from mellea_lrc.courtlistener.models import CourtListenerSearchPage
 from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.model.citations.judgments import IdentityVerdict
@@ -405,14 +405,17 @@ def test_detail_failure_retains_status_url_and_message(monkeypatch: pytest.Monke
     assert sleep_calls == [2.0, 4.0]
 
 
-def test_long_proxy_quota_hint_does_not_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("retry_after_seconds", [301, 17000])
+def test_long_proxy_quota_hint_does_not_retry(
+    monkeypatch: pytest.MonkeyPatch, retry_after_seconds: int
+) -> None:
     sleep_calls: list[float] = []
     monkeypatch.setattr("time.sleep", sleep_calls.append)
     error = CourtListenerHTTPError(
         "CourtListener proxy returned HTTP 429",
         failure_type="http_error",
         upstream_status_code=429,
-        upstream_detail='{"retry_after_seconds": 17000}',
+        upstream_detail=f'{{"retry_after_seconds": {retry_after_seconds}}}',
     )
     client = FakeBodyClient(
         lambda *_args: _page({"cluster_id": 900, "opinions": [{"id": 901}]}),
@@ -455,9 +458,53 @@ def test_unhinted_short_429_recovers_on_retry(monkeypatch: pytest.MonkeyPatch) -
     assert after.roots[0].body_searches[0].failures == ()
 
 
+@pytest.mark.parametrize("failed_step", ["search", "detail"])
+@pytest.mark.parametrize("failure_kind", ["transport", "server"])
+def test_transient_provider_failure_recovers_without_rerunning_document(
+    monkeypatch: pytest.MonkeyPatch, failed_step: str, failure_kind: str
+) -> None:
+    sleep_calls: list[float] = []
+    monkeypatch.setattr("time.sleep", sleep_calls.append)
+    error = (
+        CourtListenerTransportError("read timed out", failure_type="transport_error")
+        if failure_kind == "transport"
+        else CourtListenerHTTPError(
+            "server unavailable", failure_type="http_error", upstream_status_code=503
+        )
+    )
+    search_attempts = 0
+
+    def respond_search(*_args: object) -> CourtListenerSearchPage:
+        nonlocal search_attempts
+        search_attempts += 1
+        if failed_step == "search" and search_attempts == 1:
+            raise error
+        return _page({"cluster_id": 900, "opinions": [{"id": 901}]})
+
+    class RetryDetailClient(FakeBodyClient):
+        def get_opinion(self, opinion_id: str) -> dict[str, Any] | None:
+            if failed_step == "detail" and not self.opinion_calls:
+                self.opinion_calls.append(opinion_id)
+                raise error
+            return super().get_opinion(opinion_id)
+
+    client = RetryDetailClient(
+        respond_search,
+        opinions={"901": {"id": 901, "plain_text": "A later court cited 347 U.S. 483."}},
+    )
+    after = courtlistener_opinion_locator_body_search(_rooted("347 U.S. 483."), client=client)
+    assert sleep_calls == [2.0]
+    assert after.roots[0].body_searches[0].failures == ()
+    assert client.search_calls == [('"347 U.S. 483"', "o", None)] * (
+        2 if failed_step == "search" else 1
+    )
+    assert client.opinion_calls == ["901"] * (2 if failed_step == "detail" else 1)
+
+
 @pytest.mark.parametrize("rate_limited_step", ["search", "detail"])
+@pytest.mark.parametrize("retry_after_seconds", [0.25, 63, 195])
 def test_proxy_429_retry_hint_recovers_grounded_opinion_evidence(
-    monkeypatch: pytest.MonkeyPatch, rate_limited_step: str
+    monkeypatch: pytest.MonkeyPatch, rate_limited_step: str, retry_after_seconds: float
 ) -> None:
     sleep_calls: list[float] = []
     monkeypatch.setattr("time.sleep", sleep_calls.append)
@@ -467,7 +514,7 @@ def test_proxy_429_retry_hint_recovers_grounded_opinion_evidence(
         failure_type="http_error",
         upstream_status_code=429,
         url="https://proxy.example/api/rest/v4/",
-        upstream_detail='{"retry_after_seconds": 0.25}',
+        upstream_detail=f'{{"retry_after_seconds": {retry_after_seconds}}}',
     )
 
     class RetryOnceBodyClient(FakeBodyClient):
@@ -497,7 +544,7 @@ def test_proxy_429_retry_hint_recovers_grounded_opinion_evidence(
     query = ('"347 U.S. 483"', "o", None)
     assert client.search_calls == [query] * (2 if rate_limited_step == "search" else 1)
     assert client.opinion_calls == ["901"] * (2 if rate_limited_step == "detail" else 1)
-    assert sleep_calls == [0.5]
+    assert sleep_calls == [retry_after_seconds + 0.25]
     search = after.roots[0].body_searches[0]
     assert search.attempts[0].pages == (page.raw_json,)
     assert search.attempts[0].failure is None

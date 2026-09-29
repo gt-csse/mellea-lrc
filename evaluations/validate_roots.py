@@ -11,7 +11,7 @@ from pathlib import Path
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation
 from mellea_lrc.model.citations.docket_lookup import DocketLookupReviewDecision
 from mellea_lrc.model.citations.full import FullCitation
-from mellea_lrc.model.citations.judgments import MatchResult
+from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactAmbiguityOutcome,
     ReporterExactLookupOutcome,
@@ -148,6 +148,7 @@ class WorkflowScore:
     fields: dict[str, FieldScore]
     identity: IdentityScore
     checkpoint: str | None = None
+    body_identity: Precision | None = None
 
     def __add__(self, other: WorkflowScore) -> WorkflowScore:
         if tuple(stage.stage for stage in self.stages) != tuple(stage.stage for stage in other.stages):
@@ -156,11 +157,18 @@ class WorkflowScore:
             raise ValueError("Cannot combine different validation fields")
         if self.checkpoint != other.checkpoint:
             raise ValueError("Cannot combine different validation checkpoints")
+        if (self.body_identity is None) != (other.body_identity is None):
+            raise ValueError("Cannot combine workflows with different body-review scores")
         return WorkflowScore(
             tuple(left + right for left, right in zip(self.stages, other.stages, strict=True)),
             {field: score + other.fields[field] for field, score in self.fields.items()},
             self.identity + other.identity,
             self.checkpoint,
+            (
+                self.body_identity + other.body_identity
+                if self.body_identity is not None and other.body_identity is not None
+                else None
+            ),
         )
 
     def as_dict(self) -> dict[str, object]:
@@ -171,6 +179,8 @@ class WorkflowScore:
         }
         if self.checkpoint is not None:
             result["checkpoint"] = self.checkpoint
+        if self.body_identity is not None:
+            result["body_identity"] = self.body_identity.as_dict()
         return result
 
 
@@ -533,6 +543,37 @@ def _identity_value(labels: dict[str, str]) -> str:
     return "CORRECT_IDENTITY"
 
 
+def _body_verdict(root: FullCitation) -> IdentityVerdict | None:
+    if not root.body_reviews:
+        return None
+    review = root.body_reviews[-1]
+    if not any(node.id == review.node_id and node.stage == LOCATOR_BODY_REVIEW for node in root.nodes):
+        raise ValueError("Body review does not reference its stage node")
+    judgments = [
+        judgment for judgment in root.identity_judgments if judgment.node_id == review.node_id
+    ]
+    if len(judgments) != 1:
+        raise ValueError("Body review must produce exactly one identity judgment")
+    return judgments[0].verdict
+
+
+def score_locator_body_review(document: Document) -> Precision:
+    """Score only the identity verdicts newly issued by locator-body review."""
+    checkpoint = document.get_stage(LOCATOR_BODY_REVIEW)
+    gold = _gold_roots(checkpoint)
+    aligned = _align(checkpoint.roots, gold)
+    correct = predicted = 0
+    for index, root in enumerate(checkpoint.roots):
+        verdict = _body_verdict(root)
+        if verdict is None:
+            continue
+        if verdict is IdentityVerdict.DEFERRED:
+            continue
+        predicted += 1
+        correct += int(index in aligned and verdict.name == gold[aligned[index]].identity)
+    return Precision(correct, predicted)
+
+
 def score_validate_roots(document: Document) -> WorkflowScore:
     """Score completed validation judgments and every annotated root's final fields."""
     if any(stage not in document.stage_runs for stage in WORKFLOW_STAGES):
@@ -553,6 +594,7 @@ def score_validate_roots(document: Document) -> WorkflowScore:
     aligned = _align(judged.roots, gold)
     counts = {field: [0, 0] for field in FIELDS}
     identity_correct = identity_predicted = undetermined = 0
+    lookup_verdicts: dict[str, str] = {}
     for prediction_index, root in enumerate(judged.roots):
         if isinstance(root, FullReporterCitation) and not any(node.stage in STAGES for node in root.nodes):
             continue
@@ -568,16 +610,42 @@ def score_validate_roots(document: Document) -> WorkflowScore:
         if not outcomes:
             continue
         verdict = _identity_value(outcomes)
+        lookup_verdicts[root.id] = verdict
         if verdict == "UNDETERMINED":
             undetermined += 1
         else:
             identity_predicted += 1
             identity_correct += int(gold_root is not None and verdict == gold_root.identity)
+    identity = IdentityScore(identity_correct, identity_predicted, len(gold), undetermined)
+    body_identity = None
+    if body_stages:
+        body_identity = score_locator_body_review(final)
+        final_aligned = _align(final.roots, gold)
+        identity_correct = identity_predicted = undetermined = 0
+        for prediction_index, root in enumerate(final.roots):
+            body_verdict = _body_verdict(root)
+            verdict = (
+                body_verdict.name
+                if body_verdict is not None and body_verdict is not IdentityVerdict.DEFERRED
+                else lookup_verdicts.get(root.id)
+            )
+            if verdict is None:
+                continue
+            if verdict == "UNDETERMINED":
+                undetermined += 1
+                continue
+            identity_predicted += 1
+            identity_correct += int(
+                prediction_index in final_aligned
+                and verdict == gold[final_aligned[prediction_index]].identity
+            )
+        identity = IdentityScore(identity_correct, identity_predicted, len(gold), undetermined)
     return WorkflowScore(
         stage_scores,
         {field: FieldScore(counts[field][0], counts[field][1], len(gold)) for field in FIELDS},
-        IdentityScore(identity_correct, identity_predicted, len(gold), undetermined),
+        identity,
         LOCATOR_BODY_REVIEW if body_stages else None,
+        body_identity,
     )
 
 
@@ -627,6 +695,20 @@ def render_reporter_root_lookup_unique_llm(score: StageScore) -> str:
     return _render_stage(score, REPORTER_ROOT_LOOKUP_UNIQUE_LLM) + "\n"
 
 
+def render_locator_body_review(score: Precision) -> str:
+    return "\n".join(
+        (
+            f"## {LOCATOR_BODY_REVIEW}",
+            "",
+            "Only new, non-deferred identity verdicts count as predictions.",
+            "",
+            "| Identity precision |",
+            "| ---: |",
+            f"| {_precision_cell(score)} |",
+        )
+    ) + "\n"
+
+
 def render_validate_roots(
     score: WorkflowScore,
     *,
@@ -640,7 +722,7 @@ def render_validate_roots(
         sections.append(
             f"Checkpoint: {LOCATOR_BODY_REVIEW} completed. Field identity judgments are scored through "
             f"{WORKFLOW_STAGES[-1]}; the body review's printed citation comparisons have no corresponding "
-            "field identity gold."
+            "field identity gold. Its overall identity verdict is scored separately."
         )
     if include_stages:
         sections.extend(_render_stage(stage, stage.stage) for stage in score.stages)
@@ -656,12 +738,23 @@ def render_validate_roots(
         for field in FIELDS
     )
     sections.append("\n".join(lines))
+    if score.body_identity is not None:
+        sections.append(render_locator_body_review(score.body_identity).rstrip())
     sections.append(
         "\n".join(
             (
-                "## Lookup-derived root identity",
+                (
+                    "## Root identity after locator-body review"
+                    if score.body_identity is not None
+                    else "## Lookup-derived root identity"
+                ),
                 "",
-                "A selected lookup record is required. Undetermined case names are excluded from precision and remain in the recall denominator.",
+                (
+                    "A locator-body verdict takes precedence over a lookup-derived verdict. "
+                    "Undetermined case names remain in the recall denominator."
+                    if score.body_identity is not None
+                    else "A selected lookup record is required. Undetermined case names are excluded from precision and remain in the recall denominator."
+                ),
                 "",
                 "| Precision | Recall | Undetermined |",
                 "| ---: | ---: | ---: |",

@@ -187,7 +187,7 @@ async def _run(
     retrospective_date: date | None = None,
     courtlistener_pool: str | None = None,
 ) -> Path:
-    if courtlistener_pool not in (None, "reserved"):
+    if courtlistener_pool not in (None, "reserved", "proxy"):
         raise ValueError(f"Unsupported CourtListener pool: {courtlistener_pool}")
     if (
         sum(
@@ -263,8 +263,11 @@ async def _run(
             date.fromisoformat(saved_retrospective_date) if saved_retrospective_date else None
         )
         saved_pool = run_record.get("courtlistener_pool")
-        if saved_pool not in (None, "reserved"):
+        if saved_pool not in (None, "reserved", "proxy"):
             raise ValueError(f"Unsupported saved CourtListener pool: {saved_pool}")
+        if courtlistener_pool is not None and courtlistener_pool != saved_pool:
+            history = run_record.setdefault("courtlistener_pool_history", [saved_pool or "proxy"])
+            history.append(courtlistener_pool)
         courtlistener_pool = courtlistener_pool or saved_pool
         if courtlistener_pool is not None:
             run_record["courtlistener_pool"] = courtlistener_pool
@@ -365,6 +368,8 @@ async def _run(
             courtlistener_client = CourtListenerClient(
                 CourtListenerConfig(base_url=base_url, pool="reserved", token=token)
             )
+        elif courtlistener_pool == "proxy" and len(completed) != len(filenames):
+            courtlistener_client = CourtListenerClient(CourtListenerConfig.from_env())
 
         for index, filename in enumerate(filenames, start=1):
             source = sources[filename]
@@ -501,8 +506,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--courtlistener-pool",
-        choices=("reserved",),
-        help="Use the reserved CourtListener token for body searches",
+        choices=("reserved", "proxy"),
+        help="Select the reserved token or the proxy's rotating tokens for body searches",
     )
     args = parser.parse_args()
     if (
