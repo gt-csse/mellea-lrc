@@ -715,6 +715,7 @@ def test_rule_ambiguity_scores_only_the_selected_candidate_and_keeps_stage_bound
     assert set(score.as_dict()) == {"stage_order", "stages", "fields", "identity"}
     assert score.fields == {field: evaluation.FieldScore(1, 1, 2) for field in FIELDS}
     report = evaluation.render_validate_roots(score)
+    assert "## Root field judgments through stage 19 (before open search)" in report
     assert "| Field | Precision | Recall |" in report
     assert "identity" not in score.as_dict()["fields"]
 

@@ -908,7 +908,7 @@ def render_validate_roots(
             "Later intended-case candidates do not change that identity score."
         )
     lines = [
-        "## Root field judgments",
+        "## Root field judgments through stage 19 (before open search)",
         "",
         "| Field | Precision | Recall |",
         "| --- | ---: | ---: |",
