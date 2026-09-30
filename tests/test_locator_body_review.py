@@ -19,6 +19,7 @@ from mellea_lrc.model.citations.body_evidence import (
     BodySearch,
     BodySource,
 )
+from mellea_lrc.model.citations.fields.case_name import CaseNameKind
 from mellea_lrc.model.citations.judgments import IdentityBasis, IdentityVerdict
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
@@ -424,6 +425,26 @@ def test_docket_number_alone_cannot_confirm_a_full_citation() -> None:
         candidate["comparisons"][field]["result"] = "unavailable"
     with pytest.raises(ValidationError, match="locator and case-name support"):
         BodyCorroborationDecision.model_validate(candidate)
+
+
+def test_review_keeps_a_grounded_partial_filing_name() -> None:
+    proposed = _decision(verdict=IdentityVerdict.UNDETERMINED).model_dump(mode="json")
+    proposed["filing"]["case_name"] = "Smith"
+    proposed["filing"]["normalized_case_name"] = {
+        "kind": "partial",
+        "plaintiff": None,
+        "defendant": None,
+        "subject": None,
+        "partial": "Smith",
+    }
+    decision = BodyCorroborationDecision.model_validate(proposed)
+
+    reviewed = asyncio.run(review_locator_body_evidence(_document(), reviewer=FakeReviewer(decision)))
+    root = reviewed.roots[0]
+    assert root.body_reviews[-1].decision.filing.normalized_case_name.kind is CaseNameKind.PARTIAL
+    assert root.case_name[-1].quote == "Smith"
+    assert root.case_name[-1].get_normalized().partial == "Smith"
+    assert Document.model_validate_json(reviewed.model_dump_json()) == reviewed
 
 
 def test_docket_decision_date_must_be_supported_for_unqualified_admission() -> None:

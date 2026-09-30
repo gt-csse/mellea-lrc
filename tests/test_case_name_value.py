@@ -1,4 +1,4 @@
-"""Case names retain their structure after normalization."""
+"""Case names retain complete forms and grounded partial forms."""
 
 import pytest
 
@@ -6,13 +6,14 @@ from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
 
 
 @pytest.mark.parametrize(
-    ("quote", "kind", "plaintiff", "defendant", "subject", "citation"),
+    ("quote", "kind", "plaintiff", "defendant", "subject", "partial", "citation"),
     [
         (
             "  Acme, Inc.\n v.  U.S. Dept. ",
             CaseNameKind.ADVERSARIAL,
             "Acme, Inc.",
             "U.S. Dept.",
+            None,
             None,
             "Acme, Inc. v. U.S. Dept.",
         ),
@@ -22,9 +23,14 @@ from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
             None,
             None,
             "Motors Liquidation Co.",
+            None,
             "In re Motors Liquidation Co.",
         ),
-        ("ex PARTE  Young", CaseNameKind.EX_PARTE, None, None, "Young", "Ex parte Young"),
+        ("ex PARTE  Young", CaseNameKind.EX_PARTE, None, None, "Young", None, "Ex parte Young"),
+        ("Matter of M4 Enters., Inc.", CaseNameKind.IN_RE, None, None, "M4 Enters., Inc.", None, "In re M4 Enters., Inc."),
+        ("Troxel v.Granville", CaseNameKind.ADVERSARIAL, "Troxel", "Granville", None, None, "Troxel v. Granville"),
+        ("Ridgewood Bd. V. Zebra", CaseNameKind.ADVERSARIAL, "Ridgewood Bd.", "Zebra", None, None, "Ridgewood Bd. v. Zebra"),
+        ("Gucci  America", CaseNameKind.PARTIAL, None, None, None, "Gucci America", "Gucci America"),
     ],
 )
 def test_case_name_from_quote(
@@ -33,21 +39,23 @@ def test_case_name_from_quote(
     plaintiff: str | None,
     defendant: str | None,
     subject: str | None,
+    partial: str | None,
     citation: str,
 ) -> None:
     name = CaseName.from_quote(quote)
-    assert (name.kind, name.plaintiff, name.defendant, name.subject) == (
+    assert (name.kind, name.plaintiff, name.defendant, name.subject, name.partial) == (
         kind,
         plaintiff,
         defendant,
         subject,
+        partial,
     )
     assert name.as_citation() == citation
 
 
 @pytest.mark.parametrize(
     "quote",
-    ["", "   ", "A v. ", " v. B", "A vs. B", "A v. B v. C", "A v. ,", "In re ", "Ex parte ", "A B"],
+    ["", "   ", "A v. ", " v. B", "A v. B v. C", "A v. ,", "In re ", "Ex parte ", "A v."],
 )
 def test_case_name_rejects_unparsed_or_incomplete_quote(quote: str) -> None:
     with pytest.raises(ValueError):
@@ -65,6 +73,11 @@ def test_case_name_rejects_unparsed_or_incomplete_quote(quote: str) -> None:
         {"kind": CaseNameKind.IN_RE, "subject": "X", "plaintiff": "A"},
         {"kind": CaseNameKind.EX_PARTE, "subject": "X  Y"},
         {"kind": CaseNameKind.EX_PARTE, "defendant": "B"},
+        {"kind": CaseNameKind.PARTIAL, "partial": " "},
+        {"kind": CaseNameKind.PARTIAL, "partial": "One", "plaintiff": "Another"},
+        {"kind": CaseNameKind.PARTIAL, "partial": "One v. Another"},
+        {"kind": CaseNameKind.PARTIAL, "partial": "In re One"},
+        {"kind": CaseNameKind.ADVERSARIAL, "plaintiff": "A", "defendant": "B", "partial": "A"},
     ],
 )
 def test_case_name_model_rejects_invalid_shape_or_format(parts: dict[str, object]) -> None:

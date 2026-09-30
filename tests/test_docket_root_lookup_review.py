@@ -16,6 +16,7 @@ from mellea_lrc.model.citations.docket_lookup import (
     DocketLookupFailure,
     DocketLookupReviewDecision,
 )
+from mellea_lrc.model.citations.fields.case_name import CaseNameKind
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.ivr import IvrRun
 from mellea_lrc.validation.docket_root_lookup_review import (
@@ -315,6 +316,27 @@ def test_selected_record_requires_a_comparison_when_both_names_are_present() -> 
     context = DocketLookupReviewContext.from_document(before, root)
 
     assert "judge match or mismatch" in context.choice_error(_decision(0, case_name="unavailable"))
+
+
+def test_review_retains_a_typed_partial_filing_name() -> None:
+    before = _document(shortlist=(0,), name_quote="Smith")
+    proposed = _decision(0).model_dump(mode="json")
+    proposed["case_name"]["normalized"] = {
+        "kind": "partial",
+        "plaintiff": None,
+        "defendant": None,
+        "subject": None,
+        "partial": "Smith",
+    }
+    decision = DocketLookupReviewDecision.model_validate(proposed)
+    context = DocketLookupReviewContext.from_document(before, before.roots[0])
+    assert context.choice_error(decision) is None
+
+    after = asyncio.run(docket_root_lookup_review(before, reviewer=FakeReviewer(decision)))
+    root = after.roots[0]
+    assert root.docket_lookup_review.decision.case_name.normalized.kind is CaseNameKind.PARTIAL
+    assert root.case_name[-1].get_normalized().partial == "Smith"
+    assert Document.model_validate_json(after.model_dump_json()) == after
 
 
 def test_absent_filing_reading_uses_unavailable_even_with_selected_record() -> None:

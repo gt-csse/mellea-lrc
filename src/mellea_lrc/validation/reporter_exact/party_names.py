@@ -126,6 +126,11 @@ def compare_case_names(source: CaseName, retrieved_full_name: str) -> PartyNameM
             qualifies=distinct,
         )
 
+    if source.kind is CaseNameKind.PARTIAL:
+        # A fragment cannot establish a complete party or subject match. The
+        # caller records this as unavailable rather than a negative comparison.
+        return PartyNameMatch(None, None, None, False)
+
     prefix = _IN_RE if source.kind is CaseNameKind.IN_RE else _EX_PARTE
     if not (match := prefix.match(retrieved_full_name)):
         return PartyNameMatch(None, None, False, False)

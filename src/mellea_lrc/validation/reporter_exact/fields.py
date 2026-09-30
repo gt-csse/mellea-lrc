@@ -6,6 +6,7 @@ from datetime import date
 
 from mellea_lrc.courtlistener import CourtListenerCluster, CourtListenerDocket
 from mellea_lrc.model.citations import FullReporterCitation
+from mellea_lrc.model.citations.fields.case_name import CaseNameKind
 from mellea_lrc.model.citations.fields.court import Court, court_id_if_unique
 from mellea_lrc.model.citations.fields.reporter import normalize_reporter_locator
 from mellea_lrc.model.citations.judgments import MatchResult
@@ -31,9 +32,12 @@ def case_name_result(citation: FullReporterCitation, candidate: CourtListenerClu
     reading = citation.case_name[-1]
     if not reading.normalizable or not candidate.case_name_full:
         return MatchResult.UNAVAILABLE
+    name = reading.get_normalized()
+    if name.kind is CaseNameKind.PARTIAL:
+        return MatchResult.UNAVAILABLE
     return (
         MatchResult.MATCH
-        if compare_case_names(reading.get_normalized(), candidate.case_name_full).qualifies
+        if compare_case_names(name, candidate.case_name_full).qualifies
         else MatchResult.MISMATCH
     )
 

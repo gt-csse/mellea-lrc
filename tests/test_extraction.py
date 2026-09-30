@@ -237,6 +237,27 @@ def test_field_readers_keep_adjacent_cases_and_source_spans_separate() -> None:
             Document.model_validate(tampered)
 
 
+def test_case_name_reader_keeps_a_printed_fragment_without_inventing_a_party() -> None:
+    source = "Gucci America  , 768 F.3d 122 (2d Cir. 2014)."
+    document = resolve_case_names(resolve_colocations(find_full_reporter_locators(Document.from_source(source))))
+    reading = document.full_locators[0].case_name[-1]
+
+    assert reading.quote == "Gucci America"
+    assert reading.get_normalized() == CaseName(kind=CaseNameKind.PARTIAL, partial="Gucci America")
+    _assert_exact_quote(document, reading)
+    _assert_roundtrip(document)
+
+
+def test_case_name_reader_keeps_a_procedural_name_with_internal_comma() -> None:
+    source = "In  re  Giftcraft  Ltd., Inc. , 645 B.R. 175 (Bankr. S.D.N.Y. 2025)."
+    document = resolve_case_names(resolve_colocations(find_full_reporter_locators(Document.from_source(source))))
+    reading = document.full_locators[0].case_name[-1]
+
+    assert reading.quote == "In  re  Giftcraft  Ltd., Inc."
+    assert reading.get_normalized() == CaseName(kind=CaseNameKind.IN_RE, subject="Giftcraft Ltd., Inc.")
+    _assert_exact_quote(document, reading)
+
+
 def test_repeated_reporter_occurrences_share_a_root_without_losing_spans() -> None:
     document = form_roots(
         resolve_colocations(

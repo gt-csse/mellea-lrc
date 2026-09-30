@@ -9,6 +9,7 @@ import pytest
 from mellea_lrc.api import Document, grow_roots, reporter_root_lookup
 from mellea_lrc.courtlistener import CourtListenerCitationLookup, CourtListenerDocket, CourtListenerError
 from mellea_lrc.model import FullReporterCitation, Span
+from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactLookupOutcome
 
@@ -144,6 +145,27 @@ def test_missing_full_name_is_unavailable_and_routes_to_review() -> None:
     assert root.next_stage == "14_reporter_root_lookup_unique_llm"
     assert root.reporter_exact_lookup is not None
     assert root.reporter_exact_lookup.response == response
+
+
+@pytest.mark.parametrize("candidate_name", ["Bell Atlantic Corporation v. Twombly", "Other v. Party"])
+def test_partial_case_name_cannot_make_a_rule_identity_judgment(candidate_name: str) -> None:
+    before = _document()
+    root = before.roots[0]
+    fragment = "Bell Atl. Corp."
+    partial = CaseName(kind=CaseNameKind.PARTIAL, partial=fragment)
+    root = root.record("partial_name").with_case_name(
+        before.text, Span(0, len(fragment)), normalized=partial
+    )
+    before = before.replace_citation(root).complete("partial_name")
+
+    after = reporter_root_lookup(
+        before, client=FakeLookupClient(_response(_matching_cluster(caseNameFull=candidate_name)))
+    )
+    looked_up = after.roots[0]
+    assert looked_up.case_name[-1].normalizable is True
+    assert looked_up.case_name_judgments[-1].result is MatchResult.UNAVAILABLE
+    assert looked_up.identity_judgments == ()
+    assert looked_up.next_stage == "14_reporter_root_lookup_unique_llm"
 
 
 def test_missing_provider_court_routes_inferred_court_as_unavailable() -> None:
