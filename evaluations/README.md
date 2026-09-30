@@ -1,5 +1,49 @@
 # Evaluation runs
 
+## Grow leaves from saved roots
+
+The leaf runner starts from the primary corpus's cumulative saved Documents.
+It defaults to stage `23_locator_body_llm_judgment`, before open-ended internet
+search. It makes no CourtListener, GovInfo, or web requests.
+
+```sh
+.venv/bin/python -m evaluations.run_grow_leaves \
+  --input-documents evaluations/results/primary/<UTC timestamp>/documents
+.venv/bin/python -m evaluations.score_run \
+  evaluations/results/primary/<new UTC timestamp> --workflow grow_leaves
+```
+
+`--rule-only` omits the two semantic reviews. `--input-stage STAGE` accepts an
+earlier completed root or leaf checkpoint; for example, stage `30_id_citations`
+repeats only reference discovery and the subsequent leaf stages, while stage
+`36_id_attribution` repeats only the Id. semantic audit. `--resume-run RUN_DIR`
+continues an interrupted run in the same directory. Completed stages and
+filings are retained. One cumulative Document is saved atomically after each
+completed stage in `documents/`; there are no separate copies of each leaf
+checkpoint. `get_stage` recovers those checkpoints from the final Document.
+
+`score_grow_leaves(document)` calls the independent Document-only scorer for
+each completed leaf stage. Discovery and reading stages report span and
+normalization precision; attribution stages report attachment precision.
+Normalization is scored only against independently annotated targets, never
+against another execution of the same normalizer. Missing normalization gold
+is shown explicitly. Supra has controlled tests but no primary gold examples.
+
+The workflow tables report exact source-span and root-attribution precision
+and recall by citation kind and overall. The denominator includes all
+annotated nonroot occurrences: repeated full reporter/docket citations as
+well as short reporter, Id., supra, and name-only references. Attribution
+compares source-root locator spans, without requiring an external record ID.
+Name-only attribution aligns a unique overlapping annotated mention and
+credits it at most once; exact name boundaries are scored separately in the
+source-span table. Other leaf kinds use exact source-site alignment.
+Withdrawn proposals remain available in earlier checkpoints and review logs,
+but do not count as final active leaves. Apparent false positives still need
+occurrence review because an unannotated authority mention is scored as
+unmatched. JSON and Markdown are generated directly by the same scorer.
+
+## Root extraction and validation
+
 The primary runner writes one cumulative `Document` per filing under
 `evaluations/results/primary/<UTC timestamp>/documents/`. Its directory name
 records only when the run began; `run.json` records the input and completion

@@ -6,9 +6,10 @@ import pytest
 from eyecite.models import FullCaseCitation, ShortCaseCitation
 
 from mellea_lrc.api import Document, find_short_reporter_citations, grow_roots
-from mellea_lrc.model import FullReporterCitation, ShortReporterCitation, Span
 from mellea_lrc.extraction.full_reporter_locator import full_reporter_readings
+from mellea_lrc.extraction.short_reporter_locator import STAGE as SHORT_REPORTER_STAGE
 from mellea_lrc.extraction.short_reporter_locator import short_reporter_readings
+from mellea_lrc.model import FullReporterCitation, ShortReporterCitation, Span
 
 
 def test_stage_readers_share_eyecite_matching_for_full_and_short_kinds() -> None:
@@ -31,14 +32,14 @@ def test_short_reporter_is_a_distinct_checkpointed_citation() -> None:
     short = document.short_reporters[0]
     assert isinstance(short, ShortReporterCitation)
     assert not hasattr(short, "locator_span")
-    assert short.short_locator_span == Span(
-        source.index("347 U.S. at 495"), source.index("347 U.S. at 495") + 15
-    )
-    assert short.short_locator[-1].quote == "347 U.S. at 495"
+    locator_quote = "347 U.S. at 495 n.4"
+    assert short.short_locator_span == Span(source.index(locator_quote), source.index(locator_quote) + len(locator_quote))
+    assert short.short_locator[-1].quote == locator_quote
+    assert source[short.short_locator_span.start : short.short_locator_span.end] == short.short_locator[-1].quote
     assert short.short_locator[-1].get_normalized().pin_page == "495"
     assert short.root_id == ()
     assert document.get_stage("10_roots") == roots
-    assert document.get_stage("short_reporter_citations") == document
+    assert document.get_stage(SHORT_REPORTER_STAGE) == document
     assert Document.model_validate_json(document.model_dump_json()) == document
 
 
@@ -64,5 +65,5 @@ def test_short_reporter_can_later_attach_without_changing_its_checkpoint() -> No
     attached = attached.complete("attach_short")
 
     assert attached.short_reporters[0].root_id[-1].value == found.roots[0].id
-    assert attached.get_stage("short_reporter_citations") == found
+    assert attached.get_stage(SHORT_REPORTER_STAGE) == found
     assert Document.model_validate_json(attached.model_dump_json()) == attached

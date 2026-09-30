@@ -63,7 +63,7 @@ class Citation(BaseModel):
                     data[name] = value if value is not None and value.node_id in node_ids else None
         return type(self).model_validate(data)
 
-    def with_root(self, root_id: str) -> Self:
+    def with_root(self, root_id: str | None) -> Self:
         """Append a root attachment without erasing earlier assignments."""
         return self._with_log(
             root_id=(*self.root_id, RelationshipUpdate(value=root_id, node_id=self._decision_node_id())),

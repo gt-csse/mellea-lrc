@@ -11,6 +11,7 @@ from mellea_lrc.model.citations import (
     CitationVariant,
     FullCitation,
     FullCitationVariant,
+    LeafCitation,
     ShortReporterCitation,
     latest,
 )
@@ -52,6 +53,20 @@ class Document(PreprocessedDocument):
     @property
     def roots(self) -> tuple[FullCitationVariant, ...]:
         return tuple(citation for citation in self.full_locators if latest(citation.root_id) == citation.id)
+
+    @property
+    def short_citations(self) -> tuple[LeafCitation, ...]:
+        """All short-form histories, including withdrawn or unresolved sites."""
+        return tuple(citation for citation in self.citations if isinstance(citation, LeafCitation))
+
+    @property
+    def leaves(self) -> tuple[CitationVariant, ...]:
+        """Attached occurrences, including repeated full citations."""
+        return tuple(
+            citation
+            for citation in self.citations
+            if latest(citation.root_id) not in {None, WITHDRAWN_ROOT_ID, citation.id}
+        )
 
     @property
     def colocations(self) -> tuple[Colocation, ...]:
@@ -200,6 +215,16 @@ class Document(PreprocessedDocument):
                     previous_stage = position
             citation.validate_source(self.text)
             node_stages = {node.id: node.stage for node in citation.nodes}
+            if isinstance(citation, LeafCitation):
+                for record in (*citation.attributions, *citation.reviews):
+                    record_stage = stage_positions.get(node_stages[record.node_id], len(self.stage_runs))
+                    for root_id in record.candidate_root_ids:
+                        candidate = by_id.get(root_id)
+                        if not isinstance(candidate, FullCitation):
+                            raise ValueError("Leaf candidate must refer to an existing full citation")
+                        creation_stage = stage_positions.get(candidate.nodes[0].stage, len(self.stage_runs))
+                        if creation_stage > record_stage:
+                            raise ValueError("Leaf candidate cannot be created after its assessment")
             for update in citation.root_id:
                 if update.value in {None, WITHDRAWN_ROOT_ID}:
                     continue

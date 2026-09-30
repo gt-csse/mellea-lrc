@@ -3,7 +3,8 @@
 Callers may compose each `Document -> Document` stage explicitly; docket
 hunting and docket-root equivalence review are awaitable. `grow_roots` is the
 async convenience composition, with both model stages opt-in.
-Validation stages remain independently callable; leaf growth is a later layer.
+Validation stages remain independently callable. `grow_leaves` attaches short
+forms and repeated occurrences to formed roots, with optional model review.
 After locator-body validation, `discover_intended_cases` searches other fields
 without issuing a positive judgment about the cited locator.
 """
@@ -23,6 +24,15 @@ from mellea_lrc.extraction import (
     resolve_docket_entries,
     resolve_pin_cites,
 )
+from mellea_lrc.extraction.id_attribution import attribute_id_citations
+from mellea_lrc.extraction.id_attribution_llm import review_id_attributions
+from mellea_lrc.extraction.id_citations import find_id_citations
+from mellea_lrc.extraction.leaf_attribution_llm import review_leaf_attributions
+from mellea_lrc.extraction.leaf_attribution_rule import attribute_leaves_rule
+from mellea_lrc.extraction.leaf_case_names import resolve_leaf_case_names
+from mellea_lrc.extraction.leaf_pin_cites import resolve_leaf_pin_cites
+from mellea_lrc.extraction.reference_citations import find_reference_citations
+from mellea_lrc.extraction.supra_citations import find_supra_citations
 from mellea_lrc.model.document import Document
 from mellea_lrc.preprocessing import preprocess
 from mellea_lrc.validation import (
@@ -47,12 +57,15 @@ from mellea_lrc.validation import (
 )
 from mellea_lrc.workflows.corroborate_root_locator_bodies import corroborate_root_locator_bodies
 from mellea_lrc.workflows.discover_intended_cases import discover_intended_cases
+from mellea_lrc.workflows.grow_leaves import grow_leaves
 from mellea_lrc.workflows.grow_roots import grow_roots
 from mellea_lrc.workflows.validate_roots import validate_roots
 
 __all__ = [
     "Document",
     "ExtractionRules",
+    "attribute_id_citations",
+    "attribute_leaves_rule",
     "corroborate_root_locator_bodies",
     "discover_intended_cases",
     "docket_root_llm_reassignment",
@@ -62,8 +75,12 @@ __all__ = [
     "docket_root_lookup_govinfo_retrieval",
     "find_docket_locators",
     "find_full_reporter_locators",
+    "find_id_citations",
+    "find_reference_citations",
     "find_short_reporter_citations",
+    "find_supra_citations",
     "form_roots",
+    "grow_leaves",
     "grow_roots",
     "hunt_docket_locators",
     "intended_case_courtlistener_opinion_retrieval",
@@ -86,7 +103,11 @@ __all__ = [
     "resolve_courts",
     "resolve_dates",
     "resolve_docket_entries",
+    "resolve_leaf_case_names",
+    "resolve_leaf_pin_cites",
     "resolve_pin_cites",
+    "review_id_attributions",
+    "review_leaf_attributions",
     "stable",
     "validate_roots",
 ]
