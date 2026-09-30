@@ -119,13 +119,13 @@ class ReporterUniqueReviewer(Protocol):
 
 MAX_TOKENS = 3000
 MAX_MODEL_ATTEMPTS = 3
-SESSION_ID = "mellea-lrc-reporter-unique-review-v8"
+SESSION_ID = "mellea-lrc-reporter-unique-review-v9"
 
 _PREFIX = """Review one reporter citation against one retrieved opinion record. Do all rereading, correction proposals, and field comparisons in this one answer.
 
 The reporter locator is fixed. For case name, court, and date, first reread the filing text. Set propose_replacement to true only when you intend to change or supply that field; then quote the replacement exactly from the filing. If the current reading is fine, set propose_replacement to false and quote to null. Do not quote a value merely to restate a reading you are keeping. A proposal must be within the text before the locator for case name, or after it for court and date. Do not quote values from the retrieved record as corrections to the filing.
 
-For case_name, also supply normalized as the structured name read from the filing (kind and its party or subject fields). Supply it even when keeping an existing grounded quote; use null only when no case name is grounded. The quote may contain page headers or other layout noise between name parts. Include that noise in the quoted span, but omit it from normalized. Do not take the normalized name from the retrieved record.
+For case_name, also supply normalized as the structured name read from the filing. Use kind=adversarial with both printed parties, kind=in_re or kind=ex_parte with a printed subject, or kind=partial with only its partial text when the filing supplies a credible name fragment but not a complete case name. Leave plaintiff, defendant, and subject null for kind=partial; never complete a missing party from the retrieved record. Supply normalized even when keeping an existing grounded quote; use null only when no case name or fragment is grounded. The quote may contain page headers or other layout noise between name parts. Include that noise in the quoted span, but omit it from normalized. Do not take the normalized name from the retrieved record.
 
 For court and date, judge the filing reading against the retrieved evidence directly. If you propose a replacement quote, the program will normalize that quote afterward; you do not need to supply a normalized court or date.
 

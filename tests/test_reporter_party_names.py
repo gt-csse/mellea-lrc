@@ -65,3 +65,11 @@ def test_subject_case_requires_subject_and_same_form(source: str, retrieved: str
     result = compare_case_names(CaseName.from_quote(source), retrieved)
     assert result.subject_present is qualifies
     assert result.qualifies is qualifies
+
+
+def test_partial_name_is_not_treated_as_an_ex_parte_subject() -> None:
+    result = compare_case_names(CaseName.from_quote("Bell Atl. Corp."), "Ex parte Bell Atlantic Corp.")
+    assert result.plaintiff_present is None
+    assert result.defendant_present is None
+    assert result.subject_present is None
+    assert result.qualifies is False

@@ -368,6 +368,26 @@ def test_grounded_name_without_model_normalization_is_rejected() -> None:
     assert root.next_stage == "reporter_root_search"
 
 
+def test_unique_review_accepts_a_grounded_partial_without_supplying_missing_party() -> None:
+    source = "Bell Atl. Corp., 550 U.S. 544 (2007)."
+    before = _review_input(source=source, client=FakeLookupClient(case_name="Other v. Party"))
+    fragment = "Bell Atl. Corp."
+    partial = {"kind": "partial", "partial": fragment}
+    decision = _decision(
+        case_name_quote=fragment,
+        case_name_normalized=partial,
+        case_name_result="mismatch",
+    )
+
+    after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=FakeReviewer(decision)))
+    root = after.roots[0]
+    assert root.reporter_unique_review.decision == decision
+    assert root.case_name[-1].quote == fragment
+    assert root.case_name[-1].get_normalized() == CaseName(kind=CaseNameKind.PARTIAL, partial=fragment)
+    assert root.case_name_judgments[-1].result is MatchResult.MISMATCH
+    assert Document.model_validate_json(after.model_dump_json()) == after
+
+
 def test_model_normalization_without_a_grounded_name_is_rejected() -> None:
     before = _review_input(source="550 U.S. 544 (2007).")
     assert not before.roots[0].case_name

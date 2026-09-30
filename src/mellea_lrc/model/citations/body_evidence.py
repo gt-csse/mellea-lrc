@@ -116,7 +116,7 @@ class BodyCitationFields(BaseModel):
 
 
 class BodyFilingFields(BodyCitationFields):
-    """Source-filing reread; a grounded name may carry model normalization."""
+    """Source-filing reread; a grounded complete or partial name has a typed reading."""
 
     normalized_case_name: CaseName | None
 

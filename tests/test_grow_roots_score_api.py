@@ -106,6 +106,7 @@ def _write_annotated_source(tmp_path: Path) -> Path:
                 "plaintiff": "Alpha",
                 "defendant": "Beta",
                 "subject": None,
+                "partial": None,
             },
         ),
         "court": _inferred_court(),
@@ -133,6 +134,7 @@ def _write_annotated_source(tmp_path: Path) -> Path:
                 "plaintiff": "Gamma",
                 "defendant": "Delta",
                 "subject": None,
+                "partial": None,
             },
         ),
         "court": _quoted(
@@ -505,6 +507,35 @@ def test_absent_case_name_scores_as_correct_only_for_not_stated(tmp_path: Path) 
     assert score.root_fields["pin_cite"]["normalization"] == evaluation.FieldScore(1, 1, 1)
 
 
+def test_quoted_partial_case_name_scores_with_its_own_typed_value(tmp_path: Path) -> None:
+    text = "Gucci America, 550 U.S. 544."
+    partial = {
+        "source": {"kind": "quoted", **_span(text, "Gucci America")},
+        "normalization": {
+            "kind": "value",
+            "value": {
+                "kind": "partial",
+                "plaintiff": None,
+                "defendant": None,
+                "subject": None,
+                "partial": "Gucci America",
+            },
+        },
+    }
+    source = _write_single_reporter_source(tmp_path, text, partial)
+    document = asyncio.run(grow_roots(Document.from_source(source)))
+
+    assert evaluation.score_case_names(document).metrics == {
+        "span": evaluation.Precision(1, 1),
+        "normalization": evaluation.Precision(1, 1),
+    }
+    assert evaluation.score_grow_roots(document).root_fields["case_name"] == {
+        "span": evaluation.FieldScore(1, 1, 1),
+        "span_overlap": evaluation.RecallScore(1, 1),
+        "normalization": evaluation.FieldScore(1, 1, 1),
+    }
+
+
 def test_not_stated_gold_rejects_a_predicted_case_name(tmp_path: Path) -> None:
     source = _write_single_reporter_source(tmp_path, "Alpha v. Beta, 550 U.S. 544.", _not_stated())
     document = asyncio.run(grow_roots(Document.from_source(source)))
@@ -547,7 +578,13 @@ def test_failed_normalization_matches_only_quoted_unavailable_gold(tmp_path: Pat
     rows[1]["case_name"]["source"] = {"kind": "quoted", **_span(text, "Smith v. ?")}
     rows[1]["case_name"]["normalization"] = {
         "kind": "value",
-        "value": {"kind": "adversarial", "plaintiff": "Smith", "defendant": "Jones", "subject": None},
+        "value": {
+            "kind": "adversarial",
+            "plaintiff": "Smith",
+            "defendant": "Jones",
+            "subject": None,
+            "partial": None,
+        },
     }
     annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
     changed = evaluation.score_grow_roots(document)
