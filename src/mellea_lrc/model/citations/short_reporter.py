@@ -6,14 +6,14 @@ from typing import Literal, Self
 
 from pydantic import model_validator
 
-from mellea_lrc.model.citations.citation import Citation
 from mellea_lrc.model.citations.fields import ShortReporterLocator
 from mellea_lrc.model.citations.history import Node
 from mellea_lrc.model.citations.kind import ShortCitationKind
+from mellea_lrc.model.citations.leaf import LeafCitation
 from mellea_lrc.model.span import Span
 
 
-class ShortReporterCitation(Citation):
+class ShortReporterCitation(LeafCitation):
     """An eyecite short case citation awaiting root attachment."""
 
     kind: Literal[ShortCitationKind.REPORTER] = ShortCitationKind.REPORTER

@@ -58,6 +58,7 @@ from mellea_lrc.model.citations.history import (
     RelationshipUpdate,
     latest,
 )
+from mellea_lrc.model.citations.id import IdCitation
 from mellea_lrc.model.citations.judgments import (
     IdentityJudgment,
     IdentityVerdict,
@@ -67,6 +68,14 @@ from mellea_lrc.model.citations.judgments import (
     ReporterExactDateJudgment,
 )
 from mellea_lrc.model.citations.kind import FullCitationKind, ShortCitationKind
+from mellea_lrc.model.citations.leaf import (
+    AttributionResult,
+    LeafAttribution,
+    LeafCitation,
+    LeafReview,
+    LeafReviewDecision,
+)
+from mellea_lrc.model.citations.reference import ReferenceCitation
 from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactLookup,
     ReporterExactLookupOutcome,
@@ -76,18 +85,25 @@ from mellea_lrc.model.citations.reporter_lookup import (
     ReporterUniqueReviewDecision,
 )
 from mellea_lrc.model.citations.short_reporter import ShortReporterCitation
+from mellea_lrc.model.citations.supra import SupraCitation
 
 FullCitationVariant: TypeAlias = Annotated[
     FullReporterCitation | FullDocketCitation,
     Field(discriminator="kind"),
 ]
 CitationVariant: TypeAlias = Annotated[
-    FullReporterCitation | FullDocketCitation | ShortReporterCitation,
+    FullReporterCitation
+    | FullDocketCitation
+    | ShortReporterCitation
+    | IdCitation
+    | SupraCitation
+    | ReferenceCitation,
     Field(discriminator="kind"),
 ]
 
 
 __all__ = [
+    "AttributionResult",
     "CaseName",
     "CaseNameField",
     "CaseNameKind",
@@ -121,17 +137,23 @@ __all__ = [
     "GovInfoDocketReview",
     "GovInfoLookupAttempt",
     "GovInfoLookupCandidate",
+    "IdCitation",
     "IdentityJudgment",
     "IdentityVerdict",
     "IntendedCaseConfidence",
     "IntendedCaseDecision",
     "IntendedCaseReview",
+    "LeafAttribution",
+    "LeafCitation",
+    "LeafReview",
+    "LeafReviewDecision",
     "MatchResult",
     "Node",
     "PinCiteField",
     "PinCiteKind",
     "PinCiteTarget",
     "PinCiteValue",
+    "ReferenceCitation",
     "RelationshipUpdate",
     "Reporter",
     "ReporterExactCaseNameJudgment",
@@ -148,5 +170,6 @@ __all__ = [
     "ShortReporterCitation",
     "ShortReporterLocator",
     "ShortReporterLocatorValue",
+    "SupraCitation",
     "latest",
 ]

@@ -1,6 +1,6 @@
 # Extraction
 
-The active extraction pipeline ends at root formation. It accepts a `Document` and returns a `Document`; preprocessing is a separate step. The public functions are in [`mellea_lrc.api`](../src/mellea_lrc/api.py).
+Extraction has separate `grow_roots` and `grow_leaves` workflows. Both accept a `Document` and return a `Document`; preprocessing is a separate step. The public functions are in [`mellea_lrc.api`](../src/mellea_lrc/api.py).
 
 ```python
 import asyncio
@@ -71,4 +71,38 @@ restored = Document.model_validate_json(saved)
 assert restored.get_stage("2_docket_locators") == after_dockets
 ```
 
-Exact reporter-root lookup is the first independent validation stage after root formation; see [Validation](Validation.md). Search and leaf growth remain later layers.
+Exact reporter-root lookup is the first independent validation stage after root formation; see [Validation](Validation.md).
+
+## Grow leaves
+
+`grow_leaves` needs formed roots. Root validation is optional: a citation whose identity is wrong still needs its short forms attached. The workflow uses the current source-grounded root names and locators. It does not retrieve external evidence or change root identity judgments.
+
+```python
+from mellea_lrc.api import grow_leaves
+
+document = await grow_leaves(document)
+before_id_review = document.get_stage("36_id_attribution")
+```
+
+The individually callable stages are:
+
+| Stage | API | Work |
+| --- | --- | --- |
+| 28 | `find_short_reporter_citations(document)` | Short reporter sites, using the augmented eyecite tokenizer and shared pinpoint grammar |
+| 29 | `find_supra_citations(document)` | Supra sites |
+| 30 | `find_id_citations(document)` | Id./Ibid. sites and explicitly joined pinpoints |
+| 31 | `find_reference_citations(document)` | Lenient source-name proposals, excluding other citation components |
+| 32 | `resolve_leaf_case_names(document)` | Adjacent written names, independently of root attachment |
+| 33 | `resolve_leaf_pin_cites(document)` | Exact pinpoint quotes and typed normalization |
+| 34 | `attribute_leaves_rule(document)` | Unique preceding reporter/name agreements; ambiguous and bare-name sites route to review |
+| 35 | `await review_leaf_attributions(document)` | Citation-use decision and root choice for routed sites |
+| 36 | `attribute_id_citations(document)` | Source-order Id. chains, retaining noncase events as barriers |
+| 37 | `await review_id_attributions(document)` | Semantic Id. audit for documentary sources missed by the tokenizer |
+
+Use `await grow_leaves(document, review_leaves=False)` for a rule-only pass. Both model stages accept an async `reviewer` for controlled offline tests. Name-only proposals always need semantic review, even when their name has only one root candidate. Full citation repetitions were attached during root formation; grow-leaves evaluation includes them but does not recreate them.
+
+Short reporter volume and edition identify candidate roots; the short page is a pinpoint and is not used as the root's first page. Name-only references can precede a nearby full citation. Id. cannot refer forward: its rule pass follows citation chronology, then its semantic audit distinguishes case-linked docket documents from unrelated briefs, exhibits, statutes, and rules. Each reviewed Id. updates the tree before the next review, and the next prompt receives the recent source sites and their current attachments.
+
+The citation subclasses are `ShortReporterCitation`, `SupraCitation`, `IdCitation`, and `ReferenceCitation`. Their quoted fields, `attributions`, and `reviews` are append-only and point to citation-local nodes. A model returns only `is_citation`, a candidate `root_index` or null, and a reason; the program writes the root assignment. Rejection reattaches the citation to the dummy head. An unsupported semantic choice clears the current attachment while retaining the earlier rule assignment. A failed model call records its trace and preserves the prior rule state.
+
+Each `LeafReview` retains candidate root IDs, the decision or failure, and the complete shared `IvrRun`, including schema repair feedback and provider exchanges. No live model session is needed to restore the document or inspect an earlier stage. Pinpoint **reading** belongs here; validity against the cited opinion remains a separate later workflow.

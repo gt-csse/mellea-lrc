@@ -10,3 +10,6 @@ class FullCitationKind(str, Enum):
 
 class ShortCitationKind(str, Enum):
     REPORTER = "short_reporter"
+    ID = "id"
+    SUPRA = "supra"
+    REFERENCE = "reference"
