@@ -23,12 +23,13 @@ _MATTER_OF = re.compile(r"Matter of\s+(.+)", re.IGNORECASE)
 
 
 class CaseNameKind(str, Enum):
-    """The grammatical form of a case name."""
+    """A written name's form, or the absence of a written name."""
 
     ADVERSARIAL = "adversarial"
     IN_RE = "in_re"
     EX_PARTE = "ex_parte"
     PARTIAL = "partial"
+    NOT_STATED = "not_stated"
 
 
 class CaseName(BaseModel):
@@ -103,24 +104,30 @@ class CaseName(BaseModel):
                 or self.partial is not None
             ):
                 raise ValueError("Subject case name requires a subject only")
-        elif (
-            self.partial is None
-            or self.plaintiff is not None
-            or self.defendant is not None
-            or self.subject is not None
-        ):
-            raise ValueError("Partial case name requires only its printed fragment")
-        elif (
-            (
-                (separator := _VERSUS.search(self.partial)) is not None
-                and any(character.isalnum() for character in self.partial[: separator.start()])
-                and any(character.isalnum() for character in self.partial[separator.end() :])
-            )
-            or _IN_RE.fullmatch(self.partial)
-            or _MATTER_OF.fullmatch(self.partial)
-            or _EX_PARTE.fullmatch(self.partial)
-        ):
-            raise ValueError("A complete case name cannot use the partial form")
+        elif self.kind is CaseNameKind.PARTIAL:
+            if (
+                self.partial is None
+                or self.plaintiff is not None
+                or self.defendant is not None
+                or self.subject is not None
+            ):
+                raise ValueError("Partial case name requires only its printed fragment")
+            if (
+                (
+                    (separator := _VERSUS.search(self.partial)) is not None
+                    and any(character.isalnum() for character in self.partial[: separator.start()])
+                    and any(character.isalnum() for character in self.partial[separator.end() :])
+                )
+                or _IN_RE.fullmatch(self.partial)
+                or _MATTER_OF.fullmatch(self.partial)
+                or _EX_PARTE.fullmatch(self.partial)
+            ):
+                raise ValueError("A complete case name cannot use the partial form")
+        elif self.kind is CaseNameKind.NOT_STATED:
+            if any(part is not None for part in (self.plaintiff, self.defendant, self.subject, self.partial)):
+                raise ValueError("An unstated case name has no printed parts")
+        else:
+            raise ValueError(f"Unknown case name kind: {self.kind}")
         return self
 
     def as_citation(self) -> str:
@@ -131,8 +138,13 @@ class CaseName(BaseModel):
             if self.partial is None:
                 raise ValueError("Partial case name has no printed fragment")
             return self.partial
-        prefix = "In re" if self.kind is CaseNameKind.IN_RE else "Ex parte"
-        return f"{prefix} {self.subject}"
+        if self.kind is CaseNameKind.NOT_STATED:
+            raise ValueError("An unstated case name has no citation text")
+        if self.kind is CaseNameKind.IN_RE:
+            return f"In re {self.subject}"
+        if self.kind is CaseNameKind.EX_PARTE:
+            return f"Ex parte {self.subject}"
+        raise ValueError(f"Unknown case name kind: {self.kind}")
 
 
 class CaseNameField(CitationField[CaseName]):
@@ -167,6 +179,8 @@ class CaseNameField(CitationField[CaseName]):
 
     @model_validator(mode="after")
     def _validate_normalization(self) -> Self:
+        if self.normalizable and self.get_normalized().kind is CaseNameKind.NOT_STATED:
+            raise ValueError("An unstated case name cannot be a quoted field reading")
         if self.normalized_by == "rule":
             self.validate_normalization(lambda: CaseName.from_quote(self.quote))
         return self

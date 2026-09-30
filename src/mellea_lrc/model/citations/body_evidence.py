@@ -8,7 +8,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-from mellea_lrc.model.citations.fields.case_name import CaseName
+from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.ivr import IvrRun
 from mellea_lrc.model.span import Span
@@ -122,6 +122,11 @@ class BodyFilingFields(BodyCitationFields):
 
     @model_validator(mode="after")
     def _validate_name(self) -> Self:
+        if (
+            self.normalized_case_name is not None
+            and self.normalized_case_name.kind is CaseNameKind.NOT_STATED
+        ):
+            raise ValueError("A filing case-name normalization must describe a quoted name")
         if (self.case_name is None) != (self.normalized_case_name is None):
             raise ValueError("A filing case name and its normalization must be supplied together")
         return self

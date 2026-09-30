@@ -9,7 +9,14 @@ from pydantic import model_validator
 from mellea_lrc.model.citations.body_evidence import BodyCorroborationReview, BodySearch
 from mellea_lrc.model.citations.citation import Citation
 from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch, IntendedCaseReview
-from mellea_lrc.model.citations.fields import CaseName, CaseNameField, CourtField, DateField, PinCiteField
+from mellea_lrc.model.citations.fields import (
+    CaseName,
+    CaseNameField,
+    CaseNameKind,
+    CourtField,
+    DateField,
+    PinCiteField,
+)
 from mellea_lrc.model.citations.history import RelationshipUpdate
 from mellea_lrc.model.citations.judgments import (
     IdentityBasis,
@@ -49,6 +56,16 @@ class FullCitation(Citation):
     @property
     def site_span(self) -> Span:
         return self.locator_span
+
+    def get_case_name(self) -> CaseName:
+        """Return the typed current outcome, including an unstated name.
+
+        No quoted reading means no name was stated at the current checkpoint.
+        A quoted reading that failed normalization still raises distinctly.
+        """
+        if not self.case_name:
+            return CaseName(kind=CaseNameKind.NOT_STATED)
+        return self.case_name[-1].get_normalized()
 
     def with_case_name(self, source: str, span: Span, *, normalized: CaseName | None = None) -> Self:
         """Append a grounded case name, using a model reading when supplied."""

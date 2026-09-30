@@ -131,7 +131,15 @@ def compare_case_names(source: CaseName, retrieved_full_name: str) -> PartyNameM
         # caller records this as unavailable rather than a negative comparison.
         return PartyNameMatch(None, None, None, False)
 
-    prefix = _IN_RE if source.kind is CaseNameKind.IN_RE else _EX_PARTE
+    if source.kind is CaseNameKind.NOT_STATED:
+        return PartyNameMatch(None, None, None, False)
+
+    if source.kind is CaseNameKind.IN_RE:
+        prefix = _IN_RE
+    elif source.kind is CaseNameKind.EX_PARTE:
+        prefix = _EX_PARTE
+    else:
+        raise ValueError(f"Unknown case name kind: {source.kind}")
     if not (match := prefix.match(retrieved_full_name)):
         return PartyNameMatch(None, None, False, False)
     subject_present = bool(_phrase_spans(source.subject or "", retrieved_full_name[match.end() :]))
