@@ -7,14 +7,14 @@ import asyncio
 import pytest
 
 from mellea_lrc.api import Document, grow_roots
-from mellea_lrc.extraction.docket_root_equivalence import (
+from mellea_lrc.extraction.docket_root_llm_reassignment import (
     STAGE,
     DocketRootReviewContext,
     DocketRootReviewOutcome,
-    review_docket_root_equivalence,
+    docket_root_llm_reassignment,
 )
 from mellea_lrc.model.citations import latest
-from mellea_lrc.model.citations.docket_root_equivalence import DocketRootPartition
+from mellea_lrc.model.citations.docket_root_llm_reassignment import DocketRootPartition
 
 
 def _rooted(*numbers: str) -> Document:
@@ -50,7 +50,7 @@ def test_pairwise_boundary_forms_one_review_group_through_a_bridge() -> None:
         contexts.append(context)
         return DocketRootPartition(groups=((0, 1), (2,)), reason="The third is a different case.")
 
-    after = asyncio.run(review_docket_root_equivalence(before, reviewer=reviewer))
+    after = asyncio.run(docket_root_llm_reassignment(before, reviewer=reviewer))
 
     assert len(contexts) == 1
     assert [candidate.citation_id for candidate in contexts[0].candidates] == [
@@ -81,7 +81,7 @@ def test_merge_updates_every_occurrence_attached_to_the_losing_root() -> None:
         # Group order is the model's classification, not a choice of root ID.
         return DocketRootPartition(groups=((1, 0), (2,)), reason="The first two identify one case.")
 
-    after = asyncio.run(review_docket_root_equivalence(before, reviewer=reviewer))
+    after = asyncio.run(docket_root_llm_reassignment(before, reviewer=reviewer))
 
     assert len(seen) == 1
     assert [candidate.citation_id for candidate in seen[0].candidates] == [
@@ -128,7 +128,7 @@ def test_singletons_and_below_threshold_pairs_skip_review_but_complete_stage(
     async def reviewer(_context: DocketRootReviewContext) -> DocketRootPartition:
         pytest.fail("No candidate pair reaches the 40% docket-number threshold")
 
-    after = asyncio.run(review_docket_root_equivalence(before, reviewer=reviewer))
+    after = asyncio.run(docket_root_llm_reassignment(before, reviewer=reviewer))
 
     assert after.citations == before.citations
     assert after.stage_runs == (*before.stage_runs, STAGE)
@@ -142,7 +142,7 @@ def test_separate_model_groups_keep_distinct_roots_and_save_review() -> None:
     async def reviewer(_context: DocketRootReviewContext) -> DocketRootPartition:
         return DocketRootPartition(groups=((0,), (1,)), reason="Different proceedings.")
 
-    after = asyncio.run(review_docket_root_equivalence(before, reviewer=reviewer))
+    after = asyncio.run(docket_root_llm_reassignment(before, reviewer=reviewer))
 
     assert [latest(citation.root_id) for citation in after.full_locators] == [
         citation.id for citation in before.full_locators
@@ -176,7 +176,7 @@ def test_failed_review_keeps_roots_and_records_the_failure() -> None:
     async def reviewer(_context: DocketRootReviewContext) -> DocketRootReviewOutcome:
         return DocketRootReviewOutcome(decision=None, failure_reason="Could not decide")
 
-    after = asyncio.run(review_docket_root_equivalence(before, reviewer=reviewer))
+    after = asyncio.run(docket_root_llm_reassignment(before, reviewer=reviewer))
 
     assert [latest(citation.root_id) for citation in after.full_locators] == [
         citation.id for citation in before.full_locators
@@ -198,5 +198,5 @@ def test_incomplete_or_unknown_partition_cannot_reassign_roots(
         return DocketRootPartition(groups=groups, reason="Malformed partition")
 
     with pytest.raises(ValueError, match="each candidate index"):
-        asyncio.run(review_docket_root_equivalence(before, reviewer=reviewer))
+        asyncio.run(docket_root_llm_reassignment(before, reviewer=reviewer))
     assert all(latest(citation.root_id) == citation.id for citation in before.full_locators)

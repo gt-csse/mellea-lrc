@@ -13,7 +13,7 @@ from typing import Any
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation
 from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, latest
-from mellea_lrc.validation.govinfo_docket_lookup_review import STAGE as VALIDATED_FIELDS_STAGE
+from mellea_lrc.validation.docket_root_lookup_govinfo_llm_review import STAGE as VALIDATED_FIELDS_STAGE
 
 REPORTER_STAGE = "1_full_reporter_locators"
 DOCKET_STAGE = "2_docket_locators"
@@ -25,7 +25,7 @@ COURT_STAGE = "7_courts"
 DATE_STAGE = "8_dates"
 PIN_STAGE = "9_pin_cites"
 ROOT_STAGE = "10_roots"
-ROOT_REVIEW_STAGE = "11_docket_root_equivalence_review"
+ROOT_REVIEW_STAGE = "11_docket_root_llm_reassignment"
 ROOT_FIELDS = ("locator", "case_name", "court", "date", "pin_cite", "docket_entry")
 
 
@@ -662,7 +662,7 @@ def score_roots(document: Document) -> StageScore:
     return StageScore(ROOT_STAGE, {"root_assignment": Precision(correct, total)})
 
 
-def score_docket_root_equivalence_review(document: Document) -> StageScore:
+def score_docket_root_llm_reassignment(document: Document) -> StageScore:
     """Score root assignments for docket roots whose identity was reviewed."""
     checkpoint = document.get_stage(ROOT_REVIEW_STAGE)
     gold = _gold(_rows(checkpoint))
@@ -704,7 +704,7 @@ GROW_ROOTS_STAGES: tuple[tuple[str, Callable[[Document], StageScore]], ...] = (
     (DATE_STAGE, score_dates),
     (PIN_STAGE, score_pin_cites),
     (ROOT_STAGE, score_roots),
-    (ROOT_REVIEW_STAGE, score_docket_root_equivalence_review),
+    (ROOT_REVIEW_STAGE, score_docket_root_llm_reassignment),
 )
 
 
@@ -937,7 +937,7 @@ def render_roots(score: StageScore) -> str:
     )
 
 
-def render_docket_root_equivalence_review(score: StageScore) -> str:
+def render_docket_root_llm_reassignment(score: StageScore) -> str:
     _require_stage(score, ROOT_REVIEW_STAGE)
     return "\n".join(
         (
@@ -961,7 +961,7 @@ GROW_ROOTS_RENDERERS: dict[str, Callable[[StageScore], str]] = {
     DATE_STAGE: render_dates,
     PIN_STAGE: render_pin_cites,
     ROOT_STAGE: render_roots,
-    ROOT_REVIEW_STAGE: render_docket_root_equivalence_review,
+    ROOT_REVIEW_STAGE: render_docket_root_llm_reassignment,
 }
 
 

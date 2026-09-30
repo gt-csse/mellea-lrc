@@ -10,13 +10,17 @@ from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch
 from mellea_lrc.model.document import Document
 from mellea_lrc.validation.body_search.common import field_query_name, field_query_parties
-from mellea_lrc.validation.body_search.govinfo import GovInfoBodyClient, _problem, _search_root
+from mellea_lrc.validation.body_search.locator_body_govinfo_opinion_retrieval import (
+    GovInfoBodyClient,
+    _problem,
+    _search_root,
+)
 
-STAGE = "26_govinfo_opinion_field_body_search"
+STAGE = "26_intended_case_govinfo_opinion_retrieval"
 ROUTE = "case_name_body_discovery"
 
 
-def govinfo_opinion_field_body_search(
+def intended_case_govinfo_opinion_retrieval(
     document: Document,
     *,
     client: GovInfoBodyClient | None = None,
@@ -29,7 +33,7 @@ def govinfo_opinion_field_body_search(
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "23_locator_body_review" not in document.stage_runs:
+    if "23_locator_body_llm_judgment" not in document.stage_runs:
         raise ValueError("Complete locator body review before field body search")
     with ExitStack() as stack:
         service = client

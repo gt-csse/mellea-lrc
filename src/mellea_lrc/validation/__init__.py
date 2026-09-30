@@ -1,51 +1,69 @@
 """Identity-validation stages, each consuming and returning a Document."""
 
-from mellea_lrc.validation.body_search.courtlistener_opinion import (
-    courtlistener_opinion_locator_body_search,
+from mellea_lrc.validation.body_search.intended_case_courtlistener_opinion_retrieval import (
+    intended_case_courtlistener_opinion_retrieval,
 )
-from mellea_lrc.validation.body_search.courtlistener_opinion_fields import (
-    courtlistener_opinion_field_body_search,
+from mellea_lrc.validation.body_search.intended_case_courtlistener_recap_retrieval import (
+    intended_case_courtlistener_recap_retrieval,
 )
-from mellea_lrc.validation.body_search.courtlistener_recap import (
-    courtlistener_recap_locator_body_search,
+from mellea_lrc.validation.body_search.intended_case_govinfo_opinion_retrieval import (
+    intended_case_govinfo_opinion_retrieval,
 )
-from mellea_lrc.validation.body_search.courtlistener_recap_fields import (
-    courtlistener_recap_field_body_search,
+from mellea_lrc.validation.body_search.locator_body_courtlistener_opinion_retrieval import (
+    locator_body_courtlistener_opinion_retrieval,
 )
-from mellea_lrc.validation.body_search.govinfo import govinfo_opinion_locator_body_search
-from mellea_lrc.validation.body_search.govinfo_fields import govinfo_opinion_field_body_search
-from mellea_lrc.validation.docket_root_lookup import docket_root_lookup
-from mellea_lrc.validation.docket_root_lookup_review import docket_root_lookup_review
-from mellea_lrc.validation.field_body_review import review_intended_case_body_evidence
-from mellea_lrc.validation.govinfo_docket_lookup import govinfo_docket_lookup
-from mellea_lrc.validation.govinfo_docket_lookup_review import govinfo_docket_lookup_review
-from mellea_lrc.validation.locator_body_review import review_locator_body_evidence
-from mellea_lrc.validation.reporter_root_lookup import reporter_root_lookup
-from mellea_lrc.validation.reporter_root_lookup_ambiguous import reporter_root_lookup_ambiguous
-from mellea_lrc.validation.reporter_root_lookup_ambiguous_dockets import (
-    reporter_root_lookup_ambiguous_dockets,
+from mellea_lrc.validation.body_search.locator_body_courtlistener_recap_retrieval import (
+    locator_body_courtlistener_recap_retrieval,
 )
-from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm import reporter_root_lookup_ambiguous_llm
-from mellea_lrc.validation.reporter_root_lookup_review import reporter_root_lookup_review
-from mellea_lrc.validation.reporter_root_lookup_unique_llm import reporter_root_lookup_unique_llm
+from mellea_lrc.validation.body_search.locator_body_govinfo_opinion_retrieval import (
+    locator_body_govinfo_opinion_retrieval,
+)
+from mellea_lrc.validation.docket_root_lookup_courtlistener_llm_review import (
+    docket_root_lookup_courtlistener_llm_review,
+)
+from mellea_lrc.validation.docket_root_lookup_courtlistener_retrieval import (
+    docket_root_lookup_courtlistener_retrieval,
+)
+from mellea_lrc.validation.docket_root_lookup_govinfo_llm_review import docket_root_lookup_govinfo_llm_review
+from mellea_lrc.validation.docket_root_lookup_govinfo_retrieval import docket_root_lookup_govinfo_retrieval
+from mellea_lrc.validation.intended_case_llm_selection import intended_case_llm_selection
+from mellea_lrc.validation.locator_body_llm_judgment import locator_body_llm_judgment
+from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm_judgment import (
+    reporter_root_lookup_ambiguous_llm_judgment,
+)
+from mellea_lrc.validation.reporter_root_lookup_ambiguous_rule_judgment import (
+    reporter_root_lookup_ambiguous_rule_judgment,
+)
+from mellea_lrc.validation.reporter_root_lookup_cluster_retrieval import (
+    reporter_root_lookup_cluster_retrieval,
+)
+from mellea_lrc.validation.reporter_root_lookup_docket_retrieval import (
+    reporter_root_lookup_docket_retrieval,
+)
+from mellea_lrc.validation.reporter_root_lookup_unique_llm_judgment import (
+    reporter_root_lookup_unique_llm_judgment,
+)
+from mellea_lrc.validation.reporter_root_lookup_unique_rule_judgment import (
+    reporter_root_lookup_unique_rule_judgment,
+)
 
 __all__ = [
-    "courtlistener_opinion_field_body_search",
-    "courtlistener_opinion_locator_body_search",
-    "courtlistener_recap_field_body_search",
-    "courtlistener_recap_locator_body_search",
-    "docket_root_lookup",
-    "docket_root_lookup_review",
-    "govinfo_docket_lookup",
-    "govinfo_docket_lookup_review",
-    "govinfo_opinion_field_body_search",
-    "govinfo_opinion_locator_body_search",
-    "reporter_root_lookup",
-    "reporter_root_lookup_ambiguous",
-    "reporter_root_lookup_ambiguous_dockets",
-    "reporter_root_lookup_ambiguous_llm",
-    "reporter_root_lookup_review",
-    "reporter_root_lookup_unique_llm",
-    "review_intended_case_body_evidence",
-    "review_locator_body_evidence",
+    "docket_root_lookup_courtlistener_llm_review",
+    "docket_root_lookup_courtlistener_retrieval",
+    "docket_root_lookup_govinfo_llm_review",
+    "docket_root_lookup_govinfo_retrieval",
+    "intended_case_courtlistener_opinion_retrieval",
+    "intended_case_courtlistener_recap_retrieval",
+    "intended_case_govinfo_opinion_retrieval",
+    "intended_case_llm_selection",
+    "locator_body_courtlistener_opinion_retrieval",
+    "locator_body_courtlistener_recap_retrieval",
+    "locator_body_govinfo_opinion_retrieval",
+    "locator_body_llm_judgment",
+    "reporter_root_lookup_ambiguous_llm_judgment",
+    "reporter_root_lookup_ambiguous_rule_judgment",
+    "reporter_root_lookup_cluster_retrieval",
+    "reporter_root_lookup_docket_retrieval",
+    "reporter_root_lookup_unique_llm_judgment",
+    "reporter_root_lookup_unique_rule_judgment",
 ]

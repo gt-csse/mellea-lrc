@@ -9,17 +9,17 @@ import pytest
 from mellea_lrc.api import (
     Document,
     grow_roots,
-    reporter_root_lookup,
-    reporter_root_lookup_ambiguous,
-    reporter_root_lookup_ambiguous_dockets,
+    reporter_root_lookup_cluster_retrieval,
+    reporter_root_lookup_ambiguous_rule_judgment,
+    reporter_root_lookup_docket_retrieval,
 )
 from mellea_lrc.courtlistener import CourtListenerCitationLookup, CourtListenerDocket
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactAmbiguityOutcome
-from mellea_lrc.validation.reporter_root_lookup_ambiguous import STAGE
-from mellea_lrc.validation.reporter_root_lookup_ambiguous_dockets import STAGE as DOCKETS_STAGE
+from mellea_lrc.validation.reporter_root_lookup_ambiguous_rule_judgment import STAGE
+from mellea_lrc.validation.reporter_root_lookup_docket_retrieval import STAGE as DOCKETS_STAGE
 
-LOOKUP_STAGE = "12.1_reporter_root_lookup"
+LOOKUP_STAGE = "12.1_reporter_root_lookup_cluster_retrieval"
 
 SOURCE = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
 
@@ -57,12 +57,12 @@ def cluster(id: int, **changes: object) -> dict[str, object]:
 
 def exact(client: FakeClient) -> Document:
     roots = asyncio.run(grow_roots(Document.from_source(SOURCE), hunt_dockets=False))
-    return reporter_root_lookup(roots, client=client)
+    return reporter_root_lookup_cluster_retrieval(roots, client=client)
 
 
 def _dockets(before: Document, client: FakeClient) -> Document:
     lookup_calls = client.lookup_calls
-    after = reporter_root_lookup_ambiguous_dockets(before, client=client)
+    after = reporter_root_lookup_docket_retrieval(before, client=client)
     assert client.lookup_calls == lookup_calls
     assert after.get_stage(LOOKUP_STAGE) == before
     assert after.roots[0].reporter_exact_ambiguity_resolution is None
@@ -74,7 +74,7 @@ def _dockets(before: Document, client: FakeClient) -> Document:
 
 def _reviewed(before: Document, client: FakeClient) -> Document:
     calls = (client.lookup_calls, tuple(client.docket_calls))
-    after = reporter_root_lookup_ambiguous(before)
+    after = reporter_root_lookup_ambiguous_rule_judgment(before)
     assert (client.lookup_calls, tuple(client.docket_calls)) == calls
     assert after.get_stage(before.stage_runs[-1]) == before
     return after
@@ -125,7 +125,7 @@ def test_unique_passing_candidate_is_admitted_and_all_comparisons_are_saved() ->
     assert restored.get_stage(LOOKUP_STAGE) == retrieved
     assert restored.get_stage(DOCKETS_STAGE) == before
     with pytest.raises(ValueError, match="already completed"):
-        reporter_root_lookup_ambiguous(after)
+        reporter_root_lookup_ambiguous_rule_judgment(after)
 
 
 @pytest.mark.parametrize(
@@ -147,7 +147,7 @@ def test_zero_or_multiple_passing_candidates_wait_for_model_review(
     assert resolution.passing_candidate_indices == passing
     assert resolution.selected_candidate_index is None
     assert root.identity_judgments == ()
-    assert root.next_stage == "15_reporter_root_lookup_ambiguous_llm"
+    assert root.next_stage == "15_reporter_root_lookup_ambiguous_llm_judgment"
     assert [route.value for route in root.routes] == [DOCKETS_STAGE, STAGE, root.next_stage]
 
 
@@ -197,7 +197,7 @@ def test_candidate_docket_court_is_saved_and_checked_independently() -> None:
 def test_nonambiguous_root_does_not_gain_a_node() -> None:
     roots = asyncio.run(grow_roots(Document.from_source(SOURCE), hunt_dockets=False))
     client = FakeClient([cluster(1)])
-    retrieved = reporter_root_lookup(roots, client=client)
+    retrieved = reporter_root_lookup_cluster_retrieval(roots, client=client)
     before = _dockets(retrieved, client)
     after = _reviewed(before, client)
 
@@ -210,7 +210,7 @@ def test_nonambiguous_root_does_not_gain_a_node() -> None:
 def test_only_exactly_routed_roots_are_processed() -> None:
     roots = asyncio.run(grow_roots(Document.from_source(SOURCE), hunt_dockets=False))
     client = FakeClient([cluster(1), cluster(2, caseNameFull="Jones v. Smith")])
-    before = _dockets(reporter_root_lookup(roots, client=client), client)
+    before = _dockets(reporter_root_lookup_cluster_retrieval(roots, client=client), client)
     root = before.roots[0]
     almost_stage = root.record("route_setup").with_route(f"{STAGE}_review")
     routed = before.replace_citation(almost_stage).complete("route_setup")

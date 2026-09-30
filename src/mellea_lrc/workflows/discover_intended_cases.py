@@ -6,14 +6,16 @@ from datetime import date
 
 from mellea_lrc.model.document import Document
 from mellea_lrc.validation.body_search._courtlistener import CourtListenerBodyClient
-from mellea_lrc.validation.body_search.courtlistener_opinion_fields import (
-    courtlistener_opinion_field_body_search,
+from mellea_lrc.validation.body_search.intended_case_courtlistener_opinion_retrieval import (
+    intended_case_courtlistener_opinion_retrieval,
 )
-from mellea_lrc.validation.body_search.courtlistener_recap_fields import (
-    courtlistener_recap_field_body_search,
+from mellea_lrc.validation.body_search.intended_case_courtlistener_recap_retrieval import (
+    intended_case_courtlistener_recap_retrieval,
 )
-from mellea_lrc.validation.body_search.govinfo_fields import govinfo_opinion_field_body_search
-from mellea_lrc.validation.field_body_review import review_intended_case_body_evidence
+from mellea_lrc.validation.body_search.intended_case_govinfo_opinion_retrieval import (
+    intended_case_govinfo_opinion_retrieval,
+)
+from mellea_lrc.validation.intended_case_llm_selection import intended_case_llm_selection
 
 
 async def discover_intended_cases(
@@ -29,11 +31,11 @@ async def discover_intended_cases(
     Each constituent Document-to-Document stage is independently callable.
     """
     client_kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
-    document = courtlistener_opinion_field_body_search(
+    document = intended_case_courtlistener_opinion_retrieval(
         document, retrospective_date=retrospective_date, **client_kwargs
     )
-    document = courtlistener_recap_field_body_search(
+    document = intended_case_courtlistener_recap_retrieval(
         document, retrospective_date=retrospective_date, **client_kwargs
     )
-    document = govinfo_opinion_field_body_search(document, retrospective_date=retrospective_date)
-    return await review_intended_case_body_evidence(document)
+    document = intended_case_govinfo_opinion_retrieval(document, retrospective_date=retrospective_date)
+    return await intended_case_llm_selection(document)

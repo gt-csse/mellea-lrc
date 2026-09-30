@@ -13,17 +13,17 @@ from mellea_lrc.validation.reporter_review.fields import (
     append_field_judgments,
     identity_verdict,
 )
-from mellea_lrc.validation.reporter_root_lookup_unique_llm.reviewer import (
+from mellea_lrc.validation.reporter_root_lookup_unique_llm_judgment.reviewer import (
     IvrReporterUniqueReviewer,
     ReporterUniqueReviewContext,
     ReporterUniqueReviewer,
     ReporterUniqueReviewOutcome,
 )
 
-STAGE = "14_reporter_root_lookup_unique_llm"
+STAGE = "14_reporter_root_lookup_unique_llm_judgment"
 
 
-async def reporter_root_lookup_unique_llm(
+async def reporter_root_lookup_unique_llm_judgment(
     document: Document,
     *,
     reviewer: ReporterUniqueReviewer | None = None,
@@ -35,7 +35,7 @@ async def reporter_root_lookup_unique_llm(
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "12.2_reporter_root_lookup_review" not in document.stage_runs:
+    if "13.1_reporter_root_lookup_unique_rule_judgment" not in document.stage_runs:
         raise ValueError("Complete unique reporter rule review before its model review")
     service = reviewer
     for root in tuple(item for item in document.roots if isinstance(item, FullReporterCitation)):

@@ -5,7 +5,7 @@ from __future__ import annotations
 from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.citations.govinfo_lookup import GovInfoDocketReview
 from mellea_lrc.model.document import Document
-from mellea_lrc.validation.govinfo_docket_lookup_review.reviewer import (
+from mellea_lrc.validation.docket_root_lookup_govinfo_llm_review.reviewer import (
     GovInfoDocketReviewContext,
     GovInfoDocketReviewer,
     GovInfoDocketReviewOutcome,
@@ -14,17 +14,17 @@ from mellea_lrc.validation.govinfo_docket_lookup_review.reviewer import (
     _no_candidate_decision,
 )
 
-STAGE = "19_govinfo_docket_lookup_review"
+STAGE = "19_docket_root_lookup_govinfo_llm_review"
 NEXT_STAGE = "fields_aggregated_identity"
 
 
-async def govinfo_docket_lookup_review(
+async def docket_root_lookup_govinfo_llm_review(
     document: Document, *, reviewer: GovInfoDocketReviewer | None = None
 ) -> Document:
     """Review each unresolved docket root's saved GovInfo shortlist once."""
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "18_govinfo_docket_lookup" not in document.stage_runs:
+    if "18_docket_root_lookup_govinfo_retrieval" not in document.stage_runs:
         raise ValueError("Complete GovInfo docket lookup before its review")
     service = reviewer
     for root in tuple(item for item in document.roots if isinstance(item, FullDocketCitation)):

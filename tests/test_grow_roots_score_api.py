@@ -241,8 +241,8 @@ def test_optional_hunting_scorer_requires_completed_stage(annotated_document: Do
 def test_docket_root_review_score_handles_mixed_citation_types(
     annotated_document: Document,
 ) -> None:
-    document = annotated_document.complete("11_docket_root_equivalence_review")
-    stage = evaluation.score_docket_root_equivalence_review(document)
+    document = annotated_document.complete("11_docket_root_llm_reassignment")
+    stage = evaluation.score_docket_root_llm_reassignment(document)
     assert stage.metrics["root_assignment"] == evaluation.Precision(0, 0)
     assert evaluation.score_grow_roots(document).stages[-1] == stage
 
@@ -301,20 +301,20 @@ def test_workflow_reports_each_root_field_with_annotated_denominators(
 
 def _validated_document_with_changed_fields(document: Document) -> Document:
     for stage in (
-        "11_docket_root_equivalence_review",
-        "12.1_reporter_root_lookup",
-        "12.2_reporter_root_lookup_review",
-        "13.1_reporter_root_lookup_ambiguous_dockets",
-        "13.2_reporter_root_lookup_ambiguous_review",
-        "14_reporter_root_lookup_unique_llm",
-        "15_reporter_root_lookup_ambiguous_llm",
-        "16_docket_root_lookup",
-        "17_docket_root_lookup_review",
-        "18_govinfo_docket_lookup",
+        "11_docket_root_llm_reassignment",
+        "12.1_reporter_root_lookup_cluster_retrieval",
+        "13.1_reporter_root_lookup_unique_rule_judgment",
+        "12.2_reporter_root_lookup_docket_retrieval",
+        "13.2_reporter_root_lookup_ambiguous_rule_judgment",
+        "14_reporter_root_lookup_unique_llm_judgment",
+        "15_reporter_root_lookup_ambiguous_llm_judgment",
+        "16_docket_root_lookup_courtlistener_retrieval",
+        "17_docket_root_lookup_courtlistener_llm_review",
+        "18_docket_root_lookup_govinfo_retrieval",
     ):
         document = document.complete(stage)
     reporter = next(root for root in document.roots if isinstance(root, FullReporterCitation))
-    changed = reporter.record("19_govinfo_docket_lookup_review")
+    changed = reporter.record("19_docket_root_lookup_govinfo_llm_review")
     for method, quote in (
         ("with_case_name", "Gamma v. Delta"),
         ("with_court", "S.D.N.Y."),
@@ -322,13 +322,13 @@ def _validated_document_with_changed_fields(document: Document) -> Document:
     ):
         source_span = _span(SOURCE, quote)
         changed = getattr(changed, method)(SOURCE, Span(source_span["start"], source_span["end"]))
-    return document.replace_citation(changed).complete("19_govinfo_docket_lookup_review")
+    return document.replace_citation(changed).complete("19_docket_root_lookup_govinfo_llm_review")
 
 
 def test_validation_checkpoint_scores_latest_root_fields_without_changing_baseline(
     annotated_document: Document,
 ) -> None:
-    baseline_document = annotated_document.complete("11_docket_root_equivalence_review")
+    baseline_document = annotated_document.complete("11_docket_root_llm_reassignment")
     baseline = evaluation.score_grow_roots(baseline_document)
     assert baseline.validated_root_fields is None
 
@@ -360,7 +360,7 @@ def test_validation_checkpoint_scores_latest_root_fields_without_changing_baseli
     report = evaluation.render_grow_roots(score, include_stages=False)
     assert report.count("| case_name |") == 2
     assert "| case_name | 1/2 (50.0%)" in report
-    assert "19_govinfo_docket_lookup_review" in report
+    assert "19_docket_root_lookup_govinfo_llm_review" in report
 
     doubled = score + score
     assert doubled.validated_root_fields is not None
@@ -374,20 +374,20 @@ def test_later_body_reading_does_not_change_validation_checkpoint_score(
     validated = _validated_document_with_changed_fields(annotated_document)
     expected = evaluation.score_grow_roots(validated)
     for stage in (
-        "20_courtlistener_opinion_locator_body_search",
-        "21_courtlistener_recap_locator_body_search",
-        "22_govinfo_opinion_locator_body_search",
+        "20_locator_body_courtlistener_opinion_retrieval",
+        "21_locator_body_courtlistener_recap_retrieval",
+        "22_locator_body_govinfo_opinion_retrieval",
     ):
         validated = validated.complete(stage)
     reporter = next(root for root in validated.roots if isinstance(root, FullReporterCitation))
-    changed = reporter.record("23_locator_body_review")
+    changed = reporter.record("23_locator_body_llm_judgment")
     for method, quote in (("with_case_name", "Alpha v. Beta"), ("with_date", "2007")):
         source_span = _span(SOURCE, quote)
         changed = getattr(changed, method)(SOURCE, Span(source_span["start"], source_span["end"]))
-    reviewed = validated.replace_citation(changed).complete("23_locator_body_review")
+    reviewed = validated.replace_citation(changed).complete("23_locator_body_llm_judgment")
     assert (
         reviewed.roots[0].case_name[-1]
-        != reviewed.get_stage("19_govinfo_docket_lookup_review").roots[0].case_name[-1]
+        != reviewed.get_stage("19_docket_root_lookup_govinfo_llm_review").roots[0].case_name[-1]
     )
     assert evaluation.score_grow_roots(reviewed) == expected
 

@@ -520,7 +520,7 @@ def run_courtlistener_field_body_search(
     """Search routed roots by a printed case name and save grounded body excerpts."""
     if stage in document.stage_runs:
         raise ValueError(f"Stage already completed: {stage}")
-    if "23_locator_body_review" not in document.stage_runs:
+    if "23_locator_body_llm_judgment" not in document.stage_runs:
         raise ValueError("Complete locator body review before field body search")
 
     with ExitStack() as stack:

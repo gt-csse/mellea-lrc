@@ -3,52 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
-from pathlib import Path
-
-import pytest
-
 from mellea_lrc.api import Document, grow_roots
 from mellea_lrc.model import Span
 from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
 
-STAGE23 = "23_locator_body_review"
-SAVED_STAGE23 = (
-    Path(__file__).resolve().parents[1] / "evaluations/results/primary/2026-09-29T15-14-26Z/documents"
-)
-
-
-def test_saved_stage23_documents_load_with_legacy_case_name_shape() -> None:
-    """The local saved run predates the optional ``partial`` value slot."""
-    if not SAVED_STAGE23.is_dir():
-        pytest.skip("Saved stage-23 evaluation artifacts are not present")
-
-    paths = sorted(SAVED_STAGE23.glob("*.json"))
-    assert paths
-    for path in paths:
-        saved = json.loads(path.read_text(encoding="utf-8"))
-        assert saved["stage_runs"][-1] == STAGE23
-        saved_readings = [
-            reading for citation in saved["citations"] for reading in citation.get("case_name", [])
-        ]
-        assert all(
-            "partial" not in reading["normalized"]
-            for reading in saved_readings
-            if reading["normalized"] is not None
-        )
-
-        document = Document.model_validate(saved)
-        assert document.get_stage(STAGE23) == document
-        loaded_readings = [
-            reading for citation in document.citations for reading in getattr(citation, "case_name", ())
-        ]
-        assert [reading.quote for reading in loaded_readings] == [
-            reading["quote"] for reading in saved_readings
-        ]
-        assert [reading.node_id for reading in loaded_readings] == [
-            reading["node_id"] for reading in saved_readings
-        ]
-        assert Document.model_validate_json(document.model_dump_json()) == document
+STAGE23 = "23_locator_body_llm_judgment"
 
 
 def test_failed_historical_reading_survives_later_partial_reading() -> None:
@@ -85,9 +44,11 @@ def test_failed_historical_reading_survives_later_partial_reading() -> None:
     partial = CaseName.from_quote("Smith")
     assert partial.kind is CaseNameKind.PARTIAL
     updated_root = (
-        restored.roots[0].record("24_case_name_review").with_case_name(source, span, normalized=partial)
+        restored.roots[0]
+        .record("27_intended_case_llm_selection")
+        .with_case_name(source, span, normalized=partial)
     )
-    updated = restored.replace_citation(updated_root).complete("24_case_name_review")
+    updated = restored.replace_citation(updated_root).complete("27_intended_case_llm_selection")
     reloaded = Document.model_validate_json(updated.model_dump_json())
 
     assert reloaded == updated

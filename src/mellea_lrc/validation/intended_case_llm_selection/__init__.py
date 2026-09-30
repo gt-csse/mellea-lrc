@@ -5,26 +5,26 @@ from __future__ import annotations
 from mellea_lrc.model.citations.field_body_evidence import IntendedCaseDecision, IntendedCaseReview
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
-from mellea_lrc.validation.field_body_review.reviewer import (
+from mellea_lrc.validation.intended_case_llm_selection.reviewer import (
     IntendedCaseContext,
     IntendedCaseOutcome,
     IntendedCaseReviewer,
     IvrIntendedCaseReviewer,
 )
 
-STAGE = "27_intended_case_body_review"
+STAGE = "27_intended_case_llm_selection"
 NEXT_STAGE_WITH_CANDIDATE = "intended_case_resolution"
 NEXT_STAGE_WITHOUT_CANDIDATE = "open_web_search"
 NEXT_STAGE_ON_FAILURE = "intended_case_review_retry"
 
 
-async def review_intended_case_body_evidence(
+async def intended_case_llm_selection(
     document: Document, *, reviewer: IntendedCaseReviewer | None = None
 ) -> Document:
     """Save a possible intended authority, leaving identity judgments unchanged."""
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "23_locator_body_review" not in document.stage_runs:
+    if "23_locator_body_llm_judgment" not in document.stage_runs:
         raise ValueError("Complete locator-body review before field-body review")
     roots = tuple(root for root in document.roots if root.next_stage == "case_name_body_discovery")
     if roots and not any(root.field_body_searches for root in roots):

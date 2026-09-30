@@ -17,12 +17,12 @@ from mellea_lrc.validation.reporter_exact.fields import (
     locator_present,
 )
 
-STAGE = "13.2_reporter_root_lookup_ambiguous_review"
-LOOKUP_STAGE = "13.1_reporter_root_lookup_ambiguous_dockets"
+STAGE = "13.2_reporter_root_lookup_ambiguous_rule_judgment"
+LOOKUP_STAGE = "12.2_reporter_root_lookup_docket_retrieval"
 CANDIDATE_LIMIT = 20
 
 
-def reporter_root_lookup_ambiguous(
+def reporter_root_lookup_ambiguous_rule_judgment(
     document: Document,
 ) -> Document:
     """Judge every bounded candidate and admit only a unique full rule match.
@@ -57,15 +57,15 @@ def reporter_root_lookup_ambiguous(
             recorded = recorded.with_reporter_exact_ambiguity_resolution(resolution)
             recorded = recorded.with_route("reporter_root_lookup_large_candidate_review")
         else:
-            dockets = {item.candidate_index: item.response for item in recorded.reporter_exact_candidate_dockets}
+            dockets = {
+                item.candidate_index: item.response for item in recorded.reporter_exact_candidate_dockets
+            }
             passing: list[int] = []
             for index, candidate in enumerate(candidates):
                 results: list[MatchResult] = []
                 if recorded.case_name:
                     result = case_name_result(recorded, candidate)
-                    recorded = recorded.with_case_name_judgment(
-                        len(recorded.case_name) - 1, index, result
-                    )
+                    recorded = recorded.with_case_name_judgment(len(recorded.case_name) - 1, index, result)
                     results.append(result)
                 if recorded.court:
                     result = court_result(recorded, candidate, dockets.get(index))
@@ -97,7 +97,7 @@ def reporter_root_lookup_ambiguous(
             recorded = (
                 recorded.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY).with_route(None)
                 if selected is not None
-                else recorded.with_route("15_reporter_root_lookup_ambiguous_llm")
+                else recorded.with_route("15_reporter_root_lookup_ambiguous_llm_judgment")
             )
         document = document.replace_citation(recorded)
     return document.complete(STAGE)

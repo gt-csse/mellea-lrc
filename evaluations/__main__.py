@@ -14,38 +14,46 @@ from pathlib import Path
 from mellea_lrc.api import (
     Document,
     corroborate_root_locator_bodies,
-    courtlistener_opinion_field_body_search,
-    courtlistener_opinion_locator_body_search,
-    courtlistener_recap_field_body_search,
-    courtlistener_recap_locator_body_search,
-    docket_root_lookup,
-    docket_root_lookup_review,
-    govinfo_docket_lookup,
-    govinfo_docket_lookup_review,
-    govinfo_opinion_field_body_search,
-    govinfo_opinion_locator_body_search,
+    docket_root_llm_reassignment,
+    docket_root_lookup_courtlistener_llm_review,
+    docket_root_lookup_courtlistener_retrieval,
+    docket_root_lookup_govinfo_llm_review,
+    docket_root_lookup_govinfo_retrieval,
     grow_roots,
-    reporter_root_lookup_ambiguous_llm,
-    reporter_root_lookup_unique_llm,
-    review_docket_root_equivalence,
-    review_intended_case_body_evidence,
-    review_locator_body_evidence,
+    intended_case_courtlistener_opinion_retrieval,
+    intended_case_courtlistener_recap_retrieval,
+    intended_case_govinfo_opinion_retrieval,
+    intended_case_llm_selection,
+    locator_body_courtlistener_opinion_retrieval,
+    locator_body_courtlistener_recap_retrieval,
+    locator_body_govinfo_opinion_retrieval,
+    locator_body_llm_judgment,
+    reporter_root_lookup_ambiguous_llm_judgment,
+    reporter_root_lookup_unique_llm_judgment,
     validate_roots,
 )
 from mellea_lrc.courtlistener import CourtListenerClient, CourtListenerConfig
 from mellea_lrc.model import FullDocketCitation
-from mellea_lrc.validation.body_search.courtlistener_opinion import STAGE as _COURTLISTENER_OPINION_STAGE
-from mellea_lrc.validation.body_search.courtlistener_opinion_fields import (
+from mellea_lrc.validation.body_search.intended_case_courtlistener_opinion_retrieval import (
     STAGE as _COURTLISTENER_OPINION_FIELD_STAGE,
 )
-from mellea_lrc.validation.body_search.courtlistener_recap import STAGE as _COURTLISTENER_RECAP_STAGE
-from mellea_lrc.validation.body_search.courtlistener_recap_fields import (
+from mellea_lrc.validation.body_search.intended_case_courtlistener_recap_retrieval import (
     STAGE as _COURTLISTENER_RECAP_FIELD_STAGE,
 )
-from mellea_lrc.validation.body_search.govinfo import STAGE as _GOVINFO_OPINION_STAGE
-from mellea_lrc.validation.body_search.govinfo_fields import STAGE as _GOVINFO_OPINION_FIELD_STAGE
-from mellea_lrc.validation.field_body_review import STAGE as _INTENDED_CASE_REVIEW_STAGE
-from mellea_lrc.validation.locator_body_review import STAGE as _LOCATOR_BODY_REVIEW_STAGE
+from mellea_lrc.validation.body_search.intended_case_govinfo_opinion_retrieval import (
+    STAGE as _GOVINFO_OPINION_FIELD_STAGE,
+)
+from mellea_lrc.validation.body_search.locator_body_courtlistener_opinion_retrieval import (
+    STAGE as _COURTLISTENER_OPINION_STAGE,
+)
+from mellea_lrc.validation.body_search.locator_body_courtlistener_recap_retrieval import (
+    STAGE as _COURTLISTENER_RECAP_STAGE,
+)
+from mellea_lrc.validation.body_search.locator_body_govinfo_opinion_retrieval import (
+    STAGE as _GOVINFO_OPINION_STAGE,
+)
+from mellea_lrc.validation.intended_case_llm_selection import STAGE as _INTENDED_CASE_REVIEW_STAGE
+from mellea_lrc.validation.locator_body_llm_judgment import STAGE as _LOCATOR_BODY_REVIEW_STAGE
 
 _SET = "primary"
 _DATA_ROOT = Path(__file__).resolve().parents[2] / "mellea-lrc-datasets"
@@ -65,17 +73,17 @@ _ROOT_STAGES = (
 )
 _RUN_STAGES = (
     *_ROOT_STAGES,
-    "11_docket_root_equivalence_review",
-    "12.1_reporter_root_lookup",
-    "12.2_reporter_root_lookup_review",
-    "13.1_reporter_root_lookup_ambiguous_dockets",
-    "13.2_reporter_root_lookup_ambiguous_review",
-    "14_reporter_root_lookup_unique_llm",
-    "15_reporter_root_lookup_ambiguous_llm",
-    "16_docket_root_lookup",
-    "17_docket_root_lookup_review",
-    "18_govinfo_docket_lookup",
-    "19_govinfo_docket_lookup_review",
+    "11_docket_root_llm_reassignment",
+    "12.1_reporter_root_lookup_cluster_retrieval",
+    "12.2_reporter_root_lookup_docket_retrieval",
+    "13.1_reporter_root_lookup_unique_rule_judgment",
+    "13.2_reporter_root_lookup_ambiguous_rule_judgment",
+    "14_reporter_root_lookup_unique_llm_judgment",
+    "15_reporter_root_lookup_ambiguous_llm_judgment",
+    "16_docket_root_lookup_courtlistener_retrieval",
+    "17_docket_root_lookup_courtlistener_llm_review",
+    "18_docket_root_lookup_govinfo_retrieval",
+    "19_docket_root_lookup_govinfo_llm_review",
     _COURTLISTENER_OPINION_STAGE,
     _COURTLISTENER_RECAP_STAGE,
     _GOVINFO_OPINION_STAGE,
@@ -93,15 +101,18 @@ _FIELD_STAGES = (
     _INTENDED_CASE_REVIEW_STAGE,
 )
 _FIELD_RUN_STAGES = (*_RUN_STAGES, *_FIELD_STAGES)
-_REPORTER_REVIEW_INPUT_STAGE = "13.2_reporter_root_lookup_ambiguous_review"
+_REPORTER_REVIEW_INPUT_STAGE = "13.2_reporter_root_lookup_ambiguous_rule_judgment"
 _REPORTER_REVIEW_INPUT_STAGES = _RUN_STAGES[: _RUN_STAGES.index(_REPORTER_REVIEW_INPUT_STAGE) + 1]
-_DOCKET_LOOKUP_STAGE = "16_docket_root_lookup"
-_DOCKET_REVIEW_INPUT_STAGE = "17_docket_root_lookup_review"
+_DOCKET_LOOKUP_STAGE = "16_docket_root_lookup_courtlistener_retrieval"
+_DOCKET_REVIEW_INPUT_STAGE = "17_docket_root_lookup_courtlistener_llm_review"
 _DOCKET_REVIEW_INPUT_STAGES = _RUN_STAGES[: _RUN_STAGES.index(_DOCKET_REVIEW_INPUT_STAGE) + 1]
-_VALIDATION_INPUT_STAGE = "19_govinfo_docket_lookup_review"
+_VALIDATION_INPUT_STAGE = "19_docket_root_lookup_govinfo_llm_review"
 _VALIDATION_INPUT_STAGES = _RUN_STAGES[: _RUN_STAGES.index(_VALIDATION_INPUT_STAGE) + 1]
 _REPORTER_TO_GOVINFO_STAGES = _RUN_STAGES[
-    _RUN_STAGES.index("12.1_reporter_root_lookup") : _RUN_STAGES.index(_VALIDATION_INPUT_STAGE) + 1
+    _RUN_STAGES.index("12.1_reporter_root_lookup_cluster_retrieval") : _RUN_STAGES.index(
+        _VALIDATION_INPUT_STAGE
+    )
+    + 1
 ]
 _BODY_CHECKPOINT_STAGES = (*_BODY_SEARCH_STAGES, _LOCATOR_BODY_REVIEW_STAGE)
 _VALIDATION_CHECKPOINT_STAGES = (*_REPORTER_TO_GOVINFO_STAGES, *_BODY_CHECKPOINT_STAGES)
@@ -268,21 +279,21 @@ async def _retry_body_stages(
     """Run the failed provider, later providers, and the cross-provider review."""
     client_kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
     if first_stage == _COURTLISTENER_OPINION_STAGE:
-        document = courtlistener_opinion_locator_body_search(
+        document = locator_body_courtlistener_opinion_retrieval(
             document, retrospective_date=retrospective_date, **client_kwargs
         )
         if checkpoint is not None:
             checkpoint(document)
     if first_stage in (_COURTLISTENER_OPINION_STAGE, _COURTLISTENER_RECAP_STAGE):
-        document = courtlistener_recap_locator_body_search(
+        document = locator_body_courtlistener_recap_retrieval(
             document, retrospective_date=retrospective_date, **client_kwargs
         )
         if checkpoint is not None:
             checkpoint(document)
-    document = govinfo_opinion_locator_body_search(document, retrospective_date=retrospective_date)
+    document = locator_body_govinfo_opinion_retrieval(document, retrospective_date=retrospective_date)
     if checkpoint is not None:
         checkpoint(document)
-    document = await review_locator_body_evidence(document)
+    document = await locator_body_llm_judgment(document)
     if checkpoint is not None:
         checkpoint(document)
     return document
@@ -317,18 +328,20 @@ async def _continue_field_stages(
             raise ValueError(f"Field discovery cannot skip a stage for {filename}")
         if stage == _COURTLISTENER_OPINION_FIELD_STAGE:
             kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
-            document = courtlistener_opinion_field_body_search(
+            document = intended_case_courtlistener_opinion_retrieval(
                 document, retrospective_date=retrospective_date, **kwargs
             )
         elif stage == _COURTLISTENER_RECAP_FIELD_STAGE:
             kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
-            document = courtlistener_recap_field_body_search(
+            document = intended_case_courtlistener_recap_retrieval(
                 document, retrospective_date=retrospective_date, **kwargs
             )
         elif stage == _GOVINFO_OPINION_FIELD_STAGE:
-            document = govinfo_opinion_field_body_search(document, retrospective_date=retrospective_date)
+            document = intended_case_govinfo_opinion_retrieval(
+                document, retrospective_date=retrospective_date
+            )
         else:
-            document = await review_intended_case_body_evidence(document)
+            document = await intended_case_llm_selection(document)
         if document.stage_runs != _FIELD_RUN_STAGES[: _FIELD_RUN_STAGES.index(stage) + 1]:
             raise ValueError(f"Field discovery did not complete {stage} for {filename}")
         _check_body_search_cutoffs(document, retrospective_date)
@@ -741,22 +754,22 @@ async def _run(
             elif from_docket_review_documents is not None:
                 saved = from_docket_review_documents / f"{filename}.json"
                 document = _load_document(saved, source).get_stage(_DOCKET_REVIEW_INPUT_STAGE)
-                document = govinfo_docket_lookup(document)
-                document = await govinfo_docket_lookup_review(document)
+                document = docket_root_lookup_govinfo_retrieval(document)
+                document = await docket_root_lookup_govinfo_llm_review(document)
             elif from_reporter_review_documents is not None:
                 saved = from_reporter_review_documents / f"{filename}.json"
                 saved_document = _load_document(saved, source)
                 document = saved_document.get_stage(_REPORTER_REVIEW_INPUT_STAGE)
-                document = await reporter_root_lookup_unique_llm(document)
-                document = await reporter_root_lookup_ambiguous_llm(document)
+                document = await reporter_root_lookup_unique_llm_judgment(document)
+                document = await reporter_root_lookup_ambiguous_llm_judgment(document)
                 document = (
                     _reuse_docket_lookup(document, saved_document)
                     if reuse_docket_lookups
-                    else docket_root_lookup(document)
+                    else docket_root_lookup_courtlistener_retrieval(document)
                 )
-                document = await docket_root_lookup_review(document)
-                document = govinfo_docket_lookup(document)
-                document = await govinfo_docket_lookup_review(document)
+                document = await docket_root_lookup_courtlistener_llm_review(document)
+                document = docket_root_lookup_govinfo_retrieval(document)
+                document = await docket_root_lookup_govinfo_llm_review(document)
             elif from_roots_documents is None:
                 document = await grow_roots(
                     source,
@@ -766,7 +779,7 @@ async def _run(
             else:
                 saved = from_roots_documents / f"{filename}.json"
                 document = _load_document(saved, source).get_stage(_ROOT_STAGE)
-                document = await review_docket_root_equivalence(document)
+                document = await docket_root_llm_reassignment(document)
 
             def save_validation_checkpoint(checkpoint: Document) -> None:
                 stage = checkpoint.stage_runs[-1]
@@ -793,7 +806,9 @@ async def _run(
                     {"courtlistener_client": courtlistener_client} if courtlistener_client is not None else {}
                 )
                 document = await corroborate_root_locator_bodies(
-                    document, retrospective_date=cutoff, checkpoint=save_validation_checkpoint,
+                    document,
+                    retrospective_date=cutoff,
+                    checkpoint=save_validation_checkpoint,
                     **client_kwargs,
                 )
             else:

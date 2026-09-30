@@ -7,30 +7,30 @@ from datetime import date
 
 from mellea_lrc.model.document import Document
 from mellea_lrc.validation import (
-    docket_root_lookup,
-    docket_root_lookup_review,
-    govinfo_docket_lookup,
-    govinfo_docket_lookup_review,
-    reporter_root_lookup,
-    reporter_root_lookup_ambiguous,
-    reporter_root_lookup_ambiguous_dockets,
-    reporter_root_lookup_ambiguous_llm,
-    reporter_root_lookup_review,
-    reporter_root_lookup_unique_llm,
+    docket_root_lookup_courtlistener_llm_review,
+    docket_root_lookup_courtlistener_retrieval,
+    docket_root_lookup_govinfo_llm_review,
+    docket_root_lookup_govinfo_retrieval,
+    reporter_root_lookup_ambiguous_llm_judgment,
+    reporter_root_lookup_ambiguous_rule_judgment,
+    reporter_root_lookup_cluster_retrieval,
+    reporter_root_lookup_docket_retrieval,
+    reporter_root_lookup_unique_llm_judgment,
+    reporter_root_lookup_unique_rule_judgment,
 )
 from mellea_lrc.validation.body_search._courtlistener import CourtListenerBodyClient
-from mellea_lrc.validation.docket_root_lookup import STAGE as DOCKET_LOOKUP_STAGE
-from mellea_lrc.validation.docket_root_lookup_review import STAGE as DOCKET_REVIEW_STAGE
-from mellea_lrc.validation.govinfo_docket_lookup import STAGE as GOVINFO_LOOKUP_STAGE
-from mellea_lrc.validation.govinfo_docket_lookup_review import STAGE as GOVINFO_REVIEW_STAGE
-from mellea_lrc.validation.reporter_root_lookup import STAGE as REPORTER_LOOKUP_STAGE
-from mellea_lrc.validation.reporter_root_lookup_ambiguous import STAGE as AMBIGUOUS_REVIEW_STAGE
-from mellea_lrc.validation.reporter_root_lookup_ambiguous_dockets import (
-    STAGE as AMBIGUOUS_DOCKETS_STAGE,
+from mellea_lrc.validation.docket_root_lookup_courtlistener_llm_review import STAGE as DOCKET_REVIEW_STAGE
+from mellea_lrc.validation.docket_root_lookup_courtlistener_retrieval import STAGE as DOCKET_LOOKUP_STAGE
+from mellea_lrc.validation.docket_root_lookup_govinfo_llm_review import STAGE as GOVINFO_REVIEW_STAGE
+from mellea_lrc.validation.docket_root_lookup_govinfo_retrieval import STAGE as GOVINFO_LOOKUP_STAGE
+from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm_judgment import STAGE as AMBIGUOUS_LLM_STAGE
+from mellea_lrc.validation.reporter_root_lookup_ambiguous_rule_judgment import STAGE as AMBIGUOUS_RULE_STAGE
+from mellea_lrc.validation.reporter_root_lookup_cluster_retrieval import STAGE as REPORTER_CLUSTER_STAGE
+from mellea_lrc.validation.reporter_root_lookup_docket_retrieval import (
+    STAGE as REPORTER_DOCKET_STAGE,
 )
-from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm import STAGE as AMBIGUOUS_LLM_STAGE
-from mellea_lrc.validation.reporter_root_lookup_review import STAGE as UNIQUE_REVIEW_STAGE
-from mellea_lrc.validation.reporter_root_lookup_unique_llm import STAGE as UNIQUE_LLM_STAGE
+from mellea_lrc.validation.reporter_root_lookup_unique_llm_judgment import STAGE as UNIQUE_LLM_STAGE
+from mellea_lrc.validation.reporter_root_lookup_unique_rule_judgment import STAGE as UNIQUE_RULE_STAGE
 from mellea_lrc.workflows.corroborate_root_locator_bodies import corroborate_root_locator_bodies
 
 
@@ -48,10 +48,10 @@ async def validate_roots(
     on or before that date.
     """
     stages = (
-        REPORTER_LOOKUP_STAGE,
-        UNIQUE_REVIEW_STAGE,
-        AMBIGUOUS_DOCKETS_STAGE,
-        AMBIGUOUS_REVIEW_STAGE,
+        REPORTER_CLUSTER_STAGE,
+        REPORTER_DOCKET_STAGE,
+        UNIQUE_RULE_STAGE,
+        AMBIGUOUS_RULE_STAGE,
         UNIQUE_LLM_STAGE,
         AMBIGUOUS_LLM_STAGE,
         DOCKET_LOOKUP_STAGE,
@@ -63,37 +63,37 @@ async def validate_roots(
     if completed != stages[: len(completed)]:
         raise ValueError("Validation checkpoint must end at a completed stage boundary")
     for stage, run in (
-        (REPORTER_LOOKUP_STAGE, reporter_root_lookup),
-        (UNIQUE_REVIEW_STAGE, reporter_root_lookup_review),
-        (AMBIGUOUS_DOCKETS_STAGE, reporter_root_lookup_ambiguous_dockets),
-        (AMBIGUOUS_REVIEW_STAGE, reporter_root_lookup_ambiguous),
+        (REPORTER_CLUSTER_STAGE, reporter_root_lookup_cluster_retrieval),
+        (REPORTER_DOCKET_STAGE, reporter_root_lookup_docket_retrieval),
+        (UNIQUE_RULE_STAGE, reporter_root_lookup_unique_rule_judgment),
+        (AMBIGUOUS_RULE_STAGE, reporter_root_lookup_ambiguous_rule_judgment),
     ):
         if stage not in document.stage_runs:
             document = run(document)
             if checkpoint is not None:
                 checkpoint(document)
     for stage, run in (
-        (UNIQUE_LLM_STAGE, reporter_root_lookup_unique_llm),
-        (AMBIGUOUS_LLM_STAGE, reporter_root_lookup_ambiguous_llm),
+        (UNIQUE_LLM_STAGE, reporter_root_lookup_unique_llm_judgment),
+        (AMBIGUOUS_LLM_STAGE, reporter_root_lookup_ambiguous_llm_judgment),
     ):
         if stage not in document.stage_runs:
             document = await run(document)
             if checkpoint is not None:
                 checkpoint(document)
     if DOCKET_LOOKUP_STAGE not in document.stage_runs:
-        document = docket_root_lookup(document)
+        document = docket_root_lookup_courtlistener_retrieval(document)
         if checkpoint is not None:
             checkpoint(document)
     if DOCKET_REVIEW_STAGE not in document.stage_runs:
-        document = await docket_root_lookup_review(document)
+        document = await docket_root_lookup_courtlistener_llm_review(document)
         if checkpoint is not None:
             checkpoint(document)
     if GOVINFO_LOOKUP_STAGE not in document.stage_runs:
-        document = govinfo_docket_lookup(document)
+        document = docket_root_lookup_govinfo_retrieval(document)
         if checkpoint is not None:
             checkpoint(document)
     if GOVINFO_REVIEW_STAGE not in document.stage_runs:
-        document = await govinfo_docket_lookup_review(document)
+        document = await docket_root_lookup_govinfo_llm_review(document)
         if checkpoint is not None:
             checkpoint(document)
     # A selected docket record now routes to fields_aggregated_identity. That

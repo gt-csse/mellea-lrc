@@ -6,7 +6,7 @@ from mellea_lrc.extraction.courts import resolve_courts
 from mellea_lrc.extraction.dates import resolve_dates
 from mellea_lrc.extraction.docket_entries import resolve_docket_entries
 from mellea_lrc.extraction.docket_locator import find_docket_locators
-from mellea_lrc.extraction.docket_root_equivalence import review_docket_root_equivalence
+from mellea_lrc.extraction.docket_root_llm_reassignment import docket_root_llm_reassignment
 from mellea_lrc.extraction.docket_site_hunting import hunt_docket_locators
 from mellea_lrc.extraction.full_reporter_locator import find_full_reporter_locators
 from mellea_lrc.extraction.pin_cites import resolve_pin_cites
@@ -14,6 +14,7 @@ from mellea_lrc.extraction.roots import form_roots
 from mellea_lrc.extraction.short_reporter_locator import find_short_reporter_citations
 
 __all__ = [
+    "docket_root_llm_reassignment",
     "find_docket_locators",
     "find_full_reporter_locators",
     "find_short_reporter_citations",
@@ -25,5 +26,4 @@ __all__ = [
     "resolve_dates",
     "resolve_docket_entries",
     "resolve_pin_cites",
-    "review_docket_root_equivalence",
 ]

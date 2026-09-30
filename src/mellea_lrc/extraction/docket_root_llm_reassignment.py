@@ -18,7 +18,7 @@ from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
 from mellea_lrc.matching.fuzziness import FuzzinessOption
 from mellea_lrc.matching.grounding import EvidenceCandidate, GroundingEvidence
 from mellea_lrc.model.citations import FullDocketCitation, latest
-from mellea_lrc.model.citations.docket_root_equivalence import DocketRootPartition, DocketRootReview
+from mellea_lrc.model.citations.docket_root_llm_reassignment import DocketRootPartition, DocketRootReview
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
 
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from mellea import MelleaSession
 
 
-STAGE = "11_docket_root_equivalence_review"
+STAGE = "11_docket_root_llm_reassignment"
 MINIMUM_SIMILARITY_PERCENT = 40.0
 MAX_TOKENS = 2500
 MAX_MODEL_ATTEMPTS = 3
@@ -223,7 +223,7 @@ def _candidate_components(
     return tuple(tuple(group) for group in grouped.values() if len(group) >= 2)
 
 
-async def review_docket_root_equivalence(
+async def docket_root_llm_reassignment(
     document: Document, *, reviewer: DocketRootReviewer | None = None
 ) -> Document:
     """Review fuzzy docket-root neighborhoods and append confirmed root links.

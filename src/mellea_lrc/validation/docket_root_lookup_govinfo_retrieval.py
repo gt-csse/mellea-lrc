@@ -20,7 +20,7 @@ from mellea_lrc.model.citations.govinfo_lookup import (
 )
 from mellea_lrc.model.document import Document
 
-STAGE = "18_govinfo_docket_lookup"
+STAGE = "18_docket_root_lookup_govinfo_retrieval"
 MINIMUM_SIMILARITY_PERCENT = 40.0
 MAX_PAGES_PER_ATTEMPT = 10
 MAX_RETRIES_PER_PAGE = 2
@@ -192,11 +192,13 @@ def _search(
     return attempt, tuple(candidates)
 
 
-def govinfo_docket_lookup(document: Document, *, client: GovInfoSearchClient | None = None) -> Document:
+def docket_root_lookup_govinfo_retrieval(
+    document: Document, *, client: GovInfoSearchClient | None = None
+) -> Document:
     """Search GovInfo only for roots without a selected CourtListener case."""
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "17_docket_root_lookup_review" not in document.stage_runs:
+    if "17_docket_root_lookup_courtlistener_llm_review" not in document.stage_runs:
         raise ValueError("Complete CourtListener docket review before GovInfo lookup")
 
     service = client

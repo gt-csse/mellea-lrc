@@ -7,7 +7,7 @@ from typing import Literal, Self
 from pydantic import model_validator
 
 from mellea_lrc.model.citations.docket_lookup import DocketLookup, DocketLookupReview
-from mellea_lrc.model.citations.docket_root_equivalence import DocketRootReview
+from mellea_lrc.model.citations.docket_root_llm_reassignment import DocketRootReview
 from mellea_lrc.model.citations.fields import DocketEntryField, FullDocketLocator
 from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.govinfo_lookup import GovInfoDocketLookup, GovInfoDocketReview

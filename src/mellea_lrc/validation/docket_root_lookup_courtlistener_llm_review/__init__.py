@@ -20,7 +20,7 @@ from .reviewer import (
     IvrDocketLookupReviewer,
 )
 
-STAGE = "17_docket_root_lookup_review"
+STAGE = "17_docket_root_lookup_courtlistener_llm_review"
 NEXT_STAGE = "fields_aggregated_identity"
 
 
@@ -85,13 +85,13 @@ def _append_corrections(
     return root
 
 
-async def docket_root_lookup_review(
+async def docket_root_lookup_courtlistener_llm_review(
     document: Document, *, reviewer: DocketLookupReviewer | None = None
 ) -> Document:
     """Review each docket root once, retaining the choice or complete failure."""
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "16_docket_root_lookup" not in document.stage_runs:
+    if "16_docket_root_lookup_courtlistener_retrieval" not in document.stage_runs:
         raise ValueError("Complete docket root lookup before its model review")
     service = reviewer
     for root in tuple(item for item in document.roots if isinstance(item, FullDocketCitation)):

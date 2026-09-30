@@ -28,7 +28,7 @@ from mellea_lrc.validation.body_search.common import (
     roots_for_body_search,
 )
 
-STAGE = "22_govinfo_opinion_locator_body_search"
+STAGE = "22_locator_body_govinfo_opinion_retrieval"
 SEARCH_PAGE_SIZE = 25
 MAX_SEARCH_PAGES = 2
 MAX_FALLBACK_PACKAGES = 2
@@ -377,7 +377,7 @@ def _search_root(
     )
 
 
-def govinfo_opinion_locator_body_search(
+def locator_body_govinfo_opinion_retrieval(
     document: Document,
     *,
     client: GovInfoBodyClient | None = None,

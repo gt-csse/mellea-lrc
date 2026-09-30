@@ -1,4 +1,4 @@
-"""Search fetched CourtListener RECAP documents by the cited case name."""
+"""Find independent citation text in fetched CourtListener RECAP documents."""
 
 from __future__ import annotations
 
@@ -8,20 +8,20 @@ from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.model.document import Document
 from mellea_lrc.validation.body_search._courtlistener import (
     CourtListenerBodyClient,
-    run_courtlistener_field_body_search,
+    run_courtlistener_body_search,
 )
 
-STAGE = "25_courtlistener_recap_field_body_search"
+STAGE = "21_locator_body_courtlistener_recap_retrieval"
 
 
-def courtlistener_recap_field_body_search(
+def locator_body_courtlistener_recap_retrieval(
     document: Document,
     *,
     retrospective_date: date | None = None,
     client: CourtListenerBodyClient | None = None,
 ) -> Document:
-    """Save case-name matches from independently fetched RECAP bodies."""
-    return run_courtlistener_field_body_search(
+    """Save locator matches from independently fetched RECAP filings."""
+    return run_courtlistener_body_search(
         document,
         stage=STAGE,
         source=BodySource.COURTLISTENER_RECAP,

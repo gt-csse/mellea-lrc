@@ -14,17 +14,17 @@ from mellea_lrc.validation.reporter_review.fields import (
     append_field_judgments,
     identity_verdict,
 )
-from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm.reviewer import (
+from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm_judgment.reviewer import (
     IvrReporterAmbiguousReviewer,
     ReporterAmbiguousReviewContext,
     ReporterAmbiguousReviewer,
     ReporterAmbiguousReviewOutcome,
 )
 
-STAGE = "15_reporter_root_lookup_ambiguous_llm"
+STAGE = "15_reporter_root_lookup_ambiguous_llm_judgment"
 
 
-async def reporter_root_lookup_ambiguous_llm(
+async def reporter_root_lookup_ambiguous_llm_judgment(
     document: Document,
     *,
     reviewer: ReporterAmbiguousReviewer | None = None,
@@ -37,7 +37,7 @@ async def reporter_root_lookup_ambiguous_llm(
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "13.2_reporter_root_lookup_ambiguous_review" not in document.stage_runs:
+    if "13.2_reporter_root_lookup_ambiguous_rule_judgment" not in document.stage_runs:
         raise ValueError("Complete rule-only reporter ambiguity review before model choice")
     service = reviewer
     for root in tuple(item for item in document.roots if isinstance(item, FullReporterCitation)):

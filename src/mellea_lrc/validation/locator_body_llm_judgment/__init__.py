@@ -11,14 +11,14 @@ from mellea_lrc.model.citations.judgments import IdentityBasis, IdentityVerdict
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.validation.body_search.common import roots_for_body_search
-from mellea_lrc.validation.locator_body_review.reviewer import (
+from mellea_lrc.validation.locator_body_llm_judgment.reviewer import (
     BodyCorroborationContext,
     BodyCorroborationOutcome,
     BodyCorroborationReviewer,
     IvrBodyCorroborationReviewer,
 )
 
-STAGE = "23_locator_body_review"
+STAGE = "23_locator_body_llm_judgment"
 NEXT_STAGE = "case_name_body_discovery"
 
 
@@ -57,7 +57,7 @@ def _append_corrections(
     return root
 
 
-async def review_locator_body_evidence(
+async def locator_body_llm_judgment(
     document: Document,
     *,
     reviewer: BodyCorroborationReviewer | None = None,
