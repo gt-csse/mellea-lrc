@@ -175,7 +175,7 @@ def test_score_run_registry_writes_leaf_json_and_markdown(tmp_path: Path) -> Non
     )
 
 
-def test_primary_annotation_source_span_denominator_is_349() -> None:
+def test_primary_annotation_source_span_denominator_is_367() -> None:
     dataset = Path(__file__).resolve().parents[2] / "mellea-lrc-datasets" / "primary" / "documents"
     if not dataset.is_dir():
         pytest.skip("Sibling mellea-lrc-datasets checkout is unavailable")
@@ -201,7 +201,7 @@ def test_primary_annotation_source_span_denominator_is_349() -> None:
             span = evaluation._span(row[field])
             assert span is not None and text[span[0] : span[1]] == row[field]["quote"]
             leaf_keys.append(key)
-    assert len(leaf_keys) == 349
+    assert len(leaf_keys) == 367
 
 
 def test_stage_scores_do_not_accept_a_changed_source_or_missing_checkpoint(tmp_path: Path) -> None:
