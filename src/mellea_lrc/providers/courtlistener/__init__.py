@@ -1,6 +1,6 @@
 """CourtListener citation lookup boundary."""
 
-from mellea_lrc.courtlistener.client import (
+from mellea_lrc.providers.courtlistener.client import (
     CourtListenerClient,
     CourtListenerConfig,
     CourtListenerConfigurationError,
@@ -9,7 +9,7 @@ from mellea_lrc.courtlistener.client import (
     CourtListenerPayloadError,
     CourtListenerTransportError,
 )
-from mellea_lrc.courtlistener.models import (
+from mellea_lrc.providers.courtlistener.models import (
     CourtListenerCitationLookup,
     CourtListenerCluster,
     CourtListenerClusterCitation,

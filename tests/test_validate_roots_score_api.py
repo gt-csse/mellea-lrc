@@ -23,7 +23,7 @@ from mellea_lrc.api import (
     reporter_root_lookup_unique_llm_judgment,
     reporter_root_lookup_unique_rule_judgment,
 )
-from mellea_lrc.courtlistener import CourtListenerCitationLookup
+from mellea_lrc.providers.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.model import FullDocketCitation, FullReporterCitation, Span
 from mellea_lrc.model.citations.body_evidence import (
     BodyCorroborationDecision,
@@ -527,11 +527,58 @@ def test_validate_roots_composes_stages_in_execution_order(
             document = document.complete(stage)
         return document
 
-    monkeypatch.setattr(workflow, "corroborate_root_locator_bodies", run_body)
+    monkeypatch.setattr(workflow, "_validate_locator_bodies", run_body)
     client_kwargs = {"courtlistener_client": selected_client} if selected_client is not None else {}
     result = asyncio.run(workflow.validate_roots(initial, retrospective_date=cutoff, **client_kwargs))
     assert tuple(called) == (*WORKFLOW_STAGES, *body_stages)
     assert result.stage_runs == (*initial.stage_runs, *WORKFLOW_STAGES, *body_stages)
+
+
+@pytest.mark.parametrize("completed_fields", range(5))
+def test_validation_resumes_its_optional_intended_case_stages(
+    monkeypatch: pytest.MonkeyPatch, completed_fields: int
+) -> None:
+    workflow = importlib.import_module("mellea_lrc.workflows.validate_roots")
+    fields = evaluation.INTENDED_CASE_STAGES
+    document = Document.from_source("source")
+    for stage in (*WORKFLOW_STAGES, *evaluation.LOCATOR_BODY_STAGES, *fields[:completed_fields]):
+        document = document.complete(stage)
+    cutoff = date(2024, 1, 1)
+    client = object()
+    calls: list[str] = []
+    checkpoints: list[Document] = []
+
+    def retrieve(stage: str, uses_client: bool):
+        def run(saved: Document, *, retrospective_date: date | None, **kwargs: object) -> Document:
+            assert retrospective_date == cutoff
+            assert kwargs == ({"client": client} if uses_client else {})
+            calls.append(stage)
+            return saved.complete(stage)
+
+        return run
+
+    for stage in fields[:3]:
+        monkeypatch.setattr(workflow, stage.split("_", 1)[1], retrieve(stage, "courtlistener" in stage))
+
+    async def review(saved: Document) -> Document:
+        calls.append(fields[-1])
+        return saved.complete(fields[-1])
+
+    monkeypatch.setattr(workflow, "intended_case_llm_selection", review)
+    result = asyncio.run(
+        workflow.validate_roots(
+            document,
+            retrospective_date=cutoff,
+            courtlistener_client=client,
+            search_other_fields=True,
+            checkpoint=checkpoints.append,
+        )
+    )
+    assert tuple(calls) == fields[completed_fields:]
+    assert tuple(saved.stage_runs[-1] for saved in checkpoints) == fields[completed_fields:]
+    assert result.stage_runs == (*WORKFLOW_STAGES, *evaluation.LOCATOR_BODY_STAGES, *fields)
+    if document.stage_runs:
+        assert result.get_stage(document.stage_runs[-1]) == document
 
 
 def test_final_score_uses_docket_review_as_latest_checkpoint(tmp_path: Path) -> None:
@@ -1073,8 +1120,8 @@ def _stage23_review(
         if fetched
         else ()
     )
-    for stage in evaluation.BODY_WORKFLOW_STAGES[:-1]:
-        if stage == evaluation.BODY_WORKFLOW_STAGES[0]:
+    for stage in evaluation.LOCATOR_BODY_STAGES[:-1]:
+        if stage == evaluation.LOCATOR_BODY_STAGES[0]:
             root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
             recorded = root.record(stage)
             recorded = recorded.with_body_search(
@@ -1190,7 +1237,7 @@ def _stage27_review(tmp_path: Path, outcome: str) -> Document:
         anchor_kind="case_name",
     )
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
-    recorded = root.record(evaluation.FIELD_BODY_WORKFLOW_STAGES[0])
+    recorded = root.record(evaluation.INTENDED_CASE_STAGES[0])
     recorded = recorded.with_field_body_search(
         FieldBodySearch(
             node_id=recorded.nodes[-1].id,
@@ -1200,8 +1247,8 @@ def _stage27_review(tmp_path: Path, outcome: str) -> Document:
             evidence=evidence,
         )
     )
-    document = document.replace_citation(recorded).complete(evaluation.FIELD_BODY_WORKFLOW_STAGES[0])
-    for stage in evaluation.FIELD_BODY_WORKFLOW_STAGES[1:-1]:
+    document = document.replace_citation(recorded).complete(evaluation.INTENDED_CASE_STAGES[0])
+    for stage in evaluation.INTENDED_CASE_STAGES[1:-1]:
         document = document.complete(stage)
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
     recorded = root.record(evaluation.INTENDED_CASE_LLM_SELECTION)
@@ -1271,7 +1318,7 @@ def test_stage23_report_counts_issued_verdicts(tmp_path: Path) -> None:
         for line in report.splitlines()
         if line.startswith("## ") and line[3:4].isdigit()
     )
-    assert numbered_headings == (*evaluation.WORKFLOW_STAGES, *evaluation.BODY_WORKFLOW_STAGES)
+    assert numbered_headings == (*evaluation.WORKFLOW_STAGES, *evaluation.LOCATOR_BODY_STAGES)
     assert workflow.as_dict()["stage_order"] == list(numbered_headings)
 
 
@@ -1288,8 +1335,8 @@ def test_stage27_report_lists_all_stages_without_rescoring_identity(tmp_path: Pa
     assert score.intended_case_outcomes == {outcome: 1}
     assert score.stage_order == (
         *evaluation.WORKFLOW_STAGES,
-        *evaluation.BODY_WORKFLOW_STAGES,
-        *evaluation.FIELD_BODY_WORKFLOW_STAGES,
+        *evaluation.LOCATOR_BODY_STAGES,
+        *evaluation.INTENDED_CASE_STAGES,
     )
     assert score.as_dict()["intended_case_review"] == {
         "stage": evaluation.INTENDED_CASE_LLM_SELECTION,
@@ -1321,8 +1368,8 @@ def test_stage27_outcome_counts_combine_without_accuracy_metrics(tmp_path: Path)
 
 def test_validate_roots_rejects_incomplete_intended_case_workflow(tmp_path: Path) -> None:
     document = _stage23_review(tmp_path)
-    document = document.complete(evaluation.FIELD_BODY_WORKFLOW_STAGES[0])
-    with pytest.raises(ValueError, match="Incomplete intended-case workflow"):
+    document = document.complete(evaluation.INTENDED_CASE_STAGES[0])
+    with pytest.raises(ValueError, match="Incomplete intended-case stages in validate_roots"):
         evaluation.score_validate_roots(document)
 
 
@@ -1477,7 +1524,7 @@ def test_reporter_cluster_retrieval_counts_only_queried_citations(tmp_path: Path
 
 
 def test_reporter_docket_retrieval_counts_saved_requests_even_when_empty(tmp_path: Path) -> None:
-    from mellea_lrc.courtlistener import CourtListenerDocket
+    from mellea_lrc.providers.courtlistener import CourtListenerDocket
 
     class DocketClient:
         def __init__(self, response: CourtListenerDocket | None) -> None:
@@ -1549,12 +1596,12 @@ def test_docket_retrieval_counts_saved_candidates_and_search_attempts(tmp_path: 
 @pytest.mark.parametrize(
     ("stage", "source", "field_stage"),
     (
-        (evaluation.BODY_WORKFLOW_STAGES[0], BodySource.COURTLISTENER_OPINION, False),
-        (evaluation.BODY_WORKFLOW_STAGES[1], BodySource.COURTLISTENER_RECAP, False),
-        (evaluation.BODY_WORKFLOW_STAGES[2], BodySource.GOVINFO_OPINION, False),
-        (evaluation.FIELD_BODY_WORKFLOW_STAGES[0], BodySource.COURTLISTENER_OPINION, True),
-        (evaluation.FIELD_BODY_WORKFLOW_STAGES[1], BodySource.COURTLISTENER_RECAP, True),
-        (evaluation.FIELD_BODY_WORKFLOW_STAGES[2], BodySource.GOVINFO_OPINION, True),
+        (evaluation.LOCATOR_BODY_STAGES[0], BodySource.COURTLISTENER_OPINION, False),
+        (evaluation.LOCATOR_BODY_STAGES[1], BodySource.COURTLISTENER_RECAP, False),
+        (evaluation.LOCATOR_BODY_STAGES[2], BodySource.GOVINFO_OPINION, False),
+        (evaluation.INTENDED_CASE_STAGES[0], BodySource.COURTLISTENER_OPINION, True),
+        (evaluation.INTENDED_CASE_STAGES[1], BodySource.COURTLISTENER_RECAP, True),
+        (evaluation.INTENDED_CASE_STAGES[2], BodySource.GOVINFO_OPINION, True),
     ),
 )
 def test_body_retrieval_counts_queried_citations_with_reviewable_excerpts(

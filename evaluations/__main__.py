@@ -13,7 +13,6 @@ from pathlib import Path
 
 from mellea_lrc.api import (
     Document,
-    corroborate_root_locator_bodies,
     docket_root_llm_reassignment,
     docket_root_lookup_courtlistener_llm_review,
     docket_root_lookup_courtlistener_retrieval,
@@ -32,8 +31,8 @@ from mellea_lrc.api import (
     reporter_root_lookup_unique_llm_judgment,
     validate_roots,
 )
-from mellea_lrc.courtlistener import CourtListenerClient, CourtListenerConfig
 from mellea_lrc.model import FullDocketCitation
+from mellea_lrc.providers.courtlistener import CourtListenerClient, CourtListenerConfig
 from mellea_lrc.validation.body_search.intended_case_courtlistener_opinion_retrieval import (
     STAGE as _COURTLISTENER_OPINION_FIELD_STAGE,
 )
@@ -796,20 +795,6 @@ async def _run(
             if filename in retry_body:
                 document = await _retry_body_stages(
                     document, failed_stage, cutoff, courtlistener_client, save_validation_checkpoint
-                )
-            elif (
-                from_validation_documents is not None
-                or from_docket_review_documents is not None
-                or from_reporter_review_documents is not None
-            ):
-                client_kwargs = (
-                    {"courtlistener_client": courtlistener_client} if courtlistener_client is not None else {}
-                )
-                document = await corroborate_root_locator_bodies(
-                    document,
-                    retrospective_date=cutoff,
-                    checkpoint=save_validation_checkpoint,
-                    **client_kwargs,
                 )
             else:
                 client_kwargs = (

@@ -7,7 +7,7 @@ from urllib.parse import parse_qs
 import httpx
 import pytest
 
-from mellea_lrc.courtlistener import (
+from mellea_lrc.providers.courtlistener import (
     CourtListenerClient,
     CourtListenerConfig,
     CourtListenerConfigurationError,
@@ -145,7 +145,7 @@ def test_non_json_response_is_a_payload_error() -> None:
 
 def test_base_url_must_be_configured_without_public_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("COURTLISTENER_BASE_URL", raising=False)
-    monkeypatch.setattr("mellea_lrc.courtlistener.client.load_dotenv", lambda **_kwargs: None)
+    monkeypatch.setattr("mellea_lrc.providers.courtlistener.client.load_dotenv", lambda **_kwargs: None)
 
     with pytest.raises(CourtListenerConfigurationError):
         CourtListenerClient()

@@ -1,6 +1,22 @@
 # mellea-lrc
 
-The active package provides preprocessing, extraction through root formation, independently callable root-lookup validation stages, and third-party text-body corroboration. Docket site hunting is optional and runs before colocation. Open-web search and leaf growth are later work.
+The package has three workflows: `grow_roots`, `validate_roots`, and `grow_leaves`. Each takes and returns a `Document`, and each consists of independently callable stages. Locator-body review and intended-case discovery belong to root validation. Open-web search is not implemented.
+
+The source layers are:
+
+```text
+src/mellea_lrc/
+  workflows/       grow_roots, validate_roots, grow_leaves
+  extraction/      citation discovery, field reading, and root/leaf assignment stages
+  validation/      retrieval and judgment stages, with local review services
+  providers/       courtlistener/ and govinfo/ clients and response models
+  model/           Document, citations, typed fields, and append-only histories
+  preprocessing/   source loading and text preparation
+  matching/        fuzzy matching and grounded source quotes
+  llm/             model configuration and the reusable IVR wrapper
+```
+
+Workflows are defined by the user. A group of stages does not introduce another workflow. `evaluations/` produces one Markdown report and its JSON representation per workflow, including that workflow's stage tables.
 
 ```python
 from pathlib import Path

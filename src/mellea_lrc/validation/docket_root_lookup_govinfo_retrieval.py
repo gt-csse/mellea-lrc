@@ -8,7 +8,6 @@ import time
 from contextlib import ExitStack
 from typing import Protocol
 
-from mellea_lrc.govinfo import GovInfoClient, GovInfoError, GovInfoSearchPage, govinfo_uscourts_docket_query
 from mellea_lrc.matching.fuzziness import FuzzinessOption
 from mellea_lrc.matching.grounding import EvidenceCandidate, GroundingEvidence
 from mellea_lrc.model.citations import FullDocketCitation
@@ -19,6 +18,12 @@ from mellea_lrc.model.citations.govinfo_lookup import (
     GovInfoLookupCandidate,
 )
 from mellea_lrc.model.document import Document
+from mellea_lrc.providers.govinfo import (
+    GovInfoClient,
+    GovInfoError,
+    GovInfoSearchPage,
+    govinfo_uscourts_docket_query,
+)
 
 STAGE = "18_docket_root_lookup_govinfo_retrieval"
 MINIMUM_SIMILARITY_PERCENT = 40.0

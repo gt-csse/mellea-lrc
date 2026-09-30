@@ -14,7 +14,7 @@ import pytest
 
 from evaluations import __main__ as runner
 from mellea_lrc.api import Document, grow_roots
-from mellea_lrc.courtlistener import CourtListenerClient
+from mellea_lrc.providers.courtlistener import CourtListenerClient
 from mellea_lrc.model import (
     DocketLookup,
     DocketLookupAttempt,
@@ -30,6 +30,9 @@ from mellea_lrc.model.citations.body_evidence import (
 )
 from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch
 from mellea_lrc.model.citations.govinfo_lookup import GovInfoDocketLookup, GovInfoLookupAttempt
+
+_ROOT_WORKFLOW = importlib.import_module("mellea_lrc.workflows.validate_roots")
+_LOCATOR_REVIEW = _ROOT_WORKFLOW._validate_locator_bodies
 
 
 def _dataset(tmp_path: Path, filenames: tuple[str, ...]) -> Path:
@@ -97,7 +100,7 @@ def _offline_body_stages(monkeypatch: pytest.MonkeyPatch) -> None:
     ) -> Document:
         return _complete_with_checkpoints(document, runner._RUN_STAGES[21:], checkpoint)
 
-    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", body)
+    monkeypatch.setattr(_ROOT_WORKFLOW, "_validate_locator_bodies", body)
 
 
 def test_resume_skips_valid_documents_and_reuses_timestamp_directory(
@@ -205,7 +208,7 @@ def test_resume_from_reporter_docket_checkpoint_skips_provider_requery(
         ("19_docket_root_lookup_govinfo_llm_review", "docket_root_lookup_govinfo_llm_review"),
     ):
         monkeypatch.setattr(workflow, name, async_stage(stage))
-    monkeypatch.setattr(workflow, "corroborate_root_locator_bodies", body)
+    monkeypatch.setattr(workflow, "_validate_locator_bodies", body)
 
     with pytest.raises(RuntimeError, match="interrupted during reporter review"):
         asyncio.run(runner._run(data_root, tmp_path / "results", None))
@@ -278,7 +281,7 @@ def test_rewind_completed_document_to_reporter_retrieval_runs_later_reviews(
         ("19_docket_root_lookup_govinfo_llm_review", "docket_root_lookup_govinfo_llm_review"),
     ):
         monkeypatch.setattr(workflow, name, async_stage(stage))
-    monkeypatch.setattr(workflow, "corroborate_root_locator_bodies", body)
+    monkeypatch.setattr(workflow, "_validate_locator_bodies", body)
 
     run_dir = asyncio.run(
         runner._run(
@@ -510,7 +513,7 @@ def test_resume_from_validation_checkpoint_runs_only_body_stages_and_reuses_cuto
         assert document.stage_runs in (runner._VALIDATION_INPUT_STAGES, runner._RUN_STAGES)
         return _complete_with_checkpoints(document, runner._RUN_STAGES[21:], checkpoint)
 
-    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", body)
+    monkeypatch.setattr(_ROOT_WORKFLOW, "_validate_locator_bodies", body)
     cutoff = date(2024, 6, 1)
     run_dir = asyncio.run(
         runner._run(
@@ -548,8 +551,8 @@ def test_resume_after_locator_body_review_failure_reuses_all_retrieval_checkpoin
     checkpoint_dir.mkdir()
     ready = _complete(Document.from_source(source), runner._VALIDATION_INPUT_STAGES)
     (checkpoint_dir / "001.txt.json").write_text(ready.model_dump_json(), encoding="utf-8")
-    workflow = importlib.import_module("mellea_lrc.workflows.corroborate_root_locator_bodies")
-    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", workflow.corroborate_root_locator_bodies)
+    workflow = importlib.import_module("mellea_lrc.workflows.validate_roots")
+    monkeypatch.setattr(workflow, "_validate_locator_bodies", _LOCATOR_REVIEW)
     calls: list[str] = []
     fail_review = True
 
@@ -625,8 +628,8 @@ def test_rewind_completed_document_to_stage22_replays_only_locator_body_review(
     checkpoint_dir.mkdir()
     completed = _complete(Document.from_source(source), runner._RUN_STAGES)
     (checkpoint_dir / "001.txt.json").write_text(completed.model_dump_json(), encoding="utf-8")
-    workflow = importlib.import_module("mellea_lrc.workflows.corroborate_root_locator_bodies")
-    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", workflow.corroborate_root_locator_bodies)
+    workflow = importlib.import_module("mellea_lrc.workflows.validate_roots")
+    monkeypatch.setattr(workflow, "_validate_locator_bodies", _LOCATOR_REVIEW)
     calls: list[str] = []
 
     def unexpected_retrieval(*_args: object, **_kwargs: object) -> Document:
@@ -853,7 +856,7 @@ def test_annotation_headers_route_case_cutoffs_and_are_verified_on_resume(
         calls.append((Path(document.source_path or "").name, retrospective_date))
         return _complete_with_checkpoints(document, runner._RUN_STAGES[21:], checkpoint)
 
-    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", body)
+    monkeypatch.setattr(_ROOT_WORKFLOW, "_validate_locator_bodies", body)
     run_dir = asyncio.run(
         runner._run(
             data_root,
@@ -970,7 +973,7 @@ def test_resume_rejects_saved_body_search_from_a_different_cutoff(
             checkpoint(document)
         return _complete_with_checkpoints(document, runner._RUN_STAGES[22:], checkpoint)
 
-    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", body)
+    monkeypatch.setattr(_ROOT_WORKFLOW, "_validate_locator_bodies", body)
     run_dir = asyncio.run(
         runner._run(
             data_root,
@@ -1023,7 +1026,7 @@ def test_reserved_pool_is_saved_reused_and_closed_without_saving_token(
         return _complete_with_checkpoints(document, runner._RUN_STAGES[21:], checkpoint)
 
     monkeypatch.setattr(CourtListenerClient, "close", close)
-    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", body)
+    monkeypatch.setattr(_ROOT_WORKFLOW, "_validate_locator_bodies", body)
     run_dir = asyncio.run(
         runner._run(
             data_root,
@@ -1074,7 +1077,7 @@ def test_resume_existing_run_can_select_and_save_reserved_pool(
         clients.append(courtlistener_client)
         return _complete_with_checkpoints(document, runner._RUN_STAGES[21:], checkpoint)
 
-    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", body)
+    monkeypatch.setattr(_ROOT_WORKFLOW, "_validate_locator_bodies", body)
     run_dir = asyncio.run(
         runner._run(data_root, tmp_path / "results", None, from_validation_documents=checkpoint_dir)
     )
@@ -1132,7 +1135,7 @@ def test_resume_can_switch_reserved_run_to_proxy_pool(
         clients.append(courtlistener_client)
         return _complete_with_checkpoints(document, runner._RUN_STAGES[21:], checkpoint)
 
-    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", body)
+    monkeypatch.setattr(_ROOT_WORKFLOW, "_validate_locator_bodies", body)
     run_dir = asyncio.run(
         runner._run(
             data_root,
@@ -1194,10 +1197,11 @@ def test_retry_body_stages_passes_selected_client_to_both_courtlistener_stages(
     assert calls == ["opinion", "recap", "govinfo", "review"]
 
 
-def test_corroboration_workflow_passes_selected_client_to_both_stages(
+def test_validation_workflow_passes_selected_client_to_both_body_stages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    workflow = importlib.import_module("mellea_lrc.workflows.corroborate_root_locator_bodies")
+    workflow = importlib.import_module("mellea_lrc.workflows.validate_roots")
+    monkeypatch.setattr(workflow, "_validate_locator_bodies", _LOCATOR_REVIEW)
     document = _complete(Document.from_source("source"), runner._VALIDATION_INPUT_STAGES)
     selected_client = object()
     calls: list[str] = []
@@ -1224,9 +1228,7 @@ def test_corroboration_workflow_passes_selected_client_to_both_stages(
     monkeypatch.setattr(workflow, "locator_body_courtlistener_recap_retrieval", recap)
     monkeypatch.setattr(workflow, "locator_body_govinfo_opinion_retrieval", govinfo)
     monkeypatch.setattr(workflow, "locator_body_llm_judgment", review)
-    result = asyncio.run(
-        workflow.corroborate_root_locator_bodies(document, courtlistener_client=selected_client)
-    )
+    result = asyncio.run(workflow.validate_roots(document, courtlistener_client=selected_client))
     assert result.stage_runs == runner._RUN_STAGES
     assert calls == ["opinion", "recap", "govinfo", "review"]
 
@@ -1252,7 +1254,7 @@ def test_validation_replay_checks_all_sources_before_body_provider_calls(
     ) -> Document:
         pytest.fail("A stale validation checkpoint must not reach body providers")
 
-    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", unexpected_body)
+    monkeypatch.setattr(_ROOT_WORKFLOW, "_validate_locator_bodies", unexpected_body)
     with pytest.raises(ValueError, match="Saved Document text differs"):
         asyncio.run(
             runner._run(data_root, tmp_path / "results", None, from_validation_documents=checkpoint_dir)
@@ -1286,8 +1288,8 @@ def test_transient_stage21_checkpoint_stops_later_work_and_retries_from_stage21(
     checkpoint_dir.mkdir()
     (checkpoint_dir / "001.txt.json").write_text(ready.model_dump_json(), encoding="utf-8")
 
-    workflow = importlib.import_module("mellea_lrc.workflows.corroborate_root_locator_bodies")
-    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", workflow.corroborate_root_locator_bodies)
+    workflow = importlib.import_module("mellea_lrc.workflows.validate_roots")
+    monkeypatch.setattr(workflow, "_validate_locator_bodies", _LOCATOR_REVIEW)
     calls: list[str] = []
     cutoff = date(2024, 6, 1)
 
@@ -1486,7 +1488,7 @@ def test_transient_body_search_failure_replays_from_failed_provider(
         # The artifact retry path must still work when no intermediate callback ran.
         return await runner.locator_body_llm_judgment(document)
 
-    monkeypatch.setattr(runner, "corroborate_root_locator_bodies", body)
+    monkeypatch.setattr(_ROOT_WORKFLOW, "_validate_locator_bodies", body)
     with pytest.raises(RuntimeError, match="transient provider failures"):
         asyncio.run(
             runner._run(

@@ -8,7 +8,7 @@ import re
 from dataclasses import replace
 from types import ModuleType
 
-from mellea_lrc.courtlistener import CourtListenerCluster, CourtListenerDocket
+from mellea_lrc.providers.courtlistener import CourtListenerCluster, CourtListenerDocket
 from mellea_lrc.llm.ivr import InstructIvrSpec
 from mellea_lrc.model import Span
 from mellea_lrc.model.citations import FullReporterCitation

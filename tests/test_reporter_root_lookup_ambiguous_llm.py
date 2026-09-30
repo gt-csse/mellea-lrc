@@ -14,7 +14,7 @@ from mellea_lrc.api import (
     reporter_root_lookup_ambiguous_rule_judgment,
     reporter_root_lookup_docket_retrieval,
 )
-from mellea_lrc.courtlistener import CourtListenerCitationLookup
+from mellea_lrc.providers.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.model import Span
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactAmbiguityOutcome

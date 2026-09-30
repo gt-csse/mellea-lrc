@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 
-from mellea_lrc.courtlistener import (
+from mellea_lrc.providers.courtlistener import (
     CourtListenerClient,
     CourtListenerConfig,
     CourtListenerHTTPError,

@@ -5,11 +5,6 @@ from __future__ import annotations
 from contextlib import ExitStack
 from typing import Protocol
 
-from mellea_lrc.courtlistener import (
-    CourtListenerCitationLookup,
-    CourtListenerClient,
-    CourtListenerError,
-)
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactLookup,
@@ -17,6 +12,11 @@ from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactLookupQuery,
 )
 from mellea_lrc.model.document import Document
+from mellea_lrc.providers.courtlistener import (
+    CourtListenerCitationLookup,
+    CourtListenerClient,
+    CourtListenerError,
+)
 
 STAGE = "12.1_reporter_root_lookup_cluster_retrieval"
 DOCKET_RETRIEVAL_STAGE = "12.2_reporter_root_lookup_docket_retrieval"

@@ -1,5 +1,10 @@
 # Evaluation runs
 
+The only workflows are `grow_roots`, `validate_roots`, and `grow_leaves`.
+Each has one scorer and one Markdown report, with its JSON representation
+beside it. Stage tables belong inside their workflow's report; retrieval or
+review groups do not introduce separate workflows or reports.
+
 ## Grow leaves from saved roots
 
 The leaf runner starts from the primary corpus's cumulative saved Documents.

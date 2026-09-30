@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from mellea_lrc.courtlistener import CourtListenerDocket
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.span import Span
+from mellea_lrc.providers.courtlistener import CourtListenerDocket
 from mellea_lrc.validation.reporter_review.grounding import ReporterReviewDecision
 
 

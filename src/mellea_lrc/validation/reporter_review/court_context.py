@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from mellea_lrc.courtlistener import CourtListenerCluster, CourtListenerDocket
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.fields.court import Court, court_id_if_unique
+from mellea_lrc.providers.courtlistener import CourtListenerCluster, CourtListenerDocket
 
 
 def _identified_court(value: str | None) -> dict[str, str] | None:

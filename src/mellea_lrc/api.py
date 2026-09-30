@@ -5,8 +5,8 @@ hunting and docket-root equivalence review are awaitable. `grow_roots` is the
 async convenience composition, with both model stages opt-in.
 Validation stages remain independently callable. `grow_leaves` attaches short
 forms and repeated occurrences to formed roots, with optional model review.
-After locator-body validation, `discover_intended_cases` searches other fields
-without issuing a positive judgment about the cited locator.
+The only workflows are `grow_roots`, `validate_roots`, and `grow_leaves`.
+Locator-body and intended-case review are parts of root validation.
 """
 
 from mellea_lrc.config.extraction import ExtractionRules, stable
@@ -55,19 +55,13 @@ from mellea_lrc.validation import (
     reporter_root_lookup_unique_llm_judgment,
     reporter_root_lookup_unique_rule_judgment,
 )
-from mellea_lrc.workflows.corroborate_root_locator_bodies import corroborate_root_locator_bodies
-from mellea_lrc.workflows.discover_intended_cases import discover_intended_cases
-from mellea_lrc.workflows.grow_leaves import grow_leaves
-from mellea_lrc.workflows.grow_roots import grow_roots
-from mellea_lrc.workflows.validate_roots import validate_roots
+from mellea_lrc.workflows import grow_leaves, grow_roots, validate_roots
 
 __all__ = [
     "Document",
     "ExtractionRules",
     "attribute_id_citations",
     "attribute_leaves_rule",
-    "corroborate_root_locator_bodies",
-    "discover_intended_cases",
     "docket_root_llm_reassignment",
     "docket_root_lookup_courtlistener_llm_review",
     "docket_root_lookup_courtlistener_retrieval",

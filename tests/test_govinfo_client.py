@@ -9,7 +9,7 @@ import httpx
 import pytest
 from dotenv import load_dotenv
 
-from mellea_lrc.govinfo import (
+from mellea_lrc.providers.govinfo import (
     GovInfoClient,
     GovInfoConfig,
     GovInfoError,

@@ -5,10 +5,10 @@ from __future__ import annotations
 from contextlib import ExitStack
 from datetime import date
 
-from mellea_lrc.govinfo import GovInfoClient
 from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch
 from mellea_lrc.model.document import Document
+from mellea_lrc.providers.govinfo import GovInfoClient
 from mellea_lrc.validation.body_search.common import field_query_name, field_query_parties
 from mellea_lrc.validation.body_search.locator_body_govinfo_opinion_retrieval import (
     GovInfoBodyClient,

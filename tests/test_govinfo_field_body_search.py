@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from mellea_lrc.govinfo import GovInfoSearchPage
+from mellea_lrc.providers.govinfo import GovInfoSearchPage
 from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.model.citations.full_reporter import FullReporterCitation
 from mellea_lrc.model.document import Document

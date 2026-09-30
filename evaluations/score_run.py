@@ -20,6 +20,12 @@ _WORKFLOWS = {
 
 def score_run(run_dir: Path, workflows: tuple[str, ...] | None = None) -> dict[str, str]:
     """Write each requested workflow's JSON and Markdown beside one saved run."""
+    if workflows is not None:
+        if len(workflows) != len(set(workflows)):
+            raise ValueError("Each workflow can have only one report")
+        unknown = set(workflows).difference(_WORKFLOWS)
+        if unknown:
+            raise ValueError(f"Unknown workflows: {', '.join(sorted(unknown))}")
     record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     if record["status"] != "complete":
         raise ValueError(f"Cannot score an incomplete run: {run_dir}")

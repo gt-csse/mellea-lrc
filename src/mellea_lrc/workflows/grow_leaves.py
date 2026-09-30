@@ -21,7 +21,7 @@ async def grow_leaves(
 
     This workflow neither searches external records nor revalidates root
     identity. Leaf review chooses an antecedent from the existing source tree.
-    Pinpoint validity against an opinion remains a later validation workflow.
+    Pinpoint validity against an opinion remains a later validation stage.
     """
     document = find_short_reporter_citations(document)
     document = find_supra_citations(document)

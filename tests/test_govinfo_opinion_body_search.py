@@ -7,7 +7,7 @@ from datetime import date
 
 import httpx
 
-from mellea_lrc.govinfo import GovInfoClient, GovInfoConfig
+from mellea_lrc.providers.govinfo import GovInfoClient, GovInfoConfig
 from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.model.citations.full_reporter import FullReporterCitation
 from mellea_lrc.model.document import Document

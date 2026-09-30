@@ -94,13 +94,13 @@ WORKFLOW_STAGES = (
     DOCKET_ROOT_LOOKUP_GOVINFO_RETRIEVAL,
     STAGES[-1],
 )
-BODY_WORKFLOW_STAGES = (
+LOCATOR_BODY_STAGES = (
     LOCATOR_BODY_COURTLISTENER_OPINION_RETRIEVAL,
     LOCATOR_BODY_COURTLISTENER_RECAP_RETRIEVAL,
     LOCATOR_BODY_GOVINFO_OPINION_RETRIEVAL,
     LOCATOR_BODY_LLM_JUDGMENT,
 )
-FIELD_BODY_WORKFLOW_STAGES = (
+INTENDED_CASE_STAGES = (
     INTENDED_CASE_COURTLISTENER_OPINION_RETRIEVAL,
     INTENDED_CASE_COURTLISTENER_RECAP_RETRIEVAL,
     INTENDED_CASE_GOVINFO_OPINION_RETRIEVAL,
@@ -262,8 +262,8 @@ class WorkflowScore:
         """All completed workflow stages, including retrieval-only stages."""
         return (
             WORKFLOW_STAGES
-            + (BODY_WORKFLOW_STAGES if self.body_review is not None else ())
-            + (FIELD_BODY_WORKFLOW_STAGES if self.intended_case_outcomes is not None else ())
+            + (LOCATOR_BODY_STAGES if self.body_review is not None else ())
+            + (INTENDED_CASE_STAGES if self.intended_case_outcomes is not None else ())
         )
 
     def __add__(self, other: WorkflowScore) -> WorkflowScore:
@@ -728,7 +728,7 @@ def _score_body_retrieval(document: Document, stage: str) -> RetrievalScore:
     checkpoint = document.get_stage(stage)
     queried = with_records = 0
     source = _BODY_RETRIEVAL_SOURCES[stage]
-    field_stage = stage in FIELD_BODY_WORKFLOW_STAGES
+    field_stage = stage in INTENDED_CASE_STAGES
     for root in checkpoint.roots:
         node_ids = _stage_node_ids(root, stage)
         searches = root.field_body_searches if field_stage else root.body_searches
@@ -914,16 +914,16 @@ def score_validate_roots(document: Document) -> WorkflowScore:
     if any(stage not in document.stage_runs for stage in WORKFLOW_STAGES):
         missing = [stage for stage in WORKFLOW_STAGES if stage not in document.stage_runs]
         raise ValueError(f"Incomplete validate_roots workflow; missing stages: {', '.join(missing)}")
-    body_stages = set(BODY_WORKFLOW_STAGES).intersection(document.stage_runs)
-    if body_stages and body_stages != set(BODY_WORKFLOW_STAGES):
-        missing = [stage for stage in BODY_WORKFLOW_STAGES if stage not in document.stage_runs]
-        raise ValueError(f"Incomplete locator-body workflow; missing stages: {', '.join(missing)}")
-    field_body_stages = set(FIELD_BODY_WORKFLOW_STAGES).intersection(document.stage_runs)
-    if field_body_stages and field_body_stages != set(FIELD_BODY_WORKFLOW_STAGES):
-        missing = [stage for stage in FIELD_BODY_WORKFLOW_STAGES if stage not in document.stage_runs]
-        raise ValueError(f"Incomplete intended-case workflow; missing stages: {', '.join(missing)}")
+    body_stages = set(LOCATOR_BODY_STAGES).intersection(document.stage_runs)
+    if body_stages and body_stages != set(LOCATOR_BODY_STAGES):
+        missing = [stage for stage in LOCATOR_BODY_STAGES if stage not in document.stage_runs]
+        raise ValueError(f"Incomplete locator-body stages in validate_roots; missing stages: {', '.join(missing)}")
+    field_body_stages = set(INTENDED_CASE_STAGES).intersection(document.stage_runs)
+    if field_body_stages and field_body_stages != set(INTENDED_CASE_STAGES):
+        missing = [stage for stage in INTENDED_CASE_STAGES if stage not in document.stage_runs]
+        raise ValueError(f"Incomplete intended-case stages in validate_roots; missing stages: {', '.join(missing)}")
     if field_body_stages and not body_stages:
-        raise ValueError("Intended-case workflow requires completed locator-body stages")
+        raise ValueError("Intended-case stages require completed locator-body stages")
     judgment_stage = max(WORKFLOW_STAGES, key=document.stage_runs.index)
     final_stage = LOCATOR_BODY_LLM_JUDGMENT if body_stages else judgment_stage
     final = document.get_stage(final_stage)
@@ -1017,8 +1017,8 @@ def score_validate_roots(document: Document) -> WorkflowScore:
             scorer(document)
             for stage, scorer in RETRIEVAL_STAGE_SCORERS
             if stage in WORKFLOW_STAGES
-            or (body_stages and stage in BODY_WORKFLOW_STAGES)
-            or (field_body_stages and stage in FIELD_BODY_WORKFLOW_STAGES)
+            or (body_stages and stage in LOCATOR_BODY_STAGES)
+            or (field_body_stages and stage in INTENDED_CASE_STAGES)
         ),
     )
 
