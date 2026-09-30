@@ -9,7 +9,6 @@ from typing import Literal, Protocol
 
 from pypdf import PdfReader
 
-from mellea_lrc.govinfo import GovInfoClient, GovInfoError, GovInfoGranulesPage, GovInfoSearchPage
 from mellea_lrc.model.citations import FullCitationVariant
 from mellea_lrc.model.citations.body_evidence import (
     BodyEvidence,
@@ -20,6 +19,7 @@ from mellea_lrc.model.citations.body_evidence import (
 )
 from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch
 from mellea_lrc.model.document import Document
+from mellea_lrc.providers.govinfo import GovInfoClient, GovInfoError, GovInfoGranulesPage, GovInfoSearchPage
 from mellea_lrc.validation.body_search.common import (
     eligible_on,
     evidence_date,

@@ -11,7 +11,7 @@ import httpx
 from dotenv import load_dotenv
 from pydantic import ValidationError
 
-from mellea_lrc.courtlistener.models import (
+from mellea_lrc.providers.courtlistener.models import (
     CourtListenerCitationLookup,
     CourtListenerDocket,
     CourtListenerSearchPage,

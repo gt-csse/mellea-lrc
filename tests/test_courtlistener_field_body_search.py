@@ -9,7 +9,7 @@ from typing import Any, Literal
 import pytest
 
 from mellea_lrc.api import Document, grow_roots
-from mellea_lrc.courtlistener.models import CourtListenerSearchPage
+from mellea_lrc.providers.courtlistener.models import CourtListenerSearchPage
 from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.validation.body_search.common import field_query_name, field_query_parties
 from mellea_lrc.validation.body_search.intended_case_courtlistener_opinion_retrieval import (

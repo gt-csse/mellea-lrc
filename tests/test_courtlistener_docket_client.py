@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from mellea_lrc.courtlistener import (
+from mellea_lrc.providers.courtlistener import (
     CourtListenerClient,
     CourtListenerConfig,
     CourtListenerHTTPError,

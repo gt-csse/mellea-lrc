@@ -1,6 +1,6 @@
 """GovInfo search API client."""
 
-from mellea_lrc.govinfo.client import (
+from mellea_lrc.providers.govinfo.client import (
     GovInfoClient,
     GovInfoConfig,
     GovInfoError,

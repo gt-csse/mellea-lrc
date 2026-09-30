@@ -9,8 +9,8 @@ from collections.abc import Callable
 import pytest
 
 from mellea_lrc.api import Document, grow_roots
-from mellea_lrc.courtlistener.models import CourtListenerSearchPage
-from mellea_lrc.govinfo import GovInfoError, GovInfoSearchPage
+from mellea_lrc.providers.courtlistener.models import CourtListenerSearchPage
+from mellea_lrc.providers.govinfo import GovInfoError, GovInfoSearchPage
 from mellea_lrc.model import FullDocketCitation
 from mellea_lrc.model.citations.docket_lookup import (
     DocketLookupCaseNameAssessment,

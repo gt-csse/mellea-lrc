@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 import pytest
 
-from mellea_lrc.courtlistener import (
+from mellea_lrc.providers.courtlistener import (
     CourtListenerClient,
     CourtListenerConfig,
     CourtListenerHTTPError,

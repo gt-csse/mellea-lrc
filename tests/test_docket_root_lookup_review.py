@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from mellea_lrc.courtlistener.models import CourtListenerSearchResult
+from mellea_lrc.providers.courtlistener.models import CourtListenerSearchResult
 from mellea_lrc.model import Document, FullDocketCitation, Span
 from mellea_lrc.model.citations.docket_lookup import (
     DocketLookup,

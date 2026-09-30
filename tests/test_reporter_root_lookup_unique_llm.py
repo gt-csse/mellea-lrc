@@ -15,7 +15,7 @@ from mellea_lrc.api import (
     reporter_root_lookup_docket_retrieval,
     reporter_root_lookup_unique_rule_judgment,
 )
-from mellea_lrc.courtlistener import CourtListenerCitationLookup
+from mellea_lrc.providers.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.model import Span
 from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult

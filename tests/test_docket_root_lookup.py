@@ -10,8 +10,8 @@ from typing import Literal
 import pytest
 
 from mellea_lrc.api import Document, grow_roots
-from mellea_lrc.courtlistener import CourtListenerHTTPError, CourtListenerTransportError
-from mellea_lrc.courtlistener.models import CourtListenerSearchPage
+from mellea_lrc.providers.courtlistener import CourtListenerHTTPError, CourtListenerTransportError
+from mellea_lrc.providers.courtlistener.models import CourtListenerSearchPage
 from mellea_lrc.model import FullDocketCitation
 
 lookup_module = importlib.import_module("mellea_lrc.validation.docket_root_lookup_courtlistener_retrieval")

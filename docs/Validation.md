@@ -1,6 +1,6 @@
 # Root validation
 
-Validation entrypoints take and return a `Document`; each appends only the citation readings and judgments it produces. A stage that needs substantial private logic is a package with its `Document` entrypoint in `__init__.py`, including the reporter and docket model-review stages. Their candidate preparation, prompts, and reviewer implementations stay beside the stage. `reporter_exact/` holds rules shared by reporter lookup stages, while `reporter_review/` holds grounding and field updates shared by their model reviews. Provider clients stay in `courtlistener/` and `govinfo/`; typed lookup responses and judgments stay with the citation model. Bounded citation windows live in `model/citation_windows.py`; deterministic fuzzy matching and quote grounding live in `matching/`. Neither role imports a validation stage.
+Validation entrypoints take and return a `Document`; each appends only the citation readings and judgments it produces. A stage that needs substantial private logic is a package with its `Document` entrypoint in `__init__.py`, including the reporter and docket model-review stages. Their candidate preparation, prompts, and reviewer implementations stay beside the stage. `reporter_exact/` holds rules shared by reporter lookup stages, while `reporter_review/` holds grounding and field updates shared by their model reviews. Provider clients and their response models stay in `providers/courtlistener/` and `providers/govinfo/`; saved lookup histories and judgments stay with the citation model. Bounded citation windows live in `model/citation_windows.py`; deterministic fuzzy matching and quote grounding live in `matching/`. Neither role imports a validation stage.
 
 `reporter_root_lookup_cluster_retrieval(document)` runs at stage `12.1_reporter_root_lookup_cluster_retrieval` after extraction. It requires `10_roots` and retrieves each full reporter root once by normalized volume, reporter edition, and first page. The citation stores the query and complete CourtListener response. `reporter_root_lookup_docket_retrieval(document)` runs at stage `12.2_reporter_root_lookup_docket_retrieval`, fetching linked dockets needed for court comparison for both unique and bounded ambiguous results. Provider failures raise; they are not recorded as lookup misses. Neither retrieval stage makes field or identity judgments.
 
@@ -49,7 +49,7 @@ After the reporter stages, `docket_root_lookup_courtlistener_retrieval(document)
 
 After root lookup, unresolved roots can be checked for their reporter or docket locator in other opinions and filings. The high-level `validate_roots(document, retrospective_date=cutoff)` workflow runs this locator-first path after stage `19_docket_root_lookup_govinfo_llm_review`. Retrieval has one stage per source: CourtListener opinion bodies (`20_locator_body_courtlistener_opinion_retrieval`), CourtListener RECAP filing bodies (`21_locator_body_courtlistener_recap_retrieval`), and GovInfo opinion granules (`22_locator_body_govinfo_opinion_retrieval`). These stages search by locator and retain only fetched bodies containing that locator. They save responses, grounded excerpts with surrounding discussion, source identifiers, dates, and failures on the citation. A case-name-only hit cannot establish the locator's identity in this workflow.
 
-`locator_body_llm_judgment(document)` is stage `23_locator_body_llm_judgment`. It selects a grounded occurrence, rereads the source filing, compares the two printed citations field by field, and records how the other document treats that citation. An explicit challenge to a fictitious or incorrect citation needs its own grounded context quote and produces `WRONG_IDENTITY`, even when the printed fields match. A mere mention leaves identity unresolved. An affirmative citation is judged from its field comparisons. These judgments use `basis=third_party`; the citation also retains the selected quote, context, field updates, and complete model trace. Later case-name-led discovery is separate and is not part of this workflow.
+`locator_body_llm_judgment(document)` is stage `23_locator_body_llm_judgment`. It selects a grounded occurrence, rereads the source filing, compares the two printed citations field by field, and records how the other document treats that citation. An explicit challenge to a fictitious or incorrect citation needs its own grounded context quote and produces `WRONG_IDENTITY`, even when the printed fields match. A mere mention leaves identity unresolved. An affirmative citation is judged from its field comparisons. These judgments use `basis=third_party`; the citation also retains the selected quote, context, field updates, and complete model trace. Case-name-led discovery is an optional continuation within `validate_roots`; its stages do not confirm the source locator.
 
 The printed-field comparisons are distinct from the identity-field labels in the annotated benchmark: another document can repeat a false citation verbatim. The validation field report therefore keeps the last comparable judgments from stage `19`. It scores stage `23`'s overall identity verdict separately, then reports cumulative identity after that verdict takes precedence over any lookup-derived verdict.
 
@@ -59,7 +59,7 @@ Use the stages individually when developing a provider, or run their composition
 from datetime import date
 
 from mellea_lrc.api import (
-    corroborate_root_locator_bodies,
+    validate_roots,
     locator_body_courtlistener_opinion_retrieval,
     locator_body_courtlistener_recap_retrieval,
     locator_body_govinfo_opinion_retrieval,
@@ -74,7 +74,9 @@ document = locator_body_govinfo_opinion_retrieval(document, retrospective_date=c
 document = await locator_body_llm_judgment(document)
 
 # Alternatively, start from the same earlier checkpoint:
-document = await corroborate_root_locator_bodies(starting_document, retrospective_date=cutoff)
+document = await validate_roots(starting_document, retrospective_date=cutoff)
 ```
 
 With a cutoff, retrieved evidence must have its own reliable issue date on or before that date; undated evidence is excluded. Omitting the cutoff permits later evidence for ordinary research. Every stage returns a serializable `Document`, and `get_stage(...)` recovers its checkpoint.
+
+To continue through intended-case discovery, call `validate_roots(document, search_other_fields=True)`. Stages 24 through 27 search other fields and save a possible intended authority; they remain part of the same validation workflow and report. A completed checkpoint skips earlier stages, so a saved stage-23 Document can continue without repeating retrieval.

@@ -9,8 +9,6 @@ from contextlib import ExitStack
 from typing import Literal, Protocol
 from urllib.parse import parse_qs, urlparse
 
-from mellea_lrc.courtlistener import CourtListenerClient, CourtListenerError
-from mellea_lrc.courtlistener.models import CourtListenerSearchPage
 from mellea_lrc.matching.fuzziness import FuzzinessOption
 from mellea_lrc.matching.grounding import EvidenceCandidate, GroundingEvidence
 from mellea_lrc.model.citations import FullDocketCitation
@@ -21,6 +19,8 @@ from mellea_lrc.model.citations.docket_lookup import (
     DocketLookupFailure,
 )
 from mellea_lrc.model.document import Document
+from mellea_lrc.providers.courtlistener import CourtListenerClient, CourtListenerError
+from mellea_lrc.providers.courtlistener.models import CourtListenerSearchPage
 
 STAGE = "16_docket_root_lookup_courtlistener_retrieval"
 MINIMUM_SIMILARITY_PERCENT = 40.0

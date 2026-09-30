@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from mellea_lrc.api import Document, grow_roots
-from mellea_lrc.govinfo import GovInfoSearchPage
+from mellea_lrc.providers.govinfo import GovInfoSearchPage
 from mellea_lrc.model.citations.docket_lookup import (
     DocketLookupCaseNameAssessment,
     DocketLookupFieldAssessment,
