@@ -8,25 +8,32 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from mellea_lrc.api import Document, grow_roots, reporter_root_lookup, reporter_root_lookup_review
+from mellea_lrc.api import (
+    Document,
+    grow_roots,
+    reporter_root_lookup_cluster_retrieval,
+    reporter_root_lookup_docket_retrieval,
+    reporter_root_lookup_unique_rule_judgment,
+)
 from mellea_lrc.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.model import Span
 from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterUniqueFieldAssessment
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.validation.reporter_root_lookup_unique_llm import (
+from mellea_lrc.validation.reporter_root_lookup_unique_llm_judgment import (
     STAGE,
-    reporter_root_lookup_unique_llm,
+    reporter_root_lookup_unique_llm_judgment,
 )
-from mellea_lrc.validation.reporter_root_lookup_unique_llm.reviewer import (
+from mellea_lrc.validation.reporter_root_lookup_unique_llm_judgment.reviewer import (
     ReporterUniqueReviewDecision,
     ReporterUniqueReviewOutcome,
 )
 
 SOURCE = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
 NORMALIZED_NAME = {"kind": "adversarial", "plaintiff": "Bell Atl. Corp.", "defendant": "Twombly"}
-REVIEW_STAGE = "12.2_reporter_root_lookup_review"
+REVIEW_STAGE = "13.1_reporter_root_lookup_unique_rule_judgment"
+DOCKET_STAGE = "12.2_reporter_root_lookup_docket_retrieval"
 
 
 class FakeLookupClient:
@@ -122,13 +129,15 @@ def _review_input(
         misread = root.record("test_incorrect_reading").with_case_name(source, Span(start, end))
         roots = roots.replace_citation(misread).complete("test_incorrect_reading")
     service = client or FakeLookupClient()
-    retrieved = reporter_root_lookup(roots, client=service)
+    retrieved = reporter_root_lookup_cluster_retrieval(roots, client=service)
     assert retrieved.roots[0].case_name_judgments == ()
     assert retrieved.roots[0].identity_judgments == ()
     calls = service.lookup_calls
-    result = reporter_root_lookup_review(retrieved)
+    dockets = reporter_root_lookup_docket_retrieval(retrieved, client=service)
+    result = reporter_root_lookup_unique_rule_judgment(dockets)
     assert service.lookup_calls == calls == 1
-    assert result.get_stage("12.1_reporter_root_lookup") == retrieved
+    assert result.get_stage("12.1_reporter_root_lookup_cluster_retrieval") == retrieved
+    assert result.get_stage("12.2_reporter_root_lookup_docket_retrieval") == dockets
     assert result.roots[0].identity_judgments == ()
     assert result.roots[0].next_stage == STAGE
     return result
@@ -230,7 +239,7 @@ def test_combined_review_corrects_grounded_name_and_judges_latest_readings() -> 
     previous = before.roots[0]
     reviewer = FakeReviewer(_decision())
 
-    after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=reviewer))
+    after = asyncio.run(reporter_root_lookup_unique_llm_judgment(before, reviewer=reviewer))
 
     assert client.lookup_calls == 1
     assert len(reviewer.contexts) == 1
@@ -256,7 +265,7 @@ def test_combined_review_corrects_grounded_name_and_judges_latest_readings() -> 
         assert judgment.result is MatchResult.MATCH
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
     assert root.next_stage is None
-    assert [route.value for route in root.routes] == [REVIEW_STAGE, STAGE, None]
+    assert [route.value for route in root.routes] == [DOCKET_STAGE, REVIEW_STAGE, STAGE, None]
     assert root.routes[-1].node_id == root.nodes[-1].id
     restored = Document.model_validate_json(after.model_dump_json())
     assert restored == after
@@ -269,7 +278,7 @@ def test_no_replacement_proposal_keeps_existing_readings() -> None:
     previous = before.roots[0]
     reviewer = FakeReviewer(_decision(case_name_quote=None, date_quote=None))
 
-    after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=reviewer))
+    after = asyncio.run(reporter_root_lookup_unique_llm_judgment(before, reviewer=reviewer))
 
     root = after.roots[0]
     assert len(reviewer.contexts) == 1
@@ -289,7 +298,9 @@ def test_model_normalizes_a_grounded_name_across_page_layout_noise() -> None:
     previous = before.roots[0]
 
     after = asyncio.run(
-        reporter_root_lookup_unique_llm(before, reviewer=FakeReviewer(_decision(case_name_quote=quote)))
+        reporter_root_lookup_unique_llm_judgment(
+            before, reviewer=FakeReviewer(_decision(case_name_quote=quote))
+        )
     )
 
     root = after.roots[0]
@@ -309,7 +320,7 @@ def test_model_can_change_only_the_normalization_of_an_existing_grounded_name() 
     expanded = {**NORMALIZED_NAME, "plaintiff": "Bell Atlantic Corp."}
 
     after = asyncio.run(
-        reporter_root_lookup_unique_llm(
+        reporter_root_lookup_unique_llm_judgment(
             before,
             reviewer=FakeReviewer(_decision(case_name_quote=None, case_name_normalized=expanded)),
         )
@@ -336,7 +347,7 @@ def test_grounded_court_and_date_replacements_are_normalized_by_rules() -> None:
         date_quote="2008",
     )
 
-    after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=FakeReviewer(decision)))
+    after = asyncio.run(reporter_root_lookup_unique_llm_judgment(before, reviewer=FakeReviewer(decision)))
 
     root = after.roots[0]
     assert root.reporter_unique_review.decision == decision
@@ -366,7 +377,7 @@ def test_grounded_name_without_model_normalization_is_rejected() -> None:
     previous = before.roots[0]
 
     after = asyncio.run(
-        reporter_root_lookup_unique_llm(
+        reporter_root_lookup_unique_llm_judgment(
             before,
             reviewer=FakeReviewer(_decision(case_name_quote=None, case_name_normalized=None)),
         )
@@ -391,7 +402,7 @@ def test_unique_review_accepts_a_grounded_partial_without_supplying_missing_part
         case_name_result="mismatch",
     )
 
-    after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=FakeReviewer(decision)))
+    after = asyncio.run(reporter_root_lookup_unique_llm_judgment(before, reviewer=FakeReviewer(decision)))
     root = after.roots[0]
     assert root.reporter_unique_review.decision == decision
     assert root.case_name[-1].quote == fragment
@@ -405,7 +416,7 @@ def test_model_normalization_without_a_grounded_name_is_rejected() -> None:
     assert not before.roots[0].case_name
 
     after = asyncio.run(
-        reporter_root_lookup_unique_llm(
+        reporter_root_lookup_unique_llm_judgment(
             before,
             reviewer=FakeReviewer(_decision(case_name_quote=None, case_name_result="unavailable")),
         )
@@ -421,15 +432,16 @@ def test_model_normalization_without_a_grounded_name_is_rejected() -> None:
 
 def test_unique_review_processes_only_citations_routed_to_its_stage() -> None:
     roots = asyncio.run(grow_roots(Document.from_source(SOURCE), hunt_dockets=False))
-    retrieved = reporter_root_lookup(
+    retrieved = reporter_root_lookup_cluster_retrieval(
         roots,
         client=FakeLookupClient(case_name_full="Bell Atlantic Corporation v. Twombly"),
     )
-    already_admitted = reporter_root_lookup_review(retrieved)
+    dockets = reporter_root_lookup_docket_retrieval(retrieved)
+    already_admitted = reporter_root_lookup_unique_rule_judgment(dockets)
     assert already_admitted.roots[0].identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
     reviewer = FakeReviewer(_decision())
 
-    after = asyncio.run(reporter_root_lookup_unique_llm(already_admitted, reviewer=reviewer))
+    after = asyncio.run(reporter_root_lookup_unique_llm_judgment(already_admitted, reviewer=reviewer))
 
     assert reviewer.contexts == []
     assert after.roots == already_admitted.roots
@@ -440,7 +452,7 @@ def test_model_field_mismatch_produces_wrong_identity() -> None:
     before = _review_input()
     reviewer = FakeReviewer(_decision(case_name_result="mismatch"))
 
-    after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=reviewer))
+    after = asyncio.run(reporter_root_lookup_unique_llm_judgment(before, reviewer=reviewer))
 
     root = after.roots[0]
     assert len(reviewer.contexts) == 1
@@ -449,7 +461,7 @@ def test_model_field_mismatch_produces_wrong_identity() -> None:
     assert root.date_judgments[-1].result is MatchResult.MATCH
     assert root.identity_judgments[-1].verdict is IdentityVerdict.WRONG_IDENTITY
     assert root.next_stage is None
-    assert [route.value for route in root.routes] == [REVIEW_STAGE, STAGE, None]
+    assert [route.value for route in root.routes] == [DOCKET_STAGE, REVIEW_STAGE, STAGE, None]
 
 
 def test_failed_review_preserves_ivr_trace_and_routes_to_search() -> None:
@@ -459,13 +471,18 @@ def test_failed_review_preserves_ivr_trace_and_routes_to_search() -> None:
         ReporterUniqueReviewOutcome(decision=None, run=run, failure_reason="Incomplete JSON")
     )
 
-    after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=reviewer))
+    after = asyncio.run(reporter_root_lookup_unique_llm_judgment(before, reviewer=reviewer))
 
     assert len(reviewer.contexts) == 1
     root = after.roots[0]
     assert root.identity_judgments == before.roots[0].identity_judgments == ()
     assert root.next_stage == "reporter_root_search"
-    assert [route.value for route in root.routes] == [REVIEW_STAGE, STAGE, "reporter_root_search"]
+    assert [route.value for route in root.routes] == [
+        DOCKET_STAGE,
+        REVIEW_STAGE,
+        STAGE,
+        "reporter_root_search",
+    ]
     assert "Incomplete JSON" in root.model_dump_json()
     assert Document.model_validate_json(after.model_dump_json()) == after
 
@@ -475,7 +492,7 @@ def test_ungrounded_model_correction_is_not_written_and_routes_to_search() -> No
     earlier = before.roots[0]
     reviewer = FakeReviewer(_decision(case_name_quote="Name absent from the source v. Twombly"))
 
-    after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=reviewer))
+    after = asyncio.run(reporter_root_lookup_unique_llm_judgment(before, reviewer=reviewer))
 
     root = after.roots[0]
     assert len(reviewer.contexts) == 1
@@ -488,11 +505,13 @@ def test_ungrounded_model_correction_is_not_written_and_routes_to_search() -> No
 def test_review_records_unavailable_field_without_a_source_reading() -> None:
     source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544."
     roots = asyncio.run(grow_roots(Document.from_source(source), hunt_dockets=False))
-    before = reporter_root_lookup_review(reporter_root_lookup(roots, client=FakeLookupClient()))
+    retrieved = reporter_root_lookup_cluster_retrieval(roots, client=FakeLookupClient())
+    dockets = reporter_root_lookup_docket_retrieval(retrieved)
+    before = reporter_root_lookup_unique_rule_judgment(dockets)
     assert before.roots[0].next_stage == STAGE
     decision = _decision(date_quote=None, date_result="unavailable")
 
-    after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=FakeReviewer(decision)))
+    after = asyncio.run(reporter_root_lookup_unique_llm_judgment(before, reviewer=FakeReviewer(decision)))
 
     root = after.roots[0]
     assert not root.date
@@ -518,7 +537,7 @@ def test_review_rejects_field_state_inconsistent_with_context(
 ) -> None:
     before = _review_input(source=source)
 
-    after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=FakeReviewer(decision)))
+    after = asyncio.run(reporter_root_lookup_unique_llm_judgment(before, reviewer=FakeReviewer(decision)))
 
     root = after.roots[0]
     assert root.reporter_unique_review.decision is None
@@ -530,7 +549,7 @@ def test_review_rejects_field_state_inconsistent_with_context(
 def test_review_rejects_match_when_candidate_has_no_name_evidence() -> None:
     before = _review_input(client=FakeLookupClient(case_name=None))
 
-    after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=FakeReviewer(_decision())))
+    after = asyncio.run(reporter_root_lookup_unique_llm_judgment(before, reviewer=FakeReviewer(_decision())))
 
     root = after.roots[0]
     assert root.reporter_unique_review.decision is None
@@ -543,7 +562,7 @@ def test_review_accepts_unavailable_when_candidate_lacks_date_evidence() -> None
     before = _review_input(client=FakeLookupClient(date_filed=None))
     decision = _decision(date_quote=None, date_result="unavailable")
 
-    after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=FakeReviewer(decision)))
+    after = asyncio.run(reporter_root_lookup_unique_llm_judgment(before, reviewer=FakeReviewer(decision)))
 
     root = after.roots[0]
     assert root.reporter_unique_review.decision == decision

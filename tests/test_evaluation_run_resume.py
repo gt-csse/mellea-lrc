@@ -142,7 +142,7 @@ def test_resume_skips_valid_documents_and_reuses_timestamp_directory(
     assert calls == list(filenames)
 
 
-def test_resume_from_reporter_retrieval_checkpoint_skips_provider_requery(
+def test_resume_from_reporter_docket_checkpoint_skips_provider_requery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     data_root = _dataset(tmp_path, ("001.txt",))
@@ -160,11 +160,11 @@ def test_resume_from_reporter_retrieval_checkpoint_skips_provider_requery(
 
     def review(document: Document) -> Document:
         nonlocal fail_review
-        calls.append("12.2")
+        calls.append("13.1")
         if fail_review:
             fail_review = False
             raise RuntimeError("interrupted during reporter review")
-        return document.complete(runner._RUN_STAGES[12])
+        return document.complete(runner._RUN_STAGES[13])
 
     def sync_stage(stage: str):
         def run(document: Document) -> Document:
@@ -189,20 +189,20 @@ def test_resume_from_reporter_retrieval_checkpoint_skips_provider_requery(
         return _complete_with_checkpoints(document, runner._RUN_STAGES[21:], checkpoint)
 
     monkeypatch.setattr(runner, "grow_roots", fake_grow)
-    monkeypatch.setattr(workflow, "reporter_root_lookup", retrieve)
-    monkeypatch.setattr(workflow, "reporter_root_lookup_review", review)
+    monkeypatch.setattr(workflow, "reporter_root_lookup_cluster_retrieval", retrieve)
+    monkeypatch.setattr(workflow, "reporter_root_lookup_unique_rule_judgment", review)
     for stage, name in (
-        ("13.1_reporter_root_lookup_ambiguous_dockets", "reporter_root_lookup_ambiguous_dockets"),
-        ("13.2_reporter_root_lookup_ambiguous_review", "reporter_root_lookup_ambiguous"),
-        ("16_docket_root_lookup", "docket_root_lookup"),
-        ("18_govinfo_docket_lookup", "govinfo_docket_lookup"),
+        ("12.2_reporter_root_lookup_docket_retrieval", "reporter_root_lookup_docket_retrieval"),
+        ("13.2_reporter_root_lookup_ambiguous_rule_judgment", "reporter_root_lookup_ambiguous_rule_judgment"),
+        ("16_docket_root_lookup_courtlistener_retrieval", "docket_root_lookup_courtlistener_retrieval"),
+        ("18_docket_root_lookup_govinfo_retrieval", "docket_root_lookup_govinfo_retrieval"),
     ):
         monkeypatch.setattr(workflow, name, sync_stage(stage))
     for stage, name in (
-        ("14_reporter_root_lookup_unique_llm", "reporter_root_lookup_unique_llm"),
-        ("15_reporter_root_lookup_ambiguous_llm", "reporter_root_lookup_ambiguous_llm"),
-        ("17_docket_root_lookup_review", "docket_root_lookup_review"),
-        ("19_govinfo_docket_lookup_review", "govinfo_docket_lookup_review"),
+        ("14_reporter_root_lookup_unique_llm_judgment", "reporter_root_lookup_unique_llm_judgment"),
+        ("15_reporter_root_lookup_ambiguous_llm_judgment", "reporter_root_lookup_ambiguous_llm_judgment"),
+        ("17_docket_root_lookup_courtlistener_llm_review", "docket_root_lookup_courtlistener_llm_review"),
+        ("19_docket_root_lookup_govinfo_llm_review", "docket_root_lookup_govinfo_llm_review"),
     ):
         monkeypatch.setattr(workflow, name, async_stage(stage))
     monkeypatch.setattr(workflow, "corroborate_root_locator_bodies", body)
@@ -210,18 +210,19 @@ def test_resume_from_reporter_retrieval_checkpoint_skips_provider_requery(
     with pytest.raises(RuntimeError, match="interrupted during reporter review"):
         asyncio.run(runner._run(data_root, tmp_path / "results", None))
     run_dir = next((tmp_path / "results").iterdir())
-    checkpoint = runner._field_checkpoint(run_dir, runner._RUN_STAGES[11], "001.txt")
+    checkpoint = runner._field_checkpoint(run_dir, runner._RUN_STAGES[12], "001.txt")
     assert checkpoint.exists()
     saved = Document.model_validate_json(checkpoint.read_text(encoding="utf-8"))
-    assert saved.stage_runs == runner._RUN_STAGES[:12]
+    assert saved.stage_runs == runner._RUN_STAGES[:13]
 
     assert asyncio.run(runner._run(tmp_path / "unused", tmp_path / "unused", None, run_dir)) == run_dir
     final = Document.model_validate_json((run_dir / "documents" / "001.txt.json").read_text())
     assert final.stage_runs == runner._RUN_STAGES
-    assert final.get_stage(runner._RUN_STAGES[11]) == saved
+    assert final.get_stage(runner._RUN_STAGES[12]) == saved
     assert calls.count("grow") == 1
     assert calls.count("12.1") == 1
-    assert calls.count("12.2") == 2
+    assert calls.count("12.2") == 1
+    assert calls.count("13.1") == 2
 
 
 def test_rewind_completed_document_to_reporter_retrieval_runs_later_reviews(
@@ -261,20 +262,20 @@ def test_rewind_completed_document_to_reporter_retrieval_runs_later_reviews(
     ) -> Document:
         return _complete_with_checkpoints(document, runner._RUN_STAGES[21:], checkpoint)
 
-    monkeypatch.setattr(workflow, "reporter_root_lookup", unexpected_lookup)
+    monkeypatch.setattr(workflow, "reporter_root_lookup_cluster_retrieval", unexpected_lookup)
     for stage, name in (
-        ("12.2_reporter_root_lookup_review", "reporter_root_lookup_review"),
-        ("13.1_reporter_root_lookup_ambiguous_dockets", "reporter_root_lookup_ambiguous_dockets"),
-        ("13.2_reporter_root_lookup_ambiguous_review", "reporter_root_lookup_ambiguous"),
-        ("16_docket_root_lookup", "docket_root_lookup"),
-        ("18_govinfo_docket_lookup", "govinfo_docket_lookup"),
+        ("13.1_reporter_root_lookup_unique_rule_judgment", "reporter_root_lookup_unique_rule_judgment"),
+        ("12.2_reporter_root_lookup_docket_retrieval", "reporter_root_lookup_docket_retrieval"),
+        ("13.2_reporter_root_lookup_ambiguous_rule_judgment", "reporter_root_lookup_ambiguous_rule_judgment"),
+        ("16_docket_root_lookup_courtlistener_retrieval", "docket_root_lookup_courtlistener_retrieval"),
+        ("18_docket_root_lookup_govinfo_retrieval", "docket_root_lookup_govinfo_retrieval"),
     ):
         monkeypatch.setattr(workflow, name, sync_stage(stage))
     for stage, name in (
-        ("14_reporter_root_lookup_unique_llm", "reporter_root_lookup_unique_llm"),
-        ("15_reporter_root_lookup_ambiguous_llm", "reporter_root_lookup_ambiguous_llm"),
-        ("17_docket_root_lookup_review", "docket_root_lookup_review"),
-        ("19_govinfo_docket_lookup_review", "govinfo_docket_lookup_review"),
+        ("14_reporter_root_lookup_unique_llm_judgment", "reporter_root_lookup_unique_llm_judgment"),
+        ("15_reporter_root_lookup_ambiguous_llm_judgment", "reporter_root_lookup_ambiguous_llm_judgment"),
+        ("17_docket_root_lookup_courtlistener_llm_review", "docket_root_lookup_courtlistener_llm_review"),
+        ("19_docket_root_lookup_govinfo_llm_review", "docket_root_lookup_govinfo_llm_review"),
     ):
         monkeypatch.setattr(workflow, name, async_stage(stage))
     monkeypatch.setattr(workflow, "corroborate_root_locator_bodies", body)
@@ -346,7 +347,7 @@ def test_resume_rejects_stale_saved_source_before_provider_calls(
     async def unexpected_review(_document: Document) -> Document:
         pytest.fail("A stale checkpoint must not reach the provider-backed review")
 
-    monkeypatch.setattr(runner, "review_docket_root_equivalence", unexpected_review)
+    monkeypatch.setattr(runner, "docket_root_llm_reassignment", unexpected_review)
     with pytest.raises(ValueError, match="Saved Document text differs"):
         asyncio.run(runner._run(data_root, tmp_path / "results", roots_dir))
 
@@ -386,12 +387,12 @@ def test_resume_from_reporter_llm_checkpoint_only_runs_later_stages(
         calls.append("19")
         return document.complete(runner._RUN_STAGES[20])
 
-    monkeypatch.setattr(runner, "reporter_root_lookup_unique_llm", unique)
-    monkeypatch.setattr(runner, "reporter_root_lookup_ambiguous_llm", ambiguous)
-    monkeypatch.setattr(runner, "docket_root_lookup", docket)
-    monkeypatch.setattr(runner, "docket_root_lookup_review", docket_review)
-    monkeypatch.setattr(runner, "govinfo_docket_lookup", govinfo)
-    monkeypatch.setattr(runner, "govinfo_docket_lookup_review", govinfo_review)
+    monkeypatch.setattr(runner, "reporter_root_lookup_unique_llm_judgment", unique)
+    monkeypatch.setattr(runner, "reporter_root_lookup_ambiguous_llm_judgment", ambiguous)
+    monkeypatch.setattr(runner, "docket_root_lookup_courtlistener_retrieval", docket)
+    monkeypatch.setattr(runner, "docket_root_lookup_courtlistener_llm_review", docket_review)
+    monkeypatch.setattr(runner, "docket_root_lookup_govinfo_retrieval", govinfo)
+    monkeypatch.setattr(runner, "docket_root_lookup_govinfo_llm_review", govinfo_review)
     run_dir = asyncio.run(runner._run(data_root, tmp_path / "results", None, None, checkpoint_dir))
 
     assert calls == ["14", "15", "16", "17", "18", "19"]
@@ -441,12 +442,12 @@ def test_reporter_review_replay_reuses_saved_docket_lookup(
     async def govinfo_review(document: Document) -> Document:
         return document.complete(runner._RUN_STAGES[20])
 
-    monkeypatch.setattr(runner, "reporter_root_lookup_unique_llm", unique)
-    monkeypatch.setattr(runner, "reporter_root_lookup_ambiguous_llm", ambiguous)
-    monkeypatch.setattr(runner, "docket_root_lookup", unexpected_lookup)
-    monkeypatch.setattr(runner, "docket_root_lookup_review", docket_review)
-    monkeypatch.setattr(runner, "govinfo_docket_lookup", govinfo)
-    monkeypatch.setattr(runner, "govinfo_docket_lookup_review", govinfo_review)
+    monkeypatch.setattr(runner, "reporter_root_lookup_unique_llm_judgment", unique)
+    monkeypatch.setattr(runner, "reporter_root_lookup_ambiguous_llm_judgment", ambiguous)
+    monkeypatch.setattr(runner, "docket_root_lookup_courtlistener_retrieval", unexpected_lookup)
+    monkeypatch.setattr(runner, "docket_root_lookup_courtlistener_llm_review", docket_review)
+    monkeypatch.setattr(runner, "docket_root_lookup_govinfo_retrieval", govinfo)
+    monkeypatch.setattr(runner, "docket_root_lookup_govinfo_llm_review", govinfo_review)
     run_dir = asyncio.run(runner._run(data_root, tmp_path / "results", None, None, checkpoint_dir, True))
 
     saved = Document.model_validate_json((run_dir / "documents" / "001.txt.json").read_text(encoding="utf-8"))
@@ -474,8 +475,8 @@ def test_resume_from_docket_review_checkpoint_only_runs_govinfo_stages(
         calls.append("19")
         return document.complete(runner._RUN_STAGES[20])
 
-    monkeypatch.setattr(runner, "govinfo_docket_lookup", govinfo)
-    monkeypatch.setattr(runner, "govinfo_docket_lookup_review", govinfo_review)
+    monkeypatch.setattr(runner, "docket_root_lookup_govinfo_retrieval", govinfo)
+    monkeypatch.setattr(runner, "docket_root_lookup_govinfo_llm_review", govinfo_review)
     run_dir = asyncio.run(
         runner._run(data_root, tmp_path / "results", None, None, None, False, checkpoint_dir)
     )
@@ -569,20 +570,20 @@ def test_resume_after_locator_body_review_failure_reuses_all_retrieval_checkpoin
 
     monkeypatch.setattr(
         workflow,
-        "courtlistener_opinion_locator_body_search",
+        "locator_body_courtlistener_opinion_retrieval",
         retrieve(runner._COURTLISTENER_OPINION_STAGE),
     )
     monkeypatch.setattr(
         workflow,
-        "courtlistener_recap_locator_body_search",
+        "locator_body_courtlistener_recap_retrieval",
         retrieve(runner._COURTLISTENER_RECAP_STAGE),
     )
     monkeypatch.setattr(
         workflow,
-        "govinfo_opinion_locator_body_search",
+        "locator_body_govinfo_opinion_retrieval",
         retrieve(runner._GOVINFO_OPINION_STAGE),
     )
-    monkeypatch.setattr(workflow, "review_locator_body_evidence", review)
+    monkeypatch.setattr(workflow, "locator_body_llm_judgment", review)
 
     with pytest.raises(RuntimeError, match="interrupted during locator-body review"):
         asyncio.run(
@@ -592,8 +593,9 @@ def test_resume_after_locator_body_review_failure_reuses_all_retrieval_checkpoin
     for stage in runner._BODY_SEARCH_STAGES:
         saved = runner._field_checkpoint(run_dir, stage, "001.txt")
         assert saved.exists()
-        assert Document.model_validate_json(saved.read_text(encoding="utf-8")).stage_runs == (
-            runner._RUN_STAGES[: runner._RUN_STAGES.index(stage) + 1]
+        assert (
+            Document.model_validate_json(saved.read_text(encoding="utf-8")).stage_runs
+            == (runner._RUN_STAGES[: runner._RUN_STAGES.index(stage) + 1])
         )
     stage22 = Document.model_validate_json(
         runner._field_checkpoint(run_dir, runner._GOVINFO_OPINION_STAGE, "001.txt").read_text(
@@ -635,10 +637,10 @@ def test_rewind_completed_document_to_stage22_replays_only_locator_body_review(
         assert document == completed.get_stage(runner._GOVINFO_OPINION_STAGE)
         return document.complete(runner._LOCATOR_BODY_REVIEW_STAGE)
 
-    monkeypatch.setattr(workflow, "courtlistener_opinion_locator_body_search", unexpected_retrieval)
-    monkeypatch.setattr(workflow, "courtlistener_recap_locator_body_search", unexpected_retrieval)
-    monkeypatch.setattr(workflow, "govinfo_opinion_locator_body_search", unexpected_retrieval)
-    monkeypatch.setattr(workflow, "review_locator_body_evidence", review)
+    monkeypatch.setattr(workflow, "locator_body_courtlistener_opinion_retrieval", unexpected_retrieval)
+    monkeypatch.setattr(workflow, "locator_body_courtlistener_recap_retrieval", unexpected_retrieval)
+    monkeypatch.setattr(workflow, "locator_body_govinfo_opinion_retrieval", unexpected_retrieval)
+    monkeypatch.setattr(workflow, "locator_body_llm_judgment", review)
 
     results_root = tmp_path / "results"
     monkeypatch.setattr(
@@ -698,10 +700,14 @@ def test_locator_review_replay_saves_each_stage_and_resumes_without_earlier_work
         calls.append((Path(document.source_path or "").name, runner._FIELD_STAGES[3], None))
         return document.complete(runner._FIELD_STAGES[3])
 
-    monkeypatch.setattr(runner, "courtlistener_opinion_field_body_search", provider(runner._FIELD_STAGES[0]))
-    monkeypatch.setattr(runner, "courtlistener_recap_field_body_search", provider(runner._FIELD_STAGES[1]))
-    monkeypatch.setattr(runner, "govinfo_opinion_field_body_search", provider(runner._FIELD_STAGES[2]))
-    monkeypatch.setattr(runner, "review_intended_case_body_evidence", review)
+    monkeypatch.setattr(
+        runner, "intended_case_courtlistener_opinion_retrieval", provider(runner._FIELD_STAGES[0])
+    )
+    monkeypatch.setattr(
+        runner, "intended_case_courtlistener_recap_retrieval", provider(runner._FIELD_STAGES[1])
+    )
+    monkeypatch.setattr(runner, "intended_case_govinfo_opinion_retrieval", provider(runner._FIELD_STAGES[2]))
+    monkeypatch.setattr(runner, "intended_case_llm_selection", review)
 
     with pytest.raises(RuntimeError, match="interrupted after stage 25"):
         asyncio.run(
@@ -792,10 +798,10 @@ def test_transient_field_search_stops_before_later_providers_and_retries_its_sta
         calls.append("27")
         return document.complete(runner._FIELD_STAGES[3])
 
-    monkeypatch.setattr(runner, "courtlistener_opinion_field_body_search", opinion)
-    monkeypatch.setattr(runner, "courtlistener_recap_field_body_search", later(runner._FIELD_STAGES[1]))
-    monkeypatch.setattr(runner, "govinfo_opinion_field_body_search", later(runner._FIELD_STAGES[2]))
-    monkeypatch.setattr(runner, "review_intended_case_body_evidence", review)
+    monkeypatch.setattr(runner, "intended_case_courtlistener_opinion_retrieval", opinion)
+    monkeypatch.setattr(runner, "intended_case_courtlistener_recap_retrieval", later(runner._FIELD_STAGES[1]))
+    monkeypatch.setattr(runner, "intended_case_govinfo_opinion_retrieval", later(runner._FIELD_STAGES[2]))
+    monkeypatch.setattr(runner, "intended_case_llm_selection", review)
 
     with pytest.raises(RuntimeError, match="transient provider failure"):
         asyncio.run(
@@ -1177,10 +1183,10 @@ def test_retry_body_stages_passes_selected_client_to_both_courtlistener_stages(
         calls.append("review")
         return document.complete(runner._LOCATOR_BODY_REVIEW_STAGE)
 
-    monkeypatch.setattr(runner, "courtlistener_opinion_locator_body_search", opinion)
-    monkeypatch.setattr(runner, "courtlistener_recap_locator_body_search", recap)
-    monkeypatch.setattr(runner, "govinfo_opinion_locator_body_search", govinfo)
-    monkeypatch.setattr(runner, "review_locator_body_evidence", review)
+    monkeypatch.setattr(runner, "locator_body_courtlistener_opinion_retrieval", opinion)
+    monkeypatch.setattr(runner, "locator_body_courtlistener_recap_retrieval", recap)
+    monkeypatch.setattr(runner, "locator_body_govinfo_opinion_retrieval", govinfo)
+    monkeypatch.setattr(runner, "locator_body_llm_judgment", review)
     result = asyncio.run(
         runner._retry_body_stages(document, runner._COURTLISTENER_OPINION_STAGE, None, selected_client)
     )
@@ -1214,10 +1220,10 @@ def test_corroboration_workflow_passes_selected_client_to_both_stages(
         calls.append("review")
         return document.complete(runner._LOCATOR_BODY_REVIEW_STAGE)
 
-    monkeypatch.setattr(workflow, "courtlistener_opinion_locator_body_search", opinion)
-    monkeypatch.setattr(workflow, "courtlistener_recap_locator_body_search", recap)
-    monkeypatch.setattr(workflow, "govinfo_opinion_locator_body_search", govinfo)
-    monkeypatch.setattr(workflow, "review_locator_body_evidence", review)
+    monkeypatch.setattr(workflow, "locator_body_courtlistener_opinion_retrieval", opinion)
+    monkeypatch.setattr(workflow, "locator_body_courtlistener_recap_retrieval", recap)
+    monkeypatch.setattr(workflow, "locator_body_govinfo_opinion_retrieval", govinfo)
+    monkeypatch.setattr(workflow, "locator_body_llm_judgment", review)
     result = asyncio.run(
         workflow.corroborate_root_locator_bodies(document, courtlistener_client=selected_client)
     )
@@ -1318,16 +1324,16 @@ def test_transient_stage21_checkpoint_stops_later_work_and_retries_from_stage21(
 
     monkeypatch.setattr(
         workflow,
-        "courtlistener_opinion_locator_body_search",
+        "locator_body_courtlistener_opinion_retrieval",
         retrieve(runner._COURTLISTENER_OPINION_STAGE, BodySource.COURTLISTENER_OPINION),
     )
     monkeypatch.setattr(
         workflow,
-        "courtlistener_recap_locator_body_search",
+        "locator_body_courtlistener_recap_retrieval",
         retrieve(runner._COURTLISTENER_RECAP_STAGE, BodySource.COURTLISTENER_RECAP),
     )
-    monkeypatch.setattr(workflow, "govinfo_opinion_locator_body_search", govinfo)
-    monkeypatch.setattr(workflow, "review_locator_body_evidence", review)
+    monkeypatch.setattr(workflow, "locator_body_govinfo_opinion_retrieval", govinfo)
+    monkeypatch.setattr(workflow, "locator_body_llm_judgment", review)
 
     with pytest.raises(RuntimeError, match=r"21_.*transient provider failure"):
         asyncio.run(
@@ -1444,9 +1450,9 @@ def test_transient_body_search_failure_replays_from_failed_provider(
 
         return run
 
-    monkeypatch.setattr(runner, "courtlistener_opinion_locator_body_search", fake_provider(*stages[0]))
-    monkeypatch.setattr(runner, "courtlistener_recap_locator_body_search", fake_provider(*stages[1]))
-    monkeypatch.setattr(runner, "govinfo_opinion_locator_body_search", fake_provider(*stages[2]))
+    monkeypatch.setattr(runner, "locator_body_courtlistener_opinion_retrieval", fake_provider(*stages[0]))
+    monkeypatch.setattr(runner, "locator_body_courtlistener_recap_retrieval", fake_provider(*stages[1]))
+    monkeypatch.setattr(runner, "locator_body_govinfo_opinion_retrieval", fake_provider(*stages[2]))
 
     async def review(document: Document) -> Document:
         filename = Path(document.source_path or "").name
@@ -1454,7 +1460,7 @@ def test_transient_body_search_failure_replays_from_failed_provider(
         calls.append((filename, runner._LOCATOR_BODY_REVIEW_STAGE))
         return document.complete(runner._LOCATOR_BODY_REVIEW_STAGE)
 
-    monkeypatch.setattr(runner, "review_locator_body_evidence", review)
+    monkeypatch.setattr(runner, "locator_body_llm_judgment", review)
 
     async def body(
         document: Document,
@@ -1465,20 +1471,20 @@ def test_transient_body_search_failure_replays_from_failed_provider(
         assert document.stage_runs == runner._VALIDATION_INPUT_STAGES
         for stage, _source in stages:
             if stage == runner._COURTLISTENER_OPINION_STAGE:
-                document = runner.courtlistener_opinion_locator_body_search(
+                document = runner.locator_body_courtlistener_opinion_retrieval(
                     document, retrospective_date=retrospective_date
                 )
             elif stage == runner._COURTLISTENER_RECAP_STAGE:
-                document = runner.courtlistener_recap_locator_body_search(
+                document = runner.locator_body_courtlistener_recap_retrieval(
                     document, retrospective_date=retrospective_date
                 )
             else:
-                document = runner.govinfo_opinion_locator_body_search(
+                document = runner.locator_body_govinfo_opinion_retrieval(
                     document, retrospective_date=retrospective_date
                 )
         # This double models an older body run that saved only its final Document.
         # The artifact retry path must still work when no intermediate callback ran.
-        return await runner.review_locator_body_evidence(document)
+        return await runner.locator_body_llm_judgment(document)
 
     monkeypatch.setattr(runner, "corroborate_root_locator_bodies", body)
     with pytest.raises(RuntimeError, match="transient provider failures"):
@@ -1527,7 +1533,7 @@ def test_transient_docket_search_failure_requires_a_rerun(failure_type: str, sta
     document = asyncio.run(grow_roots(Document.from_source("Acme v. Reed, Case No. 2:31-cv-45821.")))
     root = document.roots[0]
     assert isinstance(root, FullDocketCitation)
-    recorded = root.record("16_docket_root_lookup")
+    recorded = root.record("16_docket_root_lookup_courtlistener_retrieval")
     lookup = DocketLookup(
         node_id=recorded.nodes[-1].id,
         attempts=(
@@ -1552,7 +1558,7 @@ def test_transient_govinfo_search_failure_requires_a_rerun() -> None:
     document = asyncio.run(grow_roots(Document.from_source("Acme v. Reed, Case No. 2:31-cv-45821.")))
     root = document.roots[0]
     assert isinstance(root, FullDocketCitation)
-    recorded = root.record("18_govinfo_docket_lookup")
+    recorded = root.record("18_docket_root_lookup_govinfo_retrieval")
     lookup = GovInfoDocketLookup(
         node_id=recorded.nodes[-1].id,
         attempts=(

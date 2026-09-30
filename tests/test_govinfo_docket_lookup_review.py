@@ -13,15 +13,17 @@ from mellea_lrc.model.citations.docket_lookup import (
 )
 from mellea_lrc.model.citations.fields.case_name import CaseName
 from mellea_lrc.model.citations.judgments import MatchResult
-from mellea_lrc.validation.govinfo_docket_lookup import govinfo_docket_lookup
-from mellea_lrc.validation.govinfo_docket_lookup_review import govinfo_docket_lookup_review
-from mellea_lrc.validation.govinfo_docket_lookup_review.reviewer import GovInfoDocketReviewContext
+from mellea_lrc.validation.docket_root_lookup_govinfo_retrieval import docket_root_lookup_govinfo_retrieval
+from mellea_lrc.validation.docket_root_lookup_govinfo_llm_review import docket_root_lookup_govinfo_llm_review
+from mellea_lrc.validation.docket_root_lookup_govinfo_llm_review.reviewer import GovInfoDocketReviewContext
 
 
 def _input(*, results: list[dict[str, object]]) -> Document:
     source = "Acme v. Reed, Case No. 2:31-cv-45821 (D. Mass. 2031)."
     document = asyncio.run(grow_roots(Document.from_source(source)))
-    document = document.complete("16_docket_root_lookup").complete("17_docket_root_lookup_review")
+    document = document.complete("16_docket_root_lookup_courtlistener_retrieval").complete(
+        "17_docket_root_lookup_courtlistener_llm_review"
+    )
 
     class Client:
         def search(self, _query: str, *, offset_mark: str = "*", page_size: int = 100) -> GovInfoSearchPage:
@@ -31,7 +33,7 @@ def _input(*, results: list[dict[str, object]]) -> Document:
                 raw_json=raw, results=tuple(results), count=len(results), next_offset_mark=None
             )
 
-    return govinfo_docket_lookup(document, client=Client())
+    return docket_root_lookup_govinfo_retrieval(document, client=Client())
 
 
 def _field(result: MatchResult, *, quote: str | None = None) -> DocketLookupFieldAssessment:
@@ -78,7 +80,7 @@ def test_review_records_field_decisions_and_replays_from_document() -> None:
         seen.append(context)
         return _decision(0)
 
-    after = asyncio.run(govinfo_docket_lookup_review(before, reviewer=reviewer))
+    after = asyncio.run(docket_root_lookup_govinfo_llm_review(before, reviewer=reviewer))
     review = after.roots[0].govinfo_docket_review
     assert review is not None and review.decision is not None
     assert review.decision.selected_candidate_index == 0
@@ -89,7 +91,7 @@ def test_review_records_field_decisions_and_replays_from_document() -> None:
     assert seen[0].candidates[0]["filing_year_digits"] == "31"
     assert review.node_id == after.roots[0].nodes[-1].id
     assert "dateIssued" not in str(seen[0].candidates)
-    assert after.get_stage("18_govinfo_docket_lookup") == before
+    assert after.get_stage("18_docket_root_lookup_govinfo_retrieval") == before
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -99,7 +101,7 @@ def test_review_without_shortlisted_package_is_deterministic() -> None:
     async def unused(_context: GovInfoDocketReviewContext) -> DocketLookupReviewDecision:
         raise AssertionError("Review must not call a model without a candidate")
 
-    after = asyncio.run(govinfo_docket_lookup_review(before, reviewer=unused))
+    after = asyncio.run(docket_root_lookup_govinfo_llm_review(before, reviewer=unused))
     review = after.roots[0].govinfo_docket_review
     assert review is not None and review.decision is not None
     assert review.decision.selected_candidate_index is None
@@ -114,7 +116,7 @@ def test_ungrounded_correction_is_saved_as_failure() -> None:
     async def reviewer(_context: GovInfoDocketReviewContext) -> DocketLookupReviewDecision:
         return _decision(0, docket_quote="a number absent from the filing")
 
-    after = asyncio.run(govinfo_docket_lookup_review(before, reviewer=reviewer))
+    after = asyncio.run(docket_root_lookup_govinfo_llm_review(before, reviewer=reviewer))
     review = after.roots[0].govinfo_docket_review
     assert review is not None and review.decision is None
     assert review.failure_reason is not None and "allowed filing window" in review.failure_reason

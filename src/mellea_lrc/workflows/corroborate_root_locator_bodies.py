@@ -7,18 +7,22 @@ from datetime import date
 
 from mellea_lrc.model.document import Document
 from mellea_lrc.validation.body_search._courtlistener import CourtListenerBodyClient
-from mellea_lrc.validation.body_search.courtlistener_opinion import STAGE as OPINION_STAGE
-from mellea_lrc.validation.body_search.courtlistener_opinion import (
-    courtlistener_opinion_locator_body_search,
+from mellea_lrc.validation.body_search.locator_body_courtlistener_opinion_retrieval import (
+    STAGE as OPINION_STAGE,
 )
-from mellea_lrc.validation.body_search.courtlistener_recap import STAGE as RECAP_STAGE
-from mellea_lrc.validation.body_search.courtlistener_recap import (
-    courtlistener_recap_locator_body_search,
+from mellea_lrc.validation.body_search.locator_body_courtlistener_opinion_retrieval import (
+    locator_body_courtlistener_opinion_retrieval,
 )
-from mellea_lrc.validation.body_search.govinfo import STAGE as GOVINFO_STAGE
-from mellea_lrc.validation.body_search.govinfo import govinfo_opinion_locator_body_search
-from mellea_lrc.validation.locator_body_review import STAGE as REVIEW_STAGE
-from mellea_lrc.validation.locator_body_review import review_locator_body_evidence
+from mellea_lrc.validation.body_search.locator_body_courtlistener_recap_retrieval import STAGE as RECAP_STAGE
+from mellea_lrc.validation.body_search.locator_body_courtlistener_recap_retrieval import (
+    locator_body_courtlistener_recap_retrieval,
+)
+from mellea_lrc.validation.body_search.locator_body_govinfo_opinion_retrieval import STAGE as GOVINFO_STAGE
+from mellea_lrc.validation.body_search.locator_body_govinfo_opinion_retrieval import (
+    locator_body_govinfo_opinion_retrieval,
+)
+from mellea_lrc.validation.locator_body_llm_judgment import STAGE as REVIEW_STAGE
+from mellea_lrc.validation.locator_body_llm_judgment import locator_body_llm_judgment
 
 
 async def corroborate_root_locator_bodies(
@@ -41,23 +45,23 @@ async def corroborate_root_locator_bodies(
         raise ValueError("Locator-body checkpoint must end at a completed stage boundary")
     client_kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
     if OPINION_STAGE not in document.stage_runs:
-        document = courtlistener_opinion_locator_body_search(
+        document = locator_body_courtlistener_opinion_retrieval(
             document, retrospective_date=retrospective_date, **client_kwargs
         )
         if checkpoint is not None:
             checkpoint(document)
     if RECAP_STAGE not in document.stage_runs:
-        document = courtlistener_recap_locator_body_search(
+        document = locator_body_courtlistener_recap_retrieval(
             document, retrospective_date=retrospective_date, **client_kwargs
         )
         if checkpoint is not None:
             checkpoint(document)
     if GOVINFO_STAGE not in document.stage_runs:
-        document = govinfo_opinion_locator_body_search(document, retrospective_date=retrospective_date)
+        document = locator_body_govinfo_opinion_retrieval(document, retrospective_date=retrospective_date)
         if checkpoint is not None:
             checkpoint(document)
     if REVIEW_STAGE not in document.stage_runs:
-        document = await review_locator_body_evidence(document)
+        document = await locator_body_llm_judgment(document)
         if checkpoint is not None:
             checkpoint(document)
     return document

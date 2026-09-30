@@ -16,12 +16,12 @@ from evaluations import validate_roots as evaluation
 from mellea_lrc.api import (
     Document,
     grow_roots,
-    reporter_root_lookup,
-    reporter_root_lookup_ambiguous,
-    reporter_root_lookup_ambiguous_dockets,
-    reporter_root_lookup_ambiguous_llm,
-    reporter_root_lookup_review,
-    reporter_root_lookup_unique_llm,
+    reporter_root_lookup_ambiguous_llm_judgment,
+    reporter_root_lookup_ambiguous_rule_judgment,
+    reporter_root_lookup_cluster_retrieval,
+    reporter_root_lookup_docket_retrieval,
+    reporter_root_lookup_unique_llm_judgment,
+    reporter_root_lookup_unique_rule_judgment,
 )
 from mellea_lrc.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.model import FullDocketCitation, FullReporterCitation, Span
@@ -29,6 +29,7 @@ from mellea_lrc.model.citations.body_evidence import (
     BodyCorroborationDecision,
     BodyCorroborationReview,
     BodySearch,
+    BodySearchAttempt,
     BodySource,
 )
 from mellea_lrc.model.citations.docket_lookup import (
@@ -58,26 +59,26 @@ from mellea_lrc.model.citations.reporter_lookup import (
 from mellea_lrc.validation.body_search.common import make_body_evidences
 
 STAGES = (
-    "12.2_reporter_root_lookup_review",
-    "13.2_reporter_root_lookup_ambiguous_review",
-    "14_reporter_root_lookup_unique_llm",
-    "15_reporter_root_lookup_ambiguous_llm",
-    "17_docket_root_lookup_review",
-    "19_govinfo_docket_lookup_review",
+    "13.1_reporter_root_lookup_unique_rule_judgment",
+    "13.2_reporter_root_lookup_ambiguous_rule_judgment",
+    "14_reporter_root_lookup_unique_llm_judgment",
+    "15_reporter_root_lookup_ambiguous_llm_judgment",
+    "17_docket_root_lookup_courtlistener_llm_review",
+    "19_docket_root_lookup_govinfo_llm_review",
 )
 WORKFLOW_STAGES = (
-    "12.1_reporter_root_lookup",
+    "12.1_reporter_root_lookup_cluster_retrieval",
+    "12.2_reporter_root_lookup_docket_retrieval",
     STAGES[0],
-    "13.1_reporter_root_lookup_ambiguous_dockets",
     STAGES[1],
     *STAGES[2:-2],
-    "16_docket_root_lookup",
-    "17_docket_root_lookup_review",
-    "18_govinfo_docket_lookup",
+    "16_docket_root_lookup_courtlistener_retrieval",
+    "17_docket_root_lookup_courtlistener_llm_review",
+    "18_docket_root_lookup_govinfo_retrieval",
     STAGES[-1],
 )
 SCORERS = {stage: f"score_{stage.split('_', 1)[1]}" for stage in STAGES}
-SCORERS["13.2_reporter_root_lookup_ambiguous_review"] = "score_reporter_root_lookup_ambiguous"
+RETRIEVAL_SCORERS = {stage: f"score_{stage.split('_', 1)[1]}" for stage in evaluation.RETRIEVAL_STAGES}
 RENDERERS = {stage: name.replace("score_", "render_") for stage, name in SCORERS.items()}
 FIELDS = {"case_name", "court", "date"}
 SOURCE = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007). Gamma v. Delta, No. 1:24-cv-08705 (S.D.N.Y. 2024)."
@@ -222,10 +223,10 @@ def _roots(tmp_path: Path, source: str = SOURCE, *, docket_stages: bool = True) 
     assert len(document.roots) == 2
     if docket_stages:
         for stage in (
-            "16_docket_root_lookup",
-            "17_docket_root_lookup_review",
-            "18_govinfo_docket_lookup",
-            "19_govinfo_docket_lookup_review",
+            "16_docket_root_lookup_courtlistener_retrieval",
+            "17_docket_root_lookup_courtlistener_llm_review",
+            "18_docket_root_lookup_govinfo_retrieval",
+            "19_docket_root_lookup_govinfo_llm_review",
         ):
             document = document.complete(stage)
     return document
@@ -299,7 +300,7 @@ def _add_docket_review(
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
     number_span = root.locator[-1].number_span
     docket_number = document.text[number_span.start : number_span.end]
-    lookup_node = root.record("16_docket_root_lookup")
+    lookup_node = root.record("16_docket_root_lookup_courtlistener_retrieval")
     result = {"cluster_id": 999999, "docketNumber": docket_number}
     lookup = DocketLookup(
         node_id=lookup_node.nodes[-1].id,
@@ -324,10 +325,10 @@ def _add_docket_review(
         shortlisted_candidate_indices=(0,),
     )
     document = document.replace_citation(lookup_node.with_docket_lookup(lookup)).complete(
-        "16_docket_root_lookup"
+        "16_docket_root_lookup_courtlistener_retrieval"
     )
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
-    review_node = root.record("17_docket_root_lookup_review")
+    review_node = root.record("17_docket_root_lookup_courtlistener_llm_review")
     if failed:
         review = DocketLookupReview(node_id=review_node.nodes[-1].id, failure_reason="Model unavailable")
     else:
@@ -362,7 +363,7 @@ def _add_docket_review(
         )
         review = DocketLookupReview(node_id=review_node.nodes[-1].id, decision=decision)
     return document.replace_citation(review_node.with_docket_lookup_review(review)).complete(
-        "17_docket_root_lookup_review"
+        "17_docket_root_lookup_courtlistener_llm_review"
     )
 
 
@@ -377,7 +378,7 @@ def _add_govinfo_review(
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
     number_span = root.locator[-1].number_span
     docket_number = document.text[number_span.start : number_span.end]
-    lookup_node = root.record("18_govinfo_docket_lookup")
+    lookup_node = root.record("18_docket_root_lookup_govinfo_retrieval")
     result = {
         "packageId": "USCOURTS-nysd-1_24-cv-08705",
         "granuleId": "USCOURTS-nysd-1_24-cv-08705-0",
@@ -401,10 +402,10 @@ def _add_govinfo_review(
         shortlisted_candidate_indices=(0,),
     )
     document = document.replace_citation(lookup_node.with_govinfo_docket_lookup(lookup)).complete(
-        "18_govinfo_docket_lookup"
+        "18_docket_root_lookup_govinfo_retrieval"
     )
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
-    review_node = root.record("19_govinfo_docket_lookup_review")
+    review_node = root.record("19_docket_root_lookup_govinfo_llm_review")
     assessments = {
         field: {
             "propose_replacement": False,
@@ -432,7 +433,7 @@ def _add_govinfo_review(
     )
     review = GovInfoDocketReview(node_id=review_node.nodes[-1].id, decision=decision)
     return document.replace_citation(review_node.with_govinfo_docket_review(review)).complete(
-        "19_govinfo_docket_lookup_review"
+        "19_docket_root_lookup_govinfo_llm_review"
     )
 
 
@@ -462,17 +463,17 @@ def _model_fields() -> dict[str, object]:
 
 
 def _finish_unrouted_stages(document: Document) -> Document:
-    document = reporter_root_lookup_review(document)
-    document = reporter_root_lookup_ambiguous_dockets(document)
-    document = reporter_root_lookup_ambiguous(document)
-    document = asyncio.run(reporter_root_lookup_unique_llm(document))
-    return asyncio.run(reporter_root_lookup_ambiguous_llm(document))
+    document = reporter_root_lookup_docket_retrieval(document)
+    document = reporter_root_lookup_unique_rule_judgment(document)
+    document = reporter_root_lookup_ambiguous_rule_judgment(document)
+    document = asyncio.run(reporter_root_lookup_unique_llm_judgment(document))
+    return asyncio.run(reporter_root_lookup_ambiguous_llm_judgment(document))
 
 
 def _complete_reporter_stages(document: Document) -> Document:
     for stage in WORKFLOW_STAGES[:6]:
         document = document.complete(stage)
-    for stage in ("18_govinfo_docket_lookup", "19_govinfo_docket_lookup_review"):
+    for stage in ("18_docket_root_lookup_govinfo_retrieval", "19_docket_root_lookup_govinfo_llm_review"):
         if stage not in document.stage_runs:
             document = document.complete(stage)
     return document
@@ -502,20 +503,15 @@ def test_validate_roots_composes_stages_in_execution_order(
 
         return run
 
-    stage_functions = {
-        "13.2_reporter_root_lookup_ambiguous_review": "reporter_root_lookup_ambiguous",
-    }
     for stage in WORKFLOW_STAGES:
         runner = run_async if stage.startswith(("14_", "15_", "17_", "19_")) else run_sync
-        monkeypatch.setattr(
-            workflow, stage_functions.get(stage, stage.split("_", 1)[1]), runner(stage)
-        )
+        monkeypatch.setattr(workflow, stage.split("_", 1)[1], runner(stage))
 
     body_stages = (
-        "20_courtlistener_opinion_locator_body_search",
-        "21_courtlistener_recap_locator_body_search",
-        "22_govinfo_opinion_locator_body_search",
-        "23_locator_body_review",
+        "20_locator_body_courtlistener_opinion_retrieval",
+        "21_locator_body_courtlistener_recap_retrieval",
+        "22_locator_body_govinfo_opinion_retrieval",
+        "23_locator_body_llm_judgment",
     )
     cutoff = date(2024, 1, 1)
     selected_client = object() if with_client else None
@@ -543,24 +539,44 @@ def test_final_score_uses_docket_review_as_latest_checkpoint(tmp_path: Path) -> 
     client = FakeLookupClient(
         _cluster(1, "Bell Atlantic Corporation v. Twombly", full_name="Bell Atlantic Corporation v. Twombly")
     )
-    reporter_lookup = reporter_root_lookup(roots, client=client)
+    reporter_lookup = reporter_root_lookup_cluster_retrieval(roots, client=client)
     reviewed_reporter = _finish_unrouted_stages(reporter_lookup)
     final = _add_docket_review(reviewed_reporter)
-    final = final.complete("18_govinfo_docket_lookup").complete("19_govinfo_docket_lookup_review")
+    final = final.complete("18_docket_root_lookup_govinfo_retrieval").complete(
+        "19_docket_root_lookup_govinfo_llm_review"
+    )
 
     assert final.stage_runs[-len(WORKFLOW_STAGES) :] == WORKFLOW_STAGES
     score = evaluation.score_validate_roots(final)
     assert tuple(stage.stage for stage in score.stages) == STAGES
-    assert score == evaluation.score_validate_roots(final.get_stage("19_govinfo_docket_lookup_review"))
+    assert score == evaluation.score_validate_roots(
+        final.get_stage("19_docket_root_lookup_govinfo_llm_review")
+    )
 
 
-@pytest.mark.parametrize("name", (*SCORERS.values(), "score_locator_body_review", "score_validate_roots"))
+@pytest.mark.parametrize(
+    "name",
+    (
+        *SCORERS.values(),
+        *RETRIEVAL_SCORERS.values(),
+        "score_locator_body_llm_judgment",
+        "score_validate_roots",
+    ),
+)
 def test_public_scorers_take_only_a_document(name: str) -> None:
     parameters = tuple(inspect.signature(getattr(evaluation, name)).parameters.values())
     assert len(parameters) == 1
     assert parameters[0].name == "document"
     assert parameters[0].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
     assert parameters[0].default is inspect.Parameter.empty
+    assert parameters[0].annotation == "Document"
+
+
+def test_retrieval_stage_scorers_are_named_and_mapped() -> None:
+    assert not hasattr(evaluation, "score_retrieval_stage")
+    assert tuple(evaluation.RETRIEVAL_STAGE_SCORERS) == tuple(
+        (stage, getattr(evaluation, name)) for stage, name in RETRIEVAL_SCORERS.items()
+    )
 
 
 def test_docket_review_scores_selected_fields_by_locator_and_preserves_stage_boundary(
@@ -576,18 +592,18 @@ def test_docket_review_scores_selected_fields_by_locator_and_preserves_stage_bou
 
     final = _complete_reporter_stages(reviewed)
     restored = Document.model_validate_json(final.model_dump_json())
-    stage = evaluation.score_docket_root_lookup_review(final)
-    assert stage == evaluation.score_docket_root_lookup_review(reviewed)
-    assert stage == evaluation.score_docket_root_lookup_review(
-        final.get_stage("17_docket_root_lookup_review")
+    stage = evaluation.score_docket_root_lookup_courtlistener_llm_review(final)
+    assert stage == evaluation.score_docket_root_lookup_courtlistener_llm_review(reviewed)
+    assert stage == evaluation.score_docket_root_lookup_courtlistener_llm_review(
+        final.get_stage("17_docket_root_lookup_courtlistener_llm_review")
     )
-    assert stage == evaluation.score_docket_root_lookup_review(restored)
+    assert stage == evaluation.score_docket_root_lookup_courtlistener_llm_review(restored)
     assert stage.metrics == {
         "case_name": evaluation.Precision(1, 1),
         "court": evaluation.Precision(0, 1),
         "date": evaluation.Precision(0, 1),
     }
-    assert "## 17_docket_root_lookup_review" in evaluation.render_docket_root_lookup_review(stage)
+    assert f"## {STAGES[-2]}" in evaluation.render_docket_root_lookup_courtlistener_llm_review(stage)
     workflow = evaluation.score_validate_roots(final)
     assert tuple(score.stage for score in workflow.stages) == STAGES
     assert workflow.fields == {
@@ -604,7 +620,7 @@ def test_docket_review_scores_selected_fields_by_locator_and_preserves_stage_bou
     )
     assert numbered_headings == WORKFLOW_STAGES
     assert workflow.as_dict()["stage_order"] == list(WORKFLOW_STAGES)
-    assert "## 16_docket_root_lookup\n\nRetrieval only" in report
+    assert ("## 16_docket_root_lookup_courtlistener_retrieval\n\n| Metric | Coverage |") in report
 
 
 def test_govinfo_review_scores_selected_candidate_and_supplies_final_docket_labels(
@@ -617,13 +633,13 @@ def test_govinfo_review_scores_selected_candidate_and_supplies_final_docket_labe
     assert docket.govinfo_docket_review.decision is not None
     assert docket.govinfo_docket_review.decision.selected_candidate_index == 0
 
-    stage = evaluation.score_govinfo_docket_lookup_review(final)
+    stage = evaluation.score_docket_root_lookup_govinfo_llm_review(final)
     assert stage.metrics == {
         "case_name": evaluation.Precision(1, 1),
         "court": evaluation.Precision(0, 1),
         "date": evaluation.Precision(0, 1),
     }
-    assert "## 19_govinfo_docket_lookup_review" in evaluation.render_govinfo_docket_lookup_review(stage)
+    assert f"## {STAGES[-1]}" in evaluation.render_docket_root_lookup_govinfo_llm_review(stage)
     assert evaluation._final_docket_field_label(docket, "case_name") == "agrees"
     assert evaluation._final_docket_field_label(docket, "court") == "disagrees"
     assert evaluation._final_docket_field_label(docket, "date") == "unavailable"
@@ -632,7 +648,7 @@ def test_govinfo_review_scores_selected_candidate_and_supplies_final_docket_labe
 def test_govinfo_lookup_stage_makes_no_judgments(tmp_path: Path) -> None:
     reviewed = _reviewed_docket(tmp_path)
     looked_up = _add_govinfo_review(reviewed, selected=False)
-    assert evaluation.score_govinfo_docket_lookup_review(looked_up).metrics == {
+    assert evaluation.score_docket_root_lookup_govinfo_llm_review(looked_up).metrics == {
         field: evaluation.Precision(0, 0) for field in FIELDS
     }
     docket = next(root for root in looked_up.roots if isinstance(root, FullDocketCitation))
@@ -643,7 +659,7 @@ def test_docket_unavailable_without_source_date_matches_not_stated_gold(tmp_path
     reviewed = _reviewed_docket(tmp_path, source=SOURCE_WITHOUT_DOCKET_DATE, date="unavailable")
     docket = next(root for root in reviewed.roots if isinstance(root, FullDocketCitation))
     assert not docket.date
-    assert evaluation.score_docket_root_lookup_review(reviewed).metrics["date"] == (
+    assert evaluation.score_docket_root_lookup_courtlistener_llm_review(reviewed).metrics["date"] == (
         evaluation.Precision(1, 1)
     )
     final = _complete_reporter_stages(reviewed)
@@ -652,7 +668,7 @@ def test_docket_unavailable_without_source_date_matches_not_stated_gold(tmp_path
 
 def test_docket_unavailable_with_source_date_does_not_match_gold(tmp_path: Path) -> None:
     reviewed = _reviewed_docket(tmp_path, date="unavailable")
-    assert evaluation.score_docket_root_lookup_review(reviewed).metrics["date"] == (
+    assert evaluation.score_docket_root_lookup_courtlistener_llm_review(reviewed).metrics["date"] == (
         evaluation.Precision(0, 1)
     )
     final = _complete_reporter_stages(reviewed)
@@ -662,7 +678,7 @@ def test_docket_unavailable_with_source_date_does_not_match_gold(tmp_path: Path)
 @pytest.mark.parametrize("failed", (False, True))
 def test_docket_review_without_selection_makes_no_prediction(tmp_path: Path, failed: bool) -> None:
     reviewed = _reviewed_docket(tmp_path, selected=False, failed=failed)
-    assert evaluation.score_docket_root_lookup_review(reviewed).metrics == {
+    assert evaluation.score_docket_root_lookup_courtlistener_llm_review(reviewed).metrics == {
         field: evaluation.Precision(0, 0) for field in FIELDS
     }
     final = _complete_reporter_stages(reviewed)
@@ -691,10 +707,10 @@ def test_rule_ambiguity_scores_only_the_selected_candidate_and_keeps_stage_bound
         _cluster(1, "Jones v. Smith", full_name="Jones v. Smith"),
         _cluster(2, "Bell Atlantic Corporation v. Twombly", full_name="Bell Atlantic Corporation v. Twombly"),
     )
-    lookup = reporter_root_lookup(_roots(tmp_path), client=client)
-    unique_review = reporter_root_lookup_review(lookup)
-    dockets = reporter_root_lookup_ambiguous_dockets(unique_review, client=client)
-    ambiguous = reporter_root_lookup_ambiguous(dockets)
+    lookup = reporter_root_lookup_cluster_retrieval(_roots(tmp_path), client=client)
+    dockets = reporter_root_lookup_docket_retrieval(lookup, client=client)
+    unique_review = reporter_root_lookup_unique_rule_judgment(dockets)
+    ambiguous = reporter_root_lookup_ambiguous_rule_judgment(unique_review)
     root = next(root for root in ambiguous.roots if isinstance(root, FullReporterCitation))
     assert root.reporter_exact_ambiguity_resolution is not None
     assert root.reporter_exact_ambiguity_resolution.selected_candidate_index == 1
@@ -703,8 +719,8 @@ def test_rule_ambiguity_scores_only_the_selected_candidate_and_keeps_stage_bound
         (1, MatchResult.MATCH),
     ]
 
-    final = asyncio.run(reporter_root_lookup_unique_llm(ambiguous))
-    final = asyncio.run(reporter_root_lookup_ambiguous_llm(final))
+    final = asyncio.run(reporter_root_lookup_unique_llm_judgment(ambiguous))
+    final = asyncio.run(reporter_root_lookup_ambiguous_llm_judgment(final))
     restored = Document.model_validate_json(final.model_dump_json())
     assert restored == final
     for stage, scorer_name in SCORERS.items():
@@ -713,22 +729,22 @@ def test_rule_ambiguity_scores_only_the_selected_candidate_and_keeps_stage_bound
         assert set(scorer(final).metrics) == FIELDS
         rendered = getattr(evaluation, RENDERERS[stage])(scorer(final))
         assert stage in rendered
-    assert evaluation.score_reporter_root_lookup_review(unique_review).metrics == {
+    assert evaluation.score_reporter_root_lookup_unique_rule_judgment(unique_review).metrics == {
         field: evaluation.Precision(0, 0) for field in FIELDS
     }
-    assert evaluation.score_reporter_root_lookup_ambiguous(final).metrics == {
+    assert evaluation.score_reporter_root_lookup_ambiguous_rule_judgment(final).metrics == {
         field: evaluation.Precision(1, 1) for field in FIELDS
     }
-    assert evaluation.score_reporter_root_lookup_ambiguous_llm(final).metrics == {
+    assert evaluation.score_reporter_root_lookup_ambiguous_llm_judgment(final).metrics == {
         field: evaluation.Precision(0, 0) for field in FIELDS
     }
-    assert evaluation.score_reporter_root_lookup_unique_llm(final).metrics == {
+    assert evaluation.score_reporter_root_lookup_unique_llm_judgment(final).metrics == {
         field: evaluation.Precision(0, 0) for field in FIELDS
     }
     score = evaluation.score_validate_roots(final)
     assert tuple(stage.stage for stage in score.stages) == STAGES
     assert set(score.fields) == FIELDS
-    assert set(score.as_dict()) == {"stage_order", "stages", "fields", "identity"}
+    assert set(score.as_dict()) == {"stage_order", "stages", "retrieval_stages", "fields", "identity"}
     assert score.fields == {field: evaluation.FieldScore(1, 1, 2) for field in FIELDS}
     report = evaluation.render_validate_roots(score)
     assert "## Root field judgments through stage 19 (before open search)" in report
@@ -779,25 +795,27 @@ def test_identity_value_requires_all_three_fields(missing_field: str) -> None:
 
 def test_unique_unavailable_is_an_explicit_incorrect_judgment(tmp_path: Path) -> None:
     client = FakeLookupClient(_cluster(1, "Bell Atlantic Corporation v. Twombly"))
-    lookup = reporter_root_lookup(_roots(tmp_path), client=client)
+    lookup = reporter_root_lookup_cluster_retrieval(_roots(tmp_path), client=client)
     root = next(root for root in lookup.roots if isinstance(root, FullReporterCitation))
     assert root.case_name_judgments == root.court_judgments == root.date_judgments == ()
-    reviewed = reporter_root_lookup_review(lookup)
+    dockets = reporter_root_lookup_docket_retrieval(lookup)
+    reviewed = reporter_root_lookup_unique_rule_judgment(dockets)
     root = next(root for root in reviewed.roots if isinstance(root, FullReporterCitation))
     assert root.case_name_judgments[-1].result is MatchResult.UNAVAILABLE
-    assert evaluation.score_reporter_root_lookup_review(reviewed).metrics == {
+    assert evaluation.score_reporter_root_lookup_unique_rule_judgment(reviewed).metrics == {
         "case_name": evaluation.Precision(0, 1),
         "court": evaluation.Precision(1, 1),
         "date": evaluation.Precision(1, 1),
     }
 
     decision = ReporterUniqueReviewDecision.model_validate(_model_fields())
-    final = reporter_root_lookup_ambiguous_dockets(reviewed)
-    final = reporter_root_lookup_ambiguous(final)
-    final = asyncio.run(reporter_root_lookup_unique_llm(final, reviewer=FakeReviewer(decision)))
-    final = asyncio.run(reporter_root_lookup_ambiguous_llm(final))
-    assert evaluation.score_reporter_root_lookup_review(final) == evaluation.score_reporter_root_lookup_review(reviewed)
-    assert evaluation.score_reporter_root_lookup_unique_llm(final).metrics == {
+    final = reporter_root_lookup_ambiguous_rule_judgment(reviewed)
+    final = asyncio.run(reporter_root_lookup_unique_llm_judgment(final, reviewer=FakeReviewer(decision)))
+    final = asyncio.run(reporter_root_lookup_ambiguous_llm_judgment(final))
+    assert evaluation.score_reporter_root_lookup_unique_rule_judgment(
+        final
+    ) == evaluation.score_reporter_root_lookup_unique_rule_judgment(reviewed)
+    assert evaluation.score_reporter_root_lookup_unique_llm_judgment(final).metrics == {
         field: evaluation.Precision(1, 1) for field in FIELDS
     }
     assert evaluation.score_validate_roots(final).fields == {
@@ -810,22 +828,24 @@ def test_ambiguous_model_review_scores_only_its_new_selected_judgments(tmp_path:
         _cluster(1, "Jones v. Smith", full_name="Jones v. Smith"),
         _cluster(2, "Bell Atlantic Corporation v. Twombly"),
     )
-    lookup = reporter_root_lookup(_roots(tmp_path), client=client)
-    reviewed = reporter_root_lookup_review(lookup)
-    dockets = reporter_root_lookup_ambiguous_dockets(reviewed, client=client)
-    ambiguous = reporter_root_lookup_ambiguous(dockets)
+    lookup = reporter_root_lookup_cluster_retrieval(_roots(tmp_path), client=client)
+    dockets = reporter_root_lookup_docket_retrieval(lookup, client=client)
+    reviewed = reporter_root_lookup_unique_rule_judgment(dockets)
+    ambiguous = reporter_root_lookup_ambiguous_rule_judgment(reviewed)
     root = next(root for root in ambiguous.roots if isinstance(root, FullReporterCitation))
     assert root.reporter_exact_ambiguity_resolution is not None
     assert root.reporter_exact_ambiguity_resolution.selected_candidate_index is None
     decision = ReporterAmbiguousReviewDecision.model_validate(
         {"selected_candidate_index": 1, **_model_fields()}
     )
-    before_review = asyncio.run(reporter_root_lookup_unique_llm(ambiguous))
-    final = asyncio.run(reporter_root_lookup_ambiguous_llm(before_review, reviewer=FakeReviewer(decision)))
-    assert evaluation.score_reporter_root_lookup_ambiguous(final).metrics == {
+    before_review = asyncio.run(reporter_root_lookup_unique_llm_judgment(ambiguous))
+    final = asyncio.run(
+        reporter_root_lookup_ambiguous_llm_judgment(before_review, reviewer=FakeReviewer(decision))
+    )
+    assert evaluation.score_reporter_root_lookup_ambiguous_rule_judgment(final).metrics == {
         field: evaluation.Precision(0, 0) for field in FIELDS
     }
-    assert evaluation.score_reporter_root_lookup_ambiguous_llm(final).metrics == {
+    assert evaluation.score_reporter_root_lookup_ambiguous_llm_judgment(final).metrics == {
         field: evaluation.Precision(1, 1) for field in FIELDS
     }
     assert evaluation.score_validate_roots(final).fields == {
@@ -838,12 +858,14 @@ def test_not_stated_is_a_final_outcome_only_for_a_processed_root(tmp_path: Path)
         _cluster(1, "Bell Atlantic Corporation v. Twombly", full_name="Bell Atlantic Corporation v. Twombly")
     )
     roots = _roots(tmp_path, SOURCE_WITHOUT_REPORTER_DATE)
-    lookup = reporter_root_lookup(roots, client=client)
+    lookup = reporter_root_lookup_cluster_retrieval(roots, client=client)
     final = _finish_unrouted_stages(lookup)
     reporter = next(root for root in final.roots if isinstance(root, FullReporterCitation))
     assert not reporter.date
     assert reporter.date_judgments == ()
-    assert evaluation.score_reporter_root_lookup_review(final).metrics["date"] == evaluation.Precision(0, 0)
+    assert evaluation.score_reporter_root_lookup_unique_rule_judgment(final).metrics[
+        "date"
+    ] == evaluation.Precision(0, 0)
     assert evaluation.score_validate_roots(final).fields == {
         field: evaluation.FieldScore(1, 1, 2) for field in FIELDS
     }
@@ -853,14 +875,16 @@ def test_not_stated_is_a_final_outcome_only_for_a_processed_root(tmp_path: Path)
 
 
 def test_lookup_miss_does_not_predict_an_absent_citation_field(tmp_path: Path) -> None:
-    lookup = reporter_root_lookup(_roots(tmp_path, SOURCE_WITHOUT_REPORTER_DATE), client=FakeLookupClient())
+    lookup = reporter_root_lookup_cluster_retrieval(
+        _roots(tmp_path, SOURCE_WITHOUT_REPORTER_DATE), client=FakeLookupClient()
+    )
     reporter = next(root for root in lookup.roots if isinstance(root, FullReporterCitation))
-    assert any(node.stage == "12.1_reporter_root_lookup" for node in reporter.nodes)
+    assert any(node.stage == "12.1_reporter_root_lookup_cluster_retrieval" for node in reporter.nodes)
     assert not reporter.date
     assert reporter.case_name_judgments == reporter.court_judgments == reporter.date_judgments == ()
 
     final = _finish_unrouted_stages(lookup)
-    assert evaluation.score_reporter_root_lookup_review(final).metrics == {
+    assert evaluation.score_reporter_root_lookup_unique_rule_judgment(final).metrics == {
         field: evaluation.Precision(0, 0) for field in FIELDS
     }
     assert evaluation.score_validate_roots(final).fields == {
@@ -872,7 +896,9 @@ def test_unavailable_for_an_absent_reporter_field_agrees_with_not_stated_gold(
     tmp_path: Path,
 ) -> None:
     client = FakeLookupClient(_cluster(1, "Bell Atlantic Corporation v. Twombly"))
-    lookup = reporter_root_lookup(_roots(tmp_path, SOURCE_WITHOUT_REPORTER_DATE), client=client)
+    lookup = reporter_root_lookup_cluster_retrieval(
+        _roots(tmp_path, SOURCE_WITHOUT_REPORTER_DATE), client=client
+    )
     decision = ReporterUniqueReviewDecision.model_validate(
         {
             **_model_fields(),
@@ -884,15 +910,17 @@ def test_unavailable_for_an_absent_reporter_field_agrees_with_not_stated_gold(
             },
         }
     )
-    before_review = reporter_root_lookup_review(lookup)
-    before_review = reporter_root_lookup_ambiguous_dockets(before_review)
-    before_review = reporter_root_lookup_ambiguous(before_review)
-    reviewed = asyncio.run(reporter_root_lookup_unique_llm(before_review, reviewer=FakeReviewer(decision)))
-    reviewed = asyncio.run(reporter_root_lookup_ambiguous_llm(reviewed))
+    before_review = reporter_root_lookup_docket_retrieval(lookup)
+    before_review = reporter_root_lookup_unique_rule_judgment(before_review)
+    before_review = reporter_root_lookup_ambiguous_rule_judgment(before_review)
+    reviewed = asyncio.run(
+        reporter_root_lookup_unique_llm_judgment(before_review, reviewer=FakeReviewer(decision))
+    )
+    reviewed = asyncio.run(reporter_root_lookup_ambiguous_llm_judgment(reviewed))
     reporter = next(root for root in reviewed.roots if isinstance(root, FullReporterCitation))
     assert reporter.date_judgments[-1].result is MatchResult.UNAVAILABLE
     assert reporter.date_judgments[-1].reading_index is None
-    assert evaluation.score_reporter_root_lookup_unique_llm(reviewed).metrics["date"] == (
+    assert evaluation.score_reporter_root_lookup_unique_llm_judgment(reviewed).metrics["date"] == (
         evaluation.Precision(1, 1)
     )
     assert evaluation.score_validate_roots(reviewed).fields["date"] == evaluation.FieldScore(1, 1, 2)
@@ -1009,10 +1037,10 @@ def test_primary_sized_gold_keeps_all_440_roots_in_each_recall_denominator(tmp_p
 def test_missing_stage_checkpoint_raises(tmp_path: Path) -> None:
     roots = _roots(tmp_path)
     with pytest.raises(KeyError, match="Stage has not run"):
-        evaluation.score_reporter_root_lookup_review(roots)
+        evaluation.score_reporter_root_lookup_unique_rule_judgment(roots)
     unvalidated = Document.from_source(roots.source_path)
     with pytest.raises(KeyError, match="Stage has not run"):
-        evaluation.score_docket_root_lookup_review(unvalidated)
+        evaluation.score_docket_root_lookup_courtlistener_llm_review(unvalidated)
 
 
 def _stage23_review(
@@ -1060,7 +1088,7 @@ def _stage23_review(
             document = document.replace_citation(recorded)
         document = document.complete(stage)
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
-    recorded = root.record(evaluation.LOCATOR_BODY_REVIEW)
+    recorded = root.record(evaluation.LOCATOR_BODY_LLM_JUDGMENT)
     if failure:
         review = BodyCorroborationReview(
             node_id=recorded.nodes[-1].id,
@@ -1143,7 +1171,7 @@ def _stage23_review(
         assert verdict is not None
         recorded = recorded.with_identity_judgment(verdict, basis=IdentityBasis.THIRD_PARTY)
     recorded = recorded.with_route(next_stage)
-    return document.replace_citation(recorded).complete(evaluation.LOCATOR_BODY_REVIEW)
+    return document.replace_citation(recorded).complete(evaluation.LOCATOR_BODY_LLM_JUDGMENT)
 
 
 def _stage27_review(tmp_path: Path, outcome: str) -> Document:
@@ -1176,7 +1204,7 @@ def _stage27_review(tmp_path: Path, outcome: str) -> Document:
     for stage in evaluation.FIELD_BODY_WORKFLOW_STAGES[1:-1]:
         document = document.complete(stage)
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
-    recorded = root.record(evaluation.INTENDED_CASE_BODY_REVIEW)
+    recorded = root.record(evaluation.INTENDED_CASE_LLM_SELECTION)
     if outcome.startswith("selected_"):
         decision = IntendedCaseDecision(
             source=BodySource.COURTLISTENER_OPINION,
@@ -1221,21 +1249,21 @@ def _stage27_review(tmp_path: Path, outcome: str) -> Document:
         )
         route = "intended_case_review_retry"
     recorded = recorded.with_intended_case_review(review).with_route(route)
-    return document.replace_citation(recorded).complete(evaluation.INTENDED_CASE_BODY_REVIEW)
+    return document.replace_citation(recorded).complete(evaluation.INTENDED_CASE_LLM_SELECTION)
 
 
 def test_stage23_report_counts_issued_verdicts(tmp_path: Path) -> None:
     document = _stage23_review(tmp_path, verdict=IdentityVerdict.WRONG_IDENTITY)
-    detail = evaluation.score_locator_body_review(document)
+    detail = evaluation.score_locator_body_llm_judgment(document)
     assert detail.verdict_counts == {"wrong_identity": 1}
     workflow = evaluation.score_validate_roots(document)
     assert workflow.body_review == detail
     assert workflow.as_dict()["body_review"] == {
-        "stage": evaluation.LOCATOR_BODY_REVIEW,
+        "stage": evaluation.LOCATOR_BODY_LLM_JUDGMENT,
         "verdict_counts": {"wrong_identity": 1},
     }
     report = evaluation.render_validate_roots(workflow)
-    assert "## 23_locator_body_review" in report
+    assert f"## {evaluation.LOCATOR_BODY_LLM_JUDGMENT}" in report
     assert "| wrong_identity | 1 |" in report
     assert "opinion-123" not in report
     numbered_headings = tuple(
@@ -1250,9 +1278,9 @@ def test_stage23_report_counts_issued_verdicts(tmp_path: Path) -> None:
 @pytest.mark.parametrize("outcome", ("selected_likely", "selected_possible", "declined", "review_failure"))
 def test_stage27_report_lists_all_stages_without_rescoring_identity(tmp_path: Path, outcome: str) -> None:
     document = _stage27_review(tmp_path, outcome)
-    before = evaluation.score_validate_roots(document.get_stage(evaluation.LOCATOR_BODY_REVIEW))
+    before = evaluation.score_validate_roots(document.get_stage(evaluation.LOCATOR_BODY_LLM_JUDGMENT))
     score = evaluation.score_validate_roots(document)
-    assert score.checkpoint == evaluation.INTENDED_CASE_BODY_REVIEW
+    assert score.checkpoint == evaluation.INTENDED_CASE_LLM_SELECTION
     assert score.fields == before.fields
     assert score.identity == before.identity
     assert score.identity_with_partial == before.identity_with_partial
@@ -1264,7 +1292,7 @@ def test_stage27_report_lists_all_stages_without_rescoring_identity(tmp_path: Pa
         *evaluation.FIELD_BODY_WORKFLOW_STAGES,
     )
     assert score.as_dict()["intended_case_review"] == {
-        "stage": evaluation.INTENDED_CASE_BODY_REVIEW,
+        "stage": evaluation.INTENDED_CASE_LLM_SELECTION,
         "outcome_counts": {outcome: 1},
     }
     report = evaluation.render_validate_roots(score)
@@ -1276,7 +1304,7 @@ def test_stage27_report_lists_all_stages_without_rescoring_identity(tmp_path: Pa
     assert numbered_headings == score.stage_order
     assert f"| {outcome} | 1 |" in report
     assert "Candidate outcomes only; the annotations do not label intended-case candidates." in report
-    assert report.count("Retrieval only; no field judgment is scored at this stage.") == 10
+    assert report.count("Citations with records / citations queried") == 10
 
 
 def test_stage27_outcome_counts_combine_without_accuracy_metrics(tmp_path: Path) -> None:
@@ -1306,9 +1334,9 @@ def test_stage23_qualified_and_undetermined_verdicts_have_distinct_identity_scor
     tmp_path: Path, verdict: IdentityVerdict
 ) -> None:
     document = _stage23_review(tmp_path, verdict=verdict, next_stage="case_name_body_discovery")
-    detail = evaluation.score_locator_body_review(document)
+    detail = evaluation.score_locator_body_llm_judgment(document)
     assert detail.verdict_counts == {verdict.value: 1}
-    assert "| " + verdict.value + " | 1 |" in evaluation.render_locator_body_review(detail)
+    assert "| " + verdict.value + " | 1 |" in evaluation.render_locator_body_llm_judgment(detail)
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
     assert root.next_stage == "case_name_body_discovery"
     workflow = evaluation.score_validate_roots(document)
@@ -1357,7 +1385,7 @@ def test_stage23_routes_without_issuing_judgment(tmp_path: Path, fetched: bool, 
         failure=failure,
         next_stage="case_name_body_discovery",
     )
-    detail = evaluation.score_locator_body_review(document)
+    detail = evaluation.score_locator_body_llm_judgment(document)
     assert detail.verdict_counts == {}
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
     assert root.next_stage == "case_name_body_discovery"
@@ -1375,7 +1403,7 @@ def test_stage23_no_reviewable_decision_allows_fetched_but_filtered_excerpts(tmp
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
     assert root.body_searches[0].evidence
     assert root.body_reviews[-1].decision.source is None
-    assert evaluation.score_locator_body_review(document).verdict_counts == {}
+    assert evaluation.score_locator_body_llm_judgment(document).verdict_counts == {}
 
 
 def test_stage23_evaluation_merges_verdict_counts_and_ignores_later_routes(tmp_path: Path) -> None:
@@ -1385,12 +1413,12 @@ def test_stage23_evaluation_merges_verdict_counts_and_ignores_later_routes(tmp_p
         "24_followup"
     )
     first_later = first.replace_citation(recorded.with_route("unrelated_followup")).complete("24_followup")
-    first_score = evaluation.score_locator_body_review(first)
-    assert evaluation.score_locator_body_review(first_later) == first_score
-    combined = first_score + evaluation.score_locator_body_review(second)
+    first_score = evaluation.score_locator_body_llm_judgment(first)
+    assert evaluation.score_locator_body_llm_judgment(first_later) == first_score
+    combined = first_score + evaluation.score_locator_body_llm_judgment(second)
     assert combined.verdict_counts == {"correct_identity": 1}
     assert combined.as_dict() == {
-        "stage": evaluation.LOCATOR_BODY_REVIEW,
+        "stage": evaluation.LOCATOR_BODY_LLM_JUDGMENT,
         "verdict_counts": {"correct_identity": 1},
     }
 
@@ -1413,7 +1441,7 @@ def test_stage23_evaluation_rejects_incomplete_selected_history(
     citation[missing_log] = tuple(item for item in citation[missing_log] if item["node_id"] != review_node)
     incomplete = Document.model_validate(payload)
     with pytest.raises(ValueError, match=error):
-        evaluation.score_locator_body_review(incomplete)
+        evaluation.score_locator_body_llm_judgment(incomplete)
 
 
 def test_stage23_evaluation_rejects_identity_judgment_on_a_route_only_review(tmp_path: Path) -> None:
@@ -1427,4 +1455,186 @@ def test_stage23_evaluation_rejects_identity_judgment_on_a_route_only_review(tmp
     )
     invalid = Document.model_validate(payload)
     with pytest.raises(ValueError, match="cannot issue an identity judgment"):
-        evaluation.score_locator_body_review(invalid)
+        evaluation.score_locator_body_llm_judgment(invalid)
+
+
+def test_reporter_cluster_retrieval_counts_only_queried_citations(tmp_path: Path) -> None:
+    found = reporter_root_lookup_cluster_retrieval(
+        _roots(tmp_path / "found", docket_stages=False),
+        client=FakeLookupClient(_cluster(1, "Bell Atlantic Corporation v. Twombly")),
+    )
+    missed = reporter_root_lookup_cluster_retrieval(
+        _roots(tmp_path / "missed", docket_stages=False), client=FakeLookupClient()
+    )
+    stage = evaluation.REPORTER_ROOT_LOOKUP_CLUSTER_RETRIEVAL
+    scorer = evaluation.score_reporter_root_lookup_cluster_retrieval
+    found_score = scorer(found)
+    missed_score = scorer(missed)
+    assert found_score == evaluation.RetrievalScore(stage, 1, 1)
+    assert missed_score == evaluation.RetrievalScore(stage, 0, 1)
+    assert (found_score + missed_score).as_dict()["record_coverage"]["rate"] == 0.5
+    assert scorer(found.complete("later")) == evaluation.RetrievalScore(stage, 1, 1)
+
+
+def test_reporter_docket_retrieval_counts_saved_requests_even_when_empty(tmp_path: Path) -> None:
+    from mellea_lrc.courtlistener import CourtListenerDocket
+
+    class DocketClient:
+        def __init__(self, response: CourtListenerDocket | None) -> None:
+            self.response = response
+
+        def get_docket(self, docket_id: str) -> CourtListenerDocket | None:
+            assert docket_id == "10"
+            return self.response
+
+    candidate = {**_cluster(1, "Bell Atlantic Corporation v. Twombly"), "court_id": None, "docketId": 10}
+    stage = evaluation.REPORTER_ROOT_LOOKUP_DOCKET_RETRIEVAL
+    scorer = evaluation.score_reporter_root_lookup_docket_retrieval
+    for label, response, expected in (
+        ("empty", None, 0),
+        ("found", CourtListenerDocket.model_validate({"id": 10, "court_id": "scotus"}), 1),
+    ):
+        lookup = reporter_root_lookup_cluster_retrieval(
+            _roots(tmp_path / label, docket_stages=False), client=FakeLookupClient(candidate)
+        )
+        retrieved = reporter_root_lookup_docket_retrieval(lookup, client=DocketClient(response))
+        assert scorer(retrieved) == evaluation.RetrievalScore(stage, expected, 1)
+    no_link = reporter_root_lookup_cluster_retrieval(
+        _roots(tmp_path / "no_link", docket_stages=False),
+        client=FakeLookupClient(_cluster(1, "Bell Atlantic Corporation v. Twombly")),
+    )
+    no_link = reporter_root_lookup_docket_retrieval(no_link)
+    assert scorer(no_link) == evaluation.RetrievalScore(stage, 0, 0)
+
+
+@pytest.mark.parametrize(
+    "stage",
+    (
+        evaluation.DOCKET_ROOT_LOOKUP_COURTLISTENER_RETRIEVAL,
+        evaluation.DOCKET_ROOT_LOOKUP_GOVINFO_RETRIEVAL,
+    ),
+)
+def test_docket_retrieval_counts_saved_candidates_and_search_attempts(tmp_path: Path, stage: str) -> None:
+    scorer = getattr(evaluation, RETRIEVAL_SCORERS[stage])
+    found = (
+        _reviewed_docket(tmp_path / "found")
+        if stage == evaluation.DOCKET_ROOT_LOOKUP_COURTLISTENER_RETRIEVAL
+        else _add_govinfo_review(_reviewed_docket(tmp_path / "found"))
+    )
+    assert scorer(found) == evaluation.RetrievalScore(stage, 1, 1)
+
+    empty = _roots(tmp_path / "empty", docket_stages=False)
+    root = next(root for root in empty.roots if isinstance(root, FullDocketCitation))
+    recorded = root.record(stage)
+    if stage == evaluation.DOCKET_ROOT_LOOKUP_COURTLISTENER_RETRIEVAL:
+        recorded = recorded.with_docket_lookup(
+            DocketLookup(
+                node_id=recorded.nodes[-1].id,
+                attempts=(DocketLookupAttempt(source_type="d", query="1:24-cv-08705"),),
+            )
+        )
+    else:
+        recorded = recorded.with_govinfo_docket_lookup(
+            GovInfoDocketLookup(
+                node_id=recorded.nodes[-1].id,
+                attempts=(GovInfoLookupAttempt(query="1:24-cv-08705"),),
+            )
+        )
+    empty = empty.replace_citation(recorded).complete(stage)
+    assert scorer(empty) == evaluation.RetrievalScore(stage, 0, 1)
+    skipped = _roots(tmp_path / "skipped", docket_stages=False).complete(stage)
+    assert scorer(skipped) == evaluation.RetrievalScore(stage, 0, 0)
+
+
+@pytest.mark.parametrize(
+    ("stage", "source", "field_stage"),
+    (
+        (evaluation.BODY_WORKFLOW_STAGES[0], BodySource.COURTLISTENER_OPINION, False),
+        (evaluation.BODY_WORKFLOW_STAGES[1], BodySource.COURTLISTENER_RECAP, False),
+        (evaluation.BODY_WORKFLOW_STAGES[2], BodySource.GOVINFO_OPINION, False),
+        (evaluation.FIELD_BODY_WORKFLOW_STAGES[0], BodySource.COURTLISTENER_OPINION, True),
+        (evaluation.FIELD_BODY_WORKFLOW_STAGES[1], BodySource.COURTLISTENER_RECAP, True),
+        (evaluation.FIELD_BODY_WORKFLOW_STAGES[2], BodySource.GOVINFO_OPINION, True),
+    ),
+)
+def test_body_retrieval_counts_queried_citations_with_reviewable_excerpts(
+    tmp_path: Path, stage: str, source: BodySource, field_stage: bool
+) -> None:
+    scorer = getattr(evaluation, RETRIEVAL_SCORERS[stage])
+
+    def saved_search(label: str, *, queried: bool, found: bool) -> Document:
+        document = _roots(tmp_path / label, docket_stages=False)
+        root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
+        recorded = root.record(stage)
+        anchor = "Gamma" if field_stage else "1:24-cv-08705"
+        evidence = (
+            make_body_evidences(
+                body_id="other-opinion",
+                parent_id=None,
+                url=None,
+                issued_on=None,
+                date_basis=None,
+                metadata={},
+                body_text=f"Another court discusses {anchor} in this separate opinion.",
+                locator=anchor,
+                source_text=document.text,
+                anchor_kind="case_name" if field_stage else "locator",
+            )
+            if found
+            else ()
+        )
+        attempts = (BodySearchAttempt(query=f'"{anchor}"'),) if queried else ()
+        if field_stage:
+            recorded = recorded.with_field_body_search(
+                FieldBodySearch(
+                    node_id=recorded.nodes[-1].id,
+                    source=source,
+                    retrospective_date=None,
+                    query_name=anchor,
+                    attempts=attempts,
+                    evidence=evidence,
+                )
+            )
+        else:
+            recorded = recorded.with_body_search(
+                BodySearch(
+                    node_id=recorded.nodes[-1].id,
+                    source=source,
+                    retrospective_date=None,
+                    attempts=attempts,
+                    evidence=evidence,
+                )
+            )
+        return document.replace_citation(recorded).complete(stage)
+
+    found = saved_search("found", queried=True, found=True)
+    missed = saved_search("missed", queried=True, found=False)
+    skipped = saved_search("skipped", queried=False, found=False)
+    assert scorer(found) == evaluation.RetrievalScore(stage, 1, 1)
+    assert scorer(missed) == evaluation.RetrievalScore(stage, 0, 1)
+    assert scorer(skipped) == evaluation.RetrievalScore(stage, 0, 0)
+
+
+def test_workflow_retrieval_scores_render_one_metric_per_stage(tmp_path: Path) -> None:
+    lookup = reporter_root_lookup_cluster_retrieval(
+        _roots(tmp_path),
+        client=FakeLookupClient(_cluster(1, "Bell Atlantic Corporation v. Twombly")),
+    )
+    document = reporter_root_lookup_docket_retrieval(lookup)
+    document = reporter_root_lookup_unique_rule_judgment(document)
+    document = reporter_root_lookup_ambiguous_rule_judgment(document)
+    document = document.complete(STAGES[2]).complete(STAGES[3])
+    score = evaluation.score_validate_roots(document)
+    assert tuple(item.stage for item in score.retrieval_stages) == evaluation.RETRIEVAL_STAGES[:4]
+    assert score.retrieval_stages[0] == evaluation.RetrievalScore(
+        evaluation.REPORTER_ROOT_LOOKUP_CLUSTER_RETRIEVAL, 1, 1
+    )
+    assert score.as_dict()["retrieval_stages"][0]["record_coverage"] == {
+        "citations_with_records": 1,
+        "citations_queried": 1,
+        "rate": 1.0,
+    }
+    report = evaluation.render_validate_roots(score)
+    assert report.count("Citations with records / citations queried") == 4
+    assert "| Citations with records / citations queried | 1/1 (100.0%) |" in report
+    assert "| Citations with records / citations queried | 0/0 |" in report

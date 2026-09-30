@@ -11,10 +11,10 @@ from mellea_lrc.validation.body_search._courtlistener import (
     run_courtlistener_field_body_search,
 )
 
-STAGE = "24_courtlistener_opinion_field_body_search"
+STAGE = "24_intended_case_courtlistener_opinion_retrieval"
 
 
-def courtlistener_opinion_field_body_search(
+def intended_case_courtlistener_opinion_retrieval(
     document: Document,
     *,
     retrospective_date: date | None = None,

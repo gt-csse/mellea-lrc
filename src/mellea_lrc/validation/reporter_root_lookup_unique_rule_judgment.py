@@ -13,11 +13,11 @@ from mellea_lrc.validation.reporter_exact.fields import (
     locator_present,
 )
 
-STAGE = "12.2_reporter_root_lookup_review"
-LOOKUP_STAGE = "12.1_reporter_root_lookup"
+STAGE = "13.1_reporter_root_lookup_unique_rule_judgment"
+LOOKUP_STAGE = "12.2_reporter_root_lookup_docket_retrieval"
 
 
-def reporter_root_lookup_review(document: Document) -> Document:
+def reporter_root_lookup_unique_rule_judgment(document: Document) -> Document:
     """Compare each unique candidate's fields and route disagreements to review."""
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
@@ -58,6 +58,6 @@ def reporter_root_lookup_review(document: Document) -> Document:
         ):
             citation = citation.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY).with_route(None)
         else:
-            citation = citation.with_route("14_reporter_root_lookup_unique_llm")
+            citation = citation.with_route("14_reporter_root_lookup_unique_llm_judgment")
         document = document.replace_citation(citation)
     return document.complete(STAGE)

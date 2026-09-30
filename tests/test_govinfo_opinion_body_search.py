@@ -14,7 +14,10 @@ from mellea_lrc.model.document import Document
 from mellea_lrc.model.preprocessed_document import PreprocessingMetadata
 from mellea_lrc.model.source import SourceMetadata
 from mellea_lrc.model.span import Span
-from mellea_lrc.validation.body_search.govinfo import STAGE, govinfo_opinion_locator_body_search
+from mellea_lrc.validation.body_search.locator_body_govinfo_opinion_retrieval import (
+    STAGE,
+    locator_body_govinfo_opinion_retrieval,
+)
 
 
 def _document() -> Document:
@@ -74,7 +77,7 @@ def _client(respond: httpx.MockTransport) -> GovInfoClient:
 
 
 def test_govinfo_stage_fetches_individual_granule_pdf_and_uses_granule_date() -> None:
-    assert STAGE == "22_govinfo_opinion_locator_body_search"
+    assert STAGE == "22_locator_body_govinfo_opinion_retrieval"
     requests: list[httpx.Request] = []
     old_id = "USCOURTS-nyd-1_20-cv-1"
     new_id = "USCOURTS-nyd-1_20-cv-2"
@@ -136,7 +139,7 @@ def test_govinfo_stage_fetches_individual_granule_pdf_and_uses_granule_date() ->
             return httpx.Response(200, content=_pdf("A later court cites 30 F.3d 100 in a different case."))
         raise AssertionError(f"Unexpected request: {request.url}")
 
-    after = govinfo_opinion_locator_body_search(
+    after = locator_body_govinfo_opinion_retrieval(
         _document(), client=_client(httpx.MockTransport(respond)), retrospective_date=date(2025, 1, 1)
     )
     record = after.roots[0].body_searches[0]
@@ -197,7 +200,7 @@ def test_govinfo_stage_records_scanned_and_no_locator_pdfs_without_evidence() ->
             return httpx.Response(200, content=_pdf("An unrelated opinion with no reported citation."))
         raise AssertionError(path)
 
-    after = govinfo_opinion_locator_body_search(_document(), client=_client(httpx.MockTransport(respond)))
+    after = locator_body_govinfo_opinion_retrieval(_document(), client=_client(httpx.MockTransport(respond)))
     record = after.roots[0].body_searches[0]
 
     assert record.evidence == ()
@@ -212,7 +215,7 @@ def test_govinfo_stage_keeps_search_failure_in_atomic_checkpoint() -> None:
     def respond(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, json={"message": "test-secret temporarily unavailable"})
 
-    after = govinfo_opinion_locator_body_search(_document(), client=_client(httpx.MockTransport(respond)))
+    after = locator_body_govinfo_opinion_retrieval(_document(), client=_client(httpx.MockTransport(respond)))
     record = after.roots[0].body_searches[0]
 
     assert after.stage_runs[-1] == STAGE
@@ -258,7 +261,7 @@ def test_govinfo_locator_query_does_not_promote_name_only_body_to_evidence() -> 
             )
         raise AssertionError(path)
 
-    after = govinfo_opinion_locator_body_search(
+    after = locator_body_govinfo_opinion_retrieval(
         _document_with_case_name(), client=_client(httpx.MockTransport(respond))
     )
     record = after.roots[0].body_searches[0]
@@ -314,7 +317,7 @@ def test_govinfo_stage_paginates_granules_and_keeps_summary_failure() -> None:
             return httpx.Response(200, content=_pdf("A later court cited 30 F.3d 100."))
         raise AssertionError(path)
 
-    after = govinfo_opinion_locator_body_search(_document(), client=_client(httpx.MockTransport(respond)))
+    after = locator_body_govinfo_opinion_retrieval(_document(), client=_client(httpx.MockTransport(respond)))
     record = after.roots[0].body_searches[0]
 
     assert marks == ["*", "second+page"]
@@ -361,7 +364,7 @@ def test_govinfo_stage_caps_pdf_fetches_for_large_default_result_sets() -> None:
             return httpx.Response(200, content=_pdf("This document has no matching citation."))
         raise AssertionError(path)
 
-    after = govinfo_opinion_locator_body_search(_document(), client=_client(httpx.MockTransport(respond)))
+    after = locator_body_govinfo_opinion_retrieval(_document(), client=_client(httpx.MockTransport(respond)))
     record = after.roots[0].body_searches[0]
 
     assert pdf_requests == 8
@@ -397,7 +400,7 @@ def test_govinfo_direct_search_date_cannot_replace_granule_issue_date() -> None:
             )
         raise AssertionError("Undated granule must not be downloaded")
 
-    after = govinfo_opinion_locator_body_search(
+    after = locator_body_govinfo_opinion_retrieval(
         _document(), client=_client(httpx.MockTransport(respond)), retrospective_date=date(2025, 1, 1)
     )
     record = after.roots[0].body_searches[0]

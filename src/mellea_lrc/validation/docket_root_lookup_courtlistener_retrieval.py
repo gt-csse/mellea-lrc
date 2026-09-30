@@ -22,7 +22,7 @@ from mellea_lrc.model.citations.docket_lookup import (
 )
 from mellea_lrc.model.document import Document
 
-STAGE = "16_docket_root_lookup"
+STAGE = "16_docket_root_lookup_courtlistener_retrieval"
 MINIMUM_SIMILARITY_PERCENT = 40.0
 # Each saved page retains its upstream `next` link. Reaching this budget is
 # recorded as an attempt failure, so a partial search cannot look complete.
@@ -213,7 +213,9 @@ def _search_attempt(
     )
 
 
-def docket_root_lookup(document: Document, *, client: DocketSearchClient | None = None) -> Document:
+def docket_root_lookup_courtlistener_retrieval(
+    document: Document, *, client: DocketSearchClient | None = None
+) -> Document:
     """Save docket and opinion search traces for every docket root.
 
     All returned hits remain addressable through their saved page and result

@@ -14,8 +14,10 @@ from mellea_lrc.model import Span
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.fields.court import Court
 from mellea_lrc.model.ivr import IvrAttempt, IvrRun
-from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm import reviewer as reporter_ambiguous_llm
-from mellea_lrc.validation.reporter_root_lookup_unique_llm import reviewer as reporter_unique_llm
+from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm_judgment import (
+    reviewer as reporter_ambiguous_llm,
+)
+from mellea_lrc.validation.reporter_root_lookup_unique_llm_judgment import reviewer as reporter_unique_llm
 from mellea_lrc.validation.reporter_review.court_context import (
     inferred_reporter_court_note,
     reporter_court_context,

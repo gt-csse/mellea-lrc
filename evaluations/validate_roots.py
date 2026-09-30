@@ -10,6 +10,7 @@ from itertools import pairwise
 from pathlib import Path
 
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation
+from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.model.citations.docket_lookup import DocketLookupReviewDecision
 from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
@@ -17,69 +18,93 @@ from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactAmbiguityOutcome,
     ReporterExactLookupOutcome,
 )
-from mellea_lrc.validation.body_search.courtlistener_opinion import STAGE as COURTLISTENER_OPINION_BODY_SEARCH
-from mellea_lrc.validation.body_search.courtlistener_opinion_fields import (
-    STAGE as COURTLISTENER_OPINION_FIELD_BODY_SEARCH,
+from mellea_lrc.validation.body_search.intended_case_courtlistener_opinion_retrieval import (
+    STAGE as INTENDED_CASE_COURTLISTENER_OPINION_RETRIEVAL,
 )
-from mellea_lrc.validation.body_search.courtlistener_recap import STAGE as COURTLISTENER_RECAP_BODY_SEARCH
-from mellea_lrc.validation.body_search.courtlistener_recap_fields import (
-    STAGE as COURTLISTENER_RECAP_FIELD_BODY_SEARCH,
+from mellea_lrc.validation.body_search.intended_case_courtlistener_recap_retrieval import (
+    STAGE as INTENDED_CASE_COURTLISTENER_RECAP_RETRIEVAL,
 )
-from mellea_lrc.validation.body_search.govinfo import STAGE as GOVINFO_OPINION_BODY_SEARCH
-from mellea_lrc.validation.body_search.govinfo_fields import STAGE as GOVINFO_OPINION_FIELD_BODY_SEARCH
-from mellea_lrc.validation.docket_root_lookup import STAGE as DOCKET_ROOT_LOOKUP
-from mellea_lrc.validation.docket_root_lookup_review import STAGE as DOCKET_ROOT_LOOKUP_REVIEW
-from mellea_lrc.validation.field_body_review import (
-    STAGE as INTENDED_CASE_BODY_REVIEW,
+from mellea_lrc.validation.body_search.intended_case_govinfo_opinion_retrieval import (
+    STAGE as INTENDED_CASE_GOVINFO_OPINION_RETRIEVAL,
 )
-from mellea_lrc.validation.govinfo_docket_lookup import STAGE as GOVINFO_DOCKET_LOOKUP
-from mellea_lrc.validation.govinfo_docket_lookup_review import STAGE as GOVINFO_DOCKET_LOOKUP_REVIEW
-from mellea_lrc.validation.locator_body_review import STAGE as LOCATOR_BODY_REVIEW
-from mellea_lrc.validation.reporter_root_lookup import STAGE as REPORTER_ROOT_LOOKUP
-from mellea_lrc.validation.reporter_root_lookup_ambiguous import STAGE as REPORTER_ROOT_LOOKUP_AMBIGUOUS
-from mellea_lrc.validation.reporter_root_lookup_ambiguous_dockets import (
-    STAGE as REPORTER_ROOT_LOOKUP_AMBIGUOUS_DOCKETS,
+from mellea_lrc.validation.body_search.locator_body_courtlistener_opinion_retrieval import (
+    STAGE as LOCATOR_BODY_COURTLISTENER_OPINION_RETRIEVAL,
 )
-from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm import (
-    STAGE as REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM,
+from mellea_lrc.validation.body_search.locator_body_courtlistener_recap_retrieval import (
+    STAGE as LOCATOR_BODY_COURTLISTENER_RECAP_RETRIEVAL,
 )
-from mellea_lrc.validation.reporter_root_lookup_review import STAGE as REPORTER_ROOT_LOOKUP_REVIEW
-from mellea_lrc.validation.reporter_root_lookup_unique_llm import STAGE as REPORTER_ROOT_LOOKUP_UNIQUE_LLM
+from mellea_lrc.validation.body_search.locator_body_govinfo_opinion_retrieval import (
+    STAGE as LOCATOR_BODY_GOVINFO_OPINION_RETRIEVAL,
+)
+from mellea_lrc.validation.docket_root_lookup_courtlistener_llm_review import (
+    STAGE as DOCKET_ROOT_LOOKUP_COURTLISTENER_LLM_REVIEW,
+)
+from mellea_lrc.validation.docket_root_lookup_courtlistener_retrieval import (
+    STAGE as DOCKET_ROOT_LOOKUP_COURTLISTENER_RETRIEVAL,
+)
+from mellea_lrc.validation.docket_root_lookup_govinfo_llm_review import (
+    STAGE as DOCKET_ROOT_LOOKUP_GOVINFO_LLM_REVIEW,
+)
+from mellea_lrc.validation.docket_root_lookup_govinfo_retrieval import (
+    STAGE as DOCKET_ROOT_LOOKUP_GOVINFO_RETRIEVAL,
+)
+from mellea_lrc.validation.intended_case_llm_selection import (
+    STAGE as INTENDED_CASE_LLM_SELECTION,
+)
+from mellea_lrc.validation.locator_body_llm_judgment import STAGE as LOCATOR_BODY_LLM_JUDGMENT
+from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm_judgment import (
+    STAGE as REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM_JUDGMENT,
+)
+from mellea_lrc.validation.reporter_root_lookup_ambiguous_rule_judgment import (
+    STAGE as REPORTER_ROOT_LOOKUP_AMBIGUOUS_RULE_JUDGMENT,
+)
+from mellea_lrc.validation.reporter_root_lookup_cluster_retrieval import (
+    STAGE as REPORTER_ROOT_LOOKUP_CLUSTER_RETRIEVAL,
+)
+from mellea_lrc.validation.reporter_root_lookup_docket_retrieval import (
+    STAGE as REPORTER_ROOT_LOOKUP_DOCKET_RETRIEVAL,
+)
+from mellea_lrc.validation.reporter_root_lookup_unique_llm_judgment import (
+    STAGE as REPORTER_ROOT_LOOKUP_UNIQUE_LLM_JUDGMENT,
+)
+from mellea_lrc.validation.reporter_root_lookup_unique_rule_judgment import (
+    STAGE as REPORTER_ROOT_LOOKUP_UNIQUE_RULE_JUDGMENT,
+)
 
 FIELDS = ("case_name", "court", "date")
 GOLD_LABELS = frozenset({"agrees", "disagrees", "not_stated"})
 GOLD_IDENTITIES = frozenset({"CORRECT_IDENTITY", "WRONG_IDENTITY"})
 STAGES = (
-    REPORTER_ROOT_LOOKUP_REVIEW,
-    REPORTER_ROOT_LOOKUP_AMBIGUOUS,
-    REPORTER_ROOT_LOOKUP_UNIQUE_LLM,
-    REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM,
-    DOCKET_ROOT_LOOKUP_REVIEW,
-    GOVINFO_DOCKET_LOOKUP_REVIEW,
+    REPORTER_ROOT_LOOKUP_UNIQUE_RULE_JUDGMENT,
+    REPORTER_ROOT_LOOKUP_AMBIGUOUS_RULE_JUDGMENT,
+    REPORTER_ROOT_LOOKUP_UNIQUE_LLM_JUDGMENT,
+    REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM_JUDGMENT,
+    DOCKET_ROOT_LOOKUP_COURTLISTENER_LLM_REVIEW,
+    DOCKET_ROOT_LOOKUP_GOVINFO_LLM_REVIEW,
 )
 WORKFLOW_STAGES = (
-    REPORTER_ROOT_LOOKUP,
-    REPORTER_ROOT_LOOKUP_REVIEW,
-    REPORTER_ROOT_LOOKUP_AMBIGUOUS_DOCKETS,
-    REPORTER_ROOT_LOOKUP_AMBIGUOUS,
-    REPORTER_ROOT_LOOKUP_UNIQUE_LLM,
-    REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM,
-    DOCKET_ROOT_LOOKUP,
-    DOCKET_ROOT_LOOKUP_REVIEW,
-    GOVINFO_DOCKET_LOOKUP,
+    REPORTER_ROOT_LOOKUP_CLUSTER_RETRIEVAL,
+    REPORTER_ROOT_LOOKUP_DOCKET_RETRIEVAL,
+    REPORTER_ROOT_LOOKUP_UNIQUE_RULE_JUDGMENT,
+    REPORTER_ROOT_LOOKUP_AMBIGUOUS_RULE_JUDGMENT,
+    REPORTER_ROOT_LOOKUP_UNIQUE_LLM_JUDGMENT,
+    REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM_JUDGMENT,
+    DOCKET_ROOT_LOOKUP_COURTLISTENER_RETRIEVAL,
+    DOCKET_ROOT_LOOKUP_COURTLISTENER_LLM_REVIEW,
+    DOCKET_ROOT_LOOKUP_GOVINFO_RETRIEVAL,
     STAGES[-1],
 )
 BODY_WORKFLOW_STAGES = (
-    COURTLISTENER_OPINION_BODY_SEARCH,
-    COURTLISTENER_RECAP_BODY_SEARCH,
-    GOVINFO_OPINION_BODY_SEARCH,
-    LOCATOR_BODY_REVIEW,
+    LOCATOR_BODY_COURTLISTENER_OPINION_RETRIEVAL,
+    LOCATOR_BODY_COURTLISTENER_RECAP_RETRIEVAL,
+    LOCATOR_BODY_GOVINFO_OPINION_RETRIEVAL,
+    LOCATOR_BODY_LLM_JUDGMENT,
 )
 FIELD_BODY_WORKFLOW_STAGES = (
-    COURTLISTENER_OPINION_FIELD_BODY_SEARCH,
-    COURTLISTENER_RECAP_FIELD_BODY_SEARCH,
-    GOVINFO_OPINION_FIELD_BODY_SEARCH,
-    INTENDED_CASE_BODY_REVIEW,
+    INTENDED_CASE_COURTLISTENER_OPINION_RETRIEVAL,
+    INTENDED_CASE_COURTLISTENER_RECAP_RETRIEVAL,
+    INTENDED_CASE_GOVINFO_OPINION_RETRIEVAL,
+    INTENDED_CASE_LLM_SELECTION,
 )
 
 
@@ -169,6 +194,36 @@ class StageScore:
 
 
 @dataclass(frozen=True)
+class RetrievalScore:
+    """Citation coverage among the roots actually queried by one retrieval stage."""
+
+    stage: str
+    citations_with_records: int = 0
+    citations_queried: int = 0
+
+    def __add__(self, other: RetrievalScore) -> RetrievalScore:
+        if self.stage != other.stage:
+            raise ValueError("Cannot combine different retrieval stages")
+        return RetrievalScore(
+            self.stage,
+            self.citations_with_records + other.citations_with_records,
+            self.citations_queried + other.citations_queried,
+        )
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "stage": self.stage,
+            "record_coverage": {
+                "citations_with_records": self.citations_with_records,
+                "citations_queried": self.citations_queried,
+                "rate": (
+                    self.citations_with_records / self.citations_queried if self.citations_queried else None
+                ),
+            },
+        }
+
+
+@dataclass(frozen=True)
 class BodyReviewScore:
     """Identity verdicts issued by the locator-body review stage."""
 
@@ -200,6 +255,7 @@ class WorkflowScore:
     body_review: BodyReviewScore | None = None
     identity_with_partial: IdentityScore | None = None
     intended_case_outcomes: dict[str, int] | None = None
+    retrieval_stages: tuple[RetrievalScore, ...] = ()
 
     @property
     def stage_order(self) -> tuple[str, ...]:
@@ -223,6 +279,10 @@ class WorkflowScore:
             raise ValueError("Cannot combine workflows with different inclusive identity scores")
         if (self.intended_case_outcomes is None) != (other.intended_case_outcomes is None):
             raise ValueError("Cannot combine workflows with different intended-case review outcomes")
+        if tuple(item.stage for item in self.retrieval_stages) != tuple(
+            item.stage for item in other.retrieval_stages
+        ):
+            raise ValueError("Cannot combine workflows with different retrieval stages")
         return WorkflowScore(
             tuple(left + right for left, right in zip(self.stages, other.stages, strict=True)),
             {field: score + other.fields[field] for field, score in self.fields.items()},
@@ -246,12 +306,17 @@ class WorkflowScore:
                 if self.intended_case_outcomes is not None and other.intended_case_outcomes is not None
                 else None
             ),
+            tuple(
+                left + right
+                for left, right in zip(self.retrieval_stages, other.retrieval_stages, strict=True)
+            ),
         )
 
     def as_dict(self) -> dict[str, object]:
         result = {
             "stage_order": list(self.stage_order),
             "stages": [stage.as_dict() for stage in self.stages],
+            "retrieval_stages": [stage.as_dict() for stage in self.retrieval_stages],
             "fields": {field: score.as_dict() for field, score in self.fields.items()},
             "identity": self.identity.as_dict(),
         }
@@ -263,7 +328,7 @@ class WorkflowScore:
             result["identity_with_partial"] = self.identity_with_partial.as_dict()
         if self.intended_case_outcomes is not None:
             result["intended_case_review"] = {
-                "stage": INTENDED_CASE_BODY_REVIEW,
+                "stage": INTENDED_CASE_LLM_SELECTION,
                 "outcome_counts": dict(sorted(self.intended_case_outcomes.items())),
             }
         return result
@@ -397,10 +462,10 @@ def _align(roots: tuple[FullCitation, ...], gold: tuple[_GoldRoot, ...]) -> dict
 
 
 def _selected_candidate(root: FullReporterCitation, stage: str) -> int | None:
-    if stage == REPORTER_ROOT_LOOKUP_REVIEW:
+    if stage == REPORTER_ROOT_LOOKUP_UNIQUE_RULE_JUDGMENT:
         lookup = root.reporter_exact_lookup
         return 0 if lookup is not None and lookup.outcome is ReporterExactLookupOutcome.UNIQUE else None
-    if stage == REPORTER_ROOT_LOOKUP_AMBIGUOUS:
+    if stage == REPORTER_ROOT_LOOKUP_AMBIGUOUS_RULE_JUDGMENT:
         resolution = root.reporter_exact_ambiguity_resolution
         return (
             resolution.selected_candidate_index
@@ -408,10 +473,10 @@ def _selected_candidate(root: FullReporterCitation, stage: str) -> int | None:
             and resolution.outcome is ReporterExactAmbiguityOutcome.UNIQUE_RULE_MATCH
             else None
         )
-    if stage == REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM:
+    if stage == REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM_JUDGMENT:
         review = root.reporter_ambiguous_review
         return review.decision.selected_candidate_index if review is not None and review.decision else None
-    if stage == REPORTER_ROOT_LOOKUP_UNIQUE_LLM:
+    if stage == REPORTER_ROOT_LOOKUP_UNIQUE_LLM_JUDGMENT:
         review = root.reporter_unique_review
         return 0 if review is not None and review.decision is not None else None
     raise ValueError(f"Unknown validation stage: {stage}")
@@ -431,7 +496,10 @@ def _selected_docket_review(root: FullDocketCitation) -> DocketLookupReviewDecis
     review = root.docket_lookup_review
     if review is None or review.decision is None or review.decision.selected_candidate_index is None:
         return None
-    if not any(node.id == review.node_id and node.stage == DOCKET_ROOT_LOOKUP_REVIEW for node in root.nodes):
+    if not any(
+        node.id == review.node_id and node.stage == DOCKET_ROOT_LOOKUP_COURTLISTENER_LLM_REVIEW
+        for node in root.nodes
+    ):
         return None
     return review.decision
 
@@ -448,16 +516,18 @@ def _selected_govinfo_docket_review(root: FullDocketCitation) -> DocketLookupRev
     ):
         return None
     if not any(
-        node.id == lookup.node_id and node.stage == GOVINFO_DOCKET_LOOKUP for node in root.nodes
+        node.id == lookup.node_id and node.stage == DOCKET_ROOT_LOOKUP_GOVINFO_RETRIEVAL
+        for node in root.nodes
     ) or not any(
-        node.id == review.node_id and node.stage == GOVINFO_DOCKET_LOOKUP_REVIEW for node in root.nodes
+        node.id == review.node_id and node.stage == DOCKET_ROOT_LOOKUP_GOVINFO_LLM_REVIEW
+        for node in root.nodes
     ):
         return None
     return review.decision
 
 
-def score_docket_root_lookup_review(document: Document) -> StageScore:
-    checkpoint = document.get_stage(DOCKET_ROOT_LOOKUP_REVIEW)
+def score_docket_root_lookup_courtlistener_llm_review(document: Document) -> StageScore:
+    checkpoint = document.get_stage(DOCKET_ROOT_LOOKUP_COURTLISTENER_LLM_REVIEW)
     gold = _gold_roots(checkpoint)
     aligned = _align(checkpoint.roots, gold)
     counts = {field: [0, 0] for field in FIELDS}
@@ -471,13 +541,13 @@ def score_docket_root_lookup_review(document: Document) -> StageScore:
             counts[field][1] += 1
             counts[field][0] += int(gold_root is not None and label == gold_root.labels[field])
     return StageScore(
-        DOCKET_ROOT_LOOKUP_REVIEW,
+        DOCKET_ROOT_LOOKUP_COURTLISTENER_LLM_REVIEW,
         {field: Precision(*counts[field]) for field in FIELDS},
     )
 
 
-def score_govinfo_docket_lookup_review(document: Document) -> StageScore:
-    checkpoint = document.get_stage(GOVINFO_DOCKET_LOOKUP_REVIEW)
+def score_docket_root_lookup_govinfo_llm_review(document: Document) -> StageScore:
+    checkpoint = document.get_stage(DOCKET_ROOT_LOOKUP_GOVINFO_LLM_REVIEW)
     gold = _gold_roots(checkpoint)
     aligned = _align(checkpoint.roots, gold)
     counts = {field: [0, 0] for field in FIELDS}
@@ -494,7 +564,7 @@ def score_govinfo_docket_lookup_review(document: Document) -> StageScore:
             label = _label(result, source_present=bool(getattr(root, field)))
             counts[field][0] += int(gold_root is not None and label == gold_root.labels[field])
     return StageScore(
-        GOVINFO_DOCKET_LOOKUP_REVIEW,
+        DOCKET_ROOT_LOOKUP_GOVINFO_LLM_REVIEW,
         {field: Precision(*counts[field]) for field in FIELDS},
     )
 
@@ -531,46 +601,183 @@ def _stage_judgments(
     return StageScore(stage, {field: Precision(*counts[field]) for field in FIELDS})
 
 
-def score_reporter_root_lookup_review(document: Document) -> StageScore:
+def score_reporter_root_lookup_unique_rule_judgment(document: Document) -> StageScore:
     return _stage_judgments(
         document,
-        REPORTER_ROOT_LOOKUP_REVIEW,
-        lambda root: _selected_candidate(root, REPORTER_ROOT_LOOKUP_REVIEW),
+        REPORTER_ROOT_LOOKUP_UNIQUE_RULE_JUDGMENT,
+        lambda root: _selected_candidate(root, REPORTER_ROOT_LOOKUP_UNIQUE_RULE_JUDGMENT),
     )
 
 
-def score_reporter_root_lookup_ambiguous(document: Document) -> StageScore:
+def score_reporter_root_lookup_ambiguous_rule_judgment(document: Document) -> StageScore:
     return _stage_judgments(
         document,
-        REPORTER_ROOT_LOOKUP_AMBIGUOUS,
-        lambda root: _selected_candidate(root, REPORTER_ROOT_LOOKUP_AMBIGUOUS),
+        REPORTER_ROOT_LOOKUP_AMBIGUOUS_RULE_JUDGMENT,
+        lambda root: _selected_candidate(root, REPORTER_ROOT_LOOKUP_AMBIGUOUS_RULE_JUDGMENT),
     )
 
 
-def score_reporter_root_lookup_ambiguous_llm(document: Document) -> StageScore:
+def score_reporter_root_lookup_ambiguous_llm_judgment(document: Document) -> StageScore:
     return _stage_judgments(
         document,
-        REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM,
-        lambda root: _selected_candidate(root, REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM),
+        REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM_JUDGMENT,
+        lambda root: _selected_candidate(root, REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM_JUDGMENT),
     )
 
 
-def score_reporter_root_lookup_unique_llm(document: Document) -> StageScore:
+def score_reporter_root_lookup_unique_llm_judgment(document: Document) -> StageScore:
     return _stage_judgments(
         document,
-        REPORTER_ROOT_LOOKUP_UNIQUE_LLM,
-        lambda root: _selected_candidate(root, REPORTER_ROOT_LOOKUP_UNIQUE_LLM),
+        REPORTER_ROOT_LOOKUP_UNIQUE_LLM_JUDGMENT,
+        lambda root: _selected_candidate(root, REPORTER_ROOT_LOOKUP_UNIQUE_LLM_JUDGMENT),
     )
 
 
 STAGE_SCORERS: tuple[tuple[str, Callable[[Document], StageScore]], ...] = (
-    (REPORTER_ROOT_LOOKUP_REVIEW, score_reporter_root_lookup_review),
-    (REPORTER_ROOT_LOOKUP_AMBIGUOUS, score_reporter_root_lookup_ambiguous),
-    (REPORTER_ROOT_LOOKUP_UNIQUE_LLM, score_reporter_root_lookup_unique_llm),
-    (REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM, score_reporter_root_lookup_ambiguous_llm),
-    (DOCKET_ROOT_LOOKUP_REVIEW, score_docket_root_lookup_review),
-    (GOVINFO_DOCKET_LOOKUP_REVIEW, score_govinfo_docket_lookup_review),
+    (REPORTER_ROOT_LOOKUP_UNIQUE_RULE_JUDGMENT, score_reporter_root_lookup_unique_rule_judgment),
+    (REPORTER_ROOT_LOOKUP_AMBIGUOUS_RULE_JUDGMENT, score_reporter_root_lookup_ambiguous_rule_judgment),
+    (REPORTER_ROOT_LOOKUP_UNIQUE_LLM_JUDGMENT, score_reporter_root_lookup_unique_llm_judgment),
+    (REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM_JUDGMENT, score_reporter_root_lookup_ambiguous_llm_judgment),
+    (DOCKET_ROOT_LOOKUP_COURTLISTENER_LLM_REVIEW, score_docket_root_lookup_courtlistener_llm_review),
+    (DOCKET_ROOT_LOOKUP_GOVINFO_LLM_REVIEW, score_docket_root_lookup_govinfo_llm_review),
 )
+
+
+def _stage_node_ids(root: FullCitation, stage: str) -> set[str]:
+    return {node.id for node in root.nodes if node.stage == stage}
+
+
+def score_reporter_root_lookup_cluster_retrieval(document: Document) -> RetrievalScore:
+    """Count queried reporter citations with at least one saved cluster."""
+    checkpoint = document.get_stage(REPORTER_ROOT_LOOKUP_CLUSTER_RETRIEVAL)
+    queried = with_records = 0
+    for root in checkpoint.roots:
+        if not isinstance(root, FullReporterCitation):
+            continue
+        lookup = root.reporter_exact_lookup
+        if lookup is None or lookup.node_id not in _stage_node_ids(
+            root, REPORTER_ROOT_LOOKUP_CLUSTER_RETRIEVAL
+        ):
+            continue
+        if lookup.query is not None:
+            queried += 1
+            with_records += int(lookup.response is not None and bool(lookup.response.clusters))
+    return RetrievalScore(REPORTER_ROOT_LOOKUP_CLUSTER_RETRIEVAL, with_records, queried)
+
+
+def score_reporter_root_lookup_docket_retrieval(document: Document) -> RetrievalScore:
+    """Count queried reporter citations with at least one saved docket."""
+    checkpoint = document.get_stage(REPORTER_ROOT_LOOKUP_DOCKET_RETRIEVAL)
+    queried = with_records = 0
+    for root in checkpoint.roots:
+        if not isinstance(root, FullReporterCitation):
+            continue
+        node_ids = _stage_node_ids(root, REPORTER_ROOT_LOOKUP_DOCKET_RETRIEVAL)
+        dockets = [
+            *(
+                (root.reporter_exact_docket,)
+                if root.reporter_exact_docket is not None and root.reporter_exact_docket.node_id in node_ids
+                else ()
+            ),
+            *(item for item in root.reporter_exact_candidate_dockets if item.node_id in node_ids),
+        ]
+        if dockets:
+            queried += 1
+            with_records += int(any(item.response is not None for item in dockets))
+    return RetrievalScore(REPORTER_ROOT_LOOKUP_DOCKET_RETRIEVAL, with_records, queried)
+
+
+def _score_docket_retrieval(document: Document, stage: str) -> RetrievalScore:
+    checkpoint = document.get_stage(stage)
+    queried = with_records = 0
+    for root in checkpoint.roots:
+        if not isinstance(root, FullDocketCitation):
+            continue
+        lookup = (
+            root.docket_lookup
+            if stage == DOCKET_ROOT_LOOKUP_COURTLISTENER_RETRIEVAL
+            else root.govinfo_docket_lookup
+        )
+        if lookup is None or lookup.node_id not in _stage_node_ids(root, stage):
+            continue
+        if lookup.attempts:
+            queried += 1
+            with_records += int(bool(lookup.candidates))
+    return RetrievalScore(stage, with_records, queried)
+
+
+def score_docket_root_lookup_courtlistener_retrieval(document: Document) -> RetrievalScore:
+    return _score_docket_retrieval(document, DOCKET_ROOT_LOOKUP_COURTLISTENER_RETRIEVAL)
+
+
+def score_docket_root_lookup_govinfo_retrieval(document: Document) -> RetrievalScore:
+    return _score_docket_retrieval(document, DOCKET_ROOT_LOOKUP_GOVINFO_RETRIEVAL)
+
+
+_BODY_RETRIEVAL_SOURCES = {
+    LOCATOR_BODY_COURTLISTENER_OPINION_RETRIEVAL: BodySource.COURTLISTENER_OPINION,
+    LOCATOR_BODY_COURTLISTENER_RECAP_RETRIEVAL: BodySource.COURTLISTENER_RECAP,
+    LOCATOR_BODY_GOVINFO_OPINION_RETRIEVAL: BodySource.GOVINFO_OPINION,
+    INTENDED_CASE_COURTLISTENER_OPINION_RETRIEVAL: BodySource.COURTLISTENER_OPINION,
+    INTENDED_CASE_COURTLISTENER_RECAP_RETRIEVAL: BodySource.COURTLISTENER_RECAP,
+    INTENDED_CASE_GOVINFO_OPINION_RETRIEVAL: BodySource.GOVINFO_OPINION,
+}
+
+
+def _score_body_retrieval(document: Document, stage: str) -> RetrievalScore:
+    checkpoint = document.get_stage(stage)
+    queried = with_records = 0
+    source = _BODY_RETRIEVAL_SOURCES[stage]
+    field_stage = stage in FIELD_BODY_WORKFLOW_STAGES
+    for root in checkpoint.roots:
+        node_ids = _stage_node_ids(root, stage)
+        searches = root.field_body_searches if field_stage else root.body_searches
+        selected = [search for search in searches if search.node_id in node_ids and search.source is source]
+        if len(selected) > 1:
+            raise ValueError(f"Multiple saved retrieval results for {stage} on {root.id}")
+        if selected and selected[0].attempts:
+            queried += 1
+            with_records += int(bool(selected[0].evidence))
+    return RetrievalScore(stage, with_records, queried)
+
+
+def score_locator_body_courtlistener_opinion_retrieval(document: Document) -> RetrievalScore:
+    return _score_body_retrieval(document, LOCATOR_BODY_COURTLISTENER_OPINION_RETRIEVAL)
+
+
+def score_locator_body_courtlistener_recap_retrieval(document: Document) -> RetrievalScore:
+    return _score_body_retrieval(document, LOCATOR_BODY_COURTLISTENER_RECAP_RETRIEVAL)
+
+
+def score_locator_body_govinfo_opinion_retrieval(document: Document) -> RetrievalScore:
+    return _score_body_retrieval(document, LOCATOR_BODY_GOVINFO_OPINION_RETRIEVAL)
+
+
+def score_intended_case_courtlistener_opinion_retrieval(document: Document) -> RetrievalScore:
+    return _score_body_retrieval(document, INTENDED_CASE_COURTLISTENER_OPINION_RETRIEVAL)
+
+
+def score_intended_case_courtlistener_recap_retrieval(document: Document) -> RetrievalScore:
+    return _score_body_retrieval(document, INTENDED_CASE_COURTLISTENER_RECAP_RETRIEVAL)
+
+
+def score_intended_case_govinfo_opinion_retrieval(document: Document) -> RetrievalScore:
+    return _score_body_retrieval(document, INTENDED_CASE_GOVINFO_OPINION_RETRIEVAL)
+
+
+RETRIEVAL_STAGE_SCORERS: tuple[tuple[str, Callable[[Document], RetrievalScore]], ...] = (
+    (REPORTER_ROOT_LOOKUP_CLUSTER_RETRIEVAL, score_reporter_root_lookup_cluster_retrieval),
+    (REPORTER_ROOT_LOOKUP_DOCKET_RETRIEVAL, score_reporter_root_lookup_docket_retrieval),
+    (DOCKET_ROOT_LOOKUP_COURTLISTENER_RETRIEVAL, score_docket_root_lookup_courtlistener_retrieval),
+    (DOCKET_ROOT_LOOKUP_GOVINFO_RETRIEVAL, score_docket_root_lookup_govinfo_retrieval),
+    (LOCATOR_BODY_COURTLISTENER_OPINION_RETRIEVAL, score_locator_body_courtlistener_opinion_retrieval),
+    (LOCATOR_BODY_COURTLISTENER_RECAP_RETRIEVAL, score_locator_body_courtlistener_recap_retrieval),
+    (LOCATOR_BODY_GOVINFO_OPINION_RETRIEVAL, score_locator_body_govinfo_opinion_retrieval),
+    (INTENDED_CASE_COURTLISTENER_OPINION_RETRIEVAL, score_intended_case_courtlistener_opinion_retrieval),
+    (INTENDED_CASE_COURTLISTENER_RECAP_RETRIEVAL, score_intended_case_courtlistener_recap_retrieval),
+    (INTENDED_CASE_GOVINFO_OPINION_RETRIEVAL, score_intended_case_govinfo_opinion_retrieval),
+)
+RETRIEVAL_STAGES = tuple(stage for stage, _ in RETRIEVAL_STAGE_SCORERS)
 
 
 def _final_reporter_field_label(
@@ -632,7 +839,7 @@ def _body_verdict(root: FullCitation) -> IdentityVerdict | None:
     if not root.body_reviews:
         return None
     review = root.body_reviews[-1]
-    if not any(node.id == review.node_id and node.stage == LOCATOR_BODY_REVIEW for node in root.nodes):
+    if not any(node.id == review.node_id and node.stage == LOCATOR_BODY_LLM_JUDGMENT for node in root.nodes):
         raise ValueError("Body review does not reference its stage node")
     judgments = [judgment for judgment in root.identity_judgments if judgment.node_id == review.node_id]
     selected = review.decision is not None and review.decision.source is not None
@@ -652,12 +859,12 @@ def _body_route(root: FullCitation, node_id: str) -> str | None:
     return routes[0].value
 
 
-def score_locator_body_review(document: Document) -> BodyReviewScore:
+def score_locator_body_llm_judgment(document: Document) -> BodyReviewScore:
     """Count stage-23 identity verdicts; routes are not issued judgments."""
-    checkpoint = document.get_stage(LOCATOR_BODY_REVIEW)
+    checkpoint = document.get_stage(LOCATOR_BODY_LLM_JUDGMENT)
     verdict_counts: dict[str, int] = {}
     for root in checkpoint.roots:
-        stage_nodes = [node for node in root.nodes if node.stage == LOCATOR_BODY_REVIEW]
+        stage_nodes = [node for node in root.nodes if node.stage == LOCATOR_BODY_LLM_JUDGMENT]
         if not stage_nodes:
             if root.body_reviews:
                 raise ValueError("Body review does not reference its stage node")
@@ -673,15 +880,15 @@ def score_locator_body_review(document: Document) -> BodyReviewScore:
             raise ValueError("Unresolved body reviews must route; decisive verdicts must clear the route")
         if verdict is not None:
             verdict_counts[verdict.value] = verdict_counts.get(verdict.value, 0) + 1
-    return BodyReviewScore(LOCATOR_BODY_REVIEW, verdict_counts)
+    return BodyReviewScore(LOCATOR_BODY_LLM_JUDGMENT, verdict_counts)
 
 
-def score_intended_case_body_review(document: Document) -> dict[str, int]:
+def score_intended_case_llm_selection(document: Document) -> dict[str, int]:
     """Count candidate outcomes at stage 27 without judging their accuracy."""
-    checkpoint = document.get_stage(INTENDED_CASE_BODY_REVIEW)
+    checkpoint = document.get_stage(INTENDED_CASE_LLM_SELECTION)
     outcomes: dict[str, int] = {}
     for root in checkpoint.roots:
-        stage_nodes = {node.id for node in root.nodes if node.stage == INTENDED_CASE_BODY_REVIEW}
+        stage_nodes = {node.id for node in root.nodes if node.stage == INTENDED_CASE_LLM_SELECTION}
         if not stage_nodes:
             continue
         reviews = [review for review in root.intended_case_reviews if review.node_id in stage_nodes]
@@ -718,7 +925,7 @@ def score_validate_roots(document: Document) -> WorkflowScore:
     if field_body_stages and not body_stages:
         raise ValueError("Intended-case workflow requires completed locator-body stages")
     judgment_stage = max(WORKFLOW_STAGES, key=document.stage_runs.index)
-    final_stage = LOCATOR_BODY_REVIEW if body_stages else judgment_stage
+    final_stage = LOCATOR_BODY_LLM_JUDGMENT if body_stages else judgment_stage
     final = document.get_stage(final_stage)
     stage_scores = tuple(score(final) for _, score in STAGE_SCORERS)
     gold = _gold_roots(final)
@@ -754,7 +961,7 @@ def score_validate_roots(document: Document) -> WorkflowScore:
     body_review = None
     identity_with_partial = None
     if body_stages:
-        body_review = score_locator_body_review(final)
+        body_review = score_locator_body_llm_judgment(final)
         final_aligned = _align(final.roots, gold)
         identity_correct = identity_predicted = undetermined = 0
         inclusive_correct = inclusive_predicted = inclusive_undetermined = 0
@@ -798,10 +1005,21 @@ def score_validate_roots(document: Document) -> WorkflowScore:
         stage_scores,
         {field: FieldScore(counts[field][0], counts[field][1], len(gold)) for field in FIELDS},
         identity,
-        INTENDED_CASE_BODY_REVIEW if field_body_stages else LOCATOR_BODY_REVIEW if body_stages else None,
+        INTENDED_CASE_LLM_SELECTION
+        if field_body_stages
+        else LOCATOR_BODY_LLM_JUDGMENT
+        if body_stages
+        else None,
         body_review,
         identity_with_partial,
-        score_intended_case_body_review(document) if field_body_stages else None,
+        score_intended_case_llm_selection(document) if field_body_stages else None,
+        tuple(
+            scorer(document)
+            for stage, scorer in RETRIEVAL_STAGE_SCORERS
+            if stage in WORKFLOW_STAGES
+            or (body_stages and stage in BODY_WORKFLOW_STAGES)
+            or (field_body_stages and stage in FIELD_BODY_WORKFLOW_STAGES)
+        ),
     )
 
 
@@ -827,36 +1045,50 @@ def _render_stage(score: StageScore, expected: str) -> str:
     return "\n".join(lines)
 
 
-def render_reporter_root_lookup_review(score: StageScore) -> str:
-    return _render_stage(score, REPORTER_ROOT_LOOKUP_REVIEW) + "\n"
+def render_retrieval_stage(score: RetrievalScore) -> str:
+    if score.stage not in RETRIEVAL_STAGES:
+        raise ValueError(f"Unknown retrieval stage: {score.stage}")
+    fraction = f"{score.citations_with_records}/{score.citations_queried}"
+    if score.citations_queried:
+        fraction += f" ({score.citations_with_records / score.citations_queried:.1%})"
+    return (
+        f"## {score.stage}\n\n"
+        "| Metric | Coverage |\n"
+        "| --- | ---: |\n"
+        f"| Citations with records / citations queried | {fraction} |\n"
+    )
 
 
-def render_docket_root_lookup_review(score: StageScore) -> str:
-    return _render_stage(score, DOCKET_ROOT_LOOKUP_REVIEW) + "\n"
+def render_reporter_root_lookup_unique_rule_judgment(score: StageScore) -> str:
+    return _render_stage(score, REPORTER_ROOT_LOOKUP_UNIQUE_RULE_JUDGMENT) + "\n"
 
 
-def render_govinfo_docket_lookup_review(score: StageScore) -> str:
-    return _render_stage(score, GOVINFO_DOCKET_LOOKUP_REVIEW) + "\n"
+def render_docket_root_lookup_courtlistener_llm_review(score: StageScore) -> str:
+    return _render_stage(score, DOCKET_ROOT_LOOKUP_COURTLISTENER_LLM_REVIEW) + "\n"
 
 
-def render_reporter_root_lookup_ambiguous(score: StageScore) -> str:
-    return _render_stage(score, REPORTER_ROOT_LOOKUP_AMBIGUOUS) + "\n"
+def render_docket_root_lookup_govinfo_llm_review(score: StageScore) -> str:
+    return _render_stage(score, DOCKET_ROOT_LOOKUP_GOVINFO_LLM_REVIEW) + "\n"
 
 
-def render_reporter_root_lookup_ambiguous_llm(score: StageScore) -> str:
-    return _render_stage(score, REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM) + "\n"
+def render_reporter_root_lookup_ambiguous_rule_judgment(score: StageScore) -> str:
+    return _render_stage(score, REPORTER_ROOT_LOOKUP_AMBIGUOUS_RULE_JUDGMENT) + "\n"
 
 
-def render_reporter_root_lookup_unique_llm(score: StageScore) -> str:
-    return _render_stage(score, REPORTER_ROOT_LOOKUP_UNIQUE_LLM) + "\n"
+def render_reporter_root_lookup_ambiguous_llm_judgment(score: StageScore) -> str:
+    return _render_stage(score, REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM_JUDGMENT) + "\n"
 
 
-def render_locator_body_review(score: BodyReviewScore) -> str:
+def render_reporter_root_lookup_unique_llm_judgment(score: StageScore) -> str:
+    return _render_stage(score, REPORTER_ROOT_LOOKUP_UNIQUE_LLM_JUDGMENT) + "\n"
+
+
+def render_locator_body_llm_judgment(score: BodyReviewScore) -> str:
     """Render only the identity verdicts issued at stage 23."""
-    if score.stage != LOCATOR_BODY_REVIEW:
-        raise ValueError(f"Expected {LOCATOR_BODY_REVIEW} review score")
+    if score.stage != LOCATOR_BODY_LLM_JUDGMENT:
+        raise ValueError(f"Expected {LOCATOR_BODY_LLM_JUDGMENT} review score")
     lines = [
-        f"## {LOCATOR_BODY_REVIEW}",
+        f"## {LOCATOR_BODY_LLM_JUDGMENT}",
         "",
         "| Issued verdict | Count |",
         "| --- | ---: |",
@@ -867,10 +1099,10 @@ def render_locator_body_review(score: BodyReviewScore) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_intended_case_body_review(outcomes: dict[str, int]) -> str:
+def render_intended_case_llm_selection(outcomes: dict[str, int]) -> str:
     """Render candidate counts without implying an accuracy measure."""
     lines = [
-        f"## {INTENDED_CASE_BODY_REVIEW}",
+        f"## {INTENDED_CASE_LLM_SELECTION}",
         "",
         "Candidate outcomes only; the annotations do not label intended-case candidates.",
         "",
@@ -907,13 +1139,15 @@ def render_validate_roots(
     if (score.body_review is None) != (score.identity_with_partial is None):
         raise ValueError("Body-review workflows require both canonical and inclusive identity scores")
     stage_order = score.stage_order
-    indices = tuple(
-        tuple(int(part) for part in stage.split("_", 1)[0].split(".")) for stage in stage_order
-    )
+    if tuple(item.stage for item in score.retrieval_stages) != tuple(
+        stage for stage in stage_order if stage in RETRIEVAL_STAGES
+    ):
+        raise ValueError("Validate-roots score has missing or out-of-order retrieval scores")
+    indices = tuple(tuple(int(part) for part in stage.split("_", 1)[0].split(".")) for stage in stage_order)
     if any(later <= earlier for earlier, later in pairwise(indices)):
         raise ValueError("Validate-roots stage indices are not in execution order")
     sections = [f"# Validate-roots evaluation{f': {set_name}' if set_name else ''}"]
-    if score.checkpoint in {LOCATOR_BODY_REVIEW, INTENDED_CASE_BODY_REVIEW}:
+    if score.checkpoint in {LOCATOR_BODY_LLM_JUDGMENT, INTENDED_CASE_LLM_SELECTION}:
         sections.append(
             f"Checkpoint: {score.checkpoint} completed. Field identity judgments are scored through "
             f"{WORKFLOW_STAGES[-1]}; the body review's printed citation comparisons have no corresponding "
@@ -934,17 +1168,20 @@ def render_validate_roots(
     field_summary = "\n".join(lines)
     if include_stages:
         scored_stages = {stage.stage: stage for stage in score.stages}
+        retrieval_stages = {stage.stage: stage for stage in score.retrieval_stages}
         for stage in stage_order:
             if stage in scored_stages:
                 sections.append(_render_stage(scored_stages[stage], stage))
-            elif stage == LOCATOR_BODY_REVIEW:
+            elif stage in retrieval_stages:
+                sections.append(render_retrieval_stage(retrieval_stages[stage]).rstrip())
+            elif stage == LOCATOR_BODY_LLM_JUDGMENT:
                 if score.body_review is None:
                     raise ValueError("Missing locator-body review score")
-                sections.append(render_locator_body_review(score.body_review).rstrip())
-            elif stage == INTENDED_CASE_BODY_REVIEW:
+                sections.append(render_locator_body_llm_judgment(score.body_review).rstrip())
+            elif stage == INTENDED_CASE_LLM_SELECTION:
                 if score.intended_case_outcomes is None:
                     raise ValueError("Missing intended-case review score")
-                sections.append(render_intended_case_body_review(score.intended_case_outcomes).rstrip())
+                sections.append(render_intended_case_llm_selection(score.intended_case_outcomes).rstrip())
             else:
                 sections.append(f"## {stage}\n\nRetrieval only; no field judgment is scored at this stage.")
             if stage == WORKFLOW_STAGES[-1]:

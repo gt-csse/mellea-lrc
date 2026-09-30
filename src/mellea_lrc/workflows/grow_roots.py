@@ -9,9 +9,9 @@ from mellea_lrc.extraction.courts import resolve_courts
 from mellea_lrc.extraction.dates import resolve_dates
 from mellea_lrc.extraction.docket_entries import resolve_docket_entries
 from mellea_lrc.extraction.docket_locator import find_docket_locators
-from mellea_lrc.extraction.docket_root_equivalence import (
+from mellea_lrc.extraction.docket_root_llm_reassignment import (
     DocketRootReviewer,
-    review_docket_root_equivalence,
+    docket_root_llm_reassignment,
 )
 from mellea_lrc.extraction.docket_site_hunting import hunt_docket_locators
 from mellea_lrc.extraction.docket_site_hunting.review import DocketSiteReviewer
@@ -44,5 +44,5 @@ async def grow_roots(
     document = resolve_pin_cites(document, config)
     document = form_roots(document)
     if review_docket_roots:
-        document = await review_docket_root_equivalence(document, reviewer=docket_root_reviewer)
+        document = await docket_root_llm_reassignment(document, reviewer=docket_root_reviewer)
     return document

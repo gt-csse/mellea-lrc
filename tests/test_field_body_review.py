@@ -17,15 +17,15 @@ from mellea_lrc.model.citations.judgments import IdentityVerdict
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.validation.body_search.common import make_body_evidences
-from mellea_lrc.validation.field_body_review import STAGE, review_intended_case_body_evidence
-from mellea_lrc.validation.field_body_review.reviewer import IntendedCaseContext
+from mellea_lrc.validation.intended_case_llm_selection import STAGE, intended_case_llm_selection
+from mellea_lrc.validation.intended_case_llm_selection.reviewer import IntendedCaseContext
 
 SOURCE = "Smith v. Jones, No. 05-4206 (2d Cir. 2007)."
 BODY = "An independent court cites Smith v. Jones, No. 01-9999 (2d Cir. 2006) as authority."
 CITATION = "Smith v. Jones, No. 01-9999 (2d Cir. 2006)"
 FIELD_STAGES = (
-    (BodySource.COURTLISTENER_OPINION, "24_courtlistener_opinion_field_body_search"),
-    (BodySource.COURTLISTENER_RECAP, "25_courtlistener_recap_field_body_search"),
+    (BodySource.COURTLISTENER_OPINION, "24_intended_case_courtlistener_opinion_retrieval"),
+    (BodySource.COURTLISTENER_RECAP, "25_intended_case_courtlistener_recap_retrieval"),
 )
 
 
@@ -47,8 +47,8 @@ def _ready(
     document = document.replace_citation(root).complete("roots")
     root = root.record("lookup").with_identity_judgment(IdentityVerdict.UNDETERMINED)
     document = document.replace_citation(root).complete("lookup")
-    root = root.record("23_locator_body_review").with_route("case_name_body_discovery")
-    document = document.replace_citation(root).complete("23_locator_body_review")
+    root = root.record("23_locator_body_llm_judgment").with_route("case_name_body_discovery")
+    document = document.replace_citation(root).complete("23_locator_body_llm_judgment")
     body_by_source = dict(bodies)
     for source, stage in FIELD_STAGES:
         root = document.roots[0].record(stage)
@@ -126,7 +126,7 @@ def test_review_saves_grounded_intended_case_without_changing_cited_identity() -
     before = _ready()
     reviewer = FakeReviewer(_decision())
 
-    after = asyncio.run(review_intended_case_body_evidence(before, reviewer=reviewer))
+    after = asyncio.run(intended_case_llm_selection(before, reviewer=reviewer))
 
     assert reviewer.calls == 1
     assert after.stage_runs[-1] == STAGE
@@ -151,7 +151,7 @@ def test_no_evidence_declines_without_calling_reviewer() -> None:
     before = _ready(bodies=())
     reviewer = FakeReviewer(_decision())
 
-    after = asyncio.run(review_intended_case_body_evidence(before, reviewer=reviewer))
+    after = asyncio.run(intended_case_llm_selection(before, reviewer=reviewer))
 
     assert reviewer.calls == 0
     review = after.roots[0].intended_case_reviews[0]
@@ -165,7 +165,7 @@ def test_ungrounded_candidate_quote_becomes_review_failure() -> None:
     before = _ready()
     reviewer = FakeReviewer(_decision(citation_quote="Smith v. Jones, No. 99-9999 (2d Cir. 2006)"))
 
-    after = asyncio.run(review_intended_case_body_evidence(before, reviewer=reviewer))
+    after = asyncio.run(intended_case_llm_selection(before, reviewer=reviewer))
 
     review = after.roots[0].intended_case_reviews[0]
     assert review.decision is None
@@ -185,7 +185,7 @@ def test_contradictory_candidates_can_be_declined_with_reason() -> None:
             assert len(context.evidence) == 2
             return _decline("Two same-name citations have conflicting locators, courts, and dates.")
 
-    after = asyncio.run(review_intended_case_body_evidence(before, reviewer=DecliningReviewer()))
+    after = asyncio.run(intended_case_llm_selection(before, reviewer=DecliningReviewer()))
 
     review = after.roots[0].intended_case_reviews[0]
     assert review.decision is not None and review.decision.source is None

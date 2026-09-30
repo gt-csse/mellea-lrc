@@ -8,38 +8,32 @@ from typing import Protocol
 from mellea_lrc.courtlistener import (
     CourtListenerCitationLookup,
     CourtListenerClient,
-    CourtListenerDocket,
     CourtListenerError,
 )
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.reporter_lookup import (
-    ReporterExactDocket,
     ReporterExactLookup,
     ReporterExactLookupOutcome,
     ReporterExactLookupQuery,
 )
 from mellea_lrc.model.document import Document
-from mellea_lrc.validation.reporter_exact.fields import candidate_court_id
 
-STAGE = "12.1_reporter_root_lookup"
-UNIQUE_REVIEW_STAGE = "12.2_reporter_root_lookup_review"
-AMBIGUOUS_DOCKETS_STAGE = "13.1_reporter_root_lookup_ambiguous_dockets"
+STAGE = "12.1_reporter_root_lookup_cluster_retrieval"
+DOCKET_RETRIEVAL_STAGE = "12.2_reporter_root_lookup_docket_retrieval"
 
 
 class ReporterLookupClient(Protocol):
-    """The exact citation lookup and its linked docket court retrieval."""
+    """The exact reporter-citation lookup."""
 
     def lookup_citation(self, volume: str, reporter: str, page: str) -> CourtListenerCitationLookup: ...
 
-    def get_docket(self, docket_id: str) -> CourtListenerDocket | None: ...
 
-
-def reporter_root_lookup(
+def reporter_root_lookup_cluster_retrieval(
     document: Document,
     *,
     client: ReporterLookupClient | None = None,
 ) -> Document:
-    """Save exact lookup responses and unique-candidate linked court evidence.
+    """Save exact lookup responses for later linked-docket retrieval.
 
     Field comparison belongs to the next stage. Provider failures abort
     instead of masquerading as a lookup miss.
@@ -49,7 +43,6 @@ def reporter_root_lookup(
     if "10_roots" not in document.stage_runs:
         raise ValueError("Form roots before exact reporter lookup")
     roots = tuple(root for root in document.roots if isinstance(root, FullReporterCitation))
-    docket_cache: dict[str, CourtListenerDocket | None] = {}
     with ExitStack() as stack:
         service = client
         for citation in roots:
@@ -93,22 +86,8 @@ def reporter_root_lookup(
                     response=response,
                 )
                 recorded = recorded.with_reporter_exact_lookup(result)
-                if outcome is ReporterExactLookupOutcome.UNIQUE:
-                    candidate = response.clusters[0]
-                    if recorded.court and candidate.docket_id and candidate_court_id(candidate) is None:
-                        docket_id = candidate.docket_id
-                        if docket_id not in docket_cache:
-                            docket_cache[docket_id] = service.get_docket(docket_id)
-                        recorded = recorded.with_reporter_exact_docket(
-                            ReporterExactDocket(
-                                node_id=recorded.nodes[-1].id,
-                                docket_id=docket_id,
-                                response=docket_cache[docket_id],
-                            )
-                        )
-                    recorded = recorded.with_route(UNIQUE_REVIEW_STAGE)
-                elif outcome is ReporterExactLookupOutcome.AMBIGUOUS:
-                    recorded = recorded.with_route(AMBIGUOUS_DOCKETS_STAGE)
+                if outcome in {ReporterExactLookupOutcome.UNIQUE, ReporterExactLookupOutcome.AMBIGUOUS}:
+                    recorded = recorded.with_route(DOCKET_RETRIEVAL_STAGE)
                 else:
                     recorded = recorded.with_route("reporter_root_search")
             document = document.replace_citation(recorded)
