@@ -19,9 +19,21 @@ earlier extraction history in the new timestamped run.
 
 To repeat the model reviews without repeating extraction or reporter lookup,
 use `--from-reporter-review-documents PATH`. The saved Documents must contain
-stage `13_reporter_root_lookup_ambiguous`. Add `--reuse-docket-lookups` when
+stage `13.2_reporter_root_lookup_ambiguous_review`. Add `--reuse-docket-lookups` when
 they also contain stage `16_docket_root_lookup`: the runner reuses those docket
 search results, then reruns both reporter reviews and the docket review.
+
+To replay any validation stage after a saved retrieval, use
+`--from-checkpoint-documents PATH --checkpoint-stage STAGE`. For example,
+`12.1_reporter_root_lookup` reruns unique and ambiguous rule reviews using
+the saved exact response; `13.1_reporter_root_lookup_ambiguous_dockets`
+reruns the ambiguous rule review using the saved linked dockets. The runner
+also saves cumulative Documents after each validation stage in
+`checkpoints/stage12.1/`, `checkpoints/stage13.1/`, and the other stage
+directories, so `--resume-run` can continue after an interrupted review
+without repeating retrieval. The same checkpoint and resume behavior covers
+stages `20`–`22` before `23_locator_body_review`; a saved stage `22` Document
+can be reviewed again without repeating its three body searches.
 
 To start after docket review, use `--from-docket-review-documents PATH`. The
 saved Documents must contain stage `17_docket_root_lookup_review`; the runner
@@ -128,8 +140,8 @@ stage `11_docket_root_equivalence_review`. Its stage score checks assignments fo
 the docket roots it reviewed. The grow-roots field summary uses the roots
 after that review; the `10_roots` stage score remains available separately.
 
-Root validation continues with numbered stages `12` through `23`: four reporter
-lookup and review stages, CourtListener docket/opinion search and its
+Root validation continues with numbered stages `12.1` through `23`: separate
+reporter retrieval and review stages, CourtListener docket/opinion search and its
 number-based shortlist review, GovInfo docket lookup and review, then three
 locator-first body searches and `23_locator_body_review`. Retrieval stages
 record evidence but make no field judgment. The Markdown report lists every
@@ -140,7 +152,7 @@ and an identity verdict;
 these do not enter the field-identity precision table. The workflow summary
 uses the latest comparable field judgment for each root against the same
 annotated-root denominator.
-Saved runs ending at stage `19` retain their original six-stage report format.
+Saved runs ending at stage `19` retain their stage-specific field report format.
 
 Runs that continue through stages `24`–`27` list those stages after `23` in the
 same report. Stages `24`–`26` retrieve case-name evidence and receive no score.

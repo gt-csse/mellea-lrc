@@ -7,7 +7,13 @@ import asyncio
 import pytest
 from pydantic import ValidationError
 
-from mellea_lrc.api import Document, grow_roots, reporter_root_lookup, reporter_root_lookup_ambiguous
+from mellea_lrc.api import (
+    Document,
+    grow_roots,
+    reporter_root_lookup,
+    reporter_root_lookup_ambiguous,
+    reporter_root_lookup_ambiguous_dockets,
+)
 from mellea_lrc.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.model import Span
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
@@ -24,6 +30,7 @@ from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm.reviewer import (
 
 SOURCE = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
 NORMALIZED_NAME = {"kind": "adversarial", "plaintiff": "Bell Atl. Corp.", "defendant": "Twombly"}
+REVIEW_STAGE = "13.2_reporter_root_lookup_ambiguous_review"
 
 
 def _cluster(identifier: int, name: str, *, full_name_available: bool = True) -> dict[str, object]:
@@ -126,7 +133,14 @@ def _review_input(
         misread = root.record("test_incorrect_reading").with_case_name(source, Span(start, end))
         roots = roots.replace_citation(misread).complete("test_incorrect_reading")
     lookup = reporter_root_lookup(roots, client=client)
-    before = reporter_root_lookup_ambiguous(lookup, client=client)
+    assert lookup.roots[0].reporter_exact_ambiguity_resolution is None
+    dockets = reporter_root_lookup_ambiguous_dockets(lookup, client=client)
+    assert dockets.roots[0].reporter_exact_ambiguity_resolution is None
+    assert client.lookup_calls == 1
+    before = reporter_root_lookup_ambiguous(dockets)
+    assert client.lookup_calls == 1
+    assert before.get_stage("12.1_reporter_root_lookup") == lookup
+    assert before.get_stage("13.1_reporter_root_lookup_ambiguous_dockets") == dockets
     resolution = before.roots[0].reporter_exact_ambiguity_resolution
     assert resolution is not None
     assert resolution.outcome is ReporterExactAmbiguityOutcome.NO_UNIQUE_RULE_MATCH
@@ -177,7 +191,7 @@ def test_model_can_select_one_of_all_saved_candidates_after_zero_or_multiple_rul
     assert context.passing_candidate_indices == passing
     assert len(context.rule_results) == len(names)
     assert before.roots[0].reporter_exact_ambiguity_resolution.passing_candidate_indices == passing
-    assert after.get_stage("13_reporter_root_lookup_ambiguous") == before
+    assert after.get_stage(REVIEW_STAGE) == before
     root = after.roots[0]
     previous = before.roots[0]
     assert len(root.nodes) == len(previous.nodes) + 1
@@ -198,11 +212,16 @@ def test_model_can_select_one_of_all_saved_candidates_after_zero_or_multiple_rul
         assert judgment.result is MatchResult.MATCH
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
     assert root.next_stage is None
-    assert [route.value for route in root.routes] == ["13_reporter_root_lookup_ambiguous", STAGE, None]
+    assert [route.value for route in root.routes] == [
+        "13.1_reporter_root_lookup_ambiguous_dockets",
+        REVIEW_STAGE,
+        STAGE,
+        None,
+    ]
     assert root.routes[-1].node_id == root.nodes[-1].id
     restored = Document.model_validate_json(after.model_dump_json())
     assert restored == after
-    assert restored.get_stage("13_reporter_root_lookup_ambiguous") == before
+    assert restored.get_stage(REVIEW_STAGE) == before
 
 
 def test_no_model_selection_routes_without_new_candidate_or_identity_judgments() -> None:
@@ -427,7 +446,8 @@ def test_stage_ignores_rule_selected_root_and_does_not_call_reviewer() -> None:
     client = FakeLookupClient(("Jones v. Smith", "Bell Atlantic Corporation v. Twombly"))
     roots = asyncio.run(grow_roots(Document.from_source(SOURCE), hunt_dockets=False))
     lookup = reporter_root_lookup(roots, client=client)
-    before = reporter_root_lookup_ambiguous(lookup, client=client)
+    dockets = reporter_root_lookup_ambiguous_dockets(lookup, client=client)
+    before = reporter_root_lookup_ambiguous(dockets)
     assert before.roots[0].identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
     reviewer = FakeReviewer(_decision(1))
 
@@ -436,6 +456,6 @@ def test_stage_ignores_rule_selected_root_and_does_not_call_reviewer() -> None:
     assert reviewer.contexts == []
     assert after.roots == before.roots
     assert after.stage_runs[-1] == STAGE
-    assert after.get_stage("13_reporter_root_lookup_ambiguous") == before
+    assert after.get_stage(REVIEW_STAGE) == before
     with pytest.raises(ValueError, match="already completed"):
         asyncio.run(reporter_root_lookup_ambiguous_llm(after, reviewer=reviewer))

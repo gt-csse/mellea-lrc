@@ -8,7 +8,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from mellea_lrc.api import Document, grow_roots, reporter_root_lookup
+from mellea_lrc.api import Document, grow_roots, reporter_root_lookup, reporter_root_lookup_review
 from mellea_lrc.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.model import Span
 from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
@@ -26,6 +26,7 @@ from mellea_lrc.validation.reporter_root_lookup_unique_llm.reviewer import (
 
 SOURCE = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
 NORMALIZED_NAME = {"kind": "adversarial", "plaintiff": "Bell Atl. Corp.", "defendant": "Twombly"}
+REVIEW_STAGE = "12.2_reporter_root_lookup_review"
 
 
 class FakeLookupClient:
@@ -37,6 +38,7 @@ class FakeLookupClient:
         court_id: str = "scotus",
         date_filed: str | None = "2007-05-21",
     ) -> None:
+        self.lookup_calls = 0
         self.response = CourtListenerCitationLookup.model_validate(
             {
                 "citation": "550 U.S. 544",
@@ -56,6 +58,7 @@ class FakeLookupClient:
 
     def lookup_citation(self, volume: str, reporter: str, page: str) -> CourtListenerCitationLookup:
         assert (volume, reporter, page) == ("550", "U.S.", "544")
+        self.lookup_calls += 1
         return self.response
 
     def get_docket(self, docket_id: str) -> None:
@@ -118,7 +121,14 @@ def _review_input(
         end = source.index(", 550")
         misread = root.record("test_incorrect_reading").with_case_name(source, Span(start, end))
         roots = roots.replace_citation(misread).complete("test_incorrect_reading")
-    result = reporter_root_lookup(roots, client=client or FakeLookupClient())
+    service = client or FakeLookupClient()
+    retrieved = reporter_root_lookup(roots, client=service)
+    assert retrieved.roots[0].case_name_judgments == ()
+    assert retrieved.roots[0].identity_judgments == ()
+    calls = service.lookup_calls
+    result = reporter_root_lookup_review(retrieved)
+    assert service.lookup_calls == calls == 1
+    assert result.get_stage("12.1_reporter_root_lookup") == retrieved
     assert result.roots[0].identity_judgments == ()
     assert result.roots[0].next_stage == STAGE
     return result
@@ -215,12 +225,14 @@ def test_generated_review_json_rejects_inconsistent_replacement_intent(
 
 
 def test_combined_review_corrects_grounded_name_and_judges_latest_readings() -> None:
-    before = _review_input(incorrect_case_name=True)
+    client = FakeLookupClient()
+    before = _review_input(incorrect_case_name=True, client=client)
     previous = before.roots[0]
     reviewer = FakeReviewer(_decision())
 
     after = asyncio.run(reporter_root_lookup_unique_llm(before, reviewer=reviewer))
 
+    assert client.lookup_calls == 1
     assert len(reviewer.contexts) == 1
     assert reviewer.contexts[0].inferred_court_note is not None
     assert "U.S." in reviewer.contexts[0].inferred_court_note
@@ -244,11 +256,11 @@ def test_combined_review_corrects_grounded_name_and_judges_latest_readings() -> 
         assert judgment.result is MatchResult.MATCH
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
     assert root.next_stage is None
-    assert [route.value for route in root.routes] == [STAGE, None]
+    assert [route.value for route in root.routes] == [REVIEW_STAGE, STAGE, None]
     assert root.routes[-1].node_id == root.nodes[-1].id
     restored = Document.model_validate_json(after.model_dump_json())
     assert restored == after
-    assert restored.get_stage("12_reporter_root_lookup") == before
+    assert restored.get_stage(REVIEW_STAGE) == before
     assert restored.get_stage(STAGE) == after
 
 
@@ -409,10 +421,11 @@ def test_model_normalization_without_a_grounded_name_is_rejected() -> None:
 
 def test_unique_review_processes_only_citations_routed_to_its_stage() -> None:
     roots = asyncio.run(grow_roots(Document.from_source(SOURCE), hunt_dockets=False))
-    already_admitted = reporter_root_lookup(
+    retrieved = reporter_root_lookup(
         roots,
         client=FakeLookupClient(case_name_full="Bell Atlantic Corporation v. Twombly"),
     )
+    already_admitted = reporter_root_lookup_review(retrieved)
     assert already_admitted.roots[0].identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
     reviewer = FakeReviewer(_decision())
 
@@ -436,7 +449,7 @@ def test_model_field_mismatch_produces_wrong_identity() -> None:
     assert root.date_judgments[-1].result is MatchResult.MATCH
     assert root.identity_judgments[-1].verdict is IdentityVerdict.WRONG_IDENTITY
     assert root.next_stage is None
-    assert [route.value for route in root.routes] == [STAGE, None]
+    assert [route.value for route in root.routes] == [REVIEW_STAGE, STAGE, None]
 
 
 def test_failed_review_preserves_ivr_trace_and_routes_to_search() -> None:
@@ -452,7 +465,7 @@ def test_failed_review_preserves_ivr_trace_and_routes_to_search() -> None:
     root = after.roots[0]
     assert root.identity_judgments == before.roots[0].identity_judgments == ()
     assert root.next_stage == "reporter_root_search"
-    assert [route.value for route in root.routes] == [STAGE, "reporter_root_search"]
+    assert [route.value for route in root.routes] == [REVIEW_STAGE, STAGE, "reporter_root_search"]
     assert "Incomplete JSON" in root.model_dump_json()
     assert Document.model_validate_json(after.model_dump_json()) == after
 
@@ -475,7 +488,7 @@ def test_ungrounded_model_correction_is_not_written_and_routes_to_search() -> No
 def test_review_records_unavailable_field_without_a_source_reading() -> None:
     source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544."
     roots = asyncio.run(grow_roots(Document.from_source(source), hunt_dockets=False))
-    before = reporter_root_lookup(roots, client=FakeLookupClient())
+    before = reporter_root_lookup_review(reporter_root_lookup(roots, client=FakeLookupClient()))
     assert before.roots[0].next_stage == STAGE
     decision = _decision(date_quote=None, date_result="unavailable")
 

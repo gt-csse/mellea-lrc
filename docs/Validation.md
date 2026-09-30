@@ -2,27 +2,29 @@
 
 Validation entrypoints take and return a `Document`; each appends only the citation readings and judgments it produces. A stage that needs substantial private logic is a package with its `Document` entrypoint in `__init__.py`, including the reporter and docket model-review stages. Their candidate preparation, prompts, and reviewer implementations stay beside the stage. `reporter_exact/` holds rules shared by reporter lookup stages, while `reporter_review/` holds grounding and field updates shared by their model reviews. Provider clients stay in `courtlistener/` and `govinfo/`; typed lookup responses and judgments stay with the citation model. Bounded citation windows live in `model/citation_windows.py`; deterministic fuzzy matching and quote grounding live in `matching/`. Neither role imports a validation stage.
 
-`reporter_root_lookup(document)` runs as stage `12_reporter_root_lookup` after extraction, which ends with `11_docket_root_equivalence_review` when that optional review is enabled. It requires the `10_roots` checkpoint. It looks up each full reporter root once by normalized volume, reporter edition, and first page. Docket roots and repeated reporter occurrences are untouched. The citation stores one `ReporterExactLookup` object containing the query and complete CourtListener response. Provider failures raise; they are not recorded as lookup misses.
+`reporter_root_lookup(document)` runs at stage `12.1_reporter_root_lookup` after extraction. It requires `10_roots` and retrieves each full reporter root once by normalized volume, reporter edition, and first page. The citation stores the query, complete CourtListener response, and any linked docket needed for a unique candidate's court. Provider failures raise; they are not recorded as lookup misses. This stage makes no field or identity judgment.
 
-When the response has one cluster, the stage compares the citation's latest case-name, court, and date readings with that cluster. For an adversarial name, the rule comparison requires both parties to appear separately in `caseNameFull`, allowing abbreviations from `reporters-db` without treating different full words as synonyms. A printed partial name cannot pass this complete-name rule; its case-name comparison is unavailable and routes to model review. Courts are compared by recognized court ID when the response has one. CourtListener exact-lookup clusters can omit court metadata: in that case, a court inferred only from the reporter is left unjudged, while an explicitly written court routes to review. A written full date requires the same full date; a written year requires the same year. If either side has no date, the stage makes no date judgment and does not penalize identity for it.
+For a unique response, `reporter_root_lookup_review(document)` runs at stage `12.2_reporter_root_lookup_review` using only saved evidence. It compares the citation's latest case-name, court, and date readings with the cluster. For an adversarial name, the rule comparison requires both parties to appear separately in `caseNameFull`, allowing abbreviations from `reporters-db` without treating different full words as synonyms. A printed partial name cannot pass this complete-name rule and routes to model review. Courts are compared by recognized court ID, including a saved linked docket when the cluster omits its court. A written full date requires the same full date; a written year requires the same year. If either side has no date, the stage makes no date judgment.
 
-Each available comparison appends a field-specific judgment referencing the absolute index of its citation reading and the index of the cluster in the saved response. It does not copy either value. A unique cluster is marked `CORRECT_IDENTITY` when the case name and all applicable court and date checks match and its listed locator does not conflict. A mismatch or unreadable comparison routes to `14_reporter_root_lookup_unique_llm`; the rule stage does not declare a wrong identity. Multiple clusters route to `13_reporter_root_lookup_ambiguous` without selecting one, and no cluster routes to `reporter_root_search`. The latest identity judgment names the next stage directly. The lookup can retrieve zero, one, or several records; only its one-record branch makes a rule-based identity decision.
+Each available comparison appends a field-specific judgment referencing its citation reading and candidate index. A unique cluster is marked `CORRECT_IDENTITY` when the case name and all applicable court and date checks match and its listed locator does not conflict. A mismatch or unreadable comparison routes to `14_reporter_root_lookup_unique_llm`; the rule stage does not declare a wrong identity. Multiple clusters route to `13.1_reporter_root_lookup_ambiguous_dockets`, which saves any linked dockets needed for court comparison. `13.2_reporter_root_lookup_ambiguous_review` then makes its rule judgments without provider calls. No cluster routes to `reporter_root_search`.
 
 ```python
 from pathlib import Path
 
-from mellea_lrc.api import Document, reporter_root_lookup
+from mellea_lrc.api import Document, reporter_root_lookup, reporter_root_lookup_review
 
 checkpoint = Path("reporter-roots.json")
 document = Document.model_validate_json(checkpoint.read_text())
 document = reporter_root_lookup(document)
-checkpoint.write_text(document.model_dump_json())
+lookup_only = document.get_stage("12.1_reporter_root_lookup")
+checkpoint.write_text(lookup_only.model_dump_json())
+document = reporter_root_lookup_review(document)
 
 before_lookup = document.get_stage("10_roots")
-after_lookup = document.get_stage("12_reporter_root_lookup")
+after_review = document.get_stage("12.2_reporter_root_lookup_review")
 ```
 
-The single lookup object, field judgments, and identity judgment are part of the citation's append-only history. A later checkpoint retains them, while `get_stage("10_roots")` removes them from the recovered earlier view.
+The lookup object and later judgments are separate append-only nodes. Recovering stage `12.1` retains the provider result and removes the judgments, so rule review can be replayed without another lookup.
 
 ## Unique lookup model review
 
@@ -34,7 +36,7 @@ The stages remain separate and return a complete `Document`:
 from mellea_lrc.api import reporter_root_lookup_unique_llm
 
 document = await reporter_root_lookup_unique_llm(document)
-before_review = document.get_stage("12_reporter_root_lookup")
+before_review = document.get_stage("13.2_reporter_root_lookup_ambiguous_review")
 after_review = document.get_stage("14_reporter_root_lookup_unique_llm")
 ```
 
