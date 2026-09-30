@@ -11,11 +11,15 @@ from mellea_lrc.api import (
     grow_roots,
     reporter_root_lookup,
     reporter_root_lookup_ambiguous,
+    reporter_root_lookup_ambiguous_dockets,
 )
 from mellea_lrc.courtlistener import CourtListenerCitationLookup, CourtListenerDocket
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactAmbiguityOutcome
 from mellea_lrc.validation.reporter_root_lookup_ambiguous import STAGE
+from mellea_lrc.validation.reporter_root_lookup_ambiguous_dockets import STAGE as DOCKETS_STAGE
+
+LOOKUP_STAGE = "12.1_reporter_root_lookup"
 
 SOURCE = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
 
@@ -56,16 +60,40 @@ def exact(client: FakeClient) -> Document:
     return reporter_root_lookup(roots, client=client)
 
 
+def _dockets(before: Document, client: FakeClient) -> Document:
+    lookup_calls = client.lookup_calls
+    after = reporter_root_lookup_ambiguous_dockets(before, client=client)
+    assert client.lookup_calls == lookup_calls
+    assert after.get_stage(LOOKUP_STAGE) == before
+    assert after.roots[0].reporter_exact_ambiguity_resolution is None
+    assert after.roots[0].case_name_judgments == ()
+    assert after.roots[0].court_judgments == ()
+    assert after.roots[0].date_judgments == ()
+    return after
+
+
+def _reviewed(before: Document, client: FakeClient) -> Document:
+    calls = (client.lookup_calls, tuple(client.docket_calls))
+    after = reporter_root_lookup_ambiguous(before)
+    assert (client.lookup_calls, tuple(client.docket_calls)) == calls
+    assert after.get_stage(before.stage_runs[-1]) == before
+    return after
+
+
 def test_unique_passing_candidate_is_admitted_and_all_comparisons_are_saved() -> None:
     client = FakeClient([cluster(1, caseNameFull="Jones v. Smith"), cluster(2)])
-    before = exact(client)
+    retrieved = exact(client)
+    before = _dockets(retrieved, client)
 
-    after = reporter_root_lookup_ambiguous(before, client=client)
+    checkpoint = Document.model_validate_json(before.model_dump_json())
+    assert checkpoint == before
+    after = _reviewed(checkpoint, client)
 
     assert client.lookup_calls == 1
     assert client.docket_calls == []
     assert after.stage_runs[-1] == STAGE
-    assert after.get_stage("12_reporter_root_lookup") == before
+    assert after.get_stage(LOOKUP_STAGE) == retrieved
+    assert after.get_stage(DOCKETS_STAGE) == before
     root = after.roots[0]
     resolution = root.reporter_exact_ambiguity_resolution
     assert resolution is not None
@@ -80,7 +108,7 @@ def test_unique_passing_candidate_is_admitted_and_all_comparisons_are_saved() ->
     assert [item.candidate_index for item in root.date_judgments] == [0, 1]
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
     assert root.next_stage is None
-    assert [route.value for route in root.routes] == [STAGE, None]
+    assert [route.value for route in root.routes] == [DOCKETS_STAGE, STAGE, None]
     assert root.routes[-1].node_id == root.nodes[-1].id
     assert all(
         record.node_id == root.nodes[-1].id
@@ -94,9 +122,10 @@ def test_unique_passing_candidate_is_admitted_and_all_comparisons_are_saved() ->
     )
     restored = Document.model_validate_json(after.model_dump_json())
     assert restored == after
-    assert restored.get_stage("12_reporter_root_lookup") == before
+    assert restored.get_stage(LOOKUP_STAGE) == retrieved
+    assert restored.get_stage(DOCKETS_STAGE) == before
     with pytest.raises(ValueError, match="already completed"):
-        reporter_root_lookup_ambiguous(after, client=client)
+        reporter_root_lookup_ambiguous(after)
 
 
 @pytest.mark.parametrize(
@@ -110,7 +139,7 @@ def test_zero_or_multiple_passing_candidates_wait_for_model_review(
     clusters: list[dict[str, object]], passing: tuple[int, ...]
 ) -> None:
     client = FakeClient(clusters)
-    after = reporter_root_lookup_ambiguous(exact(client), client=client)
+    after = _reviewed(_dockets(exact(client), client), client)
     root = after.roots[0]
     resolution = root.reporter_exact_ambiguity_resolution
     assert resolution is not None
@@ -119,14 +148,14 @@ def test_zero_or_multiple_passing_candidates_wait_for_model_review(
     assert resolution.selected_candidate_index is None
     assert root.identity_judgments == ()
     assert root.next_stage == "15_reporter_root_lookup_ambiguous_llm"
-    assert [route.value for route in root.routes] == [STAGE, root.next_stage]
+    assert [route.value for route in root.routes] == [DOCKETS_STAGE, STAGE, root.next_stage]
 
 
 def test_large_candidate_set_is_preserved_without_review_or_truncation() -> None:
     client = FakeClient([cluster(index) for index in range(20)])
-    before = exact(client)
+    before = _dockets(exact(client), client)
 
-    after = reporter_root_lookup_ambiguous(before, client=client)
+    after = _reviewed(before, client)
 
     root = after.roots[0]
     resolution = root.reporter_exact_ambiguity_resolution
@@ -147,7 +176,11 @@ def test_candidate_docket_court_is_saved_and_checked_independently() -> None:
         dockets={"10": docket},
     )
 
-    after = reporter_root_lookup_ambiguous(exact(client), client=client)
+    retrieved = exact(client)
+    before = _dockets(retrieved, client)
+    assert client.docket_calls == ["10"]
+    assert before.roots[0].reporter_exact_candidate_dockets[0].response == docket
+    after = _reviewed(before, client)
 
     root = after.roots[0]
     assert client.docket_calls == ["10"]
@@ -164,23 +197,25 @@ def test_candidate_docket_court_is_saved_and_checked_independently() -> None:
 def test_nonambiguous_root_does_not_gain_a_node() -> None:
     roots = asyncio.run(grow_roots(Document.from_source(SOURCE), hunt_dockets=False))
     client = FakeClient([cluster(1)])
-    before = reporter_root_lookup(roots, client=client)
-    after = reporter_root_lookup_ambiguous(before, client=client)
+    retrieved = reporter_root_lookup(roots, client=client)
+    before = _dockets(retrieved, client)
+    after = _reviewed(before, client)
 
     assert after.stage_runs[-1] == STAGE
     assert after.roots == before.roots
-    assert after.get_stage("12_reporter_root_lookup") == before
+    assert after.get_stage(LOOKUP_STAGE) == retrieved
+    assert after.get_stage(DOCKETS_STAGE) == before
 
 
 def test_only_exactly_routed_roots_are_processed() -> None:
     roots = asyncio.run(grow_roots(Document.from_source(SOURCE), hunt_dockets=False))
     client = FakeClient([cluster(1), cluster(2, caseNameFull="Jones v. Smith")])
-    before = reporter_root_lookup(roots, client=client)
+    before = _dockets(reporter_root_lookup(roots, client=client), client)
     root = before.roots[0]
     almost_stage = root.record("route_setup").with_route(f"{STAGE}_review")
     routed = before.replace_citation(almost_stage).complete("route_setup")
 
-    after = reporter_root_lookup_ambiguous(routed, client=client)
+    after = _reviewed(routed, client)
 
     assert after.roots[0].nodes == routed.roots[0].nodes
     assert after.roots[0].reporter_exact_ambiguity_resolution is None

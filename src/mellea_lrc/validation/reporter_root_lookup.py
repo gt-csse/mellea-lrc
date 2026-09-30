@@ -1,4 +1,4 @@
-"""Retrieve reporter-root candidates and rule-judge one-candidate results."""
+"""Retrieve and save exact reporter-root candidates without judging them."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from mellea_lrc.courtlistener import (
     CourtListenerError,
 )
 from mellea_lrc.model.citations import FullReporterCitation
-from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactDocket,
     ReporterExactLookup,
@@ -20,15 +19,11 @@ from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactLookupQuery,
 )
 from mellea_lrc.model.document import Document
-from mellea_lrc.validation.reporter_exact.fields import (
-    candidate_court_id,
-    case_name_result,
-    court_result,
-    date_result,
-    locator_present,
-)
+from mellea_lrc.validation.reporter_exact.fields import candidate_court_id
 
-STAGE = "12_reporter_root_lookup"
+STAGE = "12.1_reporter_root_lookup"
+UNIQUE_REVIEW_STAGE = "12.2_reporter_root_lookup_review"
+AMBIGUOUS_DOCKETS_STAGE = "13.1_reporter_root_lookup_ambiguous_dockets"
 
 
 class ReporterLookupClient(Protocol):
@@ -39,46 +34,15 @@ class ReporterLookupClient(Protocol):
     def get_docket(self, docket_id: str) -> CourtListenerDocket | None: ...
 
 
-def _judge_unique(citation: FullReporterCitation, query: ReporterExactLookupQuery) -> FullReporterCitation:
-    """Compare one cluster, retaining independent field results and one route."""
-    lookup = citation.reporter_exact_lookup
-    if lookup is None or lookup.response is None or len(lookup.response.clusters) != 1:
-        raise ValueError("Unique reporter judgment requires one saved candidate")
-    candidate = lookup.response.clusters[0]
-    docket = citation.reporter_exact_docket.response if citation.reporter_exact_docket is not None else None
-    field_results: list[MatchResult] = []
-    if citation.case_name:
-        result = case_name_result(citation, candidate)
-        citation = citation.with_case_name_judgment(len(citation.case_name) - 1, 0, result)
-        field_results.append(result)
-    if citation.court:
-        result = court_result(citation, candidate, docket)
-        citation = citation.with_court_judgment(len(citation.court) - 1, 0, result)
-        field_results.append(result)
-    # If either side has no date, there is no date opinion and no identity penalty.
-    if citation.date and candidate.date_filed:
-        result = date_result(citation, candidate)
-        citation = citation.with_date_judgment(len(citation.date) - 1, 0, result)
-        field_results.append(result)
-    if (
-        citation.case_name_judgments
-        and all(result is MatchResult.MATCH for result in field_results)
-        and locator_present(candidate, query) is not False
-    ):
-        return citation.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
-    return citation.with_route("14_reporter_root_lookup_unique_llm")
-
-
 def reporter_root_lookup(
     document: Document,
     *,
     client: ReporterLookupClient | None = None,
 ) -> Document:
-    """Look up each reporter root once and decide one-candidate rule matches.
+    """Save exact lookup responses and unique-candidate linked court evidence.
 
-    A unique candidate with any disagreement goes to model review; multiple
-    candidates go to the separate ambiguous stage, and a miss goes to search.
-    Provider failures abort instead of masquerading as a lookup miss.
+    Field comparison belongs to the next stage. Provider failures abort
+    instead of masquerading as a lookup miss.
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
@@ -142,9 +106,9 @@ def reporter_root_lookup(
                                 response=docket_cache[docket_id],
                             )
                         )
-                    recorded = _judge_unique(recorded, query)
+                    recorded = recorded.with_route(UNIQUE_REVIEW_STAGE)
                 elif outcome is ReporterExactLookupOutcome.AMBIGUOUS:
-                    recorded = recorded.with_route("13_reporter_root_lookup_ambiguous")
+                    recorded = recorded.with_route(AMBIGUOUS_DOCKETS_STAGE)
                 else:
                     recorded = recorded.with_route("reporter_root_search")
             document = document.replace_citation(recorded)

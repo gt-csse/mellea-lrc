@@ -1,43 +1,29 @@
-"""Rule-only assessment of saved reporter lookups with multiple candidates."""
+"""Rule-only assessment of saved ambiguous reporter evidence."""
 
 from __future__ import annotations
 
-from contextlib import ExitStack
-from typing import Protocol
-
-from mellea_lrc.courtlistener import CourtListenerClient, CourtListenerDocket
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactAmbiguityOutcome,
     ReporterExactAmbiguityResolution,
-    ReporterExactCandidateDocket,
     ReporterExactLookupOutcome,
 )
 from mellea_lrc.model.document import Document
 from mellea_lrc.validation.reporter_exact.fields import (
-    candidate_court_id,
     case_name_result,
     court_result,
     date_result,
     locator_present,
 )
 
-STAGE = "13_reporter_root_lookup_ambiguous"
-LOOKUP_STAGE = "12_reporter_root_lookup"
+STAGE = "13.2_reporter_root_lookup_ambiguous_review"
+LOOKUP_STAGE = "13.1_reporter_root_lookup_ambiguous_dockets"
 CANDIDATE_LIMIT = 20
-
-
-class ReporterDocketClient(Protocol):
-    """Only linked-docket retrieval is needed; exact results are already saved."""
-
-    def get_docket(self, docket_id: str) -> CourtListenerDocket | None: ...
 
 
 def reporter_root_lookup_ambiguous(
     document: Document,
-    *,
-    client: ReporterDocketClient | None = None,
 ) -> Document:
     """Judge every bounded candidate and admit only a unique full rule match.
 
@@ -48,89 +34,70 @@ def reporter_root_lookup_ambiguous(
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
     if LOOKUP_STAGE not in document.stage_runs:
-        raise ValueError("Complete reporter lookup before ambiguous-candidate review")
+        raise ValueError("Retrieve ambiguous docket evidence before candidate review")
     roots = tuple(root for root in document.roots if isinstance(root, FullReporterCitation))
-    docket_cache: dict[str, CourtListenerDocket | None] = {}
-    with ExitStack() as stack:
-        service = client
-        for root in roots:
-            if root.next_stage != STAGE:
-                continue
-            lookup = root.reporter_exact_lookup
-            if (
-                lookup is None
-                or lookup.outcome is not ReporterExactLookupOutcome.AMBIGUOUS
-                or lookup.query is None
-                or lookup.response is None
-            ):
-                raise ValueError("Ambiguous route requires a saved multi-candidate reporter lookup")
-            recorded = root.record(STAGE)
-            candidates = lookup.response.clusters
-            if len(candidates) >= CANDIDATE_LIMIT:
-                resolution = ReporterExactAmbiguityResolution(
-                    node_id=recorded.nodes[-1].id,
-                    outcome=ReporterExactAmbiguityOutcome.CANDIDATE_LIMIT_EXCEEDED,
-                )
-                recorded = recorded.with_reporter_exact_ambiguity_resolution(resolution)
-                recorded = recorded.with_route("reporter_root_lookup_large_candidate_review")
-            else:
-                passing: list[int] = []
-                for index, candidate in enumerate(candidates):
-                    docket: CourtListenerDocket | None = None
-                    if recorded.court and candidate.docket_id and candidate_court_id(candidate) is None:
-                        docket_id = candidate.docket_id
-                        if docket_id not in docket_cache:
-                            if service is None:
-                                service = stack.enter_context(CourtListenerClient())
-                            docket_cache[docket_id] = service.get_docket(docket_id)
-                        docket = docket_cache[docket_id]
-                        recorded = recorded.with_reporter_exact_candidate_docket(
-                            ReporterExactCandidateDocket(
-                                node_id=recorded.nodes[-1].id,
-                                candidate_index=index,
-                                docket_id=docket_id,
-                                response=docket,
-                            )
-                        )
-                    results: list[MatchResult] = []
-                    if recorded.case_name:
-                        result = case_name_result(recorded, candidate)
-                        recorded = recorded.with_case_name_judgment(
-                            len(recorded.case_name) - 1, index, result
-                        )
-                        results.append(result)
-                    if recorded.court:
-                        result = court_result(recorded, candidate, docket)
-                        recorded = recorded.with_court_judgment(len(recorded.court) - 1, index, result)
-                        results.append(result)
-                    # As in the unique route, an unavailable date expresses no date opinion.
-                    if recorded.date and candidate.date_filed:
-                        result = date_result(recorded, candidate)
-                        recorded = recorded.with_date_judgment(len(recorded.date) - 1, index, result)
-                        results.append(result)
-                    if (
-                        recorded.case_name
-                        and results
-                        and all(result is MatchResult.MATCH for result in results)
-                        and locator_present(candidate, lookup.query) is not False
-                    ):
-                        passing.append(index)
-                selected = passing[0] if len(passing) == 1 else None
-                resolution = ReporterExactAmbiguityResolution(
-                    node_id=recorded.nodes[-1].id,
-                    outcome=(
-                        ReporterExactAmbiguityOutcome.UNIQUE_RULE_MATCH
-                        if selected is not None
-                        else ReporterExactAmbiguityOutcome.NO_UNIQUE_RULE_MATCH
-                    ),
-                    passing_candidate_indices=tuple(passing),
-                    selected_candidate_index=selected,
-                )
-                recorded = recorded.with_reporter_exact_ambiguity_resolution(resolution)
-                recorded = (
-                    recorded.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY).with_route(None)
+    for root in roots:
+        if root.next_stage != STAGE:
+            continue
+        lookup = root.reporter_exact_lookup
+        if (
+            lookup is None
+            or lookup.outcome is not ReporterExactLookupOutcome.AMBIGUOUS
+            or lookup.query is None
+            or lookup.response is None
+        ):
+            raise ValueError("Ambiguous route requires a saved multi-candidate reporter lookup")
+        recorded = root.record(STAGE)
+        candidates = lookup.response.clusters
+        if len(candidates) >= CANDIDATE_LIMIT:
+            resolution = ReporterExactAmbiguityResolution(
+                node_id=recorded.nodes[-1].id,
+                outcome=ReporterExactAmbiguityOutcome.CANDIDATE_LIMIT_EXCEEDED,
+            )
+            recorded = recorded.with_reporter_exact_ambiguity_resolution(resolution)
+            recorded = recorded.with_route("reporter_root_lookup_large_candidate_review")
+        else:
+            dockets = {item.candidate_index: item.response for item in recorded.reporter_exact_candidate_dockets}
+            passing: list[int] = []
+            for index, candidate in enumerate(candidates):
+                results: list[MatchResult] = []
+                if recorded.case_name:
+                    result = case_name_result(recorded, candidate)
+                    recorded = recorded.with_case_name_judgment(
+                        len(recorded.case_name) - 1, index, result
+                    )
+                    results.append(result)
+                if recorded.court:
+                    result = court_result(recorded, candidate, dockets.get(index))
+                    recorded = recorded.with_court_judgment(len(recorded.court) - 1, index, result)
+                    results.append(result)
+                if recorded.date and candidate.date_filed:
+                    result = date_result(recorded, candidate)
+                    recorded = recorded.with_date_judgment(len(recorded.date) - 1, index, result)
+                    results.append(result)
+                if (
+                    recorded.case_name
+                    and results
+                    and all(result is MatchResult.MATCH for result in results)
+                    and locator_present(candidate, lookup.query) is not False
+                ):
+                    passing.append(index)
+            selected = passing[0] if len(passing) == 1 else None
+            resolution = ReporterExactAmbiguityResolution(
+                node_id=recorded.nodes[-1].id,
+                outcome=(
+                    ReporterExactAmbiguityOutcome.UNIQUE_RULE_MATCH
                     if selected is not None
-                    else recorded.with_route("15_reporter_root_lookup_ambiguous_llm")
-                )
-            document = document.replace_citation(recorded)
+                    else ReporterExactAmbiguityOutcome.NO_UNIQUE_RULE_MATCH
+                ),
+                passing_candidate_indices=tuple(passing),
+                selected_candidate_index=selected,
+            )
+            recorded = recorded.with_reporter_exact_ambiguity_resolution(resolution)
+            recorded = (
+                recorded.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY).with_route(None)
+                if selected is not None
+                else recorded.with_route("15_reporter_root_lookup_ambiguous_llm")
+            )
+        document = document.replace_citation(recorded)
     return document.complete(STAGE)

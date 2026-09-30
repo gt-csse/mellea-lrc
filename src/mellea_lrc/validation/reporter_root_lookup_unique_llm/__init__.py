@@ -35,8 +35,8 @@ async def reporter_root_lookup_unique_llm(
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "12_reporter_root_lookup" not in document.stage_runs:
-        raise ValueError("Complete reporter lookup before its unique model review")
+    if "12.2_reporter_root_lookup_review" not in document.stage_runs:
+        raise ValueError("Complete unique reporter rule review before its model review")
     service = reviewer
     for root in tuple(item for item in document.roots if isinstance(item, FullReporterCitation)):
         if root.next_stage != STAGE:

@@ -1,4 +1,4 @@
-"""Exact reporter lookup retains one response and citation-local judgments."""
+"""Exact reporter retrieval saves evidence for a separate rule review."""
 
 from __future__ import annotations
 
@@ -6,14 +6,15 @@ import asyncio
 
 import pytest
 
-from mellea_lrc.api import Document, grow_roots, reporter_root_lookup
+from mellea_lrc.api import Document, grow_roots, reporter_root_lookup, reporter_root_lookup_review
 from mellea_lrc.courtlistener import CourtListenerCitationLookup, CourtListenerDocket, CourtListenerError
 from mellea_lrc.model import FullReporterCitation, Span
 from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactLookupOutcome
 
-STAGE = "12_reporter_root_lookup"
+STAGE = "12.1_reporter_root_lookup"
+REVIEW_STAGE = "12.2_reporter_root_lookup_review"
 
 
 class FakeLookupClient:
@@ -59,21 +60,43 @@ def _matching_cluster(**changes: object) -> dict[str, object]:
     }
 
 
+def _reviewed(before: Document, client: FakeLookupClient) -> Document:
+    retrieved = reporter_root_lookup(before, client=client)
+    calls = (tuple(client.calls), tuple(client.docket_calls))
+    reviewed = reporter_root_lookup_review(retrieved)
+    assert (tuple(client.calls), tuple(client.docket_calls)) == calls
+    assert reviewed.get_stage(STAGE) == retrieved
+    return reviewed
+
+
 def test_unique_lookup_records_matching_fields_and_identity_and_roundtrips() -> None:
     before = _document()
     client = FakeLookupClient(_response(_matching_cluster()))
 
-    after = reporter_root_lookup(before, client=client)
+    retrieved = reporter_root_lookup(before, client=client)
+    retrieved_root = retrieved.roots[0]
+    assert retrieved.stage_runs[-1] == STAGE
+    assert retrieved_root.reporter_exact_lookup is not None
+    assert retrieved_root.case_name_judgments == ()
+    assert retrieved_root.court_judgments == ()
+    assert retrieved_root.date_judgments == ()
+    assert retrieved_root.identity_judgments == ()
+    assert retrieved_root.next_stage == REVIEW_STAGE
+    checkpoint = Document.model_validate_json(retrieved.model_dump_json())
+    assert checkpoint == retrieved
+
+    after = reporter_root_lookup_review(checkpoint)
 
     assert client.calls == [("550", "U.S.", "544")]
-    assert after.stage_runs[-1] == STAGE
+    assert after.stage_runs[-1] == REVIEW_STAGE
     assert after.get_stage("10_roots") == before
-    assert after.get_stage(STAGE) == after
+    assert after.get_stage(STAGE) == retrieved
+    assert after.get_stage(REVIEW_STAGE) == after
     (root,) = after.roots
     assert isinstance(root, FullReporterCitation)
     lookup = root.reporter_exact_lookup
     assert lookup is not None
-    assert lookup.node_id == root.nodes[-1].id
+    assert lookup.node_id == root.nodes[-2].id
     assert lookup.outcome is ReporterExactLookupOutcome.UNIQUE
     assert lookup.query is not None
     assert (lookup.query.volume, lookup.query.edition, lookup.query.page) == (550, "U.S.", "544")
@@ -86,17 +109,17 @@ def test_unique_lookup_records_matching_fields_and_identity_and_roundtrips() -> 
         (root.date_judgments, root.date),
     ):
         (judgment,) = judgments
-        assert judgment.node_id == lookup.node_id
+        assert judgment.node_id == root.nodes[-1].id
         assert judgment.reading_index == len(readings) - 1
         assert judgment.candidate_index == 0
         assert judgment.result is MatchResult.MATCH
     (identity,) = root.identity_judgments
-    assert identity.node_id == lookup.node_id
+    assert identity.node_id == root.nodes[-1].id
     assert identity.verdict is IdentityVerdict.CORRECT_IDENTITY
     assert root.next_stage is None
-    assert root.routes == ()
+    assert [route.value for route in root.routes] == [REVIEW_STAGE, None]
     assert all(
-        record.node_id == lookup.node_id
+        record.node_id == root.nodes[-1].id
         for record in (
             *root.case_name_judgments,
             *root.court_judgments,
@@ -108,9 +131,12 @@ def test_unique_lookup_records_matching_fields_and_identity_and_roundtrips() -> 
     loaded = Document.model_validate_json(after.model_dump_json())
     assert loaded == after
     assert loaded.get_stage("10_roots") == before
-    assert loaded.get_stage(STAGE) == after
+    assert loaded.get_stage(STAGE) == retrieved
+    assert loaded.get_stage(REVIEW_STAGE) == after
     with pytest.raises(ValueError, match="already completed"):
         reporter_root_lookup(after, client=client)
+    with pytest.raises(ValueError, match="already completed"):
+        reporter_root_lookup_review(after)
     with pytest.raises(ValueError, match="already recorded"):
         root.record("later_review").with_reporter_exact_lookup(lookup)
 
@@ -124,7 +150,7 @@ def test_unique_lookup_records_matching_fields_and_identity_and_roundtrips() -> 
     ],
 )
 def test_unique_field_mismatch_routes_to_review(changed_cluster: dict[str, object], field_log: str) -> None:
-    after = reporter_root_lookup(
+    after = _reviewed(
         _document(), client=FakeLookupClient(_response(_matching_cluster(**changed_cluster)))
     )
     root = after.roots[0]
@@ -137,7 +163,7 @@ def test_unique_field_mismatch_routes_to_review(changed_cluster: dict[str, objec
 
 def test_missing_full_name_is_unavailable_and_routes_to_review() -> None:
     response = _response(_matching_cluster(caseNameFull=None))
-    after = reporter_root_lookup(_document(), client=FakeLookupClient(response))
+    after = _reviewed(_document(), FakeLookupClient(response))
     root = after.roots[0]
 
     assert root.case_name_judgments[0].result is MatchResult.UNAVAILABLE
@@ -158,7 +184,7 @@ def test_partial_case_name_cannot_make_a_rule_identity_judgment(candidate_name: 
     )
     before = before.replace_citation(root).complete("partial_name")
 
-    after = reporter_root_lookup(
+    after = _reviewed(
         before, client=FakeLookupClient(_response(_matching_cluster(caseNameFull=candidate_name)))
     )
     looked_up = after.roots[0]
@@ -170,7 +196,7 @@ def test_partial_case_name_cannot_make_a_rule_identity_judgment(candidate_name: 
 
 def test_missing_provider_court_routes_inferred_court_as_unavailable() -> None:
     response = _response(_matching_cluster(court_id=None))
-    after = reporter_root_lookup(_document(), client=FakeLookupClient(response))
+    after = _reviewed(_document(), FakeLookupClient(response))
     root = after.roots[0]
 
     assert root.court[-1].span is None
@@ -185,7 +211,10 @@ def test_unique_lookup_fetches_linked_docket_and_judges_court_before_identity() 
     )
     client = FakeLookupClient(response, dockets={"10": docket})
 
-    after = reporter_root_lookup(_document(), client=client)
+    retrieved = reporter_root_lookup(_document(), client=client)
+    assert retrieved.roots[0].reporter_exact_docket is not None
+    assert retrieved.roots[0].court_judgments == ()
+    after = reporter_root_lookup_review(retrieved)
     root = after.roots[0]
 
     assert client.docket_calls == ["10"]
@@ -194,7 +223,7 @@ def test_unique_lookup_fetches_linked_docket_and_judges_court_before_identity() 
     assert root.reporter_exact_docket.response == docket
     assert root.court_judgments[-1].result is MatchResult.MATCH
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
-    assert root.reporter_exact_docket.node_id == root.nodes[-1].id
+    assert root.reporter_exact_docket.node_id == root.nodes[-2].id
     assert Document.model_validate_json(after.model_dump_json()) == after
     altered = after.model_dump(mode="json")
     altered["citations"][0]["reporter_exact_docket"]["docket_id"] = "11"
@@ -207,7 +236,7 @@ def test_linked_docket_court_mismatch_routes_to_review() -> None:
     docket = CourtListenerDocket.model_validate({"id": 10, "court_id": "ca2"})
     client = FakeLookupClient(response, dockets={"10": docket})
 
-    after = reporter_root_lookup(_document(), client=client)
+    after = _reviewed(_document(), client)
     root = after.roots[0]
 
     assert root.case_name_judgments[-1].result is MatchResult.MATCH
@@ -221,7 +250,7 @@ def test_missing_linked_docket_cannot_silently_admit_inferred_court() -> None:
     response = _response(_matching_cluster(court_id=None, docketId=10))
     client = FakeLookupClient(response, dockets={"10": None})
 
-    after = reporter_root_lookup(_document(), client=client)
+    after = _reviewed(_document(), client)
     root = after.roots[0]
 
     assert root.reporter_exact_docket is not None
@@ -233,7 +262,7 @@ def test_missing_linked_docket_cannot_silently_admit_inferred_court() -> None:
 def test_missing_provider_court_routes_explicit_court_to_review() -> None:
     source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (S.D.N.Y. 2007)."
     response = _response(_matching_cluster(court_id=None))
-    after = reporter_root_lookup(_document(source), client=FakeLookupClient(response))
+    after = _reviewed(_document(source), FakeLookupClient(response))
     root = after.roots[0]
 
     assert root.court[-1].quote == "S.D.N.Y."
@@ -243,7 +272,7 @@ def test_missing_provider_court_routes_explicit_court_to_review() -> None:
 
 def test_nonmatching_listed_locator_routes_to_review_even_when_fields_match() -> None:
     response = _response(_matching_cluster(citations=[{"volume": 550, "reporter": "U.S.", "page": "545"}]))
-    after = reporter_root_lookup(_document(), client=FakeLookupClient(response))
+    after = _reviewed(_document(), FakeLookupClient(response))
     root = after.roots[0]
 
     assert root.case_name_judgments[0].result is MatchResult.MATCH
@@ -271,7 +300,7 @@ def test_multiple_results_preserve_all_clusters_and_route_to_ambiguity() -> None
     assert lookup.response.clusters[0].raw_json["extra_provider_detail"] == {"source": "first"}
     assert root.case_name_judgments == root.court_judgments == root.date_judgments == ()
     assert root.identity_judgments == ()
-    assert root.next_stage == "13_reporter_root_lookup_ambiguous"
+    assert root.next_stage == "13.1_reporter_root_lookup_ambiguous_dockets"
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -339,7 +368,7 @@ def test_judgments_use_absolute_reading_indices_and_survive_later_history() -> N
         .with_date(before.text, root.date[-1].span)
     )
     before = before.replace_citation(second_readings).complete("manual_review")
-    after = reporter_root_lookup(before, client=FakeLookupClient(_response(_matching_cluster())))
+    after = _reviewed(before, FakeLookupClient(_response(_matching_cluster())))
     looked_up = after.roots[0]
 
     assert [
@@ -359,7 +388,8 @@ def test_judgments_use_absolute_reading_indices_and_survive_later_history() -> N
     restored = Document.model_validate_json(final.model_dump_json())
     assert restored == final
     assert restored.get_stage("10_roots") == before.get_stage("10_roots")
-    assert restored.get_stage(STAGE) == after
+    assert restored.get_stage(STAGE) == after.get_stage(STAGE)
+    assert restored.get_stage(REVIEW_STAGE) == after
     assert restored.roots[0].case_name_judgments[0].reading_index == 1
     assert restored.roots[0].next_stage == "later_review"
     assert restored.roots[0].routes[-1].node_id == later.nodes[-1].id
@@ -378,7 +408,7 @@ def test_judgments_use_absolute_reading_indices_and_survive_later_history() -> N
 def test_json_reload_rejects_invalid_judgment_indices(
     field_log: str, index_name: str, bad_value: int
 ) -> None:
-    after = reporter_root_lookup(_document(), client=FakeLookupClient(_response(_matching_cluster())))
+    after = _reviewed(_document(), FakeLookupClient(_response(_matching_cluster())))
     altered = after.model_dump(mode="json")
     altered["citations"][0][field_log][0][index_name] = bad_value
 
@@ -392,7 +422,7 @@ def test_field_judgments_expose_only_three_results() -> None:
 
 @pytest.mark.parametrize("result", ["match", "mismatch"])
 def test_json_reload_rejects_comparison_without_a_filing_reading(result: str) -> None:
-    after = reporter_root_lookup(_document(), client=FakeLookupClient(_response(_matching_cluster())))
+    after = _reviewed(_document(), FakeLookupClient(_response(_matching_cluster())))
     altered = after.model_dump(mode="json")
     judgment = altered["citations"][0]["case_name_judgments"][0]
     judgment["reading_index"] = None

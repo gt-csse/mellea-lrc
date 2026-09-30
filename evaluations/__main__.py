@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import json
 import os
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -65,8 +66,10 @@ _ROOT_STAGES = (
 _RUN_STAGES = (
     *_ROOT_STAGES,
     "11_docket_root_equivalence_review",
-    "12_reporter_root_lookup",
-    "13_reporter_root_lookup_ambiguous",
+    "12.1_reporter_root_lookup",
+    "12.2_reporter_root_lookup_review",
+    "13.1_reporter_root_lookup_ambiguous_dockets",
+    "13.2_reporter_root_lookup_ambiguous_review",
     "14_reporter_root_lookup_unique_llm",
     "15_reporter_root_lookup_ambiguous_llm",
     "16_docket_root_lookup",
@@ -90,13 +93,18 @@ _FIELD_STAGES = (
     _INTENDED_CASE_REVIEW_STAGE,
 )
 _FIELD_RUN_STAGES = (*_RUN_STAGES, *_FIELD_STAGES)
-_REPORTER_REVIEW_INPUT_STAGE = "13_reporter_root_lookup_ambiguous"
+_REPORTER_REVIEW_INPUT_STAGE = "13.2_reporter_root_lookup_ambiguous_review"
 _REPORTER_REVIEW_INPUT_STAGES = _RUN_STAGES[: _RUN_STAGES.index(_REPORTER_REVIEW_INPUT_STAGE) + 1]
 _DOCKET_LOOKUP_STAGE = "16_docket_root_lookup"
 _DOCKET_REVIEW_INPUT_STAGE = "17_docket_root_lookup_review"
 _DOCKET_REVIEW_INPUT_STAGES = _RUN_STAGES[: _RUN_STAGES.index(_DOCKET_REVIEW_INPUT_STAGE) + 1]
 _VALIDATION_INPUT_STAGE = "19_govinfo_docket_lookup_review"
 _VALIDATION_INPUT_STAGES = _RUN_STAGES[: _RUN_STAGES.index(_VALIDATION_INPUT_STAGE) + 1]
+_REPORTER_TO_GOVINFO_STAGES = _RUN_STAGES[
+    _RUN_STAGES.index("12.1_reporter_root_lookup") : _RUN_STAGES.index(_VALIDATION_INPUT_STAGE) + 1
+]
+_BODY_CHECKPOINT_STAGES = (*_BODY_SEARCH_STAGES, _LOCATOR_BODY_REVIEW_STAGE)
+_VALIDATION_CHECKPOINT_STAGES = (*_REPORTER_TO_GOVINFO_STAGES, *_BODY_CHECKPOINT_STAGES)
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -255,6 +263,7 @@ async def _retry_body_stages(
     first_stage: str,
     retrospective_date: date | None,
     courtlistener_client: CourtListenerClient | None = None,
+    checkpoint: Callable[[Document], None] | None = None,
 ) -> Document:
     """Run the failed provider, later providers, and the cross-provider review."""
     client_kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
@@ -262,12 +271,21 @@ async def _retry_body_stages(
         document = courtlistener_opinion_locator_body_search(
             document, retrospective_date=retrospective_date, **client_kwargs
         )
+        if checkpoint is not None:
+            checkpoint(document)
     if first_stage in (_COURTLISTENER_OPINION_STAGE, _COURTLISTENER_RECAP_STAGE):
         document = courtlistener_recap_locator_body_search(
             document, retrospective_date=retrospective_date, **client_kwargs
         )
+        if checkpoint is not None:
+            checkpoint(document)
     document = govinfo_opinion_locator_body_search(document, retrospective_date=retrospective_date)
-    return await review_locator_body_evidence(document)
+    if checkpoint is not None:
+        checkpoint(document)
+    document = await review_locator_body_evidence(document)
+    if checkpoint is not None:
+        checkpoint(document)
+    return document
 
 
 def _reuse_docket_lookup(document: Document, saved: Document) -> Document:
@@ -338,6 +356,8 @@ async def _run(
     courtlistener_pool: str | None = None,
     annotation_case_cutoffs: bool = False,
     from_locator_review_documents: Path | None = None,
+    from_checkpoint_documents: Path | None = None,
+    checkpoint_stage: str | None = None,
 ) -> Path:
     if courtlistener_pool not in (None, "reserved", "proxy"):
         raise ValueError(f"Unsupported CourtListener pool: {courtlistener_pool}")
@@ -345,6 +365,10 @@ async def _run(
         raise ValueError("Choose either annotation case cutoffs or one retrospective date")
     if resume_run is not None and annotation_case_cutoffs:
         raise ValueError("Resume uses the cutoff mode saved in run.json")
+    if (from_checkpoint_documents is None) != (checkpoint_stage is None):
+        raise ValueError("Choose both checkpoint Documents and a checkpoint stage")
+    if checkpoint_stage is not None and checkpoint_stage not in _VALIDATION_CHECKPOINT_STAGES:
+        raise ValueError(f"Unsupported validation checkpoint: {checkpoint_stage}")
     if (
         sum(
             item is not None
@@ -354,6 +378,7 @@ async def _run(
                 from_docket_review_documents,
                 from_validation_documents,
                 from_locator_review_documents,
+                from_checkpoint_documents,
             )
         )
         > 1
@@ -395,6 +420,10 @@ async def _run(
             "from_locator_review_documents": (
                 str(from_locator_review_documents) if from_locator_review_documents else None
             ),
+            "from_checkpoint_documents": (
+                str(from_checkpoint_documents) if from_checkpoint_documents else None
+            ),
+            "checkpoint_stage": checkpoint_stage,
             "retrospective_date": retrospective_date.isoformat() if retrospective_date else None,
             "annotation_case_cutoffs": annotation_case_cutoffs,
             "annotation_header_sha256": annotation_header_sha256,
@@ -427,6 +456,13 @@ async def _run(
         from_validation_documents = Path(saved_validation) if saved_validation else None
         saved_locator_review = run_record.get("from_locator_review_documents")
         from_locator_review_documents = Path(saved_locator_review) if saved_locator_review else None
+        saved_checkpoint_documents = run_record.get("from_checkpoint_documents")
+        from_checkpoint_documents = Path(saved_checkpoint_documents) if saved_checkpoint_documents else None
+        checkpoint_stage = run_record.get("checkpoint_stage")
+        if (from_checkpoint_documents is None) != (checkpoint_stage is None):
+            raise ValueError("Saved run has an incomplete checkpoint source")
+        if checkpoint_stage is not None and checkpoint_stage not in _VALIDATION_CHECKPOINT_STAGES:
+            raise ValueError(f"Unsupported saved validation checkpoint: {checkpoint_stage}")
         saved_retrospective_date = run_record.get("retrospective_date")
         retrospective_date = (
             date.fromisoformat(saved_retrospective_date) if saved_retrospective_date else None
@@ -453,6 +489,7 @@ async def _run(
                     from_docket_review_documents,
                     from_validation_documents,
                     from_locator_review_documents,
+                    from_checkpoint_documents,
                 )
             )
             > 1
@@ -501,6 +538,7 @@ async def _run(
         completed: set[str] = set()
         retry_body: dict[str, tuple[Document, str]] = {}
         field_resume: dict[str, Document] = {}
+        validation_resume: dict[str, Document] = {}
         for filename in filenames:
             source = sources[filename]
             cutoff = case_cutoffs.get(filename, retrospective_date)
@@ -534,6 +572,70 @@ async def _run(
                             )
                         else:
                             completed.add(filename)
+            if filename not in completed and from_locator_review_documents is None:
+                previous_checkpoint: Document | None = None
+                missing_checkpoint = False
+                anchor_source: Path | None = None
+                anchor_stage: str | None = None
+                if from_checkpoint_documents is not None:
+                    anchor_source, anchor_stage = from_checkpoint_documents, checkpoint_stage
+                elif from_reporter_review_documents is not None:
+                    anchor_source, anchor_stage = (
+                        from_reporter_review_documents,
+                        _REPORTER_REVIEW_INPUT_STAGE,
+                    )
+                elif from_docket_review_documents is not None:
+                    anchor_source, anchor_stage = (
+                        from_docket_review_documents,
+                        _DOCKET_REVIEW_INPUT_STAGE,
+                    )
+                elif from_validation_documents is not None:
+                    anchor_source, anchor_stage = from_validation_documents, _VALIDATION_INPUT_STAGE
+                anchor = (
+                    _load_document(anchor_source / f"{filename}.json", source).get_stage(anchor_stage)
+                    if anchor_source is not None and anchor_stage is not None
+                    else None
+                )
+                if from_checkpoint_documents is not None:
+                    local_stages = _VALIDATION_CHECKPOINT_STAGES[
+                        _VALIDATION_CHECKPOINT_STAGES.index(checkpoint_stage) + 1 :
+                    ]
+                elif any(
+                    path is not None
+                    for path in (
+                        from_reporter_review_documents,
+                        from_docket_review_documents,
+                        from_validation_documents,
+                    )
+                ):
+                    local_stages = _BODY_CHECKPOINT_STAGES
+                else:
+                    local_stages = _VALIDATION_CHECKPOINT_STAGES
+                for stage in local_stages:
+                    checkpoint_path = _field_checkpoint(run_dir, stage, filename)
+                    if not checkpoint_path.exists():
+                        missing_checkpoint = True
+                        continue
+                    if missing_checkpoint:
+                        raise ValueError(f"Validation checkpoints skip a stage for {filename}")
+                    saved_checkpoint = _load_document(checkpoint_path, source)
+                    expected = _RUN_STAGES[: _RUN_STAGES.index(stage) + 1]
+                    if saved_checkpoint.stage_runs != expected:
+                        raise ValueError(f"Saved validation checkpoint is incomplete for {filename}")
+                    _check_body_search_cutoffs(saved_checkpoint, cutoff)
+                    if previous_checkpoint is not None:
+                        previous_stage = previous_checkpoint.stage_runs[-1]
+                        if saved_checkpoint.get_stage(previous_stage) != previous_checkpoint:
+                            raise ValueError(f"Validation checkpoints differ for {filename}")
+                    elif anchor is not None and saved_checkpoint.get_stage(anchor_stage) != anchor:
+                        raise ValueError(f"Validation checkpoint input differs for {filename}")
+                    previous_checkpoint = saved_checkpoint
+                if previous_checkpoint is not None:
+                    if failed_stage := _transient_body_failure_stage(previous_checkpoint):
+                        previous_stage = _RUN_STAGES[_RUN_STAGES.index(failed_stage) - 1]
+                        validation_resume[filename] = previous_checkpoint.get_stage(previous_stage)
+                    else:
+                        validation_resume[filename] = previous_checkpoint
             if locator_review_input is not None:
                 previous = locator_review_input
                 missing_checkpoint = False
@@ -587,6 +689,11 @@ async def _run(
                 ready = _load_document(saved, source).get_stage(_VALIDATION_INPUT_STAGE)
                 if ready.stage_runs != _VALIDATION_INPUT_STAGES:
                     raise ValueError(f"Saved validation input is incomplete for {filename}")
+            if filename not in completed and from_checkpoint_documents is not None:
+                saved = from_checkpoint_documents / f"{filename}.json"
+                ready = _load_document(saved, source).get_stage(checkpoint_stage)
+                if ready.stage_runs != _RUN_STAGES[: _RUN_STAGES.index(checkpoint_stage) + 1]:
+                    raise ValueError(f"Saved validation checkpoint is incomplete for {filename}")
 
         if courtlistener_pool == "reserved" and len(completed) != len(filenames):
             base_url = CourtListenerConfig.from_env().base_url
@@ -623,6 +730,11 @@ async def _run(
                 print(f"{index}/{len(filenames)} {filename} (incomplete; rerunning)", flush=True)
             if filename in retry_body:
                 document, failed_stage = retry_body[filename]
+            elif filename in validation_resume:
+                document = validation_resume[filename]
+            elif from_checkpoint_documents is not None:
+                saved = from_checkpoint_documents / f"{filename}.json"
+                document = _load_document(saved, source).get_stage(checkpoint_stage)
             elif from_validation_documents is not None:
                 saved = from_validation_documents / f"{filename}.json"
                 document = _load_document(saved, source).get_stage(_VALIDATION_INPUT_STAGE)
@@ -655,8 +767,23 @@ async def _run(
                 saved = from_roots_documents / f"{filename}.json"
                 document = _load_document(saved, source).get_stage(_ROOT_STAGE)
                 document = await review_docket_root_equivalence(document)
+
+            def save_validation_checkpoint(checkpoint: Document) -> None:
+                stage = checkpoint.stage_runs[-1]
+                path = _field_checkpoint(run_dir, stage, filename)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                _check_body_search_cutoffs(checkpoint, cutoff)
+                _write_json(path, checkpoint.model_dump(mode="json"))
+                if _transient_body_failure_stage(checkpoint) == stage:
+                    raise RuntimeError(
+                        f"Locator-body search at {stage} had a transient provider failure for "
+                        f"{filename}; resume this run after the provider recovers"
+                    )
+
             if filename in retry_body:
-                document = await _retry_body_stages(document, failed_stage, cutoff, courtlistener_client)
+                document = await _retry_body_stages(
+                    document, failed_stage, cutoff, courtlistener_client, save_validation_checkpoint
+                )
             elif (
                 from_validation_documents is not None
                 or from_docket_review_documents is not None
@@ -666,13 +793,19 @@ async def _run(
                     {"courtlistener_client": courtlistener_client} if courtlistener_client is not None else {}
                 )
                 document = await corroborate_root_locator_bodies(
-                    document, retrospective_date=cutoff, **client_kwargs
+                    document, retrospective_date=cutoff, checkpoint=save_validation_checkpoint,
+                    **client_kwargs,
                 )
             else:
                 client_kwargs = (
                     {"courtlistener_client": courtlistener_client} if courtlistener_client is not None else {}
                 )
-                document = await validate_roots(document, retrospective_date=cutoff, **client_kwargs)
+                document = await validate_roots(
+                    document,
+                    retrospective_date=cutoff,
+                    checkpoint=save_validation_checkpoint,
+                    **client_kwargs,
+                )
             if document.stage_runs != _RUN_STAGES:
                 raise ValueError(f"Run did not complete every stage for {filename}")
             _check_body_search_cutoffs(document, cutoff)
@@ -740,6 +873,16 @@ def main() -> None:
         help="Continue saved stage-23 Documents through case-name body discovery and review",
     )
     parser.add_argument(
+        "--from-checkpoint-documents",
+        type=Path,
+        help="Replay validation after a chosen saved stage, including retrieval-only stages",
+    )
+    parser.add_argument(
+        "--checkpoint-stage",
+        choices=_VALIDATION_CHECKPOINT_STAGES,
+        help="Stage to recover from each saved Document",
+    )
+    parser.add_argument(
         "--retrospective-date",
         type=date.fromisoformat,
         help="Use only body evidence issued on or before this ISO date",
@@ -772,6 +915,7 @@ def main() -> None:
                 args.from_docket_review_documents,
                 args.from_validation_documents,
                 args.from_locator_review_documents,
+                args.from_checkpoint_documents,
             )
         )
         > 1
@@ -779,6 +923,8 @@ def main() -> None:
         parser.error("Choose one saved Document checkpoint")
     if args.reuse_docket_lookups and not args.from_reporter_review_documents:
         parser.error("--reuse-docket-lookups requires --from-reporter-review-documents")
+    if bool(args.from_checkpoint_documents) != bool(args.checkpoint_stage):
+        parser.error("--from-checkpoint-documents requires --checkpoint-stage")
     if args.annotation_case_cutoffs and args.retrospective_date is not None:
         parser.error("Choose either --annotation-case-cutoffs or --retrospective-date")
     if args.resume_run and (
@@ -793,6 +939,8 @@ def main() -> None:
                 args.from_docket_review_documents,
                 args.from_validation_documents,
                 args.from_locator_review_documents,
+                args.from_checkpoint_documents,
+                args.checkpoint_stage,
                 args.retrospective_date,
             )
         )
@@ -812,6 +960,8 @@ def main() -> None:
             args.courtlistener_pool,
             args.annotation_case_cutoffs,
             args.from_locator_review_documents.resolve() if args.from_locator_review_documents else None,
+            args.from_checkpoint_documents.resolve() if args.from_checkpoint_documents else None,
+            args.checkpoint_stage,
         )
     )
     print(run_dir)

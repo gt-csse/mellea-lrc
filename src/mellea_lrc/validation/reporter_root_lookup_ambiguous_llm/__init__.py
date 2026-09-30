@@ -37,7 +37,7 @@ async def reporter_root_lookup_ambiguous_llm(
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
-    if "13_reporter_root_lookup_ambiguous" not in document.stage_runs:
+    if "13.2_reporter_root_lookup_ambiguous_review" not in document.stage_runs:
         raise ValueError("Complete rule-only reporter ambiguity review before model choice")
     service = reviewer
     for root in tuple(item for item in document.roots if isinstance(item, FullReporterCitation)):

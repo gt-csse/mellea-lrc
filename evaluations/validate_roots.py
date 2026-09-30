@@ -6,6 +6,7 @@ import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation
@@ -36,16 +37,20 @@ from mellea_lrc.validation.govinfo_docket_lookup_review import STAGE as GOVINFO_
 from mellea_lrc.validation.locator_body_review import STAGE as LOCATOR_BODY_REVIEW
 from mellea_lrc.validation.reporter_root_lookup import STAGE as REPORTER_ROOT_LOOKUP
 from mellea_lrc.validation.reporter_root_lookup_ambiguous import STAGE as REPORTER_ROOT_LOOKUP_AMBIGUOUS
+from mellea_lrc.validation.reporter_root_lookup_ambiguous_dockets import (
+    STAGE as REPORTER_ROOT_LOOKUP_AMBIGUOUS_DOCKETS,
+)
 from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm import (
     STAGE as REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM,
 )
+from mellea_lrc.validation.reporter_root_lookup_review import STAGE as REPORTER_ROOT_LOOKUP_REVIEW
 from mellea_lrc.validation.reporter_root_lookup_unique_llm import STAGE as REPORTER_ROOT_LOOKUP_UNIQUE_LLM
 
 FIELDS = ("case_name", "court", "date")
 GOLD_LABELS = frozenset({"agrees", "disagrees", "not_stated"})
 GOLD_IDENTITIES = frozenset({"CORRECT_IDENTITY", "WRONG_IDENTITY"})
 STAGES = (
-    REPORTER_ROOT_LOOKUP,
+    REPORTER_ROOT_LOOKUP_REVIEW,
     REPORTER_ROOT_LOOKUP_AMBIGUOUS,
     REPORTER_ROOT_LOOKUP_UNIQUE_LLM,
     REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM,
@@ -53,7 +58,12 @@ STAGES = (
     GOVINFO_DOCKET_LOOKUP_REVIEW,
 )
 WORKFLOW_STAGES = (
-    *STAGES[:-2],
+    REPORTER_ROOT_LOOKUP,
+    REPORTER_ROOT_LOOKUP_REVIEW,
+    REPORTER_ROOT_LOOKUP_AMBIGUOUS_DOCKETS,
+    REPORTER_ROOT_LOOKUP_AMBIGUOUS,
+    REPORTER_ROOT_LOOKUP_UNIQUE_LLM,
+    REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM,
     DOCKET_ROOT_LOOKUP,
     DOCKET_ROOT_LOOKUP_REVIEW,
     GOVINFO_DOCKET_LOOKUP,
@@ -387,7 +397,7 @@ def _align(roots: tuple[FullCitation, ...], gold: tuple[_GoldRoot, ...]) -> dict
 
 
 def _selected_candidate(root: FullReporterCitation, stage: str) -> int | None:
-    if stage == REPORTER_ROOT_LOOKUP:
+    if stage == REPORTER_ROOT_LOOKUP_REVIEW:
         lookup = root.reporter_exact_lookup
         return 0 if lookup is not None and lookup.outcome is ReporterExactLookupOutcome.UNIQUE else None
     if stage == REPORTER_ROOT_LOOKUP_AMBIGUOUS:
@@ -521,11 +531,11 @@ def _stage_judgments(
     return StageScore(stage, {field: Precision(*counts[field]) for field in FIELDS})
 
 
-def score_reporter_root_lookup(document: Document) -> StageScore:
+def score_reporter_root_lookup_review(document: Document) -> StageScore:
     return _stage_judgments(
         document,
-        REPORTER_ROOT_LOOKUP,
-        lambda root: _selected_candidate(root, REPORTER_ROOT_LOOKUP),
+        REPORTER_ROOT_LOOKUP_REVIEW,
+        lambda root: _selected_candidate(root, REPORTER_ROOT_LOOKUP_REVIEW),
     )
 
 
@@ -554,7 +564,7 @@ def score_reporter_root_lookup_unique_llm(document: Document) -> StageScore:
 
 
 STAGE_SCORERS: tuple[tuple[str, Callable[[Document], StageScore]], ...] = (
-    (REPORTER_ROOT_LOOKUP, score_reporter_root_lookup),
+    (REPORTER_ROOT_LOOKUP_REVIEW, score_reporter_root_lookup_review),
     (REPORTER_ROOT_LOOKUP_AMBIGUOUS, score_reporter_root_lookup_ambiguous),
     (REPORTER_ROOT_LOOKUP_UNIQUE_LLM, score_reporter_root_lookup_unique_llm),
     (REPORTER_ROOT_LOOKUP_AMBIGUOUS_LLM, score_reporter_root_lookup_ambiguous_llm),
@@ -817,8 +827,8 @@ def _render_stage(score: StageScore, expected: str) -> str:
     return "\n".join(lines)
 
 
-def render_reporter_root_lookup(score: StageScore) -> str:
-    return _render_stage(score, REPORTER_ROOT_LOOKUP) + "\n"
+def render_reporter_root_lookup_review(score: StageScore) -> str:
+    return _render_stage(score, REPORTER_ROOT_LOOKUP_REVIEW) + "\n"
 
 
 def render_docket_root_lookup_review(score: StageScore) -> str:
@@ -897,8 +907,11 @@ def render_validate_roots(
     if (score.body_review is None) != (score.identity_with_partial is None):
         raise ValueError("Body-review workflows require both canonical and inclusive identity scores")
     stage_order = score.stage_order
-    if tuple(int(stage.split("_", 1)[0]) for stage in stage_order) != tuple(range(12, 12 + len(stage_order))):
-        raise ValueError("Validate-roots stage indices are not consecutive")
+    indices = tuple(
+        tuple(int(part) for part in stage.split("_", 1)[0].split(".")) for stage in stage_order
+    )
+    if any(later <= earlier for earlier, later in pairwise(indices)):
+        raise ValueError("Validate-roots stage indices are not in execution order")
     sections = [f"# Validate-roots evaluation{f': {set_name}' if set_name else ''}"]
     if score.checkpoint in {LOCATOR_BODY_REVIEW, INTENDED_CASE_BODY_REVIEW}:
         sections.append(

@@ -71,7 +71,7 @@ class Citation(BaseModel):
 
     def with_route(self, next_stage: str | None) -> Self:
         """Append a routing decision; None clears an earlier route."""
-        if next_stage is not None and re.fullmatch(r"(?:[0-9]+_)?[a-z][a-z0-9_]*", next_stage) is None:
+        if next_stage is not None and re.fullmatch(r"(?:[0-9]+(?:\.[0-9]+)?_)?[a-z][a-z0-9_]*", next_stage) is None:
             raise ValueError("A route must name a lowercase stage ID")
         return self._with_log(
             routes=(*self.routes, RelationshipUpdate(value=next_stage, node_id=self._decision_node_id()))
@@ -118,7 +118,7 @@ class Citation(BaseModel):
                     raise ValueError(f"{name} updates are out of order")
                 previous = position
         if any(
-            route.value is not None and re.fullmatch(r"(?:[0-9]+_)?[a-z][a-z0-9_]*", route.value) is None
+            route.value is not None and re.fullmatch(r"(?:[0-9]+(?:\.[0-9]+)?_)?[a-z][a-z0-9_]*", route.value) is None
             for route in self.routes
         ):
             raise ValueError("A route must name a lowercase stage ID")

@@ -302,8 +302,10 @@ def test_workflow_reports_each_root_field_with_annotated_denominators(
 def _validated_document_with_changed_fields(document: Document) -> Document:
     for stage in (
         "11_docket_root_equivalence_review",
-        "12_reporter_root_lookup",
-        "13_reporter_root_lookup_ambiguous",
+        "12.1_reporter_root_lookup",
+        "12.2_reporter_root_lookup_review",
+        "13.1_reporter_root_lookup_ambiguous_dockets",
+        "13.2_reporter_root_lookup_ambiguous_review",
         "14_reporter_root_lookup_unique_llm",
         "15_reporter_root_lookup_ambiguous_llm",
         "16_docket_root_lookup",
