@@ -2,7 +2,8 @@
 
 import pytest
 
-from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
+from mellea_lrc.model import Span
+from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameField, CaseNameKind
 
 
 @pytest.mark.parametrize(
@@ -83,3 +84,20 @@ def test_case_name_rejects_unparsed_or_incomplete_quote(quote: str) -> None:
 def test_case_name_model_rejects_invalid_shape_or_format(parts: dict[str, object]) -> None:
     with pytest.raises(ValueError):
         CaseName(**parts)
+
+
+def test_not_stated_is_a_typed_outcome_without_citation_text() -> None:
+    name = CaseName(kind=CaseNameKind.NOT_STATED)
+    assert name.model_dump(mode="json") == {
+        "kind": "not_stated",
+        "plaintiff": None,
+        "defendant": None,
+        "subject": None,
+        "partial": None,
+    }
+    with pytest.raises(ValueError, match="no citation text"):
+        name.as_citation()
+    with pytest.raises(ValueError, match="no printed parts"):
+        CaseName(kind=CaseNameKind.NOT_STATED, partial="Smith")
+    with pytest.raises(ValueError, match="cannot be a quoted field"):
+        CaseNameField.from_model("Smith", Span(0, 5), name, node_id="cite:node:0")

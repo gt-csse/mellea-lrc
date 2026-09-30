@@ -7,7 +7,7 @@ from typing import Literal, Self, TypeAlias
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from mellea_lrc.model.citations.fields.base import require_all_json_properties
-from mellea_lrc.model.citations.fields.case_name import CaseName
+from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.ivr import IvrRun
 
@@ -158,6 +158,12 @@ class DocketLookupCaseNameAssessment(DocketLookupFieldAssessment):
     model_config = ConfigDict(frozen=True, extra="forbid", json_schema_extra=require_all_json_properties)
 
     normalized: CaseName | None = None
+
+    @model_validator(mode="after")
+    def _validate_grounded_name(self) -> Self:
+        if self.normalized is not None and self.normalized.kind is CaseNameKind.NOT_STATED:
+            raise ValueError("A reviewer case-name normalization must describe a quoted name")
+        return self
 
 
 class DocketLookupReviewDecision(BaseModel):

@@ -248,6 +248,21 @@ def test_case_name_reader_keeps_a_printed_fragment_without_inventing_a_party() -
     _assert_roundtrip(document)
 
 
+def test_case_name_outcome_distinguishes_not_stated_from_failed_normalization() -> None:
+    unstated = resolve_case_names(
+        resolve_colocations(find_full_reporter_locators(Document.from_source("See 550 U.S. 544.")))
+    )
+    assert unstated.full_locators[0].case_name == ()
+    assert unstated.full_locators[0].get_case_name() == CaseName(kind=CaseNameKind.NOT_STATED)
+
+    unreadable = resolve_case_names(
+        resolve_colocations(find_full_reporter_locators(Document.from_source("Smith v. ?, 550 U.S. 544.")))
+    )
+    assert unreadable.full_locators[0].case_name
+    with pytest.raises(ValueError, match="not normalizable"):
+        unreadable.full_locators[0].get_case_name()
+
+
 def test_case_name_reader_keeps_a_procedural_name_with_internal_comma() -> None:
     source = "In  re  Giftcraft  Ltd., Inc. , 645 B.R. 175 (Bankr. S.D.N.Y. 2025)."
     document = resolve_case_names(resolve_colocations(find_full_reporter_locators(Document.from_source(source))))
