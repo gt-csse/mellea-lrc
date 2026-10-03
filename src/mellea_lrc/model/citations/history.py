@@ -22,8 +22,8 @@ class RelationshipUpdate(BaseModel, Generic[T]):
     node_id: str
 
 
-def latest(log: tuple[CitationField[T] | RelationshipUpdate[T], ...]) -> T | None:
-    """Read the newest value; None means an empty log or a null relationship."""
+def latest(log: tuple[CitationField[T] | RelationshipUpdate[T], ...] | None) -> T | None:
+    """Read the newest value; None means no reading or a null relationship."""
     if not log:
         return None
     entry = log[-1]

@@ -3,42 +3,26 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
-from dotenv import load_dotenv
 from mellea.core import ValidationResult
 from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import ValidationError
 
-from mellea_lrc.llm.config import llm_api_config_from_env, start_mellea_session_from_env
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
-from mellea_lrc.matching.fuzziness import FuzzinessOption
-from mellea_lrc.matching.grounding import EvidenceCandidate, GroundingEvidence
+from mellea_lrc.llm.reviewer import IvrReviewer
 from mellea_lrc.model.citation_windows import after, before
 from mellea_lrc.model.citations import FullDocketCitation
-from mellea_lrc.model.citations.docket_lookup import (
-    DocketLookupCaseNameAssessment,
-    DocketLookupFieldAssessment,
-    DocketLookupReviewDecision,
-)
+from mellea_lrc.model.citations.docket_lookup import DocketLookupReviewDecision
 from mellea_lrc.model.citations.fields.court import Court
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.model.span import Span
-
-if TYPE_CHECKING:
-    from mellea import MelleaSession
-
-
-MAX_TOKENS = 5000
-MAX_MODEL_ATTEMPTS = 3
-SESSION_ID = "mellea-lrc-govinfo-docket-review-v2"
+from mellea_lrc.validation.docket_review.grounding import DocketReviewGrounding
 
 _PREFIX = """Review a docket citation against the saved GovInfo USCOURTS package results. Choose the best case package by candidate_index, or null when none identifies the cited case. The package represents a case and may hold multiple opinions. Its title, court, and encoded case number are evidence. Its package dateIssued is not the date of the particular cited opinion. A filing year clearly encoded in the case number can support only a compatibility check: the cited opinion cannot predate the case filing year. It does not establish the opinion's exact date.
 
@@ -89,7 +73,7 @@ def _filing_year_digits(number: str | None) -> str | None:
 
 
 @dataclass(frozen=True, slots=True)
-class GovInfoDocketReviewContext:
+class GovInfoDocketReviewContext(DocketReviewGrounding):
     """Bounded filing windows and source-preserving package summaries."""
 
     source: str
@@ -187,29 +171,6 @@ class GovInfoDocketReviewContext:
             shortlisted_candidate_indices=lookup.shortlisted_candidate_indices,
         )
 
-    def grounded_corrections(self, decision: DocketLookupReviewDecision) -> dict[str, Span] | None:
-        windows = {
-            "docket_number": (self.number_window, self.number_offset),
-            "case_name": (self.before_window, self.before_offset),
-            "court": (self.after_window, self.after_offset),
-            "date": (self.after_window, self.after_offset),
-        }
-        corrections: dict[str, Span] = {}
-        for field, (window, offset) in windows.items():
-            assessment = getattr(decision, field)
-            if not assessment.propose_replacement:
-                continue
-            if assessment.quote is None:
-                return None
-            match = GroundingEvidence((EvidenceCandidate(window, offset),)).find_fragment(
-                assessment.quote,
-                FuzzinessOption.edit_distance(similarity_percent=90, whitespace_relaxation=True),
-            )
-            if match is None:
-                return None
-            corrections[field] = Span(offset + match.start, offset + match.end)
-        return corrections
-
     def choice_error(self, decision: DocketLookupReviewDecision) -> str | None:
         corrections = self.grounded_corrections(decision)
         if corrections is None:
@@ -264,23 +225,7 @@ def _validate_review(ctx: object, context: GovInfoDocketReviewContext) -> Valida
 
 
 @dataclass(frozen=True, slots=True)
-class IvrGovInfoDocketReviewer:
-    session: MelleaSession
-    model_options: dict[str, object]
-    max_attempts: int = MAX_MODEL_ATTEMPTS
-
-    @classmethod
-    def from_env(cls) -> IvrGovInfoDocketReviewer:
-        load_dotenv(override=False)
-        config = llm_api_config_from_env(os.environ)
-        return cls(
-            session=start_mellea_session_from_env(),
-            model_options={
-                **config.mellea_call_options(max_tokens=MAX_TOKENS),
-                "extra_body": {"session_id": SESSION_ID},
-            },
-        )
-
+class IvrGovInfoDocketReviewer(IvrReviewer):
     async def __call__(self, context: GovInfoDocketReviewContext) -> GovInfoDocketReviewOutcome:
         run = await run_instruct_ivr(
             self.session,
@@ -319,61 +264,3 @@ class IvrGovInfoDocketReviewer:
                 decision=None, run=run, failure_reason=f"IVR output did not match the review schema: {exc}"
             )
         return GovInfoDocketReviewOutcome(decision=decision, run=run)
-
-
-def _no_candidate_decision(context: GovInfoDocketReviewContext) -> DocketLookupReviewDecision:
-    reason = "No shortlisted GovInfo package is available for comparison."
-    unavailable = DocketLookupFieldAssessment(
-        propose_replacement=False, quote=None, result=MatchResult.UNAVAILABLE, reason=reason
-    )
-    return DocketLookupReviewDecision(
-        selected_candidate_index=None,
-        docket_number=unavailable,
-        case_name=DocketLookupCaseNameAssessment(
-            propose_replacement=False,
-            quote=None,
-            normalized=None,
-            result=MatchResult.UNAVAILABLE,
-            reason=reason,
-        ),
-        court=unavailable,
-        date=unavailable,
-        reason=(
-            "The saved GovInfo search is incomplete and yielded no shortlisted package."
-            if context.search_status["incomplete"]
-            else "GovInfo returned no shortlisted case package."
-        ),
-    )
-
-
-def _append_corrections(
-    root: FullDocketCitation,
-    source: str,
-    corrections: dict[str, Span],
-    decision: DocketLookupReviewDecision,
-) -> FullDocketCitation:
-    number_span = corrections.get("docket_number")
-    if number_span is not None and number_span != root.locator[-1].number_span:
-        root = root.with_docket_number(source, number_span)
-    name_span = corrections.get("case_name")
-    if name_span is None and root.case_name:
-        name_span = root.case_name[-1].span
-    normalized_name = decision.case_name.normalized
-    if name_span is not None and normalized_name is not None:
-        prior = root.case_name[-1] if root.case_name else None
-        if (
-            prior is None
-            or prior.span != name_span
-            or not prior.normalizable
-            or prior.get_normalized() != normalized_name
-        ):
-            root = root.with_case_name(source, name_span, normalized=normalized_name)
-    for field in ("court", "date"):
-        span = corrections.get(field)
-        if span is None:
-            continue
-        prior = getattr(root, field)
-        if prior and prior[-1].span == span:
-            continue
-        root = root.with_court(source, span) if field == "court" else root.with_date(source, span)
-    return root

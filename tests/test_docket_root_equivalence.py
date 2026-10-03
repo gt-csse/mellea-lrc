@@ -9,10 +9,10 @@ import pytest
 from mellea_lrc.api import Document, grow_roots
 from mellea_lrc.extraction.docket_root_llm_reassignment import (
     STAGE,
-    DocketRootReviewContext,
-    DocketRootReviewOutcome,
     docket_root_llm_reassignment,
 )
+from mellea_lrc.extraction.docket_root_llm_reassignment.context import DocketRootReviewContext
+from mellea_lrc.extraction.docket_root_llm_reassignment.reviewer import DocketRootReviewOutcome
 from mellea_lrc.model.citations import latest
 from mellea_lrc.model.citations.docket_root_llm_reassignment import DocketRootPartition
 

@@ -15,7 +15,7 @@ from mellea_lrc.validation.body_search.intended_case_govinfo_opinion_retrieval i
     STAGE,
     intended_case_govinfo_opinion_retrieval,
 )
-from mellea_lrc.validation.body_search import locator_body_govinfo_opinion_retrieval as govinfo_module
+from mellea_lrc.validation.body_search import _govinfo as govinfo_module
 
 SOURCE = "Acme v. Smith, 30 F.3d 100 (2d Cir. 1994)."
 PACKAGE = "USCOURTS-nyd-1_20-cv-1"

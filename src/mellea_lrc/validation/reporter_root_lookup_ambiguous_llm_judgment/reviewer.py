@@ -3,19 +3,17 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
-from dotenv import load_dotenv
 from mellea.core import ValidationResult
 from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import ValidationError
 
-from mellea_lrc.llm.config import llm_api_config_from_env, start_mellea_session_from_env
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
+from mellea_lrc.llm.reviewer import IvrReviewer
 from mellea_lrc.model.citation_windows import after, before
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.reporter_lookup import ReporterAmbiguousReviewDecision
@@ -27,9 +25,6 @@ from mellea_lrc.validation.reporter_review.court_context import (
     reporter_court_context,
 )
 from mellea_lrc.validation.reporter_review.grounding import ReporterReviewGrounding
-
-if TYPE_CHECKING:
-    from mellea import MelleaSession
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,10 +143,6 @@ class ReporterAmbiguousReviewer(Protocol):
     ) -> Awaitable[ReporterAmbiguousReviewDecision | ReporterAmbiguousReviewOutcome]: ...
 
 
-MAX_TOKENS = 5000
-MAX_MODEL_ATTEMPTS = 3
-SESSION_ID = "mellea-lrc-reporter-ambiguous-review-v8"
-
 _PREFIX = """Review one reporter citation against the complete bounded list of retrieved opinion records. In one answer, choose the single best representative record (by its candidate_index) or select null when none is supportable; reread the filing's case name, court, and date; and compare each field with your chosen record.
 
 Every candidate remains available, including candidates that failed a preliminary rule comparison. Those comparisons are hints, not a filter or a verdict. If several records plausibly represent the same case, choose the best representative with a reason. A wrong case name, court, or date in the filing does not by itself remove the real record from consideration: select it when the locator and context support it, then mark that field mismatch. Do not invent another candidate or alter the reporter locator.
@@ -200,24 +191,8 @@ def _validate_review(ctx: object, context: ReporterAmbiguousReviewContext) -> Va
 
 
 @dataclass(frozen=True, slots=True)
-class IvrReporterAmbiguousReviewer:
+class IvrReporterAmbiguousReviewer(IvrReviewer):
     """One combined, cacheable model review of all saved candidates."""
-
-    session: MelleaSession
-    model_options: dict[str, object]
-    max_attempts: int = MAX_MODEL_ATTEMPTS
-
-    @classmethod
-    def from_env(cls) -> IvrReporterAmbiguousReviewer:
-        load_dotenv(override=False)
-        config = llm_api_config_from_env(os.environ)
-        return cls(
-            session=start_mellea_session_from_env(),
-            model_options={
-                **config.mellea_call_options(max_tokens=MAX_TOKENS),
-                "extra_body": {"session_id": SESSION_ID},
-            },
-        )
 
     async def __call__(self, context: ReporterAmbiguousReviewContext) -> ReporterAmbiguousReviewOutcome:
         candidates = [

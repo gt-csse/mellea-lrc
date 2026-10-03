@@ -78,6 +78,24 @@ def test_absolute_edit_limit_of_zero_stays_exact() -> None:
     assert evidence.resolve("ABD", FuzzinessOption.edit_distance(maximum_edits=0)) is None
 
 
+@pytest.mark.parametrize("types", [frozenset({"unknown"}), frozenset({"edit_distance"})])
+def test_fuzziness_rejects_untyped_match_operations(types) -> None:
+    with pytest.raises(ValueError, match="FuzzinessType"):
+        FuzzinessOption(types=types)
+
+
+@pytest.mark.parametrize("maximum_edits", [-1, True, 1.5, float("nan"), float("inf"), "1"])
+def test_fuzziness_rejects_invalid_absolute_edit_limits(maximum_edits) -> None:
+    with pytest.raises(ValueError, match="nonnegative integer"):
+        FuzzinessOption.edit_distance(maximum_edits=maximum_edits)
+
+
+@pytest.mark.parametrize("similarity", [0, 101, True, float("nan"), float("inf"), "99"])
+def test_fuzziness_rejects_invalid_similarity_thresholds(similarity) -> None:
+    with pytest.raises(ValueError, match="similarity_percent"):
+        FuzzinessOption.edit_distance(similarity_percent=similarity)
+
+
 def test_fragment_grounding_returns_actual_source_span() -> None:
     source = "Before Smith v. Jones, 1:24-cv-08760. After"
     evidence = GroundingEvidence((EvidenceCandidate(text=source, value="later-filing"),))
@@ -107,6 +125,34 @@ def test_fragment_grounding_combines_whitespace_and_one_character_repair() -> No
     assert grounded.text == "Case No.  1:24-cv-08760"
     assert source[grounded.start : grounded.end] == grounded.text
     assert grounded.match_type is FuzzinessType.EDIT_DISTANCE
+
+
+@pytest.mark.parametrize("expanded_gaps", (6, 8))
+def test_fragment_grounding_preserves_complete_whitespace_only_quotation(expanded_gaps: int) -> None:
+    quote = (
+        '"A source passage carries all of its stated conditions, qualifications, and limits. '
+        "An accurate quotation must preserve the beginning and end of the selected wording, "
+        "even when line breaks and repeated spaces differ from the proposal. Matching an entire "
+        "passage without changing any non-whitespace character provides stronger evidence than "
+        'accepting a shorter fragment that clips letters or punctuation." (Citation omitted.)'
+    )
+    canonical = quote.replace(" ", "   ", expanded_gaps).replace("An accurate", "An\n\naccurate")
+    before = "Earlier paragraph.\n\n"
+    source = before + canonical + "\n\nLater paragraph."
+    evidence = GroundingEvidence((EvidenceCandidate(text=source, value="filing"),))
+
+    grounded = evidence.find_fragment(
+        quote,
+        FuzzinessOption.edit_distance(similarity_percent=98, whitespace_relaxation=True),
+    )
+
+    assert grounded is not None
+    assert grounded.text == canonical
+    assert (grounded.start, grounded.end) == (len(before), len(before) + len(canonical))
+    assert source[grounded.start : grounded.end] == canonical
+    assert grounded.match_type is FuzzinessType.WHITESPACE_RELAXATION
+    assert grounded.edits == 0
+    assert grounded.similarity_percent == 100
 
 
 def test_fragment_grounding_can_ignore_sequential_pdf_margin_numbers() -> None:

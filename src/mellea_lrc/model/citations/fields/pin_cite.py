@@ -8,33 +8,14 @@ from typing import Self, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
+from mellea_lrc.model.citations.fields.base import (
+    CitationField,
+    normalization_record,
+    require_all_json_properties,
+    source_quote,
+)
 from mellea_lrc.model.span import Span
-
-# PDF text extraction may insert horizontal space on either side of a range
-# separator. Share this bounded relaxation with the reader so the exact quote
-# it captures is also a quote this normalizer can interpret.
-PIN_RANGE_JOIN = r"[^\S\r\n]*[-–][^\S\r\n]*"
-_HSPACE = r"[^\S\r\n]"
-_NUMBER = rf"(?:\*|¶{{1,2}})?{_HSPACE}*\d+(?:{PIN_RANGE_JOIN}\d+)?"
-_NOTE = (
-    rf"(?:{_HSPACE}+"
-    rf"(?:(?:&|and){_HSPACE}*)?"
-    rf"(?:n{{1,2}}\.|fn\.?)"
-    rf"{_HSPACE}*\d+(?:{PIN_RANGE_JOIN}\d+)?)?"
-)
-_ITEM = rf"{_NUMBER}{_NOTE}"
-# The extractor uses the same syntax to find a bounded candidate. The
-# normalizer below still requires every character of that candidate to parse.
-PIN_PREFIX = re.compile(rf"^\s*,?\s*(?:at{_HSPACE}+)?(?P<pin>{_ITEM}(?:,\s*{_ITEM})*)", re.I)
-_AT = re.compile(rf"at{_HSPACE}+", re.I)
-_PART = re.compile(
-    rf"(?P<label>\*|¶{{1,2}})?{_HSPACE}*(?P<first>\d+)"
-    rf"(?:{PIN_RANGE_JOIN}(?P<last>\d+))?"
-    rf"(?:{_HSPACE}+(?:(?:&|and){_HSPACE}*)?(?:n{{1,2}}\.|fn\.?)"
-    rf"{_HSPACE}*(?P<footnote>\d+(?:{PIN_RANGE_JOIN}\d+)?))?\Z",
-    re.I,
-)
+from mellea_lrc.parsing.pin_cite import AT_PREFIX, PIN_PART, PIN_RANGE_JOIN
 
 
 class PinCiteKind(StrEnum):
@@ -46,7 +27,7 @@ class PinCiteKind(StrEnum):
 class PinCiteTarget(BaseModel):
     """One inclusive pinpoint range, independent of its written notation."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", json_schema_extra=require_all_json_properties)
 
     first: int
     last: int
@@ -68,13 +49,13 @@ PinCiteValue: TypeAlias = tuple[PinCiteTarget, ...]
 def normalize_pin_cite(quote: str) -> PinCiteValue:
     """Normalize complete written targets, or leave the whole quote for review."""
     text = quote.strip()
-    if prefix := _AT.match(text):
+    if prefix := AT_PREFIX.match(text):
         text = text[prefix.end() :]
     parts = text.split(",")
     targets: list[PinCiteTarget] = []
     kind = PinCiteKind.PAGE
     for index, part in enumerate(parts):
-        match = _PART.fullmatch(part.strip())
+        match = PIN_PART.fullmatch(part.strip())
         if match is None:
             raise ValueError(f"Cannot normalize pin cite: {quote!r}")
         label = match.group("label")

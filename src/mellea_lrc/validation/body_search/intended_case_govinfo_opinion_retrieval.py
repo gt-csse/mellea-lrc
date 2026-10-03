@@ -9,12 +9,12 @@ from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch
 from mellea_lrc.model.document import Document
 from mellea_lrc.providers.govinfo import GovInfoClient
-from mellea_lrc.validation.body_search.common import field_query_name, field_query_parties
-from mellea_lrc.validation.body_search.locator_body_govinfo_opinion_retrieval import (
+from mellea_lrc.validation.body_search._govinfo import (
     GovInfoBodyClient,
     _problem,
     _search_root,
 )
+from mellea_lrc.validation.body_search.common import field_query_name, field_query_parties
 
 STAGE = "26_intended_case_govinfo_opinion_retrieval"
 ROUTE = "case_name_body_discovery"

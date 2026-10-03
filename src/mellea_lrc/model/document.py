@@ -11,6 +11,7 @@ from mellea_lrc.model.citations import (
     CitationVariant,
     FullCitation,
     FullCitationVariant,
+    FullReporterCitation,
     LeafCitation,
     ShortReporterCitation,
     latest,
@@ -19,6 +20,18 @@ from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID
 from mellea_lrc.model.colocation import Colocation
 from mellea_lrc.model.preprocessed_document import PreprocessedDocument
 from mellea_lrc.model.site_review import SiteReview
+
+
+def _colocations(
+    citations: tuple[FullCitationVariant | ShortReporterCitation, ...],
+) -> tuple[Colocation, ...]:
+    """Rebuild ordered parsing groups from one collection's assignment history."""
+    groups: dict[str, list[str]] = {}
+    for citation in citations:
+        group_id = latest(citation.colocation_id)
+        if group_id is not None:
+            groups.setdefault(group_id, []).append(citation.id)
+    return tuple(Colocation(id=group_id, citation_ids=tuple(ids)) for group_id, ids in groups.items())
 
 
 class Document(PreprocessedDocument):
@@ -71,12 +84,12 @@ class Document(PreprocessedDocument):
     @property
     def colocations(self) -> tuple[Colocation, ...]:
         """Rebuild parsing groups from citation-local assignment logs."""
-        groups: dict[str, list[str]] = {}
-        for citation in self.full_locators:
-            group_id = latest(citation.colocation_id)
-            if group_id is not None:
-                groups.setdefault(group_id, []).append(citation.id)
-        return tuple(Colocation(id=group_id, citation_ids=tuple(ids)) for group_id, ids in groups.items())
+        return _colocations(self.full_locators)
+
+    @property
+    def short_reporter_colocations(self) -> tuple[Colocation, ...]:
+        """Rebuild short reporter parsing groups without changing full groups."""
+        return _colocations(self.short_reporters)
 
     def add_citation(self, citation: CitationVariant) -> Self:
         if any(existing.id == citation.id for existing in self.citations):
@@ -110,10 +123,14 @@ class Document(PreprocessedDocument):
                 continue
             prior = getattr(original, name)
             current = getattr(citation, name)
-            if isinstance(prior, tuple):
-                if current[: len(prior)] != prior:
+            if isinstance(prior, tuple) or isinstance(current, tuple):
+                # Nullable histories begin as None and become tuples on their
+                # first reading. Validate their entries as an append-only log.
+                prior_entries = prior if prior is not None else ()
+                current_entries = current if current is not None else ()
+                if current_entries[: len(prior_entries)] != prior_entries:
                     raise ValueError(f"Citation {name} must be append-only")
-                added = current[len(prior) :]
+                added = current_entries[len(prior_entries) :]
             else:
                 if prior is not None and current != prior:
                     raise ValueError(f"Citation {name} must be append-only")
@@ -215,6 +232,110 @@ class Document(PreprocessedDocument):
                     previous_stage = position
             citation.validate_source(self.text)
             node_stages = {node.id: node.stage for node in citation.nodes}
+            for evidence in citation.reporter_opinion_evidence:
+                root = by_id.get(evidence.root_id)
+                if (
+                    not isinstance(root, FullReporterCitation)
+                    or root.reporter_root_opinion_page_index is None
+                ):
+                    raise ValueError("Opinion evidence requires its root's saved source text")
+                opinion = next(
+                    (
+                        item
+                        for item in root.reporter_root_opinion_page_index.opinions
+                        if item.opinion_id == evidence.opinion_id
+                    ),
+                    None,
+                )
+                if opinion is None:
+                    raise ValueError("Opinion evidence references an unknown opinion")
+                evidence.validate_source(opinion.text)
+                root_stages = {node.id: node.stage for node in root.nodes}
+                if stage_positions.get(
+                    root_stages[root.reporter_root_opinion_page_index.node_id], len(self.stage_runs)
+                ) > stage_positions.get(node_stages[evidence.node_id], len(self.stage_runs)):
+                    raise ValueError("Opinion evidence cannot reference a future source index")
+            for review in citation.reporter_support_reviews:
+                accepted = citation.reporter_pinpoint_evidence[review.evidence_index]
+                for offset, index in enumerate(review.opinion_evidence_indices):
+                    evidence = citation.reporter_opinion_evidence[index]
+                    if (
+                        evidence.root_id != accepted.root_id
+                        or evidence.opinion_id != review.decision.evidence[offset].opinion_id
+                    ):
+                        raise ValueError(
+                            "Support evidence must belong to its source root and declared opinion"
+                        )
+            for resolution in citation.reporter_page_resolutions:
+                resolution_stage = stage_positions.get(node_stages[resolution.node_id], len(self.stage_runs))
+                root = by_id.get(resolution.root_id)
+                if (
+                    not isinstance(root, FullReporterCitation)
+                    or root.reporter_root_opinion_page_index is None
+                ):
+                    raise ValueError("Page resolution requires its reporter root's saved page index")
+                root_stages = {node.id: node.stage for node in root.nodes}
+                page_index = root.reporter_root_opinion_page_index
+                if (
+                    stage_positions.get(root_stages[page_index.node_id], len(self.stage_runs))
+                    > resolution_stage
+                ):
+                    raise ValueError("Page resolution cannot reference a later page index")
+                assigned_root = next(
+                    (
+                        update.value
+                        for update in reversed(citation.root_id)
+                        if stage_positions.get(node_stages[update.node_id], len(self.stage_runs))
+                        <= resolution_stage
+                    ),
+                    None,
+                )
+                if assigned_root != root.id:
+                    raise ValueError("Page resolution must belong to the citation's attached root")
+                for identifier, reading_index, field in (
+                    (resolution.locator_citation_id, resolution.locator_reading_index, "locator"),
+                    (resolution.pin_citation_id, resolution.pin_reading_index, "pin_cite"),
+                ):
+                    if identifier is None:
+                        continue
+                    source = by_id.get(identifier)
+                    if source is None:
+                        raise ValueError("Page resolution references an unknown source citation")
+                    source_stages = {node.id: node.stage for node in source.nodes}
+                    source_root = next(
+                        (
+                            update.value
+                            for update in reversed(source.root_id)
+                            if stage_positions.get(source_stages[update.node_id], len(self.stage_runs))
+                            <= resolution_stage
+                        ),
+                        None,
+                    )
+                    if source_root != root.id:
+                        raise ValueError("Page resolution source belongs to another root")
+                    if field == "locator" and isinstance(source, ShortReporterCitation):
+                        field = "short_locator"
+                    readings = getattr(source, field, None)
+                    if readings is None or reading_index >= len(readings):
+                        raise ValueError("Page resolution references an unavailable field reading")
+                    if (
+                        stage_positions.get(
+                            source_stages[readings[reading_index].node_id], len(self.stage_runs)
+                        )
+                        > resolution_stage
+                    ):
+                        raise ValueError("Page resolution cannot reference a later field reading")
+                opinions = {opinion.opinion_id: opinion for opinion in page_index.opinions}
+                for requested_page in resolution.pages:
+                    for reference in requested_page.candidates:
+                        opinion = opinions.get(reference.opinion_id)
+                        if opinion is None or reference.page_index >= len(opinion.pages):
+                            raise ValueError("Page resolution references an unavailable opinion page")
+                        page = opinion.pages[reference.page_index]
+                        if reference.pagination_confirmed and (
+                            page.kind != requested_page.kind or page.volume is None or page.edition is None
+                        ):
+                            raise ValueError("Confirmed pagination requires a known reporter namespace")
             if isinstance(citation, LeafCitation):
                 for record in (*citation.attributions, *citation.reviews):
                     record_stage = stage_positions.get(node_stages[record.node_id], len(self.stage_runs))
@@ -241,23 +362,25 @@ class Document(PreprocessedDocument):
             raise ValueError("Only one stage can have uncommitted citation nodes")
         # A later stage must not make an invalid earlier checkpoint look valid.
         for cutoff in range(len(self.stage_runs)):
-            group_sizes: dict[str, int] = {}
-            for citation in self.full_locators:
-                if stage_positions.get(citation.nodes[0].stage, len(self.stage_runs)) > cutoff:
-                    continue
-                node_positions = {
-                    node.id: stage_positions.get(node.stage, len(self.stage_runs)) for node in citation.nodes
-                }
-                group_id = next(
-                    (
-                        update.value
-                        for update in reversed(citation.colocation_id)
-                        if node_positions[update.node_id] <= cutoff
-                    ),
-                    None,
-                )
-                if group_id is not None:
-                    group_sizes[group_id] = group_sizes.get(group_id, 0) + 1
-            if any(size < 2 for size in group_sizes.values()):
-                raise ValueError("A colocation group needs at least two citations")
+            for citations in (self.full_locators, self.short_reporters):
+                group_sizes: dict[str, int] = {}
+                for citation in citations:
+                    if stage_positions.get(citation.nodes[0].stage, len(self.stage_runs)) > cutoff:
+                        continue
+                    node_positions = {
+                        node.id: stage_positions.get(node.stage, len(self.stage_runs))
+                        for node in citation.nodes
+                    }
+                    group_id = next(
+                        (
+                            update.value
+                            for update in reversed(citation.colocation_id)
+                            if node_positions[update.node_id] <= cutoff
+                        ),
+                        None,
+                    )
+                    if group_id is not None:
+                        group_sizes[group_id] = group_sizes.get(group_id, 0) + 1
+                if any(size < 2 for size in group_sizes.values()):
+                    raise ValueError("A colocation group needs at least two citations")
         return self

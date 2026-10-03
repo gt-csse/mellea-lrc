@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import pairwise
-from pathlib import Path
 
+from evaluations.annotations import load_annotations
+from evaluations.score_types import FieldScore, Precision, StageScore
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation
 from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.model.citations.docket_lookup import DocketLookupReviewDecision
@@ -109,45 +108,6 @@ INTENDED_CASE_STAGES = (
 
 
 @dataclass(frozen=True)
-class Precision:
-    correct: int = 0
-    total: int = 0
-
-    def __add__(self, other: Precision) -> Precision:
-        return Precision(self.correct + other.correct, self.total + other.total)
-
-    def as_dict(self) -> dict[str, int | float | None]:
-        return {
-            "correct": self.correct,
-            "total": self.total,
-            "precision": self.correct / self.total if self.total else None,
-        }
-
-
-@dataclass(frozen=True)
-class FieldScore:
-    correct: int = 0
-    predicted: int = 0
-    gold: int = 0
-
-    def __add__(self, other: FieldScore) -> FieldScore:
-        return FieldScore(
-            self.correct + other.correct,
-            self.predicted + other.predicted,
-            self.gold + other.gold,
-        )
-
-    def as_dict(self) -> dict[str, int | float | None]:
-        return {
-            "correct": self.correct,
-            "predicted": self.predicted,
-            "gold": self.gold,
-            "precision": self.correct / self.predicted if self.predicted else None,
-            "recall": self.correct / self.gold if self.gold else None,
-        }
-
-
-@dataclass(frozen=True)
 class IdentityScore:
     correct: int = 0
     predicted: int = 0
@@ -170,26 +130,6 @@ class IdentityScore:
             "undetermined": self.undetermined,
             "precision": self.correct / self.predicted if self.predicted else None,
             "recall": self.correct / self.gold if self.gold else None,
-        }
-
-
-@dataclass(frozen=True)
-class StageScore:
-    stage: str
-    metrics: dict[str, Precision]
-
-    def __add__(self, other: StageScore) -> StageScore:
-        if self.stage != other.stage or self.metrics.keys() != other.metrics.keys():
-            raise ValueError("Cannot combine different validation stages")
-        return StageScore(
-            self.stage,
-            {field: score + other.metrics[field] for field, score in self.metrics.items()},
-        )
-
-    def as_dict(self) -> dict[str, object]:
-        return {
-            "stage": self.stage,
-            "metrics": {field: score.as_dict() for field, score in self.metrics.items()},
         }
 
 
@@ -345,29 +285,9 @@ class _GoldRoot:
 
 def _gold_roots(document: Document) -> tuple[_GoldRoot, ...]:
     """Read every annotated root; missing field gold is an error, not a miss."""
-    if document.source_path is None:
-        raise ValueError("Validation evaluation needs an official source path")
-    source = Path(document.source_path).resolve()
-    dataset = source.parent.parent
-    annotation = dataset / "documents" / f"{source.stem}.jsonl"
-    lines = annotation.read_text(encoding="utf-8").splitlines()
-    if not lines:
-        raise ValueError(f"Empty annotation file: {annotation}")
-    header = json.loads(lines[0])
-    text = header.get("text", {})
-    if (
-        header.get("unit") != "header"
-        or header.get("dataset") != dataset.name
-        or header.get("document") != source.name
-        or (dataset.parent / text.get("path", "")).resolve() != source
-        or text.get("length") != len(document.text)
-        or text.get("sha256") != hashlib.sha256(document.text.encode("utf-8")).hexdigest()
-    ):
-        raise ValueError(f"Annotation does not match Document source: {annotation}")
     roots: list[_GoldRoot] = []
     spans: set[tuple[str, int, int]] = set()
-    for line in lines[1:]:
-        row = json.loads(line)
+    for row in load_annotations(document):
         if not row.get("is_root") or row.get("kind") not in {"FullCaseCitation", "DocketCitation"}:
             continue
         locator_field = row.get("locator")
@@ -507,14 +427,16 @@ def _selected_docket_review(root: FullDocketCitation) -> DocketLookupReviewDecis
 def _selected_govinfo_docket_review(root: FullDocketCitation) -> DocketLookupReviewDecision | None:
     review = root.govinfo_docket_review
     lookup = root.govinfo_docket_lookup
-    if (
-        review is None
-        or review.decision is None
-        or review.decision.selected_candidate_index is None
-        or lookup is None
-        or review.decision.selected_candidate_index not in lookup.shortlisted_candidate_indices
-    ):
+    if review is None or review.decision is None or review.decision.selected_candidate_index is None:
         return None
+    selected = review.decision.selected_candidate_index
+    if lookup is None:
+        raise ValueError("GovInfo docket review selected a candidate without a saved lookup")
+    if selected not in lookup.shortlisted_candidate_indices:
+        raise ValueError(
+            f"GovInfo docket review selected candidate {selected} outside the saved shortlist "
+            f"{lookup.shortlisted_candidate_indices}"
+        )
     if not any(
         node.id == lookup.node_id and node.stage == DOCKET_ROOT_LOOKUP_GOVINFO_RETRIEVAL
         for node in root.nodes
@@ -591,12 +513,15 @@ def _stage_judgments(
                 for judgment in getattr(root, f"{field}_judgments")
                 if judgment.node_id in node_ids and judgment.candidate_index == candidate_index
             ]
+            # The gold labels describe the intended citation. Comparisons to
+            # rejected candidates are useful rule-stage evidence, but have no
+            # candidate-specific gold and are not predictions about that case.
             if len(decisions) > 1:
                 raise ValueError("A stage produced duplicate selected-candidate field judgments")
             if not decisions:
                 continue
             counts[field][1] += 1
-            label = _label(decisions[0].result, source_present=bool(getattr(root, field)))
+            label = _label(decisions[0].result, source_present=decisions[0].reading_index is not None)
             counts[field][0] += int(gold_root is not None and label == gold_root.labels[field])
     return StageScore(stage, {field: Precision(*counts[field]) for field in FIELDS})
 
@@ -791,8 +716,6 @@ def _final_reporter_field_label(
     ]
     if not selected_stages:
         return None
-    if not getattr(root, field):
-        return "not_stated"
     for stage, candidate_index in reversed(selected_stages):
         node_ids = {node.id for node in root.nodes if node.stage == stage}
         selected = [
@@ -803,7 +726,23 @@ def _final_reporter_field_label(
         if len(selected) > 1:
             raise ValueError("A stage produced duplicate selected-candidate field judgments")
         if selected:
-            return _label(selected[0].result, source_present=True)
+            return _label(selected[0].result, source_present=selected[0].reading_index is not None)
+    return None
+
+
+def _final_reporter_identity_verdict(root: FullReporterCitation, stage_runs: tuple[str, ...]) -> str | None:
+    """Use an identity verdict actually saved on a selected lookup node."""
+    for stage in reversed(stage_runs):
+        if stage not in STAGES[:-2]:
+            continue
+        if _selected_candidate(root, stage) is None:
+            continue
+        node_ids = {node.id for node in root.nodes if node.stage == stage}
+        judgments = [judgment for judgment in root.identity_judgments if judgment.node_id in node_ids]
+        if len(judgments) > 1:
+            raise ValueError("A lookup stage produced duplicate identity judgments")
+        if judgments:
+            return judgments[0].verdict.name.upper()
     return None
 
 
@@ -822,12 +761,13 @@ def _final_field_label(root: FullCitation, field: str, stage_runs: tuple[str, ..
     raise ValueError(f"Unsupported validation root kind: {type(root).__name__}")
 
 
-def _identity_value(labels: dict[str, str]) -> str:
-    """Resolve one selected lookup's field judgments without inventing missing evidence."""
-    if set(labels) != set(FIELDS) or any(
-        label not in {"agrees", "disagrees", "unavailable", "not_stated"} for label in labels.values()
-    ):
-        raise ValueError("Identity requires three explicit field judgments")
+def _identity_value(labels: dict[str, str]) -> str | None:
+    """Resolve a complete selected lookup; incomplete field outcomes stay uncomputed."""
+    allowed = {"agrees", "disagrees", "unavailable", "not_stated"}
+    if any(label not in allowed for label in labels.values()) or not set(labels) <= set(FIELDS):
+        raise ValueError("Identity contains an invalid field judgment")
+    if set(labels) != set(FIELDS):
+        return None
     if "disagrees" in labels.values():
         return "WRONG_IDENTITY"
     if labels["case_name"] in {"unavailable", "not_stated"}:
@@ -917,11 +857,15 @@ def score_validate_roots(document: Document) -> WorkflowScore:
     body_stages = set(LOCATOR_BODY_STAGES).intersection(document.stage_runs)
     if body_stages and body_stages != set(LOCATOR_BODY_STAGES):
         missing = [stage for stage in LOCATOR_BODY_STAGES if stage not in document.stage_runs]
-        raise ValueError(f"Incomplete locator-body stages in validate_roots; missing stages: {', '.join(missing)}")
+        raise ValueError(
+            f"Incomplete locator-body stages in validate_roots; missing stages: {', '.join(missing)}"
+        )
     field_body_stages = set(INTENDED_CASE_STAGES).intersection(document.stage_runs)
     if field_body_stages and field_body_stages != set(INTENDED_CASE_STAGES):
         missing = [stage for stage in INTENDED_CASE_STAGES if stage not in document.stage_runs]
-        raise ValueError(f"Incomplete intended-case stages in validate_roots; missing stages: {', '.join(missing)}")
+        raise ValueError(
+            f"Incomplete intended-case stages in validate_roots; missing stages: {', '.join(missing)}"
+        )
     if field_body_stages and not body_stages:
         raise ValueError("Intended-case stages require completed locator-body stages")
     judgment_stage = max(WORKFLOW_STAGES, key=document.stage_runs.index)
@@ -951,6 +895,10 @@ def score_validate_roots(document: Document) -> WorkflowScore:
         if not outcomes:
             continue
         verdict = _identity_value(outcomes)
+        if verdict is None and isinstance(root, FullReporterCitation):
+            verdict = _final_reporter_identity_verdict(root, judged.stage_runs)
+        if verdict is None:
+            continue
         lookup_verdicts[root.id] = verdict
         if verdict == "UNDETERMINED":
             undetermined += 1

@@ -307,10 +307,6 @@ def _reuse_docket_lookup(document: Document, saved: Document) -> Document:
     return document.complete(_DOCKET_LOOKUP_STAGE)
 
 
-def _field_checkpoint(run_dir: Path, stage: str, filename: str) -> Path:
-    return run_dir / "checkpoints" / f"stage{stage.split('_', 1)[0]}" / f"{filename}.json"
-
-
 async def _continue_field_stages(
     document: Document,
     *,
@@ -344,9 +340,7 @@ async def _continue_field_stages(
         if document.stage_runs != _FIELD_RUN_STAGES[: _FIELD_RUN_STAGES.index(stage) + 1]:
             raise ValueError(f"Field discovery did not complete {stage} for {filename}")
         _check_body_search_cutoffs(document, retrospective_date)
-        checkpoint = _field_checkpoint(run_dir, stage, filename)
-        checkpoint.parent.mkdir(parents=True, exist_ok=True)
-        _write_json(checkpoint, document.model_dump(mode="json"))
+        _write_json(run_dir / "documents" / f"{filename}.json", document.model_dump(mode="json"))
         if _transient_field_failure_stage(document) == stage:
             raise RuntimeError(
                 f"Case-name body search at {stage} had a transient provider failure for {filename}; "
@@ -548,164 +542,69 @@ async def _run(
             for filename in filenames
         }
         completed: set[str] = set()
-        retry_body: dict[str, tuple[Document, str]] = {}
-        field_resume: dict[str, Document] = {}
-        validation_resume: dict[str, Document] = {}
+        retry_body: dict[str, str] = {}
+        documents: dict[str, Document] = {}
+        reporter_inputs: dict[str, Document] = {}
+        enabled = _FIELD_RUN_STAGES if from_locator_review_documents is not None else _RUN_STAGES
+        input_directory, input_stage = next(
+            (
+                (directory, stage)
+                for directory, stage in (
+                    (from_roots_documents, _ROOT_STAGE),
+                    (from_reporter_review_documents, _REPORTER_REVIEW_INPUT_STAGE),
+                    (from_docket_review_documents, _DOCKET_REVIEW_INPUT_STAGE),
+                    (from_validation_documents, _VALIDATION_INPUT_STAGE),
+                    (from_locator_review_documents, _LOCATOR_BODY_REVIEW_STAGE),
+                    (from_checkpoint_documents, checkpoint_stage),
+                )
+                if directory is not None
+            ),
+            (None, None),
+        )
         for filename in filenames:
             source = sources[filename]
             cutoff = case_cutoffs.get(filename, retrospective_date)
-            artifact = documents_dir / f"{filename}.json"
-            locator_review_input: Document | None = None
-            if from_locator_review_documents is not None:
-                saved = from_locator_review_documents / f"{filename}.json"
-                locator_review_input = _load_document(saved, source).get_stage(_LOCATOR_BODY_REVIEW_STAGE)
-                if locator_review_input.stage_runs != _RUN_STAGES:
-                    raise ValueError(f"Saved locator-body review is incomplete for {filename}")
-                _check_body_search_cutoffs(locator_review_input, cutoff)
-                if _has_transient_docket_lookup_failure(locator_review_input) or (
-                    _has_transient_body_search_failure(locator_review_input)
+            original = source
+            if input_directory is not None:
+                supplied = _load_document(input_directory / f"{filename}.json", source)
+                original = supplied.get_stage(input_stage)
+                if original.stage_runs != enabled[: enabled.index(input_stage) + 1]:
+                    raise ValueError(f"Saved input checkpoint is incomplete for {filename}")
+                _check_body_search_cutoffs(original, cutoff)
+                if from_locator_review_documents is not None and (
+                    _has_transient_docket_lookup_failure(original)
+                    or _has_transient_body_search_failure(original)
                 ):
                     raise ValueError(f"Saved locator-body review has transient failures for {filename}")
-            if artifact.exists():
-                saved_document = _load_document(artifact, source)
-                _check_body_search_cutoffs(saved_document, cutoff)
-                if locator_review_input is not None:
-                    if saved_document.stage_runs != _FIELD_RUN_STAGES:
-                        raise ValueError(f"Saved field-discovery Document is incomplete for {filename}")
-                    if saved_document.get_stage(_LOCATOR_BODY_REVIEW_STAGE) != locator_review_input:
-                        raise ValueError(f"Saved field-discovery input differs for {filename}")
-                elif saved_document.stage_runs == _RUN_STAGES:
-                    if not _has_transient_docket_lookup_failure(saved_document):
-                        if failed_stage := _transient_body_failure_stage(saved_document):
-                            previous_stage = _RUN_STAGES[_RUN_STAGES.index(failed_stage) - 1]
-                            retry_body[filename] = (
-                                saved_document.get_stage(previous_stage),
-                                failed_stage,
-                            )
-                        else:
-                            completed.add(filename)
-            if filename not in completed and from_locator_review_documents is None:
-                previous_checkpoint: Document | None = None
-                missing_checkpoint = False
-                anchor_source: Path | None = None
-                anchor_stage: str | None = None
-                if from_checkpoint_documents is not None:
-                    anchor_source, anchor_stage = from_checkpoint_documents, checkpoint_stage
-                elif from_reporter_review_documents is not None:
-                    anchor_source, anchor_stage = (
-                        from_reporter_review_documents,
-                        _REPORTER_REVIEW_INPUT_STAGE,
-                    )
-                elif from_docket_review_documents is not None:
-                    anchor_source, anchor_stage = (
-                        from_docket_review_documents,
-                        _DOCKET_REVIEW_INPUT_STAGE,
-                    )
-                elif from_validation_documents is not None:
-                    anchor_source, anchor_stage = from_validation_documents, _VALIDATION_INPUT_STAGE
-                anchor = (
-                    _load_document(anchor_source / f"{filename}.json", source).get_stage(anchor_stage)
-                    if anchor_source is not None and anchor_stage is not None
-                    else None
-                )
-                if from_checkpoint_documents is not None:
-                    local_stages = _VALIDATION_CHECKPOINT_STAGES[
-                        _VALIDATION_CHECKPOINT_STAGES.index(checkpoint_stage) + 1 :
-                    ]
-                elif any(
-                    path is not None
-                    for path in (
-                        from_reporter_review_documents,
-                        from_docket_review_documents,
-                        from_validation_documents,
-                    )
-                ):
-                    local_stages = _BODY_CHECKPOINT_STAGES
-                else:
-                    local_stages = _VALIDATION_CHECKPOINT_STAGES
-                for stage in local_stages:
-                    checkpoint_path = _field_checkpoint(run_dir, stage, filename)
-                    if not checkpoint_path.exists():
-                        missing_checkpoint = True
-                        continue
-                    if missing_checkpoint:
-                        raise ValueError(f"Validation checkpoints skip a stage for {filename}")
-                    saved_checkpoint = _load_document(checkpoint_path, source)
-                    expected = _RUN_STAGES[: _RUN_STAGES.index(stage) + 1]
-                    if saved_checkpoint.stage_runs != expected:
-                        raise ValueError(f"Saved validation checkpoint is incomplete for {filename}")
-                    _check_body_search_cutoffs(saved_checkpoint, cutoff)
-                    if previous_checkpoint is not None:
-                        previous_stage = previous_checkpoint.stage_runs[-1]
-                        if saved_checkpoint.get_stage(previous_stage) != previous_checkpoint:
-                            raise ValueError(f"Validation checkpoints differ for {filename}")
-                    elif anchor is not None and saved_checkpoint.get_stage(anchor_stage) != anchor:
-                        raise ValueError(f"Validation checkpoint input differs for {filename}")
-                    previous_checkpoint = saved_checkpoint
-                if previous_checkpoint is not None:
-                    if failed_stage := _transient_body_failure_stage(previous_checkpoint):
-                        previous_stage = _RUN_STAGES[_RUN_STAGES.index(failed_stage) - 1]
-                        validation_resume[filename] = previous_checkpoint.get_stage(previous_stage)
-                    else:
-                        validation_resume[filename] = previous_checkpoint
-            if locator_review_input is not None:
-                previous = locator_review_input
-                missing_checkpoint = False
-                for stage in _FIELD_STAGES:
-                    checkpoint = _field_checkpoint(run_dir, stage, filename)
-                    if not checkpoint.exists():
-                        missing_checkpoint = True
-                        continue
-                    if missing_checkpoint:
-                        raise ValueError(f"Field-discovery checkpoints skip a stage for {filename}")
-                    saved_checkpoint = _load_document(checkpoint, source)
-                    expected = _FIELD_RUN_STAGES[: _FIELD_RUN_STAGES.index(stage) + 1]
-                    if saved_checkpoint.stage_runs != expected:
-                        raise ValueError(f"Saved field-discovery checkpoint is incomplete for {filename}")
-                    _check_body_search_cutoffs(saved_checkpoint, cutoff)
-                    previous_stage = _FIELD_RUN_STAGES[_FIELD_RUN_STAGES.index(stage) - 1]
-                    if saved_checkpoint.get_stage(previous_stage) != previous:
-                        raise ValueError(f"Saved field-discovery checkpoints differ for {filename}")
-                    previous = saved_checkpoint
-                if artifact.exists():
-                    if previous.stage_runs == _FIELD_RUN_STAGES and saved_document != previous:
-                        raise ValueError(f"Saved field-discovery final Document differs for {filename}")
-                    previous = saved_document
-                if failed_stage := _transient_field_failure_stage(previous):
-                    previous_stage = _FIELD_RUN_STAGES[_FIELD_RUN_STAGES.index(failed_stage) - 1]
-                    field_resume[filename] = previous.get_stage(previous_stage)
-                elif previous.stage_runs == _FIELD_RUN_STAGES and artifact.exists():
-                    completed.add(filename)
-                else:
-                    field_resume[filename] = previous
-            if filename not in completed and from_roots_documents is not None:
-                saved = from_roots_documents / f"{filename}.json"
-                roots = _load_document(saved, source).get_stage(_ROOT_STAGE)
-                if roots.stage_runs != _ROOT_STAGES:
-                    raise ValueError(f"Saved roots are incomplete for {filename}")
-            if filename not in completed and from_reporter_review_documents is not None:
-                saved = from_reporter_review_documents / f"{filename}.json"
-                saved_document = _load_document(saved, source)
-                ready = saved_document.get_stage(_REPORTER_REVIEW_INPUT_STAGE)
-                if ready.stage_runs != _REPORTER_REVIEW_INPUT_STAGES:
-                    raise ValueError(f"Saved reporter-review input is incomplete for {filename}")
                 if reuse_docket_lookups:
-                    saved_document.get_stage(_DOCKET_LOOKUP_STAGE)
-            if filename not in completed and from_docket_review_documents is not None:
-                saved = from_docket_review_documents / f"{filename}.json"
-                ready = _load_document(saved, source).get_stage(_DOCKET_REVIEW_INPUT_STAGE)
-                if ready.stage_runs != _DOCKET_REVIEW_INPUT_STAGES:
-                    raise ValueError(f"Saved docket-review input is incomplete for {filename}")
-            if filename not in completed and from_validation_documents is not None:
-                saved = from_validation_documents / f"{filename}.json"
-                ready = _load_document(saved, source).get_stage(_VALIDATION_INPUT_STAGE)
-                if ready.stage_runs != _VALIDATION_INPUT_STAGES:
-                    raise ValueError(f"Saved validation input is incomplete for {filename}")
-            if filename not in completed and from_checkpoint_documents is not None:
-                saved = from_checkpoint_documents / f"{filename}.json"
-                ready = _load_document(saved, source).get_stage(checkpoint_stage)
-                if ready.stage_runs != _RUN_STAGES[: _RUN_STAGES.index(checkpoint_stage) + 1]:
-                    raise ValueError(f"Saved validation checkpoint is incomplete for {filename}")
+                    supplied.get_stage(_DOCKET_LOOKUP_STAGE)
+                    reporter_inputs[filename] = supplied
+            artifact = documents_dir / f"{filename}.json"
+            document = _load_document(artifact, source) if artifact.exists() else original
+            _check_body_search_cutoffs(document, cutoff)
+            if document.stage_runs != enabled[: len(document.stage_runs)]:
+                raise ValueError(f"Saved evaluation checkpoint skips a stage for {filename}")
+            if len(document.stage_runs) < len(original.stage_runs) or (
+                original.stage_runs and document.get_stage(input_stage) != original
+            ):
+                raise ValueError(f"Saved evaluation input differs for {filename}")
+            if from_locator_review_documents is not None:
+                if failed_stage := _transient_field_failure_stage(document):
+                    previous_stage = enabled[enabled.index(failed_stage) - 1]
+                    document = document.get_stage(previous_stage)
+                elif artifact.exists() and document.stage_runs == enabled:
+                    completed.add(filename)
+            elif _has_transient_docket_lookup_failure(document):
+                # Replaying the run's input reruns its docket lookup and review.
+                document = original
+            elif failed_stage := _transient_body_failure_stage(document):
+                if document.stage_runs == enabled:
+                    retry_body[filename] = failed_stage
+                previous_stage = enabled[enabled.index(failed_stage) - 1]
+                document = document.get_stage(previous_stage)
+            elif artifact.exists() and document.stage_runs == enabled:
+                completed.add(filename)
+            documents[filename] = document
 
         if courtlistener_pool == "reserved" and len(completed) != len(filenames):
             base_url = CourtListenerConfig.from_env().base_url
@@ -725,88 +624,83 @@ async def _run(
             if filename in completed:
                 print(f"{index}/{len(filenames)} {filename} (saved)", flush=True)
                 continue
-            if from_locator_review_documents is not None:
-                document = await _continue_field_stages(
-                    field_resume[filename],
-                    filename=filename,
-                    run_dir=run_dir,
-                    retrospective_date=cutoff,
-                    courtlistener_client=courtlistener_client,
-                )
-                if document.stage_runs != _FIELD_RUN_STAGES:
-                    raise ValueError(f"Field discovery did not complete every stage for {filename}")
-                _write_json(artifact, document.model_dump(mode="json"))
-                print(f"{index}/{len(filenames)} {filename}", flush=True)
-                continue
-            if artifact.exists():
-                print(f"{index}/{len(filenames)} {filename} (incomplete; rerunning)", flush=True)
-            if filename in retry_body:
-                document, failed_stage = retry_body[filename]
-            elif filename in validation_resume:
-                document = validation_resume[filename]
-            elif from_checkpoint_documents is not None:
-                saved = from_checkpoint_documents / f"{filename}.json"
-                document = _load_document(saved, source).get_stage(checkpoint_stage)
-            elif from_validation_documents is not None:
-                saved = from_validation_documents / f"{filename}.json"
-                document = _load_document(saved, source).get_stage(_VALIDATION_INPUT_STAGE)
-            elif from_docket_review_documents is not None:
-                saved = from_docket_review_documents / f"{filename}.json"
-                document = _load_document(saved, source).get_stage(_DOCKET_REVIEW_INPUT_STAGE)
-                document = docket_root_lookup_govinfo_retrieval(document)
-                document = await docket_root_lookup_govinfo_llm_review(document)
-            elif from_reporter_review_documents is not None:
-                saved = from_reporter_review_documents / f"{filename}.json"
-                saved_document = _load_document(saved, source)
-                document = saved_document.get_stage(_REPORTER_REVIEW_INPUT_STAGE)
-                document = await reporter_root_lookup_unique_llm_judgment(document)
-                document = await reporter_root_lookup_ambiguous_llm_judgment(document)
-                document = (
-                    _reuse_docket_lookup(document, saved_document)
-                    if reuse_docket_lookups
-                    else docket_root_lookup_courtlistener_retrieval(document)
-                )
-                document = await docket_root_lookup_courtlistener_llm_review(document)
-                document = docket_root_lookup_govinfo_retrieval(document)
-                document = await docket_root_lookup_govinfo_llm_review(document)
-            elif from_roots_documents is None:
-                document = await grow_roots(
-                    source,
-                    hunt_dockets=True,
-                    review_docket_roots=True,
-                )
-            else:
-                saved = from_roots_documents / f"{filename}.json"
-                document = _load_document(saved, source).get_stage(_ROOT_STAGE)
-                document = await docket_root_llm_reassignment(document)
+            document = documents[filename]
 
-            def save_validation_checkpoint(checkpoint: Document) -> None:
+            def save_checkpoint(checkpoint: Document) -> None:
                 stage = checkpoint.stage_runs[-1]
-                path = _field_checkpoint(run_dir, stage, filename)
-                path.parent.mkdir(parents=True, exist_ok=True)
+                if checkpoint.stage_runs != enabled[: enabled.index(stage) + 1]:
+                    raise ValueError(f"Stage did not complete in source order for {filename}: {stage}")
                 _check_body_search_cutoffs(checkpoint, cutoff)
-                _write_json(path, checkpoint.model_dump(mode="json"))
+                _write_json(artifact, checkpoint.model_dump(mode="json"))
                 if _transient_body_failure_stage(checkpoint) == stage:
                     raise RuntimeError(
                         f"Locator-body search at {stage} had a transient provider failure for "
                         f"{filename}; resume this run after the provider recovers"
                     )
 
-            if filename in retry_body:
-                document = await _retry_body_stages(
-                    document, failed_stage, cutoff, courtlistener_client, save_validation_checkpoint
+            if from_locator_review_documents is not None:
+                document = await _continue_field_stages(
+                    document,
+                    filename=filename,
+                    run_dir=run_dir,
+                    retrospective_date=cutoff,
+                    courtlistener_client=courtlistener_client,
                 )
             else:
-                client_kwargs = (
-                    {"courtlistener_client": courtlistener_client} if courtlistener_client is not None else {}
-                )
-                document = await validate_roots(
-                    document,
-                    retrospective_date=cutoff,
-                    checkpoint=save_validation_checkpoint,
-                    **client_kwargs,
-                )
-            if document.stage_runs != _RUN_STAGES:
+                if from_reporter_review_documents is not None:
+                    for stage, review in (
+                        (
+                            "14_reporter_root_lookup_unique_llm_judgment",
+                            reporter_root_lookup_unique_llm_judgment,
+                        ),
+                        (
+                            "15_reporter_root_lookup_ambiguous_llm_judgment",
+                            reporter_root_lookup_ambiguous_llm_judgment,
+                        ),
+                    ):
+                        if stage not in document.stage_runs:
+                            document = await review(document)
+                            save_checkpoint(document)
+                    if _DOCKET_LOOKUP_STAGE not in document.stage_runs:
+                        document = (
+                            _reuse_docket_lookup(document, reporter_inputs[filename])
+                            if reuse_docket_lookups
+                            else docket_root_lookup_courtlistener_retrieval(document)
+                        )
+                        save_checkpoint(document)
+                    if _DOCKET_REVIEW_INPUT_STAGE not in document.stage_runs:
+                        document = await docket_root_lookup_courtlistener_llm_review(document)
+                        save_checkpoint(document)
+                if from_docket_review_documents is not None or from_reporter_review_documents is not None:
+                    if "18_docket_root_lookup_govinfo_retrieval" not in document.stage_runs:
+                        document = docket_root_lookup_govinfo_retrieval(document)
+                        save_checkpoint(document)
+                    if _VALIDATION_INPUT_STAGE not in document.stage_runs:
+                        document = await docket_root_lookup_govinfo_llm_review(document)
+                        save_checkpoint(document)
+                if "11_docket_root_llm_reassignment" not in document.stage_runs:
+                    if from_roots_documents is not None:
+                        document = await docket_root_llm_reassignment(document)
+                    else:
+                        document = await grow_roots(source, hunt_dockets=True, review_docket_roots=True)
+                    save_checkpoint(document)
+                if filename in retry_body:
+                    document = await _retry_body_stages(
+                        document, retry_body[filename], cutoff, courtlistener_client, save_checkpoint
+                    )
+                else:
+                    client_kwargs = (
+                        {"courtlistener_client": courtlistener_client}
+                        if courtlistener_client is not None
+                        else {}
+                    )
+                    document = await validate_roots(
+                        document,
+                        retrospective_date=cutoff,
+                        checkpoint=save_checkpoint,
+                        **client_kwargs,
+                    )
+            if document.stage_runs != enabled:
                 raise ValueError(f"Run did not complete every stage for {filename}")
             _check_body_search_cutoffs(document, cutoff)
             _write_json(artifact, document.model_dump(mode="json"))

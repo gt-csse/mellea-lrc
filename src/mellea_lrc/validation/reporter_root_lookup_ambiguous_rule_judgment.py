@@ -5,6 +5,7 @@ from __future__ import annotations
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import (
+    REPORTER_LOOKUP_CANDIDATE_LIMIT,
     ReporterExactAmbiguityOutcome,
     ReporterExactAmbiguityResolution,
     ReporterExactLookupOutcome,
@@ -19,7 +20,6 @@ from mellea_lrc.validation.reporter_exact.fields import (
 
 STAGE = "13.2_reporter_root_lookup_ambiguous_rule_judgment"
 LOOKUP_STAGE = "12.2_reporter_root_lookup_docket_retrieval"
-CANDIDATE_LIMIT = 20
 
 
 def reporter_root_lookup_ambiguous_rule_judgment(
@@ -49,7 +49,7 @@ def reporter_root_lookup_ambiguous_rule_judgment(
             raise ValueError("Ambiguous route requires a saved multi-candidate reporter lookup")
         recorded = root.record(STAGE)
         candidates = lookup.response.clusters
-        if len(candidates) >= CANDIDATE_LIMIT:
+        if len(candidates) >= REPORTER_LOOKUP_CANDIDATE_LIMIT:
             resolution = ReporterExactAmbiguityResolution(
                 node_id=recorded.nodes[-1].id,
                 outcome=ReporterExactAmbiguityOutcome.CANDIDATE_LIMIT_EXCEEDED,

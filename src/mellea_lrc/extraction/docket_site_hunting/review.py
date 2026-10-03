@@ -2,26 +2,21 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
-from dotenv import load_dotenv
 from mellea.core import ValidationResult
 from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mellea_lrc.extraction.docket_site_hunting.candidates import DocketSiteCandidate
-from mellea_lrc.llm.config import llm_api_config_from_env, start_mellea_session_from_env
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
+from mellea_lrc.llm.reviewer import IvrReviewer
 from mellea_lrc.matching.fuzziness import FuzzinessOption
 from mellea_lrc.matching.grounding import EvidenceCandidate, GroundingEvidence
 from mellea_lrc.model.ivr import IvrRun
-
-if TYPE_CHECKING:
-    from mellea import MelleaSession
 
 
 class DocketSiteDecision(BaseModel):
@@ -63,10 +58,6 @@ def grounded_docket_decision(candidate: DocketSiteCandidate, decision: DocketSit
     )
 
 
-MAX_TOKENS = 1800
-MAX_MODEL_ATTEMPTS = 3  # Initial answer plus at most two repairs.
-SESSION_ID = "mellea-lrc-docket-site-hunting-v1"
-
 # The invariant instruction is a prefix so repeated candidate reviews can use
 # the provider's prompt cache. It describes the task without jurisdictional or
 # corpus-specific docket conventions.
@@ -102,24 +93,8 @@ def _validate_grounding(ctx: object, candidate: DocketSiteCandidate) -> Validati
 
 
 @dataclass(frozen=True, slots=True)
-class IvrDocketReviewer:
+class IvrDocketReviewer(IvrReviewer):
     """One bounded IVR decision, with every attempt retained on the result."""
-
-    session: MelleaSession
-    model_options: dict[str, object]
-    max_attempts: int = MAX_MODEL_ATTEMPTS
-
-    @classmethod
-    def from_env(cls) -> IvrDocketReviewer:
-        load_dotenv(override=False)
-        config = llm_api_config_from_env(os.environ)
-        return cls(
-            session=start_mellea_session_from_env(),
-            model_options={
-                **config.mellea_call_options(max_tokens=MAX_TOKENS),
-                "extra_body": {"session_id": SESSION_ID},
-            },
-        )
 
     async def __call__(self, candidate: DocketSiteCandidate) -> DocketReviewOutcome:
         run = await run_instruct_ivr(

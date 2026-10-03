@@ -1,4 +1,4 @@
-"""A short reporter citation and its eyecite-normalized reporter and pin page."""
+"""A short reporter quote and its eyecite-normalized reporter identity."""
 
 from __future__ import annotations
 
@@ -10,21 +10,21 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
 from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.reporters import short_reporter_readings
 
 
 class ShortReporterLocatorValue(BaseModel):
-    """Reporter identity and the first pinpoint page in a short citation."""
+    """Reporter identity; complete pinpoint targets belong to PinCiteField."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     volume: int
     reporter: Reporter
     edition: str
-    pin_page: str
 
     @model_validator(mode="after")
     def _validate_parts(self) -> Self:
-        if self.volume < 1 or not self.edition.strip() or not self.pin_page.strip():
+        if self.volume < 1 or not self.edition.strip():
             raise ValueError("Short reporter locator has incomplete normalized parts")
         if not self.reporter.short_name or not self.reporter.name:
             raise ValueError("Reporter has no normalized identity")
@@ -33,10 +33,8 @@ class ShortReporterLocatorValue(BaseModel):
 
 @lru_cache(maxsize=8192)
 def normalize_short_reporter_locator(quote: str) -> ShortReporterLocatorValue:
-    """Read one complete short citation through its stage-local eyecite reader."""
-    # Keep the stage's tokenizer as the single authority for source reading.
-    from mellea_lrc.extraction.short_reporter_locator import short_reporter_readings
-
+    """Read one complete short citation through its shared eyecite reader."""
+    # Keep the shared tokenizer as the single authority for source reading.
     matches = [reading for reading in short_reporter_readings(quote) if reading.span == (0, len(quote))]
     if len(matches) != 1:
         raise ValueError(f"Cannot normalize short reporter locator: {quote!r}")
@@ -47,12 +45,10 @@ def normalize_short_reporter_locator(quote: str) -> ShortReporterLocatorValue:
         raise ValueError(f"Cannot normalize ambiguous short reporter locator: {quote!r}")
     volume_text = match.groups.get("volume")
     reporter_text = match.groups.get("reporter")
-    page_text = match.groups.get("page")
-    pin_page = match.corrected_page()
-    if not volume_text or not reporter_text or not page_text or not pin_page:
+    if not volume_text or not reporter_text:
         raise ValueError(f"Cannot normalize short reporter locator: {quote!r}")
     offset = 0
-    for part in (volume_text, reporter_text, page_text):
+    for part in (volume_text, reporter_text):
         position = quote.find(part, offset)
         if position < 0:
             raise ValueError(f"Reporter component does not match short locator quote: {quote!r}")
@@ -65,7 +61,6 @@ def normalize_short_reporter_locator(quote: str) -> ShortReporterLocatorValue:
         volume=volume,
         reporter=edition.reporter,
         edition=edition.short_name,
-        pin_page=pin_page,
     )
 
 

@@ -3,20 +3,18 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
-from dotenv import load_dotenv
 from mellea.core import ValidationResult
 from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import ValidationError
 
-from mellea_lrc.llm.config import llm_api_config_from_env, start_mellea_session_from_env
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
+from mellea_lrc.llm.reviewer import IvrReviewer
 from mellea_lrc.matching.grounding import EvidenceCandidate, GroundedFragment, GroundingEvidence
 from mellea_lrc.model.citation_windows import after, before
 from mellea_lrc.model.citations import FullCitationVariant, FullDocketCitation, FullReporterCitation
@@ -43,13 +41,6 @@ from mellea_lrc.validation.body_search.common import (
 from mellea_lrc.validation.body_search.grounding import ground_body_fragment
 from mellea_lrc.validation.reporter_review.court_context import inferred_reporter_court_note
 
-if TYPE_CHECKING:
-    from mellea import MelleaSession
-
-
-MAX_TOKENS = 5500
-MAX_MODEL_ATTEMPTS = 3
-SESSION_ID = "mellea-lrc-locator-body-review-v2"
 _WRITTEN_YEAR = re.compile(r"(?<!\d)(?:1[6-9]|20|21)\d{2}(?!\d)")
 
 
@@ -288,23 +279,7 @@ def _validate_grounding(ctx: object, context: BodyCorroborationContext) -> Valid
 
 
 @dataclass(frozen=True, slots=True)
-class IvrBodyCorroborationReviewer:
-    session: MelleaSession
-    model_options: dict[str, object]
-    max_attempts: int = MAX_MODEL_ATTEMPTS
-
-    @classmethod
-    def from_env(cls) -> IvrBodyCorroborationReviewer:
-        load_dotenv(override=False)
-        config = llm_api_config_from_env(os.environ)
-        return cls(
-            session=start_mellea_session_from_env(),
-            model_options={
-                **config.mellea_call_options(max_tokens=MAX_TOKENS),
-                "extra_body": {"session_id": SESSION_ID},
-            },
-        )
-
+class IvrBodyCorroborationReviewer(IvrReviewer):
     async def __call__(self, context: BodyCorroborationContext) -> BodyCorroborationOutcome:
         run = await run_instruct_ivr(
             self.session,

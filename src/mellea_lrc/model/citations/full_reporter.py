@@ -17,6 +17,7 @@ from mellea_lrc.model.citations.judgments import (
 )
 from mellea_lrc.model.citations.kind import FullCitationKind
 from mellea_lrc.model.citations.reporter_lookup import (
+    REPORTER_LOOKUP_CANDIDATE_LIMIT,
     ReporterAmbiguousReview,
     ReporterExactAmbiguityOutcome,
     ReporterExactAmbiguityResolution,
@@ -26,6 +27,11 @@ from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactLookupOutcome,
     ReporterUniqueReview,
 )
+from mellea_lrc.model.citations.reporter_opinion import (
+    ReporterRootOpinionRetrieval,
+    ReporterRootOpinionSource,
+)
+from mellea_lrc.model.citations.reporter_pages import ReporterRootOpinionPageIndex
 from mellea_lrc.model.span import Span
 
 
@@ -40,6 +46,30 @@ class FullReporterCitation(FullCitation):
     reporter_exact_ambiguity_resolution: ReporterExactAmbiguityResolution | None = None
     reporter_unique_review: ReporterUniqueReview | None = None
     reporter_ambiguous_review: ReporterAmbiguousReview | None = None
+    reporter_root_opinion_source: ReporterRootOpinionSource | None = None
+    reporter_root_opinion_retrieval: ReporterRootOpinionRetrieval | None = None
+    reporter_root_opinion_page_index: ReporterRootOpinionPageIndex | None = None
+
+    def with_reporter_root_opinion_source(self, result: ReporterRootOpinionSource) -> Self:
+        if self.reporter_root_opinion_source is not None:
+            raise ValueError("Reporter root opinion source is already bound")
+        if result.node_id != self._decision_node_id():
+            raise ValueError("Opinion source must point to the current decision node")
+        return self._with_log(reporter_root_opinion_source=result)
+
+    def with_reporter_root_opinion_page_index(self, result: ReporterRootOpinionPageIndex) -> Self:
+        if self.reporter_root_opinion_page_index is not None:
+            raise ValueError("Reporter root opinion pages have already been indexed")
+        if result.node_id != self._decision_node_id():
+            raise ValueError("Opinion page index must point to the current decision node")
+        return self._with_log(reporter_root_opinion_page_index=result)
+
+    def with_reporter_root_opinion_retrieval(self, result: ReporterRootOpinionRetrieval) -> Self:
+        if self.reporter_root_opinion_retrieval is not None:
+            raise ValueError("Reporter root opinions have already been retrieved")
+        if result.node_id != self._decision_node_id():
+            raise ValueError("Opinion retrieval must point to the current decision node")
+        return self._with_log(reporter_root_opinion_retrieval=result)
 
     @property
     def locator_span(self) -> Span:
@@ -169,6 +199,27 @@ class FullReporterCitation(FullCitation):
         lookup = self.reporter_exact_lookup
         docket = self.reporter_exact_docket
         positions = {node.id: index for index, node in enumerate(self.nodes)}
+        opinion_source = self.reporter_root_opinion_source
+        opinions = self.reporter_root_opinion_retrieval
+        page_index = self.reporter_root_opinion_page_index
+        if page_index is not None:
+            if opinions is None or page_index.cluster_id != opinions.cluster_id:
+                raise ValueError("Opinion page index must belong to the retrieved cluster")
+            if tuple(item.opinion_id for item in page_index.opinions) != tuple(
+                item.opinion_id for item in opinions.opinions
+            ):
+                raise ValueError("Opinion page index must preserve every retrieved opinion")
+            if positions[opinions.node_id] >= positions[page_index.node_id]:
+                raise ValueError("Opinion page index must follow retrieval")
+        if opinions is not None:
+            if opinion_source is None:
+                raise ValueError("Opinion retrieval requires a bound original source")
+            if opinions.cluster_id != opinion_source.cluster_id:
+                raise ValueError("Opinion retrieval must belong to its bound source cluster")
+            if opinions.sub_opinion_ids != opinion_source.sub_opinion_ids:
+                raise ValueError("Opinion retrieval must preserve its bound source's subopinions")
+            if positions[opinion_source.node_id] > positions[opinions.node_id]:
+                raise ValueError("Opinion retrieval cannot precede its source binding")
         if docket is not None:
             if (
                 lookup is None
@@ -204,7 +255,7 @@ class FullReporterCitation(FullCitation):
             if positions[lookup.node_id] > positions[resolution.node_id]:
                 raise ValueError("Ambiguity resolution cannot precede its lookup response")
             if (resolution.outcome is ReporterExactAmbiguityOutcome.CANDIDATE_LIMIT_EXCEEDED) != (
-                len(lookup.response.clusters) >= 20
+                len(lookup.response.clusters) >= REPORTER_LOOKUP_CANDIDATE_LIMIT
             ):
                 raise ValueError("Large candidate deferral must match the lookup candidate count")
         review = self.reporter_unique_review
@@ -237,7 +288,9 @@ class FullReporterCitation(FullCitation):
             (self.date_judgments, self.date),
         ):
             for judgment in log:
-                if judgment.reading_index is None and readings:
+                if judgment.reading_index is None and any(
+                    positions[reading.node_id] <= positions[judgment.node_id] for reading in readings
+                ):
                     raise ValueError("Judgment must point to an available field reading")
                 if judgment.reading_index is not None and judgment.reading_index >= len(readings):
                     raise ValueError("Judgment points beyond its field-reading log")

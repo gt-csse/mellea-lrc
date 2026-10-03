@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from mellea_lrc.llm.profiles import OPENROUTER_LUNA
 from mellea_lrc.model.citations import FullCitationVariant, FullDocketCitation
 from mellea_lrc.model.citations.body_evidence import (
     BodyCorroborationDecision,
@@ -19,6 +20,7 @@ from mellea_lrc.validation.locator_body_llm_judgment.reviewer import (
 )
 
 STAGE = "23_locator_body_llm_judgment"
+MODEL_PROFILE = OPENROUTER_LUNA
 NEXT_STAGE = "case_name_body_discovery"
 
 
@@ -95,7 +97,7 @@ async def locator_body_llm_judgment(
             )
         else:
             if service is None:
-                service = IvrBodyCorroborationReviewer.from_env()
+                service = IvrBodyCorroborationReviewer.from_profile(MODEL_PROFILE)
             result = await service(context)
             outcome = (
                 result if isinstance(result, BodyCorroborationOutcome) else BodyCorroborationOutcome(result)

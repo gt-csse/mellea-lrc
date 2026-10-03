@@ -147,6 +147,10 @@ def _find_fragment_in_text(
     start = text.find(fragment)
     if start < 0:
         return None
+    if match is not None and match.edits == 0:
+        # Expanded source whitespace can make a complete match longer than
+        # the refinement window. Preserve it before considering edited spans.
+        return start, fragment, match
     if FuzzinessType.EDIT_DISTANCE in fuzziness.types:
         refined = _best_fragment_near(proposed, text, start, fuzziness)
         if refined is not None:

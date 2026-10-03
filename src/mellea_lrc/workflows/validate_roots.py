@@ -67,6 +67,12 @@ from mellea_lrc.validation.reporter_root_lookup_unique_llm_judgment import STAGE
 from mellea_lrc.validation.reporter_root_lookup_unique_rule_judgment import STAGE as UNIQUE_RULE_STAGE
 
 
+def _require_completed_prefix(document: Document, stages: tuple[str, ...], name: str) -> None:
+    completed = tuple(stage for stage in document.stage_runs if stage in stages)
+    if completed != stages[: len(completed)]:
+        raise ValueError(f"{name} checkpoint must end at a completed stage boundary")
+
+
 async def validate_roots(
     document: Document,
     *,
@@ -94,9 +100,7 @@ async def validate_roots(
         GOVINFO_LOOKUP_STAGE,
         GOVINFO_REVIEW_STAGE,
     )
-    completed = tuple(stage for stage in document.stage_runs if stage in stages)
-    if completed != stages[: len(completed)]:
-        raise ValueError("Validation checkpoint must end at a completed stage boundary")
+    _require_completed_prefix(document, stages, "Validation")
     for stage, run in (
         (REPORTER_CLUSTER_STAGE, reporter_root_lookup_cluster_retrieval),
         (REPORTER_DOCKET_STAGE, reporter_root_lookup_docket_retrieval),
@@ -170,9 +174,7 @@ async def _validate_locator_bodies(
     completed Document before the next retrieval or review begins.
     """
     stages = (LOCATOR_OPINION_STAGE, LOCATOR_RECAP_STAGE, LOCATOR_GOVINFO_STAGE, LOCATOR_REVIEW_STAGE)
-    completed = tuple(stage for stage in document.stage_runs if stage in stages)
-    if completed != stages[: len(completed)]:
-        raise ValueError("Locator-body checkpoint must end at a completed stage boundary")
+    _require_completed_prefix(document, stages, "Locator-body")
     client_kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
     if LOCATOR_OPINION_STAGE not in document.stage_runs:
         document = locator_body_courtlistener_opinion_retrieval(
@@ -210,9 +212,7 @@ async def _discover_intended_case(
     completed stage is resumable and belongs to the validate_roots report.
     """
     stages = (FIELD_OPINION_STAGE, FIELD_RECAP_STAGE, FIELD_GOVINFO_STAGE, FIELD_REVIEW_STAGE)
-    completed = tuple(stage for stage in document.stage_runs if stage in stages)
-    if completed != stages[: len(completed)]:
-        raise ValueError("Intended-case checkpoint must end at a completed stage boundary")
+    _require_completed_prefix(document, stages, "Intended-case")
     client_kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
     for stage, run in (
         (FIELD_OPINION_STAGE, intended_case_courtlistener_opinion_retrieval),

@@ -8,10 +8,16 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mellea_lrc.model.citations.fields.base import require_all_json_properties
-from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
-from mellea_lrc.model.citations.judgments import MatchResult
+from mellea_lrc.model.citations.fields.case_name import CaseName
+from mellea_lrc.model.citations.judgments import (
+    MatchResult,
+    validate_replacement_quote,
+    validate_reviewer_case_name,
+)
 from mellea_lrc.model.ivr import IvrRun
 from mellea_lrc.providers.courtlistener.models import CourtListenerCitationLookup, CourtListenerDocket
+
+REPORTER_LOOKUP_CANDIDATE_LIMIT = 20
 
 
 class ReporterExactLookupOutcome(str, Enum):
@@ -149,11 +155,7 @@ class ReporterUniqueFieldAssessment(BaseModel):
 
     @model_validator(mode="after")
     def _validate_replacement_intent(self) -> Self:
-        if self.propose_replacement:
-            if self.quote is None or not self.quote.strip():
-                raise ValueError("A proposed replacement requires a nonempty source quote")
-        elif self.quote is not None:
-            raise ValueError("A field without a proposed replacement must have a null quote")
+        validate_replacement_quote(self.propose_replacement, self.quote)
         return self
 
 
@@ -166,8 +168,7 @@ class ReporterCaseNameAssessment(ReporterUniqueFieldAssessment):
 
     @model_validator(mode="after")
     def _validate_grounded_name(self) -> Self:
-        if self.normalized is not None and self.normalized.kind is CaseNameKind.NOT_STATED:
-            raise ValueError("A reviewer case-name normalization must describe a quoted name")
+        validate_reviewer_case_name(self.normalized)
         return self
 
 

@@ -7,6 +7,7 @@ from typing import Protocol
 
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.reporter_lookup import (
+    REPORTER_LOOKUP_CANDIDATE_LIMIT,
     ReporterExactCandidateDocket,
     ReporterExactDocket,
     ReporterExactLookupOutcome,
@@ -19,7 +20,6 @@ STAGE = "12.2_reporter_root_lookup_docket_retrieval"
 LOOKUP_STAGE = "12.1_reporter_root_lookup_cluster_retrieval"
 UNIQUE_REVIEW_STAGE = "13.1_reporter_root_lookup_unique_rule_judgment"
 AMBIGUOUS_REVIEW_STAGE = "13.2_reporter_root_lookup_ambiguous_rule_judgment"
-CANDIDATE_LIMIT = 20
 
 
 class ReporterDocketClient(Protocol):
@@ -71,7 +71,7 @@ def reporter_root_lookup_docket_retrieval(
                     )
                 document = document.replace_citation(recorded.with_route(UNIQUE_REVIEW_STAGE))
                 continue
-            if len(lookup.response.clusters) < CANDIDATE_LIMIT:
+            if len(lookup.response.clusters) < REPORTER_LOOKUP_CANDIDATE_LIMIT:
                 for index, candidate in enumerate(lookup.response.clusters):
                     if not recorded.court or not candidate.docket_id or candidate_court_id(candidate):
                         continue

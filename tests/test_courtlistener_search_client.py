@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from urllib.parse import parse_qs, urlparse
-
 import httpx
 import pytest
 
@@ -14,6 +12,7 @@ from mellea_lrc.providers.courtlistener import (
     CourtListenerPayloadError,
     CourtListenerTransportError,
 )
+from mellea_lrc.providers.courtlistener.pagination import cursor_from_url
 
 
 def _client(handler: httpx.MockTransport) -> CourtListenerClient:
@@ -62,7 +61,7 @@ def test_docket_search_sends_only_query_and_type_and_preserves_pagination_and_hi
 
     assert page.count == 2
     assert page.next == next_url
-    assert parse_qs(urlparse(page.next).query)["cursor"] == ["cz0xJmQ9ZA=="]
+    assert cursor_from_url(page.next) == "cz0xJmQ9ZA=="
     assert page.previous is None
     assert len(page.results) == 2
     assert page.results[0].id == "10"

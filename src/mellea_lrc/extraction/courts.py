@@ -9,7 +9,7 @@ from functools import lru_cache
 from courts_db import courts
 
 from mellea_lrc.config.extraction import ExtractionRules, stable
-from mellea_lrc.extraction.contextual_reading import dated_parenthetical, require_structure
+from mellea_lrc.extraction.context.full_citations import dated_parenthetical, require_structure
 from mellea_lrc.model.citations import FullCitationVariant, FullReporterCitation
 from mellea_lrc.model.citations.fields.date import FULL_DATE_RE, YEAR_RE
 from mellea_lrc.model.document import Document

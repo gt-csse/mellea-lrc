@@ -8,6 +8,7 @@ from pathlib import Path
 
 from evaluations.grow_leaves import render_grow_leaves, score_grow_leaves
 from evaluations.grow_roots import render_grow_roots, score_grow_roots
+from evaluations.validate_pincite import render_validate_pincite, score_validate_pincite
 from evaluations.validate_roots import render_validate_roots, score_validate_roots
 from mellea_lrc.api import Document
 
@@ -15,6 +16,7 @@ _WORKFLOWS = {
     "grow_roots": (score_grow_roots, render_grow_roots),
     "validate_roots": (score_validate_roots, render_validate_roots),
     "grow_leaves": (score_grow_leaves, render_grow_leaves),
+    "validate_pincite": (score_validate_pincite, render_validate_pincite),
 }
 
 
@@ -42,7 +44,13 @@ def score_run(run_dir: Path, workflows: tuple[str, ...] | None = None) -> dict[s
         workflows = tuple(
             name
             for name in _WORKFLOWS
-            if name != "grow_leaves" or all("36_id_attribution" in d.stage_runs for d in documents)
+            if (
+                name != "grow_leaves" or all("28_short_reporter_citations" in d.stage_runs for d in documents)
+            )
+            and (
+                name != "validate_pincite"
+                or all("39_reporter_root_opinion_retrieval" in d.stage_runs for d in documents)
+            )
         )
     rendered: dict[str, str] = {}
     for workflow in workflows:

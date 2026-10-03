@@ -12,6 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 from evaluations import validate_roots as evaluation
+from evaluations.score_types import FieldScore
 from mellea_lrc.model.citations import FullDocketCitation, FullReporterCitation
 from mellea_lrc.model.citations.body_evidence import (
     BodyCitationTreatment,
@@ -145,7 +146,7 @@ def test_body_review_keeps_field_scores_and_marks_final_checkpoint(tmp_path: Pat
     )
     ready = _document(source_input=source_path, include_validation_history=True)
     prior = evaluation.score_validate_roots(ready.get_stage(evaluation.WORKFLOW_STAGES[-1]))
-    assert all(score == evaluation.FieldScore(0, 0, 1) for score in prior.fields.values())
+    assert all(score == FieldScore(0, 0, 1) for score in prior.fields.values())
 
     reviewed = asyncio.run(
         locator_body_llm_judgment(
@@ -223,7 +224,7 @@ def test_disputed_third_party_quote_does_not_become_field_identity_gold(tmp_path
         == evaluation.score_validate_roots(ready.get_stage(evaluation.WORKFLOW_STAGES[-1])).stages
     )
     assert evaluation.score_validate_roots(reviewed).fields == {
-        field: evaluation.FieldScore(0, 0, 1) for field in evaluation.FIELDS
+        field: FieldScore(0, 0, 1) for field in evaluation.FIELDS
     }
 
 

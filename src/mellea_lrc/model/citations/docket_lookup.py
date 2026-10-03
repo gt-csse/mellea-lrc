@@ -7,8 +7,12 @@ from typing import Literal, Self, TypeAlias
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from mellea_lrc.model.citations.fields.base import require_all_json_properties
-from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
-from mellea_lrc.model.citations.judgments import MatchResult
+from mellea_lrc.model.citations.fields.case_name import CaseName
+from mellea_lrc.model.citations.judgments import (
+    MatchResult,
+    validate_replacement_quote,
+    validate_reviewer_case_name,
+)
 from mellea_lrc.model.ivr import IvrRun
 
 DocketSearchSource: TypeAlias = Literal["d", "o"]
@@ -144,11 +148,7 @@ class DocketLookupFieldAssessment(BaseModel):
 
     @model_validator(mode="after")
     def _validate_replacement_intent(self) -> Self:
-        if self.propose_replacement:
-            if self.quote is None or not self.quote.strip():
-                raise ValueError("A proposed replacement requires a nonempty source quote")
-        elif self.quote is not None:
-            raise ValueError("A field without a proposed replacement must have a null quote")
+        validate_replacement_quote(self.propose_replacement, self.quote)
         return self
 
 
@@ -161,8 +161,7 @@ class DocketLookupCaseNameAssessment(DocketLookupFieldAssessment):
 
     @model_validator(mode="after")
     def _validate_grounded_name(self) -> Self:
-        if self.normalized is not None and self.normalized.kind is CaseNameKind.NOT_STATED:
-            raise ValueError("A reviewer case-name normalization must describe a quoted name")
+        validate_reviewer_case_name(self.normalized)
         return self
 
 

@@ -3,22 +3,18 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Awaitable
 from dataclasses import dataclass
 from datetime import date
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
-from dotenv import load_dotenv
 from mellea.core import ValidationResult
 from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import ValidationError
 
-from mellea_lrc.llm.config import llm_api_config_from_env, start_mellea_session_from_env
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
-from mellea_lrc.matching.fuzziness import FuzzinessOption
-from mellea_lrc.matching.grounding import EvidenceCandidate, GroundingEvidence
+from mellea_lrc.llm.reviewer import IvrReviewer
 from mellea_lrc.model.citation_windows import after, before
 from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.citations.docket_lookup import (
@@ -30,16 +26,8 @@ from mellea_lrc.model.citations.fields.date import normalize_date
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.model.span import Span
 from mellea_lrc.providers.courtlistener.models import CourtListenerSearchResult
-
-if TYPE_CHECKING:
-    from mellea import MelleaSession
-
-
-MAX_TOKENS = 6000
-MAX_MODEL_ATTEMPTS = 3
-SESSION_ID = "mellea-lrc-docket-review-v5"
+from mellea_lrc.validation.docket_review.grounding import DocketReviewGrounding
 
 _PREFIX = """Review one docket citation against every shortlisted CourtListener search record in one answer. Reread the filing fields, propose any grounded corrections, and compare the resulting readings with one selected candidate. Select the best candidate by its candidate_index, or select null if the supplied evidence does not support any candidate. The shortlisted records are the complete choice set. A similarity score helps find plausible docket numbers; it is not a case-identity verdict.
 
@@ -163,7 +151,7 @@ def _docket_date_compatibility(cited_quote: str | None, filed_value: object) -> 
 
 
 @dataclass(frozen=True, slots=True)
-class DocketLookupReviewContext:
+class DocketLookupReviewContext(DocketReviewGrounding):
     """Bounded source context and all shortlisted records for one docket root."""
 
     source: str
@@ -269,30 +257,6 @@ class DocketLookupReviewContext:
             shortlisted_candidate_indices=lookup.shortlisted_candidate_indices,
         )
 
-    def grounded_corrections(self, decision: DocketLookupReviewDecision) -> dict[str, Span] | None:
-        """Locate every proposed reading in its allowed filing window."""
-        corrections: dict[str, Span] = {}
-        windows = {
-            "docket_number": (self.number_window, self.number_offset),
-            "case_name": (self.before_window, self.before_offset),
-            "court": (self.after_window, self.after_offset),
-            "date": (self.after_window, self.after_offset),
-        }
-        for field, (window, offset) in windows.items():
-            assessment = getattr(decision, field)
-            if not assessment.propose_replacement:
-                continue
-            if assessment.quote is None:
-                return None
-            found = GroundingEvidence((EvidenceCandidate(window, offset),)).find_fragment(
-                assessment.quote,
-                FuzzinessOption.edit_distance(similarity_percent=90, whitespace_relaxation=True),
-            )
-            if found is None:
-                return None
-            corrections[field] = Span(offset + found.start, offset + found.end)
-        return corrections
-
     def choice_error(self, decision: DocketLookupReviewDecision) -> str | None:
         corrections = self.grounded_corrections(decision)
         if corrections is None:
@@ -370,24 +334,8 @@ def _validate_review(ctx: object, context: DocketLookupReviewContext) -> Validat
 
 
 @dataclass(frozen=True, slots=True)
-class IvrDocketLookupReviewer:
+class IvrDocketLookupReviewer(IvrReviewer):
     """One structured IVR call over a docket root's saved shortlist."""
-
-    session: MelleaSession
-    model_options: dict[str, object]
-    max_attempts: int = MAX_MODEL_ATTEMPTS
-
-    @classmethod
-    def from_env(cls) -> IvrDocketLookupReviewer:
-        load_dotenv(override=False)
-        config = llm_api_config_from_env(os.environ)
-        return cls(
-            session=start_mellea_session_from_env(),
-            model_options={
-                **config.mellea_call_options(max_tokens=MAX_TOKENS),
-                "extra_body": {"session_id": SESSION_ID},
-            },
-        )
 
     async def __call__(self, context: DocketLookupReviewContext) -> DocketLookupReviewOutcome:
         run = await run_instruct_ivr(

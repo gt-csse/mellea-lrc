@@ -4,6 +4,7 @@ from typing import Literal, Self
 
 from pydantic import model_validator
 
+from mellea_lrc.model.citations.fields import PinCiteField
 from mellea_lrc.model.citations.fields.short_forms import IdField
 from mellea_lrc.model.citations.history import Node
 from mellea_lrc.model.citations.kind import ShortCitationKind
@@ -20,15 +21,23 @@ class IdCitation(LeafCitation):
         return self.id_reference[-1].span
 
     @classmethod
-    def from_source(cls, *, source: str, span: Span, stage: str) -> Self:
+    def from_source(cls, *, source: str, span: Span, stage: str, pin_span: Span | None = None) -> Self:
+        """Read the Id. occurrence and optional pinpoint on its creation node."""
+        if pin_span is not None and not (span.start <= pin_span.start < pin_span.end <= span.end):
+            raise ValueError("An Id. pinpoint must lie inside its citation span")
         identifier = f"id:{span.start}:{span.end}"
         node = Node(id=f"{identifier}:node:0", stage=stage)
         return cls(
-            id=identifier, nodes=(node,), id_reference=(IdField.from_source(source, span, node_id=node.id),)
+            id=identifier,
+            nodes=(node,),
+            id_reference=(IdField.from_source(source, span, node_id=node.id),),
+            pin_cite=(PinCiteField.from_source(source, pin_span, node_id=node.id),)
+            if pin_span is not None
+            else None,
         )
 
     @model_validator(mode="after")
     def _validate_creation(self) -> Self:
         if not self.id_reference or self.id_reference[0].node_id != self.nodes[0].id:
-            raise ValueError("A id citation needs its source reading on the creation node")
+            raise ValueError("An Id. citation needs its source reading on the creation node")
         return self

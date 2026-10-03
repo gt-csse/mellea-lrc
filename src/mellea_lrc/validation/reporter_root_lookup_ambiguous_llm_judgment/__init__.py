@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from mellea_lrc.llm.profiles import OPENROUTER_LUNA
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.reporter_lookup import (
+    REPORTER_LOOKUP_CANDIDATE_LIMIT,
     ReporterAmbiguousReview,
     ReporterExactAmbiguityOutcome,
     ReporterExactLookupOutcome,
@@ -22,6 +24,7 @@ from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm_judgment.reviewer 
 )
 
 STAGE = "15_reporter_root_lookup_ambiguous_llm_judgment"
+MODEL_PROFILE = OPENROUTER_LUNA
 
 
 async def reporter_root_lookup_ambiguous_llm_judgment(
@@ -49,14 +52,14 @@ async def reporter_root_lookup_ambiguous_llm_judgment(
             lookup is None
             or lookup.outcome is not ReporterExactLookupOutcome.AMBIGUOUS
             or lookup.response is None
-            or not 2 <= len(lookup.response.clusters) < 20
+            or not 2 <= len(lookup.response.clusters) < REPORTER_LOOKUP_CANDIDATE_LIMIT
             or resolution is None
             or resolution.outcome is not ReporterExactAmbiguityOutcome.NO_UNIQUE_RULE_MATCH
         ):
             raise ValueError("Ambiguous model route requires an unresolved bounded candidate list")
         context = ReporterAmbiguousReviewContext.from_document(document, root)
         if service is None:
-            service = IvrReporterAmbiguousReviewer.from_env()
+            service = IvrReporterAmbiguousReviewer.from_profile(MODEL_PROFILE)
         result = await service(context)
         outcome = (
             result

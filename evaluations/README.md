@@ -1,15 +1,142 @@
 # Evaluation runs
 
-The only workflows are `grow_roots`, `validate_roots`, and `grow_leaves`.
+The workflows are `grow_roots`, `validate_roots`, `grow_leaves`, and `validate_pincite`.
 Each has one scorer and one Markdown report, with its JSON representation
 beside it. Stage tables belong inside their workflow's report; retrieval or
 review groups do not introduce separate workflows or reports.
 
+## Reporter-root opinion retrieval
+
+The first `validate_pincite` stage is `39_reporter_root_opinion_retrieval`.
+It retrieves every linked opinion of an admitted reporter root's selected
+CourtListener cluster through the configured proxy. It preserves complete raw
+responses, original HTML/page markers, missing objects, and empty text on the
+citation. It does not choose a majority, concurrence, or dissent by list position
+or type, and it does not issue a pinpoint-support judgment.
+
+```python
+document = Document.model_validate_json(saved_json)
+document = reporter_root_opinion_retrieval(document)
+```
+
+```sh
+.venv/bin/python -m evaluations.run_validate_pincite \
+  --input-documents evaluations/results/primary/<UTC timestamp>/documents
+.venv/bin/python -m evaluations.score_run \
+  evaluations/results/primary/<new UTC timestamp> --workflow validate_pincite
+```
+
+The runner saves one cumulative Document per filing after every completed stage.
+`--resume-run` reuses completed stages and filings. Inputs already containing
+stage 39 reuse the downloaded opinion responses. `--stop-after` can end at 39,
+40, 41, 42, or any later stage through 47; the saved run retains that boundary.
+
+`score_reporter_root_opinion_retrieval(document)` and
+`score_validate_pincite(document)` each accept only a Document. Stage 39 reports
+one ratio: `reporter_roots_opinion_retrievals / reporter_roots_correct_identity`.
+The denominator is reporter roots with correct identity and a selected original
+CourtListener cluster; the numerator counts those with at least one retrieved
+opinion body. Downloaded-object counts and annotation-target breakdowns are not
+additional denominators.
+
+Stage 40 (`40_reporter_root_opinion_page_index`) preserves a rendered source and
+explicit page spans for every downloaded opinion. It keeps parallel pagination
+separate and records uncertain namespaces. Stage 41
+(`41_reporter_citation_page_resolution`) resolves each root occurrence and its
+attached occurrences using their own reporter edition and pinpoint. An
+unqualified Id. may inherit its immediate antecedent's pinpoint; other leaves
+do not inherit the root's canonical pinpoint.
+
+Stage 42 (`42_reporter_citation_opinion_review`) uses IVR only for ambiguous
+page candidates. It selects a representative for each requested page, or leaves
+it unresolved. Shared opinion text stays in the prompt prefix; occurrence
+context and candidate indexes follow it. Decisions, reasons, every IVR repair,
+and failures stay in citation-local histories. `get_reporter_page_selection()`
+reads the most recent rule/model selection. Proposition and support review follow in stages 43–47. These stages do not change identity,
+source fields, or root attachments.
+
+Stages 43–47 read each occurrence's proposition, prepare pinpoint evidence,
+review selected pages, review the full saved opinion when necessary, and append
+the final support/location judgment. Each stage has its own scorer taking only
+`document` and a matching renderer. The workflow map renders stages sequentially.
+Stages without independent gold targets report counts rather than invented accuracy.
+
+The report opens with a dataset-only inventory before stage 39: native pin cite
+occurrences, the subset under gold `CORRECT_IDENTITY` roots, settled findings,
+and separate `SKIPPED` counts for `UNSETTLED`, `TOA`, and `IDENTITY_WRONG`.
+Settled correct/wrong findings are distributed across reporter roots, their
+leaves, docket roots, and their leaves. A leaf uses its root's gold identity.
+Pipeline extraction, opinion retrieval, inherited pinpoints without native pin
+annotations, and issued judgments do not change this inventory.
+
+The final pinpoint table separates reporter roots, leaves of reporter roots,
+docket roots, leaves of docket roots, and their total. Its
+fixed gold cohort is every settled native `CORRECT_PINCITE` or `WRONG_PINCITE`
+occurrence under a gold `CORRECT_IDENTITY` root. A leaf uses its root's gold
+identity. Families with a wrong gold identity are excluded from precision and
+recall even if the pipeline admitted them. Gold `SKIPPED` and no-pin occurrences are excluded.
+Missing roots, opinions, or judgments never shrink that recall denominator.
+Precision counts correct definitive judgments divided by definitive judgments
+within that gold cohort;
+recall counts correct definitive judgments divided by all settled gold.
+`UNDETERMINED` remains a recall miss. Provider/opinion IDs are not accuracy gates.
+Docket pinpoint validation is not implemented, so settled docket annotations
+contribute to the denominator as missing judgments.
+Pinpoint location is distinct from support. Native annotations record
+`pagination_available`, an independent nullable Boolean `correct_page`, and
+typed `found_pages` intervals. `correct_page` assesses the written target,
+including any specified footnote; `found_pages` records identified locations
+of the cited material. A correct support label does not imply a correct page,
+and a wrong support label does not imply a page error.
+
+Stages 46 and 47 also report page precision. Stage 46 compares the model's
+`correct_page` assessment; stage 47 compares the final assessment after evidence
+grounding and page checks. Explicit Boolean assertions are scored against known
+native page judgments within the settled gold-correct-identity cohort,
+independently of the support verdict. Unknown gold and null predicted judgments
+are counted separately outside page precision; they do not alter the fixed
+support recall denominator. The workflow summary uses the latest completed
+review/judgment boundary, and its page column uses the same rule.
+
+Found-page agreement is reported separately. It compares recovered typed
+intervals with known positive native `found_pages` references, including target
+kind and footnote. A recovered interval inside a written target explicitly
+judged wrong is a known page error. Unlisted or disjoint alternative locations
+are not automatically false: the native positive references are not an
+exhaustive map of every possible occurrence. Unknown comparisons and missing
+predicted locations are reported separately.
+
+The runner processes three independent filings concurrently by default; use
+`--workers` to control concurrency. Each filing is saved after completed atomic
+stages. Resume restores the saved worker count and checks the source hashes.
+
+All checkpoints are recovered from the final Document with `get_stage`; no
+separate stage snapshots are required. Stage 39 is retrieval rather than a
+writing-choice accuracy evaluation, so its report claims no subopinion precision
+or recall. Such an evaluation needs independent occurrence-specific targets.
+
+Field-reading precision counts one outcome for every citation the stage reads,
+including a missing quote, `not_stated`, an inferred value, or a failed
+normalization. Stage eligibility determines that denominator; annotation
+availability and nonnull readings never narrow it. Absence receives credit
+only against explicit annotated absence. Missing required gold raises.
+Field-judgment precision counts every issued judgment about the selected
+record, including mismatch and unavailable outcomes. Internal comparisons
+that reject other trial candidates are not predictions of citation-field
+correctness and cannot be scored against that gold. A stage that issued no
+judgment has no judgment prediction to score. Discovery counts
+created citations, attribution counts issued attachments, and retrieval counts
+queries, including those returning no records.
+
 ## Grow leaves from saved roots
 
-The leaf runner starts from the primary corpus's cumulative saved Documents.
-It defaults to stage `23_locator_body_llm_judgment`, before open-ended internet
-search. It makes no CourtListener, GovInfo, or web requests.
+The leaf runner starts from a complete run's cumulative saved Documents. It
+infers the corpus from the parent `run.json`: `primary`, `hallucination-set-1`,
+`hallucination-set-2`, `reliable-high-profile`, or `reliable-low-profile`. Results
+are saved under `evaluations/results/<set>/<UTC timestamp>/`; the primary
+paths below remain the default examples. It defaults to stage
+`23_locator_body_llm_judgment`, before open-ended internet search. It makes no
+CourtListener, GovInfo, or web requests.
 
 ```sh
 .venv/bin/python -m evaluations.run_grow_leaves \
@@ -18,32 +145,88 @@ search. It makes no CourtListener, GovInfo, or web requests.
   evaluations/results/primary/<new UTC timestamp> --workflow grow_leaves
 ```
 
-`--rule-only` omits the two semantic reviews. `--input-stage STAGE` accepts an
-earlier completed root or leaf checkpoint; for example, stage `30_id_citations`
-repeats only reference discovery and the subsequent leaf stages, while stage
-`36_id_attribution` repeats only the Id. semantic audit. `--resume-run RUN_DIR`
+`--rule-only` disables semantic review in short reporter, reference, and Id.
+attribution and omits the later supra semantic review. `--stop-after STAGE` ends
+at a selected completed checkpoint and is retained when resuming. To rerun
+short reporter creation and attribution, followed by reference creation and attribution,
+without model calls:
+
+```sh
+.venv/bin/python -m evaluations.run_grow_leaves \
+  --input-documents evaluations/results/primary/<UTC timestamp>/documents \
+  --rule-only --stop-after 31_reference_attribution
+.venv/bin/python -m evaluations.score_run \
+  evaluations/results/primary/<new UTC timestamp> --workflow grow_leaves
+```
+
+`--input-stage STAGE` accepts an
+earlier completed root or leaf checkpoint; for example, stage `28_short_reporter_citations`
+reuses the created short locators and pinpoints, then performs colocation and
+case-name reading before attribution. Stage `28.1_short_reporter_colocations`
+reuses those groups and begins with case-name reading; stage
+`28.2_short_reporter_case_names` begins with short reporter attribution. Stage
+`30_reference_citations` reuses each reference's created name and pinpoint and
+begins with reference attribution; stage `31_reference_attribution` begins with
+Id. discovery. Stage `32_id_citations` reuses Id. spans and normalized pinpoints
+and begins with Id. attribution at stage `33_id_attribution`.
+`--resume-run RUN_DIR`
 continues an interrupted run in the same directory. Completed stages and
-filings are retained. One cumulative Document is saved atomically after each
+filings are retained, and the saved corpus, parent filing list, input hashes,
+and existing checkpoints are checked before continuing. One cumulative Document is saved atomically after each
 completed stage in `documents/`; there are no separate copies of each leaf
 checkpoint. `get_stage` recovers those checkpoints from the final Document.
 
 `score_grow_leaves(document)` calls the independent Document-only scorer for
-each completed leaf stage. Discovery and reading stages report span and
+each completed leaf stage, including a run that stops before the workflow
+ends. It rejects a missing required stage inside that completed prefix;
+unrun stages do not appear in the report. The final attribution summary
+appears only after Id. attribution has run. Discovery and reading stages report span and
 normalization precision; attribution stages report attachment precision.
-Normalization is scored only against independently annotated targets, never
-against another execution of the same normalizer. Missing normalization gold
-is shown explicitly. Supra has controlled tests but no primary gold examples.
+Short reporter creation at stage `28_short_reporter_citations` reports
+`locator_span`, `locator_normalization`, `pin_cite_span`, and
+`pin_cite_normalization`. Stage `28.1_short_reporter_colocations` records the
+grouping checkpoint without a numeric precision: independent short-group
+annotations are not yet defined. Stage `28.2_short_reporter_case_names`
+reports `case_name_span` and `case_name_normalization` for the name before each
+group or singleton. Reference creation retains its name and pin readings:
+`case_name_span` and `case_name_normalization` score the name, while `pin_cite_span` and
+`pin_cite_normalization` score the pin. The attribution stage for each citation
+kind scores only its attachments. Id. creation reports
+`citation_span`, `pin_cite_span`, and `pin_cite_normalization`; it has no
+separate locator or case-name normalization. Its next stage attributes each
+Id. in source order, optionally reviewing its antecedent before processing the
+next Id. Stages `35_supra_case_names`, `36_supra_pin_cites`,
+`37_supra_attribution_rule`, and `38_supra_attribution_llm` operate only on
+supra citations; the IVR review service is shared with the other leaf types.
+Creation-stage span and normalization precision count every field outcome
+for each created citation, including `not_stated` or null outcomes. Absence
+is correct only against an explicit annotated `not_stated` state. Later
+reading stages likewise include missing outcomes for every eligible citation:
+supra names and pinpoints. Unmatched predictions
+and normalization failures remain in the denominator. Independent
+annotation targets determine correctness, never another execution of the same
+normalizer. A matched annotation missing its required normalization target
+raises instead of silently narrowing the denominator. Supra has controlled
+tests but no primary gold examples.
 
 The workflow tables report exact source-span and root-attribution precision
-and recall by citation kind and overall. The denominator includes all
+and recall by citation kind and overall. A bounded run includes only completed
+discovery types, alongside inherited repeated full citations; unrun types are
+omitted rather than counted as misses. The full workflow denominator includes all
 annotated nonroot occurrences: repeated full reporter/docket citations as
 well as short reporter, Id., supra, and name-only references. Attribution
 compares source-root locator spans, without requiring an external record ID.
 Name-only attribution aligns a unique overlapping annotated mention and
 credits it at most once; exact name boundaries are scored separately in the
 source-span table. Other leaf kinds use exact source-site alignment.
-Withdrawn proposals remain available in earlier checkpoints and review logs,
-but do not count as final active leaves. Apparent false positives still need
+Bare reference annotations remain in place with the native
+`unit: out_of_scope_citation`; the scorer uses only `unit: citation` rows.
+A bare reference left as `unit: citation` raises an annotation-scope error
+rather than being silently filtered out.
+All citations attached to the dummy head, whether unresolved or rejected,
+are excluded from workflow source-span and attribution summary predictions.
+Their creation-stage decisions and histories remain available, and the
+annotated recall denominators remain unchanged. Apparent false positives still need
 occurrence review because an unannotated authority mention is scored as
 unmatched. JSON and Markdown are generated directly by the same scorer.
 
@@ -52,9 +235,10 @@ unmatched. JSON and Markdown are generated directly by the same scorer.
 The primary runner writes one cumulative `Document` per filing under
 `evaluations/results/primary/<UTC timestamp>/documents/`. Its directory name
 records only when the run began; `run.json` records the input and completion
-status. Each final `Document` contains all completed extraction and validation
-stage histories, so `get_stage(stage)` recovers an earlier checkpoint without
-another provider call.
+status. The returned root-growth Document is saved before validation begins;
+each completed validation stage atomically updates the same filing artifact.
+Every saved `Document` contains its completed stage histories, so
+`get_stage(stage)` recovers an earlier checkpoint without another provider call.
 
 Run both workflows from source:
 
@@ -76,11 +260,10 @@ To replay any validation stage after a saved retrieval, use
 `--from-checkpoint-documents PATH --checkpoint-stage STAGE`. For example,
 `12.1_reporter_root_lookup_cluster_retrieval` reruns linked-docket retrieval and both rule reviews using
 the saved exact response; `12.2_reporter_root_lookup_docket_retrieval`
-reruns both rule reviews using the saved linked dockets. The runner
-also saves cumulative Documents after each validation stage in
-`checkpoints/stage12.1/`, `checkpoints/stage12.2/`, and the other stage
-directories, so `--resume-run` can continue after an interrupted review
-without repeating retrieval. The same checkpoint and resume behavior covers
+reruns both rule reviews using the saved linked dockets. The runner updates
+each cumulative Document in `documents/` after every completed validation stage,
+so `--resume-run` continues after an interrupted review without repeating
+retrieval. There are no separate stage snapshots. This behavior also covers
 stages `20`–`22` before `23_locator_body_llm_judgment`; a saved stage `22` Document
 can be reviewed again without repeating its three body searches.
 
@@ -119,8 +302,7 @@ and intended-case review, use its saved `documents/` directory:
 
 This creates a new timestamped run. It keeps the original stage-`23` history
 and appends stages `24` through `27` in order. Each filing's cumulative
-Document is saved after every stage under `checkpoints/stage24/` through
-`checkpoints/stage27/`; the final Document is also in `documents/`. If a run
+Document is saved after every stage in `documents/`. If a run
 stops, `--resume-run RUN_DIR` verifies the saved source, annotation cutoffs,
 and checkpoints, then continues from the last completed stage. A transient
 case-name search failure stops before later providers or the model review and
