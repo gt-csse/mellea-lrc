@@ -8,10 +8,8 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from mellea_lrc.model.citations.citation import Citation
-from mellea_lrc.model.citations.fields import CaseName, CaseNameField, CaseNameKind, PinCiteField
 from mellea_lrc.model.citations.fields.base import require_all_json_properties
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.model.span import Span
 
 
 class AttributionResult(StrEnum):
@@ -78,31 +76,8 @@ class LeafReview(BaseModel):
 class LeafCitation(Citation):
     """Append-only leaf fields; identity remains a property of the attached root."""
 
-    case_name: tuple[CaseNameField, ...] = ()
-    pin_cite: tuple[PinCiteField, ...] = ()
     attributions: tuple[LeafAttribution, ...] = ()
     reviews: tuple[LeafReview, ...] = ()
-
-    def get_case_name(self) -> CaseName:
-        return (
-            self.case_name[-1].get_normalized() if self.case_name else CaseName(kind=CaseNameKind.NOT_STATED)
-        )
-
-    def with_case_name(self, source: str, span: Span) -> Self:
-        return self._with_log(
-            case_name=(
-                *self.case_name,
-                CaseNameField.from_source(source, span, node_id=self._decision_node_id()),
-            )
-        )
-
-    def with_pin_cite(self, source: str, span: Span) -> Self:
-        return self._with_log(
-            pin_cite=(
-                *self.pin_cite,
-                PinCiteField.from_source(source, span, node_id=self._decision_node_id()),
-            )
-        )
 
     def with_attribution(self, candidates: tuple[str, ...], result: AttributionResult, reason: str) -> Self:
         return self._with_log(

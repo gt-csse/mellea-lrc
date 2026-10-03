@@ -68,7 +68,8 @@ def test_hunt_recomputes_mask_after_each_admission_and_adds_only_full_dockets() 
         assert source[locator.span.start : locator.span.end] == locator.quote
         assert source[locator.number_span.start : locator.number_span.end] == written_number
         assert locator.get_normalized().docket_number == written_number
-        assert citation.case_name == citation.court == citation.date == citation.pin_cite == ()
+        assert citation.case_name == citation.court == citation.date == ()
+        assert citation.pin_cite is None
         assert citation.root_id == ()
 
 
@@ -329,7 +330,7 @@ def test_ivr_reviewer_repairs_schema_and_grounding_then_persists_the_trace(
     )
     wrong_number = accepted.model_copy(update={"docket_number": "19 Civ. 8035"})
 
-    def instruct(_description: str, **kwargs: object) -> SimpleNamespace:
+    async def ainstruct(_description: str, **kwargs: object) -> SimpleNamespace:
         assert kwargs["format"] is DocketSiteDecision
         assert kwargs["strategy"].loop_budget == 3
         assert "docket locator" in kwargs["model_options"][ModelOption.SYSTEM_PROMPT]
@@ -350,7 +351,7 @@ def test_ivr_reviewer_repairs_schema_and_grounding_then_persists_the_trace(
         assert all(validation.as_bool() for _requirement, validation in sample.sample_validations[2])
         return sample
 
-    monkeypatch.setattr("mellea.stdlib.functional.instruct", instruct)
+    monkeypatch.setattr("mellea.stdlib.functional.ainstruct", ainstruct)
     reviewer = IvrDocketReviewer(
         session=SimpleNamespace(backend=SimpleNamespace(model_id="test-model")),
         model_options={"max_tokens": 1800},
@@ -376,14 +377,14 @@ def test_exhausted_ivr_review_is_durable_without_creating_a_citation(
 ) -> None:
     before = _ready("See No. 19 Civ. 8034.")
 
-    def instruct(_description: str, **kwargs: object) -> SimpleNamespace:
+    async def ainstruct(_description: str, **kwargs: object) -> SimpleNamespace:
         return _sampled_answers(
             kwargs["requirements"],
             ['{"complete_locator":"No. 19 Civ. 8034"}', '{"complete_locator":"No. 19 Civ. 8034"}'],
             success=False,
         )
 
-    monkeypatch.setattr("mellea.stdlib.functional.instruct", instruct)
+    monkeypatch.setattr("mellea.stdlib.functional.ainstruct", ainstruct)
     reviewer = IvrDocketReviewer(
         session=SimpleNamespace(backend=SimpleNamespace(model_id="test-model")),
         model_options={"max_tokens": 1800},

@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from evaluations import grow_roots as evaluation
+from evaluations.score_types import FieldScore, Precision, StageScore
 from mellea_lrc.api import Document, grow_roots
 from mellea_lrc.model import FullReporterCitation, Span
 
@@ -243,7 +244,7 @@ def test_docket_root_review_score_handles_mixed_citation_types(
 ) -> None:
     document = annotated_document.complete("11_docket_root_llm_reassignment")
     stage = evaluation.score_docket_root_llm_reassignment(document)
-    assert stage.metrics["root_assignment"] == evaluation.Precision(0, 0)
+    assert stage.metrics["root_assignment"] == Precision(0, 0)
     assert evaluation.score_grow_roots(document).stages[-1] == stage
 
 
@@ -258,39 +259,39 @@ def test_workflow_reports_each_root_field_with_annotated_denominators(
     score = evaluation.score_grow_roots(annotated_document)
     stages = {item.stage: item.metrics for item in score.stages}
     assert stages["6_case_names"] == {
-        "span": evaluation.Precision(2, 2),
-        "normalization": evaluation.Precision(2, 2),
+        "span": Precision(2, 2),
+        "normalization": Precision(2, 2),
     }
     assert stages["7_courts"] == {
-        "span": evaluation.Precision(1, 1),
-        "normalization": evaluation.Precision(2, 2),
+        "span": Precision(2, 2),
+        "normalization": Precision(2, 2),
     }
     assert score.root_fields["case_name"] == {
-        "span": evaluation.FieldScore(2, 2, 2),
+        "span": FieldScore(2, 2, 2),
         "span_overlap": evaluation.RecallScore(2, 2),
-        "normalization": evaluation.FieldScore(2, 2, 2),
+        "normalization": FieldScore(2, 2, 2),
     }
     assert score.root_fields["court"] == {
-        "span": evaluation.FieldScore(2, 2, 2),
+        "span": FieldScore(2, 2, 2),
         "span_overlap": evaluation.RecallScore(2, 2),
-        "normalization": evaluation.FieldScore(2, 2, 2),
+        "normalization": FieldScore(2, 2, 2),
     }
     for name in ("full_reporter_locator", "docket_locator", "docket_entry"):
         assert score.root_fields[name] == {
-            "span": evaluation.FieldScore(1, 1, 1),
+            "span": FieldScore(1, 1, 1),
             "span_overlap": evaluation.RecallScore(1, 1),
-            "normalization": evaluation.FieldScore(1, 1, 1),
+            "normalization": FieldScore(1, 1, 1),
         }
     for name in ("date", "pin_cite"):
         assert score.root_fields[name] == {
-            "span": evaluation.FieldScore(2, 2, 2),
+            "span": FieldScore(2, 2, 2),
             "span_overlap": evaluation.RecallScore(2, 2),
-            "normalization": evaluation.FieldScore(2, 2, 2),
+            "normalization": FieldScore(2, 2, 2),
         }
     assert score.root_fields["overall_locator"] == {
-        "span": evaluation.FieldScore(2, 2, 2),
+        "span": FieldScore(2, 2, 2),
         "span_overlap": evaluation.RecallScore(2, 2),
-        "normalization": evaluation.FieldScore(2, 2, 2),
+        "normalization": FieldScore(2, 2, 2),
     }
     assert tuple(score.root_fields)[:3] == (
         "full_reporter_locator",
@@ -340,14 +341,14 @@ def test_validation_checkpoint_scores_latest_root_fields_without_changing_baseli
     assert set(score.validated_root_fields) == {"case_name", "court", "date"}
     for field in ("case_name", "court", "date"):
         assert score.root_fields[field] == {
-            "span": evaluation.FieldScore(2, 2, 2),
+            "span": FieldScore(2, 2, 2),
             "span_overlap": evaluation.RecallScore(2, 2),
-            "normalization": evaluation.FieldScore(2, 2, 2),
+            "normalization": FieldScore(2, 2, 2),
         }
         assert score.validated_root_fields[field] == {
-            "span": evaluation.FieldScore(1, 2, 2),
+            "span": FieldScore(1, 2, 2),
             "span_overlap": evaluation.RecallScore(1, 2),
-            "normalization": evaluation.FieldScore(1, 2, 2),
+            "normalization": FieldScore(1, 2, 2),
         }
 
     assert score.as_dict()["validated_root_fields"]["case_name"]["span"] == {
@@ -364,7 +365,7 @@ def test_validation_checkpoint_scores_latest_root_fields_without_changing_baseli
 
     doubled = score + score
     assert doubled.validated_root_fields is not None
-    assert doubled.validated_root_fields["case_name"]["span"] == evaluation.FieldScore(2, 4, 4)
+    assert doubled.validated_root_fields["case_name"]["span"] == FieldScore(2, 4, 4)
     assert doubled.validated_root_fields["case_name"]["span_overlap"] == evaluation.RecallScore(2, 4)
 
 
@@ -402,7 +403,7 @@ def test_overall_locator_subtotal_adds_counts_across_documents(
         + combined.root_fields["docket_locator"][measure]
         for measure in ("span", "span_overlap", "normalization")
     }
-    assert combined.root_fields["overall_locator"]["span"] == evaluation.FieldScore(4, 4, 4)
+    assert combined.root_fields["overall_locator"]["span"] == FieldScore(4, 4, 4)
 
 
 def test_normalization_disagreement_does_not_change_span_score(
@@ -416,13 +417,13 @@ def test_normalization_disagreement_does_not_change_span_score(
 
     stage = evaluation.score_case_names(annotated_document)
     workflow = evaluation.score_grow_roots(annotated_document)
-    assert stage.metrics["span"] == evaluation.Precision(2, 2)
-    assert stage.metrics["normalization"] == evaluation.Precision(1, 2)
-    assert workflow.root_fields["case_name"]["span"] == evaluation.FieldScore(2, 2, 2)
-    assert workflow.root_fields["case_name"]["normalization"] == evaluation.FieldScore(1, 2, 2)
+    assert stage.metrics["span"] == Precision(2, 2)
+    assert stage.metrics["normalization"] == Precision(1, 2)
+    assert workflow.root_fields["case_name"]["span"] == FieldScore(2, 2, 2)
+    assert workflow.root_fields["case_name"]["normalization"] == FieldScore(1, 2, 2)
 
 
-def test_partial_nonroot_identifier_is_not_scored_as_normalization(
+def test_missing_nonroot_normalization_raises_instead_of_shrinking_denominator(
     annotated_document: Document,
 ) -> None:
     source = Path(annotated_document.source_path)
@@ -433,9 +434,113 @@ def test_partial_nonroot_identifier_is_not_scored_as_normalization(
     rows[1]["identifier"] = {"kind": "reporter", "volume": "550"}
     annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
-    score = evaluation.score_full_reporter_locators(annotated_document)
-    assert score.metrics["span"] == evaluation.Precision(1, 1)
-    assert score.metrics["normalization"] == evaluation.Precision(0, 0)
+    with pytest.raises(ValueError, match="example-o01: missing explicit locator normalization gold"):
+        evaluation.score_full_reporter_locators(annotated_document)
+
+
+@pytest.mark.parametrize("malformation", ["missing_value", "not_stated_value"])
+def test_invalid_matched_normalization_states_raise(annotated_document: Document, malformation: str) -> None:
+    source = Path(annotated_document.source_path)
+    annotation = source.parent.parent / "documents" / f"{source.stem}.jsonl"
+    rows = [json.loads(line) for line in annotation.read_text().splitlines()]
+    field = rows[1]["case_name"]
+    if malformation == "missing_value":
+        field["normalization"]["value"] = None
+        message = "missing explicit case_name normalization gold value"
+    else:
+        field["source"] = {"kind": "not_stated"}
+        message = "not_stated source requires unavailable normalization"
+    annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        evaluation.score_case_names(annotated_document)
+
+
+def test_inferred_court_requires_explicit_gold_source_state(annotated_document: Document) -> None:
+    source = Path(annotated_document.source_path)
+    annotation = source.parent.parent / "documents" / f"{source.stem}.jsonl"
+    rows = [json.loads(line) for line in annotation.read_text().splitlines()]
+    rows[1]["is_root"] = False
+    rows[1]["court"] = {"id": "scotus", "name": "Supreme Court of the United States"}
+    annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="missing explicit court source gold outcome"):
+        evaluation.score_courts(annotated_document)
+
+
+@pytest.mark.parametrize(
+    "scorer,total",
+    [
+        (evaluation.score_full_reporter_locators, 1),
+        (evaluation.score_docket_locators, 1),
+        (evaluation.score_docket_entries, 1),
+        (evaluation.score_case_names, 2),
+        (evaluation.score_courts, 2),
+        (evaluation.score_dates, 2),
+        (evaluation.score_pin_cites, 2),
+    ],
+)
+def test_unmatched_field_outcomes_remain_in_span_and_normalization_precision(
+    annotated_document: Document, scorer: Callable[[Document], StageScore], total: int
+) -> None:
+    source = Path(annotated_document.source_path)
+    annotation = source.parent.parent / "documents" / f"{source.stem}.jsonl"
+    header = annotation.read_text().splitlines()[0]
+    annotation.write_text(header + "\n", encoding="utf-8")
+
+    score = scorer(annotated_document)
+    assert score.metrics["span"] == Precision(0, total)
+    assert score.metrics["normalization"] == Precision(0, total)
+
+
+@pytest.mark.parametrize(
+    "field,scorer,row_index,total",
+    [
+        ("docket_entry", evaluation.score_docket_entries, 2, 1),
+        ("case_name", evaluation.score_case_names, 1, 2),
+        ("court", evaluation.score_courts, 1, 2),
+        ("date", evaluation.score_dates, 1, 2),
+        ("pin_cite", evaluation.score_pin_cites, 1, 2),
+    ],
+)
+@pytest.mark.parametrize("gold_state", ["present", "not_stated", "unmatched", "missing"])
+def test_field_stage_counts_absence_and_requires_explicit_matched_gold(
+    annotated_document: Document,
+    field: str,
+    scorer: Callable[[Document], StageScore],
+    row_index: int,
+    total: int,
+    gold_state: str,
+) -> None:
+    source = Path(annotated_document.source_path)
+    annotation = source.parent.parent / "documents" / f"{source.stem}.jsonl"
+    rows = [json.loads(line) for line in annotation.read_text().splitlines()]
+    row = rows[row_index]
+    gold_key = (row["kind"], *evaluation._gold_span(row["locator"]))
+    citation = next(c for c in annotated_document.full_locators if evaluation._key(c) == gold_key)
+    data = annotated_document.model_dump(mode="python")
+    next(c for c in data["citations"] if c["id"] == citation.id)[field] = None if field == "pin_cite" else ()
+    document = Document.model_validate_json(Document.model_validate(data).model_dump_json())
+    if gold_state == "not_stated":
+        row[field] = _not_stated()
+    elif gold_state == "unmatched":
+        rows.remove(row)
+    elif gold_state == "missing":
+        # Nonroot rows historically omitted absent contextual fields. The
+        # field scorer must reject that gap even with no quoted prediction.
+        row["is_root"] = False
+        row.pop(field)
+    annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    if gold_state == "missing":
+        with pytest.raises(ValueError, match=f"missing explicit {field} normalization gold"):
+            scorer(document)
+    else:
+        correct = total if gold_state == "not_stated" else total - 1
+        assert scorer(document).metrics == {
+            "span": Precision(correct, total),
+            "normalization": Precision(correct, total),
+        }
 
 
 def test_overlap_recall_accepts_partial_locator_and_field_spans(
@@ -449,9 +554,9 @@ def test_overlap_recall_accepts_partial_locator_and_field_spans(
     annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
     score = evaluation.score_grow_roots(annotated_document)
-    assert score.root_fields["full_reporter_locator"]["span"] == evaluation.FieldScore(0, 1, 1)
+    assert score.root_fields["full_reporter_locator"]["span"] == FieldScore(0, 1, 1)
     assert score.root_fields["full_reporter_locator"]["span_overlap"] == evaluation.RecallScore(1, 1)
-    assert score.root_fields["case_name"]["span"] == evaluation.FieldScore(1, 2, 2)
+    assert score.root_fields["case_name"]["span"] == FieldScore(1, 2, 2)
     assert score.root_fields["case_name"]["span_overlap"] == evaluation.RecallScore(2, 2)
 
 
@@ -499,14 +604,23 @@ def test_malformed_root_gold_is_rejected(annotated_document: Document, malformat
 def test_absent_case_name_scores_as_correct_only_for_not_stated(tmp_path: Path) -> None:
     source = _write_single_reporter_source(tmp_path, "550 U.S. 544.", _not_stated())
     document = asyncio.run(grow_roots(Document.from_source(source)))
+    for scorer in (evaluation.score_case_names, evaluation.score_dates, evaluation.score_pin_cites):
+        assert scorer(document).metrics == {
+            "span": Precision(1, 1),
+            "normalization": Precision(1, 1),
+        }
+    assert evaluation.score_courts(document).metrics == {
+        "span": Precision(1, 1),
+        "normalization": Precision(1, 1),
+    }
     score = evaluation.score_grow_roots(document)
     assert score.root_fields["case_name"] == {
-        "span": evaluation.FieldScore(1, 1, 1),
+        "span": FieldScore(1, 1, 1),
         "span_overlap": evaluation.RecallScore(1, 1),
-        "normalization": evaluation.FieldScore(1, 1, 1),
+        "normalization": FieldScore(1, 1, 1),
     }
-    assert score.root_fields["date"]["normalization"] == evaluation.FieldScore(1, 1, 1)
-    assert score.root_fields["pin_cite"]["normalization"] == evaluation.FieldScore(1, 1, 1)
+    assert score.root_fields["date"]["normalization"] == FieldScore(1, 1, 1)
+    assert score.root_fields["pin_cite"]["normalization"] == FieldScore(1, 1, 1)
 
 
 def test_quoted_partial_case_name_scores_with_its_own_typed_value(tmp_path: Path) -> None:
@@ -528,13 +642,13 @@ def test_quoted_partial_case_name_scores_with_its_own_typed_value(tmp_path: Path
     document = asyncio.run(grow_roots(Document.from_source(source)))
 
     assert evaluation.score_case_names(document).metrics == {
-        "span": evaluation.Precision(1, 1),
-        "normalization": evaluation.Precision(1, 1),
+        "span": Precision(1, 1),
+        "normalization": Precision(1, 1),
     }
     assert evaluation.score_grow_roots(document).root_fields["case_name"] == {
-        "span": evaluation.FieldScore(1, 1, 1),
+        "span": FieldScore(1, 1, 1),
         "span_overlap": evaluation.RecallScore(1, 1),
-        "normalization": evaluation.FieldScore(1, 1, 1),
+        "normalization": FieldScore(1, 1, 1),
     }
 
 
@@ -543,9 +657,9 @@ def test_not_stated_gold_rejects_a_predicted_case_name(tmp_path: Path) -> None:
     document = asyncio.run(grow_roots(Document.from_source(source)))
     score = evaluation.score_grow_roots(document)
     assert score.root_fields["case_name"] == {
-        "span": evaluation.FieldScore(0, 1, 1),
+        "span": FieldScore(0, 1, 1),
         "span_overlap": evaluation.RecallScore(0, 1),
-        "normalization": evaluation.FieldScore(0, 1, 1),
+        "normalization": FieldScore(0, 1, 1),
     }
 
 
@@ -562,20 +676,20 @@ def test_failed_normalization_matches_only_quoted_unavailable_gold(tmp_path: Pat
 
     score = evaluation.score_grow_roots(document)
     assert score.root_fields["case_name"] == {
-        "span": evaluation.FieldScore(1, 1, 1),
+        "span": FieldScore(1, 1, 1),
         "span_overlap": evaluation.RecallScore(1, 1),
-        "normalization": evaluation.FieldScore(1, 1, 1),
+        "normalization": FieldScore(1, 1, 1),
     }
-    assert evaluation.score_case_names(document).metrics["normalization"] == evaluation.Precision(1, 1)
+    assert evaluation.score_case_names(document).metrics["normalization"] == Precision(1, 1)
 
     annotation = source.parent.parent / "documents" / "example.jsonl"
     rows = [json.loads(line) for line in annotation.read_text(encoding="utf-8").splitlines()]
     rows[1]["case_name"]["source"] = {"kind": "quoted", **_span(text, "Smith")}
     annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
     wrong_quote = evaluation.score_grow_roots(document)
-    assert wrong_quote.root_fields["case_name"]["span"] == evaluation.FieldScore(0, 1, 1)
+    assert wrong_quote.root_fields["case_name"]["span"] == FieldScore(0, 1, 1)
     assert wrong_quote.root_fields["case_name"]["span_overlap"] == evaluation.RecallScore(1, 1)
-    assert wrong_quote.root_fields["case_name"]["normalization"] == evaluation.FieldScore(0, 1, 1)
+    assert wrong_quote.root_fields["case_name"]["normalization"] == FieldScore(0, 1, 1)
 
     rows[1]["case_name"]["source"] = {"kind": "quoted", **_span(text, "Smith v. ?")}
     rows[1]["case_name"]["normalization"] = {
@@ -590,8 +704,8 @@ def test_failed_normalization_matches_only_quoted_unavailable_gold(tmp_path: Pat
     }
     annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
     changed = evaluation.score_grow_roots(document)
-    assert changed.root_fields["case_name"]["span"] == evaluation.FieldScore(1, 1, 1)
-    assert changed.root_fields["case_name"]["normalization"] == evaluation.FieldScore(0, 1, 1)
+    assert changed.root_fields["case_name"]["span"] == FieldScore(1, 1, 1)
+    assert changed.root_fields["case_name"]["normalization"] == FieldScore(0, 1, 1)
 
 
 def test_normalizable_case_name_does_not_match_unavailable_gold(tmp_path: Path) -> None:
@@ -604,9 +718,9 @@ def test_normalizable_case_name_does_not_match_unavailable_gold(tmp_path: Path) 
     document = asyncio.run(grow_roots(Document.from_source(source)))
     assert document.roots[0].case_name[-1].normalizable is True
     score = evaluation.score_grow_roots(document)
-    assert score.root_fields["case_name"]["span"] == evaluation.FieldScore(1, 1, 1)
+    assert score.root_fields["case_name"]["span"] == FieldScore(1, 1, 1)
     assert score.root_fields["case_name"]["span_overlap"] == evaluation.RecallScore(1, 1)
-    assert score.root_fields["case_name"]["normalization"] == evaluation.FieldScore(0, 1, 1)
+    assert score.root_fields["case_name"]["normalization"] == FieldScore(0, 1, 1)
 
 
 @pytest.mark.parametrize("stage,name", STAGE_RENDERERS.items())
@@ -629,6 +743,7 @@ def test_workflow_renderer_includes_numbered_stages_in_order_by_default(
     assert positions == sorted(positions)
     assert report.index("## Root fields\n") > positions[-1]
     assert "Docket site hunting: included" in report
+    assert "including absence, inference, and failed normalization; missing explicit gold raises" in report
     assert (
         "| **overall_locator subtotal** | 2/2 (100.0%) | 2/2 (100.0%) | 2/2 (100.0%) | 2/2 (100.0%) | 2/2 (100.0%) |"
     ) in report

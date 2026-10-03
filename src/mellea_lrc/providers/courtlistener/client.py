@@ -107,44 +107,65 @@ class CourtListenerClient:
             headers["x-cl-pool"] = self.config.pool
         return headers
 
-    def lookup_citation(self, volume: str, reporter: str, page: str) -> CourtListenerCitationLookup:
-        """Return CourtListener's one result, including every candidate cluster."""
-        url = self.config.base_url.rstrip("/") + "/citation-lookup/"
+    def _request(
+        self,
+        method: Literal["get", "post"],
+        url: str,
+        *,
+        operation: str,
+        missing_ok: bool = False,
+        params: dict[str, str] | None = None,
+        data: dict[str, str] | None = None,
+    ) -> httpx.Response | None:
+        options: dict[str, Any] = {"headers": self._headers(), "timeout": 45}
+        if params is not None:
+            options["params"] = params
+        if data is not None:
+            options["data"] = data
         try:
-            response = self._http_client.post(
-                url,
-                data={"volume": volume, "reporter": reporter, "page": page},
-                headers=self._headers(),
-                timeout=45,
-            )
+            response = getattr(self._http_client, method)(url, **options)
         except httpx.TransportError as exc:
             raise CourtListenerTransportError(
-                "CourtListener citation lookup failed before a response was received",
+                f"CourtListener {operation} failed before a response was received",
                 failure_type="transport_error",
                 url=url,
                 upstream_detail=str(exc),
             ) from exc
-
+        if missing_ok and response.status_code == 404:
+            return None
         if response.status_code >= 400:
             raise CourtListenerHTTPError(
-                f"CourtListener citation lookup returned HTTP {response.status_code}",
+                f"CourtListener {operation} returned HTTP {response.status_code}",
                 failure_type="http_error",
                 upstream_status_code=response.status_code,
                 url=str(response.url),
                 upstream_detail=response.text[:500],
             )
+        return response
 
+    @staticmethod
+    def _json(response: httpx.Response, operation: str) -> Any:
         try:
-            payload = response.json()
+            return response.json()
         except ValueError as exc:
             raise CourtListenerPayloadError(
-                "CourtListener citation lookup returned invalid JSON",
+                f"CourtListener {operation} returned invalid JSON",
                 failure_type="invalid_json",
                 upstream_status_code=response.status_code,
                 url=str(response.url),
                 upstream_detail=response.text[:500],
             ) from exc
 
+    def lookup_citation(self, volume: str, reporter: str, page: str) -> CourtListenerCitationLookup:
+        """Return CourtListener's one result, including every candidate cluster."""
+        response = self._request(
+            "post",
+            self.config.base_url.rstrip("/") + "/citation-lookup/",
+            operation="citation lookup",
+            data={"volume": volume, "reporter": reporter, "page": page},
+        )
+        assert response is not None
+        payload = self._json(response, "citation lookup")
         if not isinstance(payload, list) or len(payload) != 1:
             raise CourtListenerPayloadError(
                 "CourtListener citation lookup must return a list with exactly one result",
@@ -167,38 +188,15 @@ class CourtListenerClient:
         """Return a docket's court metadata, or None when it no longer exists."""
         if not docket_id.isdecimal():
             raise ValueError("CourtListener docket ID must contain only decimal digits")
-        url = self.config.base_url.rstrip("/") + f"/dockets/{docket_id}/"
-        try:
-            response = self._http_client.get(url, headers=self._headers(), timeout=45)
-        except httpx.TransportError as exc:
-            raise CourtListenerTransportError(
-                "CourtListener docket lookup failed before a response was received",
-                failure_type="transport_error",
-                url=url,
-                upstream_detail=str(exc),
-            ) from exc
-
-        if response.status_code == 404:
+        response = self._request(
+            "get",
+            self.config.base_url.rstrip("/") + f"/dockets/{docket_id}/",
+            operation="docket lookup",
+            missing_ok=True,
+        )
+        if response is None:
             return None
-        if response.status_code >= 400:
-            raise CourtListenerHTTPError(
-                f"CourtListener docket lookup returned HTTP {response.status_code}",
-                failure_type="http_error",
-                upstream_status_code=response.status_code,
-                url=str(response.url),
-                upstream_detail=response.text[:500],
-            )
-
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise CourtListenerPayloadError(
-                "CourtListener docket lookup returned invalid JSON",
-                failure_type="invalid_json",
-                upstream_status_code=response.status_code,
-                url=str(response.url),
-                upstream_detail=response.text[:500],
-            ) from exc
+        payload = self._json(response, "docket lookup")
         try:
             docket = CourtListenerDocket.model_validate(payload)
         except ValidationError as exc:
@@ -221,38 +219,15 @@ class CourtListenerClient:
     def _get_raw_record(self, endpoint: str, record_id: str, label: str) -> dict[str, Any] | None:
         if not record_id.isdecimal():
             raise ValueError(f"CourtListener {label} ID must contain only decimal digits")
-        url = self.config.base_url.rstrip("/") + f"/{endpoint}/{record_id}/"
-        try:
-            response = self._http_client.get(url, headers=self._headers(), timeout=45)
-        except httpx.TransportError as exc:
-            raise CourtListenerTransportError(
-                f"CourtListener {label} lookup failed before a response was received",
-                failure_type="transport_error",
-                url=url,
-                upstream_detail=str(exc),
-            ) from exc
-
-        if response.status_code == 404:
+        response = self._request(
+            "get",
+            self.config.base_url.rstrip("/") + f"/{endpoint}/{record_id}/",
+            operation=f"{label} lookup",
+            missing_ok=True,
+        )
+        if response is None:
             return None
-        if response.status_code >= 400:
-            raise CourtListenerHTTPError(
-                f"CourtListener {label} lookup returned HTTP {response.status_code}",
-                failure_type="http_error",
-                upstream_status_code=response.status_code,
-                url=str(response.url),
-                upstream_detail=response.text[:500],
-            )
-
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise CourtListenerPayloadError(
-                f"CourtListener {label} lookup returned invalid JSON",
-                failure_type="invalid_json",
-                upstream_status_code=response.status_code,
-                url=str(response.url),
-                upstream_detail=response.text[:500],
-            ) from exc
+        payload = self._json(response, f"{label} lookup")
         if not isinstance(payload, dict):
             raise CourtListenerPayloadError(
                 f"CourtListener {label} lookup returned an invalid result",
@@ -276,40 +251,17 @@ class CourtListenerClient:
         """Search dockets, opinions, or RECAP documents in upstream order."""
         if search_type not in {"d", "o", "rd"}:
             raise ValueError("CourtListener search type must be 'd', 'o', or 'rd'")
-        url = self.config.base_url.rstrip("/") + "/search/"
         params = {"q": q, "type": search_type}
         if cursor is not None:
             params["cursor"] = cursor
-        try:
-            response = self._http_client.get(url, params=params, headers=self._headers(), timeout=45)
-        except httpx.TransportError as exc:
-            raise CourtListenerTransportError(
-                "CourtListener search failed before a response was received",
-                failure_type="transport_error",
-                url=url,
-                upstream_detail=str(exc),
-            ) from exc
-
-        if response.status_code >= 400:
-            raise CourtListenerHTTPError(
-                f"CourtListener search returned HTTP {response.status_code}",
-                failure_type="http_error",
-                upstream_status_code=response.status_code,
-                url=str(response.url),
-                upstream_detail=response.text[:500],
-            )
-
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise CourtListenerPayloadError(
-                "CourtListener search returned invalid JSON",
-                failure_type="invalid_json",
-                upstream_status_code=response.status_code,
-                url=str(response.url),
-                upstream_detail=response.text[:500],
-            ) from exc
-
+        response = self._request(
+            "get",
+            self.config.base_url.rstrip("/") + "/search/",
+            operation="search",
+            params=params,
+        )
+        assert response is not None
+        payload = self._json(response, "search")
         try:
             return CourtListenerSearchPage.model_validate(payload)
         except ValidationError as exc:

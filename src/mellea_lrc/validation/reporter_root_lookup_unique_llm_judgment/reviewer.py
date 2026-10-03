@@ -3,19 +3,17 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
-from dotenv import load_dotenv
 from mellea.core import ValidationResult
 from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import ValidationError
 
-from mellea_lrc.llm.config import llm_api_config_from_env, start_mellea_session_from_env
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
+from mellea_lrc.llm.reviewer import IvrReviewer
 from mellea_lrc.model.citation_windows import after, before
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.reporter_lookup import ReporterUniqueReviewDecision
@@ -27,9 +25,6 @@ from mellea_lrc.validation.reporter_review.court_context import (
     reporter_court_context,
 )
 from mellea_lrc.validation.reporter_review.grounding import ReporterReviewGrounding
-
-if TYPE_CHECKING:
-    from mellea import MelleaSession
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,10 +112,6 @@ class ReporterUniqueReviewer(Protocol):
     ) -> Awaitable[ReporterUniqueReviewDecision | ReporterUniqueReviewOutcome]: ...
 
 
-MAX_TOKENS = 3000
-MAX_MODEL_ATTEMPTS = 3
-SESSION_ID = "mellea-lrc-reporter-unique-review-v9"
-
 _PREFIX = """Review one reporter citation against one retrieved opinion record. Do all rereading, correction proposals, and field comparisons in this one answer.
 
 The reporter locator is fixed. For case name, court, and date, first reread the filing text. Set propose_replacement to true only when you intend to change or supply that field; then quote the replacement exactly from the filing. If the current reading is fine, set propose_replacement to false and quote to null. Do not quote a value merely to restate a reading you are keeping. A proposal must be within the text before the locator for case name, or after it for court and date. Do not quote values from the retrieved record as corrections to the filing.
@@ -176,24 +167,8 @@ def _validate_grounding(ctx: object, context: ReporterUniqueReviewContext) -> Va
 
 
 @dataclass(frozen=True, slots=True)
-class IvrReporterUniqueReviewer:
+class IvrReporterUniqueReviewer(IvrReviewer):
     """One combined IVR review with a shared, cacheable instruction prefix."""
-
-    session: MelleaSession
-    model_options: dict[str, object]
-    max_attempts: int = MAX_MODEL_ATTEMPTS
-
-    @classmethod
-    def from_env(cls) -> IvrReporterUniqueReviewer:
-        load_dotenv(override=False)
-        config = llm_api_config_from_env(os.environ)
-        return cls(
-            session=start_mellea_session_from_env(),
-            model_options={
-                **config.mellea_call_options(max_tokens=MAX_TOKENS),
-                "extra_body": {"session_id": SESSION_ID},
-            },
-        )
 
     async def __call__(self, context: ReporterUniqueReviewContext) -> ReporterUniqueReviewOutcome:
         candidate = context.candidate.model_dump_json(exclude={"raw_json"})

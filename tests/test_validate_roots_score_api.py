@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from evaluations import validate_roots as evaluation
+from evaluations.score_types import FieldScore, Precision
 from mellea_lrc.api import (
     Document,
     grow_roots,
@@ -23,7 +24,6 @@ from mellea_lrc.api import (
     reporter_root_lookup_unique_llm_judgment,
     reporter_root_lookup_unique_rule_judgment,
 )
-from mellea_lrc.providers.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.model import FullDocketCitation, FullReporterCitation, Span
 from mellea_lrc.model.citations.body_evidence import (
     BodyCorroborationDecision,
@@ -56,6 +56,7 @@ from mellea_lrc.model.citations.reporter_lookup import (
     ReporterAmbiguousReviewDecision,
     ReporterUniqueReviewDecision,
 )
+from mellea_lrc.providers.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.validation.body_search.common import make_body_evidences
 
 STAGES = (
@@ -646,17 +647,17 @@ def test_docket_review_scores_selected_fields_by_locator_and_preserves_stage_bou
     )
     assert stage == evaluation.score_docket_root_lookup_courtlistener_llm_review(restored)
     assert stage.metrics == {
-        "case_name": evaluation.Precision(1, 1),
-        "court": evaluation.Precision(0, 1),
-        "date": evaluation.Precision(0, 1),
+        "case_name": Precision(1, 1),
+        "court": Precision(0, 1),
+        "date": Precision(0, 1),
     }
     assert f"## {STAGES[-2]}" in evaluation.render_docket_root_lookup_courtlistener_llm_review(stage)
     workflow = evaluation.score_validate_roots(final)
     assert tuple(score.stage for score in workflow.stages) == STAGES
     assert workflow.fields == {
-        "case_name": evaluation.FieldScore(1, 1, 2),
-        "court": evaluation.FieldScore(0, 1, 2),
-        "date": evaluation.FieldScore(0, 1, 2),
+        "case_name": FieldScore(1, 1, 2),
+        "court": FieldScore(0, 1, 2),
+        "date": FieldScore(0, 1, 2),
     }
     assert workflow.identity == evaluation.IdentityScore(0, 1, 2, 0)
     report = evaluation.render_validate_roots(workflow)
@@ -682,9 +683,9 @@ def test_govinfo_review_scores_selected_candidate_and_supplies_final_docket_labe
 
     stage = evaluation.score_docket_root_lookup_govinfo_llm_review(final)
     assert stage.metrics == {
-        "case_name": evaluation.Precision(1, 1),
-        "court": evaluation.Precision(0, 1),
-        "date": evaluation.Precision(0, 1),
+        "case_name": Precision(1, 1),
+        "court": Precision(0, 1),
+        "date": Precision(0, 1),
     }
     assert f"## {STAGES[-1]}" in evaluation.render_docket_root_lookup_govinfo_llm_review(stage)
     assert evaluation._final_docket_field_label(docket, "case_name") == "agrees"
@@ -692,11 +693,25 @@ def test_govinfo_review_scores_selected_candidate_and_supplies_final_docket_labe
     assert evaluation._final_docket_field_label(docket, "date") == "unavailable"
 
 
+def test_govinfo_review_selecting_outside_shortlist_is_an_invalid_artifact(tmp_path: Path) -> None:
+    reviewed = _add_govinfo_review(_reviewed_docket(tmp_path))
+    docket = next(root for root in reviewed.roots if isinstance(root, FullDocketCitation))
+    assert docket.govinfo_docket_review is not None
+    assert docket.govinfo_docket_review.decision is not None
+    decision = docket.govinfo_docket_review.decision.model_copy(update={"selected_candidate_index": 1})
+    review = docket.govinfo_docket_review.model_copy(update={"decision": decision})
+    payload = docket.model_dump(mode="python")
+    payload["govinfo_docket_review"] = review.model_dump(mode="python")
+
+    with pytest.raises(ValueError, match="GovInfo review must select a shortlisted candidate"):
+        FullDocketCitation.model_validate(payload)
+
+
 def test_govinfo_lookup_stage_makes_no_judgments(tmp_path: Path) -> None:
     reviewed = _reviewed_docket(tmp_path)
     looked_up = _add_govinfo_review(reviewed, selected=False)
     assert evaluation.score_docket_root_lookup_govinfo_llm_review(looked_up).metrics == {
-        field: evaluation.Precision(0, 0) for field in FIELDS
+        field: Precision(0, 0) for field in FIELDS
     }
     docket = next(root for root in looked_up.roots if isinstance(root, FullDocketCitation))
     assert evaluation._final_docket_field_label(docket, "court") == "agrees"
@@ -707,31 +722,29 @@ def test_docket_unavailable_without_source_date_matches_not_stated_gold(tmp_path
     docket = next(root for root in reviewed.roots if isinstance(root, FullDocketCitation))
     assert not docket.date
     assert evaluation.score_docket_root_lookup_courtlistener_llm_review(reviewed).metrics["date"] == (
-        evaluation.Precision(1, 1)
+        Precision(1, 1)
     )
     final = _complete_reporter_stages(reviewed)
-    assert evaluation.score_validate_roots(final).fields["date"] == evaluation.FieldScore(1, 1, 2)
+    assert evaluation.score_validate_roots(final).fields["date"] == FieldScore(1, 1, 2)
 
 
 def test_docket_unavailable_with_source_date_does_not_match_gold(tmp_path: Path) -> None:
     reviewed = _reviewed_docket(tmp_path, date="unavailable")
     assert evaluation.score_docket_root_lookup_courtlistener_llm_review(reviewed).metrics["date"] == (
-        evaluation.Precision(0, 1)
+        Precision(0, 1)
     )
     final = _complete_reporter_stages(reviewed)
-    assert evaluation.score_validate_roots(final).fields["date"] == evaluation.FieldScore(0, 1, 2)
+    assert evaluation.score_validate_roots(final).fields["date"] == FieldScore(0, 1, 2)
 
 
 @pytest.mark.parametrize("failed", (False, True))
 def test_docket_review_without_selection_makes_no_prediction(tmp_path: Path, failed: bool) -> None:
     reviewed = _reviewed_docket(tmp_path, selected=False, failed=failed)
     assert evaluation.score_docket_root_lookup_courtlistener_llm_review(reviewed).metrics == {
-        field: evaluation.Precision(0, 0) for field in FIELDS
+        field: Precision(0, 0) for field in FIELDS
     }
     final = _complete_reporter_stages(reviewed)
-    assert evaluation.score_validate_roots(final).fields == {
-        field: evaluation.FieldScore(0, 0, 2) for field in FIELDS
-    }
+    assert evaluation.score_validate_roots(final).fields == {field: FieldScore(0, 0, 2) for field in FIELDS}
     assert evaluation.score_validate_roots(final).identity == evaluation.IdentityScore(0, 0, 2, 0)
 
 
@@ -777,22 +790,22 @@ def test_rule_ambiguity_scores_only_the_selected_candidate_and_keeps_stage_bound
         rendered = getattr(evaluation, RENDERERS[stage])(scorer(final))
         assert stage in rendered
     assert evaluation.score_reporter_root_lookup_unique_rule_judgment(unique_review).metrics == {
-        field: evaluation.Precision(0, 0) for field in FIELDS
+        field: Precision(0, 0) for field in FIELDS
     }
     assert evaluation.score_reporter_root_lookup_ambiguous_rule_judgment(final).metrics == {
-        field: evaluation.Precision(1, 1) for field in FIELDS
+        field: Precision(1, 1) for field in FIELDS
     }
     assert evaluation.score_reporter_root_lookup_ambiguous_llm_judgment(final).metrics == {
-        field: evaluation.Precision(0, 0) for field in FIELDS
+        field: Precision(0, 0) for field in FIELDS
     }
     assert evaluation.score_reporter_root_lookup_unique_llm_judgment(final).metrics == {
-        field: evaluation.Precision(0, 0) for field in FIELDS
+        field: Precision(0, 0) for field in FIELDS
     }
     score = evaluation.score_validate_roots(final)
     assert tuple(stage.stage for stage in score.stages) == STAGES
     assert set(score.fields) == FIELDS
     assert set(score.as_dict()) == {"stage_order", "stages", "retrieval_stages", "fields", "identity"}
-    assert score.fields == {field: evaluation.FieldScore(1, 1, 2) for field in FIELDS}
+    assert score.fields == {field: FieldScore(1, 1, 2) for field in FIELDS}
     report = evaluation.render_validate_roots(score)
     assert "## Root field judgments through stage 19 (before open search)" in report
     assert "| Field | Precision | Recall |" in report
@@ -833,11 +846,10 @@ def test_identity_value_ignores_unavailable_court_and_date(court: str, date: str
 
 
 @pytest.mark.parametrize("missing_field", ("case_name", "court", "date"))
-def test_identity_value_requires_all_three_fields(missing_field: str) -> None:
+def test_identity_value_leaves_incomplete_field_outcomes_uncomputed(missing_field: str) -> None:
     labels = {"case_name": "agrees", "court": "agrees", "date": "agrees"}
     del labels[missing_field]
-    with pytest.raises(ValueError):
-        evaluation._identity_value(labels)
+    assert evaluation._identity_value(labels) is None
 
 
 def test_unique_unavailable_is_an_explicit_incorrect_judgment(tmp_path: Path) -> None:
@@ -850,9 +862,9 @@ def test_unique_unavailable_is_an_explicit_incorrect_judgment(tmp_path: Path) ->
     root = next(root for root in reviewed.roots if isinstance(root, FullReporterCitation))
     assert root.case_name_judgments[-1].result is MatchResult.UNAVAILABLE
     assert evaluation.score_reporter_root_lookup_unique_rule_judgment(reviewed).metrics == {
-        "case_name": evaluation.Precision(0, 1),
-        "court": evaluation.Precision(1, 1),
-        "date": evaluation.Precision(1, 1),
+        "case_name": Precision(0, 1),
+        "court": Precision(1, 1),
+        "date": Precision(1, 1),
     }
 
     decision = ReporterUniqueReviewDecision.model_validate(_model_fields())
@@ -863,11 +875,47 @@ def test_unique_unavailable_is_an_explicit_incorrect_judgment(tmp_path: Path) ->
         final
     ) == evaluation.score_reporter_root_lookup_unique_rule_judgment(reviewed)
     assert evaluation.score_reporter_root_lookup_unique_llm_judgment(final).metrics == {
-        field: evaluation.Precision(1, 1) for field in FIELDS
+        field: Precision(1, 1) for field in FIELDS
     }
-    assert evaluation.score_validate_roots(final).fields == {
-        field: evaluation.FieldScore(1, 1, 2) for field in FIELDS
-    }
+    assert evaluation.score_validate_roots(final).fields == {field: FieldScore(1, 1, 2) for field in FIELDS}
+
+
+def test_selected_reporter_candidate_mismatch_counts_as_an_issued_prediction(tmp_path: Path) -> None:
+    lookup = reporter_root_lookup_cluster_retrieval(
+        _roots(tmp_path), client=FakeLookupClient(_cluster(1, "Jones v. Smith", full_name="Jones v. Smith"))
+    )
+    dockets = reporter_root_lookup_docket_retrieval(lookup)
+    judged = reporter_root_lookup_unique_rule_judgment(dockets)
+    root = next(root for root in judged.roots if isinstance(root, FullReporterCitation))
+    assert root.case_name_judgments[-1].candidate_index == 0
+    assert root.case_name_judgments[-1].result is MatchResult.MISMATCH
+    assert evaluation.score_reporter_root_lookup_unique_rule_judgment(judged).metrics[
+        "case_name"
+    ] == Precision(0, 1)
+
+
+def test_selected_reporter_judgment_on_unmatched_site_stays_in_precision_denominator(
+    tmp_path: Path,
+) -> None:
+    lookup = reporter_root_lookup_cluster_retrieval(
+        _roots(tmp_path),
+        client=FakeLookupClient(
+            _cluster(
+                1, "Bell Atlantic Corporation v. Twombly", full_name="Bell Atlantic Corporation v. Twombly"
+            )
+        ),
+    )
+    judged = reporter_root_lookup_unique_rule_judgment(reporter_root_lookup_docket_retrieval(lookup))
+    source_path = Path(judged.source_path)
+    annotation_path = source_path.parent.parent / "documents" / f"{source_path.stem}.jsonl"
+    rows = [json.loads(line) for line in annotation_path.read_text(encoding="utf-8").splitlines()]
+    gold_root = next(row for row in rows if row.get("kind") == "FullCaseCitation" and row.get("is_root"))
+    gold_root["locator"]["source"]["start"] = len(judged.text) + 10
+    gold_root["locator"]["source"]["end"] = len(judged.text) + 20
+    annotation_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    score = evaluation.score_reporter_root_lookup_unique_rule_judgment(judged)
+    assert score.metrics["case_name"] == Precision(0, 1)
 
 
 def test_ambiguous_model_review_scores_only_its_new_selected_judgments(tmp_path: Path) -> None:
@@ -890,17 +938,15 @@ def test_ambiguous_model_review_scores_only_its_new_selected_judgments(tmp_path:
         reporter_root_lookup_ambiguous_llm_judgment(before_review, reviewer=FakeReviewer(decision))
     )
     assert evaluation.score_reporter_root_lookup_ambiguous_rule_judgment(final).metrics == {
-        field: evaluation.Precision(0, 0) for field in FIELDS
+        field: Precision(0, 0) for field in FIELDS
     }
     assert evaluation.score_reporter_root_lookup_ambiguous_llm_judgment(final).metrics == {
-        field: evaluation.Precision(1, 1) for field in FIELDS
+        field: Precision(1, 1) for field in FIELDS
     }
-    assert evaluation.score_validate_roots(final).fields == {
-        field: evaluation.FieldScore(1, 1, 2) for field in FIELDS
-    }
+    assert evaluation.score_validate_roots(final).fields == {field: FieldScore(1, 1, 2) for field in FIELDS}
 
 
-def test_not_stated_is_a_final_outcome_only_for_a_processed_root(tmp_path: Path) -> None:
+def test_absent_field_without_judgment_is_not_a_final_field_prediction(tmp_path: Path) -> None:
     client = FakeLookupClient(
         _cluster(1, "Bell Atlantic Corporation v. Twombly", full_name="Bell Atlantic Corporation v. Twombly")
     )
@@ -910,12 +956,17 @@ def test_not_stated_is_a_final_outcome_only_for_a_processed_root(tmp_path: Path)
     reporter = next(root for root in final.roots if isinstance(root, FullReporterCitation))
     assert not reporter.date
     assert reporter.date_judgments == ()
-    assert evaluation.score_reporter_root_lookup_unique_rule_judgment(final).metrics[
-        "date"
-    ] == evaluation.Precision(0, 0)
+    assert evaluation.score_reporter_root_lookup_unique_rule_judgment(final).metrics["date"] == Precision(
+        0, 0
+    )
     assert evaluation.score_validate_roots(final).fields == {
-        field: evaluation.FieldScore(1, 1, 2) for field in FIELDS
+        "case_name": FieldScore(1, 1, 2),
+        "court": FieldScore(1, 1, 2),
+        "date": FieldScore(0, 0, 2),
     }
+    # The selected lookup stage did persist this identity verdict, so retain
+    # it even though no date judgment was issued.
+    assert evaluation.score_validate_roots(final).identity == evaluation.IdentityScore(1, 1, 2, 0)
     assert all(
         not root.identity_judgments for root in final.roots if not isinstance(root, FullReporterCitation)
     )
@@ -932,11 +983,9 @@ def test_lookup_miss_does_not_predict_an_absent_citation_field(tmp_path: Path) -
 
     final = _finish_unrouted_stages(lookup)
     assert evaluation.score_reporter_root_lookup_unique_rule_judgment(final).metrics == {
-        field: evaluation.Precision(0, 0) for field in FIELDS
+        field: Precision(0, 0) for field in FIELDS
     }
-    assert evaluation.score_validate_roots(final).fields == {
-        field: evaluation.FieldScore(0, 0, 2) for field in FIELDS
-    }
+    assert evaluation.score_validate_roots(final).fields == {field: FieldScore(0, 0, 2) for field in FIELDS}
 
 
 def test_unavailable_for_an_absent_reporter_field_agrees_with_not_stated_gold(
@@ -968,9 +1017,15 @@ def test_unavailable_for_an_absent_reporter_field_agrees_with_not_stated_gold(
     assert reporter.date_judgments[-1].result is MatchResult.UNAVAILABLE
     assert reporter.date_judgments[-1].reading_index is None
     assert evaluation.score_reporter_root_lookup_unique_llm_judgment(reviewed).metrics["date"] == (
-        evaluation.Precision(1, 1)
+        Precision(1, 1)
     )
-    assert evaluation.score_validate_roots(reviewed).fields["date"] == evaluation.FieldScore(1, 1, 2)
+    assert evaluation.score_validate_roots(reviewed).fields["date"] == FieldScore(1, 1, 2)
+    later = reporter.record("later_quote").with_date(
+        reviewed.text,
+        Span(reviewed.text.index("2024"), reviewed.text.index("2024") + len("2024")),
+    )
+    assert later.date
+    assert evaluation._final_reporter_field_label(later, "date", reviewed.stage_runs) == "not_stated"
 
 
 @pytest.mark.parametrize("invalid_label", ("unavailable", "undetermined"))
@@ -1077,7 +1132,7 @@ def test_primary_sized_gold_keeps_all_440_roots_in_each_recall_denominator(tmp_p
     document = _complete_reporter_stages(document)
 
     score = evaluation.score_validate_roots(document)
-    assert score.fields == {field: evaluation.FieldScore(1, 1, 440) for field in FIELDS}
+    assert score.fields == {field: FieldScore(1, 1, 440) for field in FIELDS}
     assert all(score.fields[field].as_dict()["recall"] == 1 / 440 for field in FIELDS)
 
 

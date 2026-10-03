@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
 from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.markers import ID_MARKER
+from mellea_lrc.parsing.supra import supra_readings
 
 
 class IdValue(BaseModel):
@@ -23,21 +25,21 @@ class SupraValue(BaseModel):
 
 
 def normalize_id(quote: str) -> IdValue:
-    match = re.match(r"(?P<keyword>id|ibid)\s*\.", quote, re.I)
+    match = re.match(ID_MARKER, quote, re.I)
     if match is None:
-        raise ValueError("Id citation has no Id. or Ibid. marker")
-    return IdValue(keyword=match.group("keyword").lower())
+        raise ValueError("Id citation has no supported Id. or Ibid. marker")
+    keyword = re.match(r"id|ibid", match.group(1), re.I)
+    assert keyword is not None
+    return IdValue(keyword=keyword.group().lower())
 
 
 def normalize_supra(quote: str) -> SupraValue:
-    from eyecite import get_citations
-    from eyecite.models import SupraCitation
-
-    matches = [c for c in get_citations(quote) if isinstance(c, SupraCitation)]
+    matches = supra_readings(quote)
     if len(matches) != 1:
         raise ValueError("Supra quote must contain one supra reference")
-    metadata = matches[0].metadata
-    return SupraValue(antecedent=metadata.antecedent_guess, volume=metadata.volume)
+    reading = matches[0]
+    antecedent = quote[slice(*reading.antecedent_span)]
+    return SupraValue(antecedent=" ".join(antecedent.split()), volume=reading.volume)
 
 
 class IdField(CitationField[IdValue]):

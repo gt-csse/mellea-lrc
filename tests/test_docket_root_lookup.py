@@ -10,9 +10,10 @@ from typing import Literal
 import pytest
 
 from mellea_lrc.api import Document, grow_roots
+from mellea_lrc.model import FullDocketCitation
 from mellea_lrc.providers.courtlistener import CourtListenerHTTPError, CourtListenerTransportError
 from mellea_lrc.providers.courtlistener.models import CourtListenerSearchPage
-from mellea_lrc.model import FullDocketCitation
+from mellea_lrc.validation.docket_retrieval.candidates import MINIMUM_SIMILARITY_PERCENT
 
 lookup_module = importlib.import_module("mellea_lrc.validation.docket_root_lookup_courtlistener_retrieval")
 
@@ -106,8 +107,8 @@ def test_raw_and_numeric_queries_keep_every_hit_but_shortlist_by_number_only() -
         (3, 0, 0),
     ]
     assert [item.record_id for item in lookup.candidates] == ["101", "102", "301", "101", "103", "301"]
-    assert lookup.candidates[1].docket_similarity < lookup_module.MINIMUM_SIMILARITY_PERCENT
-    assert lookup.candidates[4].docket_similarity >= lookup_module.MINIMUM_SIMILARITY_PERCENT
+    assert lookup.candidates[1].docket_similarity < MINIMUM_SIMILARITY_PERCENT
+    assert lookup.candidates[4].docket_similarity >= MINIMUM_SIMILARITY_PERCENT
     assert lookup.shortlisted_candidate_indices == (0, 2, 4)
     assert root.identity_judgments == ()
     assert root.case_name_judgments == root.court_judgments == root.date_judgments == ()

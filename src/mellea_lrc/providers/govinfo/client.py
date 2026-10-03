@@ -94,50 +94,23 @@ class GovInfoClient:
         if result_level not in {"package", "default"}:
             raise ValueError("GovInfo search result level must be 'package' or 'default'")
         url = self.config.base_url.rstrip("/") + "/search"
-        try:
-            response = self.session.post(
-                url,
-                params={"api_key": self.config.api_key},
-                json={
-                    "query": query,
-                    "pageSize": page_size,
-                    "offsetMark": offset_mark,
-                    "resultLevel": result_level,
-                    "sorts": [{"field": "score", "sortOrder": "DESC"}],
-                },
-                headers={"Accept": "application/json", "User-Agent": _USER_AGENT},
-                timeout=45,
-            )
-        except httpx.TransportError as exc:
-            raise GovInfoError(
-                "GovInfo search failed before a response was received",
-                failure_type="transport_error",
-                url=url,
-                upstream_detail=str(exc),
-                api_key=self.config.api_key,
-            ) from None
-
+        response = self._request(
+            "post",
+            url,
+            operation="search",
+            params={"api_key": self.config.api_key},
+            json={
+                "query": query,
+                "pageSize": page_size,
+                "offsetMark": offset_mark,
+                "resultLevel": result_level,
+                "sorts": [{"field": "score", "sortOrder": "DESC"}],
+            },
+            accept="application/json",
+            error_status=400,
+        )
         response_url = str(getattr(response, "url", None) or url)
-        if response.status_code >= 400:
-            raise GovInfoError(
-                f"GovInfo search returned HTTP {response.status_code}",
-                failure_type="http_error",
-                upstream_status_code=response.status_code,
-                url=response_url,
-                upstream_detail=_response_detail(response),
-                api_key=self.config.api_key,
-            )
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise GovInfoError(
-                "GovInfo search returned invalid JSON",
-                failure_type="invalid_json",
-                upstream_status_code=response.status_code,
-                url=response_url,
-                upstream_detail=getattr(response, "text", "")[:1000],
-                api_key=self.config.api_key,
-            ) from exc
+        payload = self._json(response, "search", fallback_url=url)
         if not isinstance(payload, dict):
             raise self._payload_error(
                 "GovInfo search returned an invalid non-object response", response_url, payload
@@ -173,7 +146,8 @@ class GovInfoClient:
         """GET one granule page; use ``next_offset_mark`` for the next call."""
         package = _path_id(package_id, "package")
         url = self.config.base_url.rstrip("/") + f"/packages/{package}/granules"
-        response = self._get(
+        response = self._request(
+            "get",
             url,
             operation="granule list",
             params={"offsetMark": offset_mark, "pageSize": page_size, "api_key": self.config.api_key},
@@ -223,7 +197,8 @@ class GovInfoClient:
         package = _path_id(package_id, "package")
         granule = _path_id(granule_id, "granule")
         url = self.config.base_url.rstrip("/") + f"/packages/{package}/granules/{granule}/summary"
-        response = self._get(
+        response = self._request(
+            "get",
             url,
             operation="granule summary",
             params={"api_key": self.config.api_key},
@@ -243,7 +218,8 @@ class GovInfoClient:
     def download_pdf(self, pdf_url: str) -> bytes:
         """GET bytes from a validated GovInfo package or granule PDF link."""
         url = self._validated_pdf_url(pdf_url)
-        response = self._get(
+        response = self._request(
+            "get",
             url,
             operation="PDF download",
             params={"api_key": self.config.api_key},
@@ -251,14 +227,27 @@ class GovInfoClient:
         )
         return response.content
 
-    def _get(self, url: str, *, operation: str, params: dict[str, str | int], accept: str) -> httpx.Response:
+    def _request(
+        self,
+        method: Literal["get", "post"],
+        url: str,
+        *,
+        operation: str,
+        params: dict[str, str | int],
+        accept: str,
+        json: dict[str, Any] | None = None,
+        error_status: int = 300,
+    ) -> httpx.Response:
+        """Keep search's HTTP error contract and reject redirects on downloads."""
+        options: dict[str, Any] = {
+            "params": params,
+            "headers": {"Accept": accept, "User-Agent": _USER_AGENT},
+            "timeout": 45,
+        }
+        if json is not None:
+            options["json"] = json
         try:
-            response = self.session.get(
-                url,
-                params=params,
-                headers={"Accept": accept, "User-Agent": _USER_AGENT},
-                timeout=45,
-            )
+            response = getattr(self.session, method)(url, **options)
         except httpx.TransportError as exc:
             raise GovInfoError(
                 f"GovInfo {operation} failed before a response was received",
@@ -267,18 +256,18 @@ class GovInfoClient:
                 upstream_detail=str(exc),
                 api_key=self.config.api_key,
             ) from None
-        if response.status_code >= 300:
+        if response.status_code >= error_status:
             raise GovInfoError(
                 f"GovInfo {operation} returned HTTP {response.status_code}",
                 failure_type="http_error",
                 upstream_status_code=response.status_code,
-                url=str(response.url),
+                url=str(getattr(response, "url", None) or url),
                 upstream_detail=_response_detail(response),
                 api_key=self.config.api_key,
             )
         return response
 
-    def _json(self, response: httpx.Response, operation: str) -> object:
+    def _json(self, response: httpx.Response, operation: str, *, fallback_url: str | None = None) -> object:
         try:
             return response.json()
         except ValueError as exc:
@@ -286,8 +275,8 @@ class GovInfoClient:
                 f"GovInfo {operation} returned invalid JSON",
                 failure_type="invalid_json",
                 upstream_status_code=response.status_code,
-                url=str(response.url),
-                upstream_detail=response.text[:1000],
+                url=str(getattr(response, "url", None) or fallback_url),
+                upstream_detail=getattr(response, "text", "")[:1000],
                 api_key=self.config.api_key,
             ) from exc
 

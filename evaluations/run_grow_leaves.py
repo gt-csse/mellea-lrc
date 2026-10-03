@@ -1,10 +1,11 @@
-"""Resume the primary corpus from native Documents and append the leaf workflow."""
+"""Resume a corpus from native Documents and append the leaf workflow."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
 import hashlib
+import inspect
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,30 +13,38 @@ from pathlib import Path
 from mellea_lrc.api import (
     Document,
     attribute_id_citations,
-    attribute_leaves_rule,
+    attribute_reference_citations,
+    attribute_short_reporter_citations,
+    attribute_supra_citations_rule,
     find_id_citations,
     find_reference_citations,
     find_short_reporter_citations,
     find_supra_citations,
-    resolve_leaf_case_names,
-    resolve_leaf_pin_cites,
-    review_id_attributions,
-    review_leaf_attributions,
+    resolve_short_reporter_case_names,
+    resolve_short_reporter_colocations,
+    resolve_supra_case_names,
+    resolve_supra_pin_cites,
+    review_supra_attributions,
 )
 
-_SET = "primary"
-_RESULTS_ROOT = Path(__file__).resolve().parent / "results" / _SET
+_SETS = frozenset(
+    {"primary", "hallucination-set-1", "hallucination-set-2", "reliable-high-profile", "reliable-low-profile"}
+)
+_RESULTS_ROOT = Path(__file__).resolve().parent / "results"
 _STAGES = (
     ("28_short_reporter_citations", find_short_reporter_citations),
-    ("29_supra_citations", find_supra_citations),
-    ("30_id_citations", find_id_citations),
-    ("31_reference_citations", find_reference_citations),
-    ("32_leaf_case_names", resolve_leaf_case_names),
-    ("33_leaf_pin_cites", resolve_leaf_pin_cites),
-    ("34_leaf_attribution_rule", attribute_leaves_rule),
-    ("35_leaf_attribution_llm", review_leaf_attributions),
-    ("36_id_attribution", attribute_id_citations),
-    ("37_id_attribution_llm", review_id_attributions),
+    ("28.1_short_reporter_colocations", resolve_short_reporter_colocations),
+    ("28.2_short_reporter_case_names", resolve_short_reporter_case_names),
+    ("29_short_reporter_attribution", attribute_short_reporter_citations),
+    ("30_reference_citations", find_reference_citations),
+    ("31_reference_attribution", attribute_reference_citations),
+    ("32_id_citations", find_id_citations),
+    ("33_id_attribution", attribute_id_citations),
+    ("34_supra_citations", find_supra_citations),
+    ("35_supra_case_names", resolve_supra_case_names),
+    ("36_supra_pin_cites", resolve_supra_pin_cites),
+    ("37_supra_attribution_rule", attribute_supra_citations_rule),
+    ("38_supra_attribution_llm", review_supra_attributions),
 )
 
 
@@ -50,25 +59,28 @@ async def run(
     *,
     input_stage: str = "23_locator_body_llm_judgment",
     review_leaves: bool = True,
+    stop_after: str | None = None,
     resume_run: Path | None = None,
 ) -> Path:
     if resume_run is None:
         if input_documents is None:
             raise ValueError("Specify saved input Documents")
         parent = json.loads((input_documents.parent / "run.json").read_text())
-        if parent["set"] != _SET or parent["status"] != "complete":
-            raise ValueError("Leaf input must be a complete primary run")
-        run_dir = _RESULTS_ROOT / datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
-        run_dir.mkdir(parents=True)
-        (run_dir / "documents").mkdir()
+        set_name = parent.get("set")
+        if set_name not in _SETS:
+            raise ValueError(f"Unsupported corpus: {set_name}")
+        if parent.get("status") != "complete":
+            raise ValueError("Leaf input must be a complete run")
+        run_dir = _RESULTS_ROOT / set_name / datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
         record = {
-            "set": _SET,
+            "set": set_name,
             "workflow": "grow_leaves",
             "status": "running",
             "filings": parent["filings"],
             "input_documents": str(input_documents),
             "input_stage": input_stage,
             "review_leaves": review_leaves,
+            "stop_after": stop_after,
             "input_sha256": {
                 name: hashlib.sha256((input_documents / f"{name}.json").read_bytes()).hexdigest()
                 for name in parent["filings"]
@@ -79,15 +91,36 @@ async def run(
         record = json.loads((run_dir / "run.json").read_text())
         if record.get("workflow") != "grow_leaves":
             raise ValueError("Resume is not a grow_leaves run")
+        if record.get("set") not in _SETS:
+            raise ValueError(f"Unsupported corpus: {record.get('set')}")
         input_documents = Path(record["input_documents"])
+        parent = json.loads((input_documents.parent / "run.json").read_text())
+        if parent.get("set") != record["set"]:
+            raise ValueError("Leaf input corpus differs from the saved run")
+        if parent.get("status") != "complete":
+            raise ValueError("Leaf input must be a complete run")
+        if parent.get("filings") != record["filings"]:
+            raise ValueError("Leaf input filings differ from the saved run")
         input_stage = record["input_stage"]
         review_leaves = record["review_leaves"]
+        if stop_after is not None and stop_after != record.get("stop_after"):
+            raise ValueError("Resume must use the saved stop stage")
+        stop_after = record.get("stop_after")
     stages = [(name, call) for name, call in _STAGES if not name.endswith("_llm") or review_leaves]
     # Any completed leaf checkpoint can be an input too. The one cumulative
     # Document supplies both the old history and the remaining stage boundary.
     names = [name for name, _ in stages]
+    if stop_after is not None:
+        if stop_after not in names:
+            raise ValueError(f"Stop stage is not enabled: {stop_after}")
+        if input_stage in names and names.index(stop_after) <= names.index(input_stage):
+            raise ValueError("Stop stage must follow the input stage")
+        stages = stages[: names.index(stop_after) + 1]
     if input_stage in names:
         stages = stages[names.index(input_stage) + 1 :]
+    if resume_run is None:
+        run_dir.mkdir(parents=True)
+        (run_dir / "documents").mkdir()
     record["status"] = "running"
     _write(run_dir / "run.json", json.dumps(record, indent=2) + "\n")
     try:
@@ -104,7 +137,15 @@ async def run(
             if finished != tuple(stage for stage, _ in stages[: len(finished)]):
                 raise ValueError(f"Unexpected leaf checkpoint: {name}")
             for stage, call in stages[len(finished) :]:
-                document = await call(document) if stage.endswith("_llm") else call(document)
+                if call in (
+                    attribute_short_reporter_citations,
+                    attribute_reference_citations,
+                    attribute_id_citations,
+                ):
+                    result = call(document, review=review_leaves)
+                else:
+                    result = call(document)
+                document = await result if inspect.isawaitable(result) else result
                 _write(artifact, document.model_dump_json(indent=2) + "\n")
                 print(f"{index}/{len(record['filings'])} {name}: {stage}", flush=True)
             print(f"{index}/{len(record['filings'])} {name}: complete", flush=True)
@@ -124,6 +165,7 @@ def main() -> None:
     parser.add_argument("--input-documents", type=Path)
     parser.add_argument("--input-stage", default="23_locator_body_llm_judgment")
     parser.add_argument("--rule-only", action="store_true")
+    parser.add_argument("--stop-after", choices=tuple(name for name, _ in _STAGES))
     parser.add_argument("--resume-run", type=Path)
     args = parser.parse_args()
     if bool(args.input_documents) == bool(args.resume_run):
@@ -134,6 +176,7 @@ def main() -> None:
                 args.input_documents.resolve() if args.input_documents else None,
                 input_stage=args.input_stage,
                 review_leaves=not args.rule_only,
+                stop_after=args.stop_after,
                 resume_run=args.resume_run.resolve() if args.resume_run else None,
             )
         )

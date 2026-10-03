@@ -5,10 +5,10 @@ from __future__ import annotations
 import re
 
 from mellea_lrc.config.extraction import ExtractionRules, stable
-from mellea_lrc.extraction.contextual_reading import require_structure
-from mellea_lrc.model.citations.fields.pin_cite import PIN_PREFIX
+from mellea_lrc.extraction.context.full_citations import require_structure
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.pin_cite import PIN_PREFIX
 
 STAGE = "9_pin_cites"
 

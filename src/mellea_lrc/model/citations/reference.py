@@ -1,10 +1,10 @@
-"""A name-only reference; its written name is its source site."""
+"""A case-name reference; its written name identifies its source site."""
 
 from typing import Literal, Self
 
 from pydantic import model_validator
 
-from mellea_lrc.model.citations.fields import CaseNameField
+from mellea_lrc.model.citations.fields import CaseNameField, PinCiteField
 from mellea_lrc.model.citations.history import Node
 from mellea_lrc.model.citations.kind import ShortCitationKind
 from mellea_lrc.model.citations.leaf import LeafCitation
@@ -20,17 +20,24 @@ class ReferenceCitation(LeafCitation):
         return self.reference_name[-1].span
 
     @classmethod
-    def from_source(cls, *, source: str, span: Span, stage: str) -> Self:
+    def from_source(cls, *, source: str, span: Span, stage: str, pin_span: Span | None = None) -> Self:
         identifier = f"reference:{span.start}:{span.end}"
         node = Node(id=f"{identifier}:node:0", stage=stage)
+        name = CaseNameField.from_source(source, span, node_id=node.id)
         return cls(
             id=identifier,
             nodes=(node,),
-            reference_name=(CaseNameField.from_source(source, span, node_id=node.id),),
+            reference_name=(name,),
+            case_name=(name,),
+            pin_cite=(PinCiteField.from_source(source, pin_span, node_id=node.id),)
+            if pin_span is not None
+            else None,
         )
 
     @model_validator(mode="after")
     def _validate_creation(self) -> Self:
         if not self.reference_name or self.reference_name[0].node_id != self.nodes[0].id:
             raise ValueError("A reference citation needs its source reading on the creation node")
+        if not self.case_name or self.case_name[0] != self.reference_name[0]:
+            raise ValueError("A reference citation must retain its initial case-name reading")
         return self

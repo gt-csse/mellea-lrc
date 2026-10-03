@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Mapping
+from copy import copy
 from dataclasses import dataclass, field
 from enum import Enum
+from threading import Lock
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, JsonValue, ValidationError
 
-from mellea_lrc.llm.config import DEFAULT_TIMEOUT_SECONDS
+from mellea_lrc.llm.config import DEFAULT_TIMEOUT_SECONDS, OUTPUT_MODE_OPTION, PROFILE_OPTION, LlmOutputMode
 from mellea_lrc.model.ivr import IvrAttempt, IvrRequirementAttempt, IvrRun
 
 if TYPE_CHECKING:
@@ -27,9 +30,11 @@ if TYPE_CHECKING:
 class InstructIvrSpec:
     """Complete project-level specification for one Mellea IVR instruction.
 
-    Passing ``output_format`` both constrains generation and installs one
-    wrapper-owned schema requirement. Callers provide only domain requirements;
-    they never need to parse Pydantic output merely to trigger a repair.
+    Passing ``output_format`` installs one wrapper-owned schema requirement in
+    every transport mode. ``json_schema`` also constrains native generation;
+    ``json_object`` and ``prompt`` supply the schema in the instruction instead.
+    Callers provide only domain requirements; they never need to parse Pydantic
+    output merely to trigger a repair.
     """
 
     description: str
@@ -59,21 +64,42 @@ async def run_instruct_ivr(
     from mellea.stdlib import functional as mfuncs
     from mellea.stdlib.context import ChatContext
 
+    if PROFILE_OPTION in model_options:
+        profile = model_options[PROFILE_OPTION]
+        if not isinstance(profile, Mapping):
+            raise TypeError("IVR profile metadata must be a mapping")
+        model_options = {
+            **model_options,
+            PROFILE_OPTION: {**profile, "max_attempts": strategy.loop_budget},
+        }
     requirements = _requirements_for(spec)
-    instruct = asyncio.to_thread(
-        mfuncs.instruct,
-        spec.description,
+    description, variables, wire_format, options = _output_transport(spec, model_options)
+    local_strategy = copy(strategy)
+    native_repair = local_strategy.repair
+    completed: dict[int, tuple[object, IvrAttempt]] = {}
+    history_lock = Lock()
+
+    def capture_repair(old_ctx, new_ctx, past_actions, past_results, past_val):
+        # The native hook runs after validation and before the next generation.
+        # Copy provider data now, before later repair contexts can mutate it.
+        with history_lock:
+            for generation, attempt in zip(past_results, _attempts(past_results, past_val), strict=True):
+                completed.setdefault(id(generation), (generation, attempt))
+        return native_repair(old_ctx, new_ctx, past_actions, past_results, past_val)
+
+    local_strategy.repair = capture_repair
+    instruct = mfuncs.ainstruct(
+        description,
         context=ChatContext(),
         backend=session.backend,
         grounding_context=dict(spec.grounding_context),
-        user_variables=dict(spec.user_variables),
+        user_variables=variables,
         requirements=requirements,
-        strategy=strategy,
+        strategy=local_strategy,
         return_sampling_results=True,
-        format=spec.output_format,
-        model_options=model_options
-        if spec.prefix is None
-        else {**model_options, ModelOption.SYSTEM_PROMPT: spec.prefix},
+        await_result=True,
+        format=wire_format,
+        model_options=options if spec.prefix is None else {**options, ModelOption.SYSTEM_PROMPT: spec.prefix},
     )
     timeout_seconds = _call_timeout_seconds(model_options)
     try:
@@ -83,8 +109,42 @@ async def run_instruct_ivr(
         # callers can defer safely and persist the reason.
         sampled = await asyncio.wait_for(instruct, timeout=timeout_seconds)
     except TimeoutError:
-        return _timed_out_ivr_run(session, spec, model_options, timeout_seconds)
+        with history_lock:
+            attempts = tuple(attempt for _, attempt in completed.values())
+        return _timed_out_ivr_run(session, spec, model_options, timeout_seconds, attempts)
     return _to_ivr_run(session, spec, model_options, sampled)
+
+
+def _output_transport(
+    spec: InstructIvrSpec, model_options: Mapping[str, object]
+) -> tuple[str, dict[str, str], type[BaseModel] | None, dict[str, object]]:
+    """Select the explicit wire format without weakening IVR validation.
+
+    Some compatible endpoints implement JSON mode but not constrained schemas.
+    The schema and domain requirements are mandatory in every transport mode;
+    an endpoint error never silently changes modes or repairs output in code.
+    """
+    options = dict(model_options)
+    options.pop(PROFILE_OPTION, None)  # Retained in IvrRun, never sent to the provider.
+    mode = LlmOutputMode(options.pop(OUTPUT_MODE_OPTION, LlmOutputMode.JSON_SCHEMA))
+    if "response_format" in options:
+        raise ValueError("Configure output_mode instead of supplying response_format")
+    if spec.output_format is None:
+        if mode is not LlmOutputMode.JSON_SCHEMA:
+            raise ValueError("Output transport mode requires a Pydantic output_format")
+        return spec.description, dict(spec.user_variables), None, options
+    if mode is LlmOutputMode.JSON_SCHEMA:
+        return spec.description, dict(spec.user_variables), spec.output_format, options
+    variable = "ivr_output_schema"
+    if variable in spec.user_variables or variable in spec.grounding_context:
+        raise ValueError(f"{variable} is reserved for IVR schema transport")
+    variables = {**spec.user_variables, variable: json.dumps(spec.output_format.model_json_schema())}
+    description = (
+        spec.description + "\nReturn only one JSON object matching this schema:\n{{ivr_output_schema}}"
+    )
+    if mode is LlmOutputMode.JSON_OBJECT:
+        options["response_format"] = {"type": "json_object"}
+    return description, variables, None, options
 
 
 _SCHEMA_REQUIREMENT = "Return exactly one JSON object matching the required output schema."
@@ -106,14 +166,14 @@ def _timed_out_ivr_run(
     spec: InstructIvrSpec,
     model_options: Mapping[object, object],
     timeout_seconds: float,
+    completed_attempts: tuple[IvrAttempt, ...] = (),
 ) -> IvrRun:
     """Represent an outer call deadline using the same artifact shape as IVR repair failure."""
-    backend = session.backend
-    output_format = spec.output_format
     return IvrRun(
         success=False,
-        selected_attempt=0,
+        selected_attempt=len(completed_attempts),
         attempts=(
+            *completed_attempts,
             IvrAttempt(
                 output="",
                 requirements=(
@@ -126,14 +186,7 @@ def _timed_out_ivr_run(
                 ),
             ),
         ),
-        backend=type(backend).__qualname__,
-        model=_optional_string(getattr(backend, "model_id", None)),
-        model_options=_json_mapping(model_options),
-        instruction=spec.description,
-        prefix=spec.prefix,
-        grounding_context=dict(spec.grounding_context),
-        user_variables=dict(spec.user_variables),
-        output_schema=(output_format.model_json_schema() if output_format is not None else None),
+        **_run_metadata(session, spec, model_options),
     )
 
 
@@ -255,9 +308,44 @@ def _to_ivr_run(
     accepts no reduced result shape: a result without attempt history could not
     explain a failed review without repeating the model call.
     """
-    generations = sampled.sample_generations
-    validations = sampled.sample_validations
-    attempts = tuple(
+    attempts = _attempts(sampled.sample_generations, sampled.sample_validations)
+    success = sampled.success
+    selected_attempt = sampled.result_index
+
+    return IvrRun(
+        success=success,
+        selected_attempt=selected_attempt,
+        attempts=attempts,
+        **_run_metadata(session, spec, model_options),
+    )
+
+
+def _run_metadata(
+    session: MelleaSession,
+    spec: InstructIvrSpec,
+    model_options: Mapping[object, object],
+) -> dict[str, object]:
+    """Retain the same instruction provenance for completed and timed-out runs."""
+    backend = session.backend
+    output_format = spec.output_format
+    return {
+        "backend": type(backend).__qualname__,
+        "model": _optional_string(getattr(backend, "model_id", None)),
+        "model_options": _json_mapping(model_options),
+        "instruction": spec.description,
+        "prefix": spec.prefix,
+        "grounding_context": dict(spec.grounding_context),
+        "user_variables": dict(spec.user_variables),
+        "output_schema": output_format.model_json_schema() if output_format is not None else None,
+    }
+
+
+def _attempts(
+    generations: Sequence[object],
+    validations: Sequence[Sequence[tuple[Requirement, ValidationResult]]],
+) -> tuple[IvrAttempt, ...]:
+    """Freeze completed native generations and their exact validation/provider data."""
+    return tuple(
         IvrAttempt(
             output=str(generation.value),
             requirements=tuple(
@@ -275,24 +363,6 @@ def _to_ivr_run(
             response=_provider_response(generation),
         )
         for index, generation in enumerate(generations)
-    )
-    success = sampled.success
-    selected_attempt = sampled.result_index
-
-    backend = session.backend
-    output_format = spec.output_format
-    return IvrRun(
-        success=success,
-        selected_attempt=selected_attempt,
-        attempts=attempts,
-        backend=type(backend).__qualname__,
-        model=_optional_string(getattr(backend, "model_id", None)),
-        model_options=_json_mapping(model_options),
-        instruction=spec.description,
-        prefix=spec.prefix,
-        grounding_context=dict(spec.grounding_context),
-        user_variables=dict(spec.user_variables),
-        output_schema=(output_format.model_json_schema() if output_format is not None else None),
     )
 
 

@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import Protocol
 
-from dotenv import load_dotenv
 from mellea.core import ValidationResult
 from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
 
-from mellea_lrc.llm.config import llm_api_config_from_env, start_mellea_session_from_env
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
+from mellea_lrc.llm.reviewer import IvrReviewer
 from mellea_lrc.model.citations import (
     AttributionResult,
     IdCitation,
@@ -26,9 +24,6 @@ from mellea_lrc.model.citations import (
 )
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
-
-MAX_TOKENS = 2200
-MAX_ATTEMPTS = 3
 
 
 @dataclass(frozen=True)
@@ -153,12 +148,13 @@ def apply_review(
             .with_route(None)
         )
     if decision.root_index is None:
-        # Clear an unsupported rule attachment; its earlier reading survives.
+        # Unsupported and rejected references share the dummy head. The
+        # decision/reason distinguishes them without another relationship field.
         return (
             citation.with_attribution(
                 context.candidate_root_ids, AttributionResult.UNRESOLVED, decision.reason
             )
-            .with_root(None)
+            .withdraw()
             .with_route(None)
         )
     return (
@@ -189,16 +185,7 @@ _ID_INSTRUCTION = """For Id./Ibid., identify the immediately preceding cited sou
 
 
 @dataclass(frozen=True)
-class IvrLeafReviewer:
-    session: object
-    model_options: dict[str, object]
-
-    @classmethod
-    def from_env(cls) -> IvrLeafReviewer:
-        load_dotenv(override=False)
-        config = llm_api_config_from_env(os.environ)
-        return cls(start_mellea_session_from_env(), config.mellea_call_options(max_tokens=MAX_TOKENS))
-
+class IvrLeafReviewer(IvrReviewer):
     async def __call__(self, context: LeafReviewContext) -> LeafReviewOutcome:
         def validate(ctx: object) -> ValidationResult:
             try:
@@ -223,7 +210,7 @@ class IvrLeafReviewer:
                 output_format=LeafReviewDecision,
                 requirements=(req("Select an available root index or null.", validation_fn=validate),),
             ),
-            strategy=MultiTurnStrategy(loop_budget=MAX_ATTEMPTS),
+            strategy=MultiTurnStrategy(loop_budget=self.max_attempts),
             model_options=dict(self.model_options),
         )
         if not run.success:

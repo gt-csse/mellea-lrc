@@ -76,12 +76,35 @@ class IvrRun(BaseModel):
 
     @property
     def failure_reason(self) -> str | None:
-        """The selected attempt's first failed requirement reason, when any."""
-        return next(
+        """Explain selected-attempt validation failure and provider interruption.
+
+        A provider can return partial JSON with ``content_filter`` or ``length``
+        rather than a normal ``stop``. Preserve that diagnostic alongside the
+        schema failure, deriving it from the retained response without another
+        persisted field. Earlier failed attempts do not describe a recovered run.
+        """
+        attempt = self.attempts[self.selected_attempt]
+        reason = next(
             (
                 requirement.reason
-                for requirement in self.attempts[self.selected_attempt].requirements
+                for requirement in attempt.requirements
                 if not requirement.passed and requirement.reason
             ),
             None,
         )
+        if self.success or not isinstance(attempt.response, dict):
+            return reason
+        choices = attempt.response.get("choices")
+        if not isinstance(choices, list):
+            return reason
+        finishes = dict.fromkeys(
+            choice["finish_reason"]
+            for choice in choices
+            if isinstance(choice, dict)
+            and isinstance(choice.get("finish_reason"), str)
+            and choice["finish_reason"] not in {"", "stop"}
+        )
+        if not finishes:
+            return reason
+        provider_reason = f"Provider finish reason: {', '.join(finishes)}."
+        return f"{provider_reason} {reason}" if reason else provider_reason

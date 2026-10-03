@@ -35,7 +35,6 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.10",
 ]
 
 [project.license]
@@ -102,8 +101,6 @@ ignore = [
   "C408",    # Unnecessary `dict()` call (rewrite as a literal)
   "C901",    # Complexity warnings
   "E501",    # Line too long, handled by ruff formatter
-  "F401",    # imported but unused; consider using `importlib.util.find_spec` to test for
-  "F811",    # redefinition of the same function
   "PL",      # Pylint
   "RUF001",  # ambiguous unicode characters (these occur in examples)
   "RUF012",  # Mutable Class Attributes

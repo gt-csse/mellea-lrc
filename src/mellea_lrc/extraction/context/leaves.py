@@ -3,23 +3,15 @@
 from __future__ import annotations
 
 import re
-from functools import lru_cache
 
-from eyecite import get_citations
-from eyecite.models import CitationBase
+from eyecite.models import ReferenceCitation as EyeciteReferenceCitation
 
-from mellea_lrc.extraction.full_reporter_locator import _reporter_tokenizer
 from mellea_lrc.matching.literal import fuzzy_literal
 from mellea_lrc.model.citations import FullReporterCitation, latest
-from mellea_lrc.model.citations.fields.pin_cite import PIN_PREFIX
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
-
-
-@lru_cache(maxsize=32)
-def events(source: str) -> tuple[CitationBase, ...]:
-    """Keep noncase/unknown events: they are required for correct Id chronology."""
-    return tuple(get_citations(source, tokenizer=_reporter_tokenizer()))
+from mellea_lrc.parsing.events import events
+from mellea_lrc.parsing.pin_cite import pin_after as read_pin_after
 
 
 def require_leaves(document: Document, stage: str) -> None:
@@ -31,10 +23,23 @@ def require_leaves(document: Document, stage: str) -> None:
 
 def pin_after(source: str, position: int, end: int) -> Span | None:
     """Read a directly adjacent pin with the same grammar as normalization."""
-    match = PIN_PREFIX.match(source[position:end])
-    if match is None:
+    reading = read_pin_after(source, position, end)
+    return Span(*reading) if reading is not None else None
+
+
+def reference_pin_after(source: str, position: int, end: int) -> Span | None:
+    """Require an explicit pinpoint directly after a case-name reference.
+
+    Unlike a reporter citation, a name followed by a bare number may be an
+    address, date, or numbered paragraph. Only an ``at`` or page/paragraph
+    marker establishes the supported reference shape. Commas and whitespace
+    can separate the name and marker; intervening prose cannot.
+    """
+    at = fuzzy_literal("at ", whitespace=True, newline=True)
+    marker = re.match(rf"\s*(?:,\s*)*(?:{at}|(?=[*¶]))", source[position:end], re.I)
+    if marker is None:
         return None
-    return Span(position + match.start("pin"), position + match.end("pin"))
+    return pin_after(source, position + marker.end(), end)
 
 
 def aliases(document: Document, *, before: int | None = None) -> dict[str, tuple[str, ...]]:
@@ -115,6 +120,15 @@ def preceding_name(document: Document, span: Span) -> Span | None:
     for citation in document.citations:
         if citation.site_span.end <= span.start:
             start = max(start, citation.site_span.end)
+    # Source recognition supplies boundaries even before other leaf types
+    # have been created. Completing one type first must not borrow a name
+    # across an intervening Id., supra or noncase citation. Name references
+    # themselves are excluded: an adjacent name is what this reader seeks.
+    for event in events(document.text):
+        if not isinstance(event, EyeciteReferenceCitation):
+            _, end = event.span_with_pincite()
+            if end <= span.start:
+                start = max(start, end)
     text = document.text[start : span.start]
     # Prefer an already introduced written name over a broad capitalized
     # phrase. Whole-name suffix matching prevents prose from being borrowed

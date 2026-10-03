@@ -3,19 +3,17 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
-from dotenv import load_dotenv
 from mellea.core import ValidationResult
 from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
 from pydantic import ValidationError
 
-from mellea_lrc.llm.config import llm_api_config_from_env, start_mellea_session_from_env
 from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
+from mellea_lrc.llm.reviewer import IvrReviewer
 from mellea_lrc.matching.grounding import EvidenceCandidate, GroundedFragment, GroundingEvidence
 from mellea_lrc.model.citation_windows import after, before
 from mellea_lrc.model.citations import FullCitationVariant
@@ -25,14 +23,6 @@ from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
 from mellea_lrc.validation.body_search.common import diverse_evidence, locator_text, source_copy_bodies
 from mellea_lrc.validation.body_search.grounding import ground_body_fragment
-
-if TYPE_CHECKING:
-    from mellea import MelleaSession
-
-
-MAX_TOKENS = 4500
-MAX_MODEL_ATTEMPTS = 3
-SESSION_ID = "mellea-lrc-field-body-review-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,23 +155,7 @@ def _validate_grounding(ctx: object, context: IntendedCaseContext) -> Validation
 
 
 @dataclass(frozen=True, slots=True)
-class IvrIntendedCaseReviewer:
-    session: MelleaSession
-    model_options: dict[str, object]
-    max_attempts: int = MAX_MODEL_ATTEMPTS
-
-    @classmethod
-    def from_env(cls) -> IvrIntendedCaseReviewer:
-        load_dotenv(override=False)
-        config = llm_api_config_from_env(os.environ)
-        return cls(
-            session=start_mellea_session_from_env(),
-            model_options={
-                **config.mellea_call_options(max_tokens=MAX_TOKENS),
-                "extra_body": {"session_id": SESSION_ID},
-            },
-        )
-
+class IvrIntendedCaseReviewer(IvrReviewer):
     async def __call__(self, context: IntendedCaseContext) -> IntendedCaseOutcome:
         run = await run_instruct_ivr(
             self.session,

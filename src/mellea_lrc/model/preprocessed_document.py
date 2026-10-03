@@ -32,7 +32,7 @@ class Rule(str, Enum):
     """A table read in the order the page reads it, not rebuilt as a grid."""
 
     TABLE_OF_AUTHORITIES = "table_of_authorities"
-    """The index of cited cases, marked because it cites nothing."""
+    """The authority index: citations identify cases but supply no pinpoint proposition."""
 
 
 DEFAULT_RULES: tuple[Rule, ...] = (
@@ -62,6 +62,12 @@ class PreprocessedDocument(DocumentBase):
     preprocessing_metadata: PreprocessingMetadata
     index_spans: tuple[Span, ...] = ()
     """Table-of-authorities regions. Empty may mean the index is unknown."""
+    # TODO: Represent TOA as a typed, serialized preprocessing component with
+    # exact source ranges. Propagate a TOA tag to every root/leaf occurrence
+    # created within that component, so downstream pinpoint stages consume the
+    # tag directly. TOA citations still participate in root identity checking.
+    # Keep offsets unchanged. For existing artifacts, index_spans remains the
+    # available serialized range information; do not regenerate them for this TODO.
 
     @model_validator(mode="after")
     def _validate_text(self) -> "PreprocessedDocument":

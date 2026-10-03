@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
+from evaluations.annotations import citation_annotations
+from evaluations.score_types import FieldScore, Precision, StageScore
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation
 from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, latest
@@ -30,43 +29,6 @@ ROOT_FIELDS = ("locator", "case_name", "court", "date", "pin_cite", "docket_entr
 
 
 @dataclass(frozen=True)
-class Precision:
-    correct: int = 0
-    total: int = 0
-
-    def __add__(self, other: Precision) -> Precision:
-        return Precision(self.correct + other.correct, self.total + other.total)
-
-    def as_dict(self) -> dict[str, int | float | None]:
-        return {
-            "correct": self.correct,
-            "total": self.total,
-            "precision": self.correct / self.total if self.total else None,
-        }
-
-
-@dataclass(frozen=True)
-class FieldScore:
-    correct: int = 0
-    predicted: int = 0
-    gold: int = 0
-
-    def __add__(self, other: FieldScore) -> FieldScore:
-        return FieldScore(
-            self.correct + other.correct, self.predicted + other.predicted, self.gold + other.gold
-        )
-
-    def as_dict(self) -> dict[str, int | float | None]:
-        return {
-            "correct": self.correct,
-            "predicted": self.predicted,
-            "gold": self.gold,
-            "precision": self.correct / self.predicted if self.predicted else None,
-            "recall": self.correct / self.gold if self.gold else None,
-        }
-
-
-@dataclass(frozen=True)
 class RecallScore:
     """A gold-side measure with no implied prediction-side precision."""
 
@@ -82,22 +44,6 @@ class RecallScore:
             "gold": self.gold,
             "recall": self.correct / self.gold if self.gold else None,
         }
-
-
-@dataclass(frozen=True)
-class StageScore:
-    stage: str
-    metrics: dict[str, Precision]
-
-    def __add__(self, other: StageScore) -> StageScore:
-        if self.stage != other.stage or self.metrics.keys() != other.metrics.keys():
-            raise ValueError("Cannot combine different stage scores")
-        return StageScore(
-            self.stage, {key: value + other.metrics[key] for key, value in self.metrics.items()}
-        )
-
-    def as_dict(self) -> dict[str, Any]:
-        return {"stage": self.stage, "metrics": {key: value.as_dict() for key, value in self.metrics.items()}}
 
 
 @dataclass(frozen=True)
@@ -150,27 +96,7 @@ class WorkflowScore:
 
 def _rows(document: Document) -> tuple[dict[str, Any], ...]:
     """Resolve official annotations from the source path; reject stale gold."""
-    if document.source_path is None:
-        raise ValueError("Evaluation needs a Document with an official source path")
-    source = Path(document.source_path).resolve()
-    dataset = source.parent.parent
-    annotation = dataset / "documents" / f"{source.stem}.jsonl"
-    lines = annotation.read_text(encoding="utf-8").splitlines()
-    if not lines:
-        raise ValueError(f"Empty annotation file: {annotation}")
-    header = json.loads(lines[0])
-    text = header.get("text", {})
-    expected_path = (dataset.parent / text.get("path", "")).resolve()
-    if (
-        header.get("unit") != "header"
-        or header.get("dataset") != dataset.name
-        or header.get("document") != source.name
-        or expected_path != source
-        or text.get("length") != len(document.text)
-        or text.get("sha256") != hashlib.sha256(document.text.encode("utf-8")).hexdigest()
-    ):
-        raise ValueError(f"Annotation does not match Document source: {annotation}")
-    rows = tuple(row for line in lines[1:] if (row := json.loads(line)).get("unit") == "citation")
+    rows = citation_annotations(document)
     seen: set[tuple[str, int, int]] = set()
     for row in rows:
         if row.get("kind") not in {"FullCaseCitation", "DocketCitation"}:
@@ -304,15 +230,10 @@ def _root_field_overlap_recall(
 
 
 def _nonroot_normalization_annotated(name: str, row: dict[str, Any]) -> bool:
-    """Non-root annotations have not been adjudicated for missing values."""
+    """Check normalized targets in the current nonroot field formats."""
     if name == "locator":
-        identifier = row.get("identifier")
-        if not isinstance(identifier, dict):
-            return False
-        if identifier.get("kind") == "reporter":
-            return all(identifier.get(part) is not None for part in ("volume", "reporter", "page"))
-        if identifier.get("kind") == "docket":
-            return identifier.get("docket_number") is not None
+        # Full locator annotations require their own source/normalization
+        # pair; a separate citation identifier is not a field target.
         return False
     target = row.get(name)
     if not isinstance(target, dict):
@@ -326,26 +247,42 @@ def _normalization_agrees(name: str, reading: Any, row: dict[str, Any] | None) -
     if row is None:
         return False
     target = _target(row, name)
-    if row.get("is_root"):
+    if not isinstance(target, dict):
+        raise ValueError(f"{row['id']}: missing explicit {name} normalization gold")
+    source = target.get("source", target)
+    if not isinstance(source, dict):
+        raise ValueError(f"{row['id']}: missing explicit {name} source gold outcome")
+    source_kind = source.get("kind", "quoted" if "start" in source else None)
+    if source_kind not in {"quoted", "inferred", "not_stated"}:
+        raise ValueError(f"{row['id']}: missing explicit {name} source gold outcome")
+    if "normalization" in target:
         normalization = target["normalization"]
-        if normalization["kind"] == "unavailable":
-            if target["source"]["kind"] == "not_stated":
+        if not isinstance(normalization, dict):
+            raise ValueError(f"{row['id']}: missing explicit {name} normalization gold")
+        if normalization.get("kind") == "unavailable":
+            if source_kind == "not_stated":
                 return reading is None
             # An unavailable value is a property of this exact quoted field,
             # not permission to score any failed parser reading as correct.
             return (
-                target["source"]["kind"] == "quoted"
+                source_kind == "quoted"
                 and reading is not None
                 and not reading.normalizable
                 and _source_agrees(reading, target)
             )
-        if normalization["kind"] != "value":
-            raise ValueError("Not-applicable fields must be excluded before scoring")
+        if normalization.get("kind") != "value":
+            raise ValueError(f"{row['id']}: missing explicit {name} normalization gold value")
+        if normalization.get("value") is None:
+            raise ValueError(f"{row['id']}: missing explicit {name} normalization gold value")
+        if source_kind == "not_stated":
+            raise ValueError(f"{row['id']}: {name} not_stated source requires unavailable normalization")
         value = normalization["value"]
     else:
+        if source_kind == "not_stated":
+            raise ValueError(f"{row['id']}: {name} not_stated source requires unavailable normalization")
         if not _nonroot_normalization_annotated(name, row):
-            raise ValueError("Non-root normalization was not annotated")
-        value = row.get("identifier") if name == "locator" else target
+            raise ValueError(f"{row['id']}: missing explicit {name} normalization gold")
+        value = target
         if name == "case_name" or name == "pin_cite":
             value = target["normalized"]
         elif name == "date":
@@ -399,12 +336,6 @@ def score_full_reporter_locators(document: Document) -> StageScore:
             if reading.span is not None:
                 span_total += 1
                 span_correct += int(_source_agrees(reading, _target(row, "locator")))
-            if (
-                row is not None
-                and not row.get("is_root")
-                and not _nonroot_normalization_annotated("locator", row)
-            ):
-                continue
             norm_total += 1
             norm_correct += int(_normalization_agrees("locator", reading, row))
     return StageScore(
@@ -428,12 +359,6 @@ def score_docket_locators(document: Document) -> StageScore:
             if reading.span is not None:
                 span_total += 1
                 span_correct += int(_source_agrees(reading, _target(row, "locator")))
-            if (
-                row is not None
-                and not row.get("is_root")
-                and not _nonroot_normalization_annotated("locator", row)
-            ):
-                continue
             norm_total += 1
             norm_correct += int(_normalization_agrees("locator", reading, row))
     return StageScore(
@@ -457,12 +382,6 @@ def score_docket_locator_site_hunting(document: Document) -> StageScore:
             if reading.span is not None:
                 span_total += 1
                 span_correct += int(_source_agrees(reading, _target(row, "locator")))
-            if (
-                row is not None
-                and not row.get("is_root")
-                and not _nonroot_normalization_annotated("locator", row)
-            ):
-                continue
             norm_total += 1
             norm_correct += int(_normalization_agrees("locator", reading, row))
     return StageScore(
@@ -472,6 +391,7 @@ def score_docket_locator_site_hunting(document: Document) -> StageScore:
 
 
 def score_docket_entries(document: Document) -> StageScore:
+    """Score every docket's entry outcome, including absence."""
     checkpoint = document.get_stage(ENTRY_STAGE)
     gold = _gold(_rows(checkpoint))
     span_correct = span_total = norm_correct = norm_total = 0
@@ -479,21 +399,11 @@ def score_docket_entries(document: Document) -> StageScore:
         if not isinstance(citation, FullDocketCitation):
             continue
         row = gold.get(_key(citation))
-        node_ids = {node.id for node in citation.nodes if node.stage == ENTRY_STAGE}
-        for reading in citation.docket_entry:
-            if reading.node_id not in node_ids:
-                continue
-            if reading.span is not None:
-                span_total += 1
-                span_correct += int(_source_agrees(reading, _target(row, "docket_entry")))
-            if (
-                row is not None
-                and not row.get("is_root")
-                and not _nonroot_normalization_annotated("docket_entry", row)
-            ):
-                continue
-            norm_total += 1
-            norm_correct += int(_normalization_agrees("docket_entry", reading, row))
+        reading = citation.docket_entry[-1] if citation.docket_entry else None
+        span_total += 1
+        span_correct += int(row is not None and _source_agrees(reading, _target(row, "docket_entry")))
+        norm_total += 1
+        norm_correct += int(_normalization_agrees("docket_entry", reading, row))
     return StageScore(
         ENTRY_STAGE,
         {"span": Precision(span_correct, span_total), "normalization": Precision(norm_correct, norm_total)},
@@ -501,26 +411,17 @@ def score_docket_entries(document: Document) -> StageScore:
 
 
 def score_case_names(document: Document) -> StageScore:
+    """Score every full occurrence's name outcome, including absence."""
     checkpoint = document.get_stage(CASE_NAME_STAGE)
     gold = _gold(_rows(checkpoint))
     span_correct = span_total = norm_correct = norm_total = 0
     for citation in checkpoint.full_locators:
         row = gold.get(_key(citation))
-        node_ids = {node.id for node in citation.nodes if node.stage == CASE_NAME_STAGE}
-        for reading in citation.case_name:
-            if reading.node_id not in node_ids:
-                continue
-            if reading.span is not None:
-                span_total += 1
-                span_correct += int(_source_agrees(reading, _target(row, "case_name")))
-            if (
-                row is not None
-                and not row.get("is_root")
-                and not _nonroot_normalization_annotated("case_name", row)
-            ):
-                continue
-            norm_total += 1
-            norm_correct += int(_normalization_agrees("case_name", reading, row))
+        reading = citation.case_name[-1] if citation.case_name else None
+        span_total += 1
+        span_correct += int(row is not None and _source_agrees(reading, _target(row, "case_name")))
+        norm_total += 1
+        norm_correct += int(_normalization_agrees("case_name", reading, row))
     return StageScore(
         CASE_NAME_STAGE,
         {"span": Precision(span_correct, span_total), "normalization": Precision(norm_correct, norm_total)},
@@ -528,26 +429,17 @@ def score_case_names(document: Document) -> StageScore:
 
 
 def score_courts(document: Document) -> StageScore:
+    """Score every full occurrence's court outcome, including inference and absence."""
     checkpoint = document.get_stage(COURT_STAGE)
     gold = _gold(_rows(checkpoint))
     span_correct = span_total = norm_correct = norm_total = 0
     for citation in checkpoint.full_locators:
         row = gold.get(_key(citation))
-        node_ids = {node.id for node in citation.nodes if node.stage == COURT_STAGE}
-        for reading in citation.court:
-            if reading.node_id not in node_ids:
-                continue
-            if reading.span is not None:
-                span_total += 1
-                span_correct += int(_source_agrees(reading, _target(row, "court")))
-            if (
-                row is not None
-                and not row.get("is_root")
-                and not _nonroot_normalization_annotated("court", row)
-            ):
-                continue
-            norm_total += 1
-            norm_correct += int(_normalization_agrees("court", reading, row))
+        reading = citation.court[-1] if citation.court else None
+        span_total += 1
+        span_correct += int(row is not None and _source_agrees(reading, _target(row, "court")))
+        norm_total += 1
+        norm_correct += int(_normalization_agrees("court", reading, row))
     return StageScore(
         COURT_STAGE,
         {"span": Precision(span_correct, span_total), "normalization": Precision(norm_correct, norm_total)},
@@ -555,26 +447,17 @@ def score_courts(document: Document) -> StageScore:
 
 
 def score_dates(document: Document) -> StageScore:
+    """Score every full occurrence's date outcome, including absence."""
     checkpoint = document.get_stage(DATE_STAGE)
     gold = _gold(_rows(checkpoint))
     span_correct = span_total = norm_correct = norm_total = 0
     for citation in checkpoint.full_locators:
         row = gold.get(_key(citation))
-        node_ids = {node.id for node in citation.nodes if node.stage == DATE_STAGE}
-        for reading in citation.date:
-            if reading.node_id not in node_ids:
-                continue
-            if reading.span is not None:
-                span_total += 1
-                span_correct += int(_source_agrees(reading, _target(row, "date")))
-            if (
-                row is not None
-                and not row.get("is_root")
-                and not _nonroot_normalization_annotated("date", row)
-            ):
-                continue
-            norm_total += 1
-            norm_correct += int(_normalization_agrees("date", reading, row))
+        reading = citation.date[-1] if citation.date else None
+        span_total += 1
+        span_correct += int(row is not None and _source_agrees(reading, _target(row, "date")))
+        norm_total += 1
+        norm_correct += int(_normalization_agrees("date", reading, row))
     return StageScore(
         DATE_STAGE,
         {"span": Precision(span_correct, span_total), "normalization": Precision(norm_correct, norm_total)},
@@ -582,26 +465,17 @@ def score_dates(document: Document) -> StageScore:
 
 
 def score_pin_cites(document: Document) -> StageScore:
+    """Score every full occurrence's pin outcome, including absence."""
     checkpoint = document.get_stage(PIN_STAGE)
     gold = _gold(_rows(checkpoint))
     span_correct = span_total = norm_correct = norm_total = 0
     for citation in checkpoint.full_locators:
         row = gold.get(_key(citation))
-        node_ids = {node.id for node in citation.nodes if node.stage == PIN_STAGE}
-        for reading in citation.pin_cite:
-            if reading.node_id not in node_ids:
-                continue
-            if reading.span is not None:
-                span_total += 1
-                span_correct += int(_source_agrees(reading, _target(row, "pin_cite")))
-            if (
-                row is not None
-                and not row.get("is_root")
-                and not _nonroot_normalization_annotated("pin_cite", row)
-            ):
-                continue
-            norm_total += 1
-            norm_correct += int(_normalization_agrees("pin_cite", reading, row))
+        reading = citation.pin_cite[-1] if citation.pin_cite is not None else None
+        span_total += 1
+        span_correct += int(row is not None and _source_agrees(reading, _target(row, "pin_cite")))
+        norm_total += 1
+        norm_correct += int(_normalization_agrees("pin_cite", reading, row))
     return StageScore(
         PIN_STAGE,
         {"span": Precision(span_correct, span_total), "normalization": Precision(norm_correct, norm_total)},
@@ -1003,6 +877,7 @@ def render_grow_roots(
     title = "# Grow-roots evaluation" + (f": {set_name}" if set_name else "")
     sections = [
         title,
+        "Field-reading stage precision counts every eligible citation's field outcome, including absence, inference, and failed normalization; missing explicit gold raises.",
         "Docket site hunting: " + ("included" if HUNT_STAGE in stage_names else "not run"),
         "Docket root review: " + ("included" if ROOT_REVIEW_STAGE in stage_names else "not run"),
     ]

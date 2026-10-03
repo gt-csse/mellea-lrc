@@ -11,9 +11,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from html.parser import HTMLParser
 from typing import Any, Literal, Protocol, TypeVar
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
-from mellea_lrc.model.citations import FullCitationVariant
 from mellea_lrc.model.citations.body_evidence import (
     BodyEvidence,
     BodyEvidenceFailure,
@@ -25,6 +24,7 @@ from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch
 from mellea_lrc.model.document import Document
 from mellea_lrc.providers.courtlistener import CourtListenerClient, CourtListenerError
 from mellea_lrc.providers.courtlistener.models import CourtListenerSearchPage, CourtListenerSearchResult
+from mellea_lrc.providers.courtlistener.pagination import cursor_from_url
 from mellea_lrc.validation.body_search.common import (
     eligible_on,
     evidence_date,
@@ -224,11 +224,6 @@ def _service_failure(error: CourtListenerError, *, item_id: str | None = None) -
         item_id=item_id,
         status_code=error.upstream_status_code,
     )
-
-
-def _next_cursor(url: str) -> str | None:
-    values = parse_qs(urlparse(url).query).get("cursor", ())
-    return values[0] if len(values) == 1 and values[0] else None
 
 
 def _quoted_query(value: str) -> str:
@@ -433,7 +428,7 @@ def _search_query(
                 f"CourtListener body search still has results after {MAX_PAGES_PER_QUERY} pages",
             )
             break
-        next_cursor = _next_cursor(page.next)
+        next_cursor = cursor_from_url(page.next)
         if next_cursor is None or next_cursor in seen_cursors:
             attempt_failure = _failure(
                 "invalid_pagination", "CourtListener search returned a missing or repeated cursor"

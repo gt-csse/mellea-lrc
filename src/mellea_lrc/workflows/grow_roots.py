@@ -9,10 +9,8 @@ from mellea_lrc.extraction.courts import resolve_courts
 from mellea_lrc.extraction.dates import resolve_dates
 from mellea_lrc.extraction.docket_entries import resolve_docket_entries
 from mellea_lrc.extraction.docket_locator import find_docket_locators
-from mellea_lrc.extraction.docket_root_llm_reassignment import (
-    DocketRootReviewer,
-    docket_root_llm_reassignment,
-)
+from mellea_lrc.extraction.docket_root_llm_reassignment import docket_root_llm_reassignment
+from mellea_lrc.extraction.docket_root_llm_reassignment.reviewer import DocketRootReviewer
 from mellea_lrc.extraction.docket_site_hunting import hunt_docket_locators
 from mellea_lrc.extraction.docket_site_hunting.review import DocketSiteReviewer
 from mellea_lrc.extraction.full_reporter_locator import find_full_reporter_locators

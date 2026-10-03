@@ -14,7 +14,6 @@ import pytest
 
 from evaluations import __main__ as runner
 from mellea_lrc.api import Document, grow_roots
-from mellea_lrc.providers.courtlistener import CourtListenerClient
 from mellea_lrc.model import (
     DocketLookup,
     DocketLookupAttempt,
@@ -30,6 +29,7 @@ from mellea_lrc.model.citations.body_evidence import (
 )
 from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch
 from mellea_lrc.model.citations.govinfo_lookup import GovInfoDocketLookup, GovInfoLookupAttempt
+from mellea_lrc.providers.courtlistener import CourtListenerClient
 
 _ROOT_WORKFLOW = importlib.import_module("mellea_lrc.workflows.validate_roots")
 _LOCATOR_REVIEW = _ROOT_WORKFLOW._validate_locator_bodies
@@ -136,13 +136,48 @@ def test_resume_skips_valid_documents_and_reuses_timestamp_directory(
     record_path.write_text(json.dumps(record), encoding="utf-8")
 
     assert asyncio.run(runner._run(tmp_path / "ignored", tmp_path / "unused", None, run_dir)) == run_dir
-    assert calls == list(filenames)
+    assert calls == [*filenames, "002.txt"]
+    assert not (run_dir / "checkpoints").exists()
     assert json.loads(record_path.read_text(encoding="utf-8"))["status"] == "complete"
 
     (data_root / "primary" / "documents_txt" / "002.txt").write_text("changed source\n", encoding="utf-8")
     with pytest.raises(ValueError, match="Run source content differs"):
         asyncio.run(runner._run(tmp_path / "ignored", tmp_path / "unused", None, run_dir))
-    assert calls == list(filenames)
+    assert calls == [*filenames, "002.txt"]
+
+
+def test_resume_rejects_a_cumulative_document_with_a_stage_gap_before_provider_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root = _dataset(tmp_path, ("001.txt",))
+    results_root = tmp_path / "results"
+
+    async def fake_grow(document: Document, **_kwargs: object) -> Document:
+        return _complete(document, runner._RUN_STAGES[:11])
+
+    async def interrupt_validation(document: Document, **_kwargs: object) -> Document:
+        raise RuntimeError("interrupted after growth")
+
+    monkeypatch.setattr(runner, "grow_roots", fake_grow)
+    monkeypatch.setattr(runner, "validate_roots", interrupt_validation)
+    with pytest.raises(RuntimeError, match="interrupted after growth"):
+        asyncio.run(runner._run(data_root, results_root, None))
+    run_dir = next(results_root.iterdir())
+    artifact = run_dir / "documents" / "001.txt.json"
+    interrupted = Document.model_validate_json(artifact.read_text(encoding="utf-8"))
+    assert interrupted.stage_runs == runner._RUN_STAGES[:11]
+    invalid = interrupted.complete(runner._RUN_STAGES[12])
+    artifact.write_text(invalid.model_dump_json(), encoding="utf-8")
+
+    async def unexpected_provider(*_args: object, **_kwargs: object) -> Document:
+        pytest.fail("A cumulative stage gap must be rejected before provider work")
+
+    monkeypatch.setattr(runner, "grow_roots", unexpected_provider)
+    monkeypatch.setattr(runner, "validate_roots", unexpected_provider)
+    with pytest.raises(ValueError, match="Saved evaluation checkpoint skips a stage"):
+        asyncio.run(runner._run(data_root, results_root, None, run_dir))
+    assert Document.model_validate_json(artifact.read_text(encoding="utf-8")) == invalid
+    assert not (run_dir / "checkpoints").exists()
 
 
 def test_resume_from_reporter_docket_checkpoint_skips_provider_requery(
@@ -213,7 +248,7 @@ def test_resume_from_reporter_docket_checkpoint_skips_provider_requery(
     with pytest.raises(RuntimeError, match="interrupted during reporter review"):
         asyncio.run(runner._run(data_root, tmp_path / "results", None))
     run_dir = next((tmp_path / "results").iterdir())
-    checkpoint = runner._field_checkpoint(run_dir, runner._RUN_STAGES[12], "001.txt")
+    checkpoint = run_dir / "documents" / "001.txt.json"
     assert checkpoint.exists()
     saved = Document.model_validate_json(checkpoint.read_text(encoding="utf-8"))
     assert saved.stage_runs == runner._RUN_STAGES[:13]
@@ -316,7 +351,7 @@ def test_rewind_rejects_invalid_validation_checkpoint_before_providers(
         error = "Unsupported validation checkpoint"
     else:
         document = _complete(Document.from_source(source), (*runner._ROOT_STAGES, selected_stage))
-        error = "Saved validation checkpoint is incomplete"
+        error = "Saved input checkpoint is incomplete"
     (checkpoint_dir / "001.txt.json").write_text(document.model_dump_json(), encoding="utf-8")
 
     async def unexpected_provider(*_args: object, **_kwargs: object) -> Document:
@@ -593,19 +628,14 @@ def test_resume_after_locator_body_review_failure_reuses_all_retrieval_checkpoin
             runner._run(data_root, tmp_path / "results", None, from_validation_documents=checkpoint_dir)
         )
     run_dir = next((tmp_path / "results").iterdir())
+    stage22 = Document.model_validate_json((run_dir / "documents" / "001.txt.json").read_text())
+    assert stage22.stage_runs[-1] == runner._GOVINFO_OPINION_STAGE
+    assert runner._LOCATOR_BODY_REVIEW_STAGE not in stage22.stage_runs
     for stage in runner._BODY_SEARCH_STAGES:
-        saved = runner._field_checkpoint(run_dir, stage, "001.txt")
-        assert saved.exists()
         assert (
-            Document.model_validate_json(saved.read_text(encoding="utf-8")).stage_runs
-            == (runner._RUN_STAGES[: runner._RUN_STAGES.index(stage) + 1])
+            stage22.get_stage(stage).stage_runs == runner._RUN_STAGES[: runner._RUN_STAGES.index(stage) + 1]
         )
-    stage22 = Document.model_validate_json(
-        runner._field_checkpoint(run_dir, runner._GOVINFO_OPINION_STAGE, "001.txt").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert not runner._field_checkpoint(run_dir, runner._LOCATOR_BODY_REVIEW_STAGE, "001.txt").exists()
+    assert not (run_dir / "checkpoints").exists()
     assert calls == [*runner._BODY_SEARCH_STAGES, runner._LOCATOR_BODY_REVIEW_STAGE]
 
     assert asyncio.run(runner._run(tmp_path / "unused", tmp_path / "unused", None, run_dir)) == run_dir
@@ -724,8 +754,10 @@ def test_locator_review_replay_saves_each_stage_and_resumes_without_earlier_work
         )
     run_dir = next((tmp_path / "results").iterdir())
     assert json.loads((run_dir / "run.json").read_text())["status"] == "failed"
-    assert runner._field_checkpoint(run_dir, runner._FIELD_STAGES[1], "002.txt").exists()
-    assert not runner._field_checkpoint(run_dir, runner._FIELD_STAGES[2], "002.txt").exists()
+    interrupted = Document.model_validate_json((run_dir / "documents" / "002.txt.json").read_text())
+    assert interrupted.stage_runs[-1] == runner._FIELD_STAGES[1]
+    assert runner._FIELD_STAGES[2] not in interrupted.stage_runs
+    assert not (run_dir / "checkpoints").exists()
 
     assert asyncio.run(runner._run(tmp_path / "ignored", tmp_path / "unused", None, run_dir)) == run_dir
     assert json.loads((run_dir / "run.json").read_text())["status"] == "complete"
@@ -746,10 +778,12 @@ def test_locator_review_replay_saves_each_stage_and_resumes_without_earlier_work
         assert final.stage_runs == runner._FIELD_RUN_STAGES
         assert final.get_stage(runner._LOCATOR_BODY_REVIEW_STAGE) == original
         for stage in runner._FIELD_STAGES:
-            saved = Document.model_validate_json(
-                runner._field_checkpoint(run_dir, stage, filename).read_text()
+            assert (
+                final.get_stage(stage).stage_runs
+                == runner._FIELD_RUN_STAGES[: runner._FIELD_RUN_STAGES.index(stage) + 1]
             )
-            assert saved == final.get_stage(stage)
+        if filename == "002.txt":
+            assert final.get_stage(runner._FIELD_STAGES[1]) == interrupted
 
 
 def test_transient_field_search_stops_before_later_providers_and_retries_its_stage(
@@ -817,8 +851,10 @@ def test_transient_field_search_stops_before_later_providers_and_retries_its_sta
         )
     run_dir = next((tmp_path / "results").iterdir())
     assert calls == ["24"]
-    assert runner._field_checkpoint(run_dir, runner._FIELD_STAGES[0], "001.txt").exists()
-    assert not runner._field_checkpoint(run_dir, runner._FIELD_STAGES[1], "001.txt").exists()
+    interrupted = Document.model_validate_json((run_dir / "documents" / "001.txt.json").read_text())
+    assert interrupted.stage_runs[-1] == runner._FIELD_STAGES[0]
+    assert runner._FIELD_STAGES[1] not in interrupted.stage_runs
+    assert not (run_dir / "checkpoints").exists()
 
     asyncio.run(runner._run(tmp_path / "ignored", tmp_path / "unused", None, run_dir))
     assert calls == ["24", "24", "25", "26", "27"]
@@ -1348,12 +1384,11 @@ def test_transient_stage21_checkpoint_stops_later_work_and_retries_from_stage21(
             )
         )
     run_dir = next((tmp_path / "results").iterdir())
-    stage20_path = runner._field_checkpoint(run_dir, runner._COURTLISTENER_OPINION_STAGE, "001.txt")
-    stage21_path = runner._field_checkpoint(run_dir, runner._COURTLISTENER_RECAP_STAGE, "001.txt")
-    assert stage20_path.exists() and stage21_path.exists()
-    assert not runner._field_checkpoint(run_dir, runner._GOVINFO_OPINION_STAGE, "001.txt").exists()
-    stage20 = Document.model_validate_json(stage20_path.read_text(encoding="utf-8"))
-    stage21 = Document.model_validate_json(stage21_path.read_text(encoding="utf-8"))
+    stage21 = Document.model_validate_json((run_dir / "documents" / "001.txt.json").read_text())
+    assert stage21.stage_runs[-1] == runner._COURTLISTENER_RECAP_STAGE
+    assert runner._GOVINFO_OPINION_STAGE not in stage21.stage_runs
+    stage20 = stage21.get_stage(runner._COURTLISTENER_OPINION_STAGE)
+    assert not (run_dir / "checkpoints").exists()
     assert runner._transient_body_failure_stage(stage21) == runner._COURTLISTENER_RECAP_STAGE
     assert calls == [runner._COURTLISTENER_OPINION_STAGE, runner._COURTLISTENER_RECAP_STAGE]
 

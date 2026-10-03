@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from mellea_lrc.llm.profiles import OPENROUTER_LUNA
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactLookupOutcome,
@@ -21,6 +22,7 @@ from mellea_lrc.validation.reporter_root_lookup_unique_llm_judgment.reviewer imp
 )
 
 STAGE = "14_reporter_root_lookup_unique_llm_judgment"
+MODEL_PROFILE = OPENROUTER_LUNA
 
 
 async def reporter_root_lookup_unique_llm_judgment(
@@ -51,7 +53,7 @@ async def reporter_root_lookup_unique_llm_judgment(
             raise ValueError("Unique model route requires one saved reporter lookup candidate")
         context = ReporterUniqueReviewContext.from_document(document, root)
         if service is None:
-            service = IvrReporterUniqueReviewer.from_env()
+            service = IvrReporterUniqueReviewer.from_profile(MODEL_PROFILE)
         result = await service(context)
         outcome = (
             result

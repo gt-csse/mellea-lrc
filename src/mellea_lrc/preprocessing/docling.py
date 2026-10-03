@@ -15,7 +15,6 @@ from mellea_lrc.model.preprocessed_document import (
     Rule,
 )
 from mellea_lrc.model.source import SourceFormat, SourceMetadata
-from mellea_lrc.model.span import Span
 from mellea_lrc.preprocessing.docket_stamp import reclassify_docket_stamps
 from mellea_lrc.preprocessing.document_index import index_table_spans
 from mellea_lrc.preprocessing.margin_line_numbers import reclassify_margin_line_numbers
@@ -62,12 +61,8 @@ def _reads_tables_as_text(rules: Sequence[Rule]) -> bool:
     return Rule.TABLE_AS_TEXT in rules
 
 
-def _apply_rules(document: DoclingDocument, rules: Sequence[Rule]) -> tuple[Span, ...]:
-    """Run each rule against the converted document, in the order given.
-
-    Returns the regions `TABLE_OF_AUTHORITIES` marked.
-    """
-    index_spans: tuple[Span, ...] = ()
+def _apply_rules(document: DoclingDocument, rules: Sequence[Rule]) -> None:
+    """Apply text-changing rules before measuring exported source offsets."""
     for rule in rules:
         if rule is Rule.MARGIN_LINE_NUMBERS:
             reclassify_margin_line_numbers(document)
@@ -78,11 +73,10 @@ def _apply_rules(document: DoclingDocument, rules: Sequence[Rule]) -> tuple[Span
         elif rule is Rule.TABLE_AS_TEXT:
             pass  # Decided before the conversion; see `_reads_tables_as_text`.
         elif rule is Rule.TABLE_OF_AUTHORITIES:
-            index_spans = index_table_spans(document)
+            pass  # Measure spans after every text-changing rule has run.
         else:
             msg = f"Unknown layout rule: {rule}"
             raise ValueError(msg)
-    return index_spans
 
 
 def preprocess_with_docling(
@@ -113,7 +107,8 @@ def preprocess_with_docling(
     converter = DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)})
     result = converter.convert(str(source_path))
     applied = tuple(rules)
-    index_spans = _apply_rules(result.document, applied)
+    _apply_rules(result.document, applied)
+    index_spans = index_table_spans(result.document) if Rule.TABLE_OF_AUTHORITIES in applied else ()
     text = result.document.export_to_text()  # Ensure to normalize all characters to Unicode TODO
 
     return PreprocessedDocument(

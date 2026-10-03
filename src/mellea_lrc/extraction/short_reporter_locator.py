@@ -1,51 +1,21 @@
-"""Short reporter citation stage and its eyecite reading."""
-
-from __future__ import annotations
+"""Create short reporter occurrences before their attribution."""
 
 import re
-from dataclasses import dataclass
 
-from eyecite import get_citations
-from eyecite.models import ShortCaseCitation
-
-from mellea_lrc.extraction.full_reporter_locator import _reporter_tokenizer
-from mellea_lrc.extraction.leaf_reading import pin_after
+from mellea_lrc.extraction.context.leaves import pin_after
 from mellea_lrc.model.citations import ShortReporterCitation
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.reporters import short_reporter_readings
 
 STAGE = "28_short_reporter_citations"
 
 
-@dataclass(frozen=True, slots=True)
-class ShortReporterReading:
-    """A short-case eyecite result indexed to unchanged source text."""
-
-    span: tuple[int, int]
-    citation: ShortCaseCitation
-
-
-def short_reporter_readings(source: str) -> tuple[ShortReporterReading, ...]:
-    """Read short reporter sites, including their first pinpoint page."""
-    readings: list[ShortReporterReading] = []
-    for citation in get_citations(source, tokenizer=_reporter_tokenizer()):
-        if not isinstance(citation, ShortCaseCitation):
-            continue
-        start, end = citation.span_with_pincite()
-        # Eyecite identifies the reporter; the common pin grammar completes
-        # spaced ranges, lists and footnotes without changing source offsets.
-        marker = re.search(r"\bat\s+", source[start:end], re.I)
-        if marker and (pin := pin_after(source, start + marker.end(), end + 100)):
-            end = pin.end
-        readings.append(ShortReporterReading(span=(start, end), citation=citation))
-    return tuple(readings)
-
-
 def find_short_reporter_citations(document: Document) -> Document:
-    """Record eyecite short-case sites as short citations, without growing leaves.
+    """Create source-grounded short reporters with their locator and pin.
 
-    This optional stage does not participate in full-locator colocation or
-    root formation. Later leaf growth may attach its occurrences to roots.
+    Normalization belongs to each quoted field. No root assignment or
+    semantic attribution is made here; those belong to the later attribution stage.
     """
     if STAGE in document.stage_runs:
         raise ValueError(f"Stage already completed: {STAGE}")
@@ -55,6 +25,10 @@ def find_short_reporter_citations(document: Document) -> Document:
         span = Span(*reading.span)
         if any(span.overlaps(item.site_span) for item in document.citations):
             continue
+        # The locator span includes the pinpoint that identifies this as a
+        # short form. Only the separate pin field normalizes its targets.
+        marker = re.search(r"\bat\s+", document.text[span.start : span.end], re.I)
+        pin = pin_after(document.text, span.start + marker.end(), span.end) if marker else None
         identifier = f"short-reporter:{span.start}:{span.end}"
         document = document.add_citation(
             ShortReporterCitation.from_short_locator(
@@ -62,6 +36,7 @@ def find_short_reporter_citations(document: Document) -> Document:
                 stage=STAGE,
                 source=document.text,
                 span=span,
+                pin_cite_span=pin,
             )
         )
     return document.complete(STAGE)

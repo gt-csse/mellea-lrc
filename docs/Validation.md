@@ -1,6 +1,6 @@
 # Root validation
 
-Validation entrypoints take and return a `Document`; each appends only the citation readings and judgments it produces. A stage that needs substantial private logic is a package with its `Document` entrypoint in `__init__.py`, including the reporter and docket model-review stages. Their candidate preparation, prompts, and reviewer implementations stay beside the stage. `reporter_exact/` holds rules shared by reporter lookup stages, while `reporter_review/` holds grounding and field updates shared by their model reviews. Provider clients and their response models stay in `providers/courtlistener/` and `providers/govinfo/`; saved lookup histories and judgments stay with the citation model. Bounded citation windows live in `model/citation_windows.py`; deterministic fuzzy matching and quote grounding live in `matching/`. Neither role imports a validation stage.
+Validation entrypoints take and return a `Document`; each appends only the citation readings and judgments it produces. A stage that needs substantial private logic is a package with its `Document` entrypoint in `__init__.py`, including the reporter and docket model-review stages. Their candidate preparation, prompts, and reviewer implementations stay beside the stage. `reporter_exact/` holds rules shared by reporter lookup stages, while `reporter_review/` holds grounding and field updates shared by their model reviews. `docket_retrieval/` owns shared docket shortlist scoring and failure records. `docket_review/` owns source-window grounding and field updates shared by the CourtListener and GovInfo docket reviews. Body retrieval stages use the shared source services in `body_search/_courtlistener.py` and `body_search/_govinfo.py`. Provider clients and their response models stay in `providers/courtlistener/` and `providers/govinfo/`; saved lookup histories and judgments stay with the citation model. Bounded citation windows live in `model/citation_windows.py`; deterministic fuzzy matching and quote grounding live in `matching/`. Neither role imports a validation stage.
 
 `reporter_root_lookup_cluster_retrieval(document)` runs at stage `12.1_reporter_root_lookup_cluster_retrieval` after extraction. It requires `10_roots` and retrieves each full reporter root once by normalized volume, reporter edition, and first page. The citation stores the query and complete CourtListener response. `reporter_root_lookup_docket_retrieval(document)` runs at stage `12.2_reporter_root_lookup_docket_retrieval`, fetching linked dockets needed for court comparison for both unique and bounded ambiguous results. Provider failures raise; they are not recorded as lookup misses. Neither retrieval stage makes field or identity judgments.
 
@@ -80,3 +80,94 @@ document = await validate_roots(starting_document, retrospective_date=cutoff)
 With a cutoff, retrieved evidence must have its own reliable issue date on or before that date; undated evidence is excluded. Omitting the cutoff permits later evidence for ordinary research. Every stage returns a serializable `Document`, and `get_stage(...)` recovers its checkpoint.
 
 To continue through intended-case discovery, call `validate_roots(document, search_other_fields=True)`. Stages 24 through 27 search other fields and save a possible intended authority; they remain part of the same validation workflow and report. A completed checkpoint skips earlier stages, so a saved stage-23 Document can continue without repeating retrieval.
+
+## Reporter opinion pages
+
+The reporter pinpoint workflow keeps source selection and proposition support in separate stages:
+
+```python
+document = reporter_root_opinion_retrieval(document)       # 39: all cluster writings
+document = index_reporter_root_opinion_pages(document)     # 40: shared source/page index
+document = resolve_reporter_citation_pages(document)       # 41: each occurrence's pinpoint
+document = await review_reporter_citation_opinions(document)  # 42: ambiguous choices only
+document = await read_reporter_citation_propositions(document)  # 43: filing quote/span
+document = prepare_reporter_citation_pinpoint_evidence(document)  # 44: source references
+document = await review_reporter_citation_pinpoint_pages(document)  # 45: selected pages
+document = await review_reporter_citation_full_opinions(document)  # 46: fallback only
+document = judge_reporter_citation_pinpoints(document)  # 47: durable support/location verdict
+```
+
+The root holds downloaded opinions and the shared page index. Each occurrence
+holds references to its locator/pinpoint readings and candidate pages. Selection
+uses reporter pagination and citation context, with no automatic majority/dissent
+priority. Ranges can cross writings. Null choices stay unresolved. Stages 39–42
+neither change identity nor decide whether an opinion supports an argument;
+stages 43–47 read and judge the attributed use.
+
+The opinion source binding contains the original cluster metadata. Retrieval,
+pagination, and support objects do not depend on identity's unique/ambiguous
+lookup structure. Requiring a correct identity before default source retrieval
+is a workflow policy. The cited source is distinct from a third-party document
+that merely corroborated identity.
+
+A root retains source bodies and page indexes. Each occurrence retains append-only
+proposition readings, prepared page references, grounded opinion evidence,
+support reviews, and pinpoint judgments. Judgment and review indexes point to
+the exact earlier readings; source quotes have spans into the retained filing
+or indexed opinion. Every review saves its reason and full IVR repair trace.
+Native Pydantic serialization and `get_stage` preserve these references.
+
+Page review receives only selected page text. A negative page review cannot
+establish that the full opinion lacks support. Full review runs when pages are
+missing, ambiguous, uncertain, or fail to settle the attribution. Identical root
+source text is sent in a stable system prefix, with the occurrence's proposition
+and target in the dynamic instruction. Full reviews are grouped by root for
+KV-cache reuse. No retrieval is repeated in these review stages.
+
+The shared source prefix is independent of the occurrence and stays byte
+identical across its full-opinion reviews. Prompt refinements belong in the
+dynamic instruction unless they describe shared source evidence. Every review
+assesses all material assertions and qualifications in the grounded attribution;
+full-opinion fallback expands the available evidence while preserving that
+attribution and the standard of support. A narrower supported proposition does
+not establish a broader claim attributed by the filing.
+
+`CORRECT_PINCITE` follows the dataset's support convention: support on another
+page still establishes the attributed use. Each review and final judgment carries
+`pagination_available`, `correct_page`, and typed `found_pages` ranges. Availability
+describes usable cited-reporter pagination in the source used for that judgment.
+Unavailable pagination requires a null page judgment and no recovered pages.
+With usable pagination, the page judgment may be true, false, or null; null means
+placement remains uncertain. Content support and page placement are independent:
+a passage on the correct page may contradict the filing's attributed claim.
+A range needs the relevant material somewhere within it, not on every page.
+Recovered pages are known locations, not an exhaustive list. Finding a passage
+elsewhere alone does not establish a wrong written target.
+
+Mellea validates the output schema and cross-field invariants, then grounds each
+quote with shared whitespace relaxation and 98% edit-distance matching. Where
+source markers establish pagination, reported pages must locate those quoted
+passages. Failed requirements enter the ordinary repair loop and remain in the
+saved IVR trace. Stage 47 copies the accepted page assessment and checks retained
+quote spans again. Page assessment is evaluated independently of content support;
+unknown gold locations are never treated as negative page judgments.
+A wrong support judgment needs affirmative contradiction in a full review or
+absence established after reading every available subopinion. Missing/empty
+source text and model failures yield `UNDETERMINED`, never a negative by themselves.
+TOA entries and occurrences without pinpoints receive no support verdict.
+Docket pinpoint validation remains outside this reporter workflow.
+
+TODO: Add typed TOA components to serialized `PreprocessedDocument` and propagate
+a TOA tag to citations created within each component's source range. Downstream
+pinpoint checks will consume that tag; root identity checks still include TOA
+citations. The current serialized `index_spans` already preserves known TOA
+ranges. Proposition reading short-circuits those ranges with no proposition;
+unrecognized TOA entries may also be read as having no proposition. Both paths
+skip page/full-opinion support review and final pinpoint judgment. This TODO
+does not require regenerating the current artifacts.
+
+Citation signals, quotations, writing parentheticals, and designated footnotes
+are interpreted in the filing's context, rather than reducing support to shared
+words. The design uses [Cornell's citation guidance](https://www.law.cornell.edu/citation/6-300),
+[FRAP 28's description of tables of authorities](https://www.law.cornell.edu/rules/frap/rule_28),
+and [CourtListener's cluster/opinion documentation](https://wiki.free.law/c/courtlistener/help/api/rest/v4/case-law).

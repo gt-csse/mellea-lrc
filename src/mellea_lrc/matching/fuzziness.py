@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from math import isfinite
 
 
 class FuzzinessType(str, Enum):
@@ -29,6 +30,8 @@ class FuzzinessOption:
 
     def __post_init__(self) -> None:
         normalized = frozenset(self.types)
+        if any(not isinstance(kind, FuzzinessType) for kind in normalized):
+            raise ValueError("Match types must be FuzzinessType values")
         object.__setattr__(self, "types", normalized)
         if not normalized:
             msg = "A fuzziness policy needs at least one match type"
@@ -43,12 +46,17 @@ class FuzzinessOption:
         if has_edit_distance and (self.similarity_percent is None) == (self.maximum_edits is None):
             msg = "EDIT_DISTANCE requires exactly one of similarity_percent or maximum_edits"
             raise ValueError(msg)
-        if self.similarity_percent is not None and not 0 < self.similarity_percent <= 100:
-            msg = "similarity_percent must be greater than 0 and at most 100"
-            raise ValueError(msg)
-        if self.maximum_edits is not None and self.maximum_edits < 0:
-            msg = "maximum_edits cannot be negative"
-            raise ValueError(msg)
+        if self.similarity_percent is not None:
+            if (
+                isinstance(self.similarity_percent, bool)
+                or not isinstance(self.similarity_percent, int | float)
+                or not isfinite(self.similarity_percent)
+                or not 0 < self.similarity_percent <= 100
+            ):
+                raise ValueError("similarity_percent must be finite, greater than 0, and at most 100")
+        if self.maximum_edits is not None:
+            if type(self.maximum_edits) is not int or self.maximum_edits < 0:
+                raise ValueError("maximum_edits must be a nonnegative integer")
 
     @classmethod
     def perfect_match(cls) -> FuzzinessOption:

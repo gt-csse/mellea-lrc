@@ -8,14 +8,14 @@ from mellea_lrc.model.span import Span
 
 
 @pytest.mark.parametrize(
-    ("written", "pin_page"),
+    "written",
     [
-        ("347 U.S. at 489", "489"),
-        ("347  U. S.  at  489", "489"),
-        ("347 U.S. at 489-90", "489"),
+        "347 U.S. at 489",
+        "347  U. S.  at  489",
+        "347 U.S. at 489-90",
     ],
 )
-def test_short_reporter_field_normalizes_an_exact_quote(written: str, pin_page: str) -> None:
+def test_short_reporter_field_normalizes_an_exact_quote(written: str) -> None:
     source = f"See Smith, {written}."
     start = source.index(written)
     span = Span(start, start + len(written))
@@ -28,8 +28,7 @@ def test_short_reporter_field_normalizes_an_exact_quote(written: str, pin_page: 
     assert field.get_normalized().volume == 347
     assert field.get_normalized().reporter.short_name == "U.S."
     assert field.get_normalized().edition == "U.S."
-    assert field.get_normalized().pin_page == pin_page
-    assert "page" not in type(field.get_normalized()).model_fields
+    assert set(type(field.get_normalized()).model_fields) == {"volume", "reporter", "edition"}
     assert ShortReporterLocator.model_validate_json(field.model_dump_json()) == field
 
 
@@ -65,7 +64,17 @@ def test_short_reporter_value_is_checked_against_the_quote_on_load() -> None:
     quote = "347 U.S. at 489"
     field = ShortReporterLocator.from_source(quote, Span(0, len(quote)), node_id="short:node:0")
     saved = field.model_dump(mode="json")
-    saved["normalized"]["pin_page"] = "490"
+    saved["normalized"]["volume"] = 348
 
     with pytest.raises(ValueError, match="normalization"):
+        ShortReporterLocator.model_validate(saved)
+
+
+def test_short_reporter_value_rejects_a_legacy_normalized_pin_page() -> None:
+    quote = "347 U.S. at 489"
+    field = ShortReporterLocator.from_source(quote, Span(0, len(quote)), node_id="short:node:0")
+    saved = field.model_dump(mode="json")
+    saved["normalized"]["pin_page"] = "489"
+
+    with pytest.raises(ValueError, match="Extra inputs"):
         ShortReporterLocator.model_validate(saved)

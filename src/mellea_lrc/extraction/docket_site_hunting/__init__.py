@@ -9,11 +9,13 @@ from mellea_lrc.extraction.docket_site_hunting.review import (
     IvrDocketReviewer,
     grounded_docket_decision,
 )
+from mellea_lrc.llm.profiles import OPENROUTER_LUNA
 from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.site_review import SiteReview
 
 STAGE = "3_docket_locator_site_hunting"
+MODEL_PROFILE = OPENROUTER_LUNA
 
 
 async def hunt_docket_locators(
@@ -46,7 +48,7 @@ async def hunt_docket_locators(
             return current.complete(STAGE)
         inspected.add((candidate.locator_span.start, candidate.locator_span.end))
         if reviewer is None:
-            reviewer = IvrDocketReviewer.from_env()
+            reviewer = IvrDocketReviewer.from_profile(MODEL_PROFILE)
         review = await reviewer(candidate)
         outcome = review if isinstance(review, DocketReviewOutcome) else DocketReviewOutcome(review)
         decision = outcome.decision

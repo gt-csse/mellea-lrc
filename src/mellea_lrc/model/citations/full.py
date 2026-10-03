@@ -10,12 +10,8 @@ from mellea_lrc.model.citations.body_evidence import BodyCorroborationReview, Bo
 from mellea_lrc.model.citations.citation import Citation
 from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch, IntendedCaseReview
 from mellea_lrc.model.citations.fields import (
-    CaseName,
-    CaseNameField,
-    CaseNameKind,
     CourtField,
     DateField,
-    PinCiteField,
 )
 from mellea_lrc.model.citations.history import RelationshipUpdate
 from mellea_lrc.model.citations.judgments import (
@@ -34,10 +30,8 @@ class FullCitation(Citation):
     """A full reporter or docket citation with contextual field histories."""
 
     kind: FullCitationKind
-    case_name: tuple[CaseNameField, ...] = ()
     court: tuple[CourtField, ...] = ()
     date: tuple[DateField, ...] = ()
-    pin_cite: tuple[PinCiteField, ...] = ()
     colocation_id: tuple[RelationshipUpdate[str | None], ...] = ()
     case_name_judgments: tuple[ReporterExactCaseNameJudgment, ...] = ()
     court_judgments: tuple[ReporterExactCourtJudgment, ...] = ()
@@ -57,27 +51,6 @@ class FullCitation(Citation):
     def site_span(self) -> Span:
         return self.locator_span
 
-    def get_case_name(self) -> CaseName:
-        """Return the typed current outcome, including an unstated name.
-
-        No quoted reading means no name was stated at the current checkpoint.
-        A quoted reading that failed normalization still raises distinctly.
-        """
-        if not self.case_name:
-            return CaseName(kind=CaseNameKind.NOT_STATED)
-        return self.case_name[-1].get_normalized()
-
-    def with_case_name(self, source: str, span: Span, *, normalized: CaseName | None = None) -> Self:
-        """Append a grounded case name, using a model reading when supplied."""
-        reading = (
-            CaseNameField.from_source(source, span, node_id=self._decision_node_id())
-            if normalized is None
-            else CaseNameField.from_model(source, span, normalized, node_id=self._decision_node_id())
-        )
-        return self._with_log(
-            case_name=(*self.case_name, reading),
-        )
-
     def with_court(self, source: str, span: Span) -> Self:
         """Append a grounded court and normalize its source quote."""
         reading = CourtField.from_source(source, span, node_id=self._decision_node_id())
@@ -93,15 +66,6 @@ class FullCitation(Citation):
         reading = DateField.from_source(source, span, node_id=self._decision_node_id())
         return self._with_log(
             date=(*self.date, reading),
-        )
-
-    def with_pin_cite(self, source: str, span: Span) -> Self:
-        """Quote and normalize a pinpoint reference."""
-        return self._with_log(
-            pin_cite=(
-                *self.pin_cite,
-                PinCiteField.from_source(source, span, node_id=self._decision_node_id()),
-            ),
         )
 
     def with_colocation(self, group_id: str) -> Self:

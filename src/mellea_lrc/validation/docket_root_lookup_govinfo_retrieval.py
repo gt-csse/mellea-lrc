@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import re
 import time
 from contextlib import ExitStack
 from typing import Protocol
 
-from mellea_lrc.matching.fuzziness import FuzzinessOption
-from mellea_lrc.matching.grounding import EvidenceCandidate, GroundingEvidence
 from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.citations.docket_lookup import DocketLookupFailure
 from mellea_lrc.model.citations.govinfo_lookup import (
@@ -24,17 +21,17 @@ from mellea_lrc.providers.govinfo import (
     GovInfoSearchPage,
     govinfo_uscourts_docket_query,
 )
+from mellea_lrc.validation.docket_retrieval.candidates import (
+    MINIMUM_SIMILARITY_PERCENT,
+    docket_number_similarity,
+)
+from mellea_lrc.validation.docket_retrieval.failures import docket_lookup_failure
 
 STAGE = "18_docket_root_lookup_govinfo_retrieval"
-MINIMUM_SIMILARITY_PERCENT = 40.0
 MAX_PAGES_PER_ATTEMPT = 10
 MAX_RETRIES_PER_PAGE = 2
 
 _PACKAGE_ID = re.compile(r"^USCOURTS-([a-z0-9]+)-(.+)$", re.IGNORECASE)
-_SHORTLIST_FUZZINESS = FuzzinessOption.edit_distance(
-    similarity_percent=MINIMUM_SIMILARITY_PERCENT, whitespace_relaxation=True
-)
-_SCORE_FUZZINESS = FuzzinessOption.edit_distance(similarity_percent=1.0, whitespace_relaxation=True)
 
 
 class GovInfoSearchClient(Protocol):
@@ -64,28 +61,6 @@ def _package_number(package_id: str | None) -> tuple[str | None, str | None]:
     # GovInfo documents colons as underscores in package IDs. Do not try to
     # infer a number from any package ID that does not fit its published form.
     return court_code, encoded_number.replace("_", ":")
-
-
-def _similarity(source_number: str, candidate_number: str | None) -> float:
-    if not candidate_number:
-        return 0.0
-    evidence = GroundingEvidence((EvidenceCandidate(candidate_number.casefold(), None),))
-    for policy in (_SHORTLIST_FUZZINESS, _SCORE_FUZZINESS):
-        match = evidence.resolve(source_number.casefold(), policy)
-        if match is not None:
-            return match.similarity_percent
-    return 0.0
-
-
-def _failure(error: GovInfoError) -> DocketLookupFailure:
-    detail = json.loads(json.dumps(error.upstream_detail, default=str))
-    return DocketLookupFailure(
-        failure_type=error.failure_type,
-        message=str(error) or type(error).__name__,
-        upstream_status_code=error.upstream_status_code,
-        url=error.url,
-        upstream_detail=detail,
-    )
 
 
 def _retryable(error: GovInfoError) -> bool:
@@ -139,9 +114,9 @@ def _search(
                 break
             except GovInfoError as error:
                 if not _retryable(error) or retry_index == MAX_RETRIES_PER_PAGE:
-                    failure = _failure(error)
+                    failure = docket_lookup_failure(error)
                     break
-                retry_failures.append(_failure(error))
+                retry_failures.append(docket_lookup_failure(error))
                 time.sleep(2**retry_index)
         if failure is not None:
             break
@@ -163,7 +138,7 @@ def _search(
                     granule_id=granule_id,
                     court_code=court_code,
                     docket_number=case_number,
-                    docket_similarity=_similarity(source_number, case_number),
+                    docket_similarity=docket_number_similarity(source_number, case_number),
                 )
             )
 

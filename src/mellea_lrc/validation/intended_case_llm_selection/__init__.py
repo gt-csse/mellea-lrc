@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from mellea_lrc.llm.profiles import OPENROUTER_LUNA
 from mellea_lrc.model.citations.field_body_evidence import IntendedCaseDecision, IntendedCaseReview
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
@@ -13,6 +14,7 @@ from mellea_lrc.validation.intended_case_llm_selection.reviewer import (
 )
 
 STAGE = "27_intended_case_llm_selection"
+MODEL_PROFILE = OPENROUTER_LUNA
 NEXT_STAGE_WITH_CANDIDATE = "intended_case_resolution"
 NEXT_STAGE_WITHOUT_CANDIDATE = "open_web_search"
 NEXT_STAGE_ON_FAILURE = "intended_case_review_retry"
@@ -49,7 +51,7 @@ async def intended_case_llm_selection(
             )
         else:
             if service is None:
-                service = IvrIntendedCaseReviewer.from_env()
+                service = IvrIntendedCaseReviewer.from_profile(MODEL_PROFILE)
             result = await service(context)
             outcome = result if isinstance(result, IntendedCaseOutcome) else IntendedCaseOutcome(result)
         decision = outcome.decision

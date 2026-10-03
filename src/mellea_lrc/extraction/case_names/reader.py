@@ -1,20 +1,14 @@
-"""Read case names before each full locator site."""
-
-from __future__ import annotations
+"""Case-name source reading local to the full-citation field stage."""
 
 import re
 
-from mellea_lrc.config.extraction import ExtractionRules, stable
-from mellea_lrc.extraction.contextual_reading import require_structure
-from mellea_lrc.extraction.full_reporter_locator import full_reporter_readings
-from mellea_lrc.model.citation_windows import before as bounded_before
-from mellea_lrc.model.citations import CaseName, CaseNameKind, FullCitationVariant, FullReporterCitation
-from mellea_lrc.model.document import Document
+from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
 from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.reporters import full_reporter_readings
 
-STAGE = "6_case_names"
-
-_CASE = re.compile(r"(?:In re|Ex parte|Matter of)\s+[^,;\n]{2,100}|[A-Z][^,;\n]{0,100}?\s+v\.\s+[^,;\n]{1,100}")
+_CASE = re.compile(
+    r"(?:In re|Ex parte|Matter of)\s+[^,;\n]{2,100}|[A-Z][^,;\n]{0,100}?\s+v\.\s+[^,;\n]{1,100}"
+)
 _PROCEDURAL_NEAR_SITE = re.compile(
     r"(?<!\w)(?P<name>(?:In\s+re|Ex\s+parte|Matter\s+of)\s+[^;\n]{2,100}?)\s*,\s*$",
     re.I,
@@ -29,12 +23,11 @@ _PARTIAL_NAME = re.compile(
 )
 
 
-def _reporter_name_span(citation: FullCitationVariant, before: str, start: int) -> Span | None:
+def _reporter_name_span(reporter_quote: str | None, before: str, start: int) -> Span | None:
     """Use eyecite's parsed parties to anchor a written name, not surrounding prose."""
-    if not isinstance(citation, FullReporterCitation):
+    if reporter_quote is None:
         return None
-    site = citation.locator[-1].quote
-    excerpt = before + site
+    excerpt = before + reporter_quote
     parsed = next(
         (item for item in full_reporter_readings(excerpt) if item.span == (len(before), len(excerpt))),
         None,
@@ -68,12 +61,11 @@ def _reporter_name_span(citation: FullCitationVariant, before: str, start: int) 
     return None
 
 
-def _reporter_partial_span(citation: FullCitationVariant, before: str, start: int) -> Span | None:
+def _reporter_partial_span(reporter_quote: str | None, before: str, start: int) -> Span | None:
     """Ground a lone party read by eyecite without treating it as complete."""
-    if not isinstance(citation, FullReporterCitation):
+    if reporter_quote is None:
         return None
-    site = citation.locator[-1].quote
-    excerpt = before + site
+    excerpt = before + reporter_quote
     parsed = next(
         (item for item in full_reporter_readings(excerpt) if item.span == (len(before), len(excerpt))),
         None,
@@ -131,31 +123,19 @@ def _procedural_name_span(before: str, start: int) -> Span | None:
     return Span(start + match.start("name"), start + match.end("name"))
 
 
-def resolve_case_names(document: Document, rules: ExtractionRules | None = None) -> Document:
-    """Read a name before each citation site, never through another locator."""
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    require_structure(document)
-    config = rules or stable()
-    for citation in document.full_locators:
-        before, start = bounded_before(document, citation, config.case_name_window)
-        span = _reporter_name_span(citation, before, start) or _procedural_name_span(before, start)
-        if span is not None:
-            document = document.replace_citation(citation.record(STAGE).with_case_name(document.text, span))
-            continue
-        matches = tuple(_CASE.finditer(before))
-        if not matches:
-            span = _partial_name_span(before, start) or _reporter_partial_span(citation, before, start)
-            if span is not None:
-                document = document.replace_citation(citation.record(STAGE).with_case_name(document.text, span))
-            continue
-        match = matches[-1]
-        name = match.group().rstrip(" ,")
-        signal = _SIGNAL.match(name)
-        offset = signal.end() if signal else 0
-        name = name[offset:]
-        if not name:
-            continue
-        span = Span(start + match.start() + offset, start + match.start() + offset + len(name))
-        document = document.replace_citation(citation.record(STAGE).with_case_name(document.text, span))
-    return document.complete(STAGE)
+def read_case_name(before: str, start: int, reporter_quote: str | None) -> Span | None:
+    """Read one name from a caller-bounded prefix, with unchanged source offsets."""
+    span = _reporter_name_span(reporter_quote, before, start) or _procedural_name_span(before, start)
+    if span is not None:
+        return span
+    matches = tuple(_CASE.finditer(before))
+    if not matches:
+        return _partial_name_span(before, start) or _reporter_partial_span(reporter_quote, before, start)
+    match = matches[-1]
+    name = match.group().rstrip(" ,")
+    signal = _SIGNAL.match(name)
+    offset = signal.end() if signal else 0
+    name = name[offset:]
+    if not name:
+        return None
+    return Span(start + match.start() + offset, start + match.start() + offset + len(name))

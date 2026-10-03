@@ -1,25 +1,24 @@
 """Tests for preprocessing."""
 
 import sys
-from pathlib import Path
 import types
+from pathlib import Path
 
 import pytest
 
 from mellea_lrc.model.source import SourceMetadata
-from mellea_lrc.preprocessing.docket_stamp import looks_like_a_stamp
-from mellea_lrc.preprocessing.docling import is_docling_supported_format, preprocess_with_docling
 from mellea_lrc.preprocessing import (
     DEFAULT_RULES,
     DocumentBase,
-    Rule,
     PreprocessedDocument,
     PreprocessingBackend,
     PreprocessingMetadata,
+    Rule,
     SourceFormat,
     preprocess,
-    preprocess,
 )
+from mellea_lrc.preprocessing.docket_stamp import looks_like_a_stamp
+from mellea_lrc.preprocessing.docling import is_docling_supported_format, preprocess_with_docling
 
 
 def test_a_text_file_is_its_text() -> None:
@@ -194,6 +193,78 @@ def test_preprocessed_document_rejects_empty_text() -> None:
             text="",
             preprocessing_metadata=PreprocessingMetadata(),
         )
+
+
+@pytest.mark.parametrize(
+    "rules",
+    [
+        (Rule.TABLE_OF_AUTHORITIES, Rule.REPEATED_FURNITURE),
+        (Rule.REPEATED_FURNITURE, Rule.TABLE_OF_AUTHORITIES),
+    ],
+)
+def test_index_spans_use_the_final_text_after_layout_rules(monkeypatch, rules) -> None:
+    pytest.importorskip("docling_core", reason="Docling is an optional preprocessing dependency")
+    from docling_core.types.doc.common.content_layer import ContentLayer
+    from docling_core.types.doc.document import DoclingDocument, TableCell, TableData
+
+    document = DoclingDocument(name="brief")
+    header = document.add_text(label="text", text="Repeated page header")
+    entry = "Doe v. Smith, 123 F.3d 456 ......... 8"
+    document.add_table(
+        label="document_index",
+        data=TableData(
+            num_rows=1,
+            num_cols=1,
+            table_cells=[
+                TableCell(
+                    text=entry,
+                    start_row_offset_idx=0,
+                    end_row_offset_idx=1,
+                    start_col_offset_idx=0,
+                    end_col_offset_idx=1,
+                )
+            ],
+        ),
+    )
+    document.add_text(label="text", text="Body prose.")
+
+    class Converter:
+        def __init__(self, **kwargs):
+            pass
+
+        def convert(self, path):
+            return types.SimpleNamespace(document=document)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "docling.document_converter",
+        types.SimpleNamespace(
+            DocumentConverter=Converter,
+            PdfFormatOption=lambda **kwargs: kwargs,
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "docling.datamodel.base_models",
+        types.SimpleNamespace(InputFormat=types.SimpleNamespace(PDF="pdf")),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "docling.datamodel.pipeline_options",
+        types.SimpleNamespace(PdfPipelineOptions=types.SimpleNamespace),
+    )
+    monkeypatch.setattr(
+        "mellea_lrc.preprocessing.docling.reclassify_repeated_furniture",
+        lambda converted: setattr(header, "content_layer", ContentLayer.FURNITURE),
+    )
+
+    result = preprocess_with_docling("brief.pdf", rules=rules)
+
+    assert "Repeated page header" not in result.text
+    (span,) = result.index_spans
+    assert entry in result.text[span.start : span.end]
+    assert "Body prose." not in result.text[span.start : span.end]
+    assert result.preprocessing_metadata.rules == rules
 
 
 def test_a_filing_stamp_is_recognised_whatever_court_printed_it() -> None:

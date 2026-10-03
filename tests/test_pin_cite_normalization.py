@@ -1,6 +1,7 @@
 """Pin-cite readings have typed targets and explicit normalization state."""
 
 import asyncio
+
 import pytest
 
 from mellea_lrc.api import grow_roots
@@ -187,7 +188,7 @@ def test_malformed_pin_continuation_is_kept_for_review(quote: str) -> None:
 def test_adjacent_court_ordinal_is_not_a_pin_cite() -> None:
     document = asyncio.run(grow_roots(Document.from_source("See 155 A.D.3d 781, 2d Dept. 2017.")))
 
-    assert document.citations[0].pin_cite == ()
+    assert document.citations[0].pin_cite is None
 
 
 def test_parallel_reporter_volume_is_not_a_second_pin_target() -> None:
