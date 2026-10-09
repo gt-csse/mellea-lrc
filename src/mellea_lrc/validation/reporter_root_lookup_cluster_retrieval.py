@@ -18,8 +18,8 @@ from mellea_lrc.providers.courtlistener import (
     CourtListenerError,
 )
 
-STAGE = "12.1_reporter_root_lookup_cluster_retrieval"
-DOCKET_RETRIEVAL_STAGE = "12.2_reporter_root_lookup_docket_retrieval"
+SUBSTAGE = "validate_roots.reporter_lookup.cluster_retrieval"
+DOCKET_RETRIEVAL_SUBSTAGE = "validate_roots.reporter_lookup.docket_retrieval"
 
 
 class ReporterLookupClient(Protocol):
@@ -35,18 +35,18 @@ def reporter_root_lookup_cluster_retrieval(
 ) -> Document:
     """Save exact lookup responses for later linked-docket retrieval.
 
-    Field comparison belongs to the next stage. Provider failures abort
+    Field comparison belongs to the next substage. Provider failures abort
     instead of masquerading as a lookup miss.
     """
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if "10_roots" not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "grow_roots.root_formation.rule" not in document.substage_runs:
         raise ValueError("Form roots before exact reporter lookup")
     roots = tuple(root for root in document.roots if isinstance(root, FullReporterCitation))
     with ExitStack() as stack:
         service = client
         for citation in roots:
-            recorded = citation.record(STAGE)
+            recorded = citation.record(SUBSTAGE)
             reading = citation.locator[-1]
             if not reading.normalizable:
                 result = ReporterExactLookup(
@@ -87,8 +87,8 @@ def reporter_root_lookup_cluster_retrieval(
                 )
                 recorded = recorded.with_reporter_exact_lookup(result)
                 if outcome in {ReporterExactLookupOutcome.UNIQUE, ReporterExactLookupOutcome.AMBIGUOUS}:
-                    recorded = recorded.with_route(DOCKET_RETRIEVAL_STAGE)
+                    recorded = recorded.with_route(DOCKET_RETRIEVAL_SUBSTAGE)
                 else:
                     recorded = recorded.with_route("reporter_root_search")
             document = document.replace_citation(recorded)
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

@@ -7,15 +7,15 @@ from datetime import date
 
 import httpx
 
-from mellea_lrc.providers.govinfo import GovInfoClient, GovInfoConfig
 from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.model.citations.full_reporter import FullReporterCitation
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.preprocessed_document import PreprocessingMetadata
 from mellea_lrc.model.source import SourceMetadata
 from mellea_lrc.model.span import Span
+from mellea_lrc.providers.govinfo import GovInfoClient, GovInfoConfig
 from mellea_lrc.validation.body_search.locator_body_govinfo_opinion_retrieval import (
-    STAGE,
+    SUBSTAGE,
     locator_body_govinfo_opinion_retrieval,
 )
 
@@ -24,16 +24,16 @@ def _document() -> Document:
     source = "Acme v. Smith, 30 F.3d 100 (2d Cir. 1994)."
     start = source.index("30 F.3d 100")
     root = FullReporterCitation.from_locator(
-        citation_id="root:1", stage="01_extract", source=source, span=Span(start, start + 11)
+        citation_id="root:1", substage="01_extract", source=source, span=Span(start, start + 11)
     )
     document = Document(
         source_metadata=SourceMetadata(),
         text=source,
         preprocessing_metadata=PreprocessingMetadata(),
         citations=(root,),
-    ).complete("01_extract")
+    ).complete_substage("01_extract")
     document = document.replace_citation(root.record("02_roots").with_root(root.id))
-    return document.complete("02_roots")
+    return document.complete_substage("02_roots")
 
 
 def _document_with_case_name() -> Document:
@@ -45,7 +45,7 @@ def _document_with_case_name() -> Document:
         .record("03_case_name")
         .with_case_name(source, Span(start, start + len("Acme v. Smith")))
     )
-    return document.replace_citation(recorded).complete("03_case_name")
+    return document.replace_citation(recorded).complete_substage("03_case_name")
 
 
 def _pdf(text: str) -> bytes:
@@ -73,11 +73,14 @@ def _pdf(text: str) -> bytes:
 
 
 def _client(respond: httpx.MockTransport) -> GovInfoClient:
-    return GovInfoClient(GovInfoConfig(api_key="test-secret"), session=httpx.Client(transport=respond))
+    return GovInfoClient(
+        GovInfoConfig(base_url="https://api.govinfo.gov/", timeout_seconds=45, api_key="test-secret"),
+        session=httpx.Client(transport=respond),
+    )
 
 
 def test_govinfo_stage_fetches_individual_granule_pdf_and_uses_granule_date() -> None:
-    assert STAGE == "22_locator_body_govinfo_opinion_retrieval"
+    assert SUBSTAGE == "validate_roots.locator_body_corroboration.govinfo_opinion_retrieval"
     requests: list[httpx.Request] = []
     old_id = "USCOURTS-nyd-1_20-cv-1"
     new_id = "USCOURTS-nyd-1_20-cv-2"
@@ -144,7 +147,7 @@ def test_govinfo_stage_fetches_individual_granule_pdf_and_uses_granule_date() ->
     )
     record = after.roots[0].body_searches[0]
 
-    assert after.stage_runs[-1] == STAGE
+    assert after.substage_runs[-1] == SUBSTAGE
     assert record.source is BodySource.GOVINFO_OPINION
     assert record.retrospective_date == date(2025, 1, 1)
     assert record.attempts[0].pages[0]["otherMetadata"] == {"keep": True}
@@ -218,7 +221,7 @@ def test_govinfo_stage_keeps_search_failure_in_atomic_checkpoint() -> None:
     after = locator_body_govinfo_opinion_retrieval(_document(), client=_client(httpx.MockTransport(respond)))
     record = after.roots[0].body_searches[0]
 
-    assert after.stage_runs[-1] == STAGE
+    assert after.substage_runs[-1] == SUBSTAGE
     assert len(record.attempts) == 1
     assert record.attempts[0].pages == ()
     assert record.attempts[0].failure.failure_type == "http_error"

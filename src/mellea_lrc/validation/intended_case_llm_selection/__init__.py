@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mellea_lrc.llm.profiles import OPENROUTER_LUNA
+from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model.citations.field_body_evidence import IntendedCaseDecision, IntendedCaseReview
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
@@ -13,8 +13,7 @@ from mellea_lrc.validation.intended_case_llm_selection.reviewer import (
     IvrIntendedCaseReviewer,
 )
 
-STAGE = "27_intended_case_llm_selection"
-MODEL_PROFILE = OPENROUTER_LUNA
+SUBSTAGE = "validate_roots.intended_case_discovery.llm_selection"
 NEXT_STAGE_WITH_CANDIDATE = "intended_case_resolution"
 NEXT_STAGE_WITHOUT_CANDIDATE = "open_web_search"
 NEXT_STAGE_ON_FAILURE = "intended_case_review_retry"
@@ -24,17 +23,21 @@ async def intended_case_llm_selection(
     document: Document, *, reviewer: IntendedCaseReviewer | None = None
 ) -> Document:
     """Save a possible intended authority, leaving identity judgments unchanged."""
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if "23_locator_body_llm_judgment" not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "validate_roots.locator_body_corroboration.llm_judgment" not in document.substage_runs:
         raise ValueError("Complete locator-body review before field-body review")
-    roots = tuple(root for root in document.roots if root.next_stage == "case_name_body_discovery")
+    roots = tuple(
+        root
+        for root in document.roots
+        if root.next_substage == "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
+    )
     if roots and not any(root.field_body_searches for root in roots):
         raise ValueError("Complete a field-body provider search before review")
     service = reviewer
     for root in roots:
         context = IntendedCaseContext.from_document(document, root)
-        recorded = root.record(STAGE)
+        recorded = root.record(SUBSTAGE)
         if not context.evidence:
             outcome = IntendedCaseOutcome(
                 decision=IntendedCaseDecision(
@@ -51,7 +54,7 @@ async def intended_case_llm_selection(
             )
         else:
             if service is None:
-                service = IvrIntendedCaseReviewer.from_profile(MODEL_PROFILE)
+                service = IvrIntendedCaseReviewer.from_profile(load_profile(SUBSTAGE))
             result = await service(context)
             outcome = result if isinstance(result, IntendedCaseOutcome) else IntendedCaseOutcome(result)
         decision = outcome.decision
@@ -90,4 +93,4 @@ async def intended_case_llm_selection(
             )
             recorded = recorded.with_route(NEXT_STAGE_WITH_CANDIDATE)
         document = document.replace_citation(recorded)
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

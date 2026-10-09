@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mellea_lrc.llm.profiles import OPENROUTER_LUNA
+from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.citations.docket_lookup import (
     DocketLookupCaseNameAssessment,
@@ -19,10 +19,9 @@ from mellea_lrc.validation.docket_root_lookup_govinfo_llm_review.reviewer import
     GovInfoDocketReviewOutcome,
     IvrGovInfoDocketReviewer,
 )
+from mellea_lrc.validation.fields_aggregated_identity import SUBSTAGE as NEXT_SUBSTAGE
 
-STAGE = "19_docket_root_lookup_govinfo_llm_review"
-MODEL_PROFILE = OPENROUTER_LUNA
-NEXT_STAGE = "fields_aggregated_identity"
+SUBSTAGE = "validate_roots.docket_lookup.govinfo_review"
 
 
 def _no_candidate_decision(context: GovInfoDocketReviewContext) -> DocketLookupReviewDecision:
@@ -54,23 +53,23 @@ async def docket_root_lookup_govinfo_llm_review(
     document: Document, *, reviewer: GovInfoDocketReviewer | None = None
 ) -> Document:
     """Review each unresolved docket root's saved GovInfo shortlist once."""
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if "18_docket_root_lookup_govinfo_retrieval" not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "validate_roots.docket_lookup.govinfo_retrieval" not in document.substage_runs:
         raise ValueError("Complete GovInfo docket lookup before its review")
     service = reviewer
     for root in tuple(item for item in document.roots if isinstance(item, FullDocketCitation)):
         if root.govinfo_docket_lookup is None:
             continue
         context = GovInfoDocketReviewContext.from_document(document, root)
-        recorded = root.record(STAGE)
+        recorded = root.record(SUBSTAGE)
         if not context.candidates:
             review = GovInfoDocketReview(
                 node_id=recorded.nodes[-1].id, decision=_no_candidate_decision(context)
             )
         else:
             if service is None:
-                service = IvrGovInfoDocketReviewer.from_profile(MODEL_PROFILE)
+                service = IvrGovInfoDocketReviewer.from_profile(load_profile(SUBSTAGE))
             result = await service(context)
             outcome = (
                 result
@@ -102,6 +101,6 @@ async def docket_root_lookup_govinfo_llm_review(
             )
         recorded = recorded.with_govinfo_docket_review(review)
         if review.decision is not None and review.decision.selected_candidate_index is not None:
-            recorded = recorded.with_route(NEXT_STAGE)
+            recorded = recorded.with_route(NEXT_SUBSTAGE)
         document = document.replace_citation(recorded)
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

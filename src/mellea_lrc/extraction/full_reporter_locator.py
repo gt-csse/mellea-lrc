@@ -5,7 +5,7 @@ from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.parsing.reporters import full_reporter_readings
 
-STAGE = "1_full_reporter_locators"
+SUBSTAGE = "grow_roots.locator_discovery.full_reporter_locators"
 
 
 def find_full_reporter_locators(document: Document) -> Document:
@@ -15,9 +15,9 @@ def find_full_reporter_locators(document: Document) -> Document:
     normalized identity recoverable from a serialized citation even if eyecite
     used surrounding document context while finding the span.
     """
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if "5_colocations" in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "grow_roots.field_reading.colocations" in document.substage_runs:
         raise ValueError("Discover all locators before resolving colocations")
     for reading in sorted(full_reporter_readings(document.text), key=lambda item: item.span):
         span = Span(*reading.span)
@@ -27,9 +27,9 @@ def find_full_reporter_locators(document: Document) -> Document:
         document = document.add_citation(
             FullReporterCitation.from_locator(
                 citation_id=identifier,
-                stage=STAGE,
+                substage=SUBSTAGE,
                 source=document.text,
                 span=span,
             )
         )
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

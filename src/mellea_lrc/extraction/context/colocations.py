@@ -1,4 +1,4 @@
-"""Shared source-span grouping for full and short reporter stage writers."""
+"""Shared source-span grouping for full and short reporter substage writers."""
 
 from __future__ import annotations
 

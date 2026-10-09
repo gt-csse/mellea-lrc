@@ -22,6 +22,7 @@ local/
 # Local project presentation artifacts
 Mellea-LRC-*.pptx
 docs/.obsidian/**
+/paper/
 
 # Evaluation working files: the downloaded dataset and anything a run writes.
 # A symlink to ../mellea-lrc-datasets, so no trailing slash: that matches
@@ -43,4 +44,6 @@ paper/
 
 evaluations/results/*/documents/
 evaluations/results/*/*/documents/
+experiments/identity/results/*/documents/
+experiments/pinpoint/results/*/documents/
 archive/evaluation-results-before-timestamped-2026-09-27/

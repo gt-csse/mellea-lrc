@@ -11,7 +11,7 @@ from mellea_lrc.validation.body_search._courtlistener import (
     run_courtlistener_field_body_search,
 )
 
-STAGE = "25_intended_case_courtlistener_recap_retrieval"
+SUBSTAGE = "validate_roots.intended_case_discovery.courtlistener_recap_retrieval"
 
 
 def intended_case_courtlistener_recap_retrieval(
@@ -23,7 +23,7 @@ def intended_case_courtlistener_recap_retrieval(
     """Save case-name matches from independently fetched RECAP bodies."""
     return run_courtlistener_field_body_search(
         document,
-        stage=STAGE,
+        substage=SUBSTAGE,
         source=BodySource.COURTLISTENER_RECAP,
         retrospective_date=retrospective_date,
         client=client,

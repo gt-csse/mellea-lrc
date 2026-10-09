@@ -16,8 +16,8 @@ from mellea_lrc.validation.body_search._govinfo import (
 )
 from mellea_lrc.validation.body_search.common import field_query_name, field_query_parties
 
-STAGE = "26_intended_case_govinfo_opinion_retrieval"
-ROUTE = "case_name_body_discovery"
+SUBSTAGE = "validate_roots.intended_case_discovery.govinfo_opinion_retrieval"
+ROUTE = "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
 
 
 def intended_case_govinfo_opinion_retrieval(
@@ -31,16 +31,16 @@ def intended_case_govinfo_opinion_retrieval(
     A name hit identifies a possible intended case. It does not establish that
     the filing's reporter or docket locator identifies that case.
     """
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if "23_locator_body_llm_judgment" not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "validate_roots.locator_body_corroboration.llm_judgment" not in document.substage_runs:
         raise ValueError("Complete locator body review before field body search")
     with ExitStack() as stack:
         service = client
         for root in document.roots:
-            if root.next_stage != ROUTE:
+            if root.next_substage != ROUTE:
                 continue
-            recorded = root.record(STAGE)
+            recorded = root.record(SUBSTAGE)
             query_name = field_query_name(root)
             if query_name is None:
                 result = FieldBodySearch(
@@ -66,4 +66,4 @@ def intended_case_govinfo_opinion_retrieval(
                     raise ValueError("A case-name search must return field evidence")
                 result = search
             document = document.replace_citation(recorded.with_field_body_search(result))
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

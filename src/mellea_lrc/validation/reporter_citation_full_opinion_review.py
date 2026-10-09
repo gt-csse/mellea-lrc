@@ -1,6 +1,6 @@
 """Review complete saved opinions when the selected pages do not settle support."""
 
-from mellea_lrc.llm.profiles import NRP_QWEN
+from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model.citations.full_reporter import FullReporterCitation
 from mellea_lrc.model.citations.reporter_pinpoint import (
     OpinionReviewScope,
@@ -8,6 +8,7 @@ from mellea_lrc.model.citations.reporter_pinpoint import (
     PinpointEvidenceOutcome,
     ReporterCitationSupportReview,
 )
+from mellea_lrc.model.citations.tags import CitationTagKind
 from mellea_lrc.model.document import Document
 from mellea_lrc.validation.reporter_pinpoint_review import review_citation
 from mellea_lrc.validation.reporter_pinpoint_review.reviewer import (
@@ -15,9 +16,8 @@ from mellea_lrc.validation.reporter_pinpoint_review.reviewer import (
     ReporterPinpointReviewer,
 )
 
-STAGE = "46_reporter_citation_full_opinion_review"
-MODEL_PROFILE = NRP_QWEN
-SOURCE_STAGE = "45_reporter_citation_pinpoint_page_review"
+SUBSTAGE = "validate_pincite.support_review.full_opinion_review"
+SOURCE_SUBSTAGE = "validate_pincite.support_review.page_review"
 
 
 async def review_reporter_citation_full_opinions(
@@ -29,12 +29,12 @@ async def review_reporter_citation_full_opinions(
     route directly. Source text is never retrieved again, and a failed call is
     saved without producing a false negative verdict.
     """
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if SOURCE_STAGE not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if SOURCE_SUBSTAGE not in document.substage_runs:
         raise ValueError("Complete page review before full-opinion review")
     service = reviewer
-    # Reviews are occurrence-independent within this atomic stage. Grouping by
+    # Reviews are occurrence-independent within this atomic substage. Grouping by
     # root keeps identical full-source prefixes adjacent for provider KV reuse.
     ordered = sorted(
         document.citations,
@@ -44,7 +44,7 @@ async def review_reporter_citation_full_opinions(
         ),
     )
     for citation in ordered:
-        if not citation.reporter_pinpoint_evidence:
+        if citation.has_tag(CitationTagKind.TABLE_OF_AUTHORITIES) or not citation.reporter_pinpoint_evidence:
             continue
         evidence = citation.reporter_pinpoint_evidence[-1]
         if evidence.outcome not in {PinpointEvidenceOutcome.READY, PinpointEvidenceOutcome.MISSING_PAGES}:
@@ -70,7 +70,7 @@ async def review_reporter_citation_full_opinions(
             and root.reporter_root_opinion_page_index is not None
             and not any(opinion.text.strip() for opinion in root.reporter_root_opinion_page_index.opinions)
         ):
-            recorded = citation.record(STAGE)
+            recorded = citation.record(SUBSTAGE)
             recorded = recorded.with_reporter_support_review(
                 ReporterCitationSupportReview(
                     node_id=recorded.nodes[-1].id,
@@ -83,8 +83,8 @@ async def review_reporter_citation_full_opinions(
             document = document.replace_citation(recorded)
             continue
         if service is None:
-            service = IvrReporterPinpointReviewer.from_profile(MODEL_PROFILE)
+            service = IvrReporterPinpointReviewer.from_profile(load_profile(SUBSTAGE))
         document = await review_citation(
-            document, citation, stage=STAGE, scope=OpinionReviewScope.FULL_OPINION, reviewer=service
+            document, citation, substage=SUBSTAGE, scope=OpinionReviewScope.FULL_OPINION, reviewer=service
         )
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

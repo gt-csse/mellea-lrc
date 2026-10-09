@@ -71,3 +71,31 @@ All 26 primary documents are saved cumulatively through stage 44 at [the input c
 ```
 
 The full-corpus run with these per-stage profiles completed through stage 47 for all 26 filings in [the saved run](../../evaluations/results/primary/2026-10-02T20-47-44Z/). Its workflow metrics are recorded by the existing `evaluations.score_run` command.
+
+## Saved review replay (2026-10-08)
+
+[The fourteen-case GLM experiment](results/2026-10-08T01-53-11Z/README.md)
+replays seven selected-page and seven full-opinion inputs from their preceding
+native checkpoints. It makes no retrieval or paid-model calls. The production
+bindings remain GLM for page review, Qwen for full-opinion review, and Luna for
+opinion selection and proposition extraction. These bindings come from `.env`.
+
+The cohort, fixed contexts, historical reviews, new IVR traces, failures, native
+pending Documents, and scores are retained together. Gold enters scoring only.
+The saved and current contexts contain identical source evidence, dynamic
+variables, and output schemas; instruction wording has changed. The deliberately
+difficult sample measures capability and diagnosis, not corpus performance.
+
+```sh
+uv run python -m experiments.pinpoint.compare_saved_reviews \
+  --cohort experiments/pinpoint/results/2026-10-08T01-53-11Z/cohort.json \
+  --profile nrp_glm
+
+# Render the saved results without model calls.
+uv run python -m experiments.pinpoint.score_saved_reviews \
+  --render experiments/pinpoint/results/2026-10-08T01-53-11Z
+```
+
+Pass `--destination` to the probe to resume an existing experiment. It rejects
+changed profiles or inputs and recovers missing native materializations from
+saved outcomes rather than requesting the model again.

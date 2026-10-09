@@ -11,6 +11,7 @@ from mellea_lrc.model.citations.fields.base import CitationField
 from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameField, CaseNameKind
 from mellea_lrc.model.citations.fields.pin_cite import PinCiteField, PinCiteValue
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, Node, RelationshipUpdate
+from mellea_lrc.model.citations.leaf_field_correction import LeafFieldCorrectionReview
 from mellea_lrc.model.citations.reporter_page_resolution import (
     OpinionPageReference,
     ReporterCitationOpinionReview,
@@ -23,6 +24,7 @@ from mellea_lrc.model.citations.reporter_pinpoint import (
     ReporterOpinionEvidence,
     ReporterPinpointJudgment,
 )
+from mellea_lrc.model.citations.tags import CitationTag, CitationTagKind
 from mellea_lrc.model.span import Span
 
 
@@ -34,6 +36,7 @@ class Citation(BaseModel):
     id: str
     kind: str
     nodes: tuple[Node, ...]
+    tags: tuple[CitationTag, ...] = ()
     case_name: tuple[CaseNameField, ...] = ()
     root_id: tuple[RelationshipUpdate[str | None], ...] = ()
     routes: tuple[RelationshipUpdate[str | None], ...] = ()
@@ -48,6 +51,19 @@ class Citation(BaseModel):
     reporter_opinion_evidence: tuple[ReporterOpinionEvidence, ...] = ()
     reporter_support_reviews: tuple[ReporterCitationSupportReview, ...] = ()
     reporter_pinpoint_judgments: tuple[ReporterPinpointJudgment, ...] = ()
+    leaf_field_correction_reviews: tuple[LeafFieldCorrectionReview, ...] = ()
+
+    def has_tag(self, kind: CitationTagKind) -> bool:
+        """Read a source-component tag without changing the citation's tree role."""
+        return any(tag.kind is kind for tag in self.tags)
+
+    def with_leaf_field_correction_review(self, result: LeafFieldCorrectionReview) -> Self:
+        """Append one source rereading decision with its saved validation evidence."""
+        if result.node_id != self._decision_node_id():
+            raise ValueError("Leaf correction review must point to the current decision node")
+        if any(item.node_id == result.node_id for item in self.leaf_field_correction_reviews):
+            raise ValueError("Leaf correction review is already recorded at this node")
+        return self._with_log(leaf_field_correction_reviews=(*self.leaf_field_correction_reviews, result))
 
     def get_case_name(self) -> CaseName:
         """Read the current written name, including the explicit unstated outcome."""
@@ -117,8 +133,8 @@ class Citation(BaseModel):
         )
 
     @property
-    def next_stage(self) -> str | None:
-        """The currently queued stage, independent of any identity opinion."""
+    def next_substage(self) -> str | None:
+        """The currently queued substage, independent of any identity opinion."""
         return self.routes[-1].value if self.routes else None
 
     @property
@@ -126,9 +142,9 @@ class Citation(BaseModel):
         """The source site used to order citation occurrences."""
         raise NotImplementedError
 
-    def record(self, stage: str) -> Self:
+    def record(self, substage: str) -> Self:
         """Record one decision; named field methods may share its node."""
-        node = Node(id=f"{self.id}:node:{len(self.nodes)}", stage=stage)
+        node = Node(id=f"{self.id}:node:{len(self.nodes)}", substage=substage)
         return type(self).model_validate({**self.model_dump(mode="python"), "nodes": (*self.nodes, node)})
 
     def _decision_node_id(self) -> str:
@@ -190,15 +206,15 @@ class Citation(BaseModel):
         """
         return None if self.pin_cite is None else self.pin_cite[-1].get_normalized()
 
-    def with_route(self, next_stage: str | None) -> Self:
+    def with_route(self, next_substage: str | None) -> Self:
         """Append a routing decision; None clears an earlier route."""
         if (
-            next_stage is not None
-            and re.fullmatch(r"(?:[0-9]+(?:\.[0-9]+)?_)?[a-z][a-z0-9_]*", next_stage) is None
+            next_substage is not None
+            and re.fullmatch(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){0,2}", next_substage) is None
         ):
-            raise ValueError("A route must name a lowercase stage ID")
+            raise ValueError("A route must name a lowercase substage ID")
         return self._with_log(
-            routes=(*self.routes, RelationshipUpdate(value=next_stage, node_id=self._decision_node_id()))
+            routes=(*self.routes, RelationshipUpdate(value=next_substage, node_id=self._decision_node_id()))
         )
 
     def withdraw(self) -> Self:
@@ -218,6 +234,35 @@ class Citation(BaseModel):
         for proposition in self.reporter_propositions:
             for passage in proposition.passages:
                 passage.validate_source(source)
+        for review in self.leaf_field_correction_reviews:
+            for correction in review.grounded:
+                if source[correction.span.start : correction.span.end] != correction.quote:
+                    raise ValueError("Leaf correction quote does not match its source span")
+
+    @model_validator(mode="after")
+    def _validate_leaf_field_corrections(self) -> Self:
+        positions = {node.id: index for index, node in enumerate(self.nodes)}
+        if len({review.node_id for review in self.leaf_field_correction_reviews}) != len(
+            self.leaf_field_correction_reviews
+        ):
+            raise ValueError("A decision node can append only one leaf field-correction review")
+        for review in self.leaf_field_correction_reviews:
+            if review.node_id not in positions:
+                raise ValueError("Leaf correction review needs a citation decision node")
+            for correction in review.grounded:
+                readings = getattr(self, correction.field, None)
+                if readings is None or correction.reading_index >= len(readings):
+                    raise ValueError("Leaf correction references a missing field reading")
+                reading = readings[correction.reading_index]
+                if reading.span != correction.span or reading.quote != correction.quote:
+                    raise ValueError("Leaf correction must reference its grounded field reading")
+                if reading.node_id not in positions:
+                    raise ValueError("Leaf correction field reading refers to a missing citation node")
+                if positions[reading.node_id] > positions[review.node_id]:
+                    raise ValueError("Leaf correction cannot reference a future reading")
+                if correction.applied and reading.node_id != review.node_id:
+                    raise ValueError("An applied correction needs a reading at its review node")
+        return self
 
     @model_validator(mode="after")
     def _validate_pinpoint_references(self) -> Self:
@@ -227,7 +272,11 @@ class Citation(BaseModel):
             if not 0 <= index < len(log):
                 raise ValueError("Pinpoint record references a missing history entry")
             target = log[index]
-            if positions[target.node_id] > positions[record.node_id]:
+            target_position = positions.get(target.node_id)
+            record_position = positions.get(record.node_id)
+            if target_position is None or record_position is None:
+                raise ValueError("Pinpoint record refers to a missing citation node")
+            if target_position > record_position:
                 raise ValueError("Pinpoint record cannot reference a future decision")
             return target
 
@@ -291,10 +340,10 @@ class Citation(BaseModel):
                 previous = position
         if any(
             route.value is not None
-            and re.fullmatch(r"(?:[0-9]+(?:\.[0-9]+)?_)?[a-z][a-z0-9_]*", route.value) is None
+            and re.fullmatch(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){0,2}", route.value) is None
             for route in self.routes
         ):
-            raise ValueError("A route must name a lowercase stage ID")
+            raise ValueError("A route must name a lowercase substage ID")
         for review in self.reporter_opinion_reviews:
             if review.resolution_index >= len(self.reporter_page_resolutions):
                 raise ValueError("Opinion review points to a missing page resolution")

@@ -18,16 +18,16 @@ from mellea_lrc.api import (
 from mellea_lrc.parsing.reporters import full_reporter_readings
 from mellea_lrc.extraction.leaf_attribution_review.reviewer import LeafReviewOutcome
 from mellea_lrc.parsing.events import events
-from mellea_lrc.extraction.short_reporter_locator import STAGE as SHORT_REPORTER_STAGE
+from mellea_lrc.extraction.short_reporter_locator import SUBSTAGE as SHORT_REPORTER_SUBSTAGE
 from mellea_lrc.parsing.reporters import short_reporter_readings
 from mellea_lrc.model import FullReporterCitation, ShortReporterCitation, Span
 from mellea_lrc.model.citations import AttributionResult, LeafReviewDecision
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID
 from mellea_lrc.model.ivr import IvrAttempt, IvrRun
 
-ATTRIBUTION_STAGE = "29_short_reporter_attribution"
-COLOCATION_STAGE = "28.1_short_reporter_colocations"
-CASE_NAME_STAGE = "28.2_short_reporter_case_names"
+ATTRIBUTION_SUBSTAGE = "grow_leaves.short_reporter_citations.attribution"
+COLOCATION_SUBSTAGE = "grow_leaves.short_reporter_citations.colocations"
+CASE_NAME_SUBSTAGE = "grow_leaves.short_reporter_citations.case_names"
 
 
 def _read_short_names(document: Document) -> Document:
@@ -73,8 +73,8 @@ def test_short_reporter_is_a_distinct_checkpointed_citation() -> None:
     assert len(short.nodes) == 1
     assert short.pin_cite[-1].node_id == short.nodes[0].id
     assert short.root_id == ()
-    assert document.get_stage("10_roots") == roots
-    assert document.get_stage(SHORT_REPORTER_STAGE) == document
+    assert document.get_stage("grow_roots.root_formation") == roots
+    assert document.get_substage(SHORT_REPORTER_SUBSTAGE) == document
     assert Document.model_validate_json(document.model_dump_json()) == document
 
 
@@ -97,10 +97,10 @@ def test_short_reporter_can_later_attach_without_changing_its_checkpoint() -> No
     found = find_short_reporter_citations(asyncio.run(grow_roots(Document.from_source(source))))
     short = found.short_reporters[0]
     attached = found.replace_citation(short.record("attach_short").with_root(found.roots[0].id))
-    attached = attached.complete("attach_short")
+    attached = attached.complete_substage("attach_short")
 
     assert attached.short_reporters[0].root_id[-1].value == found.roots[0].id
-    assert attached.get_stage(SHORT_REPORTER_STAGE) == found
+    assert attached.get_substage(SHORT_REPORTER_SUBSTAGE) == found
     assert Document.model_validate_json(attached.model_dump_json()) == attached
 
 
@@ -161,7 +161,7 @@ def test_name_reading_bounds_case_name_after_leaf_events_not_yet_created(interve
     assert short.case_name[-1].quote == "Unknown"
     assert all(event.span_with_pincite()[1] <= short.case_name[-1].span.start for event in barriers)
     assert short.case_name[-1].node_id == next(
-        node.id for node in short.nodes if node.stage == CASE_NAME_STAGE
+        node.id for node in short.nodes if node.substage == CASE_NAME_SUBSTAGE
     )
 
 
@@ -182,15 +182,15 @@ def test_independent_short_reporter_attribution_restores_creation_after_reload()
     assert short.root_id[-1].value == roots.roots[0].id
     assert short.attributions[-1].result is AttributionResult.ATTACHED
     assert short.attributions[-1].node_id == next(
-        node.id for node in short.nodes if node.stage == ATTRIBUTION_STAGE
+        node.id for node in short.nodes if node.substage == ATTRIBUTION_SUBSTAGE
     )
     assert short.reviews == ()
-    named = restored.get_stage(CASE_NAME_STAGE)
+    named = restored.get_substage(CASE_NAME_SUBSTAGE)
     assert short.case_name == named.short_reporters[0].case_name
     assert short.pin_cite == created.short_reporters[0].pin_cite
-    assert restored.get_stage("10_roots") == roots
-    assert restored.get_stage(SHORT_REPORTER_STAGE) == created
-    assert restored.get_stage(ATTRIBUTION_STAGE) == attributed
+    assert restored.get_stage("grow_roots.root_formation") == roots
+    assert restored.get_substage(SHORT_REPORTER_SUBSTAGE) == created
+    assert restored.get_substage(ATTRIBUTION_SUBSTAGE) == attributed
 
 
 @pytest.mark.parametrize("source", ["No authorities here.", "See Smith, 347 U.S. at 495."])
@@ -203,13 +203,13 @@ def test_short_reporter_attribution_requires_creation_and_rejects_repeats(source
         asyncio.run(attribute_short_reporter_citations(created, review=False))
     attributed = asyncio.run(attribute_short_reporter_citations(_read_short_names(created), review=False))
 
-    assert attributed.stage_runs[-4:] == (
-        SHORT_REPORTER_STAGE,
-        COLOCATION_STAGE,
-        CASE_NAME_STAGE,
-        ATTRIBUTION_STAGE,
+    assert attributed.substage_runs[-4:] == (
+        SHORT_REPORTER_SUBSTAGE,
+        COLOCATION_SUBSTAGE,
+        CASE_NAME_SUBSTAGE,
+        ATTRIBUTION_SUBSTAGE,
     )
-    assert attributed.get_stage(SHORT_REPORTER_STAGE) == created
+    assert attributed.get_substage(SHORT_REPORTER_SUBSTAGE) == created
     if attributed.short_reporters:
         assert attributed.short_reporters[0].root_id[-1].value == WITHDRAWN_ROOT_ID
         assert attributed.short_reporters[0].attributions[-1].candidate_root_ids == ()
@@ -284,12 +284,12 @@ def test_ambiguous_short_reporter_review_records_separate_rule_and_review_nodes(
         AttributionResult.ATTACHED,
     ]
     assert short.attributions[0].node_id == next(
-        node.id for node in short.nodes if node.stage == ATTRIBUTION_STAGE
+        node.id for node in short.nodes if node.substage == ATTRIBUTION_SUBSTAGE
     )
     assert short.attributions[-1].node_id == short.reviews[-1].node_id == short.nodes[-1].id
     assert [entry.value for entry in short.root_id] == [WITHDRAWN_ROOT_ID, brown.id]
     restored = Document.model_validate_json(attributed.model_dump_json())
-    assert restored.get_stage(SHORT_REPORTER_STAGE) == created
+    assert restored.get_substage(SHORT_REPORTER_SUBSTAGE) == created
     assert restored == attributed
 
 
@@ -329,7 +329,7 @@ def test_short_reporter_failed_review_retains_complete_trace_and_rule_candidates
     assert len(short.attributions[-1].candidate_root_ids) == 2
     assert short.reviews[-1].failure_reason == "Synthetic review failure"
     assert short.reviews[-1].ivr == trace
-    assert restored.get_stage(SHORT_REPORTER_STAGE) == created
+    assert restored.get_substage(SHORT_REPORTER_SUBSTAGE) == created
 
 
 @pytest.mark.parametrize("is_citation", [True, False])

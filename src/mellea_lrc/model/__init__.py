@@ -8,6 +8,8 @@ from mellea_lrc.model.citations import (
     Citation,
     CitationDate,
     CitationField,
+    CitationTag,
+    CitationTagKind,
     CitationVariant,
     Court,
     CourtField,
@@ -68,25 +70,45 @@ from mellea_lrc.model.citations import (
 )
 from mellea_lrc.model.colocation import Colocation
 from mellea_lrc.model.document import Document
+from mellea_lrc.model.execution import (
+    STAGE_CATALOG,
+    SUBSTAGE_CATALOG,
+    WORKFLOW_CATALOG,
+    CheckpointRun,
+    StageDefinition,
+    SubstageDefinition,
+    WorkflowDefinition,
+    get_stage_definition,
+    get_substage_definition,
+    get_workflow,
+    stage_for_substage,
+)
 from mellea_lrc.model.preprocessed_document import (
     DEFAULT_RULES,
     PreprocessedDocument,
     PreprocessingBackend,
     PreprocessingMetadata,
     Rule,
+    TableOfAuthoritiesComponent,
 )
 from mellea_lrc.model.source import DocumentBase, SourceFormat, SourceMetadata
 from mellea_lrc.model.span import Span
 
 __all__ = [
     "DEFAULT_RULES",
+    "STAGE_CATALOG",
+    "SUBSTAGE_CATALOG",
+    "WORKFLOW_CATALOG",
     "AttributionResult",
     "CaseName",
     "CaseNameField",
     "CaseNameKind",
+    "CheckpointRun",
     "Citation",
     "CitationDate",
     "CitationField",
+    "CitationTag",
+    "CitationTagKind",
     "CitationVariant",
     "Colocation",
     "Court",
@@ -152,6 +174,14 @@ __all__ = [
     "SourceFormat",
     "SourceMetadata",
     "Span",
+    "StageDefinition",
+    "SubstageDefinition",
     "SupraCitation",
+    "TableOfAuthoritiesComponent",
+    "WorkflowDefinition",
+    "get_stage_definition",
+    "get_substage_definition",
+    "get_workflow",
     "latest",
+    "stage_for_substage",
 ]

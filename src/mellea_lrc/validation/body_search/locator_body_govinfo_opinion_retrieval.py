@@ -11,7 +11,7 @@ from mellea_lrc.providers.govinfo import GovInfoClient
 from mellea_lrc.validation.body_search._govinfo import GovInfoBodyClient, _search_root
 from mellea_lrc.validation.body_search.common import roots_for_body_search
 
-STAGE = "22_locator_body_govinfo_opinion_retrieval"
+SUBSTAGE = "validate_roots.locator_body_corroboration.govinfo_opinion_retrieval"
 
 
 def locator_body_govinfo_opinion_retrieval(
@@ -21,16 +21,16 @@ def locator_body_govinfo_opinion_retrieval(
     retrospective_date: date | None = None,
 ) -> Document:
     """Save locator matches from fetched USCOURTS opinion granules."""
-    if STAGE in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
         raise ValueError("GovInfo opinion body search has already completed")
     with ExitStack() as stack:
         service = client
         for root in roots_for_body_search(document):
-            recorded = root.record(STAGE)
+            recorded = root.record(SUBSTAGE)
             if service is None:
                 service = stack.enter_context(GovInfoClient())
             result = _search_root(document, recorded, service, retrospective_date)
             if not isinstance(result, BodySearch):
                 raise ValueError("A locator search must return locator evidence")
             document = document.replace_citation(recorded.with_body_search(result))
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

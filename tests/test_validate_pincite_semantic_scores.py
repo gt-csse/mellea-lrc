@@ -9,6 +9,7 @@ import json
 import pytest
 
 from evaluations import validate_pincite as evaluation
+from evaluations.score_types import substage_heading
 from mellea_lrc.model import Document, FullReporterCitation, Span
 from mellea_lrc.model.citations.judgments import IdentityVerdict
 from mellea_lrc.model.citations.reporter_opinion import (
@@ -62,31 +63,31 @@ def _document(tmp_path, *, wrong_root_identity=False, docket_gold=False):
             document = document.add_citation(
                 FullReporterCitation.from_locator(
                     citation_id=f"c{index}",
-                    stage="1_full_reporter_locators",
+                    substage="grow_roots.locator_discovery.full_reporter_locators",
                     source=text,
                     span=Span(start=start, end=start + len(locator)),
                 )
             )
-    document = document.complete("1_full_reporter_locators")
+    document = document.complete_substage("grow_roots.locator_discovery.full_reporter_locators")
     for citation in document.citations:
         index = int(citation.id[1:])
         if PINS[index] is not None:
             start = starts[index] + len(LOCATORS[index]) + 2
             document = document.replace_citation(
-                citation.record("9_pin_cites").with_pin_cite(
+                citation.record("grow_roots.field_reading.pin_cites").with_pin_cite(
                     text, Span(start=start, end=start + len(PINS[index]))
                 )
             )
-    document = document.complete("9_pin_cites")
+    document = document.complete_substage("grow_roots.field_reading.pin_cites")
     for citation in document.citations:
         root_id = "c0" if citation.id == "c3" else citation.id
-        citation = citation.record("10_roots").with_root(root_id)
+        citation = citation.record("grow_roots.root_formation.rule").with_root(root_id)
         if root_id == citation.id:
             citation = citation.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
         document = document.replace_citation(citation)
-    document = document.complete("10_roots")
+    document = document.complete_substage("grow_roots.root_formation.rule")
     for root in document.roots:
-        root = root.record(evaluation.STAGE)
+        root = root.record(evaluation.SUBSTAGE)
         cluster = CourtListenerCluster.model_validate({"id": 1, "sub_opinions": [20]})
         root = root.with_reporter_root_opinion_source(
             ReporterRootOpinionSource(node_id=root.nodes[-1].id, cluster=cluster)
@@ -110,9 +111,9 @@ def _document(tmp_path, *, wrong_root_identity=False, docket_gold=False):
             )
         )
         document = document.replace_citation(root)
-    document = document.complete(evaluation.STAGE)
+    document = document.complete_substage(evaluation.SUBSTAGE)
     for root in document.roots:
-        root = root.record(evaluation.PAGE_INDEX_STAGE)
+        root = root.record(evaluation.PAGE_INDEX_SUBSTAGE)
         root = root.with_reporter_root_opinion_page_index(
             ReporterRootOpinionPageIndex(
                 node_id=root.nodes[-1].id,
@@ -127,9 +128,9 @@ def _document(tmp_path, *, wrong_root_identity=False, docket_gold=False):
             )
         )
         document = document.replace_citation(root)
-    document = document.complete(evaluation.PAGE_INDEX_STAGE)
+    document = document.complete_substage(evaluation.PAGE_INDEX_SUBSTAGE)
     for citation in document.citations:
-        citation = citation.record(evaluation.PAGE_RESOLUTION_STAGE)
+        citation = citation.record(evaluation.PAGE_RESOLUTION_SUBSTAGE)
         citation = citation.with_reporter_page_resolution(
             ReporterCitationPageResolution(
                 node_id=citation.nodes[-1].id,
@@ -146,12 +147,12 @@ def _document(tmp_path, *, wrong_root_identity=False, docket_gold=False):
         )
         document = document.replace_citation(citation)
     document = (
-        document.complete(evaluation.PAGE_RESOLUTION_STAGE)
-        .complete(evaluation.OPINION_SELECTION_STAGE)
-        .complete(evaluation.PROPOSITION_STAGE)
+        document.complete_substage(evaluation.PAGE_RESOLUTION_SUBSTAGE)
+        .complete_substage(evaluation.OPINION_SELECTION_SUBSTAGE)
+        .complete_substage(evaluation.PROPOSITION_SUBSTAGE)
     )
     for citation in document.citations:
-        citation = citation.record(evaluation.PINPOINT_EVIDENCE_STAGE)
+        citation = citation.record(evaluation.PINPOINT_EVIDENCE_SUBSTAGE)
         citation = citation.with_reporter_pinpoint_evidence(
             ReporterCitationPinpointEvidence(
                 node_id=citation.nodes[-1].id,
@@ -164,7 +165,7 @@ def _document(tmp_path, *, wrong_root_identity=False, docket_gold=False):
             )
         )
         document = document.replace_citation(citation)
-    document = document.complete(evaluation.PINPOINT_EVIDENCE_STAGE)
+    document = document.complete_substage(evaluation.PINPOINT_EVIDENCE_SUBSTAGE)
     header = {
         "unit": "header",
         "dataset": "primary",
@@ -247,12 +248,14 @@ def _document(tmp_path, *, wrong_root_identity=False, docket_gold=False):
 
 
 def _judgments(document, verdicts):
-    if evaluation.PAGE_SUPPORT_STAGE not in document.stage_runs:
-        document = document.complete(evaluation.PAGE_SUPPORT_STAGE).complete(evaluation.FULL_OPINION_STAGE)
+    if evaluation.PAGE_SUPPORT_SUBSTAGE not in document.substage_runs:
+        document = document.complete_substage(evaluation.PAGE_SUPPORT_SUBSTAGE).complete_substage(
+            evaluation.FULL_OPINION_SUBSTAGE
+        )
     for citation in document.citations:
         if citation.id not in verdicts:
             continue
-        citation = citation.record(evaluation.JUDGMENT_STAGE)
+        citation = citation.record(evaluation.JUDGMENT_SUBSTAGE)
         citation = citation.with_reporter_pinpoint_judgment(
             ReporterPinpointJudgment(
                 node_id=citation.nodes[-1].id,
@@ -266,7 +269,7 @@ def _judgments(document, verdicts):
             )
         )
         document = document.replace_citation(citation)
-    return document.complete(evaluation.JUDGMENT_STAGE)
+    return document.complete_substage(evaluation.JUDGMENT_SUBSTAGE)
 
 
 def test_fixed_gold_keeps_missing_roots_and_empty_opinions_and_excludes_skips(tmp_path):
@@ -293,7 +296,7 @@ def test_fixed_gold_keeps_missing_roots_and_empty_opinions_and_excludes_skips(tm
         "precision": 0.5,
         "recall": 0.25,
     }
-    assert score.stages[-1].unscored_definitive == 2
+    assert score.substages[-1].unscored_definitive == 2
     assert score.as_dict()["gold_cohort"]["total"] == 4
     assert "| total | 1/2 (50.0%) | 1/4 (25.0%) |" in evaluation.render_validate_pincite(score)
 
@@ -327,7 +330,7 @@ def test_wrong_gold_root_excludes_family_even_when_pipeline_and_leaf_identity_ag
     assert score.pinpoint["total"].correct == score.pinpoint["total"].predicted == 1
     assert score.pinpoint["total"].as_dict()["precision"] == 1
     assert score.pinpoint["total"].as_dict()["recall"] == 0.5
-    assert score.stages[-1].unscored_definitive == 2
+    assert score.substages[-1].unscored_definitive == 2
 
 
 def test_unimplemented_docket_leaf_stays_in_common_gold_denominator(tmp_path):
@@ -354,8 +357,8 @@ def test_unimplemented_docket_leaf_stays_in_common_gold_denominator(tmp_path):
     assert "| docket_leaves | 0/0 (—) | 0/1 (0.0%) |" in evaluation.render_validate_pincite(score)
 
 
-def _review(document, citation_id, stage, result):
-    citation = next(c for c in document.citations if c.id == citation_id).record(stage)
+def _review(document, citation_id, substage, result):
+    citation = next(c for c in document.citations if c.id == citation_id).record(substage)
     evidence = ()
     indices = ()
     if result in {OpinionSupportResult.SUPPORTED, OpinionSupportResult.CONTRADICTED}:
@@ -375,7 +378,7 @@ def _review(document, citation_id, stage, result):
             node_id=citation.nodes[-1].id,
             evidence_index=0,
             scope=OpinionReviewScope.CITED_PAGES
-            if stage == evaluation.PAGE_SUPPORT_STAGE
+            if substage == evaluation.PAGE_SUPPORT_SUBSTAGE
             else OpinionReviewScope.FULL_OPINION,
             decision=ReporterSupportDecision(
                 result=result,
@@ -393,15 +396,15 @@ def _review(document, citation_id, stage, result):
 
 def test_page_contradiction_is_provisional_until_full_opinion_review(tmp_path):
     document = _review(
-        _document(tmp_path), "c0", evaluation.PAGE_SUPPORT_STAGE, OpinionSupportResult.CONTRADICTED
-    ).complete(evaluation.PAGE_SUPPORT_STAGE)
+        _document(tmp_path), "c0", evaluation.PAGE_SUPPORT_SUBSTAGE, OpinionSupportResult.CONTRADICTED
+    ).complete_substage(evaluation.PAGE_SUPPORT_SUBSTAGE)
     score = evaluation.score_reporter_citation_pinpoint_page_review(document)
     assert score.counts == {"contradicted": 1}
     assert score.judgments["total"].predicted == 0
     assert score.judgments["total"].undetermined == 1
     document = _review(
-        document, "c0", evaluation.FULL_OPINION_STAGE, OpinionSupportResult.CONTRADICTED
-    ).complete(evaluation.FULL_OPINION_STAGE)
+        document, "c0", evaluation.FULL_OPINION_SUBSTAGE, OpinionSupportResult.CONTRADICTED
+    ).complete_substage(evaluation.FULL_OPINION_SUBSTAGE)
     score = evaluation.score_reporter_citation_full_opinion_review(document)
     assert score.judgments["total"].predicted == 1
     assert score.judgments["total"].correct == 0
@@ -409,16 +412,16 @@ def test_page_contradiction_is_provisional_until_full_opinion_review(tmp_path):
 
 def test_stage_precision_is_incremental_and_later_roundtrip_recovers_prior_checkpoint(tmp_path):
     document = _review(
-        _document(tmp_path), "c0", evaluation.PAGE_SUPPORT_STAGE, OpinionSupportResult.SUPPORTED
+        _document(tmp_path), "c0", evaluation.PAGE_SUPPORT_SUBSTAGE, OpinionSupportResult.SUPPORTED
     )
-    document = _review(document, "c3", evaluation.PAGE_SUPPORT_STAGE, OpinionSupportResult.NOT_FOUND)
-    document = document.complete(evaluation.PAGE_SUPPORT_STAGE)
+    document = _review(document, "c3", evaluation.PAGE_SUPPORT_SUBSTAGE, OpinionSupportResult.NOT_FOUND)
+    document = document.complete_substage(evaluation.PAGE_SUPPORT_SUBSTAGE)
     page_score = evaluation.score_reporter_citation_pinpoint_page_review(document)
     assert page_score.judgments["total"].predicted == page_score.judgments["total"].correct == 1
     assert page_score.judgments["total"].undetermined == 1  # A page miss is not whole-opinion absence.
     document = _review(
-        document, "c3", evaluation.FULL_OPINION_STAGE, OpinionSupportResult.NOT_FOUND
-    ).complete(evaluation.FULL_OPINION_STAGE)
+        document, "c3", evaluation.FULL_OPINION_SUBSTAGE, OpinionSupportResult.NOT_FOUND
+    ).complete_substage(evaluation.FULL_OPINION_SUBSTAGE)
     full_score = evaluation.score_reporter_citation_full_opinion_review(document)
     assert full_score.judgments["reporter_roots"].predicted == 0
     assert (
@@ -438,7 +441,7 @@ def test_stage_precision_is_incremental_and_later_roundtrip_recovers_prior_check
 
 
 def test_dataset_inventory_is_independent_of_missing_roots_and_failed_retrieval(tmp_path):
-    document = _document(tmp_path, wrong_root_identity=True).get_stage(evaluation.STAGE)
+    document = _document(tmp_path, wrong_root_identity=True).get_substage(evaluation.SUBSTAGE)
     successful = evaluation.score_validate_pincite(document)
     failed = document.model_copy(
         update={
@@ -450,8 +453,8 @@ def test_dataset_inventory_is_independent_of_missing_roots_and_failed_retrieval(
     )
     unavailable = evaluation.score_validate_pincite(failed)
 
-    assert successful.stages[0].reporter_roots_opinion_retrievals == 3
-    assert unavailable.stages[0].reporter_roots_opinion_retrievals == 0
+    assert successful.substages[0].reporter_roots_opinion_retrievals == 3
+    assert unavailable.substages[0].reporter_roots_opinion_retrievals == 0
     assert successful.dataset == unavailable.dataset
     inventory = successful.dataset
     assert inventory.all_annotations["total_pincites"] == 5
@@ -464,7 +467,7 @@ def test_dataset_inventory_is_independent_of_missing_roots_and_failed_retrieval(
     assert doubled.dataset.all_annotations["total_pincites"] == 10
     assert doubled.as_dict()["dataset"]["all_annotations"]["settled"] == 8
     report = evaluation.render_validate_pincite(successful)
-    assert report.index("## Dataset annotations") < report.index(f"## {evaluation.STAGE}")
+    assert report.index("## Dataset annotations") < report.index(substage_heading(evaluation.SUBSTAGE))
     assert "explicit native correct_page Boolean, independently of the content label" in report
     assert all(
         legacy not in report for legacy in ("page_unlocated", "other_page", "cited_target", "other_target")
@@ -532,15 +535,15 @@ def test_gold_source_hash_mismatch_fails_instead_of_narrowing_the_cohort(tmp_pat
 def test_proposition_checkpoint_counts_need_no_annotation_or_source_path():
     document = (
         Document.from_source("No citations here.")
-        .complete(evaluation.STAGE)
-        .complete(evaluation.PROPOSITION_STAGE)
+        .complete_substage(evaluation.SUBSTAGE)
+        .complete_substage(evaluation.PROPOSITION_SUBSTAGE)
     )
 
     score = evaluation.score_validate_pincite(document)
 
     assert document.source_path is None
     assert score.pinpoint is None
-    assert score.stages[-1].as_dict() == {"stage": evaluation.PROPOSITION_STAGE, "counts": {}}
+    assert score.substages[-1].as_dict() == {"substage": evaluation.PROPOSITION_SUBSTAGE, "counts": {}}
     assert "gold_cohort" not in score.as_dict()
 
 
@@ -565,8 +568,10 @@ def test_stage_scorers_and_renderers_are_independently_callable_with_one_argumen
     assert tuple(inspect.signature(scorer).parameters) == ("document",)
     assert tuple(inspect.signature(renderer).parameters) == ("score",)
     stage_score = scorer(document)
-    assert stage_score.stage.endswith(suffix)
-    assert renderer(stage_score).startswith(f"## {stage_score.stage}\n")
+    assert evaluation._SUBSTAGE_SCORERS[stage_score.substage] is scorer
+    assert renderer(stage_score).startswith(f"{substage_heading(stage_score.substage)}\n")
     workflow = evaluation.score_validate_pincite(document)
-    assert stage_score == next(score for score in workflow.stages if score.stage == stage_score.stage)
+    assert stage_score == next(
+        score for score in workflow.substages if score.substage == stage_score.substage
+    )
     assert renderer(stage_score) in evaluation.render_validate_pincite(workflow)

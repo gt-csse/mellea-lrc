@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mellea_lrc.llm.profiles import OPENROUTER_LUNA
+from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.citations.docket_lookup import (
     DocketLookupCaseNameAssessment,
@@ -13,6 +13,7 @@ from mellea_lrc.model.citations.docket_lookup import (
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.document import Document
 from mellea_lrc.validation.docket_review.fields import append_corrections
+from mellea_lrc.validation.fields_aggregated_identity import SUBSTAGE as NEXT_SUBSTAGE
 
 from .reviewer import (
     DocketLookupReviewContext,
@@ -21,9 +22,7 @@ from .reviewer import (
     IvrDocketLookupReviewer,
 )
 
-STAGE = "17_docket_root_lookup_courtlistener_llm_review"
-MODEL_PROFILE = OPENROUTER_LUNA
-NEXT_STAGE = "fields_aggregated_identity"
+SUBSTAGE = "validate_roots.docket_lookup.courtlistener_review"
 
 
 def _no_candidate_decision(context: DocketLookupReviewContext) -> DocketLookupReviewDecision:
@@ -57,23 +56,23 @@ async def docket_root_lookup_courtlistener_llm_review(
     document: Document, *, reviewer: DocketLookupReviewer | None = None
 ) -> Document:
     """Review each docket root once, retaining the choice or complete failure."""
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if "16_docket_root_lookup_courtlistener_retrieval" not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "validate_roots.docket_lookup.courtlistener_retrieval" not in document.substage_runs:
         raise ValueError("Complete docket root lookup before its model review")
     service = reviewer
     for root in tuple(item for item in document.roots if isinstance(item, FullDocketCitation)):
         if root.docket_lookup is None:
             raise ValueError("Docket root review requires a saved lookup on every docket root")
         context = DocketLookupReviewContext.from_document(document, root)
-        recorded = root.record(STAGE)
+        recorded = root.record(SUBSTAGE)
         if not context.candidates:
             review = DocketLookupReview(
                 node_id=recorded.nodes[-1].id, decision=_no_candidate_decision(context)
             )
         else:
             if service is None:
-                service = IvrDocketLookupReviewer.from_profile(MODEL_PROFILE)
+                service = IvrDocketLookupReviewer.from_profile(load_profile(SUBSTAGE))
             result = await service(context)
             outcome = (
                 result
@@ -107,6 +106,6 @@ async def docket_root_lookup_courtlistener_llm_review(
         if review.decision is not None and review.decision.selected_candidate_index is not None:
             # The selected record's field judgments are saved here; overall
             # identity is a separate decision that can run after other reviews.
-            recorded = recorded.with_route(NEXT_STAGE)
+            recorded = recorded.with_route(NEXT_SUBSTAGE)
         document = document.replace_citation(recorded)
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

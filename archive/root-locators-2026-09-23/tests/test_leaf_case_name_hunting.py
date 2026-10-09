@@ -6,9 +6,9 @@ import asyncio
 
 import pytest
 
-import mellea_lrc.extraction.adjudication.leaf_case_name_hunting as stage
+import mellea_lrc.experimental.leaf_case_name_hunting as stage
 from mellea_lrc.api import Document, grow_leaves, grow_roots
-from mellea_lrc.extraction.adjudication.review.case_name import AdjudicatedCaseName, Reading
+from mellea_lrc.experimental.leaf_case_name_hunting.review import AdjudicatedCaseName, Reading
 from mellea_lrc.extraction.adjudication.types import Candidate, CandidateKind, SiteReview
 from mellea_lrc.llm import IvrAttempt, IvrRun
 from mellea_lrc.model.citations import CitationKind

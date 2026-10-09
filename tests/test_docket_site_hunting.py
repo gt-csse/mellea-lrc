@@ -15,12 +15,20 @@ from mellea_lrc.api import (
 )
 from mellea_lrc.extraction.docket_site_hunting import suspected_dockets
 from mellea_lrc.extraction.docket_site_hunting.review import DocketSiteDecision, IvrDocketReviewer
-from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation, Span
+from mellea_lrc.llm.config import OUTPUT_MODE_OPTION, LlmOutputMode
+from mellea_lrc.model import (
+    CitationTagKind,
+    Document,
+    FullDocketCitation,
+    FullReporterCitation,
+    Span,
+    TableOfAuthoritiesComponent,
+)
 
-STAGE = "3_docket_locator_site_hunting"
+SUBSTAGE = "grow_roots.locator_discovery.docket_hunting"
 
 
-def _ready(source: str, *, index_spans: tuple[Span, ...] = ()) -> Document:
+def _ready(source: str, *, index_spans: tuple[TableOfAuthoritiesComponent, ...] = ()) -> Document:
     document = Document.from_source(source)
     if index_spans:
         document = Document.model_validate({**document.model_dump(mode="python"), "index_spans": index_spans})
@@ -61,8 +69,8 @@ def test_hunt_recomputes_mask_after_each_admission_and_adds_only_full_dockets() 
         citation.id for citation in hunted.citations
     ]
     assert hunted.short_reporters == ()
-    assert "short_reporter_citations" not in hunted.stage_runs
-    assert "5_colocations" not in hunted.stage_runs
+    assert "short_reporter_citations" not in hunted.substage_runs
+    assert "grow_roots.field_reading.colocations" not in hunted.substage_runs
     for citation, written_number in zip(hunted.citations, ("19 Civ. 8034", "035547/2021")):
         locator = citation.locator[-1]
         assert source[locator.span.start : locator.span.end] == locator.quote
@@ -103,8 +111,8 @@ def test_hunt_does_not_promote_a_decision_with_changed_source_characters(locator
     assert len(hunted.site_reviews) == 1
     assert hunted.site_reviews[0].outcome == "failed"
     assert hunted.site_reviews[0].citation_id is None
-    assert hunted.stage_runs == (*before.stage_runs, STAGE)
-    assert hunted.get_stage(STAGE) == hunted
+    assert hunted.substage_runs == (*before.substage_runs, SUBSTAGE)
+    assert hunted.get_substage(SUBSTAGE) == hunted
 
 
 def test_declined_site_is_not_reviewed_again_before_the_next_candidate() -> None:
@@ -163,7 +171,7 @@ def test_hunt_proposes_index_occurrence_and_keeps_repeated_body_sites_distinct()
     index_start = source.index(locator)
     body_start = source.index(locator, index_start + 1)
     later_start = source.index(locator, body_start + 1)
-    before = _ready(source, index_spans=(Span(0, source.index("\n")),))
+    before = _ready(source, index_spans=(TableOfAuthoritiesComponent(0, source.index("\n")),))
     seen: list[int] = []
 
     async def reviewer(site: object) -> DocketSiteDecision:
@@ -175,6 +183,11 @@ def test_hunt_proposes_index_occurrence_and_keeps_repeated_body_sites_distinct()
     assert seen == [index_start, body_start, later_start]
     assert [item.site_span.start for item in hunted.citations] == [index_start, body_start, later_start]
     assert len({item.id for item in hunted.citations}) == 3
+    assert [item.has_tag(CitationTagKind.TABLE_OF_AUTHORITIES) for item in hunted.citations] == [
+        True,
+        False,
+        False,
+    ]
 
 
 def test_hunt_rejects_a_repeat_run_and_checkpoint_survives_later_colocation() -> None:
@@ -196,9 +209,9 @@ def test_hunt_rejects_a_repeat_run_and_checkpoint_survives_later_colocation() ->
     grouped = resolve_colocations(hunted)
     restored = Document.model_validate_json(grouped.model_dump_json())
     assert restored == grouped
-    assert grouped.get_stage("2_docket_locators") == before
-    assert grouped.get_stage(STAGE) == hunted
-    assert restored.get_stage(STAGE) == hunted
+    assert grouped.get_substage("grow_roots.locator_discovery.docket_locators") == before
+    assert grouped.get_substage(SUBSTAGE) == hunted
+    assert restored.get_substage(SUBSTAGE) == hunted
     assert restored.site_reviews == grouped.site_reviews
 
 
@@ -222,8 +235,8 @@ def test_empty_hunt_commits_a_checkpoint_without_calling_reviewer() -> None:
 
     assert hunted.citations == before.citations
     assert hunted.site_reviews == ()
-    assert hunted.stage_runs == (*before.stage_runs, STAGE)
-    assert hunted.get_stage(STAGE) == hunted
+    assert hunted.substage_runs == (*before.substage_runs, SUBSTAGE)
+    assert hunted.get_substage(SUBSTAGE) == hunted
     assert Document.model_validate_json(hunted.model_dump_json()) == hunted
 
 
@@ -236,8 +249,8 @@ def test_hunt_continues_from_a_serialized_rule_checkpoint() -> None:
 
     hunted = asyncio.run(hunt_docket_locators(restored, reviewer=reviewer))
 
-    assert hunted.get_stage("2_docket_locators") == before
-    assert hunted.stage_runs[-1] == STAGE
+    assert hunted.get_substage("grow_roots.locator_discovery.docket_locators") == before
+    assert hunted.substage_runs[-1] == SUBSTAGE
     assert [review.outcome for review in hunted.site_reviews] == ["accepted"]
     assert Document.model_validate_json(hunted.model_dump_json()) == hunted
 
@@ -250,17 +263,17 @@ def test_grow_roots_hunts_before_context_and_does_not_find_short_citations() -> 
 
     document = asyncio.run(grow_roots(Document.from_source(source), hunt_dockets=True, reviewer=reviewer))
 
-    assert document.stage_runs == (
-        "1_full_reporter_locators",
-        "2_docket_locators",
-        STAGE,
-        "4_docket_entries",
-        "5_colocations",
-        "6_case_names",
-        "7_courts",
-        "8_dates",
-        "9_pin_cites",
-        "10_roots",
+    assert document.substage_runs == (
+        "grow_roots.locator_discovery.full_reporter_locators",
+        "grow_roots.locator_discovery.docket_locators",
+        SUBSTAGE,
+        "grow_roots.field_reading.docket_entries",
+        "grow_roots.field_reading.colocations",
+        "grow_roots.field_reading.case_names",
+        "grow_roots.field_reading.courts",
+        "grow_roots.field_reading.dates",
+        "grow_roots.field_reading.pin_cites",
+        "grow_roots.root_formation.rule",
     )
     assert len(document.full_locators) == 1
     assert document.full_locators[0].locator[-1].get_normalized().docket_number == "19 Civ. 8034"
@@ -268,7 +281,7 @@ def test_grow_roots_hunts_before_context_and_does_not_find_short_citations() -> 
     assert document.full_locators[0].court
     assert document.full_locators[0].date
     assert document.short_reporters == ()
-    assert "short_reporter_citations" not in document.stage_runs
+    assert "short_reporter_citations" not in document.substage_runs
 
 
 def _mellea_context(output: str) -> SimpleNamespace:
@@ -354,7 +367,11 @@ def test_ivr_reviewer_repairs_schema_and_grounding_then_persists_the_trace(
     monkeypatch.setattr("mellea.stdlib.functional.ainstruct", ainstruct)
     reviewer = IvrDocketReviewer(
         session=SimpleNamespace(backend=SimpleNamespace(model_id="test-model")),
-        model_options={"max_tokens": 1800},
+        model_options={
+            "max_tokens": 1800,
+            ModelOption.STREAM_TIMEOUT: 120,
+            OUTPUT_MODE_OPTION: LlmOutputMode.JSON_SCHEMA,
+        },
         max_attempts=3,
     )
     document = asyncio.run(hunt_docket_locators(before, reviewer=reviewer))
@@ -368,7 +385,7 @@ def test_ivr_reviewer_repairs_schema_and_grounding_then_persists_the_trace(
     assert "docket-number portion" in run.attempts[1].requirements[1].reason
     assert run.attempts[2].request[-1]["content"] == run.attempts[1].requirements[1].reason
     assert run.output == accepted.model_dump_json()
-    assert document.get_stage(STAGE) == document
+    assert document.get_substage(SUBSTAGE) == document
     assert Document.model_validate_json(document.model_dump_json()) == document
 
 
@@ -387,7 +404,12 @@ def test_exhausted_ivr_review_is_durable_without_creating_a_citation(
     monkeypatch.setattr("mellea.stdlib.functional.ainstruct", ainstruct)
     reviewer = IvrDocketReviewer(
         session=SimpleNamespace(backend=SimpleNamespace(model_id="test-model")),
-        model_options={"max_tokens": 1800},
+        model_options={
+            "max_tokens": 1800,
+            ModelOption.STREAM_TIMEOUT: 120,
+            OUTPUT_MODE_OPTION: LlmOutputMode.JSON_SCHEMA,
+        },
+        max_attempts=3,
     )
     document = asyncio.run(hunt_docket_locators(before, reviewer=reviewer))
 

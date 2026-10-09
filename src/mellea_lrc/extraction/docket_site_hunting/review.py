@@ -116,6 +116,6 @@ class IvrDocketReviewer(IvrReviewer):
         )
         if not run.success:
             return DocketReviewOutcome(None, run=run, failure_reason=run.failure_reason)
-        # A successful IVR run has passed schema validation. The stage still
+        # A successful IVR run has passed schema validation. The substage still
         # verifies grounding before admission as a final boundary check.
         return DocketReviewOutcome(DocketSiteDecision.model_validate_json(run.output), run=run)

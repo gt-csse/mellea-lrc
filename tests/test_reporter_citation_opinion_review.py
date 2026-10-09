@@ -30,8 +30,8 @@ from mellea_lrc.model.citations.short_reporter import ShortReporterCitation
 from mellea_lrc.model.ivr import IvrAttempt, IvrRequirementAttempt, IvrRun
 from mellea_lrc.providers.courtlistener.models import CourtListenerCluster
 from mellea_lrc.validation.reporter_citation_opinion_review import (
-    SOURCE_STAGE,
-    STAGE,
+    SOURCE_SUBSTAGE,
+    SUBSTAGE,
     review_reporter_citation_opinions,
 )
 from mellea_lrc.validation.reporter_citation_opinion_review import reviewer as service
@@ -59,33 +59,43 @@ def _fixture(
     document = Document.from_source(source)
     root = FullReporterCitation.from_locator(
         citation_id="root",
-        stage="1_full_reporter_locators",
+        substage="grow_roots.locator_discovery.full_reporter_locators",
         source=source,
         span=_span(source, "550 U.S. 544"),
     )
-    document = document.add_citation(root).complete("1_full_reporter_locators")
-    root = root.record("10_roots").with_root(root.id).with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
+    document = document.add_citation(root).complete_substage(
+        "grow_roots.locator_discovery.full_reporter_locators"
+    )
+    root = (
+        root.record("grow_roots.root_formation.rule")
+        .with_root(root.id)
+        .with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
+    )
     root = root.with_pin_cite(source, _span(source, "556-557"))
-    document = document.replace_citation(root).complete("10_roots")
+    document = document.replace_citation(root).complete_substage("grow_roots.root_formation.rule")
     leaf_span = _span(source, "550 U.S. at 556")
     leaf = ShortReporterCitation.from_short_locator(
         citation_id="leaf",
-        stage="28_short_reporter_citations",
+        substage="grow_leaves.short_reporter_citations.discovery",
         source=source,
         span=leaf_span,
         pin_cite_span=Span(leaf_span.end - 3, leaf_span.end),
     )
-    document = document.add_citation(leaf).complete("28_short_reporter_citations")
-    leaf = leaf.record("29_short_reporter_attribution").with_root(root.id)
-    document = document.replace_citation(leaf).complete("29_short_reporter_attribution")
+    document = document.add_citation(leaf).complete_substage("grow_leaves.short_reporter_citations.discovery")
+    leaf = leaf.record("grow_leaves.short_reporter_citations.attribution").with_root(root.id)
+    document = document.replace_citation(leaf).complete_substage(
+        "grow_leaves.short_reporter_citations.attribution"
+    )
     if include_id:
         id_citation = IdCitation.from_source(
-            source=source, span=_span(source, "Id."), stage="32_id_citations"
+            source=source, span=_span(source, "Id."), substage="grow_leaves.id_citations.discovery"
         )
-        document = document.add_citation(id_citation).complete("32_id_citations")
-        id_citation = id_citation.record("33_id_attribution").with_root(root.id)
-        document = document.replace_citation(id_citation).complete("33_id_attribution")
-    root = root.record("39_reporter_root_opinion_retrieval")
+        document = document.add_citation(id_citation).complete_substage("grow_leaves.id_citations.discovery")
+        id_citation = id_citation.record("grow_leaves.id_citations.attribution").with_root(root.id)
+        document = document.replace_citation(id_citation).complete_substage(
+            "grow_leaves.id_citations.attribution"
+        )
+    root = root.record("validate_pincite.opinion_preparation.retrieval")
     root = root.with_reporter_root_opinion_source(
         ReporterRootOpinionSource(
             node_id=root.nodes[-1].id,
@@ -131,11 +141,13 @@ def _fixture(
             opinions=tuple(opinions),
         )
     )
-    document = document.replace_citation(root).complete("39_reporter_root_opinion_retrieval")
+    document = document.replace_citation(root).complete_substage(
+        "validate_pincite.opinion_preparation.retrieval"
+    )
     document = index_reporter_root_opinion_pages(document)
     for citation in document.citations:
         outcome = root_outcome if citation.id == "root" else leaf_outcome
-        recorded = citation.record(SOURCE_STAGE)
+        recorded = citation.record(SOURCE_SUBSTAGE)
         requested = []
         if outcome in {ReporterPageResolutionOutcome.AMBIGUOUS, ReporterPageResolutionOutcome.RESOLVED}:
             for page_index in range(2 if citation.id == "root" else 1):
@@ -165,7 +177,7 @@ def _fixture(
             reason="Synthetic explicit source page candidates.",
         )
         document = document.replace_citation(recorded.with_reporter_page_resolution(resolution))
-    return document.complete(SOURCE_STAGE)
+    return document.complete_substage(SOURCE_SUBSTAGE)
 
 
 def _decision(*choices):
@@ -225,7 +237,7 @@ def test_root_and_leaf_select_independent_writings_and_ranges_can_cross_them():
     after = asyncio.run(review_reporter_citation_opinions(before, reviewer=reviewer))
     restored = Document.model_validate_json(after.model_dump_json())
 
-    assert restored == after and restored.get_stage(SOURCE_STAGE) == before
+    assert restored == after and restored.get_substage(SOURCE_SUBSTAGE) == before
     assert [context.citation_id for context in reviewer.contexts] == ["root", "leaf"]
     assert reviewer.contexts[0].prefix == reviewer.contexts[1].prefix
     assert reviewer.contexts[0].citation_span != reviewer.contexts[1].citation_span
@@ -234,7 +246,7 @@ def test_root_and_leaf_select_independent_writings_and_ranges_can_cross_them():
     assert reviewer.contexts[0].page_candidates[0]["candidates"][1]["text"].startswith("Dissent first page.")
     for original, current in zip(before.citations, after.citations, strict=True):
         assert current.nodes[:-1] == original.nodes
-        assert current.nodes[-1].stage == STAGE
+        assert current.nodes[-1].substage == SUBSTAGE
         assert current.reporter_opinion_reviews[-1].resolution_index == 0
         assert current.reporter_page_resolutions == original.reporter_page_resolutions
         assert current.pin_cite == original.pin_cite and current.root_id == original.root_id
@@ -245,7 +257,7 @@ def test_root_and_leaf_select_independent_writings_and_ranges_can_cross_them():
 
 
 def test_actual_page_resolver_and_inherited_id_supply_effective_readings_to_review():
-    indexed = _fixture(include_id=True).get_stage("40_reporter_root_opinion_page_index")
+    indexed = _fixture(include_id=True).get_substage("validate_pincite.opinion_preparation.page_index")
     before = resolve_reporter_citation_pages(indexed)
     id_citation = before.citations[-1]
     reviewer = Reviewer(
@@ -263,14 +275,14 @@ def test_actual_page_resolver_and_inherited_id_supply_effective_readings_to_revi
     assert context.target_readings["pin_cite"]["normalized"][0]["first"] == 556
     assert id_citation.pin_cite is None and after.citations[-1].pin_cite is None
     assert all(item.prefix == context.prefix for item in reviewer.contexts)
-    assert after.get_stage(SOURCE_STAGE) == before
+    assert after.get_substage(SOURCE_SUBSTAGE) == before
 
 
 def test_review_points_to_latest_absolute_resolution_index():
     before = _fixture(root_outcome=ReporterPageResolutionOutcome.RESOLVED)
     leaf = before.citations[1].record("41.1_page_revision")
     resolution = leaf.reporter_page_resolutions[-1].model_copy(update={"node_id": leaf.nodes[-1].id})
-    before = before.replace_citation(leaf.with_reporter_page_resolution(resolution)).complete(
+    before = before.replace_citation(leaf.with_reporter_page_resolution(resolution)).complete_substage(
         "41.1_page_revision"
     )
     reviewer = Reviewer({"leaf": _decision((0, 1))})
@@ -278,7 +290,7 @@ def test_review_points_to_latest_absolute_resolution_index():
     after = asyncio.run(review_reporter_citation_opinions(before, reviewer=reviewer))
 
     assert after.citations[1].reporter_opinion_reviews[-1].resolution_index == 1
-    assert after.get_stage("41.1_page_revision") == before
+    assert after.get_substage("41.1_page_revision") == before
 
 
 @pytest.mark.parametrize(
@@ -297,7 +309,7 @@ def test_nonambiguous_resolution_never_calls_reviewer(outcome):
     after = asyncio.run(review_reporter_citation_opinions(before, reviewer=reviewer))
 
     assert reviewer.contexts == [] and after.citations == before.citations
-    assert after.stage_runs[-1] == STAGE
+    assert after.substage_runs[-1] == SUBSTAGE
 
 
 def test_null_choices_preserve_unresolved_ambiguity():
@@ -325,7 +337,7 @@ def test_invalid_complete_page_or_candidate_domain_raises_at_stage_boundary(bad)
     with pytest.raises(ValueError, match="page_index"):
         asyncio.run(review_reporter_citation_opinions(before, reviewer=reviewer))
 
-    assert STAGE not in before.stage_runs and before.roots[0].reporter_opinion_reviews == ()
+    assert SUBSTAGE not in before.substage_runs and before.roots[0].reporter_opinion_reviews == ()
 
 
 def test_exhausted_ivr_failure_is_persisted_without_a_choice():
@@ -347,7 +359,7 @@ def test_exhausted_ivr_failure_is_persisted_without_a_choice():
     review = restored.citations[1].reporter_opinion_reviews[-1]
     assert review.ivr == trace and review.decision is None
     assert review.failure_reason == trace.failure_reason
-    assert restored.get_stage(SOURCE_STAGE) == before
+    assert restored.get_substage(SOURCE_SUBSTAGE) == before
 
 
 def test_provider_exception_is_recorded_as_a_review_failure():
@@ -388,7 +400,7 @@ def test_domain_feedback_and_shared_ivr_prefix_keep_exact_repair_trace(monkeypat
 
     monkeypatch.setattr(service, "run_instruct_ivr", run)
     reviewer = service.IvrReporterCitationOpinionReviewer(
-        session=object(), model_options={"max_tokens": 5000}
+        session=object(), model_options={"max_tokens": 5000}, max_attempts=3
     )
     after = asyncio.run(review_reporter_citation_opinions(before, reviewer=reviewer))
 
@@ -410,14 +422,18 @@ def test_stage_guards_raise_before_review_calls():
         asyncio.run(review_reporter_citation_opinions(after, reviewer=reviewer))
     with pytest.raises(ValueError, match="Resolve reporter citation pages"):
         asyncio.run(
-            review_reporter_citation_opinions(before.get_stage("40_reporter_root_opinion_page_index"))
+            review_reporter_citation_opinions(
+                before.get_substage("validate_pincite.opinion_preparation.page_index")
+            )
         )
 
 
 def test_selection_getter_requires_resolution_and_review_cannot_append_twice_to_one_node():
     before = _fixture()
     with pytest.raises(ValueError, match="have not been resolved"):
-        before.get_stage("40_reporter_root_opinion_page_index").roots[0].get_reporter_page_selection()
+        before.get_substage("validate_pincite.opinion_preparation.page_index").roots[
+            0
+        ].get_reporter_page_selection()
     reviewed = asyncio.run(
         review_reporter_citation_opinions(
             before,

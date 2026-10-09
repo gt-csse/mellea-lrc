@@ -1,4 +1,4 @@
-"""Id. creation reads pins before its independent, sequential attribution stage."""
+"""Id. creation reads pins before its independent, sequential attribution substage."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ from mellea_lrc.api import (
     grow_leaves,
     grow_roots,
 )
-from mellea_lrc.extraction.id_attribution import STAGE as ATTRIBUTION_STAGE
-from mellea_lrc.extraction.id_citations import STAGE as CREATION_STAGE
+from mellea_lrc.extraction.id_attribution import SUBSTAGE as ATTRIBUTION_SUBSTAGE
+from mellea_lrc.extraction.id_citations import SUBSTAGE as CREATION_SUBSTAGE
 from mellea_lrc.extraction.leaf_attribution_review.reviewer import LeafReviewContext, LeafReviewOutcome
 from mellea_lrc.model.citations import (
     AttributionResult,
@@ -65,8 +65,10 @@ def test_marker_and_pin_joins_share_whitespace_relaxation_and_original_offsets(
     assert (citation.pin_cite[-1].quote if citation.pin_cite else None) == pin_quote
     attributed = asyncio.run(attribute_id_citations(discovered, review=False))
     restored = Document.model_validate_json(attributed.model_dump_json())
-    assert restored.get_stage(CREATION_STAGE) == discovered
-    assert restored.get_stage("10_roots") == roots.get_stage("10_roots")
+    assert restored.get_substage(CREATION_SUBSTAGE) == discovered
+    assert restored.get_substage("grow_roots.root_formation.rule") == roots.get_substage(
+        "grow_roots.root_formation.rule"
+    )
 
 
 @pytest.mark.parametrize("tail", ["The ID is 14.", "Ibid refers to that term.", "identity at 14.", "Idat14."])
@@ -87,9 +89,9 @@ def test_creation_reads_a_pin_on_its_native_node_and_attribution_preserves_the_c
     created = find_id_citations(roots)
     citation = _ids(created)[0]
 
-    assert CREATION_STAGE == "32_id_citations"
-    assert ATTRIBUTION_STAGE == "33_id_attribution"
-    assert created.stage_runs[-1] == CREATION_STAGE
+    assert CREATION_SUBSTAGE == "grow_leaves.id_citations.discovery"
+    assert ATTRIBUTION_SUBSTAGE == "grow_leaves.id_citations.attribution"
+    assert created.substage_runs[-1] == CREATION_SUBSTAGE
     assert len(citation.nodes) == 1
     assert citation.root_id == citation.attributions == citation.reviews == ()
     assert citation.pin_cite is not None
@@ -105,8 +107,8 @@ def test_creation_reads_a_pin_on_its_native_node_and_attribution_preserves_the_c
     attributed = asyncio.run(attribute_id_citations(created, review=False))
     restored = Document.model_validate_json(attributed.model_dump_json())
 
-    assert restored.get_stage(CREATION_STAGE) == created
-    assert restored.get_stage(ATTRIBUTION_STAGE) == attributed
+    assert restored.get_substage(CREATION_SUBSTAGE) == created
+    assert restored.get_substage(ATTRIBUTION_SUBSTAGE) == attributed
     assert _ids(restored)[0].pin_cite == citation.pin_cite
     assert latest(_ids(restored)[0].root_id) == roots.roots[0].id
 
@@ -121,7 +123,7 @@ def test_creation_retains_a_pin_absence_outcome_without_consuming_a_footnote_lab
     assert citation.get_pin_cite() is None
     assert citation.root_id == ()
     assert len(citation.nodes) == 1
-    assert Document.model_validate_json(created.model_dump_json()).get_stage(CREATION_STAGE) == created
+    assert Document.model_validate_json(created.model_dump_json()).get_substage(CREATION_SUBSTAGE) == created
 
 
 @pytest.mark.parametrize("next_authority", ["200 F.3d 2 (2001).", "42 U.S.C. § 1983."])
@@ -143,8 +145,8 @@ def test_attribution_requires_creation_and_both_stages_reject_duplicate_runs() -
     created = find_id_citations(roots)
     with pytest.raises(ValueError, match="already completed"):
         find_id_citations(created)
-    with pytest.raises(KeyError, match="Stage has not run"):
-        created.get_stage(ATTRIBUTION_STAGE)
+    with pytest.raises(KeyError, match="Substage has not run"):
+        created.get_substage(ATTRIBUTION_SUBSTAGE)
 
     attributed = asyncio.run(attribute_id_citations(created, review=False))
     with pytest.raises(ValueError, match="already completed"):
@@ -163,16 +165,16 @@ def test_rule_attribution_preserves_a_noncase_barrier_after_a_pinned_id() -> Non
     assert second.attributions[-1].result is AttributionResult.UNRESOLVED
     assert second.reviews == ()
     restored = Document.model_validate_json(attributed.model_dump_json())
-    assert restored.get_stage(CREATION_STAGE) == created
-    assert all(citation.root_id == () for citation in _ids(restored.get_stage(CREATION_STAGE)))
-    assert latest(_ids(restored.get_stage(ATTRIBUTION_STAGE))[1].root_id) == WITHDRAWN_ROOT_ID
+    assert restored.get_substage(CREATION_SUBSTAGE) == created
+    assert all(citation.root_id == () for citation in _ids(restored.get_substage(CREATION_SUBSTAGE)))
+    assert latest(_ids(restored.get_substage(ATTRIBUTION_SUBSTAGE))[1].root_id) == WITHDRAWN_ROOT_ID
 
 
 @pytest.mark.parametrize("supra", ["Alpha, supra, at 3.", "Alpha,42supra,at3."])
 def test_an_unrepresented_supra_blocks_early_id_attribution_and_later_stages_preserve_it(supra: str) -> None:
     text = ROOT_TEXT + f"Gamma v. Delta, 200 F.3d 2 (2001). {supra} Id. at 4."
     document = asyncio.run(grow_leaves(_roots(text), review_leaves=False))
-    checkpoint = document.get_stage(ATTRIBUTION_STAGE)
+    checkpoint = document.get_substage(ATTRIBUTION_SUBSTAGE)
     early_id = _ids(checkpoint)[0]
 
     assert latest(early_id.root_id) == WITHDRAWN_ROOT_ID
@@ -215,10 +217,12 @@ def test_review_checks_every_id_including_rule_attached_chains_on_separate_decis
     for citation in _ids(attributed):
         assert citation.attributions[0].result is AttributionResult.ATTACHED
         assert citation.attributions[-1].result is AttributionResult.ATTACHED
-        assert len([node for node in citation.nodes if node.stage == ATTRIBUTION_STAGE]) == 2
+        assert len([node for node in citation.nodes if node.substage == ATTRIBUTION_SUBSTAGE]) == 2
         assert citation.reviews[-1].node_id != citation.attributions[0].node_id
         assert citation.pin_cite[-1].node_id == citation.nodes[0].id
-    assert Document.model_validate_json(attributed.model_dump_json()).get_stage(CREATION_STAGE) == created
+    assert (
+        Document.model_validate_json(attributed.model_dump_json()).get_substage(CREATION_SUBSTAGE) == created
+    )
 
 
 @pytest.mark.parametrize("first_result", [AttributionResult.REJECTED, AttributionResult.UNRESOLVED])
@@ -260,10 +264,10 @@ def test_dummy_id_outcome_blocks_the_next_rule_link_even_if_its_review_fails(
     assert prior_id["attribution"] is first_result
     assert prior_id["model_reviewed"] is True
     restored = Document.model_validate_json(attributed.model_dump_json())
-    assert restored.get_stage(CREATION_STAGE) == created
-    assert all(citation.root_id == () for citation in _ids(restored.get_stage(CREATION_STAGE)))
-    assert restored.get_stage(ATTRIBUTION_STAGE) == attributed
-    assert [link.value for link in _ids(restored.get_stage(ATTRIBUTION_STAGE))[0].root_id] == [
+    assert restored.get_substage(CREATION_SUBSTAGE) == created
+    assert all(citation.root_id == () for citation in _ids(restored.get_substage(CREATION_SUBSTAGE)))
+    assert restored.get_substage(ATTRIBUTION_SUBSTAGE) == attributed
+    assert [link.value for link in _ids(restored.get_substage(ATTRIBUTION_SUBSTAGE))[0].root_id] == [
         attributed.roots[0].id,
         WITHDRAWN_ROOT_ID,
     ]

@@ -15,6 +15,7 @@ from mellea_lrc.preprocessing import (
     PreprocessingMetadata,
     Rule,
     SourceFormat,
+    TableOfAuthoritiesComponent,
     preprocess,
 )
 from mellea_lrc.preprocessing.docket_stamp import looks_like_a_stamp
@@ -262,9 +263,41 @@ def test_index_spans_use_the_final_text_after_layout_rules(monkeypatch, rules) -
 
     assert "Repeated page header" not in result.text
     (span,) = result.index_spans
+    assert isinstance(span, TableOfAuthoritiesComponent)
+    assert span.kind == "table_of_authorities"
+    assert result.model_dump(mode="json")["index_spans"] == [
+        {"start": span.start, "end": span.end, "kind": "table_of_authorities"}
+    ]
     assert entry in result.text[span.start : span.end]
     assert "Body prose." not in result.text[span.start : span.end]
     assert result.preprocessing_metadata.rules == rules
+
+
+@pytest.mark.parametrize(
+    "components",
+    [
+        (TableOfAuthoritiesComponent(0, 0),),
+        (TableOfAuthoritiesComponent(0, 20),),
+        (TableOfAuthoritiesComponent(0, 5), TableOfAuthoritiesComponent(4, 8)),
+        (TableOfAuthoritiesComponent(5, 8), TableOfAuthoritiesComponent(0, 3)),
+    ],
+)
+def test_toa_components_need_ordered_nonempty_source_ranges(components) -> None:
+    source = preprocess("Source text.")
+    with pytest.raises(ValueError, match="TOA component"):
+        PreprocessedDocument.model_validate({**source.model_dump(mode="python"), "index_spans": components})
+
+
+def test_native_index_range_validation_serializes_its_component_kind() -> None:
+    source = preprocess("Source text.").model_dump(mode="json")
+    source["index_spans"] = [{"start": 0, "end": 6}]
+    result = PreprocessedDocument.model_validate(source)
+
+    assert result.index_spans == (TableOfAuthoritiesComponent(0, 6),)
+    assert result.model_dump(mode="json")["index_spans"] == [
+        {"start": 0, "end": 6, "kind": "table_of_authorities"}
+    ]
+    assert "components" not in type(result).model_fields
 
 
 def test_a_filing_stamp_is_recognised_whatever_court_printed_it() -> None:

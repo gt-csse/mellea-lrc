@@ -11,13 +11,12 @@ from mellea_lrc.extraction.docket_root_llm_reassignment.reviewer import (
     DocketRootReviewOutcome,
     IvrDocketRootReviewer,
 )
-from mellea_lrc.llm.profiles import OPENROUTER_LUNA
+from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model.citations import latest
 from mellea_lrc.model.citations.docket_root_llm_reassignment import DocketRootReview
 from mellea_lrc.model.document import Document
 
-STAGE = "11_docket_root_llm_reassignment"
-MODEL_PROFILE = OPENROUTER_LUNA
+SUBSTAGE = "grow_roots.root_formation.docket_llm_reassignment"
 
 
 async def docket_root_llm_reassignment(
@@ -29,16 +28,16 @@ async def docket_root_llm_reassignment(
     program code chooses the earliest root of each same-case group and reassigns
     every occurrence attached to any losing root. No root assignment is erased.
     """
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if "10_roots" not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "grow_roots.root_formation.rule" not in document.substage_runs:
         raise ValueError("Form roots before reviewing docket-root equivalence")
 
     service = reviewer
     for roots in candidate_components(document):
         context = DocketRootReviewContext.from_document(document, roots)
         if service is None:
-            service = IvrDocketRootReviewer.from_profile(MODEL_PROFILE)
+            service = IvrDocketRootReviewer.from_profile(load_profile(SUBSTAGE))
         returned = await service(context)
         outcome = (
             returned
@@ -51,7 +50,7 @@ async def docket_root_llm_reassignment(
             raise ValueError(error)
         if error is not None:
             decision = None
-        anchor = roots[0].record(STAGE)
+        anchor = roots[0].record(SUBSTAGE)
         anchor = anchor.with_docket_root_review(
             DocketRootReview(
                 node_id=anchor.nodes[-1].id,
@@ -77,5 +76,5 @@ async def docket_root_llm_reassignment(
             # that this review has turned into another root's leaf.
             for citation in tuple(document.full_locators):
                 if latest(citation.root_id) in losers:
-                    document = document.replace_citation(citation.record(STAGE).with_root(winner))
-    return document.complete(STAGE)
+                    document = document.replace_citation(citation.record(SUBSTAGE).with_root(winner))
+    return document.complete_substage(SUBSTAGE)

@@ -180,12 +180,12 @@ class FullReporterCitation(FullCitation):
         cls,
         *,
         citation_id: str,
-        stage: str,
+        substage: str,
         source: str,
         span: Span,
     ) -> Self:
         """Create one source-grounded locator and its normalized Reporter."""
-        node = Node(id=f"{citation_id}:node:0", stage=stage)
+        node = Node(id=f"{citation_id}:node:0", substage=substage)
         return cls(
             id=citation_id,
             nodes=(node,),

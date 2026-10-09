@@ -1,9 +1,9 @@
 """Outer compositional API for preprocessing, extraction, and validation.
 
-Callers may compose each `Document -> Document` stage explicitly; docket
-hunting and docket-root equivalence review are awaitable. `grow_roots` is the
-async convenience composition, with both model stages opt-in.
-Validation stages remain independently callable. `grow_leaves` attaches short
+Callers may compose workflows, their semantic stages, or individual
+`Document -> Document` substages. Docket hunting and docket-root equivalence
+review are awaitable and opt-in in `grow_roots`. All three levels have explicit
+checkpoint boundaries; substages remain independently callable. `grow_leaves` attaches short
 forms and repeated occurrences to formed roots, with optional model review.
 The workflows are `grow_roots`, `validate_roots`, `grow_leaves`, and `validate_pincite`.
 Locator-body and intended-case review are parts of root validation.
@@ -30,6 +30,7 @@ from mellea_lrc.extraction import (
 )
 from mellea_lrc.extraction.id_attribution import attribute_id_citations
 from mellea_lrc.extraction.id_citations import find_id_citations
+from mellea_lrc.extraction.leaf_field_corrections import correct_leaf_fields
 from mellea_lrc.extraction.reference_citations import find_reference_citations
 from mellea_lrc.extraction.supra_attribution_llm import review_supra_attributions
 from mellea_lrc.extraction.supra_attribution_rule import attribute_supra_citations_rule
@@ -43,6 +44,7 @@ from mellea_lrc.validation import (
     docket_root_lookup_courtlistener_retrieval,
     docket_root_lookup_govinfo_llm_review,
     docket_root_lookup_govinfo_retrieval,
+    fields_aggregated_identity,
     index_reporter_root_opinion_pages,
     intended_case_courtlistener_opinion_retrieval,
     intended_case_courtlistener_recap_retrieval,
@@ -68,6 +70,25 @@ from mellea_lrc.validation import (
     review_reporter_citation_pinpoint_pages,
 )
 from mellea_lrc.workflows import grow_leaves, grow_roots, validate_pincite, validate_roots
+from mellea_lrc.workflows.grow_leaves import (
+    correct_leaf_readings,
+    grow_id_leaves,
+    grow_reference_leaves,
+    grow_short_reporter_leaves,
+    grow_supra_leaves,
+)
+from mellea_lrc.workflows.grow_roots import discover_root_locators, form_root_groups, read_root_fields
+from mellea_lrc.workflows.validate_pincite import (
+    prepare_citation_evidence,
+    prepare_root_opinions,
+    review_citation_support,
+)
+from mellea_lrc.workflows.validate_roots import (
+    corroborate_locator_bodies,
+    discover_intended_cases,
+    lookup_docket_roots,
+    lookup_reporter_roots,
+)
 
 __all__ = [
     "Document",
@@ -76,20 +97,31 @@ __all__ = [
     "attribute_reference_citations",
     "attribute_short_reporter_citations",
     "attribute_supra_citations_rule",
+    "correct_leaf_fields",
+    "correct_leaf_readings",
+    "corroborate_locator_bodies",
+    "discover_intended_cases",
+    "discover_root_locators",
     "docket_root_llm_reassignment",
     "docket_root_lookup_courtlistener_llm_review",
     "docket_root_lookup_courtlistener_retrieval",
     "docket_root_lookup_govinfo_llm_review",
     "docket_root_lookup_govinfo_retrieval",
+    "fields_aggregated_identity",
     "find_docket_locators",
     "find_full_reporter_locators",
     "find_id_citations",
     "find_reference_citations",
     "find_short_reporter_citations",
     "find_supra_citations",
+    "form_root_groups",
     "form_roots",
+    "grow_id_leaves",
     "grow_leaves",
+    "grow_reference_leaves",
     "grow_roots",
+    "grow_short_reporter_leaves",
+    "grow_supra_leaves",
     "hunt_docket_locators",
     "index_reporter_root_opinion_pages",
     "intended_case_courtlistener_opinion_retrieval",
@@ -101,9 +133,14 @@ __all__ = [
     "locator_body_courtlistener_recap_retrieval",
     "locator_body_govinfo_opinion_retrieval",
     "locator_body_llm_judgment",
+    "lookup_docket_roots",
+    "lookup_reporter_roots",
+    "prepare_citation_evidence",
     "prepare_reporter_citation_pinpoint_evidence",
+    "prepare_root_opinions",
     "preprocess",
     "read_reporter_citation_propositions",
+    "read_root_fields",
     "reporter_root_lookup_ambiguous_llm_judgment",
     "reporter_root_lookup_ambiguous_rule_judgment",
     "reporter_root_lookup_cluster_retrieval",
@@ -122,6 +159,7 @@ __all__ = [
     "resolve_short_reporter_colocations",
     "resolve_supra_case_names",
     "resolve_supra_pin_cites",
+    "review_citation_support",
     "review_reporter_citation_full_opinions",
     "review_reporter_citation_opinions",
     "review_reporter_citation_pinpoint_pages",

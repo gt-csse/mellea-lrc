@@ -10,6 +10,7 @@ from mellea_lrc.model.preprocessed_document import (
     PreprocessingBackend,
     PreprocessingMetadata,
     Rule,
+    TableOfAuthoritiesComponent,
 )
 from mellea_lrc.model.source import DocumentBase, SourceFormat, SourceMetadata
 from mellea_lrc.preprocessing.pipeline import preprocess
@@ -23,5 +24,6 @@ __all__ = [
     "Rule",
     "SourceFormat",
     "SourceMetadata",
+    "TableOfAuthoritiesComponent",
     "preprocess",
 ]

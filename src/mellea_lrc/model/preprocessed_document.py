@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import Literal
 
 from pydantic import model_validator
 
@@ -14,6 +15,13 @@ class PreprocessingBackend(str, Enum):
 
     DOCLING = "docling"
     PLAIN_TEXT = "plain_text"
+
+
+@dataclass(frozen=True, slots=True)
+class TableOfAuthoritiesComponent(Span):
+    """One TOA component in the final exported source-text coordinates."""
+
+    kind: Literal["table_of_authorities"] = "table_of_authorities"
 
 
 class Rule(str, Enum):
@@ -47,7 +55,7 @@ DEFAULT_RULES: tuple[Rule, ...] = (
 
 @dataclass(frozen=True, slots=True)
 class PreprocessingMetadata:
-    """Backend provenance for the preprocessing stage."""
+    """Backend provenance for the preprocessing substage."""
 
     backend: PreprocessingBackend = PreprocessingBackend.PLAIN_TEXT
     backend_version: str | None = None
@@ -60,18 +68,19 @@ class PreprocessedDocument(DocumentBase):
 
     text: str
     preprocessing_metadata: PreprocessingMetadata
-    index_spans: tuple[Span, ...] = ()
+    index_spans: tuple[TableOfAuthoritiesComponent, ...] = ()
     """Table-of-authorities regions. Empty may mean the index is unknown."""
-    # TODO: Represent TOA as a typed, serialized preprocessing component with
-    # exact source ranges. Propagate a TOA tag to every root/leaf occurrence
-    # created within that component, so downstream pinpoint stages consume the
-    # tag directly. TOA citations still participate in root identity checking.
-    # Keep offsets unchanged. For existing artifacts, index_spans remains the
-    # available serialized range information; do not regenerate them for this TODO.
 
     @model_validator(mode="after")
     def _validate_text(self) -> "PreprocessedDocument":
         if not self.text:
             msg = "PreprocessedDocument.text must not be empty"
             raise ValueError(msg)
+        previous_end = 0
+        for component in self.index_spans:
+            if component.start == component.end or component.end > len(self.text):
+                raise ValueError("TOA component must occupy a nonempty range inside the source text")
+            if component.start < previous_end:
+                raise ValueError("TOA components must be ordered and nonoverlapping")
+            previous_end = component.end
         return self

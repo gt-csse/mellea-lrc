@@ -10,15 +10,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
 
-from mellea_lrc.llm.profiles import NRP_KIMI, NRP_QWEN, OPENROUTER_LUNA, LlmProfile
+from mellea_lrc.llm.profiles import LlmProfile
 from mellea_lrc.model.citations.reporter_pinpoint import OpinionReviewScope
 from mellea_lrc.model.document import Document
 from mellea_lrc.validation.reporter_pinpoint_review.reviewer import (
     IvrReporterPinpointReviewer,
     ReporterPinpointReviewContext,
 )
-
-PROFILES = {profile.name: profile for profile in (NRP_QWEN, NRP_KIMI, OPENROUTER_LUNA)}
 
 
 def render_comparison(destination: Path) -> None:
@@ -63,6 +61,7 @@ def render_comparison(destination: Path) -> None:
 
 
 async def compare(document_path: Path, citation_id: str, profile_names: list[str]) -> Path:
+    profiles = tuple(LlmProfile.from_env(name) for name in profile_names)
     document = Document.model_validate_json(await asyncio.to_thread(document_path.read_text))
     input_path = await asyncio.to_thread(document_path.resolve)
     citation = next(item for item in document.citations if item.id == citation_id)
@@ -100,7 +99,7 @@ async def compare(document_path: Path, citation_id: str, profile_names: list[str
         )
         return result
 
-    results = await asyncio.gather(*(probe(PROFILES[name]) for name in profile_names))
+    results = await asyncio.gather(*(probe(profile) for profile in profiles))
     (destination / "summary.json").write_text(json.dumps(results, indent=2) + "\n")
     render_comparison(destination)
     return destination
@@ -110,9 +109,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--document", required=True, type=Path)
     parser.add_argument("--citation-id", required=True)
-    parser.add_argument("--profiles", nargs="+", choices=PROFILES, default=list(PROFILES))
+    parser.add_argument(
+        "--profiles", required=True, nargs="+", help="Named profiles defined in .env to compare"
+    )
     args = parser.parse_args()
-    if len(args.profiles) != len(set(args.profiles)):
+    if len(args.profiles) != len({name.upper() for name in args.profiles}):
         parser.error("Profiles must be distinct")
     asyncio.run(compare(args.document, args.citation_id, args.profiles))
 

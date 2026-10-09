@@ -11,7 +11,7 @@ from mellea_lrc.validation.body_search._courtlistener import (
     run_courtlistener_field_body_search,
 )
 
-STAGE = "24_intended_case_courtlistener_opinion_retrieval"
+SUBSTAGE = "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
 
 
 def intended_case_courtlistener_opinion_retrieval(
@@ -23,7 +23,7 @@ def intended_case_courtlistener_opinion_retrieval(
     """Save case-name matches from independently fetched opinion bodies."""
     return run_courtlistener_field_body_search(
         document,
-        stage=STAGE,
+        substage=SUBSTAGE,
         source=BodySource.COURTLISTENER_OPINION,
         retrospective_date=retrospective_date,
         client=client,

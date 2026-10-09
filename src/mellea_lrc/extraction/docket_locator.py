@@ -1,16 +1,16 @@
-"""Rule-based docket locator stage and its narrow CM/ECF reader."""
+"""Rule-based docket locator substage and its narrow CM/ECF reader."""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 
-from mellea_lrc.matching.literal import fuzzy_literal
+from mellea_lrc.matching.literal_to_regex import fuzzy_literal
 from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 
-STAGE = "2_docket_locators"
+SUBSTAGE = "grow_roots.locator_discovery.docket_locators"
 
 _PREFIXES = ("No. ", "Case No. ", "Civil Action No. ", "Civ. A. No. ", "Docket No. ")
 DOCKET_PREFIX_PATTERN = (
@@ -37,9 +37,9 @@ def docket_readings(source: str) -> tuple[DocketReading, ...]:
 
 def find_docket_locators(document: Document) -> Document:
     """Create courtless docket occurrences from labelled CM/ECF numbers."""
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if "5_colocations" in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "grow_roots.field_reading.colocations" in document.substage_runs:
         raise ValueError("Discover all locators before resolving colocations")
     for reading in docket_readings(document.text):
         span = Span(*reading.span)
@@ -49,10 +49,10 @@ def find_docket_locators(document: Document) -> Document:
         document = document.add_citation(
             FullDocketCitation.from_locator(
                 citation_id=identifier,
-                stage=STAGE,
+                substage=SUBSTAGE,
                 source=document.text,
                 span=span,
                 number_span=Span(*reading.number_span),
             )
         )
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

@@ -197,7 +197,7 @@ class ReporterUniqueReview(BaseModel):
     def _validate_outcome(self) -> Self:
         if (self.decision is None) == (self.failure_reason is None):
             raise ValueError("Review must contain either a decision or a failure reason")
-        # A successful IVR answer can still fail the stage's final source
+        # A successful IVR answer can still fail the substage's final source
         # grounding check. Keep that run and the boundary failure together.
         if self.ivr is not None and not self.ivr.success and self.decision is not None:
             raise ValueError("A failed IVR run cannot supply an accepted decision")

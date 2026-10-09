@@ -21,9 +21,9 @@ from mellea_lrc.validation.docket_root_lookup_govinfo_llm_review.reviewer import
 def _input(*, results: list[dict[str, object]]) -> Document:
     source = "Acme v. Reed, Case No. 2:31-cv-45821 (D. Mass. 2031)."
     document = asyncio.run(grow_roots(Document.from_source(source)))
-    document = document.complete("16_docket_root_lookup_courtlistener_retrieval").complete(
-        "17_docket_root_lookup_courtlistener_llm_review"
-    )
+    document = document.complete_substage(
+        "validate_roots.docket_lookup.courtlistener_retrieval"
+    ).complete_substage("validate_roots.docket_lookup.courtlistener_review")
 
     class Client:
         def search(self, _query: str, *, offset_mark: str = "*", page_size: int = 100) -> GovInfoSearchPage:
@@ -86,12 +86,12 @@ def test_review_records_field_decisions_and_replays_from_document() -> None:
     assert review.decision.selected_candidate_index == 0
     assert review.decision.date.result is MatchResult.MATCH
     assert after.roots[0].identity_judgments == before.roots[0].identity_judgments == ()
-    assert after.roots[0].next_stage == "fields_aggregated_identity"
+    assert after.roots[0].next_substage == "validate_roots.docket_lookup.identity_aggregation"
     assert after.roots[0].routes[-1].node_id == review.node_id
     assert seen[0].candidates[0]["filing_year_digits"] == "31"
     assert review.node_id == after.roots[0].nodes[-1].id
     assert "dateIssued" not in str(seen[0].candidates)
-    assert after.get_stage("18_docket_root_lookup_govinfo_retrieval") == before
+    assert after.get_substage("validate_roots.docket_lookup.govinfo_retrieval") == before
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 

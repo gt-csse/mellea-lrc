@@ -36,4 +36,4 @@ class Node(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     id: str
-    stage: str
+    substage: str

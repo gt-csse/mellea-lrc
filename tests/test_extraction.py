@@ -23,6 +23,7 @@ from mellea_lrc.model import (
     CaseNameKind,
     CitationDate,
     CitationField,
+    CitationTagKind,
     CourtField,
     DateField,
     DocketEntryField,
@@ -39,6 +40,7 @@ from mellea_lrc.model import (
     Reporter,
     ReporterLocatorValue,
     Span,
+    TableOfAuthoritiesComponent,
     latest,
 )
 from mellea_lrc.preprocessing import preprocess
@@ -79,7 +81,7 @@ def test_locator_stages_preserve_exact_occurrences_and_create_one_node() -> None
     assert reporter.case_name == reporter.court == reporter.date == ()
     assert reporter_only.colocations == ()
     assert len(reporter.nodes) == 1
-    assert reporter.nodes[0].stage == "1_full_reporter_locators"
+    assert reporter.nodes[0].substage == "grow_roots.locator_discovery.full_reporter_locators"
     assert isinstance(reporter.locator[-1], FullReporterLocator)
     assert isinstance(reporter.locator[-1], CitationField)
     _assert_exact_quote(reporter_only, reporter.locator[-1])
@@ -108,8 +110,8 @@ def test_locator_stages_preserve_exact_occurrences_and_create_one_node() -> None
     assert not hasattr(reporter, "docket_number")
     assert both.colocations == ()
     assert reporter == reporter_only.citations[0]
-    assert both.get_stage("1_full_reporter_locators") == reporter_only
-    assert both.get_stage("2_docket_locators") == both
+    assert both.get_substage("grow_roots.locator_discovery.full_reporter_locators") == reporter_only
+    assert both.get_substage("grow_roots.locator_discovery.docket_locators") == both
     assert len(docket.nodes) == 1
     assert all(update.node_id == docket.nodes[0].id for log in _field_logs(docket).values() for update in log)
     assert "updates" not in FullCitation.model_fields
@@ -173,7 +175,7 @@ def test_field_readers_keep_adjacent_cases_and_source_spans_separate() -> None:
         "Smith v. Jones, No. 1:24-cv-00123 (D. Ariz. Jan. 1, 2024)."
     )
     document = Document.from_source(text)
-    for stage in (
+    for substage in (
         find_full_reporter_locators,
         find_docket_locators,
         resolve_colocations,
@@ -182,7 +184,7 @@ def test_field_readers_keep_adjacent_cases_and_source_spans_separate() -> None:
         resolve_dates,
         resolve_pin_cites,
     ):
-        document = stage(document)
+        document = substage(document)
 
     reporter, docket = document.citations
     assert latest(reporter.case_name) == CaseName(
@@ -239,7 +241,9 @@ def test_field_readers_keep_adjacent_cases_and_source_spans_separate() -> None:
 
 def test_case_name_reader_keeps_a_printed_fragment_without_inventing_a_party() -> None:
     source = "Gucci America  , 768 F.3d 122 (2d Cir. 2014)."
-    document = resolve_case_names(resolve_colocations(find_full_reporter_locators(Document.from_source(source))))
+    document = resolve_case_names(
+        resolve_colocations(find_full_reporter_locators(Document.from_source(source)))
+    )
     reading = document.full_locators[0].case_name[-1]
 
     assert reading.quote == "Gucci America"
@@ -265,7 +269,9 @@ def test_case_name_outcome_distinguishes_not_stated_from_failed_normalization() 
 
 def test_case_name_reader_keeps_a_procedural_name_with_internal_comma() -> None:
     source = "In  re  Giftcraft  Ltd., Inc. , 645 B.R. 175 (Bankr. S.D.N.Y. 2025)."
-    document = resolve_case_names(resolve_colocations(find_full_reporter_locators(Document.from_source(source))))
+    document = resolve_case_names(
+        resolve_colocations(find_full_reporter_locators(Document.from_source(source)))
+    )
     reading = document.full_locators[0].case_name[-1]
 
     assert reading.quote == "In  re  Giftcraft  Ltd., Inc."
@@ -300,7 +306,7 @@ def test_table_of_authorities_reporter_occurrence_can_be_the_root() -> None:
     source = Document.model_validate(
         {
             **source.model_dump(mode="python"),
-            "index_spans": (Span(0, text.index("\nARGUMENT")),),
+            "index_spans": (TableOfAuthoritiesComponent(0, text.index("\nARGUMENT")),),
         }
     )
 
@@ -314,19 +320,22 @@ def test_table_of_authorities_reporter_occurrence_can_be_the_root() -> None:
     assert latest(toa.root_id) == toa.id
     assert latest(body.root_id) == toa.id
     assert document.roots == (toa,)
+    assert toa.has_tag(CitationTagKind.TABLE_OF_AUTHORITIES)
+    assert not body.has_tag(CitationTagKind.TABLE_OF_AUTHORITIES)
 
 
 def test_table_of_authorities_docket_locator_is_discovered() -> None:
     text = "TABLE OF AUTHORITIES\nSmith v. Jones, Case No. 1:24-cv-00123 (D. Ariz. 2024)."
     source = Document.from_source(text)
     source = Document.model_validate(
-        {**source.model_dump(mode="python"), "index_spans": (Span(0, len(text)),)}
+        {**source.model_dump(mode="python"), "index_spans": (TableOfAuthoritiesComponent(0, len(text)),)}
     )
 
     document = find_docket_locators(source)
 
     assert len(document.full_locators) == 1
     assert _read_span(document, 0) == "Case No. 1:24-cv-00123"
+    assert document.full_locators[0].has_tag(CitationTagKind.TABLE_OF_AUTHORITIES)
 
 
 def test_courtless_docket_occurrences_are_not_deduplicated_by_number_alone() -> None:
@@ -378,7 +387,7 @@ def test_completed_extraction_stages_reject_repeat_calls() -> None:
     )
     for run in stages:
         document = run(document)
-        with pytest.raises(ValueError, match="Stage already completed"):
+        with pytest.raises(ValueError, match="Substage already completed"):
             run(document)
 
 
@@ -391,16 +400,16 @@ def test_synchronous_pipeline_and_json_roundtrip() -> None:
     assert isinstance(document.citations[1], FullReporterCitation)
     assert document.text == text
     assert all(citation.nodes and citation.locator[-1].get_normalized() for citation in document.citations)
-    assert document.stage_runs == (
-        "1_full_reporter_locators",
-        "2_docket_locators",
-        "4_docket_entries",
-        "5_colocations",
-        "6_case_names",
-        "7_courts",
-        "8_dates",
-        "9_pin_cites",
-        "10_roots",
+    assert document.substage_runs == (
+        "grow_roots.locator_discovery.full_reporter_locators",
+        "grow_roots.locator_discovery.docket_locators",
+        "grow_roots.field_reading.docket_entries",
+        "grow_roots.field_reading.colocations",
+        "grow_roots.field_reading.case_names",
+        "grow_roots.field_reading.courts",
+        "grow_roots.field_reading.dates",
+        "grow_roots.field_reading.pin_cites",
+        "grow_roots.root_formation.rule",
     )
     assert len(document.citations) == 2
     assert len(document.colocations) == 1
@@ -431,25 +440,25 @@ def test_explicit_methods_append_a_traceable_history() -> None:
     date_text = "2024"
     court_text = "D. Ariz."
 
-    named = citation.record("6_case_names").with_case_name(source, Span(0, len(name)))
-    document = document.replace_citation(named).complete("6_case_names")
-    courted = named.record("7_courts").with_court(
+    named = citation.record("grow_roots.field_reading.case_names").with_case_name(source, Span(0, len(name)))
+    document = document.replace_citation(named).complete_substage("grow_roots.field_reading.case_names")
+    courted = named.record("grow_roots.field_reading.courts").with_court(
         source, Span(source.index(court_text), source.index(court_text) + len(court_text))
     )
-    document = document.replace_citation(courted).complete("7_courts")
-    dated = courted.record("8_dates").with_date(
+    document = document.replace_citation(courted).complete_substage("grow_roots.field_reading.courts")
+    dated = courted.record("grow_roots.field_reading.dates").with_date(
         source, Span(source.index(date_text), source.index(date_text) + 4)
     )
-    document = document.replace_citation(dated).complete("8_dates")
-    rooted = dated.record("10_roots").with_root(citation.id)
-    document = document.replace_citation(rooted).complete("10_roots")
+    document = document.replace_citation(dated).complete_substage("grow_roots.field_reading.dates")
+    rooted = dated.record("grow_roots.root_formation.rule").with_root(citation.id)
+    document = document.replace_citation(rooted).complete_substage("grow_roots.root_formation.rule")
 
-    assert [node.stage for node in rooted.nodes] == [
-        "2_docket_locators",
-        "6_case_names",
-        "7_courts",
-        "8_dates",
-        "10_roots",
+    assert [node.substage for node in rooted.nodes] == [
+        "grow_roots.locator_discovery.docket_locators",
+        "grow_roots.field_reading.case_names",
+        "grow_roots.field_reading.courts",
+        "grow_roots.field_reading.dates",
+        "grow_roots.root_formation.rule",
     ]
     assert named.nodes == rooted.nodes[:2]
     assert courted.nodes == rooted.nodes[:3]
@@ -479,8 +488,8 @@ def test_normalized_case_name_can_differ_from_its_exact_quote() -> None:
     document = find_docket_locators(Document.from_source(source))
     citation = document.citations[0]
     name_span = Span(0, source.index(","))
-    named = citation.record("6_case_names").with_case_name(source, name_span)
-    document = document.replace_citation(named).complete("6_case_names")
+    named = citation.record("grow_roots.field_reading.case_names").with_case_name(source, name_span)
+    document = document.replace_citation(named).complete_substage("grow_roots.field_reading.case_names")
 
     entry = document.citations[0].case_name[-1]
     _assert_exact_quote(document, entry)
@@ -531,7 +540,7 @@ def test_one_recorded_decision_can_update_two_fields() -> None:
     document = document.replace_citation(revised)
 
     assert len(revised.nodes) == len(citation.nodes) + 1
-    assert revised.nodes[-1].stage == "review"
+    assert revised.nodes[-1].substage == "review"
     assert revised.case_name[-1].node_id == revised.court[-1].node_id == revised.nodes[-1].id
     assert revised.locator == citation.locator
     _assert_roundtrip(document)
@@ -556,16 +565,16 @@ def test_source_mismatches_are_rejected_at_write_time_and_after_json_loading() -
     with pytest.raises(ValueError, match="inside the locator"):
         FullDocketCitation.from_locator(
             citation_id="bad",
-            stage="locator",
+            substage="locator",
             source=source,
             span=citation.locator_span,
             number_span=name_span,
         )
 
-    updated = citation.record("6_case_names").with_case_name(source, name_span)
-    document = document.replace_citation(updated).complete("6_case_names")
-    updated = updated.record("9_pin_cites").with_pin_cite(source, pin_span)
-    document = document.replace_citation(updated).complete("9_pin_cites")
+    updated = citation.record("grow_roots.field_reading.case_names").with_case_name(source, name_span)
+    document = document.replace_citation(updated).complete_substage("grow_roots.field_reading.case_names")
+    updated = updated.record("grow_roots.field_reading.pin_cites").with_pin_cite(source, pin_span)
+    document = document.replace_citation(updated).complete_substage("grow_roots.field_reading.pin_cites")
     _assert_roundtrip(document)
 
     for field in ("locator", "case_name", "pin_cite"):
@@ -600,9 +609,9 @@ def test_field_history_rejects_missing_node_and_reversed_order() -> None:
     document = find_docket_locators(Document.from_source(source))
     citation = document.citations[0]
     citation = citation.record("first").with_inferred_court("azd")
-    document = document.replace_citation(citation).complete("first")
+    document = document.replace_citation(citation).complete_substage("first")
     citation = citation.record("second").with_inferred_court("azd")
-    document = document.replace_citation(citation).complete("second")
+    document = document.replace_citation(citation).complete_substage("second")
 
     missing = document.model_dump(mode="json")
     missing["citations"][0]["court"][-1]["node_id"] = "missing"
@@ -633,9 +642,9 @@ def test_every_checkpoint_and_withdrawal_restore_preserve_history() -> None:
         resolve_pin_cites,
         form_roots,
     )
-    for stage in stages:
+    for substage in stages:
         previous = {citation.id: citation for citation in document.citations}
-        document = stage(document)
+        document = substage(document)
         _assert_roundtrip(document)
         for citation in document.citations:
             prior = previous.get(citation.id)
@@ -669,48 +678,51 @@ def test_every_checkpoint_and_withdrawal_restore_preserve_history() -> None:
         Document.model_validate(stale_root)
 
 
-def test_get_stage_reconstructs_each_committed_document() -> None:
+def test_get_substage_reconstructs_each_committed_document() -> None:
     text = "Brown v. Board of Education, 347 U.S. 483, 495 (1954)."
     document = Document.from_source(text)
     stages = (
-        ("1_full_reporter_locators", find_full_reporter_locators),
-        ("2_docket_locators", find_docket_locators),
-        ("5_colocations", resolve_colocations),
-        ("6_case_names", resolve_case_names),
-        ("7_courts", resolve_courts),
-        ("8_dates", resolve_dates),
-        ("9_pin_cites", resolve_pin_cites),
-        ("10_roots", form_roots),
+        ("grow_roots.locator_discovery.full_reporter_locators", find_full_reporter_locators),
+        ("grow_roots.locator_discovery.docket_locators", find_docket_locators),
+        ("grow_roots.field_reading.colocations", resolve_colocations),
+        ("grow_roots.field_reading.case_names", resolve_case_names),
+        ("grow_roots.field_reading.courts", resolve_courts),
+        ("grow_roots.field_reading.dates", resolve_dates),
+        ("grow_roots.field_reading.pin_cites", resolve_pin_cites),
+        ("grow_roots.root_formation.rule", form_roots),
     )
     checkpoints: dict[str, Document] = {}
-    for name, stage in stages:
-        document = stage(document)
+    for name, substage in stages:
+        document = substage(document)
         checkpoints[name] = document
-        assert document.stage_runs == tuple(checkpoints)
+        assert document.substage_runs == tuple(checkpoints)
 
-    reporter_only = checkpoints["1_full_reporter_locators"]
-    after_empty_docket = checkpoints["2_docket_locators"]
+    reporter_only = checkpoints["grow_roots.locator_discovery.full_reporter_locators"]
+    after_empty_docket = checkpoints["grow_roots.locator_discovery.docket_locators"]
     assert len(after_empty_docket.citations) == 1
     assert after_empty_docket.citations == reporter_only.citations
-    assert all(node.stage != "2_docket_locators" for node in after_empty_docket.citations[0].nodes)
+    assert all(
+        node.substage != "grow_roots.locator_discovery.docket_locators"
+        for node in after_empty_docket.citations[0].nodes
+    )
     assert after_empty_docket != reporter_only
 
     loaded = Document.model_validate_json(document.model_dump_json())
     for name, expected in checkpoints.items():
-        assert document.get_stage(name) == expected
-        assert loaded.get_stage(name) == expected
+        assert document.get_substage(name) == expected
+        assert loaded.get_substage(name) == expected
     with pytest.raises(KeyError):
-        document.get_stage("never_completed")
+        document.get_substage("never_completed")
 
 
 def test_complete_rejects_a_stage_that_has_already_run() -> None:
-    completed = Document.from_source("No citations.").complete("empty_stage")
+    completed = Document.from_source("No citations.").complete_substage("empty_stage")
 
     with pytest.raises(ValueError):
-        completed.complete("empty_stage")
+        completed.complete_substage("empty_stage")
 
 
-def test_get_stage_excludes_later_citations_and_uncommitted_changes() -> None:
+def test_get_substage_excludes_later_citations_and_uncommitted_changes() -> None:
     text = "See 556 U.S. 662; Case No. 1:24-cv-00123; Case No. 2:24-cv-00456."
     reporter_only = find_full_reporter_locators(Document.from_source(text))
 
@@ -720,20 +732,20 @@ def test_get_stage_excludes_later_citations_and_uncommitted_changes() -> None:
         number_start = start + len("Case No. ")
         return FullDocketCitation.from_locator(
             citation_id=f"manual:{number}",
-            stage="manual_review",
+            substage="manual_review",
             source=text,
             span=Span(start, start + len(label)),
             number_span=Span(number_start, number_start + len(number)),
         )
 
     pending = reporter_only.add_citation(docket("1:24-cv-00123"))
-    assert pending.get_stage("1_full_reporter_locators") == reporter_only
+    assert pending.get_substage("grow_roots.locator_discovery.full_reporter_locators") == reporter_only
     with pytest.raises(KeyError):
-        pending.get_stage("manual_review")
+        pending.get_substage("manual_review")
 
-    reviewed = pending.complete("manual_review")
-    assert reviewed.get_stage("1_full_reporter_locators") == reporter_only
-    assert reviewed.get_stage("manual_review") == reviewed
+    reviewed = pending.complete_substage("manual_review")
+    assert reviewed.get_substage("grow_roots.locator_discovery.full_reporter_locators") == reporter_only
+    assert reviewed.get_substage("manual_review") == reviewed
 
     with pytest.raises(ValueError, match="completed"):
         reviewed.add_citation(docket("2:24-cv-00456"))
@@ -760,13 +772,17 @@ def test_native_reload_rejects_histories_that_cannot_restore_prior_stages() -> N
         Document.model_validate(reordered)
 
     late_group_member = document.model_dump(mode="python")
-    late_group_member["stage_runs"] = [*document.stage_runs, "5_colocations", "later"]
-    for citation, stage, raw in (
-        (first, "5_colocations", late_group_member["citations"][0]),
+    late_group_member["runs"] = [
+        *document.model_dump(mode="python")["runs"],
+        {"kind": "substage", "name": "grow_roots.field_reading.colocations"},
+        {"kind": "substage", "name": "later"},
+    ]
+    for citation, substage, raw in (
+        (first, "grow_roots.field_reading.colocations", late_group_member["citations"][0]),
         (second, "later", late_group_member["citations"][1]),
     ):
         node_id = f"{citation.id}:node:1"
-        raw["nodes"] = (*raw["nodes"], {"id": node_id, "stage": stage})
+        raw["nodes"] = (*raw["nodes"], {"id": node_id, "substage": substage})
         raw["colocation_id"] = [{"value": "g", "node_id": node_id}]
     with pytest.raises(ValueError, match="colocation group"):
         Document.model_validate(late_group_member)

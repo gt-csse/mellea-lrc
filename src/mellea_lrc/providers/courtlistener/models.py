@@ -10,7 +10,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 class _CourtListenerPayload(BaseModel):
     model_config = ConfigDict(strict=True, extra="ignore", populate_by_name=True)
 
-    # Keep the upstream object for fields a later validation stage may need.
+    # Keep the upstream object for fields a later validation substage may need.
     raw_json: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")

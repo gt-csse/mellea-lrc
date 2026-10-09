@@ -16,10 +16,10 @@ from mellea_lrc.model.document import Document
 from mellea_lrc.providers.courtlistener import CourtListenerClient, CourtListenerDocket
 from mellea_lrc.validation.reporter_exact.fields import candidate_court_id
 
-STAGE = "12.2_reporter_root_lookup_docket_retrieval"
-LOOKUP_STAGE = "12.1_reporter_root_lookup_cluster_retrieval"
-UNIQUE_REVIEW_STAGE = "13.1_reporter_root_lookup_unique_rule_judgment"
-AMBIGUOUS_REVIEW_STAGE = "13.2_reporter_root_lookup_ambiguous_rule_judgment"
+SUBSTAGE = "validate_roots.reporter_lookup.docket_retrieval"
+LOOKUP_SUBSTAGE = "validate_roots.reporter_lookup.cluster_retrieval"
+UNIQUE_REVIEW_SUBSTAGE = "validate_roots.reporter_lookup.unique_rule_judgment"
+AMBIGUOUS_REVIEW_SUBSTAGE = "validate_roots.reporter_lookup.ambiguous_rule_judgment"
 
 
 class ReporterDocketClient(Protocol):
@@ -32,15 +32,15 @@ def reporter_root_lookup_docket_retrieval(
     client: ReporterDocketClient | None = None,
 ) -> Document:
     """Save linked court evidence before either rule judgment starts."""
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if LOOKUP_STAGE not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if LOOKUP_SUBSTAGE not in document.substage_runs:
         raise ValueError("Retrieve reporter clusters before linked docket evidence")
     docket_cache: dict[str, CourtListenerDocket | None] = {}
     with ExitStack() as stack:
         service = client
         for root in tuple(item for item in document.roots if isinstance(item, FullReporterCitation)):
-            if root.next_stage != STAGE:
+            if root.next_substage != SUBSTAGE:
                 continue
             lookup = root.reporter_exact_lookup
             if (
@@ -53,7 +53,7 @@ def reporter_root_lookup_docket_retrieval(
                 }
             ):
                 raise ValueError("Linked docket retrieval requires saved candidates")
-            recorded = root.record(STAGE)
+            recorded = root.record(SUBSTAGE)
             if lookup.outcome is ReporterExactLookupOutcome.UNIQUE:
                 candidate = lookup.response.clusters[0]
                 if recorded.court and candidate.docket_id and candidate_court_id(candidate) is None:
@@ -69,7 +69,7 @@ def reporter_root_lookup_docket_retrieval(
                             response=docket_cache[docket_id],
                         )
                     )
-                document = document.replace_citation(recorded.with_route(UNIQUE_REVIEW_STAGE))
+                document = document.replace_citation(recorded.with_route(UNIQUE_REVIEW_SUBSTAGE))
                 continue
             if len(lookup.response.clusters) < REPORTER_LOOKUP_CANDIDATE_LIMIT:
                 for index, candidate in enumerate(lookup.response.clusters):
@@ -88,5 +88,5 @@ def reporter_root_lookup_docket_retrieval(
                             response=docket_cache[docket_id],
                         )
                     )
-            document = document.replace_citation(recorded.with_route(AMBIGUOUS_REVIEW_STAGE))
-    return document.complete(STAGE)
+            document = document.replace_citation(recorded.with_route(AMBIGUOUS_REVIEW_SUBSTAGE))
+    return document.complete_substage(SUBSTAGE)

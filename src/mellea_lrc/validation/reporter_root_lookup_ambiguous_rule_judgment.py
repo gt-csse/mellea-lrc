@@ -18,8 +18,8 @@ from mellea_lrc.validation.reporter_exact.fields import (
     locator_present,
 )
 
-STAGE = "13.2_reporter_root_lookup_ambiguous_rule_judgment"
-LOOKUP_STAGE = "12.2_reporter_root_lookup_docket_retrieval"
+SUBSTAGE = "validate_roots.reporter_lookup.ambiguous_rule_judgment"
+LOOKUP_SUBSTAGE = "validate_roots.reporter_lookup.docket_retrieval"
 
 
 def reporter_root_lookup_ambiguous_rule_judgment(
@@ -29,15 +29,15 @@ def reporter_root_lookup_ambiguous_rule_judgment(
 
     Zero or several passing candidates remain available for a later model
     review. A result with at least 20 candidates is preserved but not sent
-    through this bounded rule review. This stage never repeats citation lookup.
+    through this bounded rule review. This substage never repeats citation lookup.
     """
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if LOOKUP_STAGE not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if LOOKUP_SUBSTAGE not in document.substage_runs:
         raise ValueError("Retrieve ambiguous docket evidence before candidate review")
     roots = tuple(root for root in document.roots if isinstance(root, FullReporterCitation))
     for root in roots:
-        if root.next_stage != STAGE:
+        if root.next_substage != SUBSTAGE:
             continue
         lookup = root.reporter_exact_lookup
         if (
@@ -47,7 +47,7 @@ def reporter_root_lookup_ambiguous_rule_judgment(
             or lookup.response is None
         ):
             raise ValueError("Ambiguous route requires a saved multi-candidate reporter lookup")
-        recorded = root.record(STAGE)
+        recorded = root.record(SUBSTAGE)
         candidates = lookup.response.clusters
         if len(candidates) >= REPORTER_LOOKUP_CANDIDATE_LIMIT:
             resolution = ReporterExactAmbiguityResolution(
@@ -97,7 +97,7 @@ def reporter_root_lookup_ambiguous_rule_judgment(
             recorded = (
                 recorded.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY).with_route(None)
                 if selected is not None
-                else recorded.with_route("15_reporter_root_lookup_ambiguous_llm_judgment")
+                else recorded.with_route("validate_roots.reporter_lookup.ambiguous_llm_judgment")
             )
         document = document.replace_citation(recorded)
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

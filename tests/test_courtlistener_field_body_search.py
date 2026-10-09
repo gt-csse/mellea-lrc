@@ -13,12 +13,14 @@ from mellea_lrc.providers.courtlistener.models import CourtListenerSearchPage
 from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.validation.body_search.common import field_query_name, field_query_parties
 from mellea_lrc.validation.body_search.intended_case_courtlistener_opinion_retrieval import (
-    STAGE as OPINION_STAGE,
+    SUBSTAGE as OPINION_SUBSTAGE,
 )
 from mellea_lrc.validation.body_search.intended_case_courtlistener_opinion_retrieval import (
     intended_case_courtlistener_opinion_retrieval,
 )
-from mellea_lrc.validation.body_search.intended_case_courtlistener_recap_retrieval import STAGE as RECAP_STAGE
+from mellea_lrc.validation.body_search.intended_case_courtlistener_recap_retrieval import (
+    SUBSTAGE as RECAP_SUBSTAGE,
+)
 from mellea_lrc.validation.body_search.intended_case_courtlistener_recap_retrieval import (
     intended_case_courtlistener_recap_retrieval,
 )
@@ -62,10 +64,10 @@ def _page(*results: dict[str, Any]) -> CourtListenerSearchPage:
 
 def _ready(source: str = "Brown v. Board of Education, 347 U.S. 483 (1954).") -> Document:
     document = asyncio.run(grow_roots(Document.from_source(source)))
-    root = document.roots[0].record("23_locator_body_llm_judgment")
-    return document.replace_citation(root.with_route("case_name_body_discovery")).complete(
-        "23_locator_body_llm_judgment"
-    )
+    root = document.roots[0].record("validate_roots.locator_body_corroboration.llm_judgment")
+    return document.replace_citation(
+        root.with_route("validate_roots.intended_case_discovery.courtlistener_opinion_retrieval")
+    ).complete_substage("validate_roots.locator_body_corroboration.llm_judgment")
 
 
 def test_opinion_field_search_saves_grounded_name_and_different_locator() -> None:
@@ -91,7 +93,7 @@ def test_opinion_field_search_saves_grounded_name_and_different_locator() -> Non
         before, client=client, retrospective_date=date(1970, 1, 1)
     )
 
-    assert after.stage_runs[-1] == OPINION_STAGE
+    assert after.substage_runs[-1] == OPINION_SUBSTAGE
     assert client.search_calls == [("Brown AND Education", "o", None)]
     assert client.opinion_calls == ["901"]
     assert after.roots[0].body_searches == ()
@@ -106,7 +108,7 @@ def test_opinion_field_search_saves_grounded_name_and_different_locator() -> Non
     assert evidence.excerpt[evidence.anchor_span.start : evidence.anchor_span.end] == name
     assert "349 U.S. 294" in evidence.excerpt
     assert "347 U.S. 483" not in evidence.excerpt
-    assert after.get_stage("23_locator_body_llm_judgment") == before
+    assert after.get_substage("validate_roots.locator_body_corroboration.llm_judgment") == before
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -183,12 +185,12 @@ def test_field_stages_only_process_routed_roots_and_keep_independent_records() -
         BodySource.COURTLISTENER_OPINION,
         BodySource.COURTLISTENER_RECAP,
     ]
-    assert recap.stage_runs[-2:] == (OPINION_STAGE, RECAP_STAGE)
+    assert recap.substage_runs[-2:] == (OPINION_SUBSTAGE, RECAP_SUBSTAGE)
     with pytest.raises(ValueError, match="already completed"):
         intended_case_courtlistener_opinion_retrieval(recap, client=client)
 
     unselected = asyncio.run(grow_roots(Document.from_source("Brown v. Board of Education, 347 U.S. 483.")))
-    unselected = unselected.complete("23_locator_body_llm_judgment")
+    unselected = unselected.complete_substage("validate_roots.locator_body_corroboration.llm_judgment")
     skipped = intended_case_courtlistener_opinion_retrieval(unselected, client=client)
     assert skipped.roots[0].field_body_searches == ()
     assert len(client.search_calls) == 2

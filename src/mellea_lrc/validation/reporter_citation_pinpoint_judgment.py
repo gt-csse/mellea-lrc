@@ -14,10 +14,11 @@ from mellea_lrc.model.citations.reporter_pinpoint import (
     ReporterPinpointJudgment,
     ReporterPinpointVerdict,
 )
+from mellea_lrc.model.citations.tags import CitationTagKind
 from mellea_lrc.model.document import Document
 
-STAGE = "47_reporter_citation_pinpoint_judgment"
-SOURCE_STAGE = "46_reporter_citation_full_opinion_review"
+SUBSTAGE = "validate_pincite.support_review.judgment"
+SOURCE_SUBSTAGE = "validate_pincite.support_review.full_opinion_review"
 
 
 def _selected_review(
@@ -70,13 +71,13 @@ def _grounded_quotes(
 
 def judge_reporter_citation_pinpoints(document: Document) -> Document:
     """A page-only negative or incomplete retrieval cannot establish wrong support."""
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if SOURCE_STAGE not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if SOURCE_SUBSTAGE not in document.substage_runs:
         raise ValueError("Complete full-opinion support review before judging reporter pinpoints")
     by_id = {citation.id: citation for citation in document.citations}
     for citation in document.citations:
-        if not citation.reporter_pinpoint_evidence:
+        if citation.has_tag(CitationTagKind.TABLE_OF_AUTHORITIES) or not citation.reporter_pinpoint_evidence:
             continue
         evidence_index = len(citation.reporter_pinpoint_evidence) - 1
         evidence = citation.reporter_pinpoint_evidence[evidence_index]
@@ -117,7 +118,7 @@ def judge_reporter_citation_pinpoints(document: Document) -> Document:
                 reason += " A negative review of cited pages alone does not establish absent opinion support."
         if evidence.outcome is not PinpointEvidenceOutcome.READY:
             reason += f" Evidence preparation: {evidence.reason}"
-        recorded = citation.record(STAGE)
+        recorded = citation.record(SUBSTAGE)
         recorded = recorded.with_reporter_pinpoint_judgment(
             ReporterPinpointJudgment(
                 node_id=recorded.nodes[-1].id,
@@ -129,4 +130,4 @@ def judge_reporter_citation_pinpoints(document: Document) -> Document:
             )
         )
         document = document.replace_citation(recorded)
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

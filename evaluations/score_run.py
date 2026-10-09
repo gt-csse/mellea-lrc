@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from evaluations.grow_roots import render_grow_roots, score_grow_roots
 from evaluations.validate_pincite import render_validate_pincite, score_validate_pincite
 from evaluations.validate_roots import render_validate_roots, score_validate_roots
 from mellea_lrc.api import Document
+from mellea_lrc.model.execution import get_workflow
 
 _WORKFLOWS = {
     "grow_roots": (score_grow_roots, render_grow_roots),
@@ -40,27 +42,33 @@ def score_run(run_dir: Path, workflows: tuple[str, ...] | None = None) -> dict[s
         Document.model_validate_json((run_dir / "documents" / f"{filename}.json").read_text(encoding="utf-8"))
         for filename in filenames
     )
+    if not documents:
+        raise ValueError("Cannot score a run without Documents")
+    if "annotation_sha256" in record:
+        annotation_hashes = {}
+        for filename, document in zip(filenames, documents, strict=True):
+            if document.source_path is None:
+                raise ValueError("Annotation provenance requires an official Document source")
+            source = Path(document.source_path).resolve()
+            annotation = source.parent.parent / "documents" / f"{source.stem}.jsonl"
+            annotation_hashes[filename] = hashlib.sha256(annotation.read_bytes()).hexdigest()
+        if annotation_hashes != record["annotation_sha256"]:
+            raise ValueError("Run annotation content differs from saved provenance")
     if workflows is None:
         workflows = tuple(
             name
             for name in _WORKFLOWS
-            if (
-                name != "grow_leaves" or all("28_short_reporter_citations" in d.stage_runs for d in documents)
-            )
-            and (
-                name != "validate_pincite"
-                or all("39_reporter_root_opinion_retrieval" in d.stage_runs for d in documents)
+            if all(
+                get_workflow(name).stages[0].substages[0].name in document.substage_runs
+                for document in documents
             )
         )
     rendered: dict[str, str] = {}
     for workflow in workflows:
         scorer, renderer = _WORKFLOWS[workflow]
-        total = None
-        for document in documents:
-            score = scorer(document)
-            total = score if total is None else total + score
-        if total is None:
-            raise ValueError("Cannot score a run without Documents")
+        total = scorer(documents[0])
+        for document in documents[1:]:
+            total += scorer(document)
         (run_dir / f"{workflow}.json").write_text(
             json.dumps({"set": record["set"], **total.as_dict()}, indent=2) + "\n",
             encoding="utf-8",

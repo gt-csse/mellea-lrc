@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 from collections.abc import Mapping
 from copy import copy
 from dataclasses import dataclass, field
@@ -13,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, JsonValue, ValidationError
 
-from mellea_lrc.llm.config import DEFAULT_TIMEOUT_SECONDS, OUTPUT_MODE_OPTION, PROFILE_OPTION, LlmOutputMode
+from mellea_lrc.llm.config import OUTPUT_MODE_OPTION, PROFILE_OPTION, LlmOutputMode
 from mellea_lrc.model.ivr import IvrAttempt, IvrRequirementAttempt, IvrRun
 
 if TYPE_CHECKING:
@@ -64,6 +65,7 @@ async def run_instruct_ivr(
     from mellea.stdlib import functional as mfuncs
     from mellea.stdlib.context import ChatContext
 
+    timeout_seconds = _call_timeout_seconds(model_options)
     if PROFILE_OPTION in model_options:
         profile = model_options[PROFILE_OPTION]
         if not isinstance(profile, Mapping):
@@ -101,7 +103,6 @@ async def run_instruct_ivr(
         format=wire_format,
         model_options=options if spec.prefix is None else {**options, ModelOption.SYSTEM_PROMPT: spec.prefix},
     )
-    timeout_seconds = _call_timeout_seconds(model_options)
     try:
         # Mellea's stream timeout guards a missing chunk, but some provider
         # failures leave an open request after a stream has begun.  The outer
@@ -126,7 +127,9 @@ def _output_transport(
     """
     options = dict(model_options)
     options.pop(PROFILE_OPTION, None)  # Retained in IvrRun, never sent to the provider.
-    mode = LlmOutputMode(options.pop(OUTPUT_MODE_OPTION, LlmOutputMode.JSON_SCHEMA))
+    if OUTPUT_MODE_OPTION not in options:
+        raise ValueError("IVR requires an explicit output_mode from its configured profile")
+    mode = LlmOutputMode(options.pop(OUTPUT_MODE_OPTION))
     if "response_format" in options:
         raise ValueError("Configure output_mode instead of supplying response_format")
     if spec.output_format is None:
@@ -155,10 +158,15 @@ def _call_timeout_seconds(model_options: Mapping[object, object]) -> float:
     """Read the project-owned whole-call limit from Mellea call options."""
     from mellea.backends import ModelOption
 
-    value = model_options.get(ModelOption.STREAM_TIMEOUT, DEFAULT_TIMEOUT_SECONDS)
-    if isinstance(value, int | float) and value > 0:
-        return float(value)
-    return DEFAULT_TIMEOUT_SECONDS
+    value = model_options.get(ModelOption.STREAM_TIMEOUT)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise ValueError("IVR requires a finite, positive stream_timeout from its configured profile")
+    return float(value)
 
 
 def _timed_out_ivr_run(

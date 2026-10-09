@@ -1,17 +1,17 @@
-"""Read Id/Ibid spans and pinpoints; attribute them in the next stage."""
+"""Read Id/Ibid spans and pinpoints; attribute them in the next substage."""
 
 import re
 
 from eyecite.models import IdCitation as EyeciteId
 
 from mellea_lrc.extraction.context.leaves import pin_after, require_leaves
-from mellea_lrc.matching.literal import fuzzy_literal
+from mellea_lrc.matching.literal_to_regex import fuzzy_literal
 from mellea_lrc.model.citations import IdCitation
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.parsing.events import events
 
-STAGE = "32_id_citations"
+SUBSTAGE = "grow_leaves.id_citations.discovery"
 _AT_JOIN = fuzzy_literal("at ", whitespace=True, newline=True)
 
 
@@ -28,7 +28,7 @@ def id_pin_span(source: str, position: int, end: int) -> Span | None:
 
 
 def find_id_citations(document: Document) -> Document:
-    require_leaves(document, STAGE)
+    require_leaves(document, SUBSTAGE)
     source_events = events(document.text)
     boundaries = sorted(
         {c.site_span.start for c in document.citations} | {event.span()[0] for event in source_events}
@@ -53,6 +53,6 @@ def find_id_citations(document: Document) -> Document:
         span = Span(start, end)
         if not any(span.overlaps(c.site_span) for c in document.citations):
             document = document.add_citation(
-                IdCitation.from_source(source=document.text, span=span, stage=STAGE, pin_span=pin)
+                IdCitation.from_source(source=document.text, span=span, substage=SUBSTAGE, pin_span=pin)
             )
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

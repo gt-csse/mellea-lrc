@@ -22,7 +22,7 @@ from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterUniqueFieldAssessment
 from mellea_lrc.model.ivr import IvrRun
 from mellea_lrc.validation.reporter_root_lookup_unique_llm_judgment import (
-    STAGE,
+    SUBSTAGE,
     reporter_root_lookup_unique_llm_judgment,
 )
 from mellea_lrc.validation.reporter_root_lookup_unique_llm_judgment.reviewer import (
@@ -32,8 +32,8 @@ from mellea_lrc.validation.reporter_root_lookup_unique_llm_judgment.reviewer imp
 
 SOURCE = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
 NORMALIZED_NAME = {"kind": "adversarial", "plaintiff": "Bell Atl. Corp.", "defendant": "Twombly"}
-REVIEW_STAGE = "13.1_reporter_root_lookup_unique_rule_judgment"
-DOCKET_STAGE = "12.2_reporter_root_lookup_docket_retrieval"
+REVIEW_SUBSTAGE = "validate_roots.reporter_lookup.unique_rule_judgment"
+DOCKET_SUBSTAGE = "validate_roots.reporter_lookup.docket_retrieval"
 
 
 class FakeLookupClient:
@@ -127,7 +127,7 @@ def _review_input(
         start = source.index("Corp. v.")
         end = source.index(", 550")
         misread = root.record("test_incorrect_reading").with_case_name(source, Span(start, end))
-        roots = roots.replace_citation(misread).complete("test_incorrect_reading")
+        roots = roots.replace_citation(misread).complete_substage("test_incorrect_reading")
     service = client or FakeLookupClient()
     retrieved = reporter_root_lookup_cluster_retrieval(roots, client=service)
     assert retrieved.roots[0].case_name_judgments == ()
@@ -136,10 +136,10 @@ def _review_input(
     dockets = reporter_root_lookup_docket_retrieval(retrieved, client=service)
     result = reporter_root_lookup_unique_rule_judgment(dockets)
     assert service.lookup_calls == calls == 1
-    assert result.get_stage("12.1_reporter_root_lookup_cluster_retrieval") == retrieved
-    assert result.get_stage("12.2_reporter_root_lookup_docket_retrieval") == dockets
+    assert result.get_substage("validate_roots.reporter_lookup.cluster_retrieval") == retrieved
+    assert result.get_substage("validate_roots.reporter_lookup.docket_retrieval") == dockets
     assert result.roots[0].identity_judgments == ()
-    assert result.roots[0].next_stage == STAGE
+    assert result.roots[0].next_substage == SUBSTAGE
     return result
 
 
@@ -246,7 +246,7 @@ def test_combined_review_corrects_grounded_name_and_judges_latest_readings() -> 
     assert reviewer.contexts[0].inferred_court_note is not None
     assert "U.S." in reviewer.contexts[0].inferred_court_note
     assert "Supreme Court" in reviewer.contexts[0].inferred_court_note
-    assert after.stage_runs[-1] == STAGE
+    assert after.substage_runs[-1] == SUBSTAGE
     root = after.roots[0]
     assert len(root.nodes) == len(previous.nodes) + 1
     assert len(root.case_name) == len(previous.case_name) + 1
@@ -264,13 +264,13 @@ def test_combined_review_corrects_grounded_name_and_judges_latest_readings() -> 
         assert judgment.reading_index == len(readings) - 1
         assert judgment.result is MatchResult.MATCH
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
-    assert root.next_stage is None
-    assert [route.value for route in root.routes] == [DOCKET_STAGE, REVIEW_STAGE, STAGE, None]
+    assert root.next_substage is None
+    assert [route.value for route in root.routes] == [DOCKET_SUBSTAGE, REVIEW_SUBSTAGE, SUBSTAGE, None]
     assert root.routes[-1].node_id == root.nodes[-1].id
     restored = Document.model_validate_json(after.model_dump_json())
     assert restored == after
-    assert restored.get_stage(REVIEW_STAGE) == before
-    assert restored.get_stage(STAGE) == after
+    assert restored.get_substage(REVIEW_SUBSTAGE) == before
+    assert restored.get_substage(SUBSTAGE) == after
 
 
 def test_no_replacement_proposal_keeps_existing_readings() -> None:
@@ -388,7 +388,7 @@ def test_grounded_name_without_model_normalization_is_rejected() -> None:
     assert root.reporter_unique_review.decision is None
     assert "normalized name" in root.reporter_unique_review.failure_reason
     assert root.identity_judgments == previous.identity_judgments == ()
-    assert root.next_stage == "reporter_root_search"
+    assert root.next_substage == "reporter_root_search"
 
 
 def test_unique_review_accepts_a_grounded_partial_without_supplying_missing_party() -> None:
@@ -427,7 +427,7 @@ def test_model_normalization_without_a_grounded_name_is_rejected() -> None:
     assert root.reporter_unique_review.decision is None
     assert "grounded reading" in root.reporter_unique_review.failure_reason
     assert root.identity_judgments == ()
-    assert root.next_stage == "reporter_root_search"
+    assert root.next_substage == "reporter_root_search"
 
 
 def test_unique_review_processes_only_citations_routed_to_its_stage() -> None:
@@ -445,7 +445,7 @@ def test_unique_review_processes_only_citations_routed_to_its_stage() -> None:
 
     assert reviewer.contexts == []
     assert after.roots == already_admitted.roots
-    assert after.stage_runs[-1] == STAGE
+    assert after.substage_runs[-1] == SUBSTAGE
 
 
 def test_model_field_mismatch_produces_wrong_identity() -> None:
@@ -460,8 +460,8 @@ def test_model_field_mismatch_produces_wrong_identity() -> None:
     assert root.court_judgments[-1].result is MatchResult.MATCH
     assert root.date_judgments[-1].result is MatchResult.MATCH
     assert root.identity_judgments[-1].verdict is IdentityVerdict.WRONG_IDENTITY
-    assert root.next_stage is None
-    assert [route.value for route in root.routes] == [DOCKET_STAGE, REVIEW_STAGE, STAGE, None]
+    assert root.next_substage is None
+    assert [route.value for route in root.routes] == [DOCKET_SUBSTAGE, REVIEW_SUBSTAGE, SUBSTAGE, None]
 
 
 def test_failed_review_preserves_ivr_trace_and_routes_to_search() -> None:
@@ -476,11 +476,11 @@ def test_failed_review_preserves_ivr_trace_and_routes_to_search() -> None:
     assert len(reviewer.contexts) == 1
     root = after.roots[0]
     assert root.identity_judgments == before.roots[0].identity_judgments == ()
-    assert root.next_stage == "reporter_root_search"
+    assert root.next_substage == "reporter_root_search"
     assert [route.value for route in root.routes] == [
-        DOCKET_STAGE,
-        REVIEW_STAGE,
-        STAGE,
+        DOCKET_SUBSTAGE,
+        REVIEW_SUBSTAGE,
+        SUBSTAGE,
         "reporter_root_search",
     ]
     assert "Incomplete JSON" in root.model_dump_json()
@@ -498,7 +498,7 @@ def test_ungrounded_model_correction_is_not_written_and_routes_to_search() -> No
     assert len(reviewer.contexts) == 1
     assert root.case_name == earlier.case_name
     assert root.identity_judgments == earlier.identity_judgments == ()
-    assert root.next_stage == "reporter_root_search"
+    assert root.next_substage == "reporter_root_search"
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -508,7 +508,7 @@ def test_review_records_unavailable_field_without_a_source_reading() -> None:
     retrieved = reporter_root_lookup_cluster_retrieval(roots, client=FakeLookupClient())
     dockets = reporter_root_lookup_docket_retrieval(retrieved)
     before = reporter_root_lookup_unique_rule_judgment(dockets)
-    assert before.roots[0].next_stage == STAGE
+    assert before.roots[0].next_substage == SUBSTAGE
     decision = _decision(date_quote=None, date_result="unavailable")
 
     after = asyncio.run(reporter_root_lookup_unique_llm_judgment(before, reviewer=FakeReviewer(decision)))
@@ -543,7 +543,7 @@ def test_review_rejects_field_state_inconsistent_with_context(
     assert root.reporter_unique_review.decision is None
     assert expected_reason in root.reporter_unique_review.failure_reason
     assert root.identity_judgments == ()
-    assert root.next_stage == "reporter_root_search"
+    assert root.next_substage == "reporter_root_search"
 
 
 def test_review_rejects_match_when_candidate_has_no_name_evidence() -> None:
@@ -555,7 +555,7 @@ def test_review_rejects_match_when_candidate_has_no_name_evidence() -> None:
     assert root.reporter_unique_review.decision is None
     assert "case_name has no usable selected-record evidence" in root.reporter_unique_review.failure_reason
     assert root.identity_judgments == ()
-    assert root.next_stage == "reporter_root_search"
+    assert root.next_substage == "reporter_root_search"
 
 
 def test_review_accepts_unavailable_when_candidate_lacks_date_evidence() -> None:

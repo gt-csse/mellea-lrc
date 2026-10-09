@@ -8,13 +8,13 @@ from mellea_lrc.model.citations.fields.date import FULL_DATE_RE, YEAR_RE
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 
-STAGE = "8_dates"
+SUBSTAGE = "grow_roots.field_reading.dates"
 
 
 def resolve_dates(document: Document, rules: ExtractionRules | None = None) -> Document:
     """Read an exact day or year from the bounded post-site parenthetical."""
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
     require_structure(document)
     config = rules or stable()
     for citation in document.full_locators:
@@ -30,5 +30,5 @@ def resolve_dates(document: Document, rules: ExtractionRules | None = None) -> D
             start + parenthetical.start("body") + match.start(),
             start + parenthetical.start("body") + match.end(),
         )
-        document = document.replace_citation(citation.record(STAGE).with_date(document.text, span))
-    return document.complete(STAGE)
+        document = document.replace_citation(citation.record(SUBSTAGE).with_date(document.text, span))
+    return document.complete_substage(SUBSTAGE)

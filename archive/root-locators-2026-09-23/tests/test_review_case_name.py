@@ -13,8 +13,8 @@ import io
 
 from mellea_lrc.model.extraction_metadata import Relaxation
 from mellea_lrc.extraction.eyecite_extractor import extract_from_plain_text
-from mellea_lrc.extraction.adjudication.candidates.case_name_sites import case_name_sites
-from mellea_lrc.extraction.adjudication.review.case_name import (
+from mellea_lrc.experimental.leaf_case_name_hunting.candidates import case_name_sites
+from mellea_lrc.experimental.leaf_case_name_hunting.review import (
     _ground,
     _same_case,
     neighbours,

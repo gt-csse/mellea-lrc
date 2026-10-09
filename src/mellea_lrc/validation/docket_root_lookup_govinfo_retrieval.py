@@ -19,7 +19,6 @@ from mellea_lrc.providers.govinfo import (
     GovInfoClient,
     GovInfoError,
     GovInfoSearchPage,
-    govinfo_uscourts_docket_query,
 )
 from mellea_lrc.validation.docket_retrieval.candidates import (
     MINIMUM_SIMILARITY_PERCENT,
@@ -27,7 +26,7 @@ from mellea_lrc.validation.docket_retrieval.candidates import (
 )
 from mellea_lrc.validation.docket_retrieval.failures import docket_lookup_failure
 
-STAGE = "18_docket_root_lookup_govinfo_retrieval"
+SUBSTAGE = "validate_roots.docket_lookup.govinfo_retrieval"
 MAX_PAGES_PER_ATTEMPT = 10
 MAX_RETRIES_PER_PAGE = 2
 
@@ -35,9 +34,15 @@ _PACKAGE_ID = re.compile(r"^USCOURTS-([a-z0-9]+)-(.+)$", re.IGNORECASE)
 
 
 class GovInfoSearchClient(Protocol):
-    """The narrow GovInfo search contract needed by this stage."""
+    """The narrow GovInfo search contract needed by this substage."""
 
     def search(self, query: str, *, offset_mark: str = "*", page_size: int = 100) -> GovInfoSearchPage: ...
+
+
+def _docket_query(number: str) -> str:
+    """Build this substage's literal USCOURTS case-number query."""
+    escaped = number.replace("\\", "\\\\").replace('"', '\\"')
+    return f'collection:uscourts casenumber:("{escaped}")'
 
 
 def _result_string(result: dict, *keys: str) -> str | None:
@@ -176,9 +181,9 @@ def docket_root_lookup_govinfo_retrieval(
     document: Document, *, client: GovInfoSearchClient | None = None
 ) -> Document:
     """Search GovInfo only for roots without a selected CourtListener case."""
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if "17_docket_root_lookup_courtlistener_llm_review" not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "validate_roots.docket_lookup.courtlistener_review" not in document.substage_runs:
         raise ValueError("Complete CourtListener docket review before GovInfo lookup")
 
     service = client
@@ -192,7 +197,7 @@ def docket_root_lookup_govinfo_retrieval(
             ):
                 continue
 
-            recorded = root.record(STAGE)
+            recorded = root.record(SUBSTAGE)
             locator = root.locator[-1]
             source_number = document.text[locator.number_span.start : locator.number_span.end]
             if not source_number.strip():
@@ -209,7 +214,7 @@ def docket_root_lookup_govinfo_retrieval(
                 attempts: list[GovInfoLookupAttempt] = []
                 candidates: list[GovInfoLookupCandidate] = []
                 for query_number in _query_numbers(source_number):
-                    query = govinfo_uscourts_docket_query(query_number)
+                    query = _docket_query(query_number)
                     attempt, found = _search(service, query, source_number, len(attempts))
                     attempts.append(attempt)
                     candidates.extend(found)
@@ -220,4 +225,4 @@ def docket_root_lookup_govinfo_retrieval(
                     shortlisted_candidate_indices=_shortlist(candidates),
                 )
             document = document.replace_citation(recorded.with_govinfo_docket_lookup(lookup))
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

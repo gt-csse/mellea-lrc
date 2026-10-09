@@ -14,15 +14,19 @@ from mellea_lrc.api import (
     reporter_root_lookup_docket_retrieval,
     reporter_root_lookup_unique_rule_judgment,
 )
-from mellea_lrc.providers.courtlistener import CourtListenerCitationLookup, CourtListenerDocket, CourtListenerError
+from mellea_lrc.providers.courtlistener import (
+    CourtListenerCitationLookup,
+    CourtListenerDocket,
+    CourtListenerError,
+)
 from mellea_lrc.model import FullReporterCitation, Span
 from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactLookupOutcome
 
-STAGE = "12.1_reporter_root_lookup_cluster_retrieval"
-DOCKET_STAGE = "12.2_reporter_root_lookup_docket_retrieval"
-REVIEW_STAGE = "13.1_reporter_root_lookup_unique_rule_judgment"
+SUBSTAGE = "validate_roots.reporter_lookup.cluster_retrieval"
+DOCKET_SUBSTAGE = "validate_roots.reporter_lookup.docket_retrieval"
+REVIEW_SUBSTAGE = "validate_roots.reporter_lookup.unique_rule_judgment"
 
 
 class FakeLookupClient:
@@ -75,8 +79,8 @@ def _reviewed(before: Document, client: FakeLookupClient) -> Document:
     calls = (tuple(client.calls), tuple(client.docket_calls))
     reviewed = reporter_root_lookup_unique_rule_judgment(dockets)
     assert (tuple(client.calls), tuple(client.docket_calls)) == calls
-    assert reviewed.get_stage(STAGE) == retrieved
-    assert reviewed.get_stage(DOCKET_STAGE) == dockets
+    assert reviewed.get_substage(SUBSTAGE) == retrieved
+    assert reviewed.get_substage(DOCKET_SUBSTAGE) == dockets
     return reviewed
 
 
@@ -86,28 +90,28 @@ def test_unique_lookup_records_matching_fields_and_identity_and_roundtrips() -> 
 
     retrieved = reporter_root_lookup_cluster_retrieval(before, client=client)
     retrieved_root = retrieved.roots[0]
-    assert retrieved.stage_runs[-1] == STAGE
+    assert retrieved.substage_runs[-1] == SUBSTAGE
     assert retrieved_root.reporter_exact_lookup is not None
     assert retrieved_root.case_name_judgments == ()
     assert retrieved_root.court_judgments == ()
     assert retrieved_root.date_judgments == ()
     assert retrieved_root.identity_judgments == ()
-    assert retrieved_root.next_stage == DOCKET_STAGE
+    assert retrieved_root.next_substage == DOCKET_SUBSTAGE
     assert client.docket_calls == []
     checkpoint = Document.model_validate_json(retrieved.model_dump_json())
     assert checkpoint == retrieved
 
     docket_retrieved = reporter_root_lookup_docket_retrieval(checkpoint, client=client)
-    assert docket_retrieved.roots[0].next_stage == REVIEW_STAGE
+    assert docket_retrieved.roots[0].next_substage == REVIEW_SUBSTAGE
     assert docket_retrieved.roots[0].case_name_judgments == ()
     after = reporter_root_lookup_unique_rule_judgment(docket_retrieved)
 
     assert client.calls == [("550", "U.S.", "544")]
-    assert after.stage_runs[-1] == REVIEW_STAGE
-    assert after.get_stage("10_roots") == before
-    assert after.get_stage(STAGE) == retrieved
-    assert after.get_stage(DOCKET_STAGE) == docket_retrieved
-    assert after.get_stage(REVIEW_STAGE) == after
+    assert after.substage_runs[-1] == REVIEW_SUBSTAGE
+    assert after.get_stage("grow_roots.root_formation") == before
+    assert after.get_substage(SUBSTAGE) == retrieved
+    assert after.get_substage(DOCKET_SUBSTAGE) == docket_retrieved
+    assert after.get_substage(REVIEW_SUBSTAGE) == after
     (root,) = after.roots
     assert isinstance(root, FullReporterCitation)
     lookup = root.reporter_exact_lookup
@@ -132,8 +136,8 @@ def test_unique_lookup_records_matching_fields_and_identity_and_roundtrips() -> 
     (identity,) = root.identity_judgments
     assert identity.node_id == root.nodes[-1].id
     assert identity.verdict is IdentityVerdict.CORRECT_IDENTITY
-    assert root.next_stage is None
-    assert [route.value for route in root.routes] == [DOCKET_STAGE, REVIEW_STAGE, None]
+    assert root.next_substage is None
+    assert [route.value for route in root.routes] == [DOCKET_SUBSTAGE, REVIEW_SUBSTAGE, None]
     assert all(
         record.node_id == root.nodes[-1].id
         for record in (
@@ -146,10 +150,10 @@ def test_unique_lookup_records_matching_fields_and_identity_and_roundtrips() -> 
 
     loaded = Document.model_validate_json(after.model_dump_json())
     assert loaded == after
-    assert loaded.get_stage("10_roots") == before
-    assert loaded.get_stage(STAGE) == retrieved
-    assert loaded.get_stage(DOCKET_STAGE) == docket_retrieved
-    assert loaded.get_stage(REVIEW_STAGE) == after
+    assert loaded.get_stage("grow_roots.root_formation") == before
+    assert loaded.get_substage(SUBSTAGE) == retrieved
+    assert loaded.get_substage(DOCKET_SUBSTAGE) == docket_retrieved
+    assert loaded.get_substage(REVIEW_SUBSTAGE) == after
     with pytest.raises(ValueError, match="already completed"):
         reporter_root_lookup_cluster_retrieval(after, client=client)
     with pytest.raises(ValueError, match="already completed"):
@@ -174,7 +178,7 @@ def test_unique_field_mismatch_routes_to_review(changed_cluster: dict[str, objec
 
     assert getattr(root, field_log)[0].result is MatchResult.MISMATCH
     assert root.identity_judgments == ()
-    assert root.next_stage == "14_reporter_root_lookup_unique_llm_judgment"
+    assert root.next_substage == "validate_roots.reporter_lookup.unique_llm_judgment"
     assert root.routes[-1].node_id == root.nodes[-1].id
 
 
@@ -185,7 +189,7 @@ def test_missing_full_name_is_unavailable_and_routes_to_review() -> None:
 
     assert root.case_name_judgments[0].result is MatchResult.UNAVAILABLE
     assert root.identity_judgments == ()
-    assert root.next_stage == "14_reporter_root_lookup_unique_llm_judgment"
+    assert root.next_substage == "validate_roots.reporter_lookup.unique_llm_judgment"
     assert root.reporter_exact_lookup is not None
     assert root.reporter_exact_lookup.response == response
 
@@ -197,7 +201,7 @@ def test_partial_case_name_cannot_make_a_rule_identity_judgment(candidate_name: 
     fragment = "Bell Atl. Corp."
     partial = CaseName(kind=CaseNameKind.PARTIAL, partial=fragment)
     root = root.record("partial_name").with_case_name(before.text, Span(0, len(fragment)), normalized=partial)
-    before = before.replace_citation(root).complete("partial_name")
+    before = before.replace_citation(root).complete_substage("partial_name")
 
     after = _reviewed(
         before, client=FakeLookupClient(_response(_matching_cluster(caseNameFull=candidate_name)))
@@ -206,7 +210,7 @@ def test_partial_case_name_cannot_make_a_rule_identity_judgment(candidate_name: 
     assert looked_up.case_name[-1].normalizable is True
     assert looked_up.case_name_judgments[-1].result is MatchResult.UNAVAILABLE
     assert looked_up.identity_judgments == ()
-    assert looked_up.next_stage == "14_reporter_root_lookup_unique_llm_judgment"
+    assert looked_up.next_substage == "validate_roots.reporter_lookup.unique_llm_judgment"
 
 
 def test_missing_provider_court_routes_inferred_court_as_unavailable() -> None:
@@ -216,7 +220,7 @@ def test_missing_provider_court_routes_inferred_court_as_unavailable() -> None:
 
     assert root.court[-1].span is None
     assert root.court_judgments[-1].result is MatchResult.UNAVAILABLE
-    assert root.next_stage == "14_reporter_root_lookup_unique_llm_judgment"
+    assert root.next_substage == "validate_roots.reporter_lookup.unique_llm_judgment"
 
 
 def test_unique_lookup_fetches_linked_docket_and_judges_court_before_identity() -> None:
@@ -243,7 +247,7 @@ def test_unique_lookup_fetches_linked_docket_and_judges_court_before_identity() 
     assert root.court_judgments[-1].result is MatchResult.MATCH
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
     assert root.reporter_exact_docket.node_id == root.nodes[-2].id
-    assert after.get_stage(DOCKET_STAGE) == dockets
+    assert after.get_substage(DOCKET_SUBSTAGE) == dockets
     assert Document.model_validate_json(after.model_dump_json()) == after
     altered = after.model_dump(mode="json")
     altered["citations"][0]["reporter_exact_docket"]["docket_id"] = "11"
@@ -263,7 +267,7 @@ def test_linked_docket_court_mismatch_routes_to_review() -> None:
     assert root.date_judgments[-1].result is MatchResult.MATCH
     assert root.court_judgments[-1].result is MatchResult.MISMATCH
     assert root.identity_judgments == ()
-    assert root.next_stage == "14_reporter_root_lookup_unique_llm_judgment"
+    assert root.next_substage == "validate_roots.reporter_lookup.unique_llm_judgment"
 
 
 def test_missing_linked_docket_cannot_silently_admit_inferred_court() -> None:
@@ -276,7 +280,7 @@ def test_missing_linked_docket_cannot_silently_admit_inferred_court() -> None:
     assert root.reporter_exact_docket is not None
     assert root.reporter_exact_docket.response is None
     assert root.court_judgments[-1].result is MatchResult.UNAVAILABLE
-    assert root.next_stage == "14_reporter_root_lookup_unique_llm_judgment"
+    assert root.next_substage == "validate_roots.reporter_lookup.unique_llm_judgment"
 
 
 def test_unique_and_ambiguous_roots_share_one_linked_docket_fetch() -> None:
@@ -343,8 +347,8 @@ def test_unique_and_ambiguous_roots_share_one_linked_docket_fetch() -> None:
     assert [item.candidate_index for item in ambiguous.reporter_exact_candidate_dockets] == [0, 1]
     assert all(item.response == docket for item in ambiguous.reporter_exact_candidate_dockets)
     assert all(item.node_id == ambiguous.nodes[-1].id for item in ambiguous.reporter_exact_candidate_dockets)
-    assert unique.next_stage == REVIEW_STAGE
-    assert ambiguous.next_stage == "13.2_reporter_root_lookup_ambiguous_rule_judgment"
+    assert unique.next_substage == REVIEW_SUBSTAGE
+    assert ambiguous.next_substage == "validate_roots.reporter_lookup.ambiguous_rule_judgment"
     assert all(not root.case_name_judgments for root in dockets.roots)
     assert Document.model_validate_json(dockets.model_dump_json()) == dockets
 
@@ -362,7 +366,7 @@ def test_missing_provider_court_routes_explicit_court_to_review() -> None:
 
     assert root.court[-1].quote == "S.D.N.Y."
     assert root.court_judgments[-1].result is MatchResult.UNAVAILABLE
-    assert root.next_stage == "14_reporter_root_lookup_unique_llm_judgment"
+    assert root.next_substage == "validate_roots.reporter_lookup.unique_llm_judgment"
 
 
 def test_nonmatching_listed_locator_routes_to_review_even_when_fields_match() -> None:
@@ -374,7 +378,7 @@ def test_nonmatching_listed_locator_routes_to_review_even_when_fields_match() ->
     assert root.court_judgments[0].result is MatchResult.MATCH
     assert root.date_judgments[0].result is MatchResult.MATCH
     assert root.identity_judgments == ()
-    assert root.next_stage == "14_reporter_root_lookup_unique_llm_judgment"
+    assert root.next_substage == "validate_roots.reporter_lookup.unique_llm_judgment"
 
 
 def test_multiple_results_preserve_all_clusters_and_route_to_ambiguity() -> None:
@@ -395,7 +399,7 @@ def test_multiple_results_preserve_all_clusters_and_route_to_ambiguity() -> None
     assert lookup.response.clusters[0].raw_json["extra_provider_detail"] == {"source": "first"}
     assert root.case_name_judgments == root.court_judgments == root.date_judgments == ()
     assert root.identity_judgments == ()
-    assert root.next_stage == "12.2_reporter_root_lookup_docket_retrieval"
+    assert root.next_substage == "validate_roots.reporter_lookup.docket_retrieval"
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -407,13 +411,13 @@ def test_no_candidate_routes_to_search_but_provider_failure_does_not_complete() 
     assert root.reporter_exact_lookup.outcome is ReporterExactLookupOutcome.NOT_FOUND
     assert root.case_name_judgments == root.court_judgments == root.date_judgments == ()
     assert root.identity_judgments == ()
-    assert root.next_stage == "reporter_root_search"
-    assert empty.get_stage("10_roots") == before
+    assert root.next_substage == "reporter_root_search"
+    assert empty.get_stage("grow_roots.root_formation") == before
 
     with pytest.raises(CourtListenerError, match="item status 429"):
         reporter_root_lookup_cluster_retrieval(before, client=FakeLookupClient(_response(status=429)))
     assert before.roots[0].reporter_exact_lookup is None
-    assert before.stage_runs[-1] == "10_roots"
+    assert before.substage_runs[-1] == "grow_roots.root_formation.rule"
 
 
 def test_repeated_locator_occurrences_make_one_query_for_one_root() -> None:
@@ -432,12 +436,16 @@ def test_unnormalizable_root_records_search_without_request() -> None:
     empty = Document.from_source(source)
     citation = FullReporterCitation.from_locator(
         citation_id="reporter:0:17",
-        stage="1_full_reporter_locators",
+        substage="grow_roots.locator_discovery.full_reporter_locators",
         source=source,
         span=Span(0, len(source)),
     )
-    before = empty.add_citation(citation).complete("1_full_reporter_locators")
-    before = before.replace_citation(citation.record("10_roots").with_root(citation.id)).complete("10_roots")
+    before = empty.add_citation(citation).complete_substage(
+        "grow_roots.locator_discovery.full_reporter_locators"
+    )
+    before = before.replace_citation(
+        citation.record("grow_roots.root_formation.rule").with_root(citation.id)
+    ).complete_substage("grow_roots.root_formation.rule")
     client = FakeLookupClient(_response())
 
     after = reporter_root_lookup_cluster_retrieval(before, client=client)
@@ -449,7 +457,7 @@ def test_unnormalizable_root_records_search_without_request() -> None:
     assert root.reporter_exact_lookup.query is None
     assert root.reporter_exact_lookup.response is None
     assert root.identity_judgments == ()
-    assert root.next_stage == "reporter_root_search"
+    assert root.next_substage == "reporter_root_search"
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -462,7 +470,7 @@ def test_judgments_use_absolute_reading_indices_and_survive_later_history() -> N
         .with_inferred_court("scotus")
         .with_date(before.text, root.date[-1].span)
     )
-    before = before.replace_citation(second_readings).complete("manual_review")
+    before = before.replace_citation(second_readings).complete_substage("manual_review")
     after = _reviewed(before, FakeLookupClient(_response(_matching_cluster())))
     looked_up = after.roots[0]
 
@@ -479,14 +487,16 @@ def test_judgments_use_absolute_reading_indices_and_survive_later_history() -> N
     assert looked_up.case_name_judgments[0].candidate_index == 0
 
     later = looked_up.record("later_review").with_route("later_review")
-    final = after.replace_citation(later).complete("later_review")
+    final = after.replace_citation(later).complete_substage("later_review")
     restored = Document.model_validate_json(final.model_dump_json())
     assert restored == final
-    assert restored.get_stage("10_roots") == before.get_stage("10_roots")
-    assert restored.get_stage(STAGE) == after.get_stage(STAGE)
-    assert restored.get_stage(REVIEW_STAGE) == after
+    assert restored.get_substage("grow_roots.root_formation.rule") == before.get_substage(
+        "grow_roots.root_formation.rule"
+    )
+    assert restored.get_substage(SUBSTAGE) == after.get_substage(SUBSTAGE)
+    assert restored.get_substage(REVIEW_SUBSTAGE) == after
     assert restored.roots[0].case_name_judgments[0].reading_index == 1
-    assert restored.roots[0].next_stage == "later_review"
+    assert restored.roots[0].next_substage == "later_review"
     assert restored.roots[0].routes[-1].node_id == later.nodes[-1].id
 
 

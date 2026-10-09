@@ -15,7 +15,7 @@ class SiteReview(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    stage: str
+    substage: str
     candidate_span: Span
     candidate_text: str
     outcome: Literal["accepted", "declined", "failed"]

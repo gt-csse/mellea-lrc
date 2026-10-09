@@ -1,4 +1,4 @@
-"""The public grow-roots scorers take a saved Document and honor stage boundaries."""
+"""The public grow-roots scorers take a saved Document and honor substage boundaries."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from evaluations import grow_roots as evaluation
-from evaluations.score_types import FieldScore, Precision, StageScore
+from evaluations.score_types import FieldScore, Precision, SubstageScore, substage_heading
 from mellea_lrc.api import Document, grow_roots
 from mellea_lrc.model import FullReporterCitation, Span
 
@@ -21,18 +21,18 @@ SOURCE = (
 )
 
 STAGE_SCORERS = {
-    "1_full_reporter_locators": "score_full_reporter_locators",
-    "2_docket_locators": "score_docket_locators",
-    "3_docket_locator_site_hunting": "score_docket_locator_site_hunting",
-    "4_docket_entries": "score_docket_entries",
-    "5_colocations": "score_colocations",
-    "6_case_names": "score_case_names",
-    "7_courts": "score_courts",
-    "8_dates": "score_dates",
-    "9_pin_cites": "score_pin_cites",
-    "10_roots": "score_roots",
+    "grow_roots.locator_discovery.full_reporter_locators": "score_full_reporter_locators",
+    "grow_roots.locator_discovery.docket_locators": "score_docket_locators",
+    "grow_roots.locator_discovery.docket_hunting": "score_docket_locator_site_hunting",
+    "grow_roots.field_reading.docket_entries": "score_docket_entries",
+    "grow_roots.field_reading.colocations": "score_colocations",
+    "grow_roots.field_reading.case_names": "score_case_names",
+    "grow_roots.field_reading.courts": "score_courts",
+    "grow_roots.field_reading.dates": "score_dates",
+    "grow_roots.field_reading.pin_cites": "score_pin_cites",
+    "grow_roots.root_formation.rule": "score_roots",
 }
-STAGE_RENDERERS = {stage: name.replace("score_", "render_") for stage, name in STAGE_SCORERS.items()}
+STAGE_RENDERERS = {substage: name.replace("score_", "render_") for substage, name in STAGE_SCORERS.items()}
 
 
 def _span(text: str, quote: str) -> dict[str, str | int]:
@@ -223,10 +223,12 @@ def test_public_scorer_has_one_document_parameter(name: str) -> None:
     assert not hasattr(evaluation, "score_grow_roots_workflow")
 
 
-@pytest.mark.parametrize("stage,name", STAGE_SCORERS.items())
-def test_stage_scorer_uses_its_exact_checkpoint(annotated_document: Document, stage: str, name: str) -> None:
+@pytest.mark.parametrize("substage,name", STAGE_SCORERS.items())
+def test_stage_scorer_uses_its_exact_checkpoint(
+    annotated_document: Document, substage: str, name: str
+) -> None:
     scorer: Callable[[Document], object] = getattr(evaluation, name)
-    checkpoint = annotated_document.get_stage(stage)
+    checkpoint = annotated_document.get_substage(substage)
     restored = Document.model_validate_json(annotated_document.model_dump_json())
 
     assert scorer(annotated_document) == scorer(checkpoint)
@@ -234,18 +236,20 @@ def test_stage_scorer_uses_its_exact_checkpoint(annotated_document: Document, st
 
 
 def test_optional_hunting_scorer_requires_completed_stage(annotated_document: Document) -> None:
-    without_hunting = annotated_document.get_stage("2_docket_locators")
-    with pytest.raises(KeyError, match="Stage has not run"):
+    without_hunting = annotated_document.get_substage("grow_roots.locator_discovery.docket_locators")
+    with pytest.raises(KeyError, match="Substage has not run"):
         evaluation.score_docket_locator_site_hunting(without_hunting)
 
 
 def test_docket_root_review_score_handles_mixed_citation_types(
     annotated_document: Document,
 ) -> None:
-    document = annotated_document.complete("11_docket_root_llm_reassignment")
-    stage = evaluation.score_docket_root_llm_reassignment(document)
-    assert stage.metrics["root_assignment"] == Precision(0, 0)
-    assert evaluation.score_grow_roots(document).stages[-1] == stage
+    document = annotated_document.get_substage(evaluation.ROOT_SUBSTAGE).complete_substage(
+        evaluation.ROOT_REVIEW_SUBSTAGE
+    )
+    substage = evaluation.score_docket_root_llm_reassignment(document)
+    assert substage.metrics["root_assignment"] == Precision(0, 0)
+    assert evaluation.score_grow_roots(document).substages[-1] == substage
 
 
 def test_workflow_scorer_accepts_saved_annotated_document(annotated_document: Document) -> None:
@@ -257,12 +261,12 @@ def test_workflow_reports_each_root_field_with_annotated_denominators(
     annotated_document: Document,
 ) -> None:
     score = evaluation.score_grow_roots(annotated_document)
-    stages = {item.stage: item.metrics for item in score.stages}
-    assert stages["6_case_names"] == {
+    stages = {item.substage: item.metrics for item in score.substages}
+    assert stages["grow_roots.field_reading.case_names"] == {
         "span": Precision(2, 2),
         "normalization": Precision(2, 2),
     }
-    assert stages["7_courts"] == {
+    assert stages["grow_roots.field_reading.courts"] == {
         "span": Precision(2, 2),
         "normalization": Precision(2, 2),
     }
@@ -301,21 +305,22 @@ def test_workflow_reports_each_root_field_with_annotated_denominators(
 
 
 def _validated_document_with_changed_fields(document: Document) -> Document:
-    for stage in (
-        "11_docket_root_llm_reassignment",
-        "12.1_reporter_root_lookup_cluster_retrieval",
-        "13.1_reporter_root_lookup_unique_rule_judgment",
-        "12.2_reporter_root_lookup_docket_retrieval",
-        "13.2_reporter_root_lookup_ambiguous_rule_judgment",
-        "14_reporter_root_lookup_unique_llm_judgment",
-        "15_reporter_root_lookup_ambiguous_llm_judgment",
-        "16_docket_root_lookup_courtlistener_retrieval",
-        "17_docket_root_lookup_courtlistener_llm_review",
-        "18_docket_root_lookup_govinfo_retrieval",
+    document = document.get_substage(evaluation.ROOT_SUBSTAGE)
+    for substage in (
+        "grow_roots.root_formation.docket_llm_reassignment",
+        "validate_roots.reporter_lookup.cluster_retrieval",
+        "validate_roots.reporter_lookup.unique_rule_judgment",
+        "validate_roots.reporter_lookup.docket_retrieval",
+        "validate_roots.reporter_lookup.ambiguous_rule_judgment",
+        "validate_roots.reporter_lookup.unique_llm_judgment",
+        "validate_roots.reporter_lookup.ambiguous_llm_judgment",
+        "validate_roots.docket_lookup.courtlistener_retrieval",
+        "validate_roots.docket_lookup.courtlistener_review",
+        "validate_roots.docket_lookup.govinfo_retrieval",
     ):
-        document = document.complete(stage)
+        document = document.complete_substage(substage)
     reporter = next(root for root in document.roots if isinstance(root, FullReporterCitation))
-    changed = reporter.record("19_docket_root_lookup_govinfo_llm_review")
+    changed = reporter.record("validate_roots.docket_lookup.govinfo_review")
     for method, quote in (
         ("with_case_name", "Gamma v. Delta"),
         ("with_court", "S.D.N.Y."),
@@ -323,20 +328,22 @@ def _validated_document_with_changed_fields(document: Document) -> Document:
     ):
         source_span = _span(SOURCE, quote)
         changed = getattr(changed, method)(SOURCE, Span(source_span["start"], source_span["end"]))
-    return document.replace_citation(changed).complete("19_docket_root_lookup_govinfo_llm_review")
+    return document.replace_citation(changed).complete_substage("validate_roots.docket_lookup.govinfo_review")
 
 
 def test_validation_checkpoint_scores_latest_root_fields_without_changing_baseline(
     annotated_document: Document,
 ) -> None:
-    baseline_document = annotated_document.complete("11_docket_root_llm_reassignment")
+    baseline_document = annotated_document.get_substage(evaluation.ROOT_SUBSTAGE).complete_substage(
+        evaluation.ROOT_REVIEW_SUBSTAGE
+    )
     baseline = evaluation.score_grow_roots(baseline_document)
     assert baseline.validated_root_fields is None
 
     validated = _validated_document_with_changed_fields(annotated_document)
     score = evaluation.score_grow_roots(validated)
     assert score.root_fields == baseline.root_fields
-    assert score.stages == baseline.stages
+    assert score.substages == baseline.substages
     assert score.validated_root_fields is not None
     assert set(score.validated_root_fields) == {"case_name", "court", "date"}
     for field in ("case_name", "court", "date"):
@@ -361,7 +368,7 @@ def test_validation_checkpoint_scores_latest_root_fields_without_changing_baseli
     report = evaluation.render_grow_roots(score, include_stages=False)
     assert report.count("| case_name |") == 2
     assert "| case_name | 1/2 (50.0%)" in report
-    assert "19_docket_root_lookup_govinfo_llm_review" in report
+    assert "validate_roots.docket_lookup.govinfo_review" in report
 
     doubled = score + score
     assert doubled.validated_root_fields is not None
@@ -374,21 +381,23 @@ def test_later_body_reading_does_not_change_validation_checkpoint_score(
 ) -> None:
     validated = _validated_document_with_changed_fields(annotated_document)
     expected = evaluation.score_grow_roots(validated)
-    for stage in (
-        "20_locator_body_courtlistener_opinion_retrieval",
-        "21_locator_body_courtlistener_recap_retrieval",
-        "22_locator_body_govinfo_opinion_retrieval",
+    for substage in (
+        "validate_roots.locator_body_corroboration.courtlistener_opinion_retrieval",
+        "validate_roots.locator_body_corroboration.courtlistener_recap_retrieval",
+        "validate_roots.locator_body_corroboration.govinfo_opinion_retrieval",
     ):
-        validated = validated.complete(stage)
+        validated = validated.complete_substage(substage)
     reporter = next(root for root in validated.roots if isinstance(root, FullReporterCitation))
-    changed = reporter.record("23_locator_body_llm_judgment")
+    changed = reporter.record("validate_roots.locator_body_corroboration.llm_judgment")
     for method, quote in (("with_case_name", "Alpha v. Beta"), ("with_date", "2007")):
         source_span = _span(SOURCE, quote)
         changed = getattr(changed, method)(SOURCE, Span(source_span["start"], source_span["end"]))
-    reviewed = validated.replace_citation(changed).complete("23_locator_body_llm_judgment")
+    reviewed = validated.replace_citation(changed).complete_substage(
+        "validate_roots.locator_body_corroboration.llm_judgment"
+    )
     assert (
         reviewed.roots[0].case_name[-1]
-        != reviewed.get_stage("19_docket_root_lookup_govinfo_llm_review").roots[0].case_name[-1]
+        != reviewed.get_substage("validate_roots.docket_lookup.govinfo_review").roots[0].case_name[-1]
     )
     assert evaluation.score_grow_roots(reviewed) == expected
 
@@ -415,10 +424,10 @@ def test_normalization_disagreement_does_not_change_span_score(
     rows[1]["case_name"]["normalization"]["value"]["plaintiff"] = "Different party"
     annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
-    stage = evaluation.score_case_names(annotated_document)
+    substage = evaluation.score_case_names(annotated_document)
     workflow = evaluation.score_grow_roots(annotated_document)
-    assert stage.metrics["span"] == Precision(2, 2)
-    assert stage.metrics["normalization"] == Precision(1, 2)
+    assert substage.metrics["span"] == Precision(2, 2)
+    assert substage.metrics["normalization"] == Precision(1, 2)
     assert workflow.root_fields["case_name"]["span"] == FieldScore(2, 2, 2)
     assert workflow.root_fields["case_name"]["normalization"] == FieldScore(1, 2, 2)
 
@@ -481,7 +490,7 @@ def test_inferred_court_requires_explicit_gold_source_state(annotated_document: 
     ],
 )
 def test_unmatched_field_outcomes_remain_in_span_and_normalization_precision(
-    annotated_document: Document, scorer: Callable[[Document], StageScore], total: int
+    annotated_document: Document, scorer: Callable[[Document], SubstageScore], total: int
 ) -> None:
     source = Path(annotated_document.source_path)
     annotation = source.parent.parent / "documents" / f"{source.stem}.jsonl"
@@ -507,7 +516,7 @@ def test_unmatched_field_outcomes_remain_in_span_and_normalization_precision(
 def test_field_stage_counts_absence_and_requires_explicit_matched_gold(
     annotated_document: Document,
     field: str,
-    scorer: Callable[[Document], StageScore],
+    scorer: Callable[[Document], SubstageScore],
     row_index: int,
     total: int,
     gold_state: str,
@@ -577,7 +586,9 @@ def test_overlap_recall_cannot_credit_one_predicted_root_twice(tmp_path: Path) -
 
 
 def test_workflow_rejects_a_missing_mandatory_checkpoint(annotated_document: Document) -> None:
-    incomplete = annotated_document.get_stage("2_docket_locators").complete("10_roots")
+    incomplete = annotated_document.get_substage(
+        "grow_roots.locator_discovery.docket_locators"
+    ).complete_substage("grow_roots.root_formation.rule")
     with pytest.raises(ValueError, match="Incomplete grow_roots workflow"):
         evaluation.score_grow_roots(incomplete)
 
@@ -723,13 +734,13 @@ def test_normalizable_case_name_does_not_match_unavailable_gold(tmp_path: Path) 
     assert score.root_fields["case_name"]["normalization"] == FieldScore(0, 1, 1)
 
 
-@pytest.mark.parametrize("stage,name", STAGE_RENDERERS.items())
-def test_each_stage_has_its_own_renderer(annotated_document: Document, stage: str, name: str) -> None:
-    stage_score = getattr(evaluation, STAGE_SCORERS[stage])(annotated_document)
+@pytest.mark.parametrize("substage,name", STAGE_RENDERERS.items())
+def test_each_stage_has_its_own_renderer(annotated_document: Document, substage: str, name: str) -> None:
+    stage_score = getattr(evaluation, STAGE_SCORERS[substage])(annotated_document)
     rendered = getattr(evaluation, name)(stage_score)
-    assert rendered.startswith(f"## {stage}\n")
+    assert rendered.startswith(f"{substage_heading(substage)}\n")
     assert "precision" in rendered
-    other = next(item for item in STAGE_SCORERS if item != stage)
+    other = next(item for item in STAGE_SCORERS if item != substage)
     with pytest.raises(ValueError, match="Expected"):
         getattr(evaluation, name)(getattr(evaluation, STAGE_SCORERS[other])(annotated_document))
 
@@ -739,7 +750,7 @@ def test_workflow_renderer_includes_numbered_stages_in_order_by_default(
 ) -> None:
     score = evaluation.score_grow_roots(annotated_document)
     report = evaluation.render_grow_roots(score, set_name="primary")
-    positions = [report.index(f"## {stage}\n") for stage in STAGE_SCORERS]
+    positions = [report.index(f"{substage_heading(substage)}\n") for substage in STAGE_SCORERS]
     assert positions == sorted(positions)
     assert report.index("## Root fields\n") > positions[-1]
     assert "Docket site hunting: included" in report
@@ -750,7 +761,7 @@ def test_workflow_renderer_includes_numbered_stages_in_order_by_default(
 
     summary_only = evaluation.render_grow_roots(score, include_stages=False)
     assert "## Root fields\n" in summary_only
-    assert all(f"## {stage}\n" not in summary_only for stage in STAGE_SCORERS)
+    assert all(f"{substage_heading(substage)}\n" not in summary_only for substage in STAGE_SCORERS)
 
     with pytest.raises(ValueError, match="missing or out of order"):
-        evaluation.render_grow_roots(evaluation.WorkflowScore(score.stages[:-1], score.root_fields))
+        evaluation.render_grow_roots(evaluation.WorkflowScore(score.substages[:-1], score.root_fields))

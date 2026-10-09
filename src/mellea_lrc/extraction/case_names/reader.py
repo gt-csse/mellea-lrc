@@ -1,4 +1,4 @@
-"""Case-name source reading local to the full-citation field stage."""
+"""Case-name source reading local to the full-citation field substage."""
 
 import re
 

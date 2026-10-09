@@ -33,13 +33,13 @@ class ShortReporterCitation(LeafCitation):
         cls,
         *,
         citation_id: str,
-        stage: str,
+        substage: str,
         source: str,
         span: Span,
         pin_cite_span: Span | None = None,
     ) -> Self:
         """Create one short citation from eyecite's source-grounded site."""
-        node = Node(id=f"{citation_id}:node:0", stage=stage)
+        node = Node(id=f"{citation_id}:node:0", substage=substage)
         return cls(
             id=citation_id,
             nodes=(node,),

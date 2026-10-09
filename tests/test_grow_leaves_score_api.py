@@ -10,7 +10,13 @@ from pathlib import Path
 import pytest
 
 from evaluations import grow_leaves as evaluation
-from evaluations.annotations import citation_annotations
+from evaluations.annotations import (
+    align_citation_annotations,
+    annotation_site,
+    annotation_span,
+    annotations_by_site,
+    citation_annotations,
+)
 from evaluations.score_run import score_run
 from evaluations.score_types import FieldScore, Precision
 from mellea_lrc.api import Document, grow_roots
@@ -151,7 +157,7 @@ def test_stage_scores_use_exact_stage_checkpoints_and_annotation_spans(tmp_path:
     names = evaluation.score_supra_case_names(document)
     pins = evaluation.score_supra_pin_cites(document)
 
-    assert short.stage == evaluation.SHORT_STAGE
+    assert short.substage == evaluation.SHORT_SUBSTAGE
     assert short.metrics["locator_span"].as_dict() == {"correct": 1, "total": 1, "precision": 1.0}
     assert short.metrics["locator_normalization"] == Precision(1, 1)
     assert short_names.metrics["case_name_span"] == Precision(1, 1)
@@ -160,7 +166,7 @@ def test_stage_scores_use_exact_stage_checkpoints_and_annotation_spans(tmp_path:
     assert (
         short.metrics["pin_cite_normalization"].correct == short.metrics["pin_cite_normalization"].total == 1
     )
-    assert short_attribution.stage == "29_short_reporter_attribution"
+    assert short_attribution.substage == "grow_leaves.short_reporter_citations.attribution"
     assert (
         short_attribution.metrics["attribution"].correct
         == short_attribution.metrics["attribution"].total
@@ -178,8 +184,8 @@ def test_short_stage_scores_read_their_checkpoint_and_shared_rule_has_no_inherit
     tmp_path: Path,
 ) -> None:
     document = _leaf_document(tmp_path)
-    created = document.get_stage("28_short_reporter_citations")
-    attributed = document.get_stage("29_short_reporter_attribution")
+    created = document.get_substage("grow_leaves.short_reporter_citations.discovery")
+    attributed = document.get_substage("grow_leaves.short_reporter_citations.attribution")
 
     assert created.short_reporters[0].root_id == ()
     assert evaluation.score_short_reporter_citations(created) == evaluation.score_short_reporter_citations(
@@ -189,15 +195,15 @@ def test_short_stage_scores_read_their_checkpoint_and_shared_rule_has_no_inherit
         attributed
     ) == evaluation.score_short_reporter_attribution(document)
     assert evaluation.score_supra_attribution_rule(document).metrics["attribution"].total == 0
-    with pytest.raises(KeyError, match="Stage has not run"):
+    with pytest.raises(KeyError, match="Substage has not run"):
         evaluation.score_short_reporter_attribution(created)
 
 
 def test_short_names_and_colocation_scores_use_their_own_checkpoints(tmp_path: Path) -> None:
     document = _leaf_document(tmp_path)
-    created = document.get_stage(evaluation.SHORT_STAGE)
-    grouped = document.get_stage(evaluation.SHORT_COLOCATION_STAGE)
-    named = document.get_stage(evaluation.SHORT_NAME_STAGE)
+    created = document.get_substage(evaluation.SHORT_SUBSTAGE)
+    grouped = document.get_substage(evaluation.SHORT_COLOCATION_SUBSTAGE)
+    named = document.get_substage(evaluation.SHORT_NAME_SUBSTAGE)
 
     assert not created.short_reporters[0].case_name
     assert not grouped.short_reporters[0].case_name
@@ -206,14 +212,14 @@ def test_short_names_and_colocation_scores_use_their_own_checkpoints(tmp_path: P
     assert evaluation.score_short_reporter_case_names(named) == evaluation.score_short_reporter_case_names(
         document
     )
-    with pytest.raises(KeyError, match="Stage has not run"):
+    with pytest.raises(KeyError, match="Substage has not run"):
         evaluation.score_short_reporter_case_names(grouped)
     score = evaluation.score_grow_leaves(document)
-    assert [stage.stage for stage in score.stages[:4]] == [
-        evaluation.SHORT_STAGE,
-        evaluation.SHORT_COLOCATION_STAGE,
-        evaluation.SHORT_NAME_STAGE,
-        evaluation.SHORT_ATTRIBUTION_STAGE,
+    assert [substage.substage for substage in score.substages[:4]] == [
+        evaluation.SHORT_SUBSTAGE,
+        evaluation.SHORT_COLOCATION_SUBSTAGE,
+        evaluation.SHORT_NAME_SUBSTAGE,
+        evaluation.SHORT_ATTRIBUTION_SUBSTAGE,
     ]
     report = evaluation.render_grow_leaves(score)
     assert "No precision score: independent short-reporter group annotations are not defined." in report
@@ -262,13 +268,15 @@ def test_source_span_summary_excludes_dummy_head_without_dropping_gold_or_creati
             if kind == "ShortCaseCitation"
             else evaluation.score_id_citations
         )
+    document = document.get_substage(evaluation.SUPRA_RULE_SUBSTAGE)
+    citation = next(item for item in document.citations if item.id == citation.id)
     before = evaluation.score_grow_leaves(document)
     original_creation = stage_score(document)
     # Only root_id determines membership in the dummy collection. No extra
     # exclusion flag or changed attribution/review outcome is required.
-    after = document.replace_citation(citation.record(evaluation.SUPRA_REVIEW_STAGE).withdraw()).complete(
-        evaluation.SUPRA_REVIEW_STAGE
-    )
+    after = document.replace_citation(
+        citation.record(evaluation.SUPRA_REVIEW_SUBSTAGE).withdraw()
+    ).complete_substage(evaluation.SUPRA_REVIEW_SUBSTAGE)
     restored = Document.model_validate_json(after.model_dump_json())
     summary = evaluation.score_grow_leaves(restored)
 
@@ -277,7 +285,7 @@ def test_source_span_summary_excludes_dummy_head_without_dropping_gold_or_creati
         current = summary.leaf_spans[label]
         assert current == FieldScore(original.correct - 1, original.predicted - 1, original.gold)
     assert stage_score(restored) == original_creation
-    assert restored.get_stage(document.stage_runs[-1]) == document
+    assert restored.get_substage(document.substage_runs[-1]) == document
 
 
 def test_short_and_id_creation_both_count_missing_pin_outcomes(tmp_path: Path) -> None:
@@ -406,7 +414,7 @@ def test_primary_annotations_keep_369_leaf_sites_with_289_in_scope_and_80_native
             if row.get("unit") in {"citation", "out_of_scope_citation"} and not row.get("is_root")
         ]
         for row in leaf_rows:
-            key = evaluation._gold_key(row)
+            key = annotation_site(row)
             field = (
                 "case_name"
                 if row["kind"] == "ReferenceCitation"
@@ -416,12 +424,12 @@ def test_primary_annotations_keep_369_leaf_sites_with_289_in_scope_and_80_native
                     else "cited_as"
                 )
             )
-            span = evaluation._span(row[field])
+            span = annotation_span(row[field])
             source = row[field].get("source", row[field])
             assert span is not None and text[span[0] : span[1]] == source["quote"]
             if row["unit"] == "out_of_scope_citation":
                 assert row["kind"] == "ReferenceCitation"
-                assert evaluation._span(row.get("pin_cite")) is None
+                assert annotation_span(row.get("pin_cite")) is None
                 assert row.get("note")
                 out_of_scope_keys.append(key)
             else:
@@ -436,7 +444,7 @@ def test_stage_scores_do_not_accept_a_changed_source_or_missing_checkpoint(tmp_p
     roots = asyncio.run(grow_roots(Document.from_source(source)))
     leaves = asyncio.run(grow_leaves(roots, review_leaves=False))
 
-    with pytest.raises(KeyError, match="Stage has not run"):
+    with pytest.raises(KeyError, match="Substage has not run"):
         evaluation.score_short_reporter_citations(roots)
     annotation = source.parent.parent / "documents" / "example.jsonl"
     rows = annotation.read_text(encoding="utf-8").splitlines()
@@ -467,7 +475,7 @@ def test_evaluator_rejects_a_mislabeled_dataset_header(tmp_path: Path) -> None:
 def test_id_attribution_scores_final_rule_and_review_attachments(tmp_path: Path) -> None:
     source = _write_fixture(tmp_path)
     roots = asyncio.run(grow_roots(Document.from_source(source)))
-    created = asyncio.run(grow_leaves(roots, review_leaves=False)).get_stage(evaluation.ID_STAGE)
+    created = asyncio.run(grow_leaves(roots, review_leaves=False)).get_substage(evaluation.ID_SUBSTAGE)
     calls = 0
 
     async def accept_then_fail(_context):
@@ -516,13 +524,17 @@ def test_id_creation_counts_absent_pin_outcomes_and_requires_explicit_gold(
         assert score.metrics["pin_cite_span"] == expected
         assert score.metrics["pin_cite_normalization"] == expected
         assert all(metric.total == 2 for metric in score.metrics.values())
-        assert evaluation.score_id_citations(restored.get_stage(evaluation.ID_STAGE)) == score
+        assert evaluation.score_id_citations(restored.get_substage(evaluation.ID_SUBSTAGE)) == score
 
 
 def test_overlapping_reference_attribution_uses_a_gold_mention_only_once() -> None:
     source = "Alpha Beta"
-    first = ReferenceCitation.from_source(source=source, span=Span(0, 5), stage="30_reference_citations")
-    second = ReferenceCitation.from_source(source=source, span=Span(6, 10), stage="30_reference_citations")
+    first = ReferenceCitation.from_source(
+        source=source, span=Span(0, 5), substage="grow_leaves.reference_citations.discovery"
+    )
+    second = ReferenceCitation.from_source(
+        source=source, span=Span(6, 10), substage="grow_leaves.reference_citations.discovery"
+    )
     gold_row = {
         "id": "one-gold-mention",
         "kind": "ReferenceCitation",
@@ -531,7 +543,7 @@ def test_overlapping_reference_attribution_uses_a_gold_mention_only_once() -> No
     }
     gold = {("ReferenceCitation", 0, len(source)): gold_row}
 
-    aligned = evaluation._attribution_rows([first, second], gold)
+    aligned = align_citation_annotations([first, second], gold)
 
     assert aligned[0] == (first, gold_row)
     assert aligned[1] == (second, None)
@@ -607,7 +619,7 @@ def test_reference_workflow_uses_native_scope_and_preserves_out_of_scope_annotat
     document = asyncio.run(grow_leaves(document, review_leaves=False))
 
     assert {row["id"] for row in citation_annotations(document)} == {"root", "pinned-reference"}
-    assert {row["id"] for row in evaluation._gold(document).values()} == {"root", "pinned-reference"}
+    assert {row["id"] for row in annotations_by_site(document).values()} == {"root", "pinned-reference"}
     retained = next(row for row in rows if row["id"] == "bare-reference")
     assert retained["unit"] == "out_of_scope_citation"
     assert retained["kind"] == "ReferenceCitation"
@@ -632,15 +644,15 @@ def test_reference_workflow_uses_native_scope_and_preserves_out_of_scope_annotat
         assert f"| {label} |" in report
     assert "| span |" not in report
     assert "| normalization |" not in report
-    created = document.get_stage("30_reference_citations")
-    attributed = document.get_stage("31_reference_attribution")
+    created = document.get_substage("grow_leaves.reference_citations.discovery")
+    attributed = document.get_substage("grow_leaves.reference_citations.attribution")
     assert next(c for c in created.short_citations if isinstance(c, ReferenceCitation)).root_id == ()
     assert evaluation.score_reference_citations(created) == creation_score
     assert evaluation.score_reference_attribution(attributed) == evaluation.score_reference_attribution(
         document
     )
     assert evaluation.score_reference_attribution(document).metrics["attribution"] == Precision(1, 1)
-    with pytest.raises(KeyError, match="Stage has not run"):
+    with pytest.raises(KeyError, match="Substage has not run"):
         evaluation.score_reference_attribution(created)
     for scorer in (evaluation.score_supra_case_names, evaluation.score_supra_pin_cites):
         assert all(metric.total == 0 for metric in scorer(document).metrics.values())
@@ -689,7 +701,7 @@ def test_in_scope_reference_without_a_quoted_pin_raises_instead_of_disappearing_
     before = annotations.read_text()
 
     assert "bare-reference" in {row["id"] for row in citation_annotations(document)}
-    for score in (evaluation._gold, evaluation.score_reference_citations, evaluation.score_grow_leaves):
+    for score in (annotations_by_site, evaluation.score_reference_citations, evaluation.score_grow_leaves):
         with pytest.raises(ValueError, match="bare-reference") as error:
             score(document)
         assert "out_of_scope_citation" in str(error.value)
@@ -927,12 +939,14 @@ def test_id_creation_requires_independent_normalization_for_matched_readings(tmp
 def test_leaf_name_stage_counts_emitted_readings_and_requires_their_matched_gold(
     tmp_path: Path, gold_state: str
 ) -> None:
-    document = _leaf_document(tmp_path).get_stage(evaluation.SUPRA_STAGE)
+    document = _leaf_document(tmp_path).get_substage(evaluation.SUPRA_SUBSTAGE)
     short = document.short_reporters[0]
-    # Model a saved run with a name-stage reading, preserving its earlier
-    # creation reading so the scorer must select the field emitted at the name stage.
-    reread = short.record(evaluation.SUPRA_NAME_STAGE).with_case_name(document.text, short.case_name[-1].span)
-    document = document.replace_citation(reread).complete(evaluation.SUPRA_NAME_STAGE)
+    # Model a saved run with a name-substage reading, preserving its earlier
+    # creation reading so the scorer must select the field emitted at the name substage.
+    reread = short.record(evaluation.SUPRA_NAME_SUBSTAGE).with_case_name(
+        document.text, short.case_name[-1].span
+    )
+    document = document.replace_citation(reread).complete_substage(evaluation.SUPRA_NAME_SUBSTAGE)
     annotations = Path(document.source_path).parent.parent / "documents" / "example.jsonl"
     rows = [json.loads(line) for line in annotations.read_text().splitlines()]
     if gold_state == "unmatched":
@@ -992,14 +1006,14 @@ def test_shared_leaf_readers_count_null_outcomes_without_a_written_node(
         row.pop(field)
     rows = [header] if gold_state == "unmatched" else [header, row]
     annotation.write_text("".join(json.dumps(r) + "\n" for r in rows))
-    creation_stage = evaluation.SUPRA_STAGE
-    citation = SupraCitation.from_source(source=text, span=Span(0, len(text)), stage=creation_stage)
-    document = Document.from_source(source).add_citation(citation).complete(creation_stage)
-    stage = evaluation.SUPRA_NAME_STAGE if field == "case_name" else evaluation.SUPRA_PIN_STAGE
-    document = document.complete(stage)
+    creation_stage = evaluation.SUPRA_SUBSTAGE
+    citation = SupraCitation.from_source(source=text, span=Span(0, len(text)), substage=creation_stage)
+    document = Document.from_source(source).add_citation(citation).complete_substage(creation_stage)
+    substage = evaluation.SUPRA_NAME_SUBSTAGE if field == "case_name" else evaluation.SUPRA_PIN_SUBSTAGE
+    document = document.complete_substage(substage)
     scorer = evaluation.score_supra_case_names if field == "case_name" else evaluation.score_supra_pin_cites
-    # No reading node exists, just the completed stage and its null outcome.
-    assert not any(node.stage == stage for node in document.citations[0].nodes)
+    # No reading node exists, just the completed substage and its null outcome.
+    assert not any(node.substage == substage for node in document.citations[0].nodes)
     if gold_state == "missing":
         with pytest.raises(ValueError, match="Missing explicit field normalization gold"):
             scorer(document)

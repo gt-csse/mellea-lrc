@@ -1,4 +1,4 @@
-"""Opinion retrieval keeps each subopinion and preserves exact stage recovery."""
+"""Opinion retrieval keeps each subopinion and preserves exact substage recovery."""
 
 import asyncio
 
@@ -22,7 +22,7 @@ from mellea_lrc.model.citations.reporter_opinion import (
 )
 from mellea_lrc.providers.courtlistener import CourtListenerCitationLookup, CourtListenerError
 from mellea_lrc.providers.courtlistener.models import CourtListenerCluster
-from mellea_lrc.validation.reporter_root_opinion_retrieval import STAGE
+from mellea_lrc.validation.reporter_root_opinion_retrieval import SUBSTAGE
 
 
 class Client:
@@ -68,7 +68,7 @@ def admitted(client, *, index=None):
             )
         )
     citation = citation.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
-    return document.replace_citation(citation).complete("test_identity")
+    return document.replace_citation(citation).complete_substage("test_identity")
 
 
 def test_preserves_all_opinion_types_raw_html_and_native_checkpoint():
@@ -102,7 +102,7 @@ def test_preserves_all_opinion_types_raw_html_and_native_checkpoint():
     bound_source = saved.roots[0].reporter_root_opinion_source
     assert bound_source.cluster == before.roots[0].reporter_exact_lookup.response.clusters[0]
     assert bound_source.node_id == result.node_id
-    assert saved == after and saved.get_stage("test_identity") == before
+    assert saved == after and saved.get_substage("test_identity") == before
     assert saved.roots[0].identity_judgments == before.roots[0].identity_judgments
     assert saved.roots[0].pin_cite is None
     with pytest.raises(ValueError, match="already completed"):
@@ -131,7 +131,7 @@ def test_bound_original_source_retrieves_without_identity_lookup_and_rewinds():
             ),
         )
     )
-    before = document.replace_citation(root).complete("bind_original_source")
+    before = document.replace_citation(root).complete_substage("bind_original_source")
     client = Client([], {"21": opinion("21", cluster="2")})
 
     after = reporter_root_opinion_retrieval(before, client=client)
@@ -141,7 +141,7 @@ def test_bound_original_source_retrieves_without_identity_lookup_and_rewinds():
     assert saved.roots[0].reporter_exact_lookup is None
     assert saved.roots[0].reporter_root_opinion_source == before.roots[0].reporter_root_opinion_source
     assert saved.roots[0].reporter_root_opinion_source.cluster.raw_json["unknown_metadata"] == {"saved": True}
-    assert saved.get_stage("bind_original_source") == before
+    assert saved.get_substage("bind_original_source") == before
     assert saved.roots[0].reporter_root_opinion_retrieval.cluster_id == "2"
 
 
@@ -157,7 +157,7 @@ def test_bound_source_does_not_bypass_default_correct_identity_policy(verdict):
             cluster=CourtListenerCluster.model_validate({"id": 1, "sub_opinions": [20]}),
         )
     )
-    before = document.replace_citation(root).complete("bind_original_source")
+    before = document.replace_citation(root).complete_substage("bind_original_source")
     client = Client([], {})
 
     after = reporter_root_opinion_retrieval(before, client=client)
@@ -177,7 +177,7 @@ def test_bound_original_source_takes_precedence_over_lookup_selection():
             cluster=CourtListenerCluster.model_validate({"id": 2, "sub_opinions": [21]}),
         )
     )
-    document = document.replace_citation(root).complete("bind_original_source")
+    document = document.replace_citation(root).complete_substage("bind_original_source")
 
     after = reporter_root_opinion_retrieval(document, client=client)
 
@@ -198,8 +198,8 @@ def test_retrieval_cannot_claim_another_bound_source(cluster_id, sub_opinion_ids
             cluster=CourtListenerCluster.model_validate({"id": 1, "sub_opinions": [20]}),
         )
     )
-    document = document.replace_citation(root).complete("bind_original_source")
-    root = document.roots[0].record(STAGE)
+    document = document.replace_citation(root).complete_substage("bind_original_source")
+    root = document.roots[0].record(SUBSTAGE)
 
     with pytest.raises(ValueError, match=message):
         root.with_reporter_root_opinion_retrieval(
@@ -251,7 +251,7 @@ def test_misassociated_provider_response_raises(response, message):
     before = admitted(client)
     with pytest.raises(ValueError, match=message):
         reporter_root_opinion_retrieval(before, client=client)
-    assert STAGE not in before.stage_runs
+    assert SUBSTAGE not in before.substage_runs
 
 
 def test_provider_error_is_not_a_retrieval_miss():
@@ -269,4 +269,4 @@ def test_body_admission_without_original_cluster_does_not_fetch_corroborator():
     client = Client([], {})
     result = reporter_root_opinion_retrieval(admitted(client), client=client)
     assert client.calls == [] and result.roots[0].reporter_root_opinion_retrieval is None
-    assert result.stage_runs[-1] == STAGE
+    assert result.substage_runs[-1] == SUBSTAGE

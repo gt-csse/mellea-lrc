@@ -2,8 +2,8 @@
 
 Full citations supply names; relaxed source matching and the shared pinpoint
 reader augment eyecite's name-plus-pin shape. A bare name is outside this
-stage's scope. Creation retains the case name and pinpoint, while attribution
-remains an independent stage.
+substage's scope. Creation retains the case name and pinpoint, while attribution
+remains an independent substage.
 """
 
 import re
@@ -16,17 +16,17 @@ from mellea_lrc.extraction.context.leaves import (
     reference_pin_after,
     require_leaves,
 )
-from mellea_lrc.matching.literal import fuzzy_literal
+from mellea_lrc.matching.literal_to_regex import fuzzy_literal
 from mellea_lrc.model.citations import ReferenceCitation
 from mellea_lrc.model.citations.fields.base import CitationField
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 
-STAGE = "30_reference_citations"
+SUBSTAGE = "grow_leaves.reference_citations.discovery"
 
 
 def find_reference_citations(document: Document) -> Document:
-    require_leaves(document, STAGE)
+    require_leaves(document, SUBSTAGE)
     blocked = [c.site_span for c in document.citations]
     # A name, court, date, entry or pin already read as part of a full citation
     # is not a separate leaf. Include every source-grounded field history.
@@ -74,6 +74,6 @@ def find_reference_citations(document: Document) -> Document:
         if pin is None:
             raise ValueError(f"Reference citation has no adjacent pinpoint: {span}")
         document = document.add_citation(
-            ReferenceCitation.from_source(source=document.text, span=span, pin_span=pin, stage=STAGE)
+            ReferenceCitation.from_source(source=document.text, span=span, pin_span=pin, substage=SUBSTAGE)
         )
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

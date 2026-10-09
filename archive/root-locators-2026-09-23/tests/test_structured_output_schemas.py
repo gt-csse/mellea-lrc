@@ -16,7 +16,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from mellea_lrc.extraction.adjudication.review.case_name import _Answer as _CaseNameProposal
+from mellea_lrc.experimental.leaf_case_name_hunting.review import _Answer as _CaseNameProposal
 from mellea_lrc.extraction.adjudication.review.docket import _DocketProposal
 from mellea_lrc.extraction.adjudication.review.locator import _Locator, _Locators
 from mellea_lrc.extraction.adjudication.review.pin_cite import _Answer as _PinCiteProposal

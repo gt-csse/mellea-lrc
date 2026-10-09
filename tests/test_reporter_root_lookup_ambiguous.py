@@ -16,10 +16,10 @@ from mellea_lrc.api import (
 from mellea_lrc.providers.courtlistener import CourtListenerCitationLookup, CourtListenerDocket
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactAmbiguityOutcome
-from mellea_lrc.validation.reporter_root_lookup_ambiguous_rule_judgment import STAGE
-from mellea_lrc.validation.reporter_root_lookup_docket_retrieval import STAGE as DOCKETS_STAGE
+from mellea_lrc.validation.reporter_root_lookup_ambiguous_rule_judgment import SUBSTAGE
+from mellea_lrc.validation.reporter_root_lookup_docket_retrieval import SUBSTAGE as DOCKETS_SUBSTAGE
 
-LOOKUP_STAGE = "12.1_reporter_root_lookup_cluster_retrieval"
+LOOKUP_SUBSTAGE = "validate_roots.reporter_lookup.cluster_retrieval"
 
 SOURCE = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
 
@@ -64,7 +64,7 @@ def _dockets(before: Document, client: FakeClient) -> Document:
     lookup_calls = client.lookup_calls
     after = reporter_root_lookup_docket_retrieval(before, client=client)
     assert client.lookup_calls == lookup_calls
-    assert after.get_stage(LOOKUP_STAGE) == before
+    assert after.get_substage(LOOKUP_SUBSTAGE) == before
     assert after.roots[0].reporter_exact_ambiguity_resolution is None
     assert after.roots[0].case_name_judgments == ()
     assert after.roots[0].court_judgments == ()
@@ -76,7 +76,7 @@ def _reviewed(before: Document, client: FakeClient) -> Document:
     calls = (client.lookup_calls, tuple(client.docket_calls))
     after = reporter_root_lookup_ambiguous_rule_judgment(before)
     assert (client.lookup_calls, tuple(client.docket_calls)) == calls
-    assert after.get_stage(before.stage_runs[-1]) == before
+    assert after.get_substage(before.substage_runs[-1]) == before
     return after
 
 
@@ -91,9 +91,9 @@ def test_unique_passing_candidate_is_admitted_and_all_comparisons_are_saved() ->
 
     assert client.lookup_calls == 1
     assert client.docket_calls == []
-    assert after.stage_runs[-1] == STAGE
-    assert after.get_stage(LOOKUP_STAGE) == retrieved
-    assert after.get_stage(DOCKETS_STAGE) == before
+    assert after.substage_runs[-1] == SUBSTAGE
+    assert after.get_substage(LOOKUP_SUBSTAGE) == retrieved
+    assert after.get_substage(DOCKETS_SUBSTAGE) == before
     root = after.roots[0]
     resolution = root.reporter_exact_ambiguity_resolution
     assert resolution is not None
@@ -107,8 +107,8 @@ def test_unique_passing_candidate_is_admitted_and_all_comparisons_are_saved() ->
     assert [item.candidate_index for item in root.court_judgments] == [0, 1]
     assert [item.candidate_index for item in root.date_judgments] == [0, 1]
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
-    assert root.next_stage is None
-    assert [route.value for route in root.routes] == [DOCKETS_STAGE, STAGE, None]
+    assert root.next_substage is None
+    assert [route.value for route in root.routes] == [DOCKETS_SUBSTAGE, SUBSTAGE, None]
     assert root.routes[-1].node_id == root.nodes[-1].id
     assert all(
         record.node_id == root.nodes[-1].id
@@ -122,8 +122,8 @@ def test_unique_passing_candidate_is_admitted_and_all_comparisons_are_saved() ->
     )
     restored = Document.model_validate_json(after.model_dump_json())
     assert restored == after
-    assert restored.get_stage(LOOKUP_STAGE) == retrieved
-    assert restored.get_stage(DOCKETS_STAGE) == before
+    assert restored.get_substage(LOOKUP_SUBSTAGE) == retrieved
+    assert restored.get_substage(DOCKETS_SUBSTAGE) == before
     with pytest.raises(ValueError, match="already completed"):
         reporter_root_lookup_ambiguous_rule_judgment(after)
 
@@ -147,8 +147,8 @@ def test_zero_or_multiple_passing_candidates_wait_for_model_review(
     assert resolution.passing_candidate_indices == passing
     assert resolution.selected_candidate_index is None
     assert root.identity_judgments == ()
-    assert root.next_stage == "15_reporter_root_lookup_ambiguous_llm_judgment"
-    assert [route.value for route in root.routes] == [DOCKETS_STAGE, STAGE, root.next_stage]
+    assert root.next_substage == "validate_roots.reporter_lookup.ambiguous_llm_judgment"
+    assert [route.value for route in root.routes] == [DOCKETS_SUBSTAGE, SUBSTAGE, root.next_substage]
 
 
 def test_large_candidate_set_is_preserved_without_review_or_truncation() -> None:
@@ -165,7 +165,7 @@ def test_large_candidate_set_is_preserved_without_review_or_truncation() -> None
     assert len(root.reporter_exact_lookup.response.clusters) == 20
     assert root.case_name_judgments == root.court_judgments == root.date_judgments == ()
     assert root.identity_judgments == ()
-    assert root.next_stage == "reporter_root_lookup_large_candidate_review"
+    assert root.next_substage == "reporter_root_lookup_large_candidate_review"
     assert client.docket_calls == []
 
 
@@ -201,10 +201,10 @@ def test_nonambiguous_root_does_not_gain_a_node() -> None:
     before = _dockets(retrieved, client)
     after = _reviewed(before, client)
 
-    assert after.stage_runs[-1] == STAGE
+    assert after.substage_runs[-1] == SUBSTAGE
     assert after.roots == before.roots
-    assert after.get_stage(LOOKUP_STAGE) == retrieved
-    assert after.get_stage(DOCKETS_STAGE) == before
+    assert after.get_substage(LOOKUP_SUBSTAGE) == retrieved
+    assert after.get_substage(DOCKETS_SUBSTAGE) == before
 
 
 def test_only_exactly_routed_roots_are_processed() -> None:
@@ -212,12 +212,12 @@ def test_only_exactly_routed_roots_are_processed() -> None:
     client = FakeClient([cluster(1), cluster(2, caseNameFull="Jones v. Smith")])
     before = _dockets(reporter_root_lookup_cluster_retrieval(roots, client=client), client)
     root = before.roots[0]
-    almost_stage = root.record("route_setup").with_route(f"{STAGE}_review")
-    routed = before.replace_citation(almost_stage).complete("route_setup")
+    almost_stage = root.record("route_setup").with_route(f"{SUBSTAGE}_review")
+    routed = before.replace_citation(almost_stage).complete_substage("route_setup")
 
     after = _reviewed(routed, client)
 
     assert after.roots[0].nodes == routed.roots[0].nodes
     assert after.roots[0].reporter_exact_ambiguity_resolution is None
     assert after.roots[0].identity_judgments == ()
-    assert after.roots[0].next_stage == f"{STAGE}_review"
+    assert after.roots[0].next_substage == f"{SUBSTAGE}_review"

@@ -105,6 +105,9 @@ class RetrievedReporterOpinion(BaseModel):
             if self.outcome is not OpinionRetrievalOutcome.NOT_FOUND:
                 raise ValueError("An absent response must be recorded as not_found")
         else:
+            for key in ("id", "cluster"):
+                if key not in self.response:
+                    raise ValueError(f"Retrieved opinion response is missing its {key!r} field")
             if opinion_resource_id(self.response["id"], "opinions") != self.opinion_id:
                 raise ValueError("Retrieved opinion ID differs from the requested opinion")
             if opinion_resource_id(self.response["cluster"], "clusters") != self.cluster_id:

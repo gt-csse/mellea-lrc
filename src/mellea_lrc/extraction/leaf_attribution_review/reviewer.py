@@ -122,7 +122,7 @@ class LeafReviewOutcome:
 def apply_review(
     citation: LeafCitation, context: LeafReviewContext, outcome: LeafReviewOutcome
 ) -> LeafCitation:
-    """Materialize one choice on the decision node already recorded by a stage."""
+    """Materialize one choice on the decision node already recorded by a substage."""
     decision, failure = outcome.decision, outcome.failure_reason
     if outcome.run and not outcome.run.success:
         failure = failure or outcome.run.failure_reason or "Leaf IVR failed"

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mellea_lrc.llm.profiles import OPENROUTER_LUNA
+from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model.citations import FullCitationVariant, FullDocketCitation
 from mellea_lrc.model.citations.body_evidence import (
     BodyCorroborationDecision,
@@ -19,9 +19,8 @@ from mellea_lrc.validation.locator_body_llm_judgment.reviewer import (
     IvrBodyCorroborationReviewer,
 )
 
-STAGE = "23_locator_body_llm_judgment"
-MODEL_PROFILE = OPENROUTER_LUNA
-NEXT_STAGE = "case_name_body_discovery"
+SUBSTAGE = "validate_roots.locator_body_corroboration.llm_judgment"
+NEXT_SUBSTAGE = "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
 
 
 def _append_corrections(
@@ -67,19 +66,19 @@ async def locator_body_llm_judgment(
     """Judge a grounded locator occurrence across provider excerpts.
 
     Provider search stages are independently resumable. Their records remain
-    attached to each citation; this stage owns the sole cross-provider verdict.
+    attached to each citation; this substage owns the sole cross-provider verdict.
     """
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
     roots = roots_for_body_search(document)
     if not roots:
-        return document.complete(STAGE)
+        return document.complete_substage(SUBSTAGE)
     if not any(root.body_searches for root in roots):
         raise ValueError("Complete at least one body search before corroboration review")
     service = reviewer
     for root in roots:
         context = BodyCorroborationContext.from_document(document, root)
-        recorded = root.record(STAGE)
+        recorded = root.record(SUBSTAGE)
         if not context.evidence:
             outcome = BodyCorroborationOutcome(
                 decision=BodyCorroborationDecision(
@@ -97,7 +96,7 @@ async def locator_body_llm_judgment(
             )
         else:
             if service is None:
-                service = IvrBodyCorroborationReviewer.from_profile(MODEL_PROFILE)
+                service = IvrBodyCorroborationReviewer.from_profile(load_profile(SUBSTAGE))
             result = await service(context)
             outcome = (
                 result if isinstance(result, BodyCorroborationOutcome) else BodyCorroborationOutcome(result)
@@ -116,12 +115,12 @@ async def locator_body_llm_judgment(
                     failure_reason=failure or "Model review produced no decision",
                 )
             )
-            recorded = recorded.with_route(NEXT_STAGE)
+            recorded = recorded.with_route(NEXT_SUBSTAGE)
         elif decision.source is None:
             recorded = recorded.with_body_review(
                 BodyCorroborationReview(node_id=recorded.nodes[-1].id, decision=decision, ivr=outcome.run)
             )
-            recorded = recorded.with_route(NEXT_STAGE)
+            recorded = recorded.with_route(NEXT_SUBSTAGE)
         else:
             grounded = context.grounded_quote(decision)
             grounded_context = context.grounded_context(decision)
@@ -153,9 +152,9 @@ async def locator_body_llm_judgment(
                 raise ValueError("A selected body citation must issue an identity opinion")
             recorded = recorded.with_identity_judgment(verdict, basis=IdentityBasis.THIRD_PARTY)
             recorded = recorded.with_route(
-                NEXT_STAGE
+                NEXT_SUBSTAGE
                 if verdict in {IdentityVerdict.UNDETERMINED, IdentityVerdict.PARTIALLY_CORROBORATED}
                 else None
             )
         document = document.replace_citation(recorded)
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

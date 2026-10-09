@@ -17,8 +17,8 @@ from mellea_lrc.model.citations.reporter_pages import (
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.validation.reporter_root_opinion_page_index import (
-    SOURCE_STAGE,
-    STAGE,
+    SOURCE_SUBSTAGE,
+    SUBSTAGE,
     _index_opinion,
     _infer_page_namespaces,
     _render_html,
@@ -195,14 +195,14 @@ def test_stage_requires_stage_39_and_recovers_completed_checkpoint():
     except ValueError as error:
         assert "Retrieve reporter-root opinions" in str(error)
     else:
-        raise AssertionError("Page indexing must require stage 39")
+        raise AssertionError("Page indexing must require substage 39")
 
-    before = document.model_copy(update={"stage_runs": (SOURCE_STAGE,)})
+    before = document.complete_substage(SOURCE_SUBSTAGE)
     after = index_reporter_root_opinion_pages(before)
     restored = Document.model_validate_json(after.model_dump_json())
-    assert after.stage_runs == (SOURCE_STAGE, STAGE)
+    assert after.substage_runs == (SOURCE_SUBSTAGE, SUBSTAGE)
     assert restored == after
-    assert restored.get_stage(STAGE) == after
+    assert restored.get_substage(SUBSTAGE) == after
 
 
 def test_stage_attaches_index_to_reporter_root_and_recovers_it_from_checkpoint():
@@ -212,13 +212,17 @@ def test_stage_attaches_index_to_reporter_root_and_recovers_it_from_checkpoint()
     source = "550 U.S. 544"
     citation = FullReporterCitation.from_locator(
         citation_id="citation:1:1",
-        stage="1_full_reporter_locators",
+        substage="grow_roots.locator_discovery.full_reporter_locators",
         source=source,
         span=Span(0, len(source)),
     )
-    document = Document.from_source(source).add_citation(citation).complete("1_full_reporter_locators")
-    citation = document.citations[0].record("10_roots").with_root("citation:1:1")
-    document = document.replace_citation(citation).complete("10_roots")
+    document = (
+        Document.from_source(source)
+        .add_citation(citation)
+        .complete_substage("grow_roots.locator_discovery.full_reporter_locators")
+    )
+    citation = document.citations[0].record("grow_roots.root_formation.rule").with_root("citation:1:1")
+    document = document.replace_citation(citation).complete_substage("grow_roots.root_formation.rule")
     citation = document.roots[0].record("bind_original_source")
     citation = citation.with_reporter_root_opinion_source(
         ReporterRootOpinionSource(
@@ -232,9 +236,9 @@ def test_stage_attaches_index_to_reporter_root_and_recovers_it_from_checkpoint()
             ),
         )
     )
-    source_checkpoint = document.replace_citation(citation).complete("bind_original_source")
+    source_checkpoint = document.replace_citation(citation).complete_substage("bind_original_source")
     document = source_checkpoint
-    citation = document.roots[0].record(SOURCE_STAGE)
+    citation = document.roots[0].record(SOURCE_SUBSTAGE)
     citation = citation.with_reporter_root_opinion_retrieval(
         ReporterRootOpinionRetrieval(
             node_id=citation.nodes[-1].id,
@@ -254,20 +258,20 @@ def test_stage_attaches_index_to_reporter_root_and_recovers_it_from_checkpoint()
             ),
         )
     )
-    document = document.replace_citation(citation).complete(SOURCE_STAGE)
+    document = document.replace_citation(citation).complete_substage(SOURCE_SUBSTAGE)
     indexed = index_reporter_root_opinion_pages(document)
     restored = Document.model_validate_json(indexed.model_dump_json())
 
     result = restored.roots[0].reporter_root_opinion_page_index
-    assert indexed.stage_runs[-1] == STAGE
+    assert indexed.substage_runs[-1] == SUBSTAGE
     assert result is not None and result.opinions[0].opinion_id == "20"
     assert result.opinions[0].pages[0].span == Span(0, len("Opinion."))
     assert result.opinions[0].pages[0].pagination_inferred
     assert (result.opinions[0].pages[0].volume, result.opinions[0].pages[0].edition) == (550, "U.S.")
     assert restored.roots[0].reporter_exact_lookup is None
     assert restored.roots[0].identity_judgments == ()
-    assert restored.get_stage("bind_original_source") == source_checkpoint
-    assert restored.get_stage(STAGE) == indexed
+    assert restored.get_substage("bind_original_source") == source_checkpoint
+    assert restored.get_substage(SUBSTAGE) == indexed
 
 
 def test_page_namespace_maps_only_to_one_compatible_reporter_citation():

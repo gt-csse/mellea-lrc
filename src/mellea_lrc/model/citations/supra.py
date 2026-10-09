@@ -20,9 +20,9 @@ class SupraCitation(LeafCitation):
         return self.supra_reference[-1].span
 
     @classmethod
-    def from_source(cls, *, source: str, span: Span, stage: str) -> Self:
+    def from_source(cls, *, source: str, span: Span, substage: str) -> Self:
         identifier = f"supra:{span.start}:{span.end}"
-        node = Node(id=f"{identifier}:node:0", stage=stage)
+        node = Node(id=f"{identifier}:node:0", substage=substage)
         return cls(
             id=identifier,
             nodes=(node,),

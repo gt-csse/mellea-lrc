@@ -119,7 +119,7 @@ def short_reporter_readings(source: str) -> tuple[ShortReporterReading, ...]:
     # Discover every base span first, then extend pins back to front. The
     # next independently recognized authority bounds the pin grammar, so a
     # comma-separated reporter volume cannot become a page-list item. Keep
-    # full/noncase/Id/supra events as boundaries even though this stage only
+    # full/noncase/Id/supra events as boundaries even though this substage only
     # creates short reporters. Creation still happens in source order.
     for citation in reversed(citations):
         if isinstance(citation, ShortCaseCitation):

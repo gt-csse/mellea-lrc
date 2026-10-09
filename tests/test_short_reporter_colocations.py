@@ -15,9 +15,9 @@ from mellea_lrc.api import (
     resolve_short_reporter_colocations,
 )
 from mellea_lrc.config.extraction import ExtractionRules
-from mellea_lrc.extraction.short_reporter_case_names import STAGE as NAME_STAGE
-from mellea_lrc.extraction.short_reporter_colocations import STAGE as COLOCATION_STAGE
-from mellea_lrc.extraction.short_reporter_locator import STAGE as CREATION_STAGE
+from mellea_lrc.extraction.short_reporter_case_names import SUBSTAGE as NAME_SUBSTAGE
+from mellea_lrc.extraction.short_reporter_colocations import SUBSTAGE as COLOCATION_SUBSTAGE
+from mellea_lrc.extraction.short_reporter_locator import SUBSTAGE as CREATION_SUBSTAGE
 from mellea_lrc.model.citations import latest
 
 ROOTS = "Smith v. Jones, 347 U.S. 483, 74 S. Ct. 686 (1954). "
@@ -44,7 +44,7 @@ def test_short_creation_reads_locator_and_pins_before_grouping_or_name_reading()
     for citation in document.short_reporters:
         assert citation.case_name == citation.colocation_id == citation.root_id == ()
         assert len(citation.nodes) == 1
-        assert citation.nodes[0].stage == CREATION_STAGE
+        assert citation.nodes[0].substage == CREATION_SUBSTAGE
         assert citation.short_locator[-1].node_id == citation.pin_cite[-1].node_id == citation.nodes[0].id
 
 
@@ -64,7 +64,7 @@ def test_parallel_short_groups_allow_literal_source_whitespace_joins(join: str) 
         assert current.pin_cite == previous.pin_cite
         assert current.case_name == current.root_id == ()
         assert latest(current.colocation_id) == group.id
-        assert current.nodes[-1].stage == COLOCATION_STAGE
+        assert current.nodes[-1].substage == COLOCATION_SUBSTAGE
         assert current.colocation_id[-1].node_id == current.nodes[-1].id
 
 
@@ -80,7 +80,7 @@ def test_parallel_short_names_are_grounded_before_the_first_group_member() -> No
         reading = citation.case_name[-1]
         assert source[reading.span.start : reading.span.end] == reading.quote
         assert reading.node_id == citation.nodes[-1].id
-        assert citation.nodes[-1].stage == NAME_STAGE
+        assert citation.nodes[-1].substage == NAME_SUBSTAGE
         assert len(citation.case_name) == 1
         assert citation.root_id == citation.attributions == citation.reviews == ()
 
@@ -205,10 +205,12 @@ def test_short_name_stage_and_group_stage_are_independently_recoverable_after_at
     restored = Document.model_validate_json(attributed.model_dump_json())
 
     assert restored == attributed
-    assert restored.get_stage("10_roots") == roots.get_stage("10_roots")
-    assert restored.get_stage(CREATION_STAGE) == before
-    assert restored.get_stage(COLOCATION_STAGE) == grouped
-    assert restored.get_stage(NAME_STAGE) == named
+    assert restored.get_substage("grow_roots.root_formation.rule") == roots.get_substage(
+        "grow_roots.root_formation.rule"
+    )
+    assert restored.get_substage(CREATION_SUBSTAGE) == before
+    assert restored.get_substage(COLOCATION_SUBSTAGE) == grouped
+    assert restored.get_substage(NAME_SUBSTAGE) == named
     assert restored.full_locators == roots.full_locators
     assert len(restored.roots) == 2
     assert len({latest(citation.root_id) for citation in restored.short_reporters}) == 2
@@ -259,9 +261,9 @@ def test_short_parsing_stages_raise_for_wrong_order_and_duplicate_runs() -> None
 def test_short_groups_must_be_valid_in_every_completed_checkpoint() -> None:
     before = created(ROOTS + PARALLEL)
     first, second = before.short_reporters
-    invalid = before.replace_citation(first.record(COLOCATION_STAGE).with_colocation("single"))
+    invalid = before.replace_citation(first.record(COLOCATION_SUBSTAGE).with_colocation("single"))
     with pytest.raises(ValueError, match="A colocation group needs at least two citations"):
-        invalid.complete(COLOCATION_STAGE)
+        invalid.complete_substage(COLOCATION_SUBSTAGE)
     grouped = resolve_short_reporter_colocations(before)
     data = grouped.model_dump(mode="python")
     next(citation for citation in data["citations"] if citation["id"] == second.id)["colocation_id"] = ()

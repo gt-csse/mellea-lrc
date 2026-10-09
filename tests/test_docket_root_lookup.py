@@ -81,9 +81,9 @@ def test_raw_and_numeric_queries_keep_every_hit_but_shortlist_by_number_only() -
     after = lookup_module.docket_root_lookup_courtlistener_retrieval(before, client=client)
 
     assert client.calls == [(full, "d", None), (full, "o", None), (broad, "d", None), (broad, "o", None)]
-    assert after.stage_runs == (*before.stage_runs, lookup_module.STAGE)
-    assert after.get_stage("10_roots") == before
-    assert after.get_stage(lookup_module.STAGE) == after
+    assert after.substage_runs == (*before.substage_runs, lookup_module.SUBSTAGE)
+    assert after.get_stage("grow_roots.root_formation") == before
+    assert after.get_substage(lookup_module.SUBSTAGE) == after
     root = after.roots[0]
     assert isinstance(root, FullDocketCitation)
     lookup = root.docket_lookup
@@ -400,5 +400,5 @@ def test_no_docket_roots_completes_without_calling_search() -> None:
     after = lookup_module.docket_root_lookup_courtlistener_retrieval(before, client=client)
 
     assert client.calls == []
-    assert after.stage_runs == (*before.stage_runs, lookup_module.STAGE)
+    assert after.substage_runs == (*before.substage_runs, lookup_module.SUBSTAGE)
     assert after.roots == before.roots

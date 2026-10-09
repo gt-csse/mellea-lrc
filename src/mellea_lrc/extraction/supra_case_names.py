@@ -6,11 +6,11 @@ from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.parsing.supra import supra_readings
 
-STAGE = "35_supra_case_names"
+SUBSTAGE = "grow_leaves.supra_citations.case_names"
 
 
 def resolve_supra_case_names(document: Document) -> Document:
-    require_leaves(document, STAGE)
+    require_leaves(document, SUBSTAGE)
     for citation in document.short_citations:
         if not isinstance(citation, SupraCitation):
             continue
@@ -20,5 +20,5 @@ def resolve_supra_case_names(document: Document) -> Document:
             raise ValueError("A saved supra citation must retain one source-shaped reference")
         name = readings[0].antecedent_span
         span = Span(site.start + name[0], site.start + name[1])
-        document = document.replace_citation(citation.record(STAGE).with_case_name(document.text, span))
-    return document.complete(STAGE)
+        document = document.replace_citation(citation.record(SUBSTAGE).with_case_name(document.text, span))
+    return document.complete_substage(SUBSTAGE)

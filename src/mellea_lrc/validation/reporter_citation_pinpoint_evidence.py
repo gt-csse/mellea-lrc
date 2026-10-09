@@ -7,17 +7,21 @@ from mellea_lrc.model.citations.reporter_pinpoint import (
     PinpointEvidenceOutcome,
     ReporterCitationPinpointEvidence,
 )
+from mellea_lrc.model.citations.tags import CitationTagKind
 from mellea_lrc.model.document import Document
 
-STAGE = "44_reporter_citation_pinpoint_evidence"
-SOURCE_STAGES = ("42_reporter_citation_opinion_review", "43_reporter_citation_propositions")
+SUBSTAGE = "validate_pincite.citation_preparation.evidence"
+SOURCE_SUBSTAGES = (
+    "validate_pincite.citation_preparation.opinion_review",
+    "validate_pincite.citation_preparation.propositions",
+)
 
 
 def prepare_reporter_citation_pinpoint_evidence(document: Document) -> Document:
     """Preserve explicit unavailable states before reviewing opinion support."""
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if any(stage not in document.stage_runs for stage in SOURCE_STAGES):
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if any(substage not in document.substage_runs for substage in SOURCE_SUBSTAGES):
         raise ValueError(
             "Complete opinion selection and proposition reading before preparing pinpoint evidence"
         )
@@ -40,7 +44,10 @@ def prepare_reporter_citation_pinpoint_evidence(document: Document) -> Document:
         )
         selections = citation.get_reporter_page_selection()
         pages = tuple(page for page in selections if page is not None)
-        if resolution.outcome is ReporterPageResolutionOutcome.NO_PIN:
+        if citation.has_tag(CitationTagKind.TABLE_OF_AUTHORITIES):
+            outcome = PinpointEvidenceOutcome.NO_PROPOSITION
+            reason = "This occurrence is in the table of authorities and supplies no proposition."
+        elif resolution.outcome is ReporterPageResolutionOutcome.NO_PIN:
             outcome = PinpointEvidenceOutcome.NO_PINCITE
             reason = "This occurrence has no written or immediately inherited pinpoint."
         elif proposition is None or proposition.decision is None:
@@ -64,7 +71,7 @@ def prepare_reporter_citation_pinpoint_evidence(document: Document) -> Document:
         else:
             outcome = PinpointEvidenceOutcome.READY
             reason = "Grounded filing propositions and sources for every requested page are available."
-        recorded = citation.record(STAGE)
+        recorded = citation.record(SUBSTAGE)
         evidence = ReporterCitationPinpointEvidence(
             node_id=recorded.nodes[-1].id,
             root_id=resolution.root_id,
@@ -75,4 +82,4 @@ def prepare_reporter_citation_pinpoint_evidence(document: Document) -> Document:
             reason=reason,
         )
         document = document.replace_citation(recorded.with_reporter_pinpoint_evidence(evidence))
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

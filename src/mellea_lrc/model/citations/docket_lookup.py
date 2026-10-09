@@ -71,7 +71,7 @@ class DocketLookupCandidate(BaseModel):
 
     The three indices identify the exact raw result, even when CourtListener
     provides no record ID. The similarity is a 0-100 docket-number score and
-    is evidence for the stage's shortlist, not a case-identity verdict.
+    is evidence for the substage's shortlist, not a case-identity verdict.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

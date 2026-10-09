@@ -22,15 +22,15 @@ from mellea_lrc.model.citations.reporter_opinion import (
     RetrievedReporterOpinion,
 )
 from mellea_lrc.providers.courtlistener import CourtListenerCitationLookup
-from mellea_lrc.validation.reporter_root_opinion_retrieval import STAGE
+from mellea_lrc.validation.reporter_root_opinion_retrieval import SUBSTAGE
 
 LOCATORS = ("550 U.S. 544", "347 U.S. 483", "410 U.S. 113", "505 U.S. 833")
-LOOKUP_STAGE = "12.1_reporter_root_lookup_cluster_retrieval"
-AMBIGUITY_STAGE = "13.2_reporter_root_lookup_ambiguous_rule_judgment"
+LOOKUP_SUBSTAGE = "validate_roots.reporter_lookup.cluster_retrieval"
+AMBIGUITY_SUBSTAGE = "validate_roots.reporter_lookup.ambiguous_rule_judgment"
 
 
 def _with_opinions(citation, *, cluster_id, bundle, candidate_index=0, outcomes=None):
-    citation = citation.record(STAGE)
+    citation = citation.record(SUBSTAGE)
     citation = citation.with_reporter_root_opinion_source(
         ReporterRootOpinionSource(
             node_id=citation.nodes[-1].id,
@@ -73,22 +73,22 @@ def _document(*bundles: tuple[str, ...] | None, outcomes=None, fetch=True) -> Do
         document = document.add_citation(
             FullReporterCitation.from_locator(
                 citation_id=f"citation-{index}",
-                stage="1_full_reporter_locators",
+                substage="grow_roots.locator_discovery.full_reporter_locators",
                 source=document.text,
                 span=Span(start=start, end=start + len(quote)),
             )
         )
-    document = document.complete("1_full_reporter_locators")
+    document = document.complete_substage("grow_roots.locator_discovery.full_reporter_locators")
     for citation, bundle in zip(document.citations, bundles, strict=True):
-        citation = citation.record("10_roots").with_root(citation.id)
+        citation = citation.record("grow_roots.root_formation.rule").with_root(citation.id)
         if bundle is not None:
             citation = citation.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
         document = document.replace_citation(citation)
-    document = document.complete("10_roots")
+    document = document.complete_substage("grow_roots.root_formation.rule")
     for index, (citation, bundle) in enumerate(zip(document.roots, bundles, strict=True)):
         if bundle is None:
             continue
-        citation = citation.record(LOOKUP_STAGE)
+        citation = citation.record(LOOKUP_SUBSTAGE)
         volume, _, page = LOCATORS[index].split()
         citation = citation.with_reporter_exact_lookup(
             ReporterExactLookup(
@@ -105,7 +105,7 @@ def _document(*bundles: tuple[str, ...] | None, outcomes=None, fetch=True) -> Do
             )
         )
         document = document.replace_citation(citation)
-    document = document.complete(LOOKUP_STAGE)
+    document = document.complete_substage(LOOKUP_SUBSTAGE)
     if fetch:
         for index, (citation, bundle) in enumerate(zip(document.roots, bundles, strict=True)):
             if bundle is not None:
@@ -113,12 +113,12 @@ def _document(*bundles: tuple[str, ...] | None, outcomes=None, fetch=True) -> Do
                     citation, cluster_id=str(index + 1), bundle=bundle, outcomes=outcomes
                 )
                 document = document.replace_citation(citation)
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)
 
 
 def _ambiguous_document(selected_index: int | None) -> Document:
-    document = _document(("20",)).get_stage("10_roots")
-    citation = document.roots[0].record(LOOKUP_STAGE)
+    document = _document(("20",)).get_substage("grow_roots.root_formation.rule")
+    citation = document.roots[0].record(LOOKUP_SUBSTAGE)
     citation = citation.with_reporter_exact_lookup(
         ReporterExactLookup(
             node_id=citation.nodes[-1].id,
@@ -133,8 +133,8 @@ def _ambiguous_document(selected_index: int | None) -> Document:
             ),
         )
     )
-    document = document.replace_citation(citation).complete(LOOKUP_STAGE)
-    citation = citation.record(AMBIGUITY_STAGE)
+    document = document.replace_citation(citation).complete_substage(LOOKUP_SUBSTAGE)
+    citation = citation.record(AMBIGUITY_SUBSTAGE)
     citation = citation.with_reporter_exact_ambiguity_resolution(
         ReporterExactAmbiguityResolution(
             node_id=citation.nodes[-1].id,
@@ -147,7 +147,7 @@ def _ambiguous_document(selected_index: int | None) -> Document:
             selected_candidate_index=selected_index,
         )
     )
-    document = document.replace_citation(citation).complete(AMBIGUITY_STAGE)
+    document = document.replace_citation(citation).complete_substage(AMBIGUITY_SUBSTAGE)
     if selected_index is not None:
         citation = _with_opinions(
             citation,
@@ -156,7 +156,7 @@ def _ambiguous_document(selected_index: int | None) -> Document:
             candidate_index=selected_index,
         )
         document = document.replace_citation(citation)
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)
 
 
 def test_unique_original_clusters_use_one_root_each_without_gold_or_opinion_object_denominators():
@@ -167,7 +167,7 @@ def test_unique_original_clusters_use_one_root_each_without_gold_or_opinion_obje
     assert document.source_path is None
     assert score.reporter_roots_opinion_retrievals == score.reporter_roots_correct_identity == 2
     assert score.as_dict() == {
-        "stage": STAGE,
+        "substage": SUBSTAGE,
         "reporter_roots_opinion_retrievals": 2,
         "reporter_roots_correct_identity": 2,
         "ratio": 1.0,
@@ -200,18 +200,20 @@ def test_ambiguous_lookup_without_a_selected_cluster_is_not_eligible():
     ],
 )
 def test_only_current_correct_identity_qualifies_even_when_a_cluster_is_selected(verdict):
-    document = _document(("20",)).get_stage(LOOKUP_STAGE)
+    document = _document(("20",)).get_substage(LOOKUP_SUBSTAGE)
     if verdict is None:
         lookup = document.roots[0].reporter_exact_lookup
-        document = document.get_stage("1_full_reporter_locators")
-        citation = document.citations[0].record("10_roots").with_root(document.citations[0].id)
-        document = document.replace_citation(citation).complete("10_roots")
-        citation = citation.record(LOOKUP_STAGE).with_reporter_exact_lookup(lookup)
-        document = document.replace_citation(citation).complete(LOOKUP_STAGE)
+        document = document.get_substage("grow_roots.locator_discovery.full_reporter_locators")
+        citation = (
+            document.citations[0].record("grow_roots.root_formation.rule").with_root(document.citations[0].id)
+        )
+        document = document.replace_citation(citation).complete_substage("grow_roots.root_formation.rule")
+        citation = citation.record(LOOKUP_SUBSTAGE).with_reporter_exact_lookup(lookup)
+        document = document.replace_citation(citation).complete_substage(LOOKUP_SUBSTAGE)
     else:
         citation = document.roots[0].record("38_identity_review").with_identity_judgment(verdict)
-        document = document.replace_citation(citation).complete("38_identity_review")
-    document = document.complete(STAGE)
+        document = document.replace_citation(citation).complete_substage("38_identity_review")
+    document = document.complete_substage(SUBSTAGE)
 
     score = evaluation.score_reporter_root_opinion_retrieval(document)
 
@@ -219,13 +221,13 @@ def test_only_current_correct_identity_qualifies_even_when_a_cluster_is_selected
 
 
 def test_body_only_admission_without_original_cluster_does_not_expand_the_ratio():
-    document = _document(("20",), None).get_stage(LOOKUP_STAGE)
+    document = _document(("20",), None).get_substage(LOOKUP_SUBSTAGE)
     citation = (
         document.roots[1].record("38_body_review").with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
     )
-    document = document.replace_citation(citation).complete("38_body_review")
+    document = document.replace_citation(citation).complete_substage("38_body_review")
     citation = _with_opinions(document.roots[0], cluster_id="1", bundle=("20",))
-    document = document.replace_citation(citation).complete(STAGE)
+    document = document.replace_citation(citation).complete_substage(SUBSTAGE)
 
     score = evaluation.score_reporter_root_opinion_retrieval(document)
 
@@ -262,7 +264,7 @@ def test_selected_cluster_without_saved_retrieval_or_subopinions_is_not_silently
 def test_roundtrip_scoring_recovers_stage_39_before_a_later_withdrawal():
     checkpoint = _document(("20",))
     citation = checkpoint.roots[0].record("40_later").with_root(WITHDRAWN_ROOT_ID)
-    later = checkpoint.replace_citation(citation).complete("40_later")
+    later = checkpoint.replace_citation(citation).complete_substage("40_later")
     later = Document.model_validate_json(later.model_dump_json())
 
     assert later.roots == ()
@@ -276,14 +278,21 @@ def test_workflow_aggregation_and_rendering_expose_only_the_requested_ratio():
     combined = score + score
 
     assert combined.as_dict() == {
+        "workflow": "validate_pincite",
         "stages": [
             {
-                "stage": STAGE,
-                "reporter_roots_opinion_retrievals": 4,
-                "reporter_roots_correct_identity": 4,
-                "ratio": 1.0,
+                "stage": "validate_pincite.opinion_preparation",
+                "completed": False,
+                "substages": [
+                    {
+                        "substage": SUBSTAGE,
+                        "reporter_roots_opinion_retrievals": 4,
+                        "reporter_roots_correct_identity": 4,
+                        "ratio": 1.0,
+                    }
+                ],
             }
-        ]
+        ],
     }
     report = evaluation.render_validate_pincite(score)
     assert "| reporter_roots_opinion_retrievals / reporter_roots_correct_identity | 2/2 (100.0%) |" in report

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mellea_lrc.llm.profiles import OPENROUTER_LUNA
+from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.reporter_lookup import (
     ReporterExactLookupOutcome,
@@ -21,8 +21,7 @@ from mellea_lrc.validation.reporter_root_lookup_unique_llm_judgment.reviewer imp
     ReporterUniqueReviewOutcome,
 )
 
-STAGE = "14_reporter_root_lookup_unique_llm_judgment"
-MODEL_PROFILE = OPENROUTER_LUNA
+SUBSTAGE = "validate_roots.reporter_lookup.unique_llm_judgment"
 
 
 async def reporter_root_lookup_unique_llm_judgment(
@@ -35,13 +34,13 @@ async def reporter_root_lookup_unique_llm_judgment(
     The saved candidate is reused. The model's correction quotes must ground
     in the filing, and the program derives identity from its field judgments.
     """
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if "13.1_reporter_root_lookup_unique_rule_judgment" not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "validate_roots.reporter_lookup.unique_rule_judgment" not in document.substage_runs:
         raise ValueError("Complete unique reporter rule review before its model review")
     service = reviewer
     for root in tuple(item for item in document.roots if isinstance(item, FullReporterCitation)):
-        if root.next_stage != STAGE:
+        if root.next_substage != SUBSTAGE:
             continue
         lookup = root.reporter_exact_lookup
         if (
@@ -53,14 +52,14 @@ async def reporter_root_lookup_unique_llm_judgment(
             raise ValueError("Unique model route requires one saved reporter lookup candidate")
         context = ReporterUniqueReviewContext.from_document(document, root)
         if service is None:
-            service = IvrReporterUniqueReviewer.from_profile(MODEL_PROFILE)
+            service = IvrReporterUniqueReviewer.from_profile(load_profile(SUBSTAGE))
         result = await service(context)
         outcome = (
             result
             if isinstance(result, ReporterUniqueReviewOutcome)
             else ReporterUniqueReviewOutcome(decision=result)
         )
-        recorded = root.record(STAGE)
+        recorded = root.record(SUBSTAGE)
         decision = outcome.decision
         corrections = context.grounded_corrections(decision) if decision is not None else None
         failure = outcome.failure_reason
@@ -103,4 +102,4 @@ async def reporter_root_lookup_unique_llm_judgment(
                 else recorded.with_route("reporter_root_search")
             )
         document = document.replace_citation(recorded)
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

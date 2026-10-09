@@ -12,9 +12,6 @@ if TYPE_CHECKING:
 
 OUTPUT_MODE_OPTION = "@@@mellea_lrc_output_mode@@@"
 PROFILE_OPTION = "@@@mellea_lrc_profile@@@"
-DEFAULT_TEMPERATURE = 0.0
-DEFAULT_TIMEOUT_SECONDS = 120.0
-DEFAULT_SERVICE_TIER: str | None = None
 _REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 
 
@@ -31,10 +28,10 @@ class LlmApiConfig:
     model: str
     api_base: str
     api_key: str = field(repr=False)
-    temperature: float = DEFAULT_TEMPERATURE
-    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
-    service_tier: str | None = DEFAULT_SERVICE_TIER
-    output_mode: LlmOutputMode = LlmOutputMode.JSON_SCHEMA
+    temperature: float
+    timeout_seconds: float
+    output_mode: LlmOutputMode
+    service_tier: str | None = None
     reasoning_effort: str | None = None
     profile_name: str | None = None
 
