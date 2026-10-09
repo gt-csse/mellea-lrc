@@ -20,7 +20,7 @@ from mellea_lrc.api import (
     resolve_short_reporter_case_names,
     resolve_short_reporter_colocations,
 )
-from mellea_lrc.extraction.short_reporter_locator import STAGE
+from mellea_lrc.extraction.short_reporter_locator import SUBSTAGE
 from mellea_lrc.parsing.reporters import short_reporter_readings
 from mellea_lrc.model.citations import IdCitation, ReferenceCitation, SupraCitation
 
@@ -68,8 +68,8 @@ def test_parallel_short_reporters_keep_separate_spans_and_pins(quotes: tuple[str
         root.id for root in roots.roots[: len(quotes)]
     ]
     restored = Document.model_validate_json(attributed.model_dump_json())
-    assert restored.get_stage(STAGE) == created
-    assert restored.get_stage("10_roots") == roots
+    assert restored.get_substage(SUBSTAGE) == created
+    assert restored.get_stage("grow_roots.root_formation") == roots
 
 
 @pytest.mark.parametrize(
@@ -125,11 +125,11 @@ def test_later_leaf_stages_preserve_roots_and_short_reporter_checkpoints() -> No
     roots = _roots(source)
     created = find_short_reporter_citations(roots)
     attributed = asyncio.run(attribute_short_reporter_citations(_read_short_names(created), review=False))
-    references = find_reference_citations(attributed)
+    references = find_reference_citations(attributed.complete_stage("grow_leaves.short_reporter_citations"))
     references = asyncio.run(attribute_reference_citations(references, review=False))
-    ids = find_id_citations(references)
+    ids = find_id_citations(references.complete_stage("grow_leaves.reference_citations"))
     ids = asyncio.run(attribute_id_citations(ids, review=False))
-    supra = find_supra_citations(ids)
+    supra = find_supra_citations(ids.complete_stage("grow_leaves.id_citations"))
     final = asyncio.run(grow_leaves(roots, review_leaves=False))
 
     assert len(final.short_reporters) == 3
@@ -148,12 +148,19 @@ def test_later_leaf_stages_preserve_roots_and_short_reporter_checkpoints() -> No
         assert final_citations[citation.id] == citation
     restored = Document.model_validate_json(final.model_dump_json())
     assert restored == final
-    assert restored.get_stage("10_roots") == roots
-    assert restored.get_stage(STAGE) == created
-    assert restored.get_stage("29_short_reporter_attribution") == attributed
-    assert restored.get_stage("31_reference_attribution") == references
-    assert restored.get_stage("33_id_attribution") == ids
-    assert restored.get_stage("34_supra_citations") == supra
+    assert restored.get_stage("grow_roots.root_formation") == roots
+    assert restored.get_substage(SUBSTAGE) == created
+    assert restored.get_substage("grow_leaves.short_reporter_citations.attribution") == attributed
+    assert restored.get_stage("grow_leaves.short_reporter_citations") == attributed.complete_stage(
+        "grow_leaves.short_reporter_citations"
+    )
+    assert restored.get_substage("grow_leaves.reference_citations.attribution") == references
+    assert restored.get_stage("grow_leaves.reference_citations") == references.complete_stage(
+        "grow_leaves.reference_citations"
+    )
+    assert restored.get_substage("grow_leaves.id_citations.attribution") == ids
+    assert restored.get_stage("grow_leaves.id_citations") == ids.complete_stage("grow_leaves.id_citations")
+    assert restored.get_substage("grow_leaves.supra_citations.discovery") == supra
 
 
 def test_finding_shorts_preserves_previously_created_leaf_objects() -> None:
@@ -167,8 +174,8 @@ def test_finding_shorts_preserves_previously_created_leaf_objects() -> None:
     created_citations = {citation.id: citation for citation in created.citations}
     assert tuple(created_citations[citation.id] for citation in earlier.citations) == earlier.citations
     restored = Document.model_validate_json(created.model_dump_json())
-    assert restored.get_stage("34_supra_citations") == earlier
-    assert restored.get_stage("10_roots") == roots
+    assert restored.get_substage("grow_leaves.supra_citations.discovery") == earlier
+    assert restored.get_stage("grow_roots.root_formation") == roots
 
 
 def test_id_follows_the_last_parallel_short_without_merging_existing_roots() -> None:
@@ -198,7 +205,7 @@ def test_id_follows_the_last_parallel_short_without_merging_existing_roots() -> 
     assert final.short_reporters == attributed.short_reporters
     restored = Document.model_validate_json(final.model_dump_json())
     assert restored == final
-    assert restored.get_stage("10_roots") == roots
-    assert restored.get_stage(STAGE) == created
-    assert restored.get_stage("29_short_reporter_attribution") == attributed
-    assert restored.get_stage("32_id_citations") == ids
+    assert restored.get_stage("grow_roots.root_formation") == roots
+    assert restored.get_substage(SUBSTAGE) == created
+    assert restored.get_substage("grow_leaves.short_reporter_citations.attribution") == attributed
+    assert restored.get_substage("grow_leaves.id_citations.discovery") == ids

@@ -14,6 +14,23 @@ from mellea_lrc import api, providers, workflows
 from mellea_lrc.model import Document
 
 _WORKFLOWS = {"grow_roots", "validate_roots", "grow_leaves", "validate_pincite"}
+_STAGES = {
+    "discover_root_locators",
+    "read_root_fields",
+    "form_root_groups",
+    "lookup_reporter_roots",
+    "lookup_docket_roots",
+    "corroborate_locator_bodies",
+    "discover_intended_cases",
+    "grow_short_reporter_leaves",
+    "grow_reference_leaves",
+    "grow_id_leaves",
+    "grow_supra_leaves",
+    "correct_leaf_readings",
+    "prepare_root_opinions",
+    "prepare_citation_evidence",
+    "review_citation_support",
+}
 
 
 def test_only_the_user_defined_workflows_are_exposed() -> None:
@@ -30,11 +47,18 @@ def test_only_the_user_defined_workflows_are_exposed() -> None:
         name
         for name in api.__all__
         if getattr(getattr(api, name), "__module__", "").startswith("mellea_lrc.workflows.")
-    } == _WORKFLOWS
+    } == _WORKFLOWS | _STAGES
     for name in _WORKFLOWS:
         module = importlib.import_module(f"mellea_lrc.workflows.{name}")
         assert getattr(api, name) is getattr(module, name)
         assert getattr(workflows, name) is getattr(module, name)
+
+    for workflow in _WORKFLOWS:
+        package = importlib.import_module(f"mellea_lrc.workflows.{workflow}")
+        assert Path(package.__file__).name == "__init__.py"
+        for stage_name in set(package.__all__) - {workflow}:
+            assert getattr(api, stage_name) is getattr(package, stage_name)
+            assert getattr(api, stage_name).__module__.startswith(f"mellea_lrc.workflows.{workflow}.")
 
 
 def test_provider_clients_do_not_depend_on_citation_stages_or_workflows() -> None:
@@ -54,7 +78,9 @@ def test_provider_clients_do_not_depend_on_citation_stages_or_workflows() -> Non
             )
             for module in modules:
                 if module.startswith("mellea_lrc."):
-                    assert module.startswith("mellea_lrc.providers."), (file, module)
+                    assert (
+                        module.startswith("mellea_lrc.providers.") or module == "mellea_lrc.configuration"
+                    ), (file, module)
 
 
 def test_source_readers_and_durable_models_do_not_import_stages() -> None:
@@ -75,6 +101,8 @@ def test_source_readers_and_durable_models_do_not_import_stages() -> None:
                     assert not module.startswith(stage_layers), (file, module)
                     if layer == "parsing" and module.startswith("mellea_lrc."):
                         assert module.startswith(allowed_reading_layers), (file, module)
+                    if layer == "matching":
+                        assert not module.startswith("mellea_lrc.preprocessing"), (file, module)
 
 
 @pytest.mark.parametrize("layer", ["extraction", "validation"])
@@ -87,7 +115,7 @@ def test_direct_stage_modules_have_an_explicit_stage_boundary(layer: str) -> Non
         tree = ast.parse(file.read_text())
         assert any(
             isinstance(node, ast.Assign)
-            and any(isinstance(target, ast.Name) and target.id == "STAGE" for target in node.targets)
+            and any(isinstance(target, ast.Name) and target.id == "SUBSTAGE" for target in node.targets)
             for node in tree.body
         ), file
     for file in directory.rglob("*.py"):
@@ -107,9 +135,11 @@ def test_scoring_writes_one_report_pair_per_workflow(tmp_path: Path, monkeypatch
     directory.mkdir()
     document = (
         Document.from_source("source")
-        .complete("28_short_reporter_citations")
-        .complete("33_id_attribution")
-        .complete("39_reporter_root_opinion_retrieval")
+        .complete_substage("grow_roots.locator_discovery.full_reporter_locators")
+        .complete_substage("validate_roots.reporter_lookup.cluster_retrieval")
+        .complete_substage("grow_leaves.short_reporter_citations.discovery")
+        .complete_substage("grow_leaves.id_citations.attribution")
+        .complete_substage("validate_pincite.opinion_preparation.retrieval")
     )
     (directory / "filing.txt.json").write_text(document.model_dump_json())
     (tmp_path / "run.json").write_text(

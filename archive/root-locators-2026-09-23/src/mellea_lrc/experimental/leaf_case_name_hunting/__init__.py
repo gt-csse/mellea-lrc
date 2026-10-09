@@ -1,9 +1,8 @@
-"""Optional, iterative review of case names missed by the leaf reader.
+"""Legacy experimental LLM discovery of bare-name reference citations.
 
-The root and leaf growth stages remain deterministic. This stage reviews only
-name-shaped sites that neither growth admitted, and writes each decision before
-looking for the next site. An accepted bare name is consequently in the mask
-and available as a leaf to subsequent reviews.
+This archived stage uses the legacy document model and is outside the current
+pinpoint-only grow-leaves workflow. It reviews unread case-name sites one at a
+time, admitting bare-name leaves or repairing an existing citation's name.
 """
 
 from __future__ import annotations
@@ -11,8 +10,8 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from mellea_lrc.extraction.adjudication.candidates.case_name_sites import case_name_sites
-from mellea_lrc.extraction.adjudication.review.case_name import Reading, adjudicate_case_name
+from mellea_lrc.experimental.leaf_case_name_hunting.candidates import case_name_sites
+from mellea_lrc.experimental.leaf_case_name_hunting.review import Reading, adjudicate_case_name
 from mellea_lrc.extraction.reading.unread_names import unread_case_names
 from mellea_lrc.extraction.structure.leaf_growth import LEAF_GROWTH_STAGE
 from mellea_lrc.model.case_names import CaseName
@@ -36,7 +35,7 @@ if TYPE_CHECKING:
 
 
 STAGE = "leaf_case_name_hunting"
-_MADE_BY = "mellea_lrc.extraction.adjudication.review.case_name"
+_MADE_BY = "mellea_lrc.experimental.leaf_case_name_hunting.review"
 
 
 def _next_node_id(document: Document, site: Candidate) -> str:

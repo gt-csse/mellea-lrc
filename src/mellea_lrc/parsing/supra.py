@@ -3,7 +3,7 @@
 import re
 from dataclasses import dataclass
 
-from mellea_lrc.matching.literal import fuzzy_literal
+from mellea_lrc.matching.literal_to_regex import fuzzy_literal
 from mellea_lrc.parsing.events import events
 from mellea_lrc.parsing.pin_cite import pin_after
 

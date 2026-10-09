@@ -7,14 +7,12 @@ from typing import Any
 
 import httpx
 import pytest
-from dotenv import load_dotenv
 
 from mellea_lrc.providers.govinfo import (
     GovInfoClient,
     GovInfoConfig,
     GovInfoError,
     GovInfoGranulesPage,
-    govinfo_uscourts_docket_query,
 )
 
 
@@ -51,7 +49,10 @@ class _Session:
 def test_govinfo_search_sends_package_query_and_returns_raw_page() -> None:
     payload = {"count": 1, "offsetMark": "next-token", "results": [{"packageId": "USCOURTS-nysd-x"}]}
     session = _Session(_Response(payload))
-    client = GovInfoClient(GovInfoConfig(api_key="test-secret"), session=session)  # type: ignore[arg-type]
+    client = GovInfoClient(
+        GovInfoConfig(base_url="https://api.govinfo.gov/", timeout_seconds=45, api_key="test-secret"),
+        session=session,
+    )  # type: ignore[arg-type]
 
     result = client.search('collection:uscourts casenumber:("1:24-cv-123")')
 
@@ -85,7 +86,10 @@ def test_govinfo_search_can_request_default_granule_results() -> None:
         "results": [{"packageId": "USCOURTS-nyd-1_24-cv-123", "granuleId": "opinion-1"}],
     }
     session = _Session(_Response(payload))
-    client = GovInfoClient(GovInfoConfig(api_key="test-secret"), session=session)  # type: ignore[arg-type]
+    client = GovInfoClient(
+        GovInfoConfig(base_url="https://api.govinfo.gov/", timeout_seconds=45, api_key="test-secret"),
+        session=session,
+    )  # type: ignore[arg-type]
 
     result = client.search('collection:uscourts and "550 U.S. 544"', result_level="default")
 
@@ -96,8 +100,16 @@ def test_govinfo_search_can_request_default_granule_results() -> None:
     assert len(session.calls) == 1
 
 
-def test_govinfo_key_uses_environment_and_redacts_error_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GOVINFO_API_KEY", "secret-value")
+def test_govinfo_key_uses_dotenv_and_redacts_error_metadata(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GOVINFO_API_KEY", "ambient-secret")
+    (tmp_path / ".env").write_text(
+        "GOVINFO_BASE_URL=https://api.govinfo.gov/\n"
+        "GOVINFO_TIMEOUT_SECONDS=45\n"
+        "GOVINFO_API_KEY=secret-value\n"
+    )
     session = _Session(_Response({"message": "secret-value"}, status_code=403))
     client = GovInfoClient(session=session)  # type: ignore[arg-type]
 
@@ -105,6 +117,7 @@ def test_govinfo_key_uses_environment_and_redacts_error_metadata(monkeypatch: py
         client.search("query")
 
     error = raised.value
+    assert session.calls[0]["params"] == {"api_key": "secret-value"}
     assert error.failure_type == "http_error"
     assert error.upstream_status_code == 403
     assert "secret-value" not in str(error)
@@ -112,31 +125,57 @@ def test_govinfo_key_uses_environment_and_redacts_error_metadata(monkeypatch: py
     assert "secret-value" not in repr(error.upstream_detail)
 
 
-def test_govinfo_client_uses_demo_key_when_environment_is_empty(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize("missing", ["GOVINFO_BASE_URL", "GOVINFO_API_KEY", "GOVINFO_TIMEOUT_SECONDS"])
+def test_govinfo_requires_every_setting_without_demo_or_ambient_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, missing: str
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("GOVINFO_API_KEY", "")
+    settings = {
+        "GOVINFO_BASE_URL": "https://api.govinfo.gov/",
+        "GOVINFO_API_KEY": "secret",
+        "GOVINFO_TIMEOUT_SECONDS": "45",
+    }
+    monkeypatch.setenv(missing, settings[missing])
+    del settings[missing]
+    (tmp_path / ".env").write_text("".join(f"{key}={value}\n" for key, value in settings.items()))
     session = _Session(_Response({"count": 0, "results": []}))
-    GovInfoClient(session=session).search("query")  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError, match=missing):
+        GovInfoClient(session=session)  # type: ignore[arg-type]
+    assert session.calls == []
 
-    assert session.calls[0]["params"] == {"api_key": "DEMO_KEY"}
 
-
-def test_govinfo_config_loads_key_from_dotenv_without_override(
+def test_govinfo_config_reloads_authoritative_dotenv_settings(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("GOVINFO_API_KEY", "")
-    (tmp_path / ".env").write_text("GOVINFO_API_KEY=dotenv-secret\n")
-    load_dotenv(dotenv_path=tmp_path / ".env", override=True)
-
-    assert GovInfoConfig.from_env().api_key == "dotenv-secret"
+    monkeypatch.setenv("GOVINFO_API_KEY", "ambient-secret")
+    monkeypatch.setenv("GOVINFO_BASE_URL", "https://ambient.example/")
+    monkeypatch.setenv("GOVINFO_TIMEOUT_SECONDS", "1")
+    path = tmp_path / ".env"
+    path.write_text(
+        "GOVINFO_BASE_URL=https://api.govinfo.gov/\nGOVINFO_TIMEOUT_SECONDS=15\nGOVINFO_API_KEY=dotenv-secret\n"
+    )
+    config = GovInfoConfig.from_env()
+    assert config.base_url == "https://api.govinfo.gov/"
+    assert config.api_key == "dotenv-secret"
+    assert config.timeout_seconds == 15
+    path.write_text(
+        "GOVINFO_BASE_URL=https://another.example/\nGOVINFO_TIMEOUT_SECONDS=30\nGOVINFO_API_KEY=new-secret\n"
+    )
+    changed = GovInfoConfig.from_env()
+    assert changed.base_url == "https://another.example/"
+    assert changed.api_key == "new-secret"
+    assert changed.timeout_seconds == 30
+    assert "dotenv-secret" not in repr(config)
+    assert "new-secret" not in repr(changed)
 
 
 @pytest.mark.parametrize("payload", [[], {"count": "one", "results": []}, {"count": 0, "results": ["bad"]}])
 def test_govinfo_rejects_invalid_search_pages(payload: object) -> None:
-    client = GovInfoClient(GovInfoConfig(api_key="x"), session=_Session(_Response(payload)))  # type: ignore[arg-type]
+    client = GovInfoClient(
+        GovInfoConfig(base_url="https://api.govinfo.gov/", timeout_seconds=45, api_key="x"),
+        session=_Session(_Response(payload)),
+    )  # type: ignore[arg-type]
 
     with pytest.raises(GovInfoError, match="invalid"):
         client.search("query")
@@ -149,7 +188,10 @@ def test_govinfo_transport_error_is_structured_and_redacted() -> None:
             request=httpx.Request("POST", "https://api.govinfo.gov/search?api_key=secret"),
         )
     )
-    client = GovInfoClient(GovInfoConfig(api_key="secret"), session=session)  # type: ignore[arg-type]
+    client = GovInfoClient(
+        GovInfoConfig(base_url="https://api.govinfo.gov/", timeout_seconds=45, api_key="secret"),
+        session=session,
+    )  # type: ignore[arg-type]
 
     with pytest.raises(GovInfoError) as raised:
         client.search("query")
@@ -157,13 +199,6 @@ def test_govinfo_transport_error_is_structured_and_redacted() -> None:
     assert raised.value.failure_type == "transport_error"
     assert "secret" not in str(raised.value)
     assert "secret" not in repr(raised.value.upstream_detail)
-
-
-def test_govinfo_docket_query_keeps_literal_number() -> None:
-    assert govinfo_uscourts_docket_query("20 Civ. 6835") == (
-        'collection:uscourts casenumber:("20 Civ. 6835")'
-    )
-    assert govinfo_uscourts_docket_query('X " y') == ('collection:uscourts casenumber:("X \\" y")')
 
 
 def test_govinfo_granules_page_uses_next_page_mark_and_preserves_raw_metadata() -> None:
@@ -186,7 +221,10 @@ def test_govinfo_granules_page_uses_next_page_mark_and_preserves_raw_metadata() 
         return httpx.Response(200, json=payload)
 
     session = httpx.Client(transport=httpx.MockTransport(respond))
-    client = GovInfoClient(GovInfoConfig(api_key="secret"), session=session)
+    client = GovInfoClient(
+        GovInfoConfig(base_url="https://api.govinfo.gov/", timeout_seconds=45, api_key="secret"),
+        session=session,
+    )
     first = client.list_granules("USCOURTS-nyd-1_24-cv-123", page_size=1)
     client.list_granules("USCOURTS-nyd-1_24-cv-123", offset_mark=first.next_offset_mark or "")
 
@@ -218,7 +256,10 @@ def test_govinfo_granule_summary_returns_raw_download_links_and_checks_identity(
         return httpx.Response(200, json=summary)
 
     session = httpx.Client(transport=httpx.MockTransport(respond))
-    client = GovInfoClient(GovInfoConfig(api_key="secret"), session=session)
+    client = GovInfoClient(
+        GovInfoConfig(base_url="https://api.govinfo.gov/", timeout_seconds=45, api_key="secret"),
+        session=session,
+    )
 
     result = client.get_granule_summary("USCOURTS-nyd-1_24-cv-123", "opinion-1")
     assert result["download"] == summary["download"]
@@ -240,7 +281,10 @@ def test_govinfo_download_pdf_uses_configured_key_only_on_valid_api_link() -> No
         return httpx.Response(200, content=pdf, headers={"Content-Type": "application/pdf"})
 
     session = httpx.Client(transport=httpx.MockTransport(respond))
-    client = GovInfoClient(GovInfoConfig(api_key="secret"), session=session)
+    client = GovInfoClient(
+        GovInfoConfig(base_url="https://api.govinfo.gov/", timeout_seconds=45, api_key="secret"),
+        session=session,
+    )
     url = "https://api.govinfo.gov/packages/USCOURTS-nyd-1_24-cv-123/granules/opinion-1/pdf"
 
     assert client.download_pdf(url) == pdf
@@ -265,7 +309,10 @@ def test_govinfo_granule_get_errors_are_structured_and_redacted(method: str) -> 
         return httpx.Response(503, json={"message": "secret unavailable"})
 
     session = httpx.Client(transport=httpx.MockTransport(respond))
-    client = GovInfoClient(GovInfoConfig(api_key="secret"), session=session)
+    client = GovInfoClient(
+        GovInfoConfig(base_url="https://api.govinfo.gov/", timeout_seconds=45, api_key="secret"),
+        session=session,
+    )
     with pytest.raises(GovInfoError) as raised:
         if method == "list":
             client.list_granules("USCOURTS-nyd-1_24-cv-123")
@@ -286,7 +333,10 @@ def test_govinfo_granule_get_errors_are_structured_and_redacted(method: str) -> 
 )
 def test_govinfo_rejects_invalid_granule_pages(payload: object) -> None:
     session = httpx.Client(transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=payload)))
-    client = GovInfoClient(GovInfoConfig(api_key="secret"), session=session)
+    client = GovInfoClient(
+        GovInfoConfig(base_url="https://api.govinfo.gov/", timeout_seconds=45, api_key="secret"),
+        session=session,
+    )
     with pytest.raises(GovInfoError) as raised:
         client.list_granules("USCOURTS-nyd-1_24-cv-123")
     assert raised.value.failure_type == "invalid_payload"
@@ -297,7 +347,8 @@ def test_govinfo_granule_transport_error_and_invalid_json_are_structured() -> No
         raise httpx.ConnectError(f"secret failed at {request.url}", request=request)
 
     client = GovInfoClient(
-        GovInfoConfig(api_key="secret"), session=httpx.Client(transport=httpx.MockTransport(disconnected))
+        GovInfoConfig(base_url="https://api.govinfo.gov/", timeout_seconds=45, api_key="secret"),
+        session=httpx.Client(transport=httpx.MockTransport(disconnected)),
     )
     with pytest.raises(GovInfoError) as raised:
         client.list_granules("USCOURTS-nyd-1_24-cv-123")
@@ -306,7 +357,7 @@ def test_govinfo_granule_transport_error_and_invalid_json_are_structured() -> No
     assert "secret" not in repr(raised.value.upstream_detail)
 
     client = GovInfoClient(
-        GovInfoConfig(api_key="secret"),
+        GovInfoConfig(base_url="https://api.govinfo.gov/", timeout_seconds=45, api_key="secret"),
         session=httpx.Client(
             transport=httpx.MockTransport(lambda _request: httpx.Response(200, text="secret invalid"))
         ),
@@ -319,7 +370,7 @@ def test_govinfo_granule_transport_error_and_invalid_json_are_structured() -> No
 
 def test_govinfo_pdf_redirect_is_a_structured_failure() -> None:
     client = GovInfoClient(
-        GovInfoConfig(api_key="secret"),
+        GovInfoConfig(base_url="https://api.govinfo.gov/", timeout_seconds=45, api_key="secret"),
         session=httpx.Client(
             transport=httpx.MockTransport(
                 lambda _request: httpx.Response(
@@ -332,3 +383,45 @@ def test_govinfo_pdf_redirect_is_a_structured_failure() -> None:
         client.download_pdf("https://api.govinfo.gov/packages/USCOURTS-nyd-1_24-cv-123/pdf")
     assert raised.value.failure_type == "http_error"
     assert raised.value.upstream_status_code == 302
+
+
+@pytest.mark.parametrize("timeout", [0, -1, float("nan"), float("inf"), True, None, "45"])
+def test_govinfo_rejects_invalid_timeout(timeout) -> None:
+    with pytest.raises(ValueError, match="GOVINFO_TIMEOUT_SECONDS"):
+        GovInfoConfig(base_url="https://api.govinfo.gov/", api_key="secret", timeout_seconds=timeout)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        None,
+        17,
+        "",
+        "api.govinfo.gov",
+        "ftp://api.govinfo.gov/",
+        "https://api.govinfo.gov/?q=x",
+        "https://api.govinfo.gov/#x",
+        "https://user:secret@api.govinfo.gov/",
+        "https://api.govinfo.gov:70000/",
+        "https://bad host/",
+    ],
+)
+def test_govinfo_rejects_invalid_base_url(url: str) -> None:
+    with pytest.raises(ValueError, match="GOVINFO_BASE_URL"):
+        GovInfoConfig(base_url=url, api_key="secret", timeout_seconds=45)
+
+
+@pytest.mark.parametrize("key", ["", " ", None])
+def test_govinfo_rejects_empty_credentials(key) -> None:
+    with pytest.raises(ValueError, match="GOVINFO_API_KEY"):
+        GovInfoConfig(base_url="https://api.govinfo.gov/", api_key=key, timeout_seconds=45)
+
+
+def test_govinfo_requests_use_configured_timeout() -> None:
+    session = _Session(_Response({"count": 0, "results": []}))
+    client = GovInfoClient(
+        GovInfoConfig(base_url="https://api.govinfo.gov/", api_key="secret", timeout_seconds=9.5),
+        session=session,  # type: ignore[arg-type]
+    )
+    client.search("query")
+    assert session.calls[0]["timeout"] == 9.5

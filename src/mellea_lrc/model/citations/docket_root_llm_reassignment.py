@@ -13,7 +13,7 @@ class DocketRootPartition(BaseModel):
     """A model's partition of candidate indices into same-case groups.
 
     Singleton groups explicitly mean that a candidate remains a separate root.
-    The stage checks that the partition covers its particular candidate set.
+    The substage checks that the partition covers its particular candidate set.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

@@ -17,15 +17,18 @@ from mellea_lrc.model.citations.judgments import IdentityVerdict
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.validation.body_search.common import make_body_evidences
-from mellea_lrc.validation.intended_case_llm_selection import STAGE, intended_case_llm_selection
+from mellea_lrc.validation.intended_case_llm_selection import SUBSTAGE, intended_case_llm_selection
 from mellea_lrc.validation.intended_case_llm_selection.reviewer import IntendedCaseContext
 
 SOURCE = "Smith v. Jones, No. 05-4206 (2d Cir. 2007)."
 BODY = "An independent court cites Smith v. Jones, No. 01-9999 (2d Cir. 2006) as authority."
 CITATION = "Smith v. Jones, No. 01-9999 (2d Cir. 2006)"
-FIELD_STAGES = (
-    (BodySource.COURTLISTENER_OPINION, "24_intended_case_courtlistener_opinion_retrieval"),
-    (BodySource.COURTLISTENER_RECAP, "25_intended_case_courtlistener_recap_retrieval"),
+FIELD_SUBSTAGES = (
+    (
+        BodySource.COURTLISTENER_OPINION,
+        "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval",
+    ),
+    (BodySource.COURTLISTENER_RECAP, "validate_roots.intended_case_discovery.courtlistener_recap_retrieval"),
 )
 
 
@@ -35,23 +38,27 @@ def _ready(
     number_start = SOURCE.index("05-4206")
     root = FullDocketCitation.from_locator(
         citation_id="docket:0",
-        stage="sites",
+        substage="sites",
         source=SOURCE,
         span=Span(SOURCE.index("No."), number_start + len("05-4206")),
         number_span=Span(number_start, number_start + len("05-4206")),
     )
-    document = Document.from_source(SOURCE).add_citation(root).complete("sites")
+    document = Document.from_source(SOURCE).add_citation(root).complete_substage("sites")
     root = root.record("fields").with_case_name(SOURCE, Span(0, len("Smith v. Jones")))
-    document = document.replace_citation(root).complete("fields")
+    document = document.replace_citation(root).complete_substage("fields")
     root = root.record("roots").with_root(root.id)
-    document = document.replace_citation(root).complete("roots")
+    document = document.replace_citation(root).complete_substage("roots")
     root = root.record("lookup").with_identity_judgment(IdentityVerdict.UNDETERMINED)
-    document = document.replace_citation(root).complete("lookup")
-    root = root.record("23_locator_body_llm_judgment").with_route("case_name_body_discovery")
-    document = document.replace_citation(root).complete("23_locator_body_llm_judgment")
+    document = document.replace_citation(root).complete_substage("lookup")
+    root = root.record("validate_roots.locator_body_corroboration.llm_judgment").with_route(
+        "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
+    )
+    document = document.replace_citation(root).complete_substage(
+        "validate_roots.locator_body_corroboration.llm_judgment"
+    )
     body_by_source = dict(bodies)
-    for source, stage in FIELD_STAGES:
-        root = document.roots[0].record(stage)
+    for source, substage in FIELD_SUBSTAGES:
+        root = document.roots[0].record(substage)
         body = body_by_source.get(source)
         evidence = (
             make_body_evidences(
@@ -78,7 +85,7 @@ def _ready(
                 evidence=evidence,
             )
         )
-        document = document.replace_citation(root).complete(stage)
+        document = document.replace_citation(root).complete_substage(substage)
     return document
 
 
@@ -129,13 +136,13 @@ def test_review_saves_grounded_intended_case_without_changing_cited_identity() -
     after = asyncio.run(intended_case_llm_selection(before, reviewer=reviewer))
 
     assert reviewer.calls == 1
-    assert after.stage_runs[-1] == STAGE
-    assert after.get_stage(FIELD_STAGES[-1][1]) == before
+    assert after.substage_runs[-1] == SUBSTAGE
+    assert after.get_substage(FIELD_SUBSTAGES[-1][1]) == before
     original, recorded = before.roots[0], after.roots[0]
     assert recorded.locator == original.locator
     assert recorded.identity_judgments == original.identity_judgments
     assert recorded.body_searches == original.body_searches
-    assert recorded.next_stage == "intended_case_resolution"
+    assert recorded.next_substage == "intended_case_resolution"
     review = recorded.intended_case_reviews[0]
     assert review.node_id == recorded.nodes[-1].id
     assert review.decision == _decision()
@@ -158,7 +165,7 @@ def test_no_evidence_declines_without_calling_reviewer() -> None:
     assert review.decision is not None and review.decision.source is None
     assert review.grounded_quote is None
     assert after.roots[0].identity_judgments == before.roots[0].identity_judgments
-    assert after.roots[0].next_stage == "open_web_search"
+    assert after.roots[0].next_substage == "open_web_search"
 
 
 def test_ungrounded_candidate_quote_becomes_review_failure() -> None:
@@ -170,7 +177,7 @@ def test_ungrounded_candidate_quote_becomes_review_failure() -> None:
     review = after.roots[0].intended_case_reviews[0]
     assert review.decision is None
     assert review.failure_reason is not None and "98% similarity" in review.failure_reason
-    assert after.roots[0].next_stage == "intended_case_review_retry"
+    assert after.roots[0].next_substage == "intended_case_review_retry"
     assert after.roots[0].identity_judgments == before.roots[0].identity_judgments
 
 
@@ -190,5 +197,5 @@ def test_contradictory_candidates_can_be_declined_with_reason() -> None:
     review = after.roots[0].intended_case_reviews[0]
     assert review.decision is not None and review.decision.source is None
     assert "conflicting locators" in review.decision.reason
-    assert after.roots[0].next_stage == "open_web_search"
+    assert after.roots[0].next_substage == "open_web_search"
     assert after.roots[0].identity_judgments == before.roots[0].identity_judgments

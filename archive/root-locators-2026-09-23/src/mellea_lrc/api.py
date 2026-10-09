@@ -32,7 +32,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from mellea_lrc.extraction.adjudication import hunt_docket_locators
-from mellea_lrc.extraction.adjudication.leaf_case_name_hunting import hunt_leaf_case_names
+from mellea_lrc.experimental.leaf_case_name_hunting import hunt_leaf_case_names
 from mellea_lrc.extraction.adjudication.pin_cite_site_validation import validate_pin_cite_sites
 from mellea_lrc.extraction.locator_stages import (
     find_docket_locators,

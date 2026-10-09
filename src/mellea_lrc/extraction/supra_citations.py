@@ -6,15 +6,15 @@ from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.parsing.supra import supra_readings
 
-STAGE = "34_supra_citations"
+SUBSTAGE = "grow_leaves.supra_citations.discovery"
 
 
 def find_supra_citations(document: Document) -> Document:
-    require_leaves(document, STAGE)
+    require_leaves(document, SUBSTAGE)
     for reading in supra_readings(document.text, names=tuple(aliases(document))):
         span = Span(*reading.span)
         if not any(span.overlaps(c.site_span) for c in document.citations):
             document = document.add_citation(
-                SupraCitation.from_source(source=document.text, span=span, stage=STAGE)
+                SupraCitation.from_source(source=document.text, span=span, substage=SUBSTAGE)
             )
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

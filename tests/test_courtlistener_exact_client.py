@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from urllib.parse import parse_qs
 
 import httpx
@@ -19,7 +20,9 @@ from mellea_lrc.providers.courtlistener import (
 
 def _client(handler: httpx.MockTransport, *, pool: str | None = None) -> CourtListenerClient:
     return CourtListenerClient(
-        CourtListenerConfig(base_url="https://proxy.example/api/rest/v4/", token="test-token", pool=pool),
+        CourtListenerConfig(
+            base_url="https://proxy.example/api/rest/v4/", timeout_seconds=45, token="test-token", pool=pool
+        ),
         http_client=httpx.Client(transport=handler),
     )
 
@@ -144,25 +147,84 @@ def test_non_json_response_is_a_payload_error() -> None:
 
 
 def test_base_url_must_be_configured_without_public_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("COURTLISTENER_BASE_URL", raising=False)
-    monkeypatch.setattr("mellea_lrc.providers.courtlistener.client.load_dotenv", lambda **_kwargs: None)
+    monkeypatch.setenv("COURTLISTENER_BASE_URL", "https://ambient.example/")
+    monkeypatch.setattr("mellea_lrc.providers.courtlistener.client.read_env", dict)
 
-    with pytest.raises(CourtListenerConfigurationError):
+    with pytest.raises(CourtListenerConfigurationError, match="COURTLISTENER_BASE_URL") as raised:
         CourtListenerClient()
+    assert raised.value.failure_type == "missing_base_url"
 
 
 def test_default_proxy_config_does_not_send_saved_token_or_pool(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setenv("COURTLISTENER_BASE_URL", "https://proxy.example/api/rest/v4/")
-    monkeypatch.setenv("COURTLISTENER_API_TOKEN", "saved-token")
-    monkeypatch.setenv("MELLEA_LRC_COURTLISTENER_POOL", "reserved")
-
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("COURTLISTENER_BASE_URL", "https://ambient.example/")
+    (tmp_path / ".env").write_text(
+        "COURTLISTENER_BASE_URL=https://proxy.example/api/rest/v4/\n"
+        "COURTLISTENER_TIMEOUT_SECONDS=12.5\n"
+        "COURTLISTENER_API_TOKEN=saved-token\n"
+        "MELLEA_LRC_COURTLISTENER_POOL=reserved\n"
+    )
     client = CourtListenerClient()
     try:
+        assert client.config.base_url == "https://proxy.example/api/rest/v4/"
+        assert client.config.timeout_seconds == 12.5
         assert client.config.token is None
         assert client.config.pool is None
         assert "Authorization" not in client._headers()
         assert "x-cl-pool" not in client._headers()
     finally:
         client.close()
+
+
+def test_courtlistener_requires_timeout_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "mellea_lrc.providers.courtlistener.client.read_env",
+        lambda: {"COURTLISTENER_BASE_URL": "https://proxy.example/"},
+    )
+    with pytest.raises(RuntimeError, match="COURTLISTENER_TIMEOUT_SECONDS"):
+        CourtListenerConfig.from_env()
+
+
+@pytest.mark.parametrize("timeout", [0, -1, float("nan"), float("inf"), True, None, "45"])
+def test_courtlistener_rejects_invalid_timeout(timeout) -> None:
+    with pytest.raises(ValueError, match="COURTLISTENER_TIMEOUT_SECONDS"):
+        CourtListenerConfig(base_url="https://proxy.example/", timeout_seconds=timeout)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        None,
+        17,
+        "",
+        "proxy.example",
+        "ftp://proxy.example/",
+        "https://proxy.example/?q=x",
+        "https://proxy.example/#x",
+        "https://user:secret@proxy.example/",
+        "https://proxy.example:70000/",
+        "https://bad host/",
+    ],
+)
+def test_courtlistener_rejects_invalid_base_url(url: str) -> None:
+    with pytest.raises(CourtListenerConfigurationError, match="COURTLISTENER_BASE_URL") as raised:
+        CourtListenerConfig(base_url=url, timeout_seconds=45)
+    assert raised.value.failure_type == "invalid_base_url"
+
+
+def test_courtlistener_requests_use_configured_timeout_and_config_repr_hides_token() -> None:
+    requests = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=[{"citation": "1 U.S. 1", "status": 404, "clusters": []}])
+
+    config = CourtListenerConfig(
+        base_url="https://proxy.example/", timeout_seconds=9.5, token="private-token"
+    )
+    client = CourtListenerClient(config, http_client=httpx.Client(transport=httpx.MockTransport(respond)))
+    client.lookup_citation("1", "U.S.", "1")
+    assert requests[0].extensions["timeout"] == {"connect": 9.5, "read": 9.5, "write": 9.5, "pool": 9.5}
+    assert "private-token" not in repr(config)

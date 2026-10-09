@@ -81,7 +81,7 @@ class BodyEvidence(BaseModel):
 
 
 class BodySearch(BaseModel):
-    """One provider stage's search, fetch outcomes, and reviewable excerpts."""
+    """One provider substage's search, fetch outcomes, and reviewable excerpts."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

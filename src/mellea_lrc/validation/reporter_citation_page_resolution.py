@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from mellea_lrc.matching.literal import fuzzy_literal
+from mellea_lrc.matching.literal_to_regex import fuzzy_literal
 from mellea_lrc.model.citation_chronology import citation_chronology
 from mellea_lrc.model.citations import (
     Citation,
@@ -21,9 +21,9 @@ from mellea_lrc.model.citations.reporter_page_resolution import (
     ReporterPageResolutionOutcome,
 )
 from mellea_lrc.model.document import Document
-from mellea_lrc.validation.reporter_root_opinion_page_index import STAGE as INDEX_STAGE
+from mellea_lrc.validation.reporter_root_opinion_page_index import SUBSTAGE as INDEX_SUBSTAGE
 
-STAGE = "41_reporter_citation_page_resolution"
+SUBSTAGE = "validate_pincite.citation_preparation.page_resolution"
 
 
 @dataclass(frozen=True)
@@ -122,9 +122,9 @@ def resolve_reporter_citation_pages(document: Document) -> Document:
     rule. Lead, concurrence, dissent and combined records have no automatic
     priority: pagination selects a source, not an opinion-type preference.
     """
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if INDEX_STAGE not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if INDEX_SUBSTAGE not in document.substage_runs:
         raise ValueError("Index reporter-root opinion pages before resolving citations")
     roots = {
         root.id: root
@@ -150,9 +150,9 @@ def resolve_reporter_citation_pages(document: Document) -> Document:
             if pin_source is None:
                 pin_source = prior_sources.pin
         sources = _ReadingSources(locator_source, pin_source)
-        recorded = citation.record(STAGE)
+        recorded = citation.record(SUBSTAGE)
         document = document.replace_citation(
             recorded.with_reporter_page_resolution(_resolve(recorded, root, sources))
         )
         prior_root, prior_sources = root_id, sources
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

@@ -32,7 +32,7 @@ def _through_courts(locator: str, year: int = 2000) -> Document:
 )
 def test_unique_reporter_infers_court_at_serialized_stage_7_checkpoint(locator: str, court_id: str) -> None:
     checkpoint = _through_courts(locator)
-    assert checkpoint.stage_runs[-1] == "7_courts"
+    assert checkpoint.substage_runs[-1] == "grow_roots.field_reading.courts"
     assert len(checkpoint.citations) == 1
     citation = checkpoint.citations[0]
     assert isinstance(citation, FullReporterCitation)
@@ -43,12 +43,12 @@ def test_unique_reporter_infers_court_at_serialized_stage_7_checkpoint(locator: 
     assert court.quote is None
     assert court.span is None
     assert court.get_normalized().id == court_id
-    assert citation.nodes[-1].stage == "7_courts"
+    assert citation.nodes[-1].substage == "grow_roots.field_reading.courts"
     assert court.node_id == citation.nodes[-1].id
 
     later = resolve_dates(checkpoint)
     restored = Document.model_validate_json(later.model_dump_json())
-    assert restored.get_stage("7_courts") == checkpoint
+    assert restored.get_substage("grow_roots.field_reading.courts") == checkpoint
 
 
 @pytest.mark.parametrize(
@@ -62,7 +62,7 @@ def test_unique_reporter_infers_court_at_serialized_stage_7_checkpoint(locator: 
 )
 def test_shared_or_ambiguous_reporter_does_not_infer_court(locator: str, year: int) -> None:
     checkpoint = _through_courts(locator, year)
-    assert checkpoint.stage_runs[-1] == "7_courts"
+    assert checkpoint.substage_runs[-1] == "grow_roots.field_reading.courts"
     assert len(checkpoint.citations) == 1
     citation = checkpoint.citations[0]
     assert isinstance(citation, FullReporterCitation)
@@ -70,4 +70,4 @@ def test_shared_or_ambiguous_reporter_does_not_infer_court(locator: str, year: i
     assert citation.court == ()
 
     restored = Document.model_validate_json(checkpoint.model_dump_json())
-    assert restored.get_stage("7_courts") == checkpoint
+    assert restored.get_substage("grow_roots.field_reading.courts") == checkpoint

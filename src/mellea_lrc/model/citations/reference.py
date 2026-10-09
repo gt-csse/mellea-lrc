@@ -20,9 +20,9 @@ class ReferenceCitation(LeafCitation):
         return self.reference_name[-1].span
 
     @classmethod
-    def from_source(cls, *, source: str, span: Span, stage: str, pin_span: Span | None = None) -> Self:
+    def from_source(cls, *, source: str, span: Span, substage: str, pin_span: Span | None = None) -> Self:
         identifier = f"reference:{span.start}:{span.end}"
-        node = Node(id=f"{identifier}:node:0", stage=stage)
+        node = Node(id=f"{identifier}:node:0", substage=substage)
         name = CaseNameField.from_source(source, span, node_id=node.id)
         return cls(
             id=identifier,

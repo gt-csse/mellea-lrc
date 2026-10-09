@@ -8,24 +8,23 @@ from mellea_lrc.extraction.leaf_attribution_review.reviewer import (
     LeafReviewOutcome,
     apply_review,
 )
-from mellea_lrc.llm.profiles import OPENROUTER_LUNA
+from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model.citations import SupraCitation
 from mellea_lrc.model.document import Document
 
-STAGE = "38_supra_attribution_llm"
-MODEL_PROFILE = OPENROUTER_LUNA
+SUBSTAGE = "grow_leaves.supra_citations.llm_attribution"
 
 
 async def review_supra_attributions(document: Document, *, reviewer: LeafReviewer | None = None) -> Document:
-    require_leaves(document, STAGE)
+    require_leaves(document, SUBSTAGE)
     for citation in document.short_citations:
-        if not isinstance(citation, SupraCitation) or citation.next_stage != STAGE:
+        if not isinstance(citation, SupraCitation) or citation.next_substage != SUBSTAGE:
             continue
         context = LeafReviewContext.from_document(document, citation)
         if reviewer is None:
-            reviewer = IvrLeafReviewer.from_profile(MODEL_PROFILE)
+            reviewer = IvrLeafReviewer.from_profile(load_profile(SUBSTAGE))
         answer = await reviewer(context)
         outcome = answer if isinstance(answer, LeafReviewOutcome) else LeafReviewOutcome(answer)
-        updated = apply_review(citation.record(STAGE), context, outcome)
+        updated = apply_review(citation.record(SUBSTAGE), context, outcome)
         document = document.replace_citation(updated)
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

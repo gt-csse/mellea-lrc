@@ -1,4 +1,4 @@
-"""Shared runtime binding for stage-specific IVR reviewers."""
+"""Shared runtime binding for substage-specific IVR reviewers."""
 
 from __future__ import annotations
 
@@ -14,11 +14,11 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class IvrReviewer:
-    """A bound session, model options, and repair budget for one stage."""
+    """A bound session, model options, and repair budget for one substage."""
 
     session: MelleaSession
     model_options: dict[str, object]
-    max_attempts: int = 3
+    max_attempts: int
 
     @classmethod
     def from_profile(cls, profile: LlmProfile) -> Self:

@@ -10,6 +10,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
+from evaluations import complete_stage_boundary
 from mellea_lrc.api import (
     Document,
     index_reporter_root_opinion_pages,
@@ -22,43 +23,37 @@ from mellea_lrc.api import (
     review_reporter_citation_opinions,
     review_reporter_citation_pinpoint_pages,
 )
+from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.providers.courtlistener import CourtListenerClient
-from mellea_lrc.validation.reporter_citation_full_opinion_review import (
-    MODEL_PROFILE as FULL_REVIEW_PROFILE,
-)
-from mellea_lrc.validation.reporter_citation_full_opinion_review import STAGE as FULL_REVIEW_STAGE
-from mellea_lrc.validation.reporter_citation_opinion_review import MODEL_PROFILE as REVIEW_PROFILE
-from mellea_lrc.validation.reporter_citation_opinion_review import STAGE as REVIEW_STAGE
-from mellea_lrc.validation.reporter_citation_page_resolution import STAGE as RESOLUTION_STAGE
-from mellea_lrc.validation.reporter_citation_pinpoint_evidence import STAGE as EVIDENCE_STAGE
-from mellea_lrc.validation.reporter_citation_pinpoint_judgment import STAGE as JUDGMENT_STAGE
-from mellea_lrc.validation.reporter_citation_pinpoint_page_review import (
-    MODEL_PROFILE as PAGE_REVIEW_PROFILE,
-)
-from mellea_lrc.validation.reporter_citation_pinpoint_page_review import STAGE as PAGE_REVIEW_STAGE
-from mellea_lrc.validation.reporter_citation_propositions import MODEL_PROFILE as PROPOSITION_PROFILE
-from mellea_lrc.validation.reporter_citation_propositions import STAGE as PROPOSITION_STAGE
-from mellea_lrc.validation.reporter_root_opinion_page_index import STAGE as INDEX_STAGE
-from mellea_lrc.validation.reporter_root_opinion_retrieval import STAGE as RETRIEVAL_STAGE
+from mellea_lrc.validation.reporter_citation_full_opinion_review import SUBSTAGE as FULL_REVIEW_SUBSTAGE
+from mellea_lrc.validation.reporter_citation_opinion_review import SUBSTAGE as REVIEW_SUBSTAGE
+from mellea_lrc.validation.reporter_citation_page_resolution import SUBSTAGE as RESOLUTION_SUBSTAGE
+from mellea_lrc.validation.reporter_citation_pinpoint_evidence import SUBSTAGE as EVIDENCE_SUBSTAGE
+from mellea_lrc.validation.reporter_citation_pinpoint_judgment import SUBSTAGE as JUDGMENT_SUBSTAGE
+from mellea_lrc.validation.reporter_citation_pinpoint_page_review import SUBSTAGE as PAGE_REVIEW_SUBSTAGE
+from mellea_lrc.validation.reporter_citation_propositions import SUBSTAGE as PROPOSITION_SUBSTAGE
+from mellea_lrc.validation.reporter_root_opinion_page_index import SUBSTAGE as INDEX_SUBSTAGE
+from mellea_lrc.validation.reporter_root_opinion_retrieval import SUBSTAGE as RETRIEVAL_SUBSTAGE
+from mellea_lrc.workflows import _require_workflow_prefix
 
 _RESULTS_ROOT = Path(__file__).resolve().parent / "results"
-_STAGES = (
-    RETRIEVAL_STAGE,
-    INDEX_STAGE,
-    RESOLUTION_STAGE,
-    REVIEW_STAGE,
-    PROPOSITION_STAGE,
-    EVIDENCE_STAGE,
-    PAGE_REVIEW_STAGE,
-    FULL_REVIEW_STAGE,
-    JUDGMENT_STAGE,
+_SUBSTAGES = (
+    RETRIEVAL_SUBSTAGE,
+    INDEX_SUBSTAGE,
+    RESOLUTION_SUBSTAGE,
+    REVIEW_SUBSTAGE,
+    PROPOSITION_SUBSTAGE,
+    EVIDENCE_SUBSTAGE,
+    PAGE_REVIEW_SUBSTAGE,
+    FULL_REVIEW_SUBSTAGE,
+    JUDGMENT_SUBSTAGE,
 )
-_MODEL_PROFILES = {
-    REVIEW_STAGE: REVIEW_PROFILE,
-    PROPOSITION_STAGE: PROPOSITION_PROFILE,
-    PAGE_REVIEW_STAGE: PAGE_REVIEW_PROFILE,
-    FULL_REVIEW_STAGE: FULL_REVIEW_PROFILE,
-}
+_MODEL_SUBSTAGES = (REVIEW_SUBSTAGE, PROPOSITION_SUBSTAGE, PAGE_REVIEW_SUBSTAGE, FULL_REVIEW_SUBSTAGE)
+
+
+def _resolved_model_profiles() -> dict[str, dict[str, object]]:
+    """Capture the configured profile descriptors without resolving credentials."""
+    return {substage: asdict(load_profile(substage)) for substage in _MODEL_SUBSTAGES}
 
 
 def _write(path: Path, text: str) -> None:
@@ -71,14 +66,15 @@ async def run(
     input_documents: Path | None,
     *,
     resume_run: Path | None = None,
-    stop_after: str = JUDGMENT_STAGE,
+    stop_after: str = JUDGMENT_SUBSTAGE,
     workers: int = 3,
 ) -> Path:
-    """Persist one cumulative Document per filing, including each completed stage."""
+    """Persist one cumulative Document per filing, including each completed substage."""
     if isinstance(workers, bool) or workers < 1:
         raise ValueError("Pinpoint workers must be a positive integer")
-    if stop_after not in _STAGES:
-        raise ValueError(f"Unknown pinpoint stop stage: {stop_after}")
+    if stop_after not in _SUBSTAGES:
+        raise ValueError(f"Unknown pinpoint stop substage: {stop_after}")
+    model_profiles = _resolved_model_profiles()
     if resume_run is None:
         if input_documents is None:
             raise ValueError("Specify saved input Documents")
@@ -94,7 +90,7 @@ async def run(
             "input_documents": str(input_documents),
             "stop_after": stop_after,
             "workers": workers,
-            "model_profiles": {stage: asdict(profile) for stage, profile in _MODEL_PROFILES.items()},
+            "model_profiles": model_profiles,
             "input_sha256": {
                 name: hashlib.sha256((input_documents / f"{name}.json").read_bytes()).hexdigest()
                 for name in parent["filings"]
@@ -107,7 +103,7 @@ async def run(
         record = json.loads((run_dir / "run.json").read_text())
         if record["workflow"] != "validate_pincite":
             raise ValueError("Resume is not a validate_pincite run")
-        if record["model_profiles"] != {stage: asdict(profile) for stage, profile in _MODEL_PROFILES.items()}:
+        if record["model_profiles"] != model_profiles:
             raise ValueError(
                 "Pinpoint model profiles changed; restore the run's saved settings before resuming"
             )
@@ -120,7 +116,7 @@ async def run(
             record["filings"],
         ):
             raise ValueError("Pinpoint input run changed")
-    enabled = _STAGES[: _STAGES.index(stop_after) + 1]
+    enabled = _SUBSTAGES[: _SUBSTAGES.index(stop_after) + 1]
     record["status"] = "running"
     record.pop("error", None)
     _write(run_dir / "run.json", json.dumps(record, indent=2) + "\n")
@@ -134,44 +130,53 @@ async def run(
                     if hashlib.sha256(source.read_bytes()).hexdigest() != record["input_sha256"][name]:
                         raise ValueError(f"Pinpoint input changed: {name}")
                     original = Document.model_validate_json(source.read_text())
-                    prior = tuple(stage for stage in original.stage_runs if stage in _STAGES)
+                    prior = tuple(substage for substage in original.substage_runs if substage in _SUBSTAGES)
                     if prior != enabled[: len(prior)]:
                         raise ValueError(f"Unexpected pinpoint input stages: {name}")
+                    _require_workflow_prefix(original, "validate_pincite")
                     stages = enabled[len(prior) :]
                     artifact = run_dir / "documents" / f"{name}.json"
                     document = (
                         Document.model_validate_json(artifact.read_text()) if artifact.exists() else original
                     )
-                    finished = document.stage_runs[len(original.stage_runs) :]
+                    finished = document.substage_runs[len(original.substage_runs) :]
                     if finished != stages[: len(finished)]:
                         raise ValueError(f"Unexpected pinpoint checkpoint: {name}")
-                    if document.get_stage(original.stage_runs[-1]) != original:
+                    last = original.runs[-1]
+                    recover = document.get_stage if last.kind == "stage" else document.get_substage
+                    if recover(last.name) != original:
                         raise ValueError(f"Saved pinpoint input differs: {name}")
-                    for stage in stages[len(finished) :]:
-                        if stage == RETRIEVAL_STAGE:
+                    _require_workflow_prefix(document, "validate_pincite")
+                    document = complete_stage_boundary(document, _SUBSTAGES)
+                    for substage in stages[len(finished) :]:
+                        if substage in _MODEL_SUBSTAGES and _resolved_model_profiles() != model_profiles:
+                            raise ValueError(f"Pinpoint model profiles changed during execution: {substage}")
+                        if substage == RETRIEVAL_SUBSTAGE:
                             document = reporter_root_opinion_retrieval(document, client=client)
-                        elif stage == INDEX_STAGE:
+                        elif substage == INDEX_SUBSTAGE:
                             document = index_reporter_root_opinion_pages(document)
-                        elif stage == RESOLUTION_STAGE:
+                        elif substage == RESOLUTION_SUBSTAGE:
                             document = resolve_reporter_citation_pages(document)
-                        elif stage == REVIEW_STAGE:
+                        elif substage == REVIEW_SUBSTAGE:
                             document = await review_reporter_citation_opinions(document)
-                        elif stage == PROPOSITION_STAGE:
+                        elif substage == PROPOSITION_SUBSTAGE:
                             document = await read_reporter_citation_propositions(document)
-                        elif stage == EVIDENCE_STAGE:
+                        elif substage == EVIDENCE_SUBSTAGE:
                             document = prepare_reporter_citation_pinpoint_evidence(document)
-                        elif stage == PAGE_REVIEW_STAGE:
+                        elif substage == PAGE_REVIEW_SUBSTAGE:
                             document = await review_reporter_citation_pinpoint_pages(document)
-                        elif stage == FULL_REVIEW_STAGE:
+                        elif substage == FULL_REVIEW_SUBSTAGE:
                             document = await review_reporter_citation_full_opinions(document)
-                        elif stage == JUDGMENT_STAGE:
+                        elif substage == JUDGMENT_SUBSTAGE:
                             document = judge_reporter_citation_pinpoints(document)
-                        if document.stage_runs[-1] != stage:
-                            raise ValueError(f"Pinpoint stage did not complete: {stage}")
+                        if substage in _MODEL_SUBSTAGES and _resolved_model_profiles() != model_profiles:
+                            raise ValueError(f"Pinpoint model profiles changed during execution: {substage}")
+                        if document.substage_runs[-1] != substage:
+                            raise ValueError(f"Pinpoint substage did not complete: {substage}")
+                        document = complete_stage_boundary(document, _SUBSTAGES)
                         _write(artifact, document.model_dump_json(indent=2) + "\n")
-                        print(f"{index}/{len(record['filings'])} {name}: {stage}", flush=True)
-                    if not artifact.exists():
-                        _write(artifact, document.model_dump_json(indent=2) + "\n")
+                        print(f"{index}/{len(record['filings'])} {name}: {substage}", flush=True)
+                    _write(artifact, document.model_dump_json(indent=2) + "\n")
                     print(f"{index}/{len(record['filings'])} {name}: complete", flush=True)
 
             tasks = [
@@ -198,7 +203,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-documents", type=Path)
     parser.add_argument("--resume-run", type=Path)
-    parser.add_argument("--stop-after", choices=_STAGES, default=JUDGMENT_STAGE)
+    parser.add_argument("--stop-after", choices=_SUBSTAGES, default=JUDGMENT_SUBSTAGE)
     parser.add_argument("--workers", type=int, default=3)
     args = parser.parse_args()
     if bool(args.input_documents) == bool(args.resume_run):

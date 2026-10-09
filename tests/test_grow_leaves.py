@@ -51,7 +51,7 @@ def test_workflow_grows_leaves_after_roots_without_validation(tmp_path: Path) ->
     assert short.root_id[-1].value == roots.roots[0].id
     assert short.case_name[-1].quote == "Smith"
     assert short.pin_cite[-1].quote == "495"
-    assert "38_supra_attribution_llm" not in result.stage_runs
+    assert "grow_leaves.supra_citations.llm_attribution" not in result.substage_runs
 
 
 def test_short_reporter_rule_rejects_shared_volume_or_name_disagreement(tmp_path: Path) -> None:
@@ -386,8 +386,8 @@ def test_id_semantic_review_reject_uncertain_and_failure(tmp_path: Path, outcome
     id_citation = next(c for c in result.short_citations if isinstance(c, IdCitation))
     review = id_citation.reviews[-1]
 
-    assert result.get_stage("32_id_citations") == before_attribution
-    assert result.stage_runs[-1] == "33_id_attribution"
+    assert result.get_substage("grow_leaves.id_citations.discovery") == before_attribution
+    assert result.substage_runs[-1] == "grow_leaves.id_citations.attribution"
     if outcome_kind == "reject":
         assert review.decision is not None and not review.decision.is_citation
         assert id_citation.root_id[-1].value == WITHDRAWN_ROOT_ID
@@ -413,8 +413,11 @@ def test_id_attribution_checkpoint_preserves_rule_and_review_links(tmp_path: Pat
         return LeafReviewOutcome(None, failure_reason="Synthetic reviewer failure")
 
     after_review = asyncio.run(attribute_id_citations(before_attribution, reviewer=accept_then_fail))
-    assert after_review.get_stage("32_id_citations") == before_attribution
-    assert after_review.get_stage("33_id_attribution").stage_runs[-1] == "33_id_attribution"
+    assert after_review.get_substage("grow_leaves.id_citations.discovery") == before_attribution
+    assert (
+        after_review.get_substage("grow_leaves.id_citations.attribution").substage_runs[-1]
+        == "grow_leaves.id_citations.attribution"
+    )
     id_citations = [c for c in after_review.short_citations if isinstance(c, IdCitation)]
     assert len(id_citations) == 2
     assert [len(c.attributions) for c in id_citations] == [2, 1]
@@ -476,8 +479,11 @@ def test_id_review_persists_complete_ivr_trace_and_checkpoint_removes_it(tmp_pat
 
     assert persisted == trace
     assert persisted.attempts[1].request[-1]["content"] == "repair: index is out of range"
-    assert restored.get_stage("32_id_citations") == before_attribution
-    assert restored.get_stage("33_id_attribution").short_citations[-1].reviews[-1].ivr == trace
+    assert restored.get_substage("grow_leaves.id_citations.discovery") == before_attribution
+    assert (
+        restored.get_substage("grow_leaves.id_citations.attribution").short_citations[-1].reviews[-1].ivr
+        == trace
+    )
 
 
 def test_root_repeated_occurrence_is_a_distinct_leaf_not_a_new_root(tmp_path: Path) -> None:
@@ -497,8 +503,8 @@ def test_leaf_stage_checkpoints_round_trip_and_cannot_repeat(tmp_path: Path) -> 
     roots = rooted(tmp_path, text)
     leaves = find_short_reporter_citations(roots)
 
-    assert leaves.get_stage("10_roots") == roots
-    assert leaves.get_stage("28_short_reporter_citations") == leaves
+    assert leaves.get_stage("grow_roots.root_formation") == roots
+    assert leaves.get_substage("grow_leaves.short_reporter_citations.discovery") == leaves
     assert Document.model_validate_json(leaves.model_dump_json()) == leaves
     with pytest.raises(ValueError, match="already completed"):
         find_short_reporter_citations(leaves)
@@ -524,9 +530,9 @@ def test_shared_leaf_stages_preserve_the_settled_short_reporter(tmp_path: Path) 
     document = resolve_short_reporter_case_names(document)
     document = asyncio.run(attribute_short_reporter_citations(document, review=False))
     short = document.short_reporters[0]
-    assert [node.stage for node in short.nodes][-2:] == [
-        "28.2_short_reporter_case_names",
-        "29_short_reporter_attribution",
+    assert [node.substage for node in short.nodes][-2:] == [
+        "grow_leaves.short_reporter_citations.case_names",
+        "grow_leaves.short_reporter_citations.attribution",
     ]
 
     document = find_reference_citations(document)
@@ -535,13 +541,13 @@ def test_shared_leaf_stages_preserve_the_settled_short_reporter(tmp_path: Path) 
     document = find_id_citations(document)
     document = asyncio.run(attribute_id_citations(document, review=False))
     assert document.short_reporters[0] == short
-    for stage in (
+    for substage in (
         find_supra_citations,
         resolve_supra_case_names,
         resolve_supra_pin_cites,
         attribute_supra_citations_rule,
     ):
-        document = stage(document)
+        document = substage(document)
         assert document.short_reporters[0] == short
 
     supra = next(c for c in document.short_citations if isinstance(c, SupraCitation))
@@ -599,7 +605,9 @@ def test_name_only_reference_mentions_do_not_reach_model_review(tmp_path: Path) 
 def test_leaf_types_reject_empty_required_source_fields(
     citation_type, source: str, span: Span, field: str
 ) -> None:
-    citation = citation_type.from_source(source=source, span=span, stage="30_reference_citations")
+    citation = citation_type.from_source(
+        source=source, span=span, substage="grow_leaves.reference_citations.discovery"
+    )
     with pytest.raises(ValueError):
         citation_type.model_validate({**citation.model_dump(mode="python"), field: ()})
 
@@ -613,7 +621,9 @@ def test_leaf_types_reject_empty_required_source_fields(
     ],
 )
 def test_leaf_types_reject_fields_attached_to_foreign_nodes(citation_type, source: str, span: Span) -> None:
-    citation = citation_type.from_source(source=source, span=span, stage="30_reference_citations")
+    citation = citation_type.from_source(
+        source=source, span=span, substage="grow_leaves.reference_citations.discovery"
+    )
     citation = citation.record("foreign_field")
     foreign = CaseNameField.from_source(source, span, node_id="foreign:node")
     with pytest.raises(ValueError, match="missing node"):

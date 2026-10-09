@@ -18,7 +18,7 @@ from mellea_lrc.model.document import Document
 from mellea_lrc.providers.courtlistener import CourtListenerClient
 from mellea_lrc.providers.courtlistener.models import CourtListenerCluster
 
-STAGE = "39_reporter_root_opinion_retrieval"
+SUBSTAGE = "validate_pincite.opinion_preparation.retrieval"
 
 
 class OpinionClient(Protocol):
@@ -63,12 +63,12 @@ def reporter_root_opinion_retrieval(document: Document, *, client: OpinionClient
     A third-party admission without a selected original-case cluster does not
     qualify: the corroborating document is not the cited opinion. No pinpoint is
     required on the root; its leaves may cite distinct pages or distinct writings.
-    Provider errors abort the atomic stage. A real 404 or empty text is retained
+    Provider errors abort the atomic substage. A real 404 or empty text is retained
     explicitly, so neither can masquerade as successful retrieval.
     """
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if "10_roots" not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "grow_roots.root_formation.rule" not in document.substage_runs:
         raise ValueError("Form and validate reporter roots before opinion retrieval")
     cache: dict[str, dict[str, Any] | None] = {}
     with ExitStack() as stack:
@@ -81,7 +81,7 @@ def reporter_root_opinion_retrieval(document: Document, *, client: OpinionClient
                 or citation.identity_judgments[-1].verdict is not IdentityVerdict.CORRECT_IDENTITY
             ):
                 continue
-            recorded = citation.record(STAGE)
+            recorded = citation.record(SUBSTAGE)
             source = citation.reporter_root_opinion_source
             if source is None:
                 selected = selected_reporter_root_cluster(citation)
@@ -134,4 +134,4 @@ def reporter_root_opinion_retrieval(document: Document, *, client: OpinionClient
                 opinions=tuple(opinions),
             )
             document = document.replace_citation(recorded.with_reporter_root_opinion_retrieval(result))
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

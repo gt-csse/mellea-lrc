@@ -18,4 +18,10 @@ The returned object contains `text`, `source_metadata`, `preprocessing_metadata`
 
 The default rules handle margin line numbers, repeated page furniture, docket stamps, tables as text, and tables of authorities. Pass a sequence of `Rule` values to choose exactly which rules run; pass `[]` to use the converter's reading without these project rules. Layout rules require page structure, so they are not applied to plain text. Different rule selections may produce different text and character offsets.
 
+Margin line-number handling belongs entirely to preprocessing. The Docling rule
+uses page geometry to reclassify numeric margin items as furniture before text
+export and offset measurement. It preserves body lists and reporter page numbers;
+items without geometry remain untouched. Matching and grounding operate on the
+supplied text and do not infer or remove line numbers from it.
+
 `PreprocessedDocument` is a Pydantic model and can be saved and restored with `model_dump(mode="json")` and `PreprocessedDocument.model_validate(...)`.

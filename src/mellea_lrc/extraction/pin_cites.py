@@ -10,7 +10,7 @@ from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.parsing.pin_cite import PIN_PREFIX
 
-STAGE = "9_pin_cites"
+SUBSTAGE = "grow_roots.field_reading.pin_cites"
 
 _BARE_NOTE = re.compile(r"^\s*,?\s*(?:at\s+)?(?P<pin>(?:n{1,2}\.|fn\.?)\s*\d+)", re.I)
 _COURT_ORDINAL = re.compile(r"(?:st|nd|rd|th|d)\b\s+(?:Cir\.|Dept\.|Dist\.)", re.I)
@@ -33,8 +33,8 @@ _PIN_CONTINUATION = re.compile(
 
 def resolve_pin_cites(document: Document, rules: ExtractionRules | None = None) -> Document:
     """Read an adjacent pin, retaining malformed continuations for later review."""
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
     require_structure(document)
     config = rules or stable()
     for citation in document.full_locators:
@@ -66,5 +66,5 @@ def resolve_pin_cites(document: Document, rules: ExtractionRules | None = None) 
             # Keep the unread token, without swallowing the following prose.
             end = len(region[: continuation.end()].rstrip())
         span = Span(site.end + match.start("pin"), site.end + end)
-        document = document.replace_citation(citation.record(STAGE).with_pin_cite(document.text, span))
-    return document.complete(STAGE)
+        document = document.replace_citation(citation.record(SUBSTAGE).with_pin_cite(document.text, span))
+    return document.complete_substage(SUBSTAGE)

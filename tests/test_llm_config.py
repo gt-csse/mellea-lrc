@@ -1,4 +1,4 @@
-"""Complete model profiles are chosen by stages and resolved without inheritance."""
+"""Model packages and substage bindings are configured only through .env."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from mellea.backends import ModelOption
 
+from mellea_lrc.llm import profiles as profile_config
 from mellea_lrc.llm import reviewer as reviewer_runtime
 from mellea_lrc.llm.config import (
     OUTPUT_MODE_OPTION,
@@ -20,23 +21,158 @@ from mellea_lrc.llm.config import (
     LlmOutputMode,
     start_mellea_session,
 )
-from mellea_lrc.llm.profiles import (
-    NRP_GLM,
-    NRP_KIMI,
-    NRP_QWEN,
-    OPENROUTER_LUNA,
-    LlmProfile,
-)
+from mellea_lrc.llm.profiles import LlmProfile, load_profile
 
 
 def _profile(**changes: object) -> LlmProfile:
-    return LlmProfile(
-        name="test-profile",
+    settings = dict(
+        name="test_profile",
         model="test-model",
         api_base="https://provider.invalid/v1",
         api_key_env="TEST_MODEL_KEY",
-        **changes,
+        temperature=0.0,
+        timeout_seconds=300.0,
+        max_tokens=8000,
+        max_attempts=3,
+        output_mode=LlmOutputMode.JSON_SCHEMA,
     )
+    return LlmProfile(**(settings | changes))
+
+
+_PROFILE_SETTINGS = {
+    "MODEL": "test-model",
+    "API_BASE": "https://provider.invalid/v1",
+    "API_KEY_ENV": "TEST_MODEL_KEY",
+    "TEMPERATURE": "0.25",
+    "TIMEOUT_SECONDS": "45",
+    "MAX_TOKENS": "4321",
+    "MAX_ATTEMPTS": "2",
+    "OUTPUT_MODE": "prompt",
+    "REASONING_EFFORT": "low",
+    "SERVICE_TIER": "",
+}
+_SUBSTAGE = "validate_pincite.support_review.page_review"
+_BINDING = "MELLEA_LRC_SUBSTAGE_VALIDATE_PINCITE_SUPPORT_REVIEW_PAGE_REVIEW_PROFILE"
+_PREFIX = "MELLEA_LRC_PROFILE_TEST_PROFILE_"
+
+
+def _environment():
+    return {_BINDING: "test_profile", **{_PREFIX + key: value for key, value in _PROFILE_SETTINGS.items()}}
+
+
+def test_env_selects_a_complete_package_without_resolving_credentials():
+    values = _environment()
+    profile = load_profile(_SUBSTAGE, environ=values)
+    assert profile == _profile(
+        temperature=0.25,
+        timeout_seconds=45,
+        max_tokens=4321,
+        max_attempts=2,
+        output_mode=LlmOutputMode.PROMPT,
+        reasoning_effort="low",
+    )
+    with pytest.raises(RuntimeError, match="TEST_MODEL_KEY"):
+        profile.resolve(values)
+    config = profile.resolve(values | {"TEST_MODEL_KEY": "secret"})
+    assert config.profile_name == "test_profile"
+    assert "secret" not in repr(profile) and "secret" not in repr(config)
+
+
+def test_missing_substage_assignment_does_not_use_a_default_profile():
+    values = _environment()
+    del values[_BINDING]
+    with pytest.raises(RuntimeError, match=_BINDING):
+        load_profile(_SUBSTAGE, environ=values)
+
+
+@pytest.mark.parametrize(
+    "setting", [key for key in _PROFILE_SETTINGS if key not in {"REASONING_EFFORT", "SERVICE_TIER"}]
+)
+@pytest.mark.parametrize("missing_value", [None, "", "   "])
+def test_all_required_profile_settings_must_be_explicit(setting, missing_value):
+    values = _environment()
+    values[_PREFIX + setting] = missing_value
+    with pytest.raises(RuntimeError, match=_PREFIX + setting):
+        load_profile(_SUBSTAGE, environ=values)
+
+
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [
+        ("TEMPERATURE", "nan"),
+        ("TEMPERATURE", "-1"),
+        ("TEMPERATURE", "automatic"),
+        ("TIMEOUT_SECONDS", "0"),
+        ("TIMEOUT_SECONDS", "inf"),
+        ("MAX_TOKENS", "1.5"),
+        ("MAX_TOKENS", "0"),
+        ("MAX_ATTEMPTS", "-1"),
+        ("OUTPUT_MODE", "automatic"),
+        ("REASONING_EFFORT", "automatic"),
+        ("SERVICE_TIER", "rush"),
+    ],
+)
+def test_invalid_env_settings_raise_instead_of_using_defaults(setting, value):
+    with pytest.raises(ValueError, match="Invalid .env profile test_profile"):
+        load_profile(_SUBSTAGE, environ=_environment() | {_PREFIX + setting: value})
+
+
+def test_blank_or_omitted_optional_settings_are_provider_defaults():
+    values = _environment()
+    for setting in ("REASONING_EFFORT", "SERVICE_TIER"):
+        values[_PREFIX + setting] = "  "
+    profile = load_profile(_SUBSTAGE, environ=values)
+    assert profile.reasoning_effort is profile.service_tier is None
+    for setting in ("REASONING_EFFORT", "SERVICE_TIER"):
+        del values[_PREFIX + setting]
+    assert load_profile(_SUBSTAGE, environ=values) == profile
+
+
+@pytest.mark.parametrize("name", ["", "a-b", "a b", "a.b", "café", None])
+def test_invalid_profile_names_raise(name):
+    with pytest.raises(ValueError, match="Profile names"):
+        LlmProfile.from_env(name, environ={})
+
+
+def test_env_file_is_authoritative_and_reloaded_for_the_next_binding(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(_PREFIX + "MODEL", "ambient-model")
+    path = tmp_path / ".env"
+    values = _environment() | {"TEST_MODEL_KEY": "first-secret"}
+    path.write_text("\n".join(f"{key}={value}" for key, value in values.items()))
+    first = load_profile(_SUBSTAGE)
+    assert first.model == "test-model"
+    assert first.resolve().api_key == "first-secret"
+    values[_PREFIX + "MODEL"] = "second-model"
+    values["TEST_MODEL_KEY"] = "second-secret"
+    path.write_text("\n".join(f"{key}={value}" for key, value in values.items()))
+    second = load_profile(_SUBSTAGE)
+    assert second.model == "second-model" and second.resolve().api_key == "second-secret"
+    assert first.model == "test-model"
+    assert __import__("os").environ[_PREFIX + "MODEL"] == "ambient-model"
+
+
+def test_missing_env_file_raises_without_using_process_model_settings(monkeypatch):
+    from mellea_lrc import configuration
+
+    monkeypatch.setattr(configuration, "find_dotenv", lambda **kwargs: "")
+    for key, value in _environment().items():
+        monkeypatch.setenv(key, value)
+    with pytest.raises(RuntimeError, match="No .env found"):
+        load_profile(_SUBSTAGE)
+
+
+def test_example_defines_all_model_substages_and_no_credentials():
+    from dotenv import dotenv_values
+
+    values = dotenv_values(Path(__file__).resolve().parents[1] / ".env.example", interpolate=False)
+    for module_name in _SUBSTAGES:
+        module = importlib.import_module(f"mellea_lrc.{module_name}")
+        profile = load_profile(module.SUBSTAGE, environ=values)
+        assert not values[profile.api_key_env]
+    pages = load_profile(_SUBSTAGE, environ=values)
+    full = load_profile("validate_pincite.support_review.full_opinion_review", environ=values)
+    assert pages.name == "nrp_glm" and full.name == "nrp_qwen"
 
 
 def test_profile_is_a_complete_frozen_package_and_resolves_only_its_credential() -> None:
@@ -81,18 +217,6 @@ def test_missing_profile_credential_raises_without_using_another_key(environ) ->
         _profile().resolve({"MELLEA_LRC_LLM_API_KEY": "unrelated-secret", **environ})
 
 
-@pytest.mark.parametrize("profile", [OPENROUTER_LUNA, NRP_GLM, NRP_QWEN, NRP_KIMI])
-def test_named_profile_resolves_as_one_package(profile: LlmProfile) -> None:
-    config = profile.resolve({profile.api_key_env: "profile-secret"})
-    assert config.model == profile.model
-    assert config.api_base == profile.api_base
-    assert config.temperature == profile.temperature
-    assert config.output_mode == profile.output_mode
-    assert config.profile_name == profile.name
-    assert "profile-secret" not in repr(config)
-    assert "profile-secret" not in repr(config.mellea_call_options(max_tokens=profile.max_tokens))
-
-
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -134,7 +258,7 @@ def test_profile_call_options_include_only_safe_profile_metadata() -> None:
     config = _profile(reasoning_effort="low", service_tier="flex").resolve({"TEST_MODEL_KEY": "test-secret"})
     options = config.mellea_call_options(max_tokens=32)
     assert options[PROFILE_OPTION] == {
-        "name": "test-profile",
+        "name": "test_profile",
         "endpoint": "https://provider.invalid/v1",
     }
     assert options[ModelOption.STREAM_TIMEOUT] == 300
@@ -147,7 +271,14 @@ def test_profile_call_options_include_only_safe_profile_metadata() -> None:
 
 
 def test_unnamed_resolved_binding_has_no_profile_metadata_or_optional_provider_options() -> None:
-    config = LlmApiConfig(model="test", api_base="https://provider.invalid/v1", api_key="test-secret")
+    config = LlmApiConfig(
+        model="test",
+        api_base="https://provider.invalid/v1",
+        api_key="test-secret",
+        temperature=0,
+        timeout_seconds=45,
+        output_mode=LlmOutputMode.JSON_SCHEMA,
+    )
     options = config.mellea_call_options(max_tokens=32)
     assert PROFILE_OPTION not in options
     assert "service_tier" not in options
@@ -236,9 +367,10 @@ def test_reviewer_requires_a_profile_and_uses_its_session_options_and_budgets(
     assert "extra_body" not in reviewer.model_options
 
 
-_STAGES = (
+_SUBSTAGES = (
     "extraction.docket_site_hunting",
     "extraction.docket_root_llm_reassignment",
+    "extraction.leaf_field_corrections",
     "extraction.short_reporter_attribution",
     "extraction.reference_attribution",
     "extraction.id_attribution",
@@ -256,10 +388,14 @@ _STAGES = (
 )
 
 
-@pytest.mark.parametrize("module_name", _STAGES)
-def test_stage_passes_its_own_profile_to_the_reviewer(module_name: str) -> None:
+@pytest.mark.parametrize("module_name", _SUBSTAGES)
+def test_stage_passes_its_substage_to_the_lazy_profile_loader(monkeypatch, module_name: str) -> None:
+    def unexpected_read():
+        raise AssertionError("Importing a stage must not read .env")
+
+    monkeypatch.setattr(profile_config, "read_env", unexpected_read)
     module = importlib.import_module(f"mellea_lrc.{module_name}")
-    assert isinstance(module.MODEL_PROFILE, LlmProfile)
+    assert not hasattr(module, "MODEL_PROFILE")
     calls = [
         node
         for node in ast.walk(ast.parse(Path(module.__file__).read_text()))
@@ -269,16 +405,12 @@ def test_stage_passes_its_own_profile_to_the_reviewer(module_name: str) -> None:
     ]
     assert len(calls) == 1
     call = calls[0]
-    assert len(call.args) == 1 and isinstance(call.args[0], ast.Name)
-    assert call.args[0].id == "MODEL_PROFILE"
-    assert not call.keywords
-
-
-def test_page_and_full_opinion_defaults_are_selected_independently() -> None:
-    pages = importlib.import_module("mellea_lrc.validation.reporter_citation_pinpoint_page_review")
-    full = importlib.import_module("mellea_lrc.validation.reporter_citation_full_opinion_review")
-    assert pages.MODEL_PROFILE is NRP_GLM
-    assert full.MODEL_PROFILE is NRP_QWEN
+    assert not call.keywords and len(call.args) == 1
+    loader = call.args[0]
+    assert isinstance(loader, ast.Call) and isinstance(loader.func, ast.Name)
+    assert loader.func.id == "load_profile" and not loader.keywords
+    assert len(loader.args) == 1 and isinstance(loader.args[0], ast.Name)
+    assert loader.args[0].id == "SUBSTAGE"
 
 
 def test_pinpoint_workflow_passes_separate_page_and_full_opinion_reviewers(monkeypatch) -> None:
@@ -290,32 +422,63 @@ def test_pinpoint_workflow_passes_separate_page_and_full_opinion_reviewers(monke
     pages, full = object(), object()
     seen = []
 
-    def unchanged(saved, **_kwargs):
-        return saved
+    opinion = importlib.import_module("mellea_lrc.workflows.validate_pincite.opinion_preparation")
+    evidence = importlib.import_module("mellea_lrc.workflows.validate_pincite.citation_preparation")
+    support = importlib.import_module("mellea_lrc.workflows.validate_pincite.support_review")
 
-    async def read(saved, **_kwargs):
-        return saved
+    def complete(name):
+        def run(saved, **_kwargs):
+            return saved.complete_substage(name)
+
+        return run
+
+    def read(name):
+        async def run(saved, **_kwargs):
+            return saved.complete_substage(name)
+
+        return run
 
     async def page_review(saved, *, reviewer):
         seen.append(("pages", reviewer))
-        return saved
+        return saved.complete_substage("validate_pincite.support_review.page_review")
 
     async def full_review(saved, *, reviewer):
         seen.append(("full", reviewer))
-        return saved
+        return saved.complete_substage("validate_pincite.support_review.full_opinion_review")
 
-    for name in (
-        "reporter_root_opinion_retrieval",
-        "index_reporter_root_opinion_pages",
-        "resolve_reporter_citation_pages",
-        "prepare_reporter_citation_pinpoint_evidence",
-        "judge_reporter_citation_pinpoints",
+    for module, operation, name in (
+        (opinion, "reporter_root_opinion_retrieval", "validate_pincite.opinion_preparation.retrieval"),
+        (opinion, "index_reporter_root_opinion_pages", "validate_pincite.opinion_preparation.page_index"),
+        (
+            evidence,
+            "resolve_reporter_citation_pages",
+            "validate_pincite.citation_preparation.page_resolution",
+        ),
+        (
+            evidence,
+            "prepare_reporter_citation_pinpoint_evidence",
+            "validate_pincite.citation_preparation.evidence",
+        ),
+        (support, "judge_reporter_citation_pinpoints", "validate_pincite.support_review.judgment"),
     ):
-        monkeypatch.setattr(workflow, name, unchanged)
-    monkeypatch.setattr(workflow, "review_reporter_citation_opinions", read)
-    monkeypatch.setattr(workflow, "read_reporter_citation_propositions", read)
-    monkeypatch.setattr(workflow, "review_reporter_citation_pinpoint_pages", page_review)
-    monkeypatch.setattr(workflow, "review_reporter_citation_full_opinions", full_review)
+        monkeypatch.setattr(module, operation, complete(name))
+    monkeypatch.setattr(
+        evidence,
+        "review_reporter_citation_opinions",
+        read("validate_pincite.citation_preparation.opinion_review"),
+    )
+    monkeypatch.setattr(
+        evidence,
+        "read_reporter_citation_propositions",
+        read("validate_pincite.citation_preparation.propositions"),
+    )
+    monkeypatch.setattr(support, "review_reporter_citation_pinpoint_pages", page_review)
+    monkeypatch.setattr(support, "review_reporter_citation_full_opinions", full_review)
     result = asyncio.run(workflow.validate_pincite(document, page_reviewer=pages, full_opinion_reviewer=full))
-    assert result is document
+    assert result.text == document.text
+    assert result.stage_runs == (
+        "validate_pincite.opinion_preparation",
+        "validate_pincite.citation_preparation",
+        "validate_pincite.support_review",
+    )
     assert seen == [("pages", pages), ("full", full)]

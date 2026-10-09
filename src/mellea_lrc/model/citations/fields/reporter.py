@@ -35,8 +35,8 @@ class ReporterLocatorValue(BaseModel):
 @lru_cache(maxsize=8192)
 def normalize_reporter_locator(quote: str) -> ReporterLocatorValue:
     """Re-read one locator with the same eyecite path used for discovery."""
-    # The stage owns the tokenizer. Import at call time so model definitions
-    # can load before the stage while quote validation uses that same reader.
+    # The substage owns the tokenizer. Import at call time so model definitions
+    # can load before the substage while quote validation uses that same reader.
     matches = [reading for reading in full_reporter_readings(quote) if reading.span == (0, len(quote))]
     if len(matches) != 1:
         raise ValueError(f"Cannot normalize full reporter locator: {quote!r}")

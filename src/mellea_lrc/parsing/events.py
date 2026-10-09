@@ -5,7 +5,7 @@ from functools import lru_cache
 from eyecite import get_citations
 from eyecite.models import CitationBase, IdToken, SupraToken, TokenExtractor
 
-from mellea_lrc.matching.literal import fuzzy_literal
+from mellea_lrc.matching.literal_to_regex import fuzzy_literal
 from mellea_lrc.parsing.markers import ID_MARKER
 from mellea_lrc.parsing.reporters import _reporter_tokenizer, _ReporterTokenizer
 

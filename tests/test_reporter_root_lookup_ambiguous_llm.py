@@ -20,7 +20,7 @@ from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactAmbiguityOutcome
 from mellea_lrc.model.ivr import IvrRun
 from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm_judgment import (
-    STAGE,
+    SUBSTAGE,
     reporter_root_lookup_ambiguous_llm_judgment,
 )
 from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm_judgment.reviewer import (
@@ -30,7 +30,7 @@ from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm_judgment.reviewer 
 
 SOURCE = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
 NORMALIZED_NAME = {"kind": "adversarial", "plaintiff": "Bell Atl. Corp.", "defendant": "Twombly"}
-REVIEW_STAGE = "13.2_reporter_root_lookup_ambiguous_rule_judgment"
+REVIEW_SUBSTAGE = "validate_roots.reporter_lookup.ambiguous_rule_judgment"
 
 
 def _cluster(identifier: int, name: str, *, full_name_available: bool = True) -> dict[str, object]:
@@ -131,7 +131,7 @@ def _review_input(
         start = source.index("Corp. v.")
         end = source.index(", 550")
         misread = root.record("test_incorrect_reading").with_case_name(source, Span(start, end))
-        roots = roots.replace_citation(misread).complete("test_incorrect_reading")
+        roots = roots.replace_citation(misread).complete_substage("test_incorrect_reading")
     lookup = reporter_root_lookup_cluster_retrieval(roots, client=client)
     assert lookup.roots[0].reporter_exact_ambiguity_resolution is None
     dockets = reporter_root_lookup_docket_retrieval(lookup, client=client)
@@ -139,13 +139,13 @@ def _review_input(
     assert client.lookup_calls == 1
     before = reporter_root_lookup_ambiguous_rule_judgment(dockets)
     assert client.lookup_calls == 1
-    assert before.get_stage("12.1_reporter_root_lookup_cluster_retrieval") == lookup
-    assert before.get_stage("12.2_reporter_root_lookup_docket_retrieval") == dockets
+    assert before.get_substage("validate_roots.reporter_lookup.cluster_retrieval") == lookup
+    assert before.get_substage("validate_roots.reporter_lookup.docket_retrieval") == dockets
     resolution = before.roots[0].reporter_exact_ambiguity_resolution
     assert resolution is not None
     assert resolution.outcome is ReporterExactAmbiguityOutcome.NO_UNIQUE_RULE_MATCH
     assert before.roots[0].identity_judgments == ()
-    assert before.roots[0].next_stage == STAGE
+    assert before.roots[0].next_substage == SUBSTAGE
     return before, client
 
 
@@ -191,11 +191,11 @@ def test_model_can_select_one_of_all_saved_candidates_after_zero_or_multiple_rul
     assert context.passing_candidate_indices == passing
     assert len(context.rule_results) == len(names)
     assert before.roots[0].reporter_exact_ambiguity_resolution.passing_candidate_indices == passing
-    assert after.get_stage(REVIEW_STAGE) == before
+    assert after.get_substage(REVIEW_SUBSTAGE) == before
     root = after.roots[0]
     previous = before.roots[0]
     assert len(root.nodes) == len(previous.nodes) + 1
-    assert root.nodes[-1].stage == STAGE
+    assert root.nodes[-1].substage == SUBSTAGE
     assert root.reporter_exact_lookup == previous.reporter_exact_lookup
     assert root.reporter_exact_ambiguity_resolution == previous.reporter_exact_ambiguity_resolution
     assert root.reporter_ambiguous_review.decision.selected_candidate_index == selected
@@ -211,17 +211,17 @@ def test_model_can_select_one_of_all_saved_candidates_after_zero_or_multiple_rul
         assert judgment.reading_index == len(readings) - 1
         assert judgment.result is MatchResult.MATCH
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
-    assert root.next_stage is None
+    assert root.next_substage is None
     assert [route.value for route in root.routes] == [
-        "12.2_reporter_root_lookup_docket_retrieval",
-        REVIEW_STAGE,
-        STAGE,
+        "validate_roots.reporter_lookup.docket_retrieval",
+        REVIEW_SUBSTAGE,
+        SUBSTAGE,
         None,
     ]
     assert root.routes[-1].node_id == root.nodes[-1].id
     restored = Document.model_validate_json(after.model_dump_json())
     assert restored == after
-    assert restored.get_stage(REVIEW_STAGE) == before
+    assert restored.get_substage(REVIEW_SUBSTAGE) == before
 
 
 def test_no_model_selection_routes_without_new_candidate_or_identity_judgments() -> None:
@@ -239,7 +239,7 @@ def test_no_model_selection_routes_without_new_candidate_or_identity_judgments()
     assert root.court_judgments == previous.court_judgments
     assert root.date_judgments == previous.date_judgments
     assert root.identity_judgments == previous.identity_judgments == ()
-    assert root.next_stage == "reporter_root_search"
+    assert root.next_substage == "reporter_root_search"
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -256,7 +256,7 @@ def test_no_selection_records_unavailable_for_absent_date() -> None:
     root = after.roots[0]
     assert root.reporter_ambiguous_review.decision.date.result is MatchResult.UNAVAILABLE
     assert root.identity_judgments == ()
-    assert root.next_stage == "reporter_root_search"
+    assert root.next_substage == "reporter_root_search"
 
 
 @pytest.mark.parametrize(
@@ -285,7 +285,7 @@ def test_review_rejects_field_state_inconsistent_with_selected_context(
     assert root.reporter_ambiguous_review.decision is None
     assert expected_reason in root.reporter_ambiguous_review.failure_reason
     assert root.identity_judgments == ()
-    assert root.next_stage == "reporter_root_search"
+    assert root.next_substage == "reporter_root_search"
 
 
 def test_no_selection_can_save_a_grounded_replacement_for_search() -> None:
@@ -306,7 +306,7 @@ def test_no_selection_can_save_a_grounded_replacement_for_search() -> None:
     assert root.court_judgments == previous.court_judgments
     assert root.date_judgments == previous.date_judgments
     assert root.identity_judgments == previous.identity_judgments == ()
-    assert root.next_stage == "reporter_root_search"
+    assert root.next_substage == "reporter_root_search"
 
 
 def test_selected_candidate_uses_grounded_corrected_reading() -> None:
@@ -332,7 +332,7 @@ def test_selected_candidate_uses_grounded_corrected_reading() -> None:
 
 
 @pytest.mark.parametrize(
-    ("names", "no_full_names", "case_name_result", "verdict", "next_stage"),
+    ("names", "no_full_names", "case_name_result", "verdict", "next_substage"),
     [
         (
             ("Bell Atlantic Corporation v. Twombly",) * 2,
@@ -349,7 +349,7 @@ def test_selected_candidate_identity_follows_field_assessments(
     no_full_names: tuple[int, ...],
     case_name_result: str,
     verdict: IdentityVerdict | None,
-    next_stage: str | None,
+    next_substage: str | None,
 ) -> None:
     before, _ = _review_input(names, no_full_names=no_full_names)
 
@@ -366,7 +366,7 @@ def test_selected_candidate_identity_follows_field_assessments(
         assert root.identity_judgments == ()
     else:
         assert root.identity_judgments[-1].verdict is verdict
-    assert root.next_stage == next_stage
+    assert root.next_substage == next_substage
 
 
 @pytest.mark.parametrize(
@@ -394,7 +394,7 @@ def test_invalid_selection_or_ungrounded_correction_routes_without_partial_updat
     assert root.court_judgments == previous.court_judgments
     assert root.date_judgments == previous.date_judgments
     assert root.identity_judgments == previous.identity_judgments == ()
-    assert root.next_stage == "reporter_root_search"
+    assert root.next_substage == "reporter_root_search"
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -438,7 +438,7 @@ def test_failed_model_review_keeps_trace_and_routes_to_search() -> None:
     assert root.reporter_ambiguous_review.ivr == run
     assert root.reporter_ambiguous_review.failure_reason == "Incomplete JSON"
     assert root.identity_judgments == ()
-    assert root.next_stage == "reporter_root_search"
+    assert root.next_substage == "reporter_root_search"
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -455,7 +455,7 @@ def test_stage_ignores_rule_selected_root_and_does_not_call_reviewer() -> None:
 
     assert reviewer.contexts == []
     assert after.roots == before.roots
-    assert after.stage_runs[-1] == STAGE
-    assert after.get_stage(REVIEW_STAGE) == before
+    assert after.substage_runs[-1] == SUBSTAGE
+    assert after.get_substage(REVIEW_SUBSTAGE) == before
     with pytest.raises(ValueError, match="already completed"):
         asyncio.run(reporter_root_lookup_ambiguous_llm_judgment(after, reviewer=reviewer))

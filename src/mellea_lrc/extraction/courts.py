@@ -15,7 +15,7 @@ from mellea_lrc.model.citations.fields.date import FULL_DATE_RE, YEAR_RE
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 
-STAGE = "7_courts"
+SUBSTAGE = "grow_roots.field_reading.courts"
 
 _DATE_EVENT = re.compile(r"\s+\b(?:filed|decided|issued)\b\s*$", re.I)
 _REPORTER_SERIES = re.compile(r"\s*\d+\s*(?:st|nd|rd|d|th)\s*$", re.I)
@@ -71,8 +71,8 @@ def _court_from_reporter(citation: FullCitationVariant) -> str | None:
 
 def resolve_courts(document: Document, rules: ExtractionRules | None = None) -> Document:
     """Read an explicit post-site court or infer a unique reporter court."""
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
     require_structure(document)
     config = rules or stable()
     for citation in document.full_locators:
@@ -92,9 +92,9 @@ def resolve_courts(document: Document, rules: ExtractionRules | None = None) -> 
                     stripped = len(court_region) - len(court_region.lstrip(" ,;"))
                     span = Span(body_start + stripped, body_start + stripped + len(written))
         if span is not None:
-            document = document.replace_citation(citation.record(STAGE).with_court(document.text, span))
+            document = document.replace_citation(citation.record(SUBSTAGE).with_court(document.text, span))
             continue
         court = _court_from_reporter(citation)
         if court is not None:
-            document = document.replace_citation(citation.record(STAGE).with_inferred_court(court))
-    return document.complete(STAGE)
+            document = document.replace_citation(citation.record(SUBSTAGE).with_inferred_court(court))
+    return document.complete_substage(SUBSTAGE)

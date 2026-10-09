@@ -24,8 +24,8 @@ from mellea_lrc.model.citations import AttributionResult, LeafReviewDecision, Re
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID
 from mellea_lrc.model.ivr import IvrAttempt, IvrRequirementAttempt, IvrRun
 
-CREATION_STAGE = "30_reference_citations"
-ATTRIBUTION_STAGE = "31_reference_attribution"
+CREATION_SUBSTAGE = "grow_leaves.reference_citations.discovery"
+ATTRIBUTION_SUBSTAGE = "grow_leaves.reference_citations.attribution"
 AMBIGUOUS = "Smith v. Jones, 347 U.S. 483 (1954). Smith v. Brown, 348 U.S. 500 (1955). See Smith at 510."
 
 
@@ -89,7 +89,7 @@ def test_reference_constructor_retains_name_anchor_and_creation_readings(include
     source = "Smith at 495 - 97, 501 n.2"
     pin_span = Span(9, len(source)) if include_pin else None
     reference = ReferenceCitation.from_source(
-        source=source, span=Span(0, 5), stage=CREATION_STAGE, pin_span=pin_span
+        source=source, span=Span(0, 5), substage=CREATION_SUBSTAGE, pin_span=pin_span
     )
 
     assert reference.site_span == Span(0, 5)
@@ -148,15 +148,15 @@ def test_reference_creation_is_independent_and_a_unique_future_name_attaches_wit
     assert attached.root_id[-1].value == roots.roots[0].id
     assert attached.attributions[-1].result is AttributionResult.ATTACHED
     assert attached.attributions[-1].candidate_root_ids == (roots.roots[0].id,)
-    assert tuple(node.stage for node in attached.nodes) == (CREATION_STAGE, ATTRIBUTION_STAGE)
+    assert tuple(node.substage for node in attached.nodes) == (CREATION_SUBSTAGE, ATTRIBUTION_SUBSTAGE)
     assert attached.attributions[-1].node_id == attached.nodes[-1].id
     assert attached.reviews == ()
     assert attached.reference_name == reference.reference_name
     assert attached.case_name == reference.case_name
     assert attached.pin_cite == reference.pin_cite
-    assert restored.get_stage("10_roots") == roots
-    assert restored.get_stage(CREATION_STAGE) == created
-    assert restored.get_stage(ATTRIBUTION_STAGE) == attributed
+    assert restored.get_stage("grow_roots.root_formation") == roots
+    assert restored.get_substage(CREATION_SUBSTAGE) == created
+    assert restored.get_substage(ATTRIBUTION_SUBSTAGE) == attributed
     attached.validate_source(source)
 
 
@@ -174,8 +174,8 @@ def test_reference_stages_require_roots_and_creation_and_reject_repeats(source: 
         find_reference_citations(created)
     attributed = asyncio.run(attribute_reference_citations(created, review=False))
 
-    assert attributed.stage_runs[-2:] == (CREATION_STAGE, ATTRIBUTION_STAGE)
-    assert attributed.get_stage(CREATION_STAGE) == created
+    assert attributed.substage_runs[-2:] == (CREATION_SUBSTAGE, ATTRIBUTION_SUBSTAGE)
+    assert attributed.get_substage(CREATION_SUBSTAGE) == created
     with pytest.raises(ValueError, match="already completed"):
         asyncio.run(attribute_reference_citations(attributed, review=False))
 
@@ -190,7 +190,7 @@ def test_ambiguous_reference_stays_unresolved_without_review() -> None:
     assert reference.attributions[-1].result is AttributionResult.UNRESOLVED
     assert reference.root_id[-1].value == WITHDRAWN_ROOT_ID
     assert reference.reviews == ()
-    assert reference.next_stage is None
+    assert reference.next_substage is None
     assert reference.case_name == _reference(created).case_name
     assert reference.pin_cite == _reference(created).pin_cite
 
@@ -233,8 +233,8 @@ def test_ambiguous_reference_review_records_both_decisions_and_complete_trace() 
     assert [entry.value for entry in reference.root_id] == [WITHDRAWN_ROOT_ID, brown.id]
     assert reference.reviews[-1].ivr == trace
     assert reference.reviews[-1].ivr.attempts[1].request[-1]["content"] == "repair: index out of range"
-    assert restored.get_stage(CREATION_STAGE) == created
-    assert restored.get_stage(CREATION_STAGE).short_citations[-1].reviews == ()
+    assert restored.get_substage(CREATION_SUBSTAGE) == created
+    assert restored.get_substage(CREATION_SUBSTAGE).short_citations[-1].reviews == ()
     assert restored == attributed
 
 
@@ -263,7 +263,7 @@ def test_ambiguous_reference_preserves_failed_rejected_and_unresolved_review_out
 
     assert reference.reviews[-1].ivr == trace
     assert len(reference.attributions[-1].candidate_root_ids) == 2
-    assert reference.next_stage is None
+    assert reference.next_substage is None
     if outcome_kind in {"failure", "invalid_index"}:
         assert reference.root_id[-1].value == WITHDRAWN_ROOT_ID
         assert reference.attributions[-1].result is AttributionResult.UNRESOLVED
@@ -277,7 +277,7 @@ def test_ambiguous_reference_preserves_failed_rejected_and_unresolved_review_out
         assert reference.reviews[-1].decision.is_citation is (outcome_kind != "reject")
     assert reference.case_name == _reference(created).case_name
     assert reference.pin_cite == _reference(created).pin_cite
-    assert restored.get_stage(CREATION_STAGE) == created
+    assert restored.get_substage(CREATION_SUBSTAGE) == created
 
 
 @pytest.mark.parametrize("outcome_kind", ["failure", "reject", "uncertain"])
@@ -287,9 +287,9 @@ def test_reference_with_no_matching_root_retains_review_and_trace_without_invent
     source = "See Unknown at 495."
     roots = _roots(source)
     reference = ReferenceCitation.from_source(
-        source=source, span=Span(4, 11), pin_span=Span(15, 18), stage=CREATION_STAGE
+        source=source, span=Span(4, 11), pin_span=Span(15, 18), substage=CREATION_SUBSTAGE
     )
-    created = roots.add_citation(reference).complete(CREATION_STAGE)
+    created = roots.add_citation(reference).complete_substage(CREATION_SUBSTAGE)
     calls = 0
     trace = _trace(success=outcome_kind != "failure")
 
@@ -325,7 +325,7 @@ def test_reference_with_no_matching_root_retains_review_and_trace_without_invent
     )
     assert updated.case_name == reference.case_name
     assert updated.pin_cite == reference.pin_cite
-    assert restored.get_stage(CREATION_STAGE) == created
+    assert restored.get_substage(CREATION_SUBSTAGE) == created
 
 
 @pytest.mark.parametrize("outcome_kind", ["rule_only", "attach", "reject", "failure"])
@@ -348,21 +348,21 @@ def test_later_shared_stages_preserve_reference_fields_attachment_and_review(out
     )
     settled = _reference(document)
 
-    for stage in (
+    for substage in (
         find_id_citations,
         find_supra_citations,
         resolve_supra_case_names,
         resolve_supra_pin_cites,
         attribute_supra_citations_rule,
     ):
-        document = stage(document)
+        document = substage(document)
         assert _reference(document) == settled
 
     async def unexpected_review(_context):
-        pytest.fail("A reference attribution must never be reviewed again by the general leaf stage")
+        pytest.fail("A reference attribution must never be reviewed again by the general leaf substage")
 
     document = asyncio.run(review_supra_attributions(document, reviewer=unexpected_review))
     assert _reference(document) == settled
     restored = Document.model_validate_json(document.model_dump_json())
     assert _reference(restored) == settled
-    assert restored.get_stage(ATTRIBUTION_STAGE).short_citations[-1] == settled
+    assert restored.get_substage(ATTRIBUTION_SUBSTAGE).short_citations[-1] == settled

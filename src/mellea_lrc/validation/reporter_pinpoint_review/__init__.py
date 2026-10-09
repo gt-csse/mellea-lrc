@@ -1,4 +1,4 @@
-"""Shared execution of occurrence-local support reviews, below stage APIs."""
+"""Shared execution of occurrence-local support reviews, below substage APIs."""
 
 from mellea_lrc.model.citations.citation import Citation
 from mellea_lrc.model.citations.reporter_pinpoint import OpinionReviewScope, ReporterCitationSupportReview
@@ -14,7 +14,7 @@ async def review_citation(
     document: Document,
     citation: Citation,
     *,
-    stage: str,
+    substage: str,
     scope: OpinionReviewScope,
     reviewer: ReporterPinpointReviewer,
 ) -> Document:
@@ -37,7 +37,7 @@ async def review_citation(
             failure_reason=f"{type(error).__name__}: {error}",
         )
         accepted = ()
-    recorded = citation.record(stage)
+    recorded = citation.record(substage)
     indices = []
     for passage in accepted:
         indices.append(len(recorded.reporter_opinion_evidence))

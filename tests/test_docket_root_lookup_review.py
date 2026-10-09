@@ -1,4 +1,4 @@
-"""The docket review stage selects from saved search evidence once per root."""
+"""The docket review substage selects from saved search evidence once per root."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from mellea_lrc.model.citations.fields.case_name import CaseNameKind
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.ivr import IvrRun
 from mellea_lrc.validation.docket_root_lookup_courtlistener_llm_review import (
-    STAGE,
+    SUBSTAGE,
     docket_root_lookup_courtlistener_llm_review,
 )
 from mellea_lrc.validation.docket_root_lookup_courtlistener_llm_review import reviewer as review_module
@@ -89,12 +89,12 @@ def _document(
     number_start = SOURCE.index("05-4206")
     root = FullDocketCitation.from_locator(
         citation_id="docket:0",
-        stage="test_sites",
+        substage="test_sites",
         source=SOURCE,
         span=Span(start, number_start + len("05-4206")),
         number_span=Span(number_start, number_start + len("05-4206")),
     )
-    document = Document.from_source(SOURCE).add_citation(root).complete("test_sites")
+    document = Document.from_source(SOURCE).add_citation(root).complete_substage("test_sites")
     name_start = SOURCE.index(name_quote)
     court_start = SOURCE.index(court_quote)
     read = root.record("test_readings")
@@ -103,12 +103,14 @@ def _document(
     if date_quote is not None:
         year_start = SOURCE.index(date_quote)
         read = read.with_date(SOURCE, Span(year_start, year_start + len(date_quote)))
-    document = document.replace_citation(read).complete("test_readings")
+    document = document.replace_citation(read).complete_substage("test_readings")
     root = read
-    document = document.replace_citation(root.record("10_roots").with_root(root.id)).complete("10_roots")
+    document = document.replace_citation(
+        root.record("grow_roots.root_formation.rule").with_root(root.id)
+    ).complete_substage("grow_roots.root_formation.rule")
     root = document.roots[0]
     assert isinstance(root, FullDocketCitation)
-    lookup_node = root.record("16_docket_root_lookup_courtlistener_retrieval")
+    lookup_node = root.record("validate_roots.docket_lookup.courtlistener_retrieval")
     attempts = (
         DocketLookupAttempt(
             source_type="d",
@@ -197,8 +199,8 @@ def _document(
             else None
         ),
     )
-    return document.replace_citation(lookup_node.with_docket_lookup(lookup)).complete(
-        "16_docket_root_lookup_courtlistener_retrieval"
+    return document.replace_citation(lookup_node.with_docket_lookup(lookup)).complete_substage(
+        "validate_roots.docket_lookup.courtlistener_retrieval"
     )
 
 
@@ -271,12 +273,12 @@ def test_review_selects_opinion_from_mixed_shortlist_and_saves_independent_field
     assert root.docket_lookup_review.decision.court.result is MatchResult.MISMATCH
     assert root.docket_lookup_review.decision.date.result is MatchResult.MATCH
     assert root.identity_judgments == before.roots[0].identity_judgments == ()
-    assert root.next_stage == "fields_aggregated_identity"
+    assert root.next_substage == "validate_roots.docket_lookup.identity_aggregation"
     assert root.routes[-1].node_id == root.docket_lookup_review.node_id
     assert root.docket_lookup == before.roots[0].docket_lookup
     assert root.docket_lookup.attempts[0].pages[0]["results"][0]["unmodeled"] == {"saved": True}
-    assert root.nodes[-1].stage == STAGE
-    assert after.get_stage("16_docket_root_lookup_courtlistener_retrieval") == before
+    assert root.nodes[-1].substage == SUBSTAGE
+    assert after.get_substage("validate_roots.docket_lookup.courtlistener_retrieval") == before
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -389,7 +391,7 @@ def test_review_appends_grounded_field_corrections_and_preserves_stage16() -> No
     assert [reading.quote for reading in root.date] == ["200", "2007"]
     assert root.date[-1].get_normalized().year == 2007
     assert root.docket_lookup_review.decision.date.result is MatchResult.MATCH
-    assert after.get_stage("16_docket_root_lookup_courtlistener_retrieval") == before
+    assert after.get_substage("validate_roots.docket_lookup.courtlistener_retrieval") == before
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -456,7 +458,7 @@ def test_empty_shortlist_persists_explicit_no_selection_without_model_call() -> 
         for field in ("docket_number", "case_name", "court", "date")
     )
     assert after.roots[0].identity_judgments == ()
-    assert after.roots[0].next_stage is None
+    assert after.roots[0].next_substage is None
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -551,7 +553,9 @@ def test_ivr_prompt_distinguishes_docket_and_opinion_dates(monkeypatch: pytest.M
 
     monkeypatch.setattr(review_module, "run_instruct_ivr", fake_ivr)
 
-    outcome = asyncio.run(IvrDocketLookupReviewer(session=object(), model_options={})(context))
+    outcome = asyncio.run(
+        IvrDocketLookupReviewer(session=object(), model_options={}, max_attempts=3)(context)
+    )
 
     assert outcome.decision is None
     assert outcome.run == _run()

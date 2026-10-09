@@ -21,12 +21,12 @@ from mellea_lrc.workflows.grow_leaves import grow_leaves
 from tests.test_grow_leaves_score_api import _leaf_document, _write_fixture
 
 PREFIX = (
-    "28_short_reporter_citations",
-    "28.1_short_reporter_colocations",
-    "28.2_short_reporter_case_names",
-    "29_short_reporter_attribution",
-    "30_reference_citations",
-    "31_reference_attribution",
+    "grow_leaves.short_reporter_citations.discovery",
+    "grow_leaves.short_reporter_citations.colocations",
+    "grow_leaves.short_reporter_citations.case_names",
+    "grow_leaves.short_reporter_citations.attribution",
+    "grow_leaves.reference_citations.discovery",
+    "grow_leaves.reference_citations.attribution",
 )
 TEXT = (
     "Smith v. Jones, 347 U.S. 483 (1954). See Smith, 347 U.S. at 495. "
@@ -83,15 +83,35 @@ def test_rule_only_stop_saves_creation_and_attribution_checkpoints_and_field_his
 
     monkeypatch.setattr(runner, "_write", capture)
     run_dir = asyncio.run(
-        runner.run(inputs, input_stage="10_roots", review_leaves=False, stop_after=PREFIX[-1])
+        runner.run(
+            inputs,
+            input_substage="grow_roots.root_formation.rule",
+            review_leaves=False,
+            stop_after=PREFIX[-1],
+        )
     )
     document = _read_output(run_dir)
+    atomic_saved = list(
+        {
+            checkpoint.substage_runs[-1]: checkpoint.get_substage(checkpoint.substage_runs[-1])
+            for checkpoint in saved
+        }.values()
+    )
 
-    assert document.stage_runs == (*roots.stage_runs, *PREFIX)
-    assert tuple(checkpoint.stage_runs[-1] for checkpoint in saved) == PREFIX
-    assert document.get_stage("10_roots") == roots
-    for stage, checkpoint in zip(PREFIX, saved, strict=True):
-        assert document.get_stage(stage) == checkpoint
+    assert document.substage_runs == (*roots.substage_runs, *PREFIX)
+    assert tuple(checkpoint.substage_runs[-1] for checkpoint in atomic_saved) == PREFIX
+    assert document.get_substage("grow_roots.root_formation.rule") == roots.get_substage(
+        "grow_roots.root_formation.rule"
+    )
+    assert document.stage_runs == (
+        "grow_roots.locator_discovery",
+        "grow_roots.field_reading",
+        "grow_roots.root_formation",
+        "grow_leaves.short_reporter_citations",
+        "grow_leaves.reference_citations",
+    )
+    for substage, checkpoint in zip(PREFIX, atomic_saved, strict=True):
+        assert document.get_substage(substage) == checkpoint
         assert Document.model_validate_json(checkpoint.model_dump_json()) == checkpoint
         for citation in checkpoint.citations:
             citation.validate_source(TEXT)
@@ -107,13 +127,13 @@ def test_rule_only_stop_saves_creation_and_attribution_checkpoints_and_field_his
     assert unresolved.root_id[-1].value == WITHDRAWN_ROOT_ID
     assert unresolved.attributions[-1].result is AttributionResult.UNRESOLVED
     for short in document.short_reporters:
-        assert tuple(node.stage for node in short.nodes) == (PREFIX[0], *PREFIX[2:4])
+        assert tuple(node.substage for node in short.nodes) == (PREFIX[0], *PREFIX[2:4])
         assert short.reviews == ()
-        created = document.get_stage(PREFIX[0]).short_reporters[document.short_reporters.index(short)]
+        created = document.get_substage(PREFIX[0]).short_reporters[document.short_reporters.index(short)]
         assert created.short_locator == short.short_locator
         assert created.case_name == ()
         assert (
-            document.get_stage(PREFIX[2]).short_reporters[document.short_reporters.index(short)].case_name
+            document.get_substage(PREFIX[2]).short_reporters[document.short_reporters.index(short)].case_name
             == short.case_name
         )
         assert created.pin_cite == short.pin_cite
@@ -124,11 +144,11 @@ def test_rule_only_stop_saves_creation_and_attribution_checkpoints_and_field_his
     assert reference.reference_name[-1].quote == "Smith"
     assert reference.case_name[-1].quote == "Smith"
     assert reference.pin_cite[-1].quote == "502"
-    assert tuple(node.stage for node in reference.nodes) == PREFIX[4:]
+    assert tuple(node.substage for node in reference.nodes) == PREFIX[4:]
     assert reference.root_id[-1].value == roots.roots[0].id
     assert reference.attributions[-1].result is AttributionResult.ATTACHED
     assert reference.reviews == ()
-    created_reference = document.get_stage(PREFIX[4]).short_citations[-1]
+    created_reference = document.get_substage(PREFIX[4]).short_citations[-1]
     assert created_reference.reference_name == reference.reference_name
     assert created_reference.case_name == reference.case_name
     assert created_reference.pin_cite == reference.pin_cite
@@ -163,7 +183,7 @@ def test_interrupted_prefix_resume_reuses_the_saved_stop_configuration(
 ) -> None:
     inputs = _saved_input(tmp_path, _source_roots(tmp_path), set_name=set_name)
     monkeypatch.setattr(runner, "_RESULTS_ROOT", tmp_path / "runs")
-    reference_stage = dict(runner._STAGES)[PREFIX[-1]]
+    reference_stage = dict(runner._SUBSTAGES)[PREFIX[-1]]
     interrupted = True
     calls = 0
 
@@ -178,14 +198,23 @@ def test_interrupted_prefix_resume_reuses_the_saved_stop_configuration(
     monkeypatch.setattr(runner, "attribute_reference_citations", reference)
     monkeypatch.setattr(
         runner,
-        "_STAGES",
-        tuple((stage, reference if stage == PREFIX[-1] else call) for stage, call in runner._STAGES),
+        "_SUBSTAGES",
+        tuple(
+            (substage, reference if substage == PREFIX[-1] else call) for substage, call in runner._SUBSTAGES
+        ),
     )
     with pytest.raises(RuntimeError, match="Synthetic attribution interruption"):
-        asyncio.run(runner.run(inputs, input_stage="10_roots", review_leaves=False, stop_after=PREFIX[-1]))
+        asyncio.run(
+            runner.run(
+                inputs,
+                input_substage="grow_roots.root_formation.rule",
+                review_leaves=False,
+                stop_after=PREFIX[-1],
+            )
+        )
     run_dir = next((tmp_path / "runs" / set_name).iterdir())
     before = _read_output(run_dir)
-    assert before.stage_runs[-1] == PREFIX[-2]
+    assert before.substage_runs[-1] == PREFIX[-2]
     failed_record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     assert failed_record["status"] == "failed"
     assert failed_record["set"] == set_name
@@ -197,12 +226,12 @@ def test_interrupted_prefix_resume_reuses_the_saved_stop_configuration(
     assert asyncio.run(runner.run(None, resume_run=run_dir)) == run_dir
     after = _read_output(run_dir)
     assert calls == 2
-    assert after.stage_runs[-len(PREFIX) :] == PREFIX
-    assert after.get_stage(PREFIX[-2]) == before
+    assert after.substage_runs[-len(PREFIX) :] == PREFIX
+    assert after.get_substage(PREFIX[-2]) == before
     record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     assert record["status"] == "complete"
     assert record["set"] == set_name
-    assert record["input_stage"] == "10_roots"
+    assert record["input_substage"] == "grow_roots.root_formation.rule"
     assert record["input_sha256"] == failed_record["input_sha256"]
     assert record["stop_after"] == PREFIX[-1]
     assert record["review_leaves"] is False
@@ -211,26 +240,28 @@ def test_interrupted_prefix_resume_reuses_the_saved_stop_configuration(
 
 
 @pytest.mark.parametrize(
-    ("input_stage", "stop_after"),
+    ("input_substage", "stop_after"),
     [
-        ("32_id_citations", "28_short_reporter_citations"),
-        ("32_id_citations", "32_id_citations"),
-        ("10_roots", "38_supra_attribution_llm"),
-        ("10_roots", "unknown_stage"),
+        ("grow_leaves.id_citations.discovery", "grow_leaves.short_reporter_citations.discovery"),
+        ("grow_leaves.id_citations.discovery", "grow_leaves.id_citations.discovery"),
+        ("grow_roots.root_formation.rule", "grow_leaves.supra_citations.llm_attribution"),
+        ("grow_roots.root_formation.rule", "unknown_stage"),
     ],
 )
 def test_invalid_stop_is_rejected_before_creating_a_run(
-    tmp_path: Path, monkeypatch, input_stage: str, stop_after: str
+    tmp_path: Path, monkeypatch, input_substage: str, stop_after: str
 ) -> None:
     document = _source_roots(tmp_path)
-    if input_stage != "10_roots":
-        document = asyncio.run(grow_leaves(document, review_leaves=False)).get_stage(input_stage)
+    if input_substage != "grow_roots.root_formation.rule":
+        document = asyncio.run(grow_leaves(document, review_leaves=False)).get_substage(input_substage)
     inputs = _saved_input(tmp_path, document)
     results_root = tmp_path / "runs"
     monkeypatch.setattr(runner, "_RESULTS_ROOT", results_root)
 
     with pytest.raises(ValueError, match=r"[Ss]top"):
-        asyncio.run(runner.run(inputs, input_stage=input_stage, review_leaves=False, stop_after=stop_after))
+        asyncio.run(
+            runner.run(inputs, input_substage=input_substage, review_leaves=False, stop_after=stop_after)
+        )
 
     assert not results_root.exists()
 
@@ -264,27 +295,32 @@ def test_prefix_scoring_and_default_run_report_include_only_completed_leaf_stage
     inputs = _saved_input(tmp_path, roots)
     monkeypatch.setattr(runner, "_RESULTS_ROOT", tmp_path / "runs")
     run_dir = asyncio.run(
-        runner.run(inputs, input_stage="10_roots", review_leaves=False, stop_after=PREFIX[-1])
+        runner.run(
+            inputs,
+            input_substage="grow_roots.root_formation.rule",
+            review_leaves=False,
+            stop_after=PREFIX[-1],
+        )
     )
     document = _read_output(run_dir, "example.txt")
     score = evaluation.score_grow_leaves(document)
 
-    assert tuple(stage.stage for stage in score.stages) == PREFIX
+    assert tuple(substage.substage for substage in score.substages) == PREFIX
     assert score.leaf_spans["all_leaves"] == FieldScore(1, 1, 1)
     assert not score.leaf_attribution
-    assert score.stages[3] == evaluation.score_short_reporter_attribution(document)
-    assert score.stages[3].metrics["attribution"] == Precision(1, 1)
-    assert score.stages[5] == evaluation.score_reference_attribution(document)
-    assert score.stages[5].metrics["attribution"] == Precision()
+    assert score.substages[3] == evaluation.score_short_reporter_attribution(document)
+    assert score.substages[3].metrics["attribution"] == Precision(1, 1)
+    assert score.substages[5] == evaluation.score_reference_attribution(document)
+    assert score.substages[5].metrics["attribution"] == Precision()
     assert "IdCitation" not in score.leaf_spans
     assert "SupraCitation" not in score.leaf_spans
     report = evaluation.render_grow_leaves(score, set_name="fixture")
     assert "## Leaf source spans" in report
     assert "## Leaf attribution\n" not in report
-    for stage in PREFIX:
-        assert stage in report
-    for stage in tuple(evaluation.GROW_LEAVES_SCORERS)[len(PREFIX) :]:
-        assert stage not in report
+    for substage in PREFIX:
+        assert substage in report
+    for substage in tuple(evaluation.GROW_LEAVES_SCORERS)[len(PREFIX) :]:
+        assert substage not in report
 
     score_module = importlib.import_module("evaluations.score_run")
     # Isolate default leaf selection: these source roots have no validation run.
@@ -292,7 +328,9 @@ def test_prefix_scoring_and_default_run_report_include_only_completed_leaf_stage
     reports = score_module.score_run(run_dir)
     assert tuple(reports) == ("grow_leaves",)
     saved = json.loads((run_dir / "grow_leaves.json").read_text(encoding="utf-8"))
-    assert tuple(stage["stage"] for stage in saved["stages"]) == PREFIX
+    assert (
+        tuple(substage["substage"] for stage in saved["stages"] for substage in stage["substages"]) == PREFIX
+    )
     assert not saved.get("leaf_attribution")
     assert (run_dir / "grow_leaves.md").read_text(encoding="utf-8") == reports["grow_leaves"]
 
@@ -301,8 +339,12 @@ def test_completed_workflow_retains_full_span_and_attribution_scoring(tmp_path: 
     document = _leaf_document(tmp_path)
     score = evaluation.score_grow_leaves(document)
 
-    expected = tuple(stage for stage in evaluation.GROW_LEAVES_SCORERS if not stage.endswith("_llm"))
-    assert tuple(stage.stage for stage in score.stages) == expected
+    expected = tuple(
+        substage
+        for substage in evaluation.GROW_LEAVES_SCORERS
+        if substage != evaluation.SUPRA_REVIEW_SUBSTAGE
+    )
+    assert tuple(substage.substage for substage in score.substages) == expected
     assert score.leaf_spans["all_leaves"] == FieldScore(3, 3, 3)
     assert score.leaf_attribution["all_leaves"] == FieldScore(3, 3, 3)
     assert "## Leaf attribution\n" in evaluation.render_grow_leaves(score)

@@ -2,7 +2,7 @@
 
 import re
 
-from mellea_lrc.matching.literal import fuzzy_literal
+from mellea_lrc.matching.literal_to_regex import fuzzy_literal
 
 # PDF text extraction may insert horizontal space on either side of a range
 # separator. Share this bounded relaxation with the reader so the exact quote

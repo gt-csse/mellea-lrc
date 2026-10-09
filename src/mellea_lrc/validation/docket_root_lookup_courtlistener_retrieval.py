@@ -25,7 +25,7 @@ from mellea_lrc.validation.docket_retrieval.candidates import (
 )
 from mellea_lrc.validation.docket_retrieval.failures import docket_lookup_failure
 
-STAGE = "16_docket_root_lookup_courtlistener_retrieval"
+SUBSTAGE = "validate_roots.docket_lookup.courtlistener_retrieval"
 # Each saved page retains its upstream `next` link. Reaching this budget is
 # recorded as an attempt failure, so a partial search cannot look complete.
 MAX_PAGES_PER_ATTEMPT = 10
@@ -38,7 +38,7 @@ _DIGIT_RUN = re.compile(r"[0-9]+")
 
 
 class DocketSearchClient(Protocol):
-    """The narrow CourtListener search contract needed by this stage."""
+    """The narrow CourtListener search contract needed by this substage."""
 
     def search(
         self, q: str, search_type: Literal["d", "o"], cursor: str | None = None
@@ -188,18 +188,18 @@ def docket_root_lookup_courtlistener_retrieval(
     """Save docket and opinion search traces for every docket root.
 
     All returned hits remain addressable through their saved page and result
-    indices. Court, year, and case name do not remove hits at this stage.
+    indices. Court, year, and case name do not remove hits at this substage.
     """
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if "10_roots" not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "grow_roots.root_formation.rule" not in document.substage_runs:
         raise ValueError("Form roots before docket lookup")
 
     roots = tuple(root for root in document.roots if isinstance(root, FullDocketCitation))
     with ExitStack() as stack:
         service = client
         for root in roots:
-            recorded = root.record(STAGE)
+            recorded = root.record(SUBSTAGE)
             span = root.locator[-1].number_span
             source_number = document.text[span.start : span.end]
             if not source_number.strip():
@@ -239,4 +239,4 @@ def docket_root_lookup_courtlistener_retrieval(
                     shortlisted_candidate_indices=_shortlist(candidates),
                 )
             document = document.replace_citation(recorded.with_docket_lookup(lookup))
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

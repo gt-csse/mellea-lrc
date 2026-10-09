@@ -446,21 +446,21 @@ def _search_query(
 def run_courtlistener_body_search(
     document: Document,
     *,
-    stage: str,
+    substage: str,
     source: BodySource,
     retrospective_date: date | None,
     client: CourtListenerBodyClient | None,
 ) -> Document:
     """Run one source at a time and attach search evidence to each open root."""
-    if stage in document.stage_runs:
-        raise ValueError(f"Stage already completed: {stage}")
-    if "10_roots" not in document.stage_runs:
+    if substage in document.substage_runs:
+        raise ValueError(f"Substage already completed: {substage}")
+    if "grow_roots.root_formation.rule" not in document.substage_runs:
         raise ValueError("Form roots before body search")
 
     with ExitStack() as stack:
         service = client
         for root in roots_for_body_search(document):
-            recorded = root.record(stage)
+            recorded = root.record(substage)
             attempts: list[BodySearchAttempt] = []
             evidence: list[BodyEvidence] = []
             failures: list[BodyEvidenceFailure] = []
@@ -501,29 +501,29 @@ def run_courtlistener_body_search(
                 failures=tuple(failures),
             )
             document = document.replace_citation(recorded.with_body_search(result))
-    return document.complete(stage)
+    return document.complete_substage(substage)
 
 
 def run_courtlistener_field_body_search(
     document: Document,
     *,
-    stage: str,
+    substage: str,
     source: BodySource,
     retrospective_date: date | None,
     client: CourtListenerBodyClient | None,
 ) -> Document:
     """Search routed roots by a printed case name and save grounded body excerpts."""
-    if stage in document.stage_runs:
-        raise ValueError(f"Stage already completed: {stage}")
-    if "23_locator_body_llm_judgment" not in document.stage_runs:
+    if substage in document.substage_runs:
+        raise ValueError(f"Substage already completed: {substage}")
+    if "validate_roots.locator_body_corroboration.llm_judgment" not in document.substage_runs:
         raise ValueError("Complete locator body review before field body search")
 
     with ExitStack() as stack:
         service = client
         for root in document.roots:
-            if root.next_stage != "case_name_body_discovery":
+            if root.next_substage != "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval":
                 continue
-            recorded = root.record(stage)
+            recorded = root.record(substage)
             attempts: list[BodySearchAttempt] = []
             evidence: list[BodyEvidence] = []
             failures: list[BodyEvidenceFailure] = []
@@ -568,4 +568,4 @@ def run_courtlistener_field_body_search(
                 failures=tuple(failures),
             )
             document = document.replace_citation(recorded.with_field_body_search(result))
-    return document.complete(stage)
+    return document.complete_substage(substage)

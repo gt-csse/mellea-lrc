@@ -8,18 +8,18 @@ from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.parsing.reporters import short_reporter_readings
 
-STAGE = "28_short_reporter_citations"
+SUBSTAGE = "grow_leaves.short_reporter_citations.discovery"
 
 
 def find_short_reporter_citations(document: Document) -> Document:
     """Create source-grounded short reporters with their locator and pin.
 
     Normalization belongs to each quoted field. No root assignment or
-    semantic attribution is made here; those belong to the later attribution stage.
+    semantic attribution is made here; those belong to the later attribution substage.
     """
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if "10_roots" not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "grow_roots.root_formation.rule" not in document.substage_runs:
         raise ValueError("Form full roots before finding short reporter citations")
     for reading in sorted(short_reporter_readings(document.text), key=lambda item: item.span):
         span = Span(*reading.span)
@@ -33,10 +33,10 @@ def find_short_reporter_citations(document: Document) -> Document:
         document = document.add_citation(
             ShortReporterCitation.from_short_locator(
                 citation_id=identifier,
-                stage=STAGE,
+                substage=SUBSTAGE,
                 source=document.text,
                 span=span,
                 pin_cite_span=pin,
             )
         )
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

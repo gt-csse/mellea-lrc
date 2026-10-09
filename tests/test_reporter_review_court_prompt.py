@@ -113,7 +113,9 @@ def test_unique_review_sends_raw_and_expanded_opinion_and_docket_courts(monkeypa
     context = reporter_unique_llm.ReporterUniqueReviewContext(
         **_context_fields(), candidate=_cluster(1, "ca2"), docket=_docket(10, "nysd")
     )
-    reviewer = reporter_unique_llm.IvrReporterUniqueReviewer(session=object(), model_options={})
+    reviewer = reporter_unique_llm.IvrReporterUniqueReviewer(
+        session=object(), model_options={}, max_attempts=3
+    )
 
     spec = _capture_spec(monkeypatch, reporter_unique_llm, reviewer, context)
 
@@ -132,7 +134,9 @@ def test_ambiguous_review_sends_raw_and_expanded_courts_for_each_candidate(monke
         rule_results=({"court": "unavailable"}, {"court": "unavailable"}),
         passing_candidate_indices=(),
     )
-    reviewer = reporter_ambiguous_llm.IvrReporterAmbiguousReviewer(session=object(), model_options={})
+    reviewer = reporter_ambiguous_llm.IvrReporterAmbiguousReviewer(
+        session=object(), model_options={}, max_attempts=3
+    )
 
     spec = _capture_spec(monkeypatch, reporter_ambiguous_llm, reviewer, context)
 
@@ -168,7 +172,7 @@ def _reporter_citation(source: str) -> FullReporterCitation:
     start = source.index(locator)
     return FullReporterCitation.from_locator(
         citation_id="reporter:test",
-        stage="1_full_reporter_locator",
+        substage="1_full_reporter_locator",
         source=source,
         span=Span(start, start + len(locator)),
     )
@@ -176,7 +180,7 @@ def _reporter_citation(source: str) -> FullReporterCitation:
 
 def test_inferred_court_note_identifies_reporter_and_latest_court_only() -> None:
     source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
-    root = _reporter_citation(source).record("7_courts").with_inferred_court("scotus")
+    root = _reporter_citation(source).record("grow_roots.field_reading.courts").with_inferred_court("scotus")
 
     note = inferred_reporter_court_note(root)
 
@@ -192,7 +196,7 @@ def test_inferred_court_note_identifies_reporter_and_latest_court_only() -> None
     explicit_source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2d Cir. 2007)."
     explicit = (
         _reporter_citation(explicit_source)
-        .record("7_courts")
+        .record("grow_roots.field_reading.courts")
         .with_inferred_court("scotus")
         .record("8_explicit_court")
         .with_court(
@@ -205,7 +209,7 @@ def test_inferred_court_note_identifies_reporter_and_latest_court_only() -> None
 
 def test_inferred_court_note_is_conditional_in_both_reporter_review_prompts(monkeypatch) -> None:
     source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
-    root = _reporter_citation(source).record("7_courts").with_inferred_court("scotus")
+    root = _reporter_citation(source).record("grow_roots.field_reading.courts").with_inferred_court("scotus")
     note = inferred_reporter_court_note(root)
     assert note is not None
     contexts_and_reviewers = (
@@ -217,7 +221,7 @@ def test_inferred_court_note_is_conditional_in_both_reporter_review_prompts(monk
                 docket=None,
                 inferred_court_note=note,
             ),
-            reporter_unique_llm.IvrReporterUniqueReviewer(session=object(), model_options={}),
+            reporter_unique_llm.IvrReporterUniqueReviewer(session=object(), model_options={}, max_attempts=3),
         ),
         (
             reporter_ambiguous_llm,
@@ -229,7 +233,9 @@ def test_inferred_court_note_is_conditional_in_both_reporter_review_prompts(monk
                 passing_candidate_indices=(0,),
                 inferred_court_note=note,
             ),
-            reporter_ambiguous_llm.IvrReporterAmbiguousReviewer(session=object(), model_options={}),
+            reporter_ambiguous_llm.IvrReporterAmbiguousReviewer(
+                session=object(), model_options={}, max_attempts=3
+            ),
         ),
     )
 

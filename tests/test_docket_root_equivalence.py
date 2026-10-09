@@ -8,7 +8,7 @@ import pytest
 
 from mellea_lrc.api import Document, grow_roots
 from mellea_lrc.extraction.docket_root_llm_reassignment import (
-    STAGE,
+    SUBSTAGE,
     docket_root_llm_reassignment,
 )
 from mellea_lrc.extraction.docket_root_llm_reassignment.context import DocketRootReviewContext
@@ -19,7 +19,9 @@ from mellea_lrc.model.citations.docket_root_llm_reassignment import DocketRootPa
 
 def _rooted(*numbers: str) -> Document:
     source = " ".join(f"No. {number}." for number in numbers)
-    return asyncio.run(grow_roots(Document.from_source(source)))
+    return asyncio.run(grow_roots(Document.from_source(source))).get_substage(
+        "grow_roots.root_formation.rule"
+    )
 
 
 def _rooted_with_repeated_second_number() -> Document:
@@ -37,7 +39,7 @@ def _rooted_with_repeated_second_number() -> Document:
         second.id,
         third.id,
     ]
-    return result
+    return result.get_substage("grow_roots.root_formation.rule")
 
 
 def test_pairwise_boundary_forms_one_review_group_through_a_bridge() -> None:
@@ -114,8 +116,8 @@ def test_merge_updates_every_occurrence_attached_to_the_losing_root() -> None:
     assert review.candidate_ids == (first.id, second.id, third.id)
     assert review.decision is not None
     assert review.decision.groups == ((1, 0), (2,))
-    assert after.get_stage("10_roots") == before
-    assert after.get_stage(STAGE) == after
+    assert after.get_substage("grow_roots.root_formation.rule") == before
+    assert after.get_substage(SUBSTAGE) == after
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -131,8 +133,8 @@ def test_singletons_and_below_threshold_pairs_skip_review_but_complete_stage(
     after = asyncio.run(docket_root_llm_reassignment(before, reviewer=reviewer))
 
     assert after.citations == before.citations
-    assert after.stage_runs == (*before.stage_runs, STAGE)
-    assert after.get_stage("10_roots") == before
+    assert after.substage_runs == (*before.substage_runs, SUBSTAGE)
+    assert after.get_substage("grow_roots.root_formation.rule") == before
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -149,7 +151,7 @@ def test_separate_model_groups_keep_distinct_roots_and_save_review() -> None:
     ]
     assert after.roots == after.full_locators
     assert after.full_locators[0].docket_root_reviews
-    assert after.get_stage("10_roots") == before
+    assert after.get_substage("grow_roots.root_formation.rule") == before
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -166,7 +168,7 @@ def test_grow_roots_can_opt_in_to_the_post_root_review() -> None:
         )
     )
 
-    assert document.stage_runs[-2:] == ("10_roots", STAGE)
+    assert document.substage_runs[-2:] == ("grow_roots.root_formation.rule", SUBSTAGE)
     assert len(document.roots) == 1
 
 
@@ -184,7 +186,7 @@ def test_failed_review_keeps_roots_and_records_the_failure() -> None:
     review = after.full_locators[0].docket_root_reviews[-1]
     assert review.decision is None
     assert review.failure_reason == "Could not decide"
-    assert after.get_stage("10_roots") == before
+    assert after.get_substage("grow_roots.root_formation.rule") == before
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 

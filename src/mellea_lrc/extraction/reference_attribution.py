@@ -8,13 +8,12 @@ from mellea_lrc.extraction.leaf_attribution_review.reviewer import (
     LeafReviewOutcome,
     apply_review,
 )
-from mellea_lrc.extraction.reference_citations import STAGE as CREATION_STAGE
-from mellea_lrc.llm.profiles import OPENROUTER_LUNA
+from mellea_lrc.extraction.reference_citations import SUBSTAGE as CREATION_SUBSTAGE
+from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model.citations import AttributionResult, ReferenceCitation
 from mellea_lrc.model.document import Document
 
-STAGE = "31_reference_attribution"
-MODEL_PROFILE = OPENROUTER_LUNA
+SUBSTAGE = "grow_leaves.reference_citations.attribution"
 
 
 async def attribute_reference_citations(
@@ -24,18 +23,18 @@ async def attribute_reference_citations(
 
     Discovery already requires an explicit pinpoint. Unlike a preceding-only
     short reporter, a named reference can introduce a following full citation;
-    candidates therefore come from all formed roots in the filing. This stage
+    candidates therefore come from all formed roots in the filing. This substage
     changes attachments and records its reasoning, not the source readings.
     """
-    require_leaves(document, STAGE)
-    if CREATION_STAGE not in document.stage_runs:
+    require_leaves(document, SUBSTAGE)
+    if CREATION_SUBSTAGE not in document.substage_runs:
         raise ValueError("Create reference citations before attributing them")
     for citation in document.short_citations:
         if not isinstance(citation, ReferenceCitation):
             continue
         candidates = name_candidates(document, citation.case_name[-1].quote, before=None)
         attach = len(candidates) == 1
-        updated = citation.record(STAGE).with_attribution(
+        updated = citation.record(SUBSTAGE).with_attribution(
             candidates,
             AttributionResult.ATTACHED if attach else AttributionResult.UNRESOLVED,
             "Unique source-name agreement" if attach else "Semantic review required",
@@ -47,9 +46,9 @@ async def attribute_reference_citations(
             if review:
                 context = LeafReviewContext.from_document(document, updated)
                 if reviewer is None:
-                    reviewer = IvrLeafReviewer.from_profile(MODEL_PROFILE)
+                    reviewer = IvrLeafReviewer.from_profile(load_profile(SUBSTAGE))
                 answer = await reviewer(context)
                 outcome = answer if isinstance(answer, LeafReviewOutcome) else LeafReviewOutcome(answer)
-                updated = apply_review(updated.record(STAGE), context, outcome)
+                updated = apply_review(updated.record(SUBSTAGE), context, outcome)
         document = document.replace_citation(updated)
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

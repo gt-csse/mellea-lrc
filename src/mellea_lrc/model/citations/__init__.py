@@ -1,4 +1,4 @@
-"""Typed full citation occurrences independent of processing stage."""
+"""Typed full citation occurrences independent of processing substage."""
 
 from typing import Annotated, TypeAlias
 
@@ -86,6 +86,7 @@ from mellea_lrc.model.citations.reporter_lookup import (
 )
 from mellea_lrc.model.citations.short_reporter import ShortReporterCitation
 from mellea_lrc.model.citations.supra import SupraCitation
+from mellea_lrc.model.citations.tags import CitationTag, CitationTagKind
 
 FullCitationVariant: TypeAlias = Annotated[
     FullReporterCitation | FullDocketCitation,
@@ -110,6 +111,8 @@ __all__ = [
     "Citation",
     "CitationDate",
     "CitationField",
+    "CitationTag",
+    "CitationTagKind",
     "CitationVariant",
     "Court",
     "CourtField",

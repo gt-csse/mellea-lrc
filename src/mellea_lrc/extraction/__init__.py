@@ -1,4 +1,4 @@
-"""Document-in/document-out stage writers; composition lives in workflows."""
+"""Document-in/document-out substage writers; composition lives in workflows."""
 
 from mellea_lrc.extraction.case_names import resolve_case_names
 from mellea_lrc.extraction.colocations import resolve_colocations

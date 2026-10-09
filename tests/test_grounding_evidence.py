@@ -8,7 +8,6 @@ from mellea_lrc.matching.fuzziness import FuzzinessOption, FuzzinessType
 from mellea_lrc.matching.grounding import (
     EvidenceCandidate,
     GroundingEvidence,
-    _without_margin_line_numbers,
     fuzzy_match,
 )
 
@@ -155,60 +154,35 @@ def test_fragment_grounding_preserves_complete_whitespace_only_quotation(expande
     assert grounded.similarity_percent == 100
 
 
-def test_fragment_grounding_can_ignore_sequential_pdf_margin_numbers() -> None:
-    quote = "Smith v. Jones, No. 13-cv-04115-WHO, 2016 WL 1019669 (N.D. Cal. 2016)."
-    source = (
-        "                 3   Some preceding text.\n\n"
-        "                 4   More preceding text.\n\n"
-        "                 5   See Smith v. Jones, No. 13-cv-\n\n"
-        "                 6   04115-WHO, 2016 WL 1019669 (N.D. Cal. 2016).\n\n"
-        "                 7         Subsequent text."
-    )
-    evidence = GroundingEvidence((EvidenceCandidate(text=source, value="later-filing"),))
-    policy = FuzzinessOption.edit_distance(similarity_percent=90, whitespace_relaxation=True)
+@pytest.mark.parametrize(
+    "policy",
+    [
+        FuzzinessOption.perfect_match(),
+        FuzzinessOption.whitespace_relaxation(),
+        FuzzinessOption.edit_distance(similarity_percent=98, whitespace_relaxation=True),
+    ],
+)
+def test_literal_numbered_source_is_grounded_without_layout_rejection(policy) -> None:
+    quote = "\n".join(f"            {number}  Source paragraph {number}." for number in range(1, 6))
+    before = "Earlier text.\n"
+    source = before + quote + "\nLater text."
+    evidence = GroundingEvidence((EvidenceCandidate(text=source, value="source"),))
 
-    assert evidence.find_fragment(quote, policy) is None
-    grounded = evidence.find_fragment(quote, policy, line_number_aware=True)
-
-    assert grounded is not None
-    assert grounded.similarity_percent >= 90
-    assert source[grounded.start : grounded.end] == grounded.text
-    assert "\n\n                 6   04115-WHO, 2016 WL 1019669" in grounded.text
-    assert "6   04115-WHO" not in grounded.normalized_text
-    assert "04115-WHO, 2016 WL 1019669" in grounded.normalized_text
-
-
-def test_margin_view_preserves_isolated_and_citation_numbers() -> None:
-    source = "                 6   No. 13-cv-04115-WHO, 2016 WL 1019669"
-
-    view, offsets = _without_margin_line_numbers(source)
-
-    assert view == source
-    assert offsets == ()
-
-
-def test_margin_column_stays_aligned_when_line_number_gains_a_digit() -> None:
-    quote = "Smith v. Jones, No. 13-cv-04115-WHO, 2016 WL 1019669 (N.D. Cal. 2016)."
-    contents = (
-        "Preceding sentence.",
-        "Another sentence.",
-        "See Smith v. Jones, No. 13-cv-04115-",
-        "WHO, 2016 WL 1019669 (N.D. Cal. 2016).",
-        "Subsequent sentence.",
-        "More text.",
-        "Final text.",
-    )
-    source = "\n\n".join(
-        f"{' ' * (36 - len(str(number)))}{number}   {content}"
-        for number, content in zip(range(6, 13), contents, strict=True)
-    )
-    policy = FuzzinessOption.edit_distance(similarity_percent=90, whitespace_relaxation=True)
-    evidence = GroundingEvidence((EvidenceCandidate(text=source, value="later-filing"),))
-
-    grounded = evidence.find_fragment(quote, policy, line_number_aware=True)
+    grounded = evidence.find_fragment(quote, policy)
 
     assert grounded is not None
-    assert grounded.similarity_percent >= 90
-    assert source[grounded.start : grounded.end] == grounded.text
-    assert "04115-\n\n" in grounded.text
-    assert "9   WHO, 2016 WL 1019669" in grounded.text
+    assert grounded.text == quote
+    assert (grounded.start, grounded.end) == (len(before), len(before) + len(quote))
+    assert source[grounded.start : grounded.end] == quote
+    assert grounded.match_type is FuzzinessType.PERFECT_MATCH
+    assert grounded.edits == 0
+
+
+def test_whitespace_relaxation_does_not_silently_remove_source_digits() -> None:
+    source = "The selected\n            6  source passage."
+    evidence = GroundingEvidence((EvidenceCandidate(text=source, value="source"),))
+
+    assert (
+        evidence.find_fragment("The selected source passage.", FuzzinessOption.whitespace_relaxation())
+        is None
+    )

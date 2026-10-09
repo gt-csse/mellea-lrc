@@ -30,6 +30,11 @@ from mellea_lrc.validation.docket_root_lookup_courtlistener_llm_review import (
 lookup_module = importlib.import_module("mellea_lrc.validation.docket_root_lookup_govinfo_retrieval")
 
 
+def test_govinfo_docket_query_keeps_literal_number() -> None:
+    assert lookup_module._docket_query("20 Civ. 6835") == ('collection:uscourts casenumber:("20 Civ. 6835")')
+    assert lookup_module._docket_query('X " y') == ('collection:uscourts casenumber:("X \\" y")')
+
+
 class FakeGovInfoClient:
     def __init__(self, respond: Callable[[str, str, int], GovInfoSearchPage]) -> None:
         self.respond = respond
@@ -86,7 +91,7 @@ def test_raw_pages_and_package_ids_drive_shortlist_only_by_number() -> None:
     after = lookup_module.docket_root_lookup_govinfo_retrieval(before, client=client)
 
     assert client.calls == [(query, "*", 100)]
-    assert after.stage_runs[-1] == lookup_module.STAGE
+    assert after.substage_runs[-1] == lookup_module.SUBSTAGE
     root = after.roots[0]
     assert isinstance(root, FullDocketCitation)
     lookup = root.govinfo_docket_lookup
@@ -113,17 +118,17 @@ def test_compact_year_sequence_adds_a_search_only_spelling() -> None:
     number_start = before.text.index("2210920")
     citation = FullDocketCitation.from_locator(
         citation_id="docket:compact",
-        stage="2_docket_locators",
+        substage="grow_roots.locator_discovery.docket_locators",
         source=before.text,
         span=Span(locator_start, locator_end),
         number_span=Span(number_start, number_start + 7),
     )
-    before = before.add_citation(citation).complete("2_docket_locators")
-    before = before.replace_citation(citation.record("10_roots").with_root(citation.id))
+    before = before.add_citation(citation).complete_substage("grow_roots.locator_discovery.docket_locators")
+    before = before.replace_citation(citation.record("grow_roots.root_formation.rule").with_root(citation.id))
     before = (
-        before.complete("10_roots")
-        .complete("16_docket_root_lookup_courtlistener_retrieval")
-        .complete("17_docket_root_lookup_courtlistener_llm_review")
+        before.complete_substage("grow_roots.root_formation.rule")
+        .complete_substage("validate_roots.docket_lookup.courtlistener_retrieval")
+        .complete_substage("validate_roots.docket_lookup.courtlistener_review")
     )
     client = FakeGovInfoClient(
         lambda query, *_: (
@@ -296,7 +301,7 @@ def test_selected_courtlistener_review_skips_provider_but_completes_stage() -> N
     client = FakeGovInfoClient(lambda *_: pytest.fail("GovInfo must not be called for a selected CL case"))
 
     after = lookup_module.docket_root_lookup_govinfo_retrieval(reviewed, client=client)
-    assert after.stage_runs[-1] == lookup_module.STAGE
+    assert after.substage_runs[-1] == lookup_module.SUBSTAGE
     assert after.roots[0].govinfo_docket_lookup is None
     assert client.calls == []
 

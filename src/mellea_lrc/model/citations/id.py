@@ -21,12 +21,12 @@ class IdCitation(LeafCitation):
         return self.id_reference[-1].span
 
     @classmethod
-    def from_source(cls, *, source: str, span: Span, stage: str, pin_span: Span | None = None) -> Self:
+    def from_source(cls, *, source: str, span: Span, substage: str, pin_span: Span | None = None) -> Self:
         """Read the Id. occurrence and optional pinpoint on its creation node."""
         if pin_span is not None and not (span.start <= pin_span.start < pin_span.end <= span.end):
             raise ValueError("An Id. pinpoint must lie inside its citation span")
         identifier = f"id:{span.start}:{span.end}"
-        node = Node(id=f"{identifier}:node:0", stage=stage)
+        node = Node(id=f"{identifier}:node:0", substage=substage)
         return cls(
             id=identifier,
             nodes=(node,),

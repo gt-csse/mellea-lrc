@@ -43,11 +43,15 @@ Read the actual attributed use in its context, including introductory signals an
 
 Return supported when the attributed use is supported; contradicted when affirmative source evidence shows the attribution materially changes its meaning; not_found when the full supplied intended opinion was reviewed and the attributed words or idea are absent; unavailable when the supplied materials cannot settle the issue. Missing text or pagination alone never proves the attribution false. Never use not_found as a full-opinion conclusion from selected pages alone. Explain your reasoning as prose.
 
+Distinguish no relevant discussion or quoted passage anywhere in the complete intended opinion from an existing passage whose meaning the filing misrepresents. An existing passage may fail to support the attributed use because of its meaning, qualifications, or relevance; that content assessment alone does not establish absence. Apply the result definitions to the attributed use and explain the distinction.
+
 Quote short, exact judicial passages that establish support or contradiction, with their supplied opinion_id. Use the shortest sufficient contiguous phrase or sentence; surrounding source context is already retained. Copy evidence entirely from one supplied excerpt; do not invent or join separated text. Evidence is checked against source spans with shared whitespace and 98% edit-distance grounding. Supported and contradicted require evidence. Do not merely quote a matching phrase without considering its surrounding meaning.
 
-Assess content and page placement independently. pagination_available means this supplied source has usable pagination in the cited reporter/database namespace, not merely PDF/display pages or pagination of another reporter. If false, correct_page must be null and found_pages must be empty. If true, correct_page is true when the written page/paragraph range and any designated footnote contain the relevant passage, false when placement is established to be wrong, and null when placement remains uncertain. A passage can be on the correct page while contradicting the attributed claim. A range needs the relevant passage somewhere within it, not independently on every page.
+Assess content and page placement independently. correct_page concerns whether the relevant discussion or quoted passage is at the written pinpoint, not whether the filing's interpretation is right. A correctly located discussion or quoted passage can be misrepresented, contradicted by its context, or irrelevant to the asserted proposition; those content problems do not by themselves make correct_page false. A shared topic or isolated matching word alone does not establish the relevant discussion or quoted passage.
 
-found_pages lists known locations of your quoted relevant passages as inclusive first/last ranges, kind (page, star, or paragraph), and footnote (null unless established). It is not an exhaustive list. Use source page markers, including explicit markers in the source text; do not invent page numbers or infer them from display order. Finding a passage elsewhere does not prove that equivalent relevant material is absent from the written target: review that target before returning correct_page=false. When returning correct_page=true, quote a relevant passage at that target. Pagination uncertainty never changes a supported attribution into a false one.
+pagination_available means this supplied source has usable pagination in the cited reporter/database namespace, not merely PDF/display pages or pagination of another reporter. If false, correct_page must be null and found_pages must be empty. If true, correct_page is true when the written page/paragraph range and any designated footnote contain the relevant discussion or quoted passage, false when placement is established to be wrong, and null when placement remains uncertain. A range needs the relevant passage somewhere within it, not independently on every page. Establish location or absence at the written target separately from the content result.
+
+found_pages lists known locations of your quoted relevant discussions or quoted passages, whether they support or undermine the attributed use, as inclusive first/last ranges, kind (page, star, or paragraph), and footnote (null unless established). It is not an exhaustive list. Use source page markers, including explicit markers in the source text; do not invent page numbers or infer them from display order. Finding a passage elsewhere does not prove that equivalent relevant material is absent from the written target: review that target before returning correct_page=false. When returning correct_page=true, quote a relevant passage at that target. Pagination uncertainty never changes a supported attribution into a false one.
 
 Shared saved opinion sources:
 """
@@ -68,6 +72,8 @@ Written or immediately inherited pinpoint and requested page selections:
 Treat the grounded proposition passages as the fixed attributed use for this occurrence. Assess every material assertion and qualification actually attributed to this citation, preserving its signal. A supported narrower parenthetical or related principle does not establish a broader asserted rule; do not approve only the matching part or replace the filing's attribution with a weaker claim.
 
 Full-opinion fallback expands the source evidence, not the attributed use or the standard of support. Keep the same grounded proposition when moving from selected pages to the full opinion. If additional text changes the assessment, explain which new passage establishes support for that same attribution, including its material limits; do not justify a reversal by restating the attribution more generally.
+
+Return separate content and page-location assessments. Decide the page fields from the location of the relevant discussion or quoted passage, independently of result. Explain absence, misrepresentation, or irrelevance without conflating it with placement.
 
 If scope is cited_pages, evaluate only these supplied pages. A negative or uncertain page result will be reviewed against the full opinion later. If scope is full_opinion, search the complete supplied writings and identify the intended one using the context. Missing subopinions require caution about absence, though affirmative evidence may still settle a proposition. Return result, evidence, pagination_available, correct_page, found_pages, and reason."""
 
@@ -127,7 +133,7 @@ class ReporterPinpointReviewContext:
         def matching_pages(identifier: str) -> tuple[OpinionPage, ...]:
             import re
 
-            from mellea_lrc.matching.literal import fuzzy_literal
+            from mellea_lrc.matching.literal_to_regex import fuzzy_literal
 
             return tuple(
                 page
@@ -231,28 +237,82 @@ class ReporterPinpointReviewContext:
             )
         passages = []
         for proposed in decision.evidence:
-            candidates = tuple(
-                EvidenceCandidate(excerpt.text, excerpt)
-                for excerpt in self.excerpts
-                if excerpt.opinion_id == proposed.opinion_id
+            # Retain repeated source locations before choosing one consistent
+            # with the page assessment. Quotes may span page boundaries.
+            candidates = []
+            for excerpt in self.excerpts:
+                if excerpt.opinion_id != proposed.opinion_id:
+                    continue
+                windows = [(0, len(excerpt.text))]
+                # A later exact match must not hide a valid fuzzy match on a
+                # requested page. Keep the full excerpt for cross-page quotes.
+                windows.extend(
+                    (
+                        max(0, page.span.start - excerpt.offset),
+                        min(len(excerpt.text), page.span.end - excerpt.offset),
+                    )
+                    for page in excerpt.pages
+                )
+                for start, end in windows:
+                    while start < end:
+                        found = GroundingEvidence(
+                            (EvidenceCandidate(excerpt.text[start:end], None),)
+                        ).find_fragment(proposed.quote, GROUNDING)
+                        if found is None:
+                            break
+                        passage = ReporterOpinionEvidence(
+                            node_id=node_id,
+                            root_id=self.root_id,
+                            opinion_id=excerpt.opinion_id,
+                            quote=found.text,
+                            span=Span(
+                                excerpt.offset + start + found.start, excerpt.offset + start + found.end
+                            ),
+                        )
+                        candidates.append(EvidenceCandidate(found.text, passage))
+                        start += found.end
+            evidence = GroundingEvidence(candidates)
+
+            def on_pages(
+                candidate: EvidenceCandidate[ReporterOpinionEvidence], targets: tuple[PinCiteTarget, ...]
+            ) -> bool:
+                return any(
+                    page.kind == target.kind
+                    and target.first <= int(page.label.lstrip("*¶").strip()) <= target.last
+                    for page in self._pages_at(candidate.value)
+                    for target in targets
+                )
+
+            preferred = self.target_pages if decision.correct_page is True else decision.found_pages
+            selected = (
+                evidence.resolve_by_condition(
+                    lambda candidate: (
+                        on_pages(candidate, preferred) and on_pages(candidate, decision.found_pages)
+                    )
+                )
+                or evidence.resolve_by_condition(lambda candidate: on_pages(candidate, decision.found_pages))
+                or evidence.resolve_by_condition(lambda candidate: on_pages(candidate, preferred))
+                or evidence.resolve_by_condition(lambda _candidate: True)
             )
-            found = GroundingEvidence(candidates).find_fragment(proposed.quote, GROUNDING)
-            if found is None:
+            if selected is None:
                 raise ValueError(
                     f"Quote for opinion_id {proposed.opinion_id} is not grounded inside a supplied excerpt"
                 )
-            excerpt = found.candidate.value
-            passages.append(
-                ReporterOpinionEvidence(
-                    node_id=node_id,
-                    root_id=self.root_id,
-                    opinion_id=excerpt.opinion_id,
-                    quote=found.text,
-                    span=Span(excerpt.offset + found.start, excerpt.offset + found.end),
-                )
-            )
+            passages.append(selected.value)
         self._validate_pages(decision, tuple(passages))
         return tuple(passages)
+
+    def _pages_at(self, passage: ReporterOpinionEvidence) -> tuple[OpinionPage, ...]:
+        return tuple(
+            page
+            for excerpt in self.excerpts
+            if excerpt.opinion_id == passage.opinion_id
+            for page in excerpt.pages
+            if page.span.start < passage.span.end
+            and page.span.end > passage.span.start
+            and page.kind is not None
+            and page.label.lstrip("*¶").strip().isdecimal()
+        )
 
     def _validate_pages(
         self, decision: ReporterSupportDecision, passages: tuple[ReporterOpinionEvidence, ...]
@@ -266,16 +326,7 @@ class ReporterPinpointReviewContext:
         located: list[tuple[OpinionPage, ReporterOpinionEvidence]] = []
         unindexed = False
         for passage in passages:
-            pages = tuple(
-                page
-                for excerpt in self.excerpts
-                if excerpt.opinion_id == passage.opinion_id
-                for page in excerpt.pages
-                if page.span.start < passage.span.end
-                and page.span.end > passage.span.start
-                and page.kind is not None
-                and page.label.lstrip("*¶").strip().isdecimal()
-            )
+            pages = self._pages_at(passage)
             unindexed |= not pages
             located.extend((page, passage) for page in pages)
         if (decision.found_pages or decision.correct_page is True) and not passages:

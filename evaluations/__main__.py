@@ -6,18 +6,21 @@ import argparse
 import asyncio
 import hashlib
 import json
-import os
+import subprocess
 from collections.abc import Callable
+from dataclasses import asdict, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
+from time import monotonic
 
+from evaluations import complete_stage_boundary
 from mellea_lrc.api import (
     Document,
-    docket_root_llm_reassignment,
     docket_root_lookup_courtlistener_llm_review,
     docket_root_lookup_courtlistener_retrieval,
     docket_root_lookup_govinfo_llm_review,
     docket_root_lookup_govinfo_retrieval,
+    grow_leaves,
     grow_roots,
     intended_case_courtlistener_opinion_retrieval,
     intended_case_courtlistener_recap_retrieval,
@@ -29,92 +32,138 @@ from mellea_lrc.api import (
     locator_body_llm_judgment,
     reporter_root_lookup_ambiguous_llm_judgment,
     reporter_root_lookup_unique_llm_judgment,
+    validate_pincite,
     validate_roots,
 )
+from mellea_lrc.configuration import read_env, required_setting
+from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model import FullDocketCitation
+from mellea_lrc.model.execution import get_workflow
 from mellea_lrc.providers.courtlistener import CourtListenerClient, CourtListenerConfig
 from mellea_lrc.validation.body_search.intended_case_courtlistener_opinion_retrieval import (
-    STAGE as _COURTLISTENER_OPINION_FIELD_STAGE,
+    SUBSTAGE as _COURTLISTENER_OPINION_FIELD_SUBSTAGE,
 )
 from mellea_lrc.validation.body_search.intended_case_courtlistener_recap_retrieval import (
-    STAGE as _COURTLISTENER_RECAP_FIELD_STAGE,
+    SUBSTAGE as _COURTLISTENER_RECAP_FIELD_SUBSTAGE,
 )
 from mellea_lrc.validation.body_search.intended_case_govinfo_opinion_retrieval import (
-    STAGE as _GOVINFO_OPINION_FIELD_STAGE,
+    SUBSTAGE as _GOVINFO_OPINION_FIELD_SUBSTAGE,
 )
 from mellea_lrc.validation.body_search.locator_body_courtlistener_opinion_retrieval import (
-    STAGE as _COURTLISTENER_OPINION_STAGE,
+    SUBSTAGE as _COURTLISTENER_OPINION_SUBSTAGE,
 )
 from mellea_lrc.validation.body_search.locator_body_courtlistener_recap_retrieval import (
-    STAGE as _COURTLISTENER_RECAP_STAGE,
+    SUBSTAGE as _COURTLISTENER_RECAP_SUBSTAGE,
 )
 from mellea_lrc.validation.body_search.locator_body_govinfo_opinion_retrieval import (
-    STAGE as _GOVINFO_OPINION_STAGE,
+    SUBSTAGE as _GOVINFO_OPINION_SUBSTAGE,
 )
-from mellea_lrc.validation.intended_case_llm_selection import STAGE as _INTENDED_CASE_REVIEW_STAGE
-from mellea_lrc.validation.locator_body_llm_judgment import STAGE as _LOCATOR_BODY_REVIEW_STAGE
+from mellea_lrc.validation.fields_aggregated_identity import SUBSTAGE as _FIELD_IDENTITY_SUBSTAGE
+from mellea_lrc.validation.intended_case_llm_selection import SUBSTAGE as _INTENDED_CASE_REVIEW_SUBSTAGE
+from mellea_lrc.validation.locator_body_llm_judgment import SUBSTAGE as _LOCATOR_BODY_REVIEW_SUBSTAGE
+from mellea_lrc.workflows import _require_body_search_cutoff, _require_workflow_prefix
 
 _SET = "primary"
 _DATA_ROOT = Path(__file__).resolve().parents[2] / "mellea-lrc-datasets"
 _RESULTS_ROOT = Path(__file__).resolve().parent / "results" / _SET
-_ROOT_STAGE = "10_roots"
-_ROOT_STAGES = (
-    "1_full_reporter_locators",
-    "2_docket_locators",
-    "3_docket_locator_site_hunting",
-    "4_docket_entries",
-    "5_colocations",
-    "6_case_names",
-    "7_courts",
-    "8_dates",
-    "9_pin_cites",
-    _ROOT_STAGE,
+_ROOT_SUBSTAGE = "grow_roots.root_formation.rule"
+_ROOT_SUBSTAGES = (
+    "grow_roots.locator_discovery.full_reporter_locators",
+    "grow_roots.locator_discovery.docket_locators",
+    "grow_roots.locator_discovery.docket_hunting",
+    "grow_roots.field_reading.docket_entries",
+    "grow_roots.field_reading.colocations",
+    "grow_roots.field_reading.case_names",
+    "grow_roots.field_reading.courts",
+    "grow_roots.field_reading.dates",
+    "grow_roots.field_reading.pin_cites",
+    _ROOT_SUBSTAGE,
 )
-_RUN_STAGES = (
-    *_ROOT_STAGES,
-    "11_docket_root_llm_reassignment",
-    "12.1_reporter_root_lookup_cluster_retrieval",
-    "12.2_reporter_root_lookup_docket_retrieval",
-    "13.1_reporter_root_lookup_unique_rule_judgment",
-    "13.2_reporter_root_lookup_ambiguous_rule_judgment",
-    "14_reporter_root_lookup_unique_llm_judgment",
-    "15_reporter_root_lookup_ambiguous_llm_judgment",
-    "16_docket_root_lookup_courtlistener_retrieval",
-    "17_docket_root_lookup_courtlistener_llm_review",
-    "18_docket_root_lookup_govinfo_retrieval",
-    "19_docket_root_lookup_govinfo_llm_review",
-    _COURTLISTENER_OPINION_STAGE,
-    _COURTLISTENER_RECAP_STAGE,
-    _GOVINFO_OPINION_STAGE,
-    _LOCATOR_BODY_REVIEW_STAGE,
+_RUN_SUBSTAGES = (
+    *_ROOT_SUBSTAGES,
+    "grow_roots.root_formation.docket_llm_reassignment",
+    "validate_roots.reporter_lookup.cluster_retrieval",
+    "validate_roots.reporter_lookup.docket_retrieval",
+    "validate_roots.reporter_lookup.unique_rule_judgment",
+    "validate_roots.reporter_lookup.ambiguous_rule_judgment",
+    "validate_roots.reporter_lookup.unique_llm_judgment",
+    "validate_roots.reporter_lookup.ambiguous_llm_judgment",
+    "validate_roots.docket_lookup.courtlistener_retrieval",
+    "validate_roots.docket_lookup.courtlistener_review",
+    "validate_roots.docket_lookup.govinfo_retrieval",
+    "validate_roots.docket_lookup.govinfo_review",
+    _FIELD_IDENTITY_SUBSTAGE,
+    _COURTLISTENER_OPINION_SUBSTAGE,
+    _COURTLISTENER_RECAP_SUBSTAGE,
+    _GOVINFO_OPINION_SUBSTAGE,
+    _LOCATOR_BODY_REVIEW_SUBSTAGE,
 )
-_BODY_SEARCH_STAGES = (
-    _COURTLISTENER_OPINION_STAGE,
-    _COURTLISTENER_RECAP_STAGE,
-    _GOVINFO_OPINION_STAGE,
+_BODY_SEARCH_SUBSTAGES = (
+    _COURTLISTENER_OPINION_SUBSTAGE,
+    _COURTLISTENER_RECAP_SUBSTAGE,
+    _GOVINFO_OPINION_SUBSTAGE,
 )
-_FIELD_STAGES = (
-    _COURTLISTENER_OPINION_FIELD_STAGE,
-    _COURTLISTENER_RECAP_FIELD_STAGE,
-    _GOVINFO_OPINION_FIELD_STAGE,
-    _INTENDED_CASE_REVIEW_STAGE,
+_FIELD_SUBSTAGES = (
+    _COURTLISTENER_OPINION_FIELD_SUBSTAGE,
+    _COURTLISTENER_RECAP_FIELD_SUBSTAGE,
+    _GOVINFO_OPINION_FIELD_SUBSTAGE,
+    _INTENDED_CASE_REVIEW_SUBSTAGE,
 )
-_FIELD_RUN_STAGES = (*_RUN_STAGES, *_FIELD_STAGES)
-_REPORTER_REVIEW_INPUT_STAGE = "13.2_reporter_root_lookup_ambiguous_rule_judgment"
-_REPORTER_REVIEW_INPUT_STAGES = _RUN_STAGES[: _RUN_STAGES.index(_REPORTER_REVIEW_INPUT_STAGE) + 1]
-_DOCKET_LOOKUP_STAGE = "16_docket_root_lookup_courtlistener_retrieval"
-_DOCKET_REVIEW_INPUT_STAGE = "17_docket_root_lookup_courtlistener_llm_review"
-_DOCKET_REVIEW_INPUT_STAGES = _RUN_STAGES[: _RUN_STAGES.index(_DOCKET_REVIEW_INPUT_STAGE) + 1]
-_VALIDATION_INPUT_STAGE = "19_docket_root_lookup_govinfo_llm_review"
-_VALIDATION_INPUT_STAGES = _RUN_STAGES[: _RUN_STAGES.index(_VALIDATION_INPUT_STAGE) + 1]
-_REPORTER_TO_GOVINFO_STAGES = _RUN_STAGES[
-    _RUN_STAGES.index("12.1_reporter_root_lookup_cluster_retrieval") : _RUN_STAGES.index(
-        _VALIDATION_INPUT_STAGE
+_FIELD_RUN_SUBSTAGES = (*_RUN_SUBSTAGES, *_FIELD_SUBSTAGES)
+_REPORTER_REVIEW_INPUT_SUBSTAGE = "validate_roots.reporter_lookup.ambiguous_rule_judgment"
+_REPORTER_REVIEW_INPUT_SUBSTAGES = _RUN_SUBSTAGES[: _RUN_SUBSTAGES.index(_REPORTER_REVIEW_INPUT_SUBSTAGE) + 1]
+_DOCKET_LOOKUP_SUBSTAGE = "validate_roots.docket_lookup.courtlistener_retrieval"
+_DOCKET_REVIEW_INPUT_SUBSTAGE = "validate_roots.docket_lookup.courtlistener_review"
+_DOCKET_REVIEW_INPUT_SUBSTAGES = _RUN_SUBSTAGES[: _RUN_SUBSTAGES.index(_DOCKET_REVIEW_INPUT_SUBSTAGE) + 1]
+_VALIDATION_INPUT_SUBSTAGE = "validate_roots.docket_lookup.govinfo_review"
+_VALIDATION_INPUT_SUBSTAGES = _RUN_SUBSTAGES[: _RUN_SUBSTAGES.index(_VALIDATION_INPUT_SUBSTAGE) + 1]
+_REPORTER_TO_GOVINFO_SUBSTAGES = _RUN_SUBSTAGES[
+    _RUN_SUBSTAGES.index("validate_roots.reporter_lookup.cluster_retrieval") : _RUN_SUBSTAGES.index(
+        _VALIDATION_INPUT_SUBSTAGE
     )
     + 1
 ]
-_BODY_CHECKPOINT_STAGES = (*_BODY_SEARCH_STAGES, _LOCATOR_BODY_REVIEW_STAGE)
-_VALIDATION_CHECKPOINT_STAGES = (*_REPORTER_TO_GOVINFO_STAGES, *_BODY_CHECKPOINT_STAGES)
+_BODY_CHECKPOINT_SUBSTAGES = (*_BODY_SEARCH_SUBSTAGES, _LOCATOR_BODY_REVIEW_SUBSTAGE)
+_VALIDATION_CHECKPOINT_SUBSTAGES = (
+    *_REPORTER_TO_GOVINFO_SUBSTAGES,
+    _FIELD_IDENTITY_SUBSTAGE,
+    *_BODY_CHECKPOINT_SUBSTAGES,
+)
+_E2E_WORKFLOWS = ("grow_roots", "validate_roots", "grow_leaves", "validate_pincite")
+_E2E_SUBSTAGES = (
+    *_RUN_SUBSTAGES,
+    *(
+        substage.name
+        for workflow in ("grow_leaves", "validate_pincite")
+        for stage in get_workflow(workflow).stages
+        for substage in stage.substages
+    ),
+)
+
+
+def _configured_model_profiles() -> dict[str, dict[str, object]]:
+    """Snapshot configured E2E packages without storing credential values."""
+    values = read_env()
+    return {
+        substage: asdict(load_profile(substage, environ=values))
+        for substage in _E2E_SUBSTAGES
+        if values.get("MELLEA_LRC_SUBSTAGE_" + substage.upper().replace(".", "_") + "_PROFILE")
+    }
+
+
+def _git_commit() -> str:
+    return subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[1], text=True
+    ).strip()
+
+
+def _annotation_sha256(data_root: Path, filenames: list[str]) -> dict[str, str]:
+    return {
+        filename: hashlib.sha256(
+            (data_root / _SET / "documents" / f"{Path(filename).stem}.jsonl").read_bytes()
+        ).hexdigest()
+        for filename in filenames
+    }
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -202,17 +251,6 @@ def _annotation_case_cutoffs(data_root: Path, filenames: list[str]) -> tuple[dic
     return cutoff_dates, header_hashes
 
 
-def _check_body_search_cutoffs(document: Document, cutoff: date | None) -> None:
-    """Never reuse body evidence gathered under a different retrospective date."""
-    for citation in document.full_locators:
-        for search in (*citation.body_searches, *citation.field_body_searches):
-            if search.retrospective_date != cutoff:
-                raise ValueError(
-                    f"Saved body search cutoff differs for {document.source_path}: "
-                    f"{search.retrospective_date} != {cutoff}"
-                )
-
-
 def _has_transient_docket_lookup_failure(document: Document) -> bool:
     """A saved provider failure leaves a docket lookup run incomplete."""
     for root in document.roots:
@@ -231,11 +269,31 @@ def _has_transient_docket_lookup_failure(document: Document) -> bool:
     return False
 
 
-def _transient_body_failure_stage(document: Document) -> str | None:
-    """Find the first provider stage whose saved search or fetch needs retry."""
-    failed_stages: set[str] = set()
+def _transient_docket_failure_substage(document: Document) -> str | None:
+    """Locate the earliest failed docket provider so E2E resumes its boundary."""
+    failed: set[str] = set()
     for root in document.roots:
-        node_stages = {node.id: node.stage for node in root.nodes}
+        if not isinstance(root, FullDocketCitation):
+            continue
+        node_substages = {node.id: node.substage for node in root.nodes}
+        for lookup in (root.docket_lookup, root.govinfo_docket_lookup):
+            if lookup is None:
+                continue
+            for failure in (lookup.failure, *(attempt.failure for attempt in lookup.attempts)):
+                if failure is not None and (
+                    failure.failure_type == "transport_error"
+                    or failure.upstream_status_code == 429
+                    or (failure.upstream_status_code is not None and failure.upstream_status_code >= 500)
+                ):
+                    failed.add(node_substages[lookup.node_id])
+    return next((substage for substage in _RUN_SUBSTAGES if substage in failed), None)
+
+
+def _transient_body_failure_substage(document: Document) -> str | None:
+    """Find the first provider substage whose saved search or fetch needs retry."""
+    failed_substages: set[str] = set()
+    for root in document.roots:
+        node_stages = {node.id: node.substage for node in root.nodes}
         for search in root.body_searches:
             for failure in (*search.failures, *(attempt.failure for attempt in search.attempts)):
                 if failure is not None and (
@@ -243,20 +301,20 @@ def _transient_body_failure_stage(document: Document) -> str | None:
                     or failure.status_code == 429
                     or (failure.status_code is not None and failure.status_code >= 500)
                 ):
-                    failed_stages.add(node_stages[search.node_id])
-    return next((stage for stage in _BODY_SEARCH_STAGES if stage in failed_stages), None)
+                    failed_substages.add(node_stages[search.node_id])
+    return next((substage for substage in _BODY_SEARCH_SUBSTAGES if substage in failed_substages), None)
 
 
 def _has_transient_body_search_failure(document: Document) -> bool:
     """A transient body search or fetch cannot be treated as a negative result."""
-    return _transient_body_failure_stage(document) is not None
+    return _transient_body_failure_substage(document) is not None
 
 
-def _transient_field_failure_stage(document: Document) -> str | None:
+def _transient_field_failure_substage(document: Document) -> str | None:
     """Find the first case-name provider whose saved search or fetch needs retry."""
-    failed_stages: set[str] = set()
+    failed_substages: set[str] = set()
     for root in document.roots:
-        node_stages = {node.id: node.stage for node in root.nodes}
+        node_stages = {node.id: node.substage for node in root.nodes}
         for search in root.field_body_searches:
             for failure in (*search.failures, *(attempt.failure for attempt in search.attempts)):
                 if failure is not None and (
@@ -264,26 +322,26 @@ def _transient_field_failure_stage(document: Document) -> str | None:
                     or failure.status_code == 429
                     or (failure.status_code is not None and failure.status_code >= 500)
                 ):
-                    failed_stages.add(node_stages[search.node_id])
-    return next((stage for stage in _FIELD_STAGES[:-1] if stage in failed_stages), None)
+                    failed_substages.add(node_stages[search.node_id])
+    return next((substage for substage in _FIELD_SUBSTAGES[:-1] if substage in failed_substages), None)
 
 
-async def _retry_body_stages(
+async def _retry_body_substages(
     document: Document,
-    first_stage: str,
+    first_substage: str,
     retrospective_date: date | None,
     courtlistener_client: CourtListenerClient | None = None,
     checkpoint: Callable[[Document], None] | None = None,
 ) -> Document:
     """Run the failed provider, later providers, and the cross-provider review."""
     client_kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
-    if first_stage == _COURTLISTENER_OPINION_STAGE:
+    if first_substage == _COURTLISTENER_OPINION_SUBSTAGE:
         document = locator_body_courtlistener_opinion_retrieval(
             document, retrospective_date=retrospective_date, **client_kwargs
         )
         if checkpoint is not None:
             checkpoint(document)
-    if first_stage in (_COURTLISTENER_OPINION_STAGE, _COURTLISTENER_RECAP_STAGE):
+    if first_substage in (_COURTLISTENER_OPINION_SUBSTAGE, _COURTLISTENER_RECAP_SUBSTAGE):
         document = locator_body_courtlistener_recap_retrieval(
             document, retrospective_date=retrospective_date, **client_kwargs
         )
@@ -300,14 +358,14 @@ async def _retry_body_stages(
 
 def _reuse_docket_lookup(document: Document, saved: Document) -> Document:
     """Replay the unchanged docket roots' saved lookup nodes after reporter review."""
-    checkpoint = saved.get_stage(_DOCKET_LOOKUP_STAGE)
+    checkpoint = saved.get_substage(_DOCKET_LOOKUP_SUBSTAGE)
     for root in checkpoint.roots:
-        if isinstance(root, FullDocketCitation) and root.nodes[-1].stage == _DOCKET_LOOKUP_STAGE:
+        if isinstance(root, FullDocketCitation) and root.nodes[-1].substage == _DOCKET_LOOKUP_SUBSTAGE:
             document = document.replace_citation(root)
-    return document.complete(_DOCKET_LOOKUP_STAGE)
+    return document.complete_substage(_DOCKET_LOOKUP_SUBSTAGE)
 
 
-async def _continue_field_stages(
+async def _continue_field_substages(
     document: Document,
     *,
     filename: str,
@@ -315,35 +373,36 @@ async def _continue_field_stages(
     retrospective_date: date | None,
     courtlistener_client: CourtListenerClient | None,
 ) -> Document:
-    """Append each remaining stage and atomically save its cumulative Document."""
-    for stage in _FIELD_STAGES:
-        if stage in document.stage_runs:
+    """Append each remaining substage and atomically save its cumulative Document."""
+    for substage in _FIELD_SUBSTAGES:
+        if substage in document.substage_runs:
             continue
-        if document.stage_runs != _FIELD_RUN_STAGES[: _FIELD_RUN_STAGES.index(stage)]:
-            raise ValueError(f"Field discovery cannot skip a stage for {filename}")
-        if stage == _COURTLISTENER_OPINION_FIELD_STAGE:
+        if document.substage_runs != _FIELD_RUN_SUBSTAGES[: _FIELD_RUN_SUBSTAGES.index(substage)]:
+            raise ValueError(f"Field discovery cannot skip a substage for {filename}")
+        if substage == _COURTLISTENER_OPINION_FIELD_SUBSTAGE:
             kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
             document = intended_case_courtlistener_opinion_retrieval(
                 document, retrospective_date=retrospective_date, **kwargs
             )
-        elif stage == _COURTLISTENER_RECAP_FIELD_STAGE:
+        elif substage == _COURTLISTENER_RECAP_FIELD_SUBSTAGE:
             kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
             document = intended_case_courtlistener_recap_retrieval(
                 document, retrospective_date=retrospective_date, **kwargs
             )
-        elif stage == _GOVINFO_OPINION_FIELD_STAGE:
+        elif substage == _GOVINFO_OPINION_FIELD_SUBSTAGE:
             document = intended_case_govinfo_opinion_retrieval(
                 document, retrospective_date=retrospective_date
             )
         else:
             document = await intended_case_llm_selection(document)
-        if document.stage_runs != _FIELD_RUN_STAGES[: _FIELD_RUN_STAGES.index(stage) + 1]:
-            raise ValueError(f"Field discovery did not complete {stage} for {filename}")
-        _check_body_search_cutoffs(document, retrospective_date)
+        if document.substage_runs != _FIELD_RUN_SUBSTAGES[: _FIELD_RUN_SUBSTAGES.index(substage) + 1]:
+            raise ValueError(f"Field discovery did not complete {substage} for {filename}")
+        document = complete_stage_boundary(document, _FIELD_RUN_SUBSTAGES)
+        _require_body_search_cutoff(document, retrospective_date)
         _write_json(run_dir / "documents" / f"{filename}.json", document.model_dump(mode="json"))
-        if _transient_field_failure_stage(document) == stage:
+        if _transient_field_failure_substage(document) == substage:
             raise RuntimeError(
-                f"Case-name body search at {stage} had a transient provider failure for {filename}; "
+                f"Case-name body search at {substage} had a transient provider failure for {filename}; "
                 "resume this run after the provider recovers"
             )
     return document
@@ -363,18 +422,41 @@ async def _run(
     annotation_case_cutoffs: bool = False,
     from_locator_review_documents: Path | None = None,
     from_checkpoint_documents: Path | None = None,
-    checkpoint_stage: str | None = None,
+    checkpoint_substage: str | None = None,
+    end_to_end: bool = False,
+    workers: int | None = None,
 ) -> Path:
+    if workers is not None and (type(workers) is not int or workers < 1):
+        raise ValueError("End-to-end workers must be a positive integer")
+    if workers is not None and not end_to_end and resume_run is None:
+        raise ValueError("--workers requires end-to-end mode")
+    if end_to_end and (
+        reuse_docket_lookups
+        or any(
+            directory is not None
+            for directory in (
+                from_roots_documents,
+                from_reporter_review_documents,
+                from_docket_review_documents,
+                from_validation_documents,
+                from_locator_review_documents,
+                from_checkpoint_documents,
+            )
+        )
+    ):
+        raise ValueError("End-to-end mode starts from primary sources; saved input modes cannot be combined")
+    if end_to_end and courtlistener_pool == "reserved":
+        raise ValueError("End-to-end mode uses the configured CourtListener proxy without a personal token")
     if courtlistener_pool not in (None, "reserved", "proxy"):
         raise ValueError(f"Unsupported CourtListener pool: {courtlistener_pool}")
     if annotation_case_cutoffs and retrospective_date is not None:
         raise ValueError("Choose either annotation case cutoffs or one retrospective date")
     if resume_run is not None and annotation_case_cutoffs:
         raise ValueError("Resume uses the cutoff mode saved in run.json")
-    if (from_checkpoint_documents is None) != (checkpoint_stage is None):
-        raise ValueError("Choose both checkpoint Documents and a checkpoint stage")
-    if checkpoint_stage is not None and checkpoint_stage not in _VALIDATION_CHECKPOINT_STAGES:
-        raise ValueError(f"Unsupported validation checkpoint: {checkpoint_stage}")
+    if (from_checkpoint_documents is None) != (checkpoint_substage is None):
+        raise ValueError("Choose both checkpoint Documents and a checkpoint substage")
+    if checkpoint_substage is not None and checkpoint_substage not in _VALIDATION_CHECKPOINT_SUBSTAGES:
+        raise ValueError(f"Unsupported validation checkpoint: {checkpoint_substage}")
     if (
         sum(
             item is not None
@@ -393,12 +475,16 @@ async def _run(
     if reuse_docket_lookups and from_reporter_review_documents is None and resume_run is None:
         raise ValueError("Reusing docket lookups requires reporter-review Documents")
     case_cutoffs: dict[str, date] = {}
+    model_profiles = _configured_model_profiles() if end_to_end else None
     if resume_run is None:
         filenames = sorted(
             json.loads((data_root / _SET / "documents.json").read_text(encoding="utf-8"))["documents"]
         )
         if not filenames:
             raise ValueError(f"No documents in {_SET}")
+        annotation_hashes = _annotation_sha256(data_root, filenames) if end_to_end else None
+        if end_to_end:
+            workers = 3 if workers is None else workers
         annotation_header_sha256: dict[str, str] = {}
         if annotation_case_cutoffs:
             case_cutoffs, annotation_header_sha256 = _annotation_case_cutoffs(data_root, filenames)
@@ -429,7 +515,7 @@ async def _run(
             "from_checkpoint_documents": (
                 str(from_checkpoint_documents) if from_checkpoint_documents else None
             ),
-            "checkpoint_stage": checkpoint_stage,
+            "checkpoint_substage": checkpoint_substage,
             "retrospective_date": retrospective_date.isoformat() if retrospective_date else None,
             "annotation_case_cutoffs": annotation_case_cutoffs,
             "annotation_header_sha256": annotation_header_sha256,
@@ -443,12 +529,36 @@ async def _run(
                 for filename in filenames
             },
         }
+        if end_to_end:
+            run_record.update(
+                end_to_end=True,
+                workflows=list(_E2E_WORKFLOWS),
+                model_profiles=model_profiles,
+                git_commit=_git_commit(),
+                annotation_sha256=annotation_hashes,
+                workers=workers,
+                substage_seconds={},
+            )
         record_path = run_dir / "run.json"
         _write_json(record_path, run_record)
     else:
         run_dir = resume_run
         record_path = run_dir / "run.json"
         run_record = json.loads(record_path.read_text(encoding="utf-8"))
+        if end_to_end and not run_record.get("end_to_end"):
+            raise ValueError("Resume is not an end-to-end run")
+        end_to_end = bool(run_record.get("end_to_end", False))
+        if workers is not None and not end_to_end:
+            raise ValueError("--workers requires end-to-end mode")
+        if end_to_end:
+            if workers is not None and workers != run_record["workers"]:
+                raise ValueError("Resume must use the saved end-to-end worker count")
+            workers = run_record["workers"]
+            model_profiles = _configured_model_profiles()
+            if run_record["model_profiles"] != model_profiles:
+                raise ValueError(
+                    "End-to-end model profiles changed; restore the saved .env settings before resuming"
+                )
         if run_record.get("set") != _SET:
             raise ValueError(f"Run is not for {_SET}: {run_dir}")
         data_root = Path(run_record.get("data_root") or _DATA_ROOT)
@@ -464,11 +574,11 @@ async def _run(
         from_locator_review_documents = Path(saved_locator_review) if saved_locator_review else None
         saved_checkpoint_documents = run_record.get("from_checkpoint_documents")
         from_checkpoint_documents = Path(saved_checkpoint_documents) if saved_checkpoint_documents else None
-        checkpoint_stage = run_record.get("checkpoint_stage")
-        if (from_checkpoint_documents is None) != (checkpoint_stage is None):
+        checkpoint_substage = run_record.get("checkpoint_substage")
+        if (from_checkpoint_documents is None) != (checkpoint_substage is None):
             raise ValueError("Saved run has an incomplete checkpoint source")
-        if checkpoint_stage is not None and checkpoint_stage not in _VALIDATION_CHECKPOINT_STAGES:
-            raise ValueError(f"Unsupported saved validation checkpoint: {checkpoint_stage}")
+        if checkpoint_substage is not None and checkpoint_substage not in _VALIDATION_CHECKPOINT_SUBSTAGES:
+            raise ValueError(f"Unsupported saved validation checkpoint: {checkpoint_substage}")
         saved_retrospective_date = run_record.get("retrospective_date")
         retrospective_date = (
             date.fromisoformat(saved_retrospective_date) if saved_retrospective_date else None
@@ -483,6 +593,10 @@ async def _run(
             history = run_record.setdefault("courtlistener_pool_history", [saved_pool or "proxy"])
             history.append(courtlistener_pool)
         courtlistener_pool = courtlistener_pool or saved_pool
+        if end_to_end and courtlistener_pool == "reserved":
+            raise ValueError(
+                "End-to-end mode uses the configured CourtListener proxy without a personal token"
+            )
         if courtlistener_pool is not None:
             run_record["courtlistener_pool"] = courtlistener_pool
         reuse_docket_lookups = bool(run_record.get("reuse_docket_lookups", False))
@@ -509,6 +623,8 @@ async def _run(
         )
         if filenames != current_filenames:
             raise ValueError("Run document list differs from the current dataset")
+        if end_to_end and run_record["annotation_sha256"] != _annotation_sha256(data_root, filenames):
+            raise ValueError("Run annotation content differs from saved provenance")
         if annotation_case_cutoffs:
             case_cutoffs, header_hashes = _annotation_case_cutoffs(data_root, filenames)
             if run_record.get("annotation_header_sha256") != header_hashes or run_record.get(
@@ -532,11 +648,12 @@ async def _run(
         run_record["status"] = "running"
         run_record.pop("completed_at", None)
         run_record.pop("transient_failures", None)
+        run_record.pop("error", None)
         _write_json(record_path, run_record)
 
     courtlistener_client: CourtListenerClient | None = None
     try:
-        # Check every saved checkpoint before any provider-backed stage starts.
+        # Check every saved checkpoint before any provider-backed substage starts.
         sources = {
             filename: Document.from_source(data_root / _SET / "documents_txt" / filename)
             for filename in filenames
@@ -545,17 +662,23 @@ async def _run(
         retry_body: dict[str, str] = {}
         documents: dict[str, Document] = {}
         reporter_inputs: dict[str, Document] = {}
-        enabled = _FIELD_RUN_STAGES if from_locator_review_documents is not None else _RUN_STAGES
-        input_directory, input_stage = next(
+        enabled = (
+            _E2E_SUBSTAGES
+            if end_to_end
+            else _FIELD_RUN_SUBSTAGES
+            if from_locator_review_documents is not None
+            else _RUN_SUBSTAGES
+        )
+        input_directory, input_substage = next(
             (
-                (directory, stage)
-                for directory, stage in (
-                    (from_roots_documents, _ROOT_STAGE),
-                    (from_reporter_review_documents, _REPORTER_REVIEW_INPUT_STAGE),
-                    (from_docket_review_documents, _DOCKET_REVIEW_INPUT_STAGE),
-                    (from_validation_documents, _VALIDATION_INPUT_STAGE),
-                    (from_locator_review_documents, _LOCATOR_BODY_REVIEW_STAGE),
-                    (from_checkpoint_documents, checkpoint_stage),
+                (directory, substage)
+                for directory, substage in (
+                    (from_roots_documents, _ROOT_SUBSTAGE),
+                    (from_reporter_review_documents, _REPORTER_REVIEW_INPUT_SUBSTAGE),
+                    (from_docket_review_documents, _DOCKET_REVIEW_INPUT_SUBSTAGE),
+                    (from_validation_documents, _VALIDATION_INPUT_SUBSTAGE),
+                    (from_locator_review_documents, _LOCATOR_BODY_REVIEW_SUBSTAGE),
+                    (from_checkpoint_documents, checkpoint_substage),
                 )
                 if directory is not None
             ),
@@ -567,79 +690,114 @@ async def _run(
             original = source
             if input_directory is not None:
                 supplied = _load_document(input_directory / f"{filename}.json", source)
-                original = supplied.get_stage(input_stage)
-                if original.stage_runs != enabled[: enabled.index(input_stage) + 1]:
+                original = supplied.get_substage(input_substage)
+                if original.substage_runs != enabled[: enabled.index(input_substage) + 1]:
                     raise ValueError(f"Saved input checkpoint is incomplete for {filename}")
-                _check_body_search_cutoffs(original, cutoff)
+                _require_body_search_cutoff(original, cutoff)
                 if from_locator_review_documents is not None and (
                     _has_transient_docket_lookup_failure(original)
                     or _has_transient_body_search_failure(original)
                 ):
                     raise ValueError(f"Saved locator-body review has transient failures for {filename}")
                 if reuse_docket_lookups:
-                    supplied.get_stage(_DOCKET_LOOKUP_STAGE)
+                    supplied.get_substage(_DOCKET_LOOKUP_SUBSTAGE)
                     reporter_inputs[filename] = supplied
             artifact = documents_dir / f"{filename}.json"
             document = _load_document(artifact, source) if artifact.exists() else original
-            _check_body_search_cutoffs(document, cutoff)
-            if document.stage_runs != enabled[: len(document.stage_runs)]:
-                raise ValueError(f"Saved evaluation checkpoint skips a stage for {filename}")
-            if len(document.stage_runs) < len(original.stage_runs) or (
-                original.stage_runs and document.get_stage(input_stage) != original
+            _require_body_search_cutoff(document, cutoff)
+            if document.substage_runs != enabled[: len(document.substage_runs)]:
+                raise ValueError(f"Saved evaluation checkpoint skips a substage for {filename}")
+            if len(document.substage_runs) < len(original.substage_runs) or (
+                original.substage_runs and document.get_substage(input_substage) != original
             ):
                 raise ValueError(f"Saved evaluation input differs for {filename}")
+            _require_workflow_prefix(document, "grow_roots")
+            _require_workflow_prefix(document, "validate_roots")
+            if end_to_end:
+                _require_workflow_prefix(document, "grow_leaves")
+                _require_workflow_prefix(document, "validate_pincite")
+            marked = complete_stage_boundary(document, enabled)
+            if artifact.exists() and marked != document:
+                _write_json(artifact, marked.model_dump(mode="json"))
+            document = marked
             if from_locator_review_documents is not None:
-                if failed_stage := _transient_field_failure_stage(document):
-                    previous_stage = enabled[enabled.index(failed_stage) - 1]
-                    document = document.get_stage(previous_stage)
-                elif artifact.exists() and document.stage_runs == enabled:
+                if failed_substage := _transient_field_failure_substage(document):
+                    previous_substage = enabled[enabled.index(failed_substage) - 1]
+                    document = document.get_substage(previous_substage)
+                elif artifact.exists() and document.substage_runs == enabled:
                     completed.add(filename)
             elif _has_transient_docket_lookup_failure(document):
                 # Replaying the run's input reruns its docket lookup and review.
-                document = original
-            elif failed_stage := _transient_body_failure_stage(document):
-                if document.stage_runs == enabled:
-                    retry_body[filename] = failed_stage
-                previous_stage = enabled[enabled.index(failed_stage) - 1]
-                document = document.get_stage(previous_stage)
-            elif artifact.exists() and document.stage_runs == enabled:
+                if end_to_end:
+                    failed_substage = _transient_docket_failure_substage(document)
+                    assert failed_substage is not None
+                    document = document.get_substage(enabled[enabled.index(failed_substage) - 1])
+                else:
+                    document = original
+            elif failed_substage := _transient_body_failure_substage(document):
+                if document.substage_runs == enabled:
+                    retry_body[filename] = failed_substage
+                previous_substage = enabled[enabled.index(failed_substage) - 1]
+                document = document.get_substage(previous_substage)
+            elif artifact.exists() and document.substage_runs == enabled:
                 completed.add(filename)
             documents[filename] = document
 
         if courtlistener_pool == "reserved" and len(completed) != len(filenames):
-            base_url = CourtListenerConfig.from_env().base_url
-            token = os.getenv("COURTLISTENER_API_TOKEN_RESERVED", "").strip()
-            if not token:
-                raise ValueError("COURTLISTENER_API_TOKEN_RESERVED must be configured for the reserved pool")
             courtlistener_client = CourtListenerClient(
-                CourtListenerConfig(base_url=base_url, pool="reserved", token=token)
+                replace(
+                    CourtListenerConfig.from_env(),
+                    pool="reserved",
+                    token=required_setting(read_env(), "COURTLISTENER_API_TOKEN_RESERVED"),
+                )
             )
-        elif courtlistener_pool == "proxy" and len(completed) != len(filenames):
+        elif (courtlistener_pool == "proxy" or end_to_end) and len(completed) != len(filenames):
             courtlistener_client = CourtListenerClient(CourtListenerConfig.from_env())
 
-        for index, filename in enumerate(filenames, start=1):
-            source = sources[filename]
+        async def process(index: int, filename: str) -> None:
             cutoff = case_cutoffs.get(filename, retrospective_date)
             artifact = documents_dir / f"{filename}.json"
             if filename in completed:
                 print(f"{index}/{len(filenames)} {filename} (saved)", flush=True)
-                continue
+                return
             document = documents[filename]
+            document = complete_stage_boundary(document, enabled)
+            checkpoint_started = monotonic()
+            timed_substages = set(document.substage_runs)
+
+            def check_model_profiles() -> None:
+                if end_to_end and _configured_model_profiles() != model_profiles:
+                    raise ValueError("End-to-end model profiles changed during execution")
 
             def save_checkpoint(checkpoint: Document) -> None:
-                stage = checkpoint.stage_runs[-1]
-                if checkpoint.stage_runs != enabled[: enabled.index(stage) + 1]:
-                    raise ValueError(f"Stage did not complete in source order for {filename}: {stage}")
-                _check_body_search_cutoffs(checkpoint, cutoff)
+                nonlocal checkpoint_started
+                check_model_profiles()
+                substage = checkpoint.substage_runs[-1]
+                if checkpoint.substage_runs != enabled[: enabled.index(substage) + 1]:
+                    raise ValueError(f"Stage did not complete in source order for {filename}: {substage}")
+                _require_body_search_cutoff(checkpoint, cutoff)
                 _write_json(artifact, checkpoint.model_dump(mode="json"))
-                if _transient_body_failure_stage(checkpoint) == stage:
+                if end_to_end and checkpoint.runs[-1].kind == "substage" and substage not in timed_substages:
+                    now = monotonic()
+                    run_record["substage_seconds"].setdefault(filename, {})[substage] = round(
+                        now - checkpoint_started, 4
+                    )
+                    checkpoint_started = now
+                    timed_substages.add(substage)
+                    _write_json(record_path, run_record)
+                if end_to_end and _transient_docket_failure_substage(checkpoint) == substage:
                     raise RuntimeError(
-                        f"Locator-body search at {stage} had a transient provider failure for "
+                        f"Docket search at {substage} had a transient provider failure for {filename}; "
+                        "resume this run after the provider recovers"
+                    )
+                if _transient_body_failure_substage(checkpoint) == substage:
+                    raise RuntimeError(
+                        f"Locator-body search at {substage} had a transient provider failure for "
                         f"{filename}; resume this run after the provider recovers"
                     )
 
             if from_locator_review_documents is not None:
-                document = await _continue_field_stages(
+                document = await _continue_field_substages(
                     document,
                     filename=filename,
                     run_dir=run_dir,
@@ -647,45 +805,50 @@ async def _run(
                     courtlistener_client=courtlistener_client,
                 )
             else:
+                check_model_profiles()
                 if from_reporter_review_documents is not None:
-                    for stage, review in (
+                    for substage, review in (
                         (
-                            "14_reporter_root_lookup_unique_llm_judgment",
+                            "validate_roots.reporter_lookup.unique_llm_judgment",
                             reporter_root_lookup_unique_llm_judgment,
                         ),
                         (
-                            "15_reporter_root_lookup_ambiguous_llm_judgment",
+                            "validate_roots.reporter_lookup.ambiguous_llm_judgment",
                             reporter_root_lookup_ambiguous_llm_judgment,
                         ),
                     ):
-                        if stage not in document.stage_runs:
+                        if substage not in document.substage_runs:
                             document = await review(document)
                             save_checkpoint(document)
-                    if _DOCKET_LOOKUP_STAGE not in document.stage_runs:
+                    if _DOCKET_LOOKUP_SUBSTAGE not in document.substage_runs:
+                        document = complete_stage_boundary(document, enabled)
                         document = (
                             _reuse_docket_lookup(document, reporter_inputs[filename])
                             if reuse_docket_lookups
                             else docket_root_lookup_courtlistener_retrieval(document)
                         )
                         save_checkpoint(document)
-                    if _DOCKET_REVIEW_INPUT_STAGE not in document.stage_runs:
+                    if _DOCKET_REVIEW_INPUT_SUBSTAGE not in document.substage_runs:
                         document = await docket_root_lookup_courtlistener_llm_review(document)
                         save_checkpoint(document)
                 if from_docket_review_documents is not None or from_reporter_review_documents is not None:
-                    if "18_docket_root_lookup_govinfo_retrieval" not in document.stage_runs:
+                    if "validate_roots.docket_lookup.govinfo_retrieval" not in document.substage_runs:
                         document = docket_root_lookup_govinfo_retrieval(document)
                         save_checkpoint(document)
-                    if _VALIDATION_INPUT_STAGE not in document.stage_runs:
+                    if _VALIDATION_INPUT_SUBSTAGE not in document.substage_runs:
                         document = await docket_root_lookup_govinfo_llm_review(document)
                         save_checkpoint(document)
-                if "11_docket_root_llm_reassignment" not in document.stage_runs:
-                    if from_roots_documents is not None:
-                        document = await docket_root_llm_reassignment(document)
-                    else:
-                        document = await grow_roots(source, hunt_dockets=True, review_docket_roots=True)
+                if "grow_roots.root_formation.docket_llm_reassignment" not in document.substage_runs:
+                    document = await grow_roots(
+                        document,
+                        hunt_dockets=True,
+                        review_docket_roots=True,
+                        checkpoint=save_checkpoint,
+                    )
                     save_checkpoint(document)
+                document = complete_stage_boundary(document, enabled)
                 if filename in retry_body:
-                    document = await _retry_body_stages(
+                    document = await _retry_body_substages(
                         document, retry_body[filename], cutoff, courtlistener_client, save_checkpoint
                     )
                 else:
@@ -694,17 +857,52 @@ async def _run(
                         if courtlistener_client is not None
                         else {}
                     )
+                    if end_to_end:
+                        client_kwargs["search_other_fields"] = False
                     document = await validate_roots(
                         document,
                         retrospective_date=cutoff,
                         checkpoint=save_checkpoint,
                         **client_kwargs,
                     )
-            if document.stage_runs != enabled:
-                raise ValueError(f"Run did not complete every stage for {filename}")
-            _check_body_search_cutoffs(document, cutoff)
+                if end_to_end:
+                    check_model_profiles()
+                    document = await grow_leaves(document, review_leaves=True, checkpoint=save_checkpoint)
+                    check_model_profiles()
+                    document = await validate_pincite(
+                        document,
+                        client=courtlistener_client,
+                        review_opinions=True,
+                        checkpoint=save_checkpoint,
+                    )
+            if document.substage_runs != enabled:
+                raise ValueError(f"Run did not complete every substage for {filename}")
+            document = complete_stage_boundary(document, enabled)
+            _require_body_search_cutoff(document, cutoff)
             _write_json(artifact, document.model_dump(mode="json"))
             print(f"{index}/{len(filenames)} {filename}", flush=True)
+
+        if end_to_end:
+            semaphore = asyncio.Semaphore(workers)
+
+            async def limited_process(index: int, filename: str) -> None:
+                async with semaphore:
+                    await process(index, filename)
+
+            tasks = [
+                asyncio.create_task(limited_process(index, filename))
+                for index, filename in enumerate(filenames, start=1)
+            ]
+            try:
+                await asyncio.gather(*tasks)
+            except BaseException:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
+        else:
+            for index, filename in enumerate(filenames, start=1):
+                await process(index, filename)
         transient_failures: dict[str, list[str]] = {"docket": [], "body": []}
         if from_locator_review_documents is not None:
             transient_failures["field"] = []
@@ -714,7 +912,9 @@ async def _run(
                 transient_failures["docket"].append(filename)
             if _has_transient_body_search_failure(saved_document):
                 transient_failures["body"].append(filename)
-            if from_locator_review_documents is not None and _transient_field_failure_stage(saved_document):
+            if from_locator_review_documents is not None and _transient_field_failure_substage(
+                saved_document
+            ):
                 transient_failures["field"].append(filename)
         if any(transient_failures.values()):
             run_record["transient_failures"] = transient_failures
@@ -723,8 +923,10 @@ async def _run(
                 + ", ".join(sorted(set().union(*transient_failures.values())))
                 + "; resume this run after the provider recovers"
             )
-    except BaseException:
+    except BaseException as error:
         run_record["status"] = "failed"
+        if end_to_end:
+            run_record["error"] = f"{type(error).__name__}: {error}"
         _write_json(record_path, run_record)
         raise
     finally:
@@ -734,6 +936,15 @@ async def _run(
     run_record["status"] = "complete"
     run_record["completed_at"] = datetime.now(UTC).isoformat()
     _write_json(record_path, run_record)
+    if end_to_end:
+        from evaluations.score_run import score_run
+
+        try:
+            score_run(run_dir, _E2E_WORKFLOWS)
+        except BaseException:
+            run_record["status"] = "failed"
+            _write_json(record_path, run_record)
+            raise
     return run_dir
 
 
@@ -742,38 +953,44 @@ def main() -> None:
     parser.add_argument("--data-root", type=Path)
     parser.add_argument("--results-root", type=Path)
     parser.add_argument(
+        "--end-to-end",
+        action="store_true",
+        help="Run all four workflows in order from primary sources and render four reports in one artifact",
+    )
+    parser.add_argument("--workers", type=int, help="End-to-end document workers (default: 3)")
+    parser.add_argument(
         "--from-roots-documents",
         type=Path,
-        help="Resume saved Documents at their 10_roots checkpoint before the docket-root review",
+        help="Resume saved Documents at their grow_roots.root_formation.rule checkpoint before the docket-root review",
     )
     parser.add_argument(
         "--from-reporter-review-documents",
         type=Path,
-        help="Resume saved Documents at stage 13 before the reporter LLM reviews",
+        help="Resume saved Documents at substage 13 before the reporter LLM reviews",
     )
     parser.add_argument(
         "--from-docket-review-documents",
         type=Path,
-        help="Resume saved Documents at stage 17 before GovInfo docket lookup and review",
+        help="Resume saved Documents at substage 17 before GovInfo docket lookup and review",
     )
     parser.add_argument(
         "--from-validation-documents",
         type=Path,
-        help="Resume saved Documents at stage 19 before locator-first body search and review",
+        help="Resume saved Documents at substage 19 before locator-first body search and review",
     )
     parser.add_argument(
         "--from-locator-review-documents",
         type=Path,
-        help="Continue saved stage-23 Documents through case-name body discovery and review",
+        help="Continue saved substage-23 Documents through case-name body discovery and review",
     )
     parser.add_argument(
         "--from-checkpoint-documents",
         type=Path,
-        help="Replay validation after a chosen saved stage, including retrieval-only stages",
+        help="Replay validation after a chosen saved substage, including retrieval-only stages",
     )
     parser.add_argument(
-        "--checkpoint-stage",
-        choices=_VALIDATION_CHECKPOINT_STAGES,
+        "--checkpoint-substage",
+        choices=_VALIDATION_CHECKPOINT_SUBSTAGES,
         help="Stage to recover from each saved Document",
     )
     parser.add_argument(
@@ -789,7 +1006,7 @@ def main() -> None:
     parser.add_argument(
         "--reuse-docket-lookups",
         action="store_true",
-        help="Reuse saved stage-16 docket lookups while rerunning reporter and docket LLM reviews",
+        help="Reuse saved substage-16 docket lookups while rerunning reporter and docket LLM reviews",
     )
     parser.add_argument(
         "--resume-run", type=Path, help="Continue an interrupted run in its existing timestamp directory"
@@ -817,8 +1034,8 @@ def main() -> None:
         parser.error("Choose one saved Document checkpoint")
     if args.reuse_docket_lookups and not args.from_reporter_review_documents:
         parser.error("--reuse-docket-lookups requires --from-reporter-review-documents")
-    if bool(args.from_checkpoint_documents) != bool(args.checkpoint_stage):
-        parser.error("--from-checkpoint-documents requires --checkpoint-stage")
+    if bool(args.from_checkpoint_documents) != bool(args.checkpoint_substage):
+        parser.error("--from-checkpoint-documents requires --checkpoint-substage")
     if args.annotation_case_cutoffs and args.retrospective_date is not None:
         parser.error("Choose either --annotation-case-cutoffs or --retrospective-date")
     if args.resume_run and (
@@ -834,7 +1051,7 @@ def main() -> None:
                 args.from_validation_documents,
                 args.from_locator_review_documents,
                 args.from_checkpoint_documents,
-                args.checkpoint_stage,
+                args.checkpoint_substage,
                 args.retrospective_date,
             )
         )
@@ -855,7 +1072,9 @@ def main() -> None:
             args.annotation_case_cutoffs,
             args.from_locator_review_documents.resolve() if args.from_locator_review_documents else None,
             args.from_checkpoint_documents.resolve() if args.from_checkpoint_documents else None,
-            args.checkpoint_stage,
+            args.checkpoint_substage,
+            args.end_to_end,
+            args.workers,
         )
     )
     print(run_dir)

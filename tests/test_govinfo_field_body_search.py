@@ -12,7 +12,7 @@ from mellea_lrc.model.citations.full_reporter import FullReporterCitation
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.validation.body_search.intended_case_govinfo_opinion_retrieval import (
-    STAGE,
+    SUBSTAGE,
     intended_case_govinfo_opinion_retrieval,
 )
 from mellea_lrc.validation.body_search import _govinfo as govinfo_module
@@ -25,19 +25,23 @@ def _document(*, case_name: bool = True, routed: bool = True) -> Document:
     locator = "30 F.3d 100"
     start = SOURCE.index(locator)
     root = FullReporterCitation.from_locator(
-        citation_id="root:1", stage="01_extract", source=SOURCE, span=Span(start, start + len(locator))
+        citation_id="root:1", substage="01_extract", source=SOURCE, span=Span(start, start + len(locator))
     )
-    document = Document.from_source(SOURCE).add_citation(root).complete("01_extract")
+    document = Document.from_source(SOURCE).add_citation(root).complete_substage("01_extract")
     root = root.record("02_roots").with_root(root.id)
-    document = document.replace_citation(root).complete("02_roots")
+    document = document.replace_citation(root).complete_substage("02_roots")
     if case_name:
         root = root.record("03_case_name").with_case_name(SOURCE, Span(0, len("Acme v. Smith")))
-        document = document.replace_citation(root).complete("03_case_name")
+        document = document.replace_citation(root).complete_substage("03_case_name")
     if routed:
-        root = root.record("23_locator_body_llm_judgment").with_route("case_name_body_discovery")
-        document = document.replace_citation(root).complete("23_locator_body_llm_judgment")
+        root = root.record("validate_roots.locator_body_corroboration.llm_judgment").with_route(
+            "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
+        )
+        document = document.replace_citation(root).complete_substage(
+            "validate_roots.locator_body_corroboration.llm_judgment"
+        )
     else:
-        document = document.complete("23_locator_body_llm_judgment")
+        document = document.complete_substage("validate_roots.locator_body_corroboration.llm_judgment")
     return document
 
 
@@ -96,9 +100,9 @@ def test_name_hit_with_another_locator_preserves_evidence_without_confirming_ide
     before = _document()
     after = intended_case_govinfo_opinion_retrieval(before, client=client)
 
-    assert STAGE == "26_intended_case_govinfo_opinion_retrieval"
-    assert after.stage_runs == (*before.stage_runs, STAGE)
-    assert after.get_stage("23_locator_body_llm_judgment") == before
+    assert SUBSTAGE == "validate_roots.intended_case_discovery.govinfo_opinion_retrieval"
+    assert after.substage_runs == (*before.substage_runs, SUBSTAGE)
+    assert after.get_substage("validate_roots.locator_body_corroboration.llm_judgment") == before
     assert client.search_calls == ["collection:uscourts and Acme and Smith"]
     assert client.summary_calls == ["other"]
     search = after.roots[0].field_body_searches[0]
@@ -113,7 +117,10 @@ def test_name_hit_with_another_locator_preserves_evidence_without_confirming_ide
     assert "30 F.3d 100" not in evidence.excerpt
     assert after.roots[0].locator == before.roots[0].locator
     assert after.roots[0].identity_judgments == before.roots[0].identity_judgments == ()
-    assert after.roots[0].next_stage == "case_name_body_discovery"
+    assert (
+        after.roots[0].next_substage
+        == "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
+    )
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 

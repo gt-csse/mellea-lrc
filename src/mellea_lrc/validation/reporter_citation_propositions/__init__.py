@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from mellea_lrc.llm.profiles import OPENROUTER_LUNA
+from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model.citations.reporter_page_resolution import ReporterPageResolutionOutcome
 from mellea_lrc.model.citations.reporter_pinpoint import PropositionDecision, ReporterCitationProposition
+from mellea_lrc.model.citations.tags import CitationTagKind
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import is_within
 from mellea_lrc.validation.reporter_citation_propositions.reviewer import (
     IvrReporterCitationPropositionReviewer,
     ReporterCitationPropositionContext,
@@ -14,18 +14,17 @@ from mellea_lrc.validation.reporter_citation_propositions.reviewer import (
     ReporterCitationPropositionReviewer,
 )
 
-STAGE = "43_reporter_citation_propositions"
-MODEL_PROFILE = OPENROUTER_LUNA
-SOURCE_STAGE = "42_reporter_citation_opinion_review"
+SUBSTAGE = "validate_pincite.citation_preparation.propositions"
+SOURCE_SUBSTAGE = "validate_pincite.citation_preparation.opinion_review"
 
 
 async def read_reporter_citation_propositions(
     document: Document, *, reviewer: ReporterCitationPropositionReviewer | None = None
 ) -> Document:
     """Keep the filing's attributed use distinct from opinion and page judgments."""
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if SOURCE_STAGE not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if SOURCE_SUBSTAGE not in document.substage_runs:
         raise ValueError("Complete reporter opinion selection before reading citation propositions")
     service = reviewer
     for citation in document.citations:
@@ -35,11 +34,7 @@ async def read_reporter_citation_propositions(
         ):
             continue
         context = ReporterCitationPropositionContext.from_document(document, citation)
-        # TODO: Consume a citation-level TOA tag propagated from typed serialized
-        # preprocessing components. Until then, known index_spans short-circuit
-        # reading here; an untagged index can still yield an empty proposition.
-        # Both paths become NO_PROPOSITION and skip later pinpoint review.
-        if is_within(citation.site_span, document.index_spans):
+        if citation.has_tag(CitationTagKind.TABLE_OF_AUTHORITIES):
             outcome = ReporterCitationPropositionOutcome(
                 PropositionDecision(
                     quotes=(),
@@ -48,7 +43,7 @@ async def read_reporter_citation_propositions(
             )
         else:
             if service is None:
-                service = IvrReporterCitationPropositionReviewer.from_profile(MODEL_PROFILE)
+                service = IvrReporterCitationPropositionReviewer.from_profile(load_profile(SUBSTAGE))
             try:
                 result = await service(context)
             except Exception as error:
@@ -68,7 +63,7 @@ async def read_reporter_citation_propositions(
                 raise ValueError(error)
             passages = context.grounded_passages(outcome.decision)
             assert passages is not None
-        recorded = citation.record(STAGE)
+        recorded = citation.record(SUBSTAGE)
         record = ReporterCitationProposition(
             node_id=recorded.nodes[-1].id,
             resolution_index=len(citation.reporter_page_resolutions) - 1,
@@ -82,4 +77,4 @@ async def read_reporter_citation_propositions(
             else None,
         )
         document = document.replace_citation(recorded.with_reporter_proposition(record))
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

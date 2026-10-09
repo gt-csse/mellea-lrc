@@ -59,25 +59,27 @@ def _citation(citation_type: type[Citation]) -> tuple[str, Citation]:
     source = f"{site}; 495-97; 501 n.3; 495a."
     span = _span(source, site)
     if citation_type is Citation:
-        citation = Citation(id="citation", kind="test", nodes=(Node(id="citation:node:0", stage="create"),))
+        citation = Citation(
+            id="citation", kind="test", nodes=(Node(id="citation:node:0", substage="create"),)
+        )
     elif citation_type is FullReporterCitation:
         citation = FullReporterCitation.from_locator(
-            citation_id="reporter", stage="create", source=source, span=span
+            citation_id="reporter", substage="create", source=source, span=span
         )
     elif citation_type is FullDocketCitation:
         citation = FullDocketCitation.from_locator(
             citation_id="docket",
-            stage="create",
+            substage="create",
             source=source,
             span=span,
             number_span=_span(source, "1:24-cv-00001"),
         )
     elif citation_type is ShortReporterCitation:
         citation = ShortReporterCitation.from_short_locator(
-            citation_id="short_reporter", stage="create", source=source, span=span
+            citation_id="short_reporter", substage="create", source=source, span=span
         )
     else:
-        citation = citation_type.from_source(source=source, span=span, stage="create")
+        citation = citation_type.from_source(source=source, span=span, substage="create")
     return source, citation
 
 
@@ -197,15 +199,15 @@ def test_pin_updates_require_a_decision_and_reject_same_node_duplicates(
 @pytest.mark.parametrize("citation_type", CONCRETE_TYPES, ids=lambda cls: cls.__name__)
 def test_document_accepts_first_pin_log_with_multiple_new_nodes(citation_type: type[Citation]) -> None:
     source, citation = _citation(citation_type)
-    original = Document.from_source(source).add_citation(citation).complete("create")
+    original = Document.from_source(source).add_citation(citation).complete_substage("create")
     first = citation.record("pin_parse").with_pin_cite(source, _span(source, "495-97"))
     second = first.record("pin_parse").with_pin_cite(source, _span(source, "501 n.3"))
 
-    updated = original.replace_citation(second).complete("pin_parse")
+    updated = original.replace_citation(second).complete_substage("pin_parse")
     assert updated.citations[0].pin_cite == second.pin_cite
     assert len(updated.citations[0].pin_cite) == 2
     assert updated.citations[0].get_pin_cite() == SECOND_PIN
-    assert updated.get_stage("create") == original
+    assert updated.get_substage("create") == original
     assert original.citations[0].pin_cite is None
     assert Document.model_validate_json(updated.model_dump_json()) == updated
 
@@ -214,10 +216,10 @@ def test_document_accepts_first_pin_log_with_multiple_new_nodes(citation_type: t
 @pytest.mark.parametrize("change", ["erase", "truncate", "mutate"])
 def test_document_rejects_changes_to_existing_pin_history(citation_type: type[Citation], change: str) -> None:
     source, citation = _citation(citation_type)
-    original = Document.from_source(source).add_citation(citation).complete("create")
+    original = Document.from_source(source).add_citation(citation).complete_substage("create")
     citation = citation.record("pin_parse").with_pin_cite(source, _span(source, "495-97"))
     citation = citation.record("pin_parse").with_pin_cite(source, _span(source, "501 n.3"))
-    original = original.replace_citation(citation).complete("pin_parse")
+    original = original.replace_citation(citation).complete_substage("pin_parse")
     candidate = citation.record("pin_review")
     if change == "erase":
         pin_cite = None
@@ -237,7 +239,7 @@ def test_document_rejects_changes_to_existing_pin_history(citation_type: type[Ci
 @pytest.mark.parametrize("citation_type", CONCRETE_TYPES, ids=lambda cls: cls.__name__)
 def test_document_rejects_pin_reading_without_new_node(citation_type: type[Citation]) -> None:
     source, citation = _citation(citation_type)
-    original = Document.from_source(source).add_citation(citation).complete("create")
+    original = Document.from_source(source).add_citation(citation).complete_substage("create")
     citation = citation.record("pin_parse")
     original = original.replace_citation(citation)
     candidate = citation.with_pin_cite(source, _span(source, "495-97"))
@@ -249,18 +251,18 @@ def test_document_rejects_pin_reading_without_new_node(citation_type: type[Citat
 @pytest.mark.parametrize("citation_type", CONCRETE_TYPES, ids=lambda cls: cls.__name__)
 def test_document_checkpoints_recover_null_and_exact_pin_histories(citation_type: type[Citation]) -> None:
     source, citation = _citation(citation_type)
-    creation = Document.from_source(source).add_citation(citation).complete("create")
+    creation = Document.from_source(source).add_citation(citation).complete_substage("create")
     first = citation.record("pin_parse").with_pin_cite(source, _span(source, "495-97"))
-    parsed = creation.replace_citation(first).complete("pin_parse")
+    parsed = creation.replace_citation(first).complete_substage("pin_parse")
     second = first.record("pin_review").with_pin_cite(source, _span(source, "501 n.3"))
-    reviewed = parsed.replace_citation(second).complete("pin_review")
+    reviewed = parsed.replace_citation(second).complete_substage("pin_review")
     restored = Document.model_validate_json(reviewed.model_dump_json())
 
-    assert restored.get_stage("create") == creation
-    assert restored.get_stage("create").citations[0].pin_cite is None
-    assert restored.get_stage("pin_parse") == parsed
-    assert restored.get_stage("pin_parse").citations[0].get_pin_cite() == FIRST_PIN
-    assert restored.get_stage("pin_review") == reviewed
+    assert restored.get_substage("create") == creation
+    assert restored.get_substage("create").citations[0].pin_cite is None
+    assert restored.get_substage("pin_parse") == parsed
+    assert restored.get_substage("pin_parse").citations[0].get_pin_cite() == FIRST_PIN
+    assert restored.get_substage("pin_review") == reviewed
     assert restored.citations[0].get_pin_cite() == SECOND_PIN
 
 
@@ -268,7 +270,9 @@ def test_document_checkpoints_recover_null_and_exact_pin_histories(citation_type
     "source,expected", [("Smith, supra.", None), ("Smith, supra, at 495-97.", FIRST_PIN)]
 )
 def test_supra_pin_reading_uses_shared_nullable_history(source: str, expected: tuple | None) -> None:
-    discovered = find_supra_citations(Document.from_source(source).complete("10_roots"))
+    discovered = find_supra_citations(
+        Document.from_source(source).complete_substage("grow_roots.root_formation.rule")
+    )
     assert discovered.citations[0].pin_cite is None
     document = resolve_supra_pin_cites(discovered)
 
@@ -284,5 +288,5 @@ def test_supra_pin_reading_uses_shared_nullable_history(source: str, expected: t
         assert source[span.start : span.end] == "495-97"
     restored = Document.model_validate_json(document.model_dump_json())
     assert restored == document
-    assert restored.get_stage("34_supra_citations") == discovered
-    assert restored.get_stage("34_supra_citations").citations[0].pin_cite is None
+    assert restored.get_substage("grow_leaves.supra_citations.discovery") == discovered
+    assert restored.get_substage("grow_leaves.supra_citations.discovery").citations[0].pin_cite is None

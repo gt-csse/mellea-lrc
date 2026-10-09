@@ -1,4 +1,4 @@
-"""Evaluate pinpoint stages from their cumulative saved Documents."""
+"""Evaluate pinpoint substages from their cumulative saved Documents."""
 
 from __future__ import annotations
 
@@ -7,8 +7,15 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
-from evaluations.annotations import citation_annotations
-from evaluations.grow_leaves import _attribution_rows, _gold, _gold_key, _key, _span
+from evaluations.annotations import (
+    align_citation_annotations,
+    annotation_site,
+    annotation_span,
+    annotations_by_site,
+    citation_annotations,
+    citation_site,
+)
+from evaluations.score_types import group_substage_records, render_stage_sections, substage_heading
 from mellea_lrc.model import Document, FullReporterCitation
 from mellea_lrc.model.citations import latest
 from mellea_lrc.model.citations.fields.pin_cite import PinCiteTarget
@@ -20,28 +27,28 @@ from mellea_lrc.model.citations.reporter_pinpoint import (
     ReporterPinpointVerdict,
 )
 from mellea_lrc.validation.reporter_root_opinion_retrieval import (
-    STAGE,
+    SUBSTAGE,
     selected_reporter_root_cluster,
 )
 
 _SET = "primary"
-PAGE_INDEX_STAGE = "40_reporter_root_opinion_page_index"
-PAGE_RESOLUTION_STAGE = "41_reporter_citation_page_resolution"
-OPINION_SELECTION_STAGE = "42_reporter_citation_opinion_review"
-PROPOSITION_STAGE = "43_reporter_citation_propositions"
-PINPOINT_EVIDENCE_STAGE = "44_reporter_citation_pinpoint_evidence"
-PAGE_SUPPORT_STAGE = "45_reporter_citation_pinpoint_page_review"
-FULL_OPINION_STAGE = "46_reporter_citation_full_opinion_review"
-JUDGMENT_STAGE = "47_reporter_citation_pinpoint_judgment"
-LATER_STAGES = (
-    PAGE_INDEX_STAGE,
-    PAGE_RESOLUTION_STAGE,
-    OPINION_SELECTION_STAGE,
-    PROPOSITION_STAGE,
-    PINPOINT_EVIDENCE_STAGE,
-    PAGE_SUPPORT_STAGE,
-    FULL_OPINION_STAGE,
-    JUDGMENT_STAGE,
+PAGE_INDEX_SUBSTAGE = "validate_pincite.opinion_preparation.page_index"
+PAGE_RESOLUTION_SUBSTAGE = "validate_pincite.citation_preparation.page_resolution"
+OPINION_SELECTION_SUBSTAGE = "validate_pincite.citation_preparation.opinion_review"
+PROPOSITION_SUBSTAGE = "validate_pincite.citation_preparation.propositions"
+PINPOINT_EVIDENCE_SUBSTAGE = "validate_pincite.citation_preparation.evidence"
+PAGE_SUPPORT_SUBSTAGE = "validate_pincite.support_review.page_review"
+FULL_OPINION_SUBSTAGE = "validate_pincite.support_review.full_opinion_review"
+JUDGMENT_SUBSTAGE = "validate_pincite.support_review.judgment"
+LATER_SUBSTAGES = (
+    PAGE_INDEX_SUBSTAGE,
+    PAGE_RESOLUTION_SUBSTAGE,
+    OPINION_SELECTION_SUBSTAGE,
+    PROPOSITION_SUBSTAGE,
+    PINPOINT_EVIDENCE_SUBSTAGE,
+    PAGE_SUPPORT_SUBSTAGE,
+    FULL_OPINION_SUBSTAGE,
+    JUDGMENT_SUBSTAGE,
 )
 GOLD_LABELS = frozenset({"CORRECT_PINCITE", "WRONG_PINCITE"})
 DATASET_GROUPS = ("reporter_roots", "reporter_leaves", "docket_roots", "docket_leaves")
@@ -124,7 +131,7 @@ def _dataset_inventory(document: Document) -> DatasetInventory:
         pin = row.get("pin_cite", {})
         if not (
             finding.get("label")
-            or _span(pin) is not None
+            or annotation_span(pin) is not None
             or pin.get("source", {}).get("kind") in {"quoted", "inferred"}
         ):
             continue
@@ -160,7 +167,7 @@ def _dataset_inventory(document: Document) -> DatasetInventory:
 
 @dataclass(frozen=True)
 class OpinionRetrievalScore:
-    stage: str = STAGE
+    substage: str = SUBSTAGE
     reporter_roots_opinion_retrievals: int = 0
     reporter_roots_correct_identity: int = 0
 
@@ -169,10 +176,10 @@ class OpinionRetrievalScore:
             raise ValueError("Opinion retrievals must belong to the eligible reporter-root cohort")
 
     def __add__(self, other: OpinionRetrievalScore) -> OpinionRetrievalScore:
-        if self.stage != other.stage:
-            raise ValueError("Cannot combine different opinion retrieval stages")
+        if self.substage != other.substage:
+            raise ValueError("Cannot combine different opinion retrieval substages")
         return type(self)(
-            stage=self.stage,
+            substage=self.substage,
             reporter_roots_opinion_retrievals=(
                 self.reporter_roots_opinion_retrievals + other.reporter_roots_opinion_retrievals
             ),
@@ -183,7 +190,7 @@ class OpinionRetrievalScore:
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "stage": self.stage,
+            "substage": self.substage,
             "reporter_roots_opinion_retrievals": self.reporter_roots_opinion_retrievals,
             "reporter_roots_correct_identity": self.reporter_roots_correct_identity,
             "ratio": self.reporter_roots_opinion_retrievals / self.reporter_roots_correct_identity
@@ -193,7 +200,7 @@ class OpinionRetrievalScore:
 
 
 def score_reporter_root_opinion_retrieval(document: Document) -> OpinionRetrievalScore:
-    checkpoint = document.get_stage(STAGE)
+    checkpoint = document.get_substage(SUBSTAGE)
     eligible = retrieved = 0
     for citation in checkpoint.roots:
         if not isinstance(citation, FullReporterCitation):
@@ -287,23 +294,23 @@ class FoundPageAgreement(PagePrecision):
 
 
 @dataclass(frozen=True)
-class PinpointStageScore:
-    stage: str
+class PinpointSubstageScore:
+    substage: str
     counts: dict[str, int]
     judgments: dict[str, PinpointScore] | None = None
     unscored_definitive: int = 0
     page_precision: dict[str, PagePrecision] | None = None
     found_page_precision: dict[str, FoundPageAgreement] | None = None
 
-    def __add__(self, other: PinpointStageScore) -> PinpointStageScore:
-        if self.stage != other.stage or (self.judgments is None) != (other.judgments is None):
-            raise ValueError("Cannot combine different pinpoint stages")
+    def __add__(self, other: PinpointSubstageScore) -> PinpointSubstageScore:
+        if self.substage != other.substage or (self.judgments is None) != (other.judgments is None):
+            raise ValueError("Cannot combine different pinpoint substages")
         if (self.page_precision is None) != (other.page_precision is None):
             raise ValueError("Cannot combine different page evaluation boundaries")
         if (self.found_page_precision is None) != (other.found_page_precision is None):
             raise ValueError("Cannot combine different found-page evaluation boundaries")
-        return PinpointStageScore(
-            self.stage,
+        return PinpointSubstageScore(
+            self.substage,
             {
                 key: self.counts.get(key, 0) + other.counts.get(key, 0)
                 for key in self.counts.keys() | other.counts.keys()
@@ -321,7 +328,7 @@ class PinpointStageScore:
         )
 
     def as_dict(self) -> dict[str, Any]:
-        result: dict[str, Any] = {"stage": self.stage, "counts": self.counts}
+        result: dict[str, Any] = {"substage": self.substage, "counts": self.counts}
         if self.judgments is not None:
             result["judgments"] = {
                 group: {
@@ -346,11 +353,12 @@ class PinpointStageScore:
 
 @dataclass(frozen=True)
 class WorkflowScore:
-    stages: tuple[OpinionRetrievalScore | PinpointStageScore, ...]
+    substages: tuple[OpinionRetrievalScore | PinpointSubstageScore, ...]
     pinpoint: dict[str, PinpointScore] | None = None
     dataset: DatasetInventory | None = None
     page_precision: dict[str, PagePrecision] | None = None
     found_page_precision: dict[str, FoundPageAgreement] | None = None
+    completed_stages: tuple[str, ...] = ()
 
     def __add__(self, other: WorkflowScore) -> WorkflowScore:
         if (self.pinpoint is None) != (other.pinpoint is None):
@@ -362,7 +370,7 @@ class WorkflowScore:
         if (self.found_page_precision is None) != (other.found_page_precision is None):
             raise ValueError("Cannot combine workflows with different found-page evaluation boundaries")
         return type(self)(
-            tuple(left + right for left, right in zip(self.stages, other.stages, strict=True)),
+            tuple(left + right for left, right in zip(self.substages, other.substages, strict=True)),
             {group: self.pinpoint[group] + other.pinpoint[group] for group in GROUPS}
             if self.pinpoint is not None and other.pinpoint is not None
             else None,
@@ -373,11 +381,15 @@ class WorkflowScore:
             {group: self.found_page_precision[group] + other.found_page_precision[group] for group in GROUPS}
             if self.found_page_precision is not None and other.found_page_precision is not None
             else None,
+            tuple(stage for stage in self.completed_stages if stage in other.completed_stages),
         )
 
     def as_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {"dataset": self.dataset.as_dict()} if self.dataset is not None else {}
-        result["stages"] = [stage.as_dict() for stage in self.stages]
+        result["workflow"] = "validate_pincite"
+        result["stages"] = group_substage_records(
+            "validate_pincite", (item.as_dict() for item in self.substages), self.completed_stages
+        )
         if self.pinpoint is not None:
             result["gold_cohort"] = {
                 "scope": "Native settled pin cites under gold CORRECT_IDENTITY roots, including reporter and docket roots and leaves",
@@ -396,8 +408,8 @@ class WorkflowScore:
         return result
 
 
-def _entries(citation: Any, field: str, stage: str) -> tuple[Any, ...]:
-    nodes = {node.id for node in citation.nodes if node.stage == stage}
+def _entries(citation: Any, field: str, substage: str) -> tuple[Any, ...]:
+    nodes = {node.id for node in citation.nodes if node.substage == substage}
     return tuple(entry for entry in getattr(citation, field) if entry.node_id in nodes)
 
 
@@ -416,7 +428,7 @@ def _review_verdict(review: Any) -> ReporterPinpointVerdict:
 
 
 def _settled_correct_identity_gold(document: Document) -> tuple[dict, dict]:
-    gold = _gold(document)
+    gold = annotations_by_site(document)
     rows = {row["id"]: row for row in gold.values()}
     correct_identity_roots = {
         row["id"]
@@ -433,12 +445,12 @@ def _settled_correct_identity_gold(document: Document) -> tuple[dict, dict]:
 
 
 def _score_judgments(
-    document: Document, stage: str, *, cumulative: bool = False
+    document: Document, substage: str, *, cumulative: bool = False
 ) -> tuple[dict[str, PinpointScore], int]:
     """Do not narrow gold by pipeline admission, retrieval, provider, or page selection."""
     gold, cohort = _settled_correct_identity_gold(document)
     rows = {row["id"]: row for row in gold.values()}
-    roots = {_key(root): root for root in document.roots if isinstance(root, FullReporterCitation)}
+    roots = {citation_site(root): root for root in document.roots if isinstance(root, FullReporterCitation)}
     counts = {
         group: {"correct": 0, "predicted": 0, "gold": 0, "undetermined": 0, "missing_opinions": 0}
         for group in GROUPS
@@ -446,7 +458,7 @@ def _score_judgments(
     for row in cohort.values():
         family = "docket" if rows[row["root_id"]]["kind"] == "DocketCitation" else "reporter"
         group = f"{family}_{'roots' if row['is_root'] else 'leaves'}"
-        root = roots.get(_gold_key(rows[row["root_id"]]))
+        root = roots.get(annotation_site(rows[row["root_id"]]))
         retrieval = root.reporter_root_opinion_retrieval if root is not None else None
         missing = retrieval is None or not any(
             opinion.text_field is not None for opinion in retrieval.opinions
@@ -455,25 +467,27 @@ def _score_judgments(
             counts[category]["gold"] += 1
             counts[category]["missing_opinions"] += missing
     unscored = 0
-    for citation, row in _attribution_rows(list(document.citations), gold):
-        field = "reporter_pinpoint_judgments" if stage == JUDGMENT_STAGE else "reporter_support_reviews"
-        if cumulative and stage != JUDGMENT_STAGE:
+    for citation, row in align_citation_annotations(list(document.citations), gold):
+        field = "reporter_pinpoint_judgments" if substage == JUDGMENT_SUBSTAGE else "reporter_support_reviews"
+        if cumulative and substage != JUDGMENT_SUBSTAGE:
             nodes = {
-                node.id for node in citation.nodes if node.stage in {PAGE_SUPPORT_STAGE, FULL_OPINION_STAGE}
+                node.id
+                for node in citation.nodes
+                if node.substage in {PAGE_SUPPORT_SUBSTAGE, FULL_OPINION_SUBSTAGE}
             }
             entries = tuple(entry for entry in getattr(citation, field) if entry.node_id in nodes)
         else:
-            entries = _entries(citation, field, stage)
+            entries = _entries(citation, field, substage)
         if not entries:
             continue
-        verdict = entries[-1].verdict if stage == JUDGMENT_STAGE else _review_verdict(entries[-1])
+        verdict = entries[-1].verdict if substage == JUDGMENT_SUBSTAGE else _review_verdict(entries[-1])
         if row is None or row["id"] not in cohort:
             unscored += verdict is not ReporterPinpointVerdict.UNDETERMINED
             continue
         family = "docket" if rows[row["root_id"]]["kind"] == "DocketCitation" else "reporter"
         group = f"{family}_{'roots' if row['is_root'] else 'leaves'}"
         predicted_root = next((root for root in document.roots if root.id == latest(citation.root_id)), None)
-        attachment_agrees = predicted_root is not None and _key(predicted_root) == _gold_key(
+        attachment_agrees = predicted_root is not None and citation_site(predicted_root) == annotation_site(
             rows[row["root_id"]]
         )
         for category in (group, "total"):
@@ -494,11 +508,11 @@ def _gold_page_location(row: dict) -> bool | None:
 
 
 def _page_predictions(
-    document: Document, stage: str, gold: dict, *, cumulative: bool
+    document: Document, substage: str, gold: dict, *, cumulative: bool
 ) -> Iterator[tuple[Any, dict | None, PinpointPageAssessment]]:
-    for citation, row in _attribution_rows(list(document.citations), gold):
-        if stage == JUDGMENT_STAGE:
-            entries = _entries(citation, "reporter_pinpoint_judgments", stage)
+    for citation, row in align_citation_annotations(list(document.citations), gold):
+        if substage == JUDGMENT_SUBSTAGE:
+            entries = _entries(citation, "reporter_pinpoint_judgments", substage)
             if not entries:
                 continue
             assessment = entries[-1]
@@ -508,12 +522,13 @@ def _page_predictions(
                     entry
                     for entry in citation.reporter_support_reviews
                     if any(
-                        node.id == entry.node_id and node.stage in {PAGE_SUPPORT_STAGE, FULL_OPINION_STAGE}
+                        node.id == entry.node_id
+                        and node.substage in {PAGE_SUPPORT_SUBSTAGE, FULL_OPINION_SUBSTAGE}
                         for node in citation.nodes
                     )
                 )
                 if cumulative
-                else _entries(citation, "reporter_support_reviews", stage)
+                else _entries(citation, "reporter_support_reviews", substage)
             )
             if not entries or entries[-1].decision is None:
                 continue
@@ -530,17 +545,17 @@ def _page_categories(row: dict | None, cohort: dict, rows: dict) -> tuple[str, .
 
 def _page_attachment_agrees(citation: Any, row: dict, roots: dict, rows: dict) -> bool:
     root = roots.get(latest(citation.root_id))
-    return root is not None and _key(root) == _gold_key(rows[row["root_id"]])
+    return root is not None and citation_site(root) == annotation_site(rows[row["root_id"]])
 
 
 def _score_page_locations(
-    document: Document, stage: str, *, cumulative: bool = False
+    document: Document, substage: str, *, cumulative: bool = False
 ) -> dict[str, PagePrecision]:
     gold, cohort = _settled_correct_identity_gold(document)
     rows = {row["id"]: row for row in gold.values()}
     roots = {root.id: root for root in document.roots}
     counts = {group: Counter() for group in GROUPS}
-    for citation, row, assessment in _page_predictions(document, stage, gold, cumulative=cumulative):
+    for citation, row, assessment in _page_predictions(document, substage, gold, cumulative=cumulative):
         categories = _page_categories(row, cohort, rows)
         expected = _gold_page_location(row) if row is not None and row["id"] in cohort else None
         if expected is None:
@@ -575,13 +590,13 @@ def _target_covered(target: PinCiteTarget, references: tuple[PinCiteTarget, ...]
 
 
 def _score_found_page_locations(
-    document: Document, stage: str, *, cumulative: bool = False
+    document: Document, substage: str, *, cumulative: bool = False
 ) -> dict[str, FoundPageAgreement]:
     gold, cohort = _settled_correct_identity_gold(document)
     rows = {row["id"]: row for row in gold.values()}
     roots = {root.id: root for root in document.roots}
     counts = {group: Counter() for group in GROUPS}
-    for citation, row, assessment in _page_predictions(document, stage, gold, cumulative=cumulative):
+    for citation, row, assessment in _page_predictions(document, substage, gold, cumulative=cumulative):
         categories = _page_categories(row, cohort, rows)
         references = (
             tuple(
@@ -624,143 +639,154 @@ def _score_found_page_locations(
     return {group: FoundPageAgreement(**values) for group, values in counts.items()}
 
 
-def score_reporter_root_opinion_page_index(document: Document) -> PinpointStageScore:
-    checkpoint = document.get_stage(PAGE_INDEX_STAGE)
+def score_reporter_root_opinion_page_index(document: Document) -> PinpointSubstageScore:
+    checkpoint = document.get_substage(PAGE_INDEX_SUBSTAGE)
     counts: Counter[str] = Counter()
     for citation in checkpoint.citations:
         index = getattr(citation, "reporter_root_opinion_page_index", None)
         if index is not None and any(
-            node.id == index.node_id and node.stage == PAGE_INDEX_STAGE for node in citation.nodes
+            node.id == index.node_id and node.substage == PAGE_INDEX_SUBSTAGE for node in citation.nodes
         ):
             counts["roots_indexed"] += 1
             counts["opinions_indexed"] += len(index.opinions)
-    return PinpointStageScore(PAGE_INDEX_STAGE, dict(counts))
+    return PinpointSubstageScore(PAGE_INDEX_SUBSTAGE, dict(counts))
 
 
-def score_reporter_citation_page_resolution(document: Document) -> PinpointStageScore:
-    checkpoint = document.get_stage(PAGE_RESOLUTION_STAGE)
+def score_reporter_citation_page_resolution(document: Document) -> PinpointSubstageScore:
+    checkpoint = document.get_substage(PAGE_RESOLUTION_SUBSTAGE)
     counts = Counter(
         entry.outcome.value
         for citation in checkpoint.citations
-        for entry in _entries(citation, "reporter_page_resolutions", PAGE_RESOLUTION_STAGE)
+        for entry in _entries(citation, "reporter_page_resolutions", PAGE_RESOLUTION_SUBSTAGE)
     )
-    return PinpointStageScore(PAGE_RESOLUTION_STAGE, dict(counts))
+    return PinpointSubstageScore(PAGE_RESOLUTION_SUBSTAGE, dict(counts))
 
 
-def score_reporter_citation_opinion_review(document: Document) -> PinpointStageScore:
-    checkpoint = document.get_stage(OPINION_SELECTION_STAGE)
+def score_reporter_citation_opinion_review(document: Document) -> PinpointSubstageScore:
+    checkpoint = document.get_substage(OPINION_SELECTION_SUBSTAGE)
     counts = Counter(
         "decisions" if entry.decision is not None else "failures"
         for citation in checkpoint.citations
-        for entry in _entries(citation, "reporter_opinion_reviews", OPINION_SELECTION_STAGE)
+        for entry in _entries(citation, "reporter_opinion_reviews", OPINION_SELECTION_SUBSTAGE)
     )
-    return PinpointStageScore(OPINION_SELECTION_STAGE, dict(counts))
+    return PinpointSubstageScore(OPINION_SELECTION_SUBSTAGE, dict(counts))
 
 
-def score_reporter_citation_propositions(document: Document) -> PinpointStageScore:
-    checkpoint = document.get_stage(PROPOSITION_STAGE)
+def score_reporter_citation_propositions(document: Document) -> PinpointSubstageScore:
+    checkpoint = document.get_substage(PROPOSITION_SUBSTAGE)
     counts: Counter[str] = Counter()
     for citation in checkpoint.citations:
-        for entry in _entries(citation, "reporter_propositions", PROPOSITION_STAGE):
+        for entry in _entries(citation, "reporter_propositions", PROPOSITION_SUBSTAGE):
             counts["decisions" if entry.decision is not None else "failures"] += 1
             if entry.decision is not None and not entry.passages:
                 counts["no_proposition"] += 1
-    return PinpointStageScore(PROPOSITION_STAGE, dict(counts))
+    return PinpointSubstageScore(PROPOSITION_SUBSTAGE, dict(counts))
 
 
-def score_reporter_citation_pinpoint_evidence(document: Document) -> PinpointStageScore:
-    checkpoint = document.get_stage(PINPOINT_EVIDENCE_STAGE)
+def score_reporter_citation_pinpoint_evidence(document: Document) -> PinpointSubstageScore:
+    checkpoint = document.get_substage(PINPOINT_EVIDENCE_SUBSTAGE)
     counts = Counter(
         entry.outcome.value
         for citation in checkpoint.citations
-        for entry in _entries(citation, "reporter_pinpoint_evidence", PINPOINT_EVIDENCE_STAGE)
+        for entry in _entries(citation, "reporter_pinpoint_evidence", PINPOINT_EVIDENCE_SUBSTAGE)
     )
-    return PinpointStageScore(PINPOINT_EVIDENCE_STAGE, dict(counts))
+    return PinpointSubstageScore(PINPOINT_EVIDENCE_SUBSTAGE, dict(counts))
 
 
-def score_reporter_citation_pinpoint_page_review(document: Document) -> PinpointStageScore:
-    checkpoint = document.get_stage(PAGE_SUPPORT_STAGE)
+def score_reporter_citation_pinpoint_page_review(document: Document) -> PinpointSubstageScore:
+    checkpoint = document.get_substage(PAGE_SUPPORT_SUBSTAGE)
     counts = Counter(
         entry.decision.result.value if entry.decision is not None else "failures"
         for citation in checkpoint.citations
-        for entry in _entries(citation, "reporter_support_reviews", PAGE_SUPPORT_STAGE)
+        for entry in _entries(citation, "reporter_support_reviews", PAGE_SUPPORT_SUBSTAGE)
     )
-    judgments, unscored = _score_judgments(checkpoint, PAGE_SUPPORT_STAGE)
-    return PinpointStageScore(PAGE_SUPPORT_STAGE, dict(counts), judgments, unscored)
+    judgments, unscored = _score_judgments(checkpoint, PAGE_SUPPORT_SUBSTAGE)
+    return PinpointSubstageScore(PAGE_SUPPORT_SUBSTAGE, dict(counts), judgments, unscored)
 
 
-def score_reporter_citation_full_opinion_review(document: Document) -> PinpointStageScore:
-    checkpoint = document.get_stage(FULL_OPINION_STAGE)
+def score_reporter_citation_full_opinion_review(document: Document) -> PinpointSubstageScore:
+    checkpoint = document.get_substage(FULL_OPINION_SUBSTAGE)
     counts = Counter(
         entry.decision.result.value if entry.decision is not None else "failures"
         for citation in checkpoint.citations
-        for entry in _entries(citation, "reporter_support_reviews", FULL_OPINION_STAGE)
+        for entry in _entries(citation, "reporter_support_reviews", FULL_OPINION_SUBSTAGE)
     )
-    judgments, unscored = _score_judgments(checkpoint, FULL_OPINION_STAGE)
-    return PinpointStageScore(
-        FULL_OPINION_STAGE,
+    judgments, unscored = _score_judgments(checkpoint, FULL_OPINION_SUBSTAGE)
+    return PinpointSubstageScore(
+        FULL_OPINION_SUBSTAGE,
         dict(counts),
         judgments,
         unscored,
-        _score_page_locations(checkpoint, FULL_OPINION_STAGE),
-        _score_found_page_locations(checkpoint, FULL_OPINION_STAGE),
+        _score_page_locations(checkpoint, FULL_OPINION_SUBSTAGE),
+        _score_found_page_locations(checkpoint, FULL_OPINION_SUBSTAGE),
     )
 
 
-def score_reporter_citation_pinpoint_judgment(document: Document) -> PinpointStageScore:
-    checkpoint = document.get_stage(JUDGMENT_STAGE)
+def score_reporter_citation_pinpoint_judgment(document: Document) -> PinpointSubstageScore:
+    checkpoint = document.get_substage(JUDGMENT_SUBSTAGE)
     counts = Counter(
         entry.verdict.value
         for citation in checkpoint.citations
-        for entry in _entries(citation, "reporter_pinpoint_judgments", JUDGMENT_STAGE)
+        for entry in _entries(citation, "reporter_pinpoint_judgments", JUDGMENT_SUBSTAGE)
     )
-    judgments, unscored = _score_judgments(checkpoint, JUDGMENT_STAGE)
-    return PinpointStageScore(
-        JUDGMENT_STAGE,
+    judgments, unscored = _score_judgments(checkpoint, JUDGMENT_SUBSTAGE)
+    return PinpointSubstageScore(
+        JUDGMENT_SUBSTAGE,
         dict(counts),
         judgments,
         unscored,
-        _score_page_locations(checkpoint, JUDGMENT_STAGE),
-        _score_found_page_locations(checkpoint, JUDGMENT_STAGE),
+        _score_page_locations(checkpoint, JUDGMENT_SUBSTAGE),
+        _score_found_page_locations(checkpoint, JUDGMENT_SUBSTAGE),
     )
 
 
-_STAGE_SCORERS: dict[str, Callable[[Document], OpinionRetrievalScore | PinpointStageScore]] = {
-    STAGE: score_reporter_root_opinion_retrieval,
-    PAGE_INDEX_STAGE: score_reporter_root_opinion_page_index,
-    PAGE_RESOLUTION_STAGE: score_reporter_citation_page_resolution,
-    OPINION_SELECTION_STAGE: score_reporter_citation_opinion_review,
-    PROPOSITION_STAGE: score_reporter_citation_propositions,
-    PINPOINT_EVIDENCE_STAGE: score_reporter_citation_pinpoint_evidence,
-    PAGE_SUPPORT_STAGE: score_reporter_citation_pinpoint_page_review,
-    FULL_OPINION_STAGE: score_reporter_citation_full_opinion_review,
-    JUDGMENT_STAGE: score_reporter_citation_pinpoint_judgment,
+_SUBSTAGE_SCORERS: dict[str, Callable[[Document], OpinionRetrievalScore | PinpointSubstageScore]] = {
+    SUBSTAGE: score_reporter_root_opinion_retrieval,
+    PAGE_INDEX_SUBSTAGE: score_reporter_root_opinion_page_index,
+    PAGE_RESOLUTION_SUBSTAGE: score_reporter_citation_page_resolution,
+    OPINION_SELECTION_SUBSTAGE: score_reporter_citation_opinion_review,
+    PROPOSITION_SUBSTAGE: score_reporter_citation_propositions,
+    PINPOINT_EVIDENCE_SUBSTAGE: score_reporter_citation_pinpoint_evidence,
+    PAGE_SUPPORT_SUBSTAGE: score_reporter_citation_pinpoint_page_review,
+    FULL_OPINION_SUBSTAGE: score_reporter_citation_full_opinion_review,
+    JUDGMENT_SUBSTAGE: score_reporter_citation_pinpoint_judgment,
 }
 
 
 def score_validate_pincite(document: Document) -> WorkflowScore:
-    stages: list[OpinionRetrievalScore | PinpointStageScore] = [_STAGE_SCORERS[STAGE](document)]
-    stages.extend(_STAGE_SCORERS[stage](document) for stage in LATER_STAGES if stage in document.stage_runs)
+    stages: list[OpinionRetrievalScore | PinpointSubstageScore] = [_SUBSTAGE_SCORERS[SUBSTAGE](document)]
+    stages.extend(
+        _SUBSTAGE_SCORERS[substage](document)
+        for substage in LATER_SUBSTAGES
+        if substage in document.substage_runs
+    )
     summary_stage = next(
-        (stage for stage in reversed(LATER_STAGES[-3:]) if stage in document.stage_runs), None
+        (substage for substage in reversed(LATER_SUBSTAGES[-3:]) if substage in document.substage_runs), None
     )
     summary = (
-        _score_judgments(document.get_stage(summary_stage), summary_stage, cumulative=True)[0]
+        _score_judgments(document.get_substage(summary_stage), summary_stage, cumulative=True)[0]
         if summary_stage
         else None
     )
     inventory = _dataset_inventory(document) if document.source_path is not None else None
     page_precision = (
-        _score_page_locations(document.get_stage(summary_stage), summary_stage, cumulative=True)
-        if summary_stage in {FULL_OPINION_STAGE, JUDGMENT_STAGE}
+        _score_page_locations(document.get_substage(summary_stage), summary_stage, cumulative=True)
+        if summary_stage in {FULL_OPINION_SUBSTAGE, JUDGMENT_SUBSTAGE}
         else None
     )
     found_page_precision = (
-        _score_found_page_locations(document.get_stage(summary_stage), summary_stage, cumulative=True)
-        if summary_stage in {FULL_OPINION_STAGE, JUDGMENT_STAGE}
+        _score_found_page_locations(document.get_substage(summary_stage), summary_stage, cumulative=True)
+        if summary_stage in {FULL_OPINION_SUBSTAGE, JUDGMENT_SUBSTAGE}
         else None
     )
-    return WorkflowScore(tuple(stages), summary, inventory, page_precision, found_page_precision)
+    return WorkflowScore(
+        tuple(stages),
+        summary,
+        inventory,
+        page_precision,
+        found_page_precision,
+        tuple(stage for stage in document.stage_runs if stage.startswith("validate_pincite.")),
+    )
 
 
 def render_reporter_root_opinion_retrieval(score: OpinionRetrievalScore) -> str:
@@ -768,7 +794,7 @@ def render_reporter_root_opinion_retrieval(score: OpinionRetrievalScore) -> str:
     denominator = score.reporter_roots_correct_identity
     percentage = f"{100 * numerator / denominator:.1f}%" if denominator else "—"
     return (
-        f"## {score.stage}\n\n"
+        f"{substage_heading(score.substage)}\n\n"
         "Scope: reporter roots with correct identity and a selected original CourtListener cluster.\n\n"
         "| Metric | Result |\n| --- | --- |\n"
         "| reporter_roots_opinion_retrievals / reporter_roots_correct_identity "
@@ -776,10 +802,10 @@ def render_reporter_root_opinion_retrieval(score: OpinionRetrievalScore) -> str:
     )
 
 
-def _render_pinpoint_stage(score: PinpointStageScore, expected_stage: str) -> str:
-    if score.stage != expected_stage:
+def _render_pinpoint_substage(score: PinpointSubstageScore, expected_stage: str) -> str:
+    if score.substage != expected_stage:
         raise ValueError(f"Renderer needs a {expected_stage} score")
-    lines = [f"## {score.stage}", "", "| Outcome | Count |", "| --- | ---: |"]
+    lines = [f"{substage_heading(score.substage)}", "", "| Outcome | Count |", "| --- | ---: |"]
     lines.extend(f"| {name} | {count} |" for name, count in sorted(score.counts.items()))
     if score.judgments is not None:
         page_header = " Page precision |" if score.page_precision is not None else ""
@@ -816,60 +842,66 @@ def _render_pinpoint_stage(score: PinpointStageScore, expected_stage: str) -> st
             ]
         )
         if score.page_precision is not None:
-            lines.extend(["", _render_page_precision_note(score.page_precision, score.stage)])
+            lines.extend(["", _render_page_precision_note(score.page_precision, score.substage)])
         if score.found_page_precision is not None:
             lines.extend(["", _render_found_page_note(score.found_page_precision)])
     return "\n".join(lines) + "\n"
 
 
-def render_reporter_root_opinion_page_index(score: PinpointStageScore) -> str:
-    return _render_pinpoint_stage(score, PAGE_INDEX_STAGE)
+def render_reporter_root_opinion_page_index(score: PinpointSubstageScore) -> str:
+    return _render_pinpoint_substage(score, PAGE_INDEX_SUBSTAGE)
 
 
-def render_reporter_citation_page_resolution(score: PinpointStageScore) -> str:
-    return _render_pinpoint_stage(score, PAGE_RESOLUTION_STAGE)
+def render_reporter_citation_page_resolution(score: PinpointSubstageScore) -> str:
+    return _render_pinpoint_substage(score, PAGE_RESOLUTION_SUBSTAGE)
 
 
-def render_reporter_citation_opinion_review(score: PinpointStageScore) -> str:
-    return _render_pinpoint_stage(score, OPINION_SELECTION_STAGE)
+def render_reporter_citation_opinion_review(score: PinpointSubstageScore) -> str:
+    return _render_pinpoint_substage(score, OPINION_SELECTION_SUBSTAGE)
 
 
-def render_reporter_citation_propositions(score: PinpointStageScore) -> str:
-    return _render_pinpoint_stage(score, PROPOSITION_STAGE)
+def render_reporter_citation_propositions(score: PinpointSubstageScore) -> str:
+    return _render_pinpoint_substage(score, PROPOSITION_SUBSTAGE)
 
 
-def render_reporter_citation_pinpoint_evidence(score: PinpointStageScore) -> str:
-    return _render_pinpoint_stage(score, PINPOINT_EVIDENCE_STAGE)
+def render_reporter_citation_pinpoint_evidence(score: PinpointSubstageScore) -> str:
+    return _render_pinpoint_substage(score, PINPOINT_EVIDENCE_SUBSTAGE)
 
 
-def render_reporter_citation_pinpoint_page_review(score: PinpointStageScore) -> str:
-    return _render_pinpoint_stage(score, PAGE_SUPPORT_STAGE)
+def render_reporter_citation_pinpoint_page_review(score: PinpointSubstageScore) -> str:
+    return _render_pinpoint_substage(score, PAGE_SUPPORT_SUBSTAGE)
 
 
-def render_reporter_citation_full_opinion_review(score: PinpointStageScore) -> str:
-    return _render_pinpoint_stage(score, FULL_OPINION_STAGE)
+def render_reporter_citation_full_opinion_review(score: PinpointSubstageScore) -> str:
+    return _render_pinpoint_substage(score, FULL_OPINION_SUBSTAGE)
 
 
-def render_reporter_citation_pinpoint_judgment(score: PinpointStageScore) -> str:
-    return _render_pinpoint_stage(score, JUDGMENT_STAGE)
+def render_reporter_citation_pinpoint_judgment(score: PinpointSubstageScore) -> str:
+    return _render_pinpoint_substage(score, JUDGMENT_SUBSTAGE)
 
 
-_STAGE_RENDERERS: dict[str, Callable[..., str]] = {
-    STAGE: render_reporter_root_opinion_retrieval,
-    PAGE_INDEX_STAGE: render_reporter_root_opinion_page_index,
-    PAGE_RESOLUTION_STAGE: render_reporter_citation_page_resolution,
-    OPINION_SELECTION_STAGE: render_reporter_citation_opinion_review,
-    PROPOSITION_STAGE: render_reporter_citation_propositions,
-    PINPOINT_EVIDENCE_STAGE: render_reporter_citation_pinpoint_evidence,
-    PAGE_SUPPORT_STAGE: render_reporter_citation_pinpoint_page_review,
-    FULL_OPINION_STAGE: render_reporter_citation_full_opinion_review,
-    JUDGMENT_STAGE: render_reporter_citation_pinpoint_judgment,
+_SUBSTAGE_RENDERERS: dict[str, Callable[..., str]] = {
+    SUBSTAGE: render_reporter_root_opinion_retrieval,
+    PAGE_INDEX_SUBSTAGE: render_reporter_root_opinion_page_index,
+    PAGE_RESOLUTION_SUBSTAGE: render_reporter_citation_page_resolution,
+    OPINION_SELECTION_SUBSTAGE: render_reporter_citation_opinion_review,
+    PROPOSITION_SUBSTAGE: render_reporter_citation_propositions,
+    PINPOINT_EVIDENCE_SUBSTAGE: render_reporter_citation_pinpoint_evidence,
+    PAGE_SUPPORT_SUBSTAGE: render_reporter_citation_pinpoint_page_review,
+    FULL_OPINION_SUBSTAGE: render_reporter_citation_full_opinion_review,
+    JUDGMENT_SUBSTAGE: render_reporter_citation_pinpoint_judgment,
 }
 
 
 def render_validate_pincite(score: WorkflowScore, *, set_name: str = _SET) -> str:
     reports = [_render_dataset_inventory(score.dataset)] if score.dataset is not None else []
-    reports.extend(_STAGE_RENDERERS[stage.stage](stage) for stage in score.stages)
+    reports.extend(
+        render_stage_sections(
+            "validate_pincite",
+            ((item.substage, _SUBSTAGE_RENDERERS[item.substage](item)) for item in score.substages),
+            score.completed_stages,
+        )
+    )
     if score.pinpoint is not None:
         page_header = " Page precision |" if score.page_precision is not None else ""
         page_separator = " ---: |" if score.page_precision is not None else ""
@@ -920,18 +952,20 @@ def render_validate_pincite(score: WorkflowScore, *, set_name: str = _SET) -> st
             ]
         )
         if score.page_precision is not None:
-            lines.extend(["", _render_page_precision_note(score.page_precision, score.stages[-1].stage)])
+            lines.extend(
+                ["", _render_page_precision_note(score.page_precision, score.substages[-1].substage)]
+            )
         if score.found_page_precision is not None:
             lines.extend(["", _render_found_page_note(score.found_page_precision)])
         reports.append("\n".join(lines) + "\n")
     return f"# validate_pincite — {set_name}\n\n" + "\n".join(reports)
 
 
-def _render_page_precision_note(scores: dict[str, PagePrecision], stage: str) -> str:
+def _render_page_precision_note(scores: dict[str, PagePrecision], substage: str) -> str:
     score = scores["total"]
     assertion = (
         "the model's correct_page assessment"
-        if stage == FULL_OPINION_STAGE
+        if substage == FULL_OPINION_SUBSTAGE
         else "the final preserved correct_page assessment"
     )
     return (

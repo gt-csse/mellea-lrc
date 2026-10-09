@@ -15,12 +15,14 @@ from mellea_lrc.providers.courtlistener.models import CourtListenerSearchPage
 from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.validation.body_search.common import roots_for_body_search
 from mellea_lrc.validation.body_search.locator_body_courtlistener_opinion_retrieval import (
-    STAGE as OPINION_STAGE,
+    SUBSTAGE as OPINION_SUBSTAGE,
 )
 from mellea_lrc.validation.body_search.locator_body_courtlistener_opinion_retrieval import (
     locator_body_courtlistener_opinion_retrieval,
 )
-from mellea_lrc.validation.body_search.locator_body_courtlistener_recap_retrieval import STAGE as RECAP_STAGE
+from mellea_lrc.validation.body_search.locator_body_courtlistener_recap_retrieval import (
+    SUBSTAGE as RECAP_SUBSTAGE,
+)
 from mellea_lrc.validation.body_search.locator_body_courtlistener_recap_retrieval import (
     locator_body_courtlistener_recap_retrieval,
 )
@@ -81,9 +83,9 @@ def _page(*results: dict[str, Any], next_url: str | None = None) -> CourtListene
 def test_queued_field_identity_root_waits_for_aggregation_before_body_search() -> None:
     before = _rooted()
     route = before.roots[0].record("reporter_review")
-    queued = before.replace_citation(route.with_route("fields_aggregated_identity")).complete(
-        "reporter_review"
-    )
+    queued = before.replace_citation(
+        route.with_route("validate_roots.docket_lookup.identity_aggregation")
+    ).complete_substage("reporter_review")
     assert roots_for_body_search(queued) == ()
     assert queued.roots[0].identity_judgments == ()
 
@@ -92,17 +94,20 @@ def test_queued_field_identity_root_waits_for_aggregation_before_body_search() -
     assert client.search_calls == []
     assert skipped.roots[0].body_searches == ()
 
-    aggregate = queued.roots[0].record("fields_aggregated_identity")
-    ready = queued.replace_citation(aggregate.with_route(OPINION_STAGE)).complete(
-        "fields_aggregated_identity"
+    aggregate = queued.roots[0].record("validate_roots.docket_lookup.identity_aggregation")
+    ready = queued.replace_citation(aggregate.with_route(OPINION_SUBSTAGE)).complete_substage(
+        "validate_roots.docket_lookup.identity_aggregation"
     )
     assert roots_for_body_search(ready) == ready.roots
     assert ready.roots[0].identity_judgments == ()
-    assert [item.value for item in ready.roots[0].routes] == ["fields_aggregated_identity", OPINION_STAGE]
+    assert [item.value for item in ready.roots[0].routes] == [
+        "validate_roots.docket_lookup.identity_aggregation",
+        OPINION_SUBSTAGE,
+    ]
 
 
 def test_opinion_stage_uses_nested_opinion_id_and_multiple_full_body_occurrences() -> None:
-    assert OPINION_STAGE == "20_locator_body_courtlistener_opinion_retrieval"
+    assert OPINION_SUBSTAGE == "validate_roots.locator_body_corroboration.courtlistener_opinion_retrieval"
     before = _rooted()
     first = _page(
         {
@@ -126,8 +131,8 @@ def test_opinion_stage_uses_nested_opinion_id_and_multiple_full_body_occurrences
 
     assert client.search_calls == [('"347 U.S. 483"', "o", None)]
     assert client.opinion_calls == ["901"]
-    assert after.stage_runs == (*before.stage_runs, OPINION_STAGE)
-    assert after.get_stage("10_roots") == before
+    assert after.substage_runs == (*before.substage_runs, OPINION_SUBSTAGE)
+    assert after.get_stage("grow_roots.root_formation") == before
     search = after.roots[0].body_searches[0]
     assert search.source is BodySource.COURTLISTENER_OPINION
     assert search.node_id == after.roots[0].nodes[-1].id
@@ -194,7 +199,7 @@ def test_detail_must_identify_the_fetched_opinion() -> None:
 
 
 def test_recap_stage_uses_document_id_and_entry_date_not_case_date() -> None:
-    assert RECAP_STAGE == "21_locator_body_courtlistener_recap_retrieval"
+    assert RECAP_SUBSTAGE == "validate_roots.locator_body_corroboration.courtlistener_recap_retrieval"
     before = _rooted()
     client = FakeBodyClient(
         lambda *_args: _page(
@@ -219,7 +224,7 @@ def test_recap_stage_uses_document_id_and_entry_date_not_case_date() -> None:
     assert search.source is BodySource.COURTLISTENER_RECAP
     assert search.evidence == ()
     assert any(failure.failure_type == "ineligible_issue_date" for failure in search.failures)
-    assert after.stage_runs[-1] == RECAP_STAGE
+    assert after.substage_runs[-1] == RECAP_SUBSTAGE
 
 
 def test_multi_opinion_cluster_date_cannot_certify_an_individual_opinion_cutoff() -> None:
@@ -589,6 +594,6 @@ def test_both_sources_append_independently_and_reject_repeat() -> None:
         BodySource.COURTLISTENER_OPINION,
         BodySource.COURTLISTENER_RECAP,
     ]
-    assert after_recap.stage_runs[-2:] == (OPINION_STAGE, RECAP_STAGE)
+    assert after_recap.substage_runs[-2:] == (OPINION_SUBSTAGE, RECAP_SUBSTAGE)
     with pytest.raises(ValueError, match="already completed"):
         locator_body_courtlistener_opinion_retrieval(after_recap, client=client)

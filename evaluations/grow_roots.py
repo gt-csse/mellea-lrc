@@ -1,4 +1,4 @@
-"""Score individual grow_roots stages and final root fields from one Document."""
+"""Score individual grow_roots substages and final root fields from one Document."""
 
 from __future__ import annotations
 
@@ -8,23 +8,30 @@ from dataclasses import dataclass
 from typing import Any
 
 from evaluations.annotations import citation_annotations
-from evaluations.score_types import FieldScore, Precision, StageScore
+from evaluations.score_types import (
+    FieldScore,
+    Precision,
+    SubstageScore,
+    group_substage_records,
+    render_stage_sections,
+    substage_heading,
+)
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation
 from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, latest
-from mellea_lrc.validation.docket_root_lookup_govinfo_llm_review import STAGE as VALIDATED_FIELDS_STAGE
+from mellea_lrc.validation.docket_root_lookup_govinfo_llm_review import SUBSTAGE as VALIDATED_FIELDS_SUBSTAGE
 
-REPORTER_STAGE = "1_full_reporter_locators"
-DOCKET_STAGE = "2_docket_locators"
-HUNT_STAGE = "3_docket_locator_site_hunting"
-ENTRY_STAGE = "4_docket_entries"
-COLOCATION_STAGE = "5_colocations"
-CASE_NAME_STAGE = "6_case_names"
-COURT_STAGE = "7_courts"
-DATE_STAGE = "8_dates"
-PIN_STAGE = "9_pin_cites"
-ROOT_STAGE = "10_roots"
-ROOT_REVIEW_STAGE = "11_docket_root_llm_reassignment"
+REPORTER_SUBSTAGE = "grow_roots.locator_discovery.full_reporter_locators"
+DOCKET_SUBSTAGE = "grow_roots.locator_discovery.docket_locators"
+HUNT_SUBSTAGE = "grow_roots.locator_discovery.docket_hunting"
+ENTRY_SUBSTAGE = "grow_roots.field_reading.docket_entries"
+COLOCATION_SUBSTAGE = "grow_roots.field_reading.colocations"
+CASE_NAME_SUBSTAGE = "grow_roots.field_reading.case_names"
+COURT_SUBSTAGE = "grow_roots.field_reading.courts"
+DATE_SUBSTAGE = "grow_roots.field_reading.dates"
+PIN_SUBSTAGE = "grow_roots.field_reading.pin_cites"
+ROOT_SUBSTAGE = "grow_roots.root_formation.rule"
+ROOT_REVIEW_SUBSTAGE = "grow_roots.root_formation.docket_llm_reassignment"
 ROOT_FIELDS = ("locator", "case_name", "court", "date", "pin_cite", "docket_entry")
 
 
@@ -48,17 +55,20 @@ class RecallScore:
 
 @dataclass(frozen=True)
 class WorkflowScore:
-    stages: tuple[StageScore, ...]
+    substages: tuple[SubstageScore, ...]
     root_fields: dict[str, dict[str, FieldScore | RecallScore]]
     validated_root_fields: dict[str, dict[str, FieldScore | RecallScore]] | None = None
+    completed_stages: tuple[str, ...] = ()
 
     def __add__(self, other: WorkflowScore) -> WorkflowScore:
-        if tuple(item.stage for item in self.stages) != tuple(item.stage for item in other.stages):
-            raise ValueError("Cannot combine workflows with different stage runs")
+        if tuple(item.substage for item in self.substages) != tuple(
+            item.substage for item in other.substages
+        ):
+            raise ValueError("Cannot combine workflows with different substage runs")
         if (self.validated_root_fields is None) != (other.validated_root_fields is None):
             raise ValueError("Cannot combine workflows with different validation checkpoints")
         return WorkflowScore(
-            tuple(left + right for left, right in zip(self.stages, other.stages, strict=True)),
+            tuple(left + right for left, right in zip(self.substages, other.substages, strict=True)),
             {
                 name: {
                     measure: value + other.root_fields[name][measure] for measure, value in measures.items()
@@ -76,11 +86,15 @@ class WorkflowScore:
                 if self.validated_root_fields is not None and other.validated_root_fields is not None
                 else None
             ),
+            tuple(stage for stage in self.completed_stages if stage in other.completed_stages),
         )
 
     def as_dict(self) -> dict[str, Any]:
         result = {
-            "stages": [item.as_dict() for item in self.stages],
+            "workflow": "grow_roots",
+            "stages": group_substage_records(
+                "grow_roots", (item.as_dict() for item in self.substages), self.completed_stages
+            ),
             "root_fields": {
                 name: {measure: score.as_dict() for measure, score in measures.items()}
                 for name, measures in self.root_fields.items()
@@ -321,15 +335,15 @@ def _normalization_agrees(name: str, reading: Any, row: dict[str, Any] | None) -
     raise ValueError(f"Unknown root field: {name}")
 
 
-def score_full_reporter_locators(document: Document) -> StageScore:
-    checkpoint = document.get_stage(REPORTER_STAGE)
+def score_full_reporter_locators(document: Document) -> SubstageScore:
+    checkpoint = document.get_substage(REPORTER_SUBSTAGE)
     gold = _gold(_rows(checkpoint))
     span_correct = span_total = norm_correct = norm_total = 0
     for citation in checkpoint.full_locators:
         if not isinstance(citation, FullReporterCitation):
             continue
         row = gold.get(_key(citation))
-        node_ids = {node.id for node in citation.nodes if node.stage == REPORTER_STAGE}
+        node_ids = {node.id for node in citation.nodes if node.substage == REPORTER_SUBSTAGE}
         for reading in citation.locator:
             if reading.node_id not in node_ids:
                 continue
@@ -338,21 +352,21 @@ def score_full_reporter_locators(document: Document) -> StageScore:
                 span_correct += int(_source_agrees(reading, _target(row, "locator")))
             norm_total += 1
             norm_correct += int(_normalization_agrees("locator", reading, row))
-    return StageScore(
-        REPORTER_STAGE,
+    return SubstageScore(
+        REPORTER_SUBSTAGE,
         {"span": Precision(span_correct, span_total), "normalization": Precision(norm_correct, norm_total)},
     )
 
 
-def score_docket_locators(document: Document) -> StageScore:
-    checkpoint = document.get_stage(DOCKET_STAGE)
+def score_docket_locators(document: Document) -> SubstageScore:
+    checkpoint = document.get_substage(DOCKET_SUBSTAGE)
     gold = _gold(_rows(checkpoint))
     span_correct = span_total = norm_correct = norm_total = 0
     for citation in checkpoint.full_locators:
         if not isinstance(citation, FullDocketCitation):
             continue
         row = gold.get(_key(citation))
-        node_ids = {node.id for node in citation.nodes if node.stage == DOCKET_STAGE}
+        node_ids = {node.id for node in citation.nodes if node.substage == DOCKET_SUBSTAGE}
         for reading in citation.locator:
             if reading.node_id not in node_ids:
                 continue
@@ -361,21 +375,21 @@ def score_docket_locators(document: Document) -> StageScore:
                 span_correct += int(_source_agrees(reading, _target(row, "locator")))
             norm_total += 1
             norm_correct += int(_normalization_agrees("locator", reading, row))
-    return StageScore(
-        DOCKET_STAGE,
+    return SubstageScore(
+        DOCKET_SUBSTAGE,
         {"span": Precision(span_correct, span_total), "normalization": Precision(norm_correct, norm_total)},
     )
 
 
-def score_docket_locator_site_hunting(document: Document) -> StageScore:
-    checkpoint = document.get_stage(HUNT_STAGE)
+def score_docket_locator_site_hunting(document: Document) -> SubstageScore:
+    checkpoint = document.get_substage(HUNT_SUBSTAGE)
     gold = _gold(_rows(checkpoint))
     span_correct = span_total = norm_correct = norm_total = 0
     for citation in checkpoint.full_locators:
         if not isinstance(citation, FullDocketCitation):
             continue
         row = gold.get(_key(citation))
-        node_ids = {node.id for node in citation.nodes if node.stage == HUNT_STAGE}
+        node_ids = {node.id for node in citation.nodes if node.substage == HUNT_SUBSTAGE}
         for reading in citation.locator:
             if reading.node_id not in node_ids:
                 continue
@@ -384,15 +398,15 @@ def score_docket_locator_site_hunting(document: Document) -> StageScore:
                 span_correct += int(_source_agrees(reading, _target(row, "locator")))
             norm_total += 1
             norm_correct += int(_normalization_agrees("locator", reading, row))
-    return StageScore(
-        HUNT_STAGE,
+    return SubstageScore(
+        HUNT_SUBSTAGE,
         {"span": Precision(span_correct, span_total), "normalization": Precision(norm_correct, norm_total)},
     )
 
 
-def score_docket_entries(document: Document) -> StageScore:
+def score_docket_entries(document: Document) -> SubstageScore:
     """Score every docket's entry outcome, including absence."""
-    checkpoint = document.get_stage(ENTRY_STAGE)
+    checkpoint = document.get_substage(ENTRY_SUBSTAGE)
     gold = _gold(_rows(checkpoint))
     span_correct = span_total = norm_correct = norm_total = 0
     for citation in checkpoint.full_locators:
@@ -404,15 +418,15 @@ def score_docket_entries(document: Document) -> StageScore:
         span_correct += int(row is not None and _source_agrees(reading, _target(row, "docket_entry")))
         norm_total += 1
         norm_correct += int(_normalization_agrees("docket_entry", reading, row))
-    return StageScore(
-        ENTRY_STAGE,
+    return SubstageScore(
+        ENTRY_SUBSTAGE,
         {"span": Precision(span_correct, span_total), "normalization": Precision(norm_correct, norm_total)},
     )
 
 
-def score_case_names(document: Document) -> StageScore:
+def score_case_names(document: Document) -> SubstageScore:
     """Score every full occurrence's name outcome, including absence."""
-    checkpoint = document.get_stage(CASE_NAME_STAGE)
+    checkpoint = document.get_substage(CASE_NAME_SUBSTAGE)
     gold = _gold(_rows(checkpoint))
     span_correct = span_total = norm_correct = norm_total = 0
     for citation in checkpoint.full_locators:
@@ -422,15 +436,15 @@ def score_case_names(document: Document) -> StageScore:
         span_correct += int(row is not None and _source_agrees(reading, _target(row, "case_name")))
         norm_total += 1
         norm_correct += int(_normalization_agrees("case_name", reading, row))
-    return StageScore(
-        CASE_NAME_STAGE,
+    return SubstageScore(
+        CASE_NAME_SUBSTAGE,
         {"span": Precision(span_correct, span_total), "normalization": Precision(norm_correct, norm_total)},
     )
 
 
-def score_courts(document: Document) -> StageScore:
+def score_courts(document: Document) -> SubstageScore:
     """Score every full occurrence's court outcome, including inference and absence."""
-    checkpoint = document.get_stage(COURT_STAGE)
+    checkpoint = document.get_substage(COURT_SUBSTAGE)
     gold = _gold(_rows(checkpoint))
     span_correct = span_total = norm_correct = norm_total = 0
     for citation in checkpoint.full_locators:
@@ -440,15 +454,15 @@ def score_courts(document: Document) -> StageScore:
         span_correct += int(row is not None and _source_agrees(reading, _target(row, "court")))
         norm_total += 1
         norm_correct += int(_normalization_agrees("court", reading, row))
-    return StageScore(
-        COURT_STAGE,
+    return SubstageScore(
+        COURT_SUBSTAGE,
         {"span": Precision(span_correct, span_total), "normalization": Precision(norm_correct, norm_total)},
     )
 
 
-def score_dates(document: Document) -> StageScore:
+def score_dates(document: Document) -> SubstageScore:
     """Score every full occurrence's date outcome, including absence."""
-    checkpoint = document.get_stage(DATE_STAGE)
+    checkpoint = document.get_substage(DATE_SUBSTAGE)
     gold = _gold(_rows(checkpoint))
     span_correct = span_total = norm_correct = norm_total = 0
     for citation in checkpoint.full_locators:
@@ -458,15 +472,15 @@ def score_dates(document: Document) -> StageScore:
         span_correct += int(row is not None and _source_agrees(reading, _target(row, "date")))
         norm_total += 1
         norm_correct += int(_normalization_agrees("date", reading, row))
-    return StageScore(
-        DATE_STAGE,
+    return SubstageScore(
+        DATE_SUBSTAGE,
         {"span": Precision(span_correct, span_total), "normalization": Precision(norm_correct, norm_total)},
     )
 
 
-def score_pin_cites(document: Document) -> StageScore:
+def score_pin_cites(document: Document) -> SubstageScore:
     """Score every full occurrence's pin outcome, including absence."""
-    checkpoint = document.get_stage(PIN_STAGE)
+    checkpoint = document.get_substage(PIN_SUBSTAGE)
     gold = _gold(_rows(checkpoint))
     span_correct = span_total = norm_correct = norm_total = 0
     for citation in checkpoint.full_locators:
@@ -476,14 +490,14 @@ def score_pin_cites(document: Document) -> StageScore:
         span_correct += int(row is not None and _source_agrees(reading, _target(row, "pin_cite")))
         norm_total += 1
         norm_correct += int(_normalization_agrees("pin_cite", reading, row))
-    return StageScore(
-        PIN_STAGE,
+    return SubstageScore(
+        PIN_SUBSTAGE,
         {"span": Precision(span_correct, span_total), "normalization": Precision(norm_correct, norm_total)},
     )
 
 
-def score_colocations(document: Document) -> StageScore:
-    checkpoint = document.get_stage(COLOCATION_STAGE)
+def score_colocations(document: Document) -> SubstageScore:
+    checkpoint = document.get_substage(COLOCATION_SUBSTAGE)
     gold = _gold(_rows(checkpoint))
     by_id = {citation.id: citation for citation in checkpoint.full_locators}
     available = {_key(citation) for citation in checkpoint.full_locators}
@@ -504,11 +518,11 @@ def score_colocations(document: Document) -> StageScore:
                 key for key, row in gold.items() if key in available and row.get("colocation_id") in gold_ids
             }
             correct += int(predicted == gold_available)
-    return StageScore(COLOCATION_STAGE, {"groups": Precision(correct, len(groups))})
+    return SubstageScore(COLOCATION_SUBSTAGE, {"groups": Precision(correct, len(groups))})
 
 
-def score_roots(document: Document) -> StageScore:
-    checkpoint = document.get_stage(ROOT_STAGE)
+def score_roots(document: Document) -> SubstageScore:
+    checkpoint = document.get_substage(ROOT_SUBSTAGE)
     gold = _gold(_rows(checkpoint))
     by_id = {citation.id: citation for citation in checkpoint.full_locators}
     available_gold_ids = {
@@ -516,7 +530,7 @@ def score_roots(document: Document) -> StageScore:
     }
     correct = total = 0
     for citation in checkpoint.full_locators:
-        if not any(node.stage == ROOT_STAGE for node in citation.nodes):
+        if not any(node.substage == ROOT_SUBSTAGE for node in citation.nodes):
             continue
         root_id = latest(citation.root_id)
         if root_id is None or root_id == WITHDRAWN_ROOT_ID:
@@ -533,12 +547,12 @@ def score_roots(document: Document) -> StageScore:
             correct += int(root_row["id"] == row["root_id"])
         else:
             correct += int(root_row["root_id"] == row["root_id"])
-    return StageScore(ROOT_STAGE, {"root_assignment": Precision(correct, total)})
+    return SubstageScore(ROOT_SUBSTAGE, {"root_assignment": Precision(correct, total)})
 
 
-def score_docket_root_llm_reassignment(document: Document) -> StageScore:
+def score_docket_root_llm_reassignment(document: Document) -> SubstageScore:
     """Score root assignments for docket roots whose identity was reviewed."""
-    checkpoint = document.get_stage(ROOT_REVIEW_STAGE)
+    checkpoint = document.get_substage(ROOT_REVIEW_SUBSTAGE)
     gold = _gold(_rows(checkpoint))
     by_id = {citation.id: citation for citation in checkpoint.full_locators}
     available_gold_ids = {
@@ -548,7 +562,7 @@ def score_docket_root_llm_reassignment(document: Document) -> StageScore:
     for citation in checkpoint.full_locators:
         if not isinstance(citation, FullDocketCitation):
             continue
-        review_nodes = {node.id for node in citation.nodes if node.stage == ROOT_REVIEW_STAGE}
+        review_nodes = {node.id for node in citation.nodes if node.substage == ROOT_REVIEW_SUBSTAGE}
         for review in citation.docket_root_reviews:
             if review.node_id not in review_nodes or review.decision is None:
                 continue
@@ -564,21 +578,21 @@ def score_docket_root_llm_reassignment(document: Document) -> StageScore:
                     correct += int(root_row["id"] == row["root_id"])
                 else:
                     correct += int(root_row["root_id"] == row["root_id"])
-    return StageScore(ROOT_REVIEW_STAGE, {"root_assignment": Precision(correct, total)})
+    return SubstageScore(ROOT_REVIEW_SUBSTAGE, {"root_assignment": Precision(correct, total)})
 
 
-GROW_ROOTS_STAGES: tuple[tuple[str, Callable[[Document], StageScore]], ...] = (
-    (REPORTER_STAGE, score_full_reporter_locators),
-    (DOCKET_STAGE, score_docket_locators),
-    (HUNT_STAGE, score_docket_locator_site_hunting),
-    (ENTRY_STAGE, score_docket_entries),
-    (COLOCATION_STAGE, score_colocations),
-    (CASE_NAME_STAGE, score_case_names),
-    (COURT_STAGE, score_courts),
-    (DATE_STAGE, score_dates),
-    (PIN_STAGE, score_pin_cites),
-    (ROOT_STAGE, score_roots),
-    (ROOT_REVIEW_STAGE, score_docket_root_llm_reassignment),
+GROW_ROOTS_SUBSTAGES: tuple[tuple[str, Callable[[Document], SubstageScore]], ...] = (
+    (REPORTER_SUBSTAGE, score_full_reporter_locators),
+    (DOCKET_SUBSTAGE, score_docket_locators),
+    (HUNT_SUBSTAGE, score_docket_locator_site_hunting),
+    (ENTRY_SUBSTAGE, score_docket_entries),
+    (COLOCATION_SUBSTAGE, score_colocations),
+    (CASE_NAME_SUBSTAGE, score_case_names),
+    (COURT_SUBSTAGE, score_courts),
+    (DATE_SUBSTAGE, score_dates),
+    (PIN_SUBSTAGE, score_pin_cites),
+    (ROOT_SUBSTAGE, score_roots),
+    (ROOT_REVIEW_SUBSTAGE, score_docket_root_llm_reassignment),
 )
 
 
@@ -646,21 +660,28 @@ def _score_root_fields(document: Document) -> dict[str, dict[str, FieldScore | R
 
 def score_grow_roots(document: Document) -> WorkflowScore:
     """Score extraction at its endpoint and, when present, validated root readings."""
-    final_stage = ROOT_REVIEW_STAGE if ROOT_REVIEW_STAGE in document.stage_runs else ROOT_STAGE
-    final = document.get_stage(final_stage)
+    final_stage = ROOT_REVIEW_SUBSTAGE if ROOT_REVIEW_SUBSTAGE in document.substage_runs else ROOT_SUBSTAGE
+    final = document.get_substage(final_stage)
     missing = [
-        stage
-        for stage, _ in GROW_ROOTS_STAGES
-        if stage not in {HUNT_STAGE, ROOT_REVIEW_STAGE} and stage not in final.stage_runs
+        substage
+        for substage, _ in GROW_ROOTS_SUBSTAGES
+        if substage not in {HUNT_SUBSTAGE, ROOT_REVIEW_SUBSTAGE} and substage not in final.substage_runs
     ]
     if missing:
-        raise ValueError(f"Incomplete grow_roots workflow; missing stages: {', '.join(missing)}")
-    stages = tuple(score(final) for stage, score in GROW_ROOTS_STAGES if stage in final.stage_runs)
+        raise ValueError(f"Incomplete grow_roots workflow; missing substages: {', '.join(missing)}")
+    stages = tuple(
+        score(final) for substage, score in GROW_ROOTS_SUBSTAGES if substage in final.substage_runs
+    )
     validated = None
-    if VALIDATED_FIELDS_STAGE in document.stage_runs:
-        validated_fields = _score_root_fields(document.get_stage(VALIDATED_FIELDS_STAGE))
+    if VALIDATED_FIELDS_SUBSTAGE in document.substage_runs:
+        validated_fields = _score_root_fields(document.get_substage(VALIDATED_FIELDS_SUBSTAGE))
         validated = {name: validated_fields[name] for name in ("case_name", "court", "date")}
-    return WorkflowScore(stages, _score_root_fields(final), validated)
+    return WorkflowScore(
+        stages,
+        _score_root_fields(final),
+        validated,
+        tuple(stage for stage in document.stage_runs if stage.startswith("grow_roots.")),
+    )
 
 
 def _precision_cell(value: Precision) -> str:
@@ -676,16 +697,16 @@ def _recall_cell(value: RecallScore) -> str:
     return "—" if value.gold == 0 else f"{value.correct}/{value.gold} ({value.correct / value.gold:.1%})"
 
 
-def _require_stage(score: StageScore, stage: str) -> None:
-    if score.stage != stage:
-        raise ValueError(f"Expected {stage} score, got {score.stage}")
+def _require_substage(score: SubstageScore, substage: str) -> None:
+    if score.substage != substage:
+        raise ValueError(f"Expected {substage} score, got {score.substage}")
 
 
-def render_full_reporter_locators(score: StageScore) -> str:
-    _require_stage(score, REPORTER_STAGE)
+def render_full_reporter_locators(score: SubstageScore) -> str:
+    _require_substage(score, REPORTER_SUBSTAGE)
     return "\n".join(
         (
-            f"## {REPORTER_STAGE}",
+            f"{substage_heading(REPORTER_SUBSTAGE)}",
             "",
             "| Span precision | Normalization precision |",
             "| ---: | ---: |",
@@ -694,11 +715,11 @@ def render_full_reporter_locators(score: StageScore) -> str:
     )
 
 
-def render_docket_locators(score: StageScore) -> str:
-    _require_stage(score, DOCKET_STAGE)
+def render_docket_locators(score: SubstageScore) -> str:
+    _require_substage(score, DOCKET_SUBSTAGE)
     return "\n".join(
         (
-            f"## {DOCKET_STAGE}",
+            f"{substage_heading(DOCKET_SUBSTAGE)}",
             "",
             "| Span precision | Normalization precision |",
             "| ---: | ---: |",
@@ -707,11 +728,11 @@ def render_docket_locators(score: StageScore) -> str:
     )
 
 
-def render_docket_locator_site_hunting(score: StageScore) -> str:
-    _require_stage(score, HUNT_STAGE)
+def render_docket_locator_site_hunting(score: SubstageScore) -> str:
+    _require_substage(score, HUNT_SUBSTAGE)
     return "\n".join(
         (
-            f"## {HUNT_STAGE}",
+            f"{substage_heading(HUNT_SUBSTAGE)}",
             "",
             "| Span precision | Normalization precision |",
             "| ---: | ---: |",
@@ -720,11 +741,11 @@ def render_docket_locator_site_hunting(score: StageScore) -> str:
     )
 
 
-def render_docket_entries(score: StageScore) -> str:
-    _require_stage(score, ENTRY_STAGE)
+def render_docket_entries(score: SubstageScore) -> str:
+    _require_substage(score, ENTRY_SUBSTAGE)
     return "\n".join(
         (
-            f"## {ENTRY_STAGE}",
+            f"{substage_heading(ENTRY_SUBSTAGE)}",
             "",
             "| Span precision | Normalization precision |",
             "| ---: | ---: |",
@@ -733,11 +754,11 @@ def render_docket_entries(score: StageScore) -> str:
     )
 
 
-def render_colocations(score: StageScore) -> str:
-    _require_stage(score, COLOCATION_STAGE)
+def render_colocations(score: SubstageScore) -> str:
+    _require_substage(score, COLOCATION_SUBSTAGE)
     return "\n".join(
         (
-            f"## {COLOCATION_STAGE}",
+            f"{substage_heading(COLOCATION_SUBSTAGE)}",
             "",
             "| Group precision |",
             "| ---: |",
@@ -746,11 +767,11 @@ def render_colocations(score: StageScore) -> str:
     )
 
 
-def render_case_names(score: StageScore) -> str:
-    _require_stage(score, CASE_NAME_STAGE)
+def render_case_names(score: SubstageScore) -> str:
+    _require_substage(score, CASE_NAME_SUBSTAGE)
     return "\n".join(
         (
-            f"## {CASE_NAME_STAGE}",
+            f"{substage_heading(CASE_NAME_SUBSTAGE)}",
             "",
             "| Span precision | Normalization precision |",
             "| ---: | ---: |",
@@ -759,11 +780,11 @@ def render_case_names(score: StageScore) -> str:
     )
 
 
-def render_courts(score: StageScore) -> str:
-    _require_stage(score, COURT_STAGE)
+def render_courts(score: SubstageScore) -> str:
+    _require_substage(score, COURT_SUBSTAGE)
     return "\n".join(
         (
-            f"## {COURT_STAGE}",
+            f"{substage_heading(COURT_SUBSTAGE)}",
             "",
             "| Span precision | Normalization precision |",
             "| ---: | ---: |",
@@ -772,11 +793,11 @@ def render_courts(score: StageScore) -> str:
     )
 
 
-def render_dates(score: StageScore) -> str:
-    _require_stage(score, DATE_STAGE)
+def render_dates(score: SubstageScore) -> str:
+    _require_substage(score, DATE_SUBSTAGE)
     return "\n".join(
         (
-            f"## {DATE_STAGE}",
+            f"{substage_heading(DATE_SUBSTAGE)}",
             "",
             "| Span precision | Normalization precision |",
             "| ---: | ---: |",
@@ -785,11 +806,11 @@ def render_dates(score: StageScore) -> str:
     )
 
 
-def render_pin_cites(score: StageScore) -> str:
-    _require_stage(score, PIN_STAGE)
+def render_pin_cites(score: SubstageScore) -> str:
+    _require_substage(score, PIN_SUBSTAGE)
     return "\n".join(
         (
-            f"## {PIN_STAGE}",
+            f"{substage_heading(PIN_SUBSTAGE)}",
             "",
             "| Span precision | Normalization precision |",
             "| ---: | ---: |",
@@ -798,11 +819,11 @@ def render_pin_cites(score: StageScore) -> str:
     )
 
 
-def render_roots(score: StageScore) -> str:
-    _require_stage(score, ROOT_STAGE)
+def render_roots(score: SubstageScore) -> str:
+    _require_substage(score, ROOT_SUBSTAGE)
     return "\n".join(
         (
-            f"## {ROOT_STAGE}",
+            f"{substage_heading(ROOT_SUBSTAGE)}",
             "",
             "| Root assignment precision |",
             "| ---: |",
@@ -811,11 +832,11 @@ def render_roots(score: StageScore) -> str:
     )
 
 
-def render_docket_root_llm_reassignment(score: StageScore) -> str:
-    _require_stage(score, ROOT_REVIEW_STAGE)
+def render_docket_root_llm_reassignment(score: SubstageScore) -> str:
+    _require_substage(score, ROOT_REVIEW_SUBSTAGE)
     return "\n".join(
         (
-            f"## {ROOT_REVIEW_STAGE}",
+            f"{substage_heading(ROOT_REVIEW_SUBSTAGE)}",
             "",
             "| Reviewed root assignment precision |",
             "| ---: |",
@@ -824,18 +845,18 @@ def render_docket_root_llm_reassignment(score: StageScore) -> str:
     )
 
 
-GROW_ROOTS_RENDERERS: dict[str, Callable[[StageScore], str]] = {
-    REPORTER_STAGE: render_full_reporter_locators,
-    DOCKET_STAGE: render_docket_locators,
-    HUNT_STAGE: render_docket_locator_site_hunting,
-    ENTRY_STAGE: render_docket_entries,
-    COLOCATION_STAGE: render_colocations,
-    CASE_NAME_STAGE: render_case_names,
-    COURT_STAGE: render_courts,
-    DATE_STAGE: render_dates,
-    PIN_STAGE: render_pin_cites,
-    ROOT_STAGE: render_roots,
-    ROOT_REVIEW_STAGE: render_docket_root_llm_reassignment,
+GROW_ROOTS_RENDERERS: dict[str, Callable[[SubstageScore], str]] = {
+    REPORTER_SUBSTAGE: render_full_reporter_locators,
+    DOCKET_SUBSTAGE: render_docket_locators,
+    HUNT_SUBSTAGE: render_docket_locator_site_hunting,
+    ENTRY_SUBSTAGE: render_docket_entries,
+    COLOCATION_SUBSTAGE: render_colocations,
+    CASE_NAME_SUBSTAGE: render_case_names,
+    COURT_SUBSTAGE: render_courts,
+    DATE_SUBSTAGE: render_dates,
+    PIN_SUBSTAGE: render_pin_cites,
+    ROOT_SUBSTAGE: render_roots,
+    ROOT_REVIEW_SUBSTAGE: render_docket_root_llm_reassignment,
 }
 
 
@@ -865,24 +886,30 @@ def _render_root_fields(fields: dict[str, dict[str, FieldScore | RecallScore]], 
 def render_grow_roots(
     score: WorkflowScore, *, include_stages: bool = True, set_name: str | None = None
 ) -> str:
-    """Render the workflow; include every completed stage in order by default."""
-    stage_names = tuple(item.stage for item in score.stages)
+    """Render the workflow; include every completed substage in order by default."""
+    stage_names = tuple(item.substage for item in score.substages)
     expected = tuple(
-        stage
-        for stage, _ in GROW_ROOTS_STAGES
-        if stage not in {HUNT_STAGE, ROOT_REVIEW_STAGE} or stage in stage_names
+        substage
+        for substage, _ in GROW_ROOTS_SUBSTAGES
+        if substage not in {HUNT_SUBSTAGE, ROOT_REVIEW_SUBSTAGE} or substage in stage_names
     )
     if stage_names != expected:
-        raise ValueError("Grow-roots stage scores are missing or out of order")
+        raise ValueError("Grow-roots substage scores are missing or out of order")
     title = "# Grow-roots evaluation" + (f": {set_name}" if set_name else "")
     sections = [
         title,
-        "Field-reading stage precision counts every eligible citation's field outcome, including absence, inference, and failed normalization; missing explicit gold raises.",
-        "Docket site hunting: " + ("included" if HUNT_STAGE in stage_names else "not run"),
-        "Docket root review: " + ("included" if ROOT_REVIEW_STAGE in stage_names else "not run"),
+        "Field-reading substage precision counts every eligible citation's field outcome, including absence, inference, and failed normalization; missing explicit gold raises.",
+        "Docket site hunting: " + ("included" if HUNT_SUBSTAGE in stage_names else "not run"),
+        "Docket root review: " + ("included" if ROOT_REVIEW_SUBSTAGE in stage_names else "not run"),
     ]
     if include_stages:
-        sections.extend(GROW_ROOTS_RENDERERS[item.stage](item) for item in score.stages)
+        sections.extend(
+            render_stage_sections(
+                "grow_roots",
+                ((item.substage, GROW_ROOTS_RENDERERS[item.substage](item)) for item in score.substages),
+                score.completed_stages,
+            )
+        )
     sections.append(_render_root_fields(score.root_fields, "## Root fields"))
     if score.validated_root_fields is not None:
         if tuple(score.validated_root_fields) != ("case_name", "court", "date"):
@@ -890,7 +917,7 @@ def render_grow_roots(
         sections.append(
             _render_root_fields(
                 score.validated_root_fields,
-                f"## Root fields after {VALIDATED_FIELDS_STAGE}",
+                f"## Root fields after {VALIDATED_FIELDS_SUBSTAGE}",
             )
         )
     return "\n\n".join(sections) + "\n"

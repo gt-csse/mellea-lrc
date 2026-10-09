@@ -7,7 +7,7 @@ import re
 from mellea_lrc.model.citations import FullDocketCitation, FullReporterCitation
 from mellea_lrc.model.document import Document
 
-STAGE = "10_roots"
+SUBSTAGE = "grow_roots.root_formation.rule"
 
 
 def _reporter_key(citation: FullReporterCitation) -> tuple[str, ...] | None:
@@ -41,13 +41,13 @@ def form_roots(document: Document) -> Document:
     Colocation is deliberately absent from the key: proximity helps read fields
     but does not establish shared identity.
     """
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if "5_colocations" not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "grow_roots.field_reading.colocations" not in document.substage_runs:
         raise ValueError("Resolve colocations before forming roots")
     known: dict[tuple[str, ...], str] = {}
     for citation in document.full_locators:
         key = _reporter_key(citation) if isinstance(citation, FullReporterCitation) else _docket_key(citation)
         root_id = known.setdefault(key, citation.id) if key is not None else citation.id
-        document = document.replace_citation(citation.record(STAGE).with_root(root_id))
-    return document.complete(STAGE)
+        document = document.replace_citation(citation.record(SUBSTAGE).with_root(root_id))
+    return document.complete_substage(SUBSTAGE)

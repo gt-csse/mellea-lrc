@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-import os
+import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 from urllib.parse import parse_qs, parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import httpx
-from dotenv import load_dotenv
 
-DEFAULT_BASE_URL = "https://api.govinfo.gov/"
-DEFAULT_API_KEY = "DEMO_KEY"
+from mellea_lrc.configuration import read_env, required_setting
+from mellea_lrc.providers.govinfo.models import GovInfoGranulesPage, GovInfoSearchPage
+
 _USER_AGENT = "mellea-lrc (+https://github.com/gt-csse/mellea-lrc)"
 
 
@@ -37,36 +37,55 @@ class GovInfoError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
-class GovInfoSearchPage:
-    """One complete raw search page and its package or granule results."""
-
-    raw_json: dict[str, Any]
-    results: tuple[dict[str, Any], ...]
-    count: int
-    next_offset_mark: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class GovInfoGranulesPage:
-    """One complete raw granule-list page and its entries."""
-
-    raw_json: dict[str, Any]
-    granules: tuple[dict[str, Any], ...]
-    count: int
-    next_offset_mark: str | None
-
-
-@dataclass(frozen=True, slots=True)
 class GovInfoConfig:
     """GovInfo API settings."""
 
-    base_url: str = DEFAULT_BASE_URL
-    api_key: str = DEFAULT_API_KEY
+    base_url: str
+    api_key: str = field(repr=False)
+    timeout_seconds: float
+
+    def __post_init__(self) -> None:
+        try:
+            if not isinstance(self.base_url, str):
+                raise ValueError("Base URL must be a string")
+            parsed = urlsplit(self.base_url)
+            valid_url = (
+                parsed.scheme in {"http", "https"}
+                and bool(parsed.hostname)
+                and not parsed.query
+                and not parsed.fragment
+                and parsed.username is None
+                and parsed.password is None
+                and not any(character.isspace() for character in self.base_url)
+            )
+            parsed.port
+        except (TypeError, ValueError):
+            valid_url = False
+        if not valid_url:
+            raise ValueError(
+                "GOVINFO_BASE_URL must be an HTTP(S) base URL without credentials, a query, or fragment"
+            )
+        if not isinstance(self.api_key, str) or not self.api_key.strip():
+            raise ValueError("GOVINFO_API_KEY must be a nonempty string")
+        if (
+            isinstance(self.timeout_seconds, bool)
+            or not isinstance(self.timeout_seconds, (int, float))
+            or not math.isfinite(self.timeout_seconds)
+            or self.timeout_seconds <= 0
+        ):
+            raise ValueError("GOVINFO_TIMEOUT_SECONDS must be a positive finite number")
 
     @classmethod
     def from_env(cls) -> GovInfoConfig:
-        load_dotenv(override=False)
-        return cls(api_key=os.getenv("GOVINFO_API_KEY", "").strip() or DEFAULT_API_KEY)
+        values = read_env()
+        base_url = required_setting(values, "GOVINFO_BASE_URL")
+        api_key = required_setting(values, "GOVINFO_API_KEY")
+        raw_timeout = required_setting(values, "GOVINFO_TIMEOUT_SECONDS")
+        try:
+            timeout = float(raw_timeout)
+        except ValueError as error:
+            raise ValueError("GOVINFO_TIMEOUT_SECONDS must be a positive finite number") from error
+        return cls(base_url=base_url, api_key=api_key, timeout_seconds=timeout)
 
 
 class GovInfoClient:
@@ -242,7 +261,7 @@ class GovInfoClient:
         options: dict[str, Any] = {
             "params": params,
             "headers": {"Accept": accept, "User-Agent": _USER_AGENT},
-            "timeout": 45,
+            "timeout": self.config.timeout_seconds,
         }
         if json is not None:
             options["json"] = json

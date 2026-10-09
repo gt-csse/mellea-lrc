@@ -1,4 +1,4 @@
-"""Shared source reading for leaf stages; no stage is executed here."""
+"""Shared source reading for leaf stages; no substage is executed here."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import re
 
 from eyecite.models import ReferenceCitation as EyeciteReferenceCitation
 
-from mellea_lrc.matching.literal import fuzzy_literal
+from mellea_lrc.matching.literal_to_regex import fuzzy_literal
 from mellea_lrc.model.citations import FullReporterCitation, latest
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
@@ -14,10 +14,10 @@ from mellea_lrc.parsing.events import events
 from mellea_lrc.parsing.pin_cite import pin_after as read_pin_after
 
 
-def require_leaves(document: Document, stage: str) -> None:
-    if stage in document.stage_runs:
-        raise ValueError(f"Stage already completed: {stage}")
-    if "10_roots" not in document.stage_runs:
+def require_leaves(document: Document, substage: str) -> None:
+    if substage in document.substage_runs:
+        raise ValueError(f"Substage already completed: {substage}")
+    if "grow_roots.root_formation.rule" not in document.substage_runs:
         raise ValueError("Form roots before growing leaves")
 
 

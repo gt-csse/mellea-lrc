@@ -16,7 +16,7 @@ from mellea_lrc.extraction.docket_site_hunting.candidates import DocketSiteCandi
 from mellea_lrc.extraction.docket_site_hunting.review import DocketSiteDecision
 from mellea_lrc.model import DocketEntryField, Document, FullDocketCitation
 
-STAGE = "4_docket_entries"
+SUBSTAGE = "grow_roots.field_reading.docket_entries"
 
 
 def _rule_ready(source: str) -> Document:
@@ -37,7 +37,7 @@ def _assert_entry(document: Document, citation: FullDocketCitation, quote: str, 
     assert document.text[entry.span.start : entry.span.end] == quote
     assert entry.get_normalized() == number
     assert entry.node_id == citation.nodes[-1].id
-    assert citation.nodes[-1].stage == STAGE
+    assert citation.nodes[-1].substage == SUBSTAGE
 
 
 @pytest.mark.parametrize(
@@ -61,8 +61,8 @@ def test_rule_docket_gets_entry_on_either_side(source: str, entry_quote: str, en
     assert citation.nodes[:1] == original.nodes
     assert len(citation.nodes) == 2
     _assert_entry(resolved, citation, entry_quote, entry_number)
-    assert resolved.get_stage("2_docket_locators") == before
-    assert resolved.get_stage(STAGE) == resolved
+    assert resolved.get_substage("grow_roots.locator_discovery.docket_locators") == before
+    assert resolved.get_substage(SUBSTAGE) == resolved
 
 
 @pytest.mark.parametrize(
@@ -83,7 +83,7 @@ def test_hunted_docket_gets_entry_on_either_side(source: str, entry_quote: str, 
 
     hunted = asyncio.run(hunt_docket_locators(_rule_ready(source), reviewer=reviewer))
     original = _only_docket(hunted)
-    assert original.nodes[0].stage == "3_docket_locator_site_hunting"
+    assert original.nodes[0].substage == "grow_roots.locator_discovery.docket_hunting"
     assert original.docket_entry == ()
 
     resolved = resolve_docket_entries(hunted)
@@ -92,7 +92,7 @@ def test_hunted_docket_gets_entry_on_either_side(source: str, entry_quote: str, 
     assert citation.id == original.id
     assert citation.locator == original.locator
     _assert_entry(resolved, citation, entry_quote, entry_number)
-    assert resolved.get_stage("3_docket_locator_site_hunting") == hunted
+    assert resolved.get_substage("grow_roots.locator_discovery.docket_hunting") == hunted
     assert resolved.site_reviews == hunted.site_reviews
 
 
@@ -112,7 +112,7 @@ def test_trailing_entry_requires_immediate_adjacency(source: str) -> None:
 
     assert _only_docket(resolved).docket_entry == ()
     assert resolved.citations == before.citations
-    assert resolved.stage_runs == (*before.stage_runs, STAGE)
+    assert resolved.substage_runs == (*before.substage_runs, SUBSTAGE)
 
 
 def test_trailing_entry_attaches_only_to_nearest_docket() -> None:
@@ -162,7 +162,7 @@ def test_standalone_entry_never_creates_a_root() -> None:
     formed = form_roots(resolve_colocations(resolved))
 
     assert resolved.citations == ()
-    assert resolved.stage_runs == (*before.stage_runs, STAGE)
+    assert resolved.substage_runs == (*before.substage_runs, SUBSTAGE)
     assert formed.citations == ()
     assert formed.roots == ()
 
@@ -176,6 +176,6 @@ def test_entry_stage_rejects_a_repeat_run_and_survives_json_and_later_stages() -
     with pytest.raises(ValueError):
         resolve_docket_entries(resolved)
     assert restored == grouped
-    assert grouped.get_stage("2_docket_locators") == before
-    assert grouped.get_stage(STAGE) == resolved
-    assert restored.get_stage(STAGE) == resolved
+    assert grouped.get_substage("grow_roots.locator_discovery.docket_locators") == before
+    assert grouped.get_substage(SUBSTAGE) == resolved
+    assert restored.get_substage(SUBSTAGE) == resolved

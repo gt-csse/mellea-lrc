@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from evaluations import validate_roots as evaluation
-from evaluations.score_types import FieldScore, Precision
+from evaluations.score_types import FieldScore, Precision, substage_heading
 from mellea_lrc.api import (
     Document,
     grow_roots,
@@ -58,29 +58,31 @@ from mellea_lrc.model.citations.reporter_lookup import (
 )
 from mellea_lrc.providers.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.validation.body_search.common import make_body_evidences
+from mellea_lrc.validation.fields_aggregated_identity import fields_aggregated_identity
 
-STAGES = (
-    "13.1_reporter_root_lookup_unique_rule_judgment",
-    "13.2_reporter_root_lookup_ambiguous_rule_judgment",
-    "14_reporter_root_lookup_unique_llm_judgment",
-    "15_reporter_root_lookup_ambiguous_llm_judgment",
-    "17_docket_root_lookup_courtlistener_llm_review",
-    "19_docket_root_lookup_govinfo_llm_review",
+SUBSTAGES = (
+    "validate_roots.reporter_lookup.unique_rule_judgment",
+    "validate_roots.reporter_lookup.ambiguous_rule_judgment",
+    "validate_roots.reporter_lookup.unique_llm_judgment",
+    "validate_roots.reporter_lookup.ambiguous_llm_judgment",
+    "validate_roots.docket_lookup.courtlistener_review",
+    "validate_roots.docket_lookup.govinfo_review",
 )
-WORKFLOW_STAGES = (
-    "12.1_reporter_root_lookup_cluster_retrieval",
-    "12.2_reporter_root_lookup_docket_retrieval",
-    STAGES[0],
-    STAGES[1],
-    *STAGES[2:-2],
-    "16_docket_root_lookup_courtlistener_retrieval",
-    "17_docket_root_lookup_courtlistener_llm_review",
-    "18_docket_root_lookup_govinfo_retrieval",
-    STAGES[-1],
+WORKFLOW_SUBSTAGES = (
+    "validate_roots.reporter_lookup.cluster_retrieval",
+    "validate_roots.reporter_lookup.docket_retrieval",
+    SUBSTAGES[0],
+    SUBSTAGES[1],
+    *SUBSTAGES[2:-2],
+    "validate_roots.docket_lookup.courtlistener_retrieval",
+    "validate_roots.docket_lookup.courtlistener_review",
+    "validate_roots.docket_lookup.govinfo_retrieval",
+    SUBSTAGES[-1],
+    "validate_roots.docket_lookup.identity_aggregation",
 )
-SCORERS = {stage: f"score_{stage.split('_', 1)[1]}" for stage in STAGES}
-RETRIEVAL_SCORERS = {stage: f"score_{stage.split('_', 1)[1]}" for stage in evaluation.RETRIEVAL_STAGES}
-RENDERERS = {stage: name.replace("score_", "render_") for stage, name in SCORERS.items()}
+SCORERS = {substage: scorer.__name__ for substage, scorer in evaluation.SUBSTAGE_SCORERS}
+RETRIEVAL_SCORERS = {substage: scorer.__name__ for substage, scorer in evaluation.RETRIEVAL_SUBSTAGE_SCORERS}
+RENDERERS = {substage: name.replace("score_", "render_") for substage, name in SCORERS.items()}
 FIELDS = {"case_name", "court", "date"}
 SOURCE = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007). Gamma v. Delta, No. 1:24-cv-08705 (S.D.N.Y. 2024)."
 SOURCE_WITHOUT_REPORTER_DATE = (
@@ -95,6 +97,10 @@ NORMALIZED_NAME = {
     "defendant": "Twombly",
     "subject": None,
 }
+
+
+def _substage_records(score: dict) -> dict[str, dict]:
+    return {substage["substage"]: substage for stage in score["stages"] for substage in stage["substages"]}
 
 
 def _quoted(source: str, quote: str, value: object) -> dict[str, object]:
@@ -219,17 +225,17 @@ def _write_source(tmp_path: Path, source: str = SOURCE) -> Path:
     return source_path
 
 
-def _roots(tmp_path: Path, source: str = SOURCE, *, docket_stages: bool = True) -> Document:
+def _roots(tmp_path: Path, source: str = SOURCE, *, docket_stages: bool = False) -> Document:
     document = asyncio.run(grow_roots(Document.from_source(_write_source(tmp_path, source))))
     assert len(document.roots) == 2
     if docket_stages:
-        for stage in (
-            "16_docket_root_lookup_courtlistener_retrieval",
-            "17_docket_root_lookup_courtlistener_llm_review",
-            "18_docket_root_lookup_govinfo_retrieval",
-            "19_docket_root_lookup_govinfo_llm_review",
+        for substage in (
+            "validate_roots.docket_lookup.courtlistener_retrieval",
+            "validate_roots.docket_lookup.courtlistener_review",
+            "validate_roots.docket_lookup.govinfo_retrieval",
+            "validate_roots.docket_lookup.govinfo_review",
         ):
-            document = document.complete(stage)
+            document = document.complete_substage(substage)
     return document
 
 
@@ -274,6 +280,7 @@ def _reviewed_docket(
     source: str = SOURCE,
     selected: bool = True,
     failed: bool = False,
+    docket_number: str = "match",
     case_name: str = "match",
     court: str = "match",
     date: str = "match",
@@ -283,6 +290,7 @@ def _reviewed_docket(
         document,
         selected=selected,
         failed=failed,
+        docket_number=docket_number,
         case_name=case_name,
         court=court,
         date=date,
@@ -294,21 +302,25 @@ def _add_docket_review(
     *,
     selected: bool = True,
     failed: bool = False,
+    docket_number: str = "match",
     case_name: str = "match",
     court: str = "match",
     date: str = "match",
 ) -> Document:
+    for substage in WORKFLOW_SUBSTAGES[:6]:
+        if substage not in document.substage_runs:
+            document = document.complete_substage(substage)
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
     number_span = root.locator[-1].number_span
-    docket_number = document.text[number_span.start : number_span.end]
-    lookup_node = root.record("16_docket_root_lookup_courtlistener_retrieval")
-    result = {"cluster_id": 999999, "docketNumber": docket_number}
+    written_number = document.text[number_span.start : number_span.end]
+    lookup_node = root.record("validate_roots.docket_lookup.courtlistener_retrieval")
+    result = {"cluster_id": 999999, "docketNumber": written_number}
     lookup = DocketLookup(
         node_id=lookup_node.nodes[-1].id,
         attempts=(
             DocketLookupAttempt(
                 source_type="o",
-                query=f"docketNumber:({docket_number})",
+                query=f"docketNumber:({written_number})",
                 pages=({"results": [result]},),
             ),
         ),
@@ -319,22 +331,22 @@ def _add_docket_review(
                 attempt_index=0,
                 page_index=0,
                 result_index=0,
-                docket_number=docket_number,
+                docket_number=written_number,
                 docket_similarity=100,
             ),
         ),
         shortlisted_candidate_indices=(0,),
     )
-    document = document.replace_citation(lookup_node.with_docket_lookup(lookup)).complete(
-        "16_docket_root_lookup_courtlistener_retrieval"
+    document = document.replace_citation(lookup_node.with_docket_lookup(lookup)).complete_substage(
+        "validate_roots.docket_lookup.courtlistener_retrieval"
     )
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
-    review_node = root.record("17_docket_root_lookup_courtlistener_llm_review")
+    review_node = root.record("validate_roots.docket_lookup.courtlistener_review")
     if failed:
         review = DocketLookupReview(node_id=review_node.nodes[-1].id, failure_reason="Model unavailable")
     else:
         results = {
-            "docket_number": "match",
+            "docket_number": docket_number,
             "case_name": case_name,
             "court": court,
             "date": date,
@@ -363,8 +375,11 @@ def _add_docket_review(
             }
         )
         review = DocketLookupReview(node_id=review_node.nodes[-1].id, decision=decision)
-    return document.replace_citation(review_node.with_docket_lookup_review(review)).complete(
-        "17_docket_root_lookup_courtlistener_llm_review"
+    review_node = review_node.with_docket_lookup_review(review)
+    if selected and not failed:
+        review_node = review_node.with_route(evaluation.FIELDS_AGGREGATED_IDENTITY)
+    return document.replace_citation(review_node).complete_substage(
+        "validate_roots.docket_lookup.courtlistener_review"
     )
 
 
@@ -372,18 +387,19 @@ def _add_govinfo_review(
     document: Document,
     *,
     selected: bool = True,
+    docket_number: str = "match",
     case_name: str = "match",
     court: str = "mismatch",
     date: str = "unavailable",
 ) -> Document:
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
     number_span = root.locator[-1].number_span
-    docket_number = document.text[number_span.start : number_span.end]
-    lookup_node = root.record("18_docket_root_lookup_govinfo_retrieval")
+    written_number = document.text[number_span.start : number_span.end]
+    lookup_node = root.record("validate_roots.docket_lookup.govinfo_retrieval")
     result = {
         "packageId": "USCOURTS-nysd-1_24-cv-08705",
         "granuleId": "USCOURTS-nysd-1_24-cv-08705-0",
-        "caseNumber": docket_number,
+        "caseNumber": written_number,
     }
     lookup = GovInfoDocketLookup(
         node_id=lookup_node.nodes[-1].id,
@@ -396,17 +412,17 @@ def _add_govinfo_review(
                 package_id=result["packageId"],
                 granule_id=result["granuleId"],
                 court_code="nysd",
-                docket_number=docket_number,
+                docket_number=written_number,
                 docket_similarity=100,
             ),
         ),
         shortlisted_candidate_indices=(0,),
     )
-    document = document.replace_citation(lookup_node.with_govinfo_docket_lookup(lookup)).complete(
-        "18_docket_root_lookup_govinfo_retrieval"
+    document = document.replace_citation(lookup_node.with_govinfo_docket_lookup(lookup)).complete_substage(
+        "validate_roots.docket_lookup.govinfo_retrieval"
     )
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
-    review_node = root.record("19_docket_root_lookup_govinfo_llm_review")
+    review_node = root.record("validate_roots.docket_lookup.govinfo_review")
     assessments = {
         field: {
             "propose_replacement": False,
@@ -415,7 +431,7 @@ def _add_govinfo_review(
             "reason": "Compared with the selected GovInfo package.",
         }
         for field, result in {
-            "docket_number": "match",
+            "docket_number": docket_number,
             "case_name": case_name,
             "court": court,
             "date": date,
@@ -433,8 +449,11 @@ def _add_govinfo_review(
         }
     )
     review = GovInfoDocketReview(node_id=review_node.nodes[-1].id, decision=decision)
-    return document.replace_citation(review_node.with_govinfo_docket_review(review)).complete(
-        "19_docket_root_lookup_govinfo_llm_review"
+    review_node = review_node.with_govinfo_docket_review(review)
+    if selected:
+        review_node = review_node.with_route(evaluation.FIELDS_AGGREGATED_IDENTITY)
+    return document.replace_citation(review_node).complete_substage(
+        "validate_roots.docket_lookup.govinfo_review"
     )
 
 
@@ -471,13 +490,30 @@ def _finish_unrouted_stages(document: Document) -> Document:
     return asyncio.run(reporter_root_lookup_ambiguous_llm_judgment(document))
 
 
+def _finish_lookup_checkpoint(document: Document) -> Document:
+    if evaluation.FIELDS_AGGREGATED_IDENTITY in document.substage_runs:
+        return document
+    for substage in WORKFLOW_SUBSTAGES[:-1]:
+        if substage not in document.substage_runs:
+            document = document.complete_substage(substage)
+    return fields_aggregated_identity(document)
+
+
+def _score_validate_roots(document: Document) -> evaluation.WorkflowScore:
+    return evaluation.score_validate_roots(_finish_lookup_checkpoint(document))
+
+
 def _complete_reporter_stages(document: Document) -> Document:
-    for stage in WORKFLOW_STAGES[:6]:
-        document = document.complete(stage)
-    for stage in ("18_docket_root_lookup_govinfo_retrieval", "19_docket_root_lookup_govinfo_llm_review"):
-        if stage not in document.stage_runs:
-            document = document.complete(stage)
-    return document
+    for substage in WORKFLOW_SUBSTAGES[:6]:
+        if substage not in document.substage_runs:
+            document = document.complete_substage(substage)
+    for substage in (
+        "validate_roots.docket_lookup.govinfo_retrieval",
+        "validate_roots.docket_lookup.govinfo_review",
+    ):
+        if substage not in document.substage_runs:
+            document = document.complete_substage(substage)
+    return fields_aggregated_identity(document)
 
 
 @pytest.mark.parametrize("with_client", [False, True])
@@ -488,84 +524,125 @@ def test_validate_roots_composes_stages_in_execution_order(
     initial = Document.from_source(_write_source(tmp_path))
     called: list[str] = []
 
-    def run_sync(stage: str):
+    def run_sync(substage: str):
         def run(document: Document) -> Document:
-            assert document.stage_runs == (*initial.stage_runs, *called)
-            called.append(stage)
-            return document.complete(stage)
+            assert document.substage_runs == (*initial.substage_runs, *called)
+            called.append(substage)
+            return document.complete_substage(substage)
 
         return run
 
-    def run_async(stage: str):
+    def run_async(substage: str):
         async def run(document: Document) -> Document:
-            assert document.stage_runs == (*initial.stage_runs, *called)
-            called.append(stage)
-            return document.complete(stage)
+            assert document.substage_runs == (*initial.substage_runs, *called)
+            called.append(substage)
+            return document.complete_substage(substage)
 
         return run
 
-    for stage in WORKFLOW_STAGES:
-        runner = run_async if stage.startswith(("14_", "15_", "17_", "19_")) else run_sync
-        monkeypatch.setattr(workflow, stage.split("_", 1)[1], runner(stage))
+    for substage, function_name in zip(
+        WORKFLOW_SUBSTAGES,
+        (
+            "reporter_root_lookup_cluster_retrieval",
+            "reporter_root_lookup_docket_retrieval",
+            "reporter_root_lookup_unique_rule_judgment",
+            "reporter_root_lookup_ambiguous_rule_judgment",
+            "reporter_root_lookup_unique_llm_judgment",
+            "reporter_root_lookup_ambiguous_llm_judgment",
+            "docket_root_lookup_courtlistener_retrieval",
+            "docket_root_lookup_courtlistener_llm_review",
+            "docket_root_lookup_govinfo_retrieval",
+            "docket_root_lookup_govinfo_llm_review",
+            "fields_aggregated_identity",
+        ),
+        strict=True,
+    ):
+        module = importlib.import_module("mellea_lrc.workflows." + substage.rsplit(".", 1)[0])
+        runner = run_async if inspect.iscoroutinefunction(getattr(module, function_name)) else run_sync
+        monkeypatch.setattr(module, function_name, runner(substage))
 
     body_stages = (
-        "20_locator_body_courtlistener_opinion_retrieval",
-        "21_locator_body_courtlistener_recap_retrieval",
-        "22_locator_body_govinfo_opinion_retrieval",
-        "23_locator_body_llm_judgment",
+        "validate_roots.locator_body_corroboration.courtlistener_opinion_retrieval",
+        "validate_roots.locator_body_corroboration.courtlistener_recap_retrieval",
+        "validate_roots.locator_body_corroboration.govinfo_opinion_retrieval",
+        "validate_roots.locator_body_corroboration.llm_judgment",
     )
     cutoff = date(2024, 1, 1)
     selected_client = object() if with_client else None
 
     async def run_body(
-        document: Document, *, retrospective_date: date | None, courtlistener_client: object = None
+        document: Document,
+        *,
+        retrospective_date: date | None,
+        courtlistener_client: object = None,
+        checkpoint: object = None,
     ) -> Document:
         assert retrospective_date == cutoff
         assert courtlistener_client is selected_client
-        for stage in body_stages:
-            assert document.stage_runs == (*initial.stage_runs, *called)
-            called.append(stage)
-            document = document.complete(stage)
-        return document
+        for substage in body_stages:
+            assert document.substage_runs == (*initial.substage_runs, *called)
+            called.append(substage)
+            document = document.complete_substage(substage)
+        return document.complete_stage("validate_roots.locator_body_corroboration")
 
-    monkeypatch.setattr(workflow, "_validate_locator_bodies", run_body)
+    monkeypatch.setattr(workflow, "corroborate_locator_bodies", run_body)
     client_kwargs = {"courtlistener_client": selected_client} if selected_client is not None else {}
     result = asyncio.run(workflow.validate_roots(initial, retrospective_date=cutoff, **client_kwargs))
-    assert tuple(called) == (*WORKFLOW_STAGES, *body_stages)
-    assert result.stage_runs == (*initial.stage_runs, *WORKFLOW_STAGES, *body_stages)
+    assert tuple(called) == (*WORKFLOW_SUBSTAGES, *body_stages)
+    assert result.substage_runs == (*initial.substage_runs, *WORKFLOW_SUBSTAGES, *body_stages)
+    assert result.stage_runs == (
+        "validate_roots.reporter_lookup",
+        "validate_roots.docket_lookup",
+        "validate_roots.locator_body_corroboration",
+    )
 
 
 @pytest.mark.parametrize("completed_fields", range(5))
 def test_validation_resumes_its_optional_intended_case_stages(
     monkeypatch: pytest.MonkeyPatch, completed_fields: int
 ) -> None:
+    from mellea_lrc.model.execution import get_workflow
+
     workflow = importlib.import_module("mellea_lrc.workflows.validate_roots")
-    fields = evaluation.INTENDED_CASE_STAGES
+    fields = evaluation.INTENDED_CASE_SUBSTAGES
     document = Document.from_source("source")
-    for stage in (*WORKFLOW_STAGES, *evaluation.LOCATOR_BODY_STAGES, *fields[:completed_fields]):
-        document = document.complete(stage)
+    for stage in get_workflow("validate_roots").stages[:3]:
+        for substage in stage.substages:
+            document = document.complete_substage(substage.name)
+        document = document.complete_stage(stage.name)
+    for substage in fields[:completed_fields]:
+        document = document.complete_substage(substage)
     cutoff = date(2024, 1, 1)
     client = object()
     calls: list[str] = []
     checkpoints: list[Document] = []
 
-    def retrieve(stage: str, uses_client: bool):
+    def retrieve(substage: str, uses_client: bool):
         def run(saved: Document, *, retrospective_date: date | None, **kwargs: object) -> Document:
             assert retrospective_date == cutoff
             assert kwargs == ({"client": client} if uses_client else {})
-            calls.append(stage)
-            return saved.complete(stage)
+            calls.append(substage)
+            return saved.complete_substage(substage)
 
         return run
 
-    for stage in fields[:3]:
-        monkeypatch.setattr(workflow, stage.split("_", 1)[1], retrieve(stage, "courtlistener" in stage))
+    module = importlib.import_module("mellea_lrc.workflows.validate_roots.intended_case_discovery")
+    for substage, function_name in zip(
+        fields[:3],
+        (
+            "intended_case_courtlistener_opinion_retrieval",
+            "intended_case_courtlistener_recap_retrieval",
+            "intended_case_govinfo_opinion_retrieval",
+        ),
+        strict=True,
+    ):
+        monkeypatch.setattr(module, function_name, retrieve(substage, "courtlistener" in substage))
 
     async def review(saved: Document) -> Document:
         calls.append(fields[-1])
-        return saved.complete(fields[-1])
+        return saved.complete_substage(fields[-1])
 
-    monkeypatch.setattr(workflow, "intended_case_llm_selection", review)
+    monkeypatch.setattr(module, "intended_case_llm_selection", review)
     result = asyncio.run(
         workflow.validate_roots(
             document,
@@ -576,13 +653,20 @@ def test_validation_resumes_its_optional_intended_case_stages(
         )
     )
     assert tuple(calls) == fields[completed_fields:]
-    assert tuple(saved.stage_runs[-1] for saved in checkpoints) == fields[completed_fields:]
-    assert result.stage_runs == (*WORKFLOW_STAGES, *evaluation.LOCATOR_BODY_STAGES, *fields)
-    if document.stage_runs:
-        assert result.get_stage(document.stage_runs[-1]) == document
+    assert (
+        tuple(saved.runs[-1].name for saved in checkpoints if saved.runs[-1].kind == "substage")
+        == fields[completed_fields:]
+    )
+    assert checkpoints[-1].runs[-1].name == "validate_roots.intended_case_discovery"
+    assert checkpoints[-1].runs[-1].kind == "stage"
+    assert result.substage_runs == (*WORKFLOW_SUBSTAGES, *evaluation.LOCATOR_BODY_SUBSTAGES, *fields)
+    assert result.stage_runs[-1] == "validate_roots.intended_case_discovery"
+    if document.substage_runs:
+        latest = document.substage_runs[-1]
+        assert result.get_substage(latest) == document.get_substage(latest)
 
 
-def test_final_score_uses_docket_review_as_latest_checkpoint(tmp_path: Path) -> None:
+def test_final_score_uses_fields_aggregated_identity_as_latest_checkpoint(tmp_path: Path) -> None:
     roots = _roots(tmp_path, docket_stages=False)
     client = FakeLookupClient(
         _cluster(1, "Bell Atlantic Corporation v. Twombly", full_name="Bell Atlantic Corporation v. Twombly")
@@ -590,16 +674,15 @@ def test_final_score_uses_docket_review_as_latest_checkpoint(tmp_path: Path) -> 
     reporter_lookup = reporter_root_lookup_cluster_retrieval(roots, client=client)
     reviewed_reporter = _finish_unrouted_stages(reporter_lookup)
     final = _add_docket_review(reviewed_reporter)
-    final = final.complete("18_docket_root_lookup_govinfo_retrieval").complete(
-        "19_docket_root_lookup_govinfo_llm_review"
+    final = final.complete_substage("validate_roots.docket_lookup.govinfo_retrieval").complete_substage(
+        "validate_roots.docket_lookup.govinfo_review"
     )
+    final = fields_aggregated_identity(final)
 
-    assert final.stage_runs[-len(WORKFLOW_STAGES) :] == WORKFLOW_STAGES
-    score = evaluation.score_validate_roots(final)
-    assert tuple(stage.stage for stage in score.stages) == STAGES
-    assert score == evaluation.score_validate_roots(
-        final.get_stage("19_docket_root_lookup_govinfo_llm_review")
-    )
+    assert final.substage_runs[-len(WORKFLOW_SUBSTAGES) :] == WORKFLOW_SUBSTAGES
+    score = _score_validate_roots(final)
+    assert tuple(substage.substage for substage in score.substages) == SUBSTAGES
+    assert score == _score_validate_roots(final.get_substage(evaluation.FIELDS_AGGREGATED_IDENTITY))
 
 
 @pytest.mark.parametrize(
@@ -607,6 +690,7 @@ def test_final_score_uses_docket_review_as_latest_checkpoint(tmp_path: Path) -> 
     (
         *SCORERS.values(),
         *RETRIEVAL_SCORERS.values(),
+        "score_fields_aggregated_identity",
         "score_locator_body_llm_judgment",
         "score_validate_roots",
     ),
@@ -622,8 +706,8 @@ def test_public_scorers_take_only_a_document(name: str) -> None:
 
 def test_retrieval_stage_scorers_are_named_and_mapped() -> None:
     assert not hasattr(evaluation, "score_retrieval_stage")
-    assert tuple(evaluation.RETRIEVAL_STAGE_SCORERS) == tuple(
-        (stage, getattr(evaluation, name)) for stage, name in RETRIEVAL_SCORERS.items()
+    assert tuple(evaluation.RETRIEVAL_SUBSTAGE_SCORERS) == tuple(
+        (substage, getattr(evaluation, name)) for substage, name in RETRIEVAL_SCORERS.items()
     )
 
 
@@ -640,20 +724,22 @@ def test_docket_review_scores_selected_fields_by_locator_and_preserves_stage_bou
 
     final = _complete_reporter_stages(reviewed)
     restored = Document.model_validate_json(final.model_dump_json())
-    stage = evaluation.score_docket_root_lookup_courtlistener_llm_review(final)
-    assert stage == evaluation.score_docket_root_lookup_courtlistener_llm_review(reviewed)
-    assert stage == evaluation.score_docket_root_lookup_courtlistener_llm_review(
-        final.get_stage("17_docket_root_lookup_courtlistener_llm_review")
+    substage = evaluation.score_docket_root_lookup_courtlistener_llm_review(final)
+    assert substage == evaluation.score_docket_root_lookup_courtlistener_llm_review(reviewed)
+    assert substage == evaluation.score_docket_root_lookup_courtlistener_llm_review(
+        final.get_substage("validate_roots.docket_lookup.courtlistener_review")
     )
-    assert stage == evaluation.score_docket_root_lookup_courtlistener_llm_review(restored)
-    assert stage.metrics == {
+    assert substage == evaluation.score_docket_root_lookup_courtlistener_llm_review(restored)
+    assert substage.metrics == {
         "case_name": Precision(1, 1),
         "court": Precision(0, 1),
         "date": Precision(0, 1),
     }
-    assert f"## {STAGES[-2]}" in evaluation.render_docket_root_lookup_courtlistener_llm_review(stage)
-    workflow = evaluation.score_validate_roots(final)
-    assert tuple(score.stage for score in workflow.stages) == STAGES
+    assert substage_heading(SUBSTAGES[-2]) in evaluation.render_docket_root_lookup_courtlistener_llm_review(
+        substage
+    )
+    workflow = _score_validate_roots(final)
+    assert tuple(score.substage for score in workflow.substages) == SUBSTAGES
     assert workflow.fields == {
         "case_name": FieldScore(1, 1, 2),
         "court": FieldScore(0, 1, 2),
@@ -662,13 +748,13 @@ def test_docket_review_scores_selected_fields_by_locator_and_preserves_stage_bou
     assert workflow.identity == evaluation.IdentityScore(0, 1, 2, 0)
     report = evaluation.render_validate_roots(workflow)
     numbered_headings = tuple(
-        line.removeprefix("## ")
-        for line in report.splitlines()
-        if line.startswith("## ") and line[3:4].isdigit()
+        line.split(" ", 2)[2] for line in report.splitlines() if line.startswith("### ")
     )
-    assert numbered_headings == WORKFLOW_STAGES
-    assert workflow.as_dict()["stage_order"] == list(WORKFLOW_STAGES)
-    assert ("## 16_docket_root_lookup_courtlistener_retrieval\n\n| Metric | Coverage |") in report
+    assert numbered_headings == WORKFLOW_SUBSTAGES
+    assert tuple(_substage_records(workflow.as_dict())) == WORKFLOW_SUBSTAGES
+    assert (
+        substage_heading(evaluation.DOCKET_ROOT_LOOKUP_COURTLISTENER_RETRIEVAL) + "\n\n| Metric | Coverage |"
+    ) in report
 
 
 def test_govinfo_review_scores_selected_candidate_and_supplies_final_docket_labels(
@@ -681,13 +767,15 @@ def test_govinfo_review_scores_selected_candidate_and_supplies_final_docket_labe
     assert docket.govinfo_docket_review.decision is not None
     assert docket.govinfo_docket_review.decision.selected_candidate_index == 0
 
-    stage = evaluation.score_docket_root_lookup_govinfo_llm_review(final)
-    assert stage.metrics == {
+    substage = evaluation.score_docket_root_lookup_govinfo_llm_review(final)
+    assert substage.metrics == {
         "case_name": Precision(1, 1),
         "court": Precision(0, 1),
         "date": Precision(0, 1),
     }
-    assert f"## {STAGES[-1]}" in evaluation.render_docket_root_lookup_govinfo_llm_review(stage)
+    assert substage_heading(SUBSTAGES[-1]) in evaluation.render_docket_root_lookup_govinfo_llm_review(
+        substage
+    )
     assert evaluation._final_docket_field_label(docket, "case_name") == "agrees"
     assert evaluation._final_docket_field_label(docket, "court") == "disagrees"
     assert evaluation._final_docket_field_label(docket, "date") == "unavailable"
@@ -725,7 +813,7 @@ def test_docket_unavailable_without_source_date_matches_not_stated_gold(tmp_path
         Precision(1, 1)
     )
     final = _complete_reporter_stages(reviewed)
-    assert evaluation.score_validate_roots(final).fields["date"] == FieldScore(1, 1, 2)
+    assert _score_validate_roots(final).fields["date"] == FieldScore(1, 1, 2)
 
 
 def test_docket_unavailable_with_source_date_does_not_match_gold(tmp_path: Path) -> None:
@@ -734,7 +822,7 @@ def test_docket_unavailable_with_source_date_does_not_match_gold(tmp_path: Path)
         Precision(0, 1)
     )
     final = _complete_reporter_stages(reviewed)
-    assert evaluation.score_validate_roots(final).fields["date"] == FieldScore(0, 1, 2)
+    assert _score_validate_roots(final).fields["date"] == FieldScore(0, 1, 2)
 
 
 @pytest.mark.parametrize("failed", (False, True))
@@ -744,20 +832,89 @@ def test_docket_review_without_selection_makes_no_prediction(tmp_path: Path, fai
         field: Precision(0, 0) for field in FIELDS
     }
     final = _complete_reporter_stages(reviewed)
-    assert evaluation.score_validate_roots(final).fields == {field: FieldScore(0, 0, 2) for field in FIELDS}
-    assert evaluation.score_validate_roots(final).identity == evaluation.IdentityScore(0, 0, 2, 0)
+    assert _score_validate_roots(final).fields == {field: FieldScore(0, 0, 2) for field in FIELDS}
+    assert _score_validate_roots(final).identity == evaluation.IdentityScore(0, 0, 2, 0)
 
 
 def test_lookup_identity_abstains_when_case_name_is_unavailable(tmp_path: Path) -> None:
     reviewed = _reviewed_docket(tmp_path, case_name="unavailable", court="match", date="match")
     final = _complete_reporter_stages(reviewed)
-    assert evaluation.score_validate_roots(final).identity == evaluation.IdentityScore(0, 0, 2, 1)
+    assert _score_validate_roots(final).identity == evaluation.IdentityScore(0, 0, 2, 1)
 
 
 def test_lookup_identity_ignores_unavailable_court_and_date(tmp_path: Path) -> None:
     reviewed = _reviewed_docket(tmp_path, case_name="match", court="unavailable", date="unavailable")
     final = _complete_reporter_stages(reviewed)
-    assert evaluation.score_validate_roots(final).identity == evaluation.IdentityScore(1, 1, 2, 0)
+    assert _score_validate_roots(final).identity == evaluation.IdentityScore(1, 1, 2, 0)
+
+
+@pytest.mark.parametrize(
+    ("number", "verdict", "identity"),
+    (
+        ("match", IdentityVerdict.CORRECT_IDENTITY, evaluation.IdentityScore(1, 1, 2, 0)),
+        ("mismatch", IdentityVerdict.WRONG_IDENTITY, evaluation.IdentityScore(0, 1, 2, 0)),
+        ("unavailable", IdentityVerdict.UNDETERMINED, evaluation.IdentityScore(0, 0, 2, 1)),
+    ),
+)
+def test_aggregated_docket_number_verdict_is_persisted_scored_and_serializable(
+    tmp_path: Path,
+    number: str,
+    verdict: IdentityVerdict,
+    identity: evaluation.IdentityScore,
+) -> None:
+    final = _complete_reporter_stages(_reviewed_docket(tmp_path, docket_number=number))
+    restored = Document.model_validate_json(final.model_dump_json())
+    detail = evaluation.score_fields_aggregated_identity(final)
+    assert detail == evaluation.FieldsAggregatedIdentityScore(
+        evaluation.FIELDS_AGGREGATED_IDENTITY,
+        {verdict.value: 1},
+    )
+    assert detail == evaluation.score_fields_aggregated_identity(restored)
+    assert detail == evaluation.score_fields_aggregated_identity(
+        final.get_substage(evaluation.FIELDS_AGGREGATED_IDENTITY)
+    )
+    score = evaluation.score_validate_roots(restored)
+    assert score.identity == identity
+    assert score.fields == {field: FieldScore(1, 1, 2) for field in FIELDS}
+    assert score.checkpoint == evaluation.FIELDS_AGGREGATED_IDENTITY
+    assert score.fields_aggregated_identity == detail
+    assert _substage_records(score.as_dict())[evaluation.FIELDS_AGGREGATED_IDENTITY] == detail.as_dict()
+    assert (score + score).fields_aggregated_identity.verdict_counts == {verdict.value: 2}
+    table = evaluation.render_fields_aggregated_identity(detail)
+    assert "| Issued verdict | Count |" in table
+    assert f"| {verdict.value} | 1 |" in table
+    assert "Precision" not in table and "Recall" not in table
+    assert table.rstrip() in evaluation.render_validate_roots(score)
+
+
+def test_aggregated_identity_uses_selected_govinfo_number_comparison(tmp_path: Path) -> None:
+    reviewed = _reviewed_docket(tmp_path)
+    final = _complete_reporter_stages(
+        _add_govinfo_review(reviewed, docket_number="mismatch", court="match", date="match")
+    )
+    score = evaluation.score_validate_roots(final)
+    assert score.identity == evaluation.IdentityScore(0, 1, 2, 0)
+    assert score.fields == {field: FieldScore(1, 1, 2) for field in FIELDS}
+    assert score.fields_aggregated_identity.verdict_counts == {"wrong_identity": 1}
+
+
+def test_selected_docket_without_durable_aggregation_verdict_is_rejected(tmp_path: Path) -> None:
+    reviewed = _reviewed_docket(tmp_path)
+    for substage in WORKFLOW_SUBSTAGES[8:]:
+        reviewed = reviewed.complete_substage(substage)
+    with pytest.raises(ValueError, match="exactly one field-aggregated identity judgment"):
+        evaluation.score_fields_aggregated_identity(reviewed)
+    with pytest.raises(ValueError, match="exactly one field-aggregated identity judgment"):
+        evaluation.score_validate_roots(reviewed)
+
+
+def test_aggregation_checkpoint_is_required_before_scoring_lookup_workflow(tmp_path: Path) -> None:
+    reviewed = _reviewed_docket(tmp_path)
+    reviewed = reviewed.complete_substage(WORKFLOW_SUBSTAGES[8]).complete_substage(WORKFLOW_SUBSTAGES[9])
+    with pytest.raises(
+        ValueError, match=r"missing substages: validate_roots\.docket_lookup\.identity_aggregation"
+    ):
+        evaluation.score_validate_roots(reviewed)
 
 
 def test_rule_ambiguity_scores_only_the_selected_candidate_and_keeps_stage_boundaries(
@@ -781,14 +938,15 @@ def test_rule_ambiguity_scores_only_the_selected_candidate_and_keeps_stage_bound
 
     final = asyncio.run(reporter_root_lookup_unique_llm_judgment(ambiguous))
     final = asyncio.run(reporter_root_lookup_ambiguous_llm_judgment(final))
+    final = _finish_lookup_checkpoint(final)
     restored = Document.model_validate_json(final.model_dump_json())
     assert restored == final
-    for stage, scorer_name in SCORERS.items():
+    for substage, scorer_name in SCORERS.items():
         scorer = getattr(evaluation, scorer_name)
-        assert scorer(final) == scorer(final.get_stage(stage)) == scorer(restored)
+        assert scorer(final) == scorer(final.get_substage(substage)) == scorer(restored)
         assert set(scorer(final).metrics) == FIELDS
-        rendered = getattr(evaluation, RENDERERS[stage])(scorer(final))
-        assert stage in rendered
+        rendered = getattr(evaluation, RENDERERS[substage])(scorer(final))
+        assert substage in rendered
     assert evaluation.score_reporter_root_lookup_unique_rule_judgment(unique_review).metrics == {
         field: Precision(0, 0) for field in FIELDS
     }
@@ -801,13 +959,19 @@ def test_rule_ambiguity_scores_only_the_selected_candidate_and_keeps_stage_bound
     assert evaluation.score_reporter_root_lookup_unique_llm_judgment(final).metrics == {
         field: Precision(0, 0) for field in FIELDS
     }
-    score = evaluation.score_validate_roots(final)
-    assert tuple(stage.stage for stage in score.stages) == STAGES
+    score = _score_validate_roots(final)
+    assert tuple(substage.substage for substage in score.substages) == SUBSTAGES
     assert set(score.fields) == FIELDS
-    assert set(score.as_dict()) == {"stage_order", "stages", "retrieval_stages", "fields", "identity"}
+    assert set(score.as_dict()) == {
+        "workflow",
+        "stages",
+        "fields",
+        "identity",
+        "checkpoint",
+    }
     assert score.fields == {field: FieldScore(1, 1, 2) for field in FIELDS}
     report = evaluation.render_validate_roots(score)
-    assert "## Root field judgments through stage 19 (before open search)" in report
+    assert "## Root field judgments after docket lookup" in report
     assert "| Field | Precision | Recall |" in report
     assert "identity" not in score.as_dict()["fields"]
 
@@ -877,7 +1041,7 @@ def test_unique_unavailable_is_an_explicit_incorrect_judgment(tmp_path: Path) ->
     assert evaluation.score_reporter_root_lookup_unique_llm_judgment(final).metrics == {
         field: Precision(1, 1) for field in FIELDS
     }
-    assert evaluation.score_validate_roots(final).fields == {field: FieldScore(1, 1, 2) for field in FIELDS}
+    assert _score_validate_roots(final).fields == {field: FieldScore(1, 1, 2) for field in FIELDS}
 
 
 def test_selected_reporter_candidate_mismatch_counts_as_an_issued_prediction(tmp_path: Path) -> None:
@@ -943,7 +1107,7 @@ def test_ambiguous_model_review_scores_only_its_new_selected_judgments(tmp_path:
     assert evaluation.score_reporter_root_lookup_ambiguous_llm_judgment(final).metrics == {
         field: Precision(1, 1) for field in FIELDS
     }
-    assert evaluation.score_validate_roots(final).fields == {field: FieldScore(1, 1, 2) for field in FIELDS}
+    assert _score_validate_roots(final).fields == {field: FieldScore(1, 1, 2) for field in FIELDS}
 
 
 def test_absent_field_without_judgment_is_not_a_final_field_prediction(tmp_path: Path) -> None:
@@ -959,14 +1123,14 @@ def test_absent_field_without_judgment_is_not_a_final_field_prediction(tmp_path:
     assert evaluation.score_reporter_root_lookup_unique_rule_judgment(final).metrics["date"] == Precision(
         0, 0
     )
-    assert evaluation.score_validate_roots(final).fields == {
+    assert _score_validate_roots(final).fields == {
         "case_name": FieldScore(1, 1, 2),
         "court": FieldScore(1, 1, 2),
         "date": FieldScore(0, 0, 2),
     }
-    # The selected lookup stage did persist this identity verdict, so retain
+    # The selected lookup substage did persist this identity verdict, so retain
     # it even though no date judgment was issued.
-    assert evaluation.score_validate_roots(final).identity == evaluation.IdentityScore(1, 1, 2, 0)
+    assert _score_validate_roots(final).identity == evaluation.IdentityScore(1, 1, 2, 0)
     assert all(
         not root.identity_judgments for root in final.roots if not isinstance(root, FullReporterCitation)
     )
@@ -977,7 +1141,7 @@ def test_lookup_miss_does_not_predict_an_absent_citation_field(tmp_path: Path) -
         _roots(tmp_path, SOURCE_WITHOUT_REPORTER_DATE), client=FakeLookupClient()
     )
     reporter = next(root for root in lookup.roots if isinstance(root, FullReporterCitation))
-    assert any(node.stage == "12.1_reporter_root_lookup_cluster_retrieval" for node in reporter.nodes)
+    assert any(node.substage == "validate_roots.reporter_lookup.cluster_retrieval" for node in reporter.nodes)
     assert not reporter.date
     assert reporter.case_name_judgments == reporter.court_judgments == reporter.date_judgments == ()
 
@@ -985,7 +1149,7 @@ def test_lookup_miss_does_not_predict_an_absent_citation_field(tmp_path: Path) -
     assert evaluation.score_reporter_root_lookup_unique_rule_judgment(final).metrics == {
         field: Precision(0, 0) for field in FIELDS
     }
-    assert evaluation.score_validate_roots(final).fields == {field: FieldScore(0, 0, 2) for field in FIELDS}
+    assert _score_validate_roots(final).fields == {field: FieldScore(0, 0, 2) for field in FIELDS}
 
 
 def test_unavailable_for_an_absent_reporter_field_agrees_with_not_stated_gold(
@@ -1019,13 +1183,13 @@ def test_unavailable_for_an_absent_reporter_field_agrees_with_not_stated_gold(
     assert evaluation.score_reporter_root_lookup_unique_llm_judgment(reviewed).metrics["date"] == (
         Precision(1, 1)
     )
-    assert evaluation.score_validate_roots(reviewed).fields["date"] == FieldScore(1, 1, 2)
+    assert _score_validate_roots(reviewed).fields["date"] == FieldScore(1, 1, 2)
     later = reporter.record("later_quote").with_date(
         reviewed.text,
         Span(reviewed.text.index("2024"), reviewed.text.index("2024") + len("2024")),
     )
     assert later.date
-    assert evaluation._final_reporter_field_label(later, "date", reviewed.stage_runs) == "not_stated"
+    assert evaluation._final_reporter_field_label(later, "date", reviewed.substage_runs) == "not_stated"
 
 
 @pytest.mark.parametrize("invalid_label", ("unavailable", "undetermined"))
@@ -1121,27 +1285,29 @@ def test_primary_sized_gold_keeps_all_440_roots_in_each_recall_denominator(tmp_p
     docket_start = source.index(docket_locator)
     docket = FullDocketCitation.from_locator(
         citation_id="generated-docket-root",
-        stage="test_sites",
+        substage="test_sites",
         source=source,
         span=Span(docket_start, docket_start + len(docket_locator)),
         number_span=Span(docket_start + len("No. "), docket_start + len(docket_locator)),
     )
-    document = document.add_citation(docket).complete("test_sites")
-    document = document.replace_citation(docket.record("10_roots").with_root(docket.id)).complete("10_roots")
+    document = document.add_citation(docket).complete_substage("test_sites")
+    document = document.replace_citation(
+        docket.record("grow_roots.root_formation.rule").with_root(docket.id)
+    ).complete_substage("grow_roots.root_formation.rule")
     document = _add_docket_review(document, case_name="unavailable", court="unavailable", date="unavailable")
     document = _complete_reporter_stages(document)
 
-    score = evaluation.score_validate_roots(document)
+    score = _score_validate_roots(document)
     assert score.fields == {field: FieldScore(1, 1, 440) for field in FIELDS}
     assert all(score.fields[field].as_dict()["recall"] == 1 / 440 for field in FIELDS)
 
 
 def test_missing_stage_checkpoint_raises(tmp_path: Path) -> None:
     roots = _roots(tmp_path)
-    with pytest.raises(KeyError, match="Stage has not run"):
+    with pytest.raises(KeyError, match="Substage has not run"):
         evaluation.score_reporter_root_lookup_unique_rule_judgment(roots)
     unvalidated = Document.from_source(roots.source_path)
-    with pytest.raises(KeyError, match="Stage has not run"):
+    with pytest.raises(KeyError, match="Substage has not run"):
         evaluation.score_docket_root_lookup_courtlistener_llm_review(unvalidated)
 
 
@@ -1152,11 +1318,15 @@ def _stage23_review(
     fetched: bool = True,
     no_reviewable: bool = False,
     failure: bool = False,
-    next_stage: str | None = None,
+    next_substage: str | None = None,
+    lookup_number: str | None = None,
 ) -> Document:
     document = _roots(tmp_path, docket_stages=False)
-    for stage in evaluation.WORKFLOW_STAGES:
-        document = document.complete(stage)
+    if lookup_number is not None:
+        document = _finish_lookup_checkpoint(_add_docket_review(document, docket_number=lookup_number))
+    else:
+        for substage in evaluation.WORKFLOW_SUBSTAGES:
+            document = document.complete_substage(substage)
     quote = "Gamma v. Delta, No. 1:24-cv-08705 (S.D.N.Y. 2024)"
     context_quote = "The opinion cites"
     body = f"{context_quote} {quote}."
@@ -1175,10 +1345,10 @@ def _stage23_review(
         if fetched
         else ()
     )
-    for stage in evaluation.LOCATOR_BODY_STAGES[:-1]:
-        if stage == evaluation.LOCATOR_BODY_STAGES[0]:
+    for substage in evaluation.LOCATOR_BODY_SUBSTAGES[:-1]:
+        if substage == evaluation.LOCATOR_BODY_SUBSTAGES[0]:
             root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
-            recorded = root.record(stage)
+            recorded = root.record(substage)
             recorded = recorded.with_body_search(
                 BodySearch(
                     node_id=recorded.nodes[-1].id,
@@ -1188,7 +1358,7 @@ def _stage23_review(
                 )
             )
             document = document.replace_citation(recorded)
-        document = document.complete(stage)
+        document = document.complete_substage(substage)
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
     recorded = root.record(evaluation.LOCATOR_BODY_LLM_JUDGMENT)
     if failure:
@@ -1272,12 +1442,16 @@ def _stage23_review(
     if review.decision is not None and review.decision.source is not None:
         assert verdict is not None
         recorded = recorded.with_identity_judgment(verdict, basis=IdentityBasis.THIRD_PARTY)
-    recorded = recorded.with_route(next_stage)
-    return document.replace_citation(recorded).complete(evaluation.LOCATOR_BODY_LLM_JUDGMENT)
+    recorded = recorded.with_route(next_substage)
+    return document.replace_citation(recorded).complete_substage(evaluation.LOCATOR_BODY_LLM_JUDGMENT)
 
 
 def _stage27_review(tmp_path: Path, outcome: str) -> Document:
-    document = _stage23_review(tmp_path, verdict=None, next_stage="case_name_body_discovery")
+    document = _stage23_review(
+        tmp_path,
+        verdict=None,
+        next_substage="validate_roots.intended_case_discovery.courtlistener_opinion_retrieval",
+    )
     quote = "Gamma v. Delta"
     evidence = make_body_evidences(
         body_id="independent-opinion",
@@ -1292,7 +1466,7 @@ def _stage27_review(tmp_path: Path, outcome: str) -> Document:
         anchor_kind="case_name",
     )
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
-    recorded = root.record(evaluation.INTENDED_CASE_STAGES[0])
+    recorded = root.record(evaluation.INTENDED_CASE_SUBSTAGES[0])
     recorded = recorded.with_field_body_search(
         FieldBodySearch(
             node_id=recorded.nodes[-1].id,
@@ -1302,9 +1476,9 @@ def _stage27_review(tmp_path: Path, outcome: str) -> Document:
             evidence=evidence,
         )
     )
-    document = document.replace_citation(recorded).complete(evaluation.INTENDED_CASE_STAGES[0])
-    for stage in evaluation.INTENDED_CASE_STAGES[1:-1]:
-        document = document.complete(stage)
+    document = document.replace_citation(recorded).complete_substage(evaluation.INTENDED_CASE_SUBSTAGES[0])
+    for substage in evaluation.INTENDED_CASE_SUBSTAGES[1:-1]:
+        document = document.complete_substage(substage)
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
     recorded = root.record(evaluation.INTENDED_CASE_LLM_SELECTION)
     if outcome.startswith("selected_"):
@@ -1351,59 +1525,86 @@ def _stage27_review(tmp_path: Path, outcome: str) -> Document:
         )
         route = "intended_case_review_retry"
     recorded = recorded.with_intended_case_review(review).with_route(route)
-    return document.replace_citation(recorded).complete(evaluation.INTENDED_CASE_LLM_SELECTION)
+    return document.replace_citation(recorded).complete_substage(evaluation.INTENDED_CASE_LLM_SELECTION)
 
 
 def test_stage23_report_counts_issued_verdicts(tmp_path: Path) -> None:
     document = _stage23_review(tmp_path, verdict=IdentityVerdict.WRONG_IDENTITY)
     detail = evaluation.score_locator_body_llm_judgment(document)
     assert detail.verdict_counts == {"wrong_identity": 1}
-    workflow = evaluation.score_validate_roots(document)
+    workflow = _score_validate_roots(document)
     assert workflow.body_review == detail
-    assert workflow.as_dict()["body_review"] == {
-        "stage": evaluation.LOCATOR_BODY_LLM_JUDGMENT,
+    assert _substage_records(workflow.as_dict())[evaluation.LOCATOR_BODY_LLM_JUDGMENT] == {
+        "substage": evaluation.LOCATOR_BODY_LLM_JUDGMENT,
         "verdict_counts": {"wrong_identity": 1},
     }
     report = evaluation.render_validate_roots(workflow)
-    assert f"## {evaluation.LOCATOR_BODY_LLM_JUDGMENT}" in report
+    assert substage_heading(evaluation.LOCATOR_BODY_LLM_JUDGMENT) in report
     assert "| wrong_identity | 1 |" in report
     assert "opinion-123" not in report
     numbered_headings = tuple(
-        line.removeprefix("## ")
-        for line in report.splitlines()
-        if line.startswith("## ") and line[3:4].isdigit()
+        line.split(" ", 2)[2] for line in report.splitlines() if line.startswith("### ")
     )
-    assert numbered_headings == (*evaluation.WORKFLOW_STAGES, *evaluation.LOCATOR_BODY_STAGES)
-    assert workflow.as_dict()["stage_order"] == list(numbered_headings)
+    assert numbered_headings == (*evaluation.WORKFLOW_SUBSTAGES, *evaluation.LOCATOR_BODY_SUBSTAGES)
+    assert tuple(_substage_records(workflow.as_dict())) == numbered_headings
+
+
+@pytest.mark.parametrize(
+    ("number", "verdict", "expected"),
+    (
+        ("match", IdentityVerdict.WRONG_IDENTITY, evaluation.IdentityScore(0, 1, 2, 0)),
+        ("mismatch", IdentityVerdict.CORRECT_IDENTITY, evaluation.IdentityScore(1, 1, 2, 0)),
+        ("match", IdentityVerdict.UNDETERMINED, evaluation.IdentityScore(0, 0, 2, 1)),
+    ),
+)
+def test_body_verdict_overrides_aggregated_docket_identity_without_rescoring_fields(
+    tmp_path: Path,
+    number: str,
+    verdict: IdentityVerdict,
+    expected: evaluation.IdentityScore,
+) -> None:
+    document = _stage23_review(
+        tmp_path,
+        lookup_number=number,
+        verdict=verdict,
+        next_substage="validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
+        if verdict is IdentityVerdict.UNDETERMINED
+        else None,
+    )
+    before = evaluation.score_validate_roots(document.get_substage(evaluation.FIELDS_AGGREGATED_IDENTITY))
+    score = evaluation.score_validate_roots(document)
+    assert score.identity == expected
+    assert score.fields == before.fields == {field: FieldScore(1, 1, 2) for field in FIELDS}
+    assert score.substages == before.substages
+    assert score.fields_aggregated_identity == before.fields_aggregated_identity
+    assert evaluation.score_fields_aggregated_identity(document) == before.fields_aggregated_identity
 
 
 @pytest.mark.parametrize("outcome", ("selected_likely", "selected_possible", "declined", "review_failure"))
 def test_stage27_report_lists_all_stages_without_rescoring_identity(tmp_path: Path, outcome: str) -> None:
     document = _stage27_review(tmp_path, outcome)
-    before = evaluation.score_validate_roots(document.get_stage(evaluation.LOCATOR_BODY_LLM_JUDGMENT))
-    score = evaluation.score_validate_roots(document)
+    before = _score_validate_roots(document.get_substage(evaluation.LOCATOR_BODY_LLM_JUDGMENT))
+    score = _score_validate_roots(document)
     assert score.checkpoint == evaluation.INTENDED_CASE_LLM_SELECTION
     assert score.fields == before.fields
     assert score.identity == before.identity
     assert score.identity_with_partial == before.identity_with_partial
     assert score.body_review == before.body_review
     assert score.intended_case_outcomes == {outcome: 1}
-    assert score.stage_order == (
-        *evaluation.WORKFLOW_STAGES,
-        *evaluation.LOCATOR_BODY_STAGES,
-        *evaluation.INTENDED_CASE_STAGES,
+    assert score.substage_order == (
+        *evaluation.WORKFLOW_SUBSTAGES,
+        *evaluation.LOCATOR_BODY_SUBSTAGES,
+        *evaluation.INTENDED_CASE_SUBSTAGES,
     )
-    assert score.as_dict()["intended_case_review"] == {
-        "stage": evaluation.INTENDED_CASE_LLM_SELECTION,
+    assert _substage_records(score.as_dict())[evaluation.INTENDED_CASE_LLM_SELECTION] == {
+        "substage": evaluation.INTENDED_CASE_LLM_SELECTION,
         "outcome_counts": {outcome: 1},
     }
     report = evaluation.render_validate_roots(score)
     numbered_headings = tuple(
-        line.removeprefix("## ")
-        for line in report.splitlines()
-        if line.startswith("## ") and line[3:4].isdigit()
+        line.split(" ", 2)[2] for line in report.splitlines() if line.startswith("### ")
     )
-    assert numbered_headings == score.stage_order
+    assert numbered_headings == score.substage_order
     assert f"| {outcome} | 1 |" in report
     assert "Candidate outcomes only; the annotations do not label intended-case candidates." in report
     assert report.count("Citations with records / citations queried") == 10
@@ -1411,21 +1612,22 @@ def test_stage27_report_lists_all_stages_without_rescoring_identity(tmp_path: Pa
 
 def test_stage27_outcome_counts_combine_without_accuracy_metrics(tmp_path: Path) -> None:
     outcomes = ("selected_likely", "selected_possible", "declined", "review_failure")
-    scores = [
-        evaluation.score_validate_roots(_stage27_review(tmp_path / outcome, outcome)) for outcome in outcomes
-    ]
+    scores = [_score_validate_roots(_stage27_review(tmp_path / outcome, outcome)) for outcome in outcomes]
     combined = scores[0]
     for score in scores[1:]:
         combined += score
     assert combined.intended_case_outcomes == dict.fromkeys(outcomes, 1)
-    assert set(combined.as_dict()["intended_case_review"]) == {"stage", "outcome_counts"}
+    assert set(_substage_records(combined.as_dict())[evaluation.INTENDED_CASE_LLM_SELECTION]) == {
+        "substage",
+        "outcome_counts",
+    }
 
 
 def test_validate_roots_rejects_incomplete_intended_case_workflow(tmp_path: Path) -> None:
     document = _stage23_review(tmp_path)
-    document = document.complete(evaluation.INTENDED_CASE_STAGES[0])
-    with pytest.raises(ValueError, match="Incomplete intended-case stages in validate_roots"):
-        evaluation.score_validate_roots(document)
+    document = document.complete_substage(evaluation.INTENDED_CASE_SUBSTAGES[0])
+    with pytest.raises(ValueError, match="Incomplete intended-case substages in validate_roots"):
+        _score_validate_roots(document)
 
 
 @pytest.mark.parametrize(
@@ -1435,13 +1637,17 @@ def test_validate_roots_rejects_incomplete_intended_case_workflow(tmp_path: Path
 def test_stage23_qualified_and_undetermined_verdicts_have_distinct_identity_scores(
     tmp_path: Path, verdict: IdentityVerdict
 ) -> None:
-    document = _stage23_review(tmp_path, verdict=verdict, next_stage="case_name_body_discovery")
+    document = _stage23_review(
+        tmp_path,
+        verdict=verdict,
+        next_substage="validate_roots.intended_case_discovery.courtlistener_opinion_retrieval",
+    )
     detail = evaluation.score_locator_body_llm_judgment(document)
     assert detail.verdict_counts == {verdict.value: 1}
     assert "| " + verdict.value + " | 1 |" in evaluation.render_locator_body_llm_judgment(detail)
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
-    assert root.next_stage == "case_name_body_discovery"
-    workflow = evaluation.score_validate_roots(document)
+    assert root.next_substage == "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
+    workflow = _score_validate_roots(document)
     assert workflow.identity == evaluation.IdentityScore(0, 0, 2, 1)
     assert workflow.identity_with_partial == (
         evaluation.IdentityScore(1, 1, 2, 0)
@@ -1459,14 +1665,14 @@ def test_partial_verdict_lowers_broader_precision_on_wrong_identity_gold(tmp_pat
     document = _stage23_review(
         tmp_path,
         verdict=IdentityVerdict.PARTIALLY_CORROBORATED,
-        next_stage="case_name_body_discovery",
+        next_substage="validate_roots.intended_case_discovery.courtlistener_opinion_retrieval",
     )
     annotation = tmp_path / "primary" / "documents" / "example.jsonl"
     rows = [json.loads(line) for line in annotation.read_text(encoding="utf-8").splitlines()]
     rows[-1]["validation"]["identity"]["label"] = "WRONG_IDENTITY"
     annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
-    score = evaluation.score_validate_roots(document)
+    score = _score_validate_roots(document)
     assert score.identity == evaluation.IdentityScore(0, 0, 2, 1)
     assert score.identity_with_partial == evaluation.IdentityScore(0, 1, 2, 0)
 
@@ -1485,14 +1691,14 @@ def test_stage23_routes_without_issuing_judgment(tmp_path: Path, fetched: bool, 
         verdict=None,
         fetched=fetched,
         failure=failure,
-        next_stage="case_name_body_discovery",
+        next_substage="validate_roots.intended_case_discovery.courtlistener_opinion_retrieval",
     )
     detail = evaluation.score_locator_body_llm_judgment(document)
     assert detail.verdict_counts == {}
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
-    assert root.next_stage == "case_name_body_discovery"
+    assert root.next_substage == "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
     assert root.body_reviews[-1].failure_reason == ("The model review failed." if failure else None)
-    assert evaluation.score_validate_roots(document).body_review == detail
+    assert _score_validate_roots(document).body_review == detail
 
 
 def test_stage23_no_reviewable_decision_allows_fetched_but_filtered_excerpts(tmp_path: Path) -> None:
@@ -1500,7 +1706,7 @@ def test_stage23_no_reviewable_decision_allows_fetched_but_filtered_excerpts(tmp
         tmp_path,
         verdict=None,
         no_reviewable=True,
-        next_stage="case_name_body_discovery",
+        next_substage="validate_roots.intended_case_discovery.courtlistener_opinion_retrieval",
     )
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
     assert root.body_searches[0].evidence
@@ -1509,18 +1715,24 @@ def test_stage23_no_reviewable_decision_allows_fetched_but_filtered_excerpts(tmp
 
 
 def test_stage23_evaluation_merges_verdict_counts_and_ignores_later_routes(tmp_path: Path) -> None:
-    first = _stage23_review(tmp_path / "first", next_stage=None)
-    second = _stage23_review(tmp_path / "second", verdict=None, next_stage="case_name_body_discovery")
+    first = _stage23_review(tmp_path / "first", next_substage=None)
+    second = _stage23_review(
+        tmp_path / "second",
+        verdict=None,
+        next_substage="validate_roots.intended_case_discovery.courtlistener_opinion_retrieval",
+    )
     recorded = next(root for root in first.roots if isinstance(root, FullDocketCitation)).record(
         "24_followup"
     )
-    first_later = first.replace_citation(recorded.with_route("unrelated_followup")).complete("24_followup")
+    first_later = first.replace_citation(recorded.with_route("unrelated_followup")).complete_substage(
+        "24_followup"
+    )
     first_score = evaluation.score_locator_body_llm_judgment(first)
     assert evaluation.score_locator_body_llm_judgment(first_later) == first_score
     combined = first_score + evaluation.score_locator_body_llm_judgment(second)
     assert combined.verdict_counts == {"correct_identity": 1}
     assert combined.as_dict() == {
-        "stage": evaluation.LOCATOR_BODY_LLM_JUDGMENT,
+        "substage": evaluation.LOCATOR_BODY_LLM_JUDGMENT,
         "verdict_counts": {"correct_identity": 1},
     }
 
@@ -1547,7 +1759,11 @@ def test_stage23_evaluation_rejects_incomplete_selected_history(
 
 
 def test_stage23_evaluation_rejects_identity_judgment_on_a_route_only_review(tmp_path: Path) -> None:
-    document = _stage23_review(tmp_path, verdict=None, next_stage="case_name_body_discovery")
+    document = _stage23_review(
+        tmp_path,
+        verdict=None,
+        next_substage="validate_roots.intended_case_discovery.courtlistener_opinion_retrieval",
+    )
     root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
     payload = document.model_dump(mode="python")
     citation = next(item for item in payload["citations"] if item["id"] == root.id)
@@ -1568,14 +1784,14 @@ def test_reporter_cluster_retrieval_counts_only_queried_citations(tmp_path: Path
     missed = reporter_root_lookup_cluster_retrieval(
         _roots(tmp_path / "missed", docket_stages=False), client=FakeLookupClient()
     )
-    stage = evaluation.REPORTER_ROOT_LOOKUP_CLUSTER_RETRIEVAL
+    substage = evaluation.REPORTER_ROOT_LOOKUP_CLUSTER_RETRIEVAL
     scorer = evaluation.score_reporter_root_lookup_cluster_retrieval
     found_score = scorer(found)
     missed_score = scorer(missed)
-    assert found_score == evaluation.RetrievalScore(stage, 1, 1)
-    assert missed_score == evaluation.RetrievalScore(stage, 0, 1)
+    assert found_score == evaluation.RetrievalScore(substage, 1, 1)
+    assert missed_score == evaluation.RetrievalScore(substage, 0, 1)
     assert (found_score + missed_score).as_dict()["record_coverage"]["rate"] == 0.5
-    assert scorer(found.complete("later")) == evaluation.RetrievalScore(stage, 1, 1)
+    assert scorer(found.complete_substage("later")) == evaluation.RetrievalScore(substage, 1, 1)
 
 
 def test_reporter_docket_retrieval_counts_saved_requests_even_when_empty(tmp_path: Path) -> None:
@@ -1590,7 +1806,7 @@ def test_reporter_docket_retrieval_counts_saved_requests_even_when_empty(tmp_pat
             return self.response
 
     candidate = {**_cluster(1, "Bell Atlantic Corporation v. Twombly"), "court_id": None, "docketId": 10}
-    stage = evaluation.REPORTER_ROOT_LOOKUP_DOCKET_RETRIEVAL
+    substage = evaluation.REPORTER_ROOT_LOOKUP_DOCKET_RETRIEVAL
     scorer = evaluation.score_reporter_root_lookup_docket_retrieval
     for label, response, expected in (
         ("empty", None, 0),
@@ -1600,35 +1816,35 @@ def test_reporter_docket_retrieval_counts_saved_requests_even_when_empty(tmp_pat
             _roots(tmp_path / label, docket_stages=False), client=FakeLookupClient(candidate)
         )
         retrieved = reporter_root_lookup_docket_retrieval(lookup, client=DocketClient(response))
-        assert scorer(retrieved) == evaluation.RetrievalScore(stage, expected, 1)
+        assert scorer(retrieved) == evaluation.RetrievalScore(substage, expected, 1)
     no_link = reporter_root_lookup_cluster_retrieval(
         _roots(tmp_path / "no_link", docket_stages=False),
         client=FakeLookupClient(_cluster(1, "Bell Atlantic Corporation v. Twombly")),
     )
     no_link = reporter_root_lookup_docket_retrieval(no_link)
-    assert scorer(no_link) == evaluation.RetrievalScore(stage, 0, 0)
+    assert scorer(no_link) == evaluation.RetrievalScore(substage, 0, 0)
 
 
 @pytest.mark.parametrize(
-    "stage",
+    "substage",
     (
         evaluation.DOCKET_ROOT_LOOKUP_COURTLISTENER_RETRIEVAL,
         evaluation.DOCKET_ROOT_LOOKUP_GOVINFO_RETRIEVAL,
     ),
 )
-def test_docket_retrieval_counts_saved_candidates_and_search_attempts(tmp_path: Path, stage: str) -> None:
-    scorer = getattr(evaluation, RETRIEVAL_SCORERS[stage])
+def test_docket_retrieval_counts_saved_candidates_and_search_attempts(tmp_path: Path, substage: str) -> None:
+    scorer = getattr(evaluation, RETRIEVAL_SCORERS[substage])
     found = (
         _reviewed_docket(tmp_path / "found")
-        if stage == evaluation.DOCKET_ROOT_LOOKUP_COURTLISTENER_RETRIEVAL
+        if substage == evaluation.DOCKET_ROOT_LOOKUP_COURTLISTENER_RETRIEVAL
         else _add_govinfo_review(_reviewed_docket(tmp_path / "found"))
     )
-    assert scorer(found) == evaluation.RetrievalScore(stage, 1, 1)
+    assert scorer(found) == evaluation.RetrievalScore(substage, 1, 1)
 
     empty = _roots(tmp_path / "empty", docket_stages=False)
     root = next(root for root in empty.roots if isinstance(root, FullDocketCitation))
-    recorded = root.record(stage)
-    if stage == evaluation.DOCKET_ROOT_LOOKUP_COURTLISTENER_RETRIEVAL:
+    recorded = root.record(substage)
+    if substage == evaluation.DOCKET_ROOT_LOOKUP_COURTLISTENER_RETRIEVAL:
         recorded = recorded.with_docket_lookup(
             DocketLookup(
                 node_id=recorded.nodes[-1].id,
@@ -1642,32 +1858,32 @@ def test_docket_retrieval_counts_saved_candidates_and_search_attempts(tmp_path: 
                 attempts=(GovInfoLookupAttempt(query="1:24-cv-08705"),),
             )
         )
-    empty = empty.replace_citation(recorded).complete(stage)
-    assert scorer(empty) == evaluation.RetrievalScore(stage, 0, 1)
-    skipped = _roots(tmp_path / "skipped", docket_stages=False).complete(stage)
-    assert scorer(skipped) == evaluation.RetrievalScore(stage, 0, 0)
+    empty = empty.replace_citation(recorded).complete_substage(substage)
+    assert scorer(empty) == evaluation.RetrievalScore(substage, 0, 1)
+    skipped = _roots(tmp_path / "skipped", docket_stages=False).complete_substage(substage)
+    assert scorer(skipped) == evaluation.RetrievalScore(substage, 0, 0)
 
 
 @pytest.mark.parametrize(
-    ("stage", "source", "field_stage"),
+    ("substage", "source", "field_stage"),
     (
-        (evaluation.LOCATOR_BODY_STAGES[0], BodySource.COURTLISTENER_OPINION, False),
-        (evaluation.LOCATOR_BODY_STAGES[1], BodySource.COURTLISTENER_RECAP, False),
-        (evaluation.LOCATOR_BODY_STAGES[2], BodySource.GOVINFO_OPINION, False),
-        (evaluation.INTENDED_CASE_STAGES[0], BodySource.COURTLISTENER_OPINION, True),
-        (evaluation.INTENDED_CASE_STAGES[1], BodySource.COURTLISTENER_RECAP, True),
-        (evaluation.INTENDED_CASE_STAGES[2], BodySource.GOVINFO_OPINION, True),
+        (evaluation.LOCATOR_BODY_SUBSTAGES[0], BodySource.COURTLISTENER_OPINION, False),
+        (evaluation.LOCATOR_BODY_SUBSTAGES[1], BodySource.COURTLISTENER_RECAP, False),
+        (evaluation.LOCATOR_BODY_SUBSTAGES[2], BodySource.GOVINFO_OPINION, False),
+        (evaluation.INTENDED_CASE_SUBSTAGES[0], BodySource.COURTLISTENER_OPINION, True),
+        (evaluation.INTENDED_CASE_SUBSTAGES[1], BodySource.COURTLISTENER_RECAP, True),
+        (evaluation.INTENDED_CASE_SUBSTAGES[2], BodySource.GOVINFO_OPINION, True),
     ),
 )
 def test_body_retrieval_counts_queried_citations_with_reviewable_excerpts(
-    tmp_path: Path, stage: str, source: BodySource, field_stage: bool
+    tmp_path: Path, substage: str, source: BodySource, field_stage: bool
 ) -> None:
-    scorer = getattr(evaluation, RETRIEVAL_SCORERS[stage])
+    scorer = getattr(evaluation, RETRIEVAL_SCORERS[substage])
 
     def saved_search(label: str, *, queried: bool, found: bool) -> Document:
         document = _roots(tmp_path / label, docket_stages=False)
         root = next(root for root in document.roots if isinstance(root, FullDocketCitation))
-        recorded = root.record(stage)
+        recorded = root.record(substage)
         anchor = "Gamma" if field_stage else "1:24-cv-08705"
         evidence = (
             make_body_evidences(
@@ -1707,14 +1923,14 @@ def test_body_retrieval_counts_queried_citations_with_reviewable_excerpts(
                     evidence=evidence,
                 )
             )
-        return document.replace_citation(recorded).complete(stage)
+        return document.replace_citation(recorded).complete_substage(substage)
 
     found = saved_search("found", queried=True, found=True)
     missed = saved_search("missed", queried=True, found=False)
     skipped = saved_search("skipped", queried=False, found=False)
-    assert scorer(found) == evaluation.RetrievalScore(stage, 1, 1)
-    assert scorer(missed) == evaluation.RetrievalScore(stage, 0, 1)
-    assert scorer(skipped) == evaluation.RetrievalScore(stage, 0, 0)
+    assert scorer(found) == evaluation.RetrievalScore(substage, 1, 1)
+    assert scorer(missed) == evaluation.RetrievalScore(substage, 0, 1)
+    assert scorer(skipped) == evaluation.RetrievalScore(substage, 0, 0)
 
 
 def test_workflow_retrieval_scores_render_one_metric_per_stage(tmp_path: Path) -> None:
@@ -1725,13 +1941,15 @@ def test_workflow_retrieval_scores_render_one_metric_per_stage(tmp_path: Path) -
     document = reporter_root_lookup_docket_retrieval(lookup)
     document = reporter_root_lookup_unique_rule_judgment(document)
     document = reporter_root_lookup_ambiguous_rule_judgment(document)
-    document = document.complete(STAGES[2]).complete(STAGES[3])
-    score = evaluation.score_validate_roots(document)
-    assert tuple(item.stage for item in score.retrieval_stages) == evaluation.RETRIEVAL_STAGES[:4]
-    assert score.retrieval_stages[0] == evaluation.RetrievalScore(
+    document = document.complete_substage(SUBSTAGES[2]).complete_substage(SUBSTAGES[3])
+    score = _score_validate_roots(document)
+    assert tuple(item.substage for item in score.retrieval_substages) == evaluation.RETRIEVAL_SUBSTAGES[:4]
+    assert score.retrieval_substages[0] == evaluation.RetrievalScore(
         evaluation.REPORTER_ROOT_LOOKUP_CLUSTER_RETRIEVAL, 1, 1
     )
-    assert score.as_dict()["retrieval_stages"][0]["record_coverage"] == {
+    assert _substage_records(score.as_dict())[evaluation.REPORTER_ROOT_LOOKUP_CLUSTER_RETRIEVAL][
+        "record_coverage"
+    ] == {
         "citations_with_records": 1,
         "citations_queried": 1,
         "rate": 1.0,

@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 from typing import Any, Literal
 from urllib.parse import urlparse
 
 import httpx
-from dotenv import load_dotenv
 from pydantic import ValidationError
 
+from mellea_lrc.configuration import read_env, required_setting
 from mellea_lrc.providers.courtlistener.models import (
     CourtListenerCitationLookup,
     CourtListenerDocket,
@@ -60,24 +60,61 @@ class CourtListenerConfig:
     """Configuration for the CourtListener proxy endpoint."""
 
     base_url: str
-    token: str | None = None
+    timeout_seconds: float
+    token: str | None = field(default=None, repr=False)
     pool: str | None = None
+
+    def __post_init__(self) -> None:
+        try:
+            if not isinstance(self.base_url, str):
+                raise ValueError("Base URL must be a string")
+            parsed = urlparse(self.base_url)
+            valid_url = (
+                parsed.scheme in {"http", "https"}
+                and bool(parsed.hostname)
+                and not parsed.query
+                and not parsed.fragment
+                and parsed.username is None
+                and parsed.password is None
+                and not any(character.isspace() for character in self.base_url)
+            )
+            parsed.port
+        except (TypeError, ValueError):
+            valid_url = False
+        if not valid_url:
+            raise CourtListenerConfigurationError(
+                "COURTLISTENER_BASE_URL must be an HTTP(S) base URL without credentials, a query, or fragment",
+                failure_type="invalid_base_url",
+            )
+        if (
+            isinstance(self.timeout_seconds, bool)
+            or not isinstance(self.timeout_seconds, (int, float))
+            or not math.isfinite(self.timeout_seconds)
+            or self.timeout_seconds <= 0
+        ):
+            raise ValueError("COURTLISTENER_TIMEOUT_SECONDS must be a positive finite number")
 
     @classmethod
     def from_env(cls) -> CourtListenerConfig:
         """Use the configured proxy with its own rotating CourtListener tokens.
 
-        Credentials kept in the environment are not sent by default. Callers
+        Credentials kept in .env are not sent by default. Callers
         must construct an explicit config to select a token or proxy pool.
         """
-        load_dotenv(override=False)
-        base_url = os.getenv("COURTLISTENER_BASE_URL", "").strip()
-        if not base_url:
+        values = read_env()
+        try:
+            base_url = required_setting(values, "COURTLISTENER_BASE_URL")
+        except RuntimeError as error:
             raise CourtListenerConfigurationError(
                 "COURTLISTENER_BASE_URL must be configured for citation lookup",
                 failure_type="missing_base_url",
-            )
-        return cls(base_url=base_url)
+            ) from error
+        raw_timeout = required_setting(values, "COURTLISTENER_TIMEOUT_SECONDS")
+        try:
+            timeout = float(raw_timeout)
+        except ValueError as error:
+            raise ValueError("COURTLISTENER_TIMEOUT_SECONDS must be a positive finite number") from error
+        return cls(base_url=base_url, timeout_seconds=timeout)
 
 
 class CourtListenerClient:
@@ -90,12 +127,6 @@ class CourtListenerClient:
         http_client: httpx.Client | None = None,
     ) -> None:
         self.config = config if config is not None else CourtListenerConfig.from_env()
-        parsed = urlparse(self.config.base_url)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.query or parsed.fragment:
-            raise CourtListenerConfigurationError(
-                "COURTLISTENER_BASE_URL must be an HTTP(S) base URL without a query or fragment",
-                failure_type="invalid_base_url",
-            )
         self._http_client = http_client if http_client is not None else httpx.Client()
         self._owns_http_client = http_client is None
 
@@ -117,7 +148,7 @@ class CourtListenerClient:
         params: dict[str, str] | None = None,
         data: dict[str, str] | None = None,
     ) -> httpx.Response | None:
-        options: dict[str, Any] = {"headers": self._headers(), "timeout": 45}
+        options: dict[str, Any] = {"headers": self._headers(), "timeout": self.config.timeout_seconds}
         if params is not None:
             options["params"] = params
         if data is not None:

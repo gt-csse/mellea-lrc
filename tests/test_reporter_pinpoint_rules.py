@@ -37,23 +37,23 @@ from mellea_lrc.model.citations.reporter_pinpoint import (
 )
 from mellea_lrc.providers.courtlistener.models import CourtListenerCluster
 from mellea_lrc.validation.reporter_citation_pinpoint_evidence import (
-    STAGE as EVIDENCE_STAGE,
+    SUBSTAGE as EVIDENCE_SUBSTAGE,
 )
 from mellea_lrc.validation.reporter_citation_pinpoint_evidence import (
     prepare_reporter_citation_pinpoint_evidence,
 )
 from mellea_lrc.validation.reporter_citation_pinpoint_judgment import (
-    SOURCE_STAGE as FULL_STAGE,
+    SOURCE_SUBSTAGE as FULL_SUBSTAGE,
 )
 from mellea_lrc.validation.reporter_citation_pinpoint_judgment import (
-    STAGE as JUDGMENT_STAGE,
+    SUBSTAGE as JUDGMENT_SUBSTAGE,
 )
 from mellea_lrc.validation.reporter_citation_pinpoint_judgment import (
     judge_reporter_citation_pinpoints,
 )
 from mellea_lrc.validation.reporter_root_opinion_page_index import index_reporter_root_opinion_pages
 
-PAGE_STAGE = "45_reporter_citation_pinpoint_page_review"
+PAGE_SUBSTAGE = "validate_pincite.support_review.page_review"
 
 
 def _page(first, last=None, *, kind=PinCiteKind.PAGE, footnote=None):
@@ -83,16 +83,20 @@ def _before_evidence(
     source = f"The rule permits relief. Alpha, 550 U.S. 544, {pin}."
     root = FullReporterCitation.from_locator(
         citation_id="root",
-        stage="1_full_reporter_locators",
+        substage="grow_roots.locator_discovery.full_reporter_locators",
         source=source,
         span=_span(source, "550 U.S. 544"),
     )
-    document = Document.from_source(source).add_citation(root).complete("1_full_reporter_locators")
-    root = root.record("10_roots").with_root(root.id)
+    document = (
+        Document.from_source(source)
+        .add_citation(root)
+        .complete_substage("grow_roots.locator_discovery.full_reporter_locators")
+    )
+    root = root.record("grow_roots.root_formation.rule").with_root(root.id)
     if resolution != "no_pin":
         root = root.with_pin_cite(source, _span(source, pin))
-    document = document.replace_citation(root).complete("10_roots")
-    root = root.record("39_reporter_root_opinion_retrieval")
+    document = document.replace_citation(root).complete_substage("grow_roots.root_formation.rule")
+    root = root.record("validate_pincite.opinion_preparation.retrieval")
     root = root.with_reporter_root_opinion_source(
         ReporterRootOpinionSource(
             node_id=root.nodes[-1].id,
@@ -137,9 +141,11 @@ def _before_evidence(
             node_id=root.nodes[-1].id, cluster_id="1", sub_opinion_ids=("20", "21"), opinions=opinions
         )
     )
-    document = document.replace_citation(root).complete("39_reporter_root_opinion_retrieval")
+    document = document.replace_citation(root).complete_substage(
+        "validate_pincite.opinion_preparation.retrieval"
+    )
     document = index_reporter_root_opinion_pages(document)
-    root = document.roots[0].record("41_reporter_citation_page_resolution")
+    root = document.roots[0].record("validate_pincite.citation_preparation.page_resolution")
     requested = ()
     if resolution in {"resolved", "unlocated"}:
         requested = (
@@ -183,9 +189,11 @@ def _before_evidence(
             reason="Saved occurrence target.",
         )
     )
-    document = document.replace_citation(root).complete("41_reporter_citation_page_resolution")
+    document = document.replace_citation(root).complete_substage(
+        "validate_pincite.citation_preparation.page_resolution"
+    )
     if unconfirmed:
-        root = document.roots[0].record("42_reporter_citation_opinion_review")
+        root = document.roots[0].record("validate_pincite.citation_preparation.opinion_review")
         root = root.with_reporter_opinion_review(
             ReporterCitationOpinionReview(
                 node_id=root.nodes[-1].id,
@@ -197,9 +205,9 @@ def _before_evidence(
             )
         )
         document = document.replace_citation(root)
-    document = document.complete("42_reporter_citation_opinion_review")
+    document = document.complete_substage("validate_pincite.citation_preparation.opinion_review")
     if proposition != "missing":
-        root = document.roots[0].record("43_reporter_citation_propositions")
+        root = document.roots[0].record("validate_pincite.citation_preparation.propositions")
         quote = "The rule permits relief."
         decision = (
             None
@@ -219,13 +227,13 @@ def _before_evidence(
             )
         )
         document = document.replace_citation(root)
-    return document.complete("43_reporter_citation_propositions")
+    return document.complete_substage("validate_pincite.citation_preparation.propositions")
 
 
 def _append_review(
     document,
     *,
-    stage,
+    substage,
     scope,
     result,
     quote=None,
@@ -236,7 +244,7 @@ def _append_review(
     evidence_index=0,
     opinion_id="20",
 ):
-    root = document.roots[0].record(stage)
+    root = document.roots[0].record(substage)
     evidence_indices = ()
     quotes = ()
     if quote is not None:
@@ -291,12 +299,12 @@ def _reviewed(
     **fixture,
 ):
     document = prepare_reporter_citation_pinpoint_evidence(_before_evidence(**fixture))
-    stage = PAGE_STAGE if scope is OpinionReviewScope.CITED_PAGES else FULL_STAGE
-    if stage == FULL_STAGE:
-        document = document.complete(PAGE_STAGE)
+    substage = PAGE_SUBSTAGE if scope is OpinionReviewScope.CITED_PAGES else FULL_SUBSTAGE
+    if substage == FULL_SUBSTAGE:
+        document = document.complete_substage(PAGE_SUBSTAGE)
     document = _append_review(
         document,
-        stage=stage,
+        substage=substage,
         scope=scope,
         result=result,
         quote=quote,
@@ -305,8 +313,8 @@ def _reviewed(
         found=found,
         opinion_id=opinion_id,
     )
-    document = document.complete(stage)
-    return document.complete(FULL_STAGE) if stage == PAGE_STAGE else document
+    document = document.complete_substage(substage)
+    return document.complete_substage(FULL_SUBSTAGE) if substage == PAGE_SUBSTAGE else document
 
 
 @pytest.mark.parametrize(
@@ -333,19 +341,25 @@ def test_evidence_keeps_distinct_unavailable_states_and_available_selections(
     assert len(evidence.pages) == available_pages and evidence.reason
     assert after.roots[0].identity_judgments == ()
     saved = Document.model_validate_json(after.model_dump_json())
-    assert saved == after and saved.get_stage("43_reporter_citation_propositions") == before
+    assert (
+        saved == after and saved.get_substage("validate_pincite.citation_preparation.propositions") == before
+    )
     with pytest.raises(ValueError, match="already completed"):
         prepare_reporter_citation_pinpoint_evidence(saved)
 
 
 @pytest.mark.parametrize(
-    "missing_stage", ["42_reporter_citation_opinion_review", "43_reporter_citation_propositions"]
+    "missing_stage",
+    [
+        "validate_pincite.citation_preparation.opinion_review",
+        "validate_pincite.citation_preparation.propositions",
+    ],
 )
 def test_evidence_requires_both_selection_and_proposition_stages(missing_stage):
-    document = Document.from_source("No citations.").complete(
-        "43_reporter_citation_propositions"
+    document = Document.from_source("No citations.").complete_substage(
+        "validate_pincite.citation_preparation.propositions"
         if missing_stage.startswith("42")
-        else "42_reporter_citation_opinion_review"
+        else "validate_pincite.citation_preparation.opinion_review"
     )
     with pytest.raises(ValueError, match="Complete opinion selection"):
         prepare_reporter_citation_pinpoint_evidence(document)
@@ -415,7 +429,7 @@ def test_only_full_review_and_complete_text_can_prove_absence(scope, result, com
     if result is OpinionSupportResult.NOT_FOUND and complete != "retrieved":
         assert "Missing or empty opinion text" in judgment.reason
     saved = Document.model_validate_json(after.model_dump_json())
-    assert saved.get_stage(FULL_STAGE) == before
+    assert saved.get_substage(FULL_SUBSTAGE) == before
     with pytest.raises(ValueError, match="already completed"):
         judge_reporter_citation_pinpoints(saved)
 
@@ -450,22 +464,22 @@ def test_latest_successful_full_review_takes_precedence_over_page_and_failed_ful
     document = prepare_reporter_citation_pinpoint_evidence(_before_evidence())
     document = _append_review(
         document,
-        stage=PAGE_STAGE,
+        substage=PAGE_SUBSTAGE,
         scope=OpinionReviewScope.CITED_PAGES,
         result=OpinionSupportResult.SUPPORTED,
         quote="The rule permits relief.",
         correct=True,
     )
-    document = document.complete(PAGE_STAGE)
+    document = document.complete_substage(PAGE_SUBSTAGE)
     document = _append_review(
         document,
-        stage=FULL_STAGE,
+        substage=FULL_SUBSTAGE,
         scope=OpinionReviewScope.FULL_OPINION,
         result=OpinionSupportResult.NOT_FOUND,
     )
     document = _append_review(
         document,
-        stage=FULL_STAGE,
+        substage=FULL_SUBSTAGE,
         scope=OpinionReviewScope.FULL_OPINION,
         result=OpinionSupportResult.SUPPORTED,
         quote="Other grounds permit relief.",
@@ -473,12 +487,12 @@ def test_latest_successful_full_review_takes_precedence_over_page_and_failed_ful
     )
     document = _append_review(
         document,
-        stage=FULL_STAGE,
+        substage=FULL_SUBSTAGE,
         scope=OpinionReviewScope.FULL_OPINION,
         result=OpinionSupportResult.UNAVAILABLE,
         failure="Transport failed",
     )
-    document = document.complete(FULL_STAGE)
+    document = document.complete_substage(FULL_SUBSTAGE)
 
     judgment = judge_reporter_citation_pinpoints(document).roots[0].reporter_pinpoint_judgments[0]
 
@@ -493,22 +507,22 @@ def test_failed_full_review_preserves_successful_page_support():
     document = prepare_reporter_citation_pinpoint_evidence(_before_evidence())
     document = _append_review(
         document,
-        stage=PAGE_STAGE,
+        substage=PAGE_SUBSTAGE,
         scope=OpinionReviewScope.CITED_PAGES,
         result=OpinionSupportResult.SUPPORTED,
         quote="The rule permits relief.",
         correct=True,
     )
-    document = document.complete(PAGE_STAGE)
+    document = document.complete_substage(PAGE_SUBSTAGE)
     document = _append_review(
         document,
-        stage=FULL_STAGE,
+        substage=FULL_SUBSTAGE,
         scope=OpinionReviewScope.FULL_OPINION,
         result=OpinionSupportResult.UNAVAILABLE,
         failure="Transport failed",
     )
     judgment = (
-        judge_reporter_citation_pinpoints(document.complete(FULL_STAGE))
+        judge_reporter_citation_pinpoints(document.complete_substage(FULL_SUBSTAGE))
         .roots[0]
         .reporter_pinpoint_judgments[0]
     )
@@ -519,7 +533,7 @@ def test_failed_full_review_preserves_successful_page_support():
 @pytest.mark.parametrize("proposition, count", [("empty", 0), ("missing", 1), ("failed", 1)])
 def test_skip_no_proposition_but_keep_unavailable_judgments(proposition, count):
     document = prepare_reporter_citation_pinpoint_evidence(_before_evidence(proposition=proposition))
-    document = document.complete(PAGE_STAGE).complete(FULL_STAGE)
+    document = document.complete_substage(PAGE_SUBSTAGE).complete_substage(FULL_SUBSTAGE)
     after = judge_reporter_citation_pinpoints(document)
 
     assert len(after.roots[0].reporter_pinpoint_judgments) == count
@@ -571,17 +585,17 @@ def test_judgment_uses_latest_evidence_without_rewriting_earlier_preparation():
     original = document.roots[0].reporter_pinpoint_evidence[0]
     root = document.roots[0].record("test_new_preparation")
     root = root.with_reporter_pinpoint_evidence(original.model_copy(update={"node_id": root.nodes[-1].id}))
-    document = document.replace_citation(root).complete("test_new_preparation")
+    document = document.replace_citation(root).complete_substage("test_new_preparation")
     document = _append_review(
         document,
-        stage=PAGE_STAGE,
+        substage=PAGE_SUBSTAGE,
         scope=OpinionReviewScope.CITED_PAGES,
         result=OpinionSupportResult.SUPPORTED,
         quote="The rule permits relief.",
         correct=True,
         evidence_index=0,
     )
-    document = document.complete(PAGE_STAGE).complete(FULL_STAGE)
+    document = document.complete_substage(PAGE_SUBSTAGE).complete_substage(FULL_SUBSTAGE)
     after = judge_reporter_citation_pinpoints(document)
     judgment = after.roots[0].reporter_pinpoint_judgments[0]
 
@@ -596,12 +610,12 @@ def test_preparation_uses_latest_proposition_for_its_resolution():
     root = document.roots[0].record("test_new_resolution")
     resolution = root.reporter_page_resolutions[0].model_copy(update={"node_id": root.nodes[-1].id})
     root = root.with_reporter_page_resolution(resolution)
-    document = document.replace_citation(root).complete("test_new_resolution")
-    for stage, resolution_index, reason in (
+    document = document.replace_citation(root).complete_substage("test_new_resolution")
+    for substage, resolution_index, reason in (
         ("test_current_proposition", 1, "Current reader failed"),
         ("test_old_proposition", 0, "Old reader failed"),
     ):
-        root = document.roots[0].record(stage)
+        root = document.roots[0].record(substage)
         root = root.with_reporter_proposition(
             ReporterCitationProposition(
                 node_id=root.nodes[-1].id,
@@ -610,7 +624,7 @@ def test_preparation_uses_latest_proposition_for_its_resolution():
                 failure_reason=reason,
             )
         )
-        document = document.replace_citation(root).complete(stage)
+        document = document.replace_citation(root).complete_substage(substage)
 
     evidence = prepare_reporter_citation_pinpoint_evidence(document).roots[0].reporter_pinpoint_evidence[0]
 

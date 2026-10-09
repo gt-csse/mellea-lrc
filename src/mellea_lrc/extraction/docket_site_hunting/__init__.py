@@ -9,13 +9,12 @@ from mellea_lrc.extraction.docket_site_hunting.review import (
     IvrDocketReviewer,
     grounded_docket_decision,
 )
-from mellea_lrc.llm.profiles import OPENROUTER_LUNA
+from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.site_review import SiteReview
 
-STAGE = "3_docket_locator_site_hunting"
-MODEL_PROFILE = OPENROUTER_LUNA
+SUBSTAGE = "grow_roots.locator_discovery.docket_hunting"
 
 
 async def hunt_docket_locators(
@@ -24,14 +23,14 @@ async def hunt_docket_locators(
     reviewer: DocketSiteReviewer | None = None,
 ) -> Document:
     """Review one site at a time; accepted sites affect the next proposal mask."""
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
     if (
-        "1_full_reporter_locators" not in document.stage_runs
-        or "2_docket_locators" not in document.stage_runs
+        "grow_roots.locator_discovery.full_reporter_locators" not in document.substage_runs
+        or "grow_roots.locator_discovery.docket_locators" not in document.substage_runs
     ):
         raise ValueError("Run both rule locator stages before docket site hunting")
-    if "5_colocations" in document.stage_runs:
+    if "grow_roots.field_reading.colocations" in document.substage_runs:
         raise ValueError("Docket site hunting must precede colocation")
     inspected: set[tuple[int, int]] = set()
     current = document
@@ -45,10 +44,10 @@ async def hunt_docket_locators(
             None,
         )
         if candidate is None:
-            return current.complete(STAGE)
+            return current.complete_substage(SUBSTAGE)
         inspected.add((candidate.locator_span.start, candidate.locator_span.end))
         if reviewer is None:
-            reviewer = IvrDocketReviewer.from_profile(MODEL_PROFILE)
+            reviewer = IvrDocketReviewer.from_profile(load_profile(SUBSTAGE))
         review = await reviewer(candidate)
         outcome = review if isinstance(review, DocketReviewOutcome) else DocketReviewOutcome(review)
         decision = outcome.decision
@@ -69,7 +68,7 @@ async def hunt_docket_locators(
             current = current.add_citation(
                 FullDocketCitation.from_locator(
                     citation_id=citation_id,
-                    stage=STAGE,
+                    substage=SUBSTAGE,
                     source=current.text,
                     span=candidate.locator_span,
                     number_span=candidate.number_span,
@@ -77,7 +76,7 @@ async def hunt_docket_locators(
             )
         current = current.add_site_review(
             SiteReview(
-                stage=STAGE,
+                substage=SUBSTAGE,
                 candidate_span=candidate.locator_span,
                 candidate_text=candidate.locator_text,
                 outcome=result,

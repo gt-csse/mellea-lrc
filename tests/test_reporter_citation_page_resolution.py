@@ -22,12 +22,13 @@ from mellea_lrc.model.citations.reporter_pages import (
     OpinionPage,
     ReporterRootOpinionPageIndex,
 )
+from mellea_lrc.model.preprocessed_document import TableOfAuthoritiesComponent
 from mellea_lrc.model.span import Span
 from mellea_lrc.validation.reporter_citation_page_resolution import (
-    STAGE,
+    SUBSTAGE,
     resolve_reporter_citation_pages,
 )
-from mellea_lrc.validation.reporter_root_opinion_page_index import STAGE as INDEX_STAGE
+from mellea_lrc.validation.reporter_root_opinion_page_index import SUBSTAGE as INDEX_SUBSTAGE
 from tests.test_reporter_root_opinion_retrieval import Client, opinion
 
 
@@ -63,14 +64,24 @@ def _page(label: str, *, volume: int | None = 550, edition: str | None = "U.S.")
     return label, PinCiteKind.PAGE, volume, edition
 
 
-def _retrieved(source: str, *, shorts=(), ids=(), repeat_root_pin: bool = False) -> Document:
-    document = asyncio.run(grow_roots(Document.from_source(source)))
+def _retrieved(
+    source: str,
+    *,
+    shorts=(),
+    ids=(),
+    repeat_root_pin: bool = False,
+    index_spans: tuple[TableOfAuthoritiesComponent, ...] = (),
+) -> Document:
+    document = Document.from_source(source)
+    if index_spans:
+        document = Document.model_validate({**document.model_dump(mode="python"), "index_spans": index_spans})
+    document = asyncio.run(grow_roots(document))
     root = document.roots[0]
     for quote, pin in shorts:
         short = (
             ShortReporterCitation.from_short_locator(
                 citation_id=f"short:{source.index(quote)}",
-                stage="test_occurrences",
+                substage="test_occurrences",
                 source=source,
                 span=_span(source, quote),
                 pin_cite_span=_span(source, pin, after=source.index(quote)) if pin is not None else None,
@@ -85,7 +96,7 @@ def _retrieved(source: str, *, shorts=(), ids=(), repeat_root_pin: bool = False)
             IdCitation.from_source(
                 source=source,
                 span=cite_span,
-                stage="test_occurrences",
+                substage="test_occurrences",
                 pin_span=_span(source, pin, after=cite_span.start) if pin is not None else None,
             )
             .record("test_occurrences")
@@ -96,21 +107,23 @@ def _retrieved(source: str, *, shorts=(), ids=(), repeat_root_pin: bool = False)
         root = root.record("test_occurrences").with_pin_cite(source, root.pin_cite[-1].span)
         document = document.replace_citation(root)
     if shorts or ids or repeat_root_pin:
-        document = document.complete("test_occurrences")
+        document = document.complete_substage("test_occurrences")
     client = Client(
         [{"id": 1, "sub_opinions": [20, 21]}],
         {"20": opinion("20"), "21": opinion("21", type="040dissent")},
     )
     document = reporter_root_lookup_cluster_retrieval(document, client=client)
     root = document.roots[0].record("test_identity").with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
-    document = document.replace_citation(root).complete("test_identity")
+    document = document.replace_citation(root).complete_substage("test_identity")
     return reporter_root_opinion_retrieval(document, client=client)
 
 
 def _indexed_document(document: Document, *opinions: IndexedReporterOpinion) -> Document:
-    root = document.roots[0].record(INDEX_STAGE)
+    root = document.roots[0].record(INDEX_SUBSTAGE)
     index = ReporterRootOpinionPageIndex(node_id=root.nodes[-1].id, cluster_id="1", opinions=opinions)
-    return document.replace_citation(root.with_reporter_root_opinion_page_index(index)).complete(INDEX_STAGE)
+    return document.replace_citation(root.with_reporter_root_opinion_page_index(index)).complete_substage(
+        INDEX_SUBSTAGE
+    )
 
 
 def _resolution(citation):
@@ -348,11 +361,11 @@ def test_native_json_preserves_shared_index_and_recovers_exact_checkpoints():
     saved = Document.model_validate_json(at41.model_dump_json())
 
     assert saved == at41
-    assert saved.get_stage("39_reporter_root_opinion_retrieval") == at39
-    assert saved.get_stage(INDEX_STAGE) == at40
-    assert saved.get_stage(STAGE) == at41
+    assert saved.get_substage("validate_pincite.opinion_preparation.retrieval") == at39
+    assert saved.get_substage(INDEX_SUBSTAGE) == at40
+    assert saved.get_substage(SUBSTAGE) == at41
     assert all(
-        citation.reporter_page_resolutions == () for citation in saved.get_stage(INDEX_STAGE).citations
+        citation.reporter_page_resolutions == () for citation in saved.get_substage(INDEX_SUBSTAGE).citations
     )
     assert saved.roots[0].reporter_root_opinion_retrieval == at39.roots[0].reporter_root_opinion_retrieval
     with pytest.raises(ValueError, match="already completed"):

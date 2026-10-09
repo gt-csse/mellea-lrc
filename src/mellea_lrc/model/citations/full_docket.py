@@ -37,13 +37,13 @@ class FullDocketCitation(FullCitation):
         cls,
         *,
         citation_id: str,
-        stage: str,
+        substage: str,
         source: str,
         span: Span,
         number_span: Span,
     ) -> Self:
         """Create the citation with only its grounded docket locator."""
-        node = Node(id=f"{citation_id}:node:0", stage=stage)
+        node = Node(id=f"{citation_id}:node:0", substage=substage)
         return cls(
             id=citation_id,
             nodes=(node,),

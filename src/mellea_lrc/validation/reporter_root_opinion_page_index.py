@@ -19,8 +19,8 @@ from mellea_lrc.model.citations.reporter_pages import (
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 
-STAGE = "40_reporter_root_opinion_page_index"
-SOURCE_STAGE = "39_reporter_root_opinion_retrieval"
+SUBSTAGE = "validate_pincite.opinion_preparation.page_index"
+SOURCE_SUBSTAGE = "validate_pincite.opinion_preparation.retrieval"
 
 _BLOCK_TAGS = frozenset(
     {
@@ -481,10 +481,10 @@ def _index_opinion(opinion: RetrievedReporterOpinion) -> IndexedReporterOpinion:
 
 
 def index_reporter_root_opinion_pages(document: Document) -> Document:
-    """Render stage-39 opinion payloads and index only explicit page markers."""
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if SOURCE_STAGE not in document.stage_runs:
+    """Render substage-39 opinion payloads and index only explicit page markers."""
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if SOURCE_SUBSTAGE not in document.substage_runs:
         raise ValueError("Retrieve reporter-root opinions before indexing their pages")
 
     for citation in document.roots:
@@ -493,7 +493,7 @@ def index_reporter_root_opinion_pages(document: Document) -> Document:
         retrieval = citation.reporter_root_opinion_retrieval
         if retrieval is None:
             continue
-        recorded = citation.record(STAGE)
+        recorded = citation.record(SUBSTAGE)
         result = ReporterRootOpinionPageIndex(
             node_id=recorded.nodes[-1].id,
             cluster_id=retrieval.cluster_id,
@@ -503,4 +503,4 @@ def index_reporter_root_opinion_pages(document: Document) -> Document:
             ),
         )
         document = document.replace_citation(recorded.with_reporter_root_opinion_page_index(result))
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

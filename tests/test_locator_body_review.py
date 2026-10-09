@@ -25,7 +25,7 @@ from mellea_lrc.model.citations.judgments import IdentityBasis, IdentityVerdict
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.validation.body_search.common import make_body_evidences
-from mellea_lrc.validation.locator_body_llm_judgment import STAGE, locator_body_llm_judgment
+from mellea_lrc.validation.locator_body_llm_judgment import SUBSTAGE, locator_body_llm_judgment
 from mellea_lrc.validation.locator_body_llm_judgment.reviewer import (
     BodyCorroborationContext,
     _diverse_evidence,
@@ -33,10 +33,16 @@ from mellea_lrc.validation.locator_body_llm_judgment.reviewer import (
 
 SOURCE = "Smith v. Jones, No. 05-4206 (2d Cir. 2007)."
 BODY = "The court discussed Smith v. Jones, No. 05-4206 (2d Cir. 2007), in its analysis."
-STAGES = (
-    (BodySource.COURTLISTENER_OPINION, "20_locator_body_courtlistener_opinion_retrieval"),
-    (BodySource.COURTLISTENER_RECAP, "21_locator_body_courtlistener_recap_retrieval"),
-    (BodySource.GOVINFO_OPINION, "22_locator_body_govinfo_opinion_retrieval"),
+SUBSTAGES = (
+    (
+        BodySource.COURTLISTENER_OPINION,
+        "validate_roots.locator_body_corroboration.courtlistener_opinion_retrieval",
+    ),
+    (
+        BodySource.COURTLISTENER_RECAP,
+        "validate_roots.locator_body_corroboration.courtlistener_recap_retrieval",
+    ),
+    (BodySource.GOVINFO_OPINION, "validate_roots.locator_body_corroboration.govinfo_opinion_retrieval"),
 )
 
 
@@ -50,23 +56,23 @@ def _document(
     number_start = SOURCE.index("05-4206")
     root = FullDocketCitation.from_locator(
         citation_id="docket:0",
-        stage="sites",
+        substage="sites",
         source=SOURCE,
         span=Span(SOURCE.index("No."), number_start + len("05-4206")),
         number_span=Span(number_start, number_start + len("05-4206")),
     )
-    document = Document.from_source(source_input).add_citation(root).complete("sites")
+    document = Document.from_source(source_input).add_citation(root).complete_substage("sites")
     root = root.record("fields")
     root = root.with_case_name(SOURCE, Span(0, len("Smith v. Jones")))
     root = root.with_court(SOURCE, Span(SOURCE.index("2d Cir."), SOURCE.index("2d Cir.") + 7))
     root = root.with_date(SOURCE, Span(SOURCE.index("2007"), SOURCE.index("2007") + 4))
-    document = document.replace_citation(root).complete("fields")
-    document = document.replace_citation(root.record("roots").with_root(root.id)).complete("roots")
+    document = document.replace_citation(root).complete_substage("fields")
+    document = document.replace_citation(root.record("roots").with_root(root.id)).complete_substage("roots")
     if include_validation_history:
-        for stage in evaluation.WORKFLOW_STAGES:
-            document = document.complete(stage)
-    for source, stage in STAGES:
-        root = document.roots[0].record(stage)
+        for substage in evaluation.WORKFLOW_SUBSTAGES:
+            document = document.complete_substage(substage)
+    for source, substage in SUBSTAGES:
+        root = document.roots[0].record(substage)
         evidence = (
             make_body_evidences(
                 body_id=f"{source.value}:1",
@@ -85,7 +91,7 @@ def _document(
         root = root.with_body_search(
             BodySearch(node_id=root.nodes[-1].id, source=source, retrospective_date=None, evidence=evidence)
         )
-        document = document.replace_citation(root).complete(stage)
+        document = document.replace_citation(root).complete_substage(substage)
     return document
 
 
@@ -145,7 +151,7 @@ def test_body_review_keeps_field_scores_and_marks_final_checkpoint(tmp_path: Pat
         labels={"case_name": "agrees", "court": "disagrees", "date": "agrees"},
     )
     ready = _document(source_input=source_path, include_validation_history=True)
-    prior = evaluation.score_validate_roots(ready.get_stage(evaluation.WORKFLOW_STAGES[-1]))
+    prior = evaluation.score_validate_roots(ready.get_substage(evaluation.WORKFLOW_SUBSTAGES[-1]))
     assert all(score == FieldScore(0, 0, 1) for score in prior.fields.values())
 
     reviewed = asyncio.run(
@@ -156,7 +162,7 @@ def test_body_review_keeps_field_scores_and_marks_final_checkpoint(tmp_path: Pat
     )
     score = evaluation.score_validate_roots(Document.model_validate_json(reviewed.model_dump_json()))
     assert reviewed.roots[0].identity_judgments[-1].verdict is IdentityVerdict.WRONG_IDENTITY
-    assert score.stages == prior.stages
+    assert score.substages == prior.substages
     assert score.fields == prior.fields
     assert score.body_review is not None
     assert score.body_review.verdict_counts == {"wrong_identity": 1}
@@ -165,8 +171,8 @@ def test_body_review_keeps_field_scores_and_marks_final_checkpoint(tmp_path: Pat
     assert score.checkpoint == evaluation.LOCATOR_BODY_LLM_JUDGMENT
     assert score.as_dict()["checkpoint"] == evaluation.LOCATOR_BODY_LLM_JUDGMENT
     report = evaluation.render_validate_roots(score)
-    assert "Checkpoint: 23_locator_body_llm_judgment completed" in report
-    assert "## 23_locator_body_llm_judgment" in report
+    assert "Checkpoint: validate_roots.locator_body_corroboration.llm_judgment completed" in report
+    assert "### 3.4 validate_roots.locator_body_corroboration.llm_judgment" in report
     assert "| wrong_identity | 1 |" in report
     assert "## Root identity after locator-body review" in report
     assert "printed citation comparisons have no corresponding field identity gold" in report
@@ -220,8 +226,8 @@ def test_disputed_third_party_quote_does_not_become_field_identity_gold(tmp_path
     reviewed = asyncio.run(locator_body_llm_judgment(ready, reviewer=FakeReviewer(decision)))
     assert reviewed.roots[0].identity_judgments[-1].verdict is IdentityVerdict.WRONG_IDENTITY
     assert (
-        evaluation.score_validate_roots(reviewed).stages
-        == evaluation.score_validate_roots(ready.get_stage(evaluation.WORKFLOW_STAGES[-1])).stages
+        evaluation.score_validate_roots(reviewed).substages
+        == evaluation.score_validate_roots(ready.get_substage(evaluation.WORKFLOW_SUBSTAGES[-1])).substages
     )
     assert evaluation.score_validate_roots(reviewed).fields == {
         field: FieldScore(0, 0, 1) for field in evaluation.FIELDS
@@ -316,13 +322,13 @@ class FakeReviewer:
 def _assert_routed_without_judgment(reviewed: Document) -> None:
     root = reviewed.roots[0]
     assert root.identity_judgments == ()
-    assert root.next_stage == "case_name_body_discovery"
+    assert root.next_substage == "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
     assert root.body_reviews[-1].decision is None or root.body_reviews[-1].decision.source is None
     assert Document.model_validate_json(reviewed.model_dump_json()) == reviewed
 
 
 def test_one_judgment_can_select_govinfo_after_other_provider_searches() -> None:
-    assert STAGE == "23_locator_body_llm_judgment"
+    assert SUBSTAGE == "validate_roots.locator_body_corroboration.llm_judgment"
     document = _document()
     reviewer = FakeReviewer(_decision())
     reviewed = asyncio.run(locator_body_llm_judgment(document, reviewer=reviewer))
@@ -333,7 +339,7 @@ def test_one_judgment_can_select_govinfo_after_other_provider_searches() -> None
     assert root.body_reviews[-1].grounded_quote == "Smith v. Jones, No. 05-4206 (2d Cir. 2007)"
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
     assert root.identity_judgments[-1].basis is IdentityBasis.THIRD_PARTY
-    assert reviewed.get_stage(STAGES[-1][1]) == document
+    assert reviewed.get_substage(SUBSTAGES[-1][1]) == document
     assert Document.model_validate_json(reviewed.model_dump_json()) == reviewed
 
 
@@ -374,16 +380,17 @@ def test_docket_case_can_be_supported_without_admitting_a_different_order_date(
     )
     root = reviewed.roots[0]
     assert root.identity_judgments[-1].verdict is IdentityVerdict.PARTIALLY_CORROBORATED
-    assert root.next_stage == "case_name_body_discovery"
+    assert root.next_substage == "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
     assert root.body_reviews[-1].decision.comparisons.date.result.value == "mismatch"
     assert evaluation.score_locator_body_llm_judgment(reviewed).verdict_counts == {
         "partially_corroborated": 1
     }
-    # A qualified body judgment must retract even a prior full-citation admission.
+    # Agreeing field labels cannot fabricate an earlier docket identity: this
+    # fixture has no selected lookup review or persisted aggregation verdict.
     monkeypatch.setattr(evaluation, "_final_field_label", lambda *_: "agrees")
     assert evaluation.score_validate_roots(
-        reviewed.get_stage(evaluation.WORKFLOW_STAGES[-1])
-    ).identity == evaluation.IdentityScore(1, 1, 1, 0)
+        reviewed.get_substage(evaluation.WORKFLOW_SUBSTAGES[-1])
+    ).identity == evaluation.IdentityScore(0, 0, 1, 0)
     body_score = evaluation.score_validate_roots(reviewed)
     assert body_score.identity == evaluation.IdentityScore(0, 0, 1, 1)
     assert body_score.identity_with_partial == evaluation.IdentityScore(1, 1, 1, 0)
@@ -396,12 +403,12 @@ def test_qualified_docket_verdict_cannot_be_used_for_reporter_root() -> None:
     locator = "550 U.S. 544"
     root = FullReporterCitation.from_locator(
         citation_id="reporter:0",
-        stage="sites",
+        substage="sites",
         source=source,
         span=Span(source.index(locator), source.index(locator) + len(locator)),
     )
     context = BodyCorroborationContext.from_document(
-        Document.from_source(source).add_citation(root).complete("sites"), root
+        Document.from_source(source).add_citation(root).complete_substage("sites"), root
     )
     decision = _decision(verdict=IdentityVerdict.PARTIALLY_CORROBORATED)
     assert "only available for docket" in context.validation_error(decision)
@@ -522,7 +529,7 @@ def test_explicitly_disputed_locator_produces_negative_identity_with_matching_fi
     assert root.body_reviews[-1].context_span is not None
     assert root.identity_judgments[-1].verdict is IdentityVerdict.WRONG_IDENTITY
     assert root.body_reviews[-1].decision.comparisons.case_name.result.value == "match"
-    assert reviewed.get_stage(STAGES[-1][1]) == document
+    assert reviewed.get_substage(SUBSTAGES[-1][1]) == document
     assert Document.model_validate_json(reviewed.model_dump_json()) == reviewed
 
 
@@ -573,7 +580,7 @@ def test_merely_mentioned_locator_records_uncertainty_and_routes_to_discovery() 
     )
     root = reviewed.roots[0]
     assert root.identity_judgments[-1].verdict is IdentityVerdict.UNDETERMINED
-    assert root.next_stage == "case_name_body_discovery"
+    assert root.next_substage == "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
     assert root.body_reviews[-1].decision.identity_verdict is IdentityVerdict.UNDETERMINED
     assert Document.model_validate_json(reviewed.model_dump_json()) == reviewed
 
@@ -622,7 +629,7 @@ def test_no_fetched_body_skips_model_and_routes_without_identity_judgment() -> N
     assert root.body_reviews[-1].decision.source is None
     assert root.body_reviews[-1].decision.identity_verdict is None
     _assert_routed_without_judgment(reviewed)
-    assert json.loads(reviewed.model_dump_json())["stage_runs"][-1] == STAGE
+    assert json.loads(reviewed.model_dump_json())["runs"][-1] == {"kind": "substage", "name": SUBSTAGE}
     with pytest.raises(ValueError, match="already completed"):
         asyncio.run(locator_body_llm_judgment(reviewed))
 
@@ -633,13 +640,13 @@ def test_routing_without_body_evidence_preserves_an_earlier_identity_judgment() 
         document.roots[0]
         .record("pre_body_identity")
         .with_identity_judgment(IdentityVerdict.UNDETERMINED)
-        .with_route(STAGE)
-    ).complete("pre_body_identity")
+        .with_route(SUBSTAGE)
+    ).complete_substage("pre_body_identity")
     prior_root = document.roots[0]
     reviewed = asyncio.run(locator_body_llm_judgment(document))
     root = reviewed.roots[0]
     assert root.identity_judgments == prior_root.identity_judgments
-    assert root.next_stage == "case_name_body_discovery"
+    assert root.next_substage == "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
     assert root.body_reviews[-1].decision.identity_verdict is None
     assert Document.model_validate_json(reviewed.model_dump_json()) == reviewed
 
@@ -660,9 +667,9 @@ def test_declined_citation_cannot_claim_an_identity_verdict() -> None:
 
 
 def test_review_completes_when_no_root_needs_body_evidence() -> None:
-    document = Document.from_source("No citations here.").complete("10_roots")
+    document = Document.from_source("No citations here.").complete_substage("grow_roots.root_formation.rule")
     reviewed = asyncio.run(locator_body_llm_judgment(document))
-    assert reviewed.stage_runs[-1] == STAGE
+    assert reviewed.substage_runs[-1] == SUBSTAGE
     assert reviewed.citations == ()
 
 
@@ -749,12 +756,12 @@ def test_one_source_copy_passage_excludes_all_occurrences_from_its_body() -> Non
 
     root = FullDocketCitation.from_locator(
         citation_id="docket:copy",
-        stage="sites",
+        substage="sites",
         source=source,
         span=Span(source.index("No."), source.index("05-4206") + len("05-4206")),
         number_span=Span(source.index("05-4206"), source.index("05-4206") + len("05-4206")),
     )
-    document = Document.from_source(source).add_citation(root).complete("sites")
+    document = Document.from_source(source).add_citation(root).complete_substage("sites")
     root = root.record("copy-review")
     root = root.with_body_search(
         BodySearch(
@@ -785,17 +792,17 @@ def test_reporter_root_uses_same_body_review_without_changing_its_locator() -> N
     body = "A later opinion cited Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
     root = FullReporterCitation.from_locator(
         citation_id="reporter:0",
-        stage="sites",
+        substage="sites",
         source=source,
         span=Span(source.index(locator), source.index(locator) + len(locator)),
     )
-    document = Document.from_source(source).add_citation(root).complete("sites")
+    document = Document.from_source(source).add_citation(root).complete_substage("sites")
     root = root.record("fields")
     root = root.with_case_name(source, Span(0, len("Bell Atl. Corp. v. Twombly")))
     root = root.with_date(source, Span(source.index("2007"), source.index("2007") + 4))
-    document = document.replace_citation(root).complete("fields")
-    document = document.replace_citation(root.record("roots").with_root(root.id)).complete("roots")
-    root = document.roots[0].record("22_locator_body_govinfo_opinion_retrieval")
+    document = document.replace_citation(root).complete_substage("fields")
+    document = document.replace_citation(root.record("roots").with_root(root.id)).complete_substage("roots")
+    root = document.roots[0].record("validate_roots.locator_body_corroboration.govinfo_opinion_retrieval")
     found = make_body_evidences(
         body_id="opinion:2",
         parent_id=None,
@@ -815,7 +822,9 @@ def test_reporter_root_uses_same_body_review_without_changing_its_locator() -> N
             evidence=found,
         )
     )
-    document = document.replace_citation(root).complete("22_locator_body_govinfo_opinion_retrieval")
+    document = document.replace_citation(root).complete_substage(
+        "validate_roots.locator_body_corroboration.govinfo_opinion_retrieval"
+    )
     decision = BodyCorroborationDecision.model_validate(
         {
             "source": "govinfo_opinion",

@@ -10,7 +10,7 @@ from mellea_lrc.model.citations.fields.docket import DOCKET_ENTRY_PATTERN
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 
-STAGE = "4_docket_entries"
+SUBSTAGE = "grow_roots.field_reading.docket_entries"
 
 # Entry references before a case docket often precede it by a comma or a
 # bracket. Sentence/paragraph breaks and semicolons are not adjacency.
@@ -39,11 +39,11 @@ def resolve_docket_entries(document: Document) -> Document:
     This only updates admitted docket citations. An entry with competing
     plausible owners stays unread for later review rather than being guessed.
     """
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if "2_docket_locators" not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "grow_roots.locator_discovery.docket_locators" not in document.substage_runs:
         raise ValueError("Find docket locators before reading docket entries")
-    if "5_colocations" in document.stage_runs:
+    if "grow_roots.field_reading.colocations" in document.substage_runs:
         raise ValueError("Read docket entries before resolving colocations")
 
     entries = tuple(DOCKET_ENTRY_PATTERN.finditer(document.text))
@@ -68,6 +68,6 @@ def resolve_docket_entries(document: Document) -> Document:
         span = proposals.get(citation.id)
         if span is None or plausible_owners[(span.start, span.end)] != 1:
             continue
-        updated = citation.record(STAGE).with_docket_entry(document.text, span)
+        updated = citation.record(SUBSTAGE).with_docket_entry(document.text, span)
         document = document.replace_citation(updated)
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

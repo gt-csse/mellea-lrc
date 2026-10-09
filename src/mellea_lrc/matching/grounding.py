@@ -9,7 +9,6 @@ and edit-distance fallbacks through an explicit policy.
 from __future__ import annotations
 
 import re
-from bisect import bisect_left
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from math import floor
@@ -19,7 +18,7 @@ from rapidfuzz import fuzz
 from rapidfuzz.distance import Levenshtein
 
 from mellea_lrc.matching.fuzziness import FuzzinessOption, FuzzinessType
-from mellea_lrc.matching.literal import fuzzy_literal
+from mellea_lrc.matching.literal_to_regex import fuzzy_literal
 
 T = TypeVar("T")
 
@@ -34,7 +33,7 @@ class EvidenceCandidate(Generic[T]):
 
 @dataclass(frozen=True, slots=True)
 class GroundingMatch(Generic[T]):
-    """A proposal resolved to one source candidate by one explicit stage."""
+    """A proposal matched to one source candidate under an explicit fuzziness policy."""
 
     candidate: EvidenceCandidate[T]
     match_type: FuzzinessType
@@ -53,9 +52,6 @@ class GroundedFragment(Generic[T]):
     match_type: FuzzinessType
     edits: int
     similarity_percent: float
-    # The comparison view omits verified margin line numbers. ``text`` and
-    # start/end always retain the original source bytes for highlighting.
-    normalized_text: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,37 +86,16 @@ class GroundingEvidence(Generic[T]):
         self,
         proposed: str,
         fuzziness: FuzzinessOption,
-        *,
-        line_number_aware: bool = False,
     ) -> GroundedFragment[T] | None:
         """Ground a copied quote to a span inside one source candidate.
 
         Source candidates can be full pages or bounded excerpts. The returned
         span is relative to the candidate text and points at its actual bytes,
         including any whitespace or OCR variation in the source.
+        Source cleanup belongs to preprocessing, before candidates are supplied.
         """
         for candidate in self.candidates:
             found = _find_fragment_in_text(proposed, candidate.text, fuzziness)
-            normalized_text = found[1] if found is not None else None
-            # A verified PDF margin column must not be accepted as part of a
-            # quoted citation just because its digits fit the edit allowance.
-            view, original_offsets = _without_margin_line_numbers(candidate.text)
-            if found is not None and original_offsets:
-                start, fragment, _ = found
-                retained = bisect_left(original_offsets, start + len(fragment)) - bisect_left(
-                    original_offsets, start
-                )
-                if retained != len(fragment):
-                    found = None
-            if found is None and line_number_aware:
-                if original_offsets:
-                    aligned = _find_fragment_in_text(proposed, view, fuzziness)
-                    if aligned is not None:
-                        view_start, view_fragment, match = aligned
-                        start = original_offsets[view_start]
-                        end = original_offsets[view_start + len(view_fragment) - 1] + 1
-                        found = (start, candidate.text[start:end], match)
-                        normalized_text = view_fragment
             if found is None:
                 continue
             start, fragment, match = found
@@ -132,7 +107,6 @@ class GroundingEvidence(Generic[T]):
                 match_type=match.match_type,
                 edits=match.edits,
                 similarity_percent=match.similarity_percent,
-                normalized_text=normalized_text or fragment,
             )
         return None
 
@@ -158,60 +132,6 @@ def _find_fragment_in_text(
     if match is None:
         return None
     return start, fragment, match
-
-
-_MARGIN_LINE_PREFIX = re.compile(r"^( {10,})([1-9]\d?)( {2,})(?=\S)")
-_MIN_MARGIN_LINE_RUN = 5
-
-
-def _without_margin_line_numbers(source: str) -> tuple[str, tuple[int, ...]]:
-    """Make a grounding-only view and map every retained character to source.
-
-    A margin column must have at least five consecutively numbered nonblank
-    lines with an aligned number column. Isolated numbers and digits inside citations stay
-    untouched. The source itself is never rewritten, so returned spans still
-    point into the exact original text.
-    """
-    lines = source.splitlines(keepends=True)
-    numbered: list[tuple[int, int, int, int]] = []
-    for index, line in enumerate(lines):
-        match = _MARGIN_LINE_PREFIX.match(line)
-        if match is not None:
-            numbered.append((index, int(match.group(2)), match.start(3), match.end()))
-
-    stripped: dict[int, int] = {}
-    run: list[tuple[int, int, int, int]] = []
-
-    def accept_run() -> None:
-        if len(run) >= _MIN_MARGIN_LINE_RUN:
-            stripped.update((index, prefix_end) for index, _, _, prefix_end in run)
-
-    for entry in numbered:
-        index, number, number_column, _ = entry
-        previous = run[-1] if run else None
-        continues = (
-            previous is not None
-            and number_column == previous[2]
-            and number == previous[1] + 1
-            and all(not lines[between].strip() for between in range(previous[0] + 1, index))
-        )
-        if not continues:
-            accept_run()
-            run = []
-        run.append(entry)
-    accept_run()
-
-    if not stripped:
-        return source, ()
-    view: list[str] = []
-    offsets: list[int] = []
-    source_start = 0
-    for index, line in enumerate(lines):
-        for local_offset in range(stripped.get(index, 0), len(line)):
-            view.append(line[local_offset])
-            offsets.append(source_start + local_offset)
-        source_start += len(line)
-    return "".join(view), tuple(offsets)
 
 
 def _best_fragment_near(

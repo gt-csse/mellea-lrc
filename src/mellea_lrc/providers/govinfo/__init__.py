@@ -4,10 +4,8 @@ from mellea_lrc.providers.govinfo.client import (
     GovInfoClient,
     GovInfoConfig,
     GovInfoError,
-    GovInfoGranulesPage,
-    GovInfoSearchPage,
-    govinfo_uscourts_docket_query,
 )
+from mellea_lrc.providers.govinfo.models import GovInfoGranulesPage, GovInfoSearchPage
 
 __all__ = [
     "GovInfoClient",
@@ -15,5 +13,4 @@ __all__ = [
     "GovInfoError",
     "GovInfoGranulesPage",
     "GovInfoSearchPage",
-    "govinfo_uscourts_docket_query",
 ]

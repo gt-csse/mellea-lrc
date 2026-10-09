@@ -13,18 +13,18 @@ from mellea_lrc.validation.reporter_exact.fields import (
     locator_present,
 )
 
-STAGE = "13.1_reporter_root_lookup_unique_rule_judgment"
-LOOKUP_STAGE = "12.2_reporter_root_lookup_docket_retrieval"
+SUBSTAGE = "validate_roots.reporter_lookup.unique_rule_judgment"
+LOOKUP_SUBSTAGE = "validate_roots.reporter_lookup.docket_retrieval"
 
 
 def reporter_root_lookup_unique_rule_judgment(document: Document) -> Document:
     """Compare each unique candidate's fields and route disagreements to review."""
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if LOOKUP_STAGE not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if LOOKUP_SUBSTAGE not in document.substage_runs:
         raise ValueError("Retrieve reporter lookups before reviewing them")
     for root in tuple(item for item in document.roots if isinstance(item, FullReporterCitation)):
-        if root.next_stage != STAGE:
+        if root.next_substage != SUBSTAGE:
             continue
         lookup = root.reporter_exact_lookup
         if (
@@ -35,7 +35,7 @@ def reporter_root_lookup_unique_rule_judgment(document: Document) -> Document:
             or len(lookup.response.clusters) != 1
         ):
             raise ValueError("Unique reporter review requires one saved candidate")
-        citation = root.record(STAGE)
+        citation = root.record(SUBSTAGE)
         candidate = lookup.response.clusters[0]
         docket = citation.reporter_exact_docket.response if citation.reporter_exact_docket else None
         results: list[MatchResult] = []
@@ -58,6 +58,6 @@ def reporter_root_lookup_unique_rule_judgment(document: Document) -> Document:
         ):
             citation = citation.with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY).with_route(None)
         else:
-            citation = citation.with_route("14_reporter_root_lookup_unique_llm_judgment")
+            citation = citation.with_route("validate_roots.reporter_lookup.unique_llm_judgment")
         document = document.replace_citation(citation)
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

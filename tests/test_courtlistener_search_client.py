@@ -19,6 +19,7 @@ def _client(handler: httpx.MockTransport) -> CourtListenerClient:
     return CourtListenerClient(
         CourtListenerConfig(
             base_url="https://proxy.example/api/rest/v4/",
+            timeout_seconds=45,
             token="test-token",
             pool="reserved",
         ),

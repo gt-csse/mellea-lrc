@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mellea_lrc.llm.profiles import OPENROUTER_LUNA
+from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.reporter_lookup import (
     REPORTER_LOOKUP_CANDIDATE_LIMIT,
@@ -23,8 +23,7 @@ from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm_judgment.reviewer 
     ReporterAmbiguousReviewOutcome,
 )
 
-STAGE = "15_reporter_root_lookup_ambiguous_llm_judgment"
-MODEL_PROFILE = OPENROUTER_LUNA
+SUBSTAGE = "validate_roots.reporter_lookup.ambiguous_llm_judgment"
 
 
 async def reporter_root_lookup_ambiguous_llm_judgment(
@@ -36,15 +35,15 @@ async def reporter_root_lookup_ambiguous_llm_judgment(
 
     One selected representative receives independent field judgments. A null
     selection or failed review can still be searched later. Grounded filing
-    corrections from a valid null selection remain useful to that later stage.
+    corrections from a valid null selection remain useful to that later substage.
     """
-    if STAGE in document.stage_runs:
-        raise ValueError(f"Stage already completed: {STAGE}")
-    if "13.2_reporter_root_lookup_ambiguous_rule_judgment" not in document.stage_runs:
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "validate_roots.reporter_lookup.ambiguous_rule_judgment" not in document.substage_runs:
         raise ValueError("Complete rule-only reporter ambiguity review before model choice")
     service = reviewer
     for root in tuple(item for item in document.roots if isinstance(item, FullReporterCitation)):
-        if root.next_stage != STAGE:
+        if root.next_substage != SUBSTAGE:
             continue
         lookup = root.reporter_exact_lookup
         resolution = root.reporter_exact_ambiguity_resolution
@@ -59,14 +58,14 @@ async def reporter_root_lookup_ambiguous_llm_judgment(
             raise ValueError("Ambiguous model route requires an unresolved bounded candidate list")
         context = ReporterAmbiguousReviewContext.from_document(document, root)
         if service is None:
-            service = IvrReporterAmbiguousReviewer.from_profile(MODEL_PROFILE)
+            service = IvrReporterAmbiguousReviewer.from_profile(load_profile(SUBSTAGE))
         result = await service(context)
         outcome = (
             result
             if isinstance(result, ReporterAmbiguousReviewOutcome)
             else ReporterAmbiguousReviewOutcome(decision=result)
         )
-        recorded = root.record(STAGE)
+        recorded = root.record(SUBSTAGE)
         decision = outcome.decision
         corrections = context.grounded_corrections(decision) if decision is not None else None
         failure = outcome.failure_reason
@@ -100,4 +99,4 @@ async def reporter_root_lookup_ambiguous_llm_judgment(
                     else recorded.with_route("reporter_root_search")
                 )
         document = document.replace_citation(recorded)
-    return document.complete(STAGE)
+    return document.complete_substage(SUBSTAGE)

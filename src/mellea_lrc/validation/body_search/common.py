@@ -16,6 +16,7 @@ from mellea_lrc.model.citations import FullCitationVariant, FullDocketCitation
 from mellea_lrc.model.citations.body_evidence import BodyEvidence, BodySource
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
+from mellea_lrc.validation.fields_aggregated_identity import SUBSTAGE as FIELD_IDENTITY_SUBSTAGE
 
 _SPACE = re.compile(r"\s+")
 _LOCATOR_MATCH = FuzzinessOption.edit_distance(similarity_percent=90, whitespace_relaxation=True)
@@ -36,8 +37,8 @@ def roots_for_body_search(document: Document) -> tuple[FullCitationVariant, ...]
     return tuple(
         root
         for root in document.roots
-        if (not root.identity_judgments and root.next_stage is None)
-        or (root.next_stage is not None and root.next_stage != "fields_aggregated_identity")
+        if (not root.identity_judgments and root.next_substage is None)
+        or (root.next_substage is not None and root.next_substage != FIELD_IDENTITY_SUBSTAGE)
     )
 
 

@@ -26,6 +26,7 @@ from mellea_lrc.validation.docket_root_lookup_courtlistener_retrieval import (
 )
 from mellea_lrc.validation.docket_root_lookup_govinfo_llm_review import docket_root_lookup_govinfo_llm_review
 from mellea_lrc.validation.docket_root_lookup_govinfo_retrieval import docket_root_lookup_govinfo_retrieval
+from mellea_lrc.validation.fields_aggregated_identity import fields_aggregated_identity
 from mellea_lrc.validation.intended_case_llm_selection import intended_case_llm_selection
 from mellea_lrc.validation.locator_body_llm_judgment import locator_body_llm_judgment
 from mellea_lrc.validation.reporter_citation_full_opinion_review import review_reporter_citation_full_opinions
@@ -65,6 +66,7 @@ __all__ = [
     "docket_root_lookup_courtlistener_retrieval",
     "docket_root_lookup_govinfo_llm_review",
     "docket_root_lookup_govinfo_retrieval",
+    "fields_aggregated_identity",
     "index_reporter_root_opinion_pages",
     "intended_case_courtlistener_opinion_retrieval",
     "intended_case_courtlistener_recap_retrieval",

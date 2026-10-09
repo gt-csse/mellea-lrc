@@ -215,7 +215,11 @@ def test_prefix_is_sent_as_system_prompt(monkeypatch) -> None:
             session,
             InstructIvrSpec(description="Decide.", prefix="Static instructions", output_format=_Output),
             strategy=MultiTurnStrategy(loop_budget=1),
-            model_options={"max_tokens": 64},
+            model_options={
+                "max_tokens": 64,
+                ModelOption.STREAM_TIMEOUT: 120,
+                OUTPUT_MODE_OPTION: LlmOutputMode.JSON_SCHEMA,
+            },
         )
     )
 
@@ -286,7 +290,7 @@ def test_output_transport_preserves_schema_and_domain_repair_at_instruct_boundar
         output_format=_Output,
         requirements=[req("Decision must be true.", validation_fn=domain_validation)],
     )
-    options = {"max_tokens": 64, "temperature": 0, OUTPUT_MODE_OPTION: mode}
+    options = {"max_tokens": 64, "temperature": 0, OUTPUT_MODE_OPTION: mode, ModelOption.STREAM_TIMEOUT: 120}
     run = asyncio.run(
         run_instruct_ivr(
             SimpleNamespace(backend=SimpleNamespace(model_id="configured-alias")),
@@ -345,7 +349,11 @@ def test_output_transport_rejects_response_format_conflicts_before_instruct(monk
                 SimpleNamespace(backend=SimpleNamespace(model_id="test-model")),
                 InstructIvrSpec(description="Decide.", output_format=_Output),
                 strategy=MultiTurnStrategy(loop_budget=1),
-                model_options={OUTPUT_MODE_OPTION: mode, "response_format": {"type": "json_object"}},
+                model_options={
+                    OUTPUT_MODE_OPTION: mode,
+                    "response_format": {"type": "json_object"},
+                    ModelOption.STREAM_TIMEOUT: 120,
+                },
             )
         )
 
@@ -376,6 +384,31 @@ def test_unknown_transport_mode_does_not_fall_back() -> None:
         )
 
 
+def test_missing_transport_mode_does_not_use_an_implicit_schema_default() -> None:
+    with pytest.raises(ValueError, match="explicit output_mode"):
+        _output_transport(InstructIvrSpec(description="Decide.", output_format=_Output), {})
+
+
+@pytest.mark.parametrize("timeout", [None, True, 0, -1, float("nan"), float("inf"), "120"])
+def test_missing_or_invalid_deadline_raises_before_generation(monkeypatch, timeout) -> None:
+    def unexpected_instruct(*args, **kwargs):
+        raise AssertionError("Missing configuration must fail before generation is started")
+
+    monkeypatch.setattr(mfuncs, "ainstruct", unexpected_instruct)
+    with pytest.raises(ValueError, match="stream_timeout"):
+        asyncio.run(
+            run_instruct_ivr(
+                SimpleNamespace(backend=object()),
+                InstructIvrSpec(description="Decide."),
+                strategy=MultiTurnStrategy(loop_budget=1),
+                model_options={
+                    ModelOption.STREAM_TIMEOUT: timeout,
+                    OUTPUT_MODE_OPTION: LlmOutputMode.JSON_SCHEMA,
+                },
+            )
+        )
+
+
 def test_endpoint_rejection_does_not_retry_with_a_different_transport(monkeypatch) -> None:
     formats = []
 
@@ -390,7 +423,10 @@ def test_endpoint_rejection_does_not_retry_with_a_different_transport(monkeypatc
                 SimpleNamespace(backend=SimpleNamespace(model_id="test-model")),
                 InstructIvrSpec(description="Decide.", output_format=_Output),
                 strategy=MultiTurnStrategy(loop_budget=3),
-                model_options={OUTPUT_MODE_OPTION: LlmOutputMode.JSON_SCHEMA},
+                model_options={
+                    OUTPUT_MODE_OPTION: LlmOutputMode.JSON_SCHEMA,
+                    ModelOption.STREAM_TIMEOUT: 120,
+                },
             )
         )
 
@@ -569,7 +605,10 @@ def test_native_async_timeout_cancels_sampling_before_another_repair_request() -
                 SimpleNamespace(backend=backend),
                 spec,
                 strategy=strategy,
-                model_options={ModelOption.STREAM_TIMEOUT: 0.2},
+                model_options={
+                    ModelOption.STREAM_TIMEOUT: 0.2,
+                    OUTPUT_MODE_OPTION: LlmOutputMode.JSON_SCHEMA,
+                },
             )
             assert backend.cancelled.is_set()
         finally:
@@ -684,7 +723,12 @@ def test_profile_metadata_is_saved_without_reaching_the_provider_or_exposing_cre
 
     monkeypatch.setattr(mfuncs, "ainstruct", fake_instruct)
     session = SimpleNamespace(backend=SimpleNamespace(model_id="test-model", api_key="private-test-secret"))
-    options = {"max_tokens": 32, OUTPUT_MODE_OPTION: mode, PROFILE_OPTION: metadata}
+    options = {
+        "max_tokens": 32,
+        OUTPUT_MODE_OPTION: mode,
+        PROFILE_OPTION: metadata,
+        ModelOption.STREAM_TIMEOUT: 120,
+    }
     run = asyncio.run(
         run_instruct_ivr(
             session,
