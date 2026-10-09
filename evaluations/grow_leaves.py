@@ -31,6 +31,7 @@ from mellea_lrc.model.citations import (
     SupraCitation,
     latest,
 )
+from mellea_lrc.model.citations.fields import CitationDate
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID
 
 _SET = "primary"
@@ -66,8 +67,8 @@ def _field_normalization(reading: Any, target: Any) -> bool:
         raise ValueError("Missing explicit field normalization gold")
     source = target.get("source", target)
     source_kind = source.get("kind", "quoted" if "start" in source else None)
-    if source_kind not in {"quoted", "not_stated"}:
-        raise ValueError("Field normalization gold needs quoted or not_stated source")
+    if source_kind not in {"quoted", "inferred", "not_stated"}:
+        raise ValueError("Field normalization gold needs quoted, inferred or not_stated source")
     if "normalization" in target:
         normalization = target["normalization"]
         if not isinstance(normalization, dict):
@@ -97,6 +98,15 @@ def _field_normalization(reading: Any, target: Any) -> bool:
     if reading is None or not reading.normalizable:
         return False
     value = reading.get_normalized()
+    if isinstance(value, CitationDate):
+        # Date gold uses a calendar string, preserving year/month/day
+        # precision; the reading stores those components as typed fields.
+        actual = f"{value.year:04d}"
+        if value.month is not None:
+            actual += f"-{value.month:02d}"
+        if value.day is not None:
+            actual += f"-{value.day:02d}"
+        return actual == (expected["normalized"] if isinstance(expected, dict) else expected)
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json") == expected
     return [item.model_dump(mode="json", exclude_none=True) for item in value] == expected
@@ -436,6 +446,10 @@ def score_leaf_field_corrections(document: Document) -> SubstageScore:
     ]
     metrics = {}
     for field in ("case_name", "pin_cite", "court", "date"):
+        # Keep the same columns across documents, including those with no
+        # accepted review for this field. Zero outcomes add no denominator.
+        metrics[f"{field}_span"] = Precision()
+        metrics[f"{field}_normalization"] = Precision()
         outcomes = [
             citation
             for citation in reviewed
@@ -454,12 +468,16 @@ def score_leaf_field_corrections(document: Document) -> SubstageScore:
             if not isinstance(target, dict):
                 continue
             normalized += _field_normalization(reading, target)
-            spans += (
-                target.get("source", {}).get("kind") == "not_stated"
-                if reading is None
-                else reading.span is not None
-                and annotation_span(target) == (reading.span.start, reading.span.end)
-            )
+            source_kind = target.get("source", {}).get("kind")
+            if source_kind == "inferred":
+                spans += reading is not None and reading.span is None
+            elif reading is None:
+                spans += source_kind == "not_stated"
+            else:
+                spans += reading.span is not None and annotation_span(target) == (
+                    reading.span.start,
+                    reading.span.end,
+                )
         metrics[f"{field}_span"] = Precision(spans, len(outcomes))
         metrics[f"{field}_normalization"] = Precision(normalized, len(outcomes))
     return SubstageScore(LEAF_CORRECTION_SUBSTAGE, metrics)

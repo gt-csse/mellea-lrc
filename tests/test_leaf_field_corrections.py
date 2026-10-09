@@ -22,6 +22,7 @@ from mellea_lrc.model.citations import (
     LeafReviewDecision,
     ShortReporterCitation,
 )
+from mellea_lrc.model.citations.fields import DateField
 from mellea_lrc.model.citations.leaf_field_correction import (
     LeafFieldCorrectionDecision,
     LeafFieldCorrectionProposal,
@@ -555,7 +556,12 @@ def test_correction_precision_reuses_field_targets_skips_failures_and_missing_go
         return LeafFieldCorrectionOutcome(None, failure_reason="No accepted field decision")
 
     failed_document = asyncio.run(correct_leaf_fields(before, reviewer=failed))
-    assert evaluation.score_leaf_field_corrections(failed_document).metrics == {}
+    failed_score = evaluation.score_leaf_field_corrections(failed_document)
+    assert all(value == Precision() for value in failed_score.metrics.values())
+    # A corpus combines filings with accepted corrections and filings with
+    # no accepted review. Neither the columns nor denominators may drift.
+    aggregate = evaluation.WorkflowScore((score,), {}, {}) + evaluation.WorkflowScore((failed_score,), {}, {})
+    assert aggregate.substages == (score,)
 
 
 def test_correction_precision_handles_inferred_court_without_a_source_span(monkeypatch):
@@ -595,6 +601,38 @@ def test_correction_precision_handles_inferred_court_without_a_source_span(monke
     score = evaluation.score_leaf_field_corrections(after)
     assert score.metrics["court_span"] == Precision(0, 1)
     assert score.metrics["court_normalization"] == Precision(1, 1)
+
+    row["court"]["source"] = {"kind": "inferred", "basis": "reporter"}
+    inferred_score = evaluation.score_leaf_field_corrections(after)
+    assert inferred_score.metrics["court_span"] == Precision(1, 1)
+    assert inferred_score.metrics["court_normalization"] == Precision(1, 1)
+
+    row["court"]["normalization"]["value"]["id"] = "ca9"
+    assert evaluation.score_leaf_field_corrections(after).metrics["court_normalization"] == Precision(0, 1)
+
+
+@pytest.mark.parametrize(
+    ("quote", "normalized"),
+    [("1954", "1954"), ("May 1954", "1954-05"), ("May 17, 1954", "1954-05-17")],
+)
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_correction_date_normalization_compares_the_calendar_value(quote, normalized, wrapped):
+    from evaluations import grow_leaves as evaluation
+
+    reading = DateField.from_source(quote, Span(0, len(quote)), node_id="date-reading")
+    source = {"kind": "quoted", "start": 0, "end": len(quote), "quote": quote}
+    target = (
+        {"source": source, "normalization": {"kind": "value", "value": {"normalized": normalized}}}
+        if wrapped
+        else {**source, "normalized": normalized}
+    )
+    assert evaluation._field_normalization(reading, target)
+    wrong = "1955" if normalized == "1954" else "1954-05-18"
+    if wrapped:
+        target["normalization"]["value"]["normalized"] = wrong
+    else:
+        target["normalized"] = wrong
+    assert not evaluation._field_normalization(reading, target)
 
 
 def test_same_quote_replacement_records_grounding_without_duplicate_field_reading():
