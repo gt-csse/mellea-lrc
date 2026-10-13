@@ -27,6 +27,20 @@ if TYPE_CHECKING:
     from mellea.stdlib.sampling import MultiTurnStrategy
 
 
+class InvalidJsonResponseError(ValueError):
+    """Generated JSON could not be parsed; preserve the parser's specific failure."""
+
+    def __init__(self, parser_error: str) -> None:
+        self.parser_error = parser_error
+        super().__init__(
+            "The previous response was incomplete or invalid JSON. "
+            f"Parser error: {parser_error} "
+            "PLEASE CHECK IF TOKEN LIMIT VIOLATED. "
+            "Return a complete JSON object with all required fields and closing delimiters. "
+            "Keep reasons concise, quote only necessary evidence, and avoid repetitive text."
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class InstructIvrSpec:
     """Complete project-level specification for one Mellea IVR instruction.
@@ -74,20 +88,73 @@ async def run_instruct_ivr(
             **model_options,
             PROFILE_OPTION: {**profile, "max_attempts": strategy.loop_budget},
         }
-    requirements = _requirements_for(spec)
     description, variables, wire_format, options = _output_transport(spec, model_options)
     local_strategy = copy(strategy)
     native_repair = local_strategy.repair
     completed: dict[int, tuple[object, IvrAttempt]] = {}
     history_lock = Lock()
+    pending: IvrAttempt | None = None
+    pending_generation: object | None = None
+
+    def retain_before_validation(validation, requirement):
+        def retained(ctx):
+            nonlocal pending, pending_generation
+            generation = ctx.last_output()
+            if generation is not None:
+                # Grounding can consume a deadline before the repair hook runs.
+                # Preserve the actual generation before invoking that validator.
+                with history_lock:
+                    if generation is not pending_generation:
+                        pending = _attempts((generation,), ())[0]
+                        pending_generation = generation
+            result = validation(ctx)
+            with history_lock:
+                if pending is not None and generation is pending_generation:
+                    pending = pending.model_copy(
+                        update={
+                            "requirements": (
+                                *pending.requirements,
+                                IvrRequirementAttempt(
+                                    description=requirement.description,
+                                    passed=result.as_bool(),
+                                    reason=result.reason,
+                                    score=result.score,
+                                ),
+                            )
+                        }
+                    )
+            return result
+
+        return retained
+
+    requirements = []
+    for requirement in _requirements_for(spec):
+        observed = copy(requirement)
+        if observed.validation_fn is not None:
+            observed.validation_fn = retain_before_validation(observed.validation_fn, observed)
+        requirements.append(observed)
 
     def capture_repair(old_ctx, new_ctx, past_actions, past_results, past_val):
+        nonlocal pending, pending_generation
         # The native hook runs after validation and before the next generation.
         # Copy provider data now, before later repair contexts can mutate it.
         with history_lock:
             for generation, attempt in zip(past_results, _attempts(past_results, past_val), strict=True):
                 completed.setdefault(id(generation), (generation, attempt))
-        return native_repair(old_ctx, new_ctx, past_actions, past_results, past_val)
+            pending = None
+            pending_generation = None
+        next_action, repair_context = native_repair(old_ctx, new_ctx, past_actions, past_results, past_val)
+        if spec.output_format is not None and past_results:
+            try:
+                spec.output_format.model_validate_json(str(past_results[-1].value))
+            except ValidationError as error:
+                if any(detail["type"] == "json_invalid" for detail in error.errors(include_url=False)):
+                    # Keep earlier conversation and the instruction that produced
+                    # this answer, but do not feed malformed JSON back to the
+                    # model. The full answer remains in the captured IVR trace.
+                    # Valid JSON with schema or domain errors uses native repair.
+                    repair_context = old_ctx.add(past_actions[-1])
+        return next_action, repair_context
 
     local_strategy.repair = capture_repair
     instruct = mfuncs.ainstruct(
@@ -112,7 +179,7 @@ async def run_instruct_ivr(
     except TimeoutError:
         with history_lock:
             attempts = tuple(attempt for _, attempt in completed.values())
-        return _timed_out_ivr_run(session, spec, model_options, timeout_seconds, attempts)
+        return _timed_out_ivr_run(session, spec, model_options, timeout_seconds, attempts, pending)
     return _to_ivr_run(session, spec, model_options, sampled)
 
 
@@ -175,6 +242,7 @@ def _timed_out_ivr_run(
     model_options: Mapping[object, object],
     timeout_seconds: float,
     completed_attempts: tuple[IvrAttempt, ...] = (),
+    pending_attempt: IvrAttempt | None = None,
 ) -> IvrRun:
     """Represent an outer call deadline using the same artifact shape as IVR repair failure."""
     return IvrRun(
@@ -183,8 +251,11 @@ def _timed_out_ivr_run(
         attempts=(
             *completed_attempts,
             IvrAttempt(
-                output="",
+                output=pending_attempt.output if pending_attempt is not None else "",
+                request=pending_attempt.request if pending_attempt is not None else None,
+                response=pending_attempt.response if pending_attempt is not None else None,
                 requirements=(
+                    *(pending_attempt.requirements if pending_attempt is not None else ()),
                     IvrRequirementAttempt(
                         description=_CALL_TIMEOUT_REQUIREMENT,
                         passed=False,
@@ -254,6 +325,8 @@ def _validate_schema(ctx: object, output_format: type[BaseModel]) -> ValidationR
 
     try:
         _parse_schema(ctx, output_format)
+    except InvalidJsonResponseError as error:
+        return ValidationResult(result=False, reason=f"{_SCHEMA_REQUIREMENT} {error}")
     except ValidationError as error:
         return ValidationResult(result=False, reason=_schema_error_message(error))
     return ValidationResult(result=True)
@@ -262,20 +335,26 @@ def _validate_schema(ctx: object, output_format: type[BaseModel]) -> ValidationR
 def _schema_matches(ctx: object, output_format: type[BaseModel]) -> bool:
     try:
         _parse_schema(ctx, output_format)
-    except ValidationError:
+    except (InvalidJsonResponseError, ValidationError):
         return False
     return True
 
 
 def _parse_schema(ctx: object, output_format: type[BaseModel]) -> BaseModel:
     last_output = getattr(ctx, "last_output")()
-    return output_format.model_validate_json(str(getattr(last_output, "value", last_output)))
+    try:
+        return output_format.model_validate_json(str(getattr(last_output, "value", last_output)))
+    except ValidationError as error:
+        for detail in error.errors(include_url=False):
+            if detail["type"] == "json_invalid":
+                raise InvalidJsonResponseError(detail["msg"]) from error
+        raise
 
 
 def _schema_error_message(error: ValidationError) -> str:
     """Convert Pydantic diagnostics into short, model-actionable feedback."""
     details: list[str] = []
-    priority = {"json_invalid": 0, "missing": 1, "extra_forbidden": 2}
+    priority = {"missing": 0, "extra_forbidden": 1}
     errors = sorted(
         error.errors(include_url=False),
         key=lambda item: priority.get(str(item["type"]), 3),
@@ -283,9 +362,7 @@ def _schema_error_message(error: ValidationError) -> str:
     for item in errors[:4]:
         kind = str(item["type"])
         location = _schema_location(item.get("loc", ()))
-        if kind == "json_invalid":
-            details.append("The previous response was incomplete or invalid JSON.")
-        elif kind == "missing":
+        if kind == "missing":
             details.append(f"{location} is required.")
         elif kind == "extra_forbidden":
             details.append(f"Remove unsupported field {location}.")
@@ -387,13 +464,23 @@ def _provider_request(generation: object) -> JsonValue:
 
 
 def _provider_response(generation: object) -> JsonValue:
-    """Project the provider response that explains completion and token use."""
+    """Retain the response and the provider's separate streaming usage chunk.
+
+    Mellea stores final stream usage in ``generation.usage``; its reconstructed
+    response can omit that chunk. Merge those provider counters into the saved
+    response without mutating Mellea's log or estimating interrupted usage.
+    """
     log = getattr(generation, "_generate_log", None)
     response = getattr(log, "model_output", None)
     if response is None:
         raw = getattr(generation, "raw", None)
         response = getattr(raw, "response", None)
-    return _json_value(response)
+    projected = _json_value(response)
+    metadata = getattr(generation, "generation", None)
+    usage = _json_value(getattr(metadata, "usage", None))
+    if isinstance(usage, dict) and (projected is None or isinstance(projected, dict)):
+        return {**(projected or {}), "usage": usage}
+    return projected
 
 
 def _optional_string(value: object) -> str | None:

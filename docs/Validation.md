@@ -116,12 +116,30 @@ the exact earlier readings; source quotes have spans into the retained filing
 or indexed opinion. Every review saves its reason and full IVR repair trace.
 Native Pydantic serialization, `get_substage`, and `get_stage` preserve these references.
 
-Page review receives only selected page text. A negative page review cannot
-establish that the full opinion lacks support. Full review runs when pages are
-missing, ambiguous, uncertain, or fail to settle the attribution. Identical root
-source text is sent in a stable system prefix, with the occurrence's proposition
-and target in the dynamic instruction. Full reviews are grouped by root for
-KV-cache reuse. No retrieval is repeated in these review substages.
+Page review receives only selected page text. Review ends early only when an
+accepted decision has `result=supported` and `correct_page=true`. Every other
+outcome proceeds to full-opinion review, including a contradiction at the written
+page, supported content at a different or unknown page, and failed page review.
+A page-only negative remains provisional. Missing pages enter the full-opinion
+route directly. Both review scopes use the same configured GLM profile. No
+retrieval is repeated in these review substages.
+
+Full review receives the saved opinion as explicitly labeled page text. Page
+references identify the opinion and pagination namespace as well as the printed
+label, so a parallel reporter's page number cannot substitute for the cited
+reporter's page. Each proposed evidence quote names its source page or pages;
+grounding searches only that named source text and retains the resolved opinion
+span. Material outside indexed pages remains available as unpaginated source
+text so full review can still assess the complete attribution. When usable
+pagination is unavailable, the model is asked for content support and evidence
+without page-assessment fields. Native review and judgment records still retain
+`pagination_available=false`, `correct_page=null`, and `found_pages=[]`.
+
+Identical root source text and page labels are sent in a stable system prefix,
+with the occurrence's proposition and target in the dynamic instruction. Full
+reviews are grouped by root for KV-cache reuse. Page blocks from every saved
+pagination namespace belong to this prefix, keeping it independent of the
+reporter used by a particular occurrence.
 
 The shared source prefix is independent of the occurrence and stays byte
 identical across its full-opinion reviews. Prompt refinements belong in the
@@ -144,11 +162,37 @@ Recovered pages are known locations, not an exhaustive list. Finding a passage
 elsewhere alone does not establish a wrong written target.
 
 Mellea validates the output schema and cross-field invariants, then grounds each
-quote with shared whitespace relaxation and 98% edit-distance matching. Where
-source markers establish pagination, reported pages must locate those quoted
-passages. Failed requirements enter the ordinary repair loop and remain in the
-saved IVR trace. The `support_review.judgment` substage copies the accepted page assessment and checks retained
-quote spans again. Page assessment is evaluated independently of content support;
+quote within its named source page or pages using shared whitespace relaxation
+and 95% edit-distance matching. A response may contain at most three independent
+quotes, each requested as one representative sentence or short fragment. They
+need not be adjacent. Every quote is checked separately, with its own opinion
+and page references. Detailed explanation belongs in `reason`. Before any
+grounding, all quotes are checked against a 1,200-character per-item limit;
+oversized responses enter the normal repair loop with feedback to focus on one
+or two sentences. The hard limit measures characters, avoiding unreliable
+sentence splitting around legal abbreviations. It applies to new reviews, not
+to loading saved documents. Recovered locations come from those grounded
+page references. Quotes may span adjacent pages. Footnote identification remains
+a model assessment; grounding verifies the containing page, and a correct-page
+claim with a written footnote must name that footnote. Failed requirements
+enter the ordinary repair loop and remain in the saved IVR trace. The
+page and full-opinion review profiles use a 16,000-token response limit and a
+600-second whole-IVR timeout, configured in `.env`. Invalid or incomplete JSON
+raises `InvalidJsonResponseError` inside the wrapper; Mellea receives its parser
+detail and `PLEASE CHECK IF TOKEN LIMIT VIOLATED` repair instruction. Valid JSON
+that violates the schema retains field-specific validation feedback. The
+wrapper customizes Mellea's native repair hook only for syntactically invalid
+or truncated JSON: the next context keeps earlier history and the instruction
+that produced the answer, but omits that malformed assistant response. Mellea
+still supplies the validation feedback. Valid JSON with schema, grounding, or
+semantic failures keeps ordinary multi-turn repair history. Every answer,
+including omitted malformed responses, remains in the durable IVR trace.
+This policy applies in all three structured-output transport modes. The
+`support_review.judgment` substage selects the latest successful full review when
+present, copies its accepted page assessment, and checks retained quote spans
+again. A failed full review can retain earlier affirmative page support, but
+cannot turn a provisional page negative into a final wrong-support verdict.
+Page assessment is evaluated independently of content support;
 unknown gold locations are never treated as negative page judgments.
 A wrong support judgment needs affirmative contradiction in a full review or
 absence established after reading every available subopinion. Missing/empty

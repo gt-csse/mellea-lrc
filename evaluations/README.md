@@ -5,6 +5,26 @@ Each has one scorer and one Markdown report, with its JSON representation
 beside it. Reports follow the catalog hierarchy: workflow, stage, then substage.
 The semantic grouping introduces no additional metrics or denominators.
 
+Each workflow report also includes model token usage from its retained IVR
+attempts, grouped by substage and model. This is independent of accuracy scoring
+and counts repair attempts and failed reviews as well as successful answers.
+The scorer reads one cumulative Document per filing; recovered checkpoints are
+not separate calls and must not be summed together.
+
+Token totals are reported subtotals, with coverage indicating how many attempts
+have provider usage. Missing counters stay unavailable rather than becoming
+zero. The cache rate is cached input tokens divided by input tokens only for
+attempts that report both counters. Cached tokens already belong to the input
+total; reasoning tokens already belong to the output total. A repeated prefix
+alone does not prove a cache hit. Interrupted streams may omit their final usage
+chunk, and some providers report tokens without reporting cache counters.
+
+Usage is a typed view of each `IvrAttempt.response`, preserving the provider data
+without another persisted counter log. The IVR wrapper also retains a separate
+stream usage chunk when Mellea's reconstructed response omits it. Re-scoring a
+saved run produces the usage table and the `llm_usage` JSON section without new
+model calls.
+
 ## Fresh primary end-to-end run
 
 From the repository root, run all 26 primary filings through the four workflows:

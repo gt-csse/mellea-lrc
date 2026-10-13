@@ -25,9 +25,10 @@ async def review_reporter_citation_full_opinions(
 ) -> Document:
     """Reuse a byte-identical root prefix across all its full-opinion reviews.
 
-    A page-only negative is provisional. Missing or ambiguous pages enter this
-    route directly. Source text is never retrieved again, and a failed call is
-    saved without producing a false negative verdict.
+    Only supported content at the correct page ends review. A page-only negative
+    is provisional. Missing or ambiguous pages enter this route directly. Source
+    text is never retrieved again, and a failed call is saved without producing
+    a false negative verdict.
     """
     if SUBSTAGE in document.substage_runs:
         raise ValueError(f"Substage already completed: {SUBSTAGE}")

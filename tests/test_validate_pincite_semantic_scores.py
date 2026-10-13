@@ -357,7 +357,7 @@ def test_unimplemented_docket_leaf_stays_in_common_gold_denominator(tmp_path):
     assert "| docket_leaves | 0/0 (—) | 0/1 (0.0%) |" in evaluation.render_validate_pincite(score)
 
 
-def _review(document, citation_id, substage, result):
+def _review(document, citation_id, substage, result, *, correct_page=None):
     citation = next(c for c in document.citations if c.id == citation_id).record(substage)
     evidence = ()
     indices = ()
@@ -383,8 +383,8 @@ def _review(document, citation_id, substage, result):
             decision=ReporterSupportDecision(
                 result=result,
                 evidence=evidence,
-                pagination_available=False,
-                correct_page=None,
+                pagination_available=correct_page is not None,
+                correct_page=correct_page,
                 found_pages=(),
                 reason="Read the opinion for the attributed proposition.",
             ),
@@ -392,6 +392,22 @@ def _review(document, citation_id, substage, result):
         )
     )
     return document.replace_citation(citation)
+
+
+@pytest.mark.parametrize("correct_page", [True, False, None])
+def test_page_contradiction_is_provisional_for_each_page_assessment(tmp_path, correct_page):
+    document = _review(
+        _document(tmp_path),
+        "c3",
+        evaluation.PAGE_SUPPORT_SUBSTAGE,
+        OpinionSupportResult.CONTRADICTED,
+        correct_page=correct_page,
+    ).complete_substage(evaluation.PAGE_SUPPORT_SUBSTAGE)
+    score = evaluation.score_reporter_citation_pinpoint_page_review(document)
+    assert score.counts == {"contradicted": 1}
+    total = score.judgments["total"]
+    assert total.predicted == total.correct == 0
+    assert total.undetermined == 1
 
 
 def test_page_contradiction_is_provisional_until_full_opinion_review(tmp_path):

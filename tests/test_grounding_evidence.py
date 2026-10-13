@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
+import mellea_lrc.matching.grounding as grounding
 from mellea_lrc.matching.fuzziness import FuzzinessOption, FuzzinessType
 from mellea_lrc.matching.grounding import (
     EvidenceCandidate,
@@ -186,3 +189,139 @@ def test_whitespace_relaxation_does_not_silently_remove_source_digits() -> None:
         evidence.find_fragment("The selected source passage.", FuzzinessOption.whitespace_relaxation())
         is None
     )
+
+
+@pytest.mark.parametrize("gap", ("\n \t        ", "\n" * 20))
+def test_edited_fragment_preserves_expanded_whitespace_and_complete_final_token(gap: str) -> None:
+    quote = (
+        "An accurate source quotation preserves the complete wording of the legal proposition. " * 5
+        + "Case No. 1:24-cv-08760"
+    )
+    canonical = quote.replace(" ", gap)
+    before = "Before paragraph.\n\n"
+    source = before + canonical + "\n\nAfter paragraph."
+    evidence = GroundingEvidence((EvidenceCandidate(text=source, value="source"),))
+
+    grounded = evidence.find_fragment(
+        quote[:-1] + "O",
+        FuzzinessOption.edit_distance(similarity_percent=98, whitespace_relaxation=True),
+    )
+
+    assert grounded is not None
+    assert grounded.text == canonical
+    assert (grounded.start, grounded.end) == (len(before), len(before) + len(canonical))
+    assert source[grounded.start : grounded.end] == canonical
+    assert grounded.match_type is FuzzinessType.EDIT_DISTANCE
+    assert grounded.edits == 1
+
+
+@pytest.mark.parametrize("edits", (2, 3))
+def test_fragment_refinement_retains_98_percent_edit_boundary(edits: int) -> None:
+    # Distinct letters avoid an alternative shorter repeated passage, so
+    # these two and three substitutions test the same complete source span.
+    source = "".join(chr(0x100 + index) for index in range(100))
+    evidence = GroundingEvidence((EvidenceCandidate(text=source, value="source"),))
+
+    grounded = evidence.find_fragment(
+        "X" * edits + source[edits:],
+        FuzzinessOption.edit_distance(similarity_percent=98, whitespace_relaxation=True),
+    )
+
+    if edits == 3:
+        assert grounded is None
+    else:
+        assert grounded is not None
+        assert grounded.text == source
+        assert (grounded.start, grounded.end) == (0, len(source))
+        assert grounded.edits == 2
+        assert grounded.similarity_percent == 98
+
+
+def test_rejected_long_fragment_does_not_repeatedly_normalize_refinement_windows(monkeypatch) -> None:
+    original = ("A court considers evidence, procedure, and the legal claim. " * 20)[:1000]
+    proposed = original + " CONTAMINATED MATERIAL" * 5
+    source = "Earlier passage. " + original + " Later reasoning resolves a distinct issue. " * 26
+    evidence = GroundingEvidence((EvidenceCandidate(text=source, value="source"),))
+    normalize = grounding._normalize_whitespace
+    normalized_lengths: list[int] = []
+
+    def track_normalization(value: str) -> str:
+        normalized_lengths.append(len(value))
+        return normalize(value)
+
+    monkeypatch.setattr(grounding, "_normalize_whitespace", track_normalization)
+
+    grounded = evidence.find_fragment(
+        proposed,
+        FuzzinessOption.edit_distance(similarity_percent=98, whitespace_relaxation=True),
+    )
+
+    assert grounded is None
+    # A rejected quote must still take the shared edit-distance path, but
+    # normalization work must not grow with every nearby boundary pair.
+    assert 0 < len(normalized_lengths) <= 6
+    assert sum(normalized_lengths) <= 6 * (len(proposed) + len(source))
+
+
+def test_long_accepted_alignment_preserves_exact_span_without_boundary_search(monkeypatch) -> None:
+    paragraphs = [
+        f"Paragraph {index:03d}: “A source quotation preserves the complete legal proposition, "
+        "including its stated conditions and qualifications.”"
+        for index in range(200)
+    ]
+    canonical = "\n\n".join(paragraphs[50:])
+    before = "\n\n".join(paragraphs[:50]) + "\n\n"
+    source = before + canonical + "\n\nLater discussion."
+    proposed = canonical.replace("“", '"').replace("”", '"').replace("\n\n", "\n")
+    evidence = GroundingEvidence((EvidenceCandidate(text=source, value="source"),))
+    policy = FuzzinessOption.edit_distance(similarity_percent=98, whitespace_relaxation=True)
+
+    def unnecessary_refinement(*args, **kwargs):
+        pytest.fail("An accepted alignment at complete token boundaries must not search nearby spans")
+
+    monkeypatch.setattr(grounding, "_best_fragment_near", unnecessary_refinement)
+
+    grounded = evidence.find_fragment(proposed, policy)
+    complete_match = GroundingEvidence((EvidenceCandidate(canonical, "source"),)).resolve(proposed, policy)
+
+    assert grounded is not None
+    assert complete_match is not None
+    assert grounded.text == canonical
+    assert (grounded.start, grounded.end) == (len(before), len(before) + len(canonical))
+    assert source[grounded.start : grounded.end] == canonical
+    assert grounded.match_type is FuzzinessType.EDIT_DISTANCE
+    assert grounded.edits == complete_match.edits == 300
+    assert grounded.similarity_percent == complete_match.similarity_percent >= 98
+
+
+@pytest.mark.parametrize("clipped_boundary", ("start", "end"))
+def test_accepted_alignment_with_clipped_token_still_refines_complete_citation(
+    monkeypatch, clipped_boundary: str
+) -> None:
+    canonical = "Smith v. Jones, 1:24-cv-08760"
+    before = "Earlier paragraph. "
+    source = before + canonical + ". Later paragraph."
+    normalized_source, _ = grounding._without_whitespace(source)
+    normalized_canonical = grounding._normalize_whitespace(canonical)
+    start = normalized_source.index(normalized_canonical)
+    end = start + len(normalized_canonical)
+    if clipped_boundary == "start":
+        proposed = "X" + canonical[1:]
+        start += 1
+    else:
+        proposed = canonical[:-1] + "O"
+        end -= 1
+    alignment = SimpleNamespace(dest_start=start, dest_end=end)
+    monkeypatch.setattr(grounding.fuzz, "partial_ratio_alignment", lambda *args, **kwargs: alignment)
+    evidence = GroundingEvidence((EvidenceCandidate(text=source, value="source"),))
+
+    grounded = evidence.find_fragment(
+        proposed,
+        FuzzinessOption.edit_distance(similarity_percent=98, whitespace_relaxation=True),
+    )
+
+    assert grounded is not None
+    assert grounded.text == canonical
+    assert (grounded.start, grounded.end) == (len(before), len(before) + len(canonical))
+    assert source[grounded.start : grounded.end] == canonical
+    assert grounded.edits == 1

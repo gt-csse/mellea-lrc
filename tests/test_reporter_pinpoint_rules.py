@@ -434,6 +434,48 @@ def test_only_full_review_and_complete_text_can_prove_absence(scope, result, com
         judge_reporter_citation_pinpoints(saved)
 
 
+@pytest.mark.parametrize("correct", [True, False, None])
+def test_page_contradiction_stays_provisional_independently_of_placement(correct):
+    document = _reviewed(
+        scope=OpinionReviewScope.CITED_PAGES,
+        result=OpinionSupportResult.CONTRADICTED,
+        correct=correct,
+    )
+    judgment = judge_reporter_citation_pinpoints(document).roots[0].reporter_pinpoint_judgments[0]
+
+    assert judgment.verdict is ReporterPinpointVerdict.UNDETERMINED
+    assert judgment.correct_page is correct
+    assert judgment.found_pages == (_page(556),)
+    assert "A negative review of cited pages alone" in judgment.reason
+
+
+def test_successful_full_review_settles_a_correctly_located_page_contradiction():
+    document = prepare_reporter_citation_pinpoint_evidence(_before_evidence())
+    document = _append_review(
+        document,
+        substage=PAGE_SUBSTAGE,
+        scope=OpinionReviewScope.CITED_PAGES,
+        result=OpinionSupportResult.CONTRADICTED,
+        quote="The rule permits relief.",
+        correct=True,
+    ).complete_substage(PAGE_SUBSTAGE)
+    document = _append_review(
+        document,
+        substage=FULL_SUBSTAGE,
+        scope=OpinionReviewScope.FULL_OPINION,
+        result=OpinionSupportResult.SUPPORTED,
+        quote="Other grounds permit relief.",
+        correct=False,
+    ).complete_substage(FULL_SUBSTAGE)
+
+    judgment = judge_reporter_citation_pinpoints(document).roots[0].reporter_pinpoint_judgments[0]
+
+    assert judgment.review_index == 1
+    assert judgment.verdict is ReporterPinpointVerdict.CORRECT_PINCITE
+    assert judgment.correct_page is False
+    assert judgment.found_pages == (_page(557),)
+
+
 @pytest.mark.parametrize(
     "quote, correct, pagination, found, unconfirmed",
     [

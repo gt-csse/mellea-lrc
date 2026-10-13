@@ -113,7 +113,7 @@ def test_all_required_profile_settings_must_be_explicit(setting, missing_value):
     ],
 )
 def test_invalid_env_settings_raise_instead_of_using_defaults(setting, value):
-    with pytest.raises(ValueError, match="Invalid .env profile test_profile"):
+    with pytest.raises(ValueError, match=r"Invalid \.env profile test_profile"):
         load_profile(_SUBSTAGE, environ=_environment() | {_PREFIX + setting: value})
 
 
@@ -158,7 +158,7 @@ def test_missing_env_file_raises_without_using_process_model_settings(monkeypatc
     monkeypatch.setattr(configuration, "find_dotenv", lambda **kwargs: "")
     for key, value in _environment().items():
         monkeypatch.setenv(key, value)
-    with pytest.raises(RuntimeError, match="No .env found"):
+    with pytest.raises(RuntimeError, match=r"No \.env found"):
         load_profile(_SUBSTAGE)
 
 
@@ -172,7 +172,10 @@ def test_example_defines_all_model_substages_and_no_credentials():
         assert not values[profile.api_key_env]
     pages = load_profile(_SUBSTAGE, environ=values)
     full = load_profile("validate_pincite.support_review.full_opinion_review", environ=values)
-    assert pages.name == "nrp_glm" and full.name == "nrp_qwen"
+    assert pages.name == full.name == "nrp_glm_content"
+    assert pages.timeout_seconds == full.timeout_seconds == 600
+    assert pages.max_tokens == full.max_tokens == 16000
+    assert LlmProfile.from_env("nrp_glm", environ=values).max_tokens == 8000
 
 
 def test_profile_is_a_complete_frozen_package_and_resolves_only_its_credential() -> None:
