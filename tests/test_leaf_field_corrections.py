@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from mellea_lrc.api import correct_leaf_fields
+from mellea_lrc.api import correct_leaf_fields, grow_roots
 from mellea_lrc.extraction.leaf_field_corrections import SUBSTAGE
 from mellea_lrc.extraction.leaf_field_corrections.reviewer import (
     IvrLeafFieldCorrectionReviewer,
@@ -748,3 +748,38 @@ def test_shared_relaxed_at_marker_bounds_zero_space_and_newline_pin_readings(kin
     assert corrected.site_span == original.site_span
     field = "short_locator" if kind == "short" else "id_reference"
     assert getattr(corrected, field) == getattr(original, field)
+
+
+@pytest.mark.parametrize(
+    "quote,pin", [("Id. ¶12", "¶12"), ("Id. *3", "*3"), ("Id. at ¶12", "¶12"), ("Id. 12", None)]
+)
+def test_grown_id_pin_correction_window_matches_its_explicit_source_pin(quote, pin):
+    roots = asyncio.run(grow_roots(Document.from_source(ROOT_TEXT + quote + ".")))
+    root = (
+        roots.roots[0]
+        .record("saved_root_validation")
+        .with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
+    )
+    roots = roots.replace_citation(root).complete_substage("saved_root_validation")
+
+    async def attribute(context):
+        return LeafReviewDecision(is_citation=True, root_index=0, reason="The preceding reported case")
+
+    async def reread(context):
+        window = next(item for item in context.windows if item.field == "pin_cite")
+        assert context.source[window.span.start : window.span.end] == (pin or "")
+        current = context.current_readings["pin_cite"]
+        assert (current["quote"] if current else None) == pin
+        return decision(context, {"pin_cite": pin} if pin is not None else {})
+
+    document = asyncio.run(grow_leaves(roots, reviewer=attribute, correction_reviewer=reread))
+    leaf = document.leaves[0]
+    original = document.get_substage("grow_leaves.id_citations.discovery").short_citations[0]
+    assert leaf.pin_cite == original.pin_cite
+    assert leaf.id_reference == original.id_reference
+    review = leaf.leaf_field_correction_reviews[-1]
+    assert review.failure_reason is None
+    assert review.decision is not None
+    if pin is not None:
+        assert review.grounded[0].quote == pin
+        assert not review.grounded[0].applied

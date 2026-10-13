@@ -1,30 +1,15 @@
 """Read Id/Ibid spans and pinpoints; attribute them in the next substage."""
 
-import re
-
 from eyecite.models import IdCitation as EyeciteId
 
-from mellea_lrc.extraction.context.leaves import pin_after, require_leaves
-from mellea_lrc.matching.literal_to_regex import fuzzy_literal
+from mellea_lrc.extraction.context.leaves import require_leaves
 from mellea_lrc.model.citations import IdCitation
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.parsing.events import events
+from mellea_lrc.parsing.pin_cite import id_pin_after
 
 SUBSTAGE = "grow_leaves.id_citations.discovery"
-_AT_JOIN = fuzzy_literal("at ", whitespace=True, newline=True)
-
-
-def id_pin_span(source: str, position: int, end: int) -> Span | None:
-    """An Id. pin needs an explicit join or paragraph/star marker.
-
-    A bare number following whitespace can be a footnote label or list item,
-    rather than a pin. Do not consume it merely because PIN_PREFIX permits
-    unlabelled page numbers for other citation kinds.
-    """
-    if re.match(rf"\s*,?\s*(?:{_AT_JOIN}|(?=[¶*]))", source[position:end], re.I) is None:
-        return None
-    return pin_after(source, position, end)
 
 
 def find_id_citations(document: Document) -> Document:
@@ -43,7 +28,8 @@ def find_id_citations(document: Document) -> Document:
             event.token.end + 100,
             next((position for position in boundaries if position > start), len(document.text)),
         )
-        pin = id_pin_span(document.text, event.token.end, limit)
+        reading = id_pin_after(document.text, event.token.end, limit)
+        pin = Span(*reading) if reading is not None else None
         if pin is not None:
             end = pin.end
         else:

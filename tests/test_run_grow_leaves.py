@@ -100,7 +100,11 @@ def test_runner_resumes_from_stage_31_without_replaying_discovery_or_calling_mod
     monkeypatch.setattr(runner, "_RESULTS_ROOT", tmp_path / "runs")
 
     result = asyncio.run(
-        runner.run(input_documents, input_substage="grow_leaves.reference_citations.attribution")
+        runner.run(
+            input_documents,
+            input_substage="grow_leaves.reference_citations.attribution",
+            stop_after=runner._SUBSTAGES[-1][0],
+        )
     )
 
     expected = [
@@ -170,7 +174,12 @@ def test_runner_infers_nonprimary_set_and_saves_outputs_under_its_corpus(
     monkeypatch.setattr(runner, "_RESULTS_ROOT", results_root)
 
     run_dir = asyncio.run(
-        runner.run(input_documents, input_substage="grow_roots.root_formation.rule", review_leaves=False)
+        runner.run(
+            input_documents,
+            input_substage="grow_roots.root_formation.rule",
+            review_leaves=False,
+            stop_after=SHORT_PREFIX[-1],
+        )
     )
 
     assert run_dir.parent == results_root / set_name
@@ -209,7 +218,12 @@ def test_runner_rejects_unknown_sets_or_incomplete_input_before_writing(
     monkeypatch.setattr(runner, "_write", reject_write)
     with pytest.raises(ValueError):
         asyncio.run(
-            runner.run(input_documents, input_substage="grow_roots.root_formation.rule", review_leaves=False)
+            runner.run(
+                input_documents,
+                input_substage="grow_roots.root_formation.rule",
+                review_leaves=False,
+                stop_after=SHORT_PREFIX[-1],
+            )
         )
 
     assert not results_root.exists()
@@ -244,7 +258,12 @@ def test_runner_resumes_the_name_checkpoint_before_short_attribution(
     monkeypatch.setattr(runner, "_RESULTS_ROOT", tmp_path / "runs")
     with pytest.raises(RuntimeError, match="Synthetic interruption"):
         asyncio.run(
-            runner.run(input_documents, input_substage="grow_roots.root_formation.rule", review_leaves=False)
+            runner.run(
+                input_documents,
+                input_substage="grow_roots.root_formation.rule",
+                review_leaves=False,
+                stop_after=SHORT_PREFIX[-1],
+            )
         )
     run_dir = next((tmp_path / "runs" / "primary").iterdir())
     saved = Document.model_validate_json((run_dir / "documents" / "filing.txt.json").read_text())
@@ -286,7 +305,12 @@ def test_runner_rejects_changed_input_or_an_unexpected_saved_stage(
     monkeypatch.setattr(runner, "_RESULTS_ROOT", tmp_path / "runs")
     with pytest.raises(RuntimeError):
         asyncio.run(
-            runner.run(input_documents, input_substage="grow_roots.root_formation.rule", review_leaves=False)
+            runner.run(
+                input_documents,
+                input_substage="grow_roots.root_formation.rule",
+                review_leaves=False,
+                stop_after=SHORT_PREFIX[-1],
+            )
         )
     run_dir = next((tmp_path / "runs" / "primary").iterdir())
     if corruption == "input":
@@ -328,7 +352,12 @@ def test_runner_rejects_resume_corpus_or_parent_manifest_drift_before_writing(
     monkeypatch.setattr(runner, "_RESULTS_ROOT", results_root)
     with pytest.raises(RuntimeError, match="Synthetic interruption"):
         asyncio.run(
-            runner.run(input_documents, input_substage="grow_roots.root_formation.rule", review_leaves=False)
+            runner.run(
+                input_documents,
+                input_substage="grow_roots.root_formation.rule",
+                review_leaves=False,
+                stop_after=SHORT_PREFIX[-1],
+            )
         )
     run_dir = next((results_root / "hallucination-set-1").iterdir())
     record_path = run_dir / "run.json"
@@ -422,7 +451,11 @@ def test_partial_supra_rule_checkpoint_runs_enabled_review_before_committing_gro
 
     monkeypatch.setattr(runner, "_SUBSTAGES", tuple((name, fake(name)) for name, _ in runner._SUBSTAGES))
     monkeypatch.setattr(runner, "_RESULTS_ROOT", tmp_path / "results")
-    run_dir = asyncio.run(runner.run(input_documents, input_substage=rule, review_leaves=True))
+    run_dir = asyncio.run(
+        runner.run(
+            input_documents, input_substage=rule, review_leaves=True, stop_after=runner._SUBSTAGES[-1][0]
+        )
+    )
     output = Document.model_validate_json((run_dir / "documents" / "filing.txt.json").read_text())
     assert calls == [
         "grow_leaves.supra_citations.llm_attribution",
@@ -448,3 +481,55 @@ def test_runner_rejects_missing_earlier_leaf_group_before_execution_or_artifact_
     with pytest.raises(ValueError, match=r"missing stage grow_leaves\.short_reporter_citations"):
         asyncio.run(runner.run(input_documents, input_substage=last))
     assert list((tmp_path / "results").rglob("documents/*.json")) == []
+
+
+def test_full_runner_uses_workflow_checkpoints_and_resumes_without_granular_dispatch(tmp_path, monkeypatch):
+    input_documents, roots = _root_input(tmp_path)
+    workflow = runner.grow_leaves
+    calls = []
+    boundaries = []
+    interrupted = False
+
+    async def run_workflow(document, *, review_leaves, checkpoint):
+        nonlocal interrupted
+        calls.append(document)
+        assert review_leaves is False
+
+        def save(result):
+            nonlocal interrupted
+            checkpoint(result)
+            boundaries.append((result.runs[-1].kind, result.runs[-1].name))
+            if result.runs[-1].name == SHORT_PREFIX[2] and not interrupted:
+                interrupted = True
+                raise RuntimeError("Interrupted after a persisted workflow checkpoint")
+
+        return await workflow(document, review_leaves=review_leaves, checkpoint=save)
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("A full run must delegate to the workflow")
+
+    monkeypatch.setattr(runner, "grow_leaves", run_workflow)
+    monkeypatch.setattr(runner, "_SUBSTAGES", tuple((name, unexpected) for name, _ in runner._SUBSTAGES))
+    monkeypatch.setattr(runner, "_RESULTS_ROOT", tmp_path / "results")
+    with pytest.raises(RuntimeError, match="persisted workflow checkpoint"):
+        asyncio.run(
+            runner.run(input_documents, input_substage="grow_roots.root_formation.rule", review_leaves=False)
+        )
+    run_dir = next((tmp_path / "results" / "primary").iterdir())
+    artifact = run_dir / "documents" / "filing.txt.json"
+    saved = Document.model_validate_json(artifact.read_text())
+    assert saved.substage_runs[-1] == SHORT_PREFIX[2]
+    assert saved.get_stage("grow_roots.root_formation") == roots
+
+    assert asyncio.run(runner.run(None, resume_run=run_dir)) == run_dir
+    completed = Document.model_validate_json(artifact.read_text())
+    expected = tuple(
+        name for name, _ in runner._SUBSTAGES if name != "grow_leaves.supra_citations.llm_attribution"
+    )
+    assert completed.substage_runs[-len(expected) :] == expected
+    assert calls == [roots, saved]
+    assert sum(kind == "stage" for kind, _ in boundaries) == 5
+    assert [name for kind, name in boundaries if kind == "substage"] == list(expected)
+    before = artifact.read_bytes()
+    assert asyncio.run(runner.run(None, resume_run=run_dir)) == run_dir
+    assert artifact.read_bytes() == before

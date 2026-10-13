@@ -37,3 +37,15 @@ def pin_after(source: str, position: int, end: int) -> tuple[int, int] | None:
     if match is None:
         return None
     return position + match.start("pin"), position + match.end("pin")
+
+
+def id_pin_after(source: str, position: int, end: int) -> tuple[int, int] | None:
+    """An Id. pin needs an explicit join or paragraph/star marker.
+
+    A bare number following whitespace can be a footnote label or list item,
+    rather than a pin. Do not consume it merely because PIN_PREFIX permits
+    unlabelled page numbers for other citation kinds.
+    """
+    if re.match(rf"\s*,?\s*(?:{AT_JOIN}|(?=[¶*]))", source[position:end], re.I) is None:
+        return None
+    return pin_after(source, position, end)

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from datetime import date
 
-from mellea_lrc.model.citations.body_evidence import BodySource
+from mellea_lrc.model.citations.body_evidence import BodySearch, BodySource
 from mellea_lrc.model.document import Document
 from mellea_lrc.validation.body_search._courtlistener import (
     CourtListenerBodyClient,
-    run_courtlistener_body_search,
+    _search_root,
+    body_client,
 )
+from mellea_lrc.validation.body_search.common import roots_for_body_search
 
 SUBSTAGE = "validate_roots.locator_body_corroboration.courtlistener_recap_retrieval"
 
@@ -21,10 +23,21 @@ def locator_body_courtlistener_recap_retrieval(
     client: CourtListenerBodyClient | None = None,
 ) -> Document:
     """Save locator matches from independently fetched RECAP filings."""
-    return run_courtlistener_body_search(
-        document,
-        substage=SUBSTAGE,
-        source=BodySource.COURTLISTENER_RECAP,
-        retrospective_date=retrospective_date,
-        client=client,
-    )
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "grow_roots.root_formation.rule" not in document.substage_runs:
+        raise ValueError("Form roots before body search")
+    with body_client(client) as get_client:
+        for root in roots_for_body_search(document):
+            recorded = root.record(SUBSTAGE)
+            result = _search_root(
+                document.text,
+                recorded,
+                source=BodySource.COURTLISTENER_RECAP,
+                retrospective_date=retrospective_date,
+                get_client=get_client,
+            )
+            if not isinstance(result, BodySearch):
+                raise ValueError("A locator search must return locator evidence")
+            document = document.replace_citation(recorded.with_body_search(result))
+    return document.complete_substage(SUBSTAGE)

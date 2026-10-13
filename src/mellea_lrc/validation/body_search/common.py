@@ -152,13 +152,10 @@ def make_body_evidences(
     digest = hashlib.sha256(body_text.encode("utf-8")).hexdigest()
     results: list[BodyEvidence] = []
     scan_from = 0
-    found_count = 0
-    examined_count = 0
-    while found_count < 3 and examined_count < 12:
+    while len(results) < 3:
         matched = fuzzy_find(locator, body_text[scan_from:], _LOCATOR_MATCH)
         if matched is None:
             break
-        examined_count += 1
         local_start = body_text[scan_from:].find(matched)
         if local_start < 0 or not matched:
             raise ValueError("Grounded body anchor must occur in the fetched body")
@@ -181,7 +178,6 @@ def make_body_evidences(
                 anchor_span=Span(match_start - start, match_start - start + len(matched)),
             )
         )
-        found_count += 1
     return tuple(results)
 
 
@@ -210,11 +206,11 @@ def source_copy_bodies(
 
 
 def diverse_evidence(
-    source: BodySource, items: tuple[BodyEvidence, ...], *, max_per_source: int = 6
+    source: BodySource, items: tuple[tuple[int, BodyEvidence], ...], *, max_per_source: int = 6
 ) -> tuple[tuple[BodySource, int, BodyEvidence], ...]:
-    """Show distinct source documents before second occurrences in one body."""
+    """Show distinct eligible bodies first, retaining their saved evidence indices."""
     groups: dict[str, list[tuple[int, BodyEvidence]]] = {}
-    for index, item in enumerate(items):
+    for index, item in items:
         groups.setdefault(item.body_id, []).append((index, item))
     selected: list[tuple[BodySource, int, BodyEvidence]] = []
     depth = 0

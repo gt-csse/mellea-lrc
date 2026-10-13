@@ -47,8 +47,14 @@ class IntendedCaseContext:
         evidence = tuple(
             selected
             for search in root.field_body_searches
-            for selected in diverse_evidence(search.source, search.evidence)
-            if selected[2].anchor_kind == "case_name" and (search.source, selected[2].body_id) not in copies
+            for selected in diverse_evidence(
+                search.source,
+                tuple(
+                    (index, item)
+                    for index, item in enumerate(search.evidence)
+                    if item.anchor_kind == "case_name" and (search.source, item.body_id) not in copies
+                ),
+            )
         )
         court = root.court[-1].quote if root.court else None
         if root.court and court is None and root.court[-1].normalizable:

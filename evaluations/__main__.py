@@ -61,7 +61,7 @@ from mellea_lrc.validation.body_search.locator_body_govinfo_opinion_retrieval im
 from mellea_lrc.validation.fields_aggregated_identity import SUBSTAGE as _FIELD_IDENTITY_SUBSTAGE
 from mellea_lrc.validation.intended_case_llm_selection import SUBSTAGE as _INTENDED_CASE_REVIEW_SUBSTAGE
 from mellea_lrc.validation.locator_body_llm_judgment import SUBSTAGE as _LOCATOR_BODY_REVIEW_SUBSTAGE
-from mellea_lrc.workflows import _require_body_search_cutoff, _require_workflow_prefix
+from mellea_lrc.workflows import _require_body_search_cutoff, validate_workflow_checkpoint
 
 _SET = "primary"
 _DATA_ROOT = Path(__file__).resolve().parents[2] / "mellea-lrc-datasets"
@@ -253,20 +253,7 @@ def _annotation_case_cutoffs(data_root: Path, filenames: list[str]) -> tuple[dic
 
 def _has_transient_docket_lookup_failure(document: Document) -> bool:
     """A saved provider failure leaves a docket lookup run incomplete."""
-    for root in document.roots:
-        if not isinstance(root, FullDocketCitation):
-            continue
-        for lookup in (root.docket_lookup, root.govinfo_docket_lookup):
-            if lookup is None:
-                continue
-            for failure in (lookup.failure, *(attempt.failure for attempt in lookup.attempts)):
-                if failure is not None and (
-                    failure.failure_type == "transport_error"
-                    or failure.upstream_status_code == 429
-                    or (failure.upstream_status_code is not None and failure.upstream_status_code >= 500)
-                ):
-                    return True
-    return False
+    return _transient_docket_failure_substage(document) is not None
 
 
 def _transient_docket_failure_substage(document: Document) -> str | None:
@@ -694,13 +681,23 @@ async def _run(
                 if original.substage_runs != enabled[: enabled.index(input_substage) + 1]:
                     raise ValueError(f"Saved input checkpoint is incomplete for {filename}")
                 _require_body_search_cutoff(original, cutoff)
-                if from_locator_review_documents is not None and (
-                    _has_transient_docket_lookup_failure(original)
-                    or _has_transient_body_search_failure(original)
-                ):
-                    raise ValueError(f"Saved locator-body review has transient failures for {filename}")
+                failed_input = (
+                    _transient_docket_failure_substage(original)
+                    or _transient_body_failure_substage(original)
+                    or _transient_field_failure_substage(original)
+                )
+                if failed_input is not None:
+                    raise ValueError(
+                        f"Saved input has a transient failure at {failed_input} for {filename}; "
+                        "choose an input checkpoint before that retrieval"
+                    )
                 if reuse_docket_lookups:
-                    supplied.get_substage(_DOCKET_LOOKUP_SUBSTAGE)
+                    lookup_input = supplied.get_substage(_DOCKET_LOOKUP_SUBSTAGE)
+                    if _transient_docket_failure_substage(lookup_input) is not None:
+                        raise ValueError(
+                            f"Saved docket lookup has a transient failure for {filename}; "
+                            "rerun its retrieval instead of reusing it"
+                        )
                     reporter_inputs[filename] = supplied
             artifact = documents_dir / f"{filename}.json"
             document = _load_document(artifact, source) if artifact.exists() else original
@@ -711,11 +708,11 @@ async def _run(
                 original.substage_runs and document.get_substage(input_substage) != original
             ):
                 raise ValueError(f"Saved evaluation input differs for {filename}")
-            _require_workflow_prefix(document, "grow_roots")
-            _require_workflow_prefix(document, "validate_roots")
+            validate_workflow_checkpoint(document, "grow_roots")
+            validate_workflow_checkpoint(document, "validate_roots")
             if end_to_end:
-                _require_workflow_prefix(document, "grow_leaves")
-                _require_workflow_prefix(document, "validate_pincite")
+                validate_workflow_checkpoint(document, "grow_leaves")
+                validate_workflow_checkpoint(document, "validate_pincite")
             marked = complete_stage_boundary(document, enabled)
             if artifact.exists() and marked != document:
                 _write_json(artifact, marked.model_dump(mode="json"))
@@ -726,14 +723,8 @@ async def _run(
                     document = document.get_substage(previous_substage)
                 elif artifact.exists() and document.substage_runs == enabled:
                     completed.add(filename)
-            elif _has_transient_docket_lookup_failure(document):
-                # Replaying the run's input reruns its docket lookup and review.
-                if end_to_end:
-                    failed_substage = _transient_docket_failure_substage(document)
-                    assert failed_substage is not None
-                    document = document.get_substage(enabled[enabled.index(failed_substage) - 1])
-                else:
-                    document = original
+            elif failed_substage := _transient_docket_failure_substage(document):
+                document = document.get_substage(enabled[enabled.index(failed_substage) - 1])
             elif failed_substage := _transient_body_failure_substage(document):
                 if document.substage_runs == enabled:
                     retry_body[filename] = failed_substage
@@ -785,7 +776,7 @@ async def _run(
                     checkpoint_started = now
                     timed_substages.add(substage)
                     _write_json(record_path, run_record)
-                if end_to_end and _transient_docket_failure_substage(checkpoint) == substage:
+                if _transient_docket_failure_substage(checkpoint) == substage:
                     raise RuntimeError(
                         f"Docket search at {substage} had a transient provider failure for {filename}; "
                         "resume this run after the provider recovers"

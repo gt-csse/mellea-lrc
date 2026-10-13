@@ -26,8 +26,10 @@ def preprocess_plain_text(
     not applied: see the note above.
     """
     source_path = Path(path)
+    with source_path.open(encoding="utf-8", newline="") as source_file:
+        text = source_file.read()
     return preprocess_plain_text_from_string(
-        source_path.read_text(encoding="utf-8"),
+        text,
         source_path=str(source_path),
         rules=rules,
     )

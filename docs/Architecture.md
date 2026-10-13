@@ -95,6 +95,10 @@ atomic snapshot excludes the group's later completion marker; the group snapshot
 includes it. Missing or unfinished checkpoints raise `KeyError`. Workflows resume
 completed groups and partial substage prefixes, and checkpoint callbacks receive
 both atomic and group results. A group marker creates no citation node.
+`validate_workflow_checkpoint` checks a saved workflow prefix without executing
+substages or changing the Document. Evaluation runners use the existing workflow
+composers for complete execution and resume; explicit atomic dispatch is reserved
+for runs that stop at a requested substage.
 
 Evaluation runners atomically replace one cumulative Document file per filing
 after completed boundaries. Separate saved snapshots are unnecessary. Native

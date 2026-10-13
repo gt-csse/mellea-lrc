@@ -6,7 +6,7 @@ from mellea_lrc.config.extraction import ExtractionRules
 from mellea_lrc.extraction.docket_root_llm_reassignment.reviewer import DocketRootReviewer
 from mellea_lrc.extraction.docket_site_hunting.review import DocketSiteReviewer
 from mellea_lrc.model.document import Document
-from mellea_lrc.workflows import Checkpoint, _require_workflow_prefix
+from mellea_lrc.workflows import Checkpoint, validate_workflow_checkpoint
 from mellea_lrc.workflows.grow_roots.field_reading import read_root_fields
 from mellea_lrc.workflows.grow_roots.locator_discovery import discover_root_locators
 from mellea_lrc.workflows.grow_roots.root_formation import form_root_groups
@@ -26,7 +26,7 @@ async def grow_roots(
     omitted = (() if hunt_dockets else ("grow_roots.locator_discovery.docket_hunting",)) + (
         () if review_docket_roots else ("grow_roots.root_formation.docket_llm_reassignment",)
     )
-    _require_workflow_prefix(document, "grow_roots", omitted_substages=omitted)
+    validate_workflow_checkpoint(document, "grow_roots", omitted_substages=omitted)
     if "grow_roots.locator_discovery" not in document.stage_runs:
         document = await discover_root_locators(
             document, hunt_dockets=hunt_dockets, reviewer=reviewer, checkpoint=checkpoint

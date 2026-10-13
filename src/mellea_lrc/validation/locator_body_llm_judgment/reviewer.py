@@ -78,9 +78,14 @@ class BodyCorroborationContext:
         evidence = tuple(
             selected
             for search in root.body_searches
-            for selected in _diverse_evidence(search.source, search.evidence)
-            if selected[2].anchor_kind == "locator"
-            and (search.source, selected[2].body_id) not in copied_bodies
+            for selected in _diverse_evidence(
+                search.source,
+                tuple(
+                    (index, item)
+                    for index, item in enumerate(search.evidence)
+                    if item.anchor_kind == "locator" and (search.source, item.body_id) not in copied_bodies
+                ),
+            )
         )
         return cls(
             source=document.text,

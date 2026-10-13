@@ -10,9 +10,11 @@ from typing import Any, Literal
 import pytest
 
 from mellea_lrc.api import Document, grow_roots
+from mellea_lrc.model.citations.body_evidence import BodySearch, BodySource
+from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch
 from mellea_lrc.providers.courtlistener import CourtListenerHTTPError, CourtListenerTransportError
 from mellea_lrc.providers.courtlistener.models import CourtListenerSearchPage
-from mellea_lrc.model.citations.body_evidence import BodySource
+from mellea_lrc.validation.body_search import _courtlistener as body_service
 from mellea_lrc.validation.body_search.common import roots_for_body_search
 from mellea_lrc.validation.body_search.locator_body_courtlistener_opinion_retrieval import (
     SUBSTAGE as OPINION_SUBSTAGE,
@@ -78,6 +80,60 @@ def _page(*results: dict[str, Any], next_url: str | None = None) -> CourtListene
             "upstream_marker": {"preserve": True},
         }
     )
+
+
+@pytest.mark.parametrize(
+    "anchor_kind, expected_type", [("locator", BodySearch), ("case_name", FieldBodySearch)]
+)
+def test_shared_body_service_returns_evidence_without_document_or_checkpoint_writes(
+    monkeypatch, anchor_kind, expected_type
+) -> None:
+    before = _rooted()
+    root = before.roots[0]
+    saved = before.model_dump_json()
+    client = FakeBodyClient(lambda *_args: _page())
+
+    def reject_write(*_args, **_kwargs):
+        pytest.fail("Shared body services must not write Document or citation history")
+
+    monkeypatch.setattr(Document, "complete_substage", reject_write)
+    monkeypatch.setattr(Document, "replace_citation", reject_write)
+    monkeypatch.setattr(type(root), "record", reject_write)
+    with body_service.body_client(client) as get_client:
+        result = body_service._search_root(
+            before.text,
+            root,
+            source=BodySource.COURTLISTENER_OPINION,
+            retrospective_date=None,
+            get_client=get_client,
+            anchor_kind=anchor_kind,
+        )
+    assert isinstance(result, expected_type)
+    assert result.node_id == root.nodes[-1].id
+    assert len(client.search_calls) == 1
+    assert before.model_dump_json() == saved
+
+
+def test_body_transport_opens_lazily_reuses_one_client_and_closes_it(monkeypatch) -> None:
+    opened = []
+    closed = []
+
+    class ManagedClient:
+        def __enter__(self):
+            opened.append(self)
+            return self
+
+        def __exit__(self, *_args):
+            closed.append(self)
+
+    monkeypatch.setattr(body_service, "CourtListenerClient", ManagedClient)
+    with body_service.body_client(None) as get_client:
+        assert opened == []
+        first = get_client()
+        assert get_client() is first
+        assert opened == [first]
+        assert closed == []
+    assert closed == [first]
 
 
 def test_queued_field_identity_root_waits_for_aggregation_before_body_search() -> None:

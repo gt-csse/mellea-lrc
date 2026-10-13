@@ -22,13 +22,17 @@ from mellea_lrc.preprocessing.docket_stamp import looks_like_a_stamp
 from mellea_lrc.preprocessing.docling import is_docling_supported_format, preprocess_with_docling
 
 
-def test_a_text_file_is_its_text() -> None:
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
+def test_a_text_file_is_its_text(tmp_path: Path, newline: str) -> None:
     """Nothing is stripped from the front, so a file offset is a document offset."""
-    raw = "Case: Example\n\n--- Plain text ---\nBody text here."
+    raw = newline.join(("Case: Example", "", "--- Plain text ---", "Body text here."))
+    source = tmp_path / "source.txt"
+    source.write_bytes(raw.encode("utf-8"))
 
-    document = preprocess(raw)
+    document = preprocess(source)
 
     assert document.text == raw
+    assert document.text == preprocess(raw).text
     assert document.preprocessing_metadata.rules == ()
 
 

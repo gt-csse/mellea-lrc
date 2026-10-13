@@ -5,10 +5,12 @@ from __future__ import annotations
 from datetime import date
 
 from mellea_lrc.model.citations.body_evidence import BodySource
+from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch
 from mellea_lrc.model.document import Document
 from mellea_lrc.validation.body_search._courtlistener import (
     CourtListenerBodyClient,
-    run_courtlistener_field_body_search,
+    _search_root,
+    body_client,
 )
 
 SUBSTAGE = "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
@@ -21,10 +23,24 @@ def intended_case_courtlistener_opinion_retrieval(
     client: CourtListenerBodyClient | None = None,
 ) -> Document:
     """Save case-name matches from independently fetched opinion bodies."""
-    return run_courtlistener_field_body_search(
-        document,
-        substage=SUBSTAGE,
-        source=BodySource.COURTLISTENER_OPINION,
-        retrospective_date=retrospective_date,
-        client=client,
-    )
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if "validate_roots.locator_body_corroboration.llm_judgment" not in document.substage_runs:
+        raise ValueError("Complete locator body review before field body search")
+    with body_client(client) as get_client:
+        for root in document.roots:
+            if root.next_substage != SUBSTAGE:
+                continue
+            recorded = root.record(SUBSTAGE)
+            result = _search_root(
+                document.text,
+                recorded,
+                source=BodySource.COURTLISTENER_OPINION,
+                retrospective_date=retrospective_date,
+                get_client=get_client,
+                anchor_kind="case_name",
+            )
+            if not isinstance(result, FieldBodySearch):
+                raise ValueError("A case-name search must return field evidence")
+            document = document.replace_citation(recorded.with_field_body_search(result))
+    return document.complete_substage(SUBSTAGE)

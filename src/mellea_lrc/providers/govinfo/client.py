@@ -348,12 +348,6 @@ class GovInfoClient:
         self.close()
 
 
-def govinfo_uscourts_docket_query(number: str) -> str:
-    """Build a literal USCOURTS case-number query from the citation text."""
-    escaped = number.replace("\\", "\\\\").replace('"', '\\"')
-    return f'collection:uscourts casenumber:("{escaped}")'
-
-
 _PATH_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]*\Z")
 
 

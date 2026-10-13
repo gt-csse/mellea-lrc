@@ -7,7 +7,7 @@ from mellea_lrc.validation.reporter_citation_opinion_review.reviewer import Repo
 from mellea_lrc.validation.reporter_citation_propositions.reviewer import ReporterCitationPropositionReviewer
 from mellea_lrc.validation.reporter_pinpoint_review.reviewer import ReporterPinpointReviewer
 from mellea_lrc.validation.reporter_root_opinion_retrieval import OpinionClient
-from mellea_lrc.workflows import Checkpoint, _require_workflow_prefix
+from mellea_lrc.workflows import Checkpoint, validate_workflow_checkpoint
 from mellea_lrc.workflows.validate_pincite.citation_preparation import prepare_citation_evidence
 from mellea_lrc.workflows.validate_pincite.opinion_preparation import prepare_root_opinions
 from mellea_lrc.workflows.validate_pincite.support_review import review_citation_support
@@ -25,7 +25,7 @@ async def validate_pincite(
     checkpoint: Checkpoint | None = None,
 ) -> Document:
     """Resume three groups while keeping opinion bodies owned by roots."""
-    _require_workflow_prefix(document, "validate_pincite")
+    validate_workflow_checkpoint(document, "validate_pincite")
     if "validate_pincite.opinion_preparation" not in document.stage_runs:
         document = prepare_root_opinions(document, client=client, checkpoint=checkpoint)
     if "validate_pincite.citation_preparation" not in document.stage_runs:

@@ -12,15 +12,15 @@ from_text = preprocess("See a citation in this filing.")
 without_layout_rules = preprocess(Path("filing.pdf"), rules=[])
 ```
 
-A `Path` names a file; a `str` is text content. `.txt` files retain their text exactly. PDFs, DOCX, PPTX, XLSX, HTML, and Markdown files use the optional Docling backend (`uv sync --group preprocessing`). Unsupported path suffixes raise `ValueError`.
+A `Path` names a file; a `str` is text content. `.txt` files retain their text exactly, including CRLF and CR line endings. PDFs, DOCX, PPTX, XLSX, HTML, and Markdown files use the optional Docling backend (`uv sync --group preprocessing`). Unsupported path suffixes raise `ValueError`.
 
 The returned object contains `text`, `source_metadata`, `preprocessing_metadata`, and `index_spans`. `preprocessing_metadata` records the backend, its version when available, and the rules that ran. `index_spans` marks text regions recognized as a table of authorities. Empty `index_spans` does not prove that no index exists.
 
 The default rules handle margin line numbers, repeated page furniture, docket stamps, tables as text, and tables of authorities. Pass a sequence of `Rule` values to choose exactly which rules run; pass `[]` to use the converter's reading without these project rules. Layout rules require page structure, so they are not applied to plain text. Different rule selections may produce different text and character offsets.
 
 Margin line-number handling belongs entirely to preprocessing. The Docling rule
-uses page geometry to reclassify numeric margin items as furniture before text
-export and offset measurement. It preserves body lists and reporter page numbers;
+requires a counting numeric column at the page edge before reclassifying it as
+furniture, before text export and offset measurement. It preserves body lists and reporter page numbers;
 items without geometry remain untouched. Matching and grounding operate on the
 supplied text and do not infer or remove line numbers from it.
 

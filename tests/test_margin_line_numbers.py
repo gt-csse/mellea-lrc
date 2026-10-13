@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("docling_core", reason="Docling is an optional preprocessing dependency")
 
-from docling_core.types.doc.base import BoundingBox
+from docling_core.types.doc.base import BoundingBox, CoordOrigin
 from docling_core.types.doc.common.content_layer import ContentLayer
 from docling_core.types.doc.common.reference import ProvenanceItem
 from docling_core.types.doc.document import DoclingDocument
@@ -97,18 +97,70 @@ def test_a_numbered_list_in_the_body_is_not_a_margin() -> None:
     assert margin_line_numbers(document) == []
 
 
-def _stacked(document: DoclingDocument, values: list[int], *, left: float, right: float) -> None:
+def _stacked(
+    document: DoclingDocument,
+    values: list[int],
+    *,
+    left: float,
+    right: float,
+    origin: CoordOrigin = CoordOrigin.BOTTOMLEFT,
+) -> None:
     """A column of numbers down the page, each lower than the one above it."""
     for index, number in enumerate(values):
+        top = 100.0 + index * 24.0 if origin is CoordOrigin.TOPLEFT else 740.0 - index * 24.0
         document.add_text(
             label="text",
             text=str(number),
             prov=ProvenanceItem(
                 page_no=1,
-                bbox=BoundingBox(l=left, t=740.0 - index * 24.0, r=right, b=730.0 - index * 24.0),
+                bbox=BoundingBox(
+                    l=left,
+                    t=top,
+                    r=right,
+                    b=top + 10.0 if origin is CoordOrigin.TOPLEFT else top - 10.0,
+                    coord_origin=origin,
+                ),
                 charspan=(0, len(str(number))),
             ),
         )
+
+
+@pytest.mark.parametrize("left,right", [(72.0, 90.0), (23.3, 38.4)])
+def test_split_body_list_markers_are_preserved(left: float, right: float) -> None:
+    document = _document()
+    for number in range(1, 7):
+        _add(document, str(number), left=left, right=right, label="list_item")
+        _add(document, "A substantive numbered body paragraph.", left=100.0, right=PROSE_RIGHT)
+    before = document.export_to_text()
+
+    assert margin_line_numbers(document) == []
+    reclassify_margin_line_numbers(document)
+    assert document.export_to_text() == before
+
+
+def test_counting_body_column_left_of_indented_prose_is_preserved() -> None:
+    document = _document()
+    _stacked(document, [1, 2, 3, 4, 5, 6], left=72.0, right=90.0)
+    _add(document, "Body prose indented beyond the number column.", left=100.0, right=PROSE_RIGHT)
+
+    assert margin_line_numbers(document) == []
+
+
+def test_noncounting_column_left_of_prose_is_preserved() -> None:
+    document = _document()
+    _stacked(document, [40, 12, 12, 8, 3, 1], left=GUTTER_LEFT, right=GUTTER_RIGHT)
+    _add(document, "Amount claimed per quarter, in thousands.", left=PROSE_LEFT, right=PROSE_RIGHT)
+
+    assert margin_line_numbers(document) == []
+
+
+@pytest.mark.parametrize("origin", [CoordOrigin.TOPLEFT, CoordOrigin.BOTTOMLEFT])
+def test_margin_counting_respects_coordinate_origin(origin: CoordOrigin) -> None:
+    document = _document()
+    _stacked(document, [1, 2, 3, 4, 5, 6], left=GUTTER_LEFT, right=GUTTER_RIGHT, origin=origin)
+    _add(document, "Body prose.", left=PROSE_LEFT, right=PROSE_RIGHT)
+
+    assert len(margin_line_numbers(document)) == 6
 
 
 def test_a_margin_is_found_when_the_prose_starts_in_it_too() -> None:
@@ -194,10 +246,8 @@ def test_a_lone_number_in_the_margin_is_not_a_column() -> None:
 def test_an_absorbed_line_number_does_not_defeat_the_page() -> None:
     """Docling sometimes glues the first line numbers onto the text beside them.
 
-    That item's box starts out in the margin, so the page's *minimum* left edge
-    lands inside the column and every real margin item then tests as being to
-    the right of the prose. A median is unmoved by a few such items, which is
-    why the prose edge is measured with one -- this is document 011, page 1.
+    Those items do not shift the page edge or break the surviving counting
+    column. This is the geometry observed in document 011, page 1.
     """
     document = _document()
     for absorbed in ("1 JULIE A. TOTTEN (STATE BAR NO. 166470)", "3 ORRICK, HERRINGTON LLP"):
@@ -211,7 +261,7 @@ def test_an_absorbed_line_number_does_not_defeat_the_page() -> None:
 
 
 def test_a_page_of_nothing_but_numbers_is_left_alone() -> None:
-    """With no prose to measure against, there is no margin to be left of.
+    """A page with no prose does not establish a line-number margin.
 
     Declining is the safe direction: leaving a real margin in costs recall,
     while removing real content costs a citation outright.

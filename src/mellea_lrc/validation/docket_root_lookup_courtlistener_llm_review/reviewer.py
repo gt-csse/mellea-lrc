@@ -287,6 +287,10 @@ class DocketLookupReviewContext(DocketReviewGrounding):
             result = getattr(decision, field).result
             if not has_reading and result is not MatchResult.UNAVAILABLE:
                 return f"{field} has no filing reading; use unavailable or quote one from the filing"
+            if field == "date" and candidate is not None and candidate["source_type"] == "d":
+                # Docket dates have a deterministic compatibility check below,
+                # including an unavailable result for either unreadable date.
+                continue
             if has_reading and not availability[field] and result is not MatchResult.UNAVAILABLE:
                 return f"{field} has no usable selected-record evidence; use unavailable"
             if has_reading and availability[field] and result is MatchResult.UNAVAILABLE:

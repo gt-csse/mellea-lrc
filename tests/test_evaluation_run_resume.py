@@ -1812,6 +1812,184 @@ def test_new_run_stays_failed_when_a_saved_search_is_transiently_incomplete(
     assert (run_dir / "documents" / "001.txt.json").exists()
 
 
+def _docket_roots_input(source_path: Path) -> Document:
+    document = Document.from_source(source_path).complete_substage(runner._RUN_SUBSTAGES[0])
+    locator, number = "Case No. 2:31-cv-45821", "2:31-cv-45821"
+    root = FullDocketCitation.from_locator(
+        citation_id="docket:0",
+        substage=runner._RUN_SUBSTAGES[1],
+        source=document.text,
+        span=Span(document.text.index(locator), document.text.index(locator) + len(locator)),
+        number_span=Span(document.text.index(number), document.text.index(number) + len(number)),
+    )
+    document = document.add_citation(root).complete_substage(runner._RUN_SUBSTAGES[1])
+    document = _complete(document, runner._RUN_SUBSTAGES[2:9])
+    document = document.replace_citation(
+        root.record(runner._ROOT_SUBSTAGE).with_root(root.id)
+    ).complete_substage(runner._ROOT_SUBSTAGE)
+    return _complete(document, runner._RUN_SUBSTAGES[10:11])
+
+
+def _docket_failure(document: Document, substage: str, *, failure_type="transport_error", status=None):
+    root = document.roots[0].record(substage)
+    failure = DocketLookupFailure(
+        failure_type=failure_type, message="Offline transient provider failure", upstream_status_code=status
+    )
+    if substage == runner._DOCKET_LOOKUP_SUBSTAGE:
+        lookup = DocketLookup(
+            node_id=root.nodes[-1].id,
+            attempts=(DocketLookupAttempt(source_type="d", query="offline", failure=failure),),
+        )
+        root = root.with_docket_lookup(lookup)
+    else:
+        lookup = GovInfoDocketLookup(
+            node_id=root.nodes[-1].id,
+            attempts=(GovInfoLookupAttempt(query="offline", failure=failure),),
+        )
+        root = root.with_govinfo_docket_lookup(lookup)
+    return document.replace_citation(root)
+
+
+@pytest.mark.parametrize("input_mode", ["source", "saved_roots"])
+@pytest.mark.parametrize(
+    ("failed_substage", "failure_type", "status"),
+    [
+        (runner._DOCKET_LOOKUP_SUBSTAGE, "transport_error", None),
+        (runner._DOCKET_LOOKUP_SUBSTAGE, "http_error", 429),
+        ("validate_roots.docket_lookup.govinfo_retrieval", "http_error", 503),
+    ],
+)
+def test_ordinary_resume_retries_only_the_failed_docket_provider(
+    tmp_path, monkeypatch, input_mode, failed_substage, failure_type, status
+):
+    data_root = _dataset(tmp_path, ("001.txt",))
+    source_path = data_root / "primary" / "documents_txt" / "001.txt"
+    source_path.write_text("Acme v. Reed, Case No. 2:31-cv-45821.")
+    roots = _docket_roots_input(source_path)
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    (inputs / "001.txt.json").write_text(roots.model_dump_json())
+    root_calls = []
+    calls = []
+    interrupted = False
+
+    async def grow(document, **_kwargs):
+        root_calls.append(document)
+        return roots
+
+    async def validate(document, *, checkpoint, **_kwargs):
+        nonlocal interrupted
+        for substage in runner._RUN_SUBSTAGES[11:]:
+            if substage in document.substage_runs:
+                continue
+            calls.append(substage)
+            if substage == failed_substage and not interrupted:
+                interrupted = True
+                document = _docket_failure(document, substage, failure_type=failure_type, status=status)
+            document = _complete_with_checkpoints(document, (substage,), checkpoint)
+        return document
+
+    monkeypatch.setattr(runner, "grow_roots", grow)
+    monkeypatch.setattr(runner, "validate_roots", validate)
+    with pytest.raises(RuntimeError, match="transient provider failure"):
+        asyncio.run(
+            runner._run(data_root, tmp_path / "results", inputs if input_mode == "saved_roots" else None)
+        )
+    run_dir = next((tmp_path / "results").iterdir())
+    artifact = run_dir / "documents" / "001.txt.json"
+    failed = Document.model_validate_json(artifact.read_text())
+    previous = runner._RUN_SUBSTAGES[runner._RUN_SUBSTAGES.index(failed_substage) - 1]
+    assert failed.substage_runs[-1] == failed_substage
+    first_calls = list(calls)
+
+    assert asyncio.run(runner._run(data_root, tmp_path / "results", None, resume_run=run_dir)) == run_dir
+    completed = Document.model_validate_json(artifact.read_text())
+    assert completed.get_substage(previous) == failed.get_substage(previous)
+    assert calls[len(first_calls) :] == list(
+        runner._RUN_SUBSTAGES[runner._RUN_SUBSTAGES.index(failed_substage) :]
+    )
+    assert len(root_calls) == 1
+    assert not runner._has_transient_docket_lookup_failure(completed)
+    assert json.loads((run_dir / "run.json").read_text())["status"] == "complete"
+
+
+@pytest.mark.parametrize("input_mode", ["checkpoint", "validation", "reporter_reuse"])
+def test_preserved_input_with_a_failed_docket_lookup_is_rejected_before_provider_work(
+    tmp_path, monkeypatch, input_mode
+):
+    data_root = _dataset(tmp_path, ("001.txt", "002.txt"))
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    for filename in ("001.txt", "002.txt"):
+        source_path = data_root / "primary" / "documents_txt" / filename
+        source_path.write_text("Acme v. Reed, Case No. 2:31-cv-45821.")
+        document = _docket_roots_input(source_path)
+        for substage in runner._RUN_SUBSTAGES[
+            11 : runner._RUN_SUBSTAGES.index(runner._VALIDATION_INPUT_SUBSTAGE) + 1
+        ]:
+            if filename == "002.txt" and substage == runner._DOCKET_LOOKUP_SUBSTAGE:
+                document = _docket_failure(document, substage)
+            document = _complete(document, (substage,))
+        (inputs / f"{filename}.json").write_text(document.model_dump_json())
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("A failed immutable input must be rejected before provider or workflow calls")
+
+    for name in ("grow_roots", "validate_roots", "CourtListenerClient"):
+        monkeypatch.setattr(runner, name, unexpected)
+    options = {
+        "checkpoint": {
+            "from_checkpoint_documents": inputs,
+            "checkpoint_substage": runner._DOCKET_LOOKUP_SUBSTAGE,
+        },
+        "validation": {"from_validation_documents": inputs},
+        "reporter_reuse": {"from_reporter_review_documents": inputs, "reuse_docket_lookups": True},
+    }[input_mode]
+    with pytest.raises(ValueError, match="transient failure"):
+        asyncio.run(runner._run(data_root, tmp_path / "results", None, **options))
+    assert list((tmp_path / "results").rglob("documents/*.json")) == []
+    assert json.loads(next((tmp_path / "results").glob("*/run.json")).read_text())["status"] == "failed"
+
+
+def test_preserved_body_failure_is_rejected_before_replaying_its_input(tmp_path, monkeypatch):
+    data_root = _dataset(tmp_path, ("001.txt",))
+    source_path = data_root / "primary" / "documents_txt" / "001.txt"
+    source_path.write_text("Acme v. Reed, Case No. 2:31-cv-45821.")
+    document = _docket_roots_input(source_path)
+    substage = runner._COURTLISTENER_OPINION_SUBSTAGE
+    document = _complete(document, runner._RUN_SUBSTAGES[11 : runner._RUN_SUBSTAGES.index(substage)])
+    root = document.roots[0].record(substage)
+    failure = BodyEvidenceFailure(failure_type="transport_error", message="Offline transient failure")
+    search = BodySearch(
+        node_id=root.nodes[-1].id,
+        source=BodySource.COURTLISTENER_OPINION,
+        retrospective_date=None,
+        attempts=(BodySearchAttempt(query="offline", failure=failure),),
+        failures=(failure,),
+    )
+    document = document.replace_citation(root.with_body_search(search)).complete_substage(substage)
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    (inputs / "001.txt.json").write_text(document.model_dump_json())
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("An immutable failed body retrieval must not execute provider or workflow calls")
+
+    monkeypatch.setattr(runner, "validate_roots", unexpected)
+    monkeypatch.setattr(runner, "CourtListenerClient", unexpected)
+    with pytest.raises(ValueError, match="choose an input checkpoint before that retrieval"):
+        asyncio.run(
+            runner._run(
+                data_root,
+                tmp_path / "results",
+                None,
+                from_checkpoint_documents=inputs,
+                checkpoint_substage=substage,
+            )
+        )
+    assert list((tmp_path / "results").rglob("documents/*.json")) == []
+
+
 def test_resume_repairs_missing_final_group_after_all_substages_without_provider_work(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

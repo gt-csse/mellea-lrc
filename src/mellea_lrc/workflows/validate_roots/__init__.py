@@ -6,7 +6,7 @@ from datetime import date
 
 from mellea_lrc.model.document import Document
 from mellea_lrc.validation.body_search._courtlistener import CourtListenerBodyClient
-from mellea_lrc.workflows import Checkpoint, _require_body_search_cutoff, _require_workflow_prefix
+from mellea_lrc.workflows import Checkpoint, _require_body_search_cutoff, validate_workflow_checkpoint
 from mellea_lrc.workflows.validate_roots.docket_lookup import lookup_docket_roots
 from mellea_lrc.workflows.validate_roots.intended_case_discovery import discover_intended_cases
 from mellea_lrc.workflows.validate_roots.locator_body_corroboration import corroborate_locator_bodies
@@ -28,7 +28,7 @@ async def validate_roots(
     discovery identifies a possible intended case without confirming the
     source locator.
     """
-    _require_workflow_prefix(document, "validate_roots")
+    validate_workflow_checkpoint(document, "validate_roots")
     _require_body_search_cutoff(document, retrospective_date)
     if "validate_roots.reporter_lookup" not in document.stage_runs:
         document = await lookup_reporter_roots(document, checkpoint=checkpoint)
