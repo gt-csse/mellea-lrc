@@ -9,6 +9,7 @@ and edit-distance fallbacks through an explicit policy.
 from __future__ import annotations
 
 import re
+from bisect import bisect_left
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from math import floor
@@ -121,9 +122,10 @@ def _find_fragment_in_text(
     start = text.find(fragment)
     if start < 0:
         return None
-    if match is not None and match.edits == 0:
-        # Expanded source whitespace can make a complete match longer than
-        # the refinement window. Preserve it before considering edited spans.
+    if match is not None and (match.edits == 0 or not _clips_token(text, start, start + len(fragment))):
+        # An accepted alignment already identifies usable source evidence.
+        # Refinement repairs clipped token boundaries; searching every nearby
+        # span for long valid quotations needlessly repeats distance work.
         return start, fragment, match
     if FuzzinessType.EDIT_DISTANCE in fuzziness.types:
         refined = _best_fragment_near(proposed, text, start, fuzziness)
@@ -132,6 +134,13 @@ def _find_fragment_in_text(
     if match is None:
         return None
     return start, fragment, match
+
+
+def _clips_token(source: str, start: int, end: int) -> bool:
+    """Whether either span boundary falls inside an alphanumeric source token."""
+    return (start > 0 and source[start - 1].isalnum() and source[start].isalnum()) or (
+        end < len(source) and source[end - 1].isalnum() and source[end].isalnum()
+    )
 
 
 def _best_fragment_near(
@@ -146,29 +155,55 @@ def _best_fragment_near(
     a citation while keeping the same similarity score. Testing nearby source
     spans ensures the highlight points at the complete printed citation.
     """
-    allowance = _maximum_edits(proposed, proposed, fuzziness)
+    relaxed_whitespace = FuzzinessType.WHITESPACE_RELAXATION in fuzziness.types
+    if relaxed_whitespace:
+        compared_proposed = _normalize_whitespace(proposed)
+        compared_source, offsets = _without_whitespace(source)
+        approximate_start = bisect_left(offsets, approximate_start)
+    else:
+        compared_proposed, compared_source, offsets = proposed, source, ()
+    if not compared_proposed or not compared_source:
+        return None
+    allowance = _maximum_edits(compared_proposed, compared_proposed, fuzziness)
     margin = allowance + 2
     best: tuple[tuple[int, int, float, int, int], int, str, GroundingMatch[None]] | None = None
-    for start in range(max(0, approximate_start - margin), min(len(source), approximate_start + margin) + 1):
-        for length in range(max(1, len(proposed) - margin), len(proposed) + margin + 1):
-            fragment = source[start : start + length]
-            if len(fragment) != length:
+    # Search the same comparison view used to measure edits. Normalizing
+    # every overlapping raw span repeats a full quote scan for each pair of
+    # boundaries, and expanded layout whitespace can exceed that raw window.
+    for start in range(
+        max(0, approximate_start - margin), min(len(compared_source), approximate_start + margin) + 1
+    ):
+        for length in range(
+            max(1, len(compared_proposed) - margin),
+            min(len(compared_proposed) + margin, len(compared_source) - start) + 1,
+        ):
+            compared_fragment = compared_source[start : start + length]
+            score = _edit_distance_score(compared_proposed, compared_fragment, fuzziness)
+            if score is None:
                 continue
-            match = _match(proposed, EvidenceCandidate(fragment, None), fuzziness)
-            if match is None:
-                continue
-            end = start + length
+            edits, similarity = score
+            source_start = offsets[start] if offsets else start
+            end = offsets[start + length - 1] + 1 if offsets else start + length
+            fragment = source[source_start:end]
+            match_type = (
+                FuzzinessType.PERFECT_MATCH
+                if fragment == proposed
+                else FuzzinessType.WHITESPACE_RELAXATION
+                if relaxed_whitespace and edits == 0
+                else FuzzinessType.EDIT_DISTANCE
+            )
+            match = GroundingMatch(EvidenceCandidate(fragment, None), match_type, edits, similarity)
             clipped_token = int(end < len(source) and fragment[-1].isalnum() and source[end].isalnum())
             boundary_penalty = int(fragment[0].isspace()) + int(fragment[-1].isspace()) + clipped_token
             key = (
                 match.edits,
                 boundary_penalty,
                 -match.similarity_percent,
-                abs(length - len(proposed)),
+                abs(length - len(compared_proposed)),
                 abs(start - approximate_start),
             )
             if best is None or key < best[0]:
-                best = (key, start, fragment, match)
+                best = (key, source_start, fragment, match)
     return (best[1], best[2], best[3]) if best is not None else None
 
 
@@ -248,26 +283,37 @@ def _match(
     if fuzziness.types == frozenset({FuzzinessType.PERFECT_MATCH}):
         return None
 
-    normalized_proposed = _normalize_whitespace(proposed)
-    normalized_candidate = _normalize_whitespace(candidate.text)
-    if FuzzinessType.WHITESPACE_RELAXATION in fuzziness.types and normalized_proposed == normalized_candidate:
-        return GroundingMatch(candidate, FuzzinessType.WHITESPACE_RELAXATION, 0, 100.0)
+    if FuzzinessType.WHITESPACE_RELAXATION in fuzziness.types:
+        compared_proposed = _normalize_whitespace(proposed)
+        compared_candidate = _normalize_whitespace(candidate.text)
+        if compared_proposed == compared_candidate:
+            return GroundingMatch(candidate, FuzzinessType.WHITESPACE_RELAXATION, 0, 100.0)
+    else:
+        compared_proposed, compared_candidate = proposed, candidate.text
 
     if FuzzinessType.EDIT_DISTANCE not in fuzziness.types:
         return None
-    compared_proposed = (
-        normalized_proposed if FuzzinessType.WHITESPACE_RELAXATION in fuzziness.types else proposed
-    )
-    compared_candidate = (
-        normalized_candidate if FuzzinessType.WHITESPACE_RELAXATION in fuzziness.types else candidate.text
-    )
-    edits = Levenshtein.distance(compared_proposed, compared_candidate)
-    maximum_edits = _maximum_edits(compared_proposed, compared_candidate, fuzziness)
+    score = _edit_distance_score(compared_proposed, compared_candidate, fuzziness)
+    if score is None:
+        return None
+    edits, similarity = score
+    return GroundingMatch(candidate, FuzzinessType.EDIT_DISTANCE, edits, similarity)
+
+
+def _edit_distance_score(
+    proposed: str, candidate: str, fuzziness: FuzzinessOption
+) -> tuple[int, float] | None:
+    """Measure an already prepared comparison view under the shared policy."""
+    maximum_edits = _maximum_edits(proposed, candidate, fuzziness)
+    # Rejected fragments only need to exceed this threshold. In refinement
+    # windows, an unrestricted distance calculation on long unequal strings
+    # can block validation; the cutoff preserves exactly the accepted set.
+    edits = Levenshtein.distance(proposed, candidate, score_cutoff=maximum_edits)
     if edits > maximum_edits:
         return None
-    length = max(len(compared_proposed), len(compared_candidate))
+    length = max(len(proposed), len(candidate))
     similarity = 100.0 if length == 0 else 100.0 * (1 - edits / length)
-    return GroundingMatch(candidate, FuzzinessType.EDIT_DISTANCE, edits, similarity)
+    return edits, similarity
 
 
 def _maximum_edits(proposed: str, candidate: str, fuzziness: FuzzinessOption) -> int:

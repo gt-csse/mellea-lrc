@@ -8,7 +8,9 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
+from mellea.stdlib.requirements import req
 
+from mellea_lrc.llm.ivr import InstructIvrSpec, _requirements_for
 from mellea_lrc.model import Document, FullReporterCitation, Span
 from mellea_lrc.model.citations.fields.pin_cite import PinCiteKind, PinCiteTarget
 from mellea_lrc.model.citations.judgments import IdentityVerdict
@@ -20,6 +22,7 @@ from mellea_lrc.model.citations.reporter_pinpoint import (
     OpinionSupportResult,
     PinpointEvidenceOutcome,
     PropositionDecision,
+    ReporterPinpointVerdict,
     ReporterSupportDecision,
 )
 from mellea_lrc.model.citations.short_reporter import ShortReporterCitation
@@ -37,6 +40,7 @@ from mellea_lrc.validation.reporter_citation_pinpoint_evidence import (
 from mellea_lrc.validation.reporter_citation_pinpoint_evidence import (
     prepare_reporter_citation_pinpoint_evidence,
 )
+from mellea_lrc.validation.reporter_citation_pinpoint_judgment import judge_reporter_citation_pinpoints
 from mellea_lrc.validation.reporter_citation_pinpoint_page_review import (
     SUBSTAGE as PAGE_SUBSTAGE,
 )
@@ -45,6 +49,12 @@ from mellea_lrc.validation.reporter_citation_pinpoint_page_review import (
 )
 from mellea_lrc.validation.reporter_citation_propositions import read_reporter_citation_propositions
 from mellea_lrc.validation.reporter_pinpoint_review import reviewer as service
+from mellea_lrc.validation.reporter_pinpoint_review.responses import (
+    MAX_EVIDENCE_QUOTES,
+    MAX_QUOTE_CHARACTERS,
+    PaginatedSupportResponse,
+    UnpaginatedSupportResponse,
+)
 from mellea_lrc.validation.reporter_root_opinion_page_index import index_reporter_root_opinion_pages
 from mellea_lrc.validation.reporter_root_opinion_retrieval import reporter_root_opinion_retrieval
 from tests.test_reporter_citation_propositions import _run
@@ -85,6 +95,7 @@ def _ready(
     unknown_kind_pagination=False,
     repeated_quote=False,
     first_page=FIRST_PAGE,
+    intervening_page=None,
     leaf_locator="550 U.S. at 557",
     leaf_pin="557",
 ):
@@ -134,6 +145,16 @@ def _ready(
         marker = '<span class="star-pagination" volume="550" edition="U.S.">*{label}</span>'
     second_page = FIRST_PAGE if repeated_quote else SECOND_PAGE
     first_html = PRELUDE + marker.format(label="556") + first_page + marker.format(label="557") + second_page
+    if intervening_page is not None:
+        first_html = (
+            PRELUDE
+            + marker.format(label="556")
+            + first_page
+            + marker.format(label="557")
+            + intervening_page
+            + marker.format(label="558")
+            + second_page
+        )
     dissent_html = marker.format(label="570") + DISSENT_PAGE
     if unpaginated:
         first_html = PRELUDE + FIRST_PAGE + SECOND_PAGE
@@ -205,6 +226,22 @@ def _decision(
     )
 
 
+def _wire(decision, *, page_indices=None, paginated=True, footnote=None):
+    evidence = []
+    for quote in decision.evidence:
+        value = {"opinion_id": quote.opinion_id, "quote": quote.quote}
+        if paginated:
+            indices = page_indices
+            if indices is None:
+                indices = [1 if quote.quote == SECOND_PAGE else 0]
+            value.update(page_indices=indices, footnote=footnote)
+        evidence.append(value)
+    response = {"result": decision.result.value, "evidence": evidence, "reason": decision.reason}
+    if paginated:
+        response["correct_page"] = decision.correct_page
+    return json.dumps(response)
+
+
 class Reviewer:
     def __init__(self, responses):
         self.responses = responses
@@ -249,6 +286,37 @@ def test_full_opinion_prefix_is_identical_across_occurrences_and_dynamic_proposi
     assert FIRST_PROPOSITION in first.proposition and SECOND_PROPOSITION in second.proposition
 
 
+def test_full_source_blocks_reconstruct_exact_opinions_and_keep_source_page_ids():
+    document = _ready()
+    root = document.roots[0]
+    context = service.ReporterPinpointReviewContext.from_document(
+        document, root, OpinionReviewScope.FULL_OPINION
+    )
+    bundle = json.loads(context.prefix.split("Shared saved opinion sources:\n", 1)[1])
+    indexed = {opinion.opinion_id: opinion for opinion in root.reporter_root_opinion_page_index.opinions}
+
+    for supplied in bundle["opinions"]:
+        opinion = indexed[supplied["opinion_id"]]
+        blocks = supplied["blocks"]
+        assert "text" not in supplied and "page_markers" not in supplied
+        assert "".join(block["text"] for block in blocks) == opinion.text
+        offset = 0
+        for block in blocks:
+            assert block["source_offset"] == offset
+            assert block["text"] == opinion.text[offset : offset + len(block["text"])]
+            offset += len(block["text"])
+            for reference in block["pages"]:
+                page = opinion.pages[reference["page_index"]]
+                assert reference["label"] == page.label
+                assert reference["kind"] == page.kind
+                assert reference["volume"] == page.volume
+                assert reference["edition"] == page.edition
+        assert offset == len(opinion.text)
+    lead = next(supplied for supplied in bundle["opinions"] if supplied["opinion_id"] == "20")
+    assert PRELUDE in lead["blocks"][0]["text"]
+    assert lead["blocks"][0]["pages"] == []
+
+
 def test_full_opinion_prefix_is_byte_identical_for_parallel_reporter_occurrences():
     document = _ready(include_leaf=True, leaf_locator="127 S. Ct. at 1955", leaf_pin="1955")
     root, leaf = document.citations
@@ -266,8 +334,12 @@ def test_full_opinion_prefix_is_byte_identical_for_parallel_reporter_occurrences
     assert first.proposition != second.proposition
     assert any(excerpt.pages for excerpt in first.excerpts)
     assert all(not excerpt.pages for excerpt in second.excerpts)
+    assert first.response_model.__name__ == "PaginatedSupportResponse"
+    assert second.response_model.__name__ == "UnpaginatedSupportResponse"
     bundle = json.loads(first.prefix.split("Shared saved opinion sources:\n", 1)[1])
-    assert bundle["opinions"][0]["page_markers"]
+    assert any(block["pages"] for block in bundle["opinions"][0]["blocks"])
+    assert "text" not in bundle["opinions"][0]
+    assert "page_markers" not in bundle["opinions"][0]
     assert "cited_reporter_pages" not in bundle["opinions"][0]
 
 
@@ -283,7 +355,7 @@ def test_ivr_fallback_preserves_each_attribution_and_shared_full_source_prefix(m
             quote = FIRST_PAGE if FIRST_PROPOSITION in spec.user_variables["proposition"] else SECOND_PAGE
             decision = _decision(quote=quote)
         return _run(
-            decision.model_dump_json(),
+            _wire(decision),
             prefix=spec.prefix,
             instruction=spec.description,
             variables=spec.user_variables,
@@ -321,7 +393,7 @@ def test_ivr_fallback_preserves_each_attribution_and_shared_full_source_prefix(m
         assert reviewed.reporter_support_reviews[-1].decision.result is OpinionSupportResult.SUPPORTED
 
 
-def test_both_review_paths_keep_correct_location_separate_from_contradicted_use(monkeypatch):
+def test_page_review_keeps_correct_location_separate_from_contradicted_use(monkeypatch):
     before = _ready()
     captured = []
     decision = _decision(OpinionSupportResult.CONTRADICTED, correct=True)
@@ -329,7 +401,7 @@ def test_both_review_paths_keep_correct_location_separate_from_contradicted_use(
     async def fake_run(session, spec, *, strategy, model_options):
         captured.append(spec)
         return _run(
-            decision.model_dump_json(),
+            _wire(decision),
             prefix=spec.prefix,
             instruction=spec.description,
             variables=spec.user_variables,
@@ -357,9 +429,8 @@ def test_both_review_paths_keep_correct_location_separate_from_contradicted_use(
             in spec.prefix
         )
         assert "from an existing passage whose meaning the filing misrepresents" in spec.prefix
-        assert "If false, correct_page must be null and found_pages must be empty" in spec.prefix
-        assert "whether they support or undermine the attributed use" in spec.prefix
-        assert "review that target before returning correct_page=false" in spec.prefix
+        assert "Content and placement remain independent" in spec.prefix
+        assert "review that target before returning false" in spec.prefix
         assert "Decide the page fields from the location" in spec.description
         assert "independently of result" in spec.description
 
@@ -376,13 +447,13 @@ def test_both_review_paths_keep_correct_location_separate_from_contradicted_use(
     assert restored.get_substage(EVIDENCE_SUBSTAGE) == before
 
 
-def test_supported_target_exits_after_page_review_without_initializing_full_reviewer(monkeypatch):
+def test_supported_correct_target_exits_without_initializing_full_reviewer(monkeypatch):
     before = _ready()
     page_reviewer = Reviewer({"root": _decision()})
     pages = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=page_reviewer))
 
     def fail(_profile):
-        pytest.fail("Supported target must not initialize a full-opinion reviewer")
+        pytest.fail("Correct target must not initialize a full-opinion reviewer")
 
     monkeypatch.setattr(service.IvrReporterPinpointReviewer, "from_profile", fail)
     after = asyncio.run(review_reporter_citation_full_opinions(pages))
@@ -391,14 +462,25 @@ def test_supported_target_exits_after_page_review_without_initializing_full_revi
     assert len(after.roots[0].reporter_support_reviews) == 1
     assert after.roots[0].reporter_support_reviews[0].scope is OpinionReviewScope.CITED_PAGES
     assert FULL_SUBSTAGE in after.substage_runs
+    judged = judge_reporter_citation_pinpoints(after)
+    judgment = judged.roots[0].reporter_pinpoint_judgments[-1]
+    assert judgment.verdict is ReporterPinpointVerdict.CORRECT_PINCITE
+    assert judgment.correct_page is True
+    assert judgment.review_index == 0
+    restored = Document.model_validate_json(judged.model_dump_json())
+    assert restored.get_substage(PAGE_SUBSTAGE) == pages
 
 
 @pytest.mark.parametrize(
     "page_result",
     [
         _decision(OpinionSupportResult.UNAVAILABLE, quote=None, correct=None),
+        _decision(OpinionSupportResult.UNAVAILABLE, correct=True),
         _decision(OpinionSupportResult.CONTRADICTED, correct=True),
+        _decision(OpinionSupportResult.CONTRADICTED, correct=False),
+        _decision(OpinionSupportResult.CONTRADICTED, correct=None),
         _decision(correct=False),
+        _decision(correct=None),
         service.ReporterPinpointReviewOutcome(None, failure_reason="IVR repair exhausted"),
     ],
 )
@@ -475,7 +557,7 @@ def test_page_review_rejects_unknown_opinion_and_quotes_outside_allowed_page(bad
 
     review = after.roots[0].reporter_support_reviews[-1]
     assert review.decision is None
-    assert "not grounded inside a supplied excerpt" in review.failure_reason
+    assert "not grounded inside its supplied" in review.failure_reason
     assert review.opinion_evidence_indices == ()
     assert after.roots[0].reporter_opinion_evidence == ()
 
@@ -487,23 +569,20 @@ def test_page_absence_requires_ivr_repair_to_unavailable():
     )
     bad = _decision(OpinionSupportResult.NOT_FOUND, quote=None, correct=None)
     result = service._validate_evidence(
-        SimpleNamespace(last_output=lambda: SimpleNamespace(value=bad.model_dump_json())), context
+        SimpleNamespace(last_output=lambda: SimpleNamespace(value=_wire(bad))), context
     )
 
     assert not result.as_bool()
-    assert (
-        result.reason
-        == "Selected pages cannot establish absence from the full opinion. Return unavailable for a page result that needs full-opinion review."
-    )
+    assert "Selected pages cannot establish absence from the full opinion" in result.reason
     good = _decision(OpinionSupportResult.UNAVAILABLE, quote=None, correct=None)
     assert service._validate_evidence(
-        SimpleNamespace(last_output=lambda: SimpleNamespace(value=good.model_dump_json())), context
+        SimpleNamespace(last_output=lambda: SimpleNamespace(value=_wire(good))), context
     ).as_bool()
     full = service.ReporterPinpointReviewContext.from_document(
         before, before.roots[0], OpinionReviewScope.FULL_OPINION
     )
     assert service._validate_evidence(
-        SimpleNamespace(last_output=lambda: SimpleNamespace(value=bad.model_dump_json())), full
+        SimpleNamespace(last_output=lambda: SimpleNamespace(value=_wire(bad))), full
     ).as_bool()
 
 
@@ -565,20 +644,18 @@ def test_shared_ivr_repairs_scope_and_grounding_and_saves_dynamic_context(monkey
         captured["spec"] = spec
         validate = spec.requirements[0].validation_fn
         assert validate(SimpleNamespace(last_output=lambda: SimpleNamespace(value="{}"))).as_bool()
-        rejected = validate(SimpleNamespace(last_output=lambda: SimpleNamespace(value=bad.model_dump_json())))
-        assert not rejected.as_bool() and "supplied excerpt" in rejected.reason
-        assert validate(
-            SimpleNamespace(last_output=lambda: SimpleNamespace(value=good.model_dump_json()))
-        ).as_bool()
+        rejected = validate(SimpleNamespace(last_output=lambda: SimpleNamespace(value=_wire(bad))))
+        assert not rejected.as_bool() and "supplied" in rejected.reason
+        assert validate(SimpleNamespace(last_output=lambda: SimpleNamespace(value=_wire(good)))).as_bool()
         initial = _run(
-            bad.model_dump_json(),
+            _wire(bad),
             success=False,
             prefix=spec.prefix,
             instruction=spec.description,
             variables=spec.user_variables,
         )
         final = _run(
-            good.model_dump_json(),
+            _wire(good),
             prefix=spec.prefix,
             instruction=spec.description,
             variables=spec.user_variables,
@@ -587,7 +664,7 @@ def test_shared_ivr_repairs_scope_and_grounding_and_saves_dynamic_context(monkey
             update={
                 "attempts": (*initial.attempts, *final.attempts),
                 "selected_attempt": 1,
-                "output_schema": ReporterSupportDecision.model_json_schema(),
+                "output_schema": spec.output_format.model_json_schema(),
             }
         )
 
@@ -599,8 +676,8 @@ def test_shared_ivr_repairs_scope_and_grounding_and_saves_dynamic_context(monkey
     review = after.roots[0].reporter_support_reviews[-1]
 
     assert review.decision == good
-    assert review.ivr.attempts[0].output == bad.model_dump_json()
-    assert review.ivr.attempts[1].output == good.model_dump_json()
+    assert review.ivr.attempts[0].output == _wire(bad)
+    assert review.ivr.attempts[1].output == _wire(good)
     assert review.ivr.selected_attempt == 1
     assert captured["spec"].user_variables["scope"] == OpinionReviewScope.CITED_PAGES.value
     assert FIRST_PROPOSITION in captured["spec"].user_variables["proposition"]
@@ -617,7 +694,7 @@ def test_failed_ivr_or_successful_but_ungrounded_output_retains_its_trace(monkey
 
     async def fake_run(session, spec, *, strategy, model_options):
         return _run(
-            bad.model_dump_json(),
+            _wire(bad),
             prefix=spec.prefix,
             instruction=spec.description,
             variables=spec.user_variables,
@@ -630,7 +707,7 @@ def test_failed_ivr_or_successful_but_ungrounded_output_retains_its_trace(monkey
 
     assert review.decision is None
     assert "not grounded" in review.failure_reason
-    assert review.ivr.output == bad.model_dump_json()
+    assert review.ivr.output == _wire(bad)
     assert review.opinion_evidence_indices == ()
 
 
@@ -702,21 +779,72 @@ def test_duplicate_and_missing_stage_guards_precede_model_calls():
         asyncio.run(review_reporter_citation_full_opinions(after, reviewer=Reviewer({})))
 
 
-@pytest.mark.parametrize("found", [(_page(557),), (_page(599),), (_page(556, 557),)])
-def test_indexed_quote_cannot_claim_a_different_or_unseen_found_page(found):
+@pytest.mark.parametrize("page_indices", [[1], [99], []])
+def test_indexed_quote_rejects_wrong_unknown_or_missing_page_binding(page_indices):
     before = _ready()
     context = service.ReporterPinpointReviewContext.from_document(
         before, before.roots[0], OpinionReviewScope.FULL_OPINION
     )
-    bad = _decision(found=found)
+    bad = _wire(_decision(), page_indices=page_indices)
     validation = service._validate_evidence(
-        SimpleNamespace(last_output=lambda: SimpleNamespace(value=bad.model_dump_json())), context
+        SimpleNamespace(last_output=lambda: SimpleNamespace(value=bad)), context
     )
     assert not validation.as_bool()
-    assert "opinion_id=20" in validation.reason
-    assert "source_span=" in validation.reason
-    assert "550 U.S. page 556" in validation.reason
-    assert "finding a passage elsewhere alone does not prove the target is wrong" in validation.reason
+    assert validation.reason
+    with pytest.raises(ValueError):
+        context.parse_response(bad, "review")
+
+
+def test_quote_cannot_bind_a_page_from_a_parallel_reporter_namespace():
+    document = _ready()
+    root = document.roots[0]
+    index = root.reporter_root_opinion_page_index
+    opinion = index.opinions[0]
+    parallel = OpinionPage(
+        label="1955",
+        kind=PinCiteKind.PAGE,
+        volume=127,
+        edition="S. Ct.",
+        span=opinion.pages[0].span,
+        citation_index="parallel",
+    )
+    opinion = opinion.model_copy(update={"pages": (opinion.pages[0], parallel, opinion.pages[1])})
+    root = root.model_copy(
+        update={
+            "reporter_root_opinion_page_index": index.model_copy(
+                update={"opinions": (opinion, *index.opinions[1:])}
+            )
+        }
+    )
+    document = document.model_copy(update={"citations": (root, *document.citations[1:])})
+    context = service.ReporterPinpointReviewContext.from_document(
+        document, root, OpinionReviewScope.FULL_OPINION
+    )
+    bundle = json.loads(context.prefix.split("Shared saved opinion sources:\n", 1)[1])
+    lead = next(item for item in bundle["opinions"] if item["opinion_id"] == "20")
+    shared_block = next(block for block in lead["blocks"] if FIRST_PAGE in block["text"])
+    assert {page["edition"] for page in shared_block["pages"]} == {"U.S.", "S. Ct."}
+    assert context.excerpts[0].page_indices == (0, 2)
+    assert "".join(block["text"] for block in lead["blocks"]) == opinion.text
+    with pytest.raises(ValueError):
+        context.parse_response(_wire(_decision(), page_indices=[1]), "review")
+    decision, passages = context.parse_response(_wire(_decision(), page_indices=[0]), "review")
+    assert decision.found_pages == (_page(556),)
+    assert passages[0].span == _span(opinion.text, FIRST_PAGE)
+
+
+def test_empty_page_binding_is_allowed_only_for_unindexed_source_text():
+    document = _ready()
+    context = service.ReporterPinpointReviewContext.from_document(
+        document, document.roots[0], OpinionReviewScope.FULL_OPINION
+    )
+    response = _wire(_decision(quote=PRELUDE, correct=None, found=()), page_indices=[])
+    decision, passages = context.parse_response(response, "review")
+    assert decision.pagination_available is True
+    assert decision.correct_page is None and decision.found_pages == ()
+    assert passages[0].quote == PRELUDE
+    with pytest.raises(ValueError):
+        context.parse_response(_wire(_decision(), page_indices=[]), "review")
 
 
 def test_declared_page_repair_retains_trace_and_accepts_grounded_alternative(monkeypatch):
@@ -724,17 +852,15 @@ def test_declared_page_repair_retains_trace_and_accepts_grounded_alternative(mon
     pages = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=Reviewer({})))
     bad = _decision(quote=SECOND_PAGE, correct=False, found=(_page(556),))
     good = _decision(quote=SECOND_PAGE, correct=False, found=(_page(557),))
+    bad_output = _wire(bad, page_indices=[0])
+    good_output = _wire(good, page_indices=[1])
 
     async def fake_run(session, spec, *, strategy, model_options):
         validate = spec.requirements[0].validation_fn
-        assert not validate(
-            SimpleNamespace(last_output=lambda: SimpleNamespace(value=bad.model_dump_json()))
-        ).as_bool()
-        assert validate(
-            SimpleNamespace(last_output=lambda: SimpleNamespace(value=good.model_dump_json()))
-        ).as_bool()
-        initial = _run(bad.model_dump_json(), success=False)
-        repaired = _run(good.model_dump_json())
+        assert not validate(SimpleNamespace(last_output=lambda: SimpleNamespace(value=bad_output))).as_bool()
+        assert validate(SimpleNamespace(last_output=lambda: SimpleNamespace(value=good_output))).as_bool()
+        initial = _run(bad_output, success=False)
+        repaired = _run(good_output)
         return repaired.model_copy(
             update={"attempts": (*initial.attempts, *repaired.attempts), "selected_attempt": 1}
         )
@@ -744,8 +870,8 @@ def test_declared_page_repair_retains_trace_and_accepts_grounded_alternative(mon
     reviewed = asyncio.run(review_reporter_citation_full_opinions(pages, reviewer=reviewer))
     review = reviewed.roots[0].reporter_support_reviews[-1]
     assert review.decision == good
-    assert review.ivr.attempts[0].output == bad.model_dump_json()
-    assert review.ivr.attempts[1].output == good.model_dump_json()
+    assert review.ivr.attempts[0].output == bad_output
+    assert review.ivr.attempts[1].output == good_output
     assert reviewed.roots[0].reporter_opinion_evidence[-1].quote == SECOND_PAGE
 
 
@@ -764,6 +890,37 @@ def test_unpaginated_full_opinion_can_settle_support_without_a_page_negative():
     assert full.contexts[0].source_complete is True
 
 
+def test_unpaginated_ivr_requests_content_only_and_saves_canonical_page_fields(monkeypatch):
+    before = _ready(unpaginated=True)
+    pages = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=Reviewer({})))
+    expected = _decision(pagination=False, correct=None)
+    raw = _wire(expected, paginated=False)
+    captured = {}
+
+    async def fake_run(session, spec, *, strategy, model_options):
+        captured["spec"] = spec
+        assert set(spec.output_format.model_json_schema()["properties"]) == {"result", "evidence", "reason"}
+        evidence_schema = spec.output_format.model_json_schema()["$defs"]["OpinionEvidenceQuote"]
+        assert set(evidence_schema["properties"]) == {"opinion_id", "quote"}
+        return _run(raw, prefix=spec.prefix, instruction=spec.description, variables=spec.user_variables)
+
+    monkeypatch.setattr(service, "run_instruct_ivr", fake_run)
+    reviewer = service.IvrReporterPinpointReviewer(session=object(), model_options={}, max_attempts=3)
+    after = asyncio.run(review_reporter_citation_full_opinions(pages, reviewer=reviewer))
+    review = after.roots[0].reporter_support_reviews[-1]
+    assert review.decision == expected
+    assert review.ivr.output == raw
+    assert captured["spec"].output_format.__name__ == "UnpaginatedSupportResponse"
+    context = service.ReporterPinpointReviewContext.from_document(
+        before, before.roots[0], OpinionReviewScope.FULL_OPINION
+    )
+    with pytest.raises(ValueError):
+        context.parse_response(_wire(expected), "review")
+    restored = Document.model_validate_json(after.model_dump_json())
+    assert restored.roots[0].reporter_support_reviews[-1] == review
+    assert restored.get_substage(PAGE_SUBSTAGE) == pages
+
+
 def test_correct_page_requires_a_relevant_quote_at_a_confirmed_written_target():
     before = _ready()
     context = service.ReporterPinpointReviewContext.from_document(
@@ -771,11 +928,10 @@ def test_correct_page_requires_a_relevant_quote_at_a_confirmed_written_target():
     )
     decision = _decision(quote=SECOND_PAGE, correct=True)
     result = service._validate_evidence(
-        SimpleNamespace(last_output=lambda: SimpleNamespace(value=decision.model_dump_json())), context
+        SimpleNamespace(last_output=lambda: SimpleNamespace(value=_wire(decision))), context
     )
     assert not result.as_bool()
     assert "correct_page=true needs a quoted relevant passage at the written target" in result.reason
-    assert "550 U.S. page 557" in result.reason
 
 
 @pytest.mark.parametrize("scope", [OpinionReviewScope.CITED_PAGES, OpinionReviewScope.FULL_OPINION])
@@ -792,6 +948,56 @@ def test_repeated_quote_grounds_at_written_or_reported_page(scope, reported):
 
 
 @pytest.mark.parametrize("scope", [OpinionReviewScope.CITED_PAGES, OpinionReviewScope.FULL_OPINION])
+def test_named_adjacent_pages_ground_a_quote_across_the_source_boundary(scope):
+    before = _ready(root_pin="556-57")
+    context = service.ReporterPinpointReviewContext.from_document(before, before.roots[0], scope)
+    quote = FIRST_PAGE + " " + SECOND_PAGE
+    raw = _wire(_decision(quote=quote, found=(_page(556, 557),)), page_indices=[0, 1])
+    decision, passages = context.parse_response(raw, "review")
+    opinion = before.roots[0].reporter_root_opinion_page_index.opinions[0]
+    assert decision.found_pages == (_page(556), _page(557))
+    assert passages[0].quote == quote
+    assert passages[0].span == _span(opinion.text, quote)
+    passages[0].validate_source(opinion.text)
+    with pytest.raises(ValueError):
+        context.parse_response(_wire(_decision(quote=quote), page_indices=[0]), "review")
+
+
+@pytest.mark.parametrize("scope", [OpinionReviewScope.CITED_PAGES, OpinionReviewScope.FULL_OPINION])
+def test_named_pages_cannot_skip_intervening_source_prose(scope):
+    intervening = "The intervening page supplies a separate limitation that cannot be omitted."
+    before = _ready(root_pin="556, 558", intervening_page=intervening)
+    context = service.ReporterPinpointReviewContext.from_document(before, before.roots[0], scope)
+    quote = FIRST_PAGE + " " + intervening + " " + SECOND_PAGE
+    if scope is OpinionReviewScope.CITED_PAGES:
+        assert FIRST_PAGE in context.prefix and SECOND_PAGE in context.prefix
+        assert intervening not in context.prefix
+        assert len(context.excerpts) == 2
+    else:
+        assert intervening in context.prefix
+    with pytest.raises(ValueError):
+        context.parse_response(_wire(_decision(quote=quote, correct=None), page_indices=[0, 2]), "review")
+    if scope is OpinionReviewScope.FULL_OPINION:
+        decision, passages = context.parse_response(
+            _wire(_decision(quote=quote, correct=None), page_indices=[0, 1, 2]), "review"
+        )
+        assert decision.found_pages == (_page(556), _page(557), _page(558))
+        assert passages[0].quote == quote
+
+
+@pytest.mark.parametrize("scope", [OpinionReviewScope.CITED_PAGES, OpinionReviewScope.FULL_OPINION])
+def test_named_page_disambiguates_repeated_quote_within_written_range(scope):
+    before = _ready(root_pin="556-57", repeated_quote=True)
+    context = service.ReporterPinpointReviewContext.from_document(before, before.roots[0], scope)
+    decision, passages = context.parse_response(_wire(_decision(), page_indices=[1]), "review")
+    opinion = before.roots[0].reporter_root_opinion_page_index.opinions[0]
+    start = opinion.text.index(FIRST_PAGE, opinion.text.index(FIRST_PAGE) + 1)
+    assert decision.found_pages == (_page(557),)
+    assert passages[0].span == Span(start, start + len(FIRST_PAGE))
+    passages[0].validate_source(opinion.text)
+
+
+@pytest.mark.parametrize("scope", [OpinionReviewScope.CITED_PAGES, OpinionReviewScope.FULL_OPINION])
 def test_reported_page_disambiguates_repeated_quote_within_written_range(scope):
     before = _ready(root_pin="556-57", repeated_quote=True)
     context = service.ReporterPinpointReviewContext.from_document(before, before.roots[0], scope)
@@ -803,10 +1009,11 @@ def test_reported_page_disambiguates_repeated_quote_within_written_range(scope):
 
 
 @pytest.mark.parametrize("scope", [OpinionReviewScope.CITED_PAGES, OpinionReviewScope.FULL_OPINION])
+@pytest.mark.parametrize("wire_response", [False, True])
 @pytest.mark.parametrize(
     "earlier", [FIRST_PAGE.replace("granted.", "granted ."), FIRST_PAGE.replace("notice", "notlce")]
 )
-def test_earlier_tolerant_quote_is_not_hidden_by_later_exact_quote(scope, earlier):
+def test_earlier_tolerant_quote_is_not_hidden_by_later_exact_quote(scope, wire_response, earlier):
     before = _ready(root_pin="556-57", repeated_quote=True, first_page=earlier)
     context = service.ReporterPinpointReviewContext.from_document(before, before.roots[0], scope)
     # Start within the first page to exercise clipping of absolute page spans
@@ -820,7 +1027,10 @@ def test_earlier_tolerant_quote_is_not_hidden_by_later_exact_quote(scope, earlie
             *context.excerpts[1:],
         ),
     )
-    passages = context.ground(_decision(quote=FIRST_PAGE, correct=True, found=(_page(556),)), "review")
+    if wire_response:
+        _, passages = context.parse_response(_wire(_decision(), page_indices=[0]), "review")
+    else:
+        passages = context.ground(_decision(quote=FIRST_PAGE, correct=True, found=(_page(556),)), "review")
     opinion = before.roots[0].reporter_root_opinion_page_index.opinions[0]
     start = opinion.text.index(earlier)
     assert passages[0].quote == earlier
@@ -847,7 +1057,8 @@ def test_full_review_retains_later_repeated_quote_and_replays_its_location():
     assert restored.get_substage(PAGE_SUBSTAGE) == pages
 
 
-def test_repeated_quote_keeps_whitespace_and_edit_distance_grounding():
+@pytest.mark.parametrize("wire_response", [False, True])
+def test_repeated_quote_keeps_whitespace_and_edit_distance_grounding(wire_response):
     before = _ready(root_pin="557", repeated_quote=True)
     context = service.ReporterPinpointReviewContext.from_document(
         before, before.roots[0], OpinionReviewScope.FULL_OPINION
@@ -857,13 +1068,174 @@ def test_repeated_quote_keeps_whitespace_and_edit_distance_grounding():
     canonical = FIRST_PAGE.replace("notice", "notlce").replace(" ", "\n", 1)
     text = excerpt.text[:start] + canonical + excerpt.text[start + len(FIRST_PAGE) :]
     context = replace(context, excerpts=(replace(excerpt, text=text), *context.excerpts[1:]))
-    passages = context.ground(_decision(quote=FIRST_PAGE, found=(_page(557),)), "review")
+    if wire_response:
+        _, passages = context.parse_response(_wire(_decision(), page_indices=[1]), "review")
+    else:
+        passages = context.ground(_decision(quote=FIRST_PAGE, found=(_page(557),)), "review")
     assert passages[0].quote == canonical
     assert passages[0].span == Span(start, start + len(canonical))
     passages[0].validate_source(text)
 
 
-def test_later_repeated_quote_can_cross_page_boundaries():
+@pytest.mark.parametrize("scope", [OpinionReviewScope.CITED_PAGES, OpinionReviewScope.FULL_OPINION])
+@pytest.mark.parametrize("wire_response", [False, True])
+def test_content_quotes_allow_minor_copy_errors_and_retain_exact_source(scope, wire_response):
+    canonical = FIRST_PAGE.replace("notice", "notlce").replace("granted", "grantcd")
+    before = _ready(first_page=canonical)
+    context = service.ReporterPinpointReviewContext.from_document(before, before.roots[0], scope)
+    if wire_response:
+        _, passages = context.parse_response(_wire(_decision(), page_indices=[0]), "review")
+    else:
+        passages = context.ground(_decision(), "review")
+    assert passages[0].quote == canonical
+    source = before.roots[0].reporter_root_opinion_page_index.opinions[0].text
+    passages[0].validate_source(source)
+
+
+def test_content_quotes_still_reject_substantially_different_words():
+    before = _ready()
+    context = service.ReporterPinpointReviewContext.from_document(
+        before, before.roots[0], OpinionReviewScope.FULL_OPINION
+    )
+    altered = FIRST_PAGE.replace("fair notice", "no warning").replace("granted", "denied")
+    with pytest.raises(ValueError, match="not grounded"):
+        context.parse_response(_wire(_decision(quote=altered), page_indices=[0]), "review")
+
+
+@pytest.mark.parametrize("scope", [OpinionReviewScope.CITED_PAGES, OpinionReviewScope.FULL_OPINION])
+@pytest.mark.parametrize("paginated", [False, True])
+def test_separate_sentences_ground_individually_with_fuzziness_and_whitespace(scope, paginated):
+    third = "The parties received an opportunity to address the proposed exception."
+    unrelated = "An unrelated procedural discussion separates these passages. " * 5
+    before = _ready(root_pin="556-57", first_page=FIRST_PAGE + " " + unrelated + third)
+    context = service.ReporterPinpointReviewContext.from_document(before, before.roots[0], scope)
+    if not paginated:
+        context = replace(
+            context,
+            excerpts=tuple(replace(item, pages=(), page_indices=()) for item in context.excerpts),
+        )
+    quotes = (FIRST_PAGE, SECOND_PAGE, third)
+    evidence = []
+    for quote, page_index in zip(quotes, (0, 1, 0), strict=True):
+        # Each independent quote needs its own tolerance; a later exact match
+        # cannot compensate for an earlier bad quote.
+        proposed = quote.replace(" ", "  ").replace("opinion", "oplnion").replace("parties", "partles")
+        item = {"opinion_id": "20", "quote": proposed}
+        if paginated:
+            item.update(page_indices=[page_index], footnote=None)
+        evidence.append(item)
+    raw = {"result": "supported", "evidence": evidence, "reason": "Together these passages support the use."}
+    if paginated:
+        raw["correct_page"] = True
+
+    decision, passages = context.parse_response(json.dumps(raw), "review")
+    source = before.roots[0].reporter_root_opinion_page_index.opinions[0].text
+    assert len(decision.evidence) == len(passages) == 3
+    assert tuple(item.quote for item in passages) == quotes
+    assert tuple(item.span for item in passages) == tuple(_span(source, quote) for quote in quotes)
+    assert decision.found_pages == ((_page(556), _page(557)) if paginated else ())
+    assert "no requirement that the items form a continuous chunk" in context.prefix
+    for passage in passages:
+        passage.validate_source(source)
+
+    evidence[1]["quote"] = "This unrelated claim never appears in the source."
+    with pytest.raises(ValueError, match="not grounded"):
+        context.parse_response(json.dumps(raw), "review")
+
+
+@pytest.mark.parametrize("paginated", [False, True])
+@pytest.mark.parametrize("wire_response", [False, True])
+@pytest.mark.parametrize("bad", ["four_quotes", "oversized_last_quote"])
+def test_quote_limits_preflight_all_items_before_any_fuzzy_matching(
+    monkeypatch, paginated, wire_response, bad
+):
+    before = _ready(unpaginated=not paginated)
+    context = service.ReporterPinpointReviewContext.from_document(
+        before, before.roots[0], OpinionReviewScope.FULL_OPINION
+    )
+    quotes = [OpinionEvidenceQuote(opinion_id="20", quote=FIRST_PAGE)]
+    if bad == "four_quotes":
+        quotes *= MAX_EVIDENCE_QUOTES + 1
+    else:
+        quotes.append(OpinionEvidenceQuote(opinion_id="20", quote="x" * (MAX_QUOTE_CHARACTERS + 1)))
+    decision = _decision(pagination=paginated, correct=True if paginated else None).model_copy(
+        update={"evidence": tuple(quotes)}
+    )
+
+    def fail(*args, **kwargs):
+        pytest.fail("Every evidence item must pass length checks before any grounding")
+
+    monkeypatch.setattr(service.ReporterPinpointReviewContext, "_ground_quote", fail)
+    with pytest.raises(ValueError, match=r"Too many evidence quotes|is too long") as caught:
+        if wire_response:
+            context.parse_response(_wire(decision, paginated=paginated), "review")
+        else:
+            context.ground(decision, "review")
+    assert "one or two" in str(caught.value)
+    assert "reason" in str(caught.value)
+
+
+@pytest.mark.parametrize("paginated", [False, True])
+def test_oversized_quote_uses_native_ivr_schema_repair_feedback(monkeypatch, paginated):
+    before = _ready(unpaginated=not paginated)
+    context = service.ReporterPinpointReviewContext.from_document(
+        before,
+        before.roots[0],
+        OpinionReviewScope.FULL_OPINION,
+    )
+    bad = _decision(
+        quote="x" * 58_203,
+        pagination=paginated,
+        correct=None,
+        found=(),
+    )
+    output = SimpleNamespace(last_output=lambda: SimpleNamespace(value=_wire(bad, paginated=paginated)))
+
+    def fail(*args, **kwargs):
+        pytest.fail("Schema repair must reject a long quote before grounding")
+
+    monkeypatch.setattr(service.ReporterPinpointReviewContext, "_ground_quote", fail)
+    requirements = _requirements_for(
+        InstructIvrSpec(
+            description="Review supplied evidence.",
+            output_format=context.response_model,
+            requirements=(
+                req("Ground evidence.", validation_fn=lambda ctx: service._validate_evidence(ctx, context)),
+            ),
+        )
+    )
+    rejection = requirements[0].validation_fn(output)
+    assert not rejection.as_bool()
+    assert "58203" in rejection.reason and "1200" in rejection.reason
+    assert "separate evidence item" in rejection.reason
+    assert "detailed explanation in reason" in rejection.reason
+    assert requirements[1].validation_fn(output).as_bool()
+
+
+@pytest.mark.parametrize("response_model", [PaginatedSupportResponse, UnpaginatedSupportResponse])
+def test_short_quote_with_legal_abbreviations_does_not_guess_sentence_boundaries(response_model):
+    quote = "The standard in 123 F. Supp. 2d 456 applies under Fed. R. Civ. P. 12(b)(6)."
+    response = {
+        "result": "supported",
+        "evidence": [{"opinion_id": "20", "quote": quote}],
+        "reason": "Supported.",
+    }
+    if response_model is PaginatedSupportResponse:
+        response["correct_page"] = True
+        response["evidence"][0].update(page_indices=[0], footnote=None)
+    assert response_model.model_validate(response).evidence[0].quote == quote
+    assert response_model.model_json_schema()["properties"]["evidence"]["maxItems"] == 3
+
+
+def test_quote_size_policy_does_not_change_durable_decision_serialization():
+    decision = _decision(quote="x" * 58_203, correct=None, found=())
+    assert ReporterSupportDecision.model_validate_json(decision.model_dump_json()) == decision
+    with pytest.raises(ValueError, match="is too long"):
+        PaginatedSupportResponse.model_validate_json(_wire(decision))
+
+
+@pytest.mark.parametrize("wire_response", [False, True])
+def test_later_repeated_quote_can_cross_page_boundaries(wire_response):
     before = _ready(root_pin="557", repeated_quote=True)
     context = service.ReporterPinpointReviewContext.from_document(
         before, before.roots[0], OpinionReviewScope.FULL_OPINION
@@ -882,8 +1254,15 @@ def test_later_repeated_quote_can_cross_page_boundaries():
             span=Span(boundary, len(excerpt.text)),
         ),
     )
-    context = replace(context, excerpts=(replace(excerpt, pages=pages), *context.excerpts[1:]))
-    passages = context.ground(_decision(quote=FIRST_PAGE, found=(_page(557, 558),)), "review")
+    context = replace(
+        context,
+        excerpts=(replace(excerpt, pages=pages, page_indices=(0, 1, 2)), *context.excerpts[1:]),
+    )
+    if wire_response:
+        decision, passages = context.parse_response(_wire(_decision(), page_indices=[1, 2]), "review")
+        assert decision.found_pages == (_page(557), _page(558))
+    else:
+        passages = context.ground(_decision(quote=FIRST_PAGE, found=(_page(557, 558),)), "review")
     assert passages[0].span == Span(start, start + len(FIRST_PAGE))
     passages[0].validate_source(excerpt.text)
 
@@ -898,26 +1277,23 @@ def test_repeated_quote_cannot_supply_a_page_absent_from_the_source():
         context.ground(decision, "review")
 
 
-def test_unindexed_inline_page_markers_do_not_force_an_unknown_page_assessment():
+def test_unindexed_inline_page_markers_use_content_only_response():
     before = _ready(inline_pagination=True)
     assert all(not opinion.pages for opinion in before.roots[0].reporter_root_opinion_page_index.opinions)
     context = service.ReporterPinpointReviewContext.from_document(
         before, before.roots[0], OpinionReviewScope.FULL_OPINION
     )
-    decision = _decision()
+    expected = _decision(pagination=False, correct=None)
     assert "*556" in context.prefix
-    result = service._validate_evidence(
-        SimpleNamespace(last_output=lambda: SimpleNamespace(value=decision.model_dump_json())), context
-    )
-    assert result.as_bool()
-    pages = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=Reviewer({})))
-    after = asyncio.run(review_reporter_citation_full_opinions(pages, reviewer=Reviewer({"root": decision})))
-    retained = after.roots[0].reporter_support_reviews[-1].decision
-    assert retained.pagination_available is True and retained.correct_page is True
-    assert retained.found_pages == (_page(556),)
+    assert context.response_model.__name__ == "UnpaginatedSupportResponse"
+    decision, passages = context.parse_response(_wire(expected, paginated=False), "review")
+    assert decision == expected
+    assert passages[0].quote == FIRST_PAGE
+    with pytest.raises(ValueError):
+        context.parse_response(_wire(_decision()), "review")
 
 
-def test_unknown_kind_source_marker_remains_a_semantic_page_assessment():
+def test_unknown_kind_source_marker_uses_content_only_response():
     before = _ready(unknown_kind_pagination=True)
     indexed = before.roots[0].reporter_root_opinion_page_index.opinions[0]
     assert [(page.label, page.kind, page.volume, page.edition) for page in indexed.pages] == [
@@ -927,11 +1303,11 @@ def test_unknown_kind_source_marker_remains_a_semantic_page_assessment():
     context = service.ReporterPinpointReviewContext.from_document(
         before, before.roots[0], OpinionReviewScope.FULL_OPINION
     )
-    decision = _decision()
-    validation = service._validate_evidence(
-        SimpleNamespace(last_output=lambda: SimpleNamespace(value=decision.model_dump_json())), context
-    )
-    assert validation.as_bool()
+    expected = _decision(pagination=False, correct=None)
+    assert context.response_model.__name__ == "UnpaginatedSupportResponse"
+    decision, passages = context.parse_response(_wire(expected, paginated=False), "validation")
+    assert decision == expected
+    assert passages[0].span == _span(indexed.text, FIRST_PAGE)
     pages = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=Reviewer({})))
     after = asyncio.run(review_reporter_citation_full_opinions(pages, reviewer=Reviewer({"root": decision})))
     assert after.roots[0].reporter_support_reviews[-1].decision == decision

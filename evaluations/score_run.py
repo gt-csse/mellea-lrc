@@ -9,6 +9,7 @@ from pathlib import Path
 
 from evaluations.grow_leaves import render_grow_leaves, score_grow_leaves
 from evaluations.grow_roots import render_grow_roots, score_grow_roots
+from evaluations.llm_usage import render_llm_usage, summarize_llm_usage
 from evaluations.validate_pincite import render_validate_pincite, score_validate_pincite
 from evaluations.validate_roots import render_validate_roots, score_validate_roots
 from mellea_lrc.api import Document
@@ -64,16 +65,24 @@ def score_run(run_dir: Path, workflows: tuple[str, ...] | None = None) -> dict[s
             )
         )
     rendered: dict[str, str] = {}
+    usage = summarize_llm_usage(documents[0])
+    for document in documents[1:]:
+        usage += summarize_llm_usage(document)
     for workflow in workflows:
         scorer, renderer = _WORKFLOWS[workflow]
         total = scorer(documents[0])
         for document in documents[1:]:
             total += scorer(document)
+        workflow_usage = usage.for_workflow(workflow)
         (run_dir / f"{workflow}.json").write_text(
-            json.dumps({"set": record["set"], **total.as_dict()}, indent=2) + "\n",
+            json.dumps(
+                {"set": record["set"], **total.as_dict(), "llm_usage": workflow_usage.as_dict()}, indent=2
+            )
+            + "\n",
             encoding="utf-8",
         )
         report = renderer(total, set_name=record["set"])
+        report += "\n" + render_llm_usage(workflow_usage)
         (run_dir / f"{workflow}.md").write_text(report, encoding="utf-8")
         rendered[workflow] = report
     return rendered

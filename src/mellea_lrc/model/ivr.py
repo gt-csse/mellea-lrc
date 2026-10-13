@@ -2,7 +2,52 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, JsonValue, model_validator
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictInt, model_validator
+
+_TokenCount = Annotated[StrictInt, Field(ge=0)]
+
+
+class TokenUsage(BaseModel):
+    """Provider-reported counters; missing counters remain unknown.
+
+    Cached input is included in input tokens. Reasoning output is included in
+    output tokens, so neither should be added again when computing totals.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    input_tokens: _TokenCount | None = None
+    output_tokens: _TokenCount | None = None
+    total_tokens: _TokenCount | None = None
+    cached_input_tokens: _TokenCount | None = None
+    cache_write_input_tokens: _TokenCount | None = None
+    reasoning_output_tokens: _TokenCount | None = None
+
+    @classmethod
+    def from_response(cls, response: JsonValue) -> TokenUsage | None:
+        """Read Chat Completions usage without estimating absent values."""
+        if not isinstance(response, dict) or response.get("usage") is None:
+            return None
+        usage = response["usage"]
+        if not isinstance(usage, dict):
+            raise ValueError("Provider usage must be a JSON object")
+        prompt = usage.get("prompt_tokens_details")
+        completion = usage.get("completion_tokens_details")
+        prompt = {} if prompt is None else prompt
+        completion = {} if completion is None else completion
+        if not isinstance(prompt, dict) or not isinstance(completion, dict):
+            raise ValueError("Provider token details must be JSON objects or null")
+        values = {
+            "input_tokens": usage.get("prompt_tokens"),
+            "output_tokens": usage.get("completion_tokens"),
+            "total_tokens": usage.get("total_tokens"),
+            "cached_input_tokens": prompt.get("cached_tokens"),
+            "cache_write_input_tokens": prompt.get("cache_write_tokens"),
+            "reasoning_output_tokens": completion.get("reasoning_tokens"),
+        }
+        return cls.model_validate(values) if any(value is not None for value in values.values()) else None
 
 
 class IvrRequirementAttempt(BaseModel):
@@ -33,6 +78,11 @@ class IvrAttempt(BaseModel):
     requirements: tuple[IvrRequirementAttempt, ...]
     request: JsonValue = None
     response: JsonValue = None
+
+    @property
+    def usage(self) -> TokenUsage | None:
+        """A typed view of the retained response, including failed repairs."""
+        return TokenUsage.from_response(self.response)
 
 
 class IvrRun(BaseModel):

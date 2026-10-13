@@ -10,12 +10,14 @@ from mellea.core import GenerateLog, ModelOutputThunk, ValidationResult
 from mellea.stdlib import functional as mfuncs
 from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from mellea_lrc.llm.config import OUTPUT_MODE_OPTION, PROFILE_OPTION, LlmOutputMode
 from mellea_lrc.llm.ivr import (
     InstructIvrSpec,
+    InvalidJsonResponseError,
     _output_transport,
+    _parse_schema,
     _requirements_for,
     _schema_requirement,
     _timed_out_ivr_run,
@@ -66,9 +68,29 @@ def test_output_format_installs_one_schema_requirement_with_actionable_feedback(
         "Return exactly one JSON object matching the required output schema. "
         "`decision` is required. Remove unsupported field `complete_locator`."
     )
+    assert "PLEASE CHECK IF TOKEN LIMIT VIOLATED" not in result.reason
 
 
-def test_schema_requirement_reports_incomplete_json_without_pydantic_noise() -> None:
+@pytest.mark.parametrize("value", ['{"decision":', '{"decision": yes}'])
+def test_json_syntax_failure_has_specific_exception_and_parser_detail(value) -> None:
+    with pytest.raises(InvalidJsonResponseError) as caught:
+        _parse_schema(_context(value), _Output)
+
+    error = caught.value
+    assert isinstance(error.__cause__, ValidationError)
+    assert error.parser_error == error.__cause__.errors(include_url=False)[0]["msg"]
+    assert error.parser_error in str(error)
+    assert "PLEASE CHECK IF TOKEN LIMIT VIOLATED" in str(error)
+
+
+def test_valid_json_schema_failure_remains_pydantic_validation_error() -> None:
+    with pytest.raises(ValidationError) as caught:
+        _parse_schema(_context('{"decision": "not a boolean"}'), _Output)
+
+    assert caught.value.errors(include_url=False)[0]["type"] == "bool_parsing"
+
+
+def test_schema_requirement_reports_specific_incomplete_json_repair() -> None:
     requirement = _schema_requirement(_Output)
 
     result = requirement.validation_fn(_context('{"decision":'))
@@ -77,12 +99,17 @@ def test_schema_requirement_reports_incomplete_json_without_pydantic_noise() -> 
     assert not result.as_bool()
     assert result.reason == (
         "Return exactly one JSON object matching the required output schema. "
-        "The previous response was incomplete or invalid JSON."
+        "The previous response was incomplete or invalid JSON. "
+        "Parser error: Invalid JSON: EOF while parsing a value at line 1 column 12 "
+        "PLEASE CHECK IF TOKEN LIMIT VIOLATED. "
+        "Return a complete JSON object with all required fields and closing delimiters. "
+        "Keep reasons concise, quote only necessary evidence, and avoid repetitive text."
     )
     assert "pydantic.dev" not in result.reason
 
 
-def test_schema_requirement_prevents_domain_parser_from_running_on_bad_json() -> None:
+@pytest.mark.parametrize("value", ['{"decision":', '{"complete_locator":"No. 21-381"}'])
+def test_schema_requirement_prevents_domain_parser_from_running_on_bad_json(value) -> None:
     called = False
 
     def domain_validation(_ctx: object) -> ValidationResult:
@@ -99,7 +126,7 @@ def test_schema_requirement_prevents_domain_parser_from_running_on_bad_json() ->
     )
 
     assert len(requirements) == 2
-    guarded_result = requirements[1].validation_fn(_context('{"complete_locator":"No. 21-381"}'))
+    guarded_result = requirements[1].validation_fn(_context(value))
     assert guarded_result is not None
     assert guarded_result.as_bool()
     assert not called
@@ -325,10 +352,14 @@ def test_output_transport_preserves_schema_and_domain_repair_at_instruct_boundar
     assert run.success
     assert run.output == '{"decision":true}'
     assert not run.attempts[0].requirements[0].passed
+    json_error = run.attempts[0].requirements[0].reason
+    assert "Invalid JSON: EOF while parsing a value" in json_error
+    assert "PLEASE CHECK IF TOKEN LIMIT VIOLATED" in json_error
     assert run.attempts[0].requirements[1].passed
     assert run.attempts[1].requirements[0].passed
     assert not run.attempts[1].requirements[1].passed
     assert "incomplete or invalid JSON" in run.attempts[1].request[-1]["content"]
+    assert json_error in run.attempts[1].request[-1]["content"]
     assert "Decision must be true." in run.attempts[2].request[-1]["content"]
     assert run.output_schema == _Output.model_json_schema()
     assert run.model_options[OUTPUT_MODE_OPTION] == mode.value
@@ -549,6 +580,41 @@ def test_timeout_preserves_completed_repairs_without_mutating_caller_strategy(mo
     assert "0.2-second timeout" in run.failure_reason
     assert run.output_schema == _Output.model_json_schema()
     assert run.model_options[OUTPUT_MODE_OPTION] == mode.value
+    assert IvrRun.model_validate_json(run.model_dump_json()) == run
+
+
+def test_timeout_before_repair_retains_generated_output_and_finished_checks(monkeypatch) -> None:
+    """A deadline during validation must not erase an already generated answer."""
+    request = [{"role": "user", "content": "Review the source."}]
+    response = {"id": "generated-before-timeout", "choices": [{"finish_reason": "stop"}]}
+    generation = SimpleNamespace(
+        value='{"decision":true}',
+        _generate_log=SimpleNamespace(prompt=request, model_output=response),
+    )
+
+    async def stalled_instruct(_description, **kwargs):
+        context = SimpleNamespace(last_output=lambda: generation)
+        assert kwargs["requirements"][0].validation_fn(context).as_bool()
+        # No repair hook is reached while another validation is pending.
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(mfuncs, "ainstruct", stalled_instruct)
+    run = asyncio.run(
+        run_instruct_ivr(
+            SimpleNamespace(backend=SimpleNamespace(model_id="offline-model")),
+            InstructIvrSpec(description="Review the source.", output_format=_Output),
+            strategy=MultiTurnStrategy(loop_budget=2),
+            model_options={ModelOption.STREAM_TIMEOUT: 0.05, OUTPUT_MODE_OPTION: LlmOutputMode.JSON_SCHEMA},
+        )
+    )
+    assert not run.success
+    assert len(run.attempts) == 1
+    assert run.output == generation.value
+    assert run.attempts[0].request == request
+    assert run.attempts[0].response == response
+    assert run.attempts[0].requirements[0].passed
+    assert not run.attempts[0].requirements[-1].passed
+    assert "timeout" in run.failure_reason
     assert IvrRun.model_validate_json(run.model_dump_json()) == run
 
 
