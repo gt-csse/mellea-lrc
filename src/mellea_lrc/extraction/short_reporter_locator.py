@@ -6,6 +6,7 @@ from mellea_lrc.extraction.context.leaves import pin_after
 from mellea_lrc.model.citations import ShortReporterCitation
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.pin_cite import AT_JOIN
 from mellea_lrc.parsing.reporters import short_reporter_readings
 
 SUBSTAGE = "grow_leaves.short_reporter_citations.discovery"
@@ -27,7 +28,7 @@ def find_short_reporter_citations(document: Document) -> Document:
             continue
         # The locator span includes the pinpoint that identifies this as a
         # short form. Only the separate pin field normalizes its targets.
-        marker = re.search(r"\bat\s+", document.text[span.start : span.end], re.I)
+        marker = re.search(rf"\b{AT_JOIN}", document.text[span.start : span.end], re.I)
         pin = pin_after(document.text, span.start + marker.end(), span.end) if marker else None
         identifier = f"short-reporter:{span.start}:{span.end}"
         document = document.add_citation(

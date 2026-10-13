@@ -21,6 +21,7 @@ from mellea_lrc.model.citations import ReferenceCitation
 from mellea_lrc.model.citations.fields.base import CitationField
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.events import events
 
 SUBSTAGE = "grow_leaves.reference_citations.discovery"
 
@@ -45,7 +46,11 @@ def find_reference_citations(document: Document) -> Document:
         if span := preceding_name(document, citation.site_span):
             blocked.append(span)
     blocked.extend(span for c in document.short_reporters if (span := preceding_name(document, c.site_span)))
-    candidates: set[tuple[int, int]] = set()
+    boundaries = sorted(
+        {citation.site_span.start for citation in document.citations}
+        | {event.span()[0] for event in events(document.text)}
+    )
+    candidates: dict[tuple[int, int], Span] = {}
     for alias in aliases(document):
         # Use eyecite's general name eligibility guard, not a local stopword list.
         # Upstream's guard rejects every name ending in a period (including
@@ -56,23 +61,21 @@ def find_reference_citations(document: Document) -> Document:
         pattern = rf"(?<!\w){fuzzy_literal(alias, whitespace=True, newline=True)}(?!\w)"
         for match in re.finditer(pattern, document.text):
             span = Span(*match.span())
-            pin = reference_pin_after(document.text, span.end, min(len(document.text), span.end + 100))
+            next_start = next((start for start in boundaries if start >= span.end), len(document.text))
+            pin = reference_pin_after(document.text, span.end, min(next_start, span.end + 100))
             if pin is None:
                 continue
             # An apparent name+pin inside a full/short citation is a component
             # of that citation, not an additional reference leaf.
             complete_span = Span(span.start, pin.end)
             if not any(complete_span.overlaps(part) for part in blocked):
-                candidates.add(match.span())
-    accepted: list[Span] = []
+                candidates[match.span()] = pin
+    accepted: list[tuple[Span, Span]] = []
     for start, end in sorted(candidates, key=lambda pair: (-(pair[1] - pair[0]), pair[0])):
         span = Span(start, end)
-        if not any(span.overlaps(part) for part in accepted):
-            accepted.append(span)
-    for span in sorted(accepted, key=lambda part: part.start):
-        pin = reference_pin_after(document.text, span.end, min(len(document.text), span.end + 100))
-        if pin is None:
-            raise ValueError(f"Reference citation has no adjacent pinpoint: {span}")
+        if not any(span.overlaps(part) for part, _ in accepted):
+            accepted.append((span, candidates[(start, end)]))
+    for span, pin in sorted(accepted, key=lambda item: item[0].start):
         document = document.add_citation(
             ReferenceCitation.from_source(source=document.text, span=span, pin_span=pin, substage=SUBSTAGE)
         )

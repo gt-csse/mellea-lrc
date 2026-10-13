@@ -5,14 +5,15 @@ from __future__ import annotations
 import json
 import re
 import time
-from collections.abc import Callable
-from contextlib import ExitStack
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from datetime import date
 from html.parser import HTMLParser
 from typing import Any, Literal, Protocol, TypeVar
 from urllib.parse import urlparse
 
+from mellea_lrc.model.citations import FullCitationVariant
 from mellea_lrc.model.citations.body_evidence import (
     BodyEvidence,
     BodyEvidenceFailure,
@@ -21,7 +22,6 @@ from mellea_lrc.model.citations.body_evidence import (
     BodySource,
 )
 from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch
-from mellea_lrc.model.document import Document
 from mellea_lrc.providers.courtlistener import CourtListenerClient, CourtListenerError
 from mellea_lrc.providers.courtlistener.models import CourtListenerSearchPage, CourtListenerSearchResult
 from mellea_lrc.providers.courtlistener.pagination import cursor_from_url
@@ -32,7 +32,6 @@ from mellea_lrc.validation.body_search.common import (
     field_query_parties,
     locator_text,
     make_body_evidences,
-    roots_for_body_search,
 )
 
 MAX_PAGES_PER_QUERY = 2
@@ -443,129 +442,80 @@ def _search_query(
     )
 
 
-def run_courtlistener_body_search(
-    document: Document,
-    *,
-    substage: str,
-    source: BodySource,
-    retrospective_date: date | None,
-    client: CourtListenerBodyClient | None,
-) -> Document:
-    """Run one source at a time and attach search evidence to each open root."""
-    if substage in document.substage_runs:
-        raise ValueError(f"Substage already completed: {substage}")
-    if "grow_roots.root_formation.rule" not in document.substage_runs:
-        raise ValueError("Form roots before body search")
-
+@contextmanager
+def body_client(client: CourtListenerBodyClient | None) -> Iterator[Callable[[], CourtListenerBodyClient]]:
+    """Reuse one lazily opened transport without owning citation or checkpoint writes."""
     with ExitStack() as stack:
         service = client
-        for root in roots_for_body_search(document):
-            recorded = root.record(substage)
-            attempts: list[BodySearchAttempt] = []
-            evidence: list[BodyEvidence] = []
-            failures: list[BodyEvidenceFailure] = []
-            try:
-                locator = locator_text(root)
-            except ValueError as error:
-                locator = ""
-                failures.append(_failure("unsearchable_locator", str(error)))
-            if not locator and not failures:
-                failures.append(_failure("unsearchable_locator", "Citation has no searchable locator"))
-            if locator:
-                budget = _CandidateBudget()
-                query = _quoted_query(locator)
-                if service is None:
-                    try:
-                        service = stack.enter_context(CourtListenerClient())
-                    except CourtListenerError as error:
-                        attempts.append(BodySearchAttempt(query=query, failure=_service_failure(error)))
-                if service is not None:
-                    attempt, found, failed = _search_query(
-                        service,
-                        query=query,
-                        source=source,
-                        anchor_text=locator,
-                        source_text=document.text,
-                        retrospective_date=retrospective_date,
-                        budget=budget,
-                    )
-                    attempts.append(attempt)
-                    evidence.extend(found)
-                    failures.extend(failed)
-            result = BodySearch(
-                node_id=recorded.nodes[-1].id,
-                source=source,
-                retrospective_date=retrospective_date,
-                attempts=tuple(attempts),
-                evidence=tuple(evidence),
-                failures=tuple(failures),
-            )
-            document = document.replace_citation(recorded.with_body_search(result))
-    return document.complete_substage(substage)
+
+        def get_client() -> CourtListenerBodyClient:
+            nonlocal service
+            if service is None:
+                service = stack.enter_context(CourtListenerClient())
+            return service
+
+        yield get_client
 
 
-def run_courtlistener_field_body_search(
-    document: Document,
+def _search_root(
+    source_text: str,
+    root: FullCitationVariant,
     *,
-    substage: str,
     source: BodySource,
     retrospective_date: date | None,
-    client: CourtListenerBodyClient | None,
-) -> Document:
-    """Search routed roots by a printed case name and save grounded body excerpts."""
-    if substage in document.substage_runs:
-        raise ValueError(f"Substage already completed: {substage}")
-    if "validate_roots.locator_body_corroboration.llm_judgment" not in document.substage_runs:
-        raise ValueError("Complete locator body review before field body search")
-
-    with ExitStack() as stack:
-        service = client
-        for root in document.roots:
-            if root.next_substage != "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval":
-                continue
-            recorded = root.record(substage)
-            attempts: list[BodySearchAttempt] = []
-            evidence: list[BodyEvidence] = []
-            failures: list[BodyEvidenceFailure] = []
-            query_name = field_query_name(root)
-            if query_name is None:
-                failures.append(
-                    _failure("unsearchable_case_name", "Citation has no safe case name for body search")
-                )
-            else:
-                parties = field_query_parties(root)
-                query = f"{parties[0]} AND {parties[1]}" if parties is not None else _quoted_query(query_name)
-                budget = _CandidateBudget()
-                if service is None:
-                    try:
-                        service = stack.enter_context(CourtListenerClient())
-                    except CourtListenerError as error:
-                        attempts.append(BodySearchAttempt(query=query, failure=_service_failure(error)))
-                if service is not None:
-                    attempt, found, failed = _search_query(
-                        service,
-                        query=query,
-                        source=source,
-                        anchor_text=query_name,
-                        source_text=document.text,
-                        retrospective_date=retrospective_date,
-                        budget=budget,
-                        anchor_kind="case_name",
-                        fetch_limit=(
-                            MAX_FETCHES_PER_CITATION // 2 if parties is not None else MAX_FETCHES_PER_CITATION
-                        ),
-                    )
-                    attempts.append(attempt)
-                    evidence.extend(found)
-                    failures.extend(failed)
-            result = FieldBodySearch(
-                node_id=recorded.nodes[-1].id,
-                source=source,
-                retrospective_date=retrospective_date,
-                query_name=query_name,
-                attempts=tuple(attempts),
-                evidence=tuple(evidence),
-                failures=tuple(failures),
+    get_client: Callable[[], CourtListenerBodyClient],
+    anchor_kind: Literal["locator", "case_name"] = "locator",
+) -> BodySearch | FieldBodySearch:
+    """Return one root's bounded search evidence without changing its history."""
+    attempts: list[BodySearchAttempt] = []
+    failures: list[BodyEvidenceFailure] = []
+    evidence: tuple[BodyEvidence, ...] = ()
+    parties = None
+    if anchor_kind == "case_name":
+        anchor_text = field_query_name(root)
+        if anchor_text is None:
+            failures.append(
+                _failure("unsearchable_case_name", "Citation has no safe case name for body search")
             )
-            document = document.replace_citation(recorded.with_field_body_search(result))
-    return document.complete_substage(substage)
+        else:
+            parties = field_query_parties(root)
+    else:
+        try:
+            anchor_text = locator_text(root)
+        except ValueError as error:
+            anchor_text = ""
+            failures.append(_failure("unsearchable_locator", str(error)))
+        if not anchor_text and not failures:
+            failures.append(_failure("unsearchable_locator", "Citation has no searchable locator"))
+    if anchor_text:
+        query = f"{parties[0]} AND {parties[1]}" if parties is not None else _quoted_query(anchor_text)
+        try:
+            service = get_client()
+        except CourtListenerError as error:
+            attempts.append(BodySearchAttempt(query=query, failure=_service_failure(error)))
+        else:
+            attempt, evidence, failed = _search_query(
+                service,
+                query=query,
+                source=source,
+                anchor_text=anchor_text,
+                source_text=source_text,
+                retrospective_date=retrospective_date,
+                budget=_CandidateBudget(),
+                anchor_kind=anchor_kind,
+                fetch_limit=MAX_FETCHES_PER_CITATION // 2
+                if parties is not None
+                else MAX_FETCHES_PER_CITATION,
+            )
+            attempts.append(attempt)
+            failures.extend(failed)
+    search_type = BodySearch if anchor_kind == "locator" else FieldBodySearch
+    return search_type(
+        node_id=root.nodes[-1].id,
+        source=source,
+        retrospective_date=retrospective_date,
+        **({"query_name": anchor_text} if anchor_kind == "case_name" else {}),
+        attempts=tuple(attempts),
+        evidence=evidence,
+        failures=tuple(failures),
+    )

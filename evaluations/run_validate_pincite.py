@@ -14,7 +14,6 @@ from evaluations import complete_stage_boundary
 from mellea_lrc.api import (
     Document,
     index_reporter_root_opinion_pages,
-    judge_reporter_citation_pinpoints,
     prepare_reporter_citation_pinpoint_evidence,
     read_reporter_citation_propositions,
     reporter_root_opinion_retrieval,
@@ -22,6 +21,7 @@ from mellea_lrc.api import (
     review_reporter_citation_full_opinions,
     review_reporter_citation_opinions,
     review_reporter_citation_pinpoint_pages,
+    validate_pincite,
 )
 from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.providers.courtlistener import CourtListenerClient
@@ -34,7 +34,7 @@ from mellea_lrc.validation.reporter_citation_pinpoint_page_review import SUBSTAG
 from mellea_lrc.validation.reporter_citation_propositions import SUBSTAGE as PROPOSITION_SUBSTAGE
 from mellea_lrc.validation.reporter_root_opinion_page_index import SUBSTAGE as INDEX_SUBSTAGE
 from mellea_lrc.validation.reporter_root_opinion_retrieval import SUBSTAGE as RETRIEVAL_SUBSTAGE
-from mellea_lrc.workflows import _require_workflow_prefix
+from mellea_lrc.workflows import validate_workflow_checkpoint
 
 _RESULTS_ROOT = Path(__file__).resolve().parent / "results"
 _SUBSTAGES = (
@@ -133,7 +133,7 @@ async def run(
                     prior = tuple(substage for substage in original.substage_runs if substage in _SUBSTAGES)
                     if prior != enabled[: len(prior)]:
                         raise ValueError(f"Unexpected pinpoint input stages: {name}")
-                    _require_workflow_prefix(original, "validate_pincite")
+                    validate_workflow_checkpoint(original, "validate_pincite")
                     stages = enabled[len(prior) :]
                     artifact = run_dir / "documents" / f"{name}.json"
                     document = (
@@ -146,36 +146,55 @@ async def run(
                     recover = document.get_stage if last.kind == "stage" else document.get_substage
                     if recover(last.name) != original:
                         raise ValueError(f"Saved pinpoint input differs: {name}")
-                    _require_workflow_prefix(document, "validate_pincite")
+                    validate_workflow_checkpoint(document, "validate_pincite")
                     document = complete_stage_boundary(document, _SUBSTAGES)
-                    for substage in stages[len(finished) :]:
-                        if substage in _MODEL_SUBSTAGES and _resolved_model_profiles() != model_profiles:
+                    full_workflow = stop_after == JUDGMENT_SUBSTAGE
+
+                    def save_checkpoint(checkpoint: Document) -> None:
+                        completed = checkpoint.substage_runs[len(original.substage_runs) :]
+                        if completed != stages[: len(completed)]:
+                            raise ValueError(f"Unexpected pinpoint checkpoint: {name}")
+                        substage = checkpoint.substage_runs[-1]
+                        if (full_workflow or substage in _MODEL_SUBSTAGES) and (
+                            _resolved_model_profiles() != model_profiles
+                        ):
                             raise ValueError(f"Pinpoint model profiles changed during execution: {substage}")
-                        if substage == RETRIEVAL_SUBSTAGE:
-                            document = reporter_root_opinion_retrieval(document, client=client)
-                        elif substage == INDEX_SUBSTAGE:
-                            document = index_reporter_root_opinion_pages(document)
-                        elif substage == RESOLUTION_SUBSTAGE:
-                            document = resolve_reporter_citation_pages(document)
-                        elif substage == REVIEW_SUBSTAGE:
-                            document = await review_reporter_citation_opinions(document)
-                        elif substage == PROPOSITION_SUBSTAGE:
-                            document = await read_reporter_citation_propositions(document)
-                        elif substage == EVIDENCE_SUBSTAGE:
-                            document = prepare_reporter_citation_pinpoint_evidence(document)
-                        elif substage == PAGE_REVIEW_SUBSTAGE:
-                            document = await review_reporter_citation_pinpoint_pages(document)
-                        elif substage == FULL_REVIEW_SUBSTAGE:
-                            document = await review_reporter_citation_full_opinions(document)
-                        elif substage == JUDGMENT_SUBSTAGE:
-                            document = judge_reporter_citation_pinpoints(document)
-                        if substage in _MODEL_SUBSTAGES and _resolved_model_profiles() != model_profiles:
-                            raise ValueError(f"Pinpoint model profiles changed during execution: {substage}")
-                        if document.substage_runs[-1] != substage:
-                            raise ValueError(f"Pinpoint substage did not complete: {substage}")
-                        document = complete_stage_boundary(document, _SUBSTAGES)
-                        _write(artifact, document.model_dump_json(indent=2) + "\n")
-                        print(f"{index}/{len(record['filings'])} {name}: {substage}", flush=True)
+                        _write(artifact, checkpoint.model_dump_json(indent=2) + "\n")
+                        if checkpoint.runs[-1].kind == "substage":
+                            print(f"{index}/{len(record['filings'])} {name}: {substage}", flush=True)
+
+                    if full_workflow:
+                        if _resolved_model_profiles() != model_profiles:
+                            raise ValueError("Pinpoint model profiles changed during execution")
+                        document = await validate_pincite(document, client=client, checkpoint=save_checkpoint)
+                    else:
+                        for substage in stages[len(finished) :]:
+                            if substage in _MODEL_SUBSTAGES and _resolved_model_profiles() != model_profiles:
+                                raise ValueError(
+                                    f"Pinpoint model profiles changed during execution: {substage}"
+                                )
+                            if substage == RETRIEVAL_SUBSTAGE:
+                                document = reporter_root_opinion_retrieval(document, client=client)
+                            elif substage == INDEX_SUBSTAGE:
+                                document = index_reporter_root_opinion_pages(document)
+                            elif substage == RESOLUTION_SUBSTAGE:
+                                document = resolve_reporter_citation_pages(document)
+                            elif substage == REVIEW_SUBSTAGE:
+                                document = await review_reporter_citation_opinions(document)
+                            elif substage == PROPOSITION_SUBSTAGE:
+                                document = await read_reporter_citation_propositions(document)
+                            elif substage == EVIDENCE_SUBSTAGE:
+                                document = prepare_reporter_citation_pinpoint_evidence(document)
+                            elif substage == PAGE_REVIEW_SUBSTAGE:
+                                document = await review_reporter_citation_pinpoint_pages(document)
+                            elif substage == FULL_REVIEW_SUBSTAGE:
+                                document = await review_reporter_citation_full_opinions(document)
+                            if document.substage_runs[-1] != substage:
+                                raise ValueError(f"Pinpoint substage did not complete: {substage}")
+                            document = complete_stage_boundary(document, _SUBSTAGES)
+                            save_checkpoint(document)
+                    if document.substage_runs[len(original.substage_runs) :] != stages:
+                        raise ValueError(f"Pinpoint run did not complete every enabled substage: {name}")
                     _write(artifact, document.model_dump_json(indent=2) + "\n")
                     print(f"{index}/{len(record['filings'])} {name}: complete", flush=True)
 

@@ -356,6 +356,29 @@ def test_reference_discovery_masks_a_pin_that_overlaps_another_locator(tmp_path:
     assert not [c for c in document.short_citations if isinstance(c, ReferenceCitation)]
 
 
+@pytest.mark.parametrize(
+    "following",
+    ["410 U.S. 113 (1973).", "100 F.3d at 20.", "42 U.S.C. § 1983.", "Id. at 496.", "Smith, supra, at 496."],
+)
+def test_reference_pin_stops_before_the_next_authority(tmp_path: Path, following: str) -> None:
+    text = "Smith v. Jones, 347 U.S. 483 (1954). See Smith at 495 - 97, 501 n.2, " + following
+    roots = rooted(tmp_path, text)
+    document = asyncio.run(grow_leaves(roots, review_leaves=False))
+    references = [c for c in document.short_citations if isinstance(c, ReferenceCitation)]
+
+    assert len(references) == 1
+    reference = references[0]
+    assert reference.case_name[-1].quote == "Smith"
+    assert reference.pin_cite[-1].quote == "495 - 97, 501 n.2"
+    assert reference.pin_cite[-1].span.end <= text.index(following)
+    assert reference.root_id[-1].value == roots.roots[0].id
+    assert [(pin.first, pin.last, pin.footnote) for pin in reference.get_pin_cite()] == [
+        (495, 497, None),
+        (501, 501, "2"),
+    ]
+    assert Document.model_validate_json(document.model_dump_json()) == document
+
+
 def test_parenthesized_full_citation_name_is_not_reproposed_as_a_reference(tmp_path: Path) -> None:
     from mellea_lrc.extraction.reference_citations import find_reference_citations
 

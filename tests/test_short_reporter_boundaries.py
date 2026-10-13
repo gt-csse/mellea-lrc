@@ -72,6 +72,25 @@ def test_parallel_short_reporters_keep_separate_spans_and_pins(quotes: tuple[str
     assert restored.get_stage("grow_roots.root_formation") == roots
 
 
+@pytest.mark.parametrize("anchor", ["347 U.S. at495", "347 U.S.at495", "347U.S.at495", "347 U.S. at\n495"])
+def test_compact_at_join_reads_the_complete_bounded_pin(anchor: str) -> None:
+    quote = anchor + ", 501 n.2"
+    source = ROOTS + "See Smith, " + quote + ", 100 F.3d at 20."
+    created = find_short_reporter_citations(_roots(source))
+
+    first, second = created.short_reporters
+    assert first.short_locator[-1].quote == quote
+    assert first.short_locator[-1].normalizable
+    assert first.pin_cite[-1].quote == "495, 501 n.2"
+    assert [(pin.first, pin.last, pin.footnote) for pin in first.get_pin_cite()] == [
+        (495, 495, None),
+        (501, 501, "2"),
+    ]
+    assert first.site_span.end < second.site_span.start
+    assert second.pin_cite[-1].quote == "20"
+    assert Document.model_validate_json(created.model_dump_json()) == created
+
+
 @pytest.mark.parametrize(
     "next_citation",
     [

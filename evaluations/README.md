@@ -62,6 +62,12 @@ committing a missing opinion. Model review failures remain explicit typed
 outcomes in the saved Documents. End-to-end mode cannot be combined with saved
 input modes, docket-lookup reuse, or the reserved-token pool.
 
+Docket retrieval retries recover the checkpoint immediately before the failed
+provider in both root-only and end-to-end runs, preserving earlier extraction
+and reviews. A supplied input checkpoint that already contains a transient
+retrieval failure is rejected before provider calls: supply an earlier checkpoint
+so that the failed retrieval can run without changing the preserved input.
+
 ## Workflow hierarchy
 
 The immutable catalog in `src/mellea_lrc/model/execution.py` defines 15 stages:
@@ -144,6 +150,8 @@ The runner saves one cumulative Document per filing after every completed substa
 `--resume-run` reuses completed substages and filings. Inputs already containing
 `validate_pincite.opinion_preparation.retrieval` reuse the downloaded responses.
 `--stop-after` accepts any catalog substage name and retains that exact boundary.
+Complete executions use the public `validate_pincite` workflow and its checkpoint
+callback; partial runs dispatch only through the requested stopping substage.
 
 `score_reporter_root_opinion_retrieval(document)` and
 `score_validate_pincite(document)` each accept only a Document. Opinion retrieval reports
@@ -289,6 +297,8 @@ filings are retained, and the saved corpus, parent filing list, input hashes,
 and existing checkpoints are checked before continuing. One cumulative Document is saved atomically after each
 completed substage in `documents/`; there are no separate copies of each leaf
 checkpoint. `get_substage` recovers those checkpoints from the final Document.
+Complete executions use the public `grow_leaves` workflow and its checkpoint
+callback; partial runs retain explicit dispatch through `--stop-after`.
 
 `score_grow_leaves(document)` calls the independent Document-only scorer for
 each completed leaf substage, including a run that stops before the workflow

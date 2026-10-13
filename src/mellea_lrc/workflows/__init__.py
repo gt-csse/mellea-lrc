@@ -34,7 +34,7 @@ def _require_stage_prefix(document: Document, stage: str, *, omitted_substages: 
     _require_prefix(document, substages, stage)
 
 
-def _require_workflow_prefix(
+def validate_workflow_checkpoint(
     document: Document,
     workflow: str,
     *,

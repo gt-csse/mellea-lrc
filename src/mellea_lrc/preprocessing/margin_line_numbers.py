@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from itertools import pairwise
-from statistics import median
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -23,10 +22,8 @@ MIN_MARGIN_NUMBERS = 5
 # Right edges within a column agree to well under a character width; the slack
 # covers the extra digit of a two-digit number overhanging its neighbours.
 _ALIGNMENT_SLACK = 5.0
-# How far into a page a margin reaches, in points. A column of counting numbers
-# this close to the edge of a letter page is a margin whatever Docling thinks
-# the prose begins at -- which on a filing whose numbers it merges into the
-# lines beside them is the same edge as the numbers themselves.
+# How far into a page a margin reaches, in points. Being left of body prose
+# alone cannot distinguish a margin from list markers or a numeric body column.
 _MARGIN_EDGE = 60.0
 
 
@@ -46,7 +43,7 @@ def margin_line_numbers(document: DoclingDocument) -> list[str]:
 def _margin_items(document: DoclingDocument) -> list[Any]:
     """Every text item that belongs to a page's left-margin number column."""
     numeric: dict[int, list[Any]] = defaultdict(list)
-    prose_left: dict[int, list[float]] = defaultdict(list)
+    prose_pages: set[int] = set()
 
     # A document carrying no text layer has no margin to find. Docling's own
     # documents always have one, but the attribute is read defensively because
@@ -54,23 +51,22 @@ def _margin_items(document: DoclingDocument) -> list[Any]:
     # should yield no margin, not stop the preprocessing of the document.
     for item in getattr(document, "texts", None) or []:
         page, box = _placement(item)
-        if box is None:
+        if box is None or getattr(getattr(item, "label", None), "value", None) == "list_item":
             continue
         if _line_number_value(getattr(item, "text", "") or "") is None:
-            prose_left[page].append(box.l)
+            prose_pages.add(page)
         else:
             numeric[page].append(item)
 
     found: list[Any] = []
     for page, items in numeric.items():
-        if page not in prose_left:
+        if page not in prose_pages:
             continue
-        edge = median(prose_left[page])
         for column in _right_aligned_columns(items):
             if len(column) < MIN_MARGIN_NUMBERS:
                 continue
             right = _placement(column[0])[1].r
-            if right <= edge or (_counts_down_the_page(column) and right <= _MARGIN_EDGE):
+            if right <= _MARGIN_EDGE and _counts_down_the_page(column):
                 found.extend(column)
     return found
 
@@ -84,9 +80,18 @@ def _counts_down_the_page(column: list[Any]) -> bool:
     prose beside them the survivors still rise, in runs with gaps where the
     absorbed ones were.
     """
+    from docling_core.types.doc.base import CoordOrigin
+
     values = [
         _line_number_value(getattr(item, "text", "") or "")
-        for item in sorted(column, key=lambda entry: -_placement(entry)[1].t)
+        for item in sorted(
+            column,
+            key=lambda entry: (
+                _placement(entry)[1].t
+                if _placement(entry)[1].coord_origin is CoordOrigin.TOPLEFT
+                else -_placement(entry)[1].t
+            ),
+        )
     ]
     return all(
         earlier is not None and later is not None and earlier < later for earlier, later in pairwise(values)

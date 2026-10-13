@@ -5,7 +5,7 @@ from __future__ import annotations
 from mellea_lrc.extraction.leaf_attribution_review.reviewer import LeafReviewer
 from mellea_lrc.extraction.leaf_field_corrections.reviewer import LeafFieldCorrectionReviewer
 from mellea_lrc.model.document import Document
-from mellea_lrc.workflows import Checkpoint, _require_workflow_prefix
+from mellea_lrc.workflows import Checkpoint, validate_workflow_checkpoint
 from mellea_lrc.workflows.grow_leaves.id_citations import grow_id_leaves
 from mellea_lrc.workflows.grow_leaves.leaf_field_correction import correct_leaf_readings
 from mellea_lrc.workflows.grow_leaves.reference_citations import grow_reference_leaves
@@ -23,7 +23,7 @@ async def grow_leaves(
 ) -> Document:
     """Attach short forms to formed roots through five resumable groups."""
     omitted = () if review_leaves else ("grow_leaves.supra_citations.llm_attribution",)
-    _require_workflow_prefix(document, "grow_leaves", omitted_substages=omitted)
+    validate_workflow_checkpoint(document, "grow_leaves", omitted_substages=omitted)
     if "grow_leaves.short_reporter_citations" not in document.stage_runs:
         document = await grow_short_reporter_leaves(
             document, review_leaves=review_leaves, reviewer=reviewer, checkpoint=checkpoint

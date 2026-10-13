@@ -888,7 +888,7 @@ def test_review_shows_distinct_documents_before_repeated_citations() -> None:
             source_text=SOURCE,
         )
     )
-    selected = _diverse_evidence(BodySource.COURTLISTENER_OPINION, items)
+    selected = _diverse_evidence(BodySource.COURTLISTENER_OPINION, tuple(enumerate(items)))
     assert len(selected) == 6
     assert len({item.body_id for _, _, item in selected}) == 6
 

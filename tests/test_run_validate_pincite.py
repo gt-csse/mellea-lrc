@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import importlib
 import json
 import re
 from dataclasses import asdict, replace
@@ -108,7 +109,7 @@ def _stage_fakes(monkeypatch, calls, *, failure=None):
     def resolve(document):
         return finish(runner.RESOLUTION_SUBSTAGE, document)
 
-    async def review(document):
+    async def review(document, **_kwargs):
         return finish(runner.REVIEW_SUBSTAGE, document)
 
     monkeypatch.setattr(runner, "reporter_root_opinion_retrieval", retrieve)
@@ -122,20 +123,39 @@ def _stage_fakes(monkeypatch, calls, *, failure=None):
     def judge(document):
         return finish(runner.JUDGMENT_SUBSTAGE, document)
 
-    async def propositions(document):
+    async def propositions(document, **_kwargs):
         return finish(runner.PROPOSITION_SUBSTAGE, document)
 
-    async def pages(document):
+    async def pages(document, **_kwargs):
         return finish(runner.PAGE_REVIEW_SUBSTAGE, document)
 
-    async def opinions(document):
+    async def opinions(document, **_kwargs):
         return finish(runner.FULL_REVIEW_SUBSTAGE, document)
 
     monkeypatch.setattr(runner, "prepare_reporter_citation_pinpoint_evidence", prepare)
-    monkeypatch.setattr(runner, "judge_reporter_citation_pinpoints", judge)
     monkeypatch.setattr(runner, "read_reporter_citation_propositions", propositions)
     monkeypatch.setattr(runner, "review_reporter_citation_pinpoint_pages", pages)
     monkeypatch.setattr(runner, "review_reporter_citation_full_opinions", opinions)
+    for stage, operations in {
+        "opinion_preparation": {
+            "reporter_root_opinion_retrieval": retrieve,
+            "index_reporter_root_opinion_pages": index,
+        },
+        "citation_preparation": {
+            "resolve_reporter_citation_pages": resolve,
+            "review_reporter_citation_opinions": review,
+            "read_reporter_citation_propositions": propositions,
+            "prepare_reporter_citation_pinpoint_evidence": prepare,
+        },
+        "support_review": {
+            "review_reporter_citation_pinpoint_pages": pages,
+            "review_reporter_citation_full_opinions": opinions,
+            "judge_reporter_citation_pinpoints": judge,
+        },
+    }.items():
+        module = importlib.import_module(f"mellea_lrc.workflows.validate_pincite.{stage}")
+        for name, operation in operations.items():
+            monkeypatch.setattr(module, name, operation)
 
 
 def test_completed_filings_resume_without_stage_or_provider_calls(tmp_path, monkeypatch, configured_profiles):
@@ -301,7 +321,8 @@ def test_profile_drift_cannot_persist_model_stage_and_resumes_after_restore(
     run_dir = next((tmp_path / "results" / "primary").iterdir())
     artifact = run_dir / "documents" / "first.txt.json"
     checkpoint = Document.model_validate_json(artifact.read_text())
-    assert checkpoint.substage_runs[-1] == runner.RESOLUTION_SUBSTAGE
+    preserved = runner.INDEX_SUBSTAGE if timing == "before" else runner.RESOLUTION_SUBSTAGE
+    assert checkpoint.substage_runs[-1] == preserved
     assert runner.REVIEW_SUBSTAGE not in checkpoint.substage_runs
     assert calls == [
         (substage, originals["first.txt"].text) for substage in SUBSTAGES[: 3 if timing == "before" else 4]
@@ -315,9 +336,13 @@ def test_profile_drift_cannot_persist_model_stage_and_resumes_after_restore(
     drift = False
     calls.clear()
     assert asyncio.run(runner.run(None, resume_run=run_dir)) == run_dir
-    assert calls == [(substage, originals["first.txt"].text) for substage in SUBSTAGES[3:]]
+    assert calls == [
+        (substage, originals["first.txt"].text) for substage in SUBSTAGES[2 if timing == "before" else 3 :]
+    ]
     completed = Document.model_validate_json(artifact.read_text())
-    assert completed.get_substage(runner.RESOLUTION_SUBSTAGE) == checkpoint
+    last = checkpoint.runs[-1]
+    recover = completed.get_stage if last.kind == "stage" else completed.get_substage
+    assert recover(last.name) == checkpoint
     assert json.loads((run_dir / "run.json").read_text())["status"] == "complete"
 
 
@@ -517,3 +542,45 @@ def test_runner_rejects_missing_earlier_group_before_provider_work_or_artifact_w
         asyncio.run(runner.run(input_documents))
     assert calls == client.calls == []
     assert list((tmp_path / "results").rglob("documents/*.json")) == []
+
+
+def test_full_runner_delegates_to_workflow_and_saves_atomic_and_group_callbacks(tmp_path, monkeypatch):
+    input_documents, originals = _input(tmp_path, filenames=("first.txt",))
+    _setup(monkeypatch, tmp_path)
+    calls = []
+    _stage_fakes(monkeypatch, calls)
+    workflow = runner.validate_pincite
+    inputs = []
+    boundaries = []
+    interrupted = False
+
+    async def run_workflow(document, *, client, checkpoint):
+        nonlocal interrupted
+        inputs.append(document)
+
+        def save(result):
+            nonlocal interrupted
+            checkpoint(result)
+            boundaries.append((result.runs[-1].kind, result.runs[-1].name))
+            if result.runs[-1].name == runner.REVIEW_SUBSTAGE and not interrupted:
+                interrupted = True
+                raise RuntimeError("Interrupted after a persisted workflow checkpoint")
+
+        return await workflow(document, client=client, checkpoint=save)
+
+    monkeypatch.setattr(runner, "validate_pincite", run_workflow)
+    with pytest.raises(RuntimeError, match="persisted workflow checkpoint"):
+        asyncio.run(runner.run(input_documents))
+    run_dir = next((tmp_path / "results" / "primary").iterdir())
+    artifact = run_dir / "documents" / "first.txt.json"
+    saved = Document.model_validate_json(artifact.read_text())
+    assert saved.substage_runs[-1] == runner.REVIEW_SUBSTAGE
+    assert saved.stage_runs == ("validate_pincite.opinion_preparation",)
+
+    assert asyncio.run(runner.run(None, resume_run=run_dir)) == run_dir
+    completed = Document.model_validate_json(artifact.read_text())
+    assert inputs == [originals["first.txt"], saved]
+    assert completed.substage_runs[-len(SUBSTAGES) :] == SUBSTAGES
+    assert sum(kind == "stage" for kind, _ in boundaries) == 3
+    assert [name for kind, name in boundaries if kind == "substage"] == list(SUBSTAGES)
+    assert [substage for substage, _ in calls] == list(SUBSTAGES)

@@ -7,7 +7,6 @@ import json
 
 import pytest
 
-from mellea_lrc.providers.courtlistener.models import CourtListenerSearchResult
 from mellea_lrc.model import Document, FullDocketCitation, Span
 from mellea_lrc.model.citations.docket_lookup import (
     DocketLookup,
@@ -19,6 +18,7 @@ from mellea_lrc.model.citations.docket_lookup import (
 from mellea_lrc.model.citations.fields.case_name import CaseNameKind
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.ivr import IvrRun
+from mellea_lrc.providers.courtlistener.models import CourtListenerSearchResult
 from mellea_lrc.validation.docket_root_lookup_courtlistener_llm_review import (
     SUBSTAGE,
     docket_root_lookup_courtlistener_llm_review,
@@ -492,6 +492,26 @@ def test_docket_date_checks_chronological_compatibility(
     cited: str | None, filed: str | None, expected: MatchResult
 ) -> None:
     assert review_module._docket_date_compatibility(cited, filed) is expected
+
+
+@pytest.mark.parametrize(
+    ("date_quote", "filed"),
+    [("20", "2005-01-01"), ("2007", "unknown")],
+)
+def test_unreadable_date_keeps_selected_docket_with_unavailable_comparison(date_quote, filed) -> None:
+    before = _document(shortlist=(0,), date_quote=date_quote)
+    before.roots[0].docket_lookup.attempts[0].pages[0]["results"][0]["dateFiled"] = filed
+    decision = _decision(0, date="unavailable")
+    context = DocketLookupReviewContext.from_document(before, before.roots[0])
+    assert context.choice_error(decision) is None
+    assert "expected date result: unavailable" in context.choice_error(_decision(0, date="match"))
+
+    after = asyncio.run(docket_root_lookup_courtlistener_llm_review(before, reviewer=FakeReviewer(decision)))
+    root = after.roots[0]
+    assert root.docket_lookup_review.decision.selected_candidate_index == 0
+    assert root.docket_lookup_review.decision.date.result is MatchResult.UNAVAILABLE
+    assert root.next_substage == "validate_roots.docket_lookup.identity_aggregation"
+    assert Document.model_validate_json(after.model_dump_json()) == after
 
 
 @pytest.mark.parametrize("decision", [_decision(99), _decision(0, date="mismatch")])

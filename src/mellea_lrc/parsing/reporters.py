@@ -17,7 +17,7 @@ from eyecite import get_citations
 from eyecite.models import FullCaseCitation, ShortCaseCitation, TokenExtractor
 from eyecite.tokenizers import EXTRACTORS, AhocorasickTokenizer
 
-from mellea_lrc.parsing.pin_cite import pin_after
+from mellea_lrc.parsing.pin_cite import AT_JOIN, pin_after
 
 _ANY_WHITESPACE = r"\s*"
 _REPORTER_GROUP = re.compile(r"\(\?P<reporter>((?:[^()\\]|\\.)*)\)")
@@ -125,7 +125,7 @@ def short_reporter_readings(source: str) -> tuple[ShortReporterReading, ...]:
         if isinstance(citation, ShortCaseCitation):
             start, end = citation.span_with_pincite()
             end = min(end, next_start)
-            marker = re.search(r"\bat\s+", source[start:end], re.I)
+            marker = re.search(rf"\b{AT_JOIN}", source[start:end], re.I)
             if marker and (pin := pin_after(source, start + marker.end(), min(end + 100, next_start))):
                 end = pin[1]
             readings.append(ShortReporterReading(span=(start, end), citation=citation))

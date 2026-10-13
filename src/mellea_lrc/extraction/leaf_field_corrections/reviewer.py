@@ -26,7 +26,8 @@ from mellea_lrc.model.citations.leaf_field_correction import (
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
 from mellea_lrc.model.span import Span
-from mellea_lrc.parsing.pin_cite import AT_JOIN, pin_after
+from mellea_lrc.parsing.markers import ID_MARKER
+from mellea_lrc.parsing.pin_cite import AT_JOIN, id_pin_after, pin_after
 
 
 def _envelope(citation: Citation) -> Span:
@@ -82,11 +83,17 @@ def _windows(document: Document, citation: Citation) -> tuple[LeafCorrectionWind
         default=after_end,
     )
     pin_end = min(pin_end, after_end)
-    if not isinstance(citation, FullCitation):
+    read_pin = pin_after
+    if isinstance(citation, IdCitation):
+        read_pin = id_pin_after
+        marker = re.match(ID_MARKER, document.text[site.start : pin_end], re.I)
+        if marker is not None:
+            pin_start = site.start + marker.end()
+    elif not isinstance(citation, FullCitation):
         marker = re.search(rf"\b{AT_JOIN}(?=[\d*¶])", document.text[site.start : pin_end], re.I)
         if marker is not None:
             pin_start = site.start + marker.end()
-    pin_span = pin_after(document.text, pin_start, pin_end)
+    pin_span = read_pin(document.text, pin_start, pin_end)
     windows.append(
         LeafCorrectionWindow(
             field="pin_cite", span=Span(*pin_span) if pin_span is not None else Span(pin_start, pin_start)

@@ -22,13 +22,14 @@ from mellea_lrc.api import (
     find_reference_citations,
     find_short_reporter_citations,
     find_supra_citations,
+    grow_leaves,
     resolve_short_reporter_case_names,
     resolve_short_reporter_colocations,
     resolve_supra_case_names,
     resolve_supra_pin_cites,
     review_supra_attributions,
 )
-from mellea_lrc.workflows import _require_workflow_prefix
+from mellea_lrc.workflows import validate_workflow_checkpoint
 
 _SETS = frozenset(
     {"primary", "hallucination-set-1", "hallucination-set-2", "reliable-high-profile", "reliable-low-profile"}
@@ -142,11 +143,11 @@ async def run(
             if hashlib.sha256(source.read_bytes()).hexdigest() != record["input_sha256"][name]:
                 raise ValueError(f"Leaf input changed: {name}")
             original = Document.model_validate_json(source.read_text()).get_substage(input_substage)
-            _require_workflow_prefix(original, "grow_leaves", omitted_substages=omitted)
+            validate_workflow_checkpoint(original, "grow_leaves", omitted_substages=omitted)
             original = complete_stage_boundary(original, (*enabled, *original.substage_runs))
             artifact = run_dir / "documents" / f"{name}.json"
             document = Document.model_validate_json(artifact.read_text()) if artifact.exists() else original
-            _require_workflow_prefix(document, "grow_leaves", omitted_substages=omitted)
+            validate_workflow_checkpoint(document, "grow_leaves", omitted_substages=omitted)
             document = complete_stage_boundary(document, (*enabled, *document.substage_runs))
             last = original.runs[-1]
             recover = document.get_stage if last.kind == "stage" else document.get_substage
@@ -155,20 +156,39 @@ async def run(
             finished = document.substage_runs[len(original.substage_runs) :]
             if finished != tuple(substage for substage, _ in stages[: len(finished)]):
                 raise ValueError(f"Unexpected leaf checkpoint: {name}")
-            for substage, call in stages[len(finished) :]:
-                if call in (
-                    attribute_short_reporter_citations,
-                    attribute_reference_citations,
-                    attribute_id_citations,
-                    correct_leaf_fields,
-                ):
-                    result = call(document, review=review_leaves)
-                else:
-                    result = call(document)
-                document = await result if inspect.isawaitable(result) else result
-                document = complete_stage_boundary(document, enabled)
-                _write(artifact, document.model_dump_json(indent=2) + "\n")
-                print(f"{index}/{len(record['filings'])} {name}: {substage}", flush=True)
+            expected = tuple(substage for substage, _ in stages)
+
+            def save_checkpoint(checkpoint: Document) -> None:
+                completed = checkpoint.substage_runs[len(original.substage_runs) :]
+                if completed != expected[: len(completed)]:
+                    raise ValueError(f"Unexpected leaf checkpoint: {name}")
+                _write(artifact, checkpoint.model_dump_json(indent=2) + "\n")
+                if checkpoint.runs[-1].kind == "substage":
+                    print(
+                        f"{index}/{len(record['filings'])} {name}: {checkpoint.substage_runs[-1]}",
+                        flush=True,
+                    )
+
+            if stop_after is None:
+                document = await grow_leaves(
+                    document, review_leaves=review_leaves, checkpoint=save_checkpoint
+                )
+            else:
+                for substage, call in stages[len(finished) :]:
+                    if call in (
+                        attribute_short_reporter_citations,
+                        attribute_reference_citations,
+                        attribute_id_citations,
+                        correct_leaf_fields,
+                    ):
+                        result = call(document, review=review_leaves)
+                    else:
+                        result = call(document)
+                    document = await result if inspect.isawaitable(result) else result
+                    document = complete_stage_boundary(document, enabled)
+                    save_checkpoint(document)
+            if document.substage_runs[len(original.substage_runs) :] != expected:
+                raise ValueError(f"Leaf run did not complete every enabled substage: {name}")
             _write(artifact, document.model_dump_json(indent=2) + "\n")
             print(f"{index}/{len(record['filings'])} {name}: complete", flush=True)
     except BaseException as error:
