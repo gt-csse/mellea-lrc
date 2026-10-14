@@ -8,8 +8,8 @@ from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.validation.body_search.common import make_body_evidences, source_copy_bodies
-from mellea_lrc.validation.intended_case_llm_selection.reviewer import IntendedCaseContext
-from mellea_lrc.validation.locator_body_llm_judgment.reviewer import BodyCorroborationContext
+from mellea_lrc.validation.review_intended_cases_llm.reviewer import IntendedCaseContext
+from mellea_lrc.validation.review_locator_bodies_llm.reviewer import BodyCorroborationContext
 
 
 @pytest.mark.parametrize("anchor_kind", ("locator", "case_name"))

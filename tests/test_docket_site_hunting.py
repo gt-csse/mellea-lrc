@@ -13,8 +13,8 @@ from mellea_lrc.api import (
     hunt_docket_locators,
     resolve_colocations,
 )
-from mellea_lrc.extraction.docket_site_hunting import suspected_dockets
-from mellea_lrc.extraction.docket_site_hunting.review import DocketSiteDecision, IvrDocketReviewer
+from mellea_lrc.extraction.hunt_docket_locators import suspected_dockets
+from mellea_lrc.extraction.hunt_docket_locators.review import DocketSiteDecision, IvrDocketReviewer
 from mellea_lrc.llm.config import OUTPUT_MODE_OPTION, LlmOutputMode
 from mellea_lrc.model import (
     CitationTagKind,
@@ -25,7 +25,7 @@ from mellea_lrc.model import (
     TableOfAuthoritiesComponent,
 )
 
-SUBSTAGE = "grow_roots.locator_discovery.docket_hunting"
+SUBSTAGE = "grow_roots.discover_root_locators.hunt_docket_locators"
 
 
 def _ready(source: str, *, index_spans: tuple[TableOfAuthoritiesComponent, ...] = ()) -> Document:
@@ -70,7 +70,7 @@ def test_hunt_recomputes_mask_after_each_admission_and_adds_only_full_dockets() 
     ]
     assert hunted.short_reporters == ()
     assert "short_reporter_citations" not in hunted.substage_runs
-    assert "grow_roots.field_reading.colocations" not in hunted.substage_runs
+    assert "grow_roots.read_root_fields.resolve_colocations" not in hunted.substage_runs
     for citation, written_number in zip(hunted.citations, ("19 Civ. 8034", "035547/2021")):
         locator = citation.locator[-1]
         assert source[locator.span.start : locator.span.end] == locator.quote
@@ -183,7 +183,7 @@ def test_hunt_proposes_index_occurrence_and_keeps_repeated_body_sites_distinct()
     assert seen == [index_start, body_start, later_start]
     assert [item.site_span.start for item in hunted.citations] == [index_start, body_start, later_start]
     assert len({item.id for item in hunted.citations}) == 3
-    assert [item.has_tag(CitationTagKind.TABLE_OF_AUTHORITIES) for item in hunted.citations] == [
+    assert [item.is_toa() for item in hunted.citations] == [
         True,
         False,
         False,
@@ -209,7 +209,7 @@ def test_hunt_rejects_a_repeat_run_and_checkpoint_survives_later_colocation() ->
     grouped = resolve_colocations(hunted)
     restored = Document.model_validate_json(grouped.model_dump_json())
     assert restored == grouped
-    assert grouped.get_substage("grow_roots.locator_discovery.docket_locators") == before
+    assert grouped.get_substage("grow_roots.discover_root_locators.find_docket_locators") == before
     assert grouped.get_substage(SUBSTAGE) == hunted
     assert restored.get_substage(SUBSTAGE) == hunted
     assert restored.site_reviews == grouped.site_reviews
@@ -249,7 +249,7 @@ def test_hunt_continues_from_a_serialized_rule_checkpoint() -> None:
 
     hunted = asyncio.run(hunt_docket_locators(restored, reviewer=reviewer))
 
-    assert hunted.get_substage("grow_roots.locator_discovery.docket_locators") == before
+    assert hunted.get_substage("grow_roots.discover_root_locators.find_docket_locators") == before
     assert hunted.substage_runs[-1] == SUBSTAGE
     assert [review.outcome for review in hunted.site_reviews] == ["accepted"]
     assert Document.model_validate_json(hunted.model_dump_json()) == hunted
@@ -264,16 +264,16 @@ def test_grow_roots_hunts_before_context_and_does_not_find_short_citations() -> 
     document = asyncio.run(grow_roots(Document.from_source(source), hunt_dockets=True, reviewer=reviewer))
 
     assert document.substage_runs == (
-        "grow_roots.locator_discovery.full_reporter_locators",
-        "grow_roots.locator_discovery.docket_locators",
+        "grow_roots.discover_root_locators.find_full_reporter_locators",
+        "grow_roots.discover_root_locators.find_docket_locators",
         SUBSTAGE,
-        "grow_roots.field_reading.docket_entries",
-        "grow_roots.field_reading.colocations",
-        "grow_roots.field_reading.case_names",
-        "grow_roots.field_reading.courts",
-        "grow_roots.field_reading.dates",
-        "grow_roots.field_reading.pin_cites",
-        "grow_roots.root_formation.rule",
+        "grow_roots.read_root_fields.resolve_docket_entries",
+        "grow_roots.read_root_fields.resolve_colocations",
+        "grow_roots.read_root_fields.resolve_case_names",
+        "grow_roots.read_root_fields.resolve_courts",
+        "grow_roots.read_root_fields.resolve_dates",
+        "grow_roots.read_root_fields.resolve_pin_cites",
+        "grow_roots.form_root_groups.form_roots",
     )
     assert len(document.full_locators) == 1
     assert document.full_locators[0].locator[-1].get_normalized().docket_number == "19 Civ. 8034"

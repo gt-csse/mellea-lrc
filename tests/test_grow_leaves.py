@@ -51,11 +51,11 @@ def test_workflow_grows_leaves_after_roots_without_validation(tmp_path: Path) ->
     assert short.root_id[-1].value == roots.roots[0].id
     assert short.case_name[-1].quote == "Smith"
     assert short.pin_cite[-1].quote == "495"
-    assert "grow_leaves.supra_citations.llm_attribution" not in result.substage_runs
+    assert "grow_leaves.grow_supra_leaves.review_attributions_llm" not in result.substage_runs
 
 
 def test_short_reporter_rule_rejects_shared_volume_or_name_disagreement(tmp_path: Path) -> None:
-    from mellea_lrc.extraction.short_reporter_locator import find_short_reporter_citations
+    from mellea_lrc.extraction.find_short_reporter_citations import find_short_reporter_citations
 
     text = (
         "Smith v. Jones, 347 U.S. 483 (1954). "
@@ -380,7 +380,7 @@ def test_reference_pin_stops_before_the_next_authority(tmp_path: Path, following
 
 
 def test_parenthesized_full_citation_name_is_not_reproposed_as_a_reference(tmp_path: Path) -> None:
-    from mellea_lrc.extraction.reference_citations import find_reference_citations
+    from mellea_lrc.extraction.find_reference_citations import find_reference_citations
 
     text = "Smith v. Jones (123 U.S. 45 (2000))."
     document = find_reference_citations(rooted(tmp_path, text))
@@ -409,8 +409,8 @@ def test_id_semantic_review_reject_uncertain_and_failure(tmp_path: Path, outcome
     id_citation = next(c for c in result.short_citations if isinstance(c, IdCitation))
     review = id_citation.reviews[-1]
 
-    assert result.get_substage("grow_leaves.id_citations.discovery") == before_attribution
-    assert result.substage_runs[-1] == "grow_leaves.id_citations.attribution"
+    assert result.get_substage("grow_leaves.grow_id_leaves.find_id_citations") == before_attribution
+    assert result.substage_runs[-1] == "grow_leaves.grow_id_leaves.attribute_citations"
     if outcome_kind == "reject":
         assert review.decision is not None and not review.decision.is_citation
         assert id_citation.root_id[-1].value == WITHDRAWN_ROOT_ID
@@ -436,10 +436,10 @@ def test_id_attribution_checkpoint_preserves_rule_and_review_links(tmp_path: Pat
         return LeafReviewOutcome(None, failure_reason="Synthetic reviewer failure")
 
     after_review = asyncio.run(attribute_id_citations(before_attribution, reviewer=accept_then_fail))
-    assert after_review.get_substage("grow_leaves.id_citations.discovery") == before_attribution
+    assert after_review.get_substage("grow_leaves.grow_id_leaves.find_id_citations") == before_attribution
     assert (
-        after_review.get_substage("grow_leaves.id_citations.attribution").substage_runs[-1]
-        == "grow_leaves.id_citations.attribution"
+        after_review.get_substage("grow_leaves.grow_id_leaves.attribute_citations").substage_runs[-1]
+        == "grow_leaves.grow_id_leaves.attribute_citations"
     )
     id_citations = [c for c in after_review.short_citations if isinstance(c, IdCitation)]
     assert len(id_citations) == 2
@@ -502,9 +502,12 @@ def test_id_review_persists_complete_ivr_trace_and_checkpoint_removes_it(tmp_pat
 
     assert persisted == trace
     assert persisted.attempts[1].request[-1]["content"] == "repair: index is out of range"
-    assert restored.get_substage("grow_leaves.id_citations.discovery") == before_attribution
+    assert restored.get_substage("grow_leaves.grow_id_leaves.find_id_citations") == before_attribution
     assert (
-        restored.get_substage("grow_leaves.id_citations.attribution").short_citations[-1].reviews[-1].ivr
+        restored.get_substage("grow_leaves.grow_id_leaves.attribute_citations")
+        .short_citations[-1]
+        .reviews[-1]
+        .ivr
         == trace
     )
 
@@ -520,14 +523,16 @@ def test_root_repeated_occurrence_is_a_distinct_leaf_not_a_new_root(tmp_path: Pa
 
 
 def test_leaf_stage_checkpoints_round_trip_and_cannot_repeat(tmp_path: Path) -> None:
-    from mellea_lrc.extraction.short_reporter_locator import find_short_reporter_citations
+    from mellea_lrc.extraction.find_short_reporter_citations import find_short_reporter_citations
 
     text = "Smith v. Jones, 347 U.S. 483 (1954). See Smith, 347 U.S. at 495."
     roots = rooted(tmp_path, text)
     leaves = find_short_reporter_citations(roots)
 
-    assert leaves.get_stage("grow_roots.root_formation") == roots
-    assert leaves.get_substage("grow_leaves.short_reporter_citations.discovery") == leaves
+    assert leaves.get_stage("grow_roots.form_root_groups") == roots
+    assert (
+        leaves.get_substage("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations") == leaves
+    )
     assert Document.model_validate_json(leaves.model_dump_json()) == leaves
     with pytest.raises(ValueError, match="already completed"):
         find_short_reporter_citations(leaves)
@@ -554,8 +559,8 @@ def test_shared_leaf_stages_preserve_the_settled_short_reporter(tmp_path: Path) 
     document = asyncio.run(attribute_short_reporter_citations(document, review=False))
     short = document.short_reporters[0]
     assert [node.substage for node in short.nodes][-2:] == [
-        "grow_leaves.short_reporter_citations.case_names",
-        "grow_leaves.short_reporter_citations.attribution",
+        "grow_leaves.grow_short_reporter_leaves.resolve_case_names",
+        "grow_leaves.grow_short_reporter_leaves.attribute_citations",
     ]
 
     document = find_reference_citations(document)
@@ -629,7 +634,7 @@ def test_leaf_types_reject_empty_required_source_fields(
     citation_type, source: str, span: Span, field: str
 ) -> None:
     citation = citation_type.from_source(
-        source=source, span=span, substage="grow_leaves.reference_citations.discovery"
+        source=source, span=span, substage="grow_leaves.grow_reference_leaves.find_reference_citations"
     )
     with pytest.raises(ValueError):
         citation_type.model_validate({**citation.model_dump(mode="python"), field: ()})
@@ -645,7 +650,7 @@ def test_leaf_types_reject_empty_required_source_fields(
 )
 def test_leaf_types_reject_fields_attached_to_foreign_nodes(citation_type, source: str, span: Span) -> None:
     citation = citation_type.from_source(
-        source=source, span=span, substage="grow_leaves.reference_citations.discovery"
+        source=source, span=span, substage="grow_leaves.grow_reference_leaves.find_reference_citations"
     )
     citation = citation.record("foreign_field")
     foreign = CaseNameField.from_source(source, span, node_id="foreign:node")

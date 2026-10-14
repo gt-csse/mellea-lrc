@@ -18,16 +18,16 @@ from mellea_lrc.api import (
 from mellea_lrc.parsing.reporters import full_reporter_readings
 from mellea_lrc.extraction.leaf_attribution_review.reviewer import LeafReviewOutcome
 from mellea_lrc.parsing.events import events
-from mellea_lrc.extraction.short_reporter_locator import SUBSTAGE as SHORT_REPORTER_SUBSTAGE
+from mellea_lrc.extraction.find_short_reporter_citations import SUBSTAGE as SHORT_REPORTER_SUBSTAGE
 from mellea_lrc.parsing.reporters import short_reporter_readings
 from mellea_lrc.model import FullReporterCitation, ShortReporterCitation, Span
 from mellea_lrc.model.citations import AttributionResult, LeafReviewDecision
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID
 from mellea_lrc.model.ivr import IvrAttempt, IvrRun
 
-ATTRIBUTION_SUBSTAGE = "grow_leaves.short_reporter_citations.attribution"
-COLOCATION_SUBSTAGE = "grow_leaves.short_reporter_citations.colocations"
-CASE_NAME_SUBSTAGE = "grow_leaves.short_reporter_citations.case_names"
+ATTRIBUTION_SUBSTAGE = "grow_leaves.grow_short_reporter_leaves.attribute_citations"
+COLOCATION_SUBSTAGE = "grow_leaves.grow_short_reporter_leaves.resolve_colocations"
+CASE_NAME_SUBSTAGE = "grow_leaves.grow_short_reporter_leaves.resolve_case_names"
 
 
 def _read_short_names(document: Document) -> Document:
@@ -73,7 +73,7 @@ def test_short_reporter_is_a_distinct_checkpointed_citation() -> None:
     assert len(short.nodes) == 1
     assert short.pin_cite[-1].node_id == short.nodes[0].id
     assert short.root_id == ()
-    assert document.get_stage("grow_roots.root_formation") == roots
+    assert document.get_stage("grow_roots.form_root_groups") == roots
     assert document.get_substage(SHORT_REPORTER_SUBSTAGE) == document
     assert Document.model_validate_json(document.model_dump_json()) == document
 
@@ -188,7 +188,7 @@ def test_independent_short_reporter_attribution_restores_creation_after_reload()
     named = restored.get_substage(CASE_NAME_SUBSTAGE)
     assert short.case_name == named.short_reporters[0].case_name
     assert short.pin_cite == created.short_reporters[0].pin_cite
-    assert restored.get_stage("grow_roots.root_formation") == roots
+    assert restored.get_stage("grow_roots.form_root_groups") == roots
     assert restored.get_substage(SHORT_REPORTER_SUBSTAGE) == created
     assert restored.get_substage(ATTRIBUTION_SUBSTAGE) == attributed
 

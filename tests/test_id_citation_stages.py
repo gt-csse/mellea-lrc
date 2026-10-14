@@ -15,8 +15,8 @@ from mellea_lrc.api import (
     grow_leaves,
     grow_roots,
 )
-from mellea_lrc.extraction.id_attribution import SUBSTAGE as ATTRIBUTION_SUBSTAGE
-from mellea_lrc.extraction.id_citations import SUBSTAGE as CREATION_SUBSTAGE
+from mellea_lrc.extraction.attribute_id_citations import SUBSTAGE as ATTRIBUTION_SUBSTAGE
+from mellea_lrc.extraction.find_id_citations import SUBSTAGE as CREATION_SUBSTAGE
 from mellea_lrc.extraction.leaf_attribution_review.reviewer import LeafReviewContext, LeafReviewOutcome
 from mellea_lrc.model.citations import (
     AttributionResult,
@@ -66,8 +66,8 @@ def test_marker_and_pin_joins_share_whitespace_relaxation_and_original_offsets(
     attributed = asyncio.run(attribute_id_citations(discovered, review=False))
     restored = Document.model_validate_json(attributed.model_dump_json())
     assert restored.get_substage(CREATION_SUBSTAGE) == discovered
-    assert restored.get_substage("grow_roots.root_formation.rule") == roots.get_substage(
-        "grow_roots.root_formation.rule"
+    assert restored.get_substage("grow_roots.form_root_groups.form_roots") == roots.get_substage(
+        "grow_roots.form_root_groups.form_roots"
     )
 
 
@@ -89,8 +89,8 @@ def test_creation_reads_a_pin_on_its_native_node_and_attribution_preserves_the_c
     created = find_id_citations(roots)
     citation = _ids(created)[0]
 
-    assert CREATION_SUBSTAGE == "grow_leaves.id_citations.discovery"
-    assert ATTRIBUTION_SUBSTAGE == "grow_leaves.id_citations.attribution"
+    assert CREATION_SUBSTAGE == "grow_leaves.grow_id_leaves.find_id_citations"
+    assert ATTRIBUTION_SUBSTAGE == "grow_leaves.grow_id_leaves.attribute_citations"
     assert created.substage_runs[-1] == CREATION_SUBSTAGE
     assert len(citation.nodes) == 1
     assert citation.root_id == citation.attributions == citation.reviews == ()

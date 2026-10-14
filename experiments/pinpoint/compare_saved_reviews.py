@@ -28,12 +28,12 @@ from mellea_lrc.validation.reporter_pinpoint_review.reviewer import (
 )
 
 BEFORE = {
-    "cited_pages": "validate_pincite.citation_preparation.evidence",
-    "full_opinion": "validate_pincite.support_review.page_review",
+    "cited_pages": "validate_all_citation_content.prepare_citation_evidence.prepare_evidence",
+    "full_opinion": "validate_all_citation_content.review_citation_content.review_cited_pages_llm",
 }
 SUBSTAGES = {
-    "cited_pages": "validate_pincite.support_review.page_review",
-    "full_opinion": "validate_pincite.support_review.full_opinion_review",
+    "cited_pages": "validate_all_citation_content.review_citation_content.review_cited_pages_llm",
+    "full_opinion": "validate_all_citation_content.review_citation_content.review_full_opinions_llm",
 }
 
 

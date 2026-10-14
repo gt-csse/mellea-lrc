@@ -18,14 +18,14 @@ from mellea_lrc.api import (
     resolve_supra_pin_cites,
 )
 from mellea_lrc.extraction.leaf_attribution_review.reviewer import IvrLeafReviewer, LeafReviewOutcome
-from mellea_lrc.extraction.supra_attribution_llm import review_supra_attributions
+from mellea_lrc.extraction.review_supra_attributions_llm import review_supra_attributions_llm
 from mellea_lrc.model import Span
 from mellea_lrc.model.citations import AttributionResult, LeafReviewDecision, ReferenceCitation
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID
 from mellea_lrc.model.ivr import IvrAttempt, IvrRequirementAttempt, IvrRun
 
-CREATION_SUBSTAGE = "grow_leaves.reference_citations.discovery"
-ATTRIBUTION_SUBSTAGE = "grow_leaves.reference_citations.attribution"
+CREATION_SUBSTAGE = "grow_leaves.grow_reference_leaves.find_reference_citations"
+ATTRIBUTION_SUBSTAGE = "grow_leaves.grow_reference_leaves.attribute_citations"
 AMBIGUOUS = "Smith v. Jones, 347 U.S. 483 (1954). Smith v. Brown, 348 U.S. 500 (1955). See Smith at 510."
 
 
@@ -154,7 +154,7 @@ def test_reference_creation_is_independent_and_a_unique_future_name_attaches_wit
     assert attached.reference_name == reference.reference_name
     assert attached.case_name == reference.case_name
     assert attached.pin_cite == reference.pin_cite
-    assert restored.get_stage("grow_roots.root_formation") == roots
+    assert restored.get_stage("grow_roots.form_root_groups") == roots
     assert restored.get_substage(CREATION_SUBSTAGE) == created
     assert restored.get_substage(ATTRIBUTION_SUBSTAGE) == attributed
     attached.validate_source(source)
@@ -361,7 +361,7 @@ def test_later_shared_stages_preserve_reference_fields_attachment_and_review(out
     async def unexpected_review(_context):
         pytest.fail("A reference attribution must never be reviewed again by the general leaf substage")
 
-    document = asyncio.run(review_supra_attributions(document, reviewer=unexpected_review))
+    document = asyncio.run(review_supra_attributions_llm(document, reviewer=unexpected_review))
     assert _reference(document) == settled
     restored = Document.model_validate_json(document.model_dump_json())
     assert _reference(restored) == settled

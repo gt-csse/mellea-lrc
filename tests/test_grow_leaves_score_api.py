@@ -20,7 +20,7 @@ from evaluations.annotations import (
 from evaluations.score_run import score_run
 from evaluations.score_types import FieldScore, Precision
 from mellea_lrc.api import Document, grow_roots
-from mellea_lrc.extraction.id_attribution import attribute_id_citations
+from mellea_lrc.extraction.attribute_id_citations import attribute_id_citations
 from mellea_lrc.extraction.leaf_attribution_review.reviewer import LeafReviewOutcome
 from mellea_lrc.model.citations import IdCitation, LeafReviewDecision, ReferenceCitation, SupraCitation
 from mellea_lrc.model.span import Span
@@ -166,7 +166,7 @@ def test_stage_scores_use_exact_stage_checkpoints_and_annotation_spans(tmp_path:
     assert (
         short.metrics["pin_cite_normalization"].correct == short.metrics["pin_cite_normalization"].total == 1
     )
-    assert short_attribution.substage == "grow_leaves.short_reporter_citations.attribution"
+    assert short_attribution.substage == "grow_leaves.grow_short_reporter_leaves.attribute_citations"
     assert (
         short_attribution.metrics["attribution"].correct
         == short_attribution.metrics["attribution"].total
@@ -184,8 +184,8 @@ def test_short_stage_scores_read_their_checkpoint_and_shared_rule_has_no_inherit
     tmp_path: Path,
 ) -> None:
     document = _leaf_document(tmp_path)
-    created = document.get_substage("grow_leaves.short_reporter_citations.discovery")
-    attributed = document.get_substage("grow_leaves.short_reporter_citations.attribution")
+    created = document.get_substage("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations")
+    attributed = document.get_substage("grow_leaves.grow_short_reporter_leaves.attribute_citations")
 
     assert created.short_reporters[0].root_id == ()
     assert evaluation.score_short_reporter_citations(created) == evaluation.score_short_reporter_citations(
@@ -530,10 +530,10 @@ def test_id_creation_counts_absent_pin_outcomes_and_requires_explicit_gold(
 def test_overlapping_reference_attribution_uses_a_gold_mention_only_once() -> None:
     source = "Alpha Beta"
     first = ReferenceCitation.from_source(
-        source=source, span=Span(0, 5), substage="grow_leaves.reference_citations.discovery"
+        source=source, span=Span(0, 5), substage="grow_leaves.grow_reference_leaves.find_reference_citations"
     )
     second = ReferenceCitation.from_source(
-        source=source, span=Span(6, 10), substage="grow_leaves.reference_citations.discovery"
+        source=source, span=Span(6, 10), substage="grow_leaves.grow_reference_leaves.find_reference_citations"
     )
     gold_row = {
         "id": "one-gold-mention",
@@ -644,8 +644,8 @@ def test_reference_workflow_uses_native_scope_and_preserves_out_of_scope_annotat
         assert f"| {label} |" in report
     assert "| span |" not in report
     assert "| normalization |" not in report
-    created = document.get_substage("grow_leaves.reference_citations.discovery")
-    attributed = document.get_substage("grow_leaves.reference_citations.attribution")
+    created = document.get_substage("grow_leaves.grow_reference_leaves.find_reference_citations")
+    attributed = document.get_substage("grow_leaves.grow_reference_leaves.attribute_citations")
     assert next(c for c in created.short_citations if isinstance(c, ReferenceCitation)).root_id == ()
     assert evaluation.score_reference_citations(created) == creation_score
     assert evaluation.score_reference_attribution(attributed) == evaluation.score_reference_attribution(

@@ -13,22 +13,36 @@ from mellea_lrc.model.document import Document
 from mellea_lrc.model.execution import WORKFLOW_CATALOG, get_workflow
 
 STAGE_FUNCTIONS = {
-    "grow_roots.locator_discovery": "discover_root_locators",
-    "grow_roots.field_reading": "read_root_fields",
-    "grow_roots.root_formation": "form_root_groups",
-    "validate_roots.reporter_lookup": "lookup_reporter_roots",
-    "validate_roots.docket_lookup": "lookup_docket_roots",
-    "validate_roots.locator_body_corroboration": "corroborate_locator_bodies",
-    "validate_roots.intended_case_discovery": "discover_intended_cases",
-    "grow_leaves.short_reporter_citations": "grow_short_reporter_leaves",
-    "grow_leaves.reference_citations": "grow_reference_leaves",
-    "grow_leaves.id_citations": "grow_id_leaves",
-    "grow_leaves.supra_citations": "grow_supra_leaves",
-    "grow_leaves.leaf_field_correction": "correct_leaf_readings",
-    "validate_pincite.opinion_preparation": "prepare_root_opinions",
-    "validate_pincite.citation_preparation": "prepare_citation_evidence",
-    "validate_pincite.support_review": "review_citation_support",
+    "grow_roots.discover_root_locators": "discover_root_locators",
+    "grow_roots.read_root_fields": "read_root_fields",
+    "grow_roots.form_root_groups": "form_root_groups",
+    "validate_roots_citation_identity.lookup_reporter_roots": "lookup_reporter_roots",
+    "validate_roots_citation_identity.lookup_docket_roots": "lookup_docket_roots",
+    "validate_roots_citation_identity.corroborate_locator_bodies": "corroborate_locator_bodies",
+    "validate_roots_citation_identity.discover_intended_cases": "discover_intended_cases",
+    "grow_leaves.grow_short_reporter_leaves": "grow_short_reporter_leaves",
+    "grow_leaves.grow_reference_leaves": "grow_reference_leaves",
+    "grow_leaves.grow_id_leaves": "grow_id_leaves",
+    "grow_leaves.grow_supra_leaves": "grow_supra_leaves",
+    "grow_leaves.correct_leaf_readings": "correct_leaf_readings",
+    "validate_all_citation_content.prepare_root_opinions": "prepare_root_opinions",
+    "validate_all_citation_content.prepare_citation_evidence": "prepare_citation_evidence",
+    "validate_all_citation_content.review_citation_content": "review_citation_content",
 }
+
+
+@pytest.mark.parametrize("stage_name", STAGE_FUNCTIONS)
+def test_stage_identifier_module_and_public_callable_share_one_name(stage_name):
+    name = stage_name.rsplit(".", 1)[1]
+    module = importlib.import_module(f"mellea_lrc.workflows.{stage_name}")
+    composer = getattr(api, name)
+
+    assert STAGE_FUNCTIONS[stage_name] == name
+    assert module.STAGE == stage_name
+    assert module.__name__.rsplit(".", 1)[1] == name
+    assert composer.__name__ == name
+    assert composer.__module__ == module.__name__
+    assert getattr(module, name) is composer
 
 
 def _invoke(function, document, **kwargs):
@@ -77,7 +91,7 @@ def test_every_semantic_checkpoint_recovers_exact_json_after_later_substages(mon
     saved = []
     options = {
         "grow_roots": {"hunt_dockets": True, "review_docket_roots": True},
-        "validate_roots": {"search_other_fields": True},
+        "validate_roots_citation_identity": {"search_other_fields": True},
     }.get(workflow_name, {})
     final = _invoke(
         getattr(api, workflow_name), Document.from_source("No citations."), checkpoint=saved.append, **options
@@ -104,7 +118,7 @@ def test_every_partial_atomic_checkpoint_resumes_without_replaying_prior_operati
     saved = []
     options = {
         "grow_roots": {"hunt_dockets": True, "review_docket_roots": True},
-        "validate_roots": {"search_other_fields": True},
+        "validate_roots_citation_identity": {"search_other_fields": True},
     }.get(workflow_name, {})
     run = getattr(api, workflow_name)
     final = _invoke(run, Document.from_source("No citations."), checkpoint=saved.append, **options)
@@ -137,7 +151,7 @@ def test_completed_semantic_stages_reject_direct_reexecution(monkeypatch, stage_
 def test_completed_atomic_group_without_marker_commits_group_without_retrieval(monkeypatch):
     calls = []
     _fake_substages(monkeypatch, calls)
-    stage = get_workflow("validate_roots").stages[0]
+    stage = get_workflow("validate_roots_citation_identity").stages[0]
     document = Document.from_source("No citations.")
     for substage in stage.substages:
         document = document.complete_substage(substage.name)
@@ -154,30 +168,32 @@ def test_optional_group_and_substages_are_omitted_without_completion_markers(mon
     calls = []
     _fake_substages(monkeypatch, calls)
     document = _invoke(api.grow_roots, Document.from_source("No citations."))
-    document = _invoke(api.validate_roots, document)
+    document = _invoke(api.validate_roots_citation_identity, document)
     document = _invoke(api.grow_leaves, document, review_leaves=False)
-    assert "grow_roots.locator_discovery.docket_hunting" not in document.substage_runs
-    assert "grow_roots.root_formation.docket_llm_reassignment" not in document.substage_runs
-    assert "grow_leaves.supra_citations.llm_attribution" not in document.substage_runs
-    assert "validate_roots.intended_case_discovery" not in document.stage_runs
-    assert not any(name.startswith("validate_roots.intended_case_discovery.") for name in calls)
+    assert "grow_roots.discover_root_locators.hunt_docket_locators" not in document.substage_runs
+    assert "grow_roots.form_root_groups.reassign_docket_roots_llm" not in document.substage_runs
+    assert "grow_leaves.grow_supra_leaves.review_attributions_llm" not in document.substage_runs
+    assert "validate_roots_citation_identity.discover_intended_cases" not in document.stage_runs
+    assert not any(
+        name.startswith("validate_roots_citation_identity.discover_intended_cases.") for name in calls
+    )
     with pytest.raises(KeyError, match="has not run"):
-        document.get_stage("validate_roots.intended_case_discovery")
+        document.get_stage("validate_roots_citation_identity.discover_intended_cases")
 
 
 def test_workflow_rejects_holes_and_missing_prior_group_markers_before_calls(monkeypatch):
     calls = []
     _fake_substages(monkeypatch, calls)
-    reporter, docket, *_ = get_workflow("validate_roots").stages
+    reporter, docket, *_ = get_workflow("validate_roots_citation_identity").stages
     document = Document.from_source("No citations.").complete_substage(reporter.substages[1].name)
     with pytest.raises(ValueError, match="completed substage boundary"):
-        _invoke(api.validate_roots, document)
+        _invoke(api.validate_roots_citation_identity, document)
     document = Document.from_source("No citations.")
     for substage in reporter.substages:
         document = document.complete_substage(substage.name)
     document = document.complete_substage(docket.substages[0].name)
     with pytest.raises(ValueError, match="missing stage"):
-        _invoke(api.validate_roots, document)
+        _invoke(api.validate_roots_citation_identity, document)
     assert calls == []
 
 
@@ -196,9 +212,11 @@ def test_real_zero_citation_workflows_commit_all_requested_groups():
         document = Document.from_source("No citations here.")
         saved = []
         document = await api.grow_roots(document, checkpoint=saved.append)
-        document = await api.validate_roots(document, search_other_fields=True, checkpoint=saved.append)
+        document = await api.validate_roots_citation_identity(
+            document, search_other_fields=True, checkpoint=saved.append
+        )
         document = await api.grow_leaves(document, checkpoint=saved.append)
-        document = await api.validate_pincite(document, checkpoint=saved.append)
+        document = await api.validate_all_citation_content(document, checkpoint=saved.append)
         return document, saved
 
     final, saved = asyncio.run(run())
@@ -226,7 +244,7 @@ def test_real_group_snapshots_survive_later_citation_fields_and_attachments():
     assert len(groups) == 8
     for checkpoint in groups:
         assert restored.get_stage(checkpoint.runs[-1].name).model_dump_json() == checkpoint.model_dump_json()
-    discovery = restored.get_stage("grow_roots.locator_discovery")
+    discovery = restored.get_stage("grow_roots.discover_root_locators")
     assert len(discovery.citations) == 1
     assert discovery.citations[0].case_name == ()
     assert discovery.leaves == ()
@@ -236,10 +254,10 @@ def test_real_group_snapshots_survive_later_citation_fields_and_attachments():
 @pytest.mark.parametrize(
     "entrypoint,field_search,completed_group",
     [
-        ("validate_roots", False, False),
-        ("validate_roots", False, True),
-        ("validate_roots", True, False),
-        ("validate_roots", True, True),
+        ("validate_roots_citation_identity", False, False),
+        ("validate_roots_citation_identity", False, True),
+        ("validate_roots_citation_identity", True, False),
+        ("validate_roots_citation_identity", True, True),
         ("corroborate_locator_bodies", False, False),
         ("discover_intended_cases", True, False),
     ],
@@ -256,7 +274,7 @@ def test_body_resume_rejects_changed_cutoff_before_saved_evidence_reaches_review
     document = _invoke(api.grow_roots, Document.from_source("Alpha v. Beta, 123 F.3d 456 (2001)."))
     calls = []
     _fake_substages(monkeypatch, calls)
-    groups = get_workflow("validate_roots").stages
+    groups = get_workflow("validate_roots_citation_identity").stages
     target = groups[3 if field_search else 2]
     for stage in groups[: groups.index(target)]:
         document = _invoke(getattr(api, STAGE_FUNCTIONS[stage.name]), document)
@@ -288,7 +306,9 @@ def test_body_resume_rejects_changed_cutoff_before_saved_evidence_reaches_review
             document = document.complete_substage(item.name)
         document = document.complete_stage(target.name)
     calls.clear()
-    options = {"search_other_fields": field_search} if entrypoint == "validate_roots" else {}
+    options = (
+        {"search_other_fields": field_search} if entrypoint == "validate_roots_citation_identity" else {}
+    )
     with pytest.raises(ValueError, match="Saved body search cutoff differs"):
         _invoke(getattr(api, entrypoint), document, retrospective_date=date(2010, 1, 1), **options)
     assert calls == []

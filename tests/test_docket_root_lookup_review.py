@@ -19,12 +19,12 @@ from mellea_lrc.model.citations.fields.case_name import CaseNameKind
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.ivr import IvrRun
 from mellea_lrc.providers.courtlistener.models import CourtListenerSearchResult
-from mellea_lrc.validation.docket_root_lookup_courtlistener_llm_review import (
+from mellea_lrc.validation.review_courtlistener_docket_roots_llm import (
     SUBSTAGE,
-    docket_root_lookup_courtlistener_llm_review,
+    review_courtlistener_docket_roots_llm,
 )
-from mellea_lrc.validation.docket_root_lookup_courtlistener_llm_review import reviewer as review_module
-from mellea_lrc.validation.docket_root_lookup_courtlistener_llm_review.reviewer import (
+from mellea_lrc.validation.review_courtlistener_docket_roots_llm import reviewer as review_module
+from mellea_lrc.validation.review_courtlistener_docket_roots_llm.reviewer import (
     DocketLookupReviewContext,
     DocketLookupReviewOutcome,
     IvrDocketLookupReviewer,
@@ -106,11 +106,13 @@ def _document(
     document = document.replace_citation(read).complete_substage("test_readings")
     root = read
     document = document.replace_citation(
-        root.record("grow_roots.root_formation.rule").with_root(root.id)
-    ).complete_substage("grow_roots.root_formation.rule")
+        root.record("grow_roots.form_root_groups.form_roots").with_root(root.id)
+    ).complete_substage("grow_roots.form_root_groups.form_roots")
     root = document.roots[0]
     assert isinstance(root, FullDocketCitation)
-    lookup_node = root.record("validate_roots.docket_lookup.courtlistener_retrieval")
+    lookup_node = root.record(
+        "validate_roots_citation_identity.lookup_docket_roots.retrieve_courtlistener_dockets"
+    )
     attempts = (
         DocketLookupAttempt(
             source_type="d",
@@ -200,7 +202,7 @@ def _document(
         ),
     )
     return document.replace_citation(lookup_node.with_docket_lookup(lookup)).complete_substage(
-        "validate_roots.docket_lookup.courtlistener_retrieval"
+        "validate_roots_citation_identity.lookup_docket_roots.retrieve_courtlistener_dockets"
     )
 
 
@@ -252,7 +254,7 @@ def test_review_selects_opinion_from_mixed_shortlist_and_saves_independent_field
     before = _document()
     reviewer = FakeReviewer(_decision(1, docket_number="mismatch", case_name="mismatch", court="mismatch"))
 
-    after = asyncio.run(docket_root_lookup_courtlistener_llm_review(before, reviewer=reviewer))
+    after = asyncio.run(review_courtlistener_docket_roots_llm(before, reviewer=reviewer))
 
     assert len(reviewer.contexts) == 1
     context = reviewer.contexts[0]
@@ -273,12 +275,20 @@ def test_review_selects_opinion_from_mixed_shortlist_and_saves_independent_field
     assert root.docket_lookup_review.decision.court.result is MatchResult.MISMATCH
     assert root.docket_lookup_review.decision.date.result is MatchResult.MATCH
     assert root.identity_judgments == before.roots[0].identity_judgments == ()
-    assert root.next_substage == "validate_roots.docket_lookup.identity_aggregation"
+    assert (
+        root.next_substage
+        == "validate_roots_citation_identity.lookup_docket_roots.judge_identity_from_fields"
+    )
     assert root.routes[-1].node_id == root.docket_lookup_review.node_id
     assert root.docket_lookup == before.roots[0].docket_lookup
     assert root.docket_lookup.attempts[0].pages[0]["results"][0]["unmodeled"] == {"saved": True}
     assert root.nodes[-1].substage == SUBSTAGE
-    assert after.get_substage("validate_roots.docket_lookup.courtlistener_retrieval") == before
+    assert (
+        after.get_substage(
+            "validate_roots_citation_identity.lookup_docket_roots.retrieve_courtlistener_dockets"
+        )
+        == before
+    )
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -306,7 +316,7 @@ def test_single_candidate_still_gets_one_model_call() -> None:
     before = _document(shortlist=(0,))
     reviewer = FakeReviewer(_decision(0, date="match"))
 
-    after = asyncio.run(docket_root_lookup_courtlistener_llm_review(before, reviewer=reviewer))
+    after = asyncio.run(review_courtlistener_docket_roots_llm(before, reviewer=reviewer))
 
     assert len(reviewer.contexts) == 1
     assert [item["candidate_index"] for item in reviewer.contexts[0].candidates] == [0]
@@ -336,7 +346,7 @@ def test_review_retains_a_typed_partial_filing_name() -> None:
     context = DocketLookupReviewContext.from_document(before, before.roots[0])
     assert context.choice_error(decision) is None
 
-    after = asyncio.run(docket_root_lookup_courtlistener_llm_review(before, reviewer=FakeReviewer(decision)))
+    after = asyncio.run(review_courtlistener_docket_roots_llm(before, reviewer=FakeReviewer(decision)))
     root = after.roots[0]
     assert root.docket_lookup_review.decision.case_name.normalized.kind is CaseNameKind.PARTIAL
     assert root.case_name[-1].get_normalized().partial == "Smith"
@@ -380,7 +390,7 @@ def test_review_appends_grounded_field_corrections_and_preserves_stage16() -> No
         )
     )
 
-    after = asyncio.run(docket_root_lookup_courtlistener_llm_review(before, reviewer=reviewer))
+    after = asyncio.run(review_courtlistener_docket_roots_llm(before, reviewer=reviewer))
 
     root = after.roots[0]
     assert [reading.get_normalized().docket_number for reading in root.locator] == ["05-4206", "4206"]
@@ -391,7 +401,12 @@ def test_review_appends_grounded_field_corrections_and_preserves_stage16() -> No
     assert [reading.quote for reading in root.date] == ["200", "2007"]
     assert root.date[-1].get_normalized().year == 2007
     assert root.docket_lookup_review.decision.date.result is MatchResult.MATCH
-    assert after.get_substage("validate_roots.docket_lookup.courtlistener_retrieval") == before
+    assert (
+        after.get_substage(
+            "validate_roots_citation_identity.lookup_docket_roots.retrieve_courtlistener_dockets"
+        )
+        == before
+    )
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -399,7 +414,7 @@ def test_ungrounded_correction_records_failure_without_partial_updates() -> None
     before = _document(shortlist=(0,))
     reviewer = FakeReviewer(_decision(0, case_name_proposal="Invented v. Party"))
 
-    after = asyncio.run(docket_root_lookup_courtlistener_llm_review(before, reviewer=reviewer))
+    after = asyncio.run(review_courtlistener_docket_roots_llm(before, reviewer=reviewer))
 
     root = after.roots[0]
     assert root.docket_lookup_review.decision is None
@@ -414,7 +429,7 @@ def test_partial_search_is_visible_to_review_and_preserved_in_lookup() -> None:
     before = _document(partial=True)
     reviewer = FakeReviewer(_decision(None))
 
-    after = asyncio.run(docket_root_lookup_courtlistener_llm_review(before, reviewer=reviewer))
+    after = asyncio.run(review_courtlistener_docket_roots_llm(before, reviewer=reviewer))
 
     assert len(reviewer.contexts) == 1
     status = reviewer.contexts[0].search_status
@@ -446,7 +461,7 @@ def test_empty_shortlist_persists_explicit_no_selection_without_model_call() -> 
     before = _document(shortlist=())
     reviewer = FakeReviewer(_decision(0))
 
-    after = asyncio.run(docket_root_lookup_courtlistener_llm_review(before, reviewer=reviewer))
+    after = asyncio.run(review_courtlistener_docket_roots_llm(before, reviewer=reviewer))
 
     assert reviewer.contexts == []
     review = after.roots[0].docket_lookup_review
@@ -466,7 +481,7 @@ def test_empty_partial_search_records_its_limitation_without_model_call() -> Non
     before = _document(shortlist=(), partial=True)
     reviewer = FakeReviewer(_decision(0))
 
-    after = asyncio.run(docket_root_lookup_courtlistener_llm_review(before, reviewer=reviewer))
+    after = asyncio.run(review_courtlistener_docket_roots_llm(before, reviewer=reviewer))
 
     assert reviewer.contexts == []
     review = after.roots[0].docket_lookup_review
@@ -506,11 +521,14 @@ def test_unreadable_date_keeps_selected_docket_with_unavailable_comparison(date_
     assert context.choice_error(decision) is None
     assert "expected date result: unavailable" in context.choice_error(_decision(0, date="match"))
 
-    after = asyncio.run(docket_root_lookup_courtlistener_llm_review(before, reviewer=FakeReviewer(decision)))
+    after = asyncio.run(review_courtlistener_docket_roots_llm(before, reviewer=FakeReviewer(decision)))
     root = after.roots[0]
     assert root.docket_lookup_review.decision.selected_candidate_index == 0
     assert root.docket_lookup_review.decision.date.result is MatchResult.UNAVAILABLE
-    assert root.next_substage == "validate_roots.docket_lookup.identity_aggregation"
+    assert (
+        root.next_substage
+        == "validate_roots_citation_identity.lookup_docket_roots.judge_identity_from_fields"
+    )
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -522,7 +540,7 @@ def test_invalid_choice_or_incompatible_date_judgment_becomes_review_failure(
     run = _run(success=True)
     reviewer = FakeReviewer(DocketLookupReviewOutcome(decision=decision, run=run))
 
-    after = asyncio.run(docket_root_lookup_courtlistener_llm_review(before, reviewer=reviewer))
+    after = asyncio.run(review_courtlistener_docket_roots_llm(before, reviewer=reviewer))
 
     review = after.roots[0].docket_lookup_review
     assert review.decision is None
@@ -538,7 +556,7 @@ def test_failed_ivr_keeps_complete_run_and_reason() -> None:
         DocketLookupReviewOutcome(decision=None, run=run, failure_reason="Incomplete review JSON")
     )
 
-    after = asyncio.run(docket_root_lookup_courtlistener_llm_review(before, reviewer=reviewer))
+    after = asyncio.run(review_courtlistener_docket_roots_llm(before, reviewer=reviewer))
 
     review = after.roots[0].docket_lookup_review
     assert review.decision is None
@@ -553,11 +571,11 @@ def test_failed_ivr_keeps_complete_run_and_reason() -> None:
 
 def test_stage_order_and_replay_checks() -> None:
     with pytest.raises(ValueError, match="Complete docket root lookup"):
-        asyncio.run(docket_root_lookup_courtlistener_llm_review(Document.from_source(SOURCE)))
+        asyncio.run(review_courtlistener_docket_roots_llm(Document.from_source(SOURCE)))
     before = _document(shortlist=())
-    after = asyncio.run(docket_root_lookup_courtlistener_llm_review(before))
+    after = asyncio.run(review_courtlistener_docket_roots_llm(before))
     with pytest.raises(ValueError, match="already completed"):
-        asyncio.run(docket_root_lookup_courtlistener_llm_review(after))
+        asyncio.run(review_courtlistener_docket_roots_llm(after))
 
 
 def test_ivr_prompt_distinguishes_docket_and_opinion_dates(monkeypatch: pytest.MonkeyPatch) -> None:

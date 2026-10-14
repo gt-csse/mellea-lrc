@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from evaluations.annotations import align_citation_annotations, annotations_by_site
-from evaluations.validate_pincite import (
+from evaluations.validate_all_citation_content import (
     FULL_OPINION_SUBSTAGE,
     PAGE_SUPPORT_SUBSTAGE,
     _entries,

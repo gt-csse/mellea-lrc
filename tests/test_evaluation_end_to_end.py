@@ -14,7 +14,13 @@ import pytest
 from evaluations import __main__ as runner
 from evaluations import complete_stage_boundary
 from evaluations import score_run as scoring
+from evaluations import run_grow_leaves as leaf_runner
+from evaluations import run_validate_all_citation_content as pinpoint_runner
+from evaluations.sources import load_source, validate_source
+from mellea_lrc.api import grow_roots
 from mellea_lrc.model import Document
+from mellea_lrc.model.preprocessed_document import DEFAULT_RULES, PreprocessingBackend, Rule
+from mellea_lrc.model.source import SourceFormat
 from mellea_lrc.providers.courtlistener import CourtListenerHTTPError
 
 
@@ -32,7 +38,12 @@ def test_end_to_end_composes_four_workflows_and_resumes_without_duplicate_atomic
     for filename in filenames:
         (source_dir / filename).write_text("A filing without citations.\n")
         (annotations / f"{Path(filename).stem}.jsonl").write_text("{}\n")
-    (data_root / "primary" / "documents.json").write_text(json.dumps({"documents": filenames}))
+    (data_root / "primary" / "documents.json").write_text(
+        json.dumps({"documents": {name: {} for name in filenames}})
+    )
+    # This test covers workflow composition and recovery, independently of
+    # rendering metadata; the source boundary is tested below with native input.
+    monkeypatch.setattr(runner, "load_source", lambda path: Document.from_source(path))
     results_root = tmp_path / "results"
     calls: list[tuple[str, str]] = []
     reports = []
@@ -70,11 +81,11 @@ def test_end_to_end_composes_four_workflows_and_resumes_without_duplicate_atomic
             await asyncio.sleep(0)
             if name == "grow_roots":
                 assert kwargs == {"hunt_dockets": True, "review_docket_roots": True}
-            elif name == "validate_roots":
+            elif name == "validate_roots_citation_identity":
                 assert kwargs["retrospective_date"] is None
                 assert kwargs["courtlistener_client"] in clients
                 assert not kwargs.get("search_other_fields", False)
-            elif name == "validate_pincite":
+            elif name == "validate_all_citation_content":
                 assert kwargs["client"] in clients
             elif name == "grow_leaves":
                 assert kwargs["review_leaves"] is True
@@ -82,7 +93,7 @@ def test_end_to_end_composes_four_workflows_and_resumes_without_duplicate_atomic
             for substage in runner._E2E_SUBSTAGES:
                 if not substage.startswith(name + ".") or substage in document.substage_runs:
                     continue
-                if substage == "validate_pincite.opinion_preparation.retrieval":
+                if substage == "validate_all_citation_content.prepare_root_opinions.retrieve_opinions":
                     retrieval_attempts += 1
                     if interruption == "opinion_http" and not interrupted:
                         interrupted = True
@@ -100,7 +111,8 @@ def test_end_to_end_composes_four_workflows_and_resumes_without_duplicate_atomic
                 document = grouped
                 if (
                     filename == "001.txt"
-                    and substage == "validate_pincite.citation_preparation.opinion_review"
+                    and substage
+                    == "validate_all_citation_content.prepare_citation_evidence.select_opinions_llm"
                     and interruption == "review"
                     and not interrupted
                 ):
@@ -136,9 +148,9 @@ def test_end_to_end_composes_four_workflows_and_resumes_without_duplicate_atomic
     artifact = run_dir / "documents" / "001.txt.json"
     checkpoint = Document.model_validate_json(artifact.read_text())
     assert checkpoint.substage_runs[-1] == (
-        "validate_pincite.citation_preparation.opinion_review"
+        "validate_all_citation_content.prepare_citation_evidence.select_opinions_llm"
         if interruption == "review"
-        else "grow_leaves.leaf_field_correction.review"
+        else "grow_leaves.correct_leaf_readings.correct_leaf_fields"
     )
     assert not reports
     saved = json.loads((run_dir / "run.json").read_text())
@@ -244,3 +256,175 @@ def test_scoring_rejects_changed_annotation_body_before_any_report(
     with pytest.raises(ValueError, match="annotation content differs"):
         scoring.score_run(run_dir, ("grow_roots",))
     assert {path.name for path in run_dir.iterdir()} == {"documents", "run.json"}
+
+
+def _native_dataset(tmp_path, filenames=("001.txt",)):
+    data_root = tmp_path / "native-data"
+    source_dir = data_root / "primary" / "documents_txt"
+    source_dir.mkdir(parents=True)
+    text = "Table of Authorities\r\nTwombly, 550 U.S. 544, 556 (2007).\r\nBody: café.\r\n"
+    renderings = {}
+    for filename in filenames:
+        raw = text.encode("utf-8")
+        (source_dir / filename).write_bytes(raw)
+        renderings[filename] = {
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "length": len(text),
+            "backend": "docling",
+            "backend_version": "source-test-version",
+            "layout_rules": ["margin_line_numbers", "repeated_furniture", "docket_stamp"],
+            "table_structure": False,
+            "index_spans": [{"start": 0, "end": text.index("Body:")}],
+        }
+    (source_dir.parent / "documents.json").write_text(json.dumps({"documents": renderings}))
+    return data_root, source_dir, text, renderings
+
+
+def test_native_source_preserves_official_path_exact_text_and_recorded_rules(tmp_path):
+    _, source_dir, text, _ = _native_dataset(tmp_path)
+    document = load_source(source_dir / "001.txt")
+    assert document.text == text
+    assert document.source_path == str((source_dir / "001.txt").resolve())
+    assert document.source_metadata.format is SourceFormat.TEXT
+    assert document.preprocessing_metadata.backend is PreprocessingBackend.DOCLING
+    assert document.preprocessing_metadata.backend_version == "source-test-version"
+    assert document.preprocessing_metadata.rules == DEFAULT_RULES
+    assert len(document.index_spans) == 1
+    assert document.citations == document.runs == ()
+    validate_source(document)
+    with pytest.raises(ValueError, match="preprocessing_metadata differs"):
+        validate_source(Document.from_source(source_dir / "001.txt"))
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"sha256": "stale"},
+        {"length": 1},
+        {"length": True},
+        {"backend": "plain_text"},
+        {"backend_version": ""},
+        {"layout_rules": ["invented"]},
+        {"layout_rules": ["docket_stamp", "docket_stamp"]},
+        {"table_structure": "false"},
+        {"index_spans": None},
+        {"index_spans": [{"start": False, "end": 5}]},
+        {"index_spans": [{"start": 0, "end": 9999}]},
+    ],
+)
+def test_native_source_rejects_stale_or_malformed_rendering_metadata(tmp_path, change):
+    _, source_dir, _, renderings = _native_dataset(tmp_path)
+    renderings["001.txt"].update(change)
+    (source_dir.parent / "documents.json").write_text(json.dumps({"documents": renderings}))
+    with pytest.raises(ValueError):
+        load_source(source_dir / "001.txt")
+
+
+@pytest.mark.parametrize("documents", [[], {"001.txt": None}, {}])
+def test_native_source_rejects_missing_rendering_records(tmp_path, documents):
+    _, source_dir, _, _ = _native_dataset(tmp_path)
+    (source_dir.parent / "documents.json").write_text(json.dumps({"documents": documents}))
+    with pytest.raises(ValueError):
+        load_source(source_dir / "001.txt")
+
+
+def test_native_source_requires_explicit_index_metadata_even_when_no_toa_was_found(tmp_path):
+    _, source_dir, _, renderings = _native_dataset(tmp_path)
+    record = renderings["001.txt"]
+    record["index_spans"] = []
+    record["table_structure"] = True
+    (source_dir.parent / "documents.json").write_text(json.dumps({"documents": renderings}))
+    assert load_source(source_dir / "001.txt").preprocessing_metadata.rules == (
+        Rule.MARGIN_LINE_NUMBERS,
+        Rule.REPEATED_FURNITURE,
+        Rule.DOCKET_STAMP,
+        Rule.TABLE_OF_AUTHORITIES,
+    )
+    del record["index_spans"]
+    (source_dir.parent / "documents.json").write_text(json.dumps({"documents": renderings}))
+    with pytest.raises(ValueError, match="explicit valid table-of-authorities spans"):
+        load_source(source_dir / "001.txt")
+
+
+def test_primary_runner_uses_native_metadata_and_retains_toa_citations_for_identity(tmp_path, monkeypatch):
+    data_root, source_dir, text, renderings = _native_dataset(tmp_path)
+    calls = []
+
+    async def validate(document, *, checkpoint, **_kwargs):
+        assert document.text == text
+        assert document.source_path == str(source_dir / "001.txt")
+        assert document.roots and document.roots[0].tags
+        calls.append(document)
+        for substage in runner._RUN_SUBSTAGES[11:]:
+            document = document.complete_substage(substage)
+            checkpoint(document)
+            document = complete_stage_boundary(document, runner._RUN_SUBSTAGES)
+            checkpoint(document)
+        return document
+
+    def unexpected_network(*_args, **_kwargs):
+        pytest.fail("Native source integration must not call providers or models")
+
+    monkeypatch.setattr(httpx.Client, "request", unexpected_network)
+    monkeypatch.setattr(httpx.AsyncClient, "request", unexpected_network)
+    monkeypatch.setattr(runner, "validate_roots_citation_identity", validate)
+    run_dir = asyncio.run(runner._run(data_root, tmp_path / "native-results", None))
+    saved = Document.model_validate_json((run_dir / "documents" / "001.txt.json").read_bytes())
+    assert saved.index_spans and saved.citations[0].tags
+    assert saved.get_substage(runner._ROOT_SUBSTAGE).citations[0].tags == saved.citations[0].tags
+    assert len(calls) == 1
+    before = (run_dir / "run.json").read_bytes()
+    renderings["001.txt"]["backend_version"] = "changed-renderer"
+    (source_dir.parent / "documents.json").write_text(json.dumps({"documents": renderings}))
+    with pytest.raises(ValueError, match="rendering metadata differs"):
+        asyncio.run(runner._run(data_root, tmp_path / "unused", None, resume_run=run_dir))
+    assert len(calls) == 1
+    assert (run_dir / "run.json").read_bytes() == before
+
+
+def test_primary_runner_rejects_missing_metadata_in_later_filing_before_any_work(tmp_path, monkeypatch):
+    data_root, source_dir, _, renderings = _native_dataset(tmp_path, filenames=("001.txt", "002.txt"))
+    del renderings["002.txt"]["index_spans"]
+    (source_dir.parent / "documents.json").write_text(json.dumps({"documents": renderings}))
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("Every rendering must validate before processing the first filing")
+
+    monkeypatch.setattr(runner, "grow_roots", unexpected)
+    monkeypatch.setattr(runner, "CourtListenerClient", unexpected)
+    with pytest.raises(ValueError, match="explicit valid table-of-authorities spans"):
+        asyncio.run(runner._run(data_root, tmp_path / "rejected-results", None))
+    assert list((tmp_path / "rejected-results").rglob("documents/*.json")) == []
+
+
+@pytest.mark.parametrize("selected_runner", [leaf_runner, pinpoint_runner])
+def test_standalone_runner_rejects_missing_creation_tags_in_all_inputs_before_work(
+    tmp_path, monkeypatch, selected_runner
+):
+    _, source_dir, _, _ = _native_dataset(tmp_path, filenames=("001.txt", "002.txt"))
+    inputs = tmp_path / "native-input" / "documents"
+    inputs.mkdir(parents=True)
+    for filename in ("001.txt", "002.txt"):
+        roots = asyncio.run(grow_roots(load_source(source_dir / filename)))
+        raw = roots.model_dump(mode="json")
+        if filename == "002.txt":
+            raw["citations"][0]["tags"] = []
+        (inputs / f"{filename}.json").write_text(json.dumps(raw))
+    (inputs.parent / "run.json").write_text(
+        json.dumps({"status": "complete", "set": "primary", "filings": ["001.txt", "002.txt"]})
+    )
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("All native input sources must be checked before any client or workflow call")
+
+    monkeypatch.setattr(selected_runner, "_RESULTS_ROOT", tmp_path / "standalone-results")
+    if selected_runner is leaf_runner:
+        monkeypatch.setattr(selected_runner, "grow_leaves", unexpected)
+        options = {"input_substage": runner._ROOT_SUBSTAGE}
+    else:
+        monkeypatch.setattr(selected_runner, "_resolved_model_profiles", lambda: {})
+        monkeypatch.setattr(selected_runner, "CourtListenerClient", unexpected)
+        options = {}
+    with pytest.raises(ValueError, match="missing source table-of-authorities tags"):
+        asyncio.run(selected_runner.run(inputs, **options))
+    assert not (tmp_path / "standalone-results").exists()

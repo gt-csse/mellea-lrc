@@ -14,84 +14,85 @@ from pathlib import Path
 from time import monotonic
 
 from evaluations import complete_stage_boundary
+from evaluations.sources import load_source, validate_source
 from mellea_lrc.api import (
     Document,
-    docket_root_lookup_courtlistener_llm_review,
-    docket_root_lookup_courtlistener_retrieval,
-    docket_root_lookup_govinfo_llm_review,
-    docket_root_lookup_govinfo_retrieval,
     grow_leaves,
     grow_roots,
-    intended_case_courtlistener_opinion_retrieval,
-    intended_case_courtlistener_recap_retrieval,
-    intended_case_govinfo_opinion_retrieval,
-    intended_case_llm_selection,
-    locator_body_courtlistener_opinion_retrieval,
-    locator_body_courtlistener_recap_retrieval,
-    locator_body_govinfo_opinion_retrieval,
-    locator_body_llm_judgment,
-    reporter_root_lookup_ambiguous_llm_judgment,
-    reporter_root_lookup_unique_llm_judgment,
-    validate_pincite,
-    validate_roots,
+    retrieve_courtlistener_docket_roots,
+    retrieve_courtlistener_intended_case_filings,
+    retrieve_courtlistener_intended_case_opinions,
+    retrieve_courtlistener_locator_filings,
+    retrieve_courtlistener_locator_opinions,
+    retrieve_govinfo_docket_roots,
+    retrieve_govinfo_intended_case_opinions,
+    retrieve_govinfo_locator_opinions,
+    review_ambiguous_reporter_roots_llm,
+    review_courtlistener_docket_roots_llm,
+    review_govinfo_docket_roots_llm,
+    review_intended_cases_llm,
+    review_locator_bodies_llm,
+    review_unique_reporter_roots_llm,
+    validate_all_citation_content,
+    validate_roots_citation_identity,
 )
 from mellea_lrc.configuration import read_env, required_setting
 from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model import FullDocketCitation
 from mellea_lrc.model.execution import get_workflow
 from mellea_lrc.providers.courtlistener import CourtListenerClient, CourtListenerConfig
-from mellea_lrc.validation.body_search.intended_case_courtlistener_opinion_retrieval import (
-    SUBSTAGE as _COURTLISTENER_OPINION_FIELD_SUBSTAGE,
-)
-from mellea_lrc.validation.body_search.intended_case_courtlistener_recap_retrieval import (
+from mellea_lrc.validation.body_search.retrieve_courtlistener_intended_case_filings import (
     SUBSTAGE as _COURTLISTENER_RECAP_FIELD_SUBSTAGE,
 )
-from mellea_lrc.validation.body_search.intended_case_govinfo_opinion_retrieval import (
-    SUBSTAGE as _GOVINFO_OPINION_FIELD_SUBSTAGE,
+from mellea_lrc.validation.body_search.retrieve_courtlistener_intended_case_opinions import (
+    SUBSTAGE as _COURTLISTENER_OPINION_FIELD_SUBSTAGE,
 )
-from mellea_lrc.validation.body_search.locator_body_courtlistener_opinion_retrieval import (
-    SUBSTAGE as _COURTLISTENER_OPINION_SUBSTAGE,
-)
-from mellea_lrc.validation.body_search.locator_body_courtlistener_recap_retrieval import (
+from mellea_lrc.validation.body_search.retrieve_courtlistener_locator_filings import (
     SUBSTAGE as _COURTLISTENER_RECAP_SUBSTAGE,
 )
-from mellea_lrc.validation.body_search.locator_body_govinfo_opinion_retrieval import (
+from mellea_lrc.validation.body_search.retrieve_courtlistener_locator_opinions import (
+    SUBSTAGE as _COURTLISTENER_OPINION_SUBSTAGE,
+)
+from mellea_lrc.validation.body_search.retrieve_govinfo_intended_case_opinions import (
+    SUBSTAGE as _GOVINFO_OPINION_FIELD_SUBSTAGE,
+)
+from mellea_lrc.validation.body_search.retrieve_govinfo_locator_opinions import (
     SUBSTAGE as _GOVINFO_OPINION_SUBSTAGE,
 )
-from mellea_lrc.validation.fields_aggregated_identity import SUBSTAGE as _FIELD_IDENTITY_SUBSTAGE
-from mellea_lrc.validation.intended_case_llm_selection import SUBSTAGE as _INTENDED_CASE_REVIEW_SUBSTAGE
-from mellea_lrc.validation.locator_body_llm_judgment import SUBSTAGE as _LOCATOR_BODY_REVIEW_SUBSTAGE
+from mellea_lrc.validation.judge_root_identity_from_fields import SUBSTAGE as _FIELD_IDENTITY_SUBSTAGE
+from mellea_lrc.validation.review_intended_cases_llm import SUBSTAGE as _INTENDED_CASE_REVIEW_SUBSTAGE
+from mellea_lrc.validation.review_locator_bodies_llm import SUBSTAGE as _LOCATOR_BODY_REVIEW_SUBSTAGE
 from mellea_lrc.workflows import _require_body_search_cutoff, validate_workflow_checkpoint
 
 _SET = "primary"
 _DATA_ROOT = Path(__file__).resolve().parents[2] / "mellea-lrc-datasets"
 _RESULTS_ROOT = Path(__file__).resolve().parent / "results" / _SET
-_ROOT_SUBSTAGE = "grow_roots.root_formation.rule"
+_ROOT_SUBSTAGE = "grow_roots.form_root_groups.form_roots"
 _ROOT_SUBSTAGES = (
-    "grow_roots.locator_discovery.full_reporter_locators",
-    "grow_roots.locator_discovery.docket_locators",
-    "grow_roots.locator_discovery.docket_hunting",
-    "grow_roots.field_reading.docket_entries",
-    "grow_roots.field_reading.colocations",
-    "grow_roots.field_reading.case_names",
-    "grow_roots.field_reading.courts",
-    "grow_roots.field_reading.dates",
-    "grow_roots.field_reading.pin_cites",
+    "grow_roots.discover_root_locators.find_full_reporter_locators",
+    "grow_roots.discover_root_locators.find_docket_locators",
+    "grow_roots.discover_root_locators.hunt_docket_locators",
+    "grow_roots.read_root_fields.resolve_docket_entries",
+    "grow_roots.read_root_fields.resolve_colocations",
+    "grow_roots.read_root_fields.resolve_case_names",
+    "grow_roots.read_root_fields.resolve_courts",
+    "grow_roots.read_root_fields.resolve_dates",
+    "grow_roots.read_root_fields.resolve_pin_cites",
     _ROOT_SUBSTAGE,
 )
 _RUN_SUBSTAGES = (
     *_ROOT_SUBSTAGES,
-    "grow_roots.root_formation.docket_llm_reassignment",
-    "validate_roots.reporter_lookup.cluster_retrieval",
-    "validate_roots.reporter_lookup.docket_retrieval",
-    "validate_roots.reporter_lookup.unique_rule_judgment",
-    "validate_roots.reporter_lookup.ambiguous_rule_judgment",
-    "validate_roots.reporter_lookup.unique_llm_judgment",
-    "validate_roots.reporter_lookup.ambiguous_llm_judgment",
-    "validate_roots.docket_lookup.courtlistener_retrieval",
-    "validate_roots.docket_lookup.courtlistener_review",
-    "validate_roots.docket_lookup.govinfo_retrieval",
-    "validate_roots.docket_lookup.govinfo_review",
+    "grow_roots.form_root_groups.reassign_docket_roots_llm",
+    "validate_roots_citation_identity.lookup_reporter_roots.retrieve_clusters",
+    "validate_roots_citation_identity.lookup_reporter_roots.retrieve_dockets",
+    "validate_roots_citation_identity.lookup_reporter_roots.judge_unique_rule",
+    "validate_roots_citation_identity.lookup_reporter_roots.judge_ambiguous_rule",
+    "validate_roots_citation_identity.lookup_reporter_roots.review_unique_llm",
+    "validate_roots_citation_identity.lookup_reporter_roots.review_ambiguous_llm",
+    "validate_roots_citation_identity.lookup_docket_roots.retrieve_courtlistener_dockets",
+    "validate_roots_citation_identity.lookup_docket_roots.review_courtlistener_dockets_llm",
+    "validate_roots_citation_identity.lookup_docket_roots.retrieve_govinfo_dockets",
+    "validate_roots_citation_identity.lookup_docket_roots.review_govinfo_dockets_llm",
     _FIELD_IDENTITY_SUBSTAGE,
     _COURTLISTENER_OPINION_SUBSTAGE,
     _COURTLISTENER_RECAP_SUBSTAGE,
@@ -110,18 +111,23 @@ _FIELD_SUBSTAGES = (
     _INTENDED_CASE_REVIEW_SUBSTAGE,
 )
 _FIELD_RUN_SUBSTAGES = (*_RUN_SUBSTAGES, *_FIELD_SUBSTAGES)
-_REPORTER_REVIEW_INPUT_SUBSTAGE = "validate_roots.reporter_lookup.ambiguous_rule_judgment"
+_REPORTER_REVIEW_INPUT_SUBSTAGE = (
+    "validate_roots_citation_identity.lookup_reporter_roots.judge_ambiguous_rule"
+)
 _REPORTER_REVIEW_INPUT_SUBSTAGES = _RUN_SUBSTAGES[: _RUN_SUBSTAGES.index(_REPORTER_REVIEW_INPUT_SUBSTAGE) + 1]
-_DOCKET_LOOKUP_SUBSTAGE = "validate_roots.docket_lookup.courtlistener_retrieval"
-_DOCKET_REVIEW_INPUT_SUBSTAGE = "validate_roots.docket_lookup.courtlistener_review"
+_DOCKET_LOOKUP_SUBSTAGE = (
+    "validate_roots_citation_identity.lookup_docket_roots.retrieve_courtlistener_dockets"
+)
+_DOCKET_REVIEW_INPUT_SUBSTAGE = (
+    "validate_roots_citation_identity.lookup_docket_roots.review_courtlistener_dockets_llm"
+)
 _DOCKET_REVIEW_INPUT_SUBSTAGES = _RUN_SUBSTAGES[: _RUN_SUBSTAGES.index(_DOCKET_REVIEW_INPUT_SUBSTAGE) + 1]
-_VALIDATION_INPUT_SUBSTAGE = "validate_roots.docket_lookup.govinfo_review"
+_VALIDATION_INPUT_SUBSTAGE = "validate_roots_citation_identity.lookup_docket_roots.review_govinfo_dockets_llm"
 _VALIDATION_INPUT_SUBSTAGES = _RUN_SUBSTAGES[: _RUN_SUBSTAGES.index(_VALIDATION_INPUT_SUBSTAGE) + 1]
 _REPORTER_TO_GOVINFO_SUBSTAGES = _RUN_SUBSTAGES[
-    _RUN_SUBSTAGES.index("validate_roots.reporter_lookup.cluster_retrieval") : _RUN_SUBSTAGES.index(
-        _VALIDATION_INPUT_SUBSTAGE
-    )
-    + 1
+    _RUN_SUBSTAGES.index(
+        "validate_roots_citation_identity.lookup_reporter_roots.retrieve_clusters"
+    ) : _RUN_SUBSTAGES.index(_VALIDATION_INPUT_SUBSTAGE) + 1
 ]
 _BODY_CHECKPOINT_SUBSTAGES = (*_BODY_SEARCH_SUBSTAGES, _LOCATOR_BODY_REVIEW_SUBSTAGE)
 _VALIDATION_CHECKPOINT_SUBSTAGES = (
@@ -129,12 +135,17 @@ _VALIDATION_CHECKPOINT_SUBSTAGES = (
     _FIELD_IDENTITY_SUBSTAGE,
     *_BODY_CHECKPOINT_SUBSTAGES,
 )
-_E2E_WORKFLOWS = ("grow_roots", "validate_roots", "grow_leaves", "validate_pincite")
+_E2E_WORKFLOWS = (
+    "grow_roots",
+    "validate_roots_citation_identity",
+    "grow_leaves",
+    "validate_all_citation_content",
+)
 _E2E_SUBSTAGES = (
     *_RUN_SUBSTAGES,
     *(
         substage.name
-        for workflow in ("grow_leaves", "validate_pincite")
+        for workflow in ("grow_leaves", "validate_all_citation_content")
         for stage in get_workflow(workflow).stages
         for substage in stage.substages
     ),
@@ -173,23 +184,9 @@ def _write_json(path: Path, value: object) -> None:
     temporary.replace(path)
 
 
-def _check_source(document: Document, source: Document) -> None:
-    """Reject a stale checkpoint before it can trigger any provider calls."""
-    if (
-        document.source_path is None
-        or source.source_path is None
-        or Path(document.source_path).resolve() != Path(source.source_path).resolve()
-        or document.source_metadata.format != source.source_metadata.format
-    ):
-        raise ValueError(f"Saved Document source differs from current source: {source.source_path}")
-    for field in ("text", "preprocessing_metadata", "index_spans"):
-        if getattr(document, field) != getattr(source, field):
-            raise ValueError(f"Saved Document {field} differs from current source: {source.source_path}")
-
-
 def _load_document(path: Path, source: Document) -> Document:
     document = Document.model_validate_json(path.read_text(encoding="utf-8"))
-    _check_source(document, source)
+    validate_source(document, source=source)
     return document
 
 
@@ -323,21 +320,21 @@ async def _retry_body_substages(
     """Run the failed provider, later providers, and the cross-provider review."""
     client_kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
     if first_substage == _COURTLISTENER_OPINION_SUBSTAGE:
-        document = locator_body_courtlistener_opinion_retrieval(
+        document = retrieve_courtlistener_locator_opinions(
             document, retrospective_date=retrospective_date, **client_kwargs
         )
         if checkpoint is not None:
             checkpoint(document)
     if first_substage in (_COURTLISTENER_OPINION_SUBSTAGE, _COURTLISTENER_RECAP_SUBSTAGE):
-        document = locator_body_courtlistener_recap_retrieval(
+        document = retrieve_courtlistener_locator_filings(
             document, retrospective_date=retrospective_date, **client_kwargs
         )
         if checkpoint is not None:
             checkpoint(document)
-    document = locator_body_govinfo_opinion_retrieval(document, retrospective_date=retrospective_date)
+    document = retrieve_govinfo_locator_opinions(document, retrospective_date=retrospective_date)
     if checkpoint is not None:
         checkpoint(document)
-    document = await locator_body_llm_judgment(document)
+    document = await review_locator_bodies_llm(document)
     if checkpoint is not None:
         checkpoint(document)
     return document
@@ -368,20 +365,20 @@ async def _continue_field_substages(
             raise ValueError(f"Field discovery cannot skip a substage for {filename}")
         if substage == _COURTLISTENER_OPINION_FIELD_SUBSTAGE:
             kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
-            document = intended_case_courtlistener_opinion_retrieval(
+            document = retrieve_courtlistener_intended_case_opinions(
                 document, retrospective_date=retrospective_date, **kwargs
             )
         elif substage == _COURTLISTENER_RECAP_FIELD_SUBSTAGE:
             kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
-            document = intended_case_courtlistener_recap_retrieval(
+            document = retrieve_courtlistener_intended_case_filings(
                 document, retrospective_date=retrospective_date, **kwargs
             )
         elif substage == _GOVINFO_OPINION_FIELD_SUBSTAGE:
-            document = intended_case_govinfo_opinion_retrieval(
+            document = retrieve_govinfo_intended_case_opinions(
                 document, retrospective_date=retrospective_date
             )
         else:
-            document = await intended_case_llm_selection(document)
+            document = await review_intended_cases_llm(document)
         if document.substage_runs != _FIELD_RUN_SUBSTAGES[: _FIELD_RUN_SUBSTAGES.index(substage) + 1]:
             raise ValueError(f"Field discovery did not complete {substage} for {filename}")
         document = complete_stage_boundary(document, _FIELD_RUN_SUBSTAGES)
@@ -464,9 +461,14 @@ async def _run(
     case_cutoffs: dict[str, date] = {}
     model_profiles = _configured_model_profiles() if end_to_end else None
     if resume_run is None:
-        filenames = sorted(
-            json.loads((data_root / _SET / "documents.json").read_text(encoding="utf-8"))["documents"]
-        )
+        renderings = json.loads((data_root / _SET / "documents.json").read_text(encoding="utf-8"))[
+            "documents"
+        ]
+        if not isinstance(renderings, dict) or any(
+            not isinstance(value, dict) for value in renderings.values()
+        ):
+            raise ValueError("Dataset documents must map filenames to rendering metadata records")
+        filenames = sorted(renderings)
         if not filenames:
             raise ValueError(f"No documents in {_SET}")
         annotation_hashes = _annotation_sha256(data_root, filenames) if end_to_end else None
@@ -509,6 +511,12 @@ async def _run(
             "case_cutoffs": {name: value.isoformat() for name, value in case_cutoffs.items()},
             "courtlistener_pool": courtlistener_pool,
             "reuse_docket_lookups": reuse_docket_lookups,
+            "rendering_sha256": {
+                filename: hashlib.sha256(
+                    json.dumps(renderings[filename], sort_keys=True).encode("utf-8")
+                ).hexdigest()
+                for filename in filenames
+            },
             "source_sha256": {
                 filename: hashlib.sha256(
                     (data_root / _SET / "documents_txt" / filename).read_bytes()
@@ -538,6 +546,8 @@ async def _run(
         if workers is not None and not end_to_end:
             raise ValueError("--workers requires end-to-end mode")
         if end_to_end:
+            if run_record.get("workflows") != list(_E2E_WORKFLOWS):
+                raise ValueError("Saved end-to-end workflow names differ from the current workflows")
             if workers is not None and workers != run_record["workers"]:
                 raise ValueError("Resume must use the saved end-to-end worker count")
             workers = run_record["workers"]
@@ -605,9 +615,14 @@ async def _run(
         if reuse_docket_lookups and from_reporter_review_documents is None:
             raise ValueError("Saved run cannot reuse docket lookups without reporter-review Documents")
         filenames = run_record["filings"]
-        current_filenames = sorted(
-            json.loads((data_root / _SET / "documents.json").read_text(encoding="utf-8"))["documents"]
-        )
+        renderings = json.loads((data_root / _SET / "documents.json").read_text(encoding="utf-8"))[
+            "documents"
+        ]
+        if not isinstance(renderings, dict) or any(
+            not isinstance(value, dict) for value in renderings.values()
+        ):
+            raise ValueError("Dataset documents must map filenames to rendering metadata records")
+        current_filenames = sorted(renderings)
         if filenames != current_filenames:
             raise ValueError("Run document list differs from the current dataset")
         if end_to_end and run_record["annotation_sha256"] != _annotation_sha256(data_root, filenames):
@@ -618,6 +633,16 @@ async def _run(
                 "case_cutoffs"
             ) != {name: value.isoformat() for name, value in case_cutoffs.items()}:
                 raise ValueError("Annotation case cutoffs differ from the original run")
+        current_rendering_hashes = {
+            filename: hashlib.sha256(
+                json.dumps(renderings[filename], sort_keys=True).encode("utf-8")
+            ).hexdigest()
+            for filename in filenames
+        }
+        if "rendering_sha256" not in run_record:
+            raise ValueError("Run has no rendering metadata provenance; regenerate from native preprocessing")
+        if run_record["rendering_sha256"] != current_rendering_hashes:
+            raise ValueError("Run rendering metadata differs from the original run")
         recorded_hashes = run_record.get("source_sha256")
         if recorded_hashes is not None:
             current_hashes = {
@@ -642,8 +667,7 @@ async def _run(
     try:
         # Check every saved checkpoint before any provider-backed substage starts.
         sources = {
-            filename: Document.from_source(data_root / _SET / "documents_txt" / filename)
-            for filename in filenames
+            filename: load_source(data_root / _SET / "documents_txt" / filename) for filename in filenames
         }
         completed: set[str] = set()
         retry_body: dict[str, str] = {}
@@ -709,10 +733,10 @@ async def _run(
             ):
                 raise ValueError(f"Saved evaluation input differs for {filename}")
             validate_workflow_checkpoint(document, "grow_roots")
-            validate_workflow_checkpoint(document, "validate_roots")
+            validate_workflow_checkpoint(document, "validate_roots_citation_identity")
             if end_to_end:
                 validate_workflow_checkpoint(document, "grow_leaves")
-                validate_workflow_checkpoint(document, "validate_pincite")
+                validate_workflow_checkpoint(document, "validate_all_citation_content")
             marked = complete_stage_boundary(document, enabled)
             if artifact.exists() and marked != document:
                 _write_json(artifact, marked.model_dump(mode="json"))
@@ -800,12 +824,12 @@ async def _run(
                 if from_reporter_review_documents is not None:
                     for substage, review in (
                         (
-                            "validate_roots.reporter_lookup.unique_llm_judgment",
-                            reporter_root_lookup_unique_llm_judgment,
+                            "validate_roots_citation_identity.lookup_reporter_roots.review_unique_llm",
+                            review_unique_reporter_roots_llm,
                         ),
                         (
-                            "validate_roots.reporter_lookup.ambiguous_llm_judgment",
-                            reporter_root_lookup_ambiguous_llm_judgment,
+                            "validate_roots_citation_identity.lookup_reporter_roots.review_ambiguous_llm",
+                            review_ambiguous_reporter_roots_llm,
                         ),
                     ):
                         if substage not in document.substage_runs:
@@ -816,20 +840,23 @@ async def _run(
                         document = (
                             _reuse_docket_lookup(document, reporter_inputs[filename])
                             if reuse_docket_lookups
-                            else docket_root_lookup_courtlistener_retrieval(document)
+                            else retrieve_courtlistener_docket_roots(document)
                         )
                         save_checkpoint(document)
                     if _DOCKET_REVIEW_INPUT_SUBSTAGE not in document.substage_runs:
-                        document = await docket_root_lookup_courtlistener_llm_review(document)
+                        document = await review_courtlistener_docket_roots_llm(document)
                         save_checkpoint(document)
                 if from_docket_review_documents is not None or from_reporter_review_documents is not None:
-                    if "validate_roots.docket_lookup.govinfo_retrieval" not in document.substage_runs:
-                        document = docket_root_lookup_govinfo_retrieval(document)
+                    if (
+                        "validate_roots_citation_identity.lookup_docket_roots.retrieve_govinfo_dockets"
+                        not in document.substage_runs
+                    ):
+                        document = retrieve_govinfo_docket_roots(document)
                         save_checkpoint(document)
                     if _VALIDATION_INPUT_SUBSTAGE not in document.substage_runs:
-                        document = await docket_root_lookup_govinfo_llm_review(document)
+                        document = await review_govinfo_docket_roots_llm(document)
                         save_checkpoint(document)
-                if "grow_roots.root_formation.docket_llm_reassignment" not in document.substage_runs:
+                if "grow_roots.form_root_groups.reassign_docket_roots_llm" not in document.substage_runs:
                     document = await grow_roots(
                         document,
                         hunt_dockets=True,
@@ -850,7 +877,7 @@ async def _run(
                     )
                     if end_to_end:
                         client_kwargs["search_other_fields"] = False
-                    document = await validate_roots(
+                    document = await validate_roots_citation_identity(
                         document,
                         retrospective_date=cutoff,
                         checkpoint=save_checkpoint,
@@ -860,7 +887,7 @@ async def _run(
                     check_model_profiles()
                     document = await grow_leaves(document, review_leaves=True, checkpoint=save_checkpoint)
                     check_model_profiles()
-                    document = await validate_pincite(
+                    document = await validate_all_citation_content(
                         document,
                         client=courtlistener_client,
                         review_opinions=True,
@@ -952,27 +979,27 @@ def main() -> None:
     parser.add_argument(
         "--from-roots-documents",
         type=Path,
-        help="Resume saved Documents at their grow_roots.root_formation.rule checkpoint before the docket-root review",
+        help="Resume saved Documents at their grow_roots.form_root_groups.form_roots checkpoint before the docket-root review",
     )
     parser.add_argument(
         "--from-reporter-review-documents",
         type=Path,
-        help="Resume saved Documents at substage 13 before the reporter LLM reviews",
+        help=f"Resume saved Documents at {_REPORTER_REVIEW_INPUT_SUBSTAGE} before the reporter LLM reviews",
     )
     parser.add_argument(
         "--from-docket-review-documents",
         type=Path,
-        help="Resume saved Documents at substage 17 before GovInfo docket lookup and review",
+        help=f"Resume saved Documents at {_DOCKET_REVIEW_INPUT_SUBSTAGE} before GovInfo docket lookup and review",
     )
     parser.add_argument(
         "--from-validation-documents",
         type=Path,
-        help="Resume saved Documents at substage 19 before locator-first body search and review",
+        help=f"Resume saved Documents at {_VALIDATION_INPUT_SUBSTAGE} before locator-body search and review",
     )
     parser.add_argument(
         "--from-locator-review-documents",
         type=Path,
-        help="Continue saved substage-23 Documents through case-name body discovery and review",
+        help=f"Continue saved Documents at {_LOCATOR_BODY_REVIEW_SUBSTAGE} through intended-case discovery and review",
     )
     parser.add_argument(
         "--from-checkpoint-documents",
@@ -997,7 +1024,7 @@ def main() -> None:
     parser.add_argument(
         "--reuse-docket-lookups",
         action="store_true",
-        help="Reuse saved substage-16 docket lookups while rerunning reporter and docket LLM reviews",
+        help=f"Reuse saved {_DOCKET_LOOKUP_SUBSTAGE} records while rerunning reporter and docket LLM reviews",
     )
     parser.add_argument(
         "--resume-run", type=Path, help="Continue an interrupted run in its existing timestamp directory"

@@ -11,9 +11,9 @@ from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.model.citations.full_reporter import FullReporterCitation
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
-from mellea_lrc.validation.body_search.intended_case_govinfo_opinion_retrieval import (
+from mellea_lrc.validation.body_search.retrieve_govinfo_intended_case_opinions import (
     SUBSTAGE,
-    intended_case_govinfo_opinion_retrieval,
+    retrieve_govinfo_intended_case_opinions,
 )
 from mellea_lrc.validation.body_search import _govinfo as govinfo_module
 
@@ -34,14 +34,18 @@ def _document(*, case_name: bool = True, routed: bool = True) -> Document:
         root = root.record("03_case_name").with_case_name(SOURCE, Span(0, len("Acme v. Smith")))
         document = document.replace_citation(root).complete_substage("03_case_name")
     if routed:
-        root = root.record("validate_roots.locator_body_corroboration.llm_judgment").with_route(
-            "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
+        root = root.record(
+            "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"
+        ).with_route(
+            "validate_roots_citation_identity.discover_intended_cases.retrieve_courtlistener_opinions"
         )
         document = document.replace_citation(root).complete_substage(
-            "validate_roots.locator_body_corroboration.llm_judgment"
+            "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"
         )
     else:
-        document = document.complete_substage("validate_roots.locator_body_corroboration.llm_judgment")
+        document = document.complete_substage(
+            "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"
+        )
     return document
 
 
@@ -98,11 +102,16 @@ def test_name_hit_with_another_locator_preserves_evidence_without_confirming_ide
         {"other": "2000-01-01"},
     )
     before = _document()
-    after = intended_case_govinfo_opinion_retrieval(before, client=client)
+    after = retrieve_govinfo_intended_case_opinions(before, client=client)
 
-    assert SUBSTAGE == "validate_roots.intended_case_discovery.govinfo_opinion_retrieval"
+    assert SUBSTAGE == "validate_roots_citation_identity.discover_intended_cases.retrieve_govinfo_opinions"
     assert after.substage_runs == (*before.substage_runs, SUBSTAGE)
-    assert after.get_substage("validate_roots.locator_body_corroboration.llm_judgment") == before
+    assert (
+        after.get_substage(
+            "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"
+        )
+        == before
+    )
     assert client.search_calls == ["collection:uscourts and Acme and Smith"]
     assert client.summary_calls == ["other"]
     search = after.roots[0].field_body_searches[0]
@@ -119,7 +128,7 @@ def test_name_hit_with_another_locator_preserves_evidence_without_confirming_ide
     assert after.roots[0].identity_judgments == before.roots[0].identity_judgments == ()
     assert (
         after.roots[0].next_substage
-        == "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
+        == "validate_roots_citation_identity.discover_intended_cases.retrieve_courtlistener_opinions"
     )
     assert Document.model_validate_json(after.model_dump_json()) == after
 
@@ -135,7 +144,7 @@ def test_precise_granule_date_controls_cutoff_and_unrelated_body_is_rejected(
         },
         {"late": "2026-01-01", "unrelated": "2024-01-01"},
     )
-    after = intended_case_govinfo_opinion_retrieval(
+    after = retrieve_govinfo_intended_case_opinions(
         _document(), client=client, retrospective_date=date(2025, 1, 1)
     )
     search = after.roots[0].field_body_searches[0]
@@ -159,7 +168,7 @@ def test_two_party_search_stops_after_four_unhelpful_pdfs_without_broad_query(
         {str(index): "1990-01-01" for index in range(1, 6)},
     )
 
-    after = intended_case_govinfo_opinion_retrieval(_document(), client=client)
+    after = retrieve_govinfo_intended_case_opinions(_document(), client=client)
 
     assert client.search_calls == ["collection:uscourts and Acme and Smith"]
     assert len(client.download_calls) == 4
@@ -172,7 +181,7 @@ def test_two_party_search_stops_after_four_unhelpful_pdfs_without_broad_query(
 
 def test_missing_name_and_unrouted_root_make_no_provider_calls() -> None:
     client = FakeGovInfoClient({}, {})
-    unnamed = intended_case_govinfo_opinion_retrieval(_document(case_name=False), client=client)
+    unnamed = retrieve_govinfo_intended_case_opinions(_document(case_name=False), client=client)
     search = unnamed.roots[0].field_body_searches[0]
     assert search.query_name is None
     assert search.attempts == ()
@@ -180,16 +189,16 @@ def test_missing_name_and_unrouted_root_make_no_provider_calls() -> None:
     assert search.failures[0].failure_type == "unsearchable_case_name"
     assert client.search_calls == []
 
-    unqueued = intended_case_govinfo_opinion_retrieval(_document(routed=False), client=client)
+    unqueued = retrieve_govinfo_intended_case_opinions(_document(routed=False), client=client)
     assert unqueued.roots[0].field_body_searches == ()
     assert client.search_calls == []
 
 
 def test_field_search_needs_locator_review_and_cannot_run_twice() -> None:
     with pytest.raises(ValueError, match="locator body review"):
-        intended_case_govinfo_opinion_retrieval(Document.from_source("No citations"))
-    completed = intended_case_govinfo_opinion_retrieval(
+        retrieve_govinfo_intended_case_opinions(Document.from_source("No citations"))
+    completed = retrieve_govinfo_intended_case_opinions(
         _document(routed=False), client=FakeGovInfoClient({}, {})
     )
     with pytest.raises(ValueError, match="already completed"):
-        intended_case_govinfo_opinion_retrieval(completed, client=FakeGovInfoClient({}, {}))
+        retrieve_govinfo_intended_case_opinions(completed, client=FakeGovInfoClient({}, {}))

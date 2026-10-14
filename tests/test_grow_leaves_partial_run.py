@@ -21,17 +21,24 @@ from mellea_lrc.workflows.grow_leaves import grow_leaves
 from tests.test_grow_leaves_score_api import _leaf_document, _write_fixture
 
 PREFIX = (
-    "grow_leaves.short_reporter_citations.discovery",
-    "grow_leaves.short_reporter_citations.colocations",
-    "grow_leaves.short_reporter_citations.case_names",
-    "grow_leaves.short_reporter_citations.attribution",
-    "grow_leaves.reference_citations.discovery",
-    "grow_leaves.reference_citations.attribution",
+    "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations",
+    "grow_leaves.grow_short_reporter_leaves.resolve_colocations",
+    "grow_leaves.grow_short_reporter_leaves.resolve_case_names",
+    "grow_leaves.grow_short_reporter_leaves.attribute_citations",
+    "grow_leaves.grow_reference_leaves.find_reference_citations",
+    "grow_leaves.grow_reference_leaves.attribute_citations",
 )
 TEXT = (
     "Smith v. Jones, 347 U.S. 483 (1954). See Smith, 347 U.S. at 495. "
     "Wrong, 347 U.S. at 499. Smith, supra, at 500. Id. at 501. See Smith at 502."
 )
+
+
+@pytest.fixture(autouse=True)
+def synthetic_source_boundary(monkeypatch) -> None:
+    # These fixtures test leaf-prefix recovery and scoring. Native source
+    # metadata and runner preflight are covered by test_evaluation_end_to_end.
+    monkeypatch.setattr(runner, "validate_source", lambda document, **_kwargs: None)
 
 
 @pytest.fixture(autouse=True)
@@ -85,7 +92,7 @@ def test_rule_only_stop_saves_creation_and_attribution_checkpoints_and_field_his
     run_dir = asyncio.run(
         runner.run(
             inputs,
-            input_substage="grow_roots.root_formation.rule",
+            input_substage="grow_roots.form_root_groups.form_roots",
             review_leaves=False,
             stop_after=PREFIX[-1],
         )
@@ -100,15 +107,15 @@ def test_rule_only_stop_saves_creation_and_attribution_checkpoints_and_field_his
 
     assert document.substage_runs == (*roots.substage_runs, *PREFIX)
     assert tuple(checkpoint.substage_runs[-1] for checkpoint in atomic_saved) == PREFIX
-    assert document.get_substage("grow_roots.root_formation.rule") == roots.get_substage(
-        "grow_roots.root_formation.rule"
+    assert document.get_substage("grow_roots.form_root_groups.form_roots") == roots.get_substage(
+        "grow_roots.form_root_groups.form_roots"
     )
     assert document.stage_runs == (
-        "grow_roots.locator_discovery",
-        "grow_roots.field_reading",
-        "grow_roots.root_formation",
-        "grow_leaves.short_reporter_citations",
-        "grow_leaves.reference_citations",
+        "grow_roots.discover_root_locators",
+        "grow_roots.read_root_fields",
+        "grow_roots.form_root_groups",
+        "grow_leaves.grow_short_reporter_leaves",
+        "grow_leaves.grow_reference_leaves",
     )
     for substage, checkpoint in zip(PREFIX, atomic_saved, strict=True):
         assert document.get_substage(substage) == checkpoint
@@ -207,7 +214,7 @@ def test_interrupted_prefix_resume_reuses_the_saved_stop_configuration(
         asyncio.run(
             runner.run(
                 inputs,
-                input_substage="grow_roots.root_formation.rule",
+                input_substage="grow_roots.form_root_groups.form_roots",
                 review_leaves=False,
                 stop_after=PREFIX[-1],
             )
@@ -231,7 +238,7 @@ def test_interrupted_prefix_resume_reuses_the_saved_stop_configuration(
     record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     assert record["status"] == "complete"
     assert record["set"] == set_name
-    assert record["input_substage"] == "grow_roots.root_formation.rule"
+    assert record["input_substage"] == "grow_roots.form_root_groups.form_roots"
     assert record["input_sha256"] == failed_record["input_sha256"]
     assert record["stop_after"] == PREFIX[-1]
     assert record["review_leaves"] is False
@@ -242,17 +249,20 @@ def test_interrupted_prefix_resume_reuses_the_saved_stop_configuration(
 @pytest.mark.parametrize(
     ("input_substage", "stop_after"),
     [
-        ("grow_leaves.id_citations.discovery", "grow_leaves.short_reporter_citations.discovery"),
-        ("grow_leaves.id_citations.discovery", "grow_leaves.id_citations.discovery"),
-        ("grow_roots.root_formation.rule", "grow_leaves.supra_citations.llm_attribution"),
-        ("grow_roots.root_formation.rule", "unknown_stage"),
+        (
+            "grow_leaves.grow_id_leaves.find_id_citations",
+            "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations",
+        ),
+        ("grow_leaves.grow_id_leaves.find_id_citations", "grow_leaves.grow_id_leaves.find_id_citations"),
+        ("grow_roots.form_root_groups.form_roots", "grow_leaves.grow_supra_leaves.review_attributions_llm"),
+        ("grow_roots.form_root_groups.form_roots", "unknown_stage"),
     ],
 )
 def test_invalid_stop_is_rejected_before_creating_a_run(
     tmp_path: Path, monkeypatch, input_substage: str, stop_after: str
 ) -> None:
     document = _source_roots(tmp_path)
-    if input_substage != "grow_roots.root_formation.rule":
+    if input_substage != "grow_roots.form_root_groups.form_roots":
         document = asyncio.run(grow_leaves(document, review_leaves=False)).get_substage(input_substage)
     inputs = _saved_input(tmp_path, document)
     results_root = tmp_path / "runs"
@@ -297,7 +307,7 @@ def test_prefix_scoring_and_default_run_report_include_only_completed_leaf_stage
     run_dir = asyncio.run(
         runner.run(
             inputs,
-            input_substage="grow_roots.root_formation.rule",
+            input_substage="grow_roots.form_root_groups.form_roots",
             review_leaves=False,
             stop_after=PREFIX[-1],
         )

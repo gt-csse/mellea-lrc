@@ -11,10 +11,10 @@ from mellea_lrc.model.citations.docket_root_llm_reassignment import DocketRootRe
 from mellea_lrc.model.ivr import IvrAttempt, IvrRun
 from mellea_lrc.model.site_review import SiteReview
 
-DISCOVERY = "grow_roots.locator_discovery.docket_locators"
-HUNTING = "grow_roots.locator_discovery.docket_hunting"
-REASSIGNMENT = "grow_roots.root_formation.docket_llm_reassignment"
-BODY_REVIEW = "validate_roots.locator_body_corroboration.llm_judgment"
+DISCOVERY = "grow_roots.discover_root_locators.find_docket_locators"
+HUNTING = "grow_roots.discover_root_locators.hunt_docket_locators"
+REASSIGNMENT = "grow_roots.form_root_groups.reassign_docket_roots_llm"
+BODY_REVIEW = "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"
 
 
 def _run(*usages, model="example-model", endpoint="https://example.test/v1") -> IvrRun:
@@ -237,7 +237,7 @@ def test_workflow_filter_and_addition_keep_model_endpoint_groups_in_catalog_orde
     assert isinstance(roots.total.attempts, int)
     assert isinstance(roots.total.usage_reported_attempts, int)
     assert isinstance(roots.as_dict()["total"]["input_tokens"], int)
-    assert report.for_workflow("validate_roots").total.input_tokens == 10
+    assert report.for_workflow("validate_roots_citation_identity").total.input_tokens == 10
     assert report.for_workflow("grow_leaves").rows == ()
     with pytest.raises(KeyError):
         report.for_workflow("invented_workflow")

@@ -16,7 +16,7 @@ from mellea_lrc.model.citations import FullCitationVariant, FullDocketCitation
 from mellea_lrc.model.citations.body_evidence import BodyEvidence, BodySource
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
-from mellea_lrc.validation.fields_aggregated_identity import SUBSTAGE as FIELD_IDENTITY_SUBSTAGE
+from mellea_lrc.validation.judge_root_identity_from_fields import SUBSTAGE as FIELD_IDENTITY_SUBSTAGE
 
 _SPACE = re.compile(r"\s+")
 _LOCATOR_MATCH = FuzzinessOption.edit_distance(similarity_percent=90, whitespace_relaxation=True)

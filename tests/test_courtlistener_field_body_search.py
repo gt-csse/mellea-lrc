@@ -12,17 +12,17 @@ from mellea_lrc.api import Document, grow_roots
 from mellea_lrc.providers.courtlistener.models import CourtListenerSearchPage
 from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.validation.body_search.common import field_query_name, field_query_parties
-from mellea_lrc.validation.body_search.intended_case_courtlistener_opinion_retrieval import (
+from mellea_lrc.validation.body_search.retrieve_courtlistener_intended_case_opinions import (
     SUBSTAGE as OPINION_SUBSTAGE,
 )
-from mellea_lrc.validation.body_search.intended_case_courtlistener_opinion_retrieval import (
-    intended_case_courtlistener_opinion_retrieval,
+from mellea_lrc.validation.body_search.retrieve_courtlistener_intended_case_opinions import (
+    retrieve_courtlistener_intended_case_opinions,
 )
-from mellea_lrc.validation.body_search.intended_case_courtlistener_recap_retrieval import (
+from mellea_lrc.validation.body_search.retrieve_courtlistener_intended_case_filings import (
     SUBSTAGE as RECAP_SUBSTAGE,
 )
-from mellea_lrc.validation.body_search.intended_case_courtlistener_recap_retrieval import (
-    intended_case_courtlistener_recap_retrieval,
+from mellea_lrc.validation.body_search.retrieve_courtlistener_intended_case_filings import (
+    retrieve_courtlistener_intended_case_filings,
 )
 
 
@@ -64,10 +64,16 @@ def _page(*results: dict[str, Any]) -> CourtListenerSearchPage:
 
 def _ready(source: str = "Brown v. Board of Education, 347 U.S. 483 (1954).") -> Document:
     document = asyncio.run(grow_roots(Document.from_source(source)))
-    root = document.roots[0].record("validate_roots.locator_body_corroboration.llm_judgment")
+    root = document.roots[0].record(
+        "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"
+    )
     return document.replace_citation(
-        root.with_route("validate_roots.intended_case_discovery.courtlistener_opinion_retrieval")
-    ).complete_substage("validate_roots.locator_body_corroboration.llm_judgment")
+        root.with_route(
+            "validate_roots_citation_identity.discover_intended_cases.retrieve_courtlistener_opinions"
+        )
+    ).complete_substage(
+        "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"
+    )
 
 
 def test_opinion_field_search_saves_grounded_name_and_different_locator() -> None:
@@ -89,7 +95,7 @@ def test_opinion_field_search_saves_grounded_name_and_different_locator() -> Non
         },
     )
 
-    after = intended_case_courtlistener_opinion_retrieval(
+    after = retrieve_courtlistener_intended_case_opinions(
         before, client=client, retrospective_date=date(1970, 1, 1)
     )
 
@@ -108,7 +114,12 @@ def test_opinion_field_search_saves_grounded_name_and_different_locator() -> Non
     assert evidence.excerpt[evidence.anchor_span.start : evidence.anchor_span.end] == name
     assert "349 U.S. 294" in evidence.excerpt
     assert "347 U.S. 483" not in evidence.excerpt
-    assert after.get_substage("validate_roots.locator_body_corroboration.llm_judgment") == before
+    assert (
+        after.get_substage(
+            "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"
+        )
+        == before
+    )
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -122,7 +133,7 @@ def test_recap_search_requires_fetched_case_name_and_item_date() -> None:
         recap_documents={"44": {"id": 44, "plain_text": "This filing discusses an unrelated case."}},
     )
 
-    after = intended_case_courtlistener_recap_retrieval(
+    after = retrieve_courtlistener_intended_case_filings(
         before, client=client, retrospective_date=date(1970, 1, 1)
     )
 
@@ -143,7 +154,7 @@ def test_field_search_excludes_an_opinion_after_the_retrospective_cutoff() -> No
         opinions={"901": {"id": 901, "plain_text": f"A later court cites {name}, 349 U.S. 294."}},
     )
 
-    after = intended_case_courtlistener_opinion_retrieval(
+    after = retrieve_courtlistener_intended_case_opinions(
         before, client=client, retrospective_date=date(1970, 1, 1)
     )
 
@@ -165,7 +176,7 @@ def test_two_party_search_stops_after_four_unhelpful_details_without_broad_query
         opinions={str(index): {"id": index, "plain_text": "An unrelated opinion."} for index in range(1, 6)},
     )
 
-    after = intended_case_courtlistener_opinion_retrieval(before, client=client)
+    after = retrieve_courtlistener_intended_case_opinions(before, client=client)
 
     assert client.search_calls == [("Brown AND Education", "o", None)]
     assert client.opinion_calls == ["1", "2", "3", "4"]
@@ -178,8 +189,8 @@ def test_two_party_search_stops_after_four_unhelpful_details_without_broad_query
 def test_field_stages_only_process_routed_roots_and_keep_independent_records() -> None:
     before = _ready()
     client = FakeBodyClient(_page())
-    opinion = intended_case_courtlistener_opinion_retrieval(before, client=client)
-    recap = intended_case_courtlistener_recap_retrieval(opinion, client=client)
+    opinion = retrieve_courtlistener_intended_case_opinions(before, client=client)
+    recap = retrieve_courtlistener_intended_case_filings(opinion, client=client)
 
     assert [item.source for item in recap.roots[0].field_body_searches] == [
         BodySource.COURTLISTENER_OPINION,
@@ -187,11 +198,13 @@ def test_field_stages_only_process_routed_roots_and_keep_independent_records() -
     ]
     assert recap.substage_runs[-2:] == (OPINION_SUBSTAGE, RECAP_SUBSTAGE)
     with pytest.raises(ValueError, match="already completed"):
-        intended_case_courtlistener_opinion_retrieval(recap, client=client)
+        retrieve_courtlistener_intended_case_opinions(recap, client=client)
 
     unselected = asyncio.run(grow_roots(Document.from_source("Brown v. Board of Education, 347 U.S. 483.")))
-    unselected = unselected.complete_substage("validate_roots.locator_body_corroboration.llm_judgment")
-    skipped = intended_case_courtlistener_opinion_retrieval(unselected, client=client)
+    unselected = unselected.complete_substage(
+        "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"
+    )
+    skipped = retrieve_courtlistener_intended_case_opinions(unselected, client=client)
     assert skipped.roots[0].field_body_searches == ()
     assert len(client.search_calls) == 2
 
@@ -200,7 +213,7 @@ def test_missing_case_name_records_failure_without_provider_call() -> None:
     before = _ready("347 U.S. 483.")
     client = FakeBodyClient(_page())
 
-    after = intended_case_courtlistener_opinion_retrieval(before, client=client)
+    after = retrieve_courtlistener_intended_case_opinions(before, client=client)
 
     assert client.search_calls == []
     search = after.roots[0].field_body_searches[0]

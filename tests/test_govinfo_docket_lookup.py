@@ -20,14 +20,14 @@ from mellea_lrc.model.citations.docket_lookup import (
 from mellea_lrc.model.citations.fields.case_name import CaseName
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.span import Span
-from mellea_lrc.validation.docket_root_lookup_courtlistener_retrieval import (
-    docket_root_lookup_courtlistener_retrieval,
+from mellea_lrc.validation.retrieve_courtlistener_docket_roots import (
+    retrieve_courtlistener_docket_roots,
 )
-from mellea_lrc.validation.docket_root_lookup_courtlistener_llm_review import (
-    docket_root_lookup_courtlistener_llm_review,
+from mellea_lrc.validation.review_courtlistener_docket_roots_llm import (
+    review_courtlistener_docket_roots_llm,
 )
 
-lookup_module = importlib.import_module("mellea_lrc.validation.docket_root_lookup_govinfo_retrieval")
+lookup_module = importlib.import_module("mellea_lrc.validation.retrieve_govinfo_docket_roots")
 
 
 def test_govinfo_docket_query_keeps_literal_number() -> None:
@@ -65,11 +65,11 @@ def _empty_cl_page() -> CourtListenerSearchPage:
 
 def _before_govinfo(source: str = "Acme v. Reed, Case No. 2:31-cv-45821 (D. Mass. 2031).") -> Document:
     rooted = asyncio.run(grow_roots(Document.from_source(source)))
-    searched = docket_root_lookup_courtlistener_retrieval(
+    searched = retrieve_courtlistener_docket_roots(
         rooted,
         client=type("EmptyCL", (), {"search": lambda *_args, **_kw: _empty_cl_page()})(),
     )
-    return asyncio.run(docket_root_lookup_courtlistener_llm_review(searched))
+    return asyncio.run(review_courtlistener_docket_roots_llm(searched))
 
 
 def test_raw_pages_and_package_ids_drive_shortlist_only_by_number() -> None:
@@ -88,7 +88,7 @@ def test_raw_pages_and_package_ids_drive_shortlist_only_by_number() -> None:
         )
     )
 
-    after = lookup_module.docket_root_lookup_govinfo_retrieval(before, client=client)
+    after = lookup_module.retrieve_govinfo_docket_roots(before, client=client)
 
     assert client.calls == [(query, "*", 100)]
     assert after.substage_runs[-1] == lookup_module.SUBSTAGE
@@ -118,17 +118,25 @@ def test_compact_year_sequence_adds_a_search_only_spelling() -> None:
     number_start = before.text.index("2210920")
     citation = FullDocketCitation.from_locator(
         citation_id="docket:compact",
-        substage="grow_roots.locator_discovery.docket_locators",
+        substage="grow_roots.discover_root_locators.find_docket_locators",
         source=before.text,
         span=Span(locator_start, locator_end),
         number_span=Span(number_start, number_start + 7),
     )
-    before = before.add_citation(citation).complete_substage("grow_roots.locator_discovery.docket_locators")
-    before = before.replace_citation(citation.record("grow_roots.root_formation.rule").with_root(citation.id))
+    before = before.add_citation(citation).complete_substage(
+        "grow_roots.discover_root_locators.find_docket_locators"
+    )
+    before = before.replace_citation(
+        citation.record("grow_roots.form_root_groups.form_roots").with_root(citation.id)
+    )
     before = (
-        before.complete_substage("grow_roots.root_formation.rule")
-        .complete_substage("validate_roots.docket_lookup.courtlistener_retrieval")
-        .complete_substage("validate_roots.docket_lookup.courtlistener_review")
+        before.complete_substage("grow_roots.form_root_groups.form_roots")
+        .complete_substage(
+            "validate_roots_citation_identity.lookup_docket_roots.retrieve_courtlistener_dockets"
+        )
+        .complete_substage(
+            "validate_roots_citation_identity.lookup_docket_roots.review_courtlistener_dockets_llm"
+        )
     )
     client = FakeGovInfoClient(
         lambda query, *_: (
@@ -138,7 +146,7 @@ def test_compact_year_sequence_adds_a_search_only_spelling() -> None:
         )
     )
 
-    after = lookup_module.docket_root_lookup_govinfo_retrieval(before, client=client)
+    after = lookup_module.retrieve_govinfo_docket_roots(before, client=client)
     lookup = after.roots[0].govinfo_docket_lookup
     assert lookup is not None
     assert [call[0] for call in client.calls] == [
@@ -161,7 +169,7 @@ def test_stops_when_reported_count_is_reached_even_with_offset_mark() -> None:
         )
     )
 
-    after = lookup_module.docket_root_lookup_govinfo_retrieval(before, client=client)
+    after = lookup_module.retrieve_govinfo_docket_roots(before, client=client)
     lookup = after.roots[0].govinfo_docket_lookup
     assert lookup is not None
     assert len(client.calls) == 1
@@ -187,7 +195,7 @@ def test_paginates_and_records_terminal_provider_error(monkeypatch: pytest.Monke
         )
 
     client = FakeGovInfoClient(respond)
-    after = lookup_module.docket_root_lookup_govinfo_retrieval(before, client=client)
+    after = lookup_module.retrieve_govinfo_docket_roots(before, client=client)
     lookup = after.roots[0].govinfo_docket_lookup
     assert lookup is not None
     attempt = lookup.attempts[0]
@@ -213,7 +221,7 @@ def test_transport_retry_is_saved_and_successful_search_finishes(monkeypatch: py
             raise GovInfoError("network", failure_type="transport_error")
         return _page({"packageId": "USCOURTS-mad-24-cv-123"})
 
-    after = lookup_module.docket_root_lookup_govinfo_retrieval(before, client=FakeGovInfoClient(respond))
+    after = lookup_module.retrieve_govinfo_docket_roots(before, client=FakeGovInfoClient(respond))
     attempt = after.roots[0].govinfo_docket_lookup.attempts[0]
     assert len(attempt.retry_failures) == 1
     assert attempt.failure is None
@@ -233,7 +241,7 @@ def test_server_errors_retry_and_keep_retry_diagnostics(monkeypatch: pytest.Monk
             raise GovInfoError("server error", failure_type="http_error", upstream_status_code=503)
         return _page({"packageId": "USCOURTS-mad-24-cv-123"})
 
-    after = lookup_module.docket_root_lookup_govinfo_retrieval(before, client=FakeGovInfoClient(respond))
+    after = lookup_module.retrieve_govinfo_docket_roots(before, client=FakeGovInfoClient(respond))
     attempt = after.roots[0].govinfo_docket_lookup.attempts[0]
     assert len(attempt.retry_failures) == 2
     assert all(failure.upstream_status_code == 503 for failure in attempt.retry_failures)
@@ -265,7 +273,7 @@ def test_selected_courtlistener_review_skips_provider_but_completes_stage() -> N
                 }
             )
 
-    searched = docket_root_lookup_courtlistener_retrieval(rooted, client=FakeCL())
+    searched = retrieve_courtlistener_docket_roots(rooted, client=FakeCL())
     case_name = CaseName.from_quote("Acme v. Reed")
 
     def assessment() -> DocketLookupFieldAssessment:
@@ -294,13 +302,13 @@ def test_selected_courtlistener_review_skips_provider_but_completes_stage() -> N
     async def reviewer(_context: object) -> DocketLookupReviewDecision:
         return decision
 
-    reviewed = asyncio.run(docket_root_lookup_courtlistener_llm_review(searched, reviewer=reviewer))
+    reviewed = asyncio.run(review_courtlistener_docket_roots_llm(searched, reviewer=reviewer))
     root = reviewed.roots[0]
     assert isinstance(root, FullDocketCitation)
     assert root.docket_lookup_review.decision.selected_candidate_index == 0
     client = FakeGovInfoClient(lambda *_: pytest.fail("GovInfo must not be called for a selected CL case"))
 
-    after = lookup_module.docket_root_lookup_govinfo_retrieval(reviewed, client=client)
+    after = lookup_module.retrieve_govinfo_docket_roots(reviewed, client=client)
     assert after.substage_runs[-1] == lookup_module.SUBSTAGE
     assert after.roots[0].govinfo_docket_lookup is None
     assert client.calls == []
@@ -308,13 +316,11 @@ def test_selected_courtlistener_review_skips_provider_but_completes_stage() -> N
 
 def test_rejects_repeated_stage_and_requires_prior_review() -> None:
     with pytest.raises(ValueError, match="Complete CourtListener"):
-        lookup_module.docket_root_lookup_govinfo_retrieval(
+        lookup_module.retrieve_govinfo_docket_roots(
             asyncio.run(grow_roots(Document.from_source("Case No. 24-cv-123.")))
         )
-    after = lookup_module.docket_root_lookup_govinfo_retrieval(
+    after = lookup_module.retrieve_govinfo_docket_roots(
         _before_govinfo(), client=FakeGovInfoClient(lambda *_: _page())
     )
     with pytest.raises(ValueError, match="already completed"):
-        lookup_module.docket_root_lookup_govinfo_retrieval(
-            after, client=FakeGovInfoClient(lambda *_: _page())
-        )
+        lookup_module.retrieve_govinfo_docket_roots(after, client=FakeGovInfoClient(lambda *_: _page()))

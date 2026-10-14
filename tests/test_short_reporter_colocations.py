@@ -15,9 +15,9 @@ from mellea_lrc.api import (
     resolve_short_reporter_colocations,
 )
 from mellea_lrc.config.extraction import ExtractionRules
-from mellea_lrc.extraction.short_reporter_case_names import SUBSTAGE as NAME_SUBSTAGE
-from mellea_lrc.extraction.short_reporter_colocations import SUBSTAGE as COLOCATION_SUBSTAGE
-from mellea_lrc.extraction.short_reporter_locator import SUBSTAGE as CREATION_SUBSTAGE
+from mellea_lrc.extraction.resolve_short_reporter_case_names import SUBSTAGE as NAME_SUBSTAGE
+from mellea_lrc.extraction.resolve_short_reporter_colocations import SUBSTAGE as COLOCATION_SUBSTAGE
+from mellea_lrc.extraction.find_short_reporter_citations import SUBSTAGE as CREATION_SUBSTAGE
 from mellea_lrc.model.citations import latest
 
 ROOTS = "Smith v. Jones, 347 U.S. 483, 74 S. Ct. 686 (1954). "
@@ -205,8 +205,8 @@ def test_short_name_stage_and_group_stage_are_independently_recoverable_after_at
     restored = Document.model_validate_json(attributed.model_dump_json())
 
     assert restored == attributed
-    assert restored.get_substage("grow_roots.root_formation.rule") == roots.get_substage(
-        "grow_roots.root_formation.rule"
+    assert restored.get_substage("grow_roots.form_root_groups.form_roots") == roots.get_substage(
+        "grow_roots.form_root_groups.form_roots"
     )
     assert restored.get_substage(CREATION_SUBSTAGE) == before
     assert restored.get_substage(COLOCATION_SUBSTAGE) == grouped

@@ -10,16 +10,28 @@ from pathlib import Path
 from evaluations.grow_leaves import render_grow_leaves, score_grow_leaves
 from evaluations.grow_roots import render_grow_roots, score_grow_roots
 from evaluations.llm_usage import render_llm_usage, summarize_llm_usage
-from evaluations.validate_pincite import render_validate_pincite, score_validate_pincite
-from evaluations.validate_roots import render_validate_roots, score_validate_roots
+from evaluations.validate_all_citation_content import (
+    render_validate_all_citation_content,
+    score_validate_all_citation_content,
+)
+from evaluations.validate_roots_citation_identity import (
+    render_validate_roots_citation_identity,
+    score_validate_roots_citation_identity,
+)
 from mellea_lrc.api import Document
 from mellea_lrc.model.execution import get_workflow
 
 _WORKFLOWS = {
     "grow_roots": (score_grow_roots, render_grow_roots),
-    "validate_roots": (score_validate_roots, render_validate_roots),
+    "validate_roots_citation_identity": (
+        score_validate_roots_citation_identity,
+        render_validate_roots_citation_identity,
+    ),
     "grow_leaves": (score_grow_leaves, render_grow_leaves),
-    "validate_pincite": (score_validate_pincite, render_validate_pincite),
+    "validate_all_citation_content": (
+        score_validate_all_citation_content,
+        render_validate_all_citation_content,
+    ),
 }
 
 

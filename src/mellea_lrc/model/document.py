@@ -254,6 +254,11 @@ class Document(PreprocessedDocument):
         latest_substage: str | None = None
         for run_index, run in enumerate(self.runs):
             if run.kind == "substage":
+                # Workflow.stage.substage identifiers belong to the catalog. Reject
+                # obsolete names and typos instead of treating them as ad hoc
+                # history and silently replaying a renamed operation.
+                if run.name.count(".") >= 2 and stage_for_substage(run.name) is None:
+                    raise ValueError(f"Unknown substage: {run.name}")
                 if run.name in substages:
                     raise ValueError("Substage runs must be unique")
                 if stage_for_substage(run.name) in stages:

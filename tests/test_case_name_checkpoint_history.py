@@ -7,7 +7,7 @@ from mellea_lrc.api import Document, grow_roots
 from mellea_lrc.model import Span
 from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
 
-STAGE23 = "validate_roots.locator_body_corroboration.llm_judgment"
+STAGE23 = "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"
 
 
 def test_failed_historical_reading_survives_later_partial_reading() -> None:
@@ -39,23 +39,23 @@ def test_failed_historical_reading_survives_later_partial_reading() -> None:
     assert historical.span == span
     assert historical.normalizable is False
     assert historical.normalization_error == saved_reading["normalization_error"]
-    assert restored.get_stage("grow_roots.root_formation") == original
+    assert restored.get_stage("grow_roots.form_root_groups") == original
 
     partial = CaseName.from_quote("Smith")
     assert partial.kind is CaseNameKind.PARTIAL
     updated_root = (
         restored.roots[0]
-        .record("validate_roots.intended_case_discovery.llm_selection")
+        .record("validate_roots_citation_identity.discover_intended_cases.review_intended_cases_llm")
         .with_case_name(source, span, normalized=partial)
     )
     updated = restored.replace_citation(updated_root).complete_substage(
-        "validate_roots.intended_case_discovery.llm_selection"
+        "validate_roots_citation_identity.discover_intended_cases.review_intended_cases_llm"
     )
     reloaded = Document.model_validate_json(updated.model_dump_json())
 
     assert reloaded == updated
     assert reloaded.get_substage(STAGE23) == restored
-    assert reloaded.get_stage("grow_roots.root_formation") == original
+    assert reloaded.get_stage("grow_roots.form_root_groups") == original
     assert reloaded.roots[0].case_name[-2] == historical
     assert reloaded.roots[0].case_name[-1].get_normalized() == partial
     assert reloaded.roots[0].case_name[-1].normalized_by == "model"

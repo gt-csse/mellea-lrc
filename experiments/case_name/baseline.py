@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from mellea_lrc.extraction.case_names.reader import read_case_name
+from mellea_lrc.extraction.resolve_case_names.reader import read_case_name
 
 
 def predict(record: dict[str, Any]) -> tuple[int, int] | None:

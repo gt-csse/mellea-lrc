@@ -18,26 +18,26 @@ from time import monotonic
 
 from pydantic import BaseModel
 
-from evaluations.validate_roots import FIELDS, _align, _gold_roots, _label
+from evaluations.validate_roots_citation_identity import FIELDS, _align, _gold_roots, _label
 from mellea_lrc.llm.profiles import LlmProfile
 from mellea_lrc.model import Document
-from mellea_lrc.validation.docket_root_lookup_courtlistener_llm_review.reviewer import (
+from mellea_lrc.validation.review_courtlistener_docket_roots_llm.reviewer import (
     DocketLookupReviewContext,
     IvrDocketLookupReviewer,
 )
-from mellea_lrc.validation.docket_root_lookup_govinfo_llm_review.reviewer import (
+from mellea_lrc.validation.review_govinfo_docket_roots_llm.reviewer import (
     GovInfoDocketReviewContext,
     IvrGovInfoDocketReviewer,
 )
-from mellea_lrc.validation.locator_body_llm_judgment.reviewer import (
+from mellea_lrc.validation.review_locator_bodies_llm.reviewer import (
     BodyCorroborationContext,
     IvrBodyCorroborationReviewer,
 )
-from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm_judgment.reviewer import (
+from mellea_lrc.validation.review_ambiguous_reporter_roots_llm.reviewer import (
     IvrReporterAmbiguousReviewer,
     ReporterAmbiguousReviewContext,
 )
-from mellea_lrc.validation.reporter_root_lookup_unique_llm_judgment.reviewer import (
+from mellea_lrc.validation.review_unique_reporter_roots_llm.reviewer import (
     IvrReporterUniqueReviewer,
     ReporterUniqueReviewContext,
 )
@@ -54,36 +54,36 @@ class Route:
 
 ROUTES = {
     "unique": Route(
-        "validate_roots.reporter_lookup.ambiguous_rule_judgment",
-        "validate_roots.reporter_lookup.unique_llm_judgment",
+        "validate_roots_citation_identity.lookup_reporter_roots.judge_ambiguous_rule",
+        "validate_roots_citation_identity.lookup_reporter_roots.review_unique_llm",
         "reporter_unique_review",
         ReporterUniqueReviewContext,
         IvrReporterUniqueReviewer,
     ),
     "ambiguous": Route(
-        "validate_roots.reporter_lookup.unique_llm_judgment",
-        "validate_roots.reporter_lookup.ambiguous_llm_judgment",
+        "validate_roots_citation_identity.lookup_reporter_roots.review_unique_llm",
+        "validate_roots_citation_identity.lookup_reporter_roots.review_ambiguous_llm",
         "reporter_ambiguous_review",
         ReporterAmbiguousReviewContext,
         IvrReporterAmbiguousReviewer,
     ),
     "docket_cl": Route(
-        "validate_roots.docket_lookup.courtlistener_retrieval",
-        "validate_roots.docket_lookup.courtlistener_review",
+        "validate_roots_citation_identity.lookup_docket_roots.retrieve_courtlistener_dockets",
+        "validate_roots_citation_identity.lookup_docket_roots.review_courtlistener_dockets_llm",
         "docket_lookup_review",
         DocketLookupReviewContext,
         IvrDocketLookupReviewer,
     ),
     "docket_govinfo": Route(
-        "validate_roots.docket_lookup.govinfo_retrieval",
-        "validate_roots.docket_lookup.govinfo_review",
+        "validate_roots_citation_identity.lookup_docket_roots.retrieve_govinfo_dockets",
+        "validate_roots_citation_identity.lookup_docket_roots.review_govinfo_dockets_llm",
         "govinfo_docket_review",
         GovInfoDocketReviewContext,
         IvrGovInfoDocketReviewer,
     ),
     "body": Route(
-        "validate_roots.locator_body_corroboration.govinfo_opinion_retrieval",
-        "validate_roots.locator_body_corroboration.llm_judgment",
+        "validate_roots_citation_identity.corroborate_locator_bodies.retrieve_govinfo_opinions",
+        "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm",
         "body_reviews",
         BodyCorroborationContext,
         IvrBodyCorroborationReviewer,

@@ -19,19 +19,19 @@ from evaluations.score_types import (
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation
 from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, latest
-from mellea_lrc.validation.docket_root_lookup_govinfo_llm_review import SUBSTAGE as VALIDATED_FIELDS_SUBSTAGE
+from mellea_lrc.validation.review_govinfo_docket_roots_llm import SUBSTAGE as VALIDATED_FIELDS_SUBSTAGE
 
-REPORTER_SUBSTAGE = "grow_roots.locator_discovery.full_reporter_locators"
-DOCKET_SUBSTAGE = "grow_roots.locator_discovery.docket_locators"
-HUNT_SUBSTAGE = "grow_roots.locator_discovery.docket_hunting"
-ENTRY_SUBSTAGE = "grow_roots.field_reading.docket_entries"
-COLOCATION_SUBSTAGE = "grow_roots.field_reading.colocations"
-CASE_NAME_SUBSTAGE = "grow_roots.field_reading.case_names"
-COURT_SUBSTAGE = "grow_roots.field_reading.courts"
-DATE_SUBSTAGE = "grow_roots.field_reading.dates"
-PIN_SUBSTAGE = "grow_roots.field_reading.pin_cites"
-ROOT_SUBSTAGE = "grow_roots.root_formation.rule"
-ROOT_REVIEW_SUBSTAGE = "grow_roots.root_formation.docket_llm_reassignment"
+REPORTER_SUBSTAGE = "grow_roots.discover_root_locators.find_full_reporter_locators"
+DOCKET_SUBSTAGE = "grow_roots.discover_root_locators.find_docket_locators"
+HUNT_SUBSTAGE = "grow_roots.discover_root_locators.hunt_docket_locators"
+ENTRY_SUBSTAGE = "grow_roots.read_root_fields.resolve_docket_entries"
+COLOCATION_SUBSTAGE = "grow_roots.read_root_fields.resolve_colocations"
+CASE_NAME_SUBSTAGE = "grow_roots.read_root_fields.resolve_case_names"
+COURT_SUBSTAGE = "grow_roots.read_root_fields.resolve_courts"
+DATE_SUBSTAGE = "grow_roots.read_root_fields.resolve_dates"
+PIN_SUBSTAGE = "grow_roots.read_root_fields.resolve_pin_cites"
+ROOT_SUBSTAGE = "grow_roots.form_root_groups.form_roots"
+ROOT_REVIEW_SUBSTAGE = "grow_roots.form_root_groups.reassign_docket_roots_llm"
 ROOT_FIELDS = ("locator", "case_name", "court", "date", "pin_cite", "docket_entry")
 
 
@@ -550,7 +550,7 @@ def score_roots(document: Document) -> SubstageScore:
     return SubstageScore(ROOT_SUBSTAGE, {"root_assignment": Precision(correct, total)})
 
 
-def score_docket_root_llm_reassignment(document: Document) -> SubstageScore:
+def score_reassign_docket_roots_llm(document: Document) -> SubstageScore:
     """Score root assignments for docket roots whose identity was reviewed."""
     checkpoint = document.get_substage(ROOT_REVIEW_SUBSTAGE)
     gold = _gold(_rows(checkpoint))
@@ -592,7 +592,7 @@ GROW_ROOTS_SUBSTAGES: tuple[tuple[str, Callable[[Document], SubstageScore]], ...
     (DATE_SUBSTAGE, score_dates),
     (PIN_SUBSTAGE, score_pin_cites),
     (ROOT_SUBSTAGE, score_roots),
-    (ROOT_REVIEW_SUBSTAGE, score_docket_root_llm_reassignment),
+    (ROOT_REVIEW_SUBSTAGE, score_reassign_docket_roots_llm),
 )
 
 
@@ -832,7 +832,7 @@ def render_roots(score: SubstageScore) -> str:
     )
 
 
-def render_docket_root_llm_reassignment(score: SubstageScore) -> str:
+def render_reassign_docket_roots_llm(score: SubstageScore) -> str:
     _require_substage(score, ROOT_REVIEW_SUBSTAGE)
     return "\n".join(
         (
@@ -856,7 +856,7 @@ GROW_ROOTS_RENDERERS: dict[str, Callable[[SubstageScore], str]] = {
     DATE_SUBSTAGE: render_dates,
     PIN_SUBSTAGE: render_pin_cites,
     ROOT_SUBSTAGE: render_roots,
-    ROOT_REVIEW_SUBSTAGE: render_docket_root_llm_reassignment,
+    ROOT_REVIEW_SUBSTAGE: render_reassign_docket_roots_llm,
 }
 
 
