@@ -7,8 +7,8 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from mellea_lrc.extraction.supra_citations import find_supra_citations
-from mellea_lrc.extraction.supra_pin_cites import resolve_supra_pin_cites
+from mellea_lrc.extraction.find_supra_citations import find_supra_citations
+from mellea_lrc.extraction.resolve_supra_pin_cites import resolve_supra_pin_cites
 from mellea_lrc.model.citations import (
     Citation,
     FullCitation,
@@ -271,7 +271,7 @@ def test_document_checkpoints_recover_null_and_exact_pin_histories(citation_type
 )
 def test_supra_pin_reading_uses_shared_nullable_history(source: str, expected: tuple | None) -> None:
     discovered = find_supra_citations(
-        Document.from_source(source).complete_substage("grow_roots.root_formation.rule")
+        Document.from_source(source).complete_substage("grow_roots.form_root_groups.form_roots")
     )
     assert discovered.citations[0].pin_cite is None
     document = resolve_supra_pin_cites(discovered)
@@ -288,5 +288,8 @@ def test_supra_pin_reading_uses_shared_nullable_history(source: str, expected: t
         assert source[span.start : span.end] == "495-97"
     restored = Document.model_validate_json(document.model_dump_json())
     assert restored == document
-    assert restored.get_substage("grow_leaves.supra_citations.discovery") == discovered
-    assert restored.get_substage("grow_leaves.supra_citations.discovery").citations[0].pin_cite is None
+    assert restored.get_substage("grow_leaves.grow_supra_leaves.find_supra_citations") == discovered
+    assert (
+        restored.get_substage("grow_leaves.grow_supra_leaves.find_supra_citations").citations[0].pin_cite
+        is None
+    )

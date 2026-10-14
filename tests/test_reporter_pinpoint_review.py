@@ -27,27 +27,27 @@ from mellea_lrc.model.citations.reporter_pinpoint import (
 )
 from mellea_lrc.model.citations.short_reporter import ShortReporterCitation
 from mellea_lrc.providers.courtlistener.models import CourtListenerCluster
-from mellea_lrc.validation.reporter_citation_full_opinion_review import (
+from mellea_lrc.validation.review_reporter_citation_full_opinions_llm import (
     SUBSTAGE as FULL_SUBSTAGE,
 )
-from mellea_lrc.validation.reporter_citation_full_opinion_review import (
-    review_reporter_citation_full_opinions,
+from mellea_lrc.validation.review_reporter_citation_full_opinions_llm import (
+    review_reporter_citation_full_opinions_llm,
 )
-from mellea_lrc.validation.reporter_citation_page_resolution import resolve_reporter_citation_pages
-from mellea_lrc.validation.reporter_citation_pinpoint_evidence import (
+from mellea_lrc.validation.resolve_reporter_citation_pages import resolve_reporter_citation_pages
+from mellea_lrc.validation.prepare_reporter_citation_evidence import (
     SUBSTAGE as EVIDENCE_SUBSTAGE,
 )
-from mellea_lrc.validation.reporter_citation_pinpoint_evidence import (
-    prepare_reporter_citation_pinpoint_evidence,
+from mellea_lrc.validation.prepare_reporter_citation_evidence import (
+    prepare_reporter_citation_evidence,
 )
-from mellea_lrc.validation.reporter_citation_pinpoint_judgment import judge_reporter_citation_pinpoints
-from mellea_lrc.validation.reporter_citation_pinpoint_page_review import (
+from mellea_lrc.validation.judge_reporter_citation_content import judge_reporter_citation_content
+from mellea_lrc.validation.review_reporter_citation_pages_llm import (
     SUBSTAGE as PAGE_SUBSTAGE,
 )
-from mellea_lrc.validation.reporter_citation_pinpoint_page_review import (
-    review_reporter_citation_pinpoint_pages,
+from mellea_lrc.validation.review_reporter_citation_pages_llm import (
+    review_reporter_citation_pages_llm,
 )
-from mellea_lrc.validation.reporter_citation_propositions import read_reporter_citation_propositions
+from mellea_lrc.validation.read_reporter_citation_propositions import read_reporter_citation_propositions
 from mellea_lrc.validation.reporter_pinpoint_review import reviewer as service
 from mellea_lrc.validation.reporter_pinpoint_review.responses import (
     MAX_EVIDENCE_QUOTES,
@@ -55,9 +55,9 @@ from mellea_lrc.validation.reporter_pinpoint_review.responses import (
     PaginatedSupportResponse,
     UnpaginatedSupportResponse,
 )
-from mellea_lrc.validation.reporter_root_opinion_page_index import index_reporter_root_opinion_pages
-from mellea_lrc.validation.reporter_root_opinion_retrieval import reporter_root_opinion_retrieval
-from tests.test_reporter_citation_propositions import _run
+from mellea_lrc.validation.index_reporter_root_opinion_pages import index_reporter_root_opinion_pages
+from mellea_lrc.validation.retrieve_reporter_root_opinions import retrieve_reporter_root_opinions
+from tests.test_read_reporter_citation_propositions import _run
 
 FIRST_PROPOSITION = "The pleading must provide fair notice."
 SECOND_PROPOSITION = "A limited exception remains available."
@@ -105,20 +105,20 @@ def _ready(
     document = Document.from_source(source)
     root = FullReporterCitation.from_locator(
         citation_id="root",
-        substage="grow_roots.locator_discovery.full_reporter_locators",
+        substage="grow_roots.discover_root_locators.find_full_reporter_locators",
         source=source,
         span=_span(source, "550 U.S. 544"),
     )
     document = document.add_citation(root).complete_substage(
-        "grow_roots.locator_discovery.full_reporter_locators"
+        "grow_roots.discover_root_locators.find_full_reporter_locators"
     )
     root = (
-        root.record("grow_roots.root_formation.rule")
+        root.record("grow_roots.form_root_groups.form_roots")
         .with_root(root.id)
         .with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
     )
     root = root.with_pin_cite(source, _span(source, root_pin))
-    document = document.replace_citation(root).complete_substage("grow_roots.root_formation.rule")
+    document = document.replace_citation(root).complete_substage("grow_roots.form_root_groups.form_roots")
     if include_leaf:
         leaf = (
             ShortReporterCitation.from_short_locator(
@@ -184,10 +184,10 @@ def _ready(
             },
         }
     )
-    document = reporter_root_opinion_retrieval(document, client=client)
+    document = retrieve_reporter_root_opinions(document, client=client)
     document = index_reporter_root_opinion_pages(document)
     document = resolve_reporter_citation_pages(document).complete_substage(
-        "validate_pincite.citation_preparation.opinion_review"
+        "validate_all_citation_content.prepare_citation_evidence.select_opinions_llm"
     )
 
     async def proposition(context):
@@ -197,7 +197,7 @@ def _ready(
         )
 
     document = asyncio.run(read_reporter_citation_propositions(document, reviewer=proposition))
-    return prepare_reporter_citation_pinpoint_evidence(document)
+    return prepare_reporter_citation_evidence(document)
 
 
 def _page(first, last=None, *, kind=PinCiteKind.PAGE, footnote=None):
@@ -363,8 +363,8 @@ def test_ivr_fallback_preserves_each_attribution_and_shared_full_source_prefix(m
 
     monkeypatch.setattr(service, "run_instruct_ivr", fake_run)
     reviewer = service.IvrReporterPinpointReviewer(session=object(), model_options={}, max_attempts=3)
-    pages = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=reviewer))
-    after = asyncio.run(review_reporter_citation_full_opinions(pages, reviewer=reviewer))
+    pages = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=reviewer))
+    after = asyncio.run(review_reporter_citation_full_opinions_llm(pages, reviewer=reviewer))
     page_requests = [spec for spec in captured if spec.user_variables["scope"] == "cited_pages"]
     full_requests = [spec for spec in captured if spec.user_variables["scope"] == "full_opinion"]
 
@@ -409,8 +409,8 @@ def test_page_review_keeps_correct_location_separate_from_contradicted_use(monke
 
     monkeypatch.setattr(service, "run_instruct_ivr", fake_run)
     reviewer = service.IvrReporterPinpointReviewer(session=object(), model_options={}, max_attempts=3)
-    pages = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=reviewer))
-    after = asyncio.run(review_reporter_citation_full_opinions(pages, reviewer=reviewer))
+    pages = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=reviewer))
+    after = asyncio.run(review_reporter_citation_full_opinions_llm(pages, reviewer=reviewer))
 
     assert [spec.user_variables["scope"] for spec in captured] == ["cited_pages", "full_opinion"]
     for spec in captured:
@@ -450,19 +450,19 @@ def test_page_review_keeps_correct_location_separate_from_contradicted_use(monke
 def test_supported_correct_target_exits_without_initializing_full_reviewer(monkeypatch):
     before = _ready()
     page_reviewer = Reviewer({"root": _decision()})
-    pages = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=page_reviewer))
+    pages = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=page_reviewer))
 
     def fail(_profile):
         pytest.fail("Correct target must not initialize a full-opinion reviewer")
 
     monkeypatch.setattr(service.IvrReporterPinpointReviewer, "from_profile", fail)
-    after = asyncio.run(review_reporter_citation_full_opinions(pages))
+    after = asyncio.run(review_reporter_citation_full_opinions_llm(pages))
 
     assert len(page_reviewer.contexts) == 1
     assert len(after.roots[0].reporter_support_reviews) == 1
     assert after.roots[0].reporter_support_reviews[0].scope is OpinionReviewScope.CITED_PAGES
     assert FULL_SUBSTAGE in after.substage_runs
-    judged = judge_reporter_citation_pinpoints(after)
+    judged = judge_reporter_citation_content(after)
     judgment = judged.roots[0].reporter_pinpoint_judgments[-1]
     assert judgment.verdict is ReporterPinpointVerdict.CORRECT_PINCITE
     assert judgment.correct_page is True
@@ -486,12 +486,10 @@ def test_supported_correct_target_exits_without_initializing_full_reviewer(monke
 )
 def test_uncertain_negative_wrong_target_and_failed_pages_call_full_opinion(page_result):
     before = _ready()
-    pages = asyncio.run(
-        review_reporter_citation_pinpoint_pages(before, reviewer=Reviewer({"root": page_result}))
-    )
+    pages = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=Reviewer({"root": page_result})))
     full = Reviewer({"root": _decision(quote=SECOND_PAGE, correct=False)})
 
-    after = asyncio.run(review_reporter_citation_full_opinions(pages, reviewer=full))
+    after = asyncio.run(review_reporter_citation_full_opinions_llm(pages, reviewer=full))
 
     assert len(full.contexts) == 1
     assert full.contexts[0].scope is OpinionReviewScope.FULL_OPINION
@@ -503,10 +501,10 @@ def test_missing_page_routes_directly_to_full_opinion_and_reports_missing_writin
     before = _ready(root_pin="599", missing_dissent=True)
     assert before.roots[0].reporter_pinpoint_evidence[-1].outcome is PinpointEvidenceOutcome.MISSING_PAGES
     page = Reviewer({})
-    pages = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=page))
+    pages = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=page))
     full = Reviewer({"root": _decision(correct=False)})
 
-    after = asyncio.run(review_reporter_citation_full_opinions(pages, reviewer=full))
+    after = asyncio.run(review_reporter_citation_full_opinions_llm(pages, reviewer=full))
 
     assert page.contexts == []
     assert full.contexts[0].source_complete is False
@@ -528,13 +526,13 @@ def test_source_completeness_requires_usable_rendered_text_for_every_writing():
 
 def test_empty_opinion_bundle_records_failure_without_a_model_call(monkeypatch):
     before = _ready(empty=True)
-    pages = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=Reviewer({})))
+    pages = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=Reviewer({})))
 
     def fail(_profile):
         pytest.fail("Empty source must not initialize an LLM")
 
     monkeypatch.setattr(service.IvrReporterPinpointReviewer, "from_profile", fail)
-    after = asyncio.run(review_reporter_citation_full_opinions(pages))
+    after = asyncio.run(review_reporter_citation_full_opinions_llm(pages))
     review = after.roots[0].reporter_support_reviews[-1]
 
     assert review.decision is None and review.ivr is None
@@ -553,7 +551,7 @@ def test_empty_opinion_bundle_records_failure_without_a_model_call(monkeypatch):
 )
 def test_page_review_rejects_unknown_opinion_and_quotes_outside_allowed_page(bad):
     before = _ready()
-    after = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=Reviewer({"root": bad})))
+    after = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=Reviewer({"root": bad})))
 
     review = after.roots[0].reporter_support_reviews[-1]
     assert review.decision is None
@@ -589,10 +587,10 @@ def test_page_absence_requires_ivr_repair_to_unavailable():
 def test_evidence_spans_history_indexes_native_rewind_and_identity_are_preserved():
     before = _ready()
     pages = asyncio.run(
-        review_reporter_citation_pinpoint_pages(before, reviewer=Reviewer({"root": _decision(correct=False)}))
+        review_reporter_citation_pages_llm(before, reviewer=Reviewer({"root": _decision(correct=False)}))
     )
     after = asyncio.run(
-        review_reporter_citation_full_opinions(
+        review_reporter_citation_full_opinions_llm(
             pages, reviewer=Reviewer({"root": _decision(quote=SECOND_PAGE, correct=False)})
         )
     )
@@ -616,9 +614,7 @@ def test_evidence_spans_history_indexes_native_rewind_and_identity_are_preserved
 
 def test_prior_supported_page_review_does_not_skip_new_evidence_history():
     before = _ready()
-    pages = asyncio.run(
-        review_reporter_citation_pinpoint_pages(before, reviewer=Reviewer({"root": _decision()}))
-    )
+    pages = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=Reviewer({"root": _decision()})))
     root = pages.roots[0].record("test_refresh_evidence")
     refreshed = root.reporter_pinpoint_evidence[-1].model_copy(update={"node_id": root.nodes[-1].id})
     pages = pages.replace_citation(root.with_reporter_pinpoint_evidence(refreshed)).complete_substage(
@@ -626,7 +622,7 @@ def test_prior_supported_page_review_does_not_skip_new_evidence_history():
     )
     full = Reviewer({"root": _decision(quote=SECOND_PAGE, correct=False)})
 
-    after = asyncio.run(review_reporter_citation_full_opinions(pages, reviewer=full))
+    after = asyncio.run(review_reporter_citation_full_opinions_llm(pages, reviewer=full))
 
     assert len(full.contexts) == 1
     assert full.contexts[0].evidence_index == 1
@@ -672,7 +668,7 @@ def test_shared_ivr_repairs_scope_and_grounding_and_saves_dynamic_context(monkey
     reviewer = service.IvrReporterPinpointReviewer(
         session=object(), model_options={"max_tokens": 6000}, max_attempts=3
     )
-    after = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=reviewer))
+    after = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=reviewer))
     review = after.roots[0].reporter_support_reviews[-1]
 
     assert review.decision == good
@@ -702,7 +698,7 @@ def test_failed_ivr_or_successful_but_ungrounded_output_retains_its_trace(monkey
 
     monkeypatch.setattr(service, "run_instruct_ivr", fake_run)
     reviewer = service.IvrReporterPinpointReviewer(session=object(), model_options={}, max_attempts=3)
-    after = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=reviewer))
+    after = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=reviewer))
     review = after.roots[0].reporter_support_reviews[-1]
 
     assert review.decision is None
@@ -720,11 +716,11 @@ def test_footnote_qualifier_remains_in_target_and_unconfirmed_footnote_routes_to
     assert target["quote"] == "556 n.2"
     assert target["normalized"][0]["footnote"] == "2"
     pages = asyncio.run(
-        review_reporter_citation_pinpoint_pages(before, reviewer=Reviewer({"root": _decision(correct=None)}))
+        review_reporter_citation_pages_llm(before, reviewer=Reviewer({"root": _decision(correct=None)}))
     )
     full = Reviewer({"root": _decision(correct=None)})
 
-    after = asyncio.run(review_reporter_citation_full_opinions(pages, reviewer=full))
+    after = asyncio.run(review_reporter_citation_full_opinions_llm(pages, reviewer=full))
 
     assert len(full.contexts) == 1
     decision = after.roots[0].reporter_support_reviews[-1].decision
@@ -738,9 +734,7 @@ def test_footnote_qualifier_remains_in_target_and_unconfirmed_footnote_routes_to
 )
 def test_native_loading_rejects_corrupted_opinion_source_and_evidence_pointers(corruption):
     before = _ready()
-    pages = asyncio.run(
-        review_reporter_citation_pinpoint_pages(before, reviewer=Reviewer({"root": _decision()}))
-    )
+    pages = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=Reviewer({"root": _decision()})))
     data = pages.model_dump(mode="json")
     root = data["citations"][0]
     evidence = root["reporter_opinion_evidence"][0]
@@ -764,19 +758,22 @@ def test_duplicate_and_missing_stage_guards_precede_model_calls():
     reviewer = Reviewer({"root": _decision()})
     with pytest.raises(ValueError, match="Prepare reporter pinpoint evidence"):
         asyncio.run(
-            review_reporter_citation_pinpoint_pages(
-                before.get_substage("validate_pincite.citation_preparation.propositions"), reviewer=reviewer
+            review_reporter_citation_pages_llm(
+                before.get_substage(
+                    "validate_all_citation_content.prepare_citation_evidence.read_propositions"
+                ),
+                reviewer=reviewer,
             )
         )
     with pytest.raises(ValueError, match="Complete page review"):
-        asyncio.run(review_reporter_citation_full_opinions(before, reviewer=reviewer))
+        asyncio.run(review_reporter_citation_full_opinions_llm(before, reviewer=reviewer))
     assert reviewer.contexts == []
-    pages = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=reviewer))
+    pages = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=reviewer))
     with pytest.raises(ValueError, match="already completed"):
-        asyncio.run(review_reporter_citation_pinpoint_pages(pages, reviewer=reviewer))
-    after = asyncio.run(review_reporter_citation_full_opinions(pages, reviewer=Reviewer({})))
+        asyncio.run(review_reporter_citation_pages_llm(pages, reviewer=reviewer))
+    after = asyncio.run(review_reporter_citation_full_opinions_llm(pages, reviewer=Reviewer({})))
     with pytest.raises(ValueError, match="already completed"):
-        asyncio.run(review_reporter_citation_full_opinions(after, reviewer=Reviewer({})))
+        asyncio.run(review_reporter_citation_full_opinions_llm(after, reviewer=Reviewer({})))
 
 
 @pytest.mark.parametrize("page_indices", [[1], [99], []])
@@ -849,7 +846,7 @@ def test_empty_page_binding_is_allowed_only_for_unindexed_source_text():
 
 def test_declared_page_repair_retains_trace_and_accepts_grounded_alternative(monkeypatch):
     before = _ready(root_pin="599")
-    pages = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=Reviewer({})))
+    pages = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=Reviewer({})))
     bad = _decision(quote=SECOND_PAGE, correct=False, found=(_page(556),))
     good = _decision(quote=SECOND_PAGE, correct=False, found=(_page(557),))
     bad_output = _wire(bad, page_indices=[0])
@@ -867,7 +864,7 @@ def test_declared_page_repair_retains_trace_and_accepts_grounded_alternative(mon
 
     monkeypatch.setattr(service, "run_instruct_ivr", fake_run)
     reviewer = service.IvrReporterPinpointReviewer(session=object(), model_options={}, max_attempts=3)
-    reviewed = asyncio.run(review_reporter_citation_full_opinions(pages, reviewer=reviewer))
+    reviewed = asyncio.run(review_reporter_citation_full_opinions_llm(pages, reviewer=reviewer))
     review = reviewed.roots[0].reporter_support_reviews[-1]
     assert review.decision == good
     assert review.ivr.attempts[0].output == bad_output
@@ -877,10 +874,10 @@ def test_declared_page_repair_retains_trace_and_accepts_grounded_alternative(mon
 
 def test_unpaginated_full_opinion_can_settle_support_without_a_page_negative():
     before = _ready(unpaginated=True)
-    pages = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=Reviewer({})))
+    pages = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=Reviewer({})))
     decision = _decision(pagination=False, correct=None)
     full = Reviewer({"root": decision})
-    after = asyncio.run(review_reporter_citation_full_opinions(pages, reviewer=full))
+    after = asyncio.run(review_reporter_citation_full_opinions_llm(pages, reviewer=full))
     review = after.roots[0].reporter_support_reviews[-1]
     assert review.decision == decision
     assert decision.result is OpinionSupportResult.SUPPORTED
@@ -892,7 +889,7 @@ def test_unpaginated_full_opinion_can_settle_support_without_a_page_negative():
 
 def test_unpaginated_ivr_requests_content_only_and_saves_canonical_page_fields(monkeypatch):
     before = _ready(unpaginated=True)
-    pages = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=Reviewer({})))
+    pages = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=Reviewer({})))
     expected = _decision(pagination=False, correct=None)
     raw = _wire(expected, paginated=False)
     captured = {}
@@ -906,7 +903,7 @@ def test_unpaginated_ivr_requests_content_only_and_saves_canonical_page_fields(m
 
     monkeypatch.setattr(service, "run_instruct_ivr", fake_run)
     reviewer = service.IvrReporterPinpointReviewer(session=object(), model_options={}, max_attempts=3)
-    after = asyncio.run(review_reporter_citation_full_opinions(pages, reviewer=reviewer))
+    after = asyncio.run(review_reporter_citation_full_opinions_llm(pages, reviewer=reviewer))
     review = after.roots[0].reporter_support_reviews[-1]
     assert review.decision == expected
     assert review.ivr.output == raw
@@ -1041,11 +1038,11 @@ def test_earlier_tolerant_quote_is_not_hidden_by_later_exact_quote(scope, wire_r
 def test_full_review_retains_later_repeated_quote_and_replays_its_location():
     before = _ready(root_pin="557", repeated_quote=True)
     uncertain = _decision(result=OpinionSupportResult.UNAVAILABLE, quote=None, correct=None, found=())
-    pages = asyncio.run(
-        review_reporter_citation_pinpoint_pages(before, reviewer=Reviewer({"root": uncertain}))
-    )
+    pages = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=Reviewer({"root": uncertain})))
     decision = _decision(quote=FIRST_PAGE, correct=True, found=(_page(557),))
-    after = asyncio.run(review_reporter_citation_full_opinions(pages, reviewer=Reviewer({"root": decision})))
+    after = asyncio.run(
+        review_reporter_citation_full_opinions_llm(pages, reviewer=Reviewer({"root": decision}))
+    )
     root = after.roots[0]
     assert root.reporter_support_reviews[-1].decision == decision
     opinion = root.reporter_root_opinion_page_index.opinions[0]
@@ -1308,8 +1305,10 @@ def test_unknown_kind_source_marker_uses_content_only_response():
     decision, passages = context.parse_response(_wire(expected, paginated=False), "validation")
     assert decision == expected
     assert passages[0].span == _span(indexed.text, FIRST_PAGE)
-    pages = asyncio.run(review_reporter_citation_pinpoint_pages(before, reviewer=Reviewer({})))
-    after = asyncio.run(review_reporter_citation_full_opinions(pages, reviewer=Reviewer({"root": decision})))
+    pages = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=Reviewer({})))
+    after = asyncio.run(
+        review_reporter_citation_full_opinions_llm(pages, reviewer=Reviewer({"root": decision}))
+    )
     assert after.roots[0].reporter_support_reviews[-1].decision == decision
     passage = after.roots[0].reporter_opinion_evidence[-1]
     assert passage.quote == FIRST_PAGE and passage.span == _span(indexed.text, FIRST_PAGE)

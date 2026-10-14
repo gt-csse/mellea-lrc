@@ -36,24 +36,24 @@ from mellea_lrc.model.citations.reporter_pinpoint import (
     ReporterSupportDecision,
 )
 from mellea_lrc.providers.courtlistener.models import CourtListenerCluster
-from mellea_lrc.validation.reporter_citation_pinpoint_evidence import (
+from mellea_lrc.validation.prepare_reporter_citation_evidence import (
     SUBSTAGE as EVIDENCE_SUBSTAGE,
 )
-from mellea_lrc.validation.reporter_citation_pinpoint_evidence import (
-    prepare_reporter_citation_pinpoint_evidence,
+from mellea_lrc.validation.prepare_reporter_citation_evidence import (
+    prepare_reporter_citation_evidence,
 )
-from mellea_lrc.validation.reporter_citation_pinpoint_judgment import (
+from mellea_lrc.validation.judge_reporter_citation_content import (
     SOURCE_SUBSTAGE as FULL_SUBSTAGE,
 )
-from mellea_lrc.validation.reporter_citation_pinpoint_judgment import (
+from mellea_lrc.validation.judge_reporter_citation_content import (
     SUBSTAGE as JUDGMENT_SUBSTAGE,
 )
-from mellea_lrc.validation.reporter_citation_pinpoint_judgment import (
-    judge_reporter_citation_pinpoints,
+from mellea_lrc.validation.judge_reporter_citation_content import (
+    judge_reporter_citation_content,
 )
-from mellea_lrc.validation.reporter_root_opinion_page_index import index_reporter_root_opinion_pages
+from mellea_lrc.validation.index_reporter_root_opinion_pages import index_reporter_root_opinion_pages
 
-PAGE_SUBSTAGE = "validate_pincite.support_review.page_review"
+PAGE_SUBSTAGE = "validate_all_citation_content.review_citation_content.review_cited_pages_llm"
 
 
 def _page(first, last=None, *, kind=PinCiteKind.PAGE, footnote=None):
@@ -83,20 +83,20 @@ def _before_evidence(
     source = f"The rule permits relief. Alpha, 550 U.S. 544, {pin}."
     root = FullReporterCitation.from_locator(
         citation_id="root",
-        substage="grow_roots.locator_discovery.full_reporter_locators",
+        substage="grow_roots.discover_root_locators.find_full_reporter_locators",
         source=source,
         span=_span(source, "550 U.S. 544"),
     )
     document = (
         Document.from_source(source)
         .add_citation(root)
-        .complete_substage("grow_roots.locator_discovery.full_reporter_locators")
+        .complete_substage("grow_roots.discover_root_locators.find_full_reporter_locators")
     )
-    root = root.record("grow_roots.root_formation.rule").with_root(root.id)
+    root = root.record("grow_roots.form_root_groups.form_roots").with_root(root.id)
     if resolution != "no_pin":
         root = root.with_pin_cite(source, _span(source, pin))
-    document = document.replace_citation(root).complete_substage("grow_roots.root_formation.rule")
-    root = root.record("validate_pincite.opinion_preparation.retrieval")
+    document = document.replace_citation(root).complete_substage("grow_roots.form_root_groups.form_roots")
+    root = root.record("validate_all_citation_content.prepare_root_opinions.retrieve_opinions")
     root = root.with_reporter_root_opinion_source(
         ReporterRootOpinionSource(
             node_id=root.nodes[-1].id,
@@ -142,10 +142,10 @@ def _before_evidence(
         )
     )
     document = document.replace_citation(root).complete_substage(
-        "validate_pincite.opinion_preparation.retrieval"
+        "validate_all_citation_content.prepare_root_opinions.retrieve_opinions"
     )
     document = index_reporter_root_opinion_pages(document)
-    root = document.roots[0].record("validate_pincite.citation_preparation.page_resolution")
+    root = document.roots[0].record("validate_all_citation_content.prepare_citation_evidence.resolve_pages")
     requested = ()
     if resolution in {"resolved", "unlocated"}:
         requested = (
@@ -190,10 +190,12 @@ def _before_evidence(
         )
     )
     document = document.replace_citation(root).complete_substage(
-        "validate_pincite.citation_preparation.page_resolution"
+        "validate_all_citation_content.prepare_citation_evidence.resolve_pages"
     )
     if unconfirmed:
-        root = document.roots[0].record("validate_pincite.citation_preparation.opinion_review")
+        root = document.roots[0].record(
+            "validate_all_citation_content.prepare_citation_evidence.select_opinions_llm"
+        )
         root = root.with_reporter_opinion_review(
             ReporterCitationOpinionReview(
                 node_id=root.nodes[-1].id,
@@ -205,9 +207,13 @@ def _before_evidence(
             )
         )
         document = document.replace_citation(root)
-    document = document.complete_substage("validate_pincite.citation_preparation.opinion_review")
+    document = document.complete_substage(
+        "validate_all_citation_content.prepare_citation_evidence.select_opinions_llm"
+    )
     if proposition != "missing":
-        root = document.roots[0].record("validate_pincite.citation_preparation.propositions")
+        root = document.roots[0].record(
+            "validate_all_citation_content.prepare_citation_evidence.read_propositions"
+        )
         quote = "The rule permits relief."
         decision = (
             None
@@ -227,7 +233,9 @@ def _before_evidence(
             )
         )
         document = document.replace_citation(root)
-    return document.complete_substage("validate_pincite.citation_preparation.propositions")
+    return document.complete_substage(
+        "validate_all_citation_content.prepare_citation_evidence.read_propositions"
+    )
 
 
 def _append_review(
@@ -298,7 +306,7 @@ def _reviewed(
     opinion_id="20",
     **fixture,
 ):
-    document = prepare_reporter_citation_pinpoint_evidence(_before_evidence(**fixture))
+    document = prepare_reporter_citation_evidence(_before_evidence(**fixture))
     substage = PAGE_SUBSTAGE if scope is OpinionReviewScope.CITED_PAGES else FULL_SUBSTAGE
     if substage == FULL_SUBSTAGE:
         document = document.complete_substage(PAGE_SUBSTAGE)
@@ -333,7 +341,7 @@ def test_evidence_keeps_distinct_unavailable_states_and_available_selections(
     fixture, outcome, available_pages
 ):
     before = _before_evidence(**fixture)
-    after = prepare_reporter_citation_pinpoint_evidence(before)
+    after = prepare_reporter_citation_evidence(before)
     evidence = after.roots[0].reporter_pinpoint_evidence[0]
 
     assert evidence.outcome is outcome
@@ -342,27 +350,29 @@ def test_evidence_keeps_distinct_unavailable_states_and_available_selections(
     assert after.roots[0].identity_judgments == ()
     saved = Document.model_validate_json(after.model_dump_json())
     assert (
-        saved == after and saved.get_substage("validate_pincite.citation_preparation.propositions") == before
+        saved == after
+        and saved.get_substage("validate_all_citation_content.prepare_citation_evidence.read_propositions")
+        == before
     )
     with pytest.raises(ValueError, match="already completed"):
-        prepare_reporter_citation_pinpoint_evidence(saved)
+        prepare_reporter_citation_evidence(saved)
 
 
 @pytest.mark.parametrize(
     "missing_stage",
     [
-        "validate_pincite.citation_preparation.opinion_review",
-        "validate_pincite.citation_preparation.propositions",
+        "validate_all_citation_content.prepare_citation_evidence.select_opinions_llm",
+        "validate_all_citation_content.prepare_citation_evidence.read_propositions",
     ],
 )
 def test_evidence_requires_both_selection_and_proposition_stages(missing_stage):
     document = Document.from_source("No citations.").complete_substage(
-        "validate_pincite.citation_preparation.propositions"
+        "validate_all_citation_content.prepare_citation_evidence.read_propositions"
         if missing_stage.startswith("42")
-        else "validate_pincite.citation_preparation.opinion_review"
+        else "validate_all_citation_content.prepare_citation_evidence.select_opinions_llm"
     )
     with pytest.raises(ValueError, match="Complete opinion selection"):
-        prepare_reporter_citation_pinpoint_evidence(document)
+        prepare_reporter_citation_evidence(document)
 
 
 @pytest.mark.parametrize(
@@ -421,7 +431,7 @@ def test_evidence_requires_both_selection_and_proposition_stages(missing_stage):
 def test_only_full_review_and_complete_text_can_prove_absence(scope, result, complete, expected):
     quote = "The rule permits relief." if result is OpinionSupportResult.CONTRADICTED else None
     before = _reviewed(scope=scope, result=result, quote=quote, correct=None, second_opinion=complete)
-    after = judge_reporter_citation_pinpoints(before)
+    after = judge_reporter_citation_content(before)
     judgment = after.roots[0].reporter_pinpoint_judgments[0]
 
     assert judgment.verdict is expected
@@ -431,7 +441,7 @@ def test_only_full_review_and_complete_text_can_prove_absence(scope, result, com
     saved = Document.model_validate_json(after.model_dump_json())
     assert saved.get_substage(FULL_SUBSTAGE) == before
     with pytest.raises(ValueError, match="already completed"):
-        judge_reporter_citation_pinpoints(saved)
+        judge_reporter_citation_content(saved)
 
 
 @pytest.mark.parametrize("correct", [True, False, None])
@@ -441,7 +451,7 @@ def test_page_contradiction_stays_provisional_independently_of_placement(correct
         result=OpinionSupportResult.CONTRADICTED,
         correct=correct,
     )
-    judgment = judge_reporter_citation_pinpoints(document).roots[0].reporter_pinpoint_judgments[0]
+    judgment = judge_reporter_citation_content(document).roots[0].reporter_pinpoint_judgments[0]
 
     assert judgment.verdict is ReporterPinpointVerdict.UNDETERMINED
     assert judgment.correct_page is correct
@@ -450,7 +460,7 @@ def test_page_contradiction_stays_provisional_independently_of_placement(correct
 
 
 def test_successful_full_review_settles_a_correctly_located_page_contradiction():
-    document = prepare_reporter_citation_pinpoint_evidence(_before_evidence())
+    document = prepare_reporter_citation_evidence(_before_evidence())
     document = _append_review(
         document,
         substage=PAGE_SUBSTAGE,
@@ -468,7 +478,7 @@ def test_successful_full_review_settles_a_correctly_located_page_contradiction()
         correct=False,
     ).complete_substage(FULL_SUBSTAGE)
 
-    judgment = judge_reporter_citation_pinpoints(document).roots[0].reporter_pinpoint_judgments[0]
+    judgment = judge_reporter_citation_content(document).roots[0].reporter_pinpoint_judgments[0]
 
     assert judgment.review_index == 1
     assert judgment.verdict is ReporterPinpointVerdict.CORRECT_PINCITE
@@ -493,7 +503,7 @@ def test_supported_attribution_preserves_explicit_page_assessment(
     document = _reviewed(
         quote=quote, correct=correct, pagination=pagination, found=found, unconfirmed=unconfirmed
     )
-    judgment = judge_reporter_citation_pinpoints(document).roots[0].reporter_pinpoint_judgments[0]
+    judgment = judge_reporter_citation_content(document).roots[0].reporter_pinpoint_judgments[0]
 
     assert judgment.verdict is ReporterPinpointVerdict.CORRECT_PINCITE
     assert judgment.pagination_available is pagination
@@ -503,7 +513,7 @@ def test_supported_attribution_preserves_explicit_page_assessment(
 
 
 def test_latest_successful_full_review_takes_precedence_over_page_and_failed_full_reviews():
-    document = prepare_reporter_citation_pinpoint_evidence(_before_evidence())
+    document = prepare_reporter_citation_evidence(_before_evidence())
     document = _append_review(
         document,
         substage=PAGE_SUBSTAGE,
@@ -536,7 +546,7 @@ def test_latest_successful_full_review_takes_precedence_over_page_and_failed_ful
     )
     document = document.complete_substage(FULL_SUBSTAGE)
 
-    judgment = judge_reporter_citation_pinpoints(document).roots[0].reporter_pinpoint_judgments[0]
+    judgment = judge_reporter_citation_content(document).roots[0].reporter_pinpoint_judgments[0]
 
     assert judgment.review_index == 2
     assert judgment.verdict is ReporterPinpointVerdict.CORRECT_PINCITE
@@ -546,7 +556,7 @@ def test_latest_successful_full_review_takes_precedence_over_page_and_failed_ful
 
 
 def test_failed_full_review_preserves_successful_page_support():
-    document = prepare_reporter_citation_pinpoint_evidence(_before_evidence())
+    document = prepare_reporter_citation_evidence(_before_evidence())
     document = _append_review(
         document,
         substage=PAGE_SUBSTAGE,
@@ -564,7 +574,7 @@ def test_failed_full_review_preserves_successful_page_support():
         failure="Transport failed",
     )
     judgment = (
-        judge_reporter_citation_pinpoints(document.complete_substage(FULL_SUBSTAGE))
+        judge_reporter_citation_content(document.complete_substage(FULL_SUBSTAGE))
         .roots[0]
         .reporter_pinpoint_judgments[0]
     )
@@ -574,9 +584,9 @@ def test_failed_full_review_preserves_successful_page_support():
 
 @pytest.mark.parametrize("proposition, count", [("empty", 0), ("missing", 1), ("failed", 1)])
 def test_skip_no_proposition_but_keep_unavailable_judgments(proposition, count):
-    document = prepare_reporter_citation_pinpoint_evidence(_before_evidence(proposition=proposition))
+    document = prepare_reporter_citation_evidence(_before_evidence(proposition=proposition))
     document = document.complete_substage(PAGE_SUBSTAGE).complete_substage(FULL_SUBSTAGE)
-    after = judge_reporter_citation_pinpoints(document)
+    after = judge_reporter_citation_content(document)
 
     assert len(after.roots[0].reporter_pinpoint_judgments) == count
     if count:
@@ -588,12 +598,12 @@ def test_skip_no_proposition_but_keep_unavailable_judgments(proposition, count):
 
 def test_judgment_requires_full_review_stage():
     with pytest.raises(ValueError, match="Complete full-opinion"):
-        judge_reporter_citation_pinpoints(Document.from_source("No citations."))
+        judge_reporter_citation_content(Document.from_source("No citations."))
 
 
 def test_unpaginated_support_preserves_unknown_page_assessment():
     document = _reviewed(quote="Second writing.", opinion_id="21", correct=None, pagination=False)
-    judgment = judge_reporter_citation_pinpoints(document).roots[0].reporter_pinpoint_judgments[0]
+    judgment = judge_reporter_citation_content(document).roots[0].reporter_pinpoint_judgments[0]
 
     assert judgment.verdict is ReporterPinpointVerdict.CORRECT_PINCITE
     assert judgment.pagination_available is False
@@ -602,7 +612,7 @@ def test_unpaginated_support_preserves_unknown_page_assessment():
 
 def test_supported_footnote_mismatch_keeps_support_and_target_precision_separate():
     document = _reviewed(correct=False, found=(_page(556, footnote="3"),))
-    judgment = judge_reporter_citation_pinpoints(document).roots[0].reporter_pinpoint_judgments[0]
+    judgment = judge_reporter_citation_content(document).roots[0].reporter_pinpoint_judgments[0]
 
     assert judgment.verdict is ReporterPinpointVerdict.CORRECT_PINCITE
     assert judgment.correct_page is False
@@ -615,7 +625,7 @@ def test_grounded_quote_may_cross_contiguous_selected_pages():
         range_ready=True,
         found=(_page(556, 557),),
     )
-    judgment = judge_reporter_citation_pinpoints(document).roots[0].reporter_pinpoint_judgments[0]
+    judgment = judge_reporter_citation_content(document).roots[0].reporter_pinpoint_judgments[0]
 
     assert judgment.verdict is ReporterPinpointVerdict.CORRECT_PINCITE
     assert judgment.correct_page is True
@@ -623,7 +633,7 @@ def test_grounded_quote_may_cross_contiguous_selected_pages():
 
 
 def test_judgment_uses_latest_evidence_without_rewriting_earlier_preparation():
-    document = prepare_reporter_citation_pinpoint_evidence(_before_evidence())
+    document = prepare_reporter_citation_evidence(_before_evidence())
     original = document.roots[0].reporter_pinpoint_evidence[0]
     root = document.roots[0].record("test_new_preparation")
     root = root.with_reporter_pinpoint_evidence(original.model_copy(update={"node_id": root.nodes[-1].id}))
@@ -638,7 +648,7 @@ def test_judgment_uses_latest_evidence_without_rewriting_earlier_preparation():
         evidence_index=0,
     )
     document = document.complete_substage(PAGE_SUBSTAGE).complete_substage(FULL_SUBSTAGE)
-    after = judge_reporter_citation_pinpoints(document)
+    after = judge_reporter_citation_content(document)
     judgment = after.roots[0].reporter_pinpoint_judgments[0]
 
     assert len(after.roots[0].reporter_pinpoint_judgments) == 1
@@ -668,7 +678,7 @@ def test_preparation_uses_latest_proposition_for_its_resolution():
         )
         document = document.replace_citation(root).complete_substage(substage)
 
-    evidence = prepare_reporter_citation_pinpoint_evidence(document).roots[0].reporter_pinpoint_evidence[0]
+    evidence = prepare_reporter_citation_evidence(document).roots[0].reporter_pinpoint_evidence[0]
 
     assert evidence.resolution_index == 1 and evidence.proposition_index == 1
     assert evidence.outcome is PinpointEvidenceOutcome.READING_FAILED
@@ -758,7 +768,7 @@ def test_missing_pagination_cannot_assert_a_page_or_recovered_pages(model, corre
 @pytest.mark.parametrize("correct", [True, False, None])
 def test_contradicted_use_can_preserve_each_explicit_page_assessment(correct):
     document = _reviewed(result=OpinionSupportResult.CONTRADICTED, correct=correct)
-    judgment = judge_reporter_citation_pinpoints(document).roots[0].reporter_pinpoint_judgments[0]
+    judgment = judge_reporter_citation_content(document).roots[0].reporter_pinpoint_judgments[0]
     assert judgment.verdict is ReporterPinpointVerdict.WRONG_PINCITE
     assert judgment.pagination_available is True
     assert judgment.correct_page is correct

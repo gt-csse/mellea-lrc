@@ -1,0 +1,67 @@
+"""Validate root identity through reporter lookup, docket lookup, and bodies."""
+
+from __future__ import annotations
+
+from datetime import date
+
+from mellea_lrc.model.document import Document
+from mellea_lrc.validation.body_search._courtlistener import CourtListenerBodyClient
+from mellea_lrc.workflows import Checkpoint, _require_body_search_cutoff, validate_workflow_checkpoint
+from mellea_lrc.workflows.validate_roots_citation_identity.corroborate_locator_bodies import (
+    corroborate_locator_bodies,
+)
+from mellea_lrc.workflows.validate_roots_citation_identity.discover_intended_cases import (
+    discover_intended_cases,
+)
+from mellea_lrc.workflows.validate_roots_citation_identity.lookup_docket_roots import lookup_docket_roots
+from mellea_lrc.workflows.validate_roots_citation_identity.lookup_reporter_roots import lookup_reporter_roots
+
+
+async def validate_roots_citation_identity(
+    document: Document,
+    *,
+    retrospective_date: date | None = None,
+    courtlistener_client: CourtListenerBodyClient | None = None,
+    checkpoint: Checkpoint | None = None,
+    search_other_fields: bool = False,
+) -> Document:
+    """Resume lookup and body review, optionally discovering an intended case.
+
+    Every atomic retrieval or judgment and every completed group is sent to
+    the checkpoint callback before the next operation begins. Intended-case
+    discovery identifies a possible intended case without confirming the
+    source locator.
+    """
+    validate_workflow_checkpoint(document, "validate_roots_citation_identity")
+    _require_body_search_cutoff(document, retrospective_date)
+    if "validate_roots_citation_identity.lookup_reporter_roots" not in document.stage_runs:
+        document = await lookup_reporter_roots(document, checkpoint=checkpoint)
+    if "validate_roots_citation_identity.lookup_docket_roots" not in document.stage_runs:
+        document = await lookup_docket_roots(document, checkpoint=checkpoint)
+    if "validate_roots_citation_identity.corroborate_locator_bodies" not in document.stage_runs:
+        document = await corroborate_locator_bodies(
+            document,
+            retrospective_date=retrospective_date,
+            courtlistener_client=courtlistener_client,
+            checkpoint=checkpoint,
+        )
+    if (
+        search_other_fields
+        and "validate_roots_citation_identity.discover_intended_cases" not in document.stage_runs
+    ):
+        document = await discover_intended_cases(
+            document,
+            retrospective_date=retrospective_date,
+            courtlistener_client=courtlistener_client,
+            checkpoint=checkpoint,
+        )
+    return document
+
+
+__all__ = [
+    "corroborate_locator_bodies",
+    "discover_intended_cases",
+    "lookup_docket_roots",
+    "lookup_reporter_roots",
+    "validate_roots_citation_identity",
+]

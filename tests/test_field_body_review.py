@@ -17,8 +17,8 @@ from mellea_lrc.model.citations.judgments import IdentityVerdict
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.validation.body_search.common import make_body_evidences
-from mellea_lrc.validation.intended_case_llm_selection import SUBSTAGE, intended_case_llm_selection
-from mellea_lrc.validation.intended_case_llm_selection.reviewer import IntendedCaseContext
+from mellea_lrc.validation.review_intended_cases_llm import SUBSTAGE, review_intended_cases_llm
+from mellea_lrc.validation.review_intended_cases_llm.reviewer import IntendedCaseContext
 
 SOURCE = "Smith v. Jones, No. 05-4206 (2d Cir. 2007)."
 BODY = "An independent court cites Smith v. Jones, No. 01-9999 (2d Cir. 2006) as authority."
@@ -26,9 +26,12 @@ CITATION = "Smith v. Jones, No. 01-9999 (2d Cir. 2006)"
 FIELD_SUBSTAGES = (
     (
         BodySource.COURTLISTENER_OPINION,
-        "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval",
+        "validate_roots_citation_identity.discover_intended_cases.retrieve_courtlistener_opinions",
     ),
-    (BodySource.COURTLISTENER_RECAP, "validate_roots.intended_case_discovery.courtlistener_recap_retrieval"),
+    (
+        BodySource.COURTLISTENER_RECAP,
+        "validate_roots_citation_identity.discover_intended_cases.retrieve_courtlistener_filings",
+    ),
 )
 
 
@@ -50,11 +53,11 @@ def _ready(
     document = document.replace_citation(root).complete_substage("roots")
     root = root.record("lookup").with_identity_judgment(IdentityVerdict.UNDETERMINED)
     document = document.replace_citation(root).complete_substage("lookup")
-    root = root.record("validate_roots.locator_body_corroboration.llm_judgment").with_route(
-        "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
-    )
+    root = root.record(
+        "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"
+    ).with_route("validate_roots_citation_identity.discover_intended_cases.retrieve_courtlistener_opinions")
     document = document.replace_citation(root).complete_substage(
-        "validate_roots.locator_body_corroboration.llm_judgment"
+        "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"
     )
     body_by_source = dict(bodies)
     for source, substage in FIELD_SUBSTAGES:
@@ -133,7 +136,7 @@ def test_review_saves_grounded_intended_case_without_changing_cited_identity() -
     before = _ready()
     reviewer = FakeReviewer(_decision())
 
-    after = asyncio.run(intended_case_llm_selection(before, reviewer=reviewer))
+    after = asyncio.run(review_intended_cases_llm(before, reviewer=reviewer))
 
     assert reviewer.calls == 1
     assert after.substage_runs[-1] == SUBSTAGE
@@ -142,7 +145,7 @@ def test_review_saves_grounded_intended_case_without_changing_cited_identity() -
     assert recorded.locator == original.locator
     assert recorded.identity_judgments == original.identity_judgments
     assert recorded.body_searches == original.body_searches
-    assert recorded.next_substage == "intended_case_resolution"
+    assert recorded.next_substage == "resolve_intended_cases"
     review = recorded.intended_case_reviews[0]
     assert review.node_id == recorded.nodes[-1].id
     assert review.decision == _decision()
@@ -158,26 +161,26 @@ def test_no_evidence_declines_without_calling_reviewer() -> None:
     before = _ready(bodies=())
     reviewer = FakeReviewer(_decision())
 
-    after = asyncio.run(intended_case_llm_selection(before, reviewer=reviewer))
+    after = asyncio.run(review_intended_cases_llm(before, reviewer=reviewer))
 
     assert reviewer.calls == 0
     review = after.roots[0].intended_case_reviews[0]
     assert review.decision is not None and review.decision.source is None
     assert review.grounded_quote is None
     assert after.roots[0].identity_judgments == before.roots[0].identity_judgments
-    assert after.roots[0].next_substage == "open_web_search"
+    assert after.roots[0].next_substage == "search_open_web_roots"
 
 
 def test_ungrounded_candidate_quote_becomes_review_failure() -> None:
     before = _ready()
     reviewer = FakeReviewer(_decision(citation_quote="Smith v. Jones, No. 99-9999 (2d Cir. 2006)"))
 
-    after = asyncio.run(intended_case_llm_selection(before, reviewer=reviewer))
+    after = asyncio.run(review_intended_cases_llm(before, reviewer=reviewer))
 
     review = after.roots[0].intended_case_reviews[0]
     assert review.decision is None
     assert review.failure_reason is not None and "98% similarity" in review.failure_reason
-    assert after.roots[0].next_substage == "intended_case_review_retry"
+    assert after.roots[0].next_substage == "retry_intended_case_review"
     assert after.roots[0].identity_judgments == before.roots[0].identity_judgments
 
 
@@ -192,10 +195,10 @@ def test_contradictory_candidates_can_be_declined_with_reason() -> None:
             assert len(context.evidence) == 2
             return _decline("Two same-name citations have conflicting locators, courts, and dates.")
 
-    after = asyncio.run(intended_case_llm_selection(before, reviewer=DecliningReviewer()))
+    after = asyncio.run(review_intended_cases_llm(before, reviewer=DecliningReviewer()))
 
     review = after.roots[0].intended_case_reviews[0]
     assert review.decision is not None and review.decision.source is None
     assert "conflicting locators" in review.decision.reason
-    assert after.roots[0].next_substage == "open_web_search"
+    assert after.roots[0].next_substage == "search_open_web_roots"
     assert after.roots[0].identity_judgments == before.roots[0].identity_judgments

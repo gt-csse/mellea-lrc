@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from evaluations import validate_roots as evaluation
+from evaluations import validate_roots_citation_identity as evaluation
 from evaluations.score_types import FieldScore
 from mellea_lrc.model.citations import FullDocketCitation, FullReporterCitation
 from mellea_lrc.model.citations.body_evidence import (
@@ -25,8 +25,8 @@ from mellea_lrc.model.citations.judgments import IdentityBasis, IdentityVerdict
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.span import Span
 from mellea_lrc.validation.body_search.common import make_body_evidences
-from mellea_lrc.validation.locator_body_llm_judgment import SUBSTAGE, locator_body_llm_judgment
-from mellea_lrc.validation.locator_body_llm_judgment.reviewer import (
+from mellea_lrc.validation.review_locator_bodies_llm import SUBSTAGE, review_locator_bodies_llm
+from mellea_lrc.validation.review_locator_bodies_llm.reviewer import (
     BodyCorroborationContext,
     _diverse_evidence,
 )
@@ -36,13 +36,16 @@ BODY = "The court discussed Smith v. Jones, No. 05-4206 (2d Cir. 2007), in its a
 SUBSTAGES = (
     (
         BodySource.COURTLISTENER_OPINION,
-        "validate_roots.locator_body_corroboration.courtlistener_opinion_retrieval",
+        "validate_roots_citation_identity.corroborate_locator_bodies.retrieve_courtlistener_opinions",
     ),
     (
         BodySource.COURTLISTENER_RECAP,
-        "validate_roots.locator_body_corroboration.courtlistener_recap_retrieval",
+        "validate_roots_citation_identity.corroborate_locator_bodies.retrieve_courtlistener_filings",
     ),
-    (BodySource.GOVINFO_OPINION, "validate_roots.locator_body_corroboration.govinfo_opinion_retrieval"),
+    (
+        BodySource.GOVINFO_OPINION,
+        "validate_roots_citation_identity.corroborate_locator_bodies.retrieve_govinfo_opinions",
+    ),
 )
 
 
@@ -151,16 +154,20 @@ def test_body_review_keeps_field_scores_and_marks_final_checkpoint(tmp_path: Pat
         labels={"case_name": "agrees", "court": "disagrees", "date": "agrees"},
     )
     ready = _document(source_input=source_path, include_validation_history=True)
-    prior = evaluation.score_validate_roots(ready.get_substage(evaluation.WORKFLOW_SUBSTAGES[-1]))
+    prior = evaluation.score_validate_roots_citation_identity(
+        ready.get_substage(evaluation.WORKFLOW_SUBSTAGES[-1])
+    )
     assert all(score == FieldScore(0, 0, 1) for score in prior.fields.values())
 
     reviewed = asyncio.run(
-        locator_body_llm_judgment(
+        review_locator_bodies_llm(
             ready,
             reviewer=FakeReviewer(_decision(court_result="mismatch", verdict=IdentityVerdict.WRONG_IDENTITY)),
         )
     )
-    score = evaluation.score_validate_roots(Document.model_validate_json(reviewed.model_dump_json()))
+    score = evaluation.score_validate_roots_citation_identity(
+        Document.model_validate_json(reviewed.model_dump_json())
+    )
     assert reviewed.roots[0].identity_judgments[-1].verdict is IdentityVerdict.WRONG_IDENTITY
     assert score.substages == prior.substages
     assert score.fields == prior.fields
@@ -168,22 +175,28 @@ def test_body_review_keeps_field_scores_and_marks_final_checkpoint(tmp_path: Pat
     assert score.body_review.verdict_counts == {"wrong_identity": 1}
     assert score.identity == evaluation.IdentityScore(1, 1, 1, 0)
     assert score.identity_with_partial == score.identity
-    assert score.checkpoint == evaluation.LOCATOR_BODY_LLM_JUDGMENT
-    assert score.as_dict()["checkpoint"] == evaluation.LOCATOR_BODY_LLM_JUDGMENT
-    report = evaluation.render_validate_roots(score)
-    assert "Checkpoint: validate_roots.locator_body_corroboration.llm_judgment completed" in report
-    assert "### 3.4 validate_roots.locator_body_corroboration.llm_judgment" in report
+    assert score.checkpoint == evaluation.REVIEW_LOCATOR_BODIES_LLM
+    assert score.as_dict()["checkpoint"] == evaluation.REVIEW_LOCATOR_BODIES_LLM
+    report = evaluation.render_validate_roots_citation_identity(score)
+    assert (
+        "Checkpoint: validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm completed"
+        in report
+    )
+    assert (
+        "### 3.4 validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"
+        in report
+    )
     assert "| wrong_identity | 1 |" in report
     assert "## Root identity after locator-body review" in report
     assert "printed citation comparisons have no corresponding field identity gold" in report
 
     declined = asyncio.run(
-        locator_body_llm_judgment(
+        review_locator_bodies_llm(
             _document(source_input=source_path, include_evidence=False, include_validation_history=True)
         )
     )
-    assert evaluation.score_validate_roots(declined).fields == prior.fields
-    assert evaluation.score_validate_roots(declined).body_review.verdict_counts == {}
+    assert evaluation.score_validate_roots_citation_identity(declined).fields == prior.fields
+    assert evaluation.score_validate_roots_citation_identity(declined).body_review.verdict_counts == {}
 
 
 def test_body_identity_score_counts_an_incorrect_third_party_verdict(tmp_path: Path) -> None:
@@ -196,12 +209,12 @@ def test_body_identity_score_counts_an_incorrect_third_party_verdict(tmp_path: P
     )
     ready = _document(source_input=source_path, include_validation_history=True)
     reviewed = asyncio.run(
-        locator_body_llm_judgment(
+        review_locator_bodies_llm(
             ready,
             reviewer=FakeReviewer(_decision(court_result="mismatch", verdict=IdentityVerdict.WRONG_IDENTITY)),
         )
     )
-    score = evaluation.score_validate_roots(reviewed)
+    score = evaluation.score_validate_roots_citation_identity(reviewed)
     assert score.body_review is not None
     assert score.body_review.verdict_counts == {"wrong_identity": 1}
     assert score.identity == evaluation.IdentityScore(0, 1, 1, 0)
@@ -223,13 +236,15 @@ def test_disputed_third_party_quote_does_not_become_field_identity_gold(tmp_path
         context_quote="This citation is fabricated",
         verdict=IdentityVerdict.WRONG_IDENTITY,
     )
-    reviewed = asyncio.run(locator_body_llm_judgment(ready, reviewer=FakeReviewer(decision)))
+    reviewed = asyncio.run(review_locator_bodies_llm(ready, reviewer=FakeReviewer(decision)))
     assert reviewed.roots[0].identity_judgments[-1].verdict is IdentityVerdict.WRONG_IDENTITY
     assert (
-        evaluation.score_validate_roots(reviewed).substages
-        == evaluation.score_validate_roots(ready.get_substage(evaluation.WORKFLOW_SUBSTAGES[-1])).substages
+        evaluation.score_validate_roots_citation_identity(reviewed).substages
+        == evaluation.score_validate_roots_citation_identity(
+            ready.get_substage(evaluation.WORKFLOW_SUBSTAGES[-1])
+        ).substages
     )
-    assert evaluation.score_validate_roots(reviewed).fields == {
+    assert evaluation.score_validate_roots_citation_identity(reviewed).fields == {
         field: FieldScore(0, 0, 1) for field in evaluation.FIELDS
     }
 
@@ -322,16 +337,19 @@ class FakeReviewer:
 def _assert_routed_without_judgment(reviewed: Document) -> None:
     root = reviewed.roots[0]
     assert root.identity_judgments == ()
-    assert root.next_substage == "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
+    assert (
+        root.next_substage
+        == "validate_roots_citation_identity.discover_intended_cases.retrieve_courtlistener_opinions"
+    )
     assert root.body_reviews[-1].decision is None or root.body_reviews[-1].decision.source is None
     assert Document.model_validate_json(reviewed.model_dump_json()) == reviewed
 
 
 def test_one_judgment_can_select_govinfo_after_other_provider_searches() -> None:
-    assert SUBSTAGE == "validate_roots.locator_body_corroboration.llm_judgment"
+    assert SUBSTAGE == "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"
     document = _document()
     reviewer = FakeReviewer(_decision())
-    reviewed = asyncio.run(locator_body_llm_judgment(document, reviewer=reviewer))
+    reviewed = asyncio.run(review_locator_bodies_llm(document, reviewer=reviewer))
     root = reviewed.roots[0]
     assert len(reviewer.contexts) == 1
     assert len(root.body_searches) == 3
@@ -345,7 +363,7 @@ def test_one_judgment_can_select_govinfo_after_other_provider_searches() -> None
 
 def test_model_can_issue_wrong_identity_after_field_mismatch() -> None:
     reviewed = asyncio.run(
-        locator_body_llm_judgment(
+        review_locator_bodies_llm(
             _document(),
             reviewer=FakeReviewer(_decision(court_result="mismatch", verdict=IdentityVerdict.WRONG_IDENTITY)),
         )
@@ -373,28 +391,31 @@ def test_docket_case_can_be_supported_without_admitting_a_different_order_date(
         verdict=IdentityVerdict.PARTIALLY_CORROBORATED,
     )
     reviewed = asyncio.run(
-        locator_body_llm_judgment(
+        review_locator_bodies_llm(
             _document(body=body, source_input=source_path, include_validation_history=True),
             reviewer=FakeReviewer(decision),
         )
     )
     root = reviewed.roots[0]
     assert root.identity_judgments[-1].verdict is IdentityVerdict.PARTIALLY_CORROBORATED
-    assert root.next_substage == "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
+    assert (
+        root.next_substage
+        == "validate_roots_citation_identity.discover_intended_cases.retrieve_courtlistener_opinions"
+    )
     assert root.body_reviews[-1].decision.comparisons.date.result.value == "mismatch"
-    assert evaluation.score_locator_body_llm_judgment(reviewed).verdict_counts == {
+    assert evaluation.score_review_locator_bodies_llm(reviewed).verdict_counts == {
         "partially_corroborated": 1
     }
     # Agreeing field labels cannot fabricate an earlier docket identity: this
     # fixture has no selected lookup review or persisted aggregation verdict.
     monkeypatch.setattr(evaluation, "_final_field_label", lambda *_: "agrees")
-    assert evaluation.score_validate_roots(
+    assert evaluation.score_validate_roots_citation_identity(
         reviewed.get_substage(evaluation.WORKFLOW_SUBSTAGES[-1])
     ).identity == evaluation.IdentityScore(0, 0, 1, 0)
-    body_score = evaluation.score_validate_roots(reviewed)
+    body_score = evaluation.score_validate_roots_citation_identity(reviewed)
     assert body_score.identity == evaluation.IdentityScore(0, 0, 1, 1)
     assert body_score.identity_with_partial == evaluation.IdentityScore(1, 1, 1, 0)
-    assert "| partially_corroborated | 1 |" in evaluation.render_validate_roots(body_score)
+    assert "| partially_corroborated | 1 |" in evaluation.render_validate_roots_citation_identity(body_score)
     assert Document.model_validate_json(reviewed.model_dump_json()) == reviewed
 
 
@@ -450,7 +471,7 @@ def test_review_keeps_a_grounded_partial_filing_name() -> None:
     }
     decision = BodyCorroborationDecision.model_validate(proposed)
 
-    reviewed = asyncio.run(locator_body_llm_judgment(_document(), reviewer=FakeReviewer(decision)))
+    reviewed = asyncio.run(review_locator_bodies_llm(_document(), reviewer=FakeReviewer(decision)))
     root = reviewed.roots[0]
     assert root.body_reviews[-1].decision.filing.normalized_case_name.kind is CaseNameKind.PARTIAL
     assert root.case_name[-1].quote == "Smith"
@@ -483,7 +504,7 @@ def test_incorrect_model_match_label_cannot_hide_different_written_years() -> No
         date_result="match",
         verdict=IdentityVerdict.CORRECT_IDENTITY,
     )
-    reviewed = asyncio.run(locator_body_llm_judgment(_document(body=body), reviewer=FakeReviewer(decision)))
+    reviewed = asyncio.run(review_locator_bodies_llm(_document(body=body), reviewer=FakeReviewer(decision)))
     root = reviewed.roots[0]
     _assert_routed_without_judgment(reviewed)
     assert "written decision years differ" in root.body_reviews[-1].failure_reason
@@ -500,7 +521,7 @@ def test_uniform_grounding_threshold_rejects_excess_ocr_contamination() -> None:
         case_name_result="mismatch",
         verdict=IdentityVerdict.WRONG_IDENTITY,
     )
-    reviewed = asyncio.run(locator_body_llm_judgment(_document(body=body), reviewer=FakeReviewer(decision)))
+    reviewed = asyncio.run(review_locator_bodies_llm(_document(body=body), reviewer=FakeReviewer(decision)))
     _assert_routed_without_judgment(reviewed)
     assert "98% similarity" in reviewed.roots[0].body_reviews[-1].failure_reason
 
@@ -509,7 +530,7 @@ def test_name_only_body_cannot_substantiate_the_locator_review() -> None:
     body = "A later brief cited Smith v. Jones, No. 05-CV-4206 (2d Cir. 2007)."
     document = _document(body=body)
     reviewer = FakeReviewer(_decision())
-    reviewed = asyncio.run(locator_body_llm_judgment(document, reviewer=reviewer))
+    reviewed = asyncio.run(review_locator_bodies_llm(document, reviewer=reviewer))
     assert reviewer.contexts == []
     _assert_routed_without_judgment(reviewed)
 
@@ -522,7 +543,7 @@ def test_explicitly_disputed_locator_produces_negative_identity_with_matching_fi
         context_quote=challenge,
         verdict=IdentityVerdict.WRONG_IDENTITY,
     )
-    reviewed = asyncio.run(locator_body_llm_judgment(document, reviewer=FakeReviewer(decision)))
+    reviewed = asyncio.run(review_locator_bodies_llm(document, reviewer=FakeReviewer(decision)))
     root = reviewed.roots[0]
     assert root.body_reviews[-1].decision.treatment is BodyCitationTreatment.EXPLICITLY_DISPUTES
     assert root.body_reviews[-1].grounded_context == challenge
@@ -540,7 +561,7 @@ def test_disputed_treatment_requires_a_grounded_context_quote() -> None:
         context_quote="The court found this citation was verified.",
         verdict=IdentityVerdict.WRONG_IDENTITY,
     )
-    reviewed = asyncio.run(locator_body_llm_judgment(document, reviewer=FakeReviewer(decision)))
+    reviewed = asyncio.run(review_locator_bodies_llm(document, reviewer=FakeReviewer(decision)))
     assert reviewed.roots[0].body_reviews[-1].decision is None
     _assert_routed_without_judgment(reviewed)
 
@@ -549,7 +570,7 @@ def test_saved_context_span_must_still_match_the_fetched_excerpt() -> None:
     challenge = "The court found that this citation was fabricated."
     document = _document(body=f"{BODY} {challenge}")
     reviewed = asyncio.run(
-        locator_body_llm_judgment(
+        review_locator_bodies_llm(
             document,
             reviewer=FakeReviewer(
                 _decision(
@@ -568,7 +589,7 @@ def test_saved_context_span_must_still_match_the_fetched_excerpt() -> None:
 
 def test_merely_mentioned_locator_records_uncertainty_and_routes_to_discovery() -> None:
     reviewed = asyncio.run(
-        locator_body_llm_judgment(
+        review_locator_bodies_llm(
             _document(),
             reviewer=FakeReviewer(
                 _decision(
@@ -580,14 +601,17 @@ def test_merely_mentioned_locator_records_uncertainty_and_routes_to_discovery() 
     )
     root = reviewed.roots[0]
     assert root.identity_judgments[-1].verdict is IdentityVerdict.UNDETERMINED
-    assert root.next_substage == "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
+    assert (
+        root.next_substage
+        == "validate_roots_citation_identity.discover_intended_cases.retrieve_courtlistener_opinions"
+    )
     assert root.body_reviews[-1].decision.identity_verdict is IdentityVerdict.UNDETERMINED
     assert Document.model_validate_json(reviewed.model_dump_json()) == reviewed
 
 
 def test_ungrounded_quote_cannot_create_a_verdict() -> None:
     decision = _decision(quote="Smith v. Jones")
-    reviewed = asyncio.run(locator_body_llm_judgment(_document(), reviewer=FakeReviewer(decision)))
+    reviewed = asyncio.run(review_locator_bodies_llm(_document(), reviewer=FakeReviewer(decision)))
     root = reviewed.roots[0]
     assert root.body_reviews[-1].decision is None
     assert "anchor" in root.body_reviews[-1].failure_reason
@@ -599,14 +623,14 @@ def test_unquoted_third_party_field_cannot_create_a_verdict() -> None:
     fabricated = decision.model_copy(
         update={"third_party": decision.third_party.model_copy(update={"case_name": "Another v. Case"})}
     )
-    reviewed = asyncio.run(locator_body_llm_judgment(_document(), reviewer=FakeReviewer(fabricated)))
+    reviewed = asyncio.run(review_locator_bodies_llm(_document(), reviewer=FakeReviewer(fabricated)))
     _assert_routed_without_judgment(reviewed)
     assert "case_name" in reviewed.roots[0].body_reviews[-1].failure_reason
 
 
 def test_docket_number_digit_must_match_the_grounded_citation() -> None:
     decision = _decision(third_party_locator="05-4208")
-    reviewed = asyncio.run(locator_body_llm_judgment(_document(), reviewer=FakeReviewer(decision)))
+    reviewed = asyncio.run(review_locator_bodies_llm(_document(), reviewer=FakeReviewer(decision)))
     _assert_routed_without_judgment(reviewed)
     assert "must occur inside" in reviewed.roots[0].body_reviews[-1].failure_reason
 
@@ -617,21 +641,21 @@ def test_other_numeric_field_must_match_the_grounded_citation(field: str, replac
     fabricated = decision.model_copy(
         update={"third_party": decision.third_party.model_copy(update={field: replacement})}
     )
-    reviewed = asyncio.run(locator_body_llm_judgment(_document(), reviewer=FakeReviewer(fabricated)))
+    reviewed = asyncio.run(review_locator_bodies_llm(_document(), reviewer=FakeReviewer(fabricated)))
     _assert_routed_without_judgment(reviewed)
     assert field in reviewed.roots[0].body_reviews[-1].failure_reason
 
 
 def test_no_fetched_body_skips_model_and_routes_without_identity_judgment() -> None:
     document = _document(include_evidence=False)
-    reviewed = asyncio.run(locator_body_llm_judgment(document))
+    reviewed = asyncio.run(review_locator_bodies_llm(document))
     root = reviewed.roots[0]
     assert root.body_reviews[-1].decision.source is None
     assert root.body_reviews[-1].decision.identity_verdict is None
     _assert_routed_without_judgment(reviewed)
     assert json.loads(reviewed.model_dump_json())["runs"][-1] == {"kind": "substage", "name": SUBSTAGE}
     with pytest.raises(ValueError, match="already completed"):
-        asyncio.run(locator_body_llm_judgment(reviewed))
+        asyncio.run(review_locator_bodies_llm(reviewed))
 
 
 def test_routing_without_body_evidence_preserves_an_earlier_identity_judgment() -> None:
@@ -643,17 +667,20 @@ def test_routing_without_body_evidence_preserves_an_earlier_identity_judgment() 
         .with_route(SUBSTAGE)
     ).complete_substage("pre_body_identity")
     prior_root = document.roots[0]
-    reviewed = asyncio.run(locator_body_llm_judgment(document))
+    reviewed = asyncio.run(review_locator_bodies_llm(document))
     root = reviewed.roots[0]
     assert root.identity_judgments == prior_root.identity_judgments
-    assert root.next_substage == "validate_roots.intended_case_discovery.courtlistener_opinion_retrieval"
+    assert (
+        root.next_substage
+        == "validate_roots_citation_identity.discover_intended_cases.retrieve_courtlistener_opinions"
+    )
     assert root.body_reviews[-1].decision.identity_verdict is None
     assert Document.model_validate_json(reviewed.model_dump_json()) == reviewed
 
 
 def test_model_declines_all_fetched_citations_without_issuing_a_verdict() -> None:
     reviewer = FakeReviewer(_declined_decision())
-    reviewed = asyncio.run(locator_body_llm_judgment(_document(), reviewer=reviewer))
+    reviewed = asyncio.run(review_locator_bodies_llm(_document(), reviewer=reviewer))
     assert len(reviewer.contexts) == 1
     assert reviewed.roots[0].body_reviews[-1].decision == reviewer.decision
     _assert_routed_without_judgment(reviewed)
@@ -667,8 +694,10 @@ def test_declined_citation_cannot_claim_an_identity_verdict() -> None:
 
 
 def test_review_completes_when_no_root_needs_body_evidence() -> None:
-    document = Document.from_source("No citations here.").complete_substage("grow_roots.root_formation.rule")
-    reviewed = asyncio.run(locator_body_llm_judgment(document))
+    document = Document.from_source("No citations here.").complete_substage(
+        "grow_roots.form_root_groups.form_roots"
+    )
+    reviewed = asyncio.run(review_locator_bodies_llm(document))
     assert reviewed.substage_runs[-1] == SUBSTAGE
     assert reviewed.citations == ()
 
@@ -802,7 +831,9 @@ def test_reporter_root_uses_same_body_review_without_changing_its_locator() -> N
     root = root.with_date(source, Span(source.index("2007"), source.index("2007") + 4))
     document = document.replace_citation(root).complete_substage("fields")
     document = document.replace_citation(root.record("roots").with_root(root.id)).complete_substage("roots")
-    root = document.roots[0].record("validate_roots.locator_body_corroboration.govinfo_opinion_retrieval")
+    root = document.roots[0].record(
+        "validate_roots_citation_identity.corroborate_locator_bodies.retrieve_govinfo_opinions"
+    )
     found = make_body_evidences(
         body_id="opinion:2",
         parent_id=None,
@@ -823,7 +854,7 @@ def test_reporter_root_uses_same_body_review_without_changing_its_locator() -> N
         )
     )
     document = document.replace_citation(root).complete_substage(
-        "validate_roots.locator_body_corroboration.govinfo_opinion_retrieval"
+        "validate_roots_citation_identity.corroborate_locator_bodies.retrieve_govinfo_opinions"
     )
     decision = BodyCorroborationDecision.model_validate(
         {
@@ -861,13 +892,13 @@ def test_reporter_root_uses_same_body_review_without_changing_its_locator() -> N
             "reason": "The third-party opinion cites the same reported authority.",
         }
     )
-    reviewed = asyncio.run(locator_body_llm_judgment(document, reviewer=FakeReviewer(decision)))
+    reviewed = asyncio.run(review_locator_bodies_llm(document, reviewer=FakeReviewer(decision)))
     assert reviewed.roots[0].identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
     assert len(reviewed.roots[0].locator) == 1
     fabricated = decision.model_copy(
         update={"third_party": decision.third_party.model_copy(update={"locator": "550 U.S. 545"})}
     )
-    rejected = asyncio.run(locator_body_llm_judgment(document, reviewer=FakeReviewer(fabricated)))
+    rejected = asyncio.run(review_locator_bodies_llm(document, reviewer=FakeReviewer(fabricated)))
     _assert_routed_without_judgment(rejected)
     assert "must occur inside" in rejected.roots[0].body_reviews[-1].failure_reason
 

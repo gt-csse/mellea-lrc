@@ -10,27 +10,27 @@ from pydantic import ValidationError
 from mellea_lrc.api import (
     Document,
     grow_roots,
-    reporter_root_lookup_cluster_retrieval,
-    reporter_root_lookup_ambiguous_rule_judgment,
-    reporter_root_lookup_docket_retrieval,
+    retrieve_reporter_root_clusters,
+    judge_ambiguous_reporter_roots_rule,
+    retrieve_reporter_root_dockets,
 )
 from mellea_lrc.providers.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.model import Span
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactAmbiguityOutcome
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm_judgment import (
+from mellea_lrc.validation.review_ambiguous_reporter_roots_llm import (
     SUBSTAGE,
-    reporter_root_lookup_ambiguous_llm_judgment,
+    review_ambiguous_reporter_roots_llm,
 )
-from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm_judgment.reviewer import (
+from mellea_lrc.validation.review_ambiguous_reporter_roots_llm.reviewer import (
     ReporterAmbiguousReviewDecision,
     ReporterAmbiguousReviewOutcome,
 )
 
 SOURCE = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
 NORMALIZED_NAME = {"kind": "adversarial", "plaintiff": "Bell Atl. Corp.", "defendant": "Twombly"}
-REVIEW_SUBSTAGE = "validate_roots.reporter_lookup.ambiguous_rule_judgment"
+REVIEW_SUBSTAGE = "validate_roots_citation_identity.lookup_reporter_roots.judge_ambiguous_rule"
 
 
 def _cluster(identifier: int, name: str, *, full_name_available: bool = True) -> dict[str, object]:
@@ -132,15 +132,21 @@ def _review_input(
         end = source.index(", 550")
         misread = root.record("test_incorrect_reading").with_case_name(source, Span(start, end))
         roots = roots.replace_citation(misread).complete_substage("test_incorrect_reading")
-    lookup = reporter_root_lookup_cluster_retrieval(roots, client=client)
+    lookup = retrieve_reporter_root_clusters(roots, client=client)
     assert lookup.roots[0].reporter_exact_ambiguity_resolution is None
-    dockets = reporter_root_lookup_docket_retrieval(lookup, client=client)
+    dockets = retrieve_reporter_root_dockets(lookup, client=client)
     assert dockets.roots[0].reporter_exact_ambiguity_resolution is None
     assert client.lookup_calls == 1
-    before = reporter_root_lookup_ambiguous_rule_judgment(dockets)
+    before = judge_ambiguous_reporter_roots_rule(dockets)
     assert client.lookup_calls == 1
-    assert before.get_substage("validate_roots.reporter_lookup.cluster_retrieval") == lookup
-    assert before.get_substage("validate_roots.reporter_lookup.docket_retrieval") == dockets
+    assert (
+        before.get_substage("validate_roots_citation_identity.lookup_reporter_roots.retrieve_clusters")
+        == lookup
+    )
+    assert (
+        before.get_substage("validate_roots_citation_identity.lookup_reporter_roots.retrieve_dockets")
+        == dockets
+    )
     resolution = before.roots[0].reporter_exact_ambiguity_resolution
     assert resolution is not None
     assert resolution.outcome is ReporterExactAmbiguityOutcome.NO_UNIQUE_RULE_MATCH
@@ -177,7 +183,7 @@ def test_model_can_select_one_of_all_saved_candidates_after_zero_or_multiple_rul
     before, client = _review_input(names, no_full_names=no_full_names)
     reviewer = FakeReviewer(_decision(selected))
 
-    after = asyncio.run(reporter_root_lookup_ambiguous_llm_judgment(before, reviewer=reviewer))
+    after = asyncio.run(review_ambiguous_reporter_roots_llm(before, reviewer=reviewer))
 
     assert client.lookup_calls == 1
     assert len(reviewer.contexts) == 1
@@ -213,7 +219,7 @@ def test_model_can_select_one_of_all_saved_candidates_after_zero_or_multiple_rul
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
     assert root.next_substage is None
     assert [route.value for route in root.routes] == [
-        "validate_roots.reporter_lookup.docket_retrieval",
+        "validate_roots_citation_identity.lookup_reporter_roots.retrieve_dockets",
         REVIEW_SUBSTAGE,
         SUBSTAGE,
         None,
@@ -229,7 +235,7 @@ def test_no_model_selection_routes_without_new_candidate_or_identity_judgments()
     previous = before.roots[0]
     reviewer = FakeReviewer(_decision(None))
 
-    after = asyncio.run(reporter_root_lookup_ambiguous_llm_judgment(before, reviewer=reviewer))
+    after = asyncio.run(review_ambiguous_reporter_roots_llm(before, reviewer=reviewer))
 
     assert len(reviewer.contexts) == 1
     root = after.roots[0]
@@ -239,7 +245,7 @@ def test_no_model_selection_routes_without_new_candidate_or_identity_judgments()
     assert root.court_judgments == previous.court_judgments
     assert root.date_judgments == previous.date_judgments
     assert root.identity_judgments == previous.identity_judgments == ()
-    assert root.next_substage == "reporter_root_search"
+    assert root.next_substage == "search_reporter_roots"
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -248,7 +254,7 @@ def test_no_selection_records_unavailable_for_absent_date() -> None:
     before, _ = _review_input(("Bell Atlantic Corporation v. Twombly",) * 2, source=source)
 
     after = asyncio.run(
-        reporter_root_lookup_ambiguous_llm_judgment(
+        review_ambiguous_reporter_roots_llm(
             before, reviewer=FakeReviewer(_decision(None, date_result="unavailable"))
         )
     )
@@ -256,7 +262,7 @@ def test_no_selection_records_unavailable_for_absent_date() -> None:
     root = after.roots[0]
     assert root.reporter_ambiguous_review.decision.date.result is MatchResult.UNAVAILABLE
     assert root.identity_judgments == ()
-    assert root.next_substage == "reporter_root_search"
+    assert root.next_substage == "search_reporter_roots"
 
 
 @pytest.mark.parametrize(
@@ -276,7 +282,7 @@ def test_review_rejects_field_state_inconsistent_with_selected_context(
     before, _ = _review_input(names, no_full_names=no_full_names)
 
     after = asyncio.run(
-        reporter_root_lookup_ambiguous_llm_judgment(
+        review_ambiguous_reporter_roots_llm(
             before, reviewer=FakeReviewer(_decision(selection, case_name_result=case_name_result))
         )
     )
@@ -285,7 +291,7 @@ def test_review_rejects_field_state_inconsistent_with_selected_context(
     assert root.reporter_ambiguous_review.decision is None
     assert expected_reason in root.reporter_ambiguous_review.failure_reason
     assert root.identity_judgments == ()
-    assert root.next_substage == "reporter_root_search"
+    assert root.next_substage == "search_reporter_roots"
 
 
 def test_no_selection_can_save_a_grounded_replacement_for_search() -> None:
@@ -297,7 +303,7 @@ def test_no_selection_can_save_a_grounded_replacement_for_search() -> None:
     previous = before.roots[0]
     reviewer = FakeReviewer(_decision(None, case_name_quote="Bell Atl. Corp. v. Twombly"))
 
-    after = asyncio.run(reporter_root_lookup_ambiguous_llm_judgment(before, reviewer=reviewer))
+    after = asyncio.run(review_ambiguous_reporter_roots_llm(before, reviewer=reviewer))
 
     root = after.roots[0]
     assert root.case_name[-1].span == Span(0, SOURCE.index(", 550"))
@@ -306,7 +312,7 @@ def test_no_selection_can_save_a_grounded_replacement_for_search() -> None:
     assert root.court_judgments == previous.court_judgments
     assert root.date_judgments == previous.date_judgments
     assert root.identity_judgments == previous.identity_judgments == ()
-    assert root.next_substage == "reporter_root_search"
+    assert root.next_substage == "search_reporter_roots"
 
 
 def test_selected_candidate_uses_grounded_corrected_reading() -> None:
@@ -319,7 +325,7 @@ def test_selected_candidate_uses_grounded_corrected_reading() -> None:
     assert previous.reporter_exact_ambiguity_resolution.passing_candidate_indices == ()
     reviewer = FakeReviewer(_decision(0, case_name_quote="Bell Atl. Corp. v. Twombly"))
 
-    after = asyncio.run(reporter_root_lookup_ambiguous_llm_judgment(before, reviewer=reviewer))
+    after = asyncio.run(review_ambiguous_reporter_roots_llm(before, reviewer=reviewer))
 
     root = after.roots[0]
     assert len(root.case_name) == len(previous.case_name) + 1
@@ -341,7 +347,7 @@ def test_selected_candidate_uses_grounded_corrected_reading() -> None:
             IdentityVerdict.WRONG_IDENTITY,
             None,
         ),
-        (("Jones v. Smith", ""), (1,), "unavailable", None, "reporter_root_search"),
+        (("Jones v. Smith", ""), (1,), "unavailable", None, "search_reporter_roots"),
     ],
 )
 def test_selected_candidate_identity_follows_field_assessments(
@@ -354,7 +360,7 @@ def test_selected_candidate_identity_follows_field_assessments(
     before, _ = _review_input(names, no_full_names=no_full_names)
 
     after = asyncio.run(
-        reporter_root_lookup_ambiguous_llm_judgment(
+        review_ambiguous_reporter_roots_llm(
             before, reviewer=FakeReviewer(_decision(1, case_name_result=case_name_result))
         )
     )
@@ -382,7 +388,7 @@ def test_invalid_selection_or_ungrounded_correction_routes_without_partial_updat
     before, _ = _review_input(("Bell Atlantic Corporation v. Twombly",) * 2)
     previous = before.roots[0]
 
-    after = asyncio.run(reporter_root_lookup_ambiguous_llm_judgment(before, reviewer=FakeReviewer(decision)))
+    after = asyncio.run(review_ambiguous_reporter_roots_llm(before, reviewer=FakeReviewer(decision)))
 
     root = after.roots[0]
     assert root.reporter_ambiguous_review.decision is None
@@ -394,7 +400,7 @@ def test_invalid_selection_or_ungrounded_correction_routes_without_partial_updat
     assert root.court_judgments == previous.court_judgments
     assert root.date_judgments == previous.date_judgments
     assert root.identity_judgments == previous.identity_judgments == ()
-    assert root.next_substage == "reporter_root_search"
+    assert root.next_substage == "search_reporter_roots"
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
@@ -431,31 +437,31 @@ def test_failed_model_review_keeps_trace_and_routes_to_search() -> None:
         ReporterAmbiguousReviewOutcome(decision=None, run=run, failure_reason="Incomplete JSON")
     )
 
-    after = asyncio.run(reporter_root_lookup_ambiguous_llm_judgment(before, reviewer=reviewer))
+    after = asyncio.run(review_ambiguous_reporter_roots_llm(before, reviewer=reviewer))
 
     root = after.roots[0]
     assert root.reporter_ambiguous_review.decision is None
     assert root.reporter_ambiguous_review.ivr == run
     assert root.reporter_ambiguous_review.failure_reason == "Incomplete JSON"
     assert root.identity_judgments == ()
-    assert root.next_substage == "reporter_root_search"
+    assert root.next_substage == "search_reporter_roots"
     assert Document.model_validate_json(after.model_dump_json()) == after
 
 
 def test_stage_ignores_rule_selected_root_and_does_not_call_reviewer() -> None:
     client = FakeLookupClient(("Jones v. Smith", "Bell Atlantic Corporation v. Twombly"))
     roots = asyncio.run(grow_roots(Document.from_source(SOURCE), hunt_dockets=False))
-    lookup = reporter_root_lookup_cluster_retrieval(roots, client=client)
-    dockets = reporter_root_lookup_docket_retrieval(lookup, client=client)
-    before = reporter_root_lookup_ambiguous_rule_judgment(dockets)
+    lookup = retrieve_reporter_root_clusters(roots, client=client)
+    dockets = retrieve_reporter_root_dockets(lookup, client=client)
+    before = judge_ambiguous_reporter_roots_rule(dockets)
     assert before.roots[0].identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
     reviewer = FakeReviewer(_decision(1))
 
-    after = asyncio.run(reporter_root_lookup_ambiguous_llm_judgment(before, reviewer=reviewer))
+    after = asyncio.run(review_ambiguous_reporter_roots_llm(before, reviewer=reviewer))
 
     assert reviewer.contexts == []
     assert after.roots == before.roots
     assert after.substage_runs[-1] == SUBSTAGE
     assert after.get_substage(REVIEW_SUBSTAGE) == before
     with pytest.raises(ValueError, match="already completed"):
-        asyncio.run(reporter_root_lookup_ambiguous_llm_judgment(after, reviewer=reviewer))
+        asyncio.run(review_ambiguous_reporter_roots_llm(after, reviewer=reviewer))

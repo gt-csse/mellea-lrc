@@ -12,11 +12,11 @@ from mellea_lrc.api import (
     resolve_colocations,
     resolve_docket_entries,
 )
-from mellea_lrc.extraction.docket_site_hunting.candidates import DocketSiteCandidate
-from mellea_lrc.extraction.docket_site_hunting.review import DocketSiteDecision
+from mellea_lrc.extraction.hunt_docket_locators.candidates import DocketSiteCandidate
+from mellea_lrc.extraction.hunt_docket_locators.review import DocketSiteDecision
 from mellea_lrc.model import DocketEntryField, Document, FullDocketCitation
 
-SUBSTAGE = "grow_roots.field_reading.docket_entries"
+SUBSTAGE = "grow_roots.read_root_fields.resolve_docket_entries"
 
 
 def _rule_ready(source: str) -> Document:
@@ -61,7 +61,7 @@ def test_rule_docket_gets_entry_on_either_side(source: str, entry_quote: str, en
     assert citation.nodes[:1] == original.nodes
     assert len(citation.nodes) == 2
     _assert_entry(resolved, citation, entry_quote, entry_number)
-    assert resolved.get_substage("grow_roots.locator_discovery.docket_locators") == before
+    assert resolved.get_substage("grow_roots.discover_root_locators.find_docket_locators") == before
     assert resolved.get_substage(SUBSTAGE) == resolved
 
 
@@ -83,7 +83,7 @@ def test_hunted_docket_gets_entry_on_either_side(source: str, entry_quote: str, 
 
     hunted = asyncio.run(hunt_docket_locators(_rule_ready(source), reviewer=reviewer))
     original = _only_docket(hunted)
-    assert original.nodes[0].substage == "grow_roots.locator_discovery.docket_hunting"
+    assert original.nodes[0].substage == "grow_roots.discover_root_locators.hunt_docket_locators"
     assert original.docket_entry == ()
 
     resolved = resolve_docket_entries(hunted)
@@ -92,7 +92,7 @@ def test_hunted_docket_gets_entry_on_either_side(source: str, entry_quote: str, 
     assert citation.id == original.id
     assert citation.locator == original.locator
     _assert_entry(resolved, citation, entry_quote, entry_number)
-    assert resolved.get_substage("grow_roots.locator_discovery.docket_hunting") == hunted
+    assert resolved.get_substage("grow_roots.discover_root_locators.hunt_docket_locators") == hunted
     assert resolved.site_reviews == hunted.site_reviews
 
 
@@ -176,6 +176,6 @@ def test_entry_stage_rejects_a_repeat_run_and_survives_json_and_later_stages() -
     with pytest.raises(ValueError):
         resolve_docket_entries(resolved)
     assert restored == grouped
-    assert grouped.get_substage("grow_roots.locator_discovery.docket_locators") == before
+    assert grouped.get_substage("grow_roots.discover_root_locators.find_docket_locators") == before
     assert grouped.get_substage(SUBSTAGE) == resolved
     assert restored.get_substage(SUBSTAGE) == resolved

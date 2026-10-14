@@ -1,36 +1,35 @@
 """Document-in/document-out substage writers; composition lives in workflows."""
 
-from mellea_lrc.extraction.case_names import resolve_case_names
-from mellea_lrc.extraction.colocations import resolve_colocations
-from mellea_lrc.extraction.courts import resolve_courts
-from mellea_lrc.extraction.dates import resolve_dates
-from mellea_lrc.extraction.docket_entries import resolve_docket_entries
-from mellea_lrc.extraction.docket_locator import find_docket_locators
-from mellea_lrc.extraction.docket_root_llm_reassignment import docket_root_llm_reassignment
-from mellea_lrc.extraction.docket_site_hunting import hunt_docket_locators
-from mellea_lrc.extraction.full_reporter_locator import find_full_reporter_locators
-from mellea_lrc.extraction.id_attribution import attribute_id_citations
-from mellea_lrc.extraction.id_citations import find_id_citations
-from mellea_lrc.extraction.pin_cites import resolve_pin_cites
-from mellea_lrc.extraction.reference_attribution import attribute_reference_citations
-from mellea_lrc.extraction.reference_citations import find_reference_citations
-from mellea_lrc.extraction.roots import form_roots
-from mellea_lrc.extraction.short_reporter_attribution import attribute_short_reporter_citations
-from mellea_lrc.extraction.short_reporter_case_names import resolve_short_reporter_case_names
-from mellea_lrc.extraction.short_reporter_colocations import resolve_short_reporter_colocations
-from mellea_lrc.extraction.short_reporter_locator import find_short_reporter_citations
-from mellea_lrc.extraction.supra_attribution_llm import review_supra_attributions
-from mellea_lrc.extraction.supra_attribution_rule import attribute_supra_citations_rule
-from mellea_lrc.extraction.supra_case_names import resolve_supra_case_names
-from mellea_lrc.extraction.supra_citations import find_supra_citations
-from mellea_lrc.extraction.supra_pin_cites import resolve_supra_pin_cites
+from mellea_lrc.extraction.attribute_id_citations import attribute_id_citations
+from mellea_lrc.extraction.attribute_reference_citations import attribute_reference_citations
+from mellea_lrc.extraction.attribute_short_reporter_citations import attribute_short_reporter_citations
+from mellea_lrc.extraction.attribute_supra_citations_rule import attribute_supra_citations_rule
+from mellea_lrc.extraction.find_docket_locators import find_docket_locators
+from mellea_lrc.extraction.find_full_reporter_locators import find_full_reporter_locators
+from mellea_lrc.extraction.find_id_citations import find_id_citations
+from mellea_lrc.extraction.find_reference_citations import find_reference_citations
+from mellea_lrc.extraction.find_short_reporter_citations import find_short_reporter_citations
+from mellea_lrc.extraction.find_supra_citations import find_supra_citations
+from mellea_lrc.extraction.form_roots import form_roots
+from mellea_lrc.extraction.hunt_docket_locators import hunt_docket_locators
+from mellea_lrc.extraction.reassign_docket_roots_llm import reassign_docket_roots_llm
+from mellea_lrc.extraction.resolve_case_names import resolve_case_names
+from mellea_lrc.extraction.resolve_colocations import resolve_colocations
+from mellea_lrc.extraction.resolve_courts import resolve_courts
+from mellea_lrc.extraction.resolve_dates import resolve_dates
+from mellea_lrc.extraction.resolve_docket_entries import resolve_docket_entries
+from mellea_lrc.extraction.resolve_pin_cites import resolve_pin_cites
+from mellea_lrc.extraction.resolve_short_reporter_case_names import resolve_short_reporter_case_names
+from mellea_lrc.extraction.resolve_short_reporter_colocations import resolve_short_reporter_colocations
+from mellea_lrc.extraction.resolve_supra_case_names import resolve_supra_case_names
+from mellea_lrc.extraction.resolve_supra_pin_cites import resolve_supra_pin_cites
+from mellea_lrc.extraction.review_supra_attributions_llm import review_supra_attributions_llm
 
 __all__ = [
     "attribute_id_citations",
     "attribute_reference_citations",
     "attribute_short_reporter_citations",
     "attribute_supra_citations_rule",
-    "docket_root_llm_reassignment",
     "find_docket_locators",
     "find_full_reporter_locators",
     "find_id_citations",
@@ -39,6 +38,7 @@ __all__ = [
     "find_supra_citations",
     "form_roots",
     "hunt_docket_locators",
+    "reassign_docket_roots_llm",
     "resolve_case_names",
     "resolve_colocations",
     "resolve_courts",
@@ -49,5 +49,5 @@ __all__ = [
     "resolve_short_reporter_colocations",
     "resolve_supra_case_names",
     "resolve_supra_pin_cites",
-    "review_supra_attributions",
+    "review_supra_attributions_llm",
 ]

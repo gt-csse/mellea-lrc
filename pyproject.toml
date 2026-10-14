@@ -7,7 +7,7 @@ version = "0.1.9"
 #
 #   uv run python -m AutoGitSemVer.scripts.UpdatePythonVersion ./pyproject.toml ./src
 
-description = "Document preprocessing and citation extraction for legal citation analysis"
+description = "Case-law citation extraction, identity checking, and citation-content verification"
 readme = "README.md"
 authors = [
     { name = "Di Wu (Woody)", email = "dwu400@gatech.edu" },

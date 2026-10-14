@@ -6,11 +6,11 @@ import asyncio
 
 import pytest
 
-from mellea_lrc.extraction.supra_attribution_rule import attribute_supra_citations_rule
-from mellea_lrc.extraction.supra_case_names import resolve_supra_case_names
-from mellea_lrc.extraction.supra_citations import find_supra_citations
+from mellea_lrc.extraction.attribute_supra_citations_rule import attribute_supra_citations_rule
+from mellea_lrc.extraction.resolve_supra_case_names import resolve_supra_case_names
+from mellea_lrc.extraction.find_supra_citations import find_supra_citations
 from mellea_lrc.parsing.supra import supra_readings
-from mellea_lrc.extraction.supra_pin_cites import resolve_supra_pin_cites
+from mellea_lrc.extraction.resolve_supra_pin_cites import resolve_supra_pin_cites
 from mellea_lrc.model.citations import SupraCitation, latest
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID
 from mellea_lrc.model.document import Document
@@ -46,7 +46,7 @@ def test_reader_and_normalizer_use_the_same_exact_source(quote, name, volume, pi
     assert (quote[reading.pin_span[0] : reading.pin_span[1]] if reading.pin_span else None) == pin
 
     discovered = find_supra_citations(
-        Document.from_source(quote).complete_substage("grow_roots.root_formation.rule")
+        Document.from_source(quote).complete_substage("grow_roots.form_root_groups.form_roots")
     )
     citation = discovered.citations[0]
     assert citation.case_name == ()
@@ -74,12 +74,12 @@ def test_known_complete_name_boundary_is_retained_before_separate_field_reads(na
     assert supra.case_name[-1].quote == name
     assert supra.pin_cite[-1].quote == "495"
     assert latest(supra.root_id) == roots.roots[0].id
-    assert supra.nodes[-1].substage == "grow_leaves.supra_citations.rule_attribution"
+    assert supra.nodes[-1].substage == "grow_leaves.grow_supra_leaves.attribute_citations_rule"
     restored = Document.model_validate_json(attributed.model_dump_json())
     assert restored == attributed
-    assert restored.get_substage("grow_leaves.supra_citations.discovery") == discovered
-    assert restored.get_substage("grow_leaves.supra_citations.case_names") == named
-    assert restored.get_substage("grow_leaves.supra_citations.pin_cites") == pinned
+    assert restored.get_substage("grow_leaves.grow_supra_leaves.find_supra_citations") == discovered
+    assert restored.get_substage("grow_leaves.grow_supra_leaves.resolve_case_names") == named
+    assert restored.get_substage("grow_leaves.grow_supra_leaves.resolve_pin_cites") == pinned
 
 
 @pytest.mark.parametrize(
@@ -88,7 +88,7 @@ def test_known_complete_name_boundary_is_retained_before_separate_field_reads(na
 )
 def test_unanchored_internal_references_do_not_create_case_citations(text):
     document = find_supra_citations(
-        Document.from_source(text).complete_substage("grow_roots.root_formation.rule")
+        Document.from_source(text).complete_substage("grow_roots.form_root_groups.form_roots")
     )
     assert document.citations == ()
 
@@ -96,14 +96,14 @@ def test_unanchored_internal_references_do_not_create_case_citations(text):
 def test_named_supra_is_discovered_even_when_its_antecedent_root_is_missing():
     source = "Missing, supra, at 5."
     document = find_supra_citations(
-        Document.from_source(source).complete_substage("grow_roots.root_formation.rule")
+        Document.from_source(source).complete_substage("grow_roots.form_root_groups.form_roots")
     )
     document = resolve_supra_case_names(document)
     document = resolve_supra_pin_cites(document)
     document = attribute_supra_citations_rule(document)
     assert len(document.citations) == 1
     assert latest(document.citations[0].root_id) == WITHDRAWN_ROOT_ID
-    assert document.citations[0].routes[-1].value == "grow_leaves.supra_citations.llm_attribution"
+    assert document.citations[0].routes[-1].value == "grow_leaves.grow_supra_leaves.review_attributions_llm"
 
 
 def test_supra_pin_stops_before_another_recognized_authority():
@@ -115,7 +115,7 @@ def test_supra_pin_stops_before_another_recognized_authority():
 
 def test_each_supra_stage_rejects_duplicate_execution():
     document = find_supra_citations(
-        Document.from_source("Smith, supra.").complete_substage("grow_roots.root_formation.rule")
+        Document.from_source("Smith, supra.").complete_substage("grow_roots.form_root_groups.form_roots")
     )
     with pytest.raises(ValueError, match="already completed"):
         find_supra_citations(document)

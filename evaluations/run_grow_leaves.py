@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from evaluations import complete_stage_boundary
+from evaluations.sources import validate_source
 from mellea_lrc.api import (
     Document,
     attribute_id_citations,
@@ -27,7 +28,7 @@ from mellea_lrc.api import (
     resolve_short_reporter_colocations,
     resolve_supra_case_names,
     resolve_supra_pin_cites,
-    review_supra_attributions,
+    review_supra_attributions_llm,
 )
 from mellea_lrc.workflows import validate_workflow_checkpoint
 
@@ -36,20 +37,20 @@ _SETS = frozenset(
 )
 _RESULTS_ROOT = Path(__file__).resolve().parent / "results"
 _SUBSTAGES = (
-    ("grow_leaves.short_reporter_citations.discovery", find_short_reporter_citations),
-    ("grow_leaves.short_reporter_citations.colocations", resolve_short_reporter_colocations),
-    ("grow_leaves.short_reporter_citations.case_names", resolve_short_reporter_case_names),
-    ("grow_leaves.short_reporter_citations.attribution", attribute_short_reporter_citations),
-    ("grow_leaves.reference_citations.discovery", find_reference_citations),
-    ("grow_leaves.reference_citations.attribution", attribute_reference_citations),
-    ("grow_leaves.id_citations.discovery", find_id_citations),
-    ("grow_leaves.id_citations.attribution", attribute_id_citations),
-    ("grow_leaves.supra_citations.discovery", find_supra_citations),
-    ("grow_leaves.supra_citations.case_names", resolve_supra_case_names),
-    ("grow_leaves.supra_citations.pin_cites", resolve_supra_pin_cites),
-    ("grow_leaves.supra_citations.rule_attribution", attribute_supra_citations_rule),
-    ("grow_leaves.supra_citations.llm_attribution", review_supra_attributions),
-    ("grow_leaves.leaf_field_correction.review", correct_leaf_fields),
+    ("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations", find_short_reporter_citations),
+    ("grow_leaves.grow_short_reporter_leaves.resolve_colocations", resolve_short_reporter_colocations),
+    ("grow_leaves.grow_short_reporter_leaves.resolve_case_names", resolve_short_reporter_case_names),
+    ("grow_leaves.grow_short_reporter_leaves.attribute_citations", attribute_short_reporter_citations),
+    ("grow_leaves.grow_reference_leaves.find_reference_citations", find_reference_citations),
+    ("grow_leaves.grow_reference_leaves.attribute_citations", attribute_reference_citations),
+    ("grow_leaves.grow_id_leaves.find_id_citations", find_id_citations),
+    ("grow_leaves.grow_id_leaves.attribute_citations", attribute_id_citations),
+    ("grow_leaves.grow_supra_leaves.find_supra_citations", find_supra_citations),
+    ("grow_leaves.grow_supra_leaves.resolve_case_names", resolve_supra_case_names),
+    ("grow_leaves.grow_supra_leaves.resolve_pin_cites", resolve_supra_pin_cites),
+    ("grow_leaves.grow_supra_leaves.attribute_citations_rule", attribute_supra_citations_rule),
+    ("grow_leaves.grow_supra_leaves.review_attributions_llm", review_supra_attributions_llm),
+    ("grow_leaves.correct_leaf_readings.correct_leaf_fields", correct_leaf_fields),
 )
 
 
@@ -62,7 +63,7 @@ def _write(path: Path, text: str) -> None:
 async def run(
     input_documents: Path | None,
     *,
-    input_substage: str = "validate_roots.locator_body_corroboration.llm_judgment",
+    input_substage: str = "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm",
     review_leaves: bool = True,
     stop_after: str | None = None,
     resume_run: Path | None = None,
@@ -114,14 +115,14 @@ async def run(
     stages = [
         (name, call)
         for name, call in _SUBSTAGES
-        if name != "grow_leaves.supra_citations.llm_attribution" or review_leaves
+        if name != "grow_leaves.grow_supra_leaves.review_attributions_llm" or review_leaves
     ]
     # Any completed leaf checkpoint can be an input too. The one cumulative
     # Document supplies both the old history and the remaining substage boundary.
     names = [name for name, _ in stages]
     enabled = tuple(names)
     all_names = tuple(name for name, _ in _SUBSTAGES)
-    omitted = () if review_leaves else ("grow_leaves.supra_citations.llm_attribution",)
+    omitted = () if review_leaves else ("grow_leaves.grow_supra_leaves.review_attributions_llm",)
     if stop_after is not None:
         if stop_after not in names:
             raise ValueError(f"Stop substage is not enabled: {stop_after}")
@@ -132,6 +133,21 @@ async def run(
         stages = [
             (name, call) for name, call in stages if all_names.index(name) > all_names.index(input_substage)
         ]
+    inputs: dict[str, Document] = {}
+    saved_documents: dict[str, Document] = {}
+    for name in record["filings"]:
+        source = input_documents / f"{name}.json"
+        raw = source.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != record["input_sha256"][name]:
+            raise ValueError(f"Leaf input changed: {name}")
+        original = Document.model_validate_json(raw)
+        validate_source(original)
+        inputs[name] = original
+        artifact = run_dir / "documents" / f"{name}.json"
+        if artifact.exists():
+            saved = Document.model_validate_json(artifact.read_bytes())
+            validate_source(saved, source=original)
+            saved_documents[name] = saved
     if resume_run is None:
         run_dir.mkdir(parents=True)
         (run_dir / "documents").mkdir()
@@ -139,14 +155,11 @@ async def run(
     _write(run_dir / "run.json", json.dumps(record, indent=2) + "\n")
     try:
         for index, name in enumerate(record["filings"], 1):
-            source = input_documents / f"{name}.json"
-            if hashlib.sha256(source.read_bytes()).hexdigest() != record["input_sha256"][name]:
-                raise ValueError(f"Leaf input changed: {name}")
-            original = Document.model_validate_json(source.read_text()).get_substage(input_substage)
+            original = inputs[name].get_substage(input_substage)
             validate_workflow_checkpoint(original, "grow_leaves", omitted_substages=omitted)
             original = complete_stage_boundary(original, (*enabled, *original.substage_runs))
             artifact = run_dir / "documents" / f"{name}.json"
-            document = Document.model_validate_json(artifact.read_text()) if artifact.exists() else original
+            document = saved_documents.get(name, original)
             validate_workflow_checkpoint(document, "grow_leaves", omitted_substages=omitted)
             document = complete_stage_boundary(document, (*enabled, *document.substage_runs))
             last = original.runs[-1]
@@ -205,7 +218,10 @@ async def run(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-documents", type=Path)
-    parser.add_argument("--input-substage", default="validate_roots.locator_body_corroboration.llm_judgment")
+    parser.add_argument(
+        "--input-substage",
+        default="validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm",
+    )
     parser.add_argument("--rule-only", action="store_true")
     parser.add_argument("--stop-after", choices=tuple(name for name, _ in _SUBSTAGES))
     parser.add_argument("--resume-run", type=Path)

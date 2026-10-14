@@ -14,9 +14,9 @@ _PAREN = re.compile(r"\((?P<body>[^()\r\n]{0,100})\)")
 
 def require_structure(document: Document) -> None:
     """Require the pipeline position where contextual fields can be read."""
-    if "grow_roots.field_reading.colocations" not in document.substage_runs:
+    if "grow_roots.read_root_fields.resolve_colocations" not in document.substage_runs:
         raise ValueError("Resolve colocations before reading contextual fields")
-    if "grow_roots.root_formation.rule" in document.substage_runs:
+    if "grow_roots.form_root_groups.form_roots" in document.substage_runs:
         raise ValueError("Read contextual fields before forming roots")
 
 

@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from mellea_lrc.api import grow_leaves, grow_roots, reporter_root_lookup_cluster_retrieval
+from mellea_lrc.api import grow_leaves, grow_roots, retrieve_reporter_root_clusters
 from mellea_lrc.model import Document, Span, TableOfAuthoritiesComponent
 from mellea_lrc.model.citations import (
     FullDocketCitation,
@@ -33,23 +33,25 @@ from mellea_lrc.model.citations.reporter_pinpoint import (
     ReporterPinpointVerdict,
     ReporterSupportDecision,
 )
-from mellea_lrc.model.citations.tags import CitationTagKind
-from mellea_lrc.validation.reporter_citation_full_opinion_review import (
-    review_reporter_citation_full_opinions,
+from mellea_lrc.model.citations.tags import CitationTag, CitationTagKind
+from mellea_lrc.validation.review_reporter_citation_full_opinions_llm import (
+    review_reporter_citation_full_opinions_llm,
 )
-from mellea_lrc.validation.reporter_citation_opinion_review import review_reporter_citation_opinions
-from mellea_lrc.validation.reporter_citation_page_resolution import resolve_reporter_citation_pages
-from mellea_lrc.validation.reporter_citation_pinpoint_evidence import (
-    prepare_reporter_citation_pinpoint_evidence,
+from mellea_lrc.validation.select_reporter_citation_opinions import select_reporter_citation_opinions
+from mellea_lrc.validation.resolve_reporter_citation_pages import resolve_reporter_citation_pages
+from mellea_lrc.validation.prepare_reporter_citation_evidence import (
+    prepare_reporter_citation_evidence,
 )
-from mellea_lrc.validation.reporter_citation_pinpoint_judgment import judge_reporter_citation_pinpoints
-from mellea_lrc.validation.reporter_citation_pinpoint_page_review import (
-    review_reporter_citation_pinpoint_pages,
+from mellea_lrc.validation.judge_reporter_citation_content import judge_reporter_citation_content
+from mellea_lrc.validation.review_reporter_citation_pages_llm import (
+    review_reporter_citation_pages_llm,
 )
-from mellea_lrc.validation.reporter_citation_propositions import read_reporter_citation_propositions
-from mellea_lrc.validation.reporter_root_opinion_page_index import index_reporter_root_opinion_pages
-from mellea_lrc.validation.reporter_root_opinion_retrieval import reporter_root_opinion_retrieval
-from tests.test_reporter_root_opinion_retrieval import Client, opinion
+from mellea_lrc.validation.read_reporter_citation_propositions import read_reporter_citation_propositions
+from mellea_lrc.validation.index_reporter_root_opinion_pages import index_reporter_root_opinion_pages
+from mellea_lrc.validation.retrieve_reporter_root_opinions import retrieve_reporter_root_opinions
+from tests.test_reporter_pinpoint_review import SECOND_PAGE
+from tests.test_reporter_pinpoint_review import _ready as prepared_support
+from tests.test_retrieve_reporter_root_opinions import Client, opinion
 
 TOA = CitationTagKind.TABLE_OF_AUTHORITIES
 QUOTES = {
@@ -122,7 +124,7 @@ def test_every_citation_kind_requires_its_whole_own_site_inside_toa(kind, contai
     assert after.text == source
     assert stored.site_span == site
     assert stored.model_dump(exclude={"tags"}) == citation.model_dump(exclude={"tags"})
-    assert stored.has_tag(TOA) is (containment == "whole")
+    assert stored.is_toa() is (containment == "whole")
     assert len(stored.tags) == (1 if containment == "whole" else 0)
     if stored.tags:
         assert stored.tags[0].node_id == stored.nodes[0].id
@@ -150,8 +152,8 @@ def test_attached_occurrences_do_not_inherit_the_roots_toa_tag(kind, component_o
         "test_leaf"
     )
 
-    assert document.roots[0].has_tag(TOA) is (component_owner == "root")
-    assert document.leaves[0].has_tag(TOA) is (component_owner == "leaf")
+    assert document.roots[0].is_toa() is (component_owner == "root")
+    assert document.leaves[0].is_toa() is (component_owner == "leaf")
     assert document.leaves[0].id == leaf.id
 
 
@@ -220,7 +222,7 @@ def test_loading_missing_tags_does_not_retrofit_occurrence_metadata():
 
     assert restored.index_spans == document.index_spans
     assert restored.citations[0].tags == ()
-    assert not restored.citations[0].has_tag(TOA)
+    assert not restored.citations[0].is_toa()
     replayed = (
         _document(restored.text, restored.index_spans)
         .add_citation(restored.get_substage("test_sites").citations[0])
@@ -249,8 +251,8 @@ def test_toa_root_remains_retrievable_and_only_body_leaf_gets_support_reviews(ro
     document = asyncio.run(grow_roots(_document(source, (TableOfAuthoritiesComponent(0, len(index)),))))
     document = asyncio.run(grow_leaves(document, review_leaves=False))
     root, leaf = document.roots[0], document.short_reporters[0]
-    assert root.has_tag(TOA)
-    assert not leaf.has_tag(TOA)
+    assert root.is_toa()
+    assert not leaf.is_toa()
     assert leaf.root_id[-1].value == root.id
     opinion_quote = "A pleading must provide adequate notice before relief is granted."
     marker = '<page-number label="556" volume="550" edition="U.S.">556</page-number>'
@@ -263,11 +265,14 @@ def test_toa_root_remains_retrievable_and_only_body_leaf_gets_support_reviews(ro
             ),
         },
     )
-    document = reporter_root_lookup_cluster_retrieval(document, client=client)
+    document = retrieve_reporter_root_clusters(document, client=client)
+    assert document.roots[0].reporter_exact_lookup.response.clusters[0].id == "1"
+    query = document.roots[0].reporter_exact_lookup.query
+    assert (query.volume, query.edition, query.page) == (550, "U.S.", "544")
     root = document.roots[0].record("test_identity").with_identity_judgment(IdentityVerdict.CORRECT_IDENTITY)
     document = document.replace_citation(root).complete_substage("test_identity")
     admitted = document
-    document = reporter_root_opinion_retrieval(document, client=client)
+    document = retrieve_reporter_root_opinions(document, client=client)
     assert client.calls == ["20", "21"]
     assert document.roots[0].reporter_root_opinion_retrieval is not None
     document = index_reporter_root_opinion_pages(document)
@@ -317,12 +322,12 @@ def test_toa_root_remains_retrievable_and_only_body_leaf_gets_support_reviews(ro
             reason="The lead opinion supports the body proposition at its written pinpoint.",
         )
 
-    document = asyncio.run(review_reporter_citation_opinions(document, reviewer=select_opinion))
+    document = asyncio.run(select_reporter_citation_opinions(document, reviewer=select_opinion))
     document = asyncio.run(read_reporter_citation_propositions(document, reviewer=read_proposition))
-    document = prepare_reporter_citation_pinpoint_evidence(document)
-    document = asyncio.run(review_reporter_citation_pinpoint_pages(document, reviewer=review_pages))
-    document = asyncio.run(review_reporter_citation_full_opinions(document, reviewer=review_full_opinion))
-    document = judge_reporter_citation_pinpoints(document)
+    document = prepare_reporter_citation_evidence(document)
+    document = asyncio.run(review_reporter_citation_pages_llm(document, reviewer=review_pages))
+    document = asyncio.run(review_reporter_citation_full_opinions_llm(document, reviewer=review_full_opinion))
+    document = judge_reporter_citation_content(document)
     root, leaf = document.roots[0], document.short_reporters[0]
 
     assert calls == [(substage, leaf.id) for substage in ("opinion", "proposition", "pages", "full")]
@@ -349,4 +354,66 @@ def test_toa_root_remains_retrievable_and_only_body_leaf_gets_support_reviews(ro
     restored = Document.model_validate_json(document.model_dump_json())
     assert restored == document
     assert restored.get_substage("test_identity") == admitted
-    assert restored.get_substage("validate_pincite.citation_preparation.page_resolution") == resolved
+    assert (
+        restored.get_substage("validate_all_citation_content.prepare_citation_evidence.resolve_pages")
+        == resolved
+    )
+
+
+def test_toa_tag_prevents_content_review_even_with_saved_ready_evidence():
+    """The occurrence tag also protects cached evidence that otherwise permits a review."""
+    prepared = prepared_support(include_leaf=True)
+    root, leaf = prepared.roots[0], prepared.short_reporters[0]
+    assert all(
+        citation.reporter_pinpoint_evidence[-1].outcome is PinpointEvidenceOutcome.READY
+        for citation in (root, leaf)
+    )
+    saved = prepared.model_dump(mode="python")
+    saved["index_spans"] = (TableOfAuthoritiesComponent(root.site_span.start, root.site_span.end),)
+    saved["citations"][0]["tags"] = (CitationTag(node_id=root.nodes[0].id, kind=TOA, component_index=0),)
+    before = Document.model_validate(saved)
+    assert before.roots[0].is_toa()
+    assert not before.short_reporters[0].is_toa()
+    assert before.roots[0].reporter_pinpoint_evidence[-1].outcome is PinpointEvidenceOutcome.READY
+    calls = []
+
+    async def review(context):
+        calls.append((context.scope, context.citation_id))
+        assert context.citation_id == leaf.id
+        if context.scope is OpinionReviewScope.CITED_PAGES:
+            return ReporterSupportDecision(
+                result=OpinionSupportResult.UNAVAILABLE,
+                evidence=(),
+                pagination_available=True,
+                correct_page=None,
+                found_pages=(),
+                reason="The body attribution needs a complete opinion review.",
+            )
+        return ReporterSupportDecision(
+            result=OpinionSupportResult.SUPPORTED,
+            evidence=(OpinionEvidenceQuote(opinion_id="20", quote=SECOND_PAGE),),
+            pagination_available=True,
+            correct_page=True,
+            found_pages=(PinCiteTarget(first=557, last=557, kind=PinCiteKind.PAGE),),
+            reason="The opinion supports the body occurrence at its written pinpoint.",
+        )
+
+    document = asyncio.run(review_reporter_citation_pages_llm(before, reviewer=review))
+    document = asyncio.run(review_reporter_citation_full_opinions_llm(document, reviewer=review))
+    document = judge_reporter_citation_content(document)
+    root, leaf = document.roots[0], document.short_reporters[0]
+
+    assert calls == [
+        (OpinionReviewScope.CITED_PAGES, leaf.id),
+        (OpinionReviewScope.FULL_OPINION, leaf.id),
+    ]
+    assert (
+        root.reporter_support_reviews
+        == root.reporter_opinion_evidence
+        == root.reporter_pinpoint_judgments
+        == ()
+    )
+    assert root.identity_judgments == before.roots[0].identity_judgments
+    assert root.reporter_root_opinion_retrieval == before.roots[0].reporter_root_opinion_retrieval
+    assert leaf.reporter_pinpoint_judgments[-1].verdict is ReporterPinpointVerdict.CORRECT_PINCITE
+    assert Document.model_validate_json(document.model_dump_json()) == document

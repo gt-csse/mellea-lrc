@@ -53,9 +53,9 @@ class Citation(BaseModel):
     reporter_pinpoint_judgments: tuple[ReporterPinpointJudgment, ...] = ()
     leaf_field_correction_reviews: tuple[LeafFieldCorrectionReview, ...] = ()
 
-    def has_tag(self, kind: CitationTagKind) -> bool:
-        """Read a source-component tag without changing the citation's tree role."""
-        return any(tag.kind is kind for tag in self.tags)
+    def is_toa(self) -> bool:
+        """Whether this occurrence was created inside a table-of-authorities component."""
+        return any(tag.kind is CitationTagKind.TABLE_OF_AUTHORITIES for tag in self.tags)
 
     def with_leaf_field_correction_review(self, result: LeafFieldCorrectionReview) -> Self:
         """Append one source rereading decision with its saved validation evidence."""

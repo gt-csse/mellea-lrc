@@ -2,11 +2,16 @@
 
 This experiment asks whether a small decoder model can mark the source-text span of the case name associated with a known reporter or docket locator. It is an offline research path; it does not change the production extractor.
 
+The counts, fingerprints, and scores below describe the saved experiment snapshot,
+not the current annotations or production run. Subsequent annotation corrections
+require rebuilding the dataset and evaluating against its new fingerprints.
+Generated data and run artifacts are local and are not bundled with the repository.
+
 ## Data and split
 
 `build_dataset.py` reads the primary annotation files and their filing texts, checks each source hash and quoted span, and writes one local context window per full locator. The input window contains up to 384 characters before and 128 after the locator. Character offsets in the examples remain tied to the original filing text. The model receives the window and a marker identifying the target locator; it does not receive the annotated case-name quote, filename, lawsuit group, or normalization.
 
-The current corpus has 647 full-locator examples from 26 filings: 645 quoted case names and two explicit `not_stated` names. Related filings are kept in the same split. With seed 42, the split contains 453 training examples from 12 lawsuit groups, 97 development examples from four groups, and 97 test examples from four groups. The two no-name examples belong to one lawsuit group, which is kept in training. Development and test therefore measure span selection and boundaries, not reliable abstention.
+The recorded dataset snapshot has 647 full-locator examples from 26 filings: 645 quoted case names and two explicit `not_stated` names. Related filings are kept in the same split. With seed 42, the split contains 453 training examples from 12 lawsuit groups, 97 development examples from four groups, and 97 test examples from four groups. The two no-name examples belong to one lawsuit group, which is kept in training. Development and test therefore measure span selection and boundaries, not reliable abstention.
 
 Generate the data from the linked primary corpus:
 
@@ -14,7 +19,7 @@ Generate the data from the linked primary corpus:
 .venv/bin/python -m experiments.case_name.build_dataset --output-dir experiments/case_name/data
 ```
 
-The generated data and model runs are ignored by Git because they contain source filing text or weights. `data/manifest.json` records the window settings, group split, counts, and SHA256 fingerprints of each split. The current combined content fingerprint is `407dcfb8374c92ca0938aca5edfc2a22d3acf61838f3ad3956c01feb80a456ac`.
+The generated data and model runs are ignored by Git because they contain source filing text or weights. `data/manifest.json` records the window settings, group split, counts, and SHA256 fingerprints of each split. The recorded combined content fingerprint is `407dcfb8374c92ca0938aca5edfc2a22d3acf61838f3ad3956c01feb80a456ac`.
 
 ## Rule comparison
 
@@ -31,7 +36,7 @@ The rule baseline applies the existing eyecite name anchor and regular-expressio
 | Development | 57 | 97 | 88 | 58.8% |
 | Test | 85 | 97 | 95 | 87.6% |
 
-This comparison uses the experiment's 384-character prefix. The saved production stage score uses a 160-character, adjacent-locator-bounded prefix, so its 548/609 span precision is a different evaluation.
+This comparison uses the experiment's 384-character prefix. The historical production stage score used a 160-character, adjacent-locator-bounded prefix, so its 548/609 span precision is a different evaluation.
 
 ## Model comparison
 
@@ -89,4 +94,4 @@ Swapping the terminal representation with one from a different lawsuit changes o
 
 Report exact character-span matches as the primary metric, plus overlap and per-lawsuit breakdowns. Development scores choose checkpoints and decoding settings. Four held-out lawsuit groups are too few for a broad performance claim.
 
-The rule baseline makes 31 overlapping but boundary-wrong predictions across development and test, including names cut at commas. The token alignment preflight ensures every current positive label can be recovered exactly from the tokenizer offsets after a fixed whitespace/comma trim. Some adjacent locators intentionally share a name span or use different subspans of a printed title; those annotation conventions should be reviewed when interpreting individual errors.
+The recorded rule baseline made 31 overlapping but boundary-wrong predictions across development and test, including names cut at commas. The snapshot's token-alignment preflight confirmed that its positive labels could be recovered exactly from tokenizer offsets after a fixed whitespace/comma trim. Alignment does not establish that annotated boundaries are correct; repeat these checks and the evaluation after annotation revisions.

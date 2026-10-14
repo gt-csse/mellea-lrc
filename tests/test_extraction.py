@@ -81,7 +81,7 @@ def test_locator_stages_preserve_exact_occurrences_and_create_one_node() -> None
     assert reporter.case_name == reporter.court == reporter.date == ()
     assert reporter_only.colocations == ()
     assert len(reporter.nodes) == 1
-    assert reporter.nodes[0].substage == "grow_roots.locator_discovery.full_reporter_locators"
+    assert reporter.nodes[0].substage == "grow_roots.discover_root_locators.find_full_reporter_locators"
     assert isinstance(reporter.locator[-1], FullReporterLocator)
     assert isinstance(reporter.locator[-1], CitationField)
     _assert_exact_quote(reporter_only, reporter.locator[-1])
@@ -110,8 +110,8 @@ def test_locator_stages_preserve_exact_occurrences_and_create_one_node() -> None
     assert not hasattr(reporter, "docket_number")
     assert both.colocations == ()
     assert reporter == reporter_only.citations[0]
-    assert both.get_substage("grow_roots.locator_discovery.full_reporter_locators") == reporter_only
-    assert both.get_substage("grow_roots.locator_discovery.docket_locators") == both
+    assert both.get_substage("grow_roots.discover_root_locators.find_full_reporter_locators") == reporter_only
+    assert both.get_substage("grow_roots.discover_root_locators.find_docket_locators") == both
     assert len(docket.nodes) == 1
     assert all(update.node_id == docket.nodes[0].id for log in _field_logs(docket).values() for update in log)
     assert "updates" not in FullCitation.model_fields
@@ -320,8 +320,8 @@ def test_table_of_authorities_reporter_occurrence_can_be_the_root() -> None:
     assert latest(toa.root_id) == toa.id
     assert latest(body.root_id) == toa.id
     assert document.roots == (toa,)
-    assert toa.has_tag(CitationTagKind.TABLE_OF_AUTHORITIES)
-    assert not body.has_tag(CitationTagKind.TABLE_OF_AUTHORITIES)
+    assert toa.is_toa()
+    assert not body.is_toa()
 
 
 def test_table_of_authorities_docket_locator_is_discovered() -> None:
@@ -335,7 +335,7 @@ def test_table_of_authorities_docket_locator_is_discovered() -> None:
 
     assert len(document.full_locators) == 1
     assert _read_span(document, 0) == "Case No. 1:24-cv-00123"
-    assert document.full_locators[0].has_tag(CitationTagKind.TABLE_OF_AUTHORITIES)
+    assert document.full_locators[0].is_toa()
 
 
 def test_courtless_docket_occurrences_are_not_deduplicated_by_number_alone() -> None:
@@ -401,15 +401,15 @@ def test_synchronous_pipeline_and_json_roundtrip() -> None:
     assert document.text == text
     assert all(citation.nodes and citation.locator[-1].get_normalized() for citation in document.citations)
     assert document.substage_runs == (
-        "grow_roots.locator_discovery.full_reporter_locators",
-        "grow_roots.locator_discovery.docket_locators",
-        "grow_roots.field_reading.docket_entries",
-        "grow_roots.field_reading.colocations",
-        "grow_roots.field_reading.case_names",
-        "grow_roots.field_reading.courts",
-        "grow_roots.field_reading.dates",
-        "grow_roots.field_reading.pin_cites",
-        "grow_roots.root_formation.rule",
+        "grow_roots.discover_root_locators.find_full_reporter_locators",
+        "grow_roots.discover_root_locators.find_docket_locators",
+        "grow_roots.read_root_fields.resolve_docket_entries",
+        "grow_roots.read_root_fields.resolve_colocations",
+        "grow_roots.read_root_fields.resolve_case_names",
+        "grow_roots.read_root_fields.resolve_courts",
+        "grow_roots.read_root_fields.resolve_dates",
+        "grow_roots.read_root_fields.resolve_pin_cites",
+        "grow_roots.form_root_groups.form_roots",
     )
     assert len(document.citations) == 2
     assert len(document.colocations) == 1
@@ -440,25 +440,31 @@ def test_explicit_methods_append_a_traceable_history() -> None:
     date_text = "2024"
     court_text = "D. Ariz."
 
-    named = citation.record("grow_roots.field_reading.case_names").with_case_name(source, Span(0, len(name)))
-    document = document.replace_citation(named).complete_substage("grow_roots.field_reading.case_names")
-    courted = named.record("grow_roots.field_reading.courts").with_court(
+    named = citation.record("grow_roots.read_root_fields.resolve_case_names").with_case_name(
+        source, Span(0, len(name))
+    )
+    document = document.replace_citation(named).complete_substage(
+        "grow_roots.read_root_fields.resolve_case_names"
+    )
+    courted = named.record("grow_roots.read_root_fields.resolve_courts").with_court(
         source, Span(source.index(court_text), source.index(court_text) + len(court_text))
     )
-    document = document.replace_citation(courted).complete_substage("grow_roots.field_reading.courts")
-    dated = courted.record("grow_roots.field_reading.dates").with_date(
+    document = document.replace_citation(courted).complete_substage(
+        "grow_roots.read_root_fields.resolve_courts"
+    )
+    dated = courted.record("grow_roots.read_root_fields.resolve_dates").with_date(
         source, Span(source.index(date_text), source.index(date_text) + 4)
     )
-    document = document.replace_citation(dated).complete_substage("grow_roots.field_reading.dates")
-    rooted = dated.record("grow_roots.root_formation.rule").with_root(citation.id)
-    document = document.replace_citation(rooted).complete_substage("grow_roots.root_formation.rule")
+    document = document.replace_citation(dated).complete_substage("grow_roots.read_root_fields.resolve_dates")
+    rooted = dated.record("grow_roots.form_root_groups.form_roots").with_root(citation.id)
+    document = document.replace_citation(rooted).complete_substage("grow_roots.form_root_groups.form_roots")
 
     assert [node.substage for node in rooted.nodes] == [
-        "grow_roots.locator_discovery.docket_locators",
-        "grow_roots.field_reading.case_names",
-        "grow_roots.field_reading.courts",
-        "grow_roots.field_reading.dates",
-        "grow_roots.root_formation.rule",
+        "grow_roots.discover_root_locators.find_docket_locators",
+        "grow_roots.read_root_fields.resolve_case_names",
+        "grow_roots.read_root_fields.resolve_courts",
+        "grow_roots.read_root_fields.resolve_dates",
+        "grow_roots.form_root_groups.form_roots",
     ]
     assert named.nodes == rooted.nodes[:2]
     assert courted.nodes == rooted.nodes[:3]
@@ -488,8 +494,12 @@ def test_normalized_case_name_can_differ_from_its_exact_quote() -> None:
     document = find_docket_locators(Document.from_source(source))
     citation = document.citations[0]
     name_span = Span(0, source.index(","))
-    named = citation.record("grow_roots.field_reading.case_names").with_case_name(source, name_span)
-    document = document.replace_citation(named).complete_substage("grow_roots.field_reading.case_names")
+    named = citation.record("grow_roots.read_root_fields.resolve_case_names").with_case_name(
+        source, name_span
+    )
+    document = document.replace_citation(named).complete_substage(
+        "grow_roots.read_root_fields.resolve_case_names"
+    )
 
     entry = document.citations[0].case_name[-1]
     _assert_exact_quote(document, entry)
@@ -571,10 +581,16 @@ def test_source_mismatches_are_rejected_at_write_time_and_after_json_loading() -
             number_span=name_span,
         )
 
-    updated = citation.record("grow_roots.field_reading.case_names").with_case_name(source, name_span)
-    document = document.replace_citation(updated).complete_substage("grow_roots.field_reading.case_names")
-    updated = updated.record("grow_roots.field_reading.pin_cites").with_pin_cite(source, pin_span)
-    document = document.replace_citation(updated).complete_substage("grow_roots.field_reading.pin_cites")
+    updated = citation.record("grow_roots.read_root_fields.resolve_case_names").with_case_name(
+        source, name_span
+    )
+    document = document.replace_citation(updated).complete_substage(
+        "grow_roots.read_root_fields.resolve_case_names"
+    )
+    updated = updated.record("grow_roots.read_root_fields.resolve_pin_cites").with_pin_cite(source, pin_span)
+    document = document.replace_citation(updated).complete_substage(
+        "grow_roots.read_root_fields.resolve_pin_cites"
+    )
     _assert_roundtrip(document)
 
     for field in ("locator", "case_name", "pin_cite"):
@@ -682,14 +698,14 @@ def test_get_substage_reconstructs_each_committed_document() -> None:
     text = "Brown v. Board of Education, 347 U.S. 483, 495 (1954)."
     document = Document.from_source(text)
     stages = (
-        ("grow_roots.locator_discovery.full_reporter_locators", find_full_reporter_locators),
-        ("grow_roots.locator_discovery.docket_locators", find_docket_locators),
-        ("grow_roots.field_reading.colocations", resolve_colocations),
-        ("grow_roots.field_reading.case_names", resolve_case_names),
-        ("grow_roots.field_reading.courts", resolve_courts),
-        ("grow_roots.field_reading.dates", resolve_dates),
-        ("grow_roots.field_reading.pin_cites", resolve_pin_cites),
-        ("grow_roots.root_formation.rule", form_roots),
+        ("grow_roots.discover_root_locators.find_full_reporter_locators", find_full_reporter_locators),
+        ("grow_roots.discover_root_locators.find_docket_locators", find_docket_locators),
+        ("grow_roots.read_root_fields.resolve_colocations", resolve_colocations),
+        ("grow_roots.read_root_fields.resolve_case_names", resolve_case_names),
+        ("grow_roots.read_root_fields.resolve_courts", resolve_courts),
+        ("grow_roots.read_root_fields.resolve_dates", resolve_dates),
+        ("grow_roots.read_root_fields.resolve_pin_cites", resolve_pin_cites),
+        ("grow_roots.form_root_groups.form_roots", form_roots),
     )
     checkpoints: dict[str, Document] = {}
     for name, substage in stages:
@@ -697,12 +713,12 @@ def test_get_substage_reconstructs_each_committed_document() -> None:
         checkpoints[name] = document
         assert document.substage_runs == tuple(checkpoints)
 
-    reporter_only = checkpoints["grow_roots.locator_discovery.full_reporter_locators"]
-    after_empty_docket = checkpoints["grow_roots.locator_discovery.docket_locators"]
+    reporter_only = checkpoints["grow_roots.discover_root_locators.find_full_reporter_locators"]
+    after_empty_docket = checkpoints["grow_roots.discover_root_locators.find_docket_locators"]
     assert len(after_empty_docket.citations) == 1
     assert after_empty_docket.citations == reporter_only.citations
     assert all(
-        node.substage != "grow_roots.locator_discovery.docket_locators"
+        node.substage != "grow_roots.discover_root_locators.find_docket_locators"
         for node in after_empty_docket.citations[0].nodes
     )
     assert after_empty_docket != reporter_only
@@ -739,12 +755,17 @@ def test_get_substage_excludes_later_citations_and_uncommitted_changes() -> None
         )
 
     pending = reporter_only.add_citation(docket("1:24-cv-00123"))
-    assert pending.get_substage("grow_roots.locator_discovery.full_reporter_locators") == reporter_only
+    assert (
+        pending.get_substage("grow_roots.discover_root_locators.find_full_reporter_locators") == reporter_only
+    )
     with pytest.raises(KeyError):
         pending.get_substage("manual_review")
 
     reviewed = pending.complete_substage("manual_review")
-    assert reviewed.get_substage("grow_roots.locator_discovery.full_reporter_locators") == reporter_only
+    assert (
+        reviewed.get_substage("grow_roots.discover_root_locators.find_full_reporter_locators")
+        == reporter_only
+    )
     assert reviewed.get_substage("manual_review") == reviewed
 
     with pytest.raises(ValueError, match="completed"):
@@ -774,11 +795,11 @@ def test_native_reload_rejects_histories_that_cannot_restore_prior_stages() -> N
     late_group_member = document.model_dump(mode="python")
     late_group_member["runs"] = [
         *document.model_dump(mode="python")["runs"],
-        {"kind": "substage", "name": "grow_roots.field_reading.colocations"},
+        {"kind": "substage", "name": "grow_roots.read_root_fields.resolve_colocations"},
         {"kind": "substage", "name": "later"},
     ]
     for citation, substage, raw in (
-        (first, "grow_roots.field_reading.colocations", late_group_member["citations"][0]),
+        (first, "grow_roots.read_root_fields.resolve_colocations", late_group_member["citations"][0]),
         (second, "later", late_group_member["citations"][1]),
     ):
         node_id = f"{citation.id}:node:1"

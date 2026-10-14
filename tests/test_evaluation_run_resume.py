@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib
 import json
 import sys
@@ -15,6 +16,7 @@ import pytest
 
 from evaluations import __main__ as runner
 from evaluations import complete_stage_boundary
+from mellea_lrc import api
 from mellea_lrc.api import Document, grow_roots
 from mellea_lrc.model import (
     DocketLookup,
@@ -31,9 +33,10 @@ from mellea_lrc.model.citations.body_evidence import (
 )
 from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch
 from mellea_lrc.model.citations.govinfo_lookup import GovInfoDocketLookup, GovInfoLookupAttempt
+from mellea_lrc.model.execution import stage_for_substage
 from mellea_lrc.providers.courtlistener import CourtListenerClient
 
-_ROOT_WORKFLOW = importlib.import_module("mellea_lrc.workflows.validate_roots")
+_ROOT_WORKFLOW = importlib.import_module("mellea_lrc.workflows.validate_roots_citation_identity")
 _LOCATOR_REVIEW = _ROOT_WORKFLOW.corroborate_locator_bodies
 _BODY_START = runner._RUN_SUBSTAGES.index(runner._COURTLISTENER_OPINION_SUBSTAGE)
 _BODY_INPUT_SUBSTAGES = runner._RUN_SUBSTAGES[:_BODY_START]
@@ -47,7 +50,7 @@ def _dataset(tmp_path: Path, filenames: tuple[str, ...]) -> Path:
     for filename in filenames:
         (source_dir / filename).write_text(f"source for {filename}\n", encoding="utf-8")
     (data_root / "primary" / "documents.json").write_text(
-        json.dumps({"documents": list(filenames)}), encoding="utf-8"
+        json.dumps({"documents": {name: {} for name in filenames}}), encoding="utf-8"
     )
     return data_root
 
@@ -92,15 +95,10 @@ def _annotation_cutoffs(data_root: Path, dates: dict[str, str], groups: dict[str
 
 
 def _patch_operation(monkeypatch: pytest.MonkeyPatch, name: str, value: object) -> None:
-    if name.startswith("reporter_root_"):
-        group = "reporter_lookup"
-    elif name.startswith("docket_root_") or name == "fields_aggregated_identity":
-        group = "docket_lookup"
-    elif name.startswith("locator_body_"):
-        group = "locator_body_corroboration"
-    else:
-        raise AssertionError(f"Unknown workflow operation: {name}")
-    module = importlib.import_module(f"mellea_lrc.workflows.validate_roots.{group}")
+    operation = importlib.import_module(getattr(api, name).__module__)
+    stage = stage_for_substage(operation.SUBSTAGE)
+    assert stage is not None, f"Unknown workflow operation: {name}"
+    module = importlib.import_module(f"mellea_lrc.workflows.{stage}")
     monkeypatch.setattr(module, name, value)
 
 
@@ -131,6 +129,10 @@ def _complete_with_checkpoints(
 
 @pytest.fixture(autouse=True)
 def _offline_body_stages(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These tests exercise checkpoint orchestration; native source metadata has
+    # dedicated coverage in test_evaluation_end_to_end.py.
+    monkeypatch.setattr(runner, "load_source", lambda path: Document.from_source(path))
+
     def unexpected_network(*_args: object, **_kwargs: object) -> None:
         pytest.fail("Offline evaluation tests must not call a real provider")
 
@@ -174,7 +176,7 @@ def test_resume_skips_valid_documents_and_reuses_timestamp_directory(
         return _complete_with_checkpoints(document, _BODY_SUBSTAGES, checkpoint)
 
     monkeypatch.setattr(runner, "grow_roots", fake_grow)
-    monkeypatch.setattr(runner, "validate_roots", fake_validate)
+    monkeypatch.setattr(runner, "validate_roots_citation_identity", fake_validate)
     run_dir = asyncio.run(runner._run(data_root, tmp_path / "results", None))
     assert calls == list(filenames)
 
@@ -195,6 +197,59 @@ def test_resume_skips_valid_documents_and_reuses_timestamp_directory(
     assert calls == [*filenames, "002.txt"]
 
 
+@pytest.mark.parametrize(
+    "current_name, saved_name",
+    [
+        ("validate_roots_citation_identity", "validate_roots"),
+        ("validate_all_citation_content", "validate_pincite"),
+    ],
+)
+def test_resume_rejects_old_workflow_manifest_names_before_calls_or_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, current_name: str, saved_name: str
+) -> None:
+    data_root = _dataset(tmp_path, ("001.txt",))
+    document = Document.from_source(data_root / "primary" / "documents_txt" / "001.txt").complete_substage(
+        "grow_roots.discover_root_locators.find_full_reporter_locators"
+    )
+    assert document.stage_runs == ()
+    run_dir = tmp_path / "saved-run"
+    artifacts = run_dir / "documents"
+    artifacts.mkdir(parents=True)
+    artifact = artifacts / "001.txt.json"
+    artifact.write_text(document.model_dump_json(), encoding="utf-8")
+    # A valid current atomic checkpoint does not make an obsolete workflow
+    # manifest resumable.
+    assert Document.model_validate_json(artifact.read_bytes()) == document
+    record_path = run_dir / "run.json"
+    record_path.write_text(
+        json.dumps(
+            {
+                "set": "primary",
+                "status": "failed",
+                "filings": ["001.txt"],
+                "data_root": str(data_root),
+                "end_to_end": True,
+                "workflows": [saved_name if name == current_name else name for name in runner._E2E_WORKFLOWS],
+                "workers": 3,
+                "model_profiles": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    saved_record = record_path.read_bytes()
+    saved_artifact = artifact.read_bytes()
+
+    def unexpected(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("Old workflow names must fail before source, profile, provider, or workflow calls")
+
+    for name in (*runner._E2E_WORKFLOWS, "CourtListenerClient", "load_source", "_configured_model_profiles"):
+        monkeypatch.setattr(runner, name, unexpected)
+    with pytest.raises(ValueError, match="Saved end-to-end workflow names differ"):
+        asyncio.run(runner._run(tmp_path / "unused", tmp_path / "unused", None, resume_run=run_dir))
+    assert record_path.read_bytes() == saved_record
+    assert artifact.read_bytes() == saved_artifact
+
+
 def test_resume_rejects_a_cumulative_document_with_a_stage_gap_before_provider_work(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -208,7 +263,7 @@ def test_resume_rejects_a_cumulative_document_with_a_stage_gap_before_provider_w
         raise RuntimeError("interrupted after growth")
 
     monkeypatch.setattr(runner, "grow_roots", fake_grow)
-    monkeypatch.setattr(runner, "validate_roots", interrupt_validation)
+    monkeypatch.setattr(runner, "validate_roots_citation_identity", interrupt_validation)
     with pytest.raises(RuntimeError, match="interrupted after growth"):
         asyncio.run(runner._run(data_root, results_root, None))
     run_dir = next(results_root.iterdir())
@@ -222,7 +277,7 @@ def test_resume_rejects_a_cumulative_document_with_a_stage_gap_before_provider_w
         pytest.fail("A cumulative substage gap must be rejected before provider work")
 
     monkeypatch.setattr(runner, "grow_roots", unexpected_provider)
-    monkeypatch.setattr(runner, "validate_roots", unexpected_provider)
+    monkeypatch.setattr(runner, "validate_roots_citation_identity", unexpected_provider)
     with pytest.raises(ValueError, match="Saved evaluation checkpoint skips a substage"):
         asyncio.run(runner._run(data_root, results_root, None, run_dir))
     assert Document.model_validate_json(artifact.read_text(encoding="utf-8")) == invalid
@@ -233,7 +288,7 @@ def test_resume_from_reporter_docket_checkpoint_skips_provider_requery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     data_root = _dataset(tmp_path, ("001.txt",))
-    workflow = importlib.import_module("mellea_lrc.workflows.validate_roots")
+    workflow = importlib.import_module("mellea_lrc.workflows.validate_roots_citation_identity")
     calls: list[str] = []
     fail_review = True
 
@@ -280,29 +335,44 @@ def test_resume_from_reporter_docket_checkpoint_skips_provider_requery(
         return _complete_with_checkpoints(document, _BODY_SUBSTAGES, checkpoint)
 
     monkeypatch.setattr(runner, "grow_roots", fake_grow)
-    _patch_operation(monkeypatch, "reporter_root_lookup_cluster_retrieval", retrieve)
-    _patch_operation(monkeypatch, "reporter_root_lookup_unique_rule_judgment", review)
+    _patch_operation(monkeypatch, "retrieve_reporter_root_clusters", retrieve)
+    _patch_operation(monkeypatch, "judge_unique_reporter_roots_rule", review)
     for substage, name in (
-        ("validate_roots.reporter_lookup.docket_retrieval", "reporter_root_lookup_docket_retrieval"),
         (
-            "validate_roots.reporter_lookup.ambiguous_rule_judgment",
-            "reporter_root_lookup_ambiguous_rule_judgment",
+            "validate_roots_citation_identity.lookup_reporter_roots.retrieve_dockets",
+            "retrieve_reporter_root_dockets",
         ),
         (
-            "validate_roots.docket_lookup.courtlistener_retrieval",
-            "docket_root_lookup_courtlistener_retrieval",
+            "validate_roots_citation_identity.lookup_reporter_roots.judge_ambiguous_rule",
+            "judge_ambiguous_reporter_roots_rule",
         ),
-        ("validate_roots.docket_lookup.govinfo_retrieval", "docket_root_lookup_govinfo_retrieval"),
+        (
+            "validate_roots_citation_identity.lookup_docket_roots.retrieve_courtlistener_dockets",
+            "retrieve_courtlistener_docket_roots",
+        ),
+        (
+            "validate_roots_citation_identity.lookup_docket_roots.retrieve_govinfo_dockets",
+            "retrieve_govinfo_docket_roots",
+        ),
     ):
         _patch_operation(monkeypatch, name, sync_stage(substage))
     for substage, name in (
-        ("validate_roots.reporter_lookup.unique_llm_judgment", "reporter_root_lookup_unique_llm_judgment"),
         (
-            "validate_roots.reporter_lookup.ambiguous_llm_judgment",
-            "reporter_root_lookup_ambiguous_llm_judgment",
+            "validate_roots_citation_identity.lookup_reporter_roots.review_unique_llm",
+            "review_unique_reporter_roots_llm",
         ),
-        ("validate_roots.docket_lookup.courtlistener_review", "docket_root_lookup_courtlistener_llm_review"),
-        ("validate_roots.docket_lookup.govinfo_review", "docket_root_lookup_govinfo_llm_review"),
+        (
+            "validate_roots_citation_identity.lookup_reporter_roots.review_ambiguous_llm",
+            "review_ambiguous_reporter_roots_llm",
+        ),
+        (
+            "validate_roots_citation_identity.lookup_docket_roots.review_courtlistener_dockets_llm",
+            "review_courtlistener_docket_roots_llm",
+        ),
+        (
+            "validate_roots_citation_identity.lookup_docket_roots.review_govinfo_dockets_llm",
+            "review_govinfo_docket_roots_llm",
+        ),
     ):
         _patch_operation(monkeypatch, name, async_stage(substage))
     monkeypatch.setattr(workflow, "corroborate_locator_bodies", body)
@@ -334,7 +404,7 @@ def test_rewind_completed_document_to_reporter_retrieval_runs_later_reviews(
     checkpoint_dir.mkdir()
     completed = _complete(Document.from_source(source), runner._RUN_SUBSTAGES)
     (checkpoint_dir / "001.txt.json").write_text(completed.model_dump_json(), encoding="utf-8")
-    workflow = importlib.import_module("mellea_lrc.workflows.validate_roots")
+    workflow = importlib.import_module("mellea_lrc.workflows.validate_roots_citation_identity")
     calls: list[str] = []
 
     def unexpected_lookup(_document: Document) -> Document:
@@ -364,30 +434,48 @@ def test_rewind_completed_document_to_reporter_retrieval_runs_later_reviews(
         assert document.substage_runs == _BODY_INPUT_SUBSTAGES
         return _complete_with_checkpoints(document, _BODY_SUBSTAGES, checkpoint)
 
-    _patch_operation(monkeypatch, "reporter_root_lookup_cluster_retrieval", unexpected_lookup)
+    _patch_operation(monkeypatch, "retrieve_reporter_root_clusters", unexpected_lookup)
     for substage, name in (
-        ("validate_roots.reporter_lookup.unique_rule_judgment", "reporter_root_lookup_unique_rule_judgment"),
-        ("validate_roots.reporter_lookup.docket_retrieval", "reporter_root_lookup_docket_retrieval"),
         (
-            "validate_roots.reporter_lookup.ambiguous_rule_judgment",
-            "reporter_root_lookup_ambiguous_rule_judgment",
+            "validate_roots_citation_identity.lookup_reporter_roots.judge_unique_rule",
+            "judge_unique_reporter_roots_rule",
         ),
         (
-            "validate_roots.docket_lookup.courtlistener_retrieval",
-            "docket_root_lookup_courtlistener_retrieval",
+            "validate_roots_citation_identity.lookup_reporter_roots.retrieve_dockets",
+            "retrieve_reporter_root_dockets",
         ),
-        ("validate_roots.docket_lookup.govinfo_retrieval", "docket_root_lookup_govinfo_retrieval"),
-        (runner._FIELD_IDENTITY_SUBSTAGE, "fields_aggregated_identity"),
+        (
+            "validate_roots_citation_identity.lookup_reporter_roots.judge_ambiguous_rule",
+            "judge_ambiguous_reporter_roots_rule",
+        ),
+        (
+            "validate_roots_citation_identity.lookup_docket_roots.retrieve_courtlistener_dockets",
+            "retrieve_courtlistener_docket_roots",
+        ),
+        (
+            "validate_roots_citation_identity.lookup_docket_roots.retrieve_govinfo_dockets",
+            "retrieve_govinfo_docket_roots",
+        ),
+        (runner._FIELD_IDENTITY_SUBSTAGE, "judge_root_identity_from_fields"),
     ):
         _patch_operation(monkeypatch, name, sync_stage(substage))
     for substage, name in (
-        ("validate_roots.reporter_lookup.unique_llm_judgment", "reporter_root_lookup_unique_llm_judgment"),
         (
-            "validate_roots.reporter_lookup.ambiguous_llm_judgment",
-            "reporter_root_lookup_ambiguous_llm_judgment",
+            "validate_roots_citation_identity.lookup_reporter_roots.review_unique_llm",
+            "review_unique_reporter_roots_llm",
         ),
-        ("validate_roots.docket_lookup.courtlistener_review", "docket_root_lookup_courtlistener_llm_review"),
-        ("validate_roots.docket_lookup.govinfo_review", "docket_root_lookup_govinfo_llm_review"),
+        (
+            "validate_roots_citation_identity.lookup_reporter_roots.review_ambiguous_llm",
+            "review_ambiguous_reporter_roots_llm",
+        ),
+        (
+            "validate_roots_citation_identity.lookup_docket_roots.review_courtlistener_dockets_llm",
+            "review_courtlistener_docket_roots_llm",
+        ),
+        (
+            "validate_roots_citation_identity.lookup_docket_roots.review_govinfo_dockets_llm",
+            "review_govinfo_docket_roots_llm",
+        ),
     ):
         _patch_operation(monkeypatch, name, async_stage(substage))
     monkeypatch.setattr(workflow, "corroborate_locator_bodies", body)
@@ -432,7 +520,7 @@ def test_rewind_rejects_invalid_validation_checkpoint_before_providers(
         pytest.fail("Invalid checkpoint must be rejected before provider work")
 
     monkeypatch.setattr(runner, "grow_roots", unexpected_provider)
-    monkeypatch.setattr(runner, "validate_roots", unexpected_provider)
+    monkeypatch.setattr(runner, "validate_roots_citation_identity", unexpected_provider)
     with pytest.raises(ValueError, match=error):
         asyncio.run(
             runner._run(
@@ -459,8 +547,8 @@ def test_resume_rejects_stale_saved_source_before_provider_calls(
     async def unexpected_review(_document: Document) -> Document:
         pytest.fail("A stale checkpoint must not reach the provider-backed review")
 
-    root_stage = importlib.import_module("mellea_lrc.workflows.grow_roots.root_formation")
-    monkeypatch.setattr(root_stage, "docket_root_llm_reassignment", unexpected_review)
+    root_stage = importlib.import_module("mellea_lrc.workflows.grow_roots.form_root_groups")
+    monkeypatch.setattr(root_stage, "reassign_docket_roots_llm", unexpected_review)
     with pytest.raises(ValueError, match="Saved Document text differs"):
         asyncio.run(runner._run(data_root, tmp_path / "results", roots_dir))
 
@@ -500,12 +588,12 @@ def test_resume_from_reporter_llm_checkpoint_only_runs_later_stages(
         calls.append("19")
         return document.complete_substage(runner._RUN_SUBSTAGES[20])
 
-    monkeypatch.setattr(runner, "reporter_root_lookup_unique_llm_judgment", unique)
-    monkeypatch.setattr(runner, "reporter_root_lookup_ambiguous_llm_judgment", ambiguous)
-    monkeypatch.setattr(runner, "docket_root_lookup_courtlistener_retrieval", docket)
-    monkeypatch.setattr(runner, "docket_root_lookup_courtlistener_llm_review", docket_review)
-    monkeypatch.setattr(runner, "docket_root_lookup_govinfo_retrieval", govinfo)
-    monkeypatch.setattr(runner, "docket_root_lookup_govinfo_llm_review", govinfo_review)
+    monkeypatch.setattr(runner, "review_unique_reporter_roots_llm", unique)
+    monkeypatch.setattr(runner, "review_ambiguous_reporter_roots_llm", ambiguous)
+    monkeypatch.setattr(runner, "retrieve_courtlistener_docket_roots", docket)
+    monkeypatch.setattr(runner, "review_courtlistener_docket_roots_llm", docket_review)
+    monkeypatch.setattr(runner, "retrieve_govinfo_docket_roots", govinfo)
+    monkeypatch.setattr(runner, "review_govinfo_docket_roots_llm", govinfo_review)
     run_dir = asyncio.run(runner._run(data_root, tmp_path / "results", None, None, checkpoint_dir))
 
     assert calls == ["14", "15", "16", "17", "18", "19"]
@@ -522,7 +610,11 @@ def test_reporter_review_replay_reuses_saved_docket_lookup(
     data_root = _dataset(tmp_path, ("001.txt",))
     source_path = data_root / "primary" / "documents_txt" / "001.txt"
     source_path.write_text("Acme v. Reed, Case No. 2:31-cv-45821 (S.D.N.Y. 2031).", encoding="utf-8")
-    monkeypatch.setattr("mellea_lrc.extraction.docket_site_hunting.suspected_dockets", lambda _: ())
+    monkeypatch.setattr(
+        importlib.import_module("mellea_lrc.extraction.hunt_docket_locators"),
+        "suspected_dockets",
+        lambda _: (),
+    )
     ready = asyncio.run(grow_roots(Document.from_source(source_path), hunt_dockets=True)).get_substage(
         runner._ROOT_SUBSTAGE
     )
@@ -559,12 +651,12 @@ def test_reporter_review_replay_reuses_saved_docket_lookup(
     async def govinfo_review(document: Document) -> Document:
         return document.complete_substage(runner._RUN_SUBSTAGES[20])
 
-    monkeypatch.setattr(runner, "reporter_root_lookup_unique_llm_judgment", unique)
-    monkeypatch.setattr(runner, "reporter_root_lookup_ambiguous_llm_judgment", ambiguous)
-    monkeypatch.setattr(runner, "docket_root_lookup_courtlistener_retrieval", unexpected_lookup)
-    monkeypatch.setattr(runner, "docket_root_lookup_courtlistener_llm_review", docket_review)
-    monkeypatch.setattr(runner, "docket_root_lookup_govinfo_retrieval", govinfo)
-    monkeypatch.setattr(runner, "docket_root_lookup_govinfo_llm_review", govinfo_review)
+    monkeypatch.setattr(runner, "review_unique_reporter_roots_llm", unique)
+    monkeypatch.setattr(runner, "review_ambiguous_reporter_roots_llm", ambiguous)
+    monkeypatch.setattr(runner, "retrieve_courtlistener_docket_roots", unexpected_lookup)
+    monkeypatch.setattr(runner, "review_courtlistener_docket_roots_llm", docket_review)
+    monkeypatch.setattr(runner, "retrieve_govinfo_docket_roots", govinfo)
+    monkeypatch.setattr(runner, "review_govinfo_docket_roots_llm", govinfo_review)
     run_dir = asyncio.run(runner._run(data_root, tmp_path / "results", None, None, checkpoint_dir, True))
 
     saved = Document.model_validate_json((run_dir / "documents" / "001.txt.json").read_text(encoding="utf-8"))
@@ -592,8 +684,8 @@ def test_resume_from_docket_review_checkpoint_only_runs_govinfo_stages(
         calls.append("19")
         return document.complete_substage(runner._RUN_SUBSTAGES[20])
 
-    monkeypatch.setattr(runner, "docket_root_lookup_govinfo_retrieval", govinfo)
-    monkeypatch.setattr(runner, "docket_root_lookup_govinfo_llm_review", govinfo_review)
+    monkeypatch.setattr(runner, "retrieve_govinfo_docket_roots", govinfo)
+    monkeypatch.setattr(runner, "review_govinfo_docket_roots_llm", govinfo_review)
     run_dir = asyncio.run(
         runner._run(data_root, tmp_path / "results", None, None, None, False, checkpoint_dir)
     )
@@ -666,7 +758,7 @@ def test_resume_after_locator_body_review_failure_reuses_all_retrieval_checkpoin
     checkpoint_dir.mkdir()
     ready = _complete(Document.from_source(source), runner._VALIDATION_INPUT_SUBSTAGES)
     (checkpoint_dir / "001.txt.json").write_text(ready.model_dump_json(), encoding="utf-8")
-    workflow = importlib.import_module("mellea_lrc.workflows.validate_roots")
+    workflow = importlib.import_module("mellea_lrc.workflows.validate_roots_citation_identity")
     monkeypatch.setattr(workflow, "corroborate_locator_bodies", _LOCATOR_REVIEW)
     calls: list[str] = []
     fail_review = True
@@ -688,20 +780,20 @@ def test_resume_after_locator_body_review_failure_reuses_all_retrieval_checkpoin
 
     _patch_operation(
         monkeypatch,
-        "locator_body_courtlistener_opinion_retrieval",
+        "retrieve_courtlistener_locator_opinions",
         retrieve(runner._COURTLISTENER_OPINION_SUBSTAGE),
     )
     _patch_operation(
         monkeypatch,
-        "locator_body_courtlistener_recap_retrieval",
+        "retrieve_courtlistener_locator_filings",
         retrieve(runner._COURTLISTENER_RECAP_SUBSTAGE),
     )
     _patch_operation(
         monkeypatch,
-        "locator_body_govinfo_opinion_retrieval",
+        "retrieve_govinfo_locator_opinions",
         retrieve(runner._GOVINFO_OPINION_SUBSTAGE),
     )
-    _patch_operation(monkeypatch, "locator_body_llm_judgment", review)
+    _patch_operation(monkeypatch, "review_locator_bodies_llm", review)
 
     with pytest.raises(RuntimeError, match="interrupted during locator-body review"):
         asyncio.run(
@@ -739,7 +831,7 @@ def test_rewind_completed_document_to_stage22_replays_only_locator_body_review(
     checkpoint_dir.mkdir()
     completed = _complete(Document.from_source(source), runner._RUN_SUBSTAGES)
     (checkpoint_dir / "001.txt.json").write_text(completed.model_dump_json(), encoding="utf-8")
-    workflow = importlib.import_module("mellea_lrc.workflows.validate_roots")
+    workflow = importlib.import_module("mellea_lrc.workflows.validate_roots_citation_identity")
     monkeypatch.setattr(workflow, "corroborate_locator_bodies", _LOCATOR_REVIEW)
     calls: list[str] = []
 
@@ -751,10 +843,10 @@ def test_rewind_completed_document_to_stage22_replays_only_locator_body_review(
         assert document == completed.get_substage(runner._GOVINFO_OPINION_SUBSTAGE)
         return document.complete_substage(runner._LOCATOR_BODY_REVIEW_SUBSTAGE)
 
-    _patch_operation(monkeypatch, "locator_body_courtlistener_opinion_retrieval", unexpected_retrieval)
-    _patch_operation(monkeypatch, "locator_body_courtlistener_recap_retrieval", unexpected_retrieval)
-    _patch_operation(monkeypatch, "locator_body_govinfo_opinion_retrieval", unexpected_retrieval)
-    _patch_operation(monkeypatch, "locator_body_llm_judgment", review)
+    _patch_operation(monkeypatch, "retrieve_courtlistener_locator_opinions", unexpected_retrieval)
+    _patch_operation(monkeypatch, "retrieve_courtlistener_locator_filings", unexpected_retrieval)
+    _patch_operation(monkeypatch, "retrieve_govinfo_locator_opinions", unexpected_retrieval)
+    _patch_operation(monkeypatch, "review_locator_bodies_llm", review)
 
     results_root = tmp_path / "results"
     monkeypatch.setattr(
@@ -815,15 +907,15 @@ def test_locator_review_replay_saves_each_stage_and_resumes_without_earlier_work
         return document.complete_substage(runner._FIELD_SUBSTAGES[3])
 
     monkeypatch.setattr(
-        runner, "intended_case_courtlistener_opinion_retrieval", provider(runner._FIELD_SUBSTAGES[0])
+        runner, "retrieve_courtlistener_intended_case_opinions", provider(runner._FIELD_SUBSTAGES[0])
     )
     monkeypatch.setattr(
-        runner, "intended_case_courtlistener_recap_retrieval", provider(runner._FIELD_SUBSTAGES[1])
+        runner, "retrieve_courtlistener_intended_case_filings", provider(runner._FIELD_SUBSTAGES[1])
     )
     monkeypatch.setattr(
-        runner, "intended_case_govinfo_opinion_retrieval", provider(runner._FIELD_SUBSTAGES[2])
+        runner, "retrieve_govinfo_intended_case_opinions", provider(runner._FIELD_SUBSTAGES[2])
     )
-    monkeypatch.setattr(runner, "intended_case_llm_selection", review)
+    monkeypatch.setattr(runner, "review_intended_cases_llm", review)
 
     with pytest.raises(RuntimeError, match="interrupted after substage 25"):
         asyncio.run(
@@ -867,7 +959,7 @@ def test_locator_review_replay_saves_each_stage_and_resumes_without_earlier_work
         final = Document.model_validate_json((run_dir / "documents" / f"{filename}.json").read_text())
         original = Document.model_validate_json((checkpoint_dir / f"{filename}.json").read_text())
         assert final.substage_runs == runner._FIELD_RUN_SUBSTAGES
-        assert final.get_stage("validate_roots.locator_body_corroboration") == original
+        assert final.get_stage("validate_roots_citation_identity.corroborate_locator_bodies") == original
         for substage in runner._FIELD_SUBSTAGES:
             assert (
                 final.get_substage(substage).substage_runs
@@ -889,7 +981,9 @@ def test_transient_field_search_stops_before_later_providers_and_retries_its_sta
     stage23 = _complete(stage23, runner._RUN_SUBSTAGES[11:-1])
     root = stage23.roots[0].record(runner._LOCATOR_BODY_REVIEW_SUBSTAGE)
     stage23 = stage23.replace_citation(
-        root.with_route("validate_roots.intended_case_discovery.courtlistener_opinion_retrieval")
+        root.with_route(
+            "validate_roots_citation_identity.discover_intended_cases.retrieve_courtlistener_opinions"
+        )
     ).complete_substage(runner._LOCATOR_BODY_REVIEW_SUBSTAGE)
     stage23 = complete_stage_boundary(stage23, runner._FIELD_RUN_SUBSTAGES)
     checkpoint_dir = tmp_path / "locator-review-input"
@@ -927,12 +1021,12 @@ def test_transient_field_search_stops_before_later_providers_and_retries_its_sta
         calls.append("27")
         return document.complete_substage(runner._FIELD_SUBSTAGES[3])
 
-    monkeypatch.setattr(runner, "intended_case_courtlistener_opinion_retrieval", opinion)
+    monkeypatch.setattr(runner, "retrieve_courtlistener_intended_case_opinions", opinion)
     monkeypatch.setattr(
-        runner, "intended_case_courtlistener_recap_retrieval", later(runner._FIELD_SUBSTAGES[1])
+        runner, "retrieve_courtlistener_intended_case_filings", later(runner._FIELD_SUBSTAGES[1])
     )
-    monkeypatch.setattr(runner, "intended_case_govinfo_opinion_retrieval", later(runner._FIELD_SUBSTAGES[2]))
-    monkeypatch.setattr(runner, "intended_case_llm_selection", review)
+    monkeypatch.setattr(runner, "retrieve_govinfo_intended_case_opinions", later(runner._FIELD_SUBSTAGES[2]))
+    monkeypatch.setattr(runner, "review_intended_cases_llm", review)
 
     with pytest.raises(RuntimeError, match="transient provider failure"):
         asyncio.run(
@@ -951,7 +1045,7 @@ def test_transient_field_search_stops_before_later_providers_and_retries_its_sta
     assert not (run_dir / "checkpoints").exists()
 
     asyncio.run(runner._run(tmp_path / "ignored", tmp_path / "unused", None, run_dir))
-    assert calls == ["24", "24", "courtlistener_recap_retrieval", "govinfo_opinion_retrieval", "27"]
+    assert calls == ["24", "24", "retrieve_courtlistener_filings", "retrieve_govinfo_opinions", "27"]
     final = Document.model_validate_json((run_dir / "documents" / "001.txt.json").read_text())
     assert final.substage_runs == runner._FIELD_RUN_SUBSTAGES
     assert not final.roots[0].field_body_searches[0].failures
@@ -1365,10 +1459,10 @@ def test_retry_body_substages_passes_selected_client_to_both_courtlistener_stage
         calls.append("review")
         return document.complete_substage(runner._LOCATOR_BODY_REVIEW_SUBSTAGE)
 
-    monkeypatch.setattr(runner, "locator_body_courtlistener_opinion_retrieval", opinion)
-    monkeypatch.setattr(runner, "locator_body_courtlistener_recap_retrieval", recap)
-    monkeypatch.setattr(runner, "locator_body_govinfo_opinion_retrieval", govinfo)
-    monkeypatch.setattr(runner, "locator_body_llm_judgment", review)
+    monkeypatch.setattr(runner, "retrieve_courtlistener_locator_opinions", opinion)
+    monkeypatch.setattr(runner, "retrieve_courtlistener_locator_filings", recap)
+    monkeypatch.setattr(runner, "retrieve_govinfo_locator_opinions", govinfo)
+    monkeypatch.setattr(runner, "review_locator_bodies_llm", review)
     result = asyncio.run(
         runner._retry_body_substages(document, runner._COURTLISTENER_OPINION_SUBSTAGE, None, selected_client)
     )
@@ -1381,7 +1475,7 @@ def test_validation_workflow_passes_selected_client_after_aggregation_to_both_bo
     monkeypatch: pytest.MonkeyPatch,
     aggregation_complete: bool,
 ) -> None:
-    workflow = importlib.import_module("mellea_lrc.workflows.validate_roots")
+    workflow = importlib.import_module("mellea_lrc.workflows.validate_roots_citation_identity")
     monkeypatch.setattr(workflow, "corroborate_locator_bodies", _LOCATOR_REVIEW)
     input_substages = _BODY_INPUT_SUBSTAGES if aggregation_complete else runner._VALIDATION_INPUT_SUBSTAGES
     document = _complete(Document.from_source("source"), input_substages)
@@ -1409,12 +1503,14 @@ def test_validation_workflow_passes_selected_client_after_aggregation_to_both_bo
         calls.append("review")
         return document.complete_substage(runner._LOCATOR_BODY_REVIEW_SUBSTAGE)
 
-    _patch_operation(monkeypatch, "locator_body_courtlistener_opinion_retrieval", opinion)
-    _patch_operation(monkeypatch, "locator_body_courtlistener_recap_retrieval", recap)
-    _patch_operation(monkeypatch, "locator_body_govinfo_opinion_retrieval", govinfo)
-    _patch_operation(monkeypatch, "locator_body_llm_judgment", review)
+    _patch_operation(monkeypatch, "retrieve_courtlistener_locator_opinions", opinion)
+    _patch_operation(monkeypatch, "retrieve_courtlistener_locator_filings", recap)
+    _patch_operation(monkeypatch, "retrieve_govinfo_locator_opinions", govinfo)
+    _patch_operation(monkeypatch, "review_locator_bodies_llm", review)
     result = asyncio.run(
-        workflow.validate_roots(document, courtlistener_client=selected_client, checkpoint=checkpoints.append)
+        workflow.validate_roots_citation_identity(
+            document, courtlistener_client=selected_client, checkpoint=checkpoints.append
+        )
     )
     assert result.substage_runs == runner._RUN_SUBSTAGES
     assert calls == ["opinion", "recap", "govinfo", "review"]
@@ -1423,9 +1519,9 @@ def test_validation_workflow_passes_selected_client_after_aggregation_to_both_bo
     for substage in remaining_substages:
         expected_events.append(("substage", substage))
         if substage == runner._FIELD_IDENTITY_SUBSTAGE:
-            expected_events.append(("stage", "validate_roots.docket_lookup"))
+            expected_events.append(("stage", "validate_roots_citation_identity.lookup_docket_roots"))
         elif substage == runner._LOCATOR_BODY_REVIEW_SUBSTAGE:
-            expected_events.append(("stage", "validate_roots.locator_body_corroboration"))
+            expected_events.append(("stage", "validate_roots_citation_identity.corroborate_locator_bodies"))
     assert [
         (checkpoint.runs[-1].kind, checkpoint.runs[-1].name) for checkpoint in checkpoints
     ] == expected_events
@@ -1490,7 +1586,7 @@ def test_transient_stage21_checkpoint_stops_later_work_and_retries_from_stage21(
     checkpoint_dir.mkdir()
     (checkpoint_dir / "001.txt.json").write_text(ready.model_dump_json(), encoding="utf-8")
 
-    workflow = importlib.import_module("mellea_lrc.workflows.validate_roots")
+    workflow = importlib.import_module("mellea_lrc.workflows.validate_roots_citation_identity")
     monkeypatch.setattr(workflow, "corroborate_locator_bodies", _LOCATOR_REVIEW)
     calls: list[str] = []
     cutoff = date(2024, 6, 1)
@@ -1528,18 +1624,18 @@ def test_transient_stage21_checkpoint_stops_later_work_and_retries_from_stage21(
 
     _patch_operation(
         monkeypatch,
-        "locator_body_courtlistener_opinion_retrieval",
+        "retrieve_courtlistener_locator_opinions",
         retrieve(runner._COURTLISTENER_OPINION_SUBSTAGE, BodySource.COURTLISTENER_OPINION),
     )
     _patch_operation(
         monkeypatch,
-        "locator_body_courtlistener_recap_retrieval",
+        "retrieve_courtlistener_locator_filings",
         retrieve(runner._COURTLISTENER_RECAP_SUBSTAGE, BodySource.COURTLISTENER_RECAP),
     )
-    _patch_operation(monkeypatch, "locator_body_govinfo_opinion_retrieval", govinfo)
-    _patch_operation(monkeypatch, "locator_body_llm_judgment", review)
+    _patch_operation(monkeypatch, "retrieve_govinfo_locator_opinions", govinfo)
+    _patch_operation(monkeypatch, "review_locator_bodies_llm", review)
 
-    with pytest.raises(RuntimeError, match=r"courtlistener_recap_retrieval.*transient provider failure"):
+    with pytest.raises(RuntimeError, match=r"retrieve_courtlistener_filings.*transient provider failure"):
         asyncio.run(
             runner._run(
                 data_root,
@@ -1653,9 +1749,9 @@ def test_transient_body_search_failure_replays_from_failed_provider(
 
         return run
 
-    monkeypatch.setattr(runner, "locator_body_courtlistener_opinion_retrieval", fake_provider(*stages[0]))
-    monkeypatch.setattr(runner, "locator_body_courtlistener_recap_retrieval", fake_provider(*stages[1]))
-    monkeypatch.setattr(runner, "locator_body_govinfo_opinion_retrieval", fake_provider(*stages[2]))
+    monkeypatch.setattr(runner, "retrieve_courtlistener_locator_opinions", fake_provider(*stages[0]))
+    monkeypatch.setattr(runner, "retrieve_courtlistener_locator_filings", fake_provider(*stages[1]))
+    monkeypatch.setattr(runner, "retrieve_govinfo_locator_opinions", fake_provider(*stages[2]))
 
     async def review(document: Document) -> Document:
         filename = Path(document.source_path or "").name
@@ -1663,7 +1759,7 @@ def test_transient_body_search_failure_replays_from_failed_provider(
         calls.append((filename, runner._LOCATOR_BODY_REVIEW_SUBSTAGE))
         return document.complete_substage(runner._LOCATOR_BODY_REVIEW_SUBSTAGE)
 
-    monkeypatch.setattr(runner, "locator_body_llm_judgment", review)
+    monkeypatch.setattr(runner, "review_locator_bodies_llm", review)
 
     async def body(
         document: Document,
@@ -1675,20 +1771,20 @@ def test_transient_body_search_failure_replays_from_failed_provider(
         assert document.substage_runs == _BODY_INPUT_SUBSTAGES
         for substage, _source in stages:
             if substage == runner._COURTLISTENER_OPINION_SUBSTAGE:
-                document = runner.locator_body_courtlistener_opinion_retrieval(
+                document = runner.retrieve_courtlistener_locator_opinions(
                     document, retrospective_date=retrospective_date
                 )
             elif substage == runner._COURTLISTENER_RECAP_SUBSTAGE:
-                document = runner.locator_body_courtlistener_recap_retrieval(
+                document = runner.retrieve_courtlistener_locator_filings(
                     document, retrospective_date=retrospective_date
                 )
             else:
-                document = runner.locator_body_govinfo_opinion_retrieval(
+                document = runner.retrieve_govinfo_locator_opinions(
                     document, retrospective_date=retrospective_date
                 )
         # This double models an older body run that saved only its final Document.
         # The artifact retry path must still work when no intermediate callback ran.
-        document = await runner.locator_body_llm_judgment(document)
+        document = await runner.review_locator_bodies_llm(document)
         return complete_stage_boundary(document, runner._FIELD_RUN_SUBSTAGES)
 
     monkeypatch.setattr(_ROOT_WORKFLOW, "corroborate_locator_bodies", body)
@@ -1738,7 +1834,9 @@ def test_transient_docket_search_failure_requires_a_rerun(failure_type: str, sta
     document = asyncio.run(grow_roots(Document.from_source("Acme v. Reed, Case No. 2:31-cv-45821.")))
     root = document.roots[0]
     assert isinstance(root, FullDocketCitation)
-    recorded = root.record("validate_roots.docket_lookup.courtlistener_retrieval")
+    recorded = root.record(
+        "validate_roots_citation_identity.lookup_docket_roots.retrieve_courtlistener_dockets"
+    )
     lookup = DocketLookup(
         node_id=recorded.nodes[-1].id,
         attempts=(
@@ -1763,7 +1861,7 @@ def test_transient_govinfo_search_failure_requires_a_rerun() -> None:
     document = asyncio.run(grow_roots(Document.from_source("Acme v. Reed, Case No. 2:31-cv-45821.")))
     root = document.roots[0]
     assert isinstance(root, FullDocketCitation)
-    recorded = root.record("validate_roots.docket_lookup.govinfo_retrieval")
+    recorded = root.record("validate_roots_citation_identity.lookup_docket_roots.retrieve_govinfo_dockets")
     lookup = GovInfoDocketLookup(
         node_id=recorded.nodes[-1].id,
         attempts=(
@@ -1801,7 +1899,7 @@ def test_new_run_stays_failed_when_a_saved_search_is_transiently_incomplete(
         return _complete_with_checkpoints(document, _BODY_SUBSTAGES, checkpoint)
 
     monkeypatch.setattr(runner, "grow_roots", fake_grow)
-    monkeypatch.setattr(runner, "validate_roots", fake_validate)
+    monkeypatch.setattr(runner, "validate_roots_citation_identity", fake_validate)
     monkeypatch.setattr(runner, "_has_transient_docket_lookup_failure", lambda _document: True)
 
     with pytest.raises(RuntimeError, match="transient provider failures"):
@@ -1856,7 +1954,7 @@ def _docket_failure(document: Document, substage: str, *, failure_type="transpor
     [
         (runner._DOCKET_LOOKUP_SUBSTAGE, "transport_error", None),
         (runner._DOCKET_LOOKUP_SUBSTAGE, "http_error", 429),
-        ("validate_roots.docket_lookup.govinfo_retrieval", "http_error", 503),
+        ("validate_roots_citation_identity.lookup_docket_roots.retrieve_govinfo_dockets", "http_error", 503),
     ],
 )
 def test_ordinary_resume_retries_only_the_failed_docket_provider(
@@ -1890,7 +1988,7 @@ def test_ordinary_resume_retries_only_the_failed_docket_provider(
         return document
 
     monkeypatch.setattr(runner, "grow_roots", grow)
-    monkeypatch.setattr(runner, "validate_roots", validate)
+    monkeypatch.setattr(runner, "validate_roots_citation_identity", validate)
     with pytest.raises(RuntimeError, match="transient provider failure"):
         asyncio.run(
             runner._run(data_root, tmp_path / "results", inputs if input_mode == "saved_roots" else None)
@@ -1935,7 +2033,7 @@ def test_preserved_input_with_a_failed_docket_lookup_is_rejected_before_provider
     def unexpected(*_args, **_kwargs):
         pytest.fail("A failed immutable input must be rejected before provider or workflow calls")
 
-    for name in ("grow_roots", "validate_roots", "CourtListenerClient"):
+    for name in ("grow_roots", "validate_roots_citation_identity", "CourtListenerClient"):
         monkeypatch.setattr(runner, name, unexpected)
     options = {
         "checkpoint": {
@@ -1975,7 +2073,7 @@ def test_preserved_body_failure_is_rejected_before_replaying_its_input(tmp_path,
     def unexpected(*_args, **_kwargs):
         pytest.fail("An immutable failed body retrieval must not execute provider or workflow calls")
 
-    monkeypatch.setattr(runner, "validate_roots", unexpected)
+    monkeypatch.setattr(runner, "validate_roots_citation_identity", unexpected)
     monkeypatch.setattr(runner, "CourtListenerClient", unexpected)
     with pytest.raises(ValueError, match="choose an input checkpoint before that retrieval"):
         asyncio.run(
@@ -1996,7 +2094,7 @@ def test_resume_repairs_missing_final_group_after_all_substages_without_provider
     data_root = _dataset(tmp_path, ("001.txt",))
     source = Document.from_source(data_root / "primary" / "documents_txt" / "001.txt")
     completed = _complete(source, runner._RUN_SUBSTAGES)
-    final_stage = "validate_roots.locator_body_corroboration"
+    final_stage = "validate_roots_citation_identity.corroborate_locator_bodies"
     ungrouped = completed.get_substage(runner._LOCATOR_BODY_REVIEW_SUBSTAGE)
     assert ungrouped.substage_runs == runner._RUN_SUBSTAGES
     assert final_stage not in ungrouped.stage_runs
@@ -2012,6 +2110,7 @@ def test_resume_repairs_missing_final_group_after_all_substages_without_provider
                 "status": "failed",
                 "filings": ["001.txt"],
                 "data_root": str(data_root),
+                "rendering_sha256": {"001.txt": hashlib.sha256(b"{}").hexdigest()},
             }
         ),
         encoding="utf-8",
@@ -2022,18 +2121,18 @@ def test_resume_repairs_missing_final_group_after_all_substages_without_provider
 
     for name in (
         "grow_roots",
-        "validate_roots",
+        "validate_roots_citation_identity",
         "CourtListenerClient",
-        "docket_root_lookup_courtlistener_retrieval",
-        "docket_root_lookup_courtlistener_llm_review",
-        "docket_root_lookup_govinfo_retrieval",
-        "docket_root_lookup_govinfo_llm_review",
-        "reporter_root_lookup_unique_llm_judgment",
-        "reporter_root_lookup_ambiguous_llm_judgment",
-        "locator_body_courtlistener_opinion_retrieval",
-        "locator_body_courtlistener_recap_retrieval",
-        "locator_body_govinfo_opinion_retrieval",
-        "locator_body_llm_judgment",
+        "retrieve_courtlistener_docket_roots",
+        "review_courtlistener_docket_roots_llm",
+        "retrieve_govinfo_docket_roots",
+        "review_govinfo_docket_roots_llm",
+        "review_unique_reporter_roots_llm",
+        "review_ambiguous_reporter_roots_llm",
+        "retrieve_courtlistener_locator_opinions",
+        "retrieve_courtlistener_locator_filings",
+        "retrieve_govinfo_locator_opinions",
+        "review_locator_bodies_llm",
     ):
         monkeypatch.setattr(runner, name, reject_provider)
     assert asyncio.run(runner._run(data_root, tmp_path / "unused", None, resume_run=run_dir)) == run_dir
@@ -2061,7 +2160,13 @@ def test_root_extraction_resume_keeps_saved_prefix_and_persists_before_review_fa
     artifact.write_text(original.model_dump_json())
     (run_dir / "run.json").write_text(
         json.dumps(
-            {"set": "primary", "status": "failed", "filings": ["001.txt"], "data_root": str(data_root)}
+            {
+                "set": "primary",
+                "status": "failed",
+                "filings": ["001.txt"],
+                "data_root": str(data_root),
+                "rendering_sha256": {"001.txt": hashlib.sha256(b"{}").hexdigest()},
+            }
         )
     )
     calls = []
@@ -2071,7 +2176,7 @@ def test_root_extraction_resume_keeps_saved_prefix_and_persists_before_review_fa
         if substage in original.substage_runs:
             pytest.fail("A completed root extraction operation must not replay")
         calls.append(substage)
-        if substage == "grow_roots.root_formation.docket_llm_reassignment" and fail_review:
+        if substage == "grow_roots.form_root_groups.reassign_docket_roots_llm" and fail_review:
             raise RuntimeError("offline interrupted review")
         return document.complete_substage(substage)
 
@@ -2100,21 +2205,21 @@ def test_root_extraction_resume_keeps_saved_prefix_and_persists_before_review_fa
             document, runner._RUN_SUBSTAGES[len(runner._ROOT_SUBSTAGES) + 1 :], checkpoint
         )
 
-    monkeypatch.setattr(runner, "validate_roots", validate)
+    monkeypatch.setattr(runner, "validate_roots_citation_identity", validate)
     with pytest.raises(RuntimeError, match="offline interrupted review"):
         asyncio.run(runner._run(data_root, tmp_path / "unused", None, resume_run=run_dir))
     saved = Document.model_validate_json(artifact.read_text())
     assert saved.substage_runs == runner._ROOT_SUBSTAGES
     assert saved.get_substage(original.substage_runs[-1]) == original
-    assert saved.stage_runs == ("grow_roots.locator_discovery", "grow_roots.field_reading")
+    assert saved.stage_runs == ("grow_roots.discover_root_locators", "grow_roots.read_root_fields")
     fail_review = False
     calls.clear()
     assert asyncio.run(runner._run(data_root, tmp_path / "unused", None, resume_run=run_dir)) == run_dir
-    assert calls == ["grow_roots.root_formation.docket_llm_reassignment"]
+    assert calls == ["grow_roots.form_root_groups.reassign_docket_roots_llm"]
     completed = Document.model_validate_json(artifact.read_text())
     assert completed.substage_runs == runner._RUN_SUBSTAGES
     assert completed.get_substage(original.substage_runs[-1]) == original
-    assert "grow_roots.root_formation" in completed.stage_runs
+    assert "grow_roots.form_root_groups" in completed.stage_runs
 
 
 def test_invalid_resume_prefix_does_not_rewrite_document_to_repair_its_final_group(tmp_path, monkeypatch):
@@ -2123,7 +2228,7 @@ def test_invalid_resume_prefix_does_not_rewrite_document_to_repair_its_final_gro
     source = source.complete_substage("development.invalid_checkpoint")
     completed = _complete(source, runner._RUN_SUBSTAGES)
     invalid = completed.get_substage(runner._LOCATOR_BODY_REVIEW_SUBSTAGE)
-    assert "validate_roots.locator_body_corroboration" not in invalid.stage_runs
+    assert "validate_roots_citation_identity.corroborate_locator_bodies" not in invalid.stage_runs
     run_dir = tmp_path / "saved-run"
     artifacts = run_dir / "documents"
     artifacts.mkdir(parents=True)
@@ -2132,7 +2237,13 @@ def test_invalid_resume_prefix_does_not_rewrite_document_to_repair_its_final_gro
     before = artifact.read_bytes()
     (run_dir / "run.json").write_text(
         json.dumps(
-            {"set": "primary", "status": "failed", "filings": ["001.txt"], "data_root": str(data_root)}
+            {
+                "set": "primary",
+                "status": "failed",
+                "filings": ["001.txt"],
+                "data_root": str(data_root),
+                "rendering_sha256": {"001.txt": hashlib.sha256(b"{}").hexdigest()},
+            }
         )
     )
 
@@ -2140,7 +2251,7 @@ def test_invalid_resume_prefix_does_not_rewrite_document_to_repair_its_final_gro
         pytest.fail("An invalid checkpoint must not run a workflow")
 
     monkeypatch.setattr(runner, "grow_roots", unexpected)
-    monkeypatch.setattr(runner, "validate_roots", unexpected)
+    monkeypatch.setattr(runner, "validate_roots_citation_identity", unexpected)
     with pytest.raises(ValueError, match="Saved evaluation checkpoint skips a substage"):
         asyncio.run(runner._run(data_root, tmp_path / "unused", None, resume_run=run_dir))
     assert artifact.read_bytes() == before

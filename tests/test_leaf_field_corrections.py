@@ -8,8 +8,8 @@ import json
 import pytest
 
 from mellea_lrc.api import correct_leaf_fields, grow_roots
-from mellea_lrc.extraction.leaf_field_corrections import SUBSTAGE
-from mellea_lrc.extraction.leaf_field_corrections.reviewer import (
+from mellea_lrc.extraction.correct_leaf_fields import SUBSTAGE
+from mellea_lrc.extraction.correct_leaf_fields.reviewer import (
     IvrLeafFieldCorrectionReviewer,
     LeafFieldCorrectionOutcome,
 )
@@ -64,11 +64,11 @@ def rooted(tail, *, validate=True):
     )
     document = document.add_citation(root).complete_substage("1_reporter_locator")
     root = (
-        root.record("grow_roots.root_formation.rule")
+        root.record("grow_roots.form_root_groups.form_roots")
         .with_root(root.id)
         .with_case_name(text, span(text, "Smith v. Jones"))
     )
-    document = document.replace_citation(root).complete_substage("grow_roots.root_formation.rule")
+    document = document.replace_citation(root).complete_substage("grow_roots.form_root_groups.form_roots")
     if validate:
         root = root.record("11_reporter_lookup")
         root = root.with_reporter_exact_lookup(
@@ -99,12 +99,12 @@ def short(document, quote="347 U.S. at 999", *, name=None, pin=None, citation_id
     leaf = (
         ShortReporterCitation.from_short_locator(
             citation_id=citation_id,
-            substage="grow_leaves.short_reporter_citations.discovery",
+            substage="grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations",
             source=document.text,
             span=span(document.text, quote, after=after),
             pin_cite_span=span(document.text, pin, after=after) if pin is not None else None,
         )
-        .record("grow_leaves.short_reporter_citations.discovery")
+        .record("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations")
         .with_root("root")
     )
     if name is not None:
@@ -178,7 +178,7 @@ def trace(output, *, success=True):
 
 def test_missing_leaf_name_and_pin_append_grounded_histories_and_checkpoint():
     before = short(rooted("See Smith, 347 U.S. at 999.")).complete_substage(
-        "grow_leaves.short_reporter_citations.discovery"
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
     )
     contexts = []
 
@@ -203,7 +203,10 @@ def test_missing_leaf_name_and_pin_append_grounded_histories_and_checkpoint():
     assert "found_pages" not in json.dumps(contexts[0].validation_evidence)
     restored = Document.model_validate_json(after.model_dump_json())
     assert restored == after
-    assert restored.get_substage("grow_leaves.short_reporter_citations.discovery") == before
+    assert (
+        restored.get_substage("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations")
+        == before
+    )
     assert restored.get_substage(SUBSTAGE) == after
 
 
@@ -213,16 +216,18 @@ def test_attached_full_repeat_rereads_its_own_name_court_date_and_pin():
     leaf = (
         FullReporterCitation.from_locator(
             citation_id="repeat",
-            substage="grow_leaves.short_reporter_citations.discovery",
+            substage="grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations",
             source=document.text,
             span=span(document.text, "347 U.S. 483", after=start),
         )
-        .record("grow_leaves.short_reporter_citations.discovery")
+        .record("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations")
         .with_root("root")
     )
     leaf = leaf.with_case_name(document.text, span(document.text, "See Smith v. Jones", after=start))
     leaf = leaf.with_pin_cite(document.text, span(document.text, "999", after=start))
-    before = document.add_citation(leaf).complete_substage("grow_leaves.short_reporter_citations.discovery")
+    before = document.add_citation(leaf).complete_substage(
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
+    )
 
     async def reviewer(context):
         assert context.kind == "reporter"
@@ -246,14 +251,16 @@ def test_root_neighbor_and_source_opinion_quotes_cannot_replace_leaf_fields(quot
     other = (
         FullReporterCitation.from_locator(
             citation_id="neighbor",
-            substage="grow_leaves.short_reporter_citations.discovery",
+            substage="grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations",
             source=document.text,
             span=span(document.text, "500 U.S. 10"),
         )
-        .record("grow_leaves.short_reporter_citations.discovery")
+        .record("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations")
         .with_case_name(document.text, span(document.text, "Neighbor v. Else"))
     )
-    before = document.add_citation(other).complete_substage("grow_leaves.short_reporter_citations.discovery")
+    before = document.add_citation(other).complete_substage(
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
+    )
 
     async def reviewer(context):
         return decision(context, {"case_name": quote})
@@ -268,7 +275,7 @@ def test_root_neighbor_and_source_opinion_quotes_cannot_replace_leaf_fields(quot
 @pytest.mark.parametrize("quote", ["998", "495", "347", "1954"])
 def test_printed_wrong_pin_cannot_be_replaced_by_canonical_page_volume_or_year(quote):
     before = short(rooted("See Smith, 347 U.S. at 999."), name="Smith", pin="999").complete_substage(
-        "grow_leaves.short_reporter_citations.discovery"
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
     )
 
     async def reviewer(context):
@@ -283,7 +290,7 @@ def test_printed_wrong_pin_cannot_be_replaced_by_canonical_page_volume_or_year(q
 
 def test_fuzzy_name_grounding_keeps_actual_source_bytes_and_evidence():
     before = short(rooted("See Smith, 347 U.S. at 999."), pin="999").complete_substage(
-        "grow_leaves.short_reporter_citations.discovery"
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
     )
 
     async def reviewer(context):
@@ -301,7 +308,7 @@ def test_fuzzy_name_grounding_keeps_actual_source_bytes_and_evidence():
 def test_same_span_case_name_normalization_is_a_new_grounded_reading():
     before = short(
         rooted("See Smith vs. Jones, 347 U.S. at 999."), name="Smith vs. Jones", pin="999"
-    ).complete_substage("grow_leaves.short_reporter_citations.discovery")
+    ).complete_substage("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations")
     normalized = CaseName(kind=CaseNameKind.ADVERSARIAL, plaintiff="Smith", defendant="Jones")
 
     async def reviewer(context):
@@ -319,7 +326,7 @@ def test_same_span_case_name_normalization_is_a_new_grounded_reading():
 @pytest.mark.parametrize("failure", ["no_change", "ivr_failed", "transport", "no_decision"])
 def test_failure_and_no_change_are_persisted_without_new_field_readings(failure):
     before = short(rooted("See Smith, 347 U.S. at 999."), name="Smith", pin="999").complete_substage(
-        "grow_leaves.short_reporter_citations.discovery"
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
     )
 
     async def reviewer(context):
@@ -350,7 +357,7 @@ def test_failure_and_no_change_are_persisted_without_new_field_readings(failure)
 def test_no_validation_or_rule_only_checkpoint_never_calls_reviewer(validation, review):
     before = short(
         rooted("See Smith, 347 U.S. at 999.", validate=validation), name="Smith", pin="999"
-    ).complete_substage("grow_leaves.short_reporter_citations.discovery")
+    ).complete_substage("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations")
 
     async def forbidden(_context):
         pytest.fail("No leaf correction model call is authorized by this input")
@@ -360,7 +367,7 @@ def test_no_validation_or_rule_only_checkpoint_never_calls_reviewer(validation, 
     assert after.substage_runs[-1] == SUBSTAGE
 
 
-def test_grow_leaves_without_validate_roots_finishes_with_empty_correction_checkpoint():
+def test_grow_leaves_without_validate_roots_citation_identity_finishes_with_empty_correction_checkpoint():
     before = rooted("See Smith, 347 U.S. at 999.", validate=False)
 
     async def attach(_context):
@@ -377,7 +384,7 @@ def test_grow_leaves_without_validate_roots_finishes_with_empty_correction_check
 
 def test_stage_and_native_evidence_reference_guards():
     before = short(rooted("See Smith, 347 U.S. at 999."), name="Smith", pin="999").complete_substage(
-        "grow_leaves.short_reporter_citations.discovery"
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
     )
 
     async def reviewer(context):
@@ -398,7 +405,9 @@ def test_stage_and_native_evidence_reference_guards():
     with pytest.raises(ValueError, match="before resolving"):
         asyncio.run(
             correct_leaf_fields(
-                before.complete_substage("validate_pincite.citation_preparation.page_resolution"),
+                before.complete_substage(
+                    "validate_all_citation_content.prepare_citation_evidence.resolve_pages"
+                ),
                 reviewer=reviewer,
             )
         )
@@ -429,7 +438,7 @@ def test_linked_reporter_docket_response_reaches_leaf_reviewer(ambiguous, availa
     saved["citations"][0] = data
     document = Document.model_validate(saved)
     before = short(document, name="Smith", pin="999").complete_substage(
-        "grow_leaves.short_reporter_citations.discovery"
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
     )
     before = Document.model_validate_json(before.model_dump_json())
     seen = []
@@ -464,7 +473,9 @@ def test_ivr_reviewer_cacheable_prefix_precedes_occurrence_specific_context(monk
         citation_id="leaf2",
         after=document.text.index("See Smith", len(ROOT_TEXT) + 5),
     )
-    before = document.complete_substage("grow_leaves.short_reporter_citations.discovery")
+    before = document.complete_substage(
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
+    )
     specs = []
 
     async def fake_run(_session, spec, **_kwargs):
@@ -484,7 +495,7 @@ def test_ivr_reviewer_cacheable_prefix_precedes_occurrence_specific_context(monk
         )
         return trace(answer.model_dump_json())
 
-    monkeypatch.setattr("mellea_lrc.extraction.leaf_field_corrections.reviewer.run_instruct_ivr", fake_run)
+    monkeypatch.setattr("mellea_lrc.extraction.correct_leaf_fields.reviewer.run_instruct_ivr", fake_run)
     service = IvrLeafFieldCorrectionReviewer(session=object(), model_options={}, max_attempts=3)
     after = asyncio.run(correct_leaf_fields(before, reviewer=service))
     assert len(specs) == 2
@@ -501,7 +512,7 @@ def test_short_reporter_colocation_shares_its_own_preceding_name_window():
     document = short(document, citation_id="leaf1", pin="999")
     first = (
         document.short_reporters[0]
-        .record("grow_leaves.short_reporter_citations.discovery")
+        .record("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations")
         .with_colocation("local-group")
     )
     document = document.replace_citation(first)
@@ -514,11 +525,11 @@ def test_short_reporter_colocation_shares_its_own_preceding_name_window():
     )
     second = (
         document.short_reporters[1]
-        .record("grow_leaves.short_reporter_citations.discovery")
+        .record("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations")
         .with_colocation("local-group")
     )
     before = document.replace_citation(second).complete_substage(
-        "grow_leaves.short_reporter_citations.discovery"
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
     )
 
     async def reviewer(context):
@@ -534,7 +545,7 @@ def test_correction_precision_reuses_field_targets_skips_failures_and_missing_go
     from evaluations.score_types import Precision
 
     before = short(rooted("See Smith, 347 U.S. at 999.")).complete_substage(
-        "grow_leaves.short_reporter_citations.discovery"
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
     )
 
     async def no_change(context):
@@ -572,15 +583,17 @@ def test_correction_precision_handles_inferred_court_without_a_source_span(monke
     leaf = (
         FullReporterCitation.from_locator(
             citation_id="repeat",
-            substage="grow_leaves.short_reporter_citations.discovery",
+            substage="grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations",
             source=document.text,
             span=span(document.text, "347 U.S. 483", after=len(ROOT_TEXT)),
         )
-        .record("grow_leaves.short_reporter_citations.discovery")
+        .record("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations")
         .with_root("root")
         .with_inferred_court("scotus")
     )
-    before = document.add_citation(leaf).complete_substage("grow_leaves.short_reporter_citations.discovery")
+    before = document.add_citation(leaf).complete_substage(
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
+    )
 
     async def no_change(context):
         return decision(context)
@@ -637,7 +650,7 @@ def test_correction_date_normalization_compares_the_calendar_value(quote, normal
 
 def test_same_quote_replacement_records_grounding_without_duplicate_field_reading():
     before = short(rooted("See Smith, 347 U.S. at 999."), name="Smith", pin="999").complete_substage(
-        "grow_leaves.short_reporter_citations.discovery"
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
     )
 
     async def reviewer(context):
@@ -653,7 +666,7 @@ def test_same_quote_replacement_records_grounding_without_duplicate_field_readin
 def test_retrieval_only_root_does_not_trigger_validation_assistance():
     document = rooted("See Smith, 347 U.S. at 999.").get_substage("11_reporter_lookup")
     before = short(document, name="Smith", pin="999").complete_substage(
-        "grow_leaves.short_reporter_citations.discovery"
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
     )
 
     async def forbidden(_context):
@@ -666,7 +679,7 @@ def test_retrieval_only_root_does_not_trigger_validation_assistance():
 def test_overextended_pin_is_corrected_from_its_own_source_and_old_reading_survives():
     document = rooted("See Smith, 347 U.S. at 999 (1954).")
     before = short(document, name="Smith", pin="999 (1954)").complete_substage(
-        "grow_leaves.short_reporter_citations.discovery"
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
     )
 
     async def reviewer(context):
@@ -677,7 +690,9 @@ def test_overextended_pin_is_corrected_from_its_own_source_and_old_reading_survi
     assert [item.quote for item in leaf.pin_cite] == ["999 (1954)", "999"]
     assert leaf.pin_cite[-1].normalizable
     assert leaf.short_locator == before.short_reporters[0].short_locator
-    assert after.get_substage("grow_leaves.short_reporter_citations.discovery") == before
+    assert (
+        after.get_substage("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations") == before
+    )
 
 
 def test_colocated_neighbor_reporter_volume_is_outside_each_leaf_pin_window():
@@ -685,7 +700,7 @@ def test_colocated_neighbor_reporter_volume_is_outside_each_leaf_pin_window():
     document = short(document, citation_id="leaf1", pin="999")
     first = (
         document.short_reporters[0]
-        .record("grow_leaves.short_reporter_citations.discovery")
+        .record("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations")
         .with_colocation("local-group")
     )
     document = document.replace_citation(first)
@@ -698,11 +713,11 @@ def test_colocated_neighbor_reporter_volume_is_outside_each_leaf_pin_window():
     )
     second = (
         document.short_reporters[1]
-        .record("grow_leaves.short_reporter_citations.discovery")
+        .record("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations")
         .with_colocation("local-group")
     )
     before = document.replace_citation(second).complete_substage(
-        "grow_leaves.short_reporter_citations.discovery"
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
     )
 
     async def reviewer(context):
@@ -729,13 +744,15 @@ def test_shared_relaxed_at_marker_bounds_zero_space_and_newline_pin_readings(kin
             IdCitation.from_source(
                 source=document.text,
                 span=span(document.text, quote),
-                substage="grow_leaves.short_reporter_citations.discovery",
+                substage="grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations",
             )
-            .record("grow_leaves.short_reporter_citations.discovery")
+            .record("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations")
             .with_root("root")
         )
         document = document.add_citation(leaf)
-    before = document.complete_substage("grow_leaves.short_reporter_citations.discovery")
+    before = document.complete_substage(
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
+    )
 
     async def reviewer(context):
         return decision(context, {"pin_cite": pin})
@@ -774,7 +791,7 @@ def test_grown_id_pin_correction_window_matches_its_explicit_source_pin(quote, p
 
     document = asyncio.run(grow_leaves(roots, reviewer=attribute, correction_reviewer=reread))
     leaf = document.leaves[0]
-    original = document.get_substage("grow_leaves.id_citations.discovery").short_citations[0]
+    original = document.get_substage("grow_leaves.grow_id_leaves.find_id_citations").short_citations[0]
     assert leaf.pin_cite == original.pin_cite
     assert leaf.id_reference == original.id_reference
     review = leaf.leaf_field_correction_reviews[-1]

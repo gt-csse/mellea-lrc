@@ -15,7 +15,7 @@ from mellea_lrc.providers.courtlistener import CourtListenerHTTPError, CourtList
 from mellea_lrc.providers.courtlistener.models import CourtListenerSearchPage
 from mellea_lrc.validation.docket_retrieval.candidates import MINIMUM_SIMILARITY_PERCENT
 
-lookup_module = importlib.import_module("mellea_lrc.validation.docket_root_lookup_courtlistener_retrieval")
+lookup_module = importlib.import_module("mellea_lrc.validation.retrieve_courtlistener_docket_roots")
 
 
 class FakeSearchClient:
@@ -78,11 +78,11 @@ def test_raw_and_numeric_queries_keep_every_hit_but_shortlist_by_number_only() -
     }
     client = FakeSearchClient(lambda q, kind, _cursor: payloads[(q, kind)])
 
-    after = lookup_module.docket_root_lookup_courtlistener_retrieval(before, client=client)
+    after = lookup_module.retrieve_courtlistener_docket_roots(before, client=client)
 
     assert client.calls == [(full, "d", None), (full, "o", None), (broad, "d", None), (broad, "o", None)]
     assert after.substage_runs == (*before.substage_runs, lookup_module.SUBSTAGE)
-    assert after.get_stage("grow_roots.root_formation") == before
+    assert after.get_stage("grow_roots.form_root_groups") == before
     assert after.get_substage(lookup_module.SUBSTAGE) == after
     root = after.roots[0]
     assert isinstance(root, FullDocketCitation)
@@ -115,7 +115,7 @@ def test_raw_and_numeric_queries_keep_every_hit_but_shortlist_by_number_only() -
     assert Document.model_validate_json(after.model_dump_json()) == after
 
     with pytest.raises(ValueError, match="already completed"):
-        lookup_module.docket_root_lookup_courtlistener_retrieval(after, client=client)
+        lookup_module.retrieve_courtlistener_docket_roots(after, client=client)
 
 
 def test_forty_percent_boundary_and_hits_without_ids() -> None:
@@ -133,7 +133,7 @@ def test_forty_percent_boundary_and_hits_without_ids() -> None:
         )
     )
 
-    after = lookup_module.docket_root_lookup_courtlistener_retrieval(before, client=client)
+    after = lookup_module.retrieve_courtlistener_docket_roots(before, client=client)
     lookup = after.roots[0].docket_lookup
     assert lookup is not None
     assert [candidate.docket_similarity for candidate in lookup.candidates] == pytest.approx(
@@ -148,7 +148,7 @@ def test_every_distinct_docket_root_receives_its_own_lookup() -> None:
     assert len(before.roots) == 2
     client = FakeSearchClient(lambda *_args: _page())
 
-    after = lookup_module.docket_root_lookup_courtlistener_retrieval(before, client=client)
+    after = lookup_module.retrieve_courtlistener_docket_roots(before, client=client)
 
     assert len(client.calls) == 8
     assert len(after.roots) == 2
@@ -179,9 +179,7 @@ def test_partial_page_failure_is_saved_and_other_queries_continue(
         return _page()
 
     client = FakeSearchClient(respond)
-    after = lookup_module.docket_root_lookup_courtlistener_retrieval(
-        _rooted("Case No. 24-cv-123."), client=client
-    )
+    after = lookup_module.retrieve_courtlistener_docket_roots(_rooted("Case No. 24-cv-123."), client=client)
     lookup = after.roots[0].docket_lookup
     assert lookup is not None
     assert client.calls[:4] == [
@@ -225,9 +223,7 @@ def test_proxy_rate_limit_retries_same_page_and_retains_failure_trace(
         return _page({"docket_id": 1, "docketNumber": "24-cv-123"}) if kind == "d" else _page()
 
     client = FakeSearchClient(respond)
-    after = lookup_module.docket_root_lookup_courtlistener_retrieval(
-        _rooted("Case No. 24-cv-123."), client=client
-    )
+    after = lookup_module.retrieve_courtlistener_docket_roots(_rooted("Case No. 24-cv-123."), client=client)
     lookup = after.roots[0].docket_lookup
     assert lookup is not None
     assert client.calls[:2] == [(query, "d", None), (query, "d", None)]
@@ -262,9 +258,7 @@ def test_plain_text_rate_limit_uses_bounded_backoff_and_recovers(
         return _page({"docket_id": 1, "docketNumber": "24-cv-123"}) if kind == "d" else _page()
 
     client = FakeSearchClient(respond)
-    after = lookup_module.docket_root_lookup_courtlistener_retrieval(
-        _rooted("Case No. 24-cv-123."), client=client
-    )
+    after = lookup_module.retrieve_courtlistener_docket_roots(_rooted("Case No. 24-cv-123."), client=client)
     lookup = after.roots[0].docket_lookup
     assert lookup is not None
     assert client.calls[:3] == [(query, "d", None)] * 3
@@ -305,9 +299,7 @@ def test_read_timeout_retries_same_page_and_keeps_failure_trace(
         return _page()
 
     client = FakeSearchClient(respond)
-    after = lookup_module.docket_root_lookup_courtlistener_retrieval(
-        _rooted("Case No. 24-cv-123."), client=client
-    )
+    after = lookup_module.retrieve_courtlistener_docket_roots(_rooted("Case No. 24-cv-123."), client=client)
     lookup = after.roots[0].docket_lookup
     assert lookup is not None
     assert client.calls[:4] == [
@@ -350,9 +342,7 @@ def test_provider_delay_beyond_retry_bound_is_saved_without_waiting(
         return _page()
 
     client = FakeSearchClient(respond)
-    after = lookup_module.docket_root_lookup_courtlistener_retrieval(
-        _rooted("Case No. 24-cv-123."), client=client
-    )
+    after = lookup_module.retrieve_courtlistener_docket_roots(_rooted("Case No. 24-cv-123."), client=client)
     lookup = after.roots[0].docket_lookup
     assert lookup is not None
     assert len([call for call in client.calls if call[:2] == (query, "d")]) == 1
@@ -378,9 +368,7 @@ def test_page_budget_records_truncation_and_keeps_last_next_link(monkeypatch: py
         return pages[cursor] if (q, kind) == (query, "d") else _page()
 
     client = FakeSearchClient(respond)
-    after = lookup_module.docket_root_lookup_courtlistener_retrieval(
-        _rooted("Case No. 24-cv-123."), client=client
-    )
+    after = lookup_module.retrieve_courtlistener_docket_roots(_rooted("Case No. 24-cv-123."), client=client)
     lookup = after.roots[0].docket_lookup
     assert lookup is not None
     assert client.calls[:2] == [(query, "d", None), (query, "d", "one")]
@@ -397,7 +385,7 @@ def test_no_docket_roots_completes_without_calling_search() -> None:
     before = _rooted("Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007).")
     client = FakeSearchClient(lambda *_args: pytest.fail("No docket root should be searched"))
 
-    after = lookup_module.docket_root_lookup_courtlistener_retrieval(before, client=client)
+    after = lookup_module.retrieve_courtlistener_docket_roots(before, client=client)
 
     assert client.calls == []
     assert after.substage_runs == (*before.substage_runs, lookup_module.SUBSTAGE)

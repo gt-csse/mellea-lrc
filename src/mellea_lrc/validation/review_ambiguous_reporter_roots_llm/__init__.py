@@ -1,0 +1,105 @@
+"""Select and judge unresolved bounded reporter lookup candidates in one model call."""
+
+from __future__ import annotations
+
+from mellea_lrc.llm.profiles import load_profile
+from mellea_lrc.model.citations import FullReporterCitation
+from mellea_lrc.model.citations.reporter_lookup import (
+    REPORTER_LOOKUP_CANDIDATE_LIMIT,
+    ReporterAmbiguousReview,
+    ReporterExactAmbiguityOutcome,
+    ReporterExactLookupOutcome,
+)
+from mellea_lrc.model.document import Document
+from mellea_lrc.validation.reporter_review.fields import (
+    append_corrections,
+    append_field_judgments,
+    identity_verdict,
+)
+from mellea_lrc.validation.review_ambiguous_reporter_roots_llm.reviewer import (
+    IvrReporterAmbiguousReviewer,
+    ReporterAmbiguousReviewContext,
+    ReporterAmbiguousReviewer,
+    ReporterAmbiguousReviewOutcome,
+)
+
+SUBSTAGE = "validate_roots_citation_identity.lookup_reporter_roots.review_ambiguous_llm"
+
+
+async def review_ambiguous_reporter_roots_llm(
+    document: Document,
+    *,
+    reviewer: ReporterAmbiguousReviewer | None = None,
+) -> Document:
+    """Review every exact-lookup ambiguity routed here and retain all candidates.
+
+    One selected representative receives independent field judgments. A null
+    selection or failed review can still be searched later. Grounded filing
+    corrections from a valid null selection remain useful to that later substage.
+    """
+    if SUBSTAGE in document.substage_runs:
+        raise ValueError(f"Substage already completed: {SUBSTAGE}")
+    if (
+        "validate_roots_citation_identity.lookup_reporter_roots.judge_ambiguous_rule"
+        not in document.substage_runs
+    ):
+        raise ValueError("Complete rule-only reporter ambiguity review before model choice")
+    service = reviewer
+    for root in tuple(item for item in document.roots if isinstance(item, FullReporterCitation)):
+        if root.next_substage != SUBSTAGE:
+            continue
+        lookup = root.reporter_exact_lookup
+        resolution = root.reporter_exact_ambiguity_resolution
+        if (
+            lookup is None
+            or lookup.outcome is not ReporterExactLookupOutcome.AMBIGUOUS
+            or lookup.response is None
+            or not 2 <= len(lookup.response.clusters) < REPORTER_LOOKUP_CANDIDATE_LIMIT
+            or resolution is None
+            or resolution.outcome is not ReporterExactAmbiguityOutcome.NO_UNIQUE_RULE_MATCH
+        ):
+            raise ValueError("Ambiguous model route requires an unresolved bounded candidate list")
+        context = ReporterAmbiguousReviewContext.from_document(document, root)
+        if service is None:
+            service = IvrReporterAmbiguousReviewer.from_profile(load_profile(SUBSTAGE))
+        result = await service(context)
+        outcome = (
+            result
+            if isinstance(result, ReporterAmbiguousReviewOutcome)
+            else ReporterAmbiguousReviewOutcome(decision=result)
+        )
+        recorded = root.record(SUBSTAGE)
+        decision = outcome.decision
+        corrections = context.grounded_corrections(decision) if decision is not None else None
+        failure = outcome.failure_reason
+        if decision is not None and corrections is None:
+            failure = "Replacement intent or source quote is inconsistent or ungrounded"
+        if decision is not None and (assessment_error := context.choice_error(decision)) is not None:
+            failure = assessment_error
+        if decision is None or corrections is None or failure is not None:
+            recorded = recorded.with_reporter_ambiguous_review(
+                ReporterAmbiguousReview(
+                    node_id=recorded.nodes[-1].id,
+                    ivr=outcome.run,
+                    failure_reason=failure or "Model review produced no decision",
+                )
+            )
+            recorded = recorded.with_route("search_reporter_roots")
+        else:
+            recorded = recorded.with_reporter_ambiguous_review(
+                ReporterAmbiguousReview(node_id=recorded.nodes[-1].id, decision=decision, ivr=outcome.run)
+            )
+            recorded = append_corrections(recorded, document.text, corrections, decision)
+            selected = decision.selected_candidate_index
+            if selected is None:
+                recorded = recorded.with_route("search_reporter_roots")
+            else:
+                recorded = append_field_judgments(recorded, decision, selected)
+                verdict = identity_verdict(recorded, decision, selected, context.selected_docket(selected))
+                recorded = (
+                    recorded.with_identity_judgment(verdict).with_route(None)
+                    if verdict is not None
+                    else recorded.with_route("search_reporter_roots")
+                )
+        document = document.replace_citation(recorded)
+    return document.complete_substage(SUBSTAGE)

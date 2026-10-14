@@ -21,16 +21,16 @@ SOURCE = (
 )
 
 STAGE_SCORERS = {
-    "grow_roots.locator_discovery.full_reporter_locators": "score_full_reporter_locators",
-    "grow_roots.locator_discovery.docket_locators": "score_docket_locators",
-    "grow_roots.locator_discovery.docket_hunting": "score_docket_locator_site_hunting",
-    "grow_roots.field_reading.docket_entries": "score_docket_entries",
-    "grow_roots.field_reading.colocations": "score_colocations",
-    "grow_roots.field_reading.case_names": "score_case_names",
-    "grow_roots.field_reading.courts": "score_courts",
-    "grow_roots.field_reading.dates": "score_dates",
-    "grow_roots.field_reading.pin_cites": "score_pin_cites",
-    "grow_roots.root_formation.rule": "score_roots",
+    "grow_roots.discover_root_locators.find_full_reporter_locators": "score_full_reporter_locators",
+    "grow_roots.discover_root_locators.find_docket_locators": "score_docket_locators",
+    "grow_roots.discover_root_locators.hunt_docket_locators": "score_docket_locator_site_hunting",
+    "grow_roots.read_root_fields.resolve_docket_entries": "score_docket_entries",
+    "grow_roots.read_root_fields.resolve_colocations": "score_colocations",
+    "grow_roots.read_root_fields.resolve_case_names": "score_case_names",
+    "grow_roots.read_root_fields.resolve_courts": "score_courts",
+    "grow_roots.read_root_fields.resolve_dates": "score_dates",
+    "grow_roots.read_root_fields.resolve_pin_cites": "score_pin_cites",
+    "grow_roots.form_root_groups.form_roots": "score_roots",
 }
 STAGE_RENDERERS = {substage: name.replace("score_", "render_") for substage, name in STAGE_SCORERS.items()}
 
@@ -236,7 +236,9 @@ def test_stage_scorer_uses_its_exact_checkpoint(
 
 
 def test_optional_hunting_scorer_requires_completed_stage(annotated_document: Document) -> None:
-    without_hunting = annotated_document.get_substage("grow_roots.locator_discovery.docket_locators")
+    without_hunting = annotated_document.get_substage(
+        "grow_roots.discover_root_locators.find_docket_locators"
+    )
     with pytest.raises(KeyError, match="Substage has not run"):
         evaluation.score_docket_locator_site_hunting(without_hunting)
 
@@ -247,7 +249,7 @@ def test_docket_root_review_score_handles_mixed_citation_types(
     document = annotated_document.get_substage(evaluation.ROOT_SUBSTAGE).complete_substage(
         evaluation.ROOT_REVIEW_SUBSTAGE
     )
-    substage = evaluation.score_docket_root_llm_reassignment(document)
+    substage = evaluation.score_reassign_docket_roots_llm(document)
     assert substage.metrics["root_assignment"] == Precision(0, 0)
     assert evaluation.score_grow_roots(document).substages[-1] == substage
 
@@ -262,11 +264,11 @@ def test_workflow_reports_each_root_field_with_annotated_denominators(
 ) -> None:
     score = evaluation.score_grow_roots(annotated_document)
     stages = {item.substage: item.metrics for item in score.substages}
-    assert stages["grow_roots.field_reading.case_names"] == {
+    assert stages["grow_roots.read_root_fields.resolve_case_names"] == {
         "span": Precision(2, 2),
         "normalization": Precision(2, 2),
     }
-    assert stages["grow_roots.field_reading.courts"] == {
+    assert stages["grow_roots.read_root_fields.resolve_courts"] == {
         "span": Precision(2, 2),
         "normalization": Precision(2, 2),
     }
@@ -307,20 +309,22 @@ def test_workflow_reports_each_root_field_with_annotated_denominators(
 def _validated_document_with_changed_fields(document: Document) -> Document:
     document = document.get_substage(evaluation.ROOT_SUBSTAGE)
     for substage in (
-        "grow_roots.root_formation.docket_llm_reassignment",
-        "validate_roots.reporter_lookup.cluster_retrieval",
-        "validate_roots.reporter_lookup.unique_rule_judgment",
-        "validate_roots.reporter_lookup.docket_retrieval",
-        "validate_roots.reporter_lookup.ambiguous_rule_judgment",
-        "validate_roots.reporter_lookup.unique_llm_judgment",
-        "validate_roots.reporter_lookup.ambiguous_llm_judgment",
-        "validate_roots.docket_lookup.courtlistener_retrieval",
-        "validate_roots.docket_lookup.courtlistener_review",
-        "validate_roots.docket_lookup.govinfo_retrieval",
+        "grow_roots.form_root_groups.reassign_docket_roots_llm",
+        "validate_roots_citation_identity.lookup_reporter_roots.retrieve_clusters",
+        "validate_roots_citation_identity.lookup_reporter_roots.judge_unique_rule",
+        "validate_roots_citation_identity.lookup_reporter_roots.retrieve_dockets",
+        "validate_roots_citation_identity.lookup_reporter_roots.judge_ambiguous_rule",
+        "validate_roots_citation_identity.lookup_reporter_roots.review_unique_llm",
+        "validate_roots_citation_identity.lookup_reporter_roots.review_ambiguous_llm",
+        "validate_roots_citation_identity.lookup_docket_roots.retrieve_courtlistener_dockets",
+        "validate_roots_citation_identity.lookup_docket_roots.review_courtlistener_dockets_llm",
+        "validate_roots_citation_identity.lookup_docket_roots.retrieve_govinfo_dockets",
     ):
         document = document.complete_substage(substage)
     reporter = next(root for root in document.roots if isinstance(root, FullReporterCitation))
-    changed = reporter.record("validate_roots.docket_lookup.govinfo_review")
+    changed = reporter.record(
+        "validate_roots_citation_identity.lookup_docket_roots.review_govinfo_dockets_llm"
+    )
     for method, quote in (
         ("with_case_name", "Gamma v. Delta"),
         ("with_court", "S.D.N.Y."),
@@ -328,7 +332,9 @@ def _validated_document_with_changed_fields(document: Document) -> Document:
     ):
         source_span = _span(SOURCE, quote)
         changed = getattr(changed, method)(SOURCE, Span(source_span["start"], source_span["end"]))
-    return document.replace_citation(changed).complete_substage("validate_roots.docket_lookup.govinfo_review")
+    return document.replace_citation(changed).complete_substage(
+        "validate_roots_citation_identity.lookup_docket_roots.review_govinfo_dockets_llm"
+    )
 
 
 def test_validation_checkpoint_scores_latest_root_fields_without_changing_baseline(
@@ -368,7 +374,7 @@ def test_validation_checkpoint_scores_latest_root_fields_without_changing_baseli
     report = evaluation.render_grow_roots(score, include_stages=False)
     assert report.count("| case_name |") == 2
     assert "| case_name | 1/2 (50.0%)" in report
-    assert "validate_roots.docket_lookup.govinfo_review" in report
+    assert "validate_roots_citation_identity.lookup_docket_roots.review_govinfo_dockets_llm" in report
 
     doubled = score + score
     assert doubled.validated_root_fields is not None
@@ -382,22 +388,28 @@ def test_later_body_reading_does_not_change_validation_checkpoint_score(
     validated = _validated_document_with_changed_fields(annotated_document)
     expected = evaluation.score_grow_roots(validated)
     for substage in (
-        "validate_roots.locator_body_corroboration.courtlistener_opinion_retrieval",
-        "validate_roots.locator_body_corroboration.courtlistener_recap_retrieval",
-        "validate_roots.locator_body_corroboration.govinfo_opinion_retrieval",
+        "validate_roots_citation_identity.corroborate_locator_bodies.retrieve_courtlistener_opinions",
+        "validate_roots_citation_identity.corroborate_locator_bodies.retrieve_courtlistener_filings",
+        "validate_roots_citation_identity.corroborate_locator_bodies.retrieve_govinfo_opinions",
     ):
         validated = validated.complete_substage(substage)
     reporter = next(root for root in validated.roots if isinstance(root, FullReporterCitation))
-    changed = reporter.record("validate_roots.locator_body_corroboration.llm_judgment")
+    changed = reporter.record(
+        "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"
+    )
     for method, quote in (("with_case_name", "Alpha v. Beta"), ("with_date", "2007")):
         source_span = _span(SOURCE, quote)
         changed = getattr(changed, method)(SOURCE, Span(source_span["start"], source_span["end"]))
     reviewed = validated.replace_citation(changed).complete_substage(
-        "validate_roots.locator_body_corroboration.llm_judgment"
+        "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"
     )
     assert (
         reviewed.roots[0].case_name[-1]
-        != reviewed.get_substage("validate_roots.docket_lookup.govinfo_review").roots[0].case_name[-1]
+        != reviewed.get_substage(
+            "validate_roots_citation_identity.lookup_docket_roots.review_govinfo_dockets_llm"
+        )
+        .roots[0]
+        .case_name[-1]
     )
     assert evaluation.score_grow_roots(reviewed) == expected
 
@@ -587,8 +599,8 @@ def test_overlap_recall_cannot_credit_one_predicted_root_twice(tmp_path: Path) -
 
 def test_workflow_rejects_a_missing_mandatory_checkpoint(annotated_document: Document) -> None:
     incomplete = annotated_document.get_substage(
-        "grow_roots.locator_discovery.docket_locators"
-    ).complete_substage("grow_roots.root_formation.rule")
+        "grow_roots.discover_root_locators.find_docket_locators"
+    ).complete_substage("grow_roots.form_root_groups.form_roots")
     with pytest.raises(ValueError, match="Incomplete grow_roots workflow"):
         evaluation.score_grow_roots(incomplete)
 

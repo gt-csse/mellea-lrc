@@ -14,10 +14,10 @@ from mellea_lrc.model import Span
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.fields.court import Court
 from mellea_lrc.model.ivr import IvrAttempt, IvrRun
-from mellea_lrc.validation.reporter_root_lookup_ambiguous_llm_judgment import (
+from mellea_lrc.validation.review_ambiguous_reporter_roots_llm import (
     reviewer as reporter_ambiguous_llm,
 )
-from mellea_lrc.validation.reporter_root_lookup_unique_llm_judgment import reviewer as reporter_unique_llm
+from mellea_lrc.validation.review_unique_reporter_roots_llm import reviewer as reporter_unique_llm
 from mellea_lrc.validation.reporter_review.court_context import (
     inferred_reporter_court_note,
     reporter_court_context,
@@ -180,7 +180,11 @@ def _reporter_citation(source: str) -> FullReporterCitation:
 
 def test_inferred_court_note_identifies_reporter_and_latest_court_only() -> None:
     source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
-    root = _reporter_citation(source).record("grow_roots.field_reading.courts").with_inferred_court("scotus")
+    root = (
+        _reporter_citation(source)
+        .record("grow_roots.read_root_fields.resolve_courts")
+        .with_inferred_court("scotus")
+    )
 
     note = inferred_reporter_court_note(root)
 
@@ -196,7 +200,7 @@ def test_inferred_court_note_identifies_reporter_and_latest_court_only() -> None
     explicit_source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2d Cir. 2007)."
     explicit = (
         _reporter_citation(explicit_source)
-        .record("grow_roots.field_reading.courts")
+        .record("grow_roots.read_root_fields.resolve_courts")
         .with_inferred_court("scotus")
         .record("8_explicit_court")
         .with_court(
@@ -209,7 +213,11 @@ def test_inferred_court_note_identifies_reporter_and_latest_court_only() -> None
 
 def test_inferred_court_note_is_conditional_in_both_reporter_review_prompts(monkeypatch) -> None:
     source = "Bell Atl. Corp. v. Twombly, 550 U.S. 544 (2007)."
-    root = _reporter_citation(source).record("grow_roots.field_reading.courts").with_inferred_court("scotus")
+    root = (
+        _reporter_citation(source)
+        .record("grow_roots.read_root_fields.resolve_courts")
+        .with_inferred_court("scotus")
+    )
     note = inferred_reporter_court_note(root)
     assert note is not None
     contexts_and_reviewers = (

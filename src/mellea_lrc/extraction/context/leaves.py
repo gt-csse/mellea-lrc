@@ -17,7 +17,7 @@ from mellea_lrc.parsing.pin_cite import pin_after as read_pin_after
 def require_leaves(document: Document, substage: str) -> None:
     if substage in document.substage_runs:
         raise ValueError(f"Substage already completed: {substage}")
-    if "grow_roots.root_formation.rule" not in document.substage_runs:
+    if "grow_roots.form_root_groups.form_roots" not in document.substage_runs:
         raise ValueError("Form roots before growing leaves")
 
 

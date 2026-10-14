@@ -4,11 +4,11 @@ Compare named `.env` profiles on saved identity-review inputs. Retrieval is neve
 
 ```sh
 uv run python -m experiments.identity.compare_models \
-  --cohort experiments/identity/results/2026-10-08T01-19-53Z/cohort.json \
+  --cohort /path/to/cohort.json \
   --profiles nrp_glm nrp_qwen
 ```
 
-The cohort lists `route`, `document`, and `citation_id` for each review. Supported routes are unique reporter lookup, ambiguous reporter lookup, CourtListener docket lookup, GovInfo docket lookup, and locator-body corroboration. Each uses its native pre-review checkpoint, production reviewer, schema, and grounding checks. Annotation labels and baseline decisions enter scoring only.
+Cohort and result files are local artifacts, not bundled with the repository. Inputs must use the current native Document schema. The cohort lists `route`, `document`, and `citation_id` for each review. Supported routes are unique reporter lookup, ambiguous reporter lookup, CourtListener docket lookup, GovInfo docket lookup, and locator-body corroboration. Each uses its native pre-review checkpoint, production reviewer, schema, and grounding checks. Annotation labels and baseline decisions enter scoring only.
 
 Each timestamped result directory retains the cohort, complete profile settings without credentials, input contexts, outputs, IVR requests and repairs, JSON summary, and a Markdown comparison. Successful and failed answers also pass through the real production review stage and native Document serialization. Other citations reuse their saved baseline answers; these checkpoints verify individual reviews and do not represent a complete run with the new model.
 

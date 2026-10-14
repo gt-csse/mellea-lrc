@@ -16,17 +16,17 @@ from mellea_lrc.providers.courtlistener import CourtListenerHTTPError, CourtList
 from mellea_lrc.providers.courtlistener.models import CourtListenerSearchPage
 from mellea_lrc.validation.body_search import _courtlistener as body_service
 from mellea_lrc.validation.body_search.common import roots_for_body_search
-from mellea_lrc.validation.body_search.locator_body_courtlistener_opinion_retrieval import (
+from mellea_lrc.validation.body_search.retrieve_courtlistener_locator_opinions import (
     SUBSTAGE as OPINION_SUBSTAGE,
 )
-from mellea_lrc.validation.body_search.locator_body_courtlistener_opinion_retrieval import (
-    locator_body_courtlistener_opinion_retrieval,
+from mellea_lrc.validation.body_search.retrieve_courtlistener_locator_opinions import (
+    retrieve_courtlistener_locator_opinions,
 )
-from mellea_lrc.validation.body_search.locator_body_courtlistener_recap_retrieval import (
+from mellea_lrc.validation.body_search.retrieve_courtlistener_locator_filings import (
     SUBSTAGE as RECAP_SUBSTAGE,
 )
-from mellea_lrc.validation.body_search.locator_body_courtlistener_recap_retrieval import (
-    locator_body_courtlistener_recap_retrieval,
+from mellea_lrc.validation.body_search.retrieve_courtlistener_locator_filings import (
+    retrieve_courtlistener_locator_filings,
 )
 
 
@@ -140,30 +140,35 @@ def test_queued_field_identity_root_waits_for_aggregation_before_body_search() -
     before = _rooted()
     route = before.roots[0].record("reporter_review")
     queued = before.replace_citation(
-        route.with_route("validate_roots.docket_lookup.identity_aggregation")
+        route.with_route("validate_roots_citation_identity.lookup_docket_roots.judge_identity_from_fields")
     ).complete_substage("reporter_review")
     assert roots_for_body_search(queued) == ()
     assert queued.roots[0].identity_judgments == ()
 
     client = FakeBodyClient(lambda *_args: pytest.fail("Queued root must not be searched"))
-    skipped = locator_body_courtlistener_opinion_retrieval(queued, client=client)
+    skipped = retrieve_courtlistener_locator_opinions(queued, client=client)
     assert client.search_calls == []
     assert skipped.roots[0].body_searches == ()
 
-    aggregate = queued.roots[0].record("validate_roots.docket_lookup.identity_aggregation")
+    aggregate = queued.roots[0].record(
+        "validate_roots_citation_identity.lookup_docket_roots.judge_identity_from_fields"
+    )
     ready = queued.replace_citation(aggregate.with_route(OPINION_SUBSTAGE)).complete_substage(
-        "validate_roots.docket_lookup.identity_aggregation"
+        "validate_roots_citation_identity.lookup_docket_roots.judge_identity_from_fields"
     )
     assert roots_for_body_search(ready) == ready.roots
     assert ready.roots[0].identity_judgments == ()
     assert [item.value for item in ready.roots[0].routes] == [
-        "validate_roots.docket_lookup.identity_aggregation",
+        "validate_roots_citation_identity.lookup_docket_roots.judge_identity_from_fields",
         OPINION_SUBSTAGE,
     ]
 
 
 def test_opinion_stage_uses_nested_opinion_id_and_multiple_full_body_occurrences() -> None:
-    assert OPINION_SUBSTAGE == "validate_roots.locator_body_corroboration.courtlistener_opinion_retrieval"
+    assert (
+        OPINION_SUBSTAGE
+        == "validate_roots_citation_identity.corroborate_locator_bodies.retrieve_courtlistener_opinions"
+    )
     before = _rooted()
     first = _page(
         {
@@ -181,14 +186,14 @@ def test_opinion_stage_uses_nested_opinion_id_and_multiple_full_body_occurrences
         opinions={"901": {"id": 901, "plain_text": text, "absolute_url": "/api/opinions/901/"}},
     )
 
-    after = locator_body_courtlistener_opinion_retrieval(
+    after = retrieve_courtlistener_locator_opinions(
         before, client=client, retrospective_date=date(1970, 1, 1)
     )
 
     assert client.search_calls == [('"347 U.S. 483"', "o", None)]
     assert client.opinion_calls == ["901"]
     assert after.substage_runs == (*before.substage_runs, OPINION_SUBSTAGE)
-    assert after.get_stage("grow_roots.root_formation") == before
+    assert after.get_stage("grow_roots.form_root_groups") == before
     search = after.roots[0].body_searches[0]
     assert search.source is BodySource.COURTLISTENER_OPINION
     assert search.node_id == after.roots[0].nodes[-1].id
@@ -211,7 +216,7 @@ def test_opinion_stage_never_uses_cluster_id_as_opinion_id() -> None:
     before = _rooted()
     client = FakeBodyClient(lambda *_args: _page({"cluster_id": 900, "dateFiled": "1960-01-01"}))
 
-    after = locator_body_courtlistener_opinion_retrieval(before, client=client)
+    after = retrieve_courtlistener_locator_opinions(before, client=client)
 
     assert client.opinion_calls == []
     search = after.roots[0].body_searches[0]
@@ -234,7 +239,7 @@ def test_opinion_detail_must_belong_to_search_cluster() -> None:
         },
     )
 
-    after = locator_body_courtlistener_opinion_retrieval(_rooted("347 U.S. 483."), client=client)
+    after = retrieve_courtlistener_locator_opinions(_rooted("347 U.S. 483."), client=client)
 
     search = after.roots[0].body_searches[0]
     assert search.evidence == ()
@@ -247,7 +252,7 @@ def test_detail_must_identify_the_fetched_opinion() -> None:
         opinions={"901": {"plain_text": "The later court cited 347 U.S. 483."}},
     )
 
-    after = locator_body_courtlistener_opinion_retrieval(_rooted("347 U.S. 483."), client=client)
+    after = retrieve_courtlistener_locator_opinions(_rooted("347 U.S. 483."), client=client)
 
     search = after.roots[0].body_searches[0]
     assert search.evidence == ()
@@ -255,7 +260,10 @@ def test_detail_must_identify_the_fetched_opinion() -> None:
 
 
 def test_recap_stage_uses_document_id_and_entry_date_not_case_date() -> None:
-    assert RECAP_SUBSTAGE == "validate_roots.locator_body_corroboration.courtlistener_recap_retrieval"
+    assert (
+        RECAP_SUBSTAGE
+        == "validate_roots_citation_identity.corroborate_locator_bodies.retrieve_courtlistener_filings"
+    )
     before = _rooted()
     client = FakeBodyClient(
         lambda *_args: _page(
@@ -270,9 +278,7 @@ def test_recap_stage_uses_document_id_and_entry_date_not_case_date() -> None:
         recap_documents={"44": {"id": 44, "plain_text": "This filing cites 347 U.S. 483."}},
     )
 
-    after = locator_body_courtlistener_recap_retrieval(
-        before, client=client, retrospective_date=date(1970, 1, 1)
-    )
+    after = retrieve_courtlistener_locator_filings(before, client=client, retrospective_date=date(1970, 1, 1))
 
     assert client.recap_calls == ["44"]
     assert client.opinion_calls == []
@@ -297,7 +303,7 @@ def test_multi_opinion_cluster_date_cannot_certify_an_individual_opinion_cutoff(
             "902": {"id": 902, "plain_text": "A separate order cited 347 U.S. 483."},
         },
     )
-    result = locator_body_courtlistener_opinion_retrieval(
+    result = retrieve_courtlistener_locator_opinions(
         _rooted(), client=client, retrospective_date=date(1970, 1, 1)
     )
     search = result.roots[0].body_searches[-1]
@@ -324,9 +330,7 @@ def test_recap_stage_requires_fetched_full_text_and_exact_item_date() -> None:
         recap_documents={"44": {"id": 44, "plain_text": "This filing cites 347 U.S. 483."}},
     )
 
-    after = locator_body_courtlistener_recap_retrieval(
-        before, client=client, retrospective_date=date(1970, 1, 1)
-    )
+    after = retrieve_courtlistener_locator_filings(before, client=client, retrospective_date=date(1970, 1, 1))
 
     assert client.search_calls == [('"347 U.S. 483"', "rd", None)]
     search = after.roots[0].body_searches[0]
@@ -346,7 +350,7 @@ def test_search_snippet_never_becomes_evidence_without_fetched_locator() -> None
         recap_documents={"44": {"id": 44, "plain_text": "No cited case appears in this body."}},
     )
 
-    after = locator_body_courtlistener_recap_retrieval(before, client=client)
+    after = retrieve_courtlistener_locator_filings(before, client=client)
 
     search = after.roots[0].body_searches[0]
     assert search.evidence == ()
@@ -368,7 +372,7 @@ def test_locator_search_hit_with_only_a_case_name_does_not_become_evidence() -> 
         },
     )
 
-    after = locator_body_courtlistener_opinion_retrieval(_rooted(), client=client)
+    after = retrieve_courtlistener_locator_opinions(_rooted(), client=client)
 
     assert [call[0] for call in client.search_calls] == ['"347 U.S. 483"']
     search = after.roots[0].body_searches[0]
@@ -389,7 +393,7 @@ def test_opinion_html_full_text_is_read_when_plain_text_is_empty() -> None:
         },
     )
 
-    after = locator_body_courtlistener_opinion_retrieval(_rooted("347 U.S. 483."), client=client)
+    after = retrieve_courtlistener_locator_opinions(_rooted("347 U.S. 483."), client=client)
 
     evidence = after.roots[0].body_searches[0].evidence
     assert len(evidence) == 1
@@ -403,7 +407,7 @@ def test_retrospective_run_excludes_undated_item_even_with_body_match() -> None:
         recap_documents={"44": {"id": 44, "plain_text": "A later filing cites 347 U.S. 483."}},
     )
 
-    after = locator_body_courtlistener_recap_retrieval(
+    after = retrieve_courtlistener_locator_filings(
         _rooted("347 U.S. 483."), client=client, retrospective_date=date(1970, 1, 1)
     )
 
@@ -422,7 +426,7 @@ def test_detail_fetch_budget_records_truncation() -> None:
         },
     )
 
-    after = locator_body_courtlistener_recap_retrieval(_rooted("347 U.S. 483."), client=client)
+    after = retrieve_courtlistener_locator_filings(_rooted("347 U.S. 483."), client=client)
 
     search = after.roots[0].body_searches[0]
     assert client.recap_calls == [str(index) for index in range(1, 9)]
@@ -434,7 +438,7 @@ def test_search_hit_budget_records_truncation_without_fetching() -> None:
     hits = tuple({"cluster_id": index} for index in range(1, 42))
     client = FakeBodyClient(lambda *_args: _page(*hits))
 
-    after = locator_body_courtlistener_opinion_retrieval(_rooted("347 U.S. 483."), client=client)
+    after = retrieve_courtlistener_locator_opinions(_rooted("347 U.S. 483."), client=client)
 
     search = after.roots[0].body_searches[0]
     assert len(search.attempts[0].pages[0]["results"]) == 41
@@ -458,7 +462,7 @@ def test_detail_failure_retains_status_url_and_message(monkeypatch: pytest.Monke
         opinions={"901": error},
     )
 
-    after = locator_body_courtlistener_opinion_retrieval(_rooted("347 U.S. 483."), client=client)
+    after = retrieve_courtlistener_locator_opinions(_rooted("347 U.S. 483."), client=client)
 
     failure = after.roots[0].body_searches[0].failures[0]
     assert (failure.failure_type, failure.status_code, failure.item_id) == ("http_error", 429, "901")
@@ -485,7 +489,7 @@ def test_long_proxy_quota_hint_does_not_retry(
         opinions={"901": error},
     )
 
-    after = locator_body_courtlistener_opinion_retrieval(_rooted("347 U.S. 483."), client=client)
+    after = retrieve_courtlistener_locator_opinions(_rooted("347 U.S. 483."), client=client)
 
     assert after.roots[0].body_searches[0].failures[0].status_code == 429
     assert client.opinion_calls == ["901"]
@@ -514,7 +518,7 @@ def test_unhinted_short_429_recovers_on_retry(monkeypatch: pytest.MonkeyPatch) -
         opinions={"901": {"id": 901, "plain_text": "A later court cited 347 U.S. 483."}},
     )
 
-    after = locator_body_courtlistener_opinion_retrieval(_rooted("347 U.S. 483."), client=client)
+    after = retrieve_courtlistener_locator_opinions(_rooted("347 U.S. 483."), client=client)
 
     assert client.opinion_calls == ["901", "901"]
     assert sleep_calls == [2.0]
@@ -553,7 +557,7 @@ def test_transient_provider_failure_recovers_without_rerunning_document(
         respond_search,
         opinions={"901": {"id": 901, "plain_text": "A later court cited 347 U.S. 483."}},
     )
-    after = locator_body_courtlistener_opinion_retrieval(_rooted("347 U.S. 483."), client=client)
+    after = retrieve_courtlistener_locator_opinions(_rooted("347 U.S. 483."), client=client)
     assert sleep_calls == [2.0]
     assert after.roots[0].body_searches[0].failures == ()
     assert client.search_calls == [('"347 U.S. 483"', "o", None)] * (2 if failed_step == "search" else 1)
@@ -596,7 +600,7 @@ def test_proxy_429_retry_hint_recovers_grounded_opinion_evidence(
         opinions={"901": {"id": 901, "plain_text": "A later court cited 347 U.S. 483."}},
     )
 
-    after = locator_body_courtlistener_opinion_retrieval(
+    after = retrieve_courtlistener_locator_opinions(
         _rooted("347 U.S. 483."), client=client, retrospective_date=date(1970, 1, 1)
     )
 
@@ -628,7 +632,7 @@ def test_pagination_failure_retains_prior_raw_page() -> None:
 
     client = FakeBodyClient(respond)
 
-    after = locator_body_courtlistener_opinion_retrieval(_rooted("347 U.S. 483."), client=client)
+    after = retrieve_courtlistener_locator_opinions(_rooted("347 U.S. 483."), client=client)
 
     attempt = after.roots[0].body_searches[0].attempts[0]
     assert attempt.pages == (first.raw_json,)
@@ -643,8 +647,8 @@ def test_both_sources_append_independently_and_reject_repeat() -> None:
     client = FakeBodyClient(lambda *_args: _page())
     before = _rooted("347 U.S. 483.")
 
-    after_opinion = locator_body_courtlistener_opinion_retrieval(before, client=client)
-    after_recap = locator_body_courtlistener_recap_retrieval(after_opinion, client=client)
+    after_opinion = retrieve_courtlistener_locator_opinions(before, client=client)
+    after_recap = retrieve_courtlistener_locator_filings(after_opinion, client=client)
 
     assert [item.source for item in after_recap.roots[0].body_searches] == [
         BodySource.COURTLISTENER_OPINION,
@@ -652,4 +656,4 @@ def test_both_sources_append_independently_and_reject_repeat() -> None:
     ]
     assert after_recap.substage_runs[-2:] == (OPINION_SUBSTAGE, RECAP_SUBSTAGE)
     with pytest.raises(ValueError, match="already completed"):
-        locator_body_courtlistener_opinion_retrieval(after_recap, client=client)
+        retrieve_courtlistener_locator_opinions(after_recap, client=client)

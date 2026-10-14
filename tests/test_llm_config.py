@@ -51,8 +51,10 @@ _PROFILE_SETTINGS = {
     "REASONING_EFFORT": "low",
     "SERVICE_TIER": "",
 }
-_SUBSTAGE = "validate_pincite.support_review.page_review"
-_BINDING = "MELLEA_LRC_SUBSTAGE_VALIDATE_PINCITE_SUPPORT_REVIEW_PAGE_REVIEW_PROFILE"
+_SUBSTAGE = "validate_all_citation_content.review_citation_content.review_cited_pages_llm"
+_BINDING = (
+    "MELLEA_LRC_SUBSTAGE_VALIDATE_ALL_CITATION_CONTENT_REVIEW_CITATION_CONTENT_REVIEW_CITED_PAGES_LLM_PROFILE"
+)
 _PREFIX = "MELLEA_LRC_PROFILE_TEST_PROFILE_"
 
 
@@ -83,6 +85,39 @@ def test_missing_substage_assignment_does_not_use_a_default_profile():
     del values[_BINDING]
     with pytest.raises(RuntimeError, match=_BINDING):
         load_profile(_SUBSTAGE, environ=values)
+
+
+@pytest.mark.parametrize(
+    "substage,old_binding",
+    [
+        (
+            "grow_roots.discover_root_locators.hunt_docket_locators",
+            "MELLEA_LRC_SUBSTAGE_GROW_ROOTS_LOCATOR_DISCOVERY_DOCKET_HUNTING_PROFILE",
+        ),
+        (
+            "grow_leaves.grow_id_leaves.attribute_citations",
+            "MELLEA_LRC_SUBSTAGE_GROW_LEAVES_ID_CITATIONS_ATTRIBUTION_PROFILE",
+        ),
+        (
+            "validate_roots_citation_identity.lookup_reporter_roots.review_unique_llm",
+            "MELLEA_LRC_SUBSTAGE_VALIDATE_ROOTS_REPORTER_LOOKUP_UNIQUE_LLM_JUDGMENT_PROFILE",
+        ),
+        (
+            "validate_all_citation_content.review_citation_content.review_cited_pages_llm",
+            "MELLEA_LRC_SUBSTAGE_VALIDATE_PINCITE_SUPPORT_REVIEW_PAGE_REVIEW_PROFILE",
+        ),
+    ],
+)
+def test_renamed_substage_profiles_require_new_binding_without_old_key_fallback(substage, old_binding):
+    binding = f"MELLEA_LRC_SUBSTAGE_{substage.upper().replace('.', '_')}_PROFILE"
+    values = {
+        old_binding: "test_profile",
+        **{_PREFIX + key: value for key, value in _PROFILE_SETTINGS.items()},
+    }
+    with pytest.raises(RuntimeError, match=binding):
+        load_profile(substage, environ=values)
+    values[binding] = "test_profile"
+    assert load_profile(substage, environ=values).name == "test_profile"
 
 
 @pytest.mark.parametrize(
@@ -171,7 +206,9 @@ def test_example_defines_all_model_substages_and_no_credentials():
         profile = load_profile(module.SUBSTAGE, environ=values)
         assert not values[profile.api_key_env]
     pages = load_profile(_SUBSTAGE, environ=values)
-    full = load_profile("validate_pincite.support_review.full_opinion_review", environ=values)
+    full = load_profile(
+        "validate_all_citation_content.review_citation_content.review_full_opinions_llm", environ=values
+    )
     assert pages.name == full.name == "nrp_glm_content"
     assert pages.timeout_seconds == full.timeout_seconds == 600
     assert pages.max_tokens == full.max_tokens == 16000
@@ -206,8 +243,8 @@ def test_environment_model_settings_cannot_create_a_mixed_profile() -> None:
             "MELLEA_LRC_LLM_API_BASE": "https://unrelated.invalid/v1",
             "MELLEA_LRC_LLM_API_KEY": "wrong-secret",
             "MELLEA_LRC_LLM_TEMPERATURE": "0.9",
-            "MELLEA_LRC_LLM_VALIDATE_PINCITE_MODEL": "workflow-model",
-            "MELLEA_LRC_LLM_VALIDATE_PINCITE_REASONING_EFFORT": "high",
+            "MELLEA_LRC_LLM_VALIDATE_ALL_CITATION_CONTENT_MODEL": "workflow-model",
+            "MELLEA_LRC_LLM_VALIDATE_ALL_CITATION_CONTENT_REASONING_EFFORT": "high",
         }
     )
 
@@ -315,17 +352,17 @@ def test_session_creation_uses_the_resolved_package_without_environment_reads(mo
 
 
 _REVIEWERS = (
-    ("extraction.docket_site_hunting.review", "IvrDocketReviewer"),
-    ("extraction.docket_root_llm_reassignment.reviewer", "IvrDocketRootReviewer"),
+    ("extraction.hunt_docket_locators.review", "IvrDocketReviewer"),
+    ("extraction.reassign_docket_roots_llm.reviewer", "IvrDocketRootReviewer"),
     ("extraction.leaf_attribution_review.reviewer", "IvrLeafReviewer"),
-    ("validation.reporter_root_lookup_unique_llm_judgment.reviewer", "IvrReporterUniqueReviewer"),
-    ("validation.reporter_root_lookup_ambiguous_llm_judgment.reviewer", "IvrReporterAmbiguousReviewer"),
-    ("validation.docket_root_lookup_courtlistener_llm_review.reviewer", "IvrDocketLookupReviewer"),
-    ("validation.docket_root_lookup_govinfo_llm_review.reviewer", "IvrGovInfoDocketReviewer"),
-    ("validation.locator_body_llm_judgment.reviewer", "IvrBodyCorroborationReviewer"),
-    ("validation.intended_case_llm_selection.reviewer", "IvrIntendedCaseReviewer"),
-    ("validation.reporter_citation_opinion_review.reviewer", "IvrReporterCitationOpinionReviewer"),
-    ("validation.reporter_citation_propositions.reviewer", "IvrReporterCitationPropositionReviewer"),
+    ("validation.review_unique_reporter_roots_llm.reviewer", "IvrReporterUniqueReviewer"),
+    ("validation.review_ambiguous_reporter_roots_llm.reviewer", "IvrReporterAmbiguousReviewer"),
+    ("validation.review_courtlistener_docket_roots_llm.reviewer", "IvrDocketLookupReviewer"),
+    ("validation.review_govinfo_docket_roots_llm.reviewer", "IvrGovInfoDocketReviewer"),
+    ("validation.review_locator_bodies_llm.reviewer", "IvrBodyCorroborationReviewer"),
+    ("validation.review_intended_cases_llm.reviewer", "IvrIntendedCaseReviewer"),
+    ("validation.select_reporter_citation_opinions.reviewer", "IvrReporterCitationOpinionReviewer"),
+    ("validation.read_reporter_citation_propositions.reviewer", "IvrReporterCitationPropositionReviewer"),
     ("validation.reporter_pinpoint_review.reviewer", "IvrReporterPinpointReviewer"),
 )
 
@@ -371,23 +408,23 @@ def test_reviewer_requires_a_profile_and_uses_its_session_options_and_budgets(
 
 
 _SUBSTAGES = (
-    "extraction.docket_site_hunting",
-    "extraction.docket_root_llm_reassignment",
-    "extraction.leaf_field_corrections",
-    "extraction.short_reporter_attribution",
-    "extraction.reference_attribution",
-    "extraction.id_attribution",
-    "extraction.supra_attribution_llm",
-    "validation.reporter_root_lookup_unique_llm_judgment",
-    "validation.reporter_root_lookup_ambiguous_llm_judgment",
-    "validation.docket_root_lookup_courtlistener_llm_review",
-    "validation.docket_root_lookup_govinfo_llm_review",
-    "validation.locator_body_llm_judgment",
-    "validation.intended_case_llm_selection",
-    "validation.reporter_citation_opinion_review",
-    "validation.reporter_citation_propositions",
-    "validation.reporter_citation_pinpoint_page_review",
-    "validation.reporter_citation_full_opinion_review",
+    "extraction.hunt_docket_locators",
+    "extraction.reassign_docket_roots_llm",
+    "extraction.correct_leaf_fields",
+    "extraction.attribute_short_reporter_citations",
+    "extraction.attribute_reference_citations",
+    "extraction.attribute_id_citations",
+    "extraction.review_supra_attributions_llm",
+    "validation.review_unique_reporter_roots_llm",
+    "validation.review_ambiguous_reporter_roots_llm",
+    "validation.review_courtlistener_docket_roots_llm",
+    "validation.review_govinfo_docket_roots_llm",
+    "validation.review_locator_bodies_llm",
+    "validation.review_intended_cases_llm",
+    "validation.select_reporter_citation_opinions",
+    "validation.read_reporter_citation_propositions",
+    "validation.review_reporter_citation_pages_llm",
+    "validation.review_reporter_citation_full_opinions_llm",
 )
 
 
@@ -419,15 +456,21 @@ def test_stage_passes_its_substage_to_the_lazy_profile_loader(monkeypatch, modul
 def test_pinpoint_workflow_passes_separate_page_and_full_opinion_reviewers(monkeypatch) -> None:
     from mellea_lrc.model import Document
 
-    workflow = importlib.import_module("mellea_lrc.workflows.validate_pincite")
-    assert "support_reviewer" not in inspect.signature(workflow.validate_pincite).parameters
+    workflow = importlib.import_module("mellea_lrc.workflows.validate_all_citation_content")
+    assert "support_reviewer" not in inspect.signature(workflow.validate_all_citation_content).parameters
     document = Document.from_source("The filing.")
     pages, full = object(), object()
     seen = []
 
-    opinion = importlib.import_module("mellea_lrc.workflows.validate_pincite.opinion_preparation")
-    evidence = importlib.import_module("mellea_lrc.workflows.validate_pincite.citation_preparation")
-    support = importlib.import_module("mellea_lrc.workflows.validate_pincite.support_review")
+    opinion = importlib.import_module(
+        "mellea_lrc.workflows.validate_all_citation_content.prepare_root_opinions"
+    )
+    evidence = importlib.import_module(
+        "mellea_lrc.workflows.validate_all_citation_content.prepare_citation_evidence"
+    )
+    support = importlib.import_module(
+        "mellea_lrc.workflows.validate_all_citation_content.review_citation_content"
+    )
 
     def complete(name):
         def run(saved, **_kwargs):
@@ -443,45 +486,63 @@ def test_pinpoint_workflow_passes_separate_page_and_full_opinion_reviewers(monke
 
     async def page_review(saved, *, reviewer):
         seen.append(("pages", reviewer))
-        return saved.complete_substage("validate_pincite.support_review.page_review")
+        return saved.complete_substage(
+            "validate_all_citation_content.review_citation_content.review_cited_pages_llm"
+        )
 
     async def full_review(saved, *, reviewer):
         seen.append(("full", reviewer))
-        return saved.complete_substage("validate_pincite.support_review.full_opinion_review")
+        return saved.complete_substage(
+            "validate_all_citation_content.review_citation_content.review_full_opinions_llm"
+        )
 
     for module, operation, name in (
-        (opinion, "reporter_root_opinion_retrieval", "validate_pincite.opinion_preparation.retrieval"),
-        (opinion, "index_reporter_root_opinion_pages", "validate_pincite.opinion_preparation.page_index"),
+        (
+            opinion,
+            "retrieve_reporter_root_opinions",
+            "validate_all_citation_content.prepare_root_opinions.retrieve_opinions",
+        ),
+        (
+            opinion,
+            "index_reporter_root_opinion_pages",
+            "validate_all_citation_content.prepare_root_opinions.index_pages",
+        ),
         (
             evidence,
             "resolve_reporter_citation_pages",
-            "validate_pincite.citation_preparation.page_resolution",
+            "validate_all_citation_content.prepare_citation_evidence.resolve_pages",
         ),
         (
             evidence,
-            "prepare_reporter_citation_pinpoint_evidence",
-            "validate_pincite.citation_preparation.evidence",
+            "prepare_reporter_citation_evidence",
+            "validate_all_citation_content.prepare_citation_evidence.prepare_evidence",
         ),
-        (support, "judge_reporter_citation_pinpoints", "validate_pincite.support_review.judgment"),
+        (
+            support,
+            "judge_reporter_citation_content",
+            "validate_all_citation_content.review_citation_content.judge_citation_content",
+        ),
     ):
         monkeypatch.setattr(module, operation, complete(name))
     monkeypatch.setattr(
         evidence,
-        "review_reporter_citation_opinions",
-        read("validate_pincite.citation_preparation.opinion_review"),
+        "select_reporter_citation_opinions",
+        read("validate_all_citation_content.prepare_citation_evidence.select_opinions_llm"),
     )
     monkeypatch.setattr(
         evidence,
         "read_reporter_citation_propositions",
-        read("validate_pincite.citation_preparation.propositions"),
+        read("validate_all_citation_content.prepare_citation_evidence.read_propositions"),
     )
-    monkeypatch.setattr(support, "review_reporter_citation_pinpoint_pages", page_review)
-    monkeypatch.setattr(support, "review_reporter_citation_full_opinions", full_review)
-    result = asyncio.run(workflow.validate_pincite(document, page_reviewer=pages, full_opinion_reviewer=full))
+    monkeypatch.setattr(support, "review_reporter_citation_pages_llm", page_review)
+    monkeypatch.setattr(support, "review_reporter_citation_full_opinions_llm", full_review)
+    result = asyncio.run(
+        workflow.validate_all_citation_content(document, page_reviewer=pages, full_opinion_reviewer=full)
+    )
     assert result.text == document.text
     assert result.stage_runs == (
-        "validate_pincite.opinion_preparation",
-        "validate_pincite.citation_preparation",
-        "validate_pincite.support_review",
+        "validate_all_citation_content.prepare_root_opinions",
+        "validate_all_citation_content.prepare_citation_evidence",
+        "validate_all_citation_content.review_citation_content",
     )
     assert seen == [("pages", pages), ("full", full)]

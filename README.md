@@ -1,8 +1,8 @@
 # mellea-lrc
 
-The package organizes citation processing as **workflow → stage → substage**. Its four workflows—`grow_roots`, `validate_roots`, `grow_leaves`, and `validate_pincite`—contain 15 semantic stages and 53 atomic substages. Each level takes and returns a `Document`; substages provide the granular execution and recovery boundaries. The immutable [execution catalog](src/mellea_lrc/model/execution.py) defines their membership, order, and optional steps.
+The package organizes citation processing as **workflow → stage → substage**. Its four workflows—`grow_roots`, `validate_roots_citation_identity`, `grow_leaves`, and `validate_all_citation_content`—contain 15 semantic stages and 53 atomic substages. Each level takes and returns a `Document`; substages provide the granular execution and recovery boundaries. The immutable [execution catalog](src/mellea_lrc/model/execution.py) defines their membership, order, and optional steps.
 
-Root validation includes locator-body corroboration and optional intended-case discovery. Pinpoint validation retrieves reporter-root opinions, indexes pagination, and resolves each occurrence's pages and writing. It reviews selected pages, falls back to saved full opinions when needed, and records support and target location separately. Open-web search is not implemented.
+`validate_roots_citation_identity` includes locator-body corroboration and optional intended-case discovery. `validate_all_citation_content` currently handles reporter citation content: it retrieves root opinions, indexes pagination, and resolves each occurrence's pages and writing. It reviews selected pages, falls back to saved full opinions when needed, and records support and target location separately. Open-web search is not implemented.
 
 The source layers are:
 
@@ -36,7 +36,7 @@ document = asyncio.run(grow_roots(document, rules=stable()))
 print(document.full_locators, document.roots)
 ```
 
-`grow_roots` composes locator discovery, field reading, and root formation. Pass `hunt_dockets=True` to enable its docket-hunting substage. The document persists citation histories, site reviews, and one typed checkpoint log, `runs`. `get_substage("grow_roots.locator_discovery.docket_hunting")` restores the atomic result; `get_stage("grow_roots.locator_discovery")` restores the completed group. Both return exact snapshots and raise if their checkpoint has not completed. See [extraction](docs/Extraction.md), [validation](docs/Validation.md), and [preprocessing](docs/Preprocessing.md).
+`grow_roots` composes `discover_root_locators`, `read_root_fields`, and `form_root_groups`. Pass `hunt_dockets=True` to enable its docket-hunting substage. The document persists citation histories, site reviews, and one typed checkpoint log, `runs`. `get_substage("grow_roots.discover_root_locators.hunt_docket_locators")` restores the atomic result; `get_stage("grow_roots.discover_root_locators")` restores the completed group. Both return exact snapshots and raise if their checkpoint has not completed. See [extraction](docs/Extraction.md), [validation](docs/Validation.md), and [preprocessing](docs/Preprocessing.md).
 
 A `Path` reads a file; a `str` is the document text itself. Install the optional Docling backend for PDFs and other formatted files with `uv sync --group preprocessing`. Plain text works with the base package. Run the active tests with `uv run pytest`.
 
@@ -57,7 +57,7 @@ A substage assignment uses its uppercase identifier with dots replaced by
 underscores:
 
 ```dotenv
-MELLEA_LRC_SUBSTAGE_VALIDATE_PINCITE_SUPPORT_REVIEW_FULL_OPINION_REVIEW_PROFILE=my_full_review
+MELLEA_LRC_SUBSTAGE_VALIDATE_ALL_CITATION_CONTENT_REVIEW_CITATION_CONTENT_REVIEW_FULL_OPINIONS_LLM_PROFILE=my_full_review
 ```
 
 Define that complete package using the prefix `MELLEA_LRC_PROFILE_MY_FULL_REVIEW_`:
@@ -84,7 +84,7 @@ when it needs a default reviewer:
 ```python
 from mellea_lrc.llm.profiles import load_profile
 
-SUBSTAGE = "validate_pincite.support_review.full_opinion_review"
+SUBSTAGE = "validate_all_citation_content.review_citation_content.review_full_opinions_llm"
 
 # Inside the substage, when an eligible citation needs review:
 if service is None:

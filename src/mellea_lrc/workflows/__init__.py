@@ -91,7 +91,9 @@ def _finish_stage(document: Document, stage: str, checkpoint: Checkpoint | None)
 
 from mellea_lrc.workflows.grow_leaves import grow_leaves  # noqa: E402
 from mellea_lrc.workflows.grow_roots import grow_roots  # noqa: E402
-from mellea_lrc.workflows.validate_pincite import validate_pincite  # noqa: E402
-from mellea_lrc.workflows.validate_roots import validate_roots  # noqa: E402
+from mellea_lrc.workflows.validate_all_citation_content import validate_all_citation_content  # noqa: E402
+from mellea_lrc.workflows.validate_roots_citation_identity import (  # noqa: E402
+    validate_roots_citation_identity,
+)
 
-__all__ = ["grow_leaves", "grow_roots", "validate_pincite", "validate_roots"]
+__all__ = ["grow_leaves", "grow_roots", "validate_all_citation_content", "validate_roots_citation_identity"]

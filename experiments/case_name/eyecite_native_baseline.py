@@ -27,7 +27,7 @@ from mellea_lrc.config.extraction import stable
 from mellea_lrc.model import Document, FullReporterCitation
 from mellea_lrc.model.citation_windows import before
 
-CASE_NAME_SUBSTAGE = "grow_roots.field_reading.case_names"
+CASE_NAME_SUBSTAGE = "grow_roots.read_root_fields.resolve_case_names"
 
 
 def field_source(row: dict[str, Any]) -> dict[str, Any]:

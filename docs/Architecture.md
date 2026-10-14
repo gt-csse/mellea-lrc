@@ -8,13 +8,13 @@ the four workflows, 15 stages, and 53 substages in execution order.
 
 | Workflow | Stages, in order |
 | --- | --- |
-| `grow_roots` | `locator_discovery`, `field_reading`, `root_formation` |
-| `validate_roots` | `reporter_lookup`, `docket_lookup`, `locator_body_corroboration`, `intended_case_discovery` |
-| `grow_leaves` | `short_reporter_citations`, `reference_citations`, `id_citations`, `supra_citations`, `leaf_field_correction` |
-| `validate_pincite` | `opinion_preparation`, `citation_preparation`, `support_review` |
+| `grow_roots` | `discover_root_locators`, `read_root_fields`, `form_root_groups` |
+| `validate_roots_citation_identity` | `lookup_reporter_roots`, `lookup_docket_roots`, `corroborate_locator_bodies`, `discover_intended_cases` |
+| `grow_leaves` | `grow_short_reporter_leaves`, `grow_reference_leaves`, `grow_id_leaves`, `grow_supra_leaves`, `correct_leaf_readings` |
+| `validate_all_citation_content` | `prepare_root_opinions`, `prepare_citation_evidence`, `review_citation_content` |
 
 A stage ID is `workflow.stage`; an atomic ID adds its substage name, such as
-`validate_roots.reporter_lookup.cluster_retrieval`. Docket hunting, docket-root
+`validate_roots_citation_identity.lookup_reporter_roots.retrieve_clusters`. Docket hunting, docket-root
 reassignment, and supra model attribution are optional substages. Intended-case
 discovery is an optional workflow stage whose four substages are required when
 that stage runs. Other review flags may disable model calls while still recording
@@ -36,9 +36,11 @@ the substage's completion.
 
 Each workflow is a package in `workflows/<workflow>/`; its semantic stage
 composers live in `<stage>.py`. For example,
-`workflows/validate_roots/reporter_lookup.py` composes retrieval and judgment
+`workflows/validate_roots_citation_identity/lookup_reporter_roots.py` composes retrieval and judgment
 substages from `validation/`. Stage composers declare `STAGE`; atomic writers
-declare `SUBSTAGE`.
+declare `SUBSTAGE`. Each atomic writer's file or package matches its public
+entrypoint, such as `extraction/find_full_reporter_locators.py` or
+`validation/retrieve_reporter_root_clusters.py`.
 
 Direct files under `extraction/` and `validation/` are substage writers. A substage
 with substantial local logic becomes a package: `__init__.py` holds its
@@ -48,7 +50,7 @@ modules remain beside it. Shared services have an explicit role:
 `docket_review/`, `reporter_exact/`, `reporter_review/`, and `body_search/`.
 Services do not complete checkpoints.
 
-After docket record reviews, `validate_roots.docket_lookup.identity_aggregation` combines the
+After docket record reviews, `validate_roots_citation_identity.lookup_docket_roots.judge_identity_from_fields` combines the
 selected record's saved docket-number, case-name, court, and date judgments.
 It appends an overall identity and route without retrieval or a model call.
 Definitive identities stop; undetermined identities proceed to locator-body
@@ -75,7 +77,9 @@ its caller and does not interpret page layout or import preprocessing.
 Citation fields and judgments remain append-only and point to citation-local
 nodes identified by `substage`. Native Pydantic serialization retains their
 histories, source evidence, and model repair traces. `Citation.next_substage`
-exposes routing to an atomic step. `Document.runs` is the only
+exposes routing to an atomic step or a future continuation label, such as
+`search_reporter_roots` or `search_open_web_roots`. These future labels are not entries
+in the execution catalog. `Document.runs` is the only
 persisted checkpoint log: each frozen event has `kind="substage"` or `kind="stage"`
 and its `name`. `substage_runs` and `stage_runs` derive their ordered names from
 that log.
@@ -104,8 +108,10 @@ Evaluation runners atomically replace one cumulative Document file per filing
 after completed boundaries. Separate saved snapshots are unnecessary. Native
 loading rejects legacy serialized `stage_runs` or `substage_runs` layouts; no
 compatibility loader is provided. Production IDs use the dotted hierarchy.
-Development substages may use ad hoc names; semantic group membership comes
-from the catalog.
+Development substages may use ad hoc names. Three-part `workflow.stage.substage`
+identifiers must belong to the current catalog; obsolete names and typos raise
+during native loading or completion. Renamed checkpoints have no compatibility
+aliases or migration loader.
 
 Preprocessing serializes typed table-of-authorities components in
 `index_spans`. Citation creation attaches a node-bound TOA tag to the occurrence
@@ -114,7 +120,7 @@ eligible; citation-support substages consume the tag and skip that occurrence.
 A body leaf does not inherit its root's TOA tag. Previously extracted citations
 need replay through creation to acquire tags; loading JSON does not invent them.
 
-`grow_leaves.leaf_field_correction.review` finishes `grow_leaves` by reusing saved root
+`grow_leaves.correct_leaf_readings.correct_leaf_fields` finishes `grow_leaves` by reusing saved root
 validation evidence to reread attached occurrences, including repeated full
 citations. No validation evidence means no model call. Corrections quote the
 leaf's own bounded source window and append named field histories; they do not

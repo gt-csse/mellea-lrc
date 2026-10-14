@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from evaluations import validate_pincite
+from evaluations import validate_all_citation_content
 from evaluations import score_run as scoring
 from evaluations.grow_leaves import WorkflowScore as LeafWorkflowScore
 from evaluations.score_run import score_run
@@ -25,16 +25,16 @@ from mellea_lrc.model.execution import get_workflow
 
 def _prepared_opinions() -> Document:
     document = Document.from_source("A filing without citations.")
-    for substage in get_workflow("validate_pincite").stages[0].substages:
+    for substage in get_workflow("validate_all_citation_content").stages[0].substages:
         document = document.complete_substage(substage.name)
     return document
 
 
 def test_group_completion_uses_the_durable_marker_and_preserves_atomic_metrics() -> None:
     atomic = _prepared_opinions()
-    grouped = atomic.complete_stage("validate_pincite.opinion_preparation")
-    partial = validate_pincite.score_validate_pincite(atomic)
-    completed = validate_pincite.score_validate_pincite(grouped)
+    grouped = atomic.complete_stage("validate_all_citation_content.prepare_root_opinions")
+    partial = validate_all_citation_content.score_validate_all_citation_content(atomic)
+    completed = validate_all_citation_content.score_validate_all_citation_content(grouped)
 
     assert partial.substages == completed.substages
     assert partial.as_dict()["stages"][0]["completed"] is False
@@ -43,23 +43,24 @@ def test_group_completion_uses_the_durable_marker_and_preserves_atomic_metrics()
         substage.as_dict() for substage in completed.substages
     ]
     assert (
-        "## 1 validate_pincite.opinion_preparation (incomplete)"
-        in validate_pincite.render_validate_pincite(partial)
+        "## 1 validate_all_citation_content.prepare_root_opinions (incomplete)"
+        in validate_all_citation_content.render_validate_all_citation_content(partial)
     )
-    assert "## 1 validate_pincite.opinion_preparation\n" in validate_pincite.render_validate_pincite(
-        completed
+    assert (
+        "## 1 validate_all_citation_content.prepare_root_opinions\n"
+        in validate_all_citation_content.render_validate_all_citation_content(completed)
     )
-    assert grouped.get_substage(validate_pincite.PAGE_INDEX_SUBSTAGE) == atomic
-    assert validate_pincite.score_reporter_root_opinion_retrieval(
+    assert grouped.get_substage(validate_all_citation_content.PAGE_INDEX_SUBSTAGE) == atomic
+    assert validate_all_citation_content.score_retrieve_reporter_root_opinions(
         grouped
-    ) == validate_pincite.score_reporter_root_opinion_retrieval(atomic)
+    ) == validate_all_citation_content.score_retrieve_reporter_root_opinions(atomic)
 
 
 def test_aggregate_group_is_completed_only_for_all_contributing_documents() -> None:
     atomic = _prepared_opinions()
-    grouped = atomic.complete_stage("validate_pincite.opinion_preparation")
-    partial = validate_pincite.score_validate_pincite(atomic)
-    completed = validate_pincite.score_validate_pincite(grouped)
+    grouped = atomic.complete_stage("validate_all_citation_content.prepare_root_opinions")
+    partial = validate_all_citation_content.score_validate_all_citation_content(atomic)
+    completed = validate_all_citation_content.score_validate_all_citation_content(grouped)
 
     assert (completed + completed).as_dict()["stages"][0]["completed"] is True
     mixed = completed + partial
@@ -94,35 +95,45 @@ def test_optional_substages_need_no_placeholder_and_summaries_keep_their_denomin
 
 def test_report_order_and_local_numbering_come_from_the_catalog() -> None:
     records = [
-        {"substage": "validate_roots.docket_lookup.govinfo_retrieval", "record_coverage": {"rate": None}},
-        {"substage": "validate_roots.reporter_lookup.cluster_retrieval", "record_coverage": {"rate": 0.5}},
-        {"substage": "validate_roots.reporter_lookup.ambiguous_llm_judgment", "metrics": {}},
+        {
+            "substage": "validate_roots_citation_identity.lookup_docket_roots.retrieve_govinfo_dockets",
+            "record_coverage": {"rate": None},
+        },
+        {
+            "substage": "validate_roots_citation_identity.lookup_reporter_roots.retrieve_clusters",
+            "record_coverage": {"rate": 0.5},
+        },
+        {
+            "substage": "validate_roots_citation_identity.lookup_reporter_roots.review_ambiguous_llm",
+            "metrics": {},
+        },
     ]
-    grouped = group_substage_records("validate_roots", records)
+    grouped = group_substage_records("validate_roots_citation_identity", records)
     flattened = [record for stage in grouped for record in stage["substages"]]
     assert flattened == [records[1], records[2], records[0]]
     assert all(stage["completed"] is False for stage in grouped)
     rendered = render_stage_sections(
-        "validate_roots", ((record["substage"], substage_heading(record["substage"])) for record in records)
+        "validate_roots_citation_identity",
+        ((record["substage"], substage_heading(record["substage"])) for record in records),
     )
     assert rendered == [
-        "## 1 validate_roots.reporter_lookup (incomplete)",
-        "### 1.1 validate_roots.reporter_lookup.cluster_retrieval",
-        "### 1.6 validate_roots.reporter_lookup.ambiguous_llm_judgment",
-        "## 2 validate_roots.docket_lookup (incomplete)",
-        "### 2.3 validate_roots.docket_lookup.govinfo_retrieval",
+        "## 1 validate_roots_citation_identity.lookup_reporter_roots (incomplete)",
+        "### 1.1 validate_roots_citation_identity.lookup_reporter_roots.retrieve_clusters",
+        "### 1.6 validate_roots_citation_identity.lookup_reporter_roots.review_ambiguous_llm",
+        "## 2 validate_roots_citation_identity.lookup_docket_roots (incomplete)",
+        "### 2.3 validate_roots_citation_identity.lookup_docket_roots.retrieve_govinfo_dockets",
     ]
 
 
 def test_duplicate_or_foreign_substage_data_cannot_be_hidden_by_grouping() -> None:
-    record = {"substage": "grow_leaves.id_citations.discovery", "metrics": {}}
+    record = {"substage": "grow_leaves.grow_id_leaves.find_id_citations", "metrics": {}}
     with pytest.raises(ValueError, match="Duplicate substage score"):
         group_substage_records("grow_leaves", [record, record])
     with pytest.raises(ValueError, match="Unknown grow_roots substages"):
         group_substage_records("grow_roots", [record])
 
 
-@pytest.mark.parametrize("workflows", [None, ("grow_roots",), ("validate_pincite",)])
+@pytest.mark.parametrize("workflows", [None, ("grow_roots",), ("validate_all_citation_content",)])
 def test_empty_saved_run_creates_no_workflow_reports(
     tmp_path: Path, workflows: tuple[str, ...] | None
 ) -> None:
@@ -139,8 +150,8 @@ def test_empty_saved_run_creates_no_workflow_reports(
     [
         ("grow_roots",),
         ("grow_roots", "grow_leaves"),
-        ("grow_roots", "validate_roots"),
-        ("grow_roots", "validate_roots", "grow_leaves", "validate_pincite"),
+        ("grow_roots", "validate_roots_citation_identity"),
+        ("grow_roots", "validate_roots_citation_identity", "grow_leaves", "validate_all_citation_content"),
     ],
 )
 def test_default_reports_only_score_workflows_present_in_the_documents(

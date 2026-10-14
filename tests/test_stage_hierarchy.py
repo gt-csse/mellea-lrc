@@ -21,13 +21,13 @@ from mellea_lrc.model import (
 )
 from mellea_lrc.model.site_review import SiteReview
 
-DISCOVERY = "grow_roots.locator_discovery"
-REPORTERS = f"{DISCOVERY}.full_reporter_locators"
-DOCKETS = f"{DISCOVERY}.docket_locators"
-HUNTING = f"{DISCOVERY}.docket_hunting"
-ROOTS = "grow_roots.root_formation"
-RULE = f"{ROOTS}.rule"
-REASSIGNMENT = f"{ROOTS}.docket_llm_reassignment"
+DISCOVERY = "grow_roots.discover_root_locators"
+REPORTERS = f"{DISCOVERY}.find_full_reporter_locators"
+DOCKETS = f"{DISCOVERY}.find_docket_locators"
+HUNTING = f"{DISCOVERY}.hunt_docket_locators"
+ROOTS = "grow_roots.form_root_groups"
+RULE = f"{ROOTS}.form_roots"
+REASSIGNMENT = f"{ROOTS}.reassign_docket_roots_llm"
 TEXT = "No. 1:24-cv-00123; No. 2:24-cv-00456."
 
 
@@ -61,9 +61,9 @@ def _discovered(*, hunting: bool = False) -> Document:
 def test_catalog_is_immutable_and_covers_four_workflows_fifteen_stages() -> None:
     assert tuple(workflow.name for workflow in WORKFLOW_CATALOG) == (
         "grow_roots",
-        "validate_roots",
+        "validate_roots_citation_identity",
         "grow_leaves",
-        "validate_pincite",
+        "validate_all_citation_content",
     )
     assert len(STAGE_CATALOG) == 15
     assert len(SUBSTAGE_CATALOG) == 53
@@ -73,10 +73,10 @@ def test_catalog_is_immutable_and_covers_four_workflows_fifteen_stages() -> None
     assert get_substage_definition(HUNTING).optional
     assert stage_for_substage(HUNTING) == DISCOVERY
     assert stage_for_substage("development_checkpoint") is None
-    assert get_workflow("validate_roots").required_stages == (
-        "validate_roots.reporter_lookup",
-        "validate_roots.docket_lookup",
-        "validate_roots.locator_body_corroboration",
+    assert get_workflow("validate_roots_citation_identity").required_stages == (
+        "validate_roots_citation_identity.lookup_reporter_roots",
+        "validate_roots_citation_identity.lookup_docket_roots",
+        "validate_roots_citation_identity.corroborate_locator_bodies",
     )
     with pytest.raises(TypeError):
         STAGE_CATALOG["new"] = stage
@@ -144,6 +144,29 @@ def test_partial_stage_has_no_recoverable_group_boundary() -> None:
         partial.get_substage("unknown_atomic")
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "grow_roots.locator_discovery.full_reporter_locators",
+        "validate_roots.reporter_lookup.cluster_retrieval",
+        "grow_leaves.short_reporter_citations.discovery",
+        "validate_pincite.opinion_preparation.retrieval",
+        "grow_roots.discover_root_locators.find_reporter_locator_typo",
+    ],
+)
+def test_uncatalogued_dotted_checkpoints_reject_creation_and_native_reload(name) -> None:
+    document = Document.from_source(TEXT)
+    with pytest.raises(ValueError, match="Unknown substage"):
+        document.complete_substage(name)
+    payload = document.model_dump(mode="json")
+    payload["runs"] = [{"kind": "substage", "name": name}]
+    with pytest.raises(ValueError, match="Unknown substage"):
+        Document.model_validate_json(json.dumps(payload))
+    # Unqualified development checkpoints still support small scoped tests.
+    completed = document.complete_substage("manual_review")
+    assert Document.model_validate_json(completed.model_dump_json()) == completed
+
+
 def test_completed_group_cannot_gain_optional_substages_or_citation_work() -> None:
     completed = _discovered().complete_stage(DISCOVERY)
     with pytest.raises(ValueError, match="already completed"):
@@ -167,7 +190,7 @@ def test_completed_group_cannot_gain_optional_substages_or_citation_work() -> No
 
 
 def test_required_substages_of_optional_workflow_stage_still_required() -> None:
-    intended = get_stage_definition("validate_roots.intended_case_discovery")
+    intended = get_stage_definition("validate_roots_citation_identity.discover_intended_cases")
     assert intended.optional
     assert len(intended.required_substages) == 4
     partial = Document.from_source(TEXT).complete_substage(intended.required_substages[0])
@@ -299,7 +322,7 @@ def test_noop_optional_run_is_distinct_and_included_when_enabled() -> None:
 
 def test_group_of_noop_substages_does_not_add_nodes_to_existing_citations() -> None:
     discovered = _discovered().complete_stage(DISCOVERY)
-    stage = get_stage_definition("grow_roots.field_reading")
+    stage = get_stage_definition("grow_roots.read_root_fields")
     document = discovered
     for substage in stage.substages:
         document = document.complete_substage(substage.name)
