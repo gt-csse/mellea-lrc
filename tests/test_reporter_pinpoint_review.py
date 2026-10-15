@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 from mellea.stdlib.requirements import req
+from pydantic import ValidationError
 
 from mellea_lrc.llm.ivr import InstructIvrSpec, _requirements_for
 from mellea_lrc.model import Document, FullReporterCitation, Span
@@ -27,25 +28,13 @@ from mellea_lrc.model.citations.reporter_pinpoint import (
 )
 from mellea_lrc.model.citations.short_reporter import ShortReporterCitation
 from mellea_lrc.providers.courtlistener.models import CourtListenerCluster
-from mellea_lrc.validation.review_reporter_citation_full_opinions_llm import (
-    SUBSTAGE as FULL_SUBSTAGE,
-)
-from mellea_lrc.validation.review_reporter_citation_full_opinions_llm import (
-    review_reporter_citation_full_opinions_llm,
-)
-from mellea_lrc.validation.resolve_reporter_citation_pages import resolve_reporter_citation_pages
+from mellea_lrc.validation.index_reporter_root_opinion_pages import index_reporter_root_opinion_pages
+from mellea_lrc.validation.judge_reporter_citation_content import judge_reporter_citation_content
 from mellea_lrc.validation.prepare_reporter_citation_evidence import (
     SUBSTAGE as EVIDENCE_SUBSTAGE,
 )
 from mellea_lrc.validation.prepare_reporter_citation_evidence import (
     prepare_reporter_citation_evidence,
-)
-from mellea_lrc.validation.judge_reporter_citation_content import judge_reporter_citation_content
-from mellea_lrc.validation.review_reporter_citation_pages_llm import (
-    SUBSTAGE as PAGE_SUBSTAGE,
-)
-from mellea_lrc.validation.review_reporter_citation_pages_llm import (
-    review_reporter_citation_pages_llm,
 )
 from mellea_lrc.validation.read_reporter_citation_propositions import read_reporter_citation_propositions
 from mellea_lrc.validation.reporter_pinpoint_review import reviewer as service
@@ -55,8 +44,20 @@ from mellea_lrc.validation.reporter_pinpoint_review.responses import (
     PaginatedSupportResponse,
     UnpaginatedSupportResponse,
 )
-from mellea_lrc.validation.index_reporter_root_opinion_pages import index_reporter_root_opinion_pages
+from mellea_lrc.validation.resolve_reporter_citation_pages import resolve_reporter_citation_pages
 from mellea_lrc.validation.retrieve_reporter_root_opinions import retrieve_reporter_root_opinions
+from mellea_lrc.validation.review_reporter_citation_full_opinions_llm import (
+    SUBSTAGE as FULL_SUBSTAGE,
+)
+from mellea_lrc.validation.review_reporter_citation_full_opinions_llm import (
+    review_reporter_citation_full_opinions_llm,
+)
+from mellea_lrc.validation.review_reporter_citation_pages_llm import (
+    SUBSTAGE as PAGE_SUBSTAGE,
+)
+from mellea_lrc.validation.review_reporter_citation_pages_llm import (
+    review_reporter_citation_pages_llm,
+)
 from tests.test_read_reporter_citation_propositions import _run
 
 FIRST_PROPOSITION = "The pleading must provide fair notice."
@@ -1163,13 +1164,20 @@ def test_quote_limits_preflight_all_items_before_any_fuzzy_matching(
         pytest.fail("Every evidence item must pass length checks before any grounding")
 
     monkeypatch.setattr(service.ReporterPinpointReviewContext, "_ground_quote", fail)
-    with pytest.raises(ValueError, match=r"Too many evidence quotes|is too long") as caught:
+    with pytest.raises(
+        ValueError, match=r"Too many evidence quotes|is too long|at most 1200 characters"
+    ) as caught:
         if wire_response:
             context.parse_response(_wire(decision, paginated=paginated), "review")
         else:
             context.ground(decision, "review")
-    assert "one or two" in str(caught.value)
-    assert "reason" in str(caught.value)
+    if wire_response and bad == "oversized_last_quote":
+        error = caught.value.errors(include_url=False)[0]
+        assert error["type"] == "string_too_long"
+        assert error["loc"] == ("evidence", 1, "quote")
+    else:
+        assert "one or two" in str(caught.value)
+        assert "reason" in str(caught.value)
 
 
 @pytest.mark.parametrize("paginated", [False, True])
@@ -1203,9 +1211,8 @@ def test_oversized_quote_uses_native_ivr_schema_repair_feedback(monkeypatch, pag
     )
     rejection = requirements[0].validation_fn(output)
     assert not rejection.as_bool()
-    assert "58203" in rejection.reason and "1200" in rejection.reason
-    assert "separate evidence item" in rejection.reason
-    assert "detailed explanation in reason" in rejection.reason
+    assert "evidence.[0].quote" in rejection.reason
+    assert "at most 1200 characters" in rejection.reason
     assert requirements[1].validation_fn(output).as_bool()
 
 
@@ -1224,10 +1231,44 @@ def test_short_quote_with_legal_abbreviations_does_not_guess_sentence_boundaries
     assert response_model.model_json_schema()["properties"]["evidence"]["maxItems"] == 3
 
 
+@pytest.mark.parametrize("response_model", [PaginatedSupportResponse, UnpaginatedSupportResponse])
+def test_response_quote_length_boundary_is_in_json_schema(response_model):
+    response = {
+        "result": "supported",
+        "evidence": [{"opinion_id": "20", "quote": "x" * MAX_QUOTE_CHARACTERS}],
+        "reason": "Supported.",
+    }
+    definition = "OpinionEvidenceQuote"
+    if response_model is PaginatedSupportResponse:
+        response["correct_page"] = True
+        response["evidence"][0].update(page_indices=[0], footnote=None)
+        definition = "PageEvidenceQuote"
+    assert len(response_model.model_validate(response).evidence[0].quote) == MAX_QUOTE_CHARACTERS
+    schema = response_model.model_json_schema()
+    assert schema["$defs"][definition]["properties"]["quote"]["maxLength"] == MAX_QUOTE_CHARACTERS
+    assert schema["properties"]["evidence"]["items"] == {"$ref": f"#/$defs/{definition}"}
+    assert schema["properties"]["evidence"]["maxItems"] == MAX_EVIDENCE_QUOTES
+
+    response["evidence"][0]["quote"] += "x"
+    with pytest.raises(ValidationError) as caught:
+        response_model.model_validate(response)
+    error = caught.value.errors(include_url=False)[0]
+    assert error["type"] == "string_too_long"
+    assert error["loc"] == ("evidence", 0, "quote")
+    assert error["ctx"] == {"max_length": MAX_QUOTE_CHARACTERS}
+
+
 def test_quote_size_policy_does_not_change_durable_decision_serialization():
     decision = _decision(quote="x" * 58_203, correct=None, found=())
     assert ReporterSupportDecision.model_validate_json(decision.model_dump_json()) == decision
-    with pytest.raises(ValueError, match="is too long"):
+    assert "maxLength" not in OpinionEvidenceQuote.model_json_schema()["properties"]["quote"]
+    assert (
+        "maxLength"
+        not in ReporterSupportDecision.model_json_schema()["$defs"]["OpinionEvidenceQuote"]["properties"][
+            "quote"
+        ]
+    )
+    with pytest.raises(ValueError, match="at most 1200 characters"):
         PaginatedSupportResponse.model_validate_json(_wire(decision))
 
 

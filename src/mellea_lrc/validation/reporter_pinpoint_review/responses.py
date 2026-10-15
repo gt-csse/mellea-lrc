@@ -9,13 +9,22 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 
 from mellea_lrc.model.citations.fields.base import require_all_json_properties
-from mellea_lrc.model.citations.reporter_pinpoint import OpinionEvidenceQuote, OpinionSupportResult
+from mellea_lrc.model.citations.reporter_pinpoint import (
+    OpinionEvidenceQuote as StoredOpinionEvidenceQuote,
+)
+from mellea_lrc.model.citations.reporter_pinpoint import OpinionSupportResult
 
 MAX_EVIDENCE_QUOTES = 3
 MAX_QUOTE_CHARACTERS = 1200
 
 
-def validate_evidence_quotes(evidence: tuple[OpinionEvidenceQuote, ...]) -> None:
+# Bound newly generated quotes in the response schema without restricting
+# previously retained evidence in serialized documents.
+class OpinionEvidenceQuote(StoredOpinionEvidenceQuote):
+    quote: str = Field(max_length=MAX_QUOTE_CHARACTERS)
+
+
+def validate_evidence_quotes(evidence: tuple[StoredOpinionEvidenceQuote, ...]) -> None:
     """Bound new review evidence before any potentially expensive fuzzy match.
 
     Request sentences in the prompt, but enforce size rather than guessing
