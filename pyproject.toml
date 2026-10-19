@@ -40,6 +40,9 @@ classifiers = [
 [project.license]
 text = "MIT"
 
+[project.scripts]
+mellea-lrc = "mellea_lrc.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/gt-csse/mellea-lrc"
 Documentation = "https://github.com/gt-csse/mellea-lrc"
