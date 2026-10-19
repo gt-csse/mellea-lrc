@@ -1,5 +1,31 @@
 # mellea-lrc
 
+## Quick start
+
+From the repository root, install PDF support and create your runtime configuration:
+
+```bash
+uv sync --locked --group preprocessing
+cp .env.example .env
+```
+
+Configure the provider endpoints, credentials, and model profiles in `.env`
+(see [Runtime configuration](#runtime-configuration)), then run:
+
+```bash
+uv run mellea-lrc validate filing.pdf --output document.json
+```
+
+The command runs all four workflows, including docket hunting and docket-root
+review, and writes a native `Document` JSON. Upload `document.json` to the
+[visualizer](https://mellea-lrc-visualizer.woodygoodenough.com/) to inspect the result.
+The same file is updated atomically at each completed checkpoint. If validation
+fails, the last saved checkpoint remains available. The output file is replaced
+when rerunning the command; it must be different from the source document.
+Plain-text input is also supported. Run `uv run mellea-lrc validate --help` for usage.
+
+## Python API
+
 The package organizes citation processing as **workflow → stage → substage**. Its four workflows—`grow_roots`, `validate_roots_citation_identity`, `grow_leaves`, and `validate_all_citation_content`—contain 15 semantic stages and 53 atomic substages. Each level takes and returns a `Document`; substages provide the granular execution and recovery boundaries. The immutable [execution catalog](src/mellea_lrc/model/execution.py) defines their membership, order, and optional steps.
 
 `validate_roots_citation_identity` includes locator-body corroboration and optional intended-case discovery. `validate_all_citation_content` currently handles reporter citation content: it retrieves root opinions, indexes pagination, and resolves each occurrence's pages and writing. It reviews selected pages, falls back to saved full opinions when needed, and records support and target location separately. Open-web search is not implemented.
