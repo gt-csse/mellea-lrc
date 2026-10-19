@@ -1,6 +1,6 @@
 # mellea-lrc
 
-Current development targets [`codex/citation-checking`](https://github.com/gt-csse/mellea-lrc/tree/codex/citation-checking).
+Current development targets [`feat/citation-checking`](https://github.com/gt-csse/mellea-lrc/tree/feat/citation-checking).
 Use this branch while its changes are integrated into `main`.
 
 ## Quick start
@@ -8,7 +8,7 @@ Use this branch while its changes are integrated into `main`.
 Clone the development branch, install PDF support, and create your runtime configuration:
 
 ```bash
-git clone --branch codex/citation-checking --single-branch https://github.com/gt-csse/mellea-lrc.git
+git clone --branch feat/citation-checking --single-branch https://github.com/gt-csse/mellea-lrc.git
 cd mellea-lrc
 uv sync --locked --group preprocessing
 cp .env.example .env
