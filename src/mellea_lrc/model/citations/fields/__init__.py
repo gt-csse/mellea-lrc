@@ -1,6 +1,6 @@
 """Domain fields, each with its own normalization and validation."""
 
-from mellea_lrc.model.citations.fields.base import CitationField
+from mellea_lrc.model.citations.fields.base import CitationField, NotStatedField, current_reading
 from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameField, CaseNameKind
 from mellea_lrc.model.citations.fields.court import Court, CourtField
 from mellea_lrc.model.citations.fields.date import CitationDate, DateField
@@ -27,6 +27,7 @@ __all__ = [
     "DocketLocatorValue",
     "FullDocketLocator",
     "FullReporterLocator",
+    "NotStatedField",
     "PinCiteField",
     "PinCiteKind",
     "PinCiteTarget",
@@ -34,4 +35,5 @@ __all__ = [
     "ReporterLocatorValue",
     "ShortReporterLocator",
     "ShortReporterLocatorValue",
+    "current_reading",
 ]

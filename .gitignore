@@ -36,3 +36,6 @@ evaluations/results/*/*/documents/
 archive/evaluation-results-before-timestamped-2026-09-27/
 
 /experiments/
+evaluations/results/*
+
+.playwright*

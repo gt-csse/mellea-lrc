@@ -209,9 +209,10 @@ def test_example_defines_all_model_substages_and_no_credentials():
     full = load_profile(
         "validate_all_citation_content.review_citation_content.review_full_opinions_llm", environ=values
     )
-    assert pages.name == full.name == "nrp_glm_content"
-    assert pages.timeout_seconds == full.timeout_seconds == 600
-    assert pages.max_tokens == full.max_tokens == 16000
+    assert pages.name == full.name == "robspark_granite4_1_30b"
+    assert pages.timeout_seconds == full.timeout_seconds == 300
+    assert pages.max_tokens == full.max_tokens == 8000
+    assert pages.reasoning_effort is full.reasoning_effort is None
     assert LlmProfile.from_env("nrp_glm", environ=values).max_tokens == 8000
 
 
@@ -301,7 +302,7 @@ def test_profile_call_options_include_only_safe_profile_metadata() -> None:
         "name": "test_profile",
         "endpoint": "https://provider.invalid/v1",
     }
-    assert options[ModelOption.STREAM_TIMEOUT] == 300
+    assert options[ModelOption.STREAM_TIMEOUT] is None
     assert options["temperature"] == 0
     assert options["max_tokens"] == 32
     assert options["reasoning_effort"] == "low"
@@ -349,6 +350,27 @@ def test_session_creation_uses_the_resolved_package_without_environment_reads(mo
         "max_retries": 0,
         "model_options": {"temperature": 0.25, "service_tier": "priority"},
     }
+
+
+def test_http_timeout_reaches_both_real_sdk_clients_without_stream_deadline(monkeypatch) -> None:
+    import mellea.backends.openai as backend_module
+
+    monkeypatch.setattr(backend_module, "is_vllm_server_with_structured_output", lambda **_kwargs: False)
+    config = _profile().resolve({"TEST_MODEL_KEY": "offline-secret"})
+
+    async def inspect_clients():
+        session = start_mellea_session(config)
+        try:
+            for client in (session.backend._client, session.backend._async_client):
+                assert client.timeout == 300
+                assert client.max_retries == 0
+            options = config.mellea_call_options(max_tokens=64)
+            assert options[ModelOption.STREAM_TIMEOUT] is None
+        finally:
+            await session.backend._async_client.close()
+            session.backend._client.close()
+
+    asyncio.run(inspect_clients())
 
 
 _REVIEWERS = (

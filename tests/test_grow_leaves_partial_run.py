@@ -35,7 +35,11 @@ TEXT = (
 
 
 @pytest.fixture(autouse=True)
-def synthetic_source_boundary(monkeypatch) -> None:
+def synthetic_source_boundary(tmp_path, monkeypatch) -> None:
+    (tmp_path / ".env").write_text(
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=rule\nMELLEA_LRC_FIELD_EXTRACTION_COURT=rule\nMELLEA_LRC_FIELD_EXTRACTION_DATE=rule\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=rule\n"
+    )
+    monkeypatch.chdir(tmp_path)
     # These fixtures test leaf-prefix recovery and scoring. Native source
     # metadata and runner preflight are covered by test_evaluation_end_to_end.
     monkeypatch.setattr(runner, "validate_source", lambda document, **_kwargs: None)
@@ -329,7 +333,7 @@ def test_prefix_scoring_and_default_run_report_include_only_completed_leaf_stage
     assert "## Leaf attribution\n" not in report
     for substage in PREFIX:
         assert substage in report
-    for substage in tuple(evaluation.GROW_LEAVES_SCORERS)[len(PREFIX) :]:
+    for substage in set(evaluation.GROW_LEAVES_SCORERS) - set(PREFIX):
         assert substage not in report
 
     score_module = importlib.import_module("evaluations.score_run")
@@ -352,7 +356,11 @@ def test_completed_workflow_retains_full_span_and_attribution_scoring(tmp_path: 
     expected = tuple(
         substage
         for substage in evaluation.GROW_LEAVES_SCORERS
-        if substage != evaluation.SUPRA_REVIEW_SUBSTAGE
+        if substage
+        not in {
+            evaluation.SUPRA_REVIEW_SUBSTAGE,
+            "grow_leaves.grow_short_reporter_leaves.predict_fields_ml",
+        }
     )
     assert tuple(substage.substage for substage in score.substages) == expected
     assert score.leaf_spans["all_leaves"] == FieldScore(3, 3, 3)

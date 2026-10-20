@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 
 from mellea_lrc.model.citations import FullReporterCitation
+from mellea_lrc.model.citations.fields.base import current_reading
 from mellea_lrc.model.citations.fields.case_name import CaseNameKind
 from mellea_lrc.model.citations.fields.court import Court, court_id_if_unique
 from mellea_lrc.model.citations.fields.reporter import normalize_reporter_locator
@@ -29,8 +30,8 @@ def locator_present(cluster: CourtListenerCluster, query: ReporterExactLookupQue
 
 
 def case_name_result(citation: FullReporterCitation, candidate: CourtListenerCluster) -> MatchResult:
-    reading = citation.case_name[-1]
-    if not reading.normalizable or not candidate.case_name_full:
+    reading = current_reading(citation.case_name)
+    if reading is None or not reading.normalizable or not candidate.case_name_full:
         return MatchResult.UNAVAILABLE
     name = reading.get_normalized()
     if name.kind is CaseNameKind.PARTIAL:
@@ -66,16 +67,16 @@ def candidate_court_id(
 def court_result(
     citation: FullReporterCitation, candidate: CourtListenerCluster, docket: CourtListenerDocket | None
 ) -> MatchResult:
-    reading = citation.court[-1]
+    reading = current_reading(citation.court)
     court_id = candidate_court_id(candidate, docket)
-    if not reading.normalizable or court_id is None:
+    if reading is None or not reading.normalizable or court_id is None:
         return MatchResult.UNAVAILABLE
     return MatchResult.MATCH if reading.get_normalized().id == court_id else MatchResult.MISMATCH
 
 
 def date_result(citation: FullReporterCitation, candidate: CourtListenerCluster) -> MatchResult:
-    reading = citation.date[-1]
-    if not reading.normalizable:
+    reading = current_reading(citation.date)
+    if reading is None or not reading.normalizable:
         return MatchResult.UNAVAILABLE
     source = reading.get_normalized()
     written = candidate.date_filed or ""

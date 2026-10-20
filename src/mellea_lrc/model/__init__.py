@@ -92,7 +92,7 @@ from mellea_lrc.model.preprocessed_document import (
     TableOfAuthoritiesComponent,
 )
 from mellea_lrc.model.source import DocumentBase, SourceFormat, SourceMetadata
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 __all__ = [
     "DEFAULT_RULES",

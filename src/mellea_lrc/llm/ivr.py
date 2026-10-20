@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
-import math
 from collections.abc import Mapping
 from copy import copy
 from dataclasses import dataclass, field
@@ -12,6 +10,7 @@ from enum import Enum
 from threading import Lock
 from typing import TYPE_CHECKING
 
+from openai import APITimeoutError
 from pydantic import BaseModel, JsonValue, ValidationError
 
 from mellea_lrc.llm.config import OUTPUT_MODE_OPTION, PROFILE_OPTION, LlmOutputMode
@@ -79,7 +78,6 @@ async def run_instruct_ivr(
     from mellea.stdlib import functional as mfuncs
     from mellea.stdlib.context import ChatContext
 
-    timeout_seconds = _call_timeout_seconds(model_options)
     if PROFILE_OPTION in model_options:
         profile = model_options[PROFILE_OPTION]
         if not isinstance(profile, Mapping):
@@ -91,6 +89,8 @@ async def run_instruct_ivr(
     description, variables, wire_format, options = _output_transport(spec, model_options)
     local_strategy = copy(strategy)
     native_repair = local_strategy.repair
+    native_iteration = local_strategy._subsample_iteration
+    http_timeout: APITimeoutError | None = None
     completed: dict[int, tuple[object, IvrAttempt]] = {}
     history_lock = Lock()
     pending: IvrAttempt | None = None
@@ -101,8 +101,8 @@ async def run_instruct_ivr(
             nonlocal pending, pending_generation
             generation = ctx.last_output()
             if generation is not None:
-                # Grounding can consume a deadline before the repair hook runs.
-                # Preserve the actual generation before invoking that validator.
+                # Retain an answer before validation, including a validation
+                # that itself requires an HTTP request and might fail.
                 with history_lock:
                     if generation is not pending_generation:
                         pending = _attempts((generation,), ())[0]
@@ -157,29 +157,45 @@ async def run_instruct_ivr(
         return next_action, repair_context
 
     local_strategy.repair = capture_repair
-    instruct = mfuncs.ainstruct(
-        description,
-        context=ChatContext(),
-        backend=session.backend,
-        grounding_context=dict(spec.grounding_context),
-        user_variables=variables,
-        requirements=requirements,
-        strategy=local_strategy,
-        return_sampling_results=True,
-        await_result=True,
-        format=wire_format,
-        model_options=options if spec.prefix is None else {**options, ModelOption.SYSTEM_PROMPT: spec.prefix},
-    )
+
+    async def capture_http_timeout(*args, **kwargs):
+        nonlocal http_timeout
+        try:
+            async for sample in native_iteration(*args, **kwargs):
+                yield sample
+        except APITimeoutError as error:
+            # Mellea 0.7 returns earlier failed samples when a later request
+            # raises. Observe that error on this copied strategy so the trace
+            # includes the interrupted request as well as completed repairs.
+            http_timeout = error
+            raise
+
+    local_strategy._subsample_iteration = capture_http_timeout
     try:
-        # Mellea's stream timeout guards a missing chunk, but some provider
-        # failures leave an open request after a stream has begun.  The outer
-        # deadline turns that condition into an inspectable failed IVR run so
-        # callers can defer safely and persist the reason.
-        sampled = await asyncio.wait_for(instruct, timeout=timeout_seconds)
-    except TimeoutError:
+        # Only the backend HTTP client enforces a time limit. Validation and
+        # subsequent repairs do not share a review-wide deadline.
+        sampled = await mfuncs.ainstruct(
+            description,
+            context=ChatContext(),
+            backend=session.backend,
+            grounding_context=dict(spec.grounding_context),
+            user_variables=variables,
+            requirements=requirements,
+            strategy=local_strategy,
+            return_sampling_results=True,
+            await_result=True,
+            format=wire_format,
+            model_options=options
+            if spec.prefix is None
+            else {**options, ModelOption.SYSTEM_PROMPT: spec.prefix},
+        )
+    except APITimeoutError as error:
+        http_timeout = error
+        sampled = None
+    if http_timeout is not None and (sampled is None or not sampled.success):
         with history_lock:
             attempts = tuple(attempt for _, attempt in completed.values())
-        return _timed_out_ivr_run(session, spec, model_options, timeout_seconds, attempts, pending)
+        return _http_timeout_ivr_run(session, spec, model_options, http_timeout, attempts, pending)
     return _to_ivr_run(session, spec, model_options, sampled)
 
 
@@ -218,33 +234,18 @@ def _output_transport(
 
 
 _SCHEMA_REQUIREMENT = "Return exactly one JSON object matching the required output schema."
-_CALL_TIMEOUT_REQUIREMENT = "The model response completed within the configured timeout."
+_HTTP_TIMEOUT_REQUIREMENT = "The provider HTTP request completed within its configured timeout."
 
 
-def _call_timeout_seconds(model_options: Mapping[object, object]) -> float:
-    """Read the project-owned whole-call limit from Mellea call options."""
-    from mellea.backends import ModelOption
-
-    value = model_options.get(ModelOption.STREAM_TIMEOUT)
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int | float)
-        or not math.isfinite(value)
-        or value <= 0
-    ):
-        raise ValueError("IVR requires a finite, positive stream_timeout from its configured profile")
-    return float(value)
-
-
-def _timed_out_ivr_run(
+def _http_timeout_ivr_run(
     session: MelleaSession,
     spec: InstructIvrSpec,
     model_options: Mapping[object, object],
-    timeout_seconds: float,
+    error: APITimeoutError,
     completed_attempts: tuple[IvrAttempt, ...] = (),
     pending_attempt: IvrAttempt | None = None,
 ) -> IvrRun:
-    """Represent an outer call deadline using the same artifact shape as IVR repair failure."""
+    """Retain an actual HTTP timeout and every preceding generation/repair."""
     return IvrRun(
         success=False,
         selected_attempt=len(completed_attempts),
@@ -257,9 +258,9 @@ def _timed_out_ivr_run(
                 requirements=(
                     *(pending_attempt.requirements if pending_attempt is not None else ()),
                     IvrRequirementAttempt(
-                        description=_CALL_TIMEOUT_REQUIREMENT,
+                        description=_HTTP_TIMEOUT_REQUIREMENT,
                         passed=False,
-                        reason=(f"Model call exceeded the configured {timeout_seconds:g}-second timeout."),
+                        reason=f"{type(error).__name__}: {error}",
                         score=None,
                     ),
                 ),

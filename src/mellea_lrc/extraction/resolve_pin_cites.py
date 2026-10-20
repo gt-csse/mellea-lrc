@@ -2,69 +2,38 @@
 
 from __future__ import annotations
 
-import re
-
 from mellea_lrc.config.extraction import ExtractionRules, stable
+from mellea_lrc.config.field_extraction import FieldExtractionConfig
+from mellea_lrc.extraction.context.field_predictions import with_root_rule_prediction
 from mellea_lrc.extraction.context.full_citations import require_structure
+from mellea_lrc.extraction.predict_root_fields_ml import SUBSTAGE as ML_PREDICTION
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
-from mellea_lrc.parsing.pin_cite import PIN_PREFIX
 
 SUBSTAGE = "grow_roots.read_root_fields.resolve_pin_cites"
 
-_BARE_NOTE = re.compile(r"^\s*,?\s*(?:at\s+)?(?P<pin>(?:n{1,2}\.|fn\.?)\s*\d+)", re.I)
-_COURT_ORDINAL = re.compile(r"(?:st|nd|rd|th|d)\b\s+(?:Cir\.|Dept\.|Dist\.)", re.I)
-# A comma-plus-number may start a parallel citation's volume. Its following
-# reporter-like token and page distinguish it from another pinpoint target.
-_PARALLEL_REPORTER = re.compile(
-    r"\s+(?:[A-Z][A-Za-z0-9.]*\.[A-Za-z0-9.]*|[A-Z]{2,})"
-    r"(?:\s+[A-Za-z0-9.]+){0,3}\s+\d+\b"
-)
-_PIN_CONTINUATION = re.compile(
-    r"(?:[A-Za-z0-9]+"
-    r"|[^\S\r\n]*[-–]\s*(?:[A-Za-z0-9*¶]+)?"
-    r"|\s*,\s*(?:\d[\dA-Za-z]*|\*\d+|¶+\s*\d+|n{1,2}\.\s*\w+|fn\.?\s*\w+)"
-    r"|[^\S\r\n]+(?:n{1,2}\.|fn\.?)\s*[^\s;(),]+"
-    r"|[^\S\r\n]+(?:and|&)\s*(?:\d+|n{1,2}\.\s*\w+|fn\.?\s*\w+)"
-    r"|[^\S\r\n]*&\s*(?:n{1,2}\.\s*\w+|fn\.?\s*\w+))",
-    re.I,
-)
 
-
-def resolve_pin_cites(document: Document, rules: ExtractionRules | None = None) -> Document:
+def resolve_pin_cites(
+    document: Document,
+    rules: ExtractionRules | None = None,
+    *,
+    field_extraction: FieldExtractionConfig | None = None,
+) -> Document:
     """Read an adjacent pin, retaining malformed continuations for later review."""
     if SUBSTAGE in document.substage_runs:
         raise ValueError(f"Substage already completed: {SUBSTAGE}")
     require_structure(document)
+    fields = field_extraction or FieldExtractionConfig.from_env()
+    if fields.pin_cite == "ml" and ML_PREDICTION not in document.substage_runs:
+        raise ValueError("Predict ML root fields before using ML pinpoint spans")
     config = rules or stable()
     for citation in document.full_locators:
-        site = citation.locator_span
-        next_start = min(
-            (
-                item.locator_span.start
-                for item in document.full_locators
-                if item.locator_span.start >= site.end
-            ),
-            default=len(document.text),
+        updated = with_root_rule_prediction(citation.record(SUBSTAGE), document, config)
+        prediction = (
+            fields.validate_prediction(updated.get_ml_field_prediction())
+            if fields.pin_cite == "ml"
+            else updated.get_rule_field_prediction()
         )
-        region = document.text[site.end : min(next_start, site.end + config.post_locator_window)]
-        match = PIN_PREFIX.match(region) or _BARE_NOTE.match(region)
-        if match is None:
-            continue
-        end = match.end("pin")
-        if _COURT_ORDINAL.match(region, end):
-            continue
-        if region[end : end + 1] == ":":
-            # A colon immediately after digits is ordinarily prose numbering,
-            # not a pin cite after the locator.
-            continue
-        pin_text = match.group("pin")
-        parallel_reporter = "," in pin_text and _PARALLEL_REPORTER.match(region, end)
-        if parallel_reporter:
-            end = match.start("pin") + pin_text.rfind(",")
-        elif continuation := _PIN_CONTINUATION.match(region, end):
-            # Keep the unread token, without swallowing the following prose.
-            end = len(region[: continuation.end()].rstrip())
-        span = Span(site.end + match.start("pin"), site.end + end)
-        document = document.replace_citation(citation.record(SUBSTAGE).with_pin_cite(document.text, span))
+        if prediction.pin_cite is not None:
+            updated = updated.with_pin_cite(document.text, prediction.pin_cite)
+        document = document.replace_citation(updated)
     return document.complete_substage(SUBSTAGE)

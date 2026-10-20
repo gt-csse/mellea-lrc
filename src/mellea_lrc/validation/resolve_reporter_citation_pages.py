@@ -14,6 +14,7 @@ from mellea_lrc.model.citations import (
     ShortReporterCitation,
     latest,
 )
+from mellea_lrc.model.citations.fields.base import current_reading
 from mellea_lrc.model.citations.reporter_page_resolution import (
     OpinionPageReference,
     ReporterCitationPageResolution,
@@ -53,13 +54,14 @@ def _resolve(
         "pin_citation_id": sources.pin.id if pin_log else None,
         "pin_reading_index": len(pin_log) - 1 if pin_log else None,
     }
-    if not pin_log:
+    pin_reading = current_reading(pin_log)
+    if pin_reading is None:
         return ReporterCitationPageResolution(
             **pointers,
             outcome=ReporterPageResolutionOutcome.NO_PIN,
             reason="No written pinpoint or immediately inherited Id. pinpoint",
         )
-    if not locator_log[-1].normalizable or not pin_log[-1].normalizable:
+    if not locator_log[-1].normalizable or not pin_reading.normalizable:
         return ReporterCitationPageResolution(
             **pointers,
             outcome=ReporterPageResolutionOutcome.UNNORMALIZABLE,
@@ -67,7 +69,7 @@ def _resolve(
         )
     locator = locator_log[-1].get_normalized()
     pages: list[ReporterPageCandidates] = []
-    for target_index, target in enumerate(pin_log[-1].get_normalized()):
+    for target_index, target in enumerate(pin_reading.get_normalized()):
         for label in range(target.first, target.last + 1):
             candidates: list[OpinionPageReference] = []
             for opinion in root.reporter_root_opinion_page_index.opinions:
@@ -144,7 +146,7 @@ def resolve_reporter_citation_pages(document: Document) -> Document:
         locator_source = (
             citation if isinstance(citation, (FullReporterCitation, ShortReporterCitation)) else root
         )
-        pin_source = citation if citation.pin_cite else None
+        pin_source = citation if current_reading(citation.pin_cite) is not None else None
         if isinstance(citation, IdCitation) and prior_root == root_id and prior_sources is not None:
             locator_source = prior_sources.locator
             if pin_source is None:

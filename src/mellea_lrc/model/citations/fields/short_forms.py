@@ -8,8 +8,8 @@ from typing import Literal, Self
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
-from mellea_lrc.model.span import Span
 from mellea_lrc.parsing.markers import ID_MARKER
+from mellea_lrc.parsing.span import Span
 from mellea_lrc.parsing.supra import supra_readings
 
 

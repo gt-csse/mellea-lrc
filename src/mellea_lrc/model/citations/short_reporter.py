@@ -10,7 +10,7 @@ from mellea_lrc.model.citations.fields import PinCiteField, ShortReporterLocator
 from mellea_lrc.model.citations.history import Node, RelationshipUpdate
 from mellea_lrc.model.citations.kind import ShortCitationKind
 from mellea_lrc.model.citations.leaf import LeafCitation
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 
 class ShortReporterCitation(LeafCitation):

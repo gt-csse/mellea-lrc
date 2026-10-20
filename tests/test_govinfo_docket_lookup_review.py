@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from mellea_lrc.api import Document, grow_roots
-from mellea_lrc.providers.govinfo import GovInfoSearchPage
 from mellea_lrc.model.citations.docket_lookup import (
     DocketLookupCaseNameAssessment,
     DocketLookupFieldAssessment,
     DocketLookupReviewDecision,
 )
+from mellea_lrc.model.citations.fields.base import NotStatedField, current_reading
 from mellea_lrc.model.citations.fields.case_name import CaseName
 from mellea_lrc.model.citations.judgments import MatchResult
+from mellea_lrc.providers.govinfo import GovInfoSearchPage
 from mellea_lrc.validation.retrieve_govinfo_docket_roots import retrieve_govinfo_docket_roots
 from mellea_lrc.validation.review_govinfo_docket_roots_llm import review_govinfo_docket_roots_llm
 from mellea_lrc.validation.review_govinfo_docket_roots_llm.reviewer import GovInfoDocketReviewContext
@@ -40,7 +43,7 @@ def _input(*, results: list[dict[str, object]]) -> Document:
 
 def _field(result: MatchResult, *, quote: str | None = None) -> DocketLookupFieldAssessment:
     return DocketLookupFieldAssessment(
-        propose_replacement=quote is not None,
+        action="replace" if quote is not None else "keep",
         quote=quote,
         result=result,
         reason="Compared the filing and the saved package.",
@@ -53,7 +56,7 @@ def _decision(index: int | None, *, docket_quote: str | None = None) -> DocketLo
         selected_candidate_index=index,
         docket_number=_field(result, quote=docket_quote),
         case_name=DocketLookupCaseNameAssessment(
-            propose_replacement=False,
+            action="keep",
             quote=None,
             normalized=CaseName.from_quote("Acme v. Reed") if index is not None else None,
             result=result,
@@ -131,3 +134,39 @@ def test_ungrounded_correction_is_saved_as_failure() -> None:
     assert after.roots[0].locator == before.roots[0].locator
     assert after.roots[0].identity_judgments == before.roots[0].identity_judgments
     assert after.roots[0].routes == before.roots[0].routes
+
+
+@pytest.mark.parametrize("field", ("case_name", "court", "date"))
+def test_govinfo_review_clears_fields_without_erasing_the_previous_reading(field: str) -> None:
+    before = _input(
+        results=[
+            {
+                "packageId": "USCOURTS-mad-2_31-cv-45821",
+                "title": "Acme v. Reed",
+                "governmentAuthor": ["United States District Court for the District of Massachusetts"],
+            }
+        ]
+    )
+    prior = before.roots[0]
+    payload = _decision(0).model_dump(mode="json")
+    payload[field].update(action="not_stated", quote=None, result="unavailable")
+    if field == "case_name":
+        payload[field]["normalized"] = None
+    decision = DocketLookupReviewDecision.model_validate(payload)
+
+    async def reviewer(context: GovInfoDocketReviewContext) -> DocketLookupReviewDecision:
+        assert context.choice_error(decision) is None
+        return decision
+
+    after = asyncio.run(review_govinfo_docket_roots_llm(before, reviewer=reviewer))
+    root = after.roots[0]
+    readings = getattr(root, field)
+    assert readings[:-1] == getattr(prior, field)
+    assert isinstance(readings[-1], NotStatedField)
+    assert readings[-1].node_id == root.govinfo_docket_review.node_id
+    assert current_reading(readings) is None
+    assert root.govinfo_docket_review.decision is not None
+    restored = Document.model_validate_json(after.model_dump_json())
+    assert restored == after
+    assert restored.get_substage(before.substage_runs[-1]) == before
+    assert GovInfoDocketReviewContext.from_document(after, root).readings[field] is None

@@ -11,8 +11,12 @@ from mellea_lrc.extraction.correct_leaf_fields.reviewer import (
     LeafFieldCorrectionReviewer,
 )
 from mellea_lrc.llm.profiles import load_profile
-from mellea_lrc.model.citations import Citation, latest
-from mellea_lrc.model.citations.leaf_field_correction import LeafFieldCorrectionReview
+from mellea_lrc.model.citations import Citation, current_reading, latest
+from mellea_lrc.model.citations.judgments import FieldCorrectionAction
+from mellea_lrc.model.citations.leaf_field_correction import (
+    ClearedLeafFieldCorrection,
+    LeafFieldCorrectionReview,
+)
 from mellea_lrc.model.document import Document
 
 SUBSTAGE = "grow_leaves.correct_leaf_readings.correct_leaf_fields"
@@ -33,10 +37,26 @@ def _apply(
         failure = "Leaf field correction review returned no decision"
     corrected = citation
     results = []
+    cleared = []
     if failure is None and grounded is not None:
+        for proposal in decision.fields:
+            if proposal.action is not FieldCorrectionAction.NOT_STATED:
+                continue
+            field = proposal.field
+            applied = current_reading(getattr(corrected, field)) is not None
+            # Even an already absent field has a durable explicit review result.
+            # Append only when no absent reading already describes the state.
+            if applied or not getattr(corrected, field):
+                corrected = getattr(corrected, f"with_{field}_not_stated")()
+                applied = True
+            cleared.append(
+                ClearedLeafFieldCorrection(
+                    field=field, reading_index=len(getattr(corrected, field)) - 1, applied=applied
+                )
+            )
         for field, result in grounded.items():
             history = getattr(corrected, field, None)
-            prior = history[-1] if history else None
+            prior = current_reading(history or ())
             proposal = next(item for item in decision.fields if item.field == field)
             normalized = proposal.normalized
             applied = (
@@ -64,6 +84,7 @@ def _apply(
             windows=context.windows,
             decision=None if failure else decision,
             grounded=tuple(results),
+            cleared=tuple(cleared),
             ivr=outcome.run,
             failure_reason=failure,
         )

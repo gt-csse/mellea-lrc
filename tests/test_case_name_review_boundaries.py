@@ -16,18 +16,18 @@ from mellea_lrc.model.citations.reporter_lookup import ReporterCaseNameAssessmen
     (ReporterCaseNameAssessment, DocketLookupCaseNameAssessment),
 )
 @pytest.mark.parametrize(
-    ("propose_replacement", "quote"),
-    ((False, None), (True, "Acme v. Reed")),
+    ("action", "quote"),
+    (("keep", None), ("replace", "Acme v. Reed")),
 )
 def test_reviewer_assessment_rejects_not_stated_name(
     assessment_type: type[ReporterCaseNameAssessment | DocketLookupCaseNameAssessment],
-    propose_replacement: bool,
+    action: str,
     quote: str | None,
 ) -> None:
     with pytest.raises(ValidationError, match="must describe a quoted name"):
         assessment_type.model_validate(
             {
-                "propose_replacement": propose_replacement,
+                "action": action,
                 "quote": quote,
                 "normalized": {"kind": "not_stated"},
                 "result": MatchResult.UNAVAILABLE,
@@ -45,7 +45,7 @@ def test_reviewer_assessment_keeps_null_for_no_name(
 ) -> None:
     response = assessment_type.model_validate(
         {
-            "propose_replacement": False,
+            "action": "keep",
             "quote": None,
             "normalized": None,
             "result": MatchResult.UNAVAILABLE,

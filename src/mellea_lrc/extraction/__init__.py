@@ -12,6 +12,8 @@ from mellea_lrc.extraction.find_short_reporter_citations import find_short_repor
 from mellea_lrc.extraction.find_supra_citations import find_supra_citations
 from mellea_lrc.extraction.form_roots import form_roots
 from mellea_lrc.extraction.hunt_docket_locators import hunt_docket_locators
+from mellea_lrc.extraction.predict_root_fields_ml import predict_root_fields_ml
+from mellea_lrc.extraction.predict_short_reporter_fields_ml import predict_short_reporter_fields_ml
 from mellea_lrc.extraction.reassign_docket_roots_llm import reassign_docket_roots_llm
 from mellea_lrc.extraction.resolve_case_names import resolve_case_names
 from mellea_lrc.extraction.resolve_colocations import resolve_colocations
@@ -38,6 +40,8 @@ __all__ = [
     "find_supra_citations",
     "form_roots",
     "hunt_docket_locators",
+    "predict_root_fields_ml",
+    "predict_short_reporter_fields_ml",
     "reassign_docket_roots_llm",
     "resolve_case_names",
     "resolve_colocations",

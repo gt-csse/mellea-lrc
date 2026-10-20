@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from mellea_lrc.config.field_extraction import FieldExtractionConfig
 from mellea_lrc.extraction.correct_leaf_fields.reviewer import LeafFieldCorrectionReviewer
 from mellea_lrc.extraction.leaf_attribution_review.reviewer import LeafReviewer
+from mellea_lrc.extraction.predict_short_reporter_fields_ml import SUBSTAGE as ML_PREDICTION
 from mellea_lrc.model.document import Document
 from mellea_lrc.workflows import Checkpoint, validate_workflow_checkpoint
 from mellea_lrc.workflows.grow_leaves.correct_leaf_readings import correct_leaf_readings
@@ -16,17 +18,30 @@ from mellea_lrc.workflows.grow_leaves.grow_supra_leaves import grow_supra_leaves
 async def grow_leaves(
     document: Document,
     *,
+    field_extraction: FieldExtractionConfig | None = None,
     review_leaves: bool = True,
     reviewer: LeafReviewer | None = None,
     correction_reviewer: LeafFieldCorrectionReviewer | None = None,
     checkpoint: Checkpoint | None = None,
 ) -> Document:
     """Attach short forms to formed roots through five resumable groups."""
-    omitted = () if review_leaves else ("grow_leaves.grow_supra_leaves.review_attributions_llm",)
+    fields = field_extraction or FieldExtractionConfig.from_env()
+    omitted = (() if fields.ml_enabled else (ML_PREDICTION,)) + (
+        () if review_leaves else ("grow_leaves.grow_supra_leaves.review_attributions_llm",)
+    )
     validate_workflow_checkpoint(document, "grow_leaves", omitted_substages=omitted)
+    if fields.ml_enabled:
+        for citation in document.short_reporters:
+            if citation.ml_field_reading is not None:
+                fields.validate_prediction(citation.ml_field_reading.prediction)
+    fields.validate_runtime()
     if "grow_leaves.grow_short_reporter_leaves" not in document.stage_runs:
         document = await grow_short_reporter_leaves(
-            document, review_leaves=review_leaves, reviewer=reviewer, checkpoint=checkpoint
+            document,
+            field_extraction=fields,
+            review_leaves=review_leaves,
+            reviewer=reviewer,
+            checkpoint=checkpoint,
         )
     if "grow_leaves.grow_reference_leaves" not in document.stage_runs:
         document = await grow_reference_leaves(

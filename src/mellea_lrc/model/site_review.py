@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 
 class SiteReview(BaseModel):

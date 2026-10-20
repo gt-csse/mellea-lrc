@@ -15,7 +15,7 @@ from mellea_lrc.model.citations.fields.base import require_all_json_properties
 from mellea_lrc.model.citations.fields.pin_cite import PinCiteTarget
 from mellea_lrc.model.citations.reporter_page_resolution import OpinionPageReference
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 
 class GroundedPassage(BaseModel):

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from mellea_lrc.matching.literal_to_regex import fuzzy_literal
 from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 SUBSTAGE = "grow_roots.discover_root_locators.find_docket_locators"
 

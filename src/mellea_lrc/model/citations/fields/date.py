@@ -2,28 +2,15 @@
 
 from __future__ import annotations
 
-import re
 from datetime import date
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.dates import FULL_DATE_RE, MONTH_YEAR_RE, YEAR_RE
+from mellea_lrc.parsing.span import Span
 
-YEAR_RE = re.compile(r"(?<!\d)(?:1[6789]\d{2}|20\d{2}|21\d{2})(?!\d)")
-FULL_DATE_RE = re.compile(
-    r"\b(?P<month>Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
-    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
-    r"\.?\s+(?P<day>\d{1,2}),?\s+(?P<year>(?:1[6789]|20|21)\d{2})\b",
-    re.I,
-)
-MONTH_YEAR_RE = re.compile(
-    r"\b(?P<month>Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
-    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
-    r"\.?\s+(?P<year>(?:1[6789]|20|21)\d{2})\b",
-    re.I,
-)
 _MONTHS = {
     "jan": 1,
     "feb": 2,

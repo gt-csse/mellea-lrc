@@ -8,7 +8,7 @@ from pathlib import Path
 
 from mellea_lrc.model import Document, PreprocessedDocument, Rule
 from mellea_lrc.model.citations.tags import CitationTagKind
-from mellea_lrc.model.span import is_within
+from mellea_lrc.parsing.span import is_within
 
 
 def load_source(path: Path) -> Document:

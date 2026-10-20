@@ -11,6 +11,7 @@ from mellea_lrc.extraction.leaf_attribution_review.reviewer import (
 )
 from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model.citations import AttributionResult, ReferenceCitation
+from mellea_lrc.model.citations.fields.base import current_reading
 from mellea_lrc.model.document import Document
 
 SUBSTAGE = "grow_leaves.grow_reference_leaves.attribute_citations"
@@ -32,7 +33,8 @@ async def attribute_reference_citations(
     for citation in document.short_citations:
         if not isinstance(citation, ReferenceCitation):
             continue
-        candidates = name_candidates(document, citation.case_name[-1].quote, before=None)
+        name = current_reading(citation.case_name)
+        candidates = name_candidates(document, name.quote, before=None) if name is not None else ()
         attach = len(candidates) == 1
         updated = citation.record(SUBSTAGE).with_attribution(
             candidates,

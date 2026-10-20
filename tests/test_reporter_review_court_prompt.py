@@ -8,20 +8,20 @@ import re
 from dataclasses import replace
 from types import ModuleType
 
-from mellea_lrc.providers.courtlistener import CourtListenerCluster, CourtListenerDocket
 from mellea_lrc.llm.ivr import InstructIvrSpec
 from mellea_lrc.model import Span
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.fields.court import Court
 from mellea_lrc.model.ivr import IvrAttempt, IvrRun
-from mellea_lrc.validation.review_ambiguous_reporter_roots_llm import (
-    reviewer as reporter_ambiguous_llm,
-)
-from mellea_lrc.validation.review_unique_reporter_roots_llm import reviewer as reporter_unique_llm
+from mellea_lrc.providers.courtlistener import CourtListenerCluster, CourtListenerDocket
 from mellea_lrc.validation.reporter_review.court_context import (
     inferred_reporter_court_note,
     reporter_court_context,
 )
+from mellea_lrc.validation.review_ambiguous_reporter_roots_llm import (
+    reviewer as reporter_ambiguous_llm,
+)
+from mellea_lrc.validation.review_unique_reporter_roots_llm import reviewer as reporter_unique_llm
 
 
 def _cluster(identifier: int, court_id: str) -> CourtListenerCluster:
@@ -252,7 +252,8 @@ def test_inferred_court_note_is_conditional_in_both_reporter_review_prompts(monk
         assert "{{inferred_court_note}}" in spec.description
         assert spec.user_variables["inferred_court_note"] == note
         assert "unavailable" in spec.prefix.lower()
-        assert "not_stated" not in spec.prefix.lower()
+        assert "action=not_stated" in spec.prefix.lower()
+        assert "result=not_stated" not in spec.prefix.lower()
 
         without_note = replace(context, inferred_court_note=None)
         plain_spec = _capture_spec(monkeypatch, module, reviewer, without_note)

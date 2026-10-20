@@ -212,7 +212,7 @@ def test_missing_corrected_field_node_raises_validation_error():
                 fields=(
                     LeafFieldCorrectionProposal(
                         field="case_name",
-                        propose_replacement=True,
+                        action="replace",
                         quote=reading.quote,
                         reason="Keep grounded name.",
                     ),

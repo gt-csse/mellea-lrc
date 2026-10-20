@@ -6,7 +6,7 @@ import re
 from collections.abc import Sequence
 
 from mellea_lrc.model.colocation import Colocation
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 _SEPARATE_CITATION = re.compile(r"…|\.{2,}|\bvs?\.|\n\s*\n|\.\s+[A-Z]", re.I)
 

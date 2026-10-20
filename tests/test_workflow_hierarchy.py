@@ -269,7 +269,7 @@ def test_body_resume_rejects_changed_cutoff_before_saved_evidence_reaches_review
 
     from mellea_lrc.model.citations.body_evidence import BodyEvidence, BodySearch, BodySource
     from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch
-    from mellea_lrc.model.span import Span
+    from mellea_lrc.parsing.span import Span
 
     document = _invoke(api.grow_roots, Document.from_source("Alpha v. Beta, 123 F.3d 456 (2001)."))
     calls = []

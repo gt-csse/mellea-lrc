@@ -15,6 +15,7 @@ from mellea_lrc.model.citations.docket_lookup import (
     DocketLookupFailure,
     DocketLookupReviewDecision,
 )
+from mellea_lrc.model.citations.fields.base import NotStatedField, current_reading
 from mellea_lrc.model.citations.fields.case_name import CaseNameKind
 from mellea_lrc.model.citations.judgments import MatchResult
 from mellea_lrc.model.ivr import IvrRun
@@ -50,7 +51,7 @@ def _decision(
 
     def assessment(result: str, quote: str | None = None) -> dict[str, object]:
         return {
-            "propose_replacement": quote is not None,
+            "action": "replace" if quote is not None else "keep",
             "quote": quote,
             "result": result,
             "reason": "The filing and candidate were compared.",
@@ -606,3 +607,41 @@ def test_ivr_prompt_distinguishes_docket_and_opinion_dates(monkeypatch: pytest.M
     assert "may be wrong" in spec.prefix
     assert '"candidate_index":0' in spec.user_variables["candidates"]
     assert json.loads(spec.user_variables["search_status"])["incomplete"] is False
+
+
+@pytest.mark.parametrize("field", ("case_name", "court", "date"))
+def test_courtlistener_docket_review_clears_fields_with_append_only_readings(field: str) -> None:
+    before = _document(shortlist=(0,))
+    prior = before.roots[0]
+    payload = _decision(0).model_dump(mode="json")
+    payload[field].update(action="not_stated", quote=None, result="unavailable")
+    if field == "case_name":
+        payload[field]["normalized"] = None
+    decision = DocketLookupReviewDecision.model_validate(payload)
+
+    async def reviewer(context: DocketLookupReviewContext) -> DocketLookupReviewDecision:
+        assert context.choice_error(decision) is None
+        return decision
+
+    after = asyncio.run(review_courtlistener_docket_roots_llm(before, reviewer=reviewer))
+    root = after.roots[0]
+    readings = getattr(root, field)
+    assert readings[:-1] == getattr(prior, field)
+    assert isinstance(readings[-1], NotStatedField)
+    assert readings[-1].node_id == root.docket_lookup_review.node_id
+    assert current_reading(readings) is None
+    assert root.docket_lookup_review.decision is not None
+    assert getattr(root.docket_lookup_review.decision, field).result is MatchResult.UNAVAILABLE
+    restored = Document.model_validate_json(after.model_dump_json())
+    assert restored == after
+    assert restored.get_substage(before.substage_runs[-1]) == before
+    assert DocketLookupReviewContext.from_document(after, root).readings[field] is None
+
+
+def test_required_docket_number_cannot_be_cleared() -> None:
+    from pydantic import ValidationError
+
+    payload = _decision(0).model_dump(mode="json")
+    payload["docket_number"].update(action="not_stated", quote=None, result="unavailable")
+    with pytest.raises(ValidationError, match="required docket number"):
+        DocketLookupReviewDecision.model_validate(payload)

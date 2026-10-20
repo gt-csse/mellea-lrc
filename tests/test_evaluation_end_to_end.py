@@ -13,15 +13,28 @@ import pytest
 
 from evaluations import __main__ as runner
 from evaluations import complete_stage_boundary
-from evaluations import score_run as scoring
 from evaluations import run_grow_leaves as leaf_runner
 from evaluations import run_validate_all_citation_content as pinpoint_runner
+from evaluations import score_run as scoring
 from evaluations.sources import load_source, validate_source
 from mellea_lrc.api import grow_roots
+from mellea_lrc.config.field_extraction import FieldExtractionConfig
 from mellea_lrc.model import Document
 from mellea_lrc.model.preprocessed_document import DEFAULT_RULES, PreprocessingBackend, Rule
 from mellea_lrc.model.source import SourceFormat
 from mellea_lrc.providers.courtlistener import CourtListenerHTTPError
+
+_RULE_FIELDS = FieldExtractionConfig(
+    ml_enabled=False, case_name="rule", court="rule", date="rule", pin_cite="rule"
+)
+
+
+@pytest.fixture(autouse=True)
+def explicit_rule_field_extraction(tmp_path, monkeypatch):
+    (tmp_path / ".env").write_text(
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=rule\nMELLEA_LRC_FIELD_EXTRACTION_COURT=rule\nMELLEA_LRC_FIELD_EXTRACTION_DATE=rule\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=rule\n"
+    )
+    monkeypatch.chdir(tmp_path)
 
 
 @pytest.mark.parametrize("interruption", ["review", "opinion_http"])
@@ -66,6 +79,7 @@ def test_end_to_end_composes_four_workflows_and_resumes_without_duplicate_atomic
             pass
 
     (tmp_path / ".env").write_text(
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=rule\nMELLEA_LRC_FIELD_EXTRACTION_COURT=rule\nMELLEA_LRC_FIELD_EXTRACTION_DATE=rule\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=rule\n"
         "COURTLISTENER_BASE_URL=https://proxy.example/api/rest/v4/\n"
         "COURTLISTENER_TIMEOUT_SECONDS=45\n"
         "COURTLISTENER_API_TOKEN=must-not-be-used\n"
@@ -80,7 +94,11 @@ def test_end_to_end_composes_four_workflows_and_resumes_without_duplicate_atomic
             nonlocal interrupted, retrieval_attempts
             await asyncio.sleep(0)
             if name == "grow_roots":
-                assert kwargs == {"hunt_dockets": True, "review_docket_roots": True}
+                assert kwargs == {
+                    "hunt_dockets": True,
+                    "review_docket_roots": True,
+                    "field_extraction": _RULE_FIELDS,
+                }
             elif name == "validate_roots_citation_identity":
                 assert kwargs["retrospective_date"] is None
                 assert kwargs["courtlistener_client"] in clients
@@ -89,6 +107,7 @@ def test_end_to_end_composes_four_workflows_and_resumes_without_duplicate_atomic
                 assert kwargs["client"] in clients
             elif name == "grow_leaves":
                 assert kwargs["review_leaves"] is True
+                assert kwargs["field_extraction"] == _RULE_FIELDS
             filename = Path(document.source_path).name
             for substage in runner._E2E_SUBSTAGES:
                 if not substage.startswith(name + ".") or substage in document.substage_runs:
@@ -156,6 +175,7 @@ def test_end_to_end_composes_four_workflows_and_resumes_without_duplicate_atomic
     saved = json.loads((run_dir / "run.json").read_text())
     assert saved["status"] == "failed" and saved["end_to_end"]
     assert saved["model_profiles"] == profiles
+    assert saved["field_extraction"] == _RULE_FIELDS.model_dump(mode="json")
     assert saved["git_commit"] == runner._git_commit()
     assert saved["workers"] == workers
     assert saved["annotation_sha256"] == runner._annotation_sha256(data_root, list(filenames))
@@ -422,7 +442,7 @@ def test_standalone_runner_rejects_missing_creation_tags_in_all_inputs_before_wo
         monkeypatch.setattr(selected_runner, "grow_leaves", unexpected)
         options = {"input_substage": runner._ROOT_SUBSTAGE}
     else:
-        monkeypatch.setattr(selected_runner, "_resolved_model_profiles", lambda: {})
+        monkeypatch.setattr(selected_runner, "_resolved_model_profiles", dict)
         monkeypatch.setattr(selected_runner, "CourtListenerClient", unexpected)
         options = {}
     with pytest.raises(ValueError, match="missing source table-of-authorities tags"):

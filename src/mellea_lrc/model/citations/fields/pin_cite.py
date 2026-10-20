@@ -14,8 +14,8 @@ from mellea_lrc.model.citations.fields.base import (
     require_all_json_properties,
     source_quote,
 )
-from mellea_lrc.model.span import Span
 from mellea_lrc.parsing.pin_cite import AT_PREFIX, PIN_PART, PIN_RANGE_JOIN
+from mellea_lrc.parsing.span import Span
 
 
 class PinCiteKind(StrEnum):

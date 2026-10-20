@@ -18,6 +18,7 @@ from evaluations import __main__ as runner
 from evaluations import complete_stage_boundary
 from mellea_lrc import api
 from mellea_lrc.api import Document, grow_roots
+from mellea_lrc.config.field_extraction import FieldExtractionConfig
 from mellea_lrc.model import (
     DocketLookup,
     DocketLookupAttempt,
@@ -36,11 +37,90 @@ from mellea_lrc.model.citations.govinfo_lookup import GovInfoDocketLookup, GovIn
 from mellea_lrc.model.execution import stage_for_substage
 from mellea_lrc.providers.courtlistener import CourtListenerClient
 
+_RULE_FIELDS = FieldExtractionConfig(
+    ml_enabled=False, case_name="rule", court="rule", date="rule", pin_cite="rule"
+)
+
 _ROOT_WORKFLOW = importlib.import_module("mellea_lrc.workflows.validate_roots_citation_identity")
 _LOCATOR_REVIEW = _ROOT_WORKFLOW.corroborate_locator_bodies
 _BODY_START = runner._RUN_SUBSTAGES.index(runner._COURTLISTENER_OPINION_SUBSTAGE)
 _BODY_INPUT_SUBSTAGES = runner._RUN_SUBSTAGES[:_BODY_START]
 _BODY_SUBSTAGES = runner._RUN_SUBSTAGES[_BODY_START:]
+
+
+def _ml_field_settings() -> dict[str, str]:
+    return {
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED": "true",
+        "MELLEA_LRC_FIELD_EXTRACTION_CASE_NAME": "ml",
+        "MELLEA_LRC_FIELD_EXTRACTION_COURT": "ml",
+        "MELLEA_LRC_FIELD_EXTRACTION_DATE": "ml",
+        "MELLEA_LRC_FIELD_EXTRACTION_PIN_CITE": "rule",
+        "MELLEA_LRC_FIELD_EXTRACTION_MODEL_ID": "fixture/bert",
+        "MELLEA_LRC_FIELD_EXTRACTION_REVISION": "a" * 40,
+        "MELLEA_LRC_FIELD_EXTRACTION_VARIANT": "fixture-augmented",
+        "MELLEA_LRC_FIELD_EXTRACTION_DEVICE": "cpu",
+        "MELLEA_LRC_FIELD_EXTRACTION_CONTEXT_BEFORE": "260",
+        "MELLEA_LRC_FIELD_EXTRACTION_CONTEXT_AFTER": "260",
+        "MELLEA_LRC_FIELD_EXTRACTION_BATCH_SIZE": "2",
+    }
+
+
+def test_end_to_end_ml_adds_inference_before_the_same_consuming_field_steps():
+    config = FieldExtractionConfig.from_env(environ=_ml_field_settings())
+    selected = runner._enabled_field_substages(runner._E2E_SUBSTAGES, config)
+    root_ml = "grow_roots.read_root_fields.predict_fields_ml"
+    short_ml = "grow_leaves.grow_short_reporter_leaves.predict_fields_ml"
+    assert selected.count(root_ml) == selected.count(short_ml) == 1
+    assert tuple(name for name in selected if name not in {root_ml, short_ml}) == runner._E2E_SUBSTAGES
+    assert selected.index(root_ml) == selected.index("grow_roots.read_root_fields.resolve_colocations") + 1
+    assert (
+        selected.index(short_ml)
+        == selected.index("grow_leaves.grow_short_reporter_leaves.resolve_colocations") + 1
+    )
+    assert selected[selected.index(root_ml) + 1].endswith(".resolve_case_names")
+    assert selected[selected.index(short_ml) + 1].endswith(".resolve_case_names")
+
+
+@pytest.mark.parametrize("change", ["missing", "field_source", "revision", "context"])
+def test_resume_rejects_field_configuration_drift_before_work_or_writes(tmp_path, monkeypatch, change):
+    settings = _ml_field_settings()
+    saved_config = FieldExtractionConfig.from_env(environ=settings)
+    run_dir = tmp_path / "saved-run"
+    artifacts = run_dir / "documents"
+    artifacts.mkdir(parents=True)
+    artifact = artifacts / "001.txt.json"
+    artifact.write_text(Document.from_source("Original source.").model_dump_json())
+    record = {"set": "primary", "status": "failed", "field_extraction": saved_config.model_dump(mode="json")}
+    if change == "missing":
+        record.pop("field_extraction")
+    elif change == "field_source":
+        settings["MELLEA_LRC_FIELD_EXTRACTION_CASE_NAME"] = "rule"
+    elif change == "revision":
+        settings["MELLEA_LRC_FIELD_EXTRACTION_REVISION"] = "b" * 40
+    else:
+        settings["MELLEA_LRC_FIELD_EXTRACTION_CONTEXT_BEFORE"] = "128"
+    (tmp_path / ".env").write_text("".join(f"{key}={value}\n" for key, value in settings.items()))
+    record_path = run_dir / "run.json"
+    record_path.write_text(json.dumps(record))
+    before_record, before_artifact = record_path.read_bytes(), artifact.read_bytes()
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail(
+            "Field configuration drift must fail before loading sources, calling providers, or writing"
+        )
+
+    for name in (
+        "grow_roots",
+        "load_source",
+        "CourtListenerClient",
+        "_configured_model_profiles",
+        "_write_json",
+    ):
+        monkeypatch.setattr(runner, name, unexpected)
+    with pytest.raises(ValueError, match="Field extraction settings differ from saved provenance"):
+        asyncio.run(runner._run(tmp_path / "unused", tmp_path / "unused", None, resume_run=run_dir))
+    assert record_path.read_bytes() == before_record
+    assert artifact.read_bytes() == before_artifact
 
 
 def _dataset(tmp_path: Path, filenames: tuple[str, ...]) -> Path:
@@ -58,6 +138,7 @@ def _dataset(tmp_path: Path, filenames: tuple[str, ...]) -> Path:
 def _courtlistener_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     env_path = tmp_path / ".env"
     env_path.write_text(
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=rule\nMELLEA_LRC_FIELD_EXTRACTION_COURT=rule\nMELLEA_LRC_FIELD_EXTRACTION_DATE=rule\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=rule\n"
         "COURTLISTENER_BASE_URL=https://proxy.example/api/rest/v4/\n"
         "COURTLISTENER_TIMEOUT_SECONDS=47\n"
         "COURTLISTENER_API_TOKEN=unused-main-token\n"
@@ -128,7 +209,11 @@ def _complete_with_checkpoints(
 
 
 @pytest.fixture(autouse=True)
-def _offline_body_stages(monkeypatch: pytest.MonkeyPatch) -> None:
+def _offline_body_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / ".env").write_text(
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=rule\nMELLEA_LRC_FIELD_EXTRACTION_COURT=rule\nMELLEA_LRC_FIELD_EXTRACTION_DATE=rule\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=rule\n"
+    )
+    monkeypatch.chdir(tmp_path)
     # These tests exercise checkpoint orchestration; native source metadata has
     # dedicated coverage in test_evaluation_end_to_end.py.
     monkeypatch.setattr(runner, "load_source", lambda path: Document.from_source(path))
@@ -160,7 +245,12 @@ def test_resume_skips_valid_documents_and_reuses_timestamp_directory(
     calls: list[str] = []
 
     async def fake_grow(
-        document: Document, *, hunt_dockets: bool, review_docket_roots: bool, checkpoint=None
+        document: Document,
+        *,
+        hunt_dockets: bool,
+        review_docket_roots: bool,
+        field_extraction,
+        checkpoint=None,
     ) -> Document:
         assert hunt_dockets and review_docket_roots
         calls.append(Path(document.source_path or "").name)
@@ -232,6 +322,7 @@ def test_resume_rejects_old_workflow_manifest_names_before_calls_or_writes(
                 "workflows": [saved_name if name == current_name else name for name in runner._E2E_WORKFLOWS],
                 "workers": 3,
                 "model_profiles": {},
+                "field_extraction": _RULE_FIELDS.model_dump(mode="json"),
             }
         ),
         encoding="utf-8",
@@ -293,7 +384,12 @@ def test_resume_from_reporter_docket_checkpoint_skips_provider_requery(
     fail_review = True
 
     async def fake_grow(
-        document: Document, *, hunt_dockets: bool, review_docket_roots: bool, checkpoint=None
+        document: Document,
+        *,
+        hunt_dockets: bool,
+        review_docket_roots: bool,
+        field_extraction,
+        checkpoint=None,
     ) -> Document:
         calls.append("grow")
         return _complete(document, runner._RUN_SUBSTAGES[:11])
@@ -1885,7 +1981,12 @@ def test_new_run_stays_failed_when_a_saved_search_is_transiently_incomplete(
     data_root = _dataset(tmp_path, ("001.txt",))
 
     async def fake_grow(
-        document: Document, *, hunt_dockets: bool, review_docket_roots: bool, checkpoint=None
+        document: Document,
+        *,
+        hunt_dockets: bool,
+        review_docket_roots: bool,
+        field_extraction,
+        checkpoint=None,
     ) -> Document:
         return _complete(document, runner._RUN_SUBSTAGES[:11])
 
@@ -2111,6 +2212,7 @@ def test_resume_repairs_missing_final_group_after_all_substages_without_provider
                 "filings": ["001.txt"],
                 "data_root": str(data_root),
                 "rendering_sha256": {"001.txt": hashlib.sha256(b"{}").hexdigest()},
+                "field_extraction": _RULE_FIELDS.model_dump(mode="json"),
             }
         ),
         encoding="utf-8",
@@ -2166,6 +2268,7 @@ def test_root_extraction_resume_keeps_saved_prefix_and_persists_before_review_fa
                 "filings": ["001.txt"],
                 "data_root": str(data_root),
                 "rendering_sha256": {"001.txt": hashlib.sha256(b"{}").hexdigest()},
+                "field_extraction": _RULE_FIELDS.model_dump(mode="json"),
             }
         )
     )
@@ -2243,6 +2346,7 @@ def test_invalid_resume_prefix_does_not_rewrite_document_to_repair_its_final_gro
                 "filings": ["001.txt"],
                 "data_root": str(data_root),
                 "rendering_sha256": {"001.txt": hashlib.sha256(b"{}").hexdigest()},
+                "field_extraction": _RULE_FIELDS.model_dump(mode="json"),
             }
         )
     )
@@ -2255,3 +2359,23 @@ def test_invalid_resume_prefix_does_not_rewrite_document_to_repair_its_final_gro
     with pytest.raises(ValueError, match="Saved evaluation checkpoint skips a substage"):
         asyncio.run(runner._run(data_root, tmp_path / "unused", None, resume_run=run_dir))
     assert artifact.read_bytes() == before
+
+
+def test_enabled_model_runtime_failure_happens_before_source_loading_or_artifact_writes(
+    tmp_path, monkeypatch
+):
+    config = FieldExtractionConfig.from_env(environ=_ml_field_settings())
+    monkeypatch.setattr(FieldExtractionConfig, "from_env", classmethod(lambda cls: config))
+
+    def unavailable(_self):
+        raise RuntimeError("Configured checkpoint unavailable")
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("Runtime preflight must happen before loading sources or writing artifacts")
+
+    monkeypatch.setattr(FieldExtractionConfig, "validate_runtime", unavailable)
+    monkeypatch.setattr(runner, "load_source", unexpected)
+    monkeypatch.setattr(runner, "_write_json", unexpected)
+    with pytest.raises(RuntimeError, match="Configured checkpoint unavailable"):
+        asyncio.run(runner._run(tmp_path / "missing-data", tmp_path / "results", None))
+    assert not (tmp_path / "results").exists()

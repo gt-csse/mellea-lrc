@@ -27,13 +27,13 @@ SUBSTAGE = "validate_roots_citation_identity.lookup_docket_roots.review_govinfo_
 def _no_candidate_decision(context: GovInfoDocketReviewContext) -> DocketLookupReviewDecision:
     reason = "No shortlisted GovInfo package is available for comparison."
     unavailable = DocketLookupFieldAssessment(
-        propose_replacement=False, quote=None, result=MatchResult.UNAVAILABLE, reason=reason
+        action="keep", quote=None, result=MatchResult.UNAVAILABLE, reason=reason
     )
     return DocketLookupReviewDecision(
         selected_candidate_index=None,
         docket_number=unavailable,
         case_name=DocketLookupCaseNameAssessment(
-            propose_replacement=False,
+            action="keep",
             quote=None,
             normalized=None,
             result=MatchResult.UNAVAILABLE,

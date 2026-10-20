@@ -13,17 +13,18 @@ from pydantic import ValidationError
 
 from evaluations import validate_roots_citation_identity as evaluation
 from evaluations.score_types import FieldScore
-from mellea_lrc.model.citations import FullDocketCitation, FullReporterCitation
+from mellea_lrc.model.citations import FullDocketCitation, FullReporterCitation, current_reading
 from mellea_lrc.model.citations.body_evidence import (
     BodyCitationTreatment,
     BodyCorroborationDecision,
     BodySearch,
     BodySource,
 )
+from mellea_lrc.model.citations.fields.base import NotStatedField
 from mellea_lrc.model.citations.fields.case_name import CaseNameKind
 from mellea_lrc.model.citations.judgments import IdentityBasis, IdentityVerdict
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 from mellea_lrc.validation.body_search.common import make_body_evidences
 from mellea_lrc.validation.review_locator_bodies_llm import SUBSTAGE, review_locator_bodies_llm
 from mellea_lrc.validation.review_locator_bodies_llm.reviewer import (
@@ -929,3 +930,42 @@ def test_reviewer_context_serializes_anchor_offsets_for_the_model() -> None:
     context = BodyCorroborationContext.from_document(document, document.roots[0])
     payload = json.loads(context.prompt_evidence())
     assert payload[0]["anchor_span"] == {"start": 40, "end": 47}
+
+
+@pytest.mark.parametrize("field", ["case_name", "court", "date"])
+def test_complete_body_reread_can_clear_each_source_field(field):
+    before = _document()
+    proposal = _decision(verdict=IdentityVerdict.UNDETERMINED).model_dump(mode="json")
+    proposal["filing"][field] = None
+    if field == "case_name":
+        proposal["filing"]["normalized_case_name"] = None
+    proposal["comparisons"][field]["result"] = "unavailable"
+    answer = BodyCorroborationDecision.model_validate(proposal)
+    after = asyncio.run(review_locator_bodies_llm(before, reviewer=FakeReviewer(answer)))
+    root = after.roots[0]
+    history = getattr(root, field)
+    assert history[:-1] == getattr(before.roots[0], field)
+    assert isinstance(history[-1], NotStatedField)
+    assert history[-1].node_id == root.body_reviews[-1].node_id
+    assert current_reading(history) is None
+    assert BodyCorroborationContext.from_document(after, root).current[field] is None
+    assert root.locator == before.roots[0].locator
+    assert root.body_reviews[-1].decision.comparisons.model_dump()[field]["result"] == "unavailable"
+    assert root.identity_judgments[-1].verdict is IdentityVerdict.UNDETERMINED
+    assert Document.model_validate_json(after.model_dump_json()) == after
+    assert after.get_substage(SUBSTAGES[-1][1]) == before
+
+
+def test_cleared_body_field_requires_unavailable_comparison():
+    proposal = _decision(verdict=IdentityVerdict.UNDETERMINED).model_dump(mode="json")
+    proposal["filing"]["court"] = None
+    answer = BodyCorroborationDecision.model_validate(proposal)
+    context = BodyCorroborationContext.from_document(_document(), _document().roots[0])
+    assert context.validation_error(answer) == "court: use unavailable exactly when one side is absent"
+
+
+def test_body_reread_cannot_clear_required_locator():
+    proposal = _decision(verdict=IdentityVerdict.UNDETERMINED).model_dump(mode="json")
+    proposal["filing"]["locator"] = None
+    with pytest.raises(ValueError, match="Both citations need a locator"):
+        BodyCorroborationDecision.model_validate(proposal)

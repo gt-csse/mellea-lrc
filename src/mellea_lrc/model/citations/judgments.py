@@ -10,13 +10,21 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
 
 
-def validate_replacement_quote(propose_replacement: bool, quote: str | None) -> None:
-    """Keep field comparison corrections tied to an explicit quoted replacement."""
-    if propose_replacement:
+class FieldCorrectionAction(str, Enum):
+    """An explicit decision about the filing's current field reading."""
+
+    KEEP = "keep"
+    REPLACE = "replace"
+    NOT_STATED = "not_stated"
+
+
+def validate_field_correction(action: FieldCorrectionAction, quote: str | None) -> None:
+    """Only a replacement supplies a source quote; absence is explicit."""
+    if action is FieldCorrectionAction.REPLACE:
         if quote is None or not quote.strip():
             raise ValueError("A proposed replacement requires a nonempty source quote")
     elif quote is not None:
-        raise ValueError("A field without a proposed replacement must have a null quote")
+        raise ValueError("keep and not_stated actions require a null quote")
 
 
 def validate_reviewer_case_name(normalized: CaseName | None) -> None:

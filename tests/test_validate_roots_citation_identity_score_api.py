@@ -17,12 +17,12 @@ from evaluations.score_types import FieldScore, Precision, substage_heading
 from mellea_lrc.api import (
     Document,
     grow_roots,
-    review_ambiguous_reporter_roots_llm,
     judge_ambiguous_reporter_roots_rule,
+    judge_unique_reporter_roots_rule,
     retrieve_reporter_root_clusters,
     retrieve_reporter_root_dockets,
+    review_ambiguous_reporter_roots_llm,
     review_unique_reporter_roots_llm,
-    judge_unique_reporter_roots_rule,
 )
 from mellea_lrc.model import FullDocketCitation, FullReporterCitation, Span
 from mellea_lrc.model.citations.body_evidence import (
@@ -359,7 +359,7 @@ def _add_docket_review(
             results = dict.fromkeys(results, "unavailable")
         assessments = {
             field: {
-                "propose_replacement": False,
+                "action": "keep",
                 "quote": None,
                 "result": result,
                 "reason": "Compared with the saved record.",
@@ -431,7 +431,7 @@ def _add_govinfo_review(
     )
     assessments = {
         field: {
-            "propose_replacement": False,
+            "action": "keep",
             "quote": None,
             "result": result,
             "reason": "Compared with the selected GovInfo package.",
@@ -466,20 +466,20 @@ def _add_govinfo_review(
 def _model_fields() -> dict[str, object]:
     return {
         "case_name": {
-            "propose_replacement": False,
+            "action": "keep",
             "quote": None,
             "normalized": NORMALIZED_NAME,
             "result": "match",
             "reason": "The filing names the candidate's case.",
         },
         "court": {
-            "propose_replacement": False,
+            "action": "keep",
             "quote": None,
             "result": "match",
             "reason": "The inferred court matches.",
         },
         "date": {
-            "propose_replacement": False,
+            "action": "keep",
             "quote": None,
             "result": "match",
             "reason": "The written year matches.",
@@ -1179,7 +1179,7 @@ def test_unavailable_for_an_absent_reporter_field_agrees_with_not_stated_gold(
         {
             **_model_fields(),
             "date": {
-                "propose_replacement": False,
+                "action": "keep",
                 "quote": None,
                 "result": "unavailable",
                 "reason": "The filing states no date for this reporter root.",

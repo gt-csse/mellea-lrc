@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from mellea_lrc.matching.fuzziness import FuzzinessOption
 from mellea_lrc.matching.grounding import EvidenceCandidate, GroundingEvidence
-from mellea_lrc.model.citations.judgments import MatchResult
+from mellea_lrc.model.citations.judgments import FieldCorrectionAction, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import (
     ReporterAmbiguousReviewDecision,
     ReporterUniqueReviewDecision,
 )
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 ReporterReviewDecision = ReporterUniqueReviewDecision | ReporterAmbiguousReviewDecision
 
@@ -47,7 +47,7 @@ class ReporterReviewGrounding:
         for field in ("case_name", "court", "date"):
             assessment = getattr(decision, field)
             quote = assessment.quote
-            if not assessment.propose_replacement:
+            if assessment.action is not FieldCorrectionAction.REPLACE:
                 if quote is not None:
                     return None
                 continue
@@ -66,14 +66,18 @@ class ReporterReviewGrounding:
         candidate_available: dict[str, bool] | None,
     ) -> str | None:
         """Require unavailable when either side lacks field evidence."""
-        has_name = self.has_case_name or decision.case_name.propose_replacement
+        has_name = decision.case_name.action is FieldCorrectionAction.REPLACE or (
+            decision.case_name.action is FieldCorrectionAction.KEEP and self.has_case_name
+        )
         if has_name and decision.case_name.normalized is None:
             return "case_name has a grounded reading; supply its normalized name"
         if not has_name and decision.case_name.normalized is not None:
             return "case_name normalization needs an existing or proposed grounded reading"
         for field in ("case_name", "court", "date"):
             assessment = getattr(decision, field)
-            has_reading = getattr(self, f"has_{field}") or assessment.propose_replacement
+            has_reading = assessment.action is FieldCorrectionAction.REPLACE or (
+                assessment.action is FieldCorrectionAction.KEEP and getattr(self, f"has_{field}")
+            )
             if not has_reading and assessment.result is not MatchResult.UNAVAILABLE:
                 return f"{field} has no filing reading; use unavailable or quote one from the filing"
             if candidate_available is None:

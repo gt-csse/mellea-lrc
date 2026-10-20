@@ -10,7 +10,7 @@ from mellea_lrc.providers.govinfo import GovInfoSearchPage
 from mellea_lrc.model.citations.body_evidence import BodySource
 from mellea_lrc.model.citations.full_reporter import FullReporterCitation
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 from mellea_lrc.validation.body_search.retrieve_govinfo_intended_case_opinions import (
     SUBSTAGE,
     retrieve_govinfo_intended_case_opinions,

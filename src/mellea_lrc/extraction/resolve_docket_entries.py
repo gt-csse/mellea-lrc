@@ -8,7 +8,7 @@ from collections import Counter
 from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.citations.fields.docket import DOCKET_ENTRY_PATTERN
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 SUBSTAGE = "grow_roots.read_root_fields.resolve_docket_entries"
 

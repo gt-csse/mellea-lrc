@@ -11,16 +11,17 @@ from pydantic import ValidationError
 from mellea_lrc.api import (
     Document,
     grow_roots,
+    judge_unique_reporter_roots_rule,
     retrieve_reporter_root_clusters,
     retrieve_reporter_root_dockets,
-    judge_unique_reporter_roots_rule,
 )
-from mellea_lrc.providers.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.model import Span
+from mellea_lrc.model.citations.fields.base import NotStatedField, current_reading
 from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterUniqueFieldAssessment
 from mellea_lrc.model.ivr import IvrRun
+from mellea_lrc.providers.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.validation.review_unique_reporter_roots_llm import (
     SUBSTAGE,
     review_unique_reporter_roots_llm,
@@ -95,20 +96,20 @@ def _decision(
     return ReporterUniqueReviewDecision.model_validate(
         {
             "case_name": {
-                "propose_replacement": case_name_quote is not None,
+                "action": "replace" if case_name_quote is not None else "keep",
                 "quote": case_name_quote,
                 "normalized": case_name_normalized,
                 "result": case_name_result,
                 "reason": "The written parties identify the retrieved case.",
             },
             "court": {
-                "propose_replacement": court_quote is not None,
+                "action": "replace" if court_quote is not None else "keep",
                 "quote": court_quote,
                 "result": court_result,
                 "reason": "The reporter supplies the stated court.",
             },
             "date": {
-                "propose_replacement": date_quote is not None,
+                "action": "replace" if date_quote is not None else "keep",
                 "quote": date_quote,
                 "result": date_result,
                 "reason": "The stated year agrees with the opinion date.",
@@ -182,14 +183,14 @@ def _trace() -> IvrRun:
 def test_replacement_intent_and_nullable_quotes_are_required_by_the_provider_schema() -> None:
     schema = ReporterUniqueReviewDecision.model_json_schema()
     assert set(schema["$defs"]["ReporterCaseNameAssessment"]["required"]) == {
-        "propose_replacement",
+        "action",
         "quote",
         "normalized",
         "result",
         "reason",
     }
     assert set(schema["$defs"]["ReporterUniqueFieldAssessment"]["required"]) == {
-        "propose_replacement",
+        "action",
         "quote",
         "result",
         "reason",
@@ -197,27 +198,25 @@ def test_replacement_intent_and_nullable_quotes_are_required_by_the_provider_sch
 
 
 @pytest.mark.parametrize(
-    ("propose_replacement", "quote", "valid"),
+    ("action", "quote", "valid"),
     [
-        (False, None, True),
-        (True, "Bell Atl. Corp. v. Twombly", True),
-        (True, None, False),
-        (True, "", False),
-        (False, "Bell Atl. Corp. v. Twombly", False),
+        ("keep", None, True),
+        ("replace", "Bell Atl. Corp. v. Twombly", True),
+        ("replace", None, False),
+        ("replace", "", False),
+        ("keep", "Bell Atl. Corp. v. Twombly", False),
     ],
 )
-def test_replacement_intent_agrees_with_quote(
-    propose_replacement: bool, quote: str | None, valid: bool
-) -> None:
+def test_replacement_intent_agrees_with_quote(action: str, quote: str | None, valid: bool) -> None:
     assessment = {
-        "propose_replacement": propose_replacement,
+        "action": action,
         "quote": quote,
         "result": "match",
         "reason": "The filing and opinion agree.",
     }
     if valid:
         parsed = ReporterUniqueFieldAssessment.model_validate(assessment)
-        assert parsed.propose_replacement is propose_replacement
+        assert parsed.action == action
         assert parsed.quote == quote
     else:
         with pytest.raises(ValidationError):
@@ -225,14 +224,14 @@ def test_replacement_intent_agrees_with_quote(
 
 
 @pytest.mark.parametrize(
-    ("propose_replacement", "quote"),
-    [(True, None), (False, "Bell Atl. Corp. v. Twombly")],
+    ("action", "quote"),
+    [("replace", None), ("keep", "Bell Atl. Corp. v. Twombly")],
 )
 def test_generated_review_json_rejects_inconsistent_replacement_intent(
-    propose_replacement: bool, quote: str | None
+    action: str, quote: str | None
 ) -> None:
     generated = json.loads(_decision().model_dump_json())
-    generated["case_name"]["propose_replacement"] = propose_replacement
+    generated["case_name"]["action"] = action
     generated["case_name"]["quote"] = quote
 
     with pytest.raises(ValidationError):
@@ -291,8 +290,8 @@ def test_no_replacement_proposal_keeps_existing_readings() -> None:
     assert root.case_name == previous.case_name
     assert root.court == previous.court
     assert root.date == previous.date
-    assert root.reporter_unique_review.decision.case_name.propose_replacement is False
-    assert root.reporter_unique_review.decision.date.propose_replacement is False
+    assert root.reporter_unique_review.decision.case_name.action == "keep"
+    assert root.reporter_unique_review.decision.date.action == "keep"
     assert root.case_name_judgments[-1].reading_index == len(previous.case_name) - 1
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
 
@@ -573,3 +572,59 @@ def test_review_accepts_unavailable_when_candidate_lacks_date_evidence() -> None
     assert root.date_judgments[-1].reading_index == len(root.date) - 1
     assert root.date_judgments[-1].result is MatchResult.UNAVAILABLE
     assert root.identity_judgments[-1].verdict is IdentityVerdict.CORRECT_IDENTITY
+
+
+@pytest.mark.parametrize("field", ("case_name", "court", "date"))
+def test_unique_review_can_append_explicit_absence_without_losing_history(field: str) -> None:
+    before = _review_input()
+    prior = before.roots[0]
+    payload = _decision(case_name_quote=None, date_quote=None).model_dump(mode="json")
+    payload[field].update(action="not_stated", quote=None, result="unavailable")
+    if field == "case_name":
+        payload[field]["normalized"] = None
+    decision = ReporterUniqueReviewDecision.model_validate(payload)
+
+    after = asyncio.run(review_unique_reporter_roots_llm(before, reviewer=FakeReviewer(decision)))
+    root = after.roots[0]
+    readings = getattr(root, field)
+    assert readings[:-1] == getattr(prior, field)
+    assert isinstance(readings[-1], NotStatedField)
+    assert readings[-1].node_id == root.nodes[-1].id
+    assert current_reading(readings) is None
+    judgment = getattr(root, f"{field}_judgments")[-1]
+    assert judgment.reading_index == len(readings) - 1
+    assert judgment.result is MatchResult.UNAVAILABLE
+    assert root.reporter_unique_review.failure_reason is None
+    restored = Document.model_validate_json(after.model_dump_json())
+    assert restored == after
+    assert restored.get_substage(REVIEW_SUBSTAGE) == before
+
+    from mellea_lrc.validation.review_unique_reporter_roots_llm.reviewer import ReporterUniqueReviewContext
+
+    context = ReporterUniqueReviewContext.from_document(after, root)
+    assert getattr(context, f"has_{field}") is False
+    assert getattr(context, f"current_{field}") is None
+    if field == "court":
+        assert context.inferred_court_note is None
+
+
+@pytest.mark.parametrize(
+    "changes",
+    (
+        {"action": "not_stated", "quote": "2007", "result": "unavailable"},
+        {"action": "not_stated", "quote": None, "result": "match"},
+        {"action": "not_stated", "quote": None, "result": "mismatch"},
+        {"action": "keep", "quote": "2007", "result": "match"},
+        {"action": "replace", "quote": None, "result": "match"},
+    ),
+)
+def test_field_actions_reject_inconsistent_payloads(changes: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        ReporterUniqueFieldAssessment.model_validate({**changes, "reason": "Reviewed the source."})
+
+
+def test_cleared_case_name_cannot_retain_model_normalization() -> None:
+    payload = _decision().model_dump(mode="json")
+    payload["case_name"].update(action="not_stated", quote=None, result="unavailable")
+    with pytest.raises(ValidationError, match="cannot have a normalization"):
+        ReporterUniqueReviewDecision.model_validate(payload)

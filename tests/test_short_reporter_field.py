@@ -4,7 +4,7 @@ import pytest
 
 from mellea_lrc.model.citations.fields.reporter import FullReporterLocator
 from mellea_lrc.model.citations.fields.short_reporter import ShortReporterLocator
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 
 @pytest.mark.parametrize(

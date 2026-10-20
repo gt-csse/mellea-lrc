@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from reporters_db import STATE_ABBREVIATIONS
 
 from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 _ORDINAL = re.compile(r"^(\d+)(?:st|nd|rd|th|d)$")
 _SPLIT_ORDINAL = re.compile(r"\b(\d+)\s+(st|nd|rd|th|d)\b")

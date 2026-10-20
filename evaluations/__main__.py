@@ -36,6 +36,7 @@ from mellea_lrc.api import (
     validate_all_citation_content,
     validate_roots_citation_identity,
 )
+from mellea_lrc.config.field_extraction import FieldExtractionConfig
 from mellea_lrc.configuration import read_env, required_setting
 from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model import FullDocketCitation
@@ -148,8 +149,26 @@ _E2E_SUBSTAGES = (
         for workflow in ("grow_leaves", "validate_all_citation_content")
         for stage in get_workflow(workflow).stages
         for substage in stage.substages
+        if not substage.name.endswith(".predict_fields_ml")
     ),
 )
+
+
+def _enabled_field_substages(
+    substages: tuple[str, ...], field_extraction: FieldExtractionConfig
+) -> tuple[str, ...]:
+    """Insert raw inference before the same consuming field substages."""
+    enabled = [name for name in substages if not name.endswith(".predict_fields_ml")]
+    if field_extraction.ml_enabled:
+        for workflow in ("grow_roots", "grow_leaves"):
+            for stage in get_workflow(workflow).stages:
+                for index, substage in enumerate(stage.substages):
+                    if not substage.name.endswith(".predict_fields_ml"):
+                        continue
+                    previous = stage.substages[index - 1].name
+                    if previous in enabled:
+                        enabled.insert(enabled.index(previous) + 1, substage.name)
+    return tuple(enabled)
 
 
 def _configured_model_profiles() -> dict[str, dict[str, object]]:
@@ -356,12 +375,14 @@ async def _continue_field_substages(
     run_dir: Path,
     retrospective_date: date | None,
     courtlistener_client: CourtListenerClient | None,
+    field_extraction: FieldExtractionConfig,
 ) -> Document:
     """Append each remaining substage and atomically save its cumulative Document."""
+    enabled = _enabled_field_substages(_FIELD_RUN_SUBSTAGES, field_extraction)
     for substage in _FIELD_SUBSTAGES:
         if substage in document.substage_runs:
             continue
-        if document.substage_runs != _FIELD_RUN_SUBSTAGES[: _FIELD_RUN_SUBSTAGES.index(substage)]:
+        if document.substage_runs != enabled[: enabled.index(substage)]:
             raise ValueError(f"Field discovery cannot skip a substage for {filename}")
         if substage == _COURTLISTENER_OPINION_FIELD_SUBSTAGE:
             kwargs = {"client": courtlistener_client} if courtlistener_client is not None else {}
@@ -379,9 +400,9 @@ async def _continue_field_substages(
             )
         else:
             document = await review_intended_cases_llm(document)
-        if document.substage_runs != _FIELD_RUN_SUBSTAGES[: _FIELD_RUN_SUBSTAGES.index(substage) + 1]:
+        if document.substage_runs != enabled[: enabled.index(substage) + 1]:
             raise ValueError(f"Field discovery did not complete {substage} for {filename}")
-        document = complete_stage_boundary(document, _FIELD_RUN_SUBSTAGES)
+        document = complete_stage_boundary(document, enabled)
         _require_body_search_cutoff(document, retrospective_date)
         _write_json(run_dir / "documents" / f"{filename}.json", document.model_dump(mode="json"))
         if _transient_field_failure_substage(document) == substage:
@@ -410,6 +431,7 @@ async def _run(
     end_to_end: bool = False,
     workers: int | None = None,
 ) -> Path:
+    field_extraction = FieldExtractionConfig.from_env()
     if workers is not None and (type(workers) is not int or workers < 1):
         raise ValueError("End-to-end workers must be a positive integer")
     if workers is not None and not end_to_end and resume_run is None:
@@ -459,6 +481,8 @@ async def _run(
     if reuse_docket_lookups and from_reporter_review_documents is None and resume_run is None:
         raise ValueError("Reusing docket lookups requires reporter-review Documents")
     case_cutoffs: dict[str, date] = {}
+    if resume_run is None:
+        field_extraction.validate_runtime()
     model_profiles = _configured_model_profiles() if end_to_end else None
     if resume_run is None:
         renderings = json.loads((data_root / _SET / "documents.json").read_text(encoding="utf-8"))[
@@ -488,6 +512,7 @@ async def _run(
             "status": "running",
             "filings": filenames,
             "data_root": str(data_root),
+            "field_extraction": field_extraction.model_dump(mode="json"),
             "from_roots_documents": str(from_roots_documents) if from_roots_documents else None,
             "from_reporter_review_documents": (
                 str(from_reporter_review_documents) if from_reporter_review_documents else None
@@ -540,6 +565,9 @@ async def _run(
         run_dir = resume_run
         record_path = run_dir / "run.json"
         run_record = json.loads(record_path.read_text(encoding="utf-8"))
+        if run_record.get("field_extraction") != field_extraction.model_dump(mode="json"):
+            raise ValueError("Field extraction settings differ from saved provenance")
+        field_extraction.validate_runtime()
         if end_to_end and not run_record.get("end_to_end"):
             raise ValueError("Resume is not an end-to-end run")
         end_to_end = bool(run_record.get("end_to_end", False))
@@ -673,12 +701,22 @@ async def _run(
         retry_body: dict[str, str] = {}
         documents: dict[str, Document] = {}
         reporter_inputs: dict[str, Document] = {}
-        enabled = (
-            _E2E_SUBSTAGES
-            if end_to_end
-            else _FIELD_RUN_SUBSTAGES
-            if from_locator_review_documents is not None
-            else _RUN_SUBSTAGES
+        enabled = _enabled_field_substages(
+            (
+                _E2E_SUBSTAGES
+                if end_to_end
+                else _FIELD_RUN_SUBSTAGES
+                if from_locator_review_documents is not None
+                else _RUN_SUBSTAGES
+            ),
+            field_extraction,
+        )
+        omitted_fields = tuple(
+            substage.name
+            for workflow in ("grow_roots", "grow_leaves")
+            for stage in get_workflow(workflow).stages
+            for substage in stage.substages
+            if substage.name.endswith(".predict_fields_ml") and not field_extraction.ml_enabled
         )
         input_directory, input_substage = next(
             (
@@ -732,10 +770,10 @@ async def _run(
                 original.substage_runs and document.get_substage(input_substage) != original
             ):
                 raise ValueError(f"Saved evaluation input differs for {filename}")
-            validate_workflow_checkpoint(document, "grow_roots")
+            validate_workflow_checkpoint(document, "grow_roots", omitted_substages=omitted_fields)
             validate_workflow_checkpoint(document, "validate_roots_citation_identity")
             if end_to_end:
-                validate_workflow_checkpoint(document, "grow_leaves")
+                validate_workflow_checkpoint(document, "grow_leaves", omitted_substages=omitted_fields)
                 validate_workflow_checkpoint(document, "validate_all_citation_content")
             marked = complete_stage_boundary(document, enabled)
             if artifact.exists() and marked != document:
@@ -818,6 +856,7 @@ async def _run(
                     run_dir=run_dir,
                     retrospective_date=cutoff,
                     courtlistener_client=courtlistener_client,
+                    field_extraction=field_extraction,
                 )
             else:
                 check_model_profiles()
@@ -861,6 +900,7 @@ async def _run(
                         document,
                         hunt_dockets=True,
                         review_docket_roots=True,
+                        field_extraction=field_extraction,
                         checkpoint=save_checkpoint,
                     )
                     save_checkpoint(document)
@@ -885,7 +925,12 @@ async def _run(
                     )
                 if end_to_end:
                     check_model_profiles()
-                    document = await grow_leaves(document, review_leaves=True, checkpoint=save_checkpoint)
+                    document = await grow_leaves(
+                        document,
+                        review_leaves=True,
+                        checkpoint=save_checkpoint,
+                        field_extraction=field_extraction,
+                    )
                     check_model_profiles()
                     document = await validate_all_citation_content(
                         document,

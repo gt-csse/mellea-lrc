@@ -13,7 +13,7 @@ from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.govinfo_lookup import GovInfoDocketLookup, GovInfoDocketReview
 from mellea_lrc.model.citations.history import Node
 from mellea_lrc.model.citations.kind import FullCitationKind
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 
 class FullDocketCitation(FullCitation):

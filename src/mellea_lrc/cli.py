@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 
 from mellea_lrc.api import (
     Document,
+    FieldExtractionConfig,
     grow_leaves,
     grow_roots,
     validate_all_citation_content,
@@ -17,6 +18,8 @@ from mellea_lrc.api import (
 
 
 async def _validate(source: Path, output: Path) -> None:
+    fields = FieldExtractionConfig.from_env()
+    fields.validate_runtime()
     output.parent.mkdir(parents=True, exist_ok=True)
 
     def save(document: Document) -> None:
@@ -30,11 +33,17 @@ async def _validate(source: Path, output: Path) -> None:
     document = Document.from_source(source)
     save(document)
     print("Running grow_roots...", flush=True)
-    document = await grow_roots(document, hunt_dockets=True, review_docket_roots=True, checkpoint=save)
+    document = await grow_roots(
+        document,
+        hunt_dockets=True,
+        review_docket_roots=True,
+        field_extraction=fields,
+        checkpoint=save,
+    )
     print("Running validate_roots_citation_identity...", flush=True)
     document = await validate_roots_citation_identity(document, checkpoint=save)
     print("Running grow_leaves...", flush=True)
-    document = await grow_leaves(document, checkpoint=save)
+    document = await grow_leaves(document, field_extraction=fields, checkpoint=save)
     print("Running validate_all_citation_content...", flush=True)
     document = await validate_all_citation_content(document, checkpoint=save)
     save(document)

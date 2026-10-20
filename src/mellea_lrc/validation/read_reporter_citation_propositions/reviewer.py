@@ -21,7 +21,7 @@ from mellea_lrc.model.citations.reporter_page_resolution import ReporterCitation
 from mellea_lrc.model.citations.reporter_pinpoint import GroundedPassage, PropositionDecision
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 CONTEXT_BEFORE = 1400
 CONTEXT_AFTER = 700

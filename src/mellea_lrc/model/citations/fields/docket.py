@@ -8,7 +8,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 DOCKET_ENTRY_PATTERN = re.compile(
     r"\b(?:Doc(?:ument)?\.?|Dkt\.?|ECF|D\.I\.)\s*(?:No\.?\s*)?(?P<number>\d+(?:-\d+)?)(?![A-Za-z0-9/-]|\.\d)",

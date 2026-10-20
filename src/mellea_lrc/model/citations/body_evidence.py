@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 
 class BodySource(str, Enum):
@@ -116,7 +116,11 @@ class BodyCitationFields(BaseModel):
 
 
 class BodyFilingFields(BodyCitationFields):
-    """Source-filing reread; a grounded complete or partial name has a typed reading."""
+    """Complete source reread: null explicitly means that a field is not stated.
+
+    Unlike a replacement patch, null does not preserve the previous extraction.
+    A grounded complete or partial case name also has a typed normalization.
+    """
 
     normalized_case_name: CaseName | None
 
@@ -129,6 +133,10 @@ class BodyFilingFields(BodyCitationFields):
             raise ValueError("A filing case-name normalization must describe a quoted name")
         if (self.case_name is None) != (self.normalized_case_name is None):
             raise ValueError("A filing case name and its normalization must be supplied together")
+        for field in ("locator", "case_name", "court", "date"):
+            value = getattr(self, field)
+            if value is not None and not value.strip():
+                raise ValueError(f"A filing {field} reading must be nonempty or null")
         return self
 
 

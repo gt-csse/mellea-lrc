@@ -2,25 +2,33 @@
 
 import asyncio
 import json
+import time
 from types import SimpleNamespace
 
 import pytest
 from mellea.backends import ModelOption
-from mellea.core import GenerateLog, ModelOutputThunk, ValidationResult
+from mellea.core import ValidationResult
 from mellea.stdlib import functional as mfuncs
 from mellea.stdlib.requirements import req
 from mellea.stdlib.sampling import MultiTurnStrategy
+from openai import APITimeoutError
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from mellea_lrc.llm.config import OUTPUT_MODE_OPTION, PROFILE_OPTION, LlmOutputMode
+from mellea_lrc.llm.config import (
+    OUTPUT_MODE_OPTION,
+    PROFILE_OPTION,
+    LlmApiConfig,
+    LlmOutputMode,
+    start_mellea_session,
+)
 from mellea_lrc.llm.ivr import (
     InstructIvrSpec,
     InvalidJsonResponseError,
+    _http_timeout_ivr_run,
     _output_transport,
     _parse_schema,
     _requirements_for,
     _schema_requirement,
-    _timed_out_ivr_run,
     _to_ivr_run,
     run_instruct_ivr,
 )
@@ -244,7 +252,7 @@ def test_prefix_is_sent_as_system_prompt(monkeypatch) -> None:
             strategy=MultiTurnStrategy(loop_budget=1),
             model_options={
                 "max_tokens": 64,
-                ModelOption.STREAM_TIMEOUT: 120,
+                ModelOption.STREAM_TIMEOUT: None,
                 OUTPUT_MODE_OPTION: LlmOutputMode.JSON_SCHEMA,
             },
         )
@@ -317,7 +325,7 @@ def test_output_transport_preserves_schema_and_domain_repair_at_instruct_boundar
         output_format=_Output,
         requirements=[req("Decision must be true.", validation_fn=domain_validation)],
     )
-    options = {"max_tokens": 64, "temperature": 0, OUTPUT_MODE_OPTION: mode, ModelOption.STREAM_TIMEOUT: 120}
+    options = {"max_tokens": 64, "temperature": 0, OUTPUT_MODE_OPTION: mode, ModelOption.STREAM_TIMEOUT: None}
     run = asyncio.run(
         run_instruct_ivr(
             SimpleNamespace(backend=SimpleNamespace(model_id="configured-alias")),
@@ -383,7 +391,7 @@ def test_output_transport_rejects_response_format_conflicts_before_instruct(monk
                 model_options={
                     OUTPUT_MODE_OPTION: mode,
                     "response_format": {"type": "json_object"},
-                    ModelOption.STREAM_TIMEOUT: 120,
+                    ModelOption.STREAM_TIMEOUT: None,
                 },
             )
         )
@@ -420,26 +428,6 @@ def test_missing_transport_mode_does_not_use_an_implicit_schema_default() -> Non
         _output_transport(InstructIvrSpec(description="Decide.", output_format=_Output), {})
 
 
-@pytest.mark.parametrize("timeout", [None, True, 0, -1, float("nan"), float("inf"), "120"])
-def test_missing_or_invalid_deadline_raises_before_generation(monkeypatch, timeout) -> None:
-    def unexpected_instruct(*args, **kwargs):
-        raise AssertionError("Missing configuration must fail before generation is started")
-
-    monkeypatch.setattr(mfuncs, "ainstruct", unexpected_instruct)
-    with pytest.raises(ValueError, match="stream_timeout"):
-        asyncio.run(
-            run_instruct_ivr(
-                SimpleNamespace(backend=object()),
-                InstructIvrSpec(description="Decide."),
-                strategy=MultiTurnStrategy(loop_budget=1),
-                model_options={
-                    ModelOption.STREAM_TIMEOUT: timeout,
-                    OUTPUT_MODE_OPTION: LlmOutputMode.JSON_SCHEMA,
-                },
-            )
-        )
-
-
 def test_endpoint_rejection_does_not_retry_with_a_different_transport(monkeypatch) -> None:
     formats = []
 
@@ -456,7 +444,7 @@ def test_endpoint_rejection_does_not_retry_with_a_different_transport(monkeypatc
                 strategy=MultiTurnStrategy(loop_budget=3),
                 model_options={
                     OUTPUT_MODE_OPTION: LlmOutputMode.JSON_SCHEMA,
-                    ModelOption.STREAM_TIMEOUT: 120,
+                    ModelOption.STREAM_TIMEOUT: None,
                 },
             )
         )
@@ -464,250 +452,280 @@ def test_endpoint_rejection_does_not_retry_with_a_different_transport(monkeypatc
     assert formats == [_Output]
 
 
-def test_timeout_is_a_durable_failed_run() -> None:
-    run = _timed_out_ivr_run(
-        SimpleNamespace(backend=SimpleNamespace(model_id="test-model")),
-        InstructIvrSpec(description="Decide."),
-        {"max_tokens": 64},
-        2.5,
-    )
+@pytest.fixture
+def offline_openai_session(monkeypatch):
+    """Use the real Mellea backend and OpenAI SDK, without a network request."""
+    import httpx2
+    import mellea.backends.openai as backend_module
+    import openai
 
-    assert not run.success
-    assert "2.5-second timeout" in (run.failure_reason or "")
-    assert IvrRun.model_validate_json(run.model_dump_json()) == run
+    monkeypatch.setattr(backend_module, "is_vllm_server_with_structured_output", lambda **_kwargs: False)
+    clients = []
+    sessions = []
+
+    async def create(handler, *, timeout_seconds=0.08, mode=LlmOutputMode.JSON_SCHEMA):
+        config = LlmApiConfig(
+            model="offline-model",
+            api_base="https://provider.invalid/v1",
+            api_key="offline-secret",
+            temperature=0,
+            timeout_seconds=timeout_seconds,
+            output_mode=mode,
+        )
+        session = start_mellea_session(config)
+        await session.backend._async_client.close()
+        client = openai.AsyncOpenAI(
+            api_key=config.api_key,
+            base_url=config.api_base,
+            timeout=config.timeout_seconds,
+            max_retries=0,
+            http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)),
+        )
+        session.backend._client_cache.put(id(asyncio.get_running_loop()), client)
+        clients.append(client)
+        sessions.append(session)
+        return session, config.mellea_call_options(max_tokens=64)
+
+    yield create
+    for client in clients:
+        asyncio.run(client.close())
+    for session in sessions:
+        session.backend._client.close()
+
+
+def _http_response(request, index, output):
+    import httpx2
+
+    return httpx2.Response(
+        200,
+        request=request,
+        json={
+            "id": f"response-{index}",
+            "model": "offline-model",
+            "object": "chat.completion",
+            "created": 0,
+            "choices": [
+                {"index": 0, "message": {"role": "assistant", "content": output}, "finish_reason": "stop"}
+            ],
+        },
+    )
 
 
 @pytest.mark.parametrize("mode", LlmOutputMode)
-def test_timeout_preserves_completed_repairs_without_mutating_caller_strategy(monkeypatch, mode) -> None:
-    """A stalled third request must not erase two completed failed reviews."""
-    release = asyncio.Event()
-    captured = {}
-    expected_requests = []
-    expected_responses = []
-    domain_reasons = []
-    strategy = MultiTurnStrategy(loop_budget=3)
-    strategy_state = dict(vars(strategy))
-    native_repair = strategy.repair
+def test_cumulative_repairs_can_exceed_individual_http_timeout(offline_openai_session, mode) -> None:
+    requests = []
 
-    def domain_validation(_ctx):
-        reason = f"Quote {len(domain_reasons) + 1} is not grounded in the supplied source."
-        domain_reasons.append(reason)
-        return ValidationResult(result=False, reason=reason, score=0.0)
-
-    async def stalled_instruct(description, **kwargs):
-        captured.update(description=description, **kwargs)
-        rendered = description
-        for name, value in kwargs["user_variables"].items():
-            rendered = rendered.replace("{{" + name + "}}", value)
-        messages = [
-            {"role": "system", "content": kwargs["model_options"][ModelOption.SYSTEM_PROMPT]},
-            {"role": "user", "content": rendered},
-        ]
-        generations = []
-        validations = []
-        for index, output in enumerate(['{"decision":false}', '{"decision": false}']):
-            request = [dict(message) for message in messages]
-            response = {
-                "id": f"completed-{index}",
-                "model": "served-model",
-                "choices": [{"finish_reason": "stop"}],
-                "usage": {"completion_tokens": 10 + index},
-            }
-            expected_requests.append(json.loads(json.dumps(request)))
-            expected_responses.append(json.loads(json.dumps(response)))
-            generations.append(
-                SimpleNamespace(
-                    value=output,
-                    _generate_log=SimpleNamespace(prompt=request, model_output=response),
-                )
-            )
-            validations.append([(r, r.validation_fn(_context(output))) for r in kwargs["requirements"]])
-            repair, repair_context = kwargs["strategy"].repair(
-                kwargs["context"], kwargs["context"], [], generations, validations
-            )
-            assert repair_context is kwargs["context"]
-            messages.extend(
-                [{"role": "assistant", "content": output}, {"role": "user", "content": repair.content}]
-            )
-        # Later native changes cannot alter an already retained attempt.
-        generations[0]._generate_log.prompt[0]["content"] = "Mutated after repair"
-        generations[0]._generate_log.model_output["usage"]["completion_tokens"] = 999
-        await release.wait()
-        return SimpleNamespace(
-            success=False, result_index=1, sample_generations=generations, sample_validations=validations
-        )
-
-    monkeypatch.setattr(mfuncs, "ainstruct", stalled_instruct)
-    spec = InstructIvrSpec(
-        description="Review the supplied source.",
-        prefix="Original source",
-        output_format=_Output,
-        requirements=(req("Ground the quoted evidence.", validation_fn=domain_validation),),
-    )
+    async def respond(request):
+        assert request.extensions["timeout"]["read"] == 0.08
+        requests.append(json.loads(request.content))
+        # Each response is inside its HTTP timeout; three responses together
+        # exceed that timeout. No review-wide deadline should cancel repairs.
+        await asyncio.sleep(0.04)
+        return _http_response(request, len(requests), json.dumps({"decision": len(requests) == 3}))
 
     async def invoke():
-        try:
-            return await run_instruct_ivr(
-                SimpleNamespace(backend=SimpleNamespace(model_id="configured-alias")),
-                spec,
-                strategy=strategy,
-                model_options={ModelOption.STREAM_TIMEOUT: 0.2, OUTPUT_MODE_OPTION: mode},
-            )
-        finally:
-            release.set()
+        session, options = await offline_openai_session(respond, mode=mode)
+        started = time.monotonic()
+        run = await run_instruct_ivr(
+            session,
+            InstructIvrSpec(
+                description="Review the source.",
+                output_format=_Output,
+                requirements=(
+                    req(
+                        "Decision must be true.",
+                        validation_fn=lambda ctx: ValidationResult(
+                            result=_Output.model_validate_json(ctx.last_output().value).decision,
+                            reason="Decision must be true.",
+                        ),
+                    ),
+                ),
+            ),
+            strategy=MultiTurnStrategy(loop_budget=3),
+            model_options=options,
+        )
+        return run, time.monotonic() - started
 
-    run = asyncio.run(invoke())
-
-    assert captured["strategy"] is not strategy
-    assert captured["strategy"].loop_budget == strategy.loop_budget
-    assert vars(strategy) == strategy_state
-    assert strategy.repair is native_repair
-    assert MultiTurnStrategy.repair is native_repair
-    assert not run.success
-    assert run.selected_attempt == 2
-    assert len(run.attempts) == 3
-    for index, attempt in enumerate(run.attempts[:2]):
-        assert attempt.request == expected_requests[index]
-        assert attempt.response == expected_responses[index]
-        assert attempt.requirements[0].passed
-        assert not attempt.requirements[1].passed
-        assert attempt.requirements[1].reason == domain_reasons[index]
-        assert attempt.requirements[1].score == 0.0
-    assert domain_reasons[0] in run.attempts[1].request[-1]["content"]
-    assert run.attempts[-1].request is None
-    assert run.attempts[-1].response is None
-    assert run.attempts[-1].output == ""
-    assert "0.2-second timeout" in run.failure_reason
-    assert run.output_schema == _Output.model_json_schema()
-    assert run.model_options[OUTPUT_MODE_OPTION] == mode.value
+    run, elapsed = asyncio.run(invoke())
+    assert run.success
+    assert elapsed > 0.08
+    assert len(requests) == len(run.attempts) == 3
+    assert run.attempts[-1].requirements[-1].passed
+    assert "Decision must be true." in requests[1]["messages"][-1]["content"]
+    assert run.model_options[ModelOption.STREAM_TIMEOUT] is None
     assert IvrRun.model_validate_json(run.model_dump_json()) == run
 
 
-def test_timeout_before_repair_retains_generated_output_and_finished_checks(monkeypatch) -> None:
-    """A deadline during validation must not erase an already generated answer."""
-    request = [{"role": "user", "content": "Review the source."}]
-    response = {"id": "generated-before-timeout", "choices": [{"finish_reason": "stop"}]}
+def test_validation_duration_is_not_limited_by_http_timeout(offline_openai_session) -> None:
+    def slow_validation(_ctx):
+        time.sleep(0.06)
+        return ValidationResult(result=True)
+
+    async def respond(request):
+        return _http_response(request, 0, '{"decision":true}')
+
+    async def invoke():
+        session, options = await offline_openai_session(respond, timeout_seconds=0.02)
+        started = time.monotonic()
+        run = await run_instruct_ivr(
+            session,
+            InstructIvrSpec(
+                description="Review.",
+                output_format=_Output,
+                requirements=(req("Check the source.", validation_fn=slow_validation),),
+            ),
+            strategy=MultiTurnStrategy(loop_budget=1),
+            model_options=options,
+        )
+        return run, time.monotonic() - started
+
+    run, elapsed = asyncio.run(invoke())
+    assert run.success
+    assert elapsed > 0.02
+    assert len(run.attempts) == 1
+
+
+@pytest.mark.parametrize("completed", [0, 2])
+@pytest.mark.parametrize("mode", LlmOutputMode)
+def test_http_timeout_preserves_completed_repairs_and_stops_requests(
+    offline_openai_session, completed, mode
+) -> None:
+    import httpx2
+
+    requests = []
+    strategy = MultiTurnStrategy(loop_budget=4)
+    original_state = dict(vars(strategy))
+    native_repair = strategy.repair
+
+    async def respond(request):
+        requests.append(json.loads(request.content))
+        if len(requests) == completed + 1:
+            raise httpx2.ReadTimeout("The offline HTTP transport stopped responding.", request=request)
+        return _http_response(request, len(requests), '{"decision":false}')
+
+    async def invoke():
+        session, options = await offline_openai_session(respond, mode=mode)
+        return await run_instruct_ivr(
+            session,
+            InstructIvrSpec(
+                description="Review the source.",
+                output_format=_Output,
+                requirements=(
+                    req(
+                        "Ground the quoted evidence.",
+                        validation_fn=lambda _ctx: ValidationResult(
+                            result=False,
+                            reason="The quote is not grounded in the source.",
+                            score=0.0,
+                        ),
+                    ),
+                ),
+            ),
+            strategy=strategy,
+            model_options=options,
+        )
+
+    run = asyncio.run(invoke())
+    assert not run.success
+    assert len(requests) == completed + 1
+    assert len(run.attempts) == completed + 1
+    assert run.selected_attempt == completed
+    assert vars(strategy) == original_state
+    assert strategy.repair is native_repair
+    for index, attempt in enumerate(run.attempts[:completed]):
+        assert attempt.request == requests[index]["messages"]
+        assert attempt.response["id"] == f"response-{index + 1}"
+        assert any(not r.passed and "not grounded" in (r.reason or "") for r in attempt.requirements)
+    if completed:
+        assert "not grounded" in requests[-1]["messages"][-1]["content"]
+    assert run.attempts[-1].response is None
+    assert run.attempts[-1].output == ""
+    assert run.attempts[-1].requirements[-1].description == (
+        "The provider HTTP request completed within its configured timeout."
+    )
+    assert "APITimeoutError" in run.failure_reason
+    assert IvrRun.model_validate_json(run.model_dump_json()) == run
+
+
+def test_http_timeout_helper_is_a_durable_failed_run() -> None:
+    import httpx2
+
+    error = APITimeoutError(request=httpx2.Request("POST", "https://provider.invalid/v1/chat/completions"))
+    run = _http_timeout_ivr_run(
+        SimpleNamespace(backend=SimpleNamespace(model_id="test-model")),
+        InstructIvrSpec(description="Decide."),
+        {"max_tokens": 64},
+        error,
+    )
+    assert not run.success
+    assert run.failure_reason == f"{type(error).__name__}: {error}"
+    assert IvrRun.model_validate_json(run.model_dump_json()) == run
+
+
+def test_http_timeout_during_validation_retains_generated_answer(monkeypatch) -> None:
+    import httpx2
+
     generation = SimpleNamespace(
         value='{"decision":true}',
-        _generate_log=SimpleNamespace(prompt=request, model_output=response),
+        _generate_log=SimpleNamespace(
+            prompt=[{"role": "user", "content": "Review the source."}],
+            model_output={"id": "completed-before-validation", "choices": [{"finish_reason": "stop"}]},
+        ),
     )
+    error = APITimeoutError(request=httpx2.Request("POST", "https://provider.invalid/v1/chat/completions"))
 
-    async def stalled_instruct(_description, **kwargs):
+    def fail_validation(_ctx):
+        raise error
+
+    async def generated_before_timeout(_description, **kwargs):
         context = SimpleNamespace(last_output=lambda: generation)
-        assert kwargs["requirements"][0].validation_fn(context).as_bool()
-        # No repair hook is reached while another validation is pending.
-        await asyncio.Event().wait()
+        for requirement in kwargs["requirements"]:
+            requirement.validation_fn(context)
+        raise AssertionError("HTTP failure must propagate from the validator")
 
-    monkeypatch.setattr(mfuncs, "ainstruct", stalled_instruct)
+    monkeypatch.setattr(mfuncs, "ainstruct", generated_before_timeout)
     run = asyncio.run(
         run_instruct_ivr(
-            SimpleNamespace(backend=SimpleNamespace(model_id="offline-model")),
-            InstructIvrSpec(description="Review the source.", output_format=_Output),
+            SimpleNamespace(backend=SimpleNamespace(model_id="test-model")),
+            InstructIvrSpec(
+                description="Review.",
+                output_format=_Output,
+                requirements=(req("Check the remote source.", validation_fn=fail_validation),),
+            ),
             strategy=MultiTurnStrategy(loop_budget=2),
-            model_options={ModelOption.STREAM_TIMEOUT: 0.05, OUTPUT_MODE_OPTION: LlmOutputMode.JSON_SCHEMA},
+            model_options={OUTPUT_MODE_OPTION: LlmOutputMode.JSON_SCHEMA, ModelOption.STREAM_TIMEOUT: None},
         )
     )
     assert not run.success
     assert len(run.attempts) == 1
     assert run.output == generation.value
-    assert run.attempts[0].request == request
-    assert run.attempts[0].response == response
+    assert run.attempts[0].request == generation._generate_log.prompt
+    assert run.attempts[0].response == generation._generate_log.model_output
     assert run.attempts[0].requirements[0].passed
-    assert not run.attempts[0].requirements[-1].passed
-    assert "timeout" in run.failure_reason
+    assert "APITimeoutError" in run.failure_reason
     assert IvrRun.model_validate_json(run.model_dump_json()) == run
 
 
-def test_native_async_timeout_cancels_sampling_before_another_repair_request() -> None:
-    """Exercise public ainstruct and the native sampler with an offline backend."""
+@pytest.mark.parametrize(
+    "error", [TimeoutError("Validator timeout"), RuntimeError("Invalid validator state")]
+)
+def test_non_http_errors_are_not_mislabeled_as_http_timeout(monkeypatch, error) -> None:
+    async def fail_instruct(*_args, **_kwargs):
+        raise error
 
-    class OfflineBackend:
-        model_id = "offline-model"
-
-        def __init__(self):
-            self.actions = []
-            self.release = asyncio.Event()
-            self.cancelled = asyncio.Event()
-            self.pending_loop = None
-
-        async def generate_from_context(self, action, *, ctx, **_kwargs):
-            index = len(self.actions)
-            self.actions.append(action)
-            if index == 2:
-                self.pending_loop = asyncio.get_running_loop()
-                try:
-                    await self.release.wait()
-                except asyncio.CancelledError:
-                    self.cancelled.set()
-                    raise
-            output = ModelOutputThunk('{"decision":false}')
-            output._generate_log = GenerateLog(
-                prompt=[{"role": "user", "content": f"Request {index}"}],
-                model_output={"id": f"completed-{index}", "choices": [{"finish_reason": "stop"}]},
-                action=action,
-                result=output,
-            )
-            return output, ctx.add(action).add(output)
-
-    backend = OfflineBackend()
-    strategy = MultiTurnStrategy(loop_budget=4)
-    original_state = dict(vars(strategy))
-    spec = InstructIvrSpec(
-        description="Review the source.",
-        output_format=_Output,
-        requirements=(
-            req(
-                "Ground the quoted evidence.",
-                validation_fn=lambda _ctx: ValidationResult(
-                    result=False, reason="The quoted evidence is not grounded in the source."
-                ),
-            ),
-        ),
-    )
-
-    async def invoke():
-        try:
-            run = await run_instruct_ivr(
-                SimpleNamespace(backend=backend),
-                spec,
-                strategy=strategy,
+    monkeypatch.setattr(mfuncs, "ainstruct", fail_instruct)
+    with pytest.raises(type(error), match=str(error)):
+        asyncio.run(
+            run_instruct_ivr(
+                SimpleNamespace(backend=SimpleNamespace(model_id="test-model")),
+                InstructIvrSpec(description="Review.", output_format=_Output),
+                strategy=MultiTurnStrategy(loop_budget=1),
                 model_options={
-                    ModelOption.STREAM_TIMEOUT: 0.2,
                     OUTPUT_MODE_OPTION: LlmOutputMode.JSON_SCHEMA,
+                    ModelOption.STREAM_TIMEOUT: None,
                 },
             )
-            assert backend.cancelled.is_set()
-        finally:
-            # Also release a regressed thread-based call so this test fails
-            # without leaving a blocked worker behind.
-            if backend.pending_loop is not None:
-                backend.pending_loop.call_soon_threadsafe(backend.release.set)
-        # A surviving producer could now return another failed answer and
-        # dispatch the fourth repair generation.
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
-        return run
-
-    run = asyncio.run(invoke())
-
-    assert len(backend.actions) == 3
-    assert "not grounded in the source" in backend.actions[1].content
-    assert "not grounded in the source" in backend.actions[2].content
-    assert vars(strategy) == original_state
-    assert not run.success
-    assert run.selected_attempt == 2
-    assert len(run.attempts) == 3
-    assert [attempt.response["id"] for attempt in run.attempts[:2]] == ["completed-0", "completed-1"]
-    assert all(
-        any(
-            not requirement.passed and "not grounded" in (requirement.reason or "")
-            for requirement in attempt.requirements
         )
-        for attempt in run.attempts[:2]
-    )
-    assert run.attempts[-1].response is None
-    assert "0.2-second timeout" in run.failure_reason
-    assert IvrRun.model_validate_json(run.model_dump_json()) == run
 
 
 def _provider_finish_run(finish_reason: str | None, *, success: bool = False) -> IvrRun:
@@ -793,7 +811,7 @@ def test_profile_metadata_is_saved_without_reaching_the_provider_or_exposing_cre
         "max_tokens": 32,
         OUTPUT_MODE_OPTION: mode,
         PROFILE_OPTION: metadata,
-        ModelOption.STREAM_TIMEOUT: 120,
+        ModelOption.STREAM_TIMEOUT: None,
     }
     run = asyncio.run(
         run_instruct_ivr(

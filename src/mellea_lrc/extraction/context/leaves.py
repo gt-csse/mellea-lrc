@@ -6,12 +6,14 @@ import re
 
 from eyecite.models import ReferenceCitation as EyeciteReferenceCitation
 
+from mellea_lrc.field_extraction.rule import read_short_case_name
 from mellea_lrc.matching.literal_to_regex import fuzzy_literal
 from mellea_lrc.model.citations import FullReporterCitation, latest
+from mellea_lrc.model.citations.fields.base import current_reading
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
 from mellea_lrc.parsing.events import events
 from mellea_lrc.parsing.pin_cite import pin_after as read_pin_after
+from mellea_lrc.parsing.span import Span
 
 
 def require_leaves(document: Document, substage: str) -> None:
@@ -50,7 +52,8 @@ def aliases(document: Document, *, before: int | None = None) -> dict[str, tuple
         if before is not None and citation.site_span.start >= before:
             continue
         root_id = latest(citation.root_id)
-        if root_id not in roots or not citation.case_name or not citation.case_name[-1].normalizable:
+        reading = current_reading(citation.case_name)
+        if root_id not in roots or reading is None or not reading.normalizable:
             continue
         name = citation.get_case_name()
         values = {name.as_citation(), name.plaintiff, name.defendant, name.subject, name.partial}
@@ -130,24 +133,4 @@ def preceding_name(document: Document, span: Span) -> Span | None:
             if end <= span.start:
                 start = max(start, end)
     text = document.text[start : span.start]
-    # Prefer an already introduced written name over a broad capitalized
-    # phrase. Whole-name suffix matching prevents prose from being borrowed
-    # into the name while preserving punctuation inside party names.
-    known: list[Span] = []
-    for name in aliases(document):
-        expression = rf"(?<!\w){fuzzy_literal(name, whitespace=True, newline=True)}\s*[,(]\s*$"
-        if match := re.search(expression, text, re.I):
-            finish = len(text.rstrip()) - 1
-            finish = len(text[:finish].rstrip())
-            known.append(Span(start + match.start(), start + finish))
-    if known:
-        return min(known, key=lambda part: part.start)
-    # A citation name is adjacent to the reporter, not the preceding sentence.
-    match = re.search(r"(?P<name>[A-Z][\w.'’&/-]*(?:\s+[\w.'’&/-]+){0,12})\s*[,(]\s*$", text)
-    if match is None:
-        return None
-    name_start = match.start("name")
-    signal = re.match(r"(?:See(?:\s+also)?|But\s+see|Cf\.|Accord|Compare)\s+", match.group("name"), re.I)
-    if signal:
-        name_start += signal.end()
-    return Span(start + name_start, start + match.end("name"))
+    return read_short_case_name(text, start, tuple(aliases(document)))

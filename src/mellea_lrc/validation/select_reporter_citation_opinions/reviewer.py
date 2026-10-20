@@ -23,7 +23,7 @@ from mellea_lrc.model.citations.reporter_page_resolution import (
 from mellea_lrc.model.citations.short_reporter import ShortReporterCitation
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 _PREFIX = """Choose a representative opinion writing for each requested citation page using only the supplied filing context and saved sources. This is source selection, not a decision about whether a page supports the filing's argument. Do not judge case identity, change extracted fields, or invent source pages.
 

@@ -142,6 +142,39 @@ Aim for three to five meaningful stages per workflow. Granular execution and
 review detail belongs in substages; the stage count is a design guideline rather
 than a hard cap.
 
+## Rule and ML field readers
+
+`.env` explicitly sets `MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED` to `true` or
+`false`, and each `MELLEA_LRC_FIELD_EXTRACTION_CASE_NAME`, `_COURT`, `_DATE`,
+and `_PIN_CITE` source to `rule` or `ml`. No field source is defaulted in code.
+Selecting any ML field while inference is disabled raises before document work.
+When enabled, the configured checkpoint, revision, variant, device, context,
+and batch size are validated before a run directory is created.
+
+The optional `grow_roots.read_root_fields.predict_fields_ml` substage saves one
+raw four-field prediction per full citation without changing any field reading.
+The same `resolve_case_names`, `resolve_courts`, `resolve_dates`, and
+`resolve_pin_cites` substages then consume either that saved prediction or their
+rule reader, according to the independent field settings. Typed normalization
+and reporter-based court inference remain in those consuming substages.
+
+Short reporters follow the same pattern with an optional
+`grow_leaves.grow_short_reporter_leaves.predict_fields_ml` before the existing
+case-name reader. Their pinpoints remain locator-derived; raw model court,
+date, and pinpoint predictions are retained but not applied.
+
+Inference checkpoints do not issue field decisions and have no precision table.
+Every normal field substage keeps its existing span and normalization measures,
+including absence and inferred court. Workflow summaries use the same metrics
+and denominators regardless of the configured field sources. Scoring reads the
+saved Document and does not consult the current `.env`.
+
+Both runners record the complete field configuration in `run.json` and reject
+configuration changes on resume. Recover the inference checkpoint to compare
+field readers without repeating inference, or root colocation to repeat model
+inference. Existing run directories remain unchanged; changed annotation hashes
+are never silently accepted as the original run's gold.
+
 ## Reporter-root opinion retrieval
 
 The first `validate_all_citation_content` substage is `validate_all_citation_content.prepare_root_opinions.retrieve_opinions`.
@@ -169,6 +202,18 @@ The runner saves one cumulative Document per filing after every completed substa
 `--stop-after` accepts any `validate_all_citation_content` substage name and retains that exact boundary.
 Complete executions use the public `validate_all_citation_content` workflow and its checkpoint
 callback; partial runs dispatch only through the requested stopping substage.
+
+To repeat content reviews while reusing opinion retrieval, page indexing, proposition
+reading, and prepared evidence from a completed cumulative Document:
+
+```sh
+.venv/bin/python -m evaluations.run_validate_all_citation_content \
+  --input-documents evaluations/results/primary/<UTC timestamp>/documents \
+  --input-substage validate_all_citation_content.prepare_citation_evidence.prepare_evidence
+```
+
+The selected input substage and original file hashes are saved with the run;
+`--resume-run` restores that selection and rejects a conflicting explicit selection.
 
 `score_retrieve_reporter_root_opinions(document)` and
 `score_validate_all_citation_content(document)` each accept only a Document. Opinion retrieval reports
@@ -534,3 +579,9 @@ counts likely or possible selected candidates, declines, and review failures.
 The annotations have no intended-case candidate gold, so these counts have no
 precision or recall. Lookup field judgments and locator-body identity retain
 their existing evaluation boundaries.
+
+Explicit field clears remain in their citation's append-only history. Scorers
+read the current outcome: a `NotStatedField` agrees only with independently
+annotated `not_stated` source and unavailable normalization. It does not count
+as an inferred field or a quoted normalization failure, and clearing never
+removes an eligible field outcome from a precision or recall denominator.

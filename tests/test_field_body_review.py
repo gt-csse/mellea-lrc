@@ -15,7 +15,7 @@ from mellea_lrc.model.citations.field_body_evidence import (
 )
 from mellea_lrc.model.citations.judgments import IdentityVerdict
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 from mellea_lrc.validation.body_search.common import make_body_evidences
 from mellea_lrc.validation.review_intended_cases_llm import SUBSTAGE, review_intended_cases_llm
 from mellea_lrc.validation.review_intended_cases_llm.reviewer import IntendedCaseContext

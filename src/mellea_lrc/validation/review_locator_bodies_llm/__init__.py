@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from mellea_lrc.llm.profiles import load_profile
-from mellea_lrc.model.citations import FullCitationVariant, FullDocketCitation
+from mellea_lrc.model.citations import FullCitationVariant, FullDocketCitation, current_reading
 from mellea_lrc.model.citations.body_evidence import (
     BodyCorroborationDecision,
     BodyCorroborationReview,
 )
 from mellea_lrc.model.citations.judgments import IdentityBasis, IdentityVerdict
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 from mellea_lrc.validation.body_search.common import roots_for_body_search
 from mellea_lrc.validation.review_locator_bodies_llm.reviewer import (
     BodyCorroborationContext,
@@ -35,11 +35,19 @@ def _append_corrections(
     if isinstance(root, FullDocketCitation) and (span := spans.get("locator")) is not None:
         if span != root.locator[-1].number_span:
             root = root.with_docket_number(source, span)
+    # A selected review rereads the whole source citation. Null means an
+    # explicit absent field, never an instruction to preserve a stale value.
+    for field in ("case_name", "court", "date"):
+        if getattr(filing, field) is None:
+            history = getattr(root, field)
+            if not history or current_reading(history) is not None:
+                root = getattr(root, f"with_{field}_not_stated")()
     name_span = spans.get("case_name")
-    if name_span is None and root.case_name and filing.case_name is not None:
-        name_span = root.case_name[-1].span
+    if name_span is None and filing.case_name is not None:
+        prior_name = current_reading(root.case_name)
+        name_span = prior_name.span if prior_name is not None else None
     if name_span is not None and filing.normalized_case_name is not None:
-        prior = root.case_name[-1] if root.case_name else None
+        prior = current_reading(root.case_name)
         if (
             prior is None
             or prior.span != name_span
@@ -51,8 +59,8 @@ def _append_corrections(
         span = spans.get(field)
         if span is None:
             continue
-        prior = getattr(root, field)
-        if prior and prior[-1].span == span:
+        prior = current_reading(getattr(root, field))
+        if prior is not None and prior.span == span:
             continue
         root = root.with_court(source, span) if field == "court" else root.with_date(source, span)
     return root

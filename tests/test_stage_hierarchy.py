@@ -66,7 +66,7 @@ def test_catalog_is_immutable_and_covers_four_workflows_fifteen_stages() -> None
         "validate_all_citation_content",
     )
     assert len(STAGE_CATALOG) == 15
-    assert len(SUBSTAGE_CATALOG) == 53
+    assert len(SUBSTAGE_CATALOG) == 55
     stage = get_stage_definition(DISCOVERY)
     assert stage.required_substages == (REPORTERS, DOCKETS)
     assert tuple(substage.name for substage in stage.substages) == (REPORTERS, DOCKETS, HUNTING)

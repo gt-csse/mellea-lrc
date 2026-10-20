@@ -9,7 +9,7 @@ from mellea_lrc.model.citations.fields.short_forms import IdField
 from mellea_lrc.model.citations.history import Node
 from mellea_lrc.model.citations.kind import ShortCitationKind
 from mellea_lrc.model.citations.leaf import LeafCitation
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 
 class IdCitation(LeafCitation):

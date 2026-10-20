@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from mellea_lrc.model.citations import FullReporterCitation
+from mellea_lrc.model.citations.fields.base import current_reading
 from mellea_lrc.model.citations.fields.court import Court, court_id_if_unique
 from mellea_lrc.providers.courtlistener import CourtListenerCluster, CourtListenerDocket
 
@@ -44,9 +45,9 @@ def reporter_court_context(
 
 def inferred_reporter_court_note(root: FullReporterCitation) -> str | None:
     """Explain a current court inference using the reporter that supplied it."""
-    if not root.court or not root.locator:
+    reading = current_reading(root.court)
+    if reading is None or not root.locator:
         return None
-    reading = root.court[-1]
     locator = root.locator[-1]
     if reading.quote is not None or not reading.normalizable or not locator.normalizable:
         return None

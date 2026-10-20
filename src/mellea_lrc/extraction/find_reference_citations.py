@@ -18,10 +18,10 @@ from mellea_lrc.extraction.context.leaves import (
 )
 from mellea_lrc.matching.literal_to_regex import fuzzy_literal
 from mellea_lrc.model.citations import ReferenceCitation
-from mellea_lrc.model.citations.fields.base import CitationField
+from mellea_lrc.model.citations.fields.base import CitationField, current_reading
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
 from mellea_lrc.parsing.events import events
+from mellea_lrc.parsing.span import Span
 
 SUBSTAGE = "grow_leaves.grow_reference_leaves.find_reference_citations"
 
@@ -30,16 +30,15 @@ def find_reference_citations(document: Document) -> Document:
     require_leaves(document, SUBSTAGE)
     blocked = [c.site_span for c in document.citations]
     # A name, court, date, entry or pin already read as part of a full citation
-    # is not a separate leaf. Include every source-grounded field history.
+    # is not a separate leaf. Only active readings mask source text; superseded
+    # or explicitly cleared spans remain history, not current citation parts.
     for citation in document.full_locators:
         for name in type(citation).model_fields:
             value = getattr(citation, name)
-            if isinstance(value, tuple):
-                blocked.extend(
-                    field.span
-                    for field in value
-                    if isinstance(field, CitationField) and field.span is not None
-                )
+            if isinstance(value, tuple) and value and isinstance(value[-1], CitationField):
+                field = current_reading(value)
+                if field is not None and field.span is not None:
+                    blocked.append(field.span)
         # A full-citation name can be incomplete in the saved field reading;
         # the same adjacent source-name reader still prevents constituent
         # party prefixes from being proposed as independent references.

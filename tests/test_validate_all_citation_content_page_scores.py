@@ -72,7 +72,7 @@ def _prediction(
     verdict=ReporterPinpointVerdict.CORRECT_PINCITE,
 ):
     citation = next(c for c in document.citations if c.id == citation_id).record(substage)
-    if substage == evaluation.FULL_OPINION_SUBSTAGE:
+    if substage in {evaluation.PAGE_SUPPORT_SUBSTAGE, evaluation.FULL_OPINION_SUBSTAGE}:
         quotes = ()
         indices = ()
         if result in {OpinionSupportResult.SUPPORTED, OpinionSupportResult.CONTRADICTED}:
@@ -92,7 +92,9 @@ def _prediction(
             ReporterCitationSupportReview(
                 node_id=citation.nodes[-1].id,
                 evidence_index=0,
-                scope=OpinionReviewScope.FULL_OPINION,
+                scope=OpinionReviewScope.CITED_PAGES
+                if substage == evaluation.PAGE_SUPPORT_SUBSTAGE
+                else OpinionReviewScope.FULL_OPINION,
                 decision=ReporterSupportDecision(
                     result=result,
                     evidence=quotes,
@@ -203,6 +205,44 @@ def test_full_review_scores_page_booleans_independently_of_content_results(tmp_p
     assert precision.predicted == 1 and precision.unscored == 2
 
 
+def test_page_only_workflow_scores_page_booleans_without_full_opinion_review(tmp_path):
+    substage = evaluation.PAGE_SUPPORT_SUBSTAGE
+    document = _native_findings(
+        _document(tmp_path), g0=_finding(), g3=_finding("WRONG_PINCITE", correct=False)
+    )
+    document = _prediction(document, substage, "c0", True)
+    document = _prediction(
+        document, substage, "c3", False, result=OpinionSupportResult.CONTRADICTED
+    ).complete_substage(substage)
+    restored = Document.model_validate_json(document.model_dump_json())
+
+    score = evaluation.score_review_reporter_citation_pages_llm(restored)
+    workflow = evaluation.score_validate_all_citation_content(restored)
+
+    assert evaluation.FULL_OPINION_SUBSTAGE not in restored.substage_runs
+    assert evaluation.JUDGMENT_SUBSTAGE not in restored.substage_runs
+    assert score.page_precision["total"].correct == score.page_precision["total"].predicted == 2
+    assert score.judgments["total"].correct == score.judgments["total"].predicted == 1
+    assert score.judgments["total"].undetermined == 1
+    assert workflow.page_precision == score.page_precision
+    assert workflow.found_page_precision is None
+    assert workflow.as_dict()["page_precision"]["total"]["precision"] == 1
+    assert "Page precision" in evaluation.render_review_reporter_citation_pages_llm(score)
+    assert "Page precision" in evaluation.render_validate_all_citation_content(workflow)
+    assert "the model's correct_page assessment" in evaluation.render_validate_all_citation_content(workflow)
+
+    full_stage = evaluation.FULL_OPINION_SUBSTAGE
+    completed = _prediction(restored, full_stage, "c0", False).complete_substage(full_stage)
+    full_score = evaluation.score_review_reporter_citation_full_opinions_llm(completed)
+    cumulative = evaluation.score_validate_all_citation_content(completed)
+
+    assert full_score.page_precision["total"].predicted == 1
+    assert full_score.page_precision["total"].correct == 0
+    assert cumulative.page_precision["total"].predicted == 2
+    assert cumulative.page_precision["total"].correct == 1
+    assert evaluation.score_validate_all_citation_content(completed.get_substage(substage)) == workflow
+
+
 def test_final_scores_page_booleans_independently_of_content_verdicts(tmp_path):
     substage = evaluation.JUDGMENT_SUBSTAGE
     document = _begin(_document(tmp_path), substage)
@@ -285,7 +325,7 @@ def test_page_scores_roundtrip_aggregate_and_preserve_stage_checkpoints(tmp_path
         assert "positive-reference agreement, not exhaustive factual precision" in report
         assert "Unlisted or partly uncovered alternatives remain unscored" in report
     page_score = evaluation.score_review_reporter_citation_pages_llm(restored)
-    assert "page_precision" not in page_score.as_dict()
+    assert page_score.as_dict()["page_precision"]["total"]["predicted"] == 0
     assert "found_page_precision" not in page_score.as_dict()
 
 

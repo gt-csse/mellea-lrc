@@ -21,9 +21,10 @@ from mellea_lrc.model.citations.docket_lookup import (
     DocketLookupFailure,
     DocketLookupReviewDecision,
 )
+from mellea_lrc.model.citations.fields.base import current_reading
 from mellea_lrc.model.citations.fields.court import Court
 from mellea_lrc.model.citations.fields.date import normalize_date
-from mellea_lrc.model.citations.judgments import MatchResult
+from mellea_lrc.model.citations.judgments import FieldCorrectionAction, MatchResult
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
 from mellea_lrc.providers.courtlistener.models import CourtListenerSearchResult
@@ -31,7 +32,7 @@ from mellea_lrc.validation.docket_review.grounding import DocketReviewGrounding
 
 _PREFIX = """Review one docket citation against every shortlisted CourtListener search record in one answer. Reread the filing fields, propose any grounded corrections, and compare the resulting readings with one selected candidate. Select the best candidate by its candidate_index, or select null if the supplied evidence does not support any candidate. The shortlisted records are the complete choice set. A similarity score helps find plausible docket numbers; it is not a case-identity verdict.
 
-For each field, set propose_replacement to true only if the current filing reading is missing or incorrect, and quote the replacement exactly from the filing. Otherwise set propose_replacement to false and quote to null. The docket number must come from the number text after its label, the case name from the filing text before the locator, and court and date from the text after its colocation group. Never copy a retrieved record as a filing correction. For case_name also supply the structured normalized name read from the filing, even when keeping the existing quote. Use kind=adversarial with both printed parties, kind=in_re or kind=ex_parte with a printed subject, or kind=partial with only its partial text for a credible but incomplete name fragment. Leave plaintiff, defendant, and subject null for kind=partial; never supply a missing party from a retrieved record. Use null only when no case name or fragment is grounded. A quoted span may contain layout noise; keep that noise in the quote but omit it from the normalized name. The program grounds proposals to source spans and normalizes court and date quotes afterward.
+For each field, use action=replace only to correct or supply its reading with an exact quote from the filing. Use action=keep with quote=null to preserve the reading. For case name, court, or date, use action=not_stated with quote=null and result=unavailable when no applicable value is supplied, including a mistaken reading from nearby prose or another citation. For a not_stated case name, normalized must be null. The docket number is required and cannot use not_stated. A disagreement with the retrieved record is a mismatch, not grounds to clear a written field. The docket number must come from the number text after its label, the case name from the filing text before the locator, and court and date from the text after its colocation group. Never copy a retrieved record as a filing correction. For case_name also supply the structured normalized name read from the filing, even when keeping the existing quote. Use kind=adversarial with both printed parties, kind=in_re or kind=ex_parte with a printed subject, or kind=partial with only its partial text for a credible but incomplete name fragment. Leave plaintiff, defendant, and subject null for kind=partial; never supply a missing party from a retrieved record. Use null only when no case name or fragment is grounded. A quoted span may contain layout noise; keep that noise in the quote but omit it from the normalized name. The program grounds proposals to source spans and normalizes court and date quotes afterward.
 
 The cited case name, court, date, or even docket number may be wrong. Candidate choice asks which record the locator identifies, not whether every field in the citation is correct. When an equivalent docket number and compatible court identify a record, select it even if its case name disagrees; report that disagreement as a case-name mismatch. Do not reject the record merely because a field you are checking is wrong. If the locator and independent context do not identify any record, select null. Compare the corrected or existing docket number, case name, court, and date independently with the selected record. For each field, give match or mismatch and a specific reason when both sides have evidence. Use unavailable if either side lacks usable evidence for that field. Make a best-effort comparison when both sides have evidence. If you select null, use unavailable for every field; you may still correct filing readings for later stages. Do not issue an overall identity verdict.
 
@@ -186,7 +187,9 @@ class DocketLookupReviewContext(DocketReviewGrounding):
         before_window, before_offset = before(document, root, 300)
         after_window, after_offset = after(document, root, 240)
         locator = root.locator[-1]
-        court_reading = root.court[-1] if root.court else None
+        name_reading = current_reading(root.case_name)
+        date_reading = current_reading(root.date)
+        court_reading = current_reading(root.court)
         court = court_reading.quote if court_reading else None
         if court_reading is not None and court_reading.normalizable:
             normalized = court_reading.get_normalized()
@@ -243,14 +246,14 @@ class DocketLookupReviewContext(DocketReviewGrounding):
             after_offset=after_offset,
             readings={
                 "docket_number": document.text[locator.number_span.start : locator.number_span.end],
-                "case_name": root.case_name[-1].quote if root.case_name else None,
+                "case_name": name_reading.quote if name_reading is not None else None,
                 "case_name_normalized": (
-                    root.case_name[-1].get_normalized().as_citation()
-                    if root.case_name and root.case_name[-1].normalizable
+                    name_reading.get_normalized().as_citation()
+                    if name_reading is not None and name_reading.normalizable
                     else None
                 ),
                 "court": court,
-                "date": root.date[-1].quote if root.date else None,
+                "date": date_reading.quote if date_reading is not None else None,
             },
             search_status=search_status,
             candidates=tuple(candidates),
@@ -261,7 +264,9 @@ class DocketLookupReviewContext(DocketReviewGrounding):
         corrections = self.grounded_corrections(decision)
         if corrections is None:
             return "A proposed replacement must quote text inside its allowed filing window"
-        has_name = self.readings["case_name"] is not None or "case_name" in corrections
+        has_name = decision.case_name.action is FieldCorrectionAction.REPLACE or (
+            decision.case_name.action is FieldCorrectionAction.KEEP and self.readings["case_name"] is not None
+        )
         if has_name and decision.case_name.normalized is None:
             return "A grounded case name needs its structured normalization"
         if not has_name and decision.case_name.normalized is not None:
@@ -283,7 +288,11 @@ class DocketLookupReviewContext(DocketReviewGrounding):
             "date": bool(summary and summary.get("dateFiled")),
         }
         for field in ("docket_number", "case_name", "court", "date"):
-            has_reading = field == "docket_number" or self.readings[field] is not None or field in corrections
+            assessment = getattr(decision, field)
+            has_reading = assessment.action is FieldCorrectionAction.REPLACE or (
+                assessment.action is FieldCorrectionAction.KEEP
+                and (field == "docket_number" or self.readings[field] is not None)
+            )
             result = getattr(decision, field).result
             if not has_reading and result is not MatchResult.UNAVAILABLE:
                 return f"{field} has no filing reading; use unavailable or quote one from the filing"
@@ -302,6 +311,8 @@ class DocketLookupReviewContext(DocketReviewGrounding):
             cited_date = (
                 self.source[corrections["date"].start : corrections["date"].end]
                 if "date" in corrections
+                else None
+                if decision.date.action is FieldCorrectionAction.NOT_STATED
                 else self.readings["date"]
             )
             expected = _docket_date_compatibility(cited_date, summary.get("dateFiled"))

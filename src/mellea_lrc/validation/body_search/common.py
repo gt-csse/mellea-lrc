@@ -14,8 +14,9 @@ from mellea_lrc.matching.fuzziness import FuzzinessOption
 from mellea_lrc.matching.grounding import fuzzy_find
 from mellea_lrc.model.citations import FullCitationVariant, FullDocketCitation
 from mellea_lrc.model.citations.body_evidence import BodyEvidence, BodySource
+from mellea_lrc.model.citations.fields.base import current_reading
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 from mellea_lrc.validation.judge_root_identity_from_fields import SUBSTAGE as FIELD_IDENTITY_SUBSTAGE
 
 _SPACE = re.compile(r"\s+")
@@ -56,9 +57,10 @@ def field_query_name(root: FullCitationVariant) -> str | None:
     citation's reporter or docket identifier. Court and date are left for
     candidate review, not used as search filters.
     """
-    if not root.case_name:
+    reading = current_reading(root.case_name)
+    if reading is None:
         return None
-    name = _SPACE.sub(" ", root.case_name[-1].quote).strip()
+    name = _SPACE.sub(" ", reading.quote).strip()
     if not name:
         return None
     sides = re.split(r"\s+v\.\s+", name, maxsplit=1, flags=re.IGNORECASE)
@@ -81,9 +83,10 @@ def field_query_parties(root: FullCitationVariant) -> tuple[str, str] | None:
     The two words narrow discovery without requiring an exact caption or
     assuming that the parties are named identically in every body.
     """
-    if not root.case_name:
+    reading = current_reading(root.case_name)
+    if reading is None:
         return None
-    name = _SPACE.sub(" ", root.case_name[-1].quote).strip()
+    name = _SPACE.sub(" ", reading.quote).strip()
     sides = re.split(r"\s+v\.\s+", name, maxsplit=1, flags=re.IGNORECASE)
     if len(sides) != 2:
         return None

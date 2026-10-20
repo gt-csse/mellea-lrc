@@ -1,10 +1,10 @@
-"""Case-name source reading local to the full-citation field substage."""
+"""Rule-based case-name span reading on caller-bounded source text."""
 
 import re
 
-from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameKind
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.case_names import CaseName, CaseNameKind
 from mellea_lrc.parsing.reporters import full_reporter_readings
+from mellea_lrc.parsing.span import Span
 
 _CASE = re.compile(
     r"(?:In re|Ex parte|Matter of)\s+[^,;\n]{2,100}|[A-Z][^,;\n]{0,100}?\s+v\.\s+[^,;\n]{1,100}"

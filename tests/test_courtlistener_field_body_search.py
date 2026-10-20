@@ -9,20 +9,20 @@ from typing import Any, Literal
 import pytest
 
 from mellea_lrc.api import Document, grow_roots
-from mellea_lrc.providers.courtlistener.models import CourtListenerSearchPage
 from mellea_lrc.model.citations.body_evidence import BodySource
+from mellea_lrc.providers.courtlistener.models import CourtListenerSearchPage
 from mellea_lrc.validation.body_search.common import field_query_name, field_query_parties
-from mellea_lrc.validation.body_search.retrieve_courtlistener_intended_case_opinions import (
-    SUBSTAGE as OPINION_SUBSTAGE,
-)
-from mellea_lrc.validation.body_search.retrieve_courtlistener_intended_case_opinions import (
-    retrieve_courtlistener_intended_case_opinions,
-)
 from mellea_lrc.validation.body_search.retrieve_courtlistener_intended_case_filings import (
     SUBSTAGE as RECAP_SUBSTAGE,
 )
 from mellea_lrc.validation.body_search.retrieve_courtlistener_intended_case_filings import (
     retrieve_courtlistener_intended_case_filings,
+)
+from mellea_lrc.validation.body_search.retrieve_courtlistener_intended_case_opinions import (
+    SUBSTAGE as OPINION_SUBSTAGE,
+)
+from mellea_lrc.validation.body_search.retrieve_courtlistener_intended_case_opinions import (
+    retrieve_courtlistener_intended_case_opinions,
 )
 
 
@@ -74,6 +74,14 @@ def _ready(source: str = "Brown v. Board of Education, 347 U.S. 483 (1954).") ->
     ).complete_substage(
         "validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm"
     )
+
+
+def test_cleared_name_is_not_reused_for_field_search_queries():
+    before = _ready()
+    root = before.roots[0].record("clear_name").with_case_name_not_stated()
+    assert field_query_name(root) is None
+    assert field_query_parties(root) is None
+    assert len(root.case_name) == len(before.roots[0].case_name) + 1
 
 
 def test_opinion_field_search_saves_grounded_name_and_different_locator() -> None:

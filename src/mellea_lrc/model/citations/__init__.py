@@ -36,6 +36,7 @@ from mellea_lrc.model.citations.fields import (
     DocketLocatorValue,
     FullDocketLocator,
     FullReporterLocator,
+    NotStatedField,
     PinCiteField,
     PinCiteKind,
     PinCiteTarget,
@@ -43,6 +44,7 @@ from mellea_lrc.model.citations.fields import (
     ReporterLocatorValue,
     ShortReporterLocator,
     ShortReporterLocatorValue,
+    current_reading,
 )
 from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.full_docket import FullDocketCitation
@@ -152,6 +154,7 @@ __all__ = [
     "LeafReviewDecision",
     "MatchResult",
     "Node",
+    "NotStatedField",
     "PinCiteField",
     "PinCiteKind",
     "PinCiteTarget",
@@ -174,5 +177,6 @@ __all__ = [
     "ShortReporterLocator",
     "ShortReporterLocatorValue",
     "SupraCitation",
+    "current_reading",
     "latest",
 ]

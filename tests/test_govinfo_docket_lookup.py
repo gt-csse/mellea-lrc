@@ -9,8 +9,6 @@ from collections.abc import Callable
 import pytest
 
 from mellea_lrc.api import Document, grow_roots
-from mellea_lrc.providers.courtlistener.models import CourtListenerSearchPage
-from mellea_lrc.providers.govinfo import GovInfoError, GovInfoSearchPage
 from mellea_lrc.model import FullDocketCitation
 from mellea_lrc.model.citations.docket_lookup import (
     DocketLookupCaseNameAssessment,
@@ -19,7 +17,9 @@ from mellea_lrc.model.citations.docket_lookup import (
 )
 from mellea_lrc.model.citations.fields.case_name import CaseName
 from mellea_lrc.model.citations.judgments import MatchResult
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
+from mellea_lrc.providers.courtlistener.models import CourtListenerSearchPage
+from mellea_lrc.providers.govinfo import GovInfoError, GovInfoSearchPage
 from mellea_lrc.validation.retrieve_courtlistener_docket_roots import (
     retrieve_courtlistener_docket_roots,
 )
@@ -278,7 +278,7 @@ def test_selected_courtlistener_review_skips_provider_but_completes_stage() -> N
 
     def assessment() -> DocketLookupFieldAssessment:
         return DocketLookupFieldAssessment(
-            propose_replacement=False,
+            action="keep",
             quote=None,
             result=MatchResult.MATCH,
             reason="Both sides support a match.",
@@ -288,7 +288,7 @@ def test_selected_courtlistener_review_skips_provider_but_completes_stage() -> N
         selected_candidate_index=0,
         docket_number=assessment(),
         case_name=DocketLookupCaseNameAssessment(
-            propose_replacement=False,
+            action="keep",
             quote=None,
             normalized=case_name,
             result=MatchResult.MATCH,

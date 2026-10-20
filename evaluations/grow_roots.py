@@ -17,6 +17,7 @@ from evaluations.score_types import (
     substage_heading,
 )
 from mellea_lrc.model import Document, FullDocketCitation, FullReporterCitation
+from mellea_lrc.model.citations.fields.base import NotStatedField, current_reading
 from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, latest
 from mellea_lrc.validation.review_govinfo_docket_roots_llm import SUBSTAGE as VALIDATED_FIELDS_SUBSTAGE
@@ -30,6 +31,7 @@ CASE_NAME_SUBSTAGE = "grow_roots.read_root_fields.resolve_case_names"
 COURT_SUBSTAGE = "grow_roots.read_root_fields.resolve_courts"
 DATE_SUBSTAGE = "grow_roots.read_root_fields.resolve_dates"
 PIN_SUBSTAGE = "grow_roots.read_root_fields.resolve_pin_cites"
+PREDICT_FIELDS_ML_SUBSTAGE = "grow_roots.read_root_fields.predict_fields_ml"
 ROOT_SUBSTAGE = "grow_roots.form_root_groups.form_roots"
 ROOT_REVIEW_SUBSTAGE = "grow_roots.form_root_groups.reassign_docket_roots_llm"
 ROOT_FIELDS = ("locator", "case_name", "court", "date", "pin_cite", "docket_entry")
@@ -176,6 +178,8 @@ def _target(row: dict[str, Any] | None, name: str) -> dict[str, Any] | None:
 
 
 def _source_agrees(reading: Any, target: dict[str, Any] | None) -> bool:
+    if isinstance(reading, NotStatedField):
+        reading = None
     if target is not None and "source" in target:
         source = target["source"]
         if source["kind"] == "quoted":
@@ -221,7 +225,7 @@ def _root_field_overlap_recall(
             ):
                 continue
             readings = getattr(citation, attribute)
-            reading = readings[-1] if readings else None
+            reading = current_reading(readings)
             if _source_overlaps(reading, target):
                 candidates.append(index)
         options.append(candidates)
@@ -258,6 +262,8 @@ def _nonroot_normalization_annotated(name: str, row: dict[str, Any]) -> bool:
 
 
 def _normalization_agrees(name: str, reading: Any, row: dict[str, Any] | None) -> bool:
+    if isinstance(reading, NotStatedField):
+        reading = None
     if row is None:
         return False
     target = _target(row, name)
@@ -431,7 +437,7 @@ def score_case_names(document: Document) -> SubstageScore:
     span_correct = span_total = norm_correct = norm_total = 0
     for citation in checkpoint.full_locators:
         row = gold.get(_key(citation))
-        reading = citation.case_name[-1] if citation.case_name else None
+        reading = current_reading(citation.case_name)
         span_total += 1
         span_correct += int(row is not None and _source_agrees(reading, _target(row, "case_name")))
         norm_total += 1
@@ -449,7 +455,7 @@ def score_courts(document: Document) -> SubstageScore:
     span_correct = span_total = norm_correct = norm_total = 0
     for citation in checkpoint.full_locators:
         row = gold.get(_key(citation))
-        reading = citation.court[-1] if citation.court else None
+        reading = current_reading(citation.court)
         span_total += 1
         span_correct += int(row is not None and _source_agrees(reading, _target(row, "court")))
         norm_total += 1
@@ -467,7 +473,7 @@ def score_dates(document: Document) -> SubstageScore:
     span_correct = span_total = norm_correct = norm_total = 0
     for citation in checkpoint.full_locators:
         row = gold.get(_key(citation))
-        reading = citation.date[-1] if citation.date else None
+        reading = current_reading(citation.date)
         span_total += 1
         span_correct += int(row is not None and _source_agrees(reading, _target(row, "date")))
         norm_total += 1
@@ -485,7 +491,7 @@ def score_pin_cites(document: Document) -> SubstageScore:
     span_correct = span_total = norm_correct = norm_total = 0
     for citation in checkpoint.full_locators:
         row = gold.get(_key(citation))
-        reading = citation.pin_cite[-1] if citation.pin_cite is not None else None
+        reading = current_reading(citation.pin_cite)
         span_total += 1
         span_correct += int(row is not None and _source_agrees(reading, _target(row, "pin_cite")))
         norm_total += 1
@@ -494,6 +500,12 @@ def score_pin_cites(document: Document) -> SubstageScore:
         PIN_SUBSTAGE,
         {"span": Precision(span_correct, span_total), "normalization": Precision(norm_correct, norm_total)},
     )
+
+
+def score_root_field_predictions_ml(document: Document) -> SubstageScore:
+    """Retain the inference checkpoint without scoring unconsumed field values."""
+    document.get_substage(PREDICT_FIELDS_ML_SUBSTAGE)
+    return SubstageScore(PREDICT_FIELDS_ML_SUBSTAGE, {})
 
 
 def score_colocations(document: Document) -> SubstageScore:
@@ -587,6 +599,7 @@ GROW_ROOTS_SUBSTAGES: tuple[tuple[str, Callable[[Document], SubstageScore]], ...
     (HUNT_SUBSTAGE, score_docket_locator_site_hunting),
     (ENTRY_SUBSTAGE, score_docket_entries),
     (COLOCATION_SUBSTAGE, score_colocations),
+    (PREDICT_FIELDS_ML_SUBSTAGE, score_root_field_predictions_ml),
     (CASE_NAME_SUBSTAGE, score_case_names),
     (COURT_SUBSTAGE, score_courts),
     (DATE_SUBSTAGE, score_dates),
@@ -637,7 +650,7 @@ def _score_root_fields(document: Document) -> dict[str, dict[str, FieldScore | R
             if name == "docket_entry" and not isinstance(citation, FullDocketCitation):
                 continue
             readings = getattr(citation, attributes[name])
-            reading = readings[-1] if readings else None
+            reading = current_reading(readings)
             row = gold.get(_key(citation))
             span_predicted += 1
             span_correct += int(row is not None and _source_agrees(reading, _target(row, target_name)))
@@ -665,7 +678,8 @@ def score_grow_roots(document: Document) -> WorkflowScore:
     missing = [
         substage
         for substage, _ in GROW_ROOTS_SUBSTAGES
-        if substage not in {HUNT_SUBSTAGE, ROOT_REVIEW_SUBSTAGE} and substage not in final.substage_runs
+        if substage not in {HUNT_SUBSTAGE, ROOT_REVIEW_SUBSTAGE, PREDICT_FIELDS_ML_SUBSTAGE}
+        and substage not in final.substage_runs
     ]
     if missing:
         raise ValueError(f"Incomplete grow_roots workflow; missing substages: {', '.join(missing)}")
@@ -819,6 +833,14 @@ def render_pin_cites(score: SubstageScore) -> str:
     )
 
 
+def render_root_field_predictions_ml(score: SubstageScore) -> str:
+    _require_substage(score, PREDICT_FIELDS_ML_SUBSTAGE)
+    return (
+        f"{substage_heading(PREDICT_FIELDS_ML_SUBSTAGE)}\n\n"
+        "Raw four-field predictions saved; field decisions scored at consuming substages."
+    )
+
+
 def render_roots(score: SubstageScore) -> str:
     _require_substage(score, ROOT_SUBSTAGE)
     return "\n".join(
@@ -851,6 +873,7 @@ GROW_ROOTS_RENDERERS: dict[str, Callable[[SubstageScore], str]] = {
     HUNT_SUBSTAGE: render_docket_locator_site_hunting,
     ENTRY_SUBSTAGE: render_docket_entries,
     COLOCATION_SUBSTAGE: render_colocations,
+    PREDICT_FIELDS_ML_SUBSTAGE: render_root_field_predictions_ml,
     CASE_NAME_SUBSTAGE: render_case_names,
     COURT_SUBSTAGE: render_courts,
     DATE_SUBSTAGE: render_dates,
@@ -891,7 +914,8 @@ def render_grow_roots(
     expected = tuple(
         substage
         for substage, _ in GROW_ROOTS_SUBSTAGES
-        if substage not in {HUNT_SUBSTAGE, ROOT_REVIEW_SUBSTAGE} or substage in stage_names
+        if substage not in {HUNT_SUBSTAGE, ROOT_REVIEW_SUBSTAGE, PREDICT_FIELDS_ML_SUBSTAGE}
+        or substage in stage_names
     )
     if stage_names != expected:
         raise ValueError("Grow-roots substage scores are missing or out of order")

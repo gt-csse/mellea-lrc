@@ -6,7 +6,7 @@ from typing import Literal, Self
 
 from pydantic import model_validator
 
-from mellea_lrc.model.citations.fields import FullReporterLocator
+from mellea_lrc.model.citations.fields import FullReporterLocator, NotStatedField
 from mellea_lrc.model.citations.full import FullCitation
 from mellea_lrc.model.citations.history import Node
 from mellea_lrc.model.citations.judgments import (
@@ -32,7 +32,7 @@ from mellea_lrc.model.citations.reporter_opinion import (
     ReporterRootOpinionSource,
 )
 from mellea_lrc.model.citations.reporter_pages import ReporterRootOpinionPageIndex
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 
 class FullReporterCitation(FullCitation):
@@ -294,6 +294,12 @@ class FullReporterCitation(FullCitation):
                     raise ValueError("Judgment must point to an available field reading")
                 if judgment.reading_index is not None and judgment.reading_index >= len(readings):
                     raise ValueError("Judgment points beyond its field-reading log")
+                if (
+                    judgment.reading_index is not None
+                    and isinstance(readings[judgment.reading_index], NotStatedField)
+                    and judgment.result is not MatchResult.UNAVAILABLE
+                ):
+                    raise ValueError("A not-stated field reading is unavailable for comparison")
                 if (
                     lookup is None
                     or lookup.response is None

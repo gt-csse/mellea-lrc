@@ -2,8 +2,8 @@
 
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
 from mellea_lrc.parsing.reporters import full_reporter_readings
+from mellea_lrc.parsing.span import Span
 
 SUBSTAGE = "grow_roots.discover_root_locators.find_full_reporter_locators"
 
