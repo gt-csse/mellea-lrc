@@ -8,8 +8,8 @@ from mellea_lrc.extraction.context.leaves import preceding_name, require_leaves
 from mellea_lrc.extraction.find_short_reporter_citations import SUBSTAGE as CREATION_SUBSTAGE
 from mellea_lrc.model.citations import ShortReporterCitation
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
 from mellea_lrc.parsing.events import events
+from mellea_lrc.parsing.span import Span
 
 SUBSTAGE = "grow_leaves.grow_short_reporter_leaves.resolve_colocations"
 

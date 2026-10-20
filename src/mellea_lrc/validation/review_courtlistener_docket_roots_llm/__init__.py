@@ -28,7 +28,7 @@ SUBSTAGE = "validate_roots_citation_identity.lookup_docket_roots.review_courtlis
 def _no_candidate_decision(context: DocketLookupReviewContext) -> DocketLookupReviewDecision:
     reason = "No shortlisted CourtListener record is available for comparison."
     unavailable = DocketLookupFieldAssessment(
-        propose_replacement=False, quote=None, result=MatchResult.UNAVAILABLE, reason=reason
+        action="keep", quote=None, result=MatchResult.UNAVAILABLE, reason=reason
     )
     selection_reason = (
         "The search stopped before all results were available, and no candidate was shortlisted "
@@ -40,7 +40,7 @@ def _no_candidate_decision(context: DocketLookupReviewContext) -> DocketLookupRe
         selected_candidate_index=None,
         docket_number=unavailable,
         case_name=DocketLookupCaseNameAssessment(
-            propose_replacement=False,
+            action="keep",
             quote=None,
             normalized=None,
             result=MatchResult.UNAVAILABLE,

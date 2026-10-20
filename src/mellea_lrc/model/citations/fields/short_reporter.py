@@ -9,8 +9,8 @@ from eyecite.models import Reporter
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from mellea_lrc.model.citations.fields.base import CitationField, normalization_record, source_quote
-from mellea_lrc.model.span import Span
 from mellea_lrc.parsing.reporters import short_reporter_readings
+from mellea_lrc.parsing.span import Span
 
 
 class ShortReporterLocatorValue(BaseModel):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from mellea_lrc.model.citations import FullReporterCitation
+from mellea_lrc.model.citations.fields.base import current_reading
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import (
     REPORTER_LOOKUP_CANDIDATE_LIMIT,
@@ -63,20 +64,20 @@ def judge_ambiguous_reporter_roots_rule(
             passing: list[int] = []
             for index, candidate in enumerate(candidates):
                 results: list[MatchResult] = []
-                if recorded.case_name:
+                if current_reading(recorded.case_name) is not None:
                     result = case_name_result(recorded, candidate)
                     recorded = recorded.with_case_name_judgment(len(recorded.case_name) - 1, index, result)
                     results.append(result)
-                if recorded.court:
+                if current_reading(recorded.court) is not None:
                     result = court_result(recorded, candidate, dockets.get(index))
                     recorded = recorded.with_court_judgment(len(recorded.court) - 1, index, result)
                     results.append(result)
-                if recorded.date and candidate.date_filed:
+                if current_reading(recorded.date) is not None and candidate.date_filed:
                     result = date_result(recorded, candidate)
                     recorded = recorded.with_date_judgment(len(recorded.date) - 1, index, result)
                     results.append(result)
                 if (
-                    recorded.case_name
+                    current_reading(recorded.case_name) is not None
                     and results
                     and all(result is MatchResult.MATCH for result in results)
                     and locator_present(candidate, lookup.query) is not False

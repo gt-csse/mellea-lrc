@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from mellea_lrc.model.citations import FullDocketCitation, FullReporterCitation
+from mellea_lrc.model.citations.fields.base import current_reading
 from mellea_lrc.model.document import Document
 
 SUBSTAGE = "grow_roots.form_root_groups.form_roots"
@@ -26,7 +27,7 @@ def _reporter_key(citation: FullReporterCitation) -> tuple[str, ...] | None:
 def _docket_key(citation: FullDocketCitation) -> tuple[str, ...] | None:
     # A courtless docket is not globally unique. Preserve its occurrence as a
     # separate root until identity validation or search supplies that context.
-    court_reading = citation.court[-1] if citation.court else None
+    court_reading = current_reading(citation.court)
     docket_reading = citation.locator[-1]
     if court_reading is None or not court_reading.normalizable or not docket_reading.normalizable:
         return None

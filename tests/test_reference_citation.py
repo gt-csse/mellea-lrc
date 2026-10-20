@@ -41,6 +41,31 @@ def _roots(source: str) -> Document:
     return asyncio.run(grow_roots(Document.from_source(source)))
 
 
+def test_cleared_name_is_not_reused_as_a_reference_alias():
+    source = "Smith v. Jones, 347 U.S. 483 (1954). See Smith at 495."
+    original = _roots(source)
+    assert find_reference_citations(original).short_citations
+    root = original.roots[0].record("clear_name").with_case_name_not_stated()
+    cleared = original.replace_citation(root).complete_substage("clear_name")
+    assert find_reference_citations(cleared).short_citations == ()
+    assert cleared.get_stage("grow_roots.form_root_groups") == original
+
+
+def test_cleared_erroneous_field_span_no_longer_masks_reference_discovery():
+    source = "Smith v. Jones, 347 U.S. 483 (1954). See Smith at 495."
+    original = _roots(source)
+    start = source.index("Smith at")
+    root = original.roots[0].record("wrong_date").with_date(source, Span(start, start + len("Smith at 495")))
+    wrong = original.replace_citation(root).complete_substage("wrong_date")
+    assert find_reference_citations(wrong).short_citations == ()
+    root = wrong.roots[0].record("clear_date").with_date_not_stated()
+    cleared = wrong.replace_citation(root).complete_substage("clear_date")
+    found = find_reference_citations(cleared)
+    assert len(found.short_citations) == 1
+    assert found.short_citations[0].case_name[-1].quote == "Smith"
+    assert found.get_substage("wrong_date") == wrong
+
+
 def _reference(document: Document) -> ReferenceCitation:
     return next(citation for citation in document.short_citations if isinstance(citation, ReferenceCitation))
 

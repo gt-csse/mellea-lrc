@@ -58,19 +58,19 @@ class LlmApiConfig:
             raise ValueError("reasoning_effort must be none, minimal, low, medium, high, xhigh, or None")
 
     def mellea_call_options(self, *, max_tokens: int) -> dict[str, object]:
-        """Build bounded per-call Mellea options for structured generation.
+        """Let the HTTP client own request timeouts; do not cap the review loop.
 
-        ``OpenAIBackend(timeout=...)`` bounds ordinary OpenAI requests.  Mellea
-        applies a separate stream-chunk deadline, so carry the same configured
-        timeout into that option as well.  This keeps a provider that opens a
-        stream but never sends a chunk from holding an iterative review run.
+        An explicit ``None`` disables Mellea's separate stream-chunk deadline.
+        Omitting that option would restore its implicit 120-second limit.
+        ``OpenAIBackend(timeout=...)`` applies the profile's HTTP timeouts to
+        each request, independently of earlier generations and validation.
         """
         from mellea.backends import ModelOption
 
         options: dict[str, object] = {
             "temperature": self.temperature,
             "max_tokens": max_tokens,
-            ModelOption.STREAM_TIMEOUT: self.timeout_seconds,
+            ModelOption.STREAM_TIMEOUT: None,
             OUTPUT_MODE_OPTION: self.output_mode,
         }
         if self.profile_name is not None:

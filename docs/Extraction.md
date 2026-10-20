@@ -60,15 +60,15 @@ document = asyncio.run(
 Path("hunted-checkpoint.json").write_text(document.model_dump_json(indent=2), encoding="utf-8")
 ```
 
-Each model-backed extraction substage gets its named package from the substage assignment in `.env`. When a default reviewer is needed, it passes `load_profile(SUBSTAGE)` to the reviewer’s `from_profile` constructor; see [runtime configuration](../README.md#runtime-configuration). All package settings and substage assignments live in `.env`; stage scripts contain no model choices. Docket-root reassignment is a substage package with its Document entrypoint in `__init__.py`, source contexts in `context.py`, and model reviewer in `reviewer.py`. The leaf attribution substages share the `leaf_attribution_review/` service; leaf-field correction has its own reviewer. Profiles and credentials are resolved lazily only when a model call is needed. A supplied custom reviewer bypasses that lookup. The shared `GroundingEvidence` service supports exact, whitespace-relaxed, and bounded edit-distance comparison; docket admission deliberately uses whitespace relaxation alone, because changing a docket character can identify a different case. A timeout or exhausted validation loop becomes a retained failed review, not a declined citation. Unexpected reviewer exceptions propagate in hunting and attribution. Leaf-field correction instead retains an explicit failure, which may have no IVR trace.
+Each LLM-backed extraction substage gets its named package from the substage assignment in `.env`. When a default reviewer is needed, it passes `load_profile(SUBSTAGE)` to the reviewer’s `from_profile` constructor; see [runtime configuration](../README.md#runtime-configuration). All package settings and substage assignments live in `.env`; stage scripts contain no model choices. Docket-root reassignment is a substage package with its Document entrypoint in `__init__.py`, source contexts in `context.py`, and model reviewer in `reviewer.py`. The leaf attribution substages share the `leaf_attribution_review/` service; leaf-field correction has its own reviewer. Profiles and credentials are resolved lazily only when a model call is needed. A supplied custom reviewer bypasses that lookup. The shared `GroundingEvidence` service supports exact, whitespace-relaxed, and bounded edit-distance comparison; docket admission deliberately uses whitespace relaxation alone, because changing a docket character can identify a different case. A timeout or exhausted validation loop becomes a retained failed review, not a declined citation. Unexpected reviewer exceptions propagate in hunting and attribution. Leaf-field correction instead retains an explicit failure, which may have no IVR trace.
 
 `find_short_reporter_citations(document)` is the discovery substage of `grow_leaves.grow_short_reporter_leaves`. It records eyecite `ShortCaseCitation` readings as `ShortReporterCitation` objects with a `short_locator` field. Their page is a pinpoint, not a full reporter citation's first page. This substage does not attach leaves or change `full_locators`, colocations, or roots.
 
 `Document` contains preprocessed text and provenance, citation histories, durable site reviews, and one ordered typed `runs` log. `substage_runs` and `stage_runs` are derived views. See [Architecture](Architecture.md) for the atomic and group checkpoint contracts. Each parsed field is an append-only log of domain-specific entries carrying an exact `quote`, its source `span`, normalization status, and a citation-local `node_id`. A successful field contains a typed normalized value. A failed field keeps the quote, span, and error with `normalizable=False`; its `get_normalized()` method raises instead of returning `None`. Rule-normalized fields are checked against their parsing rules. Model-normalized case names retain the exact grounded quote and the supplied typed interpretation. An inferred court has no quote or span; root and colocation assignments use separate relationship entries. `get_substage(substage)` reconstructs exactly the document returned by that completed substage, including citations untouched in that substage; it raises `KeyError` if the substage has not run. Calling a completed substage again, including `complete_substage(substage)`, raises rather than silently returning the old document.
 
-`Citation` owns `pin_cite` for every citation type, including supra. It is `None` when no pinpoint has been read, otherwise a nonempty tuple of `PinCiteField` readings. `citation.record(substage).with_pin_cite(source, span)` appends a grounded reading, and `citation.get_pin_cite()` returns the latest normalized targets. A failed normalization remains a reading whose getter raises; it is not absence. JSON writes an unread field as `null` and rejects an empty pin array. Rewinding before the first reading restores `None`, while later checkpoints retain every reading. Citation subclasses inherit this field and these methods; only the source-reading rules differ by type.
+`Citation` owns `pin_cite` for every citation type, including supra. It is `None` when no pinpoint has been read, otherwise a nonempty tuple of `PinCiteField` or `NotStatedField` readings. `citation.record(substage).with_pin_cite(source, span)` appends a grounded reading, and `citation.get_pin_cite()` returns the latest normalized targets. A failed normalization remains a reading whose getter raises; it is not absence. A later `with_pin_cite_not_stated()` appends an explicit absence reading, after which `get_pin_cite()` returns `None` while retaining previous pins. JSON writes a never-read field as `null` and rejects an empty pin array. Rewinding before the first reading restores `None`, while later checkpoints retain every reading. Citation subclasses inherit this field and these methods; only the source-reading rules differ by type.
 
-`CaseNameField` stores an exact source quote and one of four written forms: adversarial plaintiff and defendant, an *In re* subject, an *Ex parte* subject, or a printed partial fragment. *Matter of* is read as the *In re* form. The partial form does not supply a missing party. The fifth case-name outcome is `not_stated`: when a citation has no case-name reading, `citation.get_case_name()` returns that typed value without inventing a quote or span. A quoted name the parser cannot classify instead makes `get_case_name()` raise, preserving the distinct normalization failure for later review. The official annotation likewise keeps `source.kind: not_stated` with normalization unavailable; it does not claim there is a normalized printed name. `FullReporterLocator` keeps eyecite's `Reporter` object alongside normalized volume, edition, and page in one locator field. Reporter discovery and normalization use the same whitespace-relaxed eyecite reader on the original document and the exact locator quote respectively, so their matching rules agree without changing source spans. A reporter edition that cannot be resolved from the quote stays unnormalizable. `FullDocketLocator` keeps the written docket number opaque; equivalence is a later identity question. `CourtField`, `DateField`, and `PinCiteField` likewise contain their own typed normalized values and post-validation. Court labels are compared as tokens against `courts-db` citation labels. If that lookup fails, `reporters-db`'s Bluebook-style state abbreviations supply the state part of district and bankruptcy court labels; `courts-db` still supplies the court ID. A fallback is accepted only for a unique court and never overrides a direct database match. A reader leaves a field log empty when it finds no field. If normalization fails, it retains the reading as unnormalizable so later substages can review it. Root formation leaves such locators unmerged until their identity can be resolved. The pin reader handles adjacent pages, star pages, paragraph numbers, and supported footnote forms; Captured readings that fail normalization retain their quote and error. The full-citation reader also retains recognized malformed continuations for review.
+`CaseNameField` stores an exact source quote and one of four written forms: adversarial plaintiff and defendant, an *In re* subject, an *Ex parte* subject, or a printed partial fragment. *Matter of* is read as the *In re* form. The partial form does not supply a missing party. The fifth case-name outcome is `not_stated`: when a citation has no current case-name reading, including after an explicit `NotStatedField`, `citation.get_case_name()` returns that typed value without inventing a quote or span. A quoted name the parser cannot classify instead makes `get_case_name()` raise, preserving the distinct normalization failure for later review. The official annotation likewise keeps `source.kind: not_stated` with normalization unavailable; it does not claim there is a normalized printed name. `FullReporterLocator` keeps eyecite's `Reporter` object alongside normalized volume, edition, and page in one locator field. Reporter discovery and normalization use the same whitespace-relaxed eyecite reader on the original document and the exact locator quote respectively, so their matching rules agree without changing source spans. A reporter edition that cannot be resolved from the quote stays unnormalizable. `FullDocketLocator` keeps the written docket number opaque; equivalence is a later identity question. `CourtField`, `DateField`, and `PinCiteField` likewise contain their own typed normalized values and post-validation. Court labels are compared as tokens against `courts-db` citation labels. If that lookup fails, `reporters-db`'s Bluebook-style state abbreviations supply the state part of district and bankruptcy court labels; `courts-db` still supplies the court ID. A fallback is accepted only for a unique court and never overrides a direct database match. A reader leaves a field log empty when it finds no field. If normalization fails, it retains the reading as unnormalizable so later substages can review it. Root formation leaves such locators unmerged until their identity can be resolved. The pin reader handles adjacent pages, star pages, paragraph numbers, and supported footnote forms; Captured readings that fail normalization retain their quote and error. The full-citation reader also retains recognized malformed continuations for review.
 
 ```python
 saved = document.model_dump_json()
@@ -77,6 +77,127 @@ assert restored.get_substage("grow_roots.discover_root_locators.find_docket_loca
 ```
 
 Exact reporter-root lookup is the first independent validation substage after root formation; see [Validation](Validation.md).
+
+## ML prediction and field sources
+
+ML inference and field reading are separate operations. The same field substages
+run in every configuration:
+
+```text
+locator discovery -> docket entries and colocation
+                  -> optional predict_fields_ml
+                  -> resolve_case_names -> resolve_courts -> resolve_dates
+                  -> resolve_pin_cites -> root formation
+```
+
+The optional prediction substage runs one four-field inference per locator and
+stores its raw result in `citation.ml_field_reading`. It does not update or
+normalize case names, courts, dates, or pinpoints. The result includes the model
+revision, source context, all four predicted spans, and producing node. The
+field is `None` before inference. `citation.get_ml_field_prediction()` raises if
+no prediction has been saved.
+
+A parallel `citation.rule_field_reading` saves the four raw rule spans and
+reading-window settings. Both records point to their producing citation nodes;
+normal field histories still record the chosen spans and their normalization.
+Rule results are computed once, including when ML supplies every applied field.
+Rewinding drops each raw reading at its own node boundary. Changing cached rule
+window settings requires rewinding before that reading.
+
+### Standalone rule and ML readers
+
+The base package exposes source-only readers for use by training and evaluation
+repositories. It does not install the LLM, PDF, or model runtimes:
+
+```bash
+pip install 'mellea-lrc @ git+https://github.com/gt-csse/mellea-lrc.git@feat/citation-checking'
+```
+
+Pin an immutable Git commit for a published comparison. Both readers accept
+unchanged source text and one locator, and return the same four optional spans:
+
+```python
+from mellea_lrc.field_extraction import RuleFieldReader, Span
+
+source = "Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009)."
+start = source.index("556 U.S. 662")
+locator = Span(start, start + len("556 U.S. 662"))
+prediction = RuleFieldReader().predict(source, locator)
+# prediction.case_name / court / date / pin_cite: Span | None
+quote = source[prediction.case_name.start : prediction.case_name.end]
+```
+
+`MLCiteReader(MLReaderConfig(...)).predict(source, locator)` uses the same input
+and span fields, adding model identity and the actual context span to its result.
+The reader takes explicit settings; application entrypoints obtain those settings
+from `.env`. The `ml-cite` extra installs its model runtime; the `pipeline` extra
+installs the full document workflows. Neither reader reads annotations, mutates a
+Document, or normalizes fields. Empty field results mean no quoted span; reporter
+court inference remains a later document operation.
+
+For a fair training comparison, give both readers the same prepared source and
+locator offsets and retain the existing evaluator in the training repository.
+The document pipeline additionally has colocation groups, neighboring locator
+boundaries, and previously introduced names. Its adapters apply the **same rule
+functions** with that structural context; standalone evaluation does not invent
+those document relationships. These are separate comparison settings.
+
+Configure the switch and every consuming field explicitly in `.env`. For
+example, this policy uses model spans for names, courts, and dates while keeping
+the rule pinpoint reader:
+
+```dotenv
+MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=true
+MELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=ml
+MELLEA_LRC_FIELD_EXTRACTION_COURT=ml
+MELLEA_LRC_FIELD_EXTRACTION_DATE=ml
+MELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=rule
+```
+
+`.env.example` also supplies the model, immutable revision, device, source
+context limits, and batch size. There are no implicit switch or field-source
+defaults in Python. `ML_ENABLED=false` requires all field sources to be `rule`.
+Enabled inference can also be used with all rule sources to inspect predictions
+without applying them. Install model dependencies with `uv sync --extra ml-cite`;
+access to the configured model repository is required for its initial download.
+
+`FieldExtractionConfig.from_env()` checks the complete field policy.
+`validate_runtime()` checks an enabled checkpoint's dependencies, model access,
+weights, and device by loading it without inference. The CLI performs both
+checks before preprocessing or creating an output artifact. Workflow entrypoints
+and evaluation runners check before work too. Each reader independently rejects
+an ML source without its prediction checkpoint or citation prediction; it never
+silently falls back to a rule span.
+
+Each consuming substage chooses its configured source, then uses the existing
+typed normalizer. An absent model court still permits the existing unique
+reporter-based court inference. Locator detection, docket hunting, docket-entry
+reading, colocation, attribution, and normalizers are unchanged.
+
+Short reporter creation retains its locator-derived pinpoint. Its optional
+`grow_leaves.grow_short_reporter_leaves.predict_fields_ml` checkpoint saves all
+four raw predictions, but `resolve_case_names` alone consumes a selected model
+field. Model court, date, and pinpoint predictions are not applied to short
+reporters. Reference, Id., and supra readers remain unchanged.
+
+The shared service in `field_extraction/` batches inputs and reuses the
+loaded model. Context depends on source text and the supplied locator, never
+annotation targets. Overlong inputs shrink surrounding context without changing
+the locator. An unrepresentable locator or malformed source span raises.
+
+Every field update points to its normal field-reading node. Native serialization
+preserves the raw prediction independently; rewinding to the prediction
+checkpoint allows a different field policy to reuse the same inference.
+Changing the model, revision, or variant requires rewinding before prediction;
+an incompatible cached prediction raises before model loading.
+Evaluation scores the existing field checkpoints and their unchanged metrics.
+The prediction checkpoint has no field precision score because it has not yet
+made a field update. Runners persist the policy in run provenance and reject
+configuration changes within a resumed run.
+
+Pass the same `FieldExtractionConfig` explicitly as `field_extraction=` to
+`grow_roots`, `read_root_fields`, `grow_leaves`, or
+`grow_short_reporter_leaves` for controlled compositions.
 
 ## Grow leaves
 
@@ -100,7 +221,7 @@ The five leaf stages compose these ordered substages. IDs append the substage na
 
 | Stage | API | Substages, in order |
 | --- | --- | --- |
-| `grow_short_reporter_leaves` | `await grow_short_reporter_leaves(document)` | `find_short_reporter_citations`, `resolve_colocations`, `resolve_case_names`, `attribute_citations` |
+| `grow_short_reporter_leaves` | `await grow_short_reporter_leaves(document)` | `find_short_reporter_citations`, `resolve_colocations`, optional `predict_fields_ml`, `resolve_case_names`, `attribute_citations` |
 | `grow_reference_leaves` | `await grow_reference_leaves(document)` | `find_reference_citations`, `attribute_citations` |
 | `grow_id_leaves` | `await grow_id_leaves(document)` | `find_id_citations`, `attribute_citations` |
 | `grow_supra_leaves` | `await grow_supra_leaves(document)` | `find_supra_citations`, `resolve_case_names`, `resolve_pin_cites`, `attribute_citations_rule`, optional `review_attributions_llm` |
@@ -131,3 +252,14 @@ There is no legacy `pin_page` loader. Saved leaf Documents with that old normali
 The citation subclasses are `ShortReporterCitation`, `SupraCitation`, `IdCitation`, and `ReferenceCitation`. Their quoted fields, `attributions`, and `reviews` are append-only and point to citation-local nodes. Creation leaves root attachment unset until attribution runs. A model returns only `is_citation`, a candidate `root_index` or null, and a reason; the program writes the root assignment. Both rejected and unresolved attribution decisions attach to the same dummy head, using `root_id`; their review logs retain the distinct decisions and reasons. No separate unresolved collection or relationship field exists. Earlier real-root assignments remain in history, and a later supported decision may attach a dummy-head citation to a real root. A failed IVR outcome records its trace and preserves the prior rule state, including a dummy-head attachment when the rule could not resolve it.
 
 Each `LeafReview` retains candidate root IDs, the decision or failure, and the shared `IvrRun` when supplied by the reviewer, including schema repair feedback and provider exchanges. No live model session is needed to restore the document or inspect an earlier substage. Pinpoint **reading** belongs here; validity against the cited opinion remains a separate later workflow.
+
+## Explicit absence in field history
+
+A later reviewer can append `with_case_name_not_stated()`,
+`with_court_not_stated()`, `with_date_not_stated()`, or
+`with_pin_cite_not_stated()` under its decision node. These methods retain earlier
+readings and append a typed absence marker. `current_reading(history)` returns
+`None` when that marker is the latest entry; it never searches backward for a
+value. A failed normalization remains a distinct quoted reading whose normalized
+getter raises. Cleared fields do not supply names, aliases, search queries,
+comparison values, or written page targets to later stages.

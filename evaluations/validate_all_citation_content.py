@@ -705,7 +705,13 @@ def score_review_reporter_citation_pages_llm(document: Document) -> CitationCont
         for entry in _entries(citation, "reporter_support_reviews", PAGE_SUPPORT_SUBSTAGE)
     )
     judgments, unscored = _score_judgments(checkpoint, PAGE_SUPPORT_SUBSTAGE)
-    return CitationContentSubstageScore(PAGE_SUPPORT_SUBSTAGE, dict(counts), judgments, unscored)
+    return CitationContentSubstageScore(
+        PAGE_SUPPORT_SUBSTAGE,
+        dict(counts),
+        judgments,
+        unscored,
+        _score_page_locations(checkpoint, PAGE_SUPPORT_SUBSTAGE),
+    )
 
 
 def score_review_reporter_citation_full_opinions_llm(document: Document) -> CitationContentSubstageScore:
@@ -777,7 +783,7 @@ def score_validate_all_citation_content(document: Document) -> WorkflowScore:
     inventory = _dataset_inventory(document) if document.source_path is not None else None
     page_precision = (
         _score_page_locations(document.get_substage(summary_stage), summary_stage, cumulative=True)
-        if summary_stage in {FULL_OPINION_SUBSTAGE, JUDGMENT_SUBSTAGE}
+        if summary_stage is not None
         else None
     )
     found_page_precision = (
@@ -971,7 +977,7 @@ def _render_page_precision_note(scores: dict[str, PagePrecision], substage: str)
     score = scores["total"]
     assertion = (
         "the model's correct_page assessment"
-        if substage == FULL_OPINION_SUBSTAGE
+        if substage in {PAGE_SUPPORT_SUBSTAGE, FULL_OPINION_SUBSTAGE}
         else "the final preserved correct_page assessment"
     )
     return (

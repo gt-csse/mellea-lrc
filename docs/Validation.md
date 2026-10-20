@@ -23,20 +23,24 @@ from mellea_lrc.api import (
 checkpoint = Path("reporter-roots.json")
 document = Document.model_validate_json(checkpoint.read_text())
 document = retrieve_reporter_root_clusters(document)
-lookup_only = document.get_substage("validate_roots_citation_identity.lookup_reporter_roots.retrieve_clusters")
+lookup_only = document.get_substage(
+    "validate_roots_citation_identity.lookup_reporter_roots.retrieve_clusters"
+)
 checkpoint.write_text(lookup_only.model_dump_json())
 document = retrieve_reporter_root_dockets(document)
 document = judge_unique_reporter_roots_rule(document)
 
 before_lookup = document.get_substage("grow_roots.form_root_groups.form_roots")
-after_review = document.get_substage("validate_roots_citation_identity.lookup_reporter_roots.judge_unique_rule")
+after_review = document.get_substage(
+    "validate_roots_citation_identity.lookup_reporter_roots.judge_unique_rule"
+)
 ```
 
 Lookup responses, linked docket records, and later judgments are stored separately on the citation and linked to citation-local nodes. Recovering `validate_roots_citation_identity.lookup_reporter_roots.retrieve_dockets` retains both provider results and removes the judgments, so rule review can be replayed without another lookup.
 
 ## Unique lookup model review
 
-`review_unique_reporter_roots_llm(document)` processes only roots routed to that substage by the unique rule judgment. It reuses the saved single candidate. One model call rereads the nearby filing text, proposes any case-name, court, or date corrections, and compares all three fields with the candidate. Each field assessment explicitly says whether it proposes a replacement: `propose_replacement=True` requires a nonempty source quote, while `False` requires `quote=None`. A proposed correction is grounded to its actual source span before it becomes a new field reading; the reporter locator is fixed. The substage records the complete model repair trace and all three field judgments on one citation node. Its overall identity verdict is computed from those judgments: a mismatch is wrong identity, an adequately supported agreement is correct identity, and unresolved evidence routes to `search_reporter_roots`.
+`review_unique_reporter_roots_llm(document)` processes only roots routed to that substage by the unique rule judgment. It reuses the saved single candidate. One model call rereads the nearby filing text, proposes any case-name, court, or date corrections, and compares all three fields with the candidate. Each field assessment has an explicit `action`: `keep`, `replace`, or `not_stated`. Only `replace` requires a nonempty filing quote. `keep` and `not_stated` require `quote=None`; clearing also requires an `unavailable` field judgment and no case-name normalization. A proposed correction is grounded to its actual source span before it becomes a new field reading; the reporter locator is fixed. A `not_stated` correction appends a `NotStatedField` reading at that node; it preserves the prior quote and normalization in history. It means the extraction was unsupported, not that a printed value disagrees with the record. The substage records the complete model repair trace and all three field judgments on one citation node. Its overall identity verdict is computed from those judgments: a mismatch is wrong identity, an adequately supported agreement is correct identity, and unresolved evidence routes to `search_reporter_roots`.
 
 The substages remain separate and return a complete `Document`:
 
@@ -44,8 +48,12 @@ The substages remain separate and return a complete `Document`:
 from mellea_lrc.api import review_unique_reporter_roots_llm
 
 document = await review_unique_reporter_roots_llm(document)
-before_review = document.get_substage("validate_roots_citation_identity.lookup_reporter_roots.judge_unique_rule")
-after_review = document.get_substage("validate_roots_citation_identity.lookup_reporter_roots.review_unique_llm")
+before_review = document.get_substage(
+    "validate_roots_citation_identity.lookup_reporter_roots.judge_unique_rule"
+)
+after_review = document.get_substage(
+    "validate_roots_citation_identity.lookup_reporter_roots.review_unique_llm"
+)
 ```
 
 ## Docket lookup review
@@ -69,7 +77,9 @@ from mellea_lrc.api import corroborate_locator_bodies
 
 cutoff = date(2024, 1, 1)  # Optional filing date for retrospective evaluation.
 document = await corroborate_locator_bodies(document, retrospective_date=cutoff)
-retrievals_only = document.get_substage("validate_roots_citation_identity.corroborate_locator_bodies.retrieve_govinfo_opinions")
+retrievals_only = document.get_substage(
+    "validate_roots_citation_identity.corroborate_locator_bodies.retrieve_govinfo_opinions"
+)
 complete_bodies = document.get_stage("validate_roots_citation_identity.corroborate_locator_bodies")
 ```
 
@@ -89,7 +99,9 @@ from mellea_lrc.api import prepare_citation_evidence, prepare_root_opinions, rev
 document = prepare_root_opinions(document)
 document = await prepare_citation_evidence(document)
 document = await review_citation_content(document)
-after_page_review = document.get_substage("validate_all_citation_content.review_citation_content.review_cited_pages_llm")
+after_page_review = document.get_substage(
+    "validate_all_citation_content.review_citation_content.review_cited_pages_llm"
+)
 complete_support = document.get_stage("validate_all_citation_content.review_citation_content")
 ```
 
@@ -177,8 +189,14 @@ page references. Quotes may span adjacent pages. Footnote identification remains
 a model assessment; grounding verifies the containing page, and a correct-page
 claim with a written footnote must name that footnote. Failed requirements
 enter the ordinary repair loop and remain in the saved IVR trace. The
-response limit and whole-IVR timeout come from each substage's profile in `.env`;
-16,000 tokens and 600 seconds are configuration examples, not fixed behavior.
+response limit and HTTP request timeout come from each substage's profile in `.env`;
+8,000 tokens and 300 seconds are configuration examples, not fixed behavior.
+The HTTP client enforces connection/read/write/pool timeouts per request, not
+a total wall-clock limit on a response or the review. There is no whole-IVR
+deadline, and Mellea's separate stream-chunk deadline is disabled. Each repair
+gets its own HTTP timeout; validation does not consume a shared time budget.
+The maximum attempt count still bounds the repair loop. Actual HTTP timeouts
+remain in the durable IVR trace alongside any earlier responses and repairs.
 Invalid or incomplete JSON raises `InvalidJsonResponseError` inside the wrapper; Mellea receives its parser
 detail and `PLEASE CHECK IF TOKEN LIMIT VIOLATED` repair instruction. Valid JSON
 that violates the schema retains field-specific validation feedback. The
@@ -215,3 +233,22 @@ are interpreted in the filing's context, rather than reducing support to shared
 words. The design uses [Cornell's citation guidance](https://www.law.cornell.edu/citation/6-300),
 [FRAP 28's description of tables of authorities](https://www.law.cornell.edu/rules/frap/rule_28),
 and [CourtListener's cluster/opinion documentation](https://wiki.free.law/c/courtlistener/help/api/rest/v4/case-law).
+
+## Clearing an extracted field
+
+All source-field correction paths can record explicit absence for case name,
+court, date, and pincite where that path reviews the field. Lookup reviews and
+leaf correction use `action=not_stated`. Locator-body review returns a complete
+filing reread, so a null case name, court, or date explicitly means not stated;
+it is not an implicit instruction to keep a prior value. Valid reporter-inferred
+courts remain usable evidence even without a written court quote.
+
+A clear appends a `NotStatedField(node_id=...)` to the field history. It contains
+no fabricated quote, span, or normalized value. Current getters treat that latest
+entry as absence and never fall back to an earlier reading. A later grounded
+replacement can append a new value. Native serialization and stage recovery
+preserve both the old value and the clear decision.
+
+Required citation locators cannot be cleared. Correction does not regroup roots
+or reassign leaves. Citation-content review continues to issue evidence and
+judgments rather than rewriting the citation's printed fields.

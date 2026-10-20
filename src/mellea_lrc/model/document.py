@@ -22,7 +22,7 @@ from mellea_lrc.model.colocation import Colocation
 from mellea_lrc.model.execution import CheckpointRun, get_stage_definition, stage_for_substage
 from mellea_lrc.model.preprocessed_document import PreprocessedDocument
 from mellea_lrc.model.site_review import SiteReview
-from mellea_lrc.model.span import is_within
+from mellea_lrc.parsing.span import is_within
 
 
 def _colocations(

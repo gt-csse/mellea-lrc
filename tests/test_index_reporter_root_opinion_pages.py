@@ -15,7 +15,7 @@ from mellea_lrc.model.citations.reporter_pages import (
     ReporterRootOpinionPageIndex,
 )
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 from mellea_lrc.validation.index_reporter_root_opinion_pages import (
     SOURCE_SUBSTAGE,
     SUBSTAGE,

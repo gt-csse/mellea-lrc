@@ -3,7 +3,7 @@
 from mellea_lrc.extraction.context.leaves import require_leaves
 from mellea_lrc.model.citations import SupraCitation
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 from mellea_lrc.parsing.supra import supra_readings
 
 SUBSTAGE = "grow_leaves.grow_supra_leaves.resolve_case_names"

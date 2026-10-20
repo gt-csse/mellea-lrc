@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from mellea_lrc.model.citations.fields.pin_cite import PinCiteKind
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 
 class OpinionPage(BaseModel):

@@ -7,7 +7,7 @@ from typing import Generic, Literal, Self, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 T = TypeVar("T")
 
@@ -129,7 +129,7 @@ FieldReading = TypeVar("FieldReading", bound=CitationField)
 
 
 def current_reading(log: tuple[FieldReading | NotStatedField, ...] | None) -> FieldReading | None:
-    """Read the newest field entry; explicit absence hides earlier readings."""
+    """Read only the latest field entry; explicit absence never revives an older value."""
     if not log or isinstance(log[-1], NotStatedField):
         return None
     return log[-1]

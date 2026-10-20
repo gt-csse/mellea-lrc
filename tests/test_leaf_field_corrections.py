@@ -21,8 +21,11 @@ from mellea_lrc.model.citations import (
     IdentityVerdict,
     LeafReviewDecision,
     ShortReporterCitation,
+    current_reading,
 )
 from mellea_lrc.model.citations.fields import DateField
+from mellea_lrc.model.citations.fields.base import NotStatedField
+from mellea_lrc.model.citations.judgments import FieldCorrectionAction
 from mellea_lrc.model.citations.leaf_field_correction import (
     LeafFieldCorrectionDecision,
     LeafFieldCorrectionProposal,
@@ -38,7 +41,7 @@ from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrAttempt, IvrRequirementAttempt, IvrRun
 from mellea_lrc.model.preprocessed_document import PreprocessingMetadata
 from mellea_lrc.model.source import SourceMetadata
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 from mellea_lrc.providers.courtlistener.models import (
     CourtListenerCitationLookup,
     CourtListenerCluster,
@@ -112,13 +115,19 @@ def short(document, quote="347 U.S. at 999", *, name=None, pin=None, citation_id
     return document.add_citation(leaf)
 
 
-def decision(context, replacements=None, *, normalized=None):
+def decision(context, replacements=None, *, normalized=None, cleared=()):
     replacements = replacements or {}
     return LeafFieldCorrectionDecision(
         fields=tuple(
             LeafFieldCorrectionProposal(
                 field=window.field,
-                propose_replacement=window.field in replacements,
+                action=(
+                    FieldCorrectionAction.NOT_STATED
+                    if window.field in cleared
+                    else FieldCorrectionAction.REPLACE
+                    if window.field in replacements
+                    else FieldCorrectionAction.KEEP
+                ),
                 quote=replacements.get(window.field),
                 normalized=normalized
                 if window.field == "case_name" and window.field in replacements
@@ -485,7 +494,7 @@ def test_ivr_reviewer_cacheable_prefix_precedes_occurrence_specific_context(monk
             fields=tuple(
                 LeafFieldCorrectionProposal(
                     field=item["field"],
-                    propose_replacement=False,
+                    action=FieldCorrectionAction.KEEP,
                     quote=None,
                     reason="Correctly extracted",
                 )
@@ -800,3 +809,110 @@ def test_grown_id_pin_correction_window_matches_its_explicit_source_pin(quote, p
     if pin is not None:
         assert review.grounded[0].quote == pin
         assert not review.grounded[0].applied
+
+
+@pytest.mark.parametrize("field", ["case_name", "pin_cite", "court", "date"])
+def test_leaf_correction_can_clear_each_optional_field_preserving_history(field):
+    document = rooted("See Smith v. Jones, 347 U.S. 483, 999 (2d Cir. 1955).")
+    offset = len(ROOT_TEXT)
+    leaf = (
+        FullReporterCitation.from_locator(
+            citation_id="repeat",
+            substage="grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations",
+            source=document.text,
+            span=span(document.text, "347 U.S. 483", after=offset),
+        )
+        .record("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations")
+        .with_root("root")
+        .with_case_name(document.text, span(document.text, "Smith v. Jones", after=offset))
+        .with_pin_cite(document.text, span(document.text, "999", after=offset))
+        .with_court(document.text, span(document.text, "2d Cir.", after=offset))
+        .with_date(document.text, span(document.text, "1955", after=offset))
+    )
+    before = document.add_citation(leaf).complete_substage(
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
+    )
+
+    async def reviewer(context):
+        return decision(context, cleared=(field,))
+
+    after = asyncio.run(correct_leaf_fields(before, reviewer=reviewer))
+    updated = after.leaves[0]
+    history = getattr(updated, field)
+    assert history[:-1] == getattr(leaf, field)
+    assert isinstance(history[-1], NotStatedField)
+    assert history[-1].node_id == updated.nodes[-1].id
+    assert current_reading(history) is None
+    review = updated.leaf_field_correction_reviews[-1]
+    assert review.grounded == ()
+    assert review.cleared[0].field == field
+    assert review.cleared[0].reading_index == len(history) - 1
+    assert review.cleared[0].applied
+    assert updated.locator == leaf.locator
+    assert updated.root_id == leaf.root_id
+    assert Document.model_validate_json(after.model_dump_json()) == after
+    assert (
+        after.get_substage("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations") == before
+    )
+
+
+@pytest.mark.parametrize("action", [FieldCorrectionAction.KEEP, FieldCorrectionAction.NOT_STATED])
+def test_nonreplacement_leaf_correction_cannot_supply_quote_or_normalization(action):
+    with pytest.raises(ValueError, match="null quote"):
+        LeafFieldCorrectionProposal(field="case_name", action=action, quote="Smith", reason="Review")
+    with pytest.raises(ValueError, match="grounded case-name replacement"):
+        LeafFieldCorrectionProposal(
+            field="case_name",
+            action=action,
+            quote=None,
+            normalized=CaseName(kind=CaseNameKind.PARTIAL, partial="Smith"),
+            reason="Review",
+        )
+
+
+def test_not_stated_leaf_correction_records_absence_even_without_previous_field():
+    before = short(rooted("See Smith, 347 U.S. at 999."), pin="999").complete_substage(
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
+    )
+
+    async def reviewer(context):
+        return decision(context, cleared=("case_name",))
+
+    after = asyncio.run(correct_leaf_fields(before, reviewer=reviewer))
+    leaf = after.leaves[0]
+    assert isinstance(leaf.case_name[-1], NotStatedField)
+    assert leaf.leaf_field_correction_reviews[-1].cleared[0].reading_index == 0
+    assert leaf.leaf_field_correction_reviews[-1].decision is not None
+
+
+def test_invalid_replacement_does_not_partially_apply_a_clear():
+    before = short(rooted("See Smith, 347 U.S. at 999."), name="Smith", pin="999").complete_substage(
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
+    )
+
+    async def reviewer(context):
+        return decision(context, {"pin_cite": "495"}, cleared=("case_name",))
+
+    after = asyncio.run(correct_leaf_fields(before, reviewer=reviewer))
+    leaf = after.leaves[0]
+    assert leaf.case_name == before.leaves[0].case_name
+    assert leaf.pin_cite == before.leaves[0].pin_cite
+    review = leaf.leaf_field_correction_reviews[-1]
+    assert review.decision is None
+    assert review.grounded == review.cleared == ()
+    assert review.failure_reason is not None
+
+
+def test_clear_result_must_reference_an_absent_field_reading():
+    before = short(rooted("See Smith, 347 U.S. at 999."), name="Smith", pin="999").complete_substage(
+        "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
+    )
+
+    async def reviewer(context):
+        return decision(context, cleared=("case_name",))
+
+    after = asyncio.run(correct_leaf_fields(before, reviewer=reviewer))
+    payload = after.model_dump(mode="json")
+    payload["citations"][1]["leaf_field_correction_reviews"][0]["cleared"][0]["reading_index"] = 0
+    with pytest.raises(ValueError, match="must reference a not-stated reading"):
+        Document.model_validate(payload)

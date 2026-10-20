@@ -16,6 +16,7 @@ from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
 from mellea_lrc.llm.reviewer import IvrReviewer
 from mellea_lrc.model.citation_windows import after, before
 from mellea_lrc.model.citations import FullReporterCitation
+from mellea_lrc.model.citations.fields.base import current_reading
 from mellea_lrc.model.citations.reporter_lookup import ReporterUniqueReviewDecision
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
@@ -66,9 +67,11 @@ class ReporterUniqueReviewContext(ReporterReviewGrounding):
             raise ValueError("Unique review requires one saved reporter candidate")
         case_name_window, case_name_offset = before(document, root, 300)
         following_window, following_offset = after(document, root, 180)
+        current_name = current_reading(root.case_name)
+        current_date = current_reading(root.date)
         current_court = None
-        if root.court:
-            reading = root.court[-1]
+        reading = current_reading(root.court)
+        if reading is not None:
             current_court = reading.quote
             if reading.quote is None and reading.normalizable:
                 inferred = reading.get_normalized()
@@ -80,17 +83,17 @@ class ReporterUniqueReviewContext(ReporterReviewGrounding):
             case_name_offset=case_name_offset,
             following_window=following_window,
             following_offset=following_offset,
-            current_case_name=root.case_name[-1].quote if root.case_name else None,
+            current_case_name=current_name.quote if current_name is not None else None,
             current_case_name_normalized=(
-                root.case_name[-1].get_normalized().as_citation()
-                if root.case_name and root.case_name[-1].normalizable
+                current_name.get_normalized().as_citation()
+                if current_name is not None and current_name.normalizable
                 else None
             ),
             current_court=current_court,
-            current_date=root.date[-1].quote if root.date else None,
-            has_case_name=bool(root.case_name),
-            has_court=bool(root.court),
-            has_date=bool(root.date),
+            current_date=current_date.quote if current_date is not None else None,
+            has_case_name=current_name is not None,
+            has_court=reading is not None,
+            has_date=current_date is not None,
             candidate=lookup.response.clusters[0],
             docket=root.reporter_exact_docket.response if root.reporter_exact_docket else None,
             inferred_court_note=inferred_reporter_court_note(root),
@@ -114,7 +117,7 @@ class ReporterUniqueReviewer(Protocol):
 
 _PREFIX = """Review one reporter citation against one retrieved opinion record. Do all rereading, correction proposals, and field comparisons in this one answer.
 
-The reporter locator is fixed. For case name, court, and date, first reread the filing text. Set propose_replacement to true only when you intend to change or supply that field; then quote the replacement exactly from the filing. If the current reading is fine, set propose_replacement to false and quote to null. Do not quote a value merely to restate a reading you are keeping. A proposal must be within the text before the locator for case name, or after it for court and date. Do not quote values from the retrieved record as corrections to the filing.
+The reporter locator is fixed. For case name, court, and date, first reread the filing text. use action=replace to change or supply a reading and quote the replacement exactly from the filing. Use action=keep with quote=null to preserve the reading. Use action=not_stated with quote=null, result=unavailable, and a reason when the filing supplies no applicable field, including when the current reading was borrowed from another citation or nearby prose. For a not_stated case name, normalized must be null. Do not clear a field merely because it disagrees with a record; that is a mismatch. Case name must come from before the locator; court and date must come from after it. Do not quote a value merely to restate a reading you are keeping. A proposal must be within the text before the locator for case name, or after it for court and date. Do not quote values from the retrieved record as corrections to the filing.
 
 For case_name, also supply normalized as the structured name read from the filing. Use kind=adversarial with both printed parties, kind=in_re or kind=ex_parte with a printed subject, or kind=partial with only its partial text when the filing supplies a credible name fragment but not a complete case name. Leave plaintiff, defendant, and subject null for kind=partial; never complete a missing party from the retrieved record. Supply normalized even when keeping an existing grounded quote; use null only when no case name or fragment is grounded. The quote may contain page headers or other layout noise between name parts. Include that noise in the quoted span, but omit it from normalized. Do not take the normalized name from the retrieved record.
 
@@ -161,7 +164,7 @@ def _validate_grounding(ctx: object, context: ReporterUniqueReviewContext) -> Va
         result=False,
         reason=(
             "A replacement must have a nonempty quote inside its allowed filing window; "
-            "when propose_replacement is false, quote must be null."
+            "keep and not_stated require quote=null; not_stated also requires result=unavailable."
         ),
     )
 

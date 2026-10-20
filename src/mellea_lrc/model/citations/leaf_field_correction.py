@@ -9,9 +9,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from mellea_lrc.matching.fuzziness import FuzzinessType
 from mellea_lrc.model.citations.fields.base import require_all_json_properties
 from mellea_lrc.model.citations.fields.case_name import CaseName
-from mellea_lrc.model.citations.judgments import validate_replacement_quote, validate_reviewer_case_name
+from mellea_lrc.model.citations.judgments import (
+    FieldCorrectionAction,
+    validate_field_correction,
+    validate_reviewer_case_name,
+)
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 LeafCorrectionField = Literal["case_name", "pin_cite", "court", "date"]
 RootEvidenceHistory = Literal[
@@ -64,16 +68,18 @@ class LeafFieldCorrectionProposal(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", json_schema_extra=require_all_json_properties)
 
     field: LeafCorrectionField
-    propose_replacement: bool
+    action: FieldCorrectionAction
     quote: str | None
     normalized: CaseName | None = None
     reason: str = Field(min_length=1)
 
     @model_validator(mode="after")
     def _validate_intent(self) -> Self:
-        validate_replacement_quote(self.propose_replacement, self.quote)
+        validate_field_correction(self.action, self.quote)
         validate_reviewer_case_name(self.normalized)
-        if self.normalized is not None and (self.field != "case_name" or not self.propose_replacement):
+        if self.normalized is not None and (
+            self.field != "case_name" or self.action is not FieldCorrectionAction.REPLACE
+        ):
             raise ValueError("Only a grounded case-name replacement can supply model normalization")
         return self
 
@@ -108,6 +114,16 @@ class GroundedLeafFieldCorrection(BaseModel):
     applied: bool
 
 
+class ClearedLeafFieldCorrection(BaseModel):
+    """An explicit absent-field reading, without fabricated source evidence."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    field: LeafCorrectionField
+    reading_index: int = Field(ge=0)
+    applied: bool
+
+
 class LeafFieldCorrectionReview(BaseModel):
     """A node-bound decision/failure with root evidence and field grounding."""
 
@@ -119,6 +135,7 @@ class LeafFieldCorrectionReview(BaseModel):
     windows: tuple[LeafCorrectionWindow, ...] = Field(min_length=1)
     decision: LeafFieldCorrectionDecision | None = None
     grounded: tuple[GroundedLeafFieldCorrection, ...] = ()
+    cleared: tuple[ClearedLeafFieldCorrection, ...] = ()
     ivr: IvrRun | None = None
     failure_reason: str | None = None
 
@@ -131,14 +148,21 @@ class LeafFieldCorrectionReview(BaseModel):
         if len({item.field for item in self.windows}) != len(self.windows):
             raise ValueError("Correction windows must name distinct fields")
         if self.decision is None:
-            if self.grounded:
-                raise ValueError("A failed review cannot append grounded corrections")
+            if self.grounded or self.cleared:
+                raise ValueError("A failed review cannot append field corrections")
             return self
         if {item.field for item in self.decision.fields} != {item.field for item in self.windows}:
             raise ValueError("A correction decision must assess every allowed field")
-        proposed = {item.field for item in self.decision.fields if item.propose_replacement}
+        proposed = {
+            item.field for item in self.decision.fields if item.action is FieldCorrectionAction.REPLACE
+        }
         if proposed != {item.field for item in self.grounded} or len(proposed) != len(self.grounded):
-            raise ValueError("Every proposed correction needs exactly one grounded result")
+            raise ValueError("Every replacement needs exactly one grounded result")
+        cleared = {
+            item.field for item in self.decision.fields if item.action is FieldCorrectionAction.NOT_STATED
+        }
+        if cleared != {item.field for item in self.cleared} or len(cleared) != len(self.cleared):
+            raise ValueError("Every not_stated decision needs exactly one absent-field result")
         windows = {item.field: item.span for item in self.windows}
         for item in self.grounded:
             window = windows[item.field]

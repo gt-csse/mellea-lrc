@@ -2,6 +2,7 @@
 
 from mellea_lrc.extraction.context.leaves import name_candidates, require_leaves
 from mellea_lrc.model.citations import AttributionResult, SupraCitation
+from mellea_lrc.model.citations.fields.base import current_reading
 from mellea_lrc.model.document import Document
 
 SUBSTAGE = "grow_leaves.grow_supra_leaves.attribute_citations_rule"
@@ -14,8 +15,8 @@ def attribute_supra_citations_rule(document: Document) -> Document:
         if not isinstance(citation, SupraCitation):
             continue
         named: tuple[str, ...] = ()
-        if citation.case_name:
-            named = name_candidates(document, citation.case_name[-1].quote, citation.site_span.start)
+        if (name := current_reading(citation.case_name)) is not None:
+            named = name_candidates(document, name.quote, citation.site_span.start)
         candidates = named
         attach = len(candidates) == 1
         result = AttributionResult.ATTACHED if attach else AttributionResult.UNRESOLVED

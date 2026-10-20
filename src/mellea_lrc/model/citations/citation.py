@@ -7,11 +7,13 @@ from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from mellea_lrc.model.citations.fields.base import CitationField
+from mellea_lrc.field_extraction.models import FieldPrediction, MLFieldPrediction
+from mellea_lrc.model.citations.fields.base import CitationField, NotStatedField, current_reading
 from mellea_lrc.model.citations.fields.case_name import CaseName, CaseNameField, CaseNameKind
 from mellea_lrc.model.citations.fields.pin_cite import PinCiteField, PinCiteValue
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID, Node, RelationshipUpdate
 from mellea_lrc.model.citations.leaf_field_correction import LeafFieldCorrectionReview
+from mellea_lrc.model.citations.ml_field_reading import MLFieldReading
 from mellea_lrc.model.citations.reporter_page_resolution import (
     OpinionPageReference,
     ReporterCitationOpinionReview,
@@ -24,8 +26,9 @@ from mellea_lrc.model.citations.reporter_pinpoint import (
     ReporterOpinionEvidence,
     ReporterPinpointJudgment,
 )
+from mellea_lrc.model.citations.rule_field_reading import RuleFieldReading
 from mellea_lrc.model.citations.tags import CitationTag, CitationTagKind
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 
 class Citation(BaseModel):
@@ -37,13 +40,13 @@ class Citation(BaseModel):
     kind: str
     nodes: tuple[Node, ...]
     tags: tuple[CitationTag, ...] = ()
-    case_name: tuple[CaseNameField, ...] = ()
+    case_name: tuple[CaseNameField | NotStatedField, ...] = ()
     root_id: tuple[RelationshipUpdate[str | None], ...] = ()
     routes: tuple[RelationshipUpdate[str | None], ...] = ()
     # A pinpoint belongs to this occurrence, regardless of its citation kind.
-    # None is the only representation of no reading; a populated history is
-    # nonempty and preserves every source-grounded reading in node order.
-    pin_cite: Annotated[tuple[PinCiteField, ...], Field(min_length=1)] | None = None
+    # None means unread. A populated log preserves quoted readings and explicit
+    # not-stated decisions in node order.
+    pin_cite: Annotated[tuple[PinCiteField | NotStatedField, ...], Field(min_length=1)] | None = None
     reporter_page_resolutions: tuple[ReporterCitationPageResolution, ...] = ()
     reporter_opinion_reviews: tuple[ReporterCitationOpinionReview, ...] = ()
     reporter_propositions: tuple[ReporterCitationProposition, ...] = ()
@@ -52,6 +55,38 @@ class Citation(BaseModel):
     reporter_support_reviews: tuple[ReporterCitationSupportReview, ...] = ()
     reporter_pinpoint_judgments: tuple[ReporterPinpointJudgment, ...] = ()
     leaf_field_correction_reviews: tuple[LeafFieldCorrectionReview, ...] = ()
+    rule_field_reading: RuleFieldReading | None = None
+    ml_field_reading: MLFieldReading | None = None
+
+    def with_rule_field_reading(self, result: RuleFieldReading) -> Self:
+        """Save the raw rule spans independently of normalized field readings."""
+        if result.node_id != self._decision_node_id():
+            raise ValueError("Rule field reading must point to the current decision node")
+        if self.rule_field_reading is not None:
+            raise ValueError("Rule field reading is already recorded")
+        return self._with_log(rule_field_reading=result)
+
+    def get_rule_field_prediction(self) -> FieldPrediction:
+        """Read saved rule spans; missing inference is a configuration error."""
+        if self.rule_field_reading is None:
+            raise ValueError(
+                "Rule field prediction is unavailable; run rule prediction before reading rule fields"
+            )
+        return self.rule_field_reading.prediction
+
+    def with_ml_field_reading(self, result: MLFieldReading) -> Self:
+        """Save the raw joint inference independently of normalized field readings."""
+        if result.node_id != self._decision_node_id():
+            raise ValueError("ML field reading must point to the current decision node")
+        if self.ml_field_reading is not None:
+            raise ValueError("ML field reading is already recorded")
+        return self._with_log(ml_field_reading=result)
+
+    def get_ml_field_prediction(self) -> MLFieldPrediction:
+        """Read the saved inference; missing inference is a configuration error."""
+        if self.ml_field_reading is None:
+            raise ValueError("ML field prediction is unavailable; run ML prediction before reading ML fields")
+        return self.ml_field_reading.prediction
 
     def is_toa(self) -> bool:
         """Whether this occurrence was created inside a table-of-authorities component."""
@@ -67,9 +102,10 @@ class Citation(BaseModel):
 
     def get_case_name(self) -> CaseName:
         """Read the current written name, including the explicit unstated outcome."""
-        if not self.case_name:
+        reading = current_reading(self.case_name)
+        if reading is None:
             return CaseName(kind=CaseNameKind.NOT_STATED)
-        return self.case_name[-1].get_normalized()
+        return reading.get_normalized()
 
     def with_case_name(self, source: str, span: Span, *, normalized: CaseName | None = None) -> Self:
         """Append a grounded name, using a model reading when supplied."""
@@ -78,6 +114,11 @@ class Citation(BaseModel):
             if normalized is None
             else CaseNameField.from_model(source, span, normalized, node_id=self._decision_node_id())
         )
+        return self._with_log(case_name=(*self.case_name, reading))
+
+    def with_case_name_not_stated(self) -> Self:
+        """Append an explicit absence decision without deleting the quoted history."""
+        reading = NotStatedField(node_id=self._decision_node_id())
         return self._with_log(case_name=(*self.case_name, reading))
 
     def with_reporter_proposition(self, result: ReporterCitationProposition) -> Self:
@@ -198,13 +239,19 @@ class Citation(BaseModel):
         reading = PinCiteField.from_source(source, span, node_id=self._decision_node_id())
         return self._with_log(pin_cite=(*(self.pin_cite or ()), reading))
 
+    def with_pin_cite_not_stated(self) -> Self:
+        """Append an explicit absence decision without deleting earlier pinpoints."""
+        reading = NotStatedField(node_id=self._decision_node_id())
+        return self._with_log(pin_cite=(*(self.pin_cite or ()), reading))
+
     def get_pin_cite(self) -> PinCiteValue | None:
         """Read the latest targets, or None when no pinpoint has been read.
 
         A quoted reading that cannot normalize raises through its field getter,
         rather than being confused with absence.
         """
-        return None if self.pin_cite is None else self.pin_cite[-1].get_normalized()
+        reading = current_reading(self.pin_cite)
+        return None if reading is None else reading.get_normalized()
 
     def with_route(self, next_substage: str | None) -> Self:
         """Append a routing decision; None clears an earlier route."""
@@ -231,6 +278,10 @@ class Citation(BaseModel):
             for entry in entries:
                 if isinstance(entry, CitationField):
                     entry.validate_source(source)
+        if self.rule_field_reading is not None:
+            self.rule_field_reading.prediction.validate_source(source, self.site_span)
+        if self.ml_field_reading is not None:
+            self.ml_field_reading.prediction.validate_source(source, self.site_span)
         for proposition in self.reporter_propositions:
             for passage in proposition.passages:
                 passage.validate_source(source)
@@ -256,6 +307,19 @@ class Citation(BaseModel):
                 reading = readings[correction.reading_index]
                 if reading.span != correction.span or reading.quote != correction.quote:
                     raise ValueError("Leaf correction must reference its grounded field reading")
+                if reading.node_id not in positions:
+                    raise ValueError("Leaf correction field reading refers to a missing citation node")
+                if positions[reading.node_id] > positions[review.node_id]:
+                    raise ValueError("Leaf correction cannot reference a future reading")
+                if correction.applied and reading.node_id != review.node_id:
+                    raise ValueError("An applied correction needs a reading at its review node")
+            for correction in review.cleared:
+                readings = getattr(self, correction.field, None)
+                if readings is None or correction.reading_index >= len(readings):
+                    raise ValueError("Leaf correction references a missing field reading")
+                reading = readings[correction.reading_index]
+                if not isinstance(reading, NotStatedField):
+                    raise ValueError("Cleared leaf correction must reference a not-stated reading")
                 if reading.node_id not in positions:
                     raise ValueError("Leaf correction field reading refers to a missing citation node")
                 if positions[reading.node_id] > positions[review.node_id]:
@@ -334,7 +398,8 @@ class Citation(BaseModel):
                 # One decision may, however, assess several lookup candidates
                 # and append several evidence records to the same log.
                 if position < previous or (
-                    position == previous and isinstance(update, (CitationField, RelationshipUpdate))
+                    position == previous
+                    and isinstance(update, (CitationField, NotStatedField, RelationshipUpdate))
                 ):
                     raise ValueError(f"{name} updates are out of order")
                 previous = position

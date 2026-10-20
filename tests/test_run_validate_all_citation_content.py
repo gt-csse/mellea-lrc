@@ -597,3 +597,106 @@ def test_full_runner_delegates_to_workflow_and_saves_atomic_and_group_callbacks(
     assert sum(kind == "stage" for kind, _ in boundaries) == 3
     assert [name for kind, name in boundaries if kind == "substage"] == list(SUBSTAGES)
     assert [substage for substage, _ in calls] == list(SUBSTAGES)
+
+
+def test_full_baseline_rewinds_to_pre_review_without_repeating_preparation(tmp_path, monkeypatch):
+    input_documents, originals = _input(tmp_path, filenames=("first.txt",))
+    original = originals["first.txt"]
+    baseline = original
+    for substage in SUBSTAGES:
+        citation = (
+            baseline.citations[0]
+            .record(substage)
+            .with_root(WITHDRAWN_ROOT_ID if substage == runner.PAGE_REVIEW_SUBSTAGE else "reporter-root")
+        )
+        baseline = baseline.replace_citation(citation).complete_substage(substage)
+        baseline = runner.complete_stage_boundary(baseline, SUBSTAGES)
+    source = input_documents / "first.txt.json"
+    source.write_text(baseline.model_dump_json(), encoding="utf-8")
+    original_bytes = source.read_bytes()
+    prepared = baseline.get_substage(runner.EVIDENCE_SUBSTAGE)
+    client = _setup(monkeypatch, tmp_path)
+    calls = []
+    _stage_fakes(monkeypatch, calls)
+    workflow = runner.validate_all_citation_content
+    workflow_inputs = []
+
+    async def inspect_input(document, **kwargs):
+        workflow_inputs.append(document)
+        return await workflow(document, **kwargs)
+
+    monkeypatch.setattr(runner, "validate_all_citation_content", inspect_input)
+    run_dir = asyncio.run(runner.run(input_documents, input_substage=runner.EVIDENCE_SUBSTAGE))
+    output = Document.model_validate_json((run_dir / "documents" / source.name).read_bytes())
+
+    assert calls == [(substage, original.text) for substage in SUBSTAGES[6:]]
+    assert client.calls == []
+    assert workflow_inputs == [runner.complete_stage_boundary(prepared, SUBSTAGES)]
+    assert output.get_substage(runner.EVIDENCE_SUBSTAGE).model_dump_json() == prepared.model_dump_json()
+    assert output.citations[0].nodes == prepared.citations[0].nodes
+    assert source.read_bytes() == original_bytes
+    record = json.loads((run_dir / "run.json").read_text())
+    assert record["input_substage"] == runner.EVIDENCE_SUBSTAGE
+    assert record["input_sha256"]["first.txt"] == hashlib.sha256(original_bytes).hexdigest()
+
+
+def test_resume_keeps_selected_input_substage_and_rejects_a_different_selection(tmp_path, monkeypatch):
+    input_documents, _ = _input(tmp_path, filenames=("first.txt",))
+    client = _setup(monkeypatch, tmp_path)
+    calls = []
+    _stage_fakes(monkeypatch, calls)
+    baseline = asyncio.run(runner.run(input_documents))
+    # Keep both runs separately even when the test completes within one second.
+    monkeypatch.setattr(runner, "_RESULTS_ROOT", tmp_path / "replays")
+    fail = True
+
+    def failure(substage, _document):
+        if fail and substage == runner.FULL_REVIEW_SUBSTAGE:
+            raise RuntimeError("Review interrupted")
+
+    _stage_fakes(monkeypatch, calls, failure=failure)
+    calls.clear()
+    with pytest.raises(RuntimeError, match="Review interrupted"):
+        asyncio.run(runner.run(baseline / "documents", input_substage=runner.EVIDENCE_SUBSTAGE))
+    run_dir = next((tmp_path / "replays" / "primary").iterdir())
+    record_before = (run_dir / "run.json").read_bytes()
+    calls.clear()
+    with pytest.raises(ValueError, match="saved input substage"):
+        asyncio.run(runner.run(None, resume_run=run_dir, input_substage=runner.PROPOSITION_SUBSTAGE))
+    assert (run_dir / "run.json").read_bytes() == record_before
+    assert not calls
+
+    fail = False
+    assert asyncio.run(runner.run(None, resume_run=run_dir)) == run_dir
+    assert calls == [(substage, "Source for first.txt: 550 U.S. 544") for substage in SUBSTAGES[7:]]
+    assert client.calls == []
+    assert json.loads((run_dir / "run.json").read_text())["input_substage"] == runner.EVIDENCE_SUBSTAGE
+
+
+@pytest.mark.parametrize(
+    "input_substage,stop_after,message",
+    [
+        (
+            "grow_roots.form_root_groups.form_roots",
+            runner.JUDGMENT_SUBSTAGE,
+            "Unknown citation content input",
+        ),
+        (runner.EVIDENCE_SUBSTAGE, runner.EVIDENCE_SUBSTAGE, "Stop substage must follow"),
+    ],
+)
+def test_invalid_input_selection_fails_before_creating_run(
+    tmp_path, monkeypatch, input_substage, stop_after, message
+):
+    input_documents, _ = _input(tmp_path, filenames=("first.txt",))
+    _setup(monkeypatch, tmp_path)
+    with pytest.raises(ValueError, match=message):
+        asyncio.run(runner.run(input_documents, input_substage=input_substage, stop_after=stop_after))
+    assert not (tmp_path / "results").exists()
+
+
+def test_missing_selected_input_substage_fails_before_creating_run(tmp_path, monkeypatch):
+    input_documents, _ = _input(tmp_path, filenames=("first.txt",))
+    _setup(monkeypatch, tmp_path)
+    with pytest.raises(KeyError, match="Substage has not run"):
+        asyncio.run(runner.run(input_documents, input_substage=runner.EVIDENCE_SUBSTAGE))
+    assert not (tmp_path / "results").exists()

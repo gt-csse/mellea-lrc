@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 
 from mellea_lrc import cli
+from mellea_lrc.config import field_extraction
+from mellea_lrc.field_extraction import ml_cite
 from mellea_lrc.model.document import Document
 
 WORKFLOWS = (
@@ -60,6 +62,78 @@ def test_missing_source_fails_before_loading_document(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as error:
         cli.main(["validate", str(tmp_path / "missing.txt")])
     assert error.value.code == 2
+
+
+@pytest.mark.parametrize(
+    ("changes", "error", "message"),
+    [
+        ({"CASE_NAME": "ml"}, ValueError, "ML_ENABLED=true"),
+        ({"COURT": None}, RuntimeError, "FIELD_EXTRACTION_COURT"),
+    ],
+)
+def test_invalid_field_policy_fails_before_preprocessing_or_output(
+    tmp_path, monkeypatch, changes, error, message
+):
+    source = tmp_path / "source.txt"
+    source.write_text("A legal document", encoding="utf-8")
+    output = tmp_path / "not-created" / "document.json"
+    settings = {
+        "ML_ENABLED": "false",
+        "CASE_NAME": "rule",
+        "COURT": "rule",
+        "DATE": "rule",
+        "PIN_CITE": "rule",
+    } | changes
+    monkeypatch.setattr(
+        field_extraction,
+        "read_env",
+        lambda: {"MELLEA_LRC_FIELD_EXTRACTION_" + key: value for key, value in settings.items()},
+    )
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Invalid field policy reached preprocessing")
+
+    monkeypatch.setattr(Document, "from_source", unexpected)
+    with pytest.raises(error, match=message):
+        cli.main(["validate", str(source), "--output", str(output)])
+    assert not output.parent.exists()
+
+
+def test_unloadable_enabled_model_fails_before_preprocessing_or_output(tmp_path, monkeypatch):
+    source = tmp_path / "source.txt"
+    source.write_text("A legal document", encoding="utf-8")
+    output = tmp_path / "not-created" / "document.json"
+    settings = {
+        "ML_ENABLED": "true",
+        "CASE_NAME": "ml",
+        "COURT": "rule",
+        "DATE": "rule",
+        "PIN_CITE": "rule",
+        "MODEL_ID": "test/model",
+        "REVISION": "a" * 40,
+        "VARIANT": "augmented",
+        "DEVICE": "cpu",
+        "CONTEXT_BEFORE": "260",
+        "CONTEXT_AFTER": "260",
+        "BATCH_SIZE": "8",
+    }
+    monkeypatch.setattr(
+        field_extraction,
+        "read_env",
+        lambda: {"MELLEA_LRC_FIELD_EXTRACTION_" + key: value for key, value in settings.items()},
+    )
+
+    def broken_model(config):
+        raise RuntimeError("Model checkpoint cannot load")
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Failed ML preflight reached preprocessing")
+
+    monkeypatch.setattr(ml_cite, "get_ml_reader", broken_model)
+    monkeypatch.setattr(Document, "from_source", unexpected)
+    with pytest.raises(RuntimeError, match="Model checkpoint cannot load"):
+        cli.main(["validate", str(source), "--output", str(output)])
+    assert not output.parent.exists()
 
 
 @pytest.mark.parametrize("alias", ["same", "symlink", "hardlink"])

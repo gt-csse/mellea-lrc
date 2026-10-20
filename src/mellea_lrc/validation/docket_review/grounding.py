@@ -5,7 +5,8 @@ from __future__ import annotations
 from mellea_lrc.matching.fuzziness import FuzzinessOption
 from mellea_lrc.matching.grounding import EvidenceCandidate, GroundingEvidence
 from mellea_lrc.model.citations.docket_lookup import DocketLookupReviewDecision
-from mellea_lrc.model.span import Span
+from mellea_lrc.model.citations.judgments import FieldCorrectionAction
+from mellea_lrc.parsing.span import Span
 
 
 class DocketReviewGrounding:
@@ -29,7 +30,7 @@ class DocketReviewGrounding:
         }
         for field, (window, offset) in windows.items():
             assessment = getattr(decision, field)
-            if not assessment.propose_replacement:
+            if assessment.action is not FieldCorrectionAction.REPLACE:
                 continue
             if assessment.quote is None:
                 return None

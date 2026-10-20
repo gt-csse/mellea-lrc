@@ -19,6 +19,7 @@ from mellea_lrc.model.citation_windows import after, before
 from mellea_lrc.model.citations import FullCitationVariant
 from mellea_lrc.model.citations.body_evidence import BodyEvidence, BodySource
 from mellea_lrc.model.citations.field_body_evidence import IntendedCaseDecision
+from mellea_lrc.model.citations.fields.base import current_reading
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
 from mellea_lrc.validation.body_search.common import diverse_evidence, locator_text, source_copy_bodies
@@ -56,9 +57,10 @@ class IntendedCaseContext:
                 ),
             )
         )
-        court = root.court[-1].quote if root.court else None
-        if root.court and court is None and root.court[-1].normalizable:
-            court = f"inferred {root.court[-1].get_normalized().name}"
+        court_reading = current_reading(root.court)
+        court = court_reading.quote if court_reading is not None else None
+        if court_reading is not None and court is None and court_reading.normalizable:
+            court = f"inferred {court_reading.get_normalized().name}"
         return cls(
             source=document.text,
             root=root,

@@ -12,6 +12,7 @@ from mellea_lrc.model.citations.field_body_evidence import FieldBodySearch, Inte
 from mellea_lrc.model.citations.fields import (
     CourtField,
     DateField,
+    NotStatedField,
 )
 from mellea_lrc.model.citations.history import RelationshipUpdate
 from mellea_lrc.model.citations.judgments import (
@@ -23,15 +24,15 @@ from mellea_lrc.model.citations.judgments import (
     ReporterExactDateJudgment,
 )
 from mellea_lrc.model.citations.kind import FullCitationKind
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 
 class FullCitation(Citation):
     """A full reporter or docket citation with contextual field histories."""
 
     kind: FullCitationKind
-    court: tuple[CourtField, ...] = ()
-    date: tuple[DateField, ...] = ()
+    court: tuple[CourtField | NotStatedField, ...] = ()
+    date: tuple[DateField | NotStatedField, ...] = ()
     colocation_id: tuple[RelationshipUpdate[str | None], ...] = ()
     case_name_judgments: tuple[ReporterExactCaseNameJudgment, ...] = ()
     court_judgments: tuple[ReporterExactCourtJudgment, ...] = ()
@@ -61,12 +62,22 @@ class FullCitation(Citation):
         reading = CourtField.inferred(court_id, node_id=self._decision_node_id())
         return self._with_log(court=(*self.court, reading))
 
+    def with_court_not_stated(self) -> Self:
+        """Append an explicit absence decision without deleting earlier court readings."""
+        reading = NotStatedField(node_id=self._decision_node_id())
+        return self._with_log(court=(*self.court, reading))
+
     def with_date(self, source: str, span: Span) -> Self:
         """Append a grounded date and normalize its source quote."""
         reading = DateField.from_source(source, span, node_id=self._decision_node_id())
         return self._with_log(
             date=(*self.date, reading),
         )
+
+    def with_date_not_stated(self) -> Self:
+        """Append an explicit absence decision without deleting earlier date readings."""
+        reading = NotStatedField(node_id=self._decision_node_id())
+        return self._with_log(date=(*self.date, reading))
 
     def with_colocation(self, group_id: str) -> Self:
         """Append a parsing-group assignment."""
