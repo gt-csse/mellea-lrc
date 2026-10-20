@@ -5,7 +5,7 @@ from __future__ import annotations
 from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model.citations.field_body_evidence import IntendedCaseDecision, IntendedCaseReview
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 from mellea_lrc.validation.review_intended_cases_llm.reviewer import (
     IntendedCaseContext,
     IntendedCaseOutcome,

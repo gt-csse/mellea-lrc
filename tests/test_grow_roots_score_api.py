@@ -15,6 +15,32 @@ from evaluations import grow_roots as evaluation
 from evaluations.score_types import FieldScore, Precision, SubstageScore, substage_heading
 from mellea_lrc.api import Document, grow_roots
 from mellea_lrc.model import FullReporterCitation, Span
+from mellea_lrc.model.citations.fields.base import NotStatedField
+
+
+@pytest.mark.parametrize("field", ["case_name", "court", "date", "pin_cite"])
+def test_explicitly_cleared_reading_scores_only_as_not_stated(field):
+    reading = NotStatedField(node_id="review")
+    absent = _not_stated()
+    assert evaluation._source_agrees(reading, absent)
+    assert evaluation._normalization_agrees(field, reading, {"id": "row", field: absent})
+    assert evaluation._source_overlaps(reading, absent)
+    assert not evaluation._source_agrees(reading, _inferred_court())
+    quoted = {
+        "source": {"kind": "quoted", **_span(SOURCE, "2007")},
+        "normalization": {"kind": "unavailable"},
+    }
+    assert not evaluation._source_agrees(reading, quoted)
+    assert not evaluation._normalization_agrees(field, reading, {"id": "row", field: quoted})
+
+
+@pytest.fixture(autouse=True)
+def explicit_rule_fields(tmp_path, monkeypatch):
+    (tmp_path / ".env").write_text(
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=rule\nMELLEA_LRC_FIELD_EXTRACTION_COURT=rule\nMELLEA_LRC_FIELD_EXTRACTION_DATE=rule\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=rule\n"
+    )
+    monkeypatch.chdir(tmp_path)
+
 
 SOURCE = (
     "Alpha v. Beta, 550 U.S. 544, 545 (2007). Gamma v. Delta, No. 1:24-cv-08705, Dkt. 17 (S.D.N.Y. 2024)."
@@ -210,7 +236,9 @@ def annotated_document(tmp_path: Path) -> Document:
     return asyncio.run(grow_roots(Document.from_source(source_path), hunt_dockets=True))
 
 
-@pytest.mark.parametrize("name", (*STAGE_SCORERS.values(), "score_grow_roots"))
+@pytest.mark.parametrize(
+    "name", (*STAGE_SCORERS.values(), "score_root_field_predictions_ml", "score_grow_roots")
+)
 def test_public_scorer_has_one_document_parameter(name: str) -> None:
     scorer = getattr(evaluation, name)
     parameters = tuple(inspect.signature(scorer).parameters.values())
@@ -257,6 +285,93 @@ def test_docket_root_review_score_handles_mixed_citation_types(
 def test_workflow_scorer_accepts_saved_annotated_document(annotated_document: Document) -> None:
     restored = Document.model_validate_json(annotated_document.model_dump_json())
     assert evaluation.score_grow_roots(annotated_document) == evaluation.score_grow_roots(restored)
+
+
+def _root_document_with_predictions(document: Document) -> Document:
+    """Raw inference precedes the same independent field readers in every mode."""
+    from mellea_lrc.extraction.form_roots import form_roots
+    from mellea_lrc.extraction.resolve_case_names import resolve_case_names
+    from mellea_lrc.extraction.resolve_courts import resolve_courts
+    from mellea_lrc.extraction.resolve_dates import resolve_dates
+    from mellea_lrc.extraction.resolve_pin_cites import resolve_pin_cites
+    from mellea_lrc.field_extraction.models import MLFieldPrediction
+    from mellea_lrc.model.citations.ml_field_reading import MLFieldReading
+
+    checkpoint = document.get_substage(evaluation.COLOCATION_SUBSTAGE)
+    for citation in checkpoint.full_locators:
+        updated = citation.record(evaluation.PREDICT_FIELDS_ML_SUBSTAGE)
+        prediction = MLFieldPrediction(
+            model_id="fixture/bert",
+            revision="a" * 40,
+            variant="augmented",
+            context_span=Span(0, len(document.text)),
+        )
+        checkpoint = checkpoint.replace_citation(
+            updated.with_ml_field_reading(MLFieldReading(node_id=updated.nodes[-1].id, prediction=prediction))
+        )
+    checkpoint = checkpoint.complete_substage(evaluation.PREDICT_FIELDS_ML_SUBSTAGE)
+    for reader in (resolve_case_names, resolve_courts, resolve_dates, resolve_pin_cites):
+        checkpoint = reader(checkpoint)
+    checkpoint = checkpoint.complete_stage("grow_roots.read_root_fields")
+    return form_roots(checkpoint).complete_stage("grow_roots.form_root_groups")
+
+
+def test_ml_prediction_checkpoint_has_no_field_decisions_or_precision(
+    annotated_document: Document,
+) -> None:
+    document = _root_document_with_predictions(annotated_document)
+    checkpoint = document.get_substage(evaluation.PREDICT_FIELDS_ML_SUBSTAGE)
+    assert all(c.ml_field_reading is not None for c in checkpoint.full_locators)
+    assert all(
+        not c.case_name and not c.court and not c.date and c.pin_cite is None
+        for c in checkpoint.full_locators
+    )
+    score = evaluation.score_root_field_predictions_ml(document)
+    assert score.metrics == {}
+    restored = Document.model_validate_json(document.model_dump_json())
+    assert evaluation.score_root_field_predictions_ml(restored) == score
+    workflow = evaluation.score_grow_roots(restored)
+    assert workflow.root_fields == evaluation.score_grow_roots(annotated_document).root_fields
+    for stage, scorer in (
+        (evaluation.CASE_NAME_SUBSTAGE, evaluation.score_case_names),
+        (evaluation.COURT_SUBSTAGE, evaluation.score_courts),
+        (evaluation.DATE_SUBSTAGE, evaluation.score_dates),
+        (evaluation.PIN_SUBSTAGE, evaluation.score_pin_cites),
+    ):
+        assert stage in document.substage_runs
+        assert all(metric == Precision(2, 2) for metric in scorer(document).metrics.values())
+    report = evaluation.render_grow_roots(workflow)
+    assert "Raw four-field predictions saved; field decisions scored at consuming substages." in report
+    assert "predict_fields_ml" in report and "resolve_case_names" in report
+
+
+@pytest.mark.parametrize("gold_state", ["quoted", "not_stated", "unmatched", "missing"])
+def test_cached_ml_does_not_change_field_precision_denominators(
+    annotated_document: Document, gold_state: str
+) -> None:
+    document = _root_document_with_predictions(annotated_document)
+    annotation = Path(document.source_path).parent.parent / "documents" / "example.jsonl"
+    rows = [json.loads(line) for line in annotation.read_text().splitlines()]
+    citation = next(item for item in document.full_locators if isinstance(item, FullReporterCitation))
+    data = document.model_dump(mode="python")
+    next(item for item in data["citations"] if item["id"] == citation.id)["case_name"] = ()
+    document = Document.model_validate(data)
+    if gold_state == "not_stated":
+        rows[1]["case_name"] = _not_stated()
+    elif gold_state == "unmatched":
+        rows.pop(1)
+    elif gold_state == "missing":
+        rows[1]["is_root"] = False
+        rows[1].pop("case_name")
+    annotation.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+    if gold_state == "missing":
+        with pytest.raises(ValueError, match="missing explicit case_name normalization gold"):
+            evaluation.score_case_names(document)
+    else:
+        score = evaluation.score_case_names(document)
+        expected = Precision(2 if gold_state == "not_stated" else 1, 2)
+        assert score.metrics["span"] == expected
+        assert score.metrics["normalization"] == expected
 
 
 def test_workflow_reports_each_root_field_with_annotated_denominators(

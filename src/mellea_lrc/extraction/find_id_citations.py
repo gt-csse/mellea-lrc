@@ -5,9 +5,9 @@ from eyecite.models import IdCitation as EyeciteId
 from mellea_lrc.extraction.context.leaves import require_leaves
 from mellea_lrc.model.citations import IdCitation
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
 from mellea_lrc.parsing.events import events
 from mellea_lrc.parsing.pin_cite import id_pin_after
+from mellea_lrc.parsing.span import Span
 
 SUBSTAGE = "grow_leaves.grow_id_leaves.find_id_citations"
 

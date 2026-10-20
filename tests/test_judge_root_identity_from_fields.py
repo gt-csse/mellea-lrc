@@ -35,7 +35,7 @@ BODY_REVIEW = "validate_roots_citation_identity.corroborate_locator_bodies.revie
 def _decision(selected: int | None = 0, **results: str) -> DocketLookupReviewDecision:
     def field(name: str) -> dict[str, object]:
         return {
-            "propose_replacement": False,
+            "action": "keep",
             "quote": None,
             "result": results.get(name, "match") if selected is not None else "unavailable",
             "reason": "Compared the filing with the saved selected record.",

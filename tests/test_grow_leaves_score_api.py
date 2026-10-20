@@ -23,8 +23,29 @@ from mellea_lrc.api import Document, grow_roots
 from mellea_lrc.extraction.attribute_id_citations import attribute_id_citations
 from mellea_lrc.extraction.leaf_attribution_review.reviewer import LeafReviewOutcome
 from mellea_lrc.model.citations import IdCitation, LeafReviewDecision, ReferenceCitation, SupraCitation
-from mellea_lrc.model.span import Span
+from mellea_lrc.model.citations.fields.base import NotStatedField
+from mellea_lrc.parsing.span import Span
 from mellea_lrc.workflows.grow_leaves import grow_leaves
+
+
+def test_cleared_leaf_normalization_is_absence_not_a_parser_failure():
+    reading = NotStatedField(node_id="review")
+    absent = {"source": {"kind": "not_stated"}, "normalization": {"kind": "unavailable"}}
+    assert evaluation._field_normalization(reading, absent)
+    quoted = {
+        "source": {"kind": "quoted", "start": 0, "end": 5, "quote": "Smith"},
+        "normalization": {"kind": "unavailable"},
+    }
+    assert not evaluation._field_normalization(reading, quoted)
+
+
+@pytest.fixture(autouse=True)
+def explicit_rule_fields(tmp_path, monkeypatch):
+    (tmp_path / ".env").write_text(
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=rule\nMELLEA_LRC_FIELD_EXTRACTION_COURT=rule\nMELLEA_LRC_FIELD_EXTRACTION_DATE=rule\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=rule\n"
+    )
+    monkeypatch.chdir(tmp_path)
+
 
 TEXT = "Smith v. Jones, 347 U.S. 483 (1954). See Smith, 347 U.S. at 495. Id. at 496. Id. at 497."
 
@@ -223,6 +244,86 @@ def test_short_names_and_colocation_scores_use_their_own_checkpoints(tmp_path: P
     ]
     report = evaluation.render_grow_leaves(score)
     assert "No precision score: independent short-reporter group annotations are not defined." in report
+
+
+def _leaf_document_with_predictions(document: Document) -> Document:
+    from mellea_lrc.extraction.attribute_short_reporter_citations import attribute_short_reporter_citations
+    from mellea_lrc.extraction.resolve_short_reporter_case_names import resolve_short_reporter_case_names
+    from mellea_lrc.field_extraction.models import MLFieldPrediction
+    from mellea_lrc.model.citations.ml_field_reading import MLFieldReading
+
+    checkpoint = document.get_substage(evaluation.SHORT_COLOCATION_SUBSTAGE)
+    for citation in checkpoint.short_reporters:
+        updated = citation.record(evaluation.SHORT_PREDICT_FIELDS_ML_SUBSTAGE)
+        prediction = MLFieldPrediction(
+            model_id="fixture/bert",
+            revision="a" * 40,
+            variant="augmented",
+            context_span=Span(0, len(document.text)),
+        )
+        checkpoint = checkpoint.replace_citation(
+            updated.with_ml_field_reading(MLFieldReading(node_id=updated.nodes[-1].id, prediction=prediction))
+        )
+    checkpoint = checkpoint.complete_substage(evaluation.SHORT_PREDICT_FIELDS_ML_SUBSTAGE)
+    checkpoint = resolve_short_reporter_case_names(checkpoint)
+    checkpoint = asyncio.run(attribute_short_reporter_citations(checkpoint, review=False))
+    return checkpoint.complete_stage("grow_leaves.grow_short_reporter_leaves")
+
+
+def test_short_ml_prediction_checkpoint_keeps_existing_case_name_and_pin_scores(tmp_path: Path) -> None:
+    rules = _leaf_document(tmp_path)
+    document = _leaf_document_with_predictions(rules)
+    checkpoint = document.get_substage(evaluation.SHORT_PREDICT_FIELDS_ML_SUBSTAGE)
+    assert checkpoint.short_reporters[0].ml_field_reading is not None
+    assert not checkpoint.short_reporters[0].case_name
+    score = evaluation.score_short_reporter_field_predictions_ml(document)
+    assert score.metrics == {}
+    assert evaluation.score_short_reporter_case_names(document) == evaluation.score_short_reporter_case_names(
+        rules
+    )
+    assert evaluation.score_short_reporter_citations(document) == evaluation.score_short_reporter_citations(
+        rules
+    )
+    assert document.short_reporters[0].pin_cite == rules.short_reporters[0].pin_cite
+    restored = Document.model_validate_json(document.model_dump_json())
+    assert evaluation.score_short_reporter_field_predictions_ml(restored) == score
+    workflow = evaluation.score_grow_leaves(restored)
+    assert [item.substage for item in workflow.substages] == [
+        evaluation.SHORT_SUBSTAGE,
+        evaluation.SHORT_COLOCATION_SUBSTAGE,
+        evaluation.SHORT_PREDICT_FIELDS_ML_SUBSTAGE,
+        evaluation.SHORT_NAME_SUBSTAGE,
+        evaluation.SHORT_ATTRIBUTION_SUBSTAGE,
+    ]
+    report = evaluation.render_grow_leaves(workflow)
+    assert "Raw four-field predictions saved; field decisions scored at consuming substages." in report
+    assert "predict_fields_ml" in report and "resolve_case_names" in report
+
+
+@pytest.mark.parametrize("gold_state", ["quoted", "not_stated", "unmatched", "missing"])
+def test_short_ml_cache_keeps_case_name_prediction_denominators(tmp_path: Path, gold_state: str) -> None:
+    document = _leaf_document_with_predictions(_leaf_document(tmp_path))
+    annotation = Path(document.source_path).parent.parent / "documents" / "example.jsonl"
+    rows = [json.loads(line) for line in annotation.read_text().splitlines()]
+    row = next(item for item in rows if item.get("kind") == "ShortCaseCitation")
+    data = document.model_dump(mode="python")
+    next(item for item in data["citations"] if item["id"] == document.short_reporters[0].id)["case_name"] = ()
+    document = Document.model_validate(data)
+    if gold_state == "not_stated":
+        row["case_name"] = {"source": {"kind": "not_stated"}, "normalization": {"kind": "unavailable"}}
+    elif gold_state == "unmatched":
+        rows.remove(row)
+    elif gold_state == "missing":
+        row.pop("case_name")
+    annotation.write_text("\n".join(json.dumps(item) for item in rows) + "\n")
+    if gold_state == "missing":
+        with pytest.raises(ValueError, match="Missing explicit field normalization gold"):
+            evaluation.score_short_reporter_case_names(document)
+    else:
+        score = evaluation.score_short_reporter_case_names(document)
+        expected = Precision(int(gold_state == "not_stated"), 1)
+        assert score.metrics["case_name_span"] == expected
+        assert score.metrics["case_name_normalization"] == expected
 
 
 def test_short_creation_does_not_require_case_name_gold_before_the_name_stage(tmp_path: Path) -> None:

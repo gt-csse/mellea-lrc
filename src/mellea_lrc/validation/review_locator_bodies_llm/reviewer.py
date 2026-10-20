@@ -17,7 +17,12 @@ from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
 from mellea_lrc.llm.reviewer import IvrReviewer
 from mellea_lrc.matching.grounding import EvidenceCandidate, GroundedFragment, GroundingEvidence
 from mellea_lrc.model.citation_windows import after, before
-from mellea_lrc.model.citations import FullCitationVariant, FullDocketCitation, FullReporterCitation
+from mellea_lrc.model.citations import (
+    FullCitationVariant,
+    FullDocketCitation,
+    FullReporterCitation,
+    current_reading,
+)
 from mellea_lrc.model.citations.body_evidence import (
     BodyCitationTreatment,
     BodyCorroborationDecision,
@@ -28,7 +33,7 @@ from mellea_lrc.model.citations.body_evidence import (
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 from mellea_lrc.validation.body_search.common import (
     diverse_evidence as _diverse_evidence,
 )
@@ -63,8 +68,7 @@ class BodyCorroborationContext:
     def from_document(cls, document: Document, root: FullCitationVariant) -> BodyCorroborationContext:
         before_text, before_offset = before(document, root, 400)
         after_text, after_offset = after(document, root, 220)
-        if root.court:
-            court = root.court[-1]
+        if (court := current_reading(root.court)) is not None:
             current_court = court.quote
             if current_court is None and court.normalizable:
                 normalized = court.get_normalized()
@@ -97,9 +101,9 @@ class BodyCorroborationContext:
             locator_quote=locator_text(root),
             current={
                 "locator": locator_text(root),
-                "case_name": root.case_name[-1].quote if root.case_name else None,
+                "case_name": name.quote if (name := current_reading(root.case_name)) is not None else None,
                 "court": current_court,
-                "date": root.date[-1].quote if root.date else None,
+                "date": date.quote if (date := current_reading(root.date)) is not None else None,
             },
             evidence=evidence,
             inferred_court_note=(
@@ -257,7 +261,7 @@ _PREFIX = """Review whether an independent opinion or filing uses the supplied c
 
 Read how the independent document treats that occurrence. It may cite the authority, explicitly identify the citation as nonexistent or incorrect, or merely quote/mention it without taking a position. A citation repeated in a list of errors is not corroboration. Set treatment accordingly and explain your choice. Copy the whole citation itself into citation_quote, including its written case name, locator, court and date where present. Keep surrounding discussion out of citation_quote. If the surrounding words explain its treatment, copy a short, exact fragment into context_quote; this is required when treatment is explicitly_disputes. A table heading can supply that context when it clearly governs the selected row. Do not apply a heading to an unrelated row. Read the four fields literally from citation_quote into third_party; use null for a field absent there. A locator is the base reporter or docket identifier, not an attached pinpoint page or star page; compare pinpoints separately from root identity.
 
-Reread the source filing independently into filing. Keep its current extracted value when correct. To replace or supply a field, copy its source quote exactly from the filing window: case name before the locator, court and date after the colocation group, docket number within its locator. A reporter locator is fixed. For a complete adversarial name, use kind=adversarial with both printed parties joined by "v."; for "In re" or "Ex parte", use its printed subject. A credible lone-party or other incomplete name fragment belonging to this citation remains a filing.case_name reading and takes normalized_case_name with kind=partial and only its partial text. Leave plaintiff, defendant, and subject null for kind=partial. A fragment belonging to a neighboring citation is not this citation's name. Set both filing.case_name and filing.normalized_case_name to null only when no name or fragment is grounded for this citation. Never fill a missing party from the third-party citation. For an inferred court, the supplied inference note explains why the filing may have no printed court label.
+Reread the source filing independently into filing. This is a complete reread, not a patch: keep its current extracted value when correct, and use null for a case_name, court, or date that is not stated for this citation. A null explicitly clears an incorrectly extracted value; it never means to keep the old reading. The locator is required and cannot be cleared. To replace or supply a field, copy its source quote exactly from the filing window: case name before the locator, court and date after the colocation group, docket number within its locator. A reporter locator is fixed. For a complete adversarial name, use kind=adversarial with both printed parties joined by "v."; for "In re" or "Ex parte", use its printed subject. A credible lone-party or other incomplete name fragment belonging to this citation remains a filing.case_name reading and takes normalized_case_name with kind=partial and only its partial text. Leave plaintiff, defendant, and subject null for kind=partial. A fragment belonging to a neighboring citation is not this citation's name. Set both filing.case_name and filing.normalized_case_name to null only when no name or fragment is grounded for this citation. Never fill a missing party from the third-party citation. For an inferred court, the supplied inference note explains why the filing may have no printed court label. Retain that inferred court when the reporter supports it; absence of a printed label alone is not a reason to clear a valid inference.
 
 Compare the two *printed citations* field by field, separately from treatment. Identical written names may match even when the surrounding discussion says that their citation is fictitious; treatment expresses that negative evidence. Use match for equivalent values, mismatch for real conflicts, unavailable only when one side lacks that field. Consider conventional abbreviations and equivalent docket-number forms, but treat a misspelling as a mismatch rather than an abbreviation. A third-party document's issue date merely identifies when that evidence existed; it is not the date written in its citation. Explain each assessment. Report a field conflict even when other fields match. Use only the supplied texts for case-specific facts.
 

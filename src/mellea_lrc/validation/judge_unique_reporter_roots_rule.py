@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from mellea_lrc.model.citations import FullReporterCitation
+from mellea_lrc.model.citations.fields.base import current_reading
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactLookupOutcome
 from mellea_lrc.model.document import Document
@@ -39,20 +40,20 @@ def judge_unique_reporter_roots_rule(document: Document) -> Document:
         candidate = lookup.response.clusters[0]
         docket = citation.reporter_exact_docket.response if citation.reporter_exact_docket else None
         results: list[MatchResult] = []
-        if citation.case_name:
+        if current_reading(citation.case_name) is not None:
             result = case_name_result(citation, candidate)
             citation = citation.with_case_name_judgment(len(citation.case_name) - 1, 0, result)
             results.append(result)
-        if citation.court:
+        if current_reading(citation.court) is not None:
             result = court_result(citation, candidate, docket)
             citation = citation.with_court_judgment(len(citation.court) - 1, 0, result)
             results.append(result)
-        if citation.date and candidate.date_filed:
+        if current_reading(citation.date) is not None and candidate.date_filed:
             result = date_result(citation, candidate)
             citation = citation.with_date_judgment(len(citation.date) - 1, 0, result)
             results.append(result)
         if (
-            citation.case_name_judgments
+            current_reading(citation.case_name) is not None
             and all(result is MatchResult.MATCH for result in results)
             and locator_present(candidate, lookup.query) is not False
         ):

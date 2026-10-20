@@ -9,7 +9,7 @@ from mellea_lrc.extraction.find_docket_locators import DOCKET_PREFIX_PATTERN
 from mellea_lrc.model.citations import FullReporterCitation
 from mellea_lrc.model.citations.fields.docket import DOCKET_ENTRY_PATTERN
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 _CONTEXT = 170
 

@@ -9,6 +9,7 @@ from mellea_lrc.matching.fuzziness import FuzzinessOption
 from mellea_lrc.matching.grounding import EvidenceCandidate, GroundingEvidence
 from mellea_lrc.model.citations import FullDocketCitation
 from mellea_lrc.model.citations.docket_root_llm_reassignment import DocketRootPartition
+from mellea_lrc.model.citations.fields.base import current_reading
 from mellea_lrc.model.document import Document
 
 MINIMUM_SIMILARITY_PERCENT = 40.0
@@ -43,7 +44,7 @@ class DocketRootReviewContext:
         candidates: list[DocketRootCandidate] = []
         for root in roots:
             locator = root.locator[-1]
-            court = root.court[-1] if root.court else None
+            court = current_reading(root.court)
             court_text = None
             if court is not None:
                 court_text = court.quote

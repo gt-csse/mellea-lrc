@@ -6,6 +6,7 @@ from contextlib import ExitStack
 from typing import Protocol
 
 from mellea_lrc.model.citations import FullReporterCitation
+from mellea_lrc.model.citations.fields.base import current_reading
 from mellea_lrc.model.citations.reporter_lookup import (
     REPORTER_LOOKUP_CANDIDATE_LIMIT,
     ReporterExactCandidateDocket,
@@ -56,7 +57,11 @@ def retrieve_reporter_root_dockets(
             recorded = root.record(SUBSTAGE)
             if lookup.outcome is ReporterExactLookupOutcome.UNIQUE:
                 candidate = lookup.response.clusters[0]
-                if recorded.court and candidate.docket_id and candidate_court_id(candidate) is None:
+                if (
+                    current_reading(recorded.court) is not None
+                    and candidate.docket_id
+                    and candidate_court_id(candidate) is None
+                ):
                     docket_id = candidate.docket_id
                     if docket_id not in docket_cache:
                         if service is None:
@@ -73,7 +78,11 @@ def retrieve_reporter_root_dockets(
                 continue
             if len(lookup.response.clusters) < REPORTER_LOOKUP_CANDIDATE_LIMIT:
                 for index, candidate in enumerate(lookup.response.clusters):
-                    if not recorded.court or not candidate.docket_id or candidate_court_id(candidate):
+                    if (
+                        current_reading(recorded.court) is None
+                        or not candidate.docket_id
+                        or candidate_court_id(candidate)
+                    ):
                         continue
                     docket_id = candidate.docket_id
                     if docket_id not in docket_cache:

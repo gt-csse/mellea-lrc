@@ -36,4 +36,5 @@ __all__ = [
     "current_reading",
     "ShortReporterLocator",
     "ShortReporterLocatorValue",
+    "current_reading",
 ]

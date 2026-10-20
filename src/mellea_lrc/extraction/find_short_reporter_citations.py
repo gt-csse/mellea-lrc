@@ -5,9 +5,9 @@ import re
 from mellea_lrc.extraction.context.leaves import pin_after
 from mellea_lrc.model.citations import ShortReporterCitation
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
 from mellea_lrc.parsing.pin_cite import AT_JOIN
 from mellea_lrc.parsing.reporters import short_reporter_readings
+from mellea_lrc.parsing.span import Span
 
 SUBSTAGE = "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations"
 

@@ -25,7 +25,7 @@ from mellea_lrc.model.citations import (
     SupraCitation,
 )
 from mellea_lrc.model.document import Document
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 
 CONCRETE_TYPES = (
     FullReporterCitation,

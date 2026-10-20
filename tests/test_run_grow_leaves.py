@@ -19,7 +19,11 @@ from mellea_lrc.api import (
     resolve_short_reporter_case_names,
     resolve_short_reporter_colocations,
 )
+from mellea_lrc.config.field_extraction import FieldExtractionConfig
 from mellea_lrc.extraction.find_short_reporter_citations import find_short_reporter_citations
+from mellea_lrc.extraction.predict_short_reporter_fields_ml import predict_short_reporter_fields_ml
+from mellea_lrc.field_extraction.models import MLFieldPrediction
+from mellea_lrc.parsing.span import Span
 
 SHORT_PREFIX = (
     "grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations",
@@ -30,7 +34,11 @@ SHORT_PREFIX = (
 
 
 @pytest.fixture(autouse=True)
-def _mock_native_source_boundary(monkeypatch):
+def _mock_native_source_boundary(tmp_path, monkeypatch):
+    (tmp_path / ".env").write_text(
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED=false\nMELLEA_LRC_FIELD_EXTRACTION_CASE_NAME=rule\nMELLEA_LRC_FIELD_EXTRACTION_COURT=rule\nMELLEA_LRC_FIELD_EXTRACTION_DATE=rule\nMELLEA_LRC_FIELD_EXTRACTION_PIN_CITE=rule\n"
+    )
+    monkeypatch.chdir(tmp_path)
     # These fixtures isolate workflow persistence; real metadata/tag validation
     # is exercised by the evaluation source integration tests.
     monkeypatch.setattr(runner, "validate_source", lambda document, **_kwargs: None)
@@ -98,7 +106,7 @@ def test_runner_resumes_from_stage_31_without_replaying_discovery_or_calling_mod
             stages.append((name, fake_model_stage))
         else:
 
-            def fake_rule_stage(current, substage=name):
+            def fake_rule_stage(current, substage=name, **_kwargs):
                 calls.append(substage)
                 return current.complete_substage(substage)
 
@@ -120,6 +128,7 @@ def test_runner_resumes_from_stage_31_without_replaying_discovery_or_calling_mod
         if name
         not in {
             *SHORT_PREFIX,
+            "grow_leaves.grow_short_reporter_leaves.predict_fields_ml",
             "grow_leaves.grow_reference_leaves.find_reference_citations",
             "grow_leaves.grow_reference_leaves.attribute_citations",
         }
@@ -501,10 +510,13 @@ def test_full_runner_uses_workflow_checkpoints_and_resumes_without_granular_disp
     boundaries = []
     interrupted = False
 
-    async def run_workflow(document, *, review_leaves, checkpoint):
+    async def run_workflow(document, *, review_leaves, checkpoint, field_extraction):
         nonlocal interrupted
         calls.append(document)
         assert review_leaves is False
+        assert field_extraction == FieldExtractionConfig(
+            ml_enabled=False, case_name="rule", court="rule", date="rule", pin_cite="rule"
+        )
 
         def save(result):
             nonlocal interrupted
@@ -514,7 +526,9 @@ def test_full_runner_uses_workflow_checkpoints_and_resumes_without_granular_disp
                 interrupted = True
                 raise RuntimeError("Interrupted after a persisted workflow checkpoint")
 
-        return await workflow(document, review_leaves=review_leaves, checkpoint=save)
+        return await workflow(
+            document, review_leaves=review_leaves, checkpoint=save, field_extraction=field_extraction
+        )
 
     def unexpected(*_args, **_kwargs):
         pytest.fail("A full run must delegate to the workflow")
@@ -540,6 +554,7 @@ def test_full_runner_uses_workflow_checkpoints_and_resumes_without_granular_disp
         name
         for name, _ in runner._SUBSTAGES
         if name != "grow_leaves.grow_supra_leaves.review_attributions_llm"
+        and not name.endswith(".predict_fields_ml")
     )
     assert completed.substage_runs[-len(expected) :] == expected
     assert calls == [roots, saved]
@@ -548,3 +563,123 @@ def test_full_runner_uses_workflow_checkpoints_and_resumes_without_granular_disp
     before = artifact.read_bytes()
     assert asyncio.run(runner.run(None, resume_run=run_dir)) == run_dir
     assert artifact.read_bytes() == before
+
+
+def test_ml_partial_runner_saves_raw_prediction_and_resumes_without_replaying_inference(
+    tmp_path, monkeypatch
+):
+    input_documents, roots = _root_input(tmp_path)
+    original_input = (input_documents / "filing.txt.json").read_bytes()
+    settings = {
+        "MELLEA_LRC_FIELD_EXTRACTION_ML_ENABLED": "true",
+        "MELLEA_LRC_FIELD_EXTRACTION_CASE_NAME": "ml",
+        "MELLEA_LRC_FIELD_EXTRACTION_COURT": "rule",
+        "MELLEA_LRC_FIELD_EXTRACTION_DATE": "rule",
+        "MELLEA_LRC_FIELD_EXTRACTION_PIN_CITE": "rule",
+        "MELLEA_LRC_FIELD_EXTRACTION_MODEL_ID": "fixture/bert",
+        "MELLEA_LRC_FIELD_EXTRACTION_REVISION": "a" * 40,
+        "MELLEA_LRC_FIELD_EXTRACTION_VARIANT": "fixture-augmented",
+        "MELLEA_LRC_FIELD_EXTRACTION_DEVICE": "cpu",
+        "MELLEA_LRC_FIELD_EXTRACTION_CONTEXT_BEFORE": "260",
+        "MELLEA_LRC_FIELD_EXTRACTION_CONTEXT_AFTER": "260",
+        "MELLEA_LRC_FIELD_EXTRACTION_BATCH_SIZE": "2",
+    }
+    config = FieldExtractionConfig.from_env(environ=settings)
+    (tmp_path / ".env").write_text("".join(f"{key}={value}\n" for key, value in settings.items()))
+    ml_substage = "grow_leaves.grow_short_reporter_leaves.predict_fields_ml"
+    calls, inferences = [], []
+    interrupted = True
+
+    class Reader:
+        def predict_many(self, source, locator_spans):
+            inferences.append(locator_spans)
+            name_start = source.rindex("Smith", 0, locator_spans[0].start)
+            return (
+                MLFieldPrediction(
+                    model_id=config.model_id,
+                    revision=config.revision,
+                    variant=config.variant,
+                    context_span=Span(0, len(source)),
+                    case_name=Span(name_start, name_start + len("Smith")),
+                ),
+            )
+
+    def predict(document, *, config):
+        nonlocal interrupted
+        assert config.ml_enabled
+        calls.append("ml")
+        if interrupted:
+            interrupted = False
+            raise RuntimeError("Interrupted before span inference")
+        return predict_short_reporter_fields_ml(document, config, reader=Reader())
+
+    # The model is supplied by this offline fixture; no checkpoint download is needed.
+    monkeypatch.setattr(FieldExtractionConfig, "validate_runtime", lambda self: None)
+    monkeypatch.setattr(
+        runner,
+        "_SUBSTAGES",
+        tuple((name, predict if name == ml_substage else call) for name, call in runner._SUBSTAGES),
+    )
+    monkeypatch.setattr(runner, "_RESULTS_ROOT", tmp_path / "ml-results")
+    with pytest.raises(RuntimeError, match="Interrupted before span inference"):
+        asyncio.run(
+            runner.run(
+                input_documents,
+                input_substage="grow_roots.form_root_groups.form_roots",
+                review_leaves=False,
+                stop_after=SHORT_PREFIX[2],
+            )
+        )
+    run_dir = next((tmp_path / "ml-results" / "primary").iterdir())
+    artifact = run_dir / "documents" / "filing.txt.json"
+    before = Document.model_validate_json(artifact.read_bytes())
+    assert before.substage_runs[-1] == SHORT_PREFIX[1]
+    assert not inferences
+
+    assert asyncio.run(runner.run(None, resume_run=run_dir)) == run_dir
+    output = Document.model_validate_json(artifact.read_bytes())
+    assert output.get_substage(SHORT_PREFIX[1]) == before
+    assert output.substage_runs[-4:] == (*SHORT_PREFIX[:2], ml_substage, SHORT_PREFIX[2])
+    cached = output.get_substage(ml_substage)
+    assert not cached.short_reporters[0].case_name
+    assert cached.short_reporters[0].ml_field_reading is not None
+    assert output.full_locators == roots.full_locators
+    assert output.short_reporters[0].case_name[-1].quote == "Smith"
+    assert output.short_reporters[0].pin_cite[-1].quote == "495"
+    assert len(inferences) == 1
+    assert json.loads((run_dir / "run.json").read_text())["field_extraction"] == config.model_dump(
+        mode="json"
+    )
+    assert calls == ["ml", "ml"]
+    saved_bytes = artifact.read_bytes()
+    assert asyncio.run(runner.run(None, resume_run=run_dir)) == run_dir
+    assert artifact.read_bytes() == saved_bytes
+    assert calls == ["ml", "ml"]
+    assert (input_documents / "filing.txt.json").read_bytes() == original_input
+
+
+def test_enabled_model_runtime_failure_happens_before_leaf_input_or_artifact_writes(tmp_path, monkeypatch):
+    config = FieldExtractionConfig(
+        ml_enabled=True,
+        case_name="ml",
+        court="rule",
+        date="rule",
+        pin_cite="rule",
+        model_id="fixture/bert",
+        revision="a" * 40,
+        variant="augmented",
+        device="cpu",
+        context_before=260,
+        context_after=260,
+        batch_size=2,
+    )
+    monkeypatch.setattr(FieldExtractionConfig, "from_env", classmethod(lambda cls: config))
+
+    def unavailable(_self):
+        raise RuntimeError("Configured checkpoint unavailable")
+
+    monkeypatch.setattr(FieldExtractionConfig, "validate_runtime", unavailable)
+    monkeypatch.setattr(runner, "_RESULTS_ROOT", tmp_path / "results")
+    with pytest.raises(RuntimeError, match="Configured checkpoint unavailable"):
+        asyncio.run(runner.run(tmp_path / "missing-input"))
+    assert not (tmp_path / "results").exists()

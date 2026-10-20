@@ -23,12 +23,12 @@ from mellea_lrc.model.citations.reporter_pages import (
     ReporterRootOpinionPageIndex,
 )
 from mellea_lrc.model.preprocessed_document import TableOfAuthoritiesComponent
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
+from mellea_lrc.validation.index_reporter_root_opinion_pages import SUBSTAGE as INDEX_SUBSTAGE
 from mellea_lrc.validation.resolve_reporter_citation_pages import (
     SUBSTAGE,
     resolve_reporter_citation_pages,
 )
-from mellea_lrc.validation.index_reporter_root_opinion_pages import SUBSTAGE as INDEX_SUBSTAGE
 from tests.test_retrieve_reporter_root_opinions import Client, opinion
 
 
@@ -129,6 +129,23 @@ def _indexed_document(document: Document, *opinions: IndexedReporterOpinion) -> 
 def _resolution(citation):
     assert len(citation.reporter_page_resolutions) == 1
     return citation.reporter_page_resolutions[0]
+
+
+def test_explicitly_cleared_pin_does_not_resolve_its_historical_page():
+    original = _indexed_document(
+        _retrieved("Twombly, 550 U.S. 544, 556 (2007)."),
+        _indexed("20", _page("556")),
+        _indexed("21", _page("570")),
+    )
+    root = original.roots[0].record("clear_pin").with_pin_cite_not_stated()
+    cleared = original.replace_citation(root).complete_substage("clear_pin")
+    after = resolve_reporter_citation_pages(cleared)
+    result = _resolution(after.roots[0])
+    assert result.outcome is ReporterPageResolutionOutcome.NO_PIN
+    assert result.pin_citation_id is None
+    assert result.pages == ()
+    assert after.roots[0].pin_cite[:-1] == original.roots[0].pin_cite
+    assert after.get_substage(INDEX_SUBSTAGE) == original
 
 
 @pytest.mark.parametrize("pin, opinion_id", [("556", "20"), ("570", "21")])

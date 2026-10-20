@@ -28,7 +28,7 @@ from mellea_lrc.model.citations import (
 )
 from mellea_lrc.model.citations.history import WITHDRAWN_ROOT_ID
 from mellea_lrc.model.ivr import IvrAttempt, IvrRequirementAttempt, IvrRun
-from mellea_lrc.model.span import Span
+from mellea_lrc.parsing.span import Span
 from mellea_lrc.workflows.grow_leaves import grow_leaves
 
 

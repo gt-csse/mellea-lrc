@@ -8,7 +8,7 @@ pytest.importorskip("docling_core", reason="Docling is an optional preprocessing
 
 from docling_core.types.doc.document import DoclingDocument, TableCell, TableData  # noqa: E402
 
-from mellea_lrc.model.span import Span, is_within  # noqa: E402
+from mellea_lrc.parsing.span import Span, is_within  # noqa: E402
 from mellea_lrc.preprocessing.document_index import (  # noqa: E402
     index_table_spans,
 )

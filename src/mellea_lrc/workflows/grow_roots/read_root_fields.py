@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from mellea_lrc.config.extraction import ExtractionRules, stable
+from mellea_lrc.config.field_extraction import FieldExtractionConfig
+from mellea_lrc.extraction.predict_root_fields_ml import SUBSTAGE as ML_PREDICTION
+from mellea_lrc.extraction.predict_root_fields_ml import predict_root_fields_ml
 from mellea_lrc.extraction.resolve_case_names import SUBSTAGE as CASE_NAMES
 from mellea_lrc.extraction.resolve_case_names import resolve_case_names
 from mellea_lrc.extraction.resolve_colocations import SUBSTAGE as COLOCATIONS
@@ -25,9 +28,16 @@ def read_root_fields(
     document: Document,
     rules: ExtractionRules | None = None,
     *,
+    field_extraction: FieldExtractionConfig | None = None,
     checkpoint: Checkpoint | None = None,
 ) -> Document:
-    _require_stage_prefix(document, STAGE, omitted_substages=())
+    fields = field_extraction or FieldExtractionConfig.from_env()
+    _require_stage_prefix(document, STAGE, omitted_substages=() if fields.ml_enabled else (ML_PREDICTION,))
+    if fields.ml_enabled:
+        for citation in document.full_locators:
+            if citation.ml_field_reading is not None:
+                fields.validate_prediction(citation.ml_field_reading.prediction)
+    fields.validate_runtime()
     config = rules or stable()
     if DOCKET_ENTRIES not in document.substage_runs:
         document = resolve_docket_entries(document)
@@ -35,17 +45,20 @@ def read_root_fields(
     if COLOCATIONS not in document.substage_runs:
         document = resolve_colocations(document, config)
         _save_checkpoint(document, checkpoint)
+    if fields.ml_enabled and ML_PREDICTION not in document.substage_runs:
+        document = predict_root_fields_ml(document, fields, rules=config)
+        _save_checkpoint(document, checkpoint)
     if CASE_NAMES not in document.substage_runs:
-        document = resolve_case_names(document, config)
+        document = resolve_case_names(document, config, field_extraction=fields)
         _save_checkpoint(document, checkpoint)
     if COURTS not in document.substage_runs:
-        document = resolve_courts(document, config)
+        document = resolve_courts(document, config, field_extraction=fields)
         _save_checkpoint(document, checkpoint)
     if DATES not in document.substage_runs:
-        document = resolve_dates(document, config)
+        document = resolve_dates(document, config, field_extraction=fields)
         _save_checkpoint(document, checkpoint)
     if PIN_CITES not in document.substage_runs:
-        document = resolve_pin_cites(document, config)
+        document = resolve_pin_cites(document, config, field_extraction=fields)
         _save_checkpoint(document, checkpoint)
 
     return _finish_stage(document, STAGE, checkpoint)

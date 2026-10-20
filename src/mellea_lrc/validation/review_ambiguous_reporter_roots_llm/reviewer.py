@@ -16,6 +16,7 @@ from mellea_lrc.llm.ivr import InstructIvrSpec, run_instruct_ivr
 from mellea_lrc.llm.reviewer import IvrReviewer
 from mellea_lrc.model.citation_windows import after, before
 from mellea_lrc.model.citations import FullReporterCitation
+from mellea_lrc.model.citations.fields.base import current_reading
 from mellea_lrc.model.citations.reporter_lookup import ReporterAmbiguousReviewDecision
 from mellea_lrc.model.document import Document
 from mellea_lrc.model.ivr import IvrRun
@@ -59,9 +60,11 @@ class ReporterAmbiguousReviewContext(ReporterReviewGrounding):
         candidates = tuple(lookup.response.clusters)
         case_name_window, case_name_offset = before(document, root, 300)
         following_window, following_offset = after(document, root, 180)
+        current_name = current_reading(root.case_name)
+        current_date = current_reading(root.date)
         current_court = None
-        if root.court:
-            reading = root.court[-1]
+        reading = current_reading(root.court)
+        if reading is not None:
             current_court = reading.quote
             if reading.quote is None and reading.normalizable:
                 inferred = reading.get_normalized()
@@ -87,17 +90,17 @@ class ReporterAmbiguousReviewContext(ReporterReviewGrounding):
             case_name_offset=case_name_offset,
             following_window=following_window,
             following_offset=following_offset,
-            current_case_name=root.case_name[-1].quote if root.case_name else None,
+            current_case_name=current_name.quote if current_name is not None else None,
             current_case_name_normalized=(
-                root.case_name[-1].get_normalized().as_citation()
-                if root.case_name and root.case_name[-1].normalizable
+                current_name.get_normalized().as_citation()
+                if current_name is not None and current_name.normalizable
                 else None
             ),
             current_court=current_court,
-            current_date=root.date[-1].quote if root.date else None,
-            has_case_name=bool(root.case_name),
-            has_court=bool(root.court),
-            has_date=bool(root.date),
+            current_date=current_date.quote if current_date is not None else None,
+            has_case_name=current_name is not None,
+            has_court=reading is not None,
+            has_date=current_date is not None,
             candidates=candidates,
             dockets=tuple(docket_by_index.get(index) for index in range(len(candidates))),
             rule_results=tuple(rule_results),
@@ -147,7 +150,7 @@ _PREFIX = """Review one reporter citation against the complete bounded list of r
 
 Every candidate remains available, including candidates that failed a preliminary rule comparison. Those comparisons are hints, not a filter or a verdict. If several records plausibly represent the same case, choose the best representative with a reason. A wrong case name, court, or date in the filing does not by itself remove the real record from consideration: select it when the locator and context support it, then mark that field mismatch. Do not invent another candidate or alter the reporter locator.
 
-For each filing field, set propose_replacement to true only to change or supply its reading, and quote replacement text exactly from the filing. Case name must come from before the locator; court and date must come from after it. Otherwise set propose_replacement to false and quote to null. Do not quote a retrieved record as a filing correction. For case_name, return normalized as the structured name read from the filing, even when keeping an existing grounded quote. Use kind=adversarial with both printed parties, kind=in_re or kind=ex_parte with a printed subject, or kind=partial with only its partial text for a credible but incomplete name fragment. Leave plaintiff, defendant, and subject null for kind=partial; never supply a missing party from a candidate. Use null only when no name or fragment is grounded. A source quote may include intervening layout noise: include it in the quoted span but omit it from normalized. Never copy a candidate's name as the filing's normalization. Compare the corrected or existing filing reading with the selected candidate and return match or mismatch with a specific reason when both sides have evidence. Use unavailable if either side lacks usable evidence for that field. Make a best-effort comparison when both sides have evidence. Conventional abbreviations and equivalent party forms can match; a misspelling is a mismatch, not an abbreviation. If you select null, use unavailable for every field, though you may still correct filing readings for later search.
+For each filing field, use action=replace to change or supply a reading and quote the replacement exactly from the filing. Use action=keep with quote=null to preserve the reading. Use action=not_stated with quote=null, result=unavailable, and a reason when the filing supplies no applicable field, including when the current reading was borrowed from another citation or nearby prose. For a not_stated case name, normalized must be null. Do not clear a field merely because it disagrees with a record; that is a mismatch. Case name must come from before the locator; court and date must come from after it. Do not quote a retrieved record as a filing correction. For case_name, return normalized as the structured name read from the filing, even when keeping an existing grounded quote. Use kind=adversarial with both printed parties, kind=in_re or kind=ex_parte with a printed subject, or kind=partial with only its partial text for a credible but incomplete name fragment. Leave plaintiff, defendant, and subject null for kind=partial; never supply a missing party from a candidate. Use null only when no name or fragment is grounded. A source quote may include intervening layout noise: include it in the quoted span but omit it from normalized. Never copy a candidate's name as the filing's normalization. Compare the corrected or existing filing reading with the selected candidate and return match or mismatch with a specific reason when both sides have evidence. Use unavailable if either side lacks usable evidence for that field. Make a best-effort comparison when both sides have evidence. Conventional abbreviations and equivalent party forms can match; a misspelling is a mismatch, not an abbreviation. If you select null, use unavailable for every field, though you may still correct filing readings for later search.
 
 For court and date, judge the filing reading against the selected candidate directly. If you propose a replacement quote, the program will normalize that quote afterward; you do not need to supply a normalized court or date.
 
@@ -184,7 +187,7 @@ def _validate_review(ctx: object, context: ReporterAmbiguousReviewContext) -> Va
             result=False,
             reason=(
                 "A replacement must quote text inside its allowed filing window; "
-                "when propose_replacement is false, quote must be null."
+                "keep and not_stated require quote=null; not_stated also requires result=unavailable."
             ),
         )
     return ValidationResult(result=True)

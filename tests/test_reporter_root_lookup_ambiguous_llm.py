@@ -10,15 +10,16 @@ from pydantic import ValidationError
 from mellea_lrc.api import (
     Document,
     grow_roots,
-    retrieve_reporter_root_clusters,
     judge_ambiguous_reporter_roots_rule,
+    retrieve_reporter_root_clusters,
     retrieve_reporter_root_dockets,
 )
-from mellea_lrc.providers.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.model import Span
+from mellea_lrc.model.citations.fields.base import NotStatedField, current_reading
 from mellea_lrc.model.citations.judgments import IdentityVerdict, MatchResult
 from mellea_lrc.model.citations.reporter_lookup import ReporterExactAmbiguityOutcome
 from mellea_lrc.model.ivr import IvrRun
+from mellea_lrc.providers.courtlistener import CourtListenerCitationLookup
 from mellea_lrc.validation.review_ambiguous_reporter_roots_llm import (
     SUBSTAGE,
     review_ambiguous_reporter_roots_llm,
@@ -94,20 +95,20 @@ def _decision(
         {
             "selected_candidate_index": selected_candidate_index,
             "case_name": {
-                "propose_replacement": case_name_quote is not None,
+                "action": "replace" if case_name_quote is not None else "keep",
                 "quote": case_name_quote,
                 "normalized": NORMALIZED_NAME,
                 "result": result,
                 "reason": "The source and candidate parties were compared.",
             },
             "court": {
-                "propose_replacement": court_quote is not None,
+                "action": "replace" if court_quote is not None else "keep",
                 "quote": court_quote,
                 "result": other_result,
                 "reason": "The reporter and candidate court were compared.",
             },
             "date": {
-                "propose_replacement": date_quote is not None,
+                "action": "replace" if date_quote is not None else "keep",
                 "quote": date_quote,
                 "result": date_result or other_result,
                 "reason": "The stated year and candidate date were compared.",
@@ -465,3 +466,28 @@ def test_stage_ignores_rule_selected_root_and_does_not_call_reviewer() -> None:
     assert after.get_substage(REVIEW_SUBSTAGE) == before
     with pytest.raises(ValueError, match="already completed"):
         asyncio.run(review_ambiguous_reporter_roots_llm(after, reviewer=reviewer))
+
+
+@pytest.mark.parametrize("field", ("case_name", "court", "date"))
+def test_ambiguous_review_appends_absence_and_judges_the_new_marker(field: str) -> None:
+    before, _ = _review_input(("Bell Atlantic Corporation v. Twombly",) * 2)
+    prior = before.roots[0]
+    payload = _decision(0).model_dump(mode="json")
+    payload[field].update(action="not_stated", quote=None, result="unavailable")
+    if field == "case_name":
+        payload[field]["normalized"] = None
+    decision = ReporterAmbiguousReviewDecision.model_validate(payload)
+
+    after = asyncio.run(review_ambiguous_reporter_roots_llm(before, reviewer=FakeReviewer(decision)))
+    root = after.roots[0]
+    readings = getattr(root, field)
+    assert readings[:-1] == getattr(prior, field)
+    assert isinstance(readings[-1], NotStatedField)
+    assert current_reading(readings) is None
+    judgment = getattr(root, f"{field}_judgments")[-1]
+    assert judgment.reading_index == len(readings) - 1
+    assert judgment.result is MatchResult.UNAVAILABLE
+    assert root.reporter_ambiguous_review.failure_reason is None
+    restored = Document.model_validate_json(after.model_dump_json())
+    assert restored == after
+    assert restored.get_substage(REVIEW_SUBSTAGE) == before

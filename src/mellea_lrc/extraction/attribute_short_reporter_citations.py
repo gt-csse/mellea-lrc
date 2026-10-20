@@ -11,6 +11,7 @@ from mellea_lrc.extraction.leaf_attribution_review.reviewer import (
 from mellea_lrc.extraction.resolve_short_reporter_case_names import SUBSTAGE as NAME_SUBSTAGE
 from mellea_lrc.llm.profiles import load_profile
 from mellea_lrc.model.citations import AttributionResult
+from mellea_lrc.model.citations.fields.base import current_reading
 from mellea_lrc.model.document import Document
 
 SUBSTAGE = "grow_leaves.grow_short_reporter_leaves.attribute_citations"
@@ -35,12 +36,9 @@ async def attribute_short_reporter_citations(
             candidates = reporter_candidates(
                 document, locator.volume, locator.edition, citation.site_span.start
             )
-        named = (
-            name_candidates(document, citation.case_name[-1].quote, citation.site_span.start)
-            if citation.case_name
-            else ()
-        )
-        passing = tuple(root for root in candidates if not citation.case_name or root in named)
+        name = current_reading(citation.case_name)
+        named = name_candidates(document, name.quote, citation.site_span.start) if name is not None else ()
+        passing = tuple(root for root in candidates if name is None or root in named)
         attach = len(passing) == 1
         updated = citation.record(SUBSTAGE).with_attribution(
             candidates,

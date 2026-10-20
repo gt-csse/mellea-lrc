@@ -4,7 +4,9 @@
 composes meaningful stages; each stage composes granular substages. All take
 and return a `Document`, and both stages and substages are independently callable.
 The immutable [execution catalog](../src/mellea_lrc/model/execution.py) defines
-the four workflows, 15 stages, and 53 substages in execution order.
+the four workflows, 15 stages, and 55 available substages in execution order.
+Field reading always uses the same substages. An optional ML prediction substage
+saves a raw four-field result before the independently configured field readers.
 
 | Workflow | Stages, in order |
 | --- | --- |
@@ -31,7 +33,7 @@ the substage's completion.
 | `providers/` | CourtListener and GovInfo transport, pagination, and response models |
 | `llm/` | Model profiles, reviewer session setup, and the instruct/validate/repair wrapper |
 | `preprocessing/` | Load sources and prepare text before citation processing |
-| `config/` | Extraction rule configuration |
+| `config/` | Extraction rules and field-reader configuration |
 | `configuration.py` | Read and require explicit runtime settings from `.env` |
 
 Each workflow is a package in `workflows/<workflow>/`; its semantic stage
@@ -46,7 +48,7 @@ Direct files under `extraction/` and `validation/` are substage writers. A subst
 with substantial local logic becomes a package: `__init__.py` holds its
 Document entrypoint and `SUBSTAGE`; its reader, context, or reviewer
 modules remain beside it. Shared services have an explicit role:
-`extraction/context/`, `leaf_attribution_review/`, `validation/docket_retrieval/`,
+`extraction/context/`, `extraction/field_readers/`, `leaf_attribution_review/`, `validation/docket_retrieval/`,
 `docket_review/`, `reporter_exact/`, `reporter_review/`, and `body_search/`.
 Services do not complete checkpoints.
 
@@ -90,6 +92,8 @@ complete in catalog order, with no pending changes. The latest atomic run must
 belong to that group, so the marker is recorded before proceeding to another
 group. A completed stage cannot acquire omitted optional substages or further
 member changes. Repeated completions and unknown semantic stages raise.
+The optional ML prediction checkpoint is independent of the required field
+checkpoints; saving a prediction never marks a consuming field as complete.
 To enable an omitted optional step later, recover its earlier substage input
 before the group's completion marker.
 
@@ -137,3 +141,17 @@ their denominators.
 Only identical result types and annotation-file loading are shared.
 `experiments/` and `archive/` are outside the installed package and production
 workflows.
+
+## Citation-field reader boundary
+
+`field_extraction/` owns the standalone rule and ML span readers and their shared
+prediction types. Its base installation needs only the parsing dependencies;
+model weights and full-pipeline runtimes are optional extras. It imports neither
+Document/Citation nor stage writers. `parsing/span.py` supplies the shared source
+offset type without importing the application model graph.
+
+Extraction substages adapt document colocation and neighboring-citation bounds,
+cache raw rule and ML readings on citations, select the configured source, and
+append normal field readings. Court inference and typed normalization remain in
+the document layer. Training projects import these readers rather than copy the
+rule implementation.

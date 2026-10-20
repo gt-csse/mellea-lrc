@@ -24,12 +24,14 @@ from mellea_lrc.api import (
     find_short_reporter_citations,
     find_supra_citations,
     grow_leaves,
+    predict_short_reporter_fields_ml,
     resolve_short_reporter_case_names,
     resolve_short_reporter_colocations,
     resolve_supra_case_names,
     resolve_supra_pin_cites,
     review_supra_attributions_llm,
 )
+from mellea_lrc.config.field_extraction import FieldExtractionConfig
 from mellea_lrc.workflows import validate_workflow_checkpoint
 
 _SETS = frozenset(
@@ -39,6 +41,7 @@ _RESULTS_ROOT = Path(__file__).resolve().parent / "results"
 _SUBSTAGES = (
     ("grow_leaves.grow_short_reporter_leaves.find_short_reporter_citations", find_short_reporter_citations),
     ("grow_leaves.grow_short_reporter_leaves.resolve_colocations", resolve_short_reporter_colocations),
+    ("grow_leaves.grow_short_reporter_leaves.predict_fields_ml", predict_short_reporter_fields_ml),
     ("grow_leaves.grow_short_reporter_leaves.resolve_case_names", resolve_short_reporter_case_names),
     ("grow_leaves.grow_short_reporter_leaves.attribute_citations", attribute_short_reporter_citations),
     ("grow_leaves.grow_reference_leaves.find_reference_citations", find_reference_citations),
@@ -68,7 +71,9 @@ async def run(
     stop_after: str | None = None,
     resume_run: Path | None = None,
 ) -> Path:
+    field_extraction = FieldExtractionConfig.from_env()
     if resume_run is None:
+        field_extraction.validate_runtime()
         if input_documents is None:
             raise ValueError("Specify saved input Documents")
         parent = json.loads((input_documents.parent / "run.json").read_text())
@@ -86,6 +91,7 @@ async def run(
             "input_documents": str(input_documents),
             "input_substage": input_substage,
             "review_leaves": review_leaves,
+            "field_extraction": field_extraction.model_dump(mode="json"),
             "stop_after": stop_after,
             "input_sha256": {
                 name: hashlib.sha256((input_documents / f"{name}.json").read_bytes()).hexdigest()
@@ -95,6 +101,9 @@ async def run(
     else:
         run_dir = resume_run
         record = json.loads((run_dir / "run.json").read_text())
+        if record.get("field_extraction") != field_extraction.model_dump(mode="json"):
+            raise ValueError("Field extraction settings differ from saved provenance")
+        field_extraction.validate_runtime()
         if record.get("workflow") != "grow_leaves":
             raise ValueError("Resume is not a grow_leaves run")
         if record.get("set") not in _SETS:
@@ -115,14 +124,17 @@ async def run(
     stages = [
         (name, call)
         for name, call in _SUBSTAGES
-        if name != "grow_leaves.grow_supra_leaves.review_attributions_llm" or review_leaves
+        if (name != "grow_leaves.grow_supra_leaves.review_attributions_llm" or review_leaves)
+        and (not name.endswith(".predict_fields_ml") or field_extraction.ml_enabled)
     ]
     # Any completed leaf checkpoint can be an input too. The one cumulative
     # Document supplies both the old history and the remaining substage boundary.
     names = [name for name, _ in stages]
     enabled = tuple(names)
-    all_names = tuple(name for name, _ in _SUBSTAGES)
-    omitted = () if review_leaves else ("grow_leaves.grow_supra_leaves.review_attributions_llm",)
+    all_names = tuple(name for name, _ in stages)
+    omitted = (
+        () if field_extraction.ml_enabled else ("grow_leaves.grow_short_reporter_leaves.predict_fields_ml",)
+    ) + (() if review_leaves else ("grow_leaves.grow_supra_leaves.review_attributions_llm",))
     if stop_after is not None:
         if stop_after not in names:
             raise ValueError(f"Stop substage is not enabled: {stop_after}")
@@ -184,7 +196,10 @@ async def run(
 
             if stop_after is None:
                 document = await grow_leaves(
-                    document, review_leaves=review_leaves, checkpoint=save_checkpoint
+                    document,
+                    review_leaves=review_leaves,
+                    checkpoint=save_checkpoint,
+                    field_extraction=field_extraction,
                 )
             else:
                 for substage, call in stages[len(finished) :]:
@@ -195,6 +210,10 @@ async def run(
                         correct_leaf_fields,
                     ):
                         result = call(document, review=review_leaves)
+                    elif substage == "grow_leaves.grow_short_reporter_leaves.predict_fields_ml":
+                        result = call(document, config=field_extraction)
+                    elif substage == "grow_leaves.grow_short_reporter_leaves.resolve_case_names":
+                        result = call(document, field_extraction=field_extraction)
                     else:
                         result = call(document)
                     document = await result if inspect.isawaitable(result) else result
@@ -223,7 +242,10 @@ def main() -> None:
         default="validate_roots_citation_identity.corroborate_locator_bodies.review_locator_bodies_llm",
     )
     parser.add_argument("--rule-only", action="store_true")
-    parser.add_argument("--stop-after", choices=tuple(name for name, _ in _SUBSTAGES))
+    parser.add_argument(
+        "--stop-after",
+        choices=tuple(name for name, _ in _SUBSTAGES),
+    )
     parser.add_argument("--resume-run", type=Path)
     args = parser.parse_args()
     if bool(args.input_documents) == bool(args.resume_run):

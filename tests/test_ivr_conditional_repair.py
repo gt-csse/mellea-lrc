@@ -341,7 +341,23 @@ def test_custom_native_repair_feedback_is_preserved_with_conditional_context(bad
     _assert_durable_trace(run, backend, [bad_output, _GOOD])
 
 
-def test_timeout_after_bad_json_retains_durable_failed_attempts_and_cancels_native_sampling():
+def test_timeout_after_bad_json_retains_durable_failed_attempts_and_cancels_native_sampling(monkeypatch):
+    from httpx import Request
+    from openai import APITimeoutError
+
+    generate = _OfflineBackend._generate_from_context
+
+    async def with_http_timeout(self, *args, **kwargs):
+        # Simulate the SDK cancelling one timed-out HTTP request. The IVR loop
+        # intentionally has no review-wide deadline to cancel this offline wait.
+        try:
+            return await asyncio.wait_for(generate(self, *args, **kwargs), timeout=0.2)
+        except TimeoutError:
+            raise APITimeoutError(
+                request=Request("POST", "https://offline.invalid/chat/completions")
+            ) from None
+
+    monkeypatch.setattr(_OfflineBackend, "_generate_from_context", with_http_timeout)
     run, backend = _run([_INCOMPLETE, _MALFORMED, None], LlmOutputMode.PROMPT, timeout=0.2)
 
     assert not run.success
@@ -355,5 +371,5 @@ def test_timeout_after_bad_json_retains_durable_failed_attempts_and_cancels_nati
     assert all(not any(message["role"] == "assistant" for message in request) for request in backend.requests)
     assert run.attempts[-1].request is None
     assert run.attempts[-1].response is None
-    assert "0.2-second timeout" in run.failure_reason
+    assert "APITimeoutError: Request timed out." in run.failure_reason
     assert IvrRun.model_validate_json(run.model_dump_json()) == run

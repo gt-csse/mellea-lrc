@@ -10,7 +10,7 @@ Clone the development branch, install PDF support, and create your runtime confi
 ```bash
 git clone --branch feat/citation-checking --single-branch https://github.com/gt-csse/mellea-lrc.git
 cd mellea-lrc
-uv sync --locked --group preprocessing
+uv sync --locked --group preprocessing --extra ml-cite
 cp .env.example .env
 ```
 
@@ -29,9 +29,25 @@ fails, the last saved checkpoint remains available. The output file is replaced
 when rerunning the command; it must be different from the source document.
 Plain-text input is also supported. Run `uv run mellea-lrc validate --help` for usage.
 
+## Citation-field readers
+
+For a rule baseline without LLM or model dependencies, install the base package
+and call the standalone reader:
+
+```python
+from mellea_lrc.field_extraction import RuleFieldReader, Span
+
+prediction = RuleFieldReader().predict(context_text, Span(locator_start, locator_end))
+# case_name, court, date, pin_cite are exact source spans or None.
+```
+
+`MLCiteReader` uses the same input and four-span contract. Neither reader
+normalizes fields or needs a Document. See [field extraction](docs/Extraction.md#standalone-rule-and-ml-readers)
+for baseline integration and installation extras.
+
 ## Python API
 
-The package organizes citation processing as **workflow → stage → substage**. Its four workflows—`grow_roots`, `validate_roots_citation_identity`, `grow_leaves`, and `validate_all_citation_content`—contain 15 semantic stages and 53 atomic substages. Each level takes and returns a `Document`; substages provide the granular execution and recovery boundaries. The immutable [execution catalog](src/mellea_lrc/model/execution.py) defines their membership, order, and optional steps.
+The package organizes citation processing as **workflow → stage → substage**. Its four workflows—`grow_roots`, `validate_roots_citation_identity`, `grow_leaves`, and `validate_all_citation_content`—contain 15 semantic stages and 55 atomic substages. Each level takes and returns a `Document`; substages provide the granular execution and recovery boundaries. The immutable [execution catalog](src/mellea_lrc/model/execution.py) defines their membership, order, and optional steps.
 
 `validate_roots_citation_identity` includes locator-body corroboration and optional intended-case discovery. `validate_all_citation_content` currently handles reporter citation content: it retrieves root opinions, indexes pagination, and resolves each occurrence's pages and writing. It reviews selected pages, falls back to saved full opinions when needed, and records support and target location separately. Open-web search is not implemented.
 
@@ -69,7 +85,21 @@ print(document.full_locators, document.roots)
 
 `grow_roots` composes `discover_root_locators`, `read_root_fields`, and `form_root_groups`. Pass `hunt_dockets=True` to enable its docket-hunting substage. The document persists citation histories, site reviews, and one typed checkpoint log, `runs`. `get_substage("grow_roots.discover_root_locators.hunt_docket_locators")` restores the atomic result; `get_stage("grow_roots.discover_root_locators")` restores the completed group. Both return exact snapshots and raise if their checkpoint has not completed. See [extraction](docs/Extraction.md), [validation](docs/Validation.md), and [preprocessing](docs/Preprocessing.md).
 
-A `Path` reads a file; a `str` is the document text itself. Install the optional Docling backend for PDFs and other formatted files with `uv sync --group preprocessing`. Plain text works with the base package. Run the active tests with `uv run pytest`.
+A `Path` reads a file; a `str` is the document text itself. The `pipeline` extra
+installs workflow dependencies; the `preprocessing` dependency group includes
+that extra and Docling for PDFs and other formatted files. Repository development
+installs these through the default `dev` group. Run the active tests with `uv run pytest`.
+
+The base package installs only the rule field reader and its parsing
+dependencies. Install it in another project without the pipeline or ML runtime:
+
+```bash
+uv add "mellea-lrc @ git+https://github.com/gt-csse/mellea-lrc.git@feat/citation-checking"
+```
+
+For the complete Python API or CLI outside this repository, select
+`mellea-lrc[pipeline]` instead. Add the `ml-cite` extra when ML field inference is
+needed; it is independent of the pipeline extra.
 
 ## Runtime configuration
 

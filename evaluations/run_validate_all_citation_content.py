@@ -67,6 +67,7 @@ async def run(
     input_documents: Path | None,
     *,
     resume_run: Path | None = None,
+    input_substage: str | None = None,
     stop_after: str = JUDGMENT_SUBSTAGE,
     workers: int = 3,
 ) -> Path:
@@ -75,6 +76,8 @@ async def run(
         raise ValueError("Citation content workers must be a positive integer")
     if stop_after not in _SUBSTAGES:
         raise ValueError(f"Unknown citation content stop substage: {stop_after}")
+    if input_substage is not None and input_substage not in _SUBSTAGES:
+        raise ValueError(f"Unknown citation content input substage: {input_substage}")
     model_profiles = _resolved_model_profiles()
     if resume_run is None:
         if input_documents is None:
@@ -89,6 +92,7 @@ async def run(
             "status": "running",
             "filings": parent["filings"],
             "input_documents": str(input_documents),
+            "input_substage": input_substage,
             "stop_after": stop_after,
             "workers": workers,
             "model_profiles": model_profiles,
@@ -106,6 +110,11 @@ async def run(
             raise ValueError(
                 "Citation content model profiles changed; restore the run's saved settings before resuming"
             )
+        if input_substage is not None and input_substage != record.get("input_substage"):
+            raise ValueError("Resume must use the saved input substage")
+        input_substage = record.get("input_substage")
+        if input_substage is not None and input_substage not in _SUBSTAGES:
+            raise ValueError(f"Unknown citation content input substage: {input_substage}")
         input_documents = Path(record["input_documents"])
         stop_after = record["stop_after"]
         workers = record["workers"]
@@ -115,6 +124,8 @@ async def run(
             record["filings"],
         ):
             raise ValueError("Citation content input run changed")
+    if input_substage is not None and _SUBSTAGES.index(input_substage) >= _SUBSTAGES.index(stop_after):
+        raise ValueError("Stop substage must follow the input substage")
     enabled = _SUBSTAGES[: _SUBSTAGES.index(stop_after) + 1]
     inputs: dict[str, Document] = {}
     saved_documents: dict[str, Document] = {}
@@ -125,6 +136,8 @@ async def run(
             raise ValueError(f"Citation content input changed: {name}")
         original = Document.model_validate_json(raw)
         validate_source(original)
+        if input_substage is not None:
+            original = original.get_substage(input_substage)
         inputs[name] = original
         artifact = run_dir / "documents" / f"{name}.json"
         if artifact.exists():
@@ -240,6 +253,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-documents", type=Path)
     parser.add_argument("--resume-run", type=Path)
+    parser.add_argument("--input-substage", choices=_SUBSTAGES)
     parser.add_argument("--stop-after", choices=_SUBSTAGES, default=JUDGMENT_SUBSTAGE)
     parser.add_argument("--workers", type=int, default=3)
     args = parser.parse_args()
@@ -250,6 +264,7 @@ def main() -> None:
             run(
                 args.input_documents.resolve() if args.input_documents else None,
                 resume_run=args.resume_run.resolve() if args.resume_run else None,
+                input_substage=args.input_substage,
                 stop_after=args.stop_after,
                 workers=args.workers,
             )

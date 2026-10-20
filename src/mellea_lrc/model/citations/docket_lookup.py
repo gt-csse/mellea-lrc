@@ -9,8 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 from mellea_lrc.model.citations.fields.base import require_all_json_properties
 from mellea_lrc.model.citations.fields.case_name import CaseName
 from mellea_lrc.model.citations.judgments import (
+    FieldCorrectionAction,
     MatchResult,
-    validate_replacement_quote,
+    validate_field_correction,
     validate_reviewer_case_name,
 )
 from mellea_lrc.model.ivr import IvrRun
@@ -141,14 +142,16 @@ class DocketLookupFieldAssessment(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    propose_replacement: bool
+    action: FieldCorrectionAction
     quote: str | None
     result: MatchResult
     reason: str = Field(min_length=1)
 
     @model_validator(mode="after")
     def _validate_replacement_intent(self) -> Self:
-        validate_replacement_quote(self.propose_replacement, self.quote)
+        validate_field_correction(self.action, self.quote)
+        if self.action is FieldCorrectionAction.NOT_STATED and self.result is not MatchResult.UNAVAILABLE:
+            raise ValueError("A not_stated field requires an unavailable judgment")
         return self
 
 
@@ -162,6 +165,8 @@ class DocketLookupCaseNameAssessment(DocketLookupFieldAssessment):
     @model_validator(mode="after")
     def _validate_grounded_name(self) -> Self:
         validate_reviewer_case_name(self.normalized)
+        if self.action is FieldCorrectionAction.NOT_STATED and self.normalized is not None:
+            raise ValueError("A not_stated case name cannot have a normalization")
         return self
 
 
@@ -179,6 +184,8 @@ class DocketLookupReviewDecision(BaseModel):
 
     @model_validator(mode="after")
     def _validate_selection(self) -> Self:
+        if self.docket_number.action is FieldCorrectionAction.NOT_STATED:
+            raise ValueError("The required docket number cannot be marked not_stated")
         if self.selected_candidate_index is not None and self.selected_candidate_index < 0:
             raise ValueError("Selected candidate index must be nonnegative")
         if self.selected_candidate_index is None and any(
